@@ -133,6 +133,21 @@ public class PluginDrivenExternalTable extends ExternalTable {
     }
 
     /**
+     * Returns whether the underlying connector's table properties are user-facing and safe to render in
+     * SHOW CREATE TABLE. The SHOW CREATE TABLE plugin-driven arm renders LOCATION + PROPERTIES (+ the
+     * pre-rendered PARTITION BY / ORDER BY clauses) only when this is true (in place of the legacy
+     * paimon-only engine-name gate, which doubled as the JDBC/ES credential-leak guard).
+     */
+    public boolean supportsShowCreateDdl() {
+        if (!(catalog instanceof PluginDrivenExternalCatalog)) {
+            return false;
+        }
+        Connector connector = ((PluginDrivenExternalCatalog) catalog).getConnector();
+        return connector != null
+                && connector.getCapabilities().contains(ConnectorCapability.SUPPORTS_SHOW_CREATE_DDL);
+    }
+
+    /**
      * Returns whether the underlying connector requires dynamic-partition writes to be
      * hash-distributed by partition columns and locally sorted by them (e.g. MaxCompute Storage
      * API). Used by {@code PhysicalConnectorTableSink} to require that distribution + sort for
@@ -355,26 +370,59 @@ public class PluginDrivenExternalTable extends ExternalTable {
         return writePlanProvider.getSyntheticWriteColumns(session, handleOpt.get());
     }
 
-    /**
-     * The connector's user-facing table properties (e.g. paimon coreOptions: path / file.format /
-     * write-only), used by SHOW CREATE TABLE to render LOCATION + PROPERTIES (D-046). The
-     * FE-internal schema-control keys ({@code partition_columns} / {@code primary_keys}, emitted by
-     * the connector so {@link #initSchema()} can derive the partition columns) are stripped — they
-     * are not user-facing options and must not leak into the rendered PROPERTIES(...).
-     */
-    public Map<String, String> getTableProperties() {
+    /** The raw connector-emitted table-property map (including FE-internal / render-hint keys). */
+    private Map<String, String> rawTableProperties() {
         makeSureInitialized();
-        Map<String, String> raw = getSchemaCacheValue()
+        return getSchemaCacheValue()
                 .map(value -> ((PluginDrivenSchemaCacheValue) value).getTableProperties())
                 .orElse(Collections.emptyMap());
+    }
+
+    /**
+     * The connector's user-facing table properties (e.g. paimon coreOptions: path / file.format /
+     * write-only), used by SHOW CREATE TABLE to render the PROPERTIES(...) block (D-046). The
+     * FE-internal schema-control keys ({@code partition_columns} / {@code primary_keys}, emitted by
+     * the connector so {@link #initSchema()} can derive the partition columns) and the SHOW CREATE
+     * render-hint keys ({@code show.location} / {@code show.partition-clause} / {@code show.sort-clause},
+     * rendered as the LOCATION / PARTITION BY / ORDER BY clauses via {@link #getShowLocation()} etc.) are
+     * stripped — they are not user-facing options and must not leak into the rendered PROPERTIES(...).
+     */
+    public Map<String, String> getTableProperties() {
+        Map<String, String> raw = rawTableProperties();
         Map<String, String> result = new LinkedHashMap<>();
         for (Map.Entry<String, String> entry : raw.entrySet()) {
-            if ("partition_columns".equals(entry.getKey()) || "primary_keys".equals(entry.getKey())) {
+            String key = entry.getKey();
+            if ("partition_columns".equals(key) || "primary_keys".equals(key)
+                    || ConnectorTableSchema.SHOW_LOCATION_KEY.equals(key)
+                    || ConnectorTableSchema.SHOW_PARTITION_CLAUSE_KEY.equals(key)
+                    || ConnectorTableSchema.SHOW_SORT_CLAUSE_KEY.equals(key)) {
                 continue;
             }
             result.put(entry.getKey(), entry.getValue());
         }
         return result;
+    }
+
+    /**
+     * The table location string for the SHOW CREATE TABLE {@code LOCATION '...'} clause. Reads the
+     * connector's {@code show.location} render-hint key, falling back to the user-facing {@code path}
+     * property (paimon carries its location there, and keeps it in PROPERTIES). Returns "" if neither
+     * is present.
+     */
+    public String getShowLocation() {
+        Map<String, String> raw = rawTableProperties();
+        String location = raw.getOrDefault(ConnectorTableSchema.SHOW_LOCATION_KEY, "");
+        return location.isEmpty() ? raw.getOrDefault("path", "") : location;
+    }
+
+    /** The pre-rendered {@code PARTITION BY ...} clause for SHOW CREATE TABLE, or "" if none. */
+    public String getShowPartitionClause() {
+        return rawTableProperties().getOrDefault(ConnectorTableSchema.SHOW_PARTITION_CLAUSE_KEY, "");
+    }
+
+    /** The pre-rendered {@code ORDER BY (...)} clause for SHOW CREATE TABLE, or "" if none. */
+    public String getShowSortClause() {
+        return rawTableProperties().getOrDefault(ConnectorTableSchema.SHOW_SORT_CLAUSE_KEY, "");
     }
 
     @Override

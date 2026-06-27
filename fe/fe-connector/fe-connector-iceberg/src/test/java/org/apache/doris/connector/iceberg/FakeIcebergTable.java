@@ -70,6 +70,10 @@ final class FakeIcebergTable implements Table {
     // Optional FileIO for the T09 vended-credential extraction test (extractVendedToken reads table.io()).
     // Null by default -> io() keeps its fail-loud contract; only the vended test injects one.
     private FileIO io;
+    // Optional sort order for the SHOW CREATE TABLE sort-clause read path (buildShowSortClause reads
+    // table.sortOrder()). Null by default -> the render path treats it as unsorted (legacy getSortOrderSql
+    // guards `sortOrder == null`), so unsorted tables emit no ORDER BY; only the sort-clause test injects one.
+    private SortOrder sortOrder;
 
     FakeIcebergTable(String name, Schema schema, PartitionSpec spec,
             String location, Map<String, String> properties) {
@@ -83,6 +87,11 @@ final class FakeIcebergTable implements Table {
     /** Inject a FileIO so {@link #io()} returns it (T09 vended-credential extraction); otherwise io() throws. */
     void setIo(FileIO io) {
         this.io = io;
+    }
+
+    /** Inject a sort order so {@link #sortOrder()} returns it (SHOW CREATE TABLE sort-clause test). */
+    void setSortOrder(SortOrder sortOrder) {
+        this.sortOrder = sortOrder;
     }
 
     @Override
@@ -136,7 +145,7 @@ final class FakeIcebergTable implements Table {
 
     @Override
     public SortOrder sortOrder() {
-        throw new UnsupportedOperationException();
+        return sortOrder;
     }
 
     @Override

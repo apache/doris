@@ -1160,4 +1160,19 @@ public class PaimonConnectorMetadataMvccTest {
         Assertions.assertFalse(caps.contains(ConnectorCapability.SUPPORTS_TOPN_LAZY_MATERIALIZE),
                 "paimon must NOT declare SUPPORTS_TOPN_LAZY_MATERIALIZE (parity: it was never eligible)");
     }
+
+    @Test
+    public void connectorDeclaresShowCreateDdlCapability() {
+        ConnectorContext ctx = new RecordingConnectorContext();
+        Set<ConnectorCapability> caps = new PaimonConnector(Collections.emptyMap(), ctx).getCapabilities();
+
+        // WHY: paimon's table properties (coreOptions incl. path) are user-facing and credential-free, so
+        // SHOW CREATE TABLE renders LOCATION + PROPERTIES for paimon. The capability replaces the legacy
+        // paimon-only engine-name gate in Env.getDdlStmt (the credential-leak guard now keyed on a capability
+        // instead of an engine string). MUTATION: dropping SUPPORTS_SHOW_CREATE_DDL -> paimon SHOW CREATE TABLE
+        // regresses to a comment-only shell -> red.
+        Assertions.assertTrue(caps.contains(ConnectorCapability.SUPPORTS_SHOW_CREATE_DDL),
+                "paimon must declare SUPPORTS_SHOW_CREATE_DDL so SHOW CREATE TABLE keeps rendering "
+                        + "LOCATION/PROPERTIES");
+    }
 }

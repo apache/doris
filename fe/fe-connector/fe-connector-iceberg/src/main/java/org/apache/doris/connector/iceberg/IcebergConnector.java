@@ -245,10 +245,16 @@ public class IcebergConnector implements Connector {
         // supported set; the generic probe reproduces that ONLY under this capability, so post-cutover iceberg
         // keeps Top-N lazy materialization (query latency). The BE rowid plumbing is already generic. Inert
         // pre-cutover (P6.6).
+        // SUPPORTS_SHOW_CREATE_DDL: legacy IcebergExternalTable rendered LOCATION + PROPERTIES + PARTITION BY
+        // + ORDER BY in SHOW CREATE TABLE (and IcebergExternalDatabase rendered LOCATION in SHOW CREATE
+        // DATABASE); the generic plugin-driven render arm reproduces that ONLY under this capability
+        // (the connector pre-renders the partition/sort clauses under the show.* reserved keys, and getDatabase
+        // surfaces the namespace location). Inert pre-cutover (P6.6).
         return EnumSet.of(ConnectorCapability.SUPPORTS_MVCC_SNAPSHOT, ConnectorCapability.SUPPORTS_TIME_TRAVEL,
                 ConnectorCapability.SINK_REQUIRE_FULL_SCHEMA_ORDER, ConnectorCapability.SUPPORTS_PARALLEL_WRITE,
                 ConnectorCapability.SUPPORTS_COLUMN_AUTO_ANALYZE,
-                ConnectorCapability.SUPPORTS_TOPN_LAZY_MATERIALIZE);
+                ConnectorCapability.SUPPORTS_TOPN_LAZY_MATERIALIZE,
+                ConnectorCapability.SUPPORTS_SHOW_CREATE_DDL);
     }
 
     private Catalog getOrCreateCatalog() {

@@ -38,7 +38,10 @@ import org.mockito.Mockito;
 
 import java.util.Collections;
 import java.util.EnumSet;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
@@ -210,6 +213,104 @@ public class PluginDrivenExternalTableTest {
         Deencapsulation.setField(table, "catalog", catalog);
         Assertions.assertFalse(table.supportsColumnAutoAnalyze());
         Assertions.assertFalse(table.supportsTopNLazyMaterialize());
+        Assertions.assertFalse(table.supportsShowCreateDdl());
+    }
+
+    @Test
+    public void supportsShowCreateDdlReflectsConnectorCapability() {
+        // The SHOW CREATE TABLE plugin arm renders LOCATION/PROPERTIES/clauses only when this is true.
+        // MUTATION: dropping the capability check (or always-true) -> a credential-bearing connector (jdbc/es)
+        // would render its connection props -> red here for the no-capability case.
+        Assertions.assertTrue(pluginTableWithCapabilities(
+                EnumSet.of(ConnectorCapability.SUPPORTS_SHOW_CREATE_DDL)).supportsShowCreateDdl());
+        Assertions.assertFalse(pluginTableWithCapabilities(
+                EnumSet.noneOf(ConnectorCapability.class)).supportsShowCreateDdl());
+        // Independent of the other capabilities: declaring auto-analyze must NOT enable SHOW CREATE rendering.
+        Assertions.assertFalse(pluginTableWithCapabilities(
+                EnumSet.of(ConnectorCapability.SUPPORTS_COLUMN_AUTO_ANALYZE)).supportsShowCreateDdl());
+    }
+
+    /**
+     * Builds a CALLS_REAL_METHODS PluginDrivenExternalTable whose schema cache returns {@code rawProps} as the
+     * connector-emitted raw table-property map, to exercise getTableProperties()/getShow* over the real strip
+     * + render-hint logic. makeSureInitialized is stubbed to a no-op (no Env-backed init in a unit test).
+     */
+    private static PluginDrivenExternalTable pluginTableWithRawProperties(Map<String, String> rawProps) {
+        PluginDrivenSchemaCacheValue scv = Mockito.mock(PluginDrivenSchemaCacheValue.class);
+        Mockito.when(scv.getTableProperties()).thenReturn(rawProps);
+        PluginDrivenExternalTable table =
+                Mockito.mock(PluginDrivenExternalTable.class, Mockito.CALLS_REAL_METHODS);
+        Mockito.doNothing().when(table).makeSureInitialized();
+        Mockito.doReturn(Optional.of(scv)).when(table).getSchemaCacheValue();
+        return table;
+    }
+
+    @Test
+    public void getTablePropertiesStripsControlAndRenderHintKeys() {
+        // WHY: the rendered PROPERTIES(...) block must contain only user-facing properties — the FE-internal
+        // schema-control keys (partition_columns/primary_keys) and the SHOW CREATE render-hint keys
+        // (show.location/show.partition-clause/show.sort-clause, rendered as separate clauses) must be stripped.
+        // MUTATION: dropping any strip clause -> that key leaks into PROPERTIES -> red.
+        Map<String, String> raw = new LinkedHashMap<>();
+        raw.put("write.format.default", "parquet");
+        raw.put("partition_columns", "id");
+        raw.put("primary_keys", "id");
+        raw.put("show.location", "s3://bucket/db/t");
+        raw.put("show.partition-clause", "PARTITION BY LIST (`id`) ()");
+        raw.put("show.sort-clause", "ORDER BY (`id` ASC NULLS FIRST)");
+        raw.put("path", "s3://bucket/db/t");
+
+        Map<String, String> props = pluginTableWithRawProperties(raw).getTableProperties();
+
+        Assertions.assertEquals("parquet", props.get("write.format.default"),
+                "user-facing properties are preserved");
+        Assertions.assertTrue(props.containsKey("path"),
+                "a connector's user-facing path property (paimon) is preserved");
+        Assertions.assertFalse(props.containsKey("partition_columns"));
+        Assertions.assertFalse(props.containsKey("primary_keys"));
+        Assertions.assertFalse(props.containsKey("show.location"));
+        Assertions.assertFalse(props.containsKey("show.partition-clause"));
+        Assertions.assertFalse(props.containsKey("show.sort-clause"));
+    }
+
+    @Test
+    public void getShowLocationReadsHintKeyWithPathFallback() {
+        // Reserved show.location hint -> rendered LOCATION.
+        Map<String, String> iceberg = new HashMap<>();
+        iceberg.put("show.location", "s3://bucket/db/t");
+        Assertions.assertEquals("s3://bucket/db/t",
+                pluginTableWithRawProperties(iceberg).getShowLocation());
+
+        // Paimon carries its location in the user-facing "path" property (no show.location) -> path fallback.
+        // MUTATION: dropping the path fallback -> paimon LOCATION renders empty -> red.
+        Map<String, String> paimon = new HashMap<>();
+        paimon.put("path", "s3://bucket/db/p");
+        Assertions.assertEquals("s3://bucket/db/p",
+                pluginTableWithRawProperties(paimon).getShowLocation());
+
+        // show.location wins over path when both present (a connector that emits both).
+        Map<String, String> both = new HashMap<>();
+        both.put("show.location", "s3://hint");
+        both.put("path", "s3://path");
+        Assertions.assertEquals("s3://hint", pluginTableWithRawProperties(both).getShowLocation());
+
+        // Neither present -> empty (no LOCATION clause rendered).
+        Assertions.assertEquals("", pluginTableWithRawProperties(new HashMap<>()).getShowLocation());
+    }
+
+    @Test
+    public void getShowPartitionAndSortClauseReadHintKeys() {
+        Map<String, String> raw = new HashMap<>();
+        raw.put("show.partition-clause", "PARTITION BY LIST (BUCKET(8, `id`)) ()");
+        raw.put("show.sort-clause", "ORDER BY (`name` DESC NULLS LAST)");
+        PluginDrivenExternalTable table = pluginTableWithRawProperties(raw);
+        Assertions.assertEquals("PARTITION BY LIST (BUCKET(8, `id`)) ()", table.getShowPartitionClause());
+        Assertions.assertEquals("ORDER BY (`name` DESC NULLS LAST)", table.getShowSortClause());
+
+        // Absent -> empty (no clause rendered). MUTATION: returning null/non-empty -> red.
+        PluginDrivenExternalTable none = pluginTableWithRawProperties(new HashMap<>());
+        Assertions.assertEquals("", none.getShowPartitionClause());
+        Assertions.assertEquals("", none.getShowSortClause());
     }
 
     @Test

@@ -200,7 +200,13 @@ public class PaimonConnector implements Connector {
                 // paimon background auto-analyze activates on merge (parity-safe — manual ANALYZE already uses
                 // the same doFull SQL path). NOT SUPPORTS_TOPN_LAZY_MATERIALIZE: paimon was never eligible for
                 // Top-N lazy materialization.
-                ConnectorCapability.SUPPORTS_COLUMN_AUTO_ANALYZE);
+                ConnectorCapability.SUPPORTS_COLUMN_AUTO_ANALYZE,
+                // Paimon's table properties (coreOptions incl. path) are user-facing and credential-free, so
+                // SHOW CREATE TABLE renders LOCATION + PROPERTIES for paimon. This capability replaces the
+                // legacy paimon-only engine-name gate in Env.getDdlStmt (the credential-leak guard now keyed
+                // on a capability instead of an engine string). Paimon emits no partition/sort show.* keys, so
+                // it renders no PARTITION BY / ORDER BY — byte-faithful with its prior SHOW CREATE output.
+                ConnectorCapability.SUPPORTS_SHOW_CREATE_DDL);
     }
 
     private Catalog ensureCatalog() {

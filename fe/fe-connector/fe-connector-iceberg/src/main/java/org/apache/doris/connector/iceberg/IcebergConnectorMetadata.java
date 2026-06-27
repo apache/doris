@@ -18,6 +18,7 @@
 package org.apache.doris.connector.iceberg;
 
 import org.apache.doris.connector.api.ConnectorColumn;
+import org.apache.doris.connector.api.ConnectorDatabaseMetadata;
 import org.apache.doris.connector.api.ConnectorMetadata;
 import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.ConnectorTableSchema;
@@ -155,6 +156,24 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         }
     }
 
+    @Override
+    public ConnectorDatabaseMetadata getDatabase(ConnectorSession session, String dbName) {
+        // Surface the namespace base location for SHOW CREATE DATABASE under the neutral "location"
+        // property key (Trino-aligned properties-map model). Mirrors legacy IcebergExternalDatabase
+        // .getLocation (SupportsNamespaces.loadNamespaceMetadata -> "location"), wrapped in the auth
+        // context like the sibling reads. The location key is omitted when blank, so SHOW CREATE
+        // DATABASE renders no LOCATION clause rather than LOCATION '' for a location-less namespace.
+        try {
+            Optional<String> location =
+                    context.executeAuthenticated(() -> catalogOps.loadNamespaceLocation(dbName));
+            Map<String, String> props = new HashMap<>();
+            location.ifPresent(loc -> props.put(ConnectorDatabaseMetadata.LOCATION_PROPERTY, loc));
+            return new ConnectorDatabaseMetadata(dbName, props);
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to get database metadata, error message is:" + e.getMessage(), e);
+        }
+    }
+
     // ========== ConnectorTableOps ==========
 
     @Override
@@ -267,12 +286,24 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
 
         Map<String, String> tableProps = new HashMap<>();
         tableProps.putAll(table.properties());
-        tableProps.put("iceberg.format-version", String.valueOf(getFormatVersion(table)));
+        // SHOW CREATE TABLE render hints under neutral reserved keys (fe-core strips them from the
+        // rendered PROPERTIES and emits them as LOCATION / PARTITION BY / ORDER BY). They replace the
+        // previously-injected location / iceberg.format-version / iceberg.partition-spec keys: those were
+        // never read by fe-core and would leak into the rendered PROPERTIES(...) (legacy iceberg SHOW
+        // CREATE dumped only the raw table.properties()). format-version stays available via the
+        // getFormatVersion(table) gate above for the row-lineage columns; it is not a user property.
         if (table.location() != null) {
-            tableProps.put("location", table.location());
+            tableProps.put(ConnectorTableSchema.SHOW_LOCATION_KEY, table.location());
+        }
+        String partitionClause = buildShowPartitionClause(table);
+        if (!partitionClause.isEmpty()) {
+            tableProps.put(ConnectorTableSchema.SHOW_PARTITION_CLAUSE_KEY, partitionClause);
+        }
+        String sortClause = buildShowSortClause(table);
+        if (!sortClause.isEmpty()) {
+            tableProps.put(ConnectorTableSchema.SHOW_SORT_CLAUSE_KEY, sortClause);
         }
         if (!table.spec().isUnpartitioned()) {
-            tableProps.put("iceberg.partition-spec", table.spec().toString());
             // Generic FE partition-column contract: post-cutover, PluginDrivenExternalTable derives the
             // table's partition columns SOLELY from a "partition_columns" CSV property (toSchemaCacheValue),
             // the same key MaxCompute/paimon emit. Mirror legacy IcebergUtils.loadTableSchemaCacheValue:
@@ -292,6 +323,83 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         }
 
         return new ConnectorTableSchema(tableName, columns, "ICEBERG", tableProps);
+    }
+
+    /**
+     * Pre-renders the Doris {@code PARTITION BY LIST (...) ()} clause from the iceberg {@link PartitionSpec}
+     * for SHOW CREATE TABLE (the FE plugin-driven path has no live iceberg API). Mirrors legacy
+     * {@code IcebergExternalTable.getPartitionSpecSql}: void -> skipped, identity -> bare column,
+     * {@code bucket[N]}/{@code truncate[W]}/{@code year}/{@code month}/{@code day}/{@code hour} -> the
+     * matching Doris partition function. Returns "" for an unpartitioned table or no renderable field.
+     */
+    private String buildShowPartitionClause(Table table) {
+        PartitionSpec spec = table.spec();
+        if (spec == null || spec.isUnpartitioned()) {
+            return "";
+        }
+        List<String> fields = new ArrayList<>();
+        for (PartitionField field : spec.fields()) {
+            String colName = table.schema().findColumnName(field.sourceId());
+            if (colName == null) {
+                continue;
+            }
+            org.apache.iceberg.transforms.Transform<?, ?> t = field.transform();
+            if (t.isVoid()) {
+                continue;
+            }
+            String quotedCol = "`" + colName + "`";
+            if (t.isIdentity()) {
+                fields.add(quotedCol);
+            } else {
+                String transformStr = t.toString();
+                if (transformStr.startsWith("bucket[")) {
+                    int n = Integer.parseInt(transformStr.substring(7, transformStr.length() - 1));
+                    fields.add("BUCKET(" + n + ", " + quotedCol + ")");
+                } else if (transformStr.startsWith("truncate[")) {
+                    int w = Integer.parseInt(transformStr.substring(9, transformStr.length() - 1));
+                    fields.add("TRUNCATE(" + w + ", " + quotedCol + ")");
+                } else if ("year".equals(transformStr)) {
+                    fields.add("YEAR(" + quotedCol + ")");
+                } else if ("month".equals(transformStr)) {
+                    fields.add("MONTH(" + quotedCol + ")");
+                } else if ("day".equals(transformStr)) {
+                    fields.add("DAY(" + quotedCol + ")");
+                } else if ("hour".equals(transformStr)) {
+                    fields.add("HOUR(" + quotedCol + ")");
+                } else {
+                    LOG.warn("Unsupported Iceberg partition transform '{}' on column '{}', "
+                            + "skipped in SHOW CREATE TABLE.", transformStr, colName);
+                }
+            }
+        }
+        if (fields.isEmpty()) {
+            return "";
+        }
+        return "PARTITION BY LIST (" + String.join(", ", fields) + ") ()";
+    }
+
+    /**
+     * Pre-renders the Doris {@code ORDER BY (...)} clause from the iceberg {@link SortOrder} for SHOW
+     * CREATE TABLE. Mirrors legacy {@code IcebergExternalTable.getSortOrderSql} + {@code SortFieldInfo.toSql}
+     * ({@code `col` ASC|DESC NULLS FIRST|LAST}). Returns "" when the table is unsorted.
+     */
+    private String buildShowSortClause(Table table) {
+        SortOrder sortOrder = table.sortOrder();
+        if (sortOrder == null || sortOrder.isUnsorted() || sortOrder.fields().isEmpty()) {
+            return "";
+        }
+        List<String> sortItems = new ArrayList<>();
+        for (org.apache.iceberg.SortField sortField : sortOrder.fields()) {
+            String columnName = table.schema().findColumnName(sortField.sourceId());
+            if (columnName != null) {
+                boolean isAscending = sortField.direction() != org.apache.iceberg.SortDirection.DESC;
+                boolean isNullFirst = sortField.nullOrder() == org.apache.iceberg.NullOrder.NULLS_FIRST;
+                sortItems.add("`" + columnName + "`"
+                        + (isAscending ? " ASC" : " DESC")
+                        + " NULLS " + (isNullFirst ? "FIRST" : "LAST"));
+            }
+        }
+        return "ORDER BY (" + String.join(", ", sortItems) + ")";
     }
 
     /** Loads the iceberg {@link Table} through the seam, wrapped in the FE-injected auth context (Kerberos UGI). */

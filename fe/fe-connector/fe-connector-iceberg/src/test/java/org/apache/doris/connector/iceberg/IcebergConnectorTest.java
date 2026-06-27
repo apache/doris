@@ -150,4 +150,19 @@ public class IcebergConnectorTest {
                 "iceberg must declare SUPPORTS_TOPN_LAZY_MATERIALIZE so post-flip Top-N queries keep lazy "
                         + "materialization");
     }
+
+    @Test
+    public void declaresShowCreateDdlCapability() {
+        // WHY: legacy IcebergExternalTable rendered LOCATION + PROPERTIES + PARTITION BY + ORDER BY in SHOW
+        // CREATE TABLE, and IcebergExternalDatabase rendered LOCATION in SHOW CREATE DATABASE. Post-cutover the
+        // generic plugin-driven render arm reproduces these ONLY when the connector declares
+        // SUPPORTS_SHOW_CREATE_DDL (the capability also replaces the legacy paimon-only engine-name gate that
+        // doubled as the JDBC/ES credential-leak guard). MUTATION: dropping the capability -> flipped iceberg
+        // SHOW CREATE TABLE degrades to a comment-only shell -> red. (Inert pre-cutover.)
+        IcebergConnector connector = new IcebergConnector(Collections.emptyMap(), new RecordingConnectorContext());
+        Assertions.assertTrue(connector.getCapabilities()
+                        .contains(ConnectorCapability.SUPPORTS_SHOW_CREATE_DDL),
+                "iceberg must declare SUPPORTS_SHOW_CREATE_DDL so post-flip SHOW CREATE TABLE/DATABASE keeps "
+                        + "rendering LOCATION/PROPERTIES/PARTITION BY/ORDER BY");
+    }
 }

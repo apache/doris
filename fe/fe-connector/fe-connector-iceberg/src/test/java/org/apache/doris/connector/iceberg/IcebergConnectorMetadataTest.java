@@ -18,6 +18,7 @@
 package org.apache.doris.connector.iceberg;
 
 import org.apache.doris.connector.api.ConnectorColumn;
+import org.apache.doris.connector.api.ConnectorDatabaseMetadata;
 import org.apache.doris.connector.api.ConnectorTableSchema;
 import org.apache.doris.connector.api.DorisConnectorException;
 import org.apache.doris.connector.api.handle.ConnectorColumnHandle;
@@ -27,6 +28,7 @@ import org.apache.doris.connector.api.handle.WriteOperation;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.RowLevelOperationMode;
 import org.apache.iceberg.Schema;
+import org.apache.iceberg.SortOrder;
 import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.Assertions;
@@ -402,16 +404,23 @@ public class IcebergConnectorMetadataTest {
         Map<String, String> props = schema.getProperties();
 
         // WHY: the Iceberg table properties must be copied verbatim onto the schema (the FE relies on
-        // keys like write.format.default), and the table location must be surfaced under "location".
-        // MUTATION: dropping the table.properties() copy, or not emitting location -> red.
+        // keys like write.format.default), and the table location must be surfaced under the neutral
+        // SHOW CREATE render-hint key show.location (rendered as the LOCATION clause, NOT mixed into the
+        // user PROPERTIES). MUTATION: dropping the table.properties() copy, or not emitting the location
+        // hint -> red.
         Assertions.assertEquals("parquet", props.get("write.format.default"));
         Assertions.assertEquals("custom-value", props.get("custom.key"));
-        Assertions.assertEquals("s3://bucket/db1/t1", props.get("location"));
+        Assertions.assertEquals("s3://bucket/db1/t1", props.get(ConnectorTableSchema.SHOW_LOCATION_KEY));
+        // Byte-faithful PROPERTIES: legacy iceberg SHOW CREATE dumped only the raw table.properties(), never a
+        // bare "location" key. MUTATION: reviving the old tableProps.put("location", ...) -> a stray location
+        // entry leaks into the rendered PROPERTIES -> red.
+        Assertions.assertFalse(props.containsKey("location"),
+                "the table location must travel under show.location, not as a bare \"location\" property");
     }
 
     @Test
-    public void getTableSchemaEmitsPartitionSpecOnlyWhenPartitioned() {
-        // Unpartitioned: no iceberg.partition-spec key.
+    public void getTableSchemaEmitsShowPartitionClauseWithTransforms() {
+        // Unpartitioned: no show.partition-clause (and, byte-faithful, no legacy iceberg.partition-spec).
         RecordingIcebergCatalogOps unpartOps = new RecordingIcebergCatalogOps();
         unpartOps.table = new FakeIcebergTable(
                 "t1", idNameSchema(), PartitionSpec.unpartitioned(),
@@ -419,25 +428,141 @@ public class IcebergConnectorMetadataTest {
         ConnectorTableSchema unpartSchema =
                 metadataWith(unpartOps).getTableSchema(null, new IcebergTableHandle("db1", "t1"));
 
-        // WHY: an unpartitioned table must NOT advertise a partition spec (the production guard is
-        // `!spec.isUnpartitioned()`). MUTATION: always emitting iceberg.partition-spec -> red.
-        Assertions.assertNull(unpartSchema.getProperties().get("iceberg.partition-spec"),
-                "an unpartitioned table must not carry an iceberg.partition-spec property");
+        // WHY: an unpartitioned table renders no PARTITION BY (production guard `!spec.isUnpartitioned()`).
+        // MUTATION: always emitting show.partition-clause -> red.
+        Assertions.assertNull(unpartSchema.getProperties().get(ConnectorTableSchema.SHOW_PARTITION_CLAUSE_KEY),
+                "an unpartitioned table must not carry a show.partition-clause property");
+        // Byte-faithful PROPERTIES: the raw spec.toString() debug string must NOT leak (legacy never showed it).
+        Assertions.assertFalse(unpartSchema.getProperties().containsKey("iceberg.partition-spec"),
+                "the raw iceberg.partition-spec debug key must not be emitted");
 
-        // Partitioned (identity on name): the spec string is surfaced.
+        // Partitioned (identity on name): bare quoted column.
         Schema schema = idNameSchema();
-        PartitionSpec partSpec = PartitionSpec.builderFor(schema).identity("name").build();
-        RecordingIcebergCatalogOps partOps = new RecordingIcebergCatalogOps();
-        partOps.table = new FakeIcebergTable(
-                "t2", schema, partSpec, "s3://bucket/db1/t2", Collections.emptyMap());
-        ConnectorTableSchema partSchema =
-                metadataWith(partOps).getTableSchema(null, new IcebergTableHandle("db1", "t2"));
+        PartitionSpec identitySpec = PartitionSpec.builderFor(schema).identity("name").build();
+        RecordingIcebergCatalogOps identityOps = new RecordingIcebergCatalogOps();
+        identityOps.table = new FakeIcebergTable(
+                "t2", schema, identitySpec, "s3://bucket/db1/t2", Collections.emptyMap());
+        ConnectorTableSchema identitySchema =
+                metadataWith(identityOps).getTableSchema(null, new IcebergTableHandle("db1", "t2"));
+        // WHY: SHOW CREATE TABLE must render the Doris PARTITION BY LIST(...)() clause the legacy
+        // IcebergExternalTable.getPartitionSpecSql produced; an identity transform renders the bare column.
+        // MUTATION: dropping the identity branch (or the LIST(...)() wrapper) -> red.
+        Assertions.assertEquals("PARTITION BY LIST (`name`) ()",
+                identitySchema.getProperties().get(ConnectorTableSchema.SHOW_PARTITION_CLAUSE_KEY),
+                "an identity partition must render as the bare quoted column");
+        // Also byte-faithful: the partition_columns CSV (functional, consumed by fe-core) is unchanged.
+        Assertions.assertEquals("name",
+                identitySchema.getProperties().get("partition_columns"));
 
-        // WHY: a partitioned table must expose its spec string (the FE renders partition info from it).
-        // MUTATION: dropping the partitioned branch -> the key is absent -> red.
-        Assertions.assertEquals(partSpec.toString(),
-                partSchema.getProperties().get("iceberg.partition-spec"),
-                "a partitioned table must surface its partition spec string");
+        // Partitioned with a NON-identity transform (bucket): renders the Doris BUCKET(N, col) term.
+        PartitionSpec bucketSpec = PartitionSpec.builderFor(schema).bucket("id", 8).build();
+        RecordingIcebergCatalogOps bucketOps = new RecordingIcebergCatalogOps();
+        bucketOps.table = new FakeIcebergTable(
+                "t3", schema, bucketSpec, "s3://bucket/db1/t3", Collections.emptyMap());
+        ConnectorTableSchema bucketSchema =
+                metadataWith(bucketOps).getTableSchema(null, new IcebergTableHandle("db1", "t3"));
+        // WHY: the transform terms (bucket[N]/truncate[W]/year/month/day/hour) must map to the matching Doris
+        // partition function — the connector pre-renders them because the FE plugin path has no live iceberg
+        // API. MUTATION: emitting the bare column instead of BUCKET(8, `id`), or a wrong arg order -> red.
+        Assertions.assertEquals("PARTITION BY LIST (BUCKET(8, `id`)) ()",
+                bucketSchema.getProperties().get(ConnectorTableSchema.SHOW_PARTITION_CLAUSE_KEY),
+                "a bucket transform must render as BUCKET(N, `col`)");
+
+        // truncate transform -> TRUNCATE(W, `col`). MUTATION: a wrong width/arg order/function name -> red.
+        PartitionSpec truncateSpec = PartitionSpec.builderFor(schema).truncate("name", 4).build();
+        RecordingIcebergCatalogOps truncateOps = new RecordingIcebergCatalogOps();
+        truncateOps.table = new FakeIcebergTable(
+                "t4", schema, truncateSpec, "s3://bucket/db1/t4", Collections.emptyMap());
+        ConnectorTableSchema truncateSchema =
+                metadataWith(truncateOps).getTableSchema(null, new IcebergTableHandle("db1", "t4"));
+        Assertions.assertEquals("PARTITION BY LIST (TRUNCATE(4, `name`)) ()",
+                truncateSchema.getProperties().get(ConnectorTableSchema.SHOW_PARTITION_CLAUSE_KEY),
+                "a truncate transform must render as TRUNCATE(W, `col`)");
+
+        // a temporal transform (day) on a timestamp column -> DAY(`col`). Covers the temporal branch family
+        // (year/month/day/hour share the same rendering shape). MUTATION: mapping day to the wrong function
+        // name (e.g. DAYS) -> red.
+        Schema tsSchema = new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "ts", Types.TimestampType.withoutZone()));
+        PartitionSpec daySpec = PartitionSpec.builderFor(tsSchema).day("ts").build();
+        RecordingIcebergCatalogOps dayOps = new RecordingIcebergCatalogOps();
+        dayOps.table = new FakeIcebergTable(
+                "t5", tsSchema, daySpec, "s3://bucket/db1/t5", Collections.emptyMap());
+        ConnectorTableSchema daySchema =
+                metadataWith(dayOps).getTableSchema(null, new IcebergTableHandle("db1", "t5"));
+        Assertions.assertEquals("PARTITION BY LIST (DAY(`ts`)) ()",
+                daySchema.getProperties().get(ConnectorTableSchema.SHOW_PARTITION_CLAUSE_KEY),
+                "a day transform must render as DAY(`col`)");
+    }
+
+    @Test
+    public void getTableSchemaEmitsShowSortClauseWhenSorted() {
+        Schema schema = idNameSchema();
+
+        // Unsorted (FakeIcebergTable.sortOrder() defaults to null -> render path treats as unsorted).
+        RecordingIcebergCatalogOps unsortedOps = new RecordingIcebergCatalogOps();
+        unsortedOps.table = new FakeIcebergTable(
+                "t1", schema, PartitionSpec.unpartitioned(), "s3://bucket/db1/t1", Collections.emptyMap());
+        ConnectorTableSchema unsortedSchema =
+                metadataWith(unsortedOps).getTableSchema(null, new IcebergTableHandle("db1", "t1"));
+        // WHY: an unsorted table renders no ORDER BY. MUTATION: always emitting show.sort-clause -> red.
+        Assertions.assertNull(unsortedSchema.getProperties().get(ConnectorTableSchema.SHOW_SORT_CLAUSE_KEY),
+                "an unsorted table must not carry a show.sort-clause property");
+
+        // Sorted DESC on name: the connector pre-renders the ORDER BY clause (legacy getSortOrderSql +
+        // SortFieldInfo.toSql: `col` ASC|DESC NULLS FIRST|LAST). desc() defaults to NULLS LAST in iceberg.
+        SortOrder sortOrder = SortOrder.builderFor(schema).desc("name").build();
+        FakeIcebergTable sortedTable = new FakeIcebergTable(
+                "t2", schema, PartitionSpec.unpartitioned(), "s3://bucket/db1/t2", Collections.emptyMap());
+        sortedTable.setSortOrder(sortOrder);
+        RecordingIcebergCatalogOps sortedOps = new RecordingIcebergCatalogOps();
+        sortedOps.table = sortedTable;
+        ConnectorTableSchema sortedSchema =
+                metadataWith(sortedOps).getTableSchema(null, new IcebergTableHandle("db1", "t2"));
+        // WHY: SHOW CREATE TABLE must render the ORDER BY clause with direction + null order. MUTATION:
+        // dropping the clause, or swapping ASC/DESC or NULLS FIRST/LAST -> red.
+        Assertions.assertEquals("ORDER BY (`name` DESC NULLS LAST)",
+                sortedSchema.getProperties().get(ConnectorTableSchema.SHOW_SORT_CLAUSE_KEY),
+                "a sorted table must render the ORDER BY clause with direction and null order");
+
+        // Sorted ASC on id: ASC + NULLS FIRST (iceberg asc() default null order). Positively renders the
+        // ASC and NULLS FIRST output arms (the DESC case alone cannot catch a hardcode-to-DESC /
+        // hardcode-to-NULLS-LAST mutation). MUTATION: hardcoding direction to DESC or null order to LAST -> red.
+        SortOrder ascOrder = SortOrder.builderFor(schema).asc("id").build();
+        FakeIcebergTable ascTable = new FakeIcebergTable(
+                "t3", schema, PartitionSpec.unpartitioned(), "s3://bucket/db1/t3", Collections.emptyMap());
+        ascTable.setSortOrder(ascOrder);
+        RecordingIcebergCatalogOps ascOps = new RecordingIcebergCatalogOps();
+        ascOps.table = ascTable;
+        ConnectorTableSchema ascSchema =
+                metadataWith(ascOps).getTableSchema(null, new IcebergTableHandle("db1", "t3"));
+        Assertions.assertEquals("ORDER BY (`id` ASC NULLS FIRST)",
+                ascSchema.getProperties().get(ConnectorTableSchema.SHOW_SORT_CLAUSE_KEY),
+                "an ascending sort must render ASC NULLS FIRST");
+    }
+
+    @Test
+    public void getDatabaseSurfacesNamespaceLocation() {
+        // WHY: SHOW CREATE DATABASE renders LOCATION from the connector's getDatabase SPI (Trino-aligned
+        // properties-map, the "location" key); the connector reads the namespace location through the seam,
+        // auth-wrapped like the sibling reads. MUTATION: not surfacing the location, or reading the wrong key
+        // -> red.
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        ops.namespaceLocation = Optional.of("s3://bucket/db1");
+        ConnectorDatabaseMetadata metadata = metadataWith(ops).getDatabase(null, "db1");
+        Assertions.assertEquals("s3://bucket/db1",
+                metadata.getProperties().get(ConnectorDatabaseMetadata.LOCATION_PROPERTY),
+                "getDatabase must surface the namespace location under the location property");
+        Assertions.assertTrue(ops.log.contains("loadNamespaceLocation:db1"),
+                "getDatabase must read the namespace location through the seam");
+
+        // No namespace location -> no location key (SHOW CREATE DATABASE then renders no LOCATION clause).
+        RecordingIcebergCatalogOps emptyOps = new RecordingIcebergCatalogOps();
+        ConnectorDatabaseMetadata emptyMetadata = metadataWith(emptyOps).getDatabase(null, "db1");
+        Assertions.assertFalse(
+                emptyMetadata.getProperties().containsKey(ConnectorDatabaseMetadata.LOCATION_PROPERTY),
+                "a location-less namespace must not produce a location property");
     }
 
     @Test
@@ -496,32 +621,13 @@ public class IcebergConnectorMetadataTest {
     }
 
     @Test
-    public void getTableSchemaReadsFormatVersionFromTableProperty() {
-        // WHY (T09 parity fix): legacy IcebergUtils.getFormatVersion reads the REAL table format version
-        // — from BaseTable.operations().current().formatVersion(), else from the `format-version` table
-        // property — NOT from the partition spec id. A FakeIcebergTable is not a BaseTable, so the
-        // property branch is exercised: a v1 table must surface format-version=1. MUTATION: the old
-        // `spec().specId() >= 0 ? 2 : 1` (always "2"), or ignoring the property -> red.
-        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
-        Map<String, String> props = new HashMap<>();
-        props.put("format-version", "1");
-        ops.table = new FakeIcebergTable(
-                "t1", idNameSchema(), PartitionSpec.unpartitioned(),
-                "s3://bucket/db1/t1", props);
-
-        ConnectorTableSchema schema =
-                metadataWith(ops).getTableSchema(null, new IcebergTableHandle("db1", "t1"));
-
-        Assertions.assertEquals("1", schema.getProperties().get("iceberg.format-version"),
-                "format-version must be read from the table's `format-version` property, not the spec id");
-    }
-
-    @Test
-    public void getTableSchemaDefaultsFormatVersionToTwoWhenAbsent() {
-        // WHY: legacy getFormatVersion defaults to 2 when the table is neither a BaseTable nor carries a
-        // `format-version` property. An unpartitioned table with no format-version property must default
-        // to "2" (the legacy default), but via the DEFAULT — not via the old spec-id quirk. MUTATION:
-        // defaulting to "1", or reviving the spec-id derivation -> red.
+    public void getTableSchemaDefaultsFormatVersionBelowThreeWhenAbsent() {
+        // WHY: getFormatVersion (which drives the v3 row-lineage gate) defaults to 2 when the table carries
+        // no `format-version` property, so an absent-format-version table appends NO row-lineage columns. The
+        // previously-emitted iceberg.format-version property was removed (it was never read by fe-core and
+        // would leak into the rendered SHOW CREATE PROPERTIES), so the default is now pinned via its real
+        // consequence: only the data columns. MUTATION: defaulting to >= 3 (or reviving the spec-id quirk that
+        // yielded a higher version) -> row-lineage columns appear -> red.
         RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
         ops.table = new FakeIcebergTable(
                 "t1", idNameSchema(), PartitionSpec.unpartitioned(),
@@ -530,8 +636,12 @@ public class IcebergConnectorMetadataTest {
         ConnectorTableSchema schema =
                 metadataWith(ops).getTableSchema(null, new IcebergTableHandle("db1", "t1"));
 
-        Assertions.assertEquals("2", schema.getProperties().get("iceberg.format-version"),
-                "an absent format-version property must default to 2 (legacy getFormatVersion default)");
+        Assertions.assertEquals(2, schema.getColumns().size(),
+                "an absent format-version must default below 3 (no row-lineage columns)");
+        // And byte-faithful: the internal iceberg.format-version key must not leak into the rendered PROPERTIES
+        // (legacy iceberg SHOW CREATE dumped only the raw table.properties()).
+        Assertions.assertFalse(schema.getProperties().containsKey("iceberg.format-version"),
+                "the internal iceberg.format-version key must not leak into the rendered PROPERTIES");
     }
 
     @Test
@@ -704,10 +814,10 @@ public class IcebergConnectorMetadataTest {
                 metadataWith(ops).getTableSchema(null, new IcebergTableHandle("db1", "t1"));
 
         // WHY: when the table reports no location, the production code guards with `if (location !=
-        // null)`, so the "location" key must be ABSENT rather than mapped to null. MUTATION: removing
-        // the null guard -> a null-valued location entry -> red.
-        Assertions.assertFalse(schema.getProperties().containsKey("location"),
-                "a null table location must not produce a location property");
+        // null)`, so the show.location render-hint key must be ABSENT rather than mapped to null. MUTATION:
+        // removing the null guard -> a null-valued show.location entry -> red.
+        Assertions.assertFalse(schema.getProperties().containsKey(ConnectorTableSchema.SHOW_LOCATION_KEY),
+                "a null table location must not produce a show.location property");
     }
 
     // ---------------------------------------------------------------------
@@ -779,7 +889,7 @@ public class IcebergConnectorMetadataTest {
     public void everyRemoteReadRunsInsideExecuteAuthenticated() {
         // WHY: legacy IcebergMetadataOps wraps EVERY remote read (list/exists/load) in
         // executionAuthenticator.execute so the FE-injected Kerberos UGI applies; the paimon mirror does
-        // the same. Each of the 5 read entry points must wrap exactly one executeAuthenticated call.
+        // the same. Each of the 6 read entry points must wrap exactly one executeAuthenticated call.
         // MUTATION: calling the seam directly (no wrap) -> authCount stays 0 -> red.
         RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
         ops.databases = Collections.singletonList("db1");
@@ -796,9 +906,10 @@ public class IcebergConnectorMetadataTest {
         md.listTableNames(null, "db1");
         md.getTableHandle(null, "db1", "t1");
         md.getTableSchema(null, new IcebergTableHandle("db1", "t1"));
+        md.getDatabase(null, "db1");
 
-        Assertions.assertEquals(5, ctx.authCount,
-                "each of the 5 remote reads must wrap exactly one executeAuthenticated call");
+        Assertions.assertEquals(6, ctx.authCount,
+                "each of the 6 remote reads must wrap exactly one executeAuthenticated call");
     }
 
     @Test
@@ -818,6 +929,7 @@ public class IcebergConnectorMetadataTest {
         Assertions.assertThrows(RuntimeException.class, () -> md.getTableHandle(null, "db1", "t1"));
         Assertions.assertThrows(RuntimeException.class,
                 () -> md.getTableSchema(null, new IcebergTableHandle("db1", "t1")));
+        Assertions.assertThrows(RuntimeException.class, () -> md.getDatabase(null, "db1"));
 
         Assertions.assertTrue(ops.log.isEmpty(),
                 "no seam call may run when executeAuthenticated fails before invoking the task");

@@ -121,5 +121,17 @@ public enum ConnectorCapability {
      * {@code SUPPORT_RELATION_TYPES} membership of {@code IcebergExternalTable}). Row/passthrough
      * connectors (e.g. JDBC, ES) must NOT declare it.</p>
      */
-    SUPPORTS_TOPN_LAZY_MATERIALIZE
+    SUPPORTS_TOPN_LAZY_MATERIALIZE,
+    /**
+     * Indicates the connector's table/database properties are user-facing and safe to render in
+     * {@code SHOW CREATE TABLE} / {@code SHOW CREATE DATABASE}.
+     *
+     * <p>The SHOW CREATE TABLE plugin-driven arm renders LOCATION + PROPERTIES (and, when the
+     * connector pre-renders them under the {@code show.*} reserved keys, the PARTITION BY / ORDER BY
+     * clauses) only for connectors declaring this (replacing the legacy paimon-only engine-name gate).
+     * Row/passthrough connectors whose {@code getTableProperties()} returns connection properties
+     * <b>including credentials</b> (e.g. JDBC, ES) must NOT declare it, or SHOW CREATE TABLE would leak
+     * the connection password — the security control the legacy engine-name gate provided.</p>
+     */
+    SUPPORTS_SHOW_CREATE_DDL
 }
