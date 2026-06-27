@@ -19,6 +19,13 @@ using snii::reader::LogicalIndexReader;
 
 namespace {
 
+using CandidateIt = std::vector<uint32_t>::const_iterator;
+
+struct CandidateRange {
+    size_t begin = 0;
+    size_t end = 0;
+};
+
 Status slim_frq_docs_len(const DictEntry& entry, uint64_t win_len, uint64_t* out) {
     if (entry.frq_docs_len > win_len) {
         return Status::Corruption("docid_conjunction: slim frq_docs_len exceeds frq window");
@@ -126,18 +133,23 @@ Status append_docid_range(uint32_t first, uint32_t last, std::vector<uint32_t>* 
     return Status::OK();
 }
 
-void append_candidate_range(const std::vector<uint32_t>& candidates, uint32_t first, uint32_t last,
-                            std::vector<uint32_t>* out) {
-    const auto begin = std::lower_bound(candidates.begin(), candidates.end(), first);
+CandidateRange find_candidate_range(const std::vector<uint32_t>& candidates, size_t* search_begin,
+                                    uint32_t first, uint32_t last) {
+    const auto from = candidates.begin() + *search_begin;
+    const auto begin = std::lower_bound(from, candidates.end(), first);
     const auto end = std::upper_bound(begin, candidates.end(), last);
+    *search_begin = static_cast<size_t>(end - candidates.begin());
+    return {.begin = static_cast<size_t>(begin - candidates.begin()),
+            .end = static_cast<size_t>(end - candidates.begin())};
+}
+
+void append_candidate_range(CandidateIt begin, CandidateIt end, std::vector<uint32_t>* out) {
     out->insert(out->end(), begin, end);
 }
 
-Status append_candidate_range_with_ordinals(const std::vector<uint32_t>& candidates, uint32_t first,
+Status append_candidate_range_with_ordinals(CandidateIt begin, CandidateIt end, uint32_t first,
                                             uint32_t last, std::vector<uint32_t>* out,
                                             DocidChunk* chunk) {
-    const auto begin = std::lower_bound(candidates.begin(), candidates.end(), first);
-    const auto end = std::upper_bound(begin, candidates.end(), last);
     const size_t candidate_count = static_cast<size_t>(end - begin);
     chunk->docids.reserve(candidate_count);
     const uint64_t width = static_cast<uint64_t>(last) - first + 1;
@@ -172,11 +184,9 @@ size_t log2_ceil(size_t n) {
     return bits;
 }
 
-void intersect_window_candidates(const std::vector<uint32_t>& candidates,
-                                 const std::vector<uint32_t>& term_docids, uint32_t first,
-                                 uint32_t last, std::vector<uint32_t>* out) {
-    const auto begin = std::lower_bound(candidates.begin(), candidates.end(), first);
-    const auto end = std::upper_bound(begin, candidates.end(), last);
+void intersect_window_candidate_range(CandidateIt begin, CandidateIt end,
+                                      const std::vector<uint32_t>& term_docids, uint32_t first,
+                                      uint32_t last, std::vector<uint32_t>* out) {
     const size_t candidate_count = static_cast<size_t>(end - begin);
     if (candidate_count == 0 || term_docids.empty()) return;
 
@@ -220,16 +230,14 @@ void intersect_window_candidates(const std::vector<uint32_t>& candidates,
                           std::back_inserter(*out));
 }
 
-Status intersect_window_candidates_with_ordinals(const std::vector<uint32_t>& candidates,
-                                                 const std::vector<uint32_t>& term_docids,
-                                                 uint32_t first, uint32_t last,
-                                                 std::vector<uint32_t>* out, DocidChunk* chunk) {
+Status intersect_window_candidate_range_with_ordinals(CandidateIt begin, CandidateIt end,
+                                                      const std::vector<uint32_t>& term_docids,
+                                                      std::vector<uint32_t>* out,
+                                                      DocidChunk* chunk) {
     if (term_docids.size() > std::numeric_limits<uint32_t>::max()) {
         return Status::Corruption("docid_conjunction: prx doc count exceeds u32");
     }
     chunk->prx_doc_count = static_cast<uint32_t>(term_docids.size());
-    const auto begin = std::lower_bound(candidates.begin(), candidates.end(), first);
-    const auto end = std::upper_bound(begin, candidates.end(), last);
     if (begin == end || term_docids.empty()) return Status::OK();
 
     const size_t candidate_count = static_cast<size_t>(end - begin);
@@ -354,6 +362,7 @@ Status collect_windowed_docids_only(const LogicalIndexReader& idx, const TermPla
     struct FetchedWindow {
         uint32_t ordinal = 0;
         WindowMeta meta;
+        CandidateRange candidates;
         size_t handle = 0;
     };
 
@@ -361,14 +370,23 @@ Status collect_windowed_docids_only(const LogicalIndexReader& idx, const TermPla
     std::vector<FetchedWindow> fetched;
     fetched.reserve(windows.size());
     out->reserve(candidates == nullptr ? p.entry.df : candidates->size());
+    size_t candidate_search_begin = 0;
     for (uint32_t w : windows) {
         WindowMeta meta;
         SNII_RETURN_IF_ERROR(p.prelude.window(w, &meta));
+        uint32_t first = 0;
+        SNII_RETURN_IF_ERROR(first_docid_in_window(meta, w, &first));
+        CandidateRange candidate_range;
+        if (candidates != nullptr) {
+            candidate_range = find_candidate_range(*candidates, &candidate_search_begin, first,
+                                                   meta.last_docid);
+            if (candidate_range.begin == candidate_range.end) {
+                continue;
+            }
+        }
         bool dense_full = false;
         SNII_RETURN_IF_ERROR(is_dense_full_window(meta, w, &dense_full));
         if (dense_full) {
-            uint32_t first = 0;
-            SNII_RETURN_IF_ERROR(first_docid_in_window(meta, w, &first));
             if (source != nullptr) {
                 DocidChunk chunk;
                 chunk.windowed = true;
@@ -377,15 +395,18 @@ Status collect_windowed_docids_only(const LogicalIndexReader& idx, const TermPla
                 if (candidates == nullptr) {
                     SNII_RETURN_IF_ERROR(append_docid_range(first, meta.last_docid, &chunk.docids));
                 } else {
+                    const auto begin = candidates->begin() + candidate_range.begin;
+                    const auto end = candidates->begin() + candidate_range.end;
                     SNII_RETURN_IF_ERROR(append_candidate_range_with_ordinals(
-                            *candidates, first, meta.last_docid, out, &chunk));
+                            begin, end, first, meta.last_docid, out, &chunk));
                 }
                 source->chunks.push_back(std::move(chunk));
             }
             if (candidates == nullptr) {
                 SNII_RETURN_IF_ERROR(append_docid_range(first, meta.last_docid, out));
             } else if (source == nullptr) {
-                append_candidate_range(*candidates, first, meta.last_docid, out);
+                append_candidate_range(candidates->begin() + candidate_range.begin,
+                                       candidates->begin() + candidate_range.end, out);
             }
             continue;
         }
@@ -397,6 +418,7 @@ Status collect_windowed_docids_only(const LogicalIndexReader& idx, const TermPla
         FetchedWindow f;
         f.ordinal = w;
         f.meta = meta;
+        f.candidates = candidate_range;
         f.handle = fetcher.add(range.dd_off, range.dd_len);
         fetched.push_back(f);
     }
@@ -424,10 +446,10 @@ Status collect_windowed_docids_only(const LogicalIndexReader& idx, const TermPla
                 chunk.prx_doc_count = static_cast<uint32_t>(docs.size());
                 source->chunks.push_back(std::move(chunk));
             } else {
-                uint32_t first = 0;
-                SNII_RETURN_IF_ERROR(first_docid_in_window(f.meta, f.ordinal, &first));
-                SNII_RETURN_IF_ERROR(intersect_window_candidates_with_ordinals(
-                        *candidates, docs, first, f.meta.last_docid, out, &chunk));
+                const auto begin = candidates->begin() + f.candidates.begin;
+                const auto end = candidates->begin() + f.candidates.end;
+                SNII_RETURN_IF_ERROR(intersect_window_candidate_range_with_ordinals(
+                        begin, end, docs, out, &chunk));
                 if (!chunk.docids.empty()) source->chunks.push_back(std::move(chunk));
             }
         }
@@ -438,7 +460,9 @@ Status collect_windowed_docids_only(const LogicalIndexReader& idx, const TermPla
         if (source != nullptr) continue;
         uint32_t first = 0;
         SNII_RETURN_IF_ERROR(first_docid_in_window(f.meta, f.ordinal, &first));
-        intersect_window_candidates(*candidates, docs, first, f.meta.last_docid, out);
+        intersect_window_candidate_range(candidates->begin() + f.candidates.begin,
+                                         candidates->begin() + f.candidates.end, docs, first,
+                                         f.meta.last_docid, out);
     }
     return Status::OK();
 }
@@ -471,9 +495,10 @@ Status collect_docids_only(const LogicalIndexReader& idx, const snii::io::BatchR
         if (candidates == nullptr) {
             chunk.docids = term_docids;
         } else if (!term_docids.empty()) {
-            SNII_RETURN_IF_ERROR(intersect_window_candidates_with_ordinals(
-                    *candidates, term_docids, term_docids.front(), term_docids.back(), out,
-                    &chunk));
+            const auto begin = std::ranges::lower_bound(*candidates, term_docids.front());
+            const auto end = std::upper_bound(begin, candidates->end(), term_docids.back());
+            SNII_RETURN_IF_ERROR(intersect_window_candidate_range_with_ordinals(
+                    begin, end, term_docids, out, &chunk));
         }
         if (candidates == nullptr || !chunk.docids.empty())
             source->chunks.push_back(std::move(chunk));

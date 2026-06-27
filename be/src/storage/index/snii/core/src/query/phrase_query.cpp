@@ -459,6 +459,21 @@ public:
         return Status::OK();
     }
 
+    Status next(uint32_t* docid, std::pair<const uint32_t*, const uint32_t*>* out) {
+        while (ci_ < src_->chunks.size() &&
+               (src_->chunks[ci_].docids.empty() || li_ >= src_->chunks[ci_].docids.size())) {
+            ++ci_;
+            li_ = 0;
+        }
+        if (ci_ >= src_->chunks.size()) {
+            return Status::Corruption("phrase_query: cursor exhausted before next docid");
+        }
+        *docid = src_->chunks[ci_].docids[li_];
+        SNII_RETURN_IF_ERROR(positions(out));
+        ++li_;
+        return Status::OK();
+    }
+
 private:
     static constexpr size_t kNoChunk = static_cast<size_t>(-1);
 
@@ -482,20 +497,6 @@ private:
     std::vector<uint32_t> pflat_; // current chunk's flat positions (reused)
     std::vector<uint32_t> poff_;  // current chunk's per-doc offsets (reused)
 };
-
-size_t AnchorPhrasePosition(const std::vector<TermPlan>& plans,
-                            const std::vector<size_t>& phrase_plan_index) {
-    size_t anchor = 0;
-    uint32_t best_df = std::numeric_limits<uint32_t>::max();
-    for (size_t phrase_pos = 0; phrase_pos < phrase_plan_index.size(); ++phrase_pos) {
-        const TermPlan& plan = plans[phrase_plan_index[phrase_pos]];
-        if (plan.df < best_df) {
-            best_df = plan.df;
-            anchor = phrase_pos;
-        }
-    }
-    return anchor;
-}
 
 bool ContainsTwoTermPhrase(std::pair<const uint32_t*, const uint32_t*> left_span,
                            std::pair<const uint32_t*, const uint32_t*> right_span,
@@ -522,45 +523,178 @@ bool ContainsTwoTermPhrase(std::pair<const uint32_t*, const uint32_t*> left_span
     return false;
 }
 
+size_t SelectPhraseVerificationPair(const std::vector<TermPlan>& plans,
+                                    const std::vector<size_t>& phrase_plan_index) {
+    size_t best_left = 0;
+    uint64_t best_score = std::numeric_limits<uint64_t>::max();
+    for (size_t left = 0; left + 1 < phrase_plan_index.size(); ++left) {
+        const uint64_t score = static_cast<uint64_t>(plans[phrase_plan_index[left]].df) +
+                               plans[phrase_plan_index[left + 1]].df;
+        if (score < best_score) {
+            best_score = score;
+            best_left = left;
+        }
+    }
+    return best_left;
+}
+
+void CollectTwoTermPhraseStarts(std::pair<const uint32_t*, const uint32_t*> left_span,
+                                std::pair<const uint32_t*, const uint32_t*> right_span,
+                                uint32_t right_delta, uint32_t left_offset,
+                                std::vector<uint32_t>* starts) {
+    starts->clear();
+    const uint32_t* left = left_span.first;
+    const uint32_t* right = right_span.first;
+    const uint32_t max_left = std::numeric_limits<uint32_t>::max() - right_delta;
+    while (left != left_span.second && right != right_span.second) {
+        if (*left > max_left) {
+            return;
+        }
+        const uint32_t want = *left + right_delta;
+        while (right != right_span.second && *right < want) {
+            ++right;
+        }
+        if (right == right_span.second) {
+            return;
+        }
+        if (*right == want && *left >= left_offset) {
+            starts->push_back(*left - left_offset);
+        }
+        ++left;
+    }
+}
+
+Status EmitTwoTermPhraseStreaming(const std::vector<size_t>& phrase_plan_index,
+                                  const std::vector<uint32_t>& position_offsets,
+                                  std::vector<PosSource>& srcs,
+                                  const std::vector<uint32_t>& candidates,
+                                  std::vector<uint32_t>* docids) {
+    const size_t left_plan = phrase_plan_index[0];
+    const size_t right_plan = phrase_plan_index[1];
+    const uint32_t right_delta = position_offsets[1] - position_offsets[0];
+
+    if (left_plan == right_plan) {
+        PostingCursor cursor;
+        cursor.init(&srcs[left_plan]);
+        for (uint32_t expected_docid : candidates) {
+            uint32_t docid = 0;
+            std::pair<const uint32_t*, const uint32_t*> span;
+            SNII_RETURN_IF_ERROR(cursor.next(&docid, &span));
+            if (docid != expected_docid) {
+                return Status::Corruption("phrase_query: repeated-term cursor/docid mismatch");
+            }
+            if (ContainsTwoTermPhrase(span, span, right_delta)) {
+                docids->push_back(docid);
+            }
+        }
+        return Status::OK();
+    }
+
+    PostingCursor left_cursor;
+    PostingCursor right_cursor;
+    left_cursor.init(&srcs[left_plan]);
+    right_cursor.init(&srcs[right_plan]);
+    for (uint32_t expected_docid : candidates) {
+        uint32_t left_docid = 0;
+        uint32_t right_docid = 0;
+        std::pair<const uint32_t*, const uint32_t*> left_span;
+        std::pair<const uint32_t*, const uint32_t*> right_span;
+        SNII_RETURN_IF_ERROR(left_cursor.next(&left_docid, &left_span));
+        SNII_RETURN_IF_ERROR(right_cursor.next(&right_docid, &right_span));
+        if (left_docid != expected_docid || right_docid != expected_docid) {
+            return Status::Corruption("phrase_query: two-term cursor/docid mismatch");
+        }
+        if (ContainsTwoTermPhrase(left_span, right_span, right_delta)) {
+            docids->push_back(expected_docid);
+        }
+    }
+    return Status::OK();
+}
+
 // Single streaming pass over the candidates: for each (ascending) candidate,
-// advance every term's cursor to it, gather each term's positions IN PHRASE
-// ORDER, and test the consecutive-phrase predicate (term[0]@p, term[1]@p+1,
-// ...) with term-level short-circuit. Cursors decode each chunk's
-// docids/positions exactly once and address positions by local index -- no
-// per-candidate docid binary search, no full-candidate position
-// materialization. Candidates are ascending so the emitted docids are already
-// sorted.
+// gather positions lazily, and test the consecutive-phrase predicate
+// (term[0]@p, term[1]@p+1, ...). Multi-term phrases first test the cheapest
+// adjacent pair by df before decoding the remaining terms for that document.
+// Cursors decode each retained chunk at most once and address positions by
+// local index -- no per-candidate docid binary search, no full-candidate
+// position materialization. Candidates are ascending so the emitted docids are
+// already sorted.
 Status EmitPhraseStreaming(const std::vector<TermPlan>& plans,
                            const std::vector<size_t>& phrase_plan_index,
                            const std::vector<uint32_t>& position_offsets,
                            std::vector<PosSource>& srcs, const std::vector<uint32_t>& candidates,
                            std::vector<uint32_t>* docids) {
+    const size_t phrase_len = phrase_plan_index.size();
+    if (phrase_len == 2) {
+        return EmitTwoTermPhraseStreaming(phrase_plan_index, position_offsets, srcs, candidates,
+                                          docids);
+    }
+
     std::vector<PostingCursor> cur(plans.size());
     for (size_t i = 0; i < plans.size(); ++i) cur[i].init(&srcs[i]);
 
-    const size_t phrase_len = phrase_plan_index.size();
+    std::vector<std::pair<const uint32_t*, const uint32_t*>> plan_span(plans.size());
+    std::vector<uint32_t> loaded_epoch(plans.size(), 0);
+    const size_t pair_left =
+            phrase_len > 2 ? SelectPhraseVerificationPair(plans, phrase_plan_index) : 0;
+    const size_t pair_right = pair_left + 1;
+    std::vector<uint32_t> starts;
     std::vector<std::pair<const uint32_t*, const uint32_t*>> span(phrase_len);
-    const size_t anchor = AnchorPhrasePosition(plans, phrase_plan_index);
-    const uint32_t anchor_offset = position_offsets[anchor];
+    uint32_t epoch = 1;
     for (uint32_t d : candidates) {
-        for (size_t i = 0; i < cur.size(); ++i) SNII_RETURN_IF_ERROR(cur[i].seek(d));
-        for (size_t pp = 0; pp < phrase_len; ++pp) {
-            SNII_RETURN_IF_ERROR(cur[phrase_plan_index[pp]].positions(&span[pp]));
+        if (++epoch == 0) {
+            std::ranges::fill(loaded_epoch, 0);
+            epoch = 1;
         }
-        if (phrase_len == 2) {
-            if (ContainsTwoTermPhrase(span[0], span[1],
-                                      position_offsets[1] - position_offsets[0])) {
+        auto positions_for_phrase_pos =
+                [&](size_t phrase_pos, std::pair<const uint32_t*, const uint32_t*>* out) -> Status {
+            const size_t plan_index = phrase_plan_index[phrase_pos];
+            if (loaded_epoch[plan_index] != epoch) {
+                SNII_RETURN_IF_ERROR(cur[plan_index].seek(d));
+                SNII_RETURN_IF_ERROR(cur[plan_index].positions(&plan_span[plan_index]));
+                loaded_epoch[plan_index] = epoch;
+            }
+            *out = plan_span[plan_index];
+            return Status::OK();
+        };
+
+        if (phrase_len == 1) {
+            std::pair<const uint32_t*, const uint32_t*> single_span;
+            SNII_RETURN_IF_ERROR(positions_for_phrase_pos(0, &single_span));
+            if (single_span.first != single_span.second) {
                 docids->push_back(d);
             }
             continue;
         }
+
+        std::pair<const uint32_t*, const uint32_t*> left_span;
+        std::pair<const uint32_t*, const uint32_t*> right_span;
+        SNII_RETURN_IF_ERROR(positions_for_phrase_pos(pair_left, &left_span));
+        SNII_RETURN_IF_ERROR(positions_for_phrase_pos(pair_right, &right_span));
+
+        CollectTwoTermPhraseStarts(left_span, right_span,
+                                   position_offsets[pair_right] - position_offsets[pair_left],
+                                   position_offsets[pair_left], &starts);
+        if (starts.empty()) {
+            continue;
+        }
+
+        span[pair_left] = left_span;
+        span[pair_right] = right_span;
+        for (size_t pp = 0; pp < phrase_len; ++pp) {
+            if (pp == pair_left || pp == pair_right) {
+                continue;
+            }
+            SNII_RETURN_IF_ERROR(positions_for_phrase_pos(pp, &span[pp]));
+        }
+
         bool match = false;
-        for (const uint32_t* p = span[anchor].first; p != span[anchor].second; ++p) {
-            if (*p < anchor_offset) continue;
-            const uint32_t start = *p - anchor_offset;
+        for (uint32_t start : starts) {
             bool ok = true;
             for (size_t t = 0; t < phrase_len; ++t) {
-                if (t == anchor) continue;
+                if (t == pair_left || t == pair_right) {
+                    continue;
+                }
                 uint32_t want = 0;
                 if (!internal::add_position_offset(start, position_offsets[t], &want)) {
                     ok = false;

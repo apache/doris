@@ -27,6 +27,7 @@
 #include "snii/common/slice.h"
 #include "snii/encoding/byte_sink.h"
 #include "snii/encoding/byte_source.h"
+#include "snii/encoding/pfor.h"
 #include "snii/format/format_constants.h"
 #include "snii/format/prx_pod.h"
 #include "snii/io/file_reader.h"
@@ -136,6 +137,11 @@ Status build_reader(MemoryFile* file, reader::SniiSegmentReader* segment_reader,
     auto failed_docs = docs_with_one_position(0, kDocCount, 0);
     auto order_docs = docs_with_one_position(0, kDocCount, 2);
     auto ordinal_docs = docs_with_one_position(0, kDocCount, 2);
+    std::vector<PostingDoc> repeat_docs;
+    repeat_docs.reserve(kDocCount);
+    for (uint32_t docid = 0; docid < kDocCount; ++docid) {
+        repeat_docs.push_back({docid, {0, 1, 2}});
+    }
     failed_docs[8000].positions = {0, 4};
     for (PostingDoc& doc : order_docs) {
         if (doc.docid == 5000 || doc.docid == 7000) {
@@ -157,7 +163,8 @@ Status build_reader(MemoryFile* file, reader::SniiSegmentReader* segment_reader,
     input.doc_count = kDocCount;
     input.terms = {make_term("failed", std::move(failed_docs)),
                    make_term("order", std::move(order_docs)),
-                   make_term("ordinal", std::move(ordinal_docs))};
+                   make_term("ordinal", std::move(ordinal_docs)),
+                   make_term("repeat", std::move(repeat_docs))};
 
     writer::SniiCompoundWriter writer(file);
     SNII_RETURN_IF_ERROR(writer.add_logical_index(input));
@@ -204,6 +211,33 @@ TEST(SniiPhraseQueryTest, SingleTailPhrasePrefixUsesStreamingPhrasePath) {
     assert_ok(phrase_prefix_query(index_reader, {"failed", "orde"}, &docids, 10));
 
     const std::vector<uint32_t> expected {5000, 7000, 8000};
+    EXPECT_EQ(docids, expected);
+}
+
+TEST(SniiPhraseQueryTest, MultiTermPhraseUsesPairPrefilter) {
+    MemoryFile file;
+    reader::SniiSegmentReader segment_reader;
+    reader::LogicalIndexReader index_reader;
+    assert_ok(build_reader(&file, &segment_reader, &index_reader));
+
+    std::vector<uint32_t> docids;
+    assert_ok(phrase_query(index_reader, {"failed", "order", "ordinal"}, &docids));
+
+    const std::vector<uint32_t> expected {5000, 7000};
+    EXPECT_EQ(docids, expected);
+}
+
+TEST(SniiPhraseQueryTest, RepeatedTermPhraseUsesCachedPostingSpan) {
+    MemoryFile file;
+    reader::SniiSegmentReader segment_reader;
+    reader::LogicalIndexReader index_reader;
+    assert_ok(build_reader(&file, &segment_reader, &index_reader));
+
+    std::vector<uint32_t> docids;
+    assert_ok(phrase_query(index_reader, {"repeat", "repeat", "repeat"}, &docids));
+
+    std::vector<uint32_t> expected(9000);
+    std::iota(expected.begin(), expected.end(), 0);
     EXPECT_EQ(docids, expected);
 }
 
@@ -264,6 +298,48 @@ TEST(SniiPrxPodTest, SelectivePforCsrMatchesFullCsrAcrossRuns) {
 
     assert_selected_matches_full({0, 1, 2});
     assert_selected_matches_full({0, 1, 127, 128, 129, 255, 256, 319});
+}
+
+TEST(SniiPforTest, LowBitWidthFastPathsRoundTrip) {
+    auto assert_round_trip = [](const std::vector<uint32_t>& values, uint8_t expected_width) {
+        ByteSink sink;
+        snii::pfor_encode(values.data(), values.size(), &sink);
+        ASSERT_FALSE(sink.buffer().empty());
+        EXPECT_EQ(sink.buffer().front(), expected_width);
+
+        std::vector<uint32_t> decoded(values.size(), 0xFFFFFFFF);
+        ByteSource source(sink.view());
+        assert_ok(snii::pfor_decode(&source, values.size(), decoded.data()));
+        EXPECT_TRUE(source.eof());
+        EXPECT_EQ(decoded, values);
+    };
+
+    std::vector<uint32_t> one_bit(128);
+    for (size_t i = 0; i < one_bit.size(); ++i) {
+        one_bit[i] = static_cast<uint32_t>(i & 1);
+    }
+    assert_round_trip(one_bit, 1);
+
+    one_bit[17] = 1000;
+    assert_round_trip(one_bit, 1);
+
+    std::vector<uint32_t> two_bit(128);
+    for (size_t i = 0; i < two_bit.size(); ++i) {
+        two_bit[i] = static_cast<uint32_t>(i & 3);
+    }
+    assert_round_trip(two_bit, 2);
+
+    std::vector<uint32_t> four_bit(128);
+    for (size_t i = 0; i < four_bit.size(); ++i) {
+        four_bit[i] = static_cast<uint32_t>(i & 15);
+    }
+    assert_round_trip(four_bit, 4);
+
+    std::vector<uint32_t> eight_bit(256);
+    for (size_t i = 0; i < eight_bit.size(); ++i) {
+        eight_bit[i] = static_cast<uint32_t>(i);
+    }
+    assert_round_trip(eight_bit, 8);
 }
 
 } // namespace

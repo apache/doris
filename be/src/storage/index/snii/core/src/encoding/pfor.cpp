@@ -89,6 +89,67 @@ Status bitunpack(ByteSource* src, size_t n, uint8_t w, uint32_t* out) {
     Slice buf;
     SNII_RETURN_IF_ERROR(src->get_bytes(packed, &buf));
     const uint8_t* base = buf.data();
+
+    if (w == 1) {
+        size_t i = 0;
+        size_t byte = 0;
+        for (; i + 8 <= n; i += 8, ++byte) {
+            const uint8_t v = base[byte];
+            out[i] = v & 1U;
+            out[i + 1] = (v >> 1) & 1U;
+            out[i + 2] = (v >> 2) & 1U;
+            out[i + 3] = (v >> 3) & 1U;
+            out[i + 4] = (v >> 4) & 1U;
+            out[i + 5] = (v >> 5) & 1U;
+            out[i + 6] = (v >> 6) & 1U;
+            out[i + 7] = (v >> 7) & 1U;
+        }
+        if (i < n) {
+            const uint8_t v = base[byte];
+            for (uint8_t bit = 0; i < n; ++i, ++bit) {
+                out[i] = (v >> bit) & 1U;
+            }
+        }
+        return Status::OK();
+    }
+    if (w == 2) {
+        size_t i = 0;
+        size_t byte = 0;
+        for (; i + 4 <= n; i += 4, ++byte) {
+            const uint8_t v = base[byte];
+            out[i] = v & 3U;
+            out[i + 1] = (v >> 2) & 3U;
+            out[i + 2] = (v >> 4) & 3U;
+            out[i + 3] = (v >> 6) & 3U;
+        }
+        if (i < n) {
+            const uint8_t v = base[byte];
+            for (uint8_t shift = 0; i < n; ++i, shift += 2) {
+                out[i] = (v >> shift) & 3U;
+            }
+        }
+        return Status::OK();
+    }
+    if (w == 4) {
+        size_t i = 0;
+        size_t byte = 0;
+        for (; i + 2 <= n; i += 2, ++byte) {
+            const uint8_t v = base[byte];
+            out[i] = v & 15U;
+            out[i + 1] = (v >> 4) & 15U;
+        }
+        if (i < n) {
+            out[i] = base[byte] & 15U;
+        }
+        return Status::OK();
+    }
+    if (w == 8) {
+        for (size_t i = 0; i < n; ++i) {
+            out[i] = base[i];
+        }
+        return Status::OK();
+    }
+
     const uint64_t mask = low_mask(w);
 
     // Fast path: values whose 8-byte load window stays inside the buffer
