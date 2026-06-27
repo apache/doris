@@ -100,7 +100,7 @@ public:
 
     Status reset(RuntimeState* state) override;
 
-    Status get_block(RuntimeState* state, Block* block, bool* eos) override;
+    Status get_block_impl(RuntimeState* state, Block* block, bool* eos) override;
 
     std::string debug_string(int indentation_level = 0) const override;
 
@@ -112,13 +112,13 @@ public:
 
     DataDistribution required_data_distribution(RuntimeState* /*state*/) const override {
         if (OperatorX<ExchangeLocalState>::is_serial_operator()) {
-            return {ExchangeType::NOOP};
+            return {TLocalPartitionType::NOOP};
         }
         return _partition_type == TPartitionType::HASH_PARTITIONED
-                       ? DataDistribution(ExchangeType::HASH_SHUFFLE)
+                       ? DataDistribution(TLocalPartitionType::GLOBAL_EXECUTION_HASH_SHUFFLE)
                : _partition_type == TPartitionType::BUCKET_SHFFULE_HASH_PARTITIONED
-                       ? DataDistribution(ExchangeType::BUCKET_HASH_SHUFFLE)
-                       : DataDistribution(ExchangeType::NOOP);
+                       ? DataDistribution(TLocalPartitionType::BUCKET_HASH_SHUFFLE)
+                       : DataDistribution(TLocalPartitionType::NOOP);
     }
 
 private:

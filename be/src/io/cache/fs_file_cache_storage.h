@@ -22,6 +22,7 @@
 #include <sys/statvfs.h>
 #include <sys/types.h>
 
+#include <array>
 #include <atomic>
 #include <condition_variable>
 #include <cstdint>
@@ -31,6 +32,7 @@
 #include <mutex>
 #include <shared_mutex>
 #include <thread>
+#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
@@ -71,7 +73,7 @@ public:
     static constexpr int KEY_PREFIX_LENGTH = 3;
     static constexpr std::string META_DIR_NAME = "meta";
 
-    FSFileCacheStorage() = default;
+    FSFileCacheStorage();
     ~FSFileCacheStorage() override;
     Status init(BlockFileCache* _mgr) override;
     Status append(const FileCacheKey& key, const Slice& value) override;
@@ -130,9 +132,29 @@ public:
                 count_inodes_override;
     };
     static void set_inode_estimation_test_hooks(InodeEstimationTestHooks* hooks);
+
+    void set_file_writer_for_test(const FileCacheKey& key, FileWriterPtr writer) {
+        auto file_writer_map_key = std::make_pair(key.hash, key.offset);
+        auto& shard = shard_of(file_writer_map_key);
+        std::lock_guard lock(shard.mtx);
+        shard.map[file_writer_map_key] = std::move(writer);
+    }
 #endif
 
 private:
+    struct WriterShard {
+        std::mutex mtx;
+        std::unordered_map<FileWriterMapKey, FileWriterPtr, FileWriterMapKeyHash> map;
+    };
+
+    static constexpr size_t kWriterShardNum = 1024; // must be power-of-2
+    static constexpr size_t kWriterShardMask = kWriterShardNum - 1;
+    static_assert((kWriterShardNum & kWriterShardMask) == 0);
+
+    inline WriterShard& shard_of(const FileWriterMapKey& k) const {
+        return *_writer_shards[(FileWriterMapKeyHash {}(k)) & kWriterShardMask];
+    }
+
     void remove_old_version_directories();
 
     Status collect_directory_entries(const std::filesystem::path& dir_path,
@@ -189,9 +211,7 @@ private:
     std::condition_variable _leak_cleaner_cv;
     std::mutex _leak_cleaner_mutex;
     const std::shared_ptr<LocalFileSystem>& fs = global_local_filesystem();
-    // TODO(Lchangliang): use a more efficient data structure
-    std::mutex _mtx;
-    std::unordered_map<FileWriterMapKey, FileWriterPtr, FileWriterMapKeyHash> _key_to_writer;
+    std::array<std::unique_ptr<WriterShard>, kWriterShardNum> _writer_shards;
     std::shared_ptr<bvar::LatencyRecorder> _iterator_dir_retry_cnt;
     std::shared_ptr<bvar::Adder<size_t>> _leak_scan_removed_files;
     std::unique_ptr<CacheBlockMetaStore> _meta_store;

@@ -72,11 +72,11 @@ suite("test_hive_text_complex_type", "p0,external") {
 
         qt_sql13 """ select  id,col4  from hive_text_complex_type_delimiter2  where map_keys(map_values(col4)[1])[2]=500  order by id; """ 
 
-        qt_sql14 """ select col3 from hive_text_complex_type2 where struct_element(col3,1)=5 order by id; """ 
+        qt_sql14 """ select col3 from hive_text_complex_type2 where element_at(col3,1)=5 order by id; """ 
 
-        qt_sql15 """select count(*) from hive_text_complex_type2 where struct_element(struct_element(col3,3),2)=0; """
+        qt_sql15 """select count(*) from hive_text_complex_type2 where element_at(element_at(col3,3),2)=0; """
 
-        qt_sql16 """ select count(*) from hive_text_complex_type2 group by struct_element(col3,4)[1]; """ 
+        qt_sql16 """ select count(*) from hive_text_complex_type2 group by element_at(col3,4)[1]; """ 
 
 
         sql """drop catalog ${catalog_name};"""

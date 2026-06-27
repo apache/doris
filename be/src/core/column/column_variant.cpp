@@ -229,6 +229,7 @@ void ColumnVariant::Subcolumn::insert(FieldWithDataType field) {
     info.scale = field.scale;
     info.scalar_type_id = field.base_scalar_type_id;
     info.num_dimensions = field.num_dimensions;
+    info.need_convert = field.need_convert;
     insert(std::move(field.field), info);
 }
 
@@ -825,7 +826,7 @@ size_t ColumnVariant::allocated_bytes() const {
     return res;
 }
 
-void ColumnVariant::for_each_subcolumn(ColumnCallback callback) {
+void ColumnVariant::for_each_subcolumn(MutableColumnCallback callback) {
     for (auto& entry : subcolumns) {
         for (auto& part : entry->data.data) {
             callback(part);
@@ -836,6 +837,16 @@ void ColumnVariant::for_each_subcolumn(ColumnCallback callback) {
     // callback may be filter, so the row count may be changed
     num_rows = serialized_sparse_column->size();
     ENABLE_CHECK_CONSISTENCY(this);
+}
+
+void ColumnVariant::for_each_subcolumn(ColumnCallback callback) const {
+    for (const auto& entry : subcolumns) {
+        for (const auto& part : entry->data.data) {
+            callback(*static_cast<const IColumn::Ptr&>(part));
+        }
+    }
+    callback(*static_cast<const IColumn::Ptr&>(serialized_sparse_column));
+    callback(*static_cast<const IColumn::Ptr&>(serialized_doc_value_column));
 }
 
 void ColumnVariant::insert_from(const IColumn& src, size_t n) {
@@ -1080,7 +1091,8 @@ void ColumnVariant::get(size_t n, Field& res) const {
                                               .num_dimensions = static_cast<uint8_t>(
                                                       data.second.num_dimensions),
                                               .precision = data.second.precision,
-                                              .scale = data.second.scale});
+                                              .scale = data.second.scale,
+                                              .need_convert = data.second.need_convert});
     }
     try_get_from_doc_value_column(n, res);
     if (object.empty()) {
@@ -2118,7 +2130,7 @@ void ColumnVariant::clear_sparse_column() {
 }
 
 void ColumnVariant::ensure_binary_columns_rows() {
-    auto resize_if_empty = [this](WrappedPtr& column) {
+    auto resize_if_empty = [this](IColumn::WrappedPtr& column) {
         const auto& const_column = static_cast<const IColumn::Ptr&>(column);
         if (const_column->size() == num_rows) {
             return;
@@ -2299,7 +2311,7 @@ void ColumnVariant::finalize(FinalizeMode mode) {
 }
 
 void ColumnVariant::finalize() {
-    static_cast<void>(finalize(FinalizeMode::READ_MODE));
+    finalize(FinalizeMode::READ_MODE);
 }
 
 void ColumnVariant::ensure_root_node_type(const DataTypePtr& expected_root_type) const {
@@ -2373,7 +2385,7 @@ size_t ColumnVariant::filter(const Filter& filter) {
         for (auto& subcolumn : subcolumns) {
             subcolumn->data.num_rows = count;
         }
-        for_each_subcolumn([&](auto& part) {
+        MutableColumnCallback callback = [&](IColumn::WrappedPtr& part) {
             if (part->size() != count) {
                 if (part->is_exclusive()) {
                     const auto result_size = part->filter(filter);
@@ -2388,7 +2400,8 @@ size_t ColumnVariant::filter(const Filter& filter) {
                     part = part->filter(filter, count);
                 }
             }
-        });
+        };
+        for_each_subcolumn(callback);
     }
     num_rows = count;
     ENABLE_CHECK_CONSISTENCY(this);

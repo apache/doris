@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 suite("merge_aggregate") {
+    sql "set parallel_pipeline_task_num=2"
     sql "SET enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
     sql "set disable_nereids_rules=PRUNE_EMPTY_PARTITION"

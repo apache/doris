@@ -432,7 +432,7 @@ public:
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena& arena) const override {
-        const bool col_is_nullable = (*columns[0]).is_nullable();
+        const bool col_is_nullable = is_column_nullable(*columns[0]);
         const ColumnArray& column =
                 col_is_nullable
                         ? assert_cast<const ColumnArray&, TypeCheckOnRelease::DISABLE>(

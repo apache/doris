@@ -51,7 +51,6 @@ public class UpdateTabletMetaInfoTask extends AgentTask {
     // For ReportHandler
     private List<TTabletMetaInfo> tabletMetaInfos;
     // < 0 means not to update property, > 0 means true, == 0 means false
-    private int enableSingleReplicaCompaction = -1;
     private int skipWriteIndexOnLoad = -1;
     private int disableAutoCompaction = -1;
     private int verticalCompactionNumColumnsPerGroup = -1;
@@ -88,14 +87,12 @@ public class UpdateTabletMetaInfoTask extends AgentTask {
                                     MarkedCountDownLatch<Long, Set<Pair<Long, Integer>>> latch,
                                     String compactionPolicy,
                                     Map<String, Long> timeSeriesCompactionConfig,
-                                    int enableSingleReplicaCompaction,
                                     int skipWriteIndexOnLoad,
                                     int disableAutoCompaction,
                                     int verticalCompactionNumColumnsPerGroup) {
         this(backendId, tableIdWithSchemaHash, inMemory, storagePolicyId, binlogConfig, latch);
         this.compactionPolicy = compactionPolicy;
         this.timeSeriesCompactionConfig = timeSeriesCompactionConfig;
-        this.enableSingleReplicaCompaction = enableSingleReplicaCompaction;
         this.skipWriteIndexOnLoad = skipWriteIndexOnLoad;
         this.disableAutoCompaction = disableAutoCompaction;
         this.verticalCompactionNumColumnsPerGroup = verticalCompactionNumColumnsPerGroup;
@@ -172,9 +169,6 @@ public class UpdateTabletMetaInfoTask extends AgentTask {
                         metaInfo.setTimeSeriesCompactionLevelThreshold(timeSeriesCompactionConfig
                                     .get(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_LEVEL_THRESHOLD));
                     }
-                }
-                if (enableSingleReplicaCompaction >= 0) {
-                    metaInfo.setEnableSingleReplicaCompaction(enableSingleReplicaCompaction > 0);
                 }
                 if (skipWriteIndexOnLoad >= 0) {
                     metaInfo.setSkipWriteIndexOnLoad(skipWriteIndexOnLoad > 0);

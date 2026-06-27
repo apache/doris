@@ -833,13 +833,7 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
                                                http_req->header(HttpHeaders::CONTENT_LENGTH),
                                                e.what());
             }
-            if (ctx->format == TFileFormatType::FORMAT_CSV_GZ ||
-                ctx->format == TFileFormatType::FORMAT_CSV_LZO ||
-                ctx->format == TFileFormatType::FORMAT_CSV_BZ2 ||
-                ctx->format == TFileFormatType::FORMAT_CSV_LZ4FRAME ||
-                ctx->format == TFileFormatType::FORMAT_CSV_LZOP ||
-                ctx->format == TFileFormatType::FORMAT_CSV_LZ4BLOCK ||
-                ctx->format == TFileFormatType::FORMAT_CSV_SNAPPYBLOCK) {
+            if (LoadUtil::is_compressed_load(ctx->compress_type, ctx->format)) {
                 content_length *= 3;
             }
         }

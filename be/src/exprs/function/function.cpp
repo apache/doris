@@ -62,7 +62,7 @@ ColumnPtr wrap_in_nullable(const ColumnPtr& src, const Block& block, const Colum
         if (auto nullable = cast_to_column<ColumnNullable>(elem.column); nullable->has_null()) {
             const ColumnPtr& null_map_column = nullable->get_null_map_column_ptr();
             if (!result_null_map_column) { // NOLINT(bugprone-use-after-move)
-                result_null_map_column = null_map_column->clone_resized(input_rows_count);
+                result_null_map_column = null_map_column;
                 continue;
             }
 

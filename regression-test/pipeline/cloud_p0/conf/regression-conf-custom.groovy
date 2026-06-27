@@ -70,6 +70,8 @@ excludeSuites = "000_the_start_sentinel_do_not_touch," + // keep this line as th
     "rec_cte_with_delete_test," +
     "test_recycler_cleanup_snapshot," +
     "test_recycler_clone_instance," +
+    "test_stream_consumption_schema," +
+    "test_stream_info_schema," + // table stream is not supported for cloud mode now
     "zzz_the_end_sentinel_do_not_touch" // keep this line as the last line
 
 excludeDirectories = "000_the_start_sentinel_do_not_touch," + // keep this line as the first line

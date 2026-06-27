@@ -28,7 +28,7 @@ GroupCommitOperatorX::GroupCommitOperatorX(ObjectPool* pool, const TPlanNode& tn
     _output_tuple_id = tnode.file_scan_node.tuple_id;
 }
 
-Status GroupCommitOperatorX::get_block(RuntimeState* state, Block* block, bool* eos) {
+Status GroupCommitOperatorX::get_block_impl(RuntimeState* state, Block* block, bool* eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     bool find_node = false;

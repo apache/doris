@@ -36,6 +36,50 @@ const Status TableSchemaChangeHelper::BuildTableInfoUtil::SCHEMA_ERROR = Status:
         "types"
         "of the table and the file are inconsistent.");
 
+namespace {
+
+template <typename FieldContainer>
+std::map<std::string, size_t> build_lowercase_field_name_idx_map(const FieldContainer& fields) {
+    std::map<std::string, size_t> file_column_name_idx_map;
+    for (size_t idx = 0; idx < fields.size(); idx++) {
+        file_column_name_idx_map.emplace(to_lower(fields[idx].name), idx);
+    }
+    return file_column_name_idx_map;
+}
+
+std::map<std::string, size_t> build_lowercase_orc_field_name_idx_map(const orc::Type* orc_root) {
+    std::map<std::string, size_t> file_column_name_idx_map;
+    for (size_t idx = 0; idx < orc_root->getSubtypeCount(); idx++) {
+        file_column_name_idx_map.emplace(to_lower(orc_root->getFieldName(idx)), idx);
+    }
+    return file_column_name_idx_map;
+}
+
+bool find_file_field_idx_by_name_mapping(
+        const schema::external::TField& table_field,
+        const std::map<std::string, size_t>& file_column_name_idx_map, size_t* file_column_idx) {
+    auto try_match = [&](const std::string& candidate_name) {
+        auto it = file_column_name_idx_map.find(to_lower(candidate_name));
+        if (it == file_column_name_idx_map.end()) {
+            return false;
+        }
+        *file_column_idx = it->second;
+        return true;
+    };
+
+    if (table_field.__isset.name_mapping) {
+        for (const auto& mapped_name : table_field.name_mapping) {
+            if (try_match(mapped_name)) {
+                return true;
+            }
+        }
+    }
+
+    return table_field.__isset.name && try_match(table_field.name);
+}
+
+} // namespace
+
 Status TableSchemaChangeHelper::BuildTableInfoUtil::by_parquet_name(
         const TupleDescriptor* table_tuple_descriptor, const FieldDescriptor& parquet_field_desc,
         std::shared_ptr<TableSchemaChangeHelper::Node>& node,
@@ -504,6 +548,169 @@ Status TableSchemaChangeHelper::BuildTableInfoUtil::by_parquet_field_id(
     return Status::OK();
 }
 
+Status TableSchemaChangeHelper::BuildTableInfoUtil::by_parquet_field_id_with_name_mapping(
+        const schema::external::TStructField& table_schema,
+        const FieldDescriptor& parquet_field_desc,
+        std::shared_ptr<TableSchemaChangeHelper::Node>& node) {
+    auto struct_node = std::make_shared<TableSchemaChangeHelper::StructNode>();
+    const auto& parquet_fields_schema = parquet_field_desc.get_fields_schema();
+
+    std::map<int32_t, size_t> file_column_id_idx_map;
+    bool all_have_field_id = true;
+    for (size_t idx = 0; idx < parquet_fields_schema.size(); idx++) {
+        if (parquet_fields_schema[idx].field_id == -1) {
+            all_have_field_id = false;
+            break;
+        }
+        file_column_id_idx_map.emplace(parquet_fields_schema[idx].field_id, idx);
+    }
+
+    std::map<std::string, size_t> file_column_name_idx_map;
+    if (!all_have_field_id) {
+        file_column_name_idx_map = build_lowercase_field_name_idx_map(parquet_fields_schema);
+    }
+
+    for (const auto& table_field : table_schema.fields) {
+        const auto& table_column_name = table_field.field_ptr->name;
+        size_t file_column_idx = 0;
+        bool matched = false;
+        if (all_have_field_id) {
+            auto id_it = file_column_id_idx_map.find(table_field.field_ptr->id);
+            if (id_it != file_column_id_idx_map.end()) {
+                file_column_idx = id_it->second;
+                matched = true;
+            }
+        } else {
+            matched = find_file_field_idx_by_name_mapping(
+                    *table_field.field_ptr, file_column_name_idx_map, &file_column_idx);
+        }
+
+        if (!matched) {
+            struct_node->add_not_exist_children(table_column_name);
+            continue;
+        }
+
+        std::shared_ptr<TableSchemaChangeHelper::Node> field_node = nullptr;
+        RETURN_IF_ERROR(by_parquet_field_id_with_name_mapping(
+                *table_field.field_ptr, parquet_fields_schema[file_column_idx], field_node));
+        struct_node->add_children(table_column_name, parquet_fields_schema[file_column_idx].name,
+                                  field_node);
+    }
+
+    node = struct_node;
+    return Status::OK();
+}
+
+Status TableSchemaChangeHelper::BuildTableInfoUtil::by_parquet_field_id_with_name_mapping(
+        const schema::external::TField& table_schema, const FieldSchema& parquet_field,
+        std::shared_ptr<TableSchemaChangeHelper::Node>& node) {
+    switch (table_schema.type.type) {
+    case TPrimitiveType::MAP: {
+        if (parquet_field.data_type->get_primitive_type() != TYPE_MAP) [[unlikely]] {
+            return SCHEMA_ERROR;
+        }
+        MOCK_REMOVE(DCHECK(table_schema.__isset.nestedField));
+        MOCK_REMOVE(DCHECK(table_schema.nestedField.__isset.map_field));
+        MOCK_REMOVE(DCHECK(table_schema.nestedField.map_field.__isset.key_field));
+        MOCK_REMOVE(DCHECK(table_schema.nestedField.map_field.__isset.value_field));
+        MOCK_REMOVE(DCHECK(table_schema.nestedField.map_field.key_field.field_ptr != nullptr));
+        MOCK_REMOVE(DCHECK(table_schema.nestedField.map_field.value_field.field_ptr != nullptr));
+
+        MOCK_REMOVE(DCHECK(parquet_field.children.size() == 2));
+
+        std::shared_ptr<TableSchemaChangeHelper::Node> key_node = nullptr;
+        std::shared_ptr<TableSchemaChangeHelper::Node> value_node = nullptr;
+
+        RETURN_IF_ERROR(by_parquet_field_id_with_name_mapping(
+                *table_schema.nestedField.map_field.key_field.field_ptr, parquet_field.children[0],
+                key_node));
+        RETURN_IF_ERROR(by_parquet_field_id_with_name_mapping(
+                *table_schema.nestedField.map_field.value_field.field_ptr,
+                parquet_field.children[1], value_node));
+
+        node = std::make_shared<TableSchemaChangeHelper::MapNode>(key_node, value_node);
+        break;
+    }
+    case TPrimitiveType::ARRAY: {
+        if (parquet_field.data_type->get_primitive_type() != TYPE_ARRAY) [[unlikely]] {
+            return SCHEMA_ERROR;
+        }
+        MOCK_REMOVE(DCHECK(table_schema.__isset.nestedField));
+        MOCK_REMOVE(DCHECK(table_schema.nestedField.__isset.array_field));
+        MOCK_REMOVE(DCHECK(table_schema.nestedField.array_field.__isset.item_field));
+        MOCK_REMOVE(DCHECK(table_schema.nestedField.array_field.item_field.field_ptr != nullptr));
+
+        MOCK_REMOVE(DCHECK(parquet_field.children.size() == 1));
+
+        std::shared_ptr<TableSchemaChangeHelper::Node> element_node = nullptr;
+        RETURN_IF_ERROR(by_parquet_field_id_with_name_mapping(
+                *table_schema.nestedField.array_field.item_field.field_ptr,
+                parquet_field.children[0], element_node));
+
+        node = std::make_shared<TableSchemaChangeHelper::ArrayNode>(element_node);
+        break;
+    }
+    case TPrimitiveType::STRUCT: {
+        if (parquet_field.data_type->get_primitive_type() != TYPE_STRUCT) [[unlikely]] {
+            return SCHEMA_ERROR;
+        }
+        MOCK_REMOVE(DCHECK(table_schema.__isset.nestedField));
+        MOCK_REMOVE(DCHECK(table_schema.nestedField.__isset.struct_field));
+
+        auto struct_node = std::make_shared<TableSchemaChangeHelper::StructNode>();
+
+        std::map<int32_t, size_t> file_column_id_idx_map;
+        bool all_have_field_id = true;
+        for (size_t idx = 0; idx < parquet_field.children.size(); idx++) {
+            if (parquet_field.children[idx].field_id == -1) {
+                all_have_field_id = false;
+                break;
+            }
+            file_column_id_idx_map.emplace(parquet_field.children[idx].field_id, idx);
+        }
+
+        std::map<std::string, size_t> file_column_name_idx_map;
+        if (!all_have_field_id) {
+            file_column_name_idx_map = build_lowercase_field_name_idx_map(parquet_field.children);
+        }
+
+        for (const auto& table_field : table_schema.nestedField.struct_field.fields) {
+            const auto& table_column_name = table_field.field_ptr->name;
+            size_t file_column_idx = 0;
+            bool matched = false;
+            if (all_have_field_id) {
+                auto id_it = file_column_id_idx_map.find(table_field.field_ptr->id);
+                if (id_it != file_column_id_idx_map.end()) {
+                    file_column_idx = id_it->second;
+                    matched = true;
+                }
+            } else {
+                matched = find_file_field_idx_by_name_mapping(
+                        *table_field.field_ptr, file_column_name_idx_map, &file_column_idx);
+            }
+
+            if (!matched) {
+                struct_node->add_not_exist_children(table_column_name);
+                continue;
+            }
+
+            const auto& file_field = parquet_field.children.at(file_column_idx);
+            std::shared_ptr<TableSchemaChangeHelper::Node> field_node = nullptr;
+            RETURN_IF_ERROR(by_parquet_field_id_with_name_mapping(*table_field.field_ptr,
+                                                                  file_field, field_node));
+            struct_node->add_children(table_column_name, file_field.name, field_node);
+        }
+        node = struct_node;
+        break;
+    }
+    default: {
+        node = std::make_shared<ScalarNode>();
+        break;
+    }
+    }
+    return Status::OK();
+}
+
 Status TableSchemaChangeHelper::BuildTableInfoUtil::by_orc_field_id(
         const schema::external::TStructField& table_schema, const orc::Type* orc_root,
         const std::string& field_id_attribute_key,
@@ -600,6 +807,129 @@ Status TableSchemaChangeHelper::BuildTableInfoUtil::by_orc_field_id(
         RETURN_IF_ERROR(by_orc_field_id(table_schema.nestedField.struct_field, orc_root,
                                         field_id_attribute_key, node, exist_field_id));
 
+        break;
+    }
+    default: {
+        node = std::make_shared<ScalarNode>();
+        break;
+    }
+    }
+
+    return Status::OK();
+}
+
+Status TableSchemaChangeHelper::BuildTableInfoUtil::by_orc_field_id_with_name_mapping(
+        const schema::external::TStructField& table_schema, const orc::Type* orc_root,
+        const std::string& field_id_attribute_key,
+        std::shared_ptr<TableSchemaChangeHelper::Node>& node) {
+    auto struct_node = std::make_shared<TableSchemaChangeHelper::StructNode>();
+
+    std::map<int32_t, size_t> file_column_id_idx_map;
+    bool all_have_field_id = true;
+    for (size_t idx = 0; idx < orc_root->getSubtypeCount(); idx++) {
+        if (!orc_root->getSubtype(idx)->hasAttributeKey(field_id_attribute_key)) {
+            all_have_field_id = false;
+            break;
+        }
+        auto field_id =
+                std::stoi(orc_root->getSubtype(idx)->getAttributeValue(field_id_attribute_key));
+        file_column_id_idx_map.emplace(field_id, idx);
+    }
+
+    std::map<std::string, size_t> file_column_name_idx_map;
+    if (!all_have_field_id) {
+        file_column_name_idx_map = build_lowercase_orc_field_name_idx_map(orc_root);
+    }
+
+    for (const auto& table_field : table_schema.fields) {
+        const auto& table_column_name = table_field.field_ptr->name;
+        size_t file_field_idx = 0;
+        bool matched = false;
+        if (all_have_field_id) {
+            auto id_it = file_column_id_idx_map.find(table_field.field_ptr->id);
+            if (id_it != file_column_id_idx_map.end()) {
+                file_field_idx = id_it->second;
+                matched = true;
+            }
+        } else {
+            matched = find_file_field_idx_by_name_mapping(
+                    *table_field.field_ptr, file_column_name_idx_map, &file_field_idx);
+        }
+
+        if (!matched) {
+            struct_node->add_not_exist_children(table_column_name);
+            continue;
+        }
+
+        const auto& file_field = orc_root->getSubtype(file_field_idx);
+        std::shared_ptr<TableSchemaChangeHelper::Node> field_node = nullptr;
+        RETURN_IF_ERROR(by_orc_field_id_with_name_mapping(*table_field.field_ptr, file_field,
+                                                          field_id_attribute_key, field_node));
+        struct_node->add_children(table_column_name, orc_root->getFieldName(file_field_idx),
+                                  field_node);
+    }
+    node = struct_node;
+    return Status::OK();
+}
+
+Status TableSchemaChangeHelper::BuildTableInfoUtil::by_orc_field_id_with_name_mapping(
+        const schema::external::TField& table_schema, const orc::Type* orc_root,
+        const std::string& field_id_attribute_key,
+        std::shared_ptr<TableSchemaChangeHelper::Node>& node) {
+    switch (table_schema.type.type) {
+    case TPrimitiveType::MAP: {
+        if (orc_root->getKind() != orc::TypeKind::MAP) [[unlikely]] {
+            return SCHEMA_ERROR;
+        }
+        MOCK_REMOVE(DCHECK(table_schema.__isset.nestedField));
+        MOCK_REMOVE(DCHECK(table_schema.nestedField.__isset.map_field));
+        MOCK_REMOVE(DCHECK(table_schema.nestedField.map_field.__isset.key_field));
+        MOCK_REMOVE(DCHECK(table_schema.nestedField.map_field.__isset.value_field));
+        MOCK_REMOVE(DCHECK(table_schema.nestedField.map_field.key_field.field_ptr != nullptr));
+        MOCK_REMOVE(DCHECK(table_schema.nestedField.map_field.value_field.field_ptr != nullptr));
+
+        MOCK_REMOVE(DCHECK(orc_root->getSubtypeCount() == 2));
+
+        std::shared_ptr<TableSchemaChangeHelper::Node> key_node = nullptr;
+        std::shared_ptr<TableSchemaChangeHelper::Node> value_node = nullptr;
+
+        RETURN_IF_ERROR(by_orc_field_id_with_name_mapping(
+                *table_schema.nestedField.map_field.key_field.field_ptr, orc_root->getSubtype(0),
+                field_id_attribute_key, key_node));
+        RETURN_IF_ERROR(by_orc_field_id_with_name_mapping(
+                *table_schema.nestedField.map_field.value_field.field_ptr, orc_root->getSubtype(1),
+                field_id_attribute_key, value_node));
+
+        node = std::make_shared<TableSchemaChangeHelper::MapNode>(key_node, value_node);
+        break;
+    }
+    case TPrimitiveType::ARRAY: {
+        if (orc_root->getKind() != orc::TypeKind::LIST) [[unlikely]] {
+            return SCHEMA_ERROR;
+        }
+        MOCK_REMOVE(DCHECK(table_schema.__isset.nestedField));
+        MOCK_REMOVE(DCHECK(table_schema.nestedField.__isset.array_field));
+        MOCK_REMOVE(DCHECK(table_schema.nestedField.array_field.__isset.item_field));
+        MOCK_REMOVE(DCHECK(table_schema.nestedField.array_field.item_field.field_ptr != nullptr));
+
+        MOCK_REMOVE(DCHECK(orc_root->getSubtypeCount() == 1));
+
+        std::shared_ptr<TableSchemaChangeHelper::Node> element_node = nullptr;
+        RETURN_IF_ERROR(by_orc_field_id_with_name_mapping(
+                *table_schema.nestedField.array_field.item_field.field_ptr, orc_root->getSubtype(0),
+                field_id_attribute_key, element_node));
+
+        node = std::make_shared<TableSchemaChangeHelper::ArrayNode>(element_node);
+        break;
+    }
+    case TPrimitiveType::STRUCT: {
+        if (orc_root->getKind() != orc::TypeKind::STRUCT) [[unlikely]] {
+            return SCHEMA_ERROR;
+        }
+        MOCK_REMOVE(DCHECK(table_schema.__isset.nestedField));
+        MOCK_REMOVE(DCHECK(table_schema.nestedField.__isset.struct_field));
+        RETURN_IF_ERROR(by_orc_field_id_with_name_mapping(table_schema.nestedField.struct_field,
+                                                          orc_root, field_id_attribute_key, node));
         break;
     }
     default: {

@@ -163,8 +163,7 @@ void VExplodeV2TableFunction::get_same_many_values(MutableColumnPtr& column, int
             auto* nullable_column = assert_cast<ColumnNullable*>(column.get());
             struct_column =
                     assert_cast<ColumnStruct*>(nullable_column->get_nested_column_ptr().get());
-            auto* nullmap_column =
-                    assert_cast<ColumnUInt8*>(nullable_column->get_null_map_column_ptr().get());
+            auto* nullmap_column = nullable_column->get_null_map_column_ptr().get();
             nullmap_column->insert_many_defaults(length);
 
         } else {
@@ -192,8 +191,7 @@ void VExplodeV2TableFunction::get_same_many_values(MutableColumnPtr& column, int
             struct_field.insert_many_defaults(length);
         } else {
             auto* nullable_column = assert_cast<ColumnNullable*>(struct_field.get_ptr().get());
-            auto* nullmap_column =
-                    assert_cast<ColumnUInt8*>(nullable_column->get_null_map_column_ptr().get());
+            auto* nullmap_column = nullable_column->get_null_map_column_ptr().get();
             // only need to check if the value at position pos is null
             if (element_size < _cur_offset ||
                 (detail.nested_nullmap_data && detail.nested_nullmap_data[pos])) {
@@ -223,8 +221,7 @@ int VExplodeV2TableFunction::get_value(MutableColumnPtr& column, int max_step) {
                 auto* nullable_column = assert_cast<ColumnNullable*>(column.get());
                 struct_column =
                         assert_cast<ColumnStruct*>(nullable_column->get_nested_column_ptr().get());
-                auto* nullmap_column =
-                        assert_cast<ColumnUInt8*>(nullable_column->get_null_map_column_ptr().get());
+                auto* nullmap_column = nullable_column->get_null_map_column_ptr().get();
                 nullmap_column->insert_many_defaults(max_step);
 
             } else {
@@ -253,8 +250,7 @@ int VExplodeV2TableFunction::get_value(MutableColumnPtr& column, int max_step) {
                 struct_field.insert_many_defaults(max_step);
             } else {
                 auto* nullable_column = assert_cast<ColumnNullable*>(struct_field.get_ptr().get());
-                auto* nullmap_column =
-                        assert_cast<ColumnUInt8*>(nullable_column->get_null_map_column_ptr().get());
+                auto* nullmap_column = nullable_column->get_null_map_column_ptr().get();
                 if (element_size >= _cur_offset + max_step) {
                     nullable_column->get_nested_column_ptr()->insert_range_from(*detail.nested_col,
                                                                                 pos, max_step);

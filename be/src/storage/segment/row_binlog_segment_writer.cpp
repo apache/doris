@@ -65,7 +65,7 @@ Status RowBinlogSegmentWriter::init() {
         return Status::InternalError("binlog<row> writer missing source_tablet_schema");
     }
 
-    int lsn_col_id = _tablet_schema->field_index(std::string(kRowBinlogLsnColName));
+    int lsn_col_id = _tablet_schema->binlog_lsn_col_idx();
     CHECK(lsn_col_id >= 0) << "binlog<row> schema missing __DORIS_BINLOG_LSN__";
     _binlog_col_start_id = static_cast<uint32_t>(lsn_col_id);
     _normal_col_start_id = lsn_col_id == 0 ? BINLOG_COLNUM : 0;
@@ -312,7 +312,7 @@ Status RowBinlogSegmentWriter::_fill_binlog_columns(size_t num_rows,
         // wrong op only happens when partial-update, it will be fixed by delete bitmap when publish
         const FieldType op_col_type = _tablet_schema->column(binlog_cids[1]).type();
         IColumn* op_col_ptr = binlog_prefix_columns[1].get();
-        auto* op_nullable_column = typeid_cast<ColumnNullable*>(op_col_ptr);
+        auto* op_nullable_column = check_and_get_column<ColumnNullable>(op_col_ptr);
         IColumn* op_nested_column = op_nullable_column != nullptr
                                             ? &op_nullable_column->get_nested_column()
                                             : op_col_ptr;
@@ -326,25 +326,22 @@ Status RowBinlogSegmentWriter::_fill_binlog_columns(size_t num_rows,
             op_int64_column->insert_value(op_types[i]);
         }
 
-        // we can't get correct timestamp when commit
+        // We can't get the real commit tso here (only known after publish). The tso column
+        // is replaced with the real commit_tso at read time
+        // (SegmentIterator::_update_tso_col_if_needed), so its on-disk value is never used.
+        // Write a NULL placeholder.
         IColumn* ts_col_ptr = binlog_prefix_columns[2].get();
-        auto timestamp = UnixMillis();
-        auto* ts_nullable_column = typeid_cast<ColumnNullable*>(ts_col_ptr);
+        auto* ts_nullable_column = check_and_get_column<ColumnNullable>(ts_col_ptr);
         if (ts_nullable_column != nullptr) {
-            assert_cast<ColumnInt64*>(&ts_nullable_column->get_nested_column())
-                    ->insert_many_vals(timestamp, num_rows);
+            ts_nullable_column->insert_many_defaults(num_rows);
         } else {
-            assert_cast<ColumnInt64*>(ts_col_ptr)->insert_many_vals(timestamp, num_rows);
+            assert_cast<ColumnInt64*>(ts_col_ptr)->insert_many_defaults(num_rows);
         }
 
-        // finally update null map
+        // finally update null map for op column (timestamp null map set by insert_many_defaults)
         for (int i = 0; i < num_rows; i++) {
-            //lsn_column->get_null_map_data().emplace_back(0);
             if (op_nullable_column != nullptr) {
                 op_nullable_column->get_null_map_data().emplace_back(0);
-            }
-            if (ts_nullable_column != nullptr) {
-                ts_nullable_column->get_null_map_data().emplace_back(0);
             }
         }
     }

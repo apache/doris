@@ -27,7 +27,6 @@
 #include <roaring/roaring.hh>
 #include <string>
 
-#include "common/config.h"
 #include "core/pod_array.h"
 #include "storage/index/ann/ann_index.h"
 #include "storage/index/index_file_writer.h"
@@ -38,13 +37,6 @@
 namespace doris::segment_v2 {
 class AnnIndexColumnWriter : public IndexColumnWriter {
 public:
-    static inline int64_t chunk_size() {
-#ifdef BE_TEST
-        return 10;
-#else
-        return config::ann_index_build_chunk_size;
-#endif
-    }
     static constexpr const char* INDEX_TYPE = "index_type";
     static constexpr const char* METRIC_TYPE = "metric_type";
     static constexpr const char* DIM = "dim";
@@ -71,16 +63,20 @@ public:
     Status finish() override;
 
 private:
+    Status _build_and_save(Int64 min_train_rows, Int64 effective_min_rows);
+
+#ifdef BE_TEST
+    friend class TestAnnIndexColumnWriter;
+#endif
+
     // VectorIndex shoule be managed by some cache.
     // VectorIndex should be weak shared by AnnIndexWriter and VectorIndexReader
     // This should be a weak_ptr
     std::shared_ptr<VectorIndex> _vector_index;
-    // _float_array is used to buffer the float data before training/adding to vector index
-    // if we dont do this, the performance(recall) will be very poor when adding small number of vectors one by one
-    PODArray<float> _float_array;
+    PODArray<float> _buffered_vectors;
+    int64_t _total_rows = 0;
     IndexFileWriter* _index_file_writer;
     const TabletIndex* _index_meta;
     std::shared_ptr<DorisFSDirectory> _dir;
-    bool _need_save_index = false;
 };
 } // namespace doris::segment_v2

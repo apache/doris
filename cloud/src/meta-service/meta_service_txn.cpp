@@ -2990,10 +2990,14 @@ void MetaServiceImpl::commit_txn_with_sub_txn(const CommitTxnRequest* request,
         }
 
         // Save versions
+        int64_t version_update_time_ms =
+                duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
+        response->set_version_update_time_ms(version_update_time_ms);
         for (auto& [partition_id, new_version] : new_versions) {
             std::string ver_val;
             VersionPB version_pb;
             version_pb.set_version(new_version);
+            version_pb.set_update_time_ms(version_update_time_ms);
             if (!version_pb.SerializeToString(&ver_val)) {
                 code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
                 ss << "failed to serialize version_pb when saving, txn_id=" << txn_id;
@@ -3007,7 +3011,8 @@ void MetaServiceImpl::commit_txn_with_sub_txn(const CommitTxnRequest* request,
             txn->put(version_key, ver_val);
             LOG(INFO) << "put partition_version_key=" << hex(version_key)
                       << " version:" << new_version << " txn_id=" << txn_id
-                      << " partition_id=" << partition_id;
+                      << " partition_id=" << partition_id
+                      << " update_time=" << version_update_time_ms;
 
             VLOG_DEBUG << "txn_id=" << txn_id << " table_id=" << table_id
                        << " partition_id=" << partition_id << " version=" << new_version;

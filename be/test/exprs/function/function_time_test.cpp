@@ -327,6 +327,23 @@ TEST(VTimestampFunctionsTest, convert_tz_test) {
     }
 
     {
+        InputTypeSet input_types_scale6 = {{PrimitiveType::TYPE_DATETIMEV2, 6},
+                                           PrimitiveType::TYPE_VARCHAR,
+                                           PrimitiveType::TYPE_VARCHAR};
+        DataSet data_set = {{{std::string {"2021-03-28 02:15:30.123456"},
+                              std::string {"Europe/Paris"}, std::string {"UTC"}},
+                             std::string("2021-03-28 01:00:00.000000")},
+                            {{std::string {"2021-03-28 03:00:30.123456"},
+                              std::string {"Europe/Paris"}, std::string {"UTC"}},
+                             std::string("2021-03-28 01:00:30.123456")},
+                            {{std::string {"2021-10-31 02:15:30.123456"},
+                              std::string {"Europe/Paris"}, std::string {"UTC"}},
+                             std::string("2021-10-31 00:15:30.123456")}};
+        static_cast<void>(check_function<DataTypeDateTimeV2, true>(func_name, input_types_scale6,
+                                                                   data_set, 6));
+    }
+
+    {
         DataSet data_set = {{{std::string {"2019-08-01 02:18:27"}, std::string {"Asia/Shanghai"},
                               std::string {"UTC"}},
                              std::string("2019-07-31 18:18:27")},

@@ -319,8 +319,7 @@ public:
                                                      int column_to_keep, IColumn::Filter& filter);
 
     [[nodiscard]] static Status get_output_block_after_execute_exprs(const VExprContextSPtrs&,
-                                                                     const Block&, Block*,
-                                                                     bool do_projection = false);
+                                                                     const Block&, Block*);
 
     int get_last_result_column_id() const {
         DCHECK(_last_result_column_id != -1);
@@ -388,8 +387,9 @@ public:
             const std::vector<std::unique_ptr<segment_v2::ColumnIterator>>& column_iterators,
             const std::unordered_map<VExprContext*, std::unordered_map<ColumnId, VExpr*>>&
                     common_expr_to_slotref_map,
-            roaring::Roaring& row_bitmap, segment_v2::AnnIndexStats& ann_index_stats,
-            bool enable_result_cache);
+            size_t rows_of_segment, roaring::Roaring& row_bitmap,
+            segment_v2::AnnIndexStats& ann_index_stats, bool enable_result_cache,
+            bool* ann_range_search_executed);
 
     uint64_t get_digest(uint64_t seed) const;
 

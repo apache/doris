@@ -23,6 +23,7 @@
 #include <gen_cpp/internal_service.pb.h>
 
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -85,6 +86,7 @@ public:
      * @return summary message
      */
     std::string clear_file_caches(bool sync);
+    Status clear_file_caches(bool sync, std::string* result);
 
     /**
      * dump lru queue info for all file cache instances

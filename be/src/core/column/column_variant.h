@@ -247,7 +247,7 @@ public:
         /// Parts of column. Parts should be in increasing order in terms of subtypes/supertypes.
         /// That means that the least common type for i-th prefix is the type of i-th part
         /// and it's the supertype for all type of column from 0 to i-1.
-        std::vector<WrappedPtr> data;
+        std::vector<IColumn::WrappedPtr> data;
         std::vector<DataTypePtr> data_types;
         std::vector<DataTypeSerDeSPtr> data_serdes;
         /// Until we insert any non-default field we don't know further
@@ -275,10 +275,10 @@ private:
 
     // It's filled when the number of subcolumns reaches the limit.
     // It has type Map(String, String) and stores a map (path, binary serialized subcolumn value) for each row.
-    WrappedPtr serialized_sparse_column = ColumnMap::create(
+    IColumn::WrappedPtr serialized_sparse_column = ColumnMap::create(
             ColumnString::create(), ColumnString::create(), ColumnArray::ColumnOffsets::create());
 
-    WrappedPtr serialized_doc_value_column = ColumnMap::create(
+    IColumn::WrappedPtr serialized_doc_value_column = ColumnMap::create(
             ColumnString::create(), ColumnString::create(), ColumnArray::ColumnOffsets::create());
 
     // if `_max_subcolumns_count == 0`, all subcolumns are materialized.
@@ -469,7 +469,8 @@ public:
 
     bool has_enough_capacity(const IColumn& src) const override { return false; }
 
-    void for_each_subcolumn(ColumnCallback callback) override;
+    void for_each_subcolumn(MutableColumnCallback callback) override;
+    void for_each_subcolumn(ColumnCallback callback) const override;
 
     // Do nothing, call try_insert instead
     void insert(const Field& field) override { try_insert(field); }
