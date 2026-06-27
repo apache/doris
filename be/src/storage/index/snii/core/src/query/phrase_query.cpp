@@ -53,7 +53,23 @@ namespace {
 
 struct ExpectedTailPositions {
     uint32_t docid = 0;
+    size_t positions_begin = 0;
+    size_t positions_end = 0;
+};
+
+struct ExpectedTailPositionSet {
+    std::vector<ExpectedTailPositions> docs;
     std::vector<uint32_t> positions;
+
+    void clear() {
+        docs.clear();
+        positions.clear();
+    }
+
+    void reserve_docs(size_t count) {
+        docs.reserve(count);
+        positions.reserve(count);
+    }
 };
 
 // One decoded chunk of a term's posting: a windowed term's covering window, or
@@ -115,44 +131,102 @@ Status append_prx_doc_ordinal(size_t ordinal, std::vector<uint32_t>* out) {
     return Status::OK();
 }
 
+Status append_selected_ordinal(size_t doc_index, const std::vector<uint32_t>& prx_doc_ordinals,
+                               std::vector<uint32_t>* selected_ordinals) {
+    if (!prx_doc_ordinals.empty()) {
+        selected_ordinals->push_back(prx_doc_ordinals[doc_index]);
+        return Status::OK();
+    }
+    return append_prx_doc_ordinal(doc_index, selected_ordinals);
+}
+
+Status append_selected_doc(size_t doc_index, uint32_t docid,
+                           const std::vector<uint32_t>& prx_doc_ordinals,
+                           std::vector<uint32_t>* selected_docids,
+                           std::vector<uint32_t>* selected_ordinals) {
+    selected_docids->push_back(docid);
+    return append_selected_ordinal(doc_index, prx_doc_ordinals, selected_ordinals);
+}
+
+Status materialize_selected_prefix(size_t count, size_t capacity,
+                                   const std::vector<uint32_t>& docids,
+                                   const std::vector<uint32_t>& prx_doc_ordinals,
+                                   std::vector<uint32_t>* selected_docids,
+                                   std::vector<uint32_t>* selected_ordinals) {
+    selected_docids->reserve(capacity);
+    selected_ordinals->reserve(capacity);
+    selected_docids->insert(selected_docids->end(), docids.begin(), docids.begin() + count);
+    for (size_t i = 0; i < count; ++i) {
+        SNII_RETURN_IF_ERROR(append_selected_ordinal(i, prx_doc_ordinals, selected_ordinals));
+    }
+    return Status::OK();
+}
+
+Status materialize_selected_prefix_if_needed(bool* selected_all, size_t count, size_t capacity,
+                                             const std::vector<uint32_t>& docids,
+                                             const std::vector<uint32_t>& prx_doc_ordinals,
+                                             std::vector<uint32_t>* selected_docids,
+                                             std::vector<uint32_t>* selected_ordinals) {
+    if (!*selected_all) {
+        return Status::OK();
+    }
+    *selected_all = false;
+    return materialize_selected_prefix(count, capacity, docids, prx_doc_ordinals, selected_docids,
+                                       selected_ordinals);
+}
+
 Status SelectCandidateDocsForPrx(std::vector<uint32_t>* docids,
                                  std::vector<uint32_t>* prx_doc_ordinals,
                                  const std::vector<uint32_t>& candidates, PosChunk* chunk) {
     chunk->docids.clear();
     chunk->prx_doc_ordinals.clear();
-    if (docids->empty() || candidates.empty()) return Status::OK();
+    if (docids->empty() || candidates.empty()) {
+        return Status::OK();
+    }
     if (!prx_doc_ordinals->empty() && prx_doc_ordinals->size() != docids->size()) {
         return Status::Corruption("phrase_query: prx ordinal/docid count mismatch");
     }
 
     std::vector<uint32_t> selected_docids;
     std::vector<uint32_t> selected_ordinals;
-    selected_docids.reserve(std::min(docids->size(), candidates.size()));
-    selected_ordinals.reserve(selected_docids.capacity());
+    bool selected_all = true;
+    const size_t selected_capacity = std::min(docids->size(), candidates.size());
 
-    size_t candidate_index = 0;
-    for (size_t doc_index = 0; doc_index < docids->size() && candidate_index < candidates.size();
-         ++doc_index) {
+    auto candidate_it = std::ranges::lower_bound(candidates, docids->front());
+    size_t candidate_index = static_cast<size_t>(candidate_it - candidates.begin());
+    for (size_t doc_index = 0; doc_index < docids->size(); ++doc_index) {
         const uint32_t docid = (*docids)[doc_index];
         while (candidate_index < candidates.size() && candidates[candidate_index] < docid) {
             ++candidate_index;
         }
-        if (candidate_index == candidates.size()) break;
-        if (candidates[candidate_index] != docid) continue;
+        if (candidate_index == candidates.size()) {
+            SNII_RETURN_IF_ERROR(materialize_selected_prefix_if_needed(
+                    &selected_all, doc_index, selected_capacity, *docids, *prx_doc_ordinals,
+                    &selected_docids, &selected_ordinals));
+            break;
+        }
+        if (candidates[candidate_index] != docid) {
+            SNII_RETURN_IF_ERROR(materialize_selected_prefix_if_needed(
+                    &selected_all, doc_index, selected_capacity, *docids, *prx_doc_ordinals,
+                    &selected_docids, &selected_ordinals));
+            continue;
+        }
 
-        selected_docids.push_back(docid);
-        if (prx_doc_ordinals->empty()) {
-            SNII_RETURN_IF_ERROR(append_prx_doc_ordinal(doc_index, &selected_ordinals));
-        } else {
-            selected_ordinals.push_back((*prx_doc_ordinals)[doc_index]);
+        if (!selected_all) {
+            SNII_RETURN_IF_ERROR(append_selected_doc(doc_index, docid, *prx_doc_ordinals,
+                                                     &selected_docids, &selected_ordinals));
         }
         ++candidate_index;
     }
 
-    if (selected_docids.empty()) return Status::OK();
-    if (selected_docids.size() == docids->size()) {
+    if (selected_all) {
         chunk->docids = std::move(*docids);
         chunk->prx_doc_ordinals = std::move(*prx_doc_ordinals);
+        docids->clear();
+        prx_doc_ordinals->clear();
+        return Status::OK();
+    }
+    if (selected_docids.empty()) {
         return Status::OK();
     }
     chunk->docids = std::move(selected_docids);
@@ -452,7 +526,7 @@ Status CollectExpectedTailPositions(const std::vector<TermPlan>& plans,
                                     const std::vector<uint32_t>& position_offsets,
                                     std::vector<PosSource>& srcs,
                                     const std::vector<uint32_t>& candidates,
-                                    std::vector<ExpectedTailPositions>* out) {
+                                    ExpectedTailPositionSet* out) {
     const size_t n = plans.size();
     std::vector<PostingCursor> cur(n);
     for (size_t i = 0; i < n; ++i) cur[i].init(&srcs[i]);
@@ -467,8 +541,7 @@ Status CollectExpectedTailPositions(const std::vector<TermPlan>& plans,
             SNII_RETURN_IF_ERROR(ordered[pp]->positions(&span[pp]));
         }
 
-        ExpectedTailPositions match;
-        match.docid = d;
+        const size_t expected_begin = out->positions.size();
         for (const uint32_t* p = span[0].first; p != span[0].second; ++p) {
             const uint32_t start = *p;
             bool ok = true;
@@ -485,17 +558,47 @@ Status CollectExpectedTailPositions(const std::vector<TermPlan>& plans,
             }
             uint32_t tail_pos = 0;
             if (ok && internal::add_position_offset(start, position_offsets[n], &tail_pos)) {
-                match.positions.push_back(tail_pos);
+                out->positions.push_back(tail_pos);
             }
         }
-        if (!match.positions.empty()) out->push_back(std::move(match));
+        const size_t expected_end = out->positions.size();
+        if (expected_end != expected_begin) {
+            out->docs.push_back({d, expected_begin, expected_end});
+        }
+    }
+    return Status::OK();
+}
+
+Status CollectSingleTermExpectedTailPositions(std::vector<PosSource>& srcs,
+                                              const std::vector<uint32_t>& candidates,
+                                              uint32_t tail_offset, ExpectedTailPositionSet* out) {
+    PostingCursor cursor;
+    cursor.init(srcs.data());
+    out->reserve_docs(out->docs.size() + candidates.size());
+
+    for (uint32_t d : candidates) {
+        SNII_RETURN_IF_ERROR(cursor.seek(d));
+        std::pair<const uint32_t*, const uint32_t*> span;
+        SNII_RETURN_IF_ERROR(cursor.positions(&span));
+
+        const size_t expected_begin = out->positions.size();
+        for (const uint32_t* p = span.first; p != span.second; ++p) {
+            uint32_t tail_pos = 0;
+            if (internal::add_position_offset(*p, tail_offset, &tail_pos)) {
+                out->positions.push_back(tail_pos);
+            }
+        }
+        const size_t expected_end = out->positions.size();
+        if (expected_end != expected_begin) {
+            out->docs.push_back({d, expected_begin, expected_end});
+        }
     }
     return Status::OK();
 }
 
 Status CollectExpectedTailPositions(const LogicalIndexReader& idx,
                                     const std::vector<ResolvedQueryTerm>& exact_terms,
-                                    std::vector<ExpectedTailPositions>* out) {
+                                    ExpectedTailPositionSet* out) {
     out->clear();
     snii::io::BatchRangeFetcher round1(idx.reader());
     std::vector<TermPlan> plans;
@@ -505,27 +608,37 @@ Status CollectExpectedTailPositions(const LogicalIndexReader& idx,
     PhraseExecutionState state;
     SNII_RETURN_IF_ERROR(BuildPhraseExecutionState(idx, &round1, &plans, &state));
     if (state.candidates.empty()) return Status::OK();
+    out->reserve_docs(state.candidates.size());
     std::vector<uint32_t> position_offsets;
     if (!internal::build_position_offsets(plans.size() + 1, &position_offsets)) {
         return Status::InvalidArgument(
                 "phrase_prefix_query: phrase length exceeds doc position range");
     }
+    if (plans.size() == 1) {
+        return CollectSingleTermExpectedTailPositions(state.srcs, state.candidates,
+                                                      position_offsets[1], out);
+    }
     return CollectExpectedTailPositions(plans, position_offsets, state.srcs, state.candidates, out);
 }
 
-bool contains_any_position(const std::vector<uint32_t>& wanted,
+bool contains_any_position(const ExpectedTailPositionSet& expected,
+                           const ExpectedTailPositions& wanted,
                            std::pair<const uint32_t*, const uint32_t*> actual) {
-    for (uint32_t pos : wanted) {
-        if (std::binary_search(actual.first, actual.second, pos)) return true;
+    for (size_t i = wanted.positions_begin; i < wanted.positions_end; ++i) {
+        if (std::binary_search(actual.first, actual.second, expected.positions[i])) {
+            return true;
+        }
     }
     return false;
 }
 
 Status CollectTailMatchesAtExpectedPositions(const LogicalIndexReader& idx,
                                              const ResolvedQueryTerm& tail,
-                                             const std::vector<ExpectedTailPositions>& expected,
+                                             const ExpectedTailPositionSet& expected,
                                              std::vector<uint32_t>* out) {
-    if (expected.empty()) return Status::OK();
+    if (expected.docs.empty()) {
+        return Status::OK();
+    }
 
     snii::io::BatchRangeFetcher round1(idx.reader());
     std::vector<TermPlan> plans;
@@ -540,8 +653,8 @@ Status CollectTailMatchesAtExpectedPositions(const LogicalIndexReader& idx,
     cursor.init(&state.srcs[0]);
     size_t ei = 0;
     size_t ti = 0;
-    while (ei < expected.size() && ti < state.candidates.size()) {
-        const uint32_t want_doc = expected[ei].docid;
+    while (ei < expected.docs.size() && ti < state.candidates.size()) {
+        const uint32_t want_doc = expected.docs[ei].docid;
         const uint32_t tail_doc = state.candidates[ti];
         if (want_doc < tail_doc) {
             ++ei;
@@ -555,7 +668,9 @@ Status CollectTailMatchesAtExpectedPositions(const LogicalIndexReader& idx,
         SNII_RETURN_IF_ERROR(cursor.seek(want_doc));
         std::pair<const uint32_t*, const uint32_t*> actual;
         SNII_RETURN_IF_ERROR(cursor.positions(&actual));
-        if (contains_any_position(expected[ei].positions, actual)) out->push_back(want_doc);
+        if (contains_any_position(expected, expected.docs[ei], actual)) {
+            out->push_back(want_doc);
+        }
         ++ei;
         ++ti;
     }
@@ -635,9 +750,9 @@ Status phrase_prefix_query(const LogicalIndexReader& idx, const std::vector<std:
         return Status::OK();
     }
 
-    std::vector<ExpectedTailPositions> expected;
+    ExpectedTailPositionSet expected;
     SNII_RETURN_IF_ERROR(CollectExpectedTailPositions(idx, exact_terms, &expected));
-    if (expected.empty()) {
+    if (expected.docs.empty()) {
         return Status::OK();
     }
 
