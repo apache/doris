@@ -27,6 +27,7 @@ import org.apache.doris.connector.api.ddl.BranchChange;
 import org.apache.doris.connector.api.ddl.ConnectorColumnPosition;
 import org.apache.doris.connector.api.ddl.ConnectorCreateTableRequest;
 import org.apache.doris.connector.api.ddl.DropRefChange;
+import org.apache.doris.connector.api.ddl.PartitionFieldChange;
 import org.apache.doris.connector.api.ddl.TagChange;
 import org.apache.doris.connector.api.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
@@ -735,6 +736,61 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
             throw new DorisConnectorException("Failed to drop tag " + tag.getName()
                     + " from Iceberg table " + iceHandle.getDbName() + "." + iceHandle.getTableName()
                     + ": " + e.getMessage(), e);
+        }
+    }
+
+    // ===== Partition evolution (B5) — mirror legacy IcebergMetadataOps add/drop/replace PartitionField =====
+
+    /**
+     * Adds a partition field, mirroring legacy {@code IcebergMetadataOps.addPartitionField}: the whole
+     * {@code UpdatePartitionSpec} build + commit (which reads the live table) runs through the seam inside the
+     * auth context. The neutral {@link PartitionFieldChange} carries the SQL transform; the iceberg
+     * {@code Term}/{@code UpdatePartitionSpec} logic stays in the seam.
+     */
+    @Override
+    public void addPartitionField(ConnectorSession session, ConnectorTableHandle handle,
+            PartitionFieldChange change) {
+        IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
+        try {
+            context.executeAuthenticated(() -> {
+                catalogOps.addPartitionField(iceHandle.getDbName(), iceHandle.getTableName(), change);
+                return null;
+            });
+        } catch (Exception e) {
+            throw new DorisConnectorException("Failed to add partition field to Iceberg table "
+                    + iceHandle.getDbName() + "." + iceHandle.getTableName() + ": " + e.getMessage(), e);
+        }
+    }
+
+    /** Drops a partition field, mirroring legacy {@code IcebergMetadataOps.dropPartitionField}. */
+    @Override
+    public void dropPartitionField(ConnectorSession session, ConnectorTableHandle handle,
+            PartitionFieldChange change) {
+        IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
+        try {
+            context.executeAuthenticated(() -> {
+                catalogOps.dropPartitionField(iceHandle.getDbName(), iceHandle.getTableName(), change);
+                return null;
+            });
+        } catch (Exception e) {
+            throw new DorisConnectorException("Failed to drop partition field from Iceberg table "
+                    + iceHandle.getDbName() + "." + iceHandle.getTableName() + ": " + e.getMessage(), e);
+        }
+    }
+
+    /** Replaces a partition field, mirroring legacy {@code IcebergMetadataOps.replacePartitionField}. */
+    @Override
+    public void replacePartitionField(ConnectorSession session, ConnectorTableHandle handle,
+            PartitionFieldChange change) {
+        IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
+        try {
+            context.executeAuthenticated(() -> {
+                catalogOps.replacePartitionField(iceHandle.getDbName(), iceHandle.getTableName(), change);
+                return null;
+            });
+        } catch (Exception e) {
+            throw new DorisConnectorException("Failed to replace partition field in Iceberg table "
+                    + iceHandle.getDbName() + "." + iceHandle.getTableName() + ": " + e.getMessage(), e);
         }
     }
 

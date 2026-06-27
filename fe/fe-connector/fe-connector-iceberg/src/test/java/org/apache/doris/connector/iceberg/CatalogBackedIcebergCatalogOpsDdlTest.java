@@ -23,11 +23,13 @@ import org.apache.doris.connector.api.DorisConnectorException;
 import org.apache.doris.connector.api.ddl.BranchChange;
 import org.apache.doris.connector.api.ddl.ConnectorSortField;
 import org.apache.doris.connector.api.ddl.DropRefChange;
+import org.apache.doris.connector.api.ddl.PartitionFieldChange;
 import org.apache.doris.connector.api.ddl.TagChange;
 import org.apache.doris.connector.iceberg.IcebergCatalogOps.CatalogBackedIcebergCatalogOps;
 
 import org.apache.iceberg.DataFiles;
 import org.apache.iceberg.FileFormat;
+import org.apache.iceberg.PartitionField;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.SnapshotRef;
@@ -374,5 +376,163 @@ public class CatalogBackedIcebergCatalogOpsDdlTest {
                 .withFileSizeInBytes(1024).withRecordCount(1).withFormat(FileFormat.PARQUET).build())
                 .commit();
         return ops.loadTable("db1", table).currentSnapshot().snapshotId();
+    }
+
+    // ---------- Partition evolution (B5): real UpdatePartitionSpec round-trips on an InMemoryCatalog ----------
+
+    /** Creates an EMPTY (no data) unpartitioned db1.{table}. */
+    private void createUnpartitionedTable(String table) {
+        ops.createDatabase("db1", Collections.emptyMap());
+        ops.createTable("db1", table, schema(), PartitionSpec.unpartitioned(), null,
+                IcebergSchemaBuilder.buildTableProperties(Collections.emptyMap()));
+    }
+
+    /** A partition field is "live" if present in the current spec with a non-void transform. */
+    private boolean hasLiveField(String table, String name) {
+        for (PartitionField f : ops.loadTable("db1", table).spec().fields()) {
+            if (f.name().equals(name) && !"void".equals(f.transform().toString())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** Whether a live (non-void) partition field whose transform string starts with {@code prefix} exists. */
+    private boolean hasLiveTransform(String table, String prefix) {
+        for (PartitionField f : ops.loadTable("db1", table).spec().fields()) {
+            String t = f.transform().toString();
+            if (!"void".equals(t) && t.startsWith(prefix)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** Number of live (non-void) partition fields in the current spec. */
+    private int liveFieldCount(String table) {
+        int n = 0;
+        for (PartitionField f : ops.loadTable("db1", table).spec().fields()) {
+            if (!"void".equals(f.transform().toString())) {
+                n++;
+            }
+        }
+        return n;
+    }
+
+    private static PartitionFieldChange add(String transformName, Integer arg, String column, String alias) {
+        return new PartitionFieldChange(transformName, arg, column, alias, null, null, null, null);
+    }
+
+    @Test
+    public void testAddIdentityPartitionField() {
+        createUnpartitionedTable("t1");
+        ops.addPartitionField("db1", "t1", add(null, null, "id", null));
+        Assertions.assertTrue(hasLiveField("t1", "id"));
+        Assertions.assertFalse(ops.loadTable("db1", "t1").spec().isUnpartitioned());
+    }
+
+    @Test
+    public void testAddBucketPartitionFieldWithAlias() {
+        createUnpartitionedTable("t1");
+        ops.addPartitionField("db1", "t1", add("bucket", 8, "id", "id_b"));
+        Assertions.assertTrue(hasLiveField("t1", "id_b"));
+    }
+
+    @Test
+    public void testAddTruncatePartitionField() {
+        createUnpartitionedTable("t1");
+        ops.addPartitionField("db1", "t1", add("truncate", 4, "name", null));
+        // Auto-named by iceberg; assert on the transform type (the field carries a truncate transform).
+        Assertions.assertTrue(hasLiveTransform("t1", "truncate"));
+    }
+
+    @Test
+    public void testDropPartitionFieldByName() {
+        createUnpartitionedTable("t1");
+        ops.addPartitionField("db1", "t1", add(null, null, "id", "p_id"));
+        Assertions.assertTrue(hasLiveField("t1", "p_id"));
+        ops.dropPartitionField("db1", "t1", new PartitionFieldChange(null, null, null, "p_id",
+                null, null, null, null));
+        Assertions.assertFalse(hasLiveField("t1", "p_id"));
+    }
+
+    @Test
+    public void testDropPartitionFieldByTransform() {
+        createUnpartitionedTable("t1");
+        ops.addPartitionField("db1", "t1", add("bucket", 8, "id", null));
+        Assertions.assertTrue(hasLiveTransform("t1", "bucket"));
+        // Drop by the SAME transform that identifies the field (partitionFieldName == null path).
+        ops.dropPartitionField("db1", "t1", add("bucket", 8, "id", null));
+        Assertions.assertFalse(hasLiveTransform("t1", "bucket"));
+        Assertions.assertEquals(0, liveFieldCount("t1"));
+    }
+
+    @Test
+    public void testReplacePartitionFieldByName() {
+        createUnpartitionedTable("t1");
+        ops.addPartitionField("db1", "t1", add(null, null, "id", "p"));
+        // Replace old field "p" with a NEW bucket(8) on id, aliased "p2".
+        ops.replacePartitionField("db1", "t1",
+                new PartitionFieldChange("bucket", 8, "id", "p2", "p", null, null, null));
+        Assertions.assertFalse(hasLiveField("t1", "p"));
+        Assertions.assertTrue(hasLiveField("t1", "p2"));
+    }
+
+    @Test
+    public void testReplacePartitionFieldByOldTransform() {
+        createUnpartitionedTable("t1");
+        ops.addPartitionField("db1", "t1", add("bucket", 8, "id", null));
+        // Old identified by transform bucket(8) on id; new is truncate(4) on name.
+        ops.replacePartitionField("db1", "t1",
+                new PartitionFieldChange("truncate", 4, "name", null, null, "bucket", 8, "id"));
+        Assertions.assertFalse(hasLiveTransform("t1", "bucket"));
+        Assertions.assertTrue(hasLiveTransform("t1", "truncate"));
+    }
+
+    @Test
+    public void testReplacePartitionFieldByOldIdentityTransform() {
+        createUnpartitionedTable("t1");
+        // Old field is an IDENTITY transform on id (aliased) — exercises the null-transformName old path in the
+        // seam's getTransform(...) -> Expressions.ref(column) for the OLD side of replace.
+        ops.addPartitionField("db1", "t1", add(null, null, "id", "id_part"));
+        Assertions.assertTrue(hasLiveTransform("t1", "identity"));
+        // Old identified by identity transform on id (oldTransformName == null, oldColumnName == "id");
+        // new is truncate(4) on name.
+        ops.replacePartitionField("db1", "t1",
+                new PartitionFieldChange("truncate", 4, "name", null, null, null, null, "id"));
+        Assertions.assertFalse(hasLiveTransform("t1", "identity"));
+        Assertions.assertTrue(hasLiveTransform("t1", "truncate"));
+    }
+
+    @Test
+    public void testAddUnsupportedTransformFailsLoud() {
+        createUnpartitionedTable("t1");
+        DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
+                () -> ops.addPartitionField("db1", "t1", add("weekly", null, "id", null)));
+        Assertions.assertTrue(ex.getMessage().contains("Unsupported partition transform"), ex.getMessage());
+    }
+
+    @Test
+    public void testAddBucketWithoutArgFailsLoud() {
+        createUnpartitionedTable("t1");
+        DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
+                () -> ops.addPartitionField("db1", "t1", add("bucket", null, "id", null)));
+        Assertions.assertTrue(ex.getMessage().contains("Bucket transform requires"), ex.getMessage());
+    }
+
+    @Test
+    public void testAddTruncateWithoutArgFailsLoud() {
+        createUnpartitionedTable("t1");
+        DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
+                () -> ops.addPartitionField("db1", "t1", add("truncate", null, "name", null)));
+        Assertions.assertTrue(ex.getMessage().contains("Truncate transform requires"), ex.getMessage());
+    }
+
+    @Test
+    public void testNullColumnFailsLoud() {
+        createUnpartitionedTable("t1");
+        DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
+                () -> ops.addPartitionField("db1", "t1", add(null, null, null, null)));
+        Assertions.assertTrue(ex.getMessage().contains("Column name is required"), ex.getMessage());
     }
 }

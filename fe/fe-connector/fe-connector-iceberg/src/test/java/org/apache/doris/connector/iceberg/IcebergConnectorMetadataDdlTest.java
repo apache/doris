@@ -26,6 +26,7 @@ import org.apache.doris.connector.api.ddl.ConnectorPartitionField;
 import org.apache.doris.connector.api.ddl.ConnectorPartitionSpec;
 import org.apache.doris.connector.api.ddl.ConnectorSortField;
 import org.apache.doris.connector.api.ddl.DropRefChange;
+import org.apache.doris.connector.api.ddl.PartitionFieldChange;
 import org.apache.doris.connector.api.ddl.TagChange;
 
 import org.apache.iceberg.TableProperties;
@@ -333,6 +334,73 @@ public class IcebergConnectorMetadataDdlTest {
         Assertions.assertThrows(DorisConnectorException.class,
                 () -> metadata(ops, ctx, IcebergConnectorProperties.TYPE_REST).dropTag(
                         null, new IcebergTableHandle("db1", "t1"), new DropRefChange("v1", false)));
+        Assertions.assertTrue(ops.log.isEmpty());
+    }
+
+    // ---------- Partition evolution (B5): route by handle, auth-wrap, wrap auth failures ----------
+
+    @Test
+    public void testAddPartitionFieldRoutesByHandleAndIsAuthWrapped() {
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        RecordingConnectorContext ctx = new RecordingConnectorContext();
+        PartitionFieldChange change = new PartitionFieldChange("bucket", 8, "id", "id_b",
+                null, null, null, null);
+        metadata(ops, ctx, IcebergConnectorProperties.TYPE_REST)
+                .addPartitionField(null, new IcebergTableHandle("db1", "t1"), change);
+        Assertions.assertEquals(Collections.singletonList("addPartitionField:db1.t1:id"), ops.log);
+        Assertions.assertEquals("db1", ops.lastPartitionFieldDb);
+        Assertions.assertEquals("t1", ops.lastPartitionFieldTable);
+        Assertions.assertSame(change, ops.lastAddPartitionField);
+        Assertions.assertEquals(1, ctx.authCount, "addPartitionField must run inside executeAuthenticated");
+    }
+
+    @Test
+    public void testAddPartitionFieldAuthFailureWraps() {
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        RecordingConnectorContext ctx = new RecordingConnectorContext();
+        ctx.failAuth = true;
+        Assertions.assertThrows(DorisConnectorException.class,
+                () -> metadata(ops, ctx, IcebergConnectorProperties.TYPE_REST).addPartitionField(
+                        null, new IcebergTableHandle("db1", "t1"),
+                        new PartitionFieldChange(null, null, "id", null, null, null, null, null)));
+        Assertions.assertTrue(ops.log.isEmpty());
+    }
+
+    @Test
+    public void testDropPartitionFieldRoutesByHandleAndIsAuthWrapped() {
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        RecordingConnectorContext ctx = new RecordingConnectorContext();
+        PartitionFieldChange change = new PartitionFieldChange(null, null, null, "p_id",
+                null, null, null, null);
+        metadata(ops, ctx, IcebergConnectorProperties.TYPE_REST)
+                .dropPartitionField(null, new IcebergTableHandle("db1", "t1"), change);
+        Assertions.assertEquals(Collections.singletonList("dropPartitionField:db1.t1:p_id"), ops.log);
+        Assertions.assertSame(change, ops.lastDropPartitionField);
+        Assertions.assertEquals(1, ctx.authCount, "dropPartitionField must run inside executeAuthenticated");
+    }
+
+    @Test
+    public void testReplacePartitionFieldRoutesByHandleAndIsAuthWrapped() {
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        RecordingConnectorContext ctx = new RecordingConnectorContext();
+        PartitionFieldChange change = new PartitionFieldChange("bucket", 4, "id", "p2",
+                "p", null, null, null);
+        metadata(ops, ctx, IcebergConnectorProperties.TYPE_REST)
+                .replacePartitionField(null, new IcebergTableHandle("db1", "t1"), change);
+        Assertions.assertEquals(Collections.singletonList("replacePartitionField:db1.t1:id"), ops.log);
+        Assertions.assertSame(change, ops.lastReplacePartitionField);
+        Assertions.assertEquals(1, ctx.authCount, "replacePartitionField must run inside executeAuthenticated");
+    }
+
+    @Test
+    public void testReplacePartitionFieldAuthFailureWraps() {
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        RecordingConnectorContext ctx = new RecordingConnectorContext();
+        ctx.failAuth = true;
+        Assertions.assertThrows(DorisConnectorException.class,
+                () -> metadata(ops, ctx, IcebergConnectorProperties.TYPE_REST).replacePartitionField(
+                        null, new IcebergTableHandle("db1", "t1"),
+                        new PartitionFieldChange(null, null, "id", null, "p", null, null, null)));
         Assertions.assertTrue(ops.log.isEmpty());
     }
 }

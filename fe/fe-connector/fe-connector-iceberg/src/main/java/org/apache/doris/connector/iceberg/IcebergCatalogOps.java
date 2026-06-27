@@ -21,6 +21,7 @@ import org.apache.doris.connector.api.DorisConnectorException;
 import org.apache.doris.connector.api.ddl.BranchChange;
 import org.apache.doris.connector.api.ddl.ConnectorColumnPosition;
 import org.apache.doris.connector.api.ddl.DropRefChange;
+import org.apache.doris.connector.api.ddl.PartitionFieldChange;
 import org.apache.doris.connector.api.ddl.TagChange;
 
 import com.google.common.base.Splitter;
@@ -31,12 +32,15 @@ import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.SnapshotRef;
 import org.apache.iceberg.SortOrder;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.UpdatePartitionSpec;
 import org.apache.iceberg.UpdateSchema;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.SupportsNamespaces;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.catalog.ViewCatalog;
+import org.apache.iceberg.expressions.Expressions;
+import org.apache.iceberg.expressions.Term;
 import org.apache.iceberg.types.Type;
 import org.apache.iceberg.types.Types;
 import org.apache.logging.log4j.LogManager;
@@ -46,6 +50,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -147,6 +152,17 @@ public interface IcebergCatalogOps {
 
     /** Drops the tag named by {@code tag} from {@code dbName.tableName} (no-op when absent + ifExists). */
     void dropTag(String dbName, String tableName, DropRefChange tag);
+
+    // ---- Partition evolution (B5) — build + commit an UpdatePartitionSpec; needs the live Table ----
+
+    /** Adds the partition field described by {@code change} to {@code dbName.tableName}'s spec. */
+    void addPartitionField(String dbName, String tableName, PartitionFieldChange change);
+
+    /** Drops the partition field described by {@code change} from {@code dbName.tableName}'s spec. */
+    void dropPartitionField(String dbName, String tableName, PartitionFieldChange change);
+
+    /** Replaces a partition field (remove old + add new) per {@code change} in {@code dbName.tableName}'s spec. */
+    void replacePartitionField(String dbName, String tableName, PartitionFieldChange change);
 
     void close() throws IOException;
 
@@ -485,6 +501,92 @@ public interface IcebergCatalogOps {
                 manageSnapshots.createBranch(branchName);
             } else {
                 manageSnapshots.createBranch(branchName, snapshotId);
+            }
+        }
+
+        @Override
+        public void addPartitionField(String dbName, String tableName, PartitionFieldChange change) {
+            UpdatePartitionSpec updateSpec = loadTable(dbName, tableName).updateSpec();
+            Term transform = getTransform(change.getTransformName(), change.getColumnName(),
+                    change.getTransformArg());
+            // A non-null partitionFieldName is the AS alias (mirroring IcebergMetadataOps.addPartitionField).
+            if (change.getPartitionFieldName() != null) {
+                updateSpec.addField(change.getPartitionFieldName(), transform);
+            } else {
+                updateSpec.addField(transform);
+            }
+            updateSpec.commit();
+        }
+
+        @Override
+        public void dropPartitionField(String dbName, String tableName, PartitionFieldChange change) {
+            UpdatePartitionSpec updateSpec = loadTable(dbName, tableName).updateSpec();
+            // Remove by field name when given, else by the transform that identifies the field (legacy parity).
+            if (change.getPartitionFieldName() != null) {
+                updateSpec.removeField(change.getPartitionFieldName());
+            } else {
+                Term transform = getTransform(change.getTransformName(), change.getColumnName(),
+                        change.getTransformArg());
+                updateSpec.removeField(transform);
+            }
+            updateSpec.commit();
+        }
+
+        @Override
+        public void replacePartitionField(String dbName, String tableName, PartitionFieldChange change) {
+            UpdatePartitionSpec updateSpec = loadTable(dbName, tableName).updateSpec();
+            // Remove the old field first, then add the new one — both in one spec update (legacy parity).
+            if (change.getOldPartitionFieldName() != null) {
+                updateSpec.removeField(change.getOldPartitionFieldName());
+            } else {
+                Term oldTransform = getTransform(change.getOldTransformName(), change.getOldColumnName(),
+                        change.getOldTransformArg());
+                updateSpec.removeField(oldTransform);
+            }
+            Term newTransform = getTransform(change.getTransformName(), change.getColumnName(),
+                    change.getTransformArg());
+            if (change.getPartitionFieldName() != null) {
+                updateSpec.addField(change.getPartitionFieldName(), newTransform);
+            } else {
+                updateSpec.addField(newTransform);
+            }
+            updateSpec.commit();
+        }
+
+        /**
+         * Builds an iceberg partition {@link Term} from a neutral transform spec, mirroring legacy
+         * {@code IcebergMetadataOps.getTransform}: a {@code null} transform name is identity ({@code ref}),
+         * {@code bucket}/{@code truncate} require a width, and {@code year}/{@code month}/{@code day}/
+         * {@code hour} take none. An unknown transform fails loud.
+         */
+        private static Term getTransform(String transformName, String columnName, Integer transformArg) {
+            if (columnName == null) {
+                throw new DorisConnectorException("Column name is required for partition transform");
+            }
+            if (transformName == null) {
+                return Expressions.ref(columnName);
+            }
+            switch (transformName.toLowerCase(Locale.ROOT)) {
+                case "bucket":
+                    if (transformArg == null) {
+                        throw new DorisConnectorException("Bucket transform requires a bucket count argument");
+                    }
+                    return Expressions.bucket(columnName, transformArg);
+                case "truncate":
+                    if (transformArg == null) {
+                        throw new DorisConnectorException("Truncate transform requires a width argument");
+                    }
+                    return Expressions.truncate(columnName, transformArg);
+                case "year":
+                    return Expressions.year(columnName);
+                case "month":
+                    return Expressions.month(columnName);
+                case "day":
+                    return Expressions.day(columnName);
+                case "hour":
+                    return Expressions.hour(columnName);
+                default:
+                    throw new DorisConnectorException("Unsupported partition transform: " + transformName);
             }
         }
 

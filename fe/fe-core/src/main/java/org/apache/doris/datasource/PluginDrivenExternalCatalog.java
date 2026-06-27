@@ -41,10 +41,14 @@ import org.apache.doris.connector.api.ConnectorTestResult;
 import org.apache.doris.connector.api.DorisConnectorException;
 import org.apache.doris.connector.api.ddl.ConnectorColumnPosition;
 import org.apache.doris.connector.api.ddl.ConnectorCreateTableRequest;
+import org.apache.doris.connector.api.ddl.PartitionFieldChange;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.ddl.CreateTableInfoToConnectorRequestConverter;
 import org.apache.doris.datasource.property.metastore.MetastoreProperties;
+import org.apache.doris.nereids.trees.plans.commands.info.AddPartitionFieldOp;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.DropPartitionFieldOp;
+import org.apache.doris.nereids.trees.plans.commands.info.ReplacePartitionFieldOp;
 import org.apache.doris.persist.CreateDbInfo;
 import org.apache.doris.persist.DropDbInfo;
 import org.apache.doris.persist.DropInfo;
@@ -710,6 +714,60 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
         try {
             metadata.dropTag(session, handle,
                     ConnectorBranchTagConverter.toDropRefChange(tagInfo));
+        } catch (DorisConnectorException e) {
+            throw new DdlException(e.getMessage(), e);
+        }
+        afterExternalDdl(externalTable, updateTime);
+    }
+
+    /**
+     * Routes {@code ALTER TABLE ... ADD/DROP/REPLACE PARTITION KEY} (Iceberg partition evolution) through the
+     * SPI's {@code ConnectorTableOps} partition-field methods, replacing the legacy {@code Alter.java}
+     * {@code instanceof IcebergExternalTable} dispatch. Each override resolves the connector handle (by REMOTE
+     * names, like {@link #dropTable}), neutralizes the nereids op to {@link PartitionFieldChange} via
+     * {@link ConnectorPartitionFieldConverter}, dispatches, wraps a {@link DorisConnectorException} as a
+     * {@link DdlException}, and runs {@link #afterExternalDdl} for the editlog + cache invalidation (a partition
+     * spec change is a table-level change whose {@code refreshTableInternal} effect matches a column evolution).
+     */
+    @Override
+    public void addPartitionField(TableIf dorisTable, AddPartitionFieldOp op) throws UserException {
+        ExternalTable externalTable = checkExternalTable(dorisTable);
+        ConnectorSession session = buildConnectorSession();
+        ConnectorMetadata metadata = connector.getMetadata(session);
+        ConnectorTableHandle handle = resolveAlterHandle(externalTable, session, metadata);
+        long updateTime = System.currentTimeMillis();
+        try {
+            metadata.addPartitionField(session, handle, ConnectorPartitionFieldConverter.toAddChange(op));
+        } catch (DorisConnectorException e) {
+            throw new DdlException(e.getMessage(), e);
+        }
+        afterExternalDdl(externalTable, updateTime);
+    }
+
+    @Override
+    public void dropPartitionField(TableIf dorisTable, DropPartitionFieldOp op) throws UserException {
+        ExternalTable externalTable = checkExternalTable(dorisTable);
+        ConnectorSession session = buildConnectorSession();
+        ConnectorMetadata metadata = connector.getMetadata(session);
+        ConnectorTableHandle handle = resolveAlterHandle(externalTable, session, metadata);
+        long updateTime = System.currentTimeMillis();
+        try {
+            metadata.dropPartitionField(session, handle, ConnectorPartitionFieldConverter.toDropChange(op));
+        } catch (DorisConnectorException e) {
+            throw new DdlException(e.getMessage(), e);
+        }
+        afterExternalDdl(externalTable, updateTime);
+    }
+
+    @Override
+    public void replacePartitionField(TableIf dorisTable, ReplacePartitionFieldOp op) throws UserException {
+        ExternalTable externalTable = checkExternalTable(dorisTable);
+        ConnectorSession session = buildConnectorSession();
+        ConnectorMetadata metadata = connector.getMetadata(session);
+        ConnectorTableHandle handle = resolveAlterHandle(externalTable, session, metadata);
+        long updateTime = System.currentTimeMillis();
+        try {
+            metadata.replacePartitionField(session, handle, ConnectorPartitionFieldConverter.toReplaceChange(op));
         } catch (DorisConnectorException e) {
             throw new DdlException(e.getMessage(), e);
         }

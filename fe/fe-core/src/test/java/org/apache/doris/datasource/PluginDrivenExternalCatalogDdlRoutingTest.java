@@ -42,10 +42,14 @@ import org.apache.doris.connector.api.ddl.BranchChange;
 import org.apache.doris.connector.api.ddl.ConnectorColumnPosition;
 import org.apache.doris.connector.api.ddl.ConnectorCreateTableRequest;
 import org.apache.doris.connector.api.ddl.DropRefChange;
+import org.apache.doris.connector.api.ddl.PartitionFieldChange;
 import org.apache.doris.connector.api.ddl.TagChange;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.ddl.CreateTableInfoToConnectorRequestConverter;
+import org.apache.doris.nereids.trees.plans.commands.info.AddPartitionFieldOp;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.DropPartitionFieldOp;
+import org.apache.doris.nereids.trees.plans.commands.info.ReplacePartitionFieldOp;
 import org.apache.doris.persist.EditLog;
 
 import org.junit.jupiter.api.AfterEach;
@@ -984,6 +988,97 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
         Assertions.assertThrows(DdlException.class, () -> catalog.dropTag(table, new DropTagInfo("v1", false)));
         Mockito.verify(metadata, Mockito.never())
                 .dropTag(Mockito.any(), Mockito.any(), Mockito.any());
+    }
+
+    // ---------- Partition evolution (B5): route by handle, convert op -> DTO, bookkeep ----------
+
+    @Test
+    public void testAddPartitionFieldRoutesConvertsAndRefreshes() throws Exception {
+        ExternalTable table = mockAlterTable();
+        ConnectorTableHandle handle = stubAlterHandle();
+        catalog.dbForReplayResult = Optional.of(mockExternalDatabase());
+
+        catalog.addPartitionField(table, new AddPartitionFieldOp("bucket", 8, "id", "id_b"));
+
+        // WHY (Rule 9): the op's transform spec must reach the connector as a neutral PartitionFieldChange; a
+        // mutation dropping any field makes one of these asserts red.
+        ArgumentCaptor<PartitionFieldChange> cap = ArgumentCaptor.forClass(PartitionFieldChange.class);
+        Mockito.verify(metadata).addPartitionField(Mockito.eq(session), Mockito.eq(handle), cap.capture());
+        PartitionFieldChange c = cap.getValue();
+        Assertions.assertEquals("bucket", c.getTransformName());
+        Assertions.assertEquals(8, c.getTransformArg().intValue());
+        Assertions.assertEquals("id", c.getColumnName());
+        Assertions.assertEquals("id_b", c.getPartitionFieldName());
+        Assertions.assertNull(c.getOldColumnName());
+        // WHY: a partition spec change shares the column-op bookkeeping (afterExternalDdl) — editlog with LOCAL
+        // names + cache refresh re-resolving by REMOTE names. A mutation dropping it turns these red.
+        ArgumentCaptor<ExternalObjectLog> logCap = ArgumentCaptor.forClass(ExternalObjectLog.class);
+        Mockito.verify(mockEditLog).logRefreshExternalTable(logCap.capture());
+        Assertions.assertEquals("db1", logCap.getValue().getDbName());
+        Assertions.assertEquals("t1", logCap.getValue().getTableName());
+        Assertions.assertEquals("DB1", catalog.lastGetDbForReplayArg,
+                "afterExternalDdl must re-resolve the cached table by the REMOTE db name");
+    }
+
+    @Test
+    public void testDropPartitionFieldRoutesByName() throws Exception {
+        ExternalTable table = mockAlterTable();
+        ConnectorTableHandle handle = stubAlterHandle();
+        catalog.dbForReplayResult = Optional.of(mockExternalDatabase());
+
+        catalog.dropPartitionField(table, new DropPartitionFieldOp("p_id"));
+
+        ArgumentCaptor<PartitionFieldChange> cap = ArgumentCaptor.forClass(PartitionFieldChange.class);
+        Mockito.verify(metadata).dropPartitionField(Mockito.eq(session), Mockito.eq(handle), cap.capture());
+        Assertions.assertEquals("p_id", cap.getValue().getPartitionFieldName());
+        Assertions.assertNull(cap.getValue().getColumnName());
+        Mockito.verify(mockEditLog).logRefreshExternalTable(Mockito.any());
+    }
+
+    @Test
+    public void testReplacePartitionFieldRoutesMapsOldAndNew() throws Exception {
+        ExternalTable table = mockAlterTable();
+        ConnectorTableHandle handle = stubAlterHandle();
+        catalog.dbForReplayResult = Optional.of(mockExternalDatabase());
+
+        catalog.replacePartitionField(table,
+                new ReplacePartitionFieldOp("p", null, null, null, "bucket", 4, "id", "p2"));
+
+        ArgumentCaptor<PartitionFieldChange> cap = ArgumentCaptor.forClass(PartitionFieldChange.class);
+        Mockito.verify(metadata).replacePartitionField(Mockito.eq(session), Mockito.eq(handle), cap.capture());
+        PartitionFieldChange c = cap.getValue();
+        // new* maps to the primary field, old* to the old side (Rule 9).
+        Assertions.assertEquals("bucket", c.getTransformName());
+        Assertions.assertEquals(4, c.getTransformArg().intValue());
+        Assertions.assertEquals("id", c.getColumnName());
+        Assertions.assertEquals("p2", c.getPartitionFieldName());
+        Assertions.assertEquals("p", c.getOldPartitionFieldName());
+        Mockito.verify(mockEditLog).logRefreshExternalTable(Mockito.any());
+    }
+
+    @Test
+    public void testPartitionFieldWrapsConnectorException() {
+        ExternalTable table = mockAlterTable();
+        ConnectorTableHandle handle = stubAlterHandle();
+        Mockito.doThrow(new DorisConnectorException("boom"))
+                .when(metadata).addPartitionField(Mockito.eq(session), Mockito.eq(handle), Mockito.any());
+
+        DdlException ex = Assertions.assertThrows(DdlException.class, () -> catalog.addPartitionField(table,
+                new AddPartitionFieldOp(null, null, "id", null)));
+        Assertions.assertTrue(ex.getMessage().contains("boom"));
+        // A remote failure must abort BEFORE bookkeeping (no editlog).
+        Mockito.verify(mockEditLog, Mockito.never()).logRefreshExternalTable(Mockito.any());
+    }
+
+    @Test
+    public void testPartitionFieldHandleAbsentThrows() {
+        ExternalTable table = mockAlterTable();
+        Mockito.when(metadata.getTableHandle(session, "DB1", "TBL1")).thenReturn(Optional.empty());
+
+        Assertions.assertThrows(DdlException.class,
+                () -> catalog.addPartitionField(table, new AddPartitionFieldOp(null, null, "id", null)));
+        Mockito.verify(metadata, Mockito.never())
+                .addPartitionField(Mockito.any(), Mockito.any(), Mockito.any());
     }
 
     // ==================== helpers ====================

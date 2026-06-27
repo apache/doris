@@ -18,11 +18,13 @@
 package org.apache.doris.datasource.iceberg;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalObjectLog;
+import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.InitCatalogLog;
 import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.datasource.metacache.CacheSpec;
@@ -32,6 +34,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.DropPartitionFieldOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ReplacePartitionFieldOp;
 import org.apache.doris.transaction.TransactionManagerFactory;
 
+import com.google.common.base.Preconditions;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -192,14 +195,21 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
     }
 
     /**
-     * Add partition field to Iceberg table for partition evolution
+     * Add partition field to Iceberg table for partition evolution.
+     *
+     * <p>Overrides the neutral {@link org.apache.doris.datasource.CatalogIf} default so the ALTER dispatch in
+     * {@code Alter.processAlterTableForExternalTable} reaches it polymorphically (no {@code instanceof Iceberg*}
+     * cast). The {@code updateTime} the dispatch used to thread in is now stamped here (same wall clock).</p>
      */
-    public void addPartitionField(IcebergExternalTable table, AddPartitionFieldOp op, long updateTime)
-            throws UserException {
+    @Override
+    public void addPartitionField(TableIf dorisTable, AddPartitionFieldOp op) throws UserException {
         makeSureInitialized();
+        Preconditions.checkState(dorisTable instanceof ExternalTable, dorisTable.getName());
+        ExternalTable table = (ExternalTable) dorisTable;
         if (metadataOps == null) {
             throw new UserException("Add partition field operation is not supported for catalog: " + getName());
         }
+        long updateTime = System.currentTimeMillis();
         ((IcebergMetadataOps) metadataOps).addPartitionField(table, op, updateTime);
         Env.getCurrentEnv().getEditLog()
                 .logRefreshExternalTable(
@@ -208,14 +218,17 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
     }
 
     /**
-     * Drop partition field from Iceberg table for partition evolution
+     * Drop partition field from Iceberg table for partition evolution.
      */
-    public void dropPartitionField(IcebergExternalTable table, DropPartitionFieldOp op, long updateTime)
-            throws UserException {
+    @Override
+    public void dropPartitionField(TableIf dorisTable, DropPartitionFieldOp op) throws UserException {
         makeSureInitialized();
+        Preconditions.checkState(dorisTable instanceof ExternalTable, dorisTable.getName());
+        ExternalTable table = (ExternalTable) dorisTable;
         if (metadataOps == null) {
             throw new UserException("Drop partition field operation is not supported for catalog: " + getName());
         }
+        long updateTime = System.currentTimeMillis();
         ((IcebergMetadataOps) metadataOps).dropPartitionField(table, op, updateTime);
         Env.getCurrentEnv().getEditLog()
                 .logRefreshExternalTable(
@@ -224,14 +237,17 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
     }
 
     /**
-     * Replace partition field in Iceberg table for partition evolution
+     * Replace partition field in Iceberg table for partition evolution.
      */
-    public void replacePartitionField(IcebergExternalTable table,
-            ReplacePartitionFieldOp op, long updateTime) throws UserException {
+    @Override
+    public void replacePartitionField(TableIf dorisTable, ReplacePartitionFieldOp op) throws UserException {
         makeSureInitialized();
+        Preconditions.checkState(dorisTable instanceof ExternalTable, dorisTable.getName());
+        ExternalTable table = (ExternalTable) dorisTable;
         if (metadataOps == null) {
             throw new UserException("Replace partition field operation is not supported for catalog: " + getName());
         }
+        long updateTime = System.currentTimeMillis();
         ((IcebergMetadataOps) metadataOps).replacePartitionField(table, op, updateTime);
         Env.getCurrentEnv().getEditLog()
                 .logRefreshExternalTable(

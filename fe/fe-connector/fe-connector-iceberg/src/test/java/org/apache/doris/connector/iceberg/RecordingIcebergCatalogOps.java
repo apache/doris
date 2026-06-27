@@ -20,6 +20,7 @@ package org.apache.doris.connector.iceberg;
 import org.apache.doris.connector.api.ddl.BranchChange;
 import org.apache.doris.connector.api.ddl.ConnectorColumnPosition;
 import org.apache.doris.connector.api.ddl.DropRefChange;
+import org.apache.doris.connector.api.ddl.PartitionFieldChange;
 import org.apache.doris.connector.api.ddl.TagChange;
 
 import org.apache.iceberg.PartitionSpec;
@@ -104,6 +105,13 @@ final class RecordingIcebergCatalogOps implements IcebergCatalogOps {
     TagChange lastTag;
     DropRefChange lastDropBranch;
     DropRefChange lastDropTag;
+
+    // ---- Partition-evolution write recording (B5) ----
+    String lastPartitionFieldDb;
+    String lastPartitionFieldTable;
+    PartitionFieldChange lastAddPartitionField;
+    PartitionFieldChange lastDropPartitionField;
+    PartitionFieldChange lastReplacePartitionField;
 
     @Override
     public List<String> listDatabaseNames() {
@@ -266,6 +274,30 @@ final class RecordingIcebergCatalogOps implements IcebergCatalogOps {
         lastBranchTagDb = dbName;
         lastBranchTagTable = tableName;
         lastDropTag = tag;
+    }
+
+    @Override
+    public void addPartitionField(String dbName, String tableName, PartitionFieldChange change) {
+        log.add("addPartitionField:" + dbName + "." + tableName + ":" + change.getColumnName());
+        lastPartitionFieldDb = dbName;
+        lastPartitionFieldTable = tableName;
+        lastAddPartitionField = change;
+    }
+
+    @Override
+    public void dropPartitionField(String dbName, String tableName, PartitionFieldChange change) {
+        log.add("dropPartitionField:" + dbName + "." + tableName + ":" + change.getPartitionFieldName());
+        lastPartitionFieldDb = dbName;
+        lastPartitionFieldTable = tableName;
+        lastDropPartitionField = change;
+    }
+
+    @Override
+    public void replacePartitionField(String dbName, String tableName, PartitionFieldChange change) {
+        log.add("replacePartitionField:" + dbName + "." + tableName + ":" + change.getColumnName());
+        lastPartitionFieldDb = dbName;
+        lastPartitionFieldTable = tableName;
+        lastReplacePartitionField = change;
     }
 
     @Override

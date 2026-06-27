@@ -21,6 +21,7 @@ import org.apache.doris.connector.api.ddl.BranchChange;
 import org.apache.doris.connector.api.ddl.ConnectorColumnPosition;
 import org.apache.doris.connector.api.ddl.ConnectorCreateTableRequest;
 import org.apache.doris.connector.api.ddl.DropRefChange;
+import org.apache.doris.connector.api.ddl.PartitionFieldChange;
 import org.apache.doris.connector.api.ddl.TagChange;
 import org.apache.doris.connector.api.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
@@ -214,6 +215,24 @@ public interface ConnectorTableOps {
     default void dropTag(ConnectorSession session, ConnectorTableHandle handle,
             DropRefChange tag) {
         throw new DorisConnectorException("DROP TAG not supported");
+    }
+
+    /** Adds a partition field (column reference + optional transform) to the table's partition spec. */
+    default void addPartitionField(ConnectorSession session, ConnectorTableHandle handle,
+            PartitionFieldChange change) {
+        throw new DorisConnectorException("ADD PARTITION FIELD not supported");
+    }
+
+    /** Drops a partition field from the table's partition spec. */
+    default void dropPartitionField(ConnectorSession session, ConnectorTableHandle handle,
+            PartitionFieldChange change) {
+        throw new DorisConnectorException("DROP PARTITION FIELD not supported");
+    }
+
+    /** Replaces a partition field (removes the old field, adds the new one) in the table's partition spec. */
+    default void replacePartitionField(ConnectorSession session, ConnectorTableHandle handle,
+            PartitionFieldChange change) {
+        throw new DorisConnectorException("REPLACE PARTITION FIELD not supported");
     }
 
     /** Returns the primary key column names for the given table. */
