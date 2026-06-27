@@ -2722,9 +2722,21 @@ Status FileColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t co
                 total_read_count += nrows_to_read;
                 remaining -= nrows_to_read;
             } else {
-                memset(null_map_data.data() + base_size + total_read_count, 0, nrows_to_read);
-                total_read_count += nrows_to_read;
-                remaining -= nrows_to_read;
+                rowid_t current_ordinal_in_page =
+                        cast_set<uint32_t>(_page.offset_in_page + _page.first_ordinal);
+                size_t rows_in_current_page = 0;
+                for (size_t i = 0; i < nrows_to_read; ++i) {
+                    if (rowids[total_read_count + i] - current_ordinal_in_page >= nrows_to_read) {
+                        break;
+                    }
+                    ++rows_in_current_page;
+                }
+                DCHECK_GT(rows_in_current_page, 0);
+                memset(null_map_data.data() + base_size + total_read_count, 0,
+                       rows_in_current_page);
+                _page.offset_in_page += rows_in_current_page;
+                total_read_count += rows_in_current_page;
+                remaining -= rows_in_current_page;
             }
         }
 

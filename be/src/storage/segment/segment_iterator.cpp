@@ -2772,6 +2772,32 @@ Status SegmentIterator::_read_columns_by_rowids(std::vector<ColumnId>& read_colu
     return Status::OK();
 }
 
+Status SegmentIterator::_read_lazy_pruned_columns(Block* block) {
+    if (_support_lazy_read_pruned_columns.empty()) {
+        return Status::OK();
+    }
+
+    SCOPED_RAW_TIMER(&_opts.stats->lazy_read_pruned_ns);
+    DorisVector<rowid_t> rowids(_selected_size);
+    for (size_t i = 0; i < _selected_size; ++i) {
+        rowids[i] = _block_rowids[_sel_rowid_idx[i]];
+    }
+
+    for (auto cid : _support_lazy_read_pruned_columns) {
+        auto loc = _schema_block_id_map[cid];
+        auto column = IColumn::mutate(std::move(block->get_by_position(loc).column));
+        auto* column_iter = _column_iterators[cid].get();
+        ScopedColumnIteratorReadPhase scoped_read_phase {column_iter,
+                                                         ColumnIterator::ReadPhase::LAZY};
+        if (_selected_size > 0) {
+            RETURN_IF_ERROR(column_iter->read_by_rowids(rowids.data(), _selected_size, column));
+        }
+        column_iter->finalize_lazy_phase(column);
+        block->get_by_position(loc).column = std::move(column);
+    }
+    return Status::OK();
+}
+
 Status SegmentIterator::next_batch(Block* block) {
     // Replace virtual columns with ColumnNothing at the begining of each next_batch call.
     _init_virtual_columns(block);
@@ -3035,27 +3061,7 @@ Status SegmentIterator::_next_batch_internal(Block* block) {
             }
         }
 
-        if (!_support_lazy_read_pruned_columns.empty()) {
-            SCOPED_RAW_TIMER(&_opts.stats->lazy_read_pruned_ns);
-            DorisVector<rowid_t> rowids(_selected_size);
-            for (size_t i = 0; i < _selected_size; ++i) {
-                rowids[i] = _block_rowids[_sel_rowid_idx[i]];
-            }
-
-            for (auto cid : _support_lazy_read_pruned_columns) {
-                auto loc = _schema_block_id_map[cid];
-                auto column = IColumn::mutate(std::move(block->get_by_position(loc).column));
-                auto* column_iter = _column_iterators[cid].get();
-                ScopedColumnIteratorReadPhase scoped_read_phase {column_iter,
-                                                                 ColumnIterator::ReadPhase::LAZY};
-                if (_selected_size > 0) {
-                    RETURN_IF_ERROR(
-                            column_iter->read_by_rowids(rowids.data(), _selected_size, column));
-                }
-                column_iter->finalize_lazy_phase(column);
-                block->get_by_position(loc).column = std::move(column);
-            }
-        }
+        RETURN_IF_ERROR(_read_lazy_pruned_columns(block));
     }
 
     // step5: output columns

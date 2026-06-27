@@ -34,11 +34,17 @@
 #include "agent/be_exec_version_manager.h"
 #include "common/config.h"
 #include "io/fs/file_reader.h"
+#include "io/fs/file_system.h"
+#include "io/fs/file_writer.h"
+#include "io/fs/local_file_system.h"
+#include "storage/olap_common.h"
 #include "storage/segment/column_reader_cache.h"
+#include "storage/segment/column_writer.h"
 #include "storage/segment/mock/mock_segment.h"
 #include "storage/segment/segment.h"
 #include "storage/segment/variant/variant_column_reader.h"
 #include "storage/tablet/tablet_schema.h"
+#include "storage/types.h"
 #include "util/json/path_in_data.h"
 
 namespace doris::segment_v2 {
@@ -227,6 +233,14 @@ private:
     ordinal_t _current_ordinal = 0;
 };
 
+class NullMapOnlyFileColumnIterator final : public FileColumnIterator {
+public:
+    explicit NullMapOnlyFileColumnIterator(std::shared_ptr<ColumnReader> reader)
+            : FileColumnIterator(std::move(reader)) {}
+
+    void force_null_map_only() { _meta_read_mode = MetaReadMode::NULL_MAP_ONLY; }
+};
+
 MutableColumnPtr create_int_struct_column(size_t field_count) {
     Columns columns;
     for (size_t i = 0; i < field_count; ++i) {
@@ -263,11 +277,105 @@ TrackingOffsetIterator create_tracking_offset_iterator() {
 }
 } // namespace
 
+static const std::string COLUMN_READER_FILE_TEST_DIR = "./ut_dir/column_reader_test";
+
 class ColumnReaderTest : public ::testing::Test {
 protected:
-    void SetUp() override {}
-    void TearDown() override {}
+    void SetUp() override {
+        _old_disable_storage_page_cache = config::disable_storage_page_cache;
+        config::disable_storage_page_cache = true;
+        auto st = io::global_local_filesystem()->delete_directory(COLUMN_READER_FILE_TEST_DIR);
+        ASSERT_TRUE(st.ok()) << st.to_string();
+        st = io::global_local_filesystem()->create_directory(COLUMN_READER_FILE_TEST_DIR);
+        ASSERT_TRUE(st.ok()) << st.to_string();
+    }
+
+    void TearDown() override {
+        EXPECT_TRUE(
+                io::global_local_filesystem()->delete_directory(COLUMN_READER_FILE_TEST_DIR).ok());
+        config::disable_storage_page_cache = _old_disable_storage_page_cache;
+    }
+
+private:
+    bool _old_disable_storage_page_cache = false;
 };
+
+TEST_F(ColumnReaderTest, NullMapOnlyReadBySparseRowidsAcrossPages) {
+    ColumnMetaPB meta;
+    std::string fname = COLUMN_READER_FILE_TEST_DIR + "/null_map_only_sparse_rowids";
+    auto fs = io::global_local_filesystem();
+
+    {
+        io::FileWriterPtr file_writer;
+        Status st = fs->create_file(fname, &file_writer);
+        ASSERT_TRUE(st.ok()) << st.to_string();
+
+        ColumnWriterOptions writer_opts;
+        writer_opts.meta = &meta;
+        writer_opts.meta->set_column_id(0);
+        writer_opts.meta->set_unique_id(0);
+        writer_opts.meta->set_type(static_cast<int32_t>(FieldType::OLAP_FIELD_TYPE_INT));
+        writer_opts.meta->set_length(0);
+        writer_opts.meta->set_encoding(PLAIN_ENCODING);
+        writer_opts.meta->set_compression(segment_v2::CompressionTypePB::LZ4F);
+        writer_opts.meta->set_is_nullable(true);
+        writer_opts.data_page_size = sizeof(int32_t) * 2;
+        writer_opts.need_zone_map = false;
+
+        TabletColumn column(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE,
+                            FieldType::OLAP_FIELD_TYPE_INT);
+        std::unique_ptr<ColumnWriter> writer;
+        st = ColumnWriter::create(writer_opts, &column, file_writer.get(), &writer);
+        ASSERT_TRUE(st.ok()) << st.to_string();
+        st = writer->init();
+        ASSERT_TRUE(st.ok()) << st.to_string();
+
+        for (int32_t i = 0; i < 6; ++i) {
+            st = writer->append(i == 2, &i);
+            ASSERT_TRUE(st.ok()) << st.to_string();
+        }
+
+        st = writer->finish();
+        ASSERT_TRUE(st.ok()) << st.to_string();
+        st = writer->write_data();
+        ASSERT_TRUE(st.ok()) << st.to_string();
+        st = writer->write_ordinal_index();
+        ASSERT_TRUE(st.ok()) << st.to_string();
+        st = file_writer->close();
+        ASSERT_TRUE(st.ok()) << st.to_string();
+    }
+
+    io::FileReaderSPtr file_reader;
+    auto st = fs->open_file(fname, &file_reader);
+    ASSERT_TRUE(st.ok()) << st.to_string();
+
+    ColumnReaderOptions reader_opts;
+    std::shared_ptr<ColumnReader> reader;
+    st = ColumnReader::create(reader_opts, meta, 6, file_reader, &reader);
+    ASSERT_TRUE(st.ok()) << st.to_string();
+
+    NullMapOnlyFileColumnIterator iter(reader);
+    ColumnIteratorOptions iter_opts;
+    OlapReaderStatistics stats;
+    iter_opts.stats = &stats;
+    iter_opts.file_reader = file_reader.get();
+    st = iter.init(iter_opts);
+    ASSERT_TRUE(st.ok()) << st.to_string();
+    iter.force_null_map_only();
+
+    MutableColumnPtr dst = ColumnNullable::create(ColumnInt32::create(), ColumnUInt8::create());
+    const rowid_t rowids[] = {0, 2};
+    st = iter.read_by_rowids(rowids, std::size(rowids), dst);
+    ASSERT_TRUE(st.ok()) << st.to_string();
+
+    ASSERT_EQ(2, dst->size());
+    const auto& nullable_col = assert_cast<const ColumnNullable&>(*dst);
+    const auto& null_map = nullable_col.get_null_map_data();
+    ASSERT_EQ(2, null_map.size());
+    EXPECT_EQ(0, null_map[0]);
+    EXPECT_EQ(1, null_map[1]);
+    EXPECT_EQ(2, nullable_col.get_nested_column().size());
+}
 
 TEST_F(ColumnReaderTest, StructAccessPaths) {
     auto create_struct_iterator = []() {

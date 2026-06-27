@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+import org.apache.doris.regression.action.ProfileAction
+
 suite("test_pruned_columns") {
     sql "set batch_size = 32;"
     sql """DROP TABLE IF EXISTS `tbl_test_pruned_columns`"""
@@ -219,6 +221,66 @@ suite("test_pruned_columns") {
         order by 1, 2 limit 0, 20;
     """
 
+    sql "set enable_profile = true"
+    sql "set profile_level = 2"
+    sql "set enable_common_expr_pushdown = true"
+    sql "set enable_prune_nested_column = true"
+
+    def lazyPrunedToken = "lazy_pruned_column_recovery_" + UUID.randomUUID().toString()
+    sql """
+        select
+            "${lazyPrunedToken}"
+            , id
+            , element_at(s, 'data')
+        from `tbl_test_pruned_columns`
+        where element_at(s, 'city') = 'chengdu'
+        order by 1 limit 0, 20;
+    """
+
+    def profileAction = new ProfileAction(context)
+    def profileCompletionStateName = "Profile Completion State"
+    def profileCompletionStateComplete = "COMPLETE"
+    def lazyPrunedCounterName = "LazyReadPrunedTime"
+    def lazyPrunedProfile = ""
+    def lazyPrunedProfileState = ""
+    for (int attempt = 0; attempt < 60; attempt++) {
+        for (def profileItem : profileAction.getProfileList()) {
+            if (profileItem["Sql Statement"].toString().contains(lazyPrunedToken)) {
+                lazyPrunedProfileState = profileItem[profileCompletionStateName]?.toString()
+                def currentProfile = profileAction.getProfile(profileItem["Profile ID"].toString())
+                if (currentProfile != null && !currentProfile.isEmpty()) {
+                    lazyPrunedProfile = currentProfile
+                }
+                break
+            }
+        }
+        if (lazyPrunedProfileState == profileCompletionStateComplete
+                && lazyPrunedProfile.contains(lazyPrunedCounterName)) {
+            break
+        }
+        Thread.sleep(500)
+    }
+    assertTrue(lazyPrunedProfile != null && !lazyPrunedProfile.isEmpty(),
+            "profile not found for ${lazyPrunedToken}")
+    assertTrue(lazyPrunedProfileState == profileCompletionStateComplete,
+            "profile is not complete for ${lazyPrunedToken}, state: ${lazyPrunedProfileState}")
+    logger.info("${lazyPrunedToken} profile: ${lazyPrunedProfile}")
+
+    def lazyPrunedTimer = (lazyPrunedProfile =~ /${lazyPrunedCounterName}:\s*([0-9.]+)(ns|us|ms|s)/)
+    boolean foundLazyPrunedTimer = false
+    boolean nonZeroLazyPrunedTimer = false
+    while (lazyPrunedTimer.find()) {
+        foundLazyPrunedTimer = true
+        if ((lazyPrunedTimer.group(1) as BigDecimal) > 0) {
+            nonZeroLazyPrunedTimer = true
+            break
+        }
+    }
+    assertTrue(foundLazyPrunedTimer,
+            "LazyReadPrunedTime not found in profile for ${lazyPrunedToken}")
+    assertTrue(nonZeroLazyPrunedTimer,
+            "LazyReadPrunedTime is zero in profile for ${lazyPrunedToken}: ${lazyPrunedProfile}")
+
     qt_sql6_1 """
         select
             id
@@ -236,6 +298,11 @@ suite("test_pruned_columns") {
         where element_at(s, 'city') = 'chengdu'
         order by 1 desc, 2 limit 0, 20;
     """
+
+    sql "set enable_profile = false"
+    sql "unset variable profile_level"
+    sql "set enable_common_expr_pushdown = false"
+    sql "set enable_prune_nested_column = false"
 
     qt_sql7 """
         select count(element_at(dynamic_attributes['theme_preference'], 'confidence_score')) from `tbl_test_pruned_columns_map`;

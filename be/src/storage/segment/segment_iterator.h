@@ -232,6 +232,7 @@ private:
                                                  MutableColumns* mutable_columns,
                                                  bool init_condition_cache = false,
                                                  bool read_for_predicate = false);
+    [[nodiscard]] Status _read_lazy_pruned_columns(Block* block);
 
     Status copy_column_data_by_selector(IColumn* input_col_ptr, MutableColumnPtr& output_col,
                                         uint16_t* sel_rowid_idx, uint16_t select_size,
