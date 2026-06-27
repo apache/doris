@@ -5,48 +5,37 @@
 
 ---
 
-# 🎯 下一个 session 的任务 = **C5 翻闸就绪修复（A+B 两类全修，按 `P6.6-C5-flip-readiness.md` 推荐顺序；决策已锁）**
+# 🎯 下一个 session 的任务 = **C5 / Batch B1 = P1 四核心 DDL 连接器移植（createTable/dropTable/createDatabase/dropDatabase）+ fe-core 引擎映射**
 
-> **⚠️ 本 session 已很长（R7 实现 + 2 个大 workflow 审计），上下文高 → 在此干净节点交接。下个 session 从全新上下文开始实现 C5 修复（A2/A3 连接器 SPI + 持久化迁移是大块，新上下文做更稳）。**
+> **⚠️ 本 session = C5 DDL/ALTER 范围纠偏 + buildout 设计（无代码改动，纯文档）。上下文留余量，在干净节点交接。下个 session 从全新上下文实现 Batch B1（连接器侧 port，新上下文做更稳）。**
 
-> **2026-06-27 翻闸就绪度审计（`wf_265f4359-47f`）改写了「下一步」**：原以为 R7 后即 R8（rewrite e2e），实测**翻闸前还有一批 fe-core 缺口**（翻闸后对真实 iceberg 表报错/错误结果，docker 写入测不到）。R8（rewrite 真写 e2e）只是其中**写路径**那一块 = **用户 docker 验证**（C 类）。**详见 `plan-doc/tasks/designs/P6.6-C5-flip-readiness.md`**（A/B/C/D 分类 + 2 项用户决策 + 推荐顺序）。
+> **🔥 2026-06-27 复核（`wf_4f208490-deb` + 直接验证）推翻了原「下一步」**：原 HANDOFF 说 C5 下一步是「A1 = 最小纯 fe-core 建表引擎映射」。**实测该前提错**：iceberg 连接器（`IcebergConnectorMetadata`）实现了 **0 个 DDL/ALTER 写 op**，翻闸后 **18 个 op 全部报错（真回归）**，分 3 路径（P1 4 个有 paimon 参考 / P2 11 个无参考 / P3 3 个无参考+铁律违规）；`truncateTable` 例外（legacy 本就 throws）。**全部 fail-loud（不静默错数据）→ 这是功能 parity 门槛非安全问题**。原审计 `wf_265f4359` 的 lens 是「fe-core cast iceberg」，没追 DDL 两条断裂路，只抓到 18 里的 2 个。
 
-**本 session = C4 R7（WHERE lowering）✅ DONE（`5a1a0e25e16`）+ 翻闸就绪度审计 ✅（落 `P6.6-C5-flip-readiness.md`）**。**P6.1–P6.5 = ✅ 全 DONE**。**P6.6：C1 ✅ / C2 ✅ / C3a ✅ / C3b-pre ✅ / C3b-core+commit-bridge 全闭 ✅ → C4 R1–R7 ✅（R8=rewrite e2e=用户 docker）→ C5 翻闸（A/B 缺口待修 + 2 决策待定）**。iceberg **仍不在** `SPI_READY_TYPES`。
+> **用户决策（2026-06-27 signed）= 全量对齐**：18 个 op 全部翻闸前修（知道真实范围后重申 DEC-FLIP-2）。**实现主文档 = `plan-doc/tasks/designs/P6.6-C5-ddl-spi-buildout.md`**（SPI 签名 + 中立 DTO + PluginDriven 共享 helper + 逐 op 移植表 + 批次 B1–B5 + 测试 + Alter 铁律修复）。
 
-## ⛳ 审计结论（一句话）：**还不能翻闸**。scan + write-dispatch 面已干净（按 PluginDriven 类型/物理 sink 路由，非 iceberg cast）；剩缺口集中在 **DDL/SHOW 渲染、统计、优化器、分区演进、建表、视图、持久化迁移**。
+**本 session 完成**：① 纠偏 `P6.6-C5-flip-readiness.md` 的 A 节（18-op/3-路径，修正 A1）；② 新建 buildout 设计 `P6.6-C5-ddl-spi-buildout.md`；③ 更新本 HANDOFF。**无代码改动**。**P6.1–P6.5 ✅ / P6.6：C1–C3 ✅ / C4 R1–R7 ✅（R8=rewrite e2e=用户 docker，归 flip-readiness C 类）→ C5 = DDL/ALTER buildout（B1 起）+ B 类 SHOW/统计 + 持久化 + 视图 + C docker → 翻闸**。iceberg **仍不在** `SPI_READY_TYPES`。
 
-## ✅ 2 项用户决策已锁（2026-06-27，详审计文档 §决策）
-- **[DEC-FLIP-1] = 方向一（加 GSON 迁移）**：实现 `GsonUtils.registerCompatibleSubtype(PluginDrivenExternalCatalog.class, "Iceberg…")` 全 8 catalog 变体 + 库 + 表（跟 paimon `:389-411` 范式），重启自动升级、全集群统一。
-- **[DEC-FLIP-2] = A+B 两类全部翻闸前修**（A1/A2/A3/A4 + B1–B6）：含视图查询(A3)+SHOW-视图(B6) 共用中立视图 SPI、分区演进(A2)。**仅 C 类（写路径正确性）归用户 docker 验证**，D 类翻闸后再做。
+## ⛳ 结论（一句话）：**还不能翻闸**。scan + 行级 DML dispatch 已干净；**DDL/ALTER 全面缺口（18 op）是新发现的最大块**，加上原 B 类 SHOW/统计退化、持久化迁移、视图。
 
-## 📖 起步必读（动 C5 修复前）
-1. **`plan-doc/tasks/designs/P6.6-C5-flip-readiness.md`**（**主**：缺口清单 A/B/C/D + 2 决策 + 推荐顺序；动码前 re-grep 锚点）。
-2. 本 HANDOFF「R7 完成」+「2 项决策」+ FU 清单。
-3. memory `r7-where-lowering-unbound-failloud`、`r6-rewrite-driver-beginwrite-once`（C 类 rewrite 写半真跑时对照）。
+## ✅ 用户决策（2026-06-27 signed）
+- **[DEC-FLIP-2 重申] = 全量对齐**：DDL/ALTER 18 op + B 类 + 视图(A3/B6) 全部翻闸前修；仅 C 类（写路径正确性）归用户 docker，D 类翻闸后。
+- **[DEC-FLIP-1] = 方向一（GSON 迁移）**：`GsonUtils.registerCompatibleSubtype(PluginDrivenExternalCatalog.class, "Iceberg…")` 全 8 catalog 变体 + 库 + 表（跟 paimon `:389-411` 范式），重启自动升级。
 
-## ✅ 本 session 完成（C4 R7，单提交 `5a1a0e25e16`，dormant）
-> recon = `wf_46e2c61c-ee2`（3 reader〔2 个因 StructuredOutput 重试上限失败〕+ synthesis + adversarial critic）；critic 实证挖出「连接器 conflict-mode 矩阵是 legacy 严格子集→fail-loud 须落两层」的 BLOCKER。**11 改 + 2 新**。
+## 📖 起步必读（动 B1 前）
+1. **`plan-doc/tasks/designs/P6.6-C5-ddl-spi-buildout.md`**（**主**：DDL/ALTER 实现设计 + 批次 + 逐 op 移植表；动码前 re-grep 锚点）。
+2. `plan-doc/tasks/designs/P6.6-C5-flip-readiness.md`（缺口全景 A/B/C/D + 决策）。
+3. memory `iceberg-ddl-connector-gap-flip`（本次纠偏）、`r7-where-lowering-unbound-failloud`、`r6-rewrite-driver-beginwrite-once`。
+4. **B1 参考**：paimon `PaimonConnectorMetadata.createTable:786`/`dropTable:811`/`createDatabase:849`/`dropDatabase:883`（已翻闸的范本）；legacy `IcebergMetadataOps.createTableImpl:324`/`dropTableImpl:407`/`createDbImpl:227`/`dropDbImpl:265`（移植源）。
 
-- **用户裁决（2026-06-27，signed）**：rewrite 的 WHERE「**无法精确下推为文件裁剪就报错**」——绝不静默扩大重写集（不走「尽力下推+变宽」）。
-- **关键发现（推翻 HANDOFF/设计旧「复用 NereidsToConnectorExpressionConverter」方案）**：EXECUTE 的 WHERE 全程 **UNBOUND**（`LogicalPlanBuilder.visitAlterTableExecute` 只 `visit` 不 analyze；`ExecuteActionCommand` 只 analyze 表名）。bound-slot 的 `NereidsToConnectorExpressionConverter` 会把每个 `UnboundSlot` 叶子静默丢→整条 WHERE 为空→**重写全表**（灾难）。连接器 `IcebergPredicateConverter` 按列名从 iceberg schema 解析、**不读** `ConnectorColumnRef` 类型→fe-core 只需列名（类型仍按表 schema 填，保持诚实）。
-- **两层 fail-loud 设计**（critic BLOCKER：conflict-mode 是 legacy 节点集严格子集，跨列 OR/NOT 比较被丢→单 fe-core 不够）：
-  1. **fe-core 新 `datasource/UnboundExpressionToConnectorPredicateConverter`**：unbound-aware 按列名解析（含单段 `UnboundSlot`，仿 legacy `IcebergNereidsUtils.extractColumnName`）+ 表 `getColumn(name)` 取 Doris 类型→`ExprToConnectorExpressionConverter.typeToConnectorType`；镜像 legacy 节点集（And/Or/Not/EQ/GT/GE/LT/LE/IN/IsNull/Between）；**all-or-nothing fail-loud**（任一节点不可表示/未知列/多段列名→抛 `AnalysisException`，绝不产部分/空谓词）；字面量经 `ExprToConnectorExpressionConverter` 与 scan/conflict 路字节一致。**iron-law clean**（无 instanceof Iceberg / IcebergUtils）。
-  2. **连接器 `RewriteDataFilePlanner.planFileScanTasks`**：WHERE 未完整下推（`pushed < countTopLevelConjuncts`）→ 抛 `DorisConnectorException`（取代 DV-T05r-where 的静默丢/变宽）；新 `countTopLevelConjuncts` 助手。
-- **派发拆分**：`ConnectorExecuteAction.execute` 先取 `getExecutionMode`，WHERE 拒绝按模式拆——SINGLE_CALL（8 纯 SDK 过程）仍拒；DISTRIBUTED 降 WHERE 为 `ConnectorPredicate` 传 driver。`ConnectorRewriteDriver` 加 `ConnectorPredicate` 字段并透传 `planRewrite`（原 hardcode null）。
-- **语义注**：常见 WHERE（等值/范围/IN/IS NULL/BETWEEN/同列 OR/AND 串联）全部精确执行；罕见不可下推形式（跨列 OR/NOT 比较/NE/函数/列-列/未知列/多段列名）现报清晰错误（比 legacy 略严：legacy 支持的跨列 OR/NOT 比较现也报错，用户接受）。deviations-log DV-T05r-where 已更新为 rewrite 路 fail-loud。
+## ✅ C4 R7（WHERE lowering）= 上一 session DONE（`5a1a0e25e16`，dormant）
+rewrite WHERE「无法精确下推就报错」两层 fail-loud（fe-core `UnboundExpressionToConnectorPredicateConverter` + 连接器 `RewriteDataFilePlanner` guard）。fe-core 28/0 + 连接器 19/0 + 6 变异全 KILLED + iron-law clean。**真 e2e 未跑（flip-gated）**。详 git log `5a1a0e25e16` + memory `r7-where-lowering-unbound-failloud`。R8（rewrite 真写 e2e）已归入 flip-readiness **C 类（用户 docker）**。
 
-## ✅ 本 session 验证
-- fe-core **28/0**（`UnboundExpressionToConnectorPredicateConverterTest` 10、`ConnectorExecuteActionTest` 15〔含 SINGLE_CALL 拒 + DISTRIBUTED 降并 ArgumentCaptor 验透传〕、`ConnectorRewriteDriverTest` 3〔含 predicate 透传 planRewrite〕）；连接器 `RewriteDataFilePlannerTest` **19/0**（旧 `unconvertibleCrossColumnOrWidensScan`→`unconvertibleCrossColumnOrThrows` + 新 `partiallyPushableWhereThrows`）。**fresh clean recompile 复核绿**（曾遇 mutation 后 os.utime 致 stale .class 假红→`touch` 源强制重编后绿）。
-- **6 变异（Rule 9/12）全 KILLED**：M1 converter fail-loud / M2 AND all-or-nothing / M4 连接器 guard / M5 driver 透传 / M6 SINGLE_CALL 拒 / M7 DISTRIBUTED 降。脚本 `scratchpad/mutate_r7.py`（已 restore，无 .mutbak / 无 if(false) 残留，已核）。
-- iron-law（3 fe-core 新/改文件无 instanceof Iceberg / IcebergUtils）+ 连接器 import gate **clean**。
-- **真分布式 WHERE rewrite e2e 未跑**（flip-gated）= R8 rehearsal 才触及（诚实标注，勿谎称）。
-
-## 🚦 C5 起步（翻闸就绪修复 → 最后才加 `SPI_READY_TYPES`）
-> **主清单 = `P6.6-C5-flip-readiness.md`**（A 硬阻塞 / B 应修 / C 用户 docker / D 可后做 + 推荐顺序）。下面是摘要：
-- **A 硬阻塞（翻闸前必修，docker 测不到）**：A1 不带 ENGINE 的 CREATE TABLE 报错（小，纯 fe-core，先确认连接器 createTable）；A2 ALTER 分区演进报错（需连接器中立 SPI）；A3 查询 iceberg 视图返错误结果（仅 `enable_query_iceberg_views` 时；需中立视图 SPI）；A4 翻闸开关 + 持久化迁移（DEC-FLIP-1）。
-- **B 应修（功能退化不报错；多纯 fe-core）**：B1 SHOW CREATE TABLE 丢 LOCATION/属性/排序/分区；B2 SHOW CREATE DATABASE 丢 LOCATION；B3 SHOW PARTITIONS 3→1 列；B4 自动统计停摆→CBO 退化；B5 Top-N 懒物化失效；B6 SHOW CREATE 视图 DDL 错（随 A3）。
-- **C 用户 docker 验证（含原 R8）**：C1 rewrite 写半真 e2e（pin/共享事务/OCC commit/GATHER/register/WHERE 真裁剪/不可下推真报错）；C2 输出文件大小+并行度未接线（FU-rewrite-output-sizing）；C3 BE 层（DV-041 / DV-038 可崩 BE）；C4 V3 行血缘列绑定 + WHERE 跨类型字面量。
-- **推荐顺序**：A1 → B 纯 fe-core（B1/B2/B4/B5）→（DEC-FLIP-1 定后）持久化 GSON 迁移 → A2 分区演进 / A3·B6 视图 SPI → C 用户 docker → 加 `SPI_READY_TYPES` + 删 legacy case + 用户二签。
+## 🚦 C5 起步 — **Batch B1 = P1 四核心 DDL**（详 `P6.6-C5-ddl-spi-buildout.md`）
+> **主文档 = `P6.6-C5-ddl-spi-buildout.md`**（DDL/ALTER 实现）；缺口全景 = `P6.6-C5-flip-readiness.md`。**最后才加 `SPI_READY_TYPES`**。
+- **B1（先做，最低风险）= P1 四核心 DDL**：iceberg 连接器实现 createTable/dropTable/createDatabase/dropDatabase（+`supportsCreateDatabase`），移植 legacy `IcebergMetadataOps.createTableImpl:324`/`dropTableImpl:407`/`createDbImpl:227`/`dropDbImpl:265`，**照搬 paimon `PaimonConnectorMetadata:786/811/849/883` 范式**；fe-core 加一行 `CreateTableInfo.pluginCatalogTypeToEngine:932` → `case "iceberg": return ENGINE_ICEBERG;`。**SPI/PluginDriven routing 已存在，无需新增**。测试：连接器 InMemoryCatalog DDL + fe-core engine-mapping + mutation。
+- **后续批**：B2 列演进(6)+共享 helper → B3 rename → B4 branch/tag(4)+DTO → B5 分区演进(3)+**Alter.java:433-456 铁律修复（去 instanceof IcebergExternalTable/cast）**。逐 op 移植表见 buildout §5。
+- **DDL/ALTER 全绿后**：flip-readiness B 类（SHOW/统计，多纯 fe-core）→ DEC-FLIP-1 持久化 GSON → A3/B6 视图 SPI → C 类 docker → 加 `SPI_READY_TYPES` + 删 legacy case + 用户二签。
+- **task 列表已建**（#4 B1〔blockedBy #2 设计=已 done〕… #8 B5）；下个 session `TaskList` 接续。
 - **⚠️ 加 `SPI_READY_TYPES` 是最后一步**（A 全绿 + B 按 DEC-FLIP-2 取舍处理完之后），勿提前。
 
 ---
@@ -56,12 +45,13 @@ iceberg 逻辑落 `fe-connector` 经中立 SPI。**legacy 豁免类**（C4 dead 
 
 ---
 
-# 🔴🔴 开放 — P6.6 翻闸（C1+C2+C3 全闭，C4 进行中，C5 待）
+# 🔴🔴 开放 — P6.6 翻闸（C1+C2+C3 全闭，C4 ✅，**C5 = 当前**）
 
-> 5 commit-stream（C1 ✅ / C2 ✅ / C3 ✅ / **C4 进行中** / C5 FLIP 待）。
+> 5 commit-stream（C1 ✅ / C2 ✅ / C3 ✅ / **C4 R1–R7 ✅**（R8=rewrite e2e=C5 的 C 类 docker）/ **C5 进行中** / FLIP 待）。
 
-- **[C4 进行中 = 当前]** rewrite_data_files 翻闸就绪（Option B 全对等）。**R1–R7 ✅（executionMode SPI / scan path-set 作用域 / planRewrite SPI / sink-bind+GATHER / transaction rewrite SPI gap / 分布式 driver+CRUX stash 中立化+begin-once 护栏 / WHERE lowering 两层 fail-loud）→ R8（flip rehearsal，flip-gated）**。详设计 §7。
-- **[C5 FLIP，不可逆]** `SPI_READY_TYPES`+iceberg / 删 `CatalogFactory case:137-140` / **GSON 迁移 remap（已实证缺：iceberg 8 catalog 变体+库+表无 `registerCompatibleSubtype→PluginDriven`，`GsonUtils:375-383` vs paimon `:389-411`，DEC-FLIP-1）** / capability 核 / Show* parity（B 类）/ 建表引擎映射（A1）/ 分区演进·视图 SPI（A2/A3）。**详 `P6.6-C5-flip-readiness.md`**。**C5 前须 A 全绿 + B 按 DEC-FLIP-2 + C 用户 docker 全绿 + 用户二签。**
+- **[C4 R1–R7 ✅]** rewrite_data_files 翻闸就绪（Option B 全对等）：executionMode SPI / scan path-set 作用域 / planRewrite SPI / sink-bind+GATHER / transaction rewrite SPI gap / 分布式 driver+CRUX stash 中立化+begin-once 护栏 / WHERE lowering 两层 fail-loud。**R8（flip rehearsal）= flip-gated，归 C5 的 C 类 docker 验证。** 详设计 §7。
+- **[C5 = 当前]** 翻闸就绪修复。**主块 = DDL/ALTER 18-op buildout（`P6.6-C5-ddl-spi-buildout.md`，批次 B1–B5，从 B1 起）**；另含 flip-readiness B 类（SHOW/统计）+ DEC-FLIP-1 持久化 GSON + A3/B6 视图 SPI + C 类 docker。**详 `P6.6-C5-flip-readiness.md`**。
+- **[FLIP，不可逆 = C5 最后一步]** `SPI_READY_TYPES`+iceberg / 删 `CatalogFactory case:137-140`(legacy `IcebergExternalCatalogFactory`) / GSON 迁移 remap（DEC-FLIP-1） / capability 核。**FLIP 前须 DDL/ALTER 全绿 + B 类 + 视图 + C 用户 docker 全绿 + 用户二签。**
 
 ## 🆕 翻闸前置项（登记）
 - **[GAP-A → C5]** 翻闸后 iceberg 表类掉出 `MaterializeProbeVisitor.SUPPORT_RELATION_TYPES`→ lazy-top-N 静默失效。修须 capability/engine 判别。
@@ -103,14 +93,16 @@ iceberg 逻辑落 `fe-connector` 经中立 SPI。**legacy 豁免类**（C4 dead 
 
 - **工作分支 = `catalog-spi-10-iceberg`**（off `branch-catalog-spi` @ `e5959e1b53d`，PR base = `branch-catalog-spi`，squash）。
 - **⚠️ 推送状态**：P6.4 T01–T06+arg-move 已推 `origin`；**其后全部（含 commit-bridge + C4 R1–R7）未 push**。**用户未要求 push**——留用户裁量。
-- **P6.1–P6.5 ✅**。**P6.6：C1/C2/C3a/C3b-pre/C3b-core+commit-bridge 全闭 ✅ → C4 R1–R7 ✅ / R8 待 → C5 翻闸**。
+- **P6.1–P6.5 ✅**。**P6.6：C1/C2/C3a/C3b-pre/C3b-core+commit-bridge 全闭 ✅ → C4 R1–R7 ✅ → C5 = DDL/ALTER buildout（B1 起）+ B 类 + 持久化 + 视图 + C docker → FLIP**。
 - iceberg **不在** `SPI_READY_TYPES`（pre-flip 零行为变更）。metastore 子线 CLOSED（勿读）。
-- **⚠️ 环境**：`/mnt/disk1` 紧（2.0T，本 session ~86G free，96% used）。**下个 session 起步先 `df -h /mnt/disk1`**；空间紧时 mutation 加 `-Dcheckstyle.skip=true`。
+- **⚠️ 环境**：`/mnt/disk1` 紧（2.0T，2026-06-27 ~85G free，96% used）。**下个 session 起步先 `df -h /mnt/disk1`**；空间紧时 mutation 加 `-Dcheckstyle.skip=true`。
 
 # 🧠 给下一个 agent 的 meta
 
 - **删除/parity/动码前必 grep 全调用方 + 区分 DEAD vs STILL-CONSUMED**；**HANDOFF/设计/RFC 的依赖名/行号/不变式/可达性可能过时或错** —— 动码前先 recon（grep+实证）再信文档。R7 recon 实证推翻设计/HANDOFF 旧「复用 NereidsToConnectorExpressionConverter」（WHERE 是 UNBOUND，复用会静默丢→全表重写）。
 - **clean-room 对抗 review 偏好**：大改动 recon = 多 reader 对抗 + synthesis + critic（R7 = `wf_46e2c61c-ee2`；2 reader 因 StructuredOutput 重试上限挂，critic 接力补上 reader 缺口、挖出 conflict-mode 子集 BLOCKER）。reader schema 别太硬（重试易超限）；critic 是最后一道、最该信。
 - **既有 Doris 行为/用户裁优先**：rewrite WHERE「无法精确就报错」经用户裁（fail-loud，对维护命令更安全，对齐 Option B 全对等）；node matrix / 字面量编码照搬 legacy `IcebergNereidsUtils` / `ExprToConnectorExpressionConverter`。Trino OPTIMIZE 无 WHERE（category error，设计 §0 已定），此处参照系是 Doris 自身 legacy。
-- **C4 逐子步**：R8 = flip rehearsal（**唯一**需 docker e2e 的步、且**不 commit** SPI_READY_TYPES）。**C5 前切忌动 `SPI_READY_TYPES`**。
-- **上下文超 30% 即交接**。本 session 完成 C4 R7（单提交 `5a1a0e25e16`，11 改 + 2 新），在干净节点交接 R8。
+- **R8 = flip rehearsal**（**唯一**需 docker e2e 的步、且**不 commit** SPI_READY_TYPES，归 C5 的 C 类）。**FLIP（加 `SPI_READY_TYPES`）是 C5 最后一步，切忌提前。**
+- **设计文档可能错**（本 session 实证）：原 HANDOFF/审计 `wf_265f4359` 把 C5 下一步说成「A1=最小纯 fe-core」，实测 iceberg 连接器 0 个 DDL 写 op、18 op 翻闸后全坏。**动 B1 前仍须 re-grep 验证** buildout 设计的锚点（行号会漂；列/分区/branch DTO 字段动批前对 legacy info 类型 re-grep 取全）。
+- **B1 是最低风险首批**（SPI/routing 已存在 + paimon 参考 + 纯连接器 port + 1 行 fe-core）；B2 引入共享 helper；B5 必带 Alter.java 铁律修复。
+- **上下文超 30% 即交接**。本 session = C5 DDL/ALTER 范围纠偏 + buildout 设计（纯文档，无代码），在干净节点交接 B1。
