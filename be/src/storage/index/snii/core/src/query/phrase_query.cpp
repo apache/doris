@@ -437,6 +437,30 @@ size_t AnchorPhrasePosition(const std::vector<TermPlan>& plans,
     return anchor;
 }
 
+bool ContainsTwoTermPhrase(std::pair<const uint32_t*, const uint32_t*> left_span,
+                           std::pair<const uint32_t*, const uint32_t*> right_span,
+                           uint32_t right_delta) {
+    const uint32_t* left = left_span.first;
+    const uint32_t* right = right_span.first;
+    while (left != left_span.second && right != right_span.second) {
+        uint32_t want = 0;
+        if (!internal::add_position_offset(*left, right_delta, &want)) {
+            return false;
+        }
+        while (right != right_span.second && *right < want) {
+            ++right;
+        }
+        if (right == right_span.second) {
+            return false;
+        }
+        if (*right == want) {
+            return true;
+        }
+        ++left;
+    }
+    return false;
+}
+
 // Single streaming pass over the candidates: for each (ascending) candidate,
 // advance every term's cursor to it, gather each term's positions IN PHRASE
 // ORDER, and test the consecutive-phrase predicate (term[0]@p, term[1]@p+1,
@@ -461,6 +485,13 @@ Status EmitPhraseStreaming(const std::vector<TermPlan>& plans,
         for (size_t i = 0; i < cur.size(); ++i) SNII_RETURN_IF_ERROR(cur[i].seek(d));
         for (size_t pp = 0; pp < phrase_len; ++pp) {
             SNII_RETURN_IF_ERROR(cur[phrase_plan_index[pp]].positions(&span[pp]));
+        }
+        if (phrase_len == 2) {
+            if (ContainsTwoTermPhrase(span[0], span[1],
+                                      position_offsets[1] - position_offsets[0])) {
+                docids->push_back(d);
+            }
+            continue;
         }
         bool match = false;
         for (const uint32_t* p = span[anchor].first; p != span[anchor].second; ++p) {

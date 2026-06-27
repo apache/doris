@@ -126,14 +126,6 @@ Status append_docid_range(uint32_t first, uint32_t last, std::vector<uint32_t>* 
     return Status::OK();
 }
 
-Status append_docid_ordinal(size_t ordinal, std::vector<uint32_t>* out) {
-    if (ordinal > std::numeric_limits<uint32_t>::max()) {
-        return Status::Corruption("docid_conjunction: doc ordinal exceeds u32");
-    }
-    out->push_back(static_cast<uint32_t>(ordinal));
-    return Status::OK();
-}
-
 void append_candidate_range(const std::vector<uint32_t>& candidates, uint32_t first, uint32_t last,
                             std::vector<uint32_t>* out) {
     const auto begin = std::lower_bound(candidates.begin(), candidates.end(), first);
@@ -151,8 +143,7 @@ Status append_candidate_range_with_ordinals(const std::vector<uint32_t>& candida
     for (auto it = begin; it != end; ++it) {
         out->push_back(*it);
         chunk->docids.push_back(*it);
-        SNII_RETURN_IF_ERROR(append_docid_ordinal(
-                static_cast<size_t>(*it) - static_cast<size_t>(first), &chunk->prx_doc_ordinals));
+        chunk->prx_doc_ordinals.push_back(*it - first);
     }
     return Status::OK();
 }
@@ -224,8 +215,11 @@ Status intersect_window_candidates_with_ordinals(const std::vector<uint32_t>& ca
     const auto end = std::upper_bound(begin, candidates.end(), last);
     if (begin == end || term_docids.empty()) return Status::OK();
 
-    chunk->docids.reserve(static_cast<size_t>(end - begin));
-    chunk->prx_doc_ordinals.reserve(static_cast<size_t>(end - begin));
+    const size_t candidate_count = static_cast<size_t>(end - begin);
+    out->reserve(out->size() + candidate_count);
+    chunk->docids.reserve(candidate_count);
+    chunk->prx_doc_ordinals.reserve(candidate_count);
+
     size_t doc_index = 0;
     for (auto it = begin; it != end; ++it) {
         while (doc_index < term_docids.size() && term_docids[doc_index] < *it) {
@@ -235,7 +229,7 @@ Status intersect_window_candidates_with_ordinals(const std::vector<uint32_t>& ca
         if (term_docids[doc_index] != *it) continue;
         out->push_back(*it);
         chunk->docids.push_back(*it);
-        SNII_RETURN_IF_ERROR(append_docid_ordinal(doc_index, &chunk->prx_doc_ordinals));
+        chunk->prx_doc_ordinals.push_back(static_cast<uint32_t>(doc_index));
         ++doc_index;
     }
     return Status::OK();

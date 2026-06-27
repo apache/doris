@@ -24,7 +24,10 @@
 #include <vector>
 
 #include "snii/common/slice.h"
+#include "snii/encoding/byte_sink.h"
+#include "snii/encoding/byte_source.h"
 #include "snii/format/format_constants.h"
+#include "snii/format/prx_pod.h"
 #include "snii/io/file_reader.h"
 #include "snii/io/file_writer.h"
 #include "snii/query/phrase_query.h"
@@ -167,6 +170,50 @@ TEST(SniiPhraseQueryTest, WindowedPhrasePrefixQueryKeepsCorrectCandidateOrdinals
 
     const std::vector<uint32_t> expected {5000, 6000, 7000, 8000};
     EXPECT_EQ(docids, expected);
+}
+
+TEST(SniiPrxPodTest, SelectivePforCsrMatchesFullCsrAcrossRuns) {
+    std::vector<uint32_t> freqs;
+    std::vector<uint32_t> positions;
+    freqs.reserve(320);
+    for (uint32_t doc = 0; doc < 320; ++doc) {
+        const uint32_t freq = (doc % 5 == 0) ? 2 : 1;
+        freqs.push_back(freq);
+        positions.push_back(doc * 3);
+        if (freq == 2) {
+            positions.push_back(doc * 3 + 2);
+        }
+    }
+
+    ByteSink sink;
+    assert_ok(format::build_prx_window_flat(positions, freqs, -1, &sink));
+
+    std::vector<uint32_t> full_positions;
+    std::vector<uint32_t> full_offsets;
+    ByteSource full_source(sink.view());
+    assert_ok(format::read_prx_window_csr(&full_source, &full_positions, &full_offsets));
+
+    auto assert_selected_matches_full = [&](const std::vector<uint32_t>& selected_docs) {
+        std::vector<uint32_t> selected_positions;
+        std::vector<uint32_t> selected_offsets;
+        ByteSource selected_source(sink.view());
+        assert_ok(format::read_prx_window_csr_selective(&selected_source, selected_docs,
+                                                        &selected_positions, &selected_offsets));
+
+        ASSERT_EQ(selected_offsets.size(), selected_docs.size() + 1);
+        for (size_t i = 0; i < selected_docs.size(); ++i) {
+            const uint32_t doc = selected_docs[i];
+            const std::vector<uint32_t> expected(full_positions.begin() + full_offsets[doc],
+                                                 full_positions.begin() + full_offsets[doc + 1]);
+            const std::vector<uint32_t> actual(
+                    selected_positions.begin() + selected_offsets[i],
+                    selected_positions.begin() + selected_offsets[i + 1]);
+            EXPECT_EQ(actual, expected);
+        }
+    };
+
+    assert_selected_matches_full({0, 1, 2});
+    assert_selected_matches_full({0, 1, 127, 128, 129, 255, 256, 319});
 }
 
 } // namespace
