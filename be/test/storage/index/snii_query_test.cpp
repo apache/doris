@@ -172,6 +172,19 @@ TEST(SniiPhraseQueryTest, WindowedPhrasePrefixQueryKeepsCorrectCandidateOrdinals
     EXPECT_EQ(docids, expected);
 }
 
+TEST(SniiPhraseQueryTest, SingleTailPhrasePrefixUsesStreamingPhrasePath) {
+    MemoryFile file;
+    reader::SniiSegmentReader segment_reader;
+    reader::LogicalIndexReader index_reader;
+    assert_ok(build_reader(&file, &segment_reader, &index_reader));
+
+    std::vector<uint32_t> docids;
+    assert_ok(phrase_prefix_query(index_reader, {"failed", "orde"}, &docids, 10));
+
+    const std::vector<uint32_t> expected {5000, 7000, 8000};
+    EXPECT_EQ(docids, expected);
+}
+
 TEST(SniiPrxPodTest, SelectivePforCsrMatchesFullCsrAcrossRuns) {
     std::vector<uint32_t> freqs;
     std::vector<uint32_t> positions;

@@ -138,8 +138,17 @@ Status append_candidate_range_with_ordinals(const std::vector<uint32_t>& candida
                                             DocidChunk* chunk) {
     const auto begin = std::lower_bound(candidates.begin(), candidates.end(), first);
     const auto end = std::upper_bound(begin, candidates.end(), last);
-    chunk->docids.reserve(static_cast<size_t>(end - begin));
-    chunk->prx_doc_ordinals.reserve(static_cast<size_t>(end - begin));
+    const size_t candidate_count = static_cast<size_t>(end - begin);
+    chunk->docids.reserve(candidate_count);
+    const uint64_t width = static_cast<uint64_t>(last) - first + 1;
+    const bool full_dense_range =
+            candidate_count == width && begin != end && *begin == first && *(end - 1) == last;
+    if (full_dense_range) {
+        out->insert(out->end(), begin, end);
+        chunk->docids.insert(chunk->docids.end(), begin, end);
+        return Status::OK();
+    }
+    chunk->prx_doc_ordinals.reserve(candidate_count);
     for (auto it = begin; it != end; ++it) {
         out->push_back(*it);
         chunk->docids.push_back(*it);
@@ -219,6 +228,12 @@ Status intersect_window_candidates_with_ordinals(const std::vector<uint32_t>& ca
     out->reserve(out->size() + candidate_count);
     chunk->docids.reserve(candidate_count);
     chunk->prx_doc_ordinals.reserve(candidate_count);
+    if (candidate_count == term_docids.size() && *begin == term_docids.front() &&
+        *(end - 1) == term_docids.back() && std::equal(begin, end, term_docids.begin())) {
+        out->insert(out->end(), begin, end);
+        chunk->docids.insert(chunk->docids.end(), begin, end);
+        return Status::OK();
+    }
 
     size_t doc_index = 0;
     for (auto it = begin; it != end; ++it) {
@@ -231,6 +246,11 @@ Status intersect_window_candidates_with_ordinals(const std::vector<uint32_t>& ca
         chunk->docids.push_back(*it);
         chunk->prx_doc_ordinals.push_back(static_cast<uint32_t>(doc_index));
         ++doc_index;
+    }
+    if (chunk->docids.size() == term_docids.size() && !chunk->docids.empty() &&
+        chunk->docids.front() == term_docids.front() &&
+        chunk->docids.back() == term_docids.back()) {
+        chunk->prx_doc_ordinals.clear();
     }
     return Status::OK();
 }

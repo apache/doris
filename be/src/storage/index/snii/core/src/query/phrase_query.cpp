@@ -5,6 +5,7 @@
 #include <iterator>
 #include <limits>
 #include <memory>
+#include <numeric>
 #include <utility>
 #include <vector>
 
@@ -442,11 +443,12 @@ bool ContainsTwoTermPhrase(std::pair<const uint32_t*, const uint32_t*> left_span
                            uint32_t right_delta) {
     const uint32_t* left = left_span.first;
     const uint32_t* right = right_span.first;
+    const uint32_t max_start = std::numeric_limits<uint32_t>::max() - right_delta;
     while (left != left_span.second && right != right_span.second) {
-        uint32_t want = 0;
-        if (!internal::add_position_offset(*left, right_delta, &want)) {
+        if (*left > max_start) {
             return false;
         }
+        const uint32_t want = *left + right_delta;
         while (right != right_span.second && *right < want) {
             ++right;
         }
@@ -551,6 +553,18 @@ Status ExecutePhrasePlans(const LogicalIndexReader& idx, snii::io::BatchRangeFet
     }
     return EmitPhraseStreaming(*plans, phrase_plan_index, position_offsets, state.srcs,
                                state.candidates, docids);
+}
+
+Status ExecuteResolvedPhraseTerms(const LogicalIndexReader& idx,
+                                  const std::vector<ResolvedQueryTerm>& terms,
+                                  std::vector<uint32_t>* docids) {
+    snii::io::BatchRangeFetcher round1(idx.reader());
+    std::vector<TermPlan> plans;
+    SNII_RETURN_IF_ERROR(internal::plan_resolved_terms(idx, terms, &round1, &plans,
+                                                       /*need_positions=*/false));
+    std::vector<size_t> phrase_plan_index(terms.size());
+    std::iota(phrase_plan_index.begin(), phrase_plan_index.end(), 0);
+    return ExecutePhrasePlans(idx, &round1, &plans, phrase_plan_index, docids);
 }
 
 Status CollectExpectedTailPositions(const std::vector<TermPlan>& plans,
@@ -779,6 +793,13 @@ Status phrase_prefix_query(const LogicalIndexReader& idx, const std::vector<std:
     SNII_RETURN_IF_ERROR(idx.prefix_terms(terms.back(), &tail_hits, max_expansions));
     if (tail_hits.empty()) {
         return Status::OK();
+    }
+    if (tail_hits.size() == 1) {
+        std::vector<ResolvedQueryTerm> resolved_terms = exact_terms;
+        resolved_terms.push_back(ResolvedQueryTerm {std::move(tail_hits.front().entry),
+                                                    tail_hits.front().frq_base,
+                                                    tail_hits.front().prx_base});
+        return ExecuteResolvedPhraseTerms(idx, resolved_terms, docids);
     }
 
     ExpectedTailPositionSet expected;

@@ -370,7 +370,7 @@ void compact_selected_pfor_positions(std::span<const SelectedRange> selected,
 uint32_t build_selected_pfor_ranges(std::span<const uint32_t> pos_counts,
                                     std::span<const uint32_t> doc_ordinals,
                                     std::vector<SelectedRange>& selected,
-                                    std::vector<uint32_t>& pos_off) {
+                                    std::vector<uint32_t>& pos_off, uint64_t* total_pos_count) {
     selected.clear();
     selected.reserve(doc_ordinals.size());
     pos_off.clear();
@@ -380,8 +380,10 @@ uint32_t build_selected_pfor_ranges(std::span<const uint32_t> pos_counts,
     uint32_t selected_pos_count = 0;
     uint32_t delta_begin = 0;
     size_t next_doc = 0;
+    uint64_t sum = 0;
     for (uint32_t d = 0; d < static_cast<uint32_t>(pos_counts.size()); ++d) {
         const uint32_t count = pos_counts[d];
+        sum += count;
         if (next_doc < doc_ordinals.size() && doc_ordinals[next_doc] == d) {
             selected.push_back(
                     SelectedRange {delta_begin, delta_begin + count, selected_pos_count});
@@ -391,6 +393,7 @@ uint32_t build_selected_pfor_ranges(std::span<const uint32_t> pos_counts,
         }
         delta_begin += count;
     }
+    *total_pos_count = sum;
     return selected_pos_count;
 }
 
@@ -452,19 +455,16 @@ Status decode_pfor_payload_csr_selective(Slice plain, std::span<const uint32_t> 
 
     std::vector<uint32_t> pos_counts;
     SNII_RETURN_IF_ERROR(decode_pfor_runs(&src, doc_count, &pos_counts));
-    uint64_t sum = 0;
-    for (uint32_t d = 0; d < doc_count; ++d) {
-        sum += pos_counts[d];
-    }
-    if (sum != total_pos) {
-        return Status::Corruption("prx: pos_count sum mismatch");
-    }
 
     pos_flat->clear();
 
     std::vector<SelectedRange> selected;
+    uint64_t sum = 0;
     const uint32_t selected_pos_count =
-            build_selected_pfor_ranges(pos_counts, doc_ordinals, selected, *pos_off);
+            build_selected_pfor_ranges(pos_counts, doc_ordinals, selected, *pos_off, &sum);
+    if (sum != total_pos) {
+        return Status::Corruption("prx: pos_count sum mismatch");
+    }
 
     if (should_decode_full_prx_positions(selected, selected_pos_count, total_pos)) {
         SNII_RETURN_IF_ERROR(decode_pfor_runs(&src, total_pos, pos_flat));
