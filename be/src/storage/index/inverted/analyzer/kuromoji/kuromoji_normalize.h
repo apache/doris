@@ -21,7 +21,7 @@
 #include <string>
 #include <string_view>
 
-namespace doris::segment_v2::kuromoji {
+namespace doris::segment_v2::inverted_index::kuromoji {
 
 // CJK width folding (a subset of Lucene's CJKWidthFilter): full-width ASCII
 // variants U+FF01..U+FF5E -> basic-latin U+0021..U+007E, and the ideographic
@@ -65,4 +65,4 @@ inline std::string cjk_width_normalize(std::string_view in) {
     return out;
 }
 
-} // namespace doris::segment_v2::kuromoji
+} // namespace doris::segment_v2::inverted_index::kuromoji

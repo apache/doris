@@ -31,13 +31,13 @@ using namespace lucene::analysis;
 namespace doris::segment_v2 {
 
 // Japanese tokenizer. With a dictionary it does Viterbi morphological
-// segmentation (kuromoji::KuromojiViterbi); without one it falls back to a
+// segmentation (inverted_index::kuromoji::KuromojiViterbi); without one it falls back to a
 // per-codepoint CJK split.
 class KuromojiTokenizer : public Tokenizer {
 public:
     explicit KuromojiTokenizer(KuromojiMode mode = KuromojiMode::Search, bool lowercase = true,
                                bool own_reader = false,
-                               const kuromoji::KuromojiDictionary* dict = nullptr);
+                               const inverted_index::kuromoji::KuromojiDictionary* dict = nullptr);
     ~KuromojiTokenizer() override = default;
 
     Token* next(Token* token) override;
@@ -45,7 +45,7 @@ public:
 
 private:
     KuromojiMode mode_;
-    const kuromoji::KuromojiDictionary* dict_ {nullptr};
+    const inverted_index::kuromoji::KuromojiDictionary* dict_ {nullptr};
     int32_t buffer_index_ {0};
     int32_t data_length_ {0};
     // Backing storage for emitted terms; must outlive tokens (setNoCopy contract).

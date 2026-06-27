@@ -28,7 +28,7 @@
 #include "storage/index/inverted/analyzer/kuromoji/dict/darts.h"
 #include "storage/index/inverted/analyzer/kuromoji/dict/kuromoji_dict_format.h"
 
-namespace doris::segment_v2::kuromoji {
+namespace doris::segment_v2::inverted_index::kuromoji {
 
 // One read-only mmap region; unmaps on destruction.
 class MappedFile {
@@ -77,8 +77,8 @@ public:
 
     // Connection costs.
     int16_t connection_cost(uint32_t forward_id, uint32_t backward_id) const {
-        return ::doris::segment_v2::kuromoji::connection_cost(_cells, _forward_size, forward_id,
-                                                              backward_id);
+        return ::doris::segment_v2::inverted_index::kuromoji::connection_cost(
+                _cells, _forward_size, forward_id, backward_id);
     }
 
     // Character definitions.
@@ -127,4 +127,4 @@ private:
     uint64_t _unk_features_bytes = 0;
 };
 
-} // namespace doris::segment_v2::kuromoji
+} // namespace doris::segment_v2::inverted_index::kuromoji

@@ -23,7 +23,7 @@
 
 #include "storage/index/inverted/analyzer/kuromoji/dict/kuromoji_dict_format.h"
 
-namespace doris::segment_v2::kuromoji {
+namespace doris::segment_v2::inverted_index::kuromoji {
 
 TEST(KuromojiIpadicParserTest, CategoryOrdinal) {
     EXPECT_EQ(ipadic_category_ordinal("KANJI"), CAT_KANJI);
@@ -106,4 +106,4 @@ TEST(KuromojiIpadicParserTest, UnkDef) {
     EXPECT_EQ(unk.per_category[CAT_KANJI][0].left_id, 1285);
 }
 
-} // namespace doris::segment_v2::kuromoji
+} // namespace doris::segment_v2::inverted_index::kuromoji

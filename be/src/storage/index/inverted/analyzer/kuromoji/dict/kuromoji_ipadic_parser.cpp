@@ -22,7 +22,7 @@
 #include <string>
 #include <vector>
 
-namespace doris::segment_v2::kuromoji {
+namespace doris::segment_v2::inverted_index::kuromoji {
 
 namespace {
 
@@ -298,4 +298,4 @@ Status parse_unk_def(std::string_view content, UnkDictInput* out) {
     return st;
 }
 
-} // namespace doris::segment_v2::kuromoji
+} // namespace doris::segment_v2::inverted_index::kuromoji

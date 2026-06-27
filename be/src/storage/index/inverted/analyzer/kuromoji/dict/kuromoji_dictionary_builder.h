@@ -26,7 +26,7 @@
 #include "common/status.h"
 #include "storage/index/inverted/analyzer/kuromoji/dict/kuromoji_dict_format.h"
 
-namespace doris::segment_v2::kuromoji {
+namespace doris::segment_v2::inverted_index::kuromoji {
 
 // One morpheme entry to serialize. `feature` is the raw UTF-8 feature columns
 // (comma-joined IPADIC fields), or empty for none.
@@ -72,4 +72,4 @@ public:
     static Status write_unkdict(const std::string& path, const UnkDictInput& in);
 };
 
-} // namespace doris::segment_v2::kuromoji
+} // namespace doris::segment_v2::inverted_index::kuromoji

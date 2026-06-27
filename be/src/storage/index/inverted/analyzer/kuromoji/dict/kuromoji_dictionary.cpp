@@ -28,7 +28,7 @@
 
 #include "common/logging.h"
 
-namespace doris::segment_v2::kuromoji {
+namespace doris::segment_v2::inverted_index::kuromoji {
 
 MappedFile::~MappedFile() {
     if (_data != nullptr) {
@@ -199,4 +199,4 @@ void KuromojiDictionary::common_prefix_search(const char* text, std::size_t len,
     }
 }
 
-} // namespace doris::segment_v2::kuromoji
+} // namespace doris::segment_v2::inverted_index::kuromoji
