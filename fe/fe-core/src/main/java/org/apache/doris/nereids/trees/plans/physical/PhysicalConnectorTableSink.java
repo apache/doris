@@ -46,6 +46,13 @@ import java.util.stream.Collectors;
  */
 public class PhysicalConnectorTableSink<CHILD_TYPE extends Plan> extends PhysicalBaseExternalTableSink<CHILD_TYPE> {
 
+    // Rewrite (compaction) marker, threaded from LogicalConnectorTableSink.isRewrite. When set,
+    // getRequirePhysicalProperties() short-circuits to GATHER (single writer) so a rewrite_data_files
+    // INSERT-SELECT controls its output file count even on a partitioned table — the override must win
+    // over the partition-shuffle / parallel-write arms below. Carried as a sink field (no ConnectContext,
+    // no instanceof Iceberg). Defaults false → behavior is byte-identical for ordinary connector writes.
+    private final boolean isRewrite;
+
     /**
      * constructor
      */
@@ -55,9 +62,10 @@ public class PhysicalConnectorTableSink<CHILD_TYPE extends Plan> extends Physica
                                       List<NamedExpression> outputExprs,
                                       Optional<GroupExpression> groupExpression,
                                       LogicalProperties logicalProperties,
+                                      boolean isRewrite,
                                       CHILD_TYPE child) {
         this(database, targetTable, cols, outputExprs, groupExpression, logicalProperties,
-                PhysicalProperties.GATHER, null, child);
+                PhysicalProperties.GATHER, null, isRewrite, child);
     }
 
     /**
@@ -71,16 +79,18 @@ public class PhysicalConnectorTableSink<CHILD_TYPE extends Plan> extends Physica
                                       LogicalProperties logicalProperties,
                                       PhysicalProperties physicalProperties,
                                       Statistics statistics,
+                                      boolean isRewrite,
                                       CHILD_TYPE child) {
         super(PlanType.PHYSICAL_CONNECTOR_TABLE_SINK, database, targetTable, cols, outputExprs, groupExpression,
                 logicalProperties, physicalProperties, statistics, child);
+        this.isRewrite = isRewrite;
     }
 
     @Override
     public Plan withChildren(List<Plan> children) {
         return AbstractPlan.copyWithSameId(this, () -> new PhysicalConnectorTableSink<>(
                 (ExternalDatabase) database, (ExternalTable) targetTable, cols, outputExprs, groupExpression,
-                getLogicalProperties(), physicalProperties, statistics, children.get(0)));
+                getLogicalProperties(), physicalProperties, statistics, isRewrite, children.get(0)));
     }
 
     @Override
@@ -92,7 +102,7 @@ public class PhysicalConnectorTableSink<CHILD_TYPE extends Plan> extends Physica
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return AbstractPlan.copyWithSameId(this, () -> new PhysicalConnectorTableSink<>(
                 (ExternalDatabase) database, (ExternalTable) targetTable, cols, outputExprs,
-                groupExpression, getLogicalProperties(), child()));
+                groupExpression, getLogicalProperties(), isRewrite, child()));
     }
 
     @Override
@@ -100,14 +110,14 @@ public class PhysicalConnectorTableSink<CHILD_TYPE extends Plan> extends Physica
                                                  Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return AbstractPlan.copyWithSameId(this, () -> new PhysicalConnectorTableSink<>(
                 (ExternalDatabase) database, (ExternalTable) targetTable, cols, outputExprs,
-                groupExpression, logicalProperties.get(), children.get(0)));
+                groupExpression, logicalProperties.get(), isRewrite, children.get(0)));
     }
 
     @Override
     public PhysicalPlan withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties, Statistics statistics) {
         return AbstractPlan.copyWithSameId(this, () -> new PhysicalConnectorTableSink<>(
                 (ExternalDatabase) database, (ExternalTable) targetTable, cols, outputExprs,
-                groupExpression, getLogicalProperties(), physicalProperties, statistics, child()));
+                groupExpression, getLogicalProperties(), physicalProperties, statistics, isRewrite, child()));
     }
 
     /**
@@ -140,6 +150,13 @@ public class PhysicalConnectorTableSink<CHILD_TYPE extends Plan> extends Physica
      */
     @Override
     public PhysicalProperties getRequirePhysicalProperties() {
+        // Rewrite (compaction) writes must gather to a single writer to control the output file count;
+        // this neutral flag wins over the partition-shuffle / parallel-write arms below. Mirrors
+        // PhysicalIcebergTableSink's isUseGatherForIcebergRewrite short-circuit, but carried as a sink
+        // field (no ConnectContext access, no instanceof Iceberg).
+        if (isRewrite) {
+            return PhysicalProperties.GATHER;
+        }
         if (!(targetTable instanceof PluginDrivenExternalTable)) {
             return PhysicalProperties.GATHER;
         }

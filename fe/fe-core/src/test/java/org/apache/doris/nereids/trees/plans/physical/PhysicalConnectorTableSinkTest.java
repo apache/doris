@@ -225,6 +225,30 @@ public class PhysicalConnectorTableSinkTest {
                 "a connector declaring neither capability must keep the single-writer GATHER default");
     }
 
+    /**
+     * Rewrite (compaction) override: a {@code rewrite_data_files} INSERT-SELECT must gather to a single
+     * writer to control its output file count, even on a PARTITIONED table where an ordinary write would
+     * hash-distribute by the partition columns. The neutral {@code isRewrite} flag short-circuits to
+     * GATHER before the partition-shuffle arm. The table/cols/child are identical to
+     * {@link #dynamicPartitionWriteRequiresHashAndLocalSort} (which, with {@code isRewrite=false}, returns
+     * the hash-partitioned spec), so this isolates the override as the sole behavioral delta. Mutation
+     * lock: dropping the {@code if (isRewrite) return GATHER} guard makes this return
+     * {@link DistributionSpecHiveTableSinkHashPartitioned} and the assertion fails.
+     */
+    @Test
+    public void rewriteModeGathersEvenOnPartitionedTable() {
+        SlotReference dataSlot = new SlotReference("data", IntegerType.INSTANCE);
+        SlotReference partSlot = new SlotReference("part", IntegerType.INSTANCE);
+        PhysicalConnectorTableSink<Plan> sink = sinkRewrite(
+                table(true, true, ImmutableList.of(PART), ImmutableList.of(DATA, PART)),
+                Arrays.asList(DATA, PART),
+                ImmutableList.of(dataSlot, partSlot));
+
+        Assertions.assertSame(PhysicalProperties.GATHER, sink.getRequirePhysicalProperties(),
+                "a rewrite write must gather to a single writer even on a partitioned table, "
+                        + "overriding the partition-shuffle distribution");
+    }
+
     // ==================== helpers ====================
 
     private static PluginDrivenExternalTable table(boolean parallelWrite, boolean requirePartitionSort,
@@ -253,6 +277,17 @@ public class PhysicalConnectorTableSinkTest {
         Deencapsulation.setField(sink, "targetTable", table);
         Deencapsulation.setField(sink, "cols", cols);
         Deencapsulation.setField(sink, "children", ImmutableList.of(child));
+        return sink;
+    }
+
+    /**
+     * Builds a {@link PhysicalConnectorTableSink} as {@link #sink} but in rewrite mode (the neutral
+     * {@code isRewrite} field set true), to exercise the rewrite GATHER override.
+     */
+    private static PhysicalConnectorTableSink<Plan> sinkRewrite(PluginDrivenExternalTable table,
+            List<Column> cols, List<Slot> childOutput) {
+        PhysicalConnectorTableSink<Plan> sink = sink(table, cols, childOutput);
+        Deencapsulation.setField(sink, "isRewrite", true);
         return sink;
     }
 }
