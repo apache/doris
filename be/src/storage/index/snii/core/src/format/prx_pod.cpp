@@ -367,34 +367,42 @@ void compact_selected_pfor_positions(std::span<const SelectedRange> selected,
     pos_flat.resize(write_off);
 }
 
-uint32_t build_selected_pfor_ranges(std::span<const uint32_t> pos_counts,
-                                    std::span<const uint32_t> doc_ordinals,
-                                    std::vector<SelectedRange>& selected,
-                                    std::vector<uint32_t>& pos_off, uint64_t* total_pos_count) {
+Status decode_selected_pfor_count_ranges(ByteSource* src, uint32_t doc_count,
+                                         std::span<const uint32_t> doc_ordinals,
+                                         std::vector<SelectedRange>& selected,
+                                         std::vector<uint32_t>& pos_off, uint64_t* total_pos_count,
+                                         uint32_t* selected_pos_count) {
     selected.clear();
     selected.reserve(doc_ordinals.size());
     pos_off.clear();
     pos_off.reserve(doc_ordinals.size() + 1);
     pos_off.push_back(0);
 
-    uint32_t selected_pos_count = 0;
+    *selected_pos_count = 0;
     uint32_t delta_begin = 0;
     size_t next_doc = 0;
-    uint64_t sum = 0;
-    for (uint32_t d = 0; d < static_cast<uint32_t>(pos_counts.size()); ++d) {
-        const uint32_t count = pos_counts[d];
-        sum += count;
-        if (next_doc < doc_ordinals.size() && doc_ordinals[next_doc] == d) {
-            selected.push_back(
-                    SelectedRange {delta_begin, delta_begin + count, selected_pos_count});
-            selected_pos_count += count;
-            pos_off.push_back(selected_pos_count);
-            ++next_doc;
+    *total_pos_count = 0;
+    std::array<uint32_t, kFrqBaseUnit> run_buf {};
+    for (uint32_t run_begin = 0; run_begin < doc_count; run_begin += kFrqBaseUnit) {
+        const uint32_t run_len = std::min<uint32_t>(kFrqBaseUnit, doc_count - run_begin);
+        SNII_RETURN_IF_ERROR(pfor_decode(src, run_len, run_buf.data()));
+        for (uint32_t i = 0; i < run_len; ++i) {
+            const uint32_t d = run_begin + i;
+            const uint32_t count = run_buf[i];
+            *total_pos_count += count;
+            if (next_doc < doc_ordinals.size() && doc_ordinals[next_doc] == d) {
+                selected.emplace_back(delta_begin, delta_begin + count, *selected_pos_count);
+                *selected_pos_count += count;
+                pos_off.push_back(*selected_pos_count);
+                ++next_doc;
+            }
+            delta_begin += count;
         }
-        delta_begin += count;
     }
-    *total_pos_count = sum;
-    return selected_pos_count;
+    if (next_doc != doc_ordinals.size()) {
+        return Status::Corruption("prx: selected doc ordinal was not decoded");
+    }
+    return Status::OK();
 }
 
 Status decode_sparse_selected_pfor_positions(ByteSource* src, uint32_t total_pos,
@@ -453,15 +461,13 @@ Status decode_pfor_payload_csr_selective(Slice plain, std::span<const uint32_t> 
     }
     SNII_RETURN_IF_ERROR(validate_doc_ordinals(doc_ordinals, doc_count));
 
-    std::vector<uint32_t> pos_counts;
-    SNII_RETURN_IF_ERROR(decode_pfor_runs(&src, doc_count, &pos_counts));
-
     pos_flat->clear();
 
     std::vector<SelectedRange> selected;
     uint64_t sum = 0;
-    const uint32_t selected_pos_count =
-            build_selected_pfor_ranges(pos_counts, doc_ordinals, selected, *pos_off, &sum);
+    uint32_t selected_pos_count = 0;
+    SNII_RETURN_IF_ERROR(decode_selected_pfor_count_ranges(&src, doc_count, doc_ordinals, selected,
+                                                           *pos_off, &sum, &selected_pos_count));
     if (sum != total_pos) {
         return Status::Corruption("prx: pos_count sum mismatch");
     }

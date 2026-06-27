@@ -36,12 +36,14 @@ struct TermPlan {
 struct DocidChunk {
     std::vector<uint32_t> docids;
     std::vector<uint32_t> prx_doc_ordinals;
+    uint32_t prx_doc_count = 0;
     bool windowed = false;
     uint32_t window = 0;
 };
 
 struct DocidSource {
     std::vector<DocidChunk> chunks;
+    bool docids_are_final_candidates = false;
 };
 
 Status resolve_query_term(const snii::reader::LogicalIndexReader& idx, const std::string& term,

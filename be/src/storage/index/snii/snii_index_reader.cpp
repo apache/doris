@@ -34,11 +34,13 @@
 #include "runtime/runtime_state.h"
 #include "snii/format/null_bitmap.h"
 #include "snii/query/boolean_query.h"
+#include "snii/query/docid_sink.h"
 #include "snii/query/phrase_query.h"
 #include "snii/query/prefix_query.h"
 #include "snii/query/regexp_query.h"
 #include "snii/query/term_query.h"
 #include "snii/query/wildcard_query.h"
+#include "snii/reader/logical_index_reader.h"
 #include "storage/index/index_file_reader.h"
 #include "storage/index/inverted/analyzer/analyzer.h"
 #include "storage/index/inverted/inverted_index_cache.h"
@@ -48,6 +50,34 @@
 namespace doris::segment_v2 {
 
 namespace {
+
+class RoaringDocIdSink final : public snii::query::DocIdSink {
+public:
+    explicit RoaringDocIdSink(roaring::Roaring* bitmap) : _bitmap(bitmap) {
+        DCHECK(_bitmap != nullptr);
+    }
+
+    snii::Status append_sorted(std::span<const uint32_t> docids) override {
+        if (!docids.empty()) {
+            _bitmap->addMany(docids.size(), docids.data());
+        }
+        return snii::Status::OK();
+    }
+
+    snii::Status append_range(uint32_t first, uint64_t last_exclusive) override {
+        if (last_exclusive > first) {
+            _bitmap->addRange(first, last_exclusive);
+        }
+        return snii::Status::OK();
+    }
+
+private:
+    roaring::Roaring* _bitmap;
+};
+
+struct SniiQueryExecutionResult {
+    std::shared_ptr<roaring::Roaring> bitmap;
+};
 
 std::vector<std::string> to_terms(const InvertedIndexQueryInfo& query_info) {
     std::vector<std::string> terms;
@@ -117,6 +147,90 @@ std::string build_snii_query_cache_value(const InvertedIndexQueryInfo& query_inf
     return cache_value;
 }
 
+std::shared_ptr<roaring::Roaring> docids_to_bitmap(const std::vector<uint32_t>& docids) {
+    auto result = std::make_shared<roaring::Roaring>();
+    if (!docids.empty()) {
+        result->addMany(docids.size(), docids.data());
+    }
+    result->runOptimize();
+    return result;
+}
+
+Status execute_snii_query(const snii::reader::LogicalIndexReader& logical_reader,
+                          InvertedIndexQueryType query_type,
+                          const InvertedIndexQueryInfo& query_info, std::string_view search_str,
+                          const std::vector<std::string>& terms, int32_t max_expansions,
+                          SniiQueryExecutionResult* result) {
+    result->bitmap = std::make_shared<roaring::Roaring>();
+    RoaringDocIdSink sink(result->bitmap.get());
+    std::vector<uint32_t> docids;
+    bool emitted_to_sink = false;
+    snii::Status status;
+    switch (query_type) {
+    case InvertedIndexQueryType::EQUAL_QUERY:
+    case InvertedIndexQueryType::MATCH_ANY_QUERY:
+        status = terms.size() == 1 ? snii::query::term_query(logical_reader, terms.front(), &sink)
+                                   : snii::query::boolean_or(logical_reader, terms, &sink);
+        emitted_to_sink = true;
+        break;
+    case InvertedIndexQueryType::MATCH_ALL_QUERY:
+        if (terms.size() == 1) {
+            status = snii::query::term_query(logical_reader, terms.front(), &sink);
+            emitted_to_sink = true;
+        } else {
+            status = snii::query::boolean_and(logical_reader, terms, &docids);
+        }
+        break;
+    case InvertedIndexQueryType::MATCH_PHRASE_QUERY:
+        if (query_info.slop != 0) {
+            return Status::Error<ErrorCode::INVERTED_INDEX_BYPASS>(
+                    "SNII does not support sloppy phrase query yet");
+        }
+        if (terms.size() == 1) {
+            status = snii::query::term_query(logical_reader, terms.front(), &sink);
+            emitted_to_sink = true;
+        } else {
+            status = snii::query::phrase_query(logical_reader, terms, &docids);
+        }
+        break;
+    case InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY:
+        if (terms.size() == 1) {
+            status =
+                    snii::query::prefix_query(logical_reader, terms.front(), &sink, max_expansions);
+            emitted_to_sink = true;
+        } else {
+            status = snii::query::phrase_prefix_query(logical_reader, terms, &docids,
+                                                      max_expansions);
+        }
+        break;
+    case InvertedIndexQueryType::MATCH_REGEXP_QUERY:
+        status = snii::query::regexp_query(logical_reader, search_str, &sink, max_expansions);
+        emitted_to_sink = true;
+        break;
+    case InvertedIndexQueryType::WILDCARD_QUERY:
+        status = snii::query::wildcard_query(logical_reader, search_str, &sink, max_expansions);
+        emitted_to_sink = true;
+        break;
+    case InvertedIndexQueryType::LESS_THAN_QUERY:
+    case InvertedIndexQueryType::LESS_EQUAL_QUERY:
+    case InvertedIndexQueryType::GREATER_THAN_QUERY:
+    case InvertedIndexQueryType::GREATER_EQUAL_QUERY:
+    case InvertedIndexQueryType::RANGE_QUERY:
+        return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
+                "SNII inverted index storage format does not support BKD/range query");
+    default:
+        return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
+                "SNII unsupported inverted index query type {}", query_type_to_string(query_type));
+    }
+    RETURN_IF_ERROR(snii_doris::to_doris_status(status));
+    if (emitted_to_sink) {
+        result->bitmap->runOptimize();
+    } else {
+        result->bitmap = docids_to_bitmap(docids);
+    }
+    return Status::OK();
+}
+
 } // namespace
 
 Status SniiIndexReader::new_iterator(std::unique_ptr<IndexIterator>* iterator) {
@@ -181,16 +295,6 @@ Status SniiIndexReader::_parse_query_terms(const IndexQueryContextPtr& context,
     return Status::OK();
 }
 
-void SniiIndexReader::_docids_to_bitmap(const std::vector<uint32_t>& docids,
-                                        std::shared_ptr<roaring::Roaring>* bit_map) {
-    auto result = std::make_shared<roaring::Roaring>();
-    if (!docids.empty()) {
-        result->addMany(docids.size(), docids.data());
-    }
-    result->runOptimize();
-    *bit_map = std::move(result);
-}
-
 Status SniiIndexReader::query(const IndexQueryContextPtr& context, const std::string& column_name,
                               const Field& query_value, InvertedIndexQueryType query_type,
                               std::shared_ptr<roaring::Roaring>& bit_map,
@@ -245,49 +349,10 @@ Status SniiIndexReader::query(const IndexQueryContextPtr& context, const std::st
             _index_file_reader->init(config::inverted_index_read_buffer_size, context->io_ctx));
     auto logical_reader = DORIS_TRY(_index_file_reader->open_snii_index(&_index_meta));
 
-    std::vector<uint32_t> docids;
-    snii::Status status;
-    switch (query_type) {
-    case InvertedIndexQueryType::EQUAL_QUERY:
-    case InvertedIndexQueryType::MATCH_ANY_QUERY:
-        status = terms.size() == 1
-                         ? snii::query::term_query(*logical_reader, terms.front(), &docids)
-                         : snii::query::boolean_or(*logical_reader, terms, &docids);
-        break;
-    case InvertedIndexQueryType::MATCH_ALL_QUERY:
-        status = snii::query::boolean_and(*logical_reader, terms, &docids);
-        break;
-    case InvertedIndexQueryType::MATCH_PHRASE_QUERY:
-        if (query_info.slop != 0) {
-            return Status::Error<ErrorCode::INVERTED_INDEX_BYPASS>(
-                    "SNII does not support sloppy phrase query yet");
-        }
-        status = terms.size() == 1
-                         ? snii::query::term_query(*logical_reader, terms.front(), &docids)
-                         : snii::query::phrase_query(*logical_reader, terms, &docids);
-        break;
-    case InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY:
-        status = snii::query::phrase_prefix_query(*logical_reader, terms, &docids, max_expansions);
-        break;
-    case InvertedIndexQueryType::MATCH_REGEXP_QUERY:
-        status = snii::query::regexp_query(*logical_reader, search_str, &docids, max_expansions);
-        break;
-    case InvertedIndexQueryType::WILDCARD_QUERY:
-        status = snii::query::wildcard_query(*logical_reader, search_str, &docids, max_expansions);
-        break;
-    case InvertedIndexQueryType::LESS_THAN_QUERY:
-    case InvertedIndexQueryType::LESS_EQUAL_QUERY:
-    case InvertedIndexQueryType::GREATER_THAN_QUERY:
-    case InvertedIndexQueryType::GREATER_EQUAL_QUERY:
-    case InvertedIndexQueryType::RANGE_QUERY:
-        return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
-                "SNII inverted index storage format does not support BKD/range query");
-    default:
-        return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
-                "SNII unsupported inverted index query type {}", query_type_to_string(query_type));
-    }
-    RETURN_IF_ERROR(snii_doris::to_doris_status(status));
-    _docids_to_bitmap(docids, &bit_map);
+    SniiQueryExecutionResult query_result;
+    RETURN_IF_ERROR(execute_snii_query(*logical_reader, query_type, query_info, search_str, terms,
+                                       max_expansions, &query_result));
+    bit_map = std::move(query_result.bitmap);
     cache->insert(cache_key, bit_map, &cache_handler);
     return Status::OK();
 }

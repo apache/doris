@@ -141,6 +141,10 @@ Status append_candidate_range_with_ordinals(const std::vector<uint32_t>& candida
     const size_t candidate_count = static_cast<size_t>(end - begin);
     chunk->docids.reserve(candidate_count);
     const uint64_t width = static_cast<uint64_t>(last) - first + 1;
+    if (width > std::numeric_limits<uint32_t>::max()) {
+        return Status::Corruption("docid_conjunction: dense window exceeds doc count range");
+    }
+    chunk->prx_doc_count = static_cast<uint32_t>(width);
     const bool full_dense_range =
             candidate_count == width && begin != end && *begin == first && *(end - 1) == last;
     if (full_dense_range) {
@@ -220,18 +224,66 @@ Status intersect_window_candidates_with_ordinals(const std::vector<uint32_t>& ca
                                                  const std::vector<uint32_t>& term_docids,
                                                  uint32_t first, uint32_t last,
                                                  std::vector<uint32_t>* out, DocidChunk* chunk) {
+    if (term_docids.size() > std::numeric_limits<uint32_t>::max()) {
+        return Status::Corruption("docid_conjunction: prx doc count exceeds u32");
+    }
+    chunk->prx_doc_count = static_cast<uint32_t>(term_docids.size());
     const auto begin = std::lower_bound(candidates.begin(), candidates.end(), first);
     const auto end = std::upper_bound(begin, candidates.end(), last);
     if (begin == end || term_docids.empty()) return Status::OK();
 
     const size_t candidate_count = static_cast<size_t>(end - begin);
-    out->reserve(out->size() + candidate_count);
-    chunk->docids.reserve(candidate_count);
-    chunk->prx_doc_ordinals.reserve(candidate_count);
+    const size_t max_matches = std::min(candidate_count, term_docids.size());
+    out->reserve(out->size() + max_matches);
+    chunk->docids.reserve(max_matches);
     if (candidate_count == term_docids.size() && *begin == term_docids.front() &&
         *(end - 1) == term_docids.back() && std::equal(begin, end, term_docids.begin())) {
         out->insert(out->end(), begin, end);
         chunk->docids.insert(chunk->docids.end(), begin, end);
+        return Status::OK();
+    }
+
+    chunk->prx_doc_ordinals.reserve(max_matches);
+    const size_t probes_per_candidate = log2_ceil(term_docids.size()) + 1;
+    if (candidate_count < term_docids.size() / probes_per_candidate) {
+        size_t doc_index = 0;
+        for (auto it = begin; it != end; ++it) {
+            const auto found =
+                    std::lower_bound(term_docids.begin() + doc_index, term_docids.end(), *it);
+            if (found == term_docids.end()) break;
+            doc_index = static_cast<size_t>(found - term_docids.begin());
+            if (*found != *it) continue;
+            out->push_back(*it);
+            chunk->docids.push_back(*it);
+            chunk->prx_doc_ordinals.push_back(static_cast<uint32_t>(doc_index));
+            ++doc_index;
+        }
+        if (chunk->docids.size() == term_docids.size() && !chunk->docids.empty() &&
+            chunk->docids.front() == term_docids.front() &&
+            chunk->docids.back() == term_docids.back()) {
+            chunk->prx_doc_ordinals.clear();
+        }
+        return Status::OK();
+    }
+
+    const size_t probes_per_term_doc = log2_ceil(candidate_count) + 1;
+    if (term_docids.size() < candidate_count / probes_per_term_doc) {
+        auto candidate_it = begin;
+        for (size_t doc_index = 0; doc_index < term_docids.size(); ++doc_index) {
+            const uint32_t docid = term_docids[doc_index];
+            candidate_it = std::lower_bound(candidate_it, end, docid);
+            if (candidate_it == end) break;
+            if (*candidate_it != docid) continue;
+            out->push_back(docid);
+            chunk->docids.push_back(docid);
+            chunk->prx_doc_ordinals.push_back(static_cast<uint32_t>(doc_index));
+            ++candidate_it;
+        }
+        if (chunk->docids.size() == term_docids.size() && !chunk->docids.empty() &&
+            chunk->docids.front() == term_docids.front() &&
+            chunk->docids.back() == term_docids.back()) {
+            chunk->prx_doc_ordinals.clear();
+        }
         return Status::OK();
     }
 
@@ -321,6 +373,7 @@ Status collect_windowed_docids_only(const LogicalIndexReader& idx, const TermPla
                 DocidChunk chunk;
                 chunk.windowed = true;
                 chunk.window = w;
+                chunk.prx_doc_count = meta.doc_count;
                 if (candidates == nullptr) {
                     SNII_RETURN_IF_ERROR(append_docid_range(first, meta.last_docid, &chunk.docids));
                 } else {
@@ -365,6 +418,10 @@ Status collect_windowed_docids_only(const LogicalIndexReader& idx, const TermPla
             chunk.window = f.ordinal;
             if (candidates == nullptr) {
                 chunk.docids = docs;
+                if (docs.size() > std::numeric_limits<uint32_t>::max()) {
+                    return Status::Corruption("docid_conjunction: prx doc count exceeds u32");
+                }
+                chunk.prx_doc_count = static_cast<uint32_t>(docs.size());
                 source->chunks.push_back(std::move(chunk));
             } else {
                 uint32_t first = 0;
@@ -407,6 +464,10 @@ Status collect_docids_only(const LogicalIndexReader& idx, const snii::io::BatchR
     SNII_RETURN_IF_ERROR(decode_flat_docids_only(round1, p, &term_docids));
     if (source != nullptr) {
         DocidChunk chunk;
+        if (term_docids.size() > std::numeric_limits<uint32_t>::max()) {
+            return Status::Corruption("docid_conjunction: prx doc count exceeds u32");
+        }
+        chunk.prx_doc_count = static_cast<uint32_t>(term_docids.size());
         if (candidates == nullptr) {
             chunk.docids = term_docids;
         } else if (!term_docids.empty()) {
@@ -439,6 +500,9 @@ Status build_docid_only_conjunction_impl(const LogicalIndexReader& idx,
         DocidSource* source = sources == nullptr ? nullptr : &(*sources)[ti];
         SNII_RETURN_IF_ERROR(collect_docids_only(idx, round1, plans[ti],
                                                  k == 0 ? nullptr : candidates, &next, source));
+        if (source != nullptr && k + 1 == order.size()) {
+            source->docids_are_final_candidates = true;
+        }
         *candidates = std::move(next);
         if (candidates->empty()) return Status::OK();
     }

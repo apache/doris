@@ -85,6 +85,7 @@ struct PosChunk {
     // `prx_doc_ordinals[i]`, allowing PRX decode to skip positions for docs that
     // were removed by the docid-only conjunction.
     std::vector<uint32_t> prx_doc_ordinals;
+    uint32_t prx_doc_count = 0;
     Slice prx; // .prx window bytes (reference fetcher/round1/entry)
     bool windowed = false;
     uint32_t window = 0;
@@ -177,10 +178,15 @@ Status materialize_selected_prefix_if_needed(bool* selected_all, size_t count, s
 }
 
 Status SelectCandidateDocsForPrx(std::vector<uint32_t>* docids,
-                                 std::vector<uint32_t>* prx_doc_ordinals,
+                                 std::vector<uint32_t>* prx_doc_ordinals, uint32_t prx_doc_count,
                                  const std::vector<uint32_t>& candidates, PosChunk* chunk) {
     chunk->docids.clear();
     chunk->prx_doc_ordinals.clear();
+    if (prx_doc_count == 0 && docids->size() > std::numeric_limits<uint32_t>::max()) {
+        return Status::Corruption("phrase_query: prx doc count exceeds u32");
+    }
+    chunk->prx_doc_count =
+            prx_doc_count == 0 ? static_cast<uint32_t>(docids->size()) : prx_doc_count;
     if (docids->empty() || candidates.empty()) {
         return Status::OK();
     }
@@ -243,9 +249,13 @@ Status BuildFlatPositionSource(const LogicalIndexReader& idx,
     PosChunk chunk;
     std::vector<uint32_t> docids;
     std::vector<uint32_t> prx_doc_ordinals;
+    const bool docids_are_final_candidates =
+            doc_source->docids_are_final_candidates && !doc_source->chunks.empty();
     if (!doc_source->chunks.empty()) {
-        docids = std::move(doc_source->chunks.front().docids);
-        prx_doc_ordinals = std::move(doc_source->chunks.front().prx_doc_ordinals);
+        DocidChunk& doc_chunk = doc_source->chunks.front();
+        docids = std::move(doc_chunk.docids);
+        prx_doc_ordinals = std::move(doc_chunk.prx_doc_ordinals);
+        chunk.prx_doc_count = doc_chunk.prx_doc_count;
     }
     if (p.pod_ref) {
         uint64_t poff = 0;
@@ -268,8 +278,19 @@ Status BuildFlatPositionSource(const LogicalIndexReader& idx,
         }
         SNII_RETURN_IF_ERROR(snii::format::decode_dd_region(dd, p.entry.dd_meta,
                                                             /*win_base=*/0, &docids));
+        if (docids.size() > std::numeric_limits<uint32_t>::max()) {
+            return Status::Corruption("phrase_query: prx doc count exceeds u32");
+        }
+        chunk.prx_doc_count = static_cast<uint32_t>(docids.size());
     }
-    SNII_RETURN_IF_ERROR(SelectCandidateDocsForPrx(&docids, &prx_doc_ordinals, candidates, &chunk));
+    if (docids_are_final_candidates) {
+        chunk.docids = std::move(docids);
+        chunk.prx_doc_ordinals = std::move(prx_doc_ordinals);
+        if (!chunk.docids.empty()) src->chunks.push_back(std::move(chunk));
+        return Status::OK();
+    }
+    SNII_RETURN_IF_ERROR(SelectCandidateDocsForPrx(&docids, &prx_doc_ordinals, chunk.prx_doc_count,
+                                                   candidates, &chunk));
     if (!chunk.docids.empty()) src->chunks.push_back(std::move(chunk));
     return Status::OK();
 }
@@ -295,13 +316,23 @@ Status DecodeWindowedPositionSource(
     fetched.reserve(doc_source->chunks.size());
     for (size_t i = 0; i < doc_source->chunks.size(); ++i) {
         DocidChunk& doc_chunk = doc_source->chunks[i];
-        if (!ChunkMayContainCandidate(doc_chunk, candidates)) continue;
+        if (!doc_source->docids_are_final_candidates &&
+            !ChunkMayContainCandidate(doc_chunk, candidates)) {
+            continue;
+        }
         if (!doc_chunk.windowed) {
             return Status::Corruption("phrase_query: expected windowed doc chunk");
         }
         PosChunk chunk;
-        SNII_RETURN_IF_ERROR(SelectCandidateDocsForPrx(
-                &doc_chunk.docids, &doc_chunk.prx_doc_ordinals, candidates, &chunk));
+        if (doc_source->docids_are_final_candidates) {
+            chunk.docids = std::move(doc_chunk.docids);
+            chunk.prx_doc_ordinals = std::move(doc_chunk.prx_doc_ordinals);
+            chunk.prx_doc_count = doc_chunk.prx_doc_count;
+        } else {
+            SNII_RETURN_IF_ERROR(
+                    SelectCandidateDocsForPrx(&doc_chunk.docids, &doc_chunk.prx_doc_ordinals,
+                                              doc_chunk.prx_doc_count, candidates, &chunk));
+        }
         if (chunk.docids.empty()) continue;
 
         snii::reader::WindowAbsRange range;
@@ -361,6 +392,7 @@ public:
         ci_ = 0;
         li_ = 0;
         decoded_pos_chunk_ = kNoChunk;
+        offsets_by_prx_ordinal_ = false;
     }
 
     // Positions the cursor at `target` (guaranteed present: candidates are the
@@ -390,19 +422,32 @@ public:
         }
         if (decoded_pos_chunk_ != ci_) {
             ByteSource ps(src_->chunks[ci_].prx);
-            if (src_->chunks[ci_].prx_doc_ordinals.empty()) {
+            const PosChunk& chunk = src_->chunks[ci_];
+            offsets_by_prx_ordinal_ = false;
+            if (chunk.prx_doc_ordinals.empty()) {
                 SNII_RETURN_IF_ERROR(snii::format::read_prx_window_csr(&ps, &pflat_, &poff_));
+            } else if (should_decode_full_prx_window(chunk)) {
+                SNII_RETURN_IF_ERROR(snii::format::read_prx_window_csr(&ps, &pflat_, &poff_));
+                offsets_by_prx_ordinal_ = true;
             } else {
                 SNII_RETURN_IF_ERROR(snii::format::read_prx_window_csr_selective(
-                        &ps, src_->chunks[ci_].prx_doc_ordinals, &pflat_, &poff_));
+                        &ps, chunk.prx_doc_ordinals, &pflat_, &poff_));
             }
-            if (poff_.size() != src_->chunks[ci_].docids.size() + 1) {
-                return Status::Corruption("phrase_query: prx/dd doc-count mismatch");
+            if (offsets_by_prx_ordinal_) {
+                if (poff_.size() != static_cast<size_t>(chunk.prx_doc_count) + 1) {
+                    return Status::Corruption("phrase_query: full prx doc-count mismatch");
+                }
+            } else if (poff_.size() != chunk.docids.size() + 1) {
+                return Status::Corruption("phrase_query: selected prx/doc-count mismatch");
             }
             decoded_pos_chunk_ = ci_;
         }
-        const uint32_t begin = poff_[li_];
-        const uint32_t end = poff_[li_ + 1];
+        const size_t pos_index = position_offset_index();
+        if (pos_index + 1 >= poff_.size()) {
+            return Status::Corruption("phrase_query: prx ordinal offset out of range");
+        }
+        const uint32_t begin = poff_[pos_index];
+        const uint32_t end = poff_[pos_index + 1];
         if (begin == end) {
             *out = {nullptr, nullptr};
             return Status::OK();
@@ -416,12 +461,26 @@ public:
 
 private:
     static constexpr size_t kNoChunk = static_cast<size_t>(-1);
+
+    static bool should_decode_full_prx_window(const PosChunk& chunk) {
+        return chunk.prx_doc_count != 0 &&
+               static_cast<uint64_t>(chunk.prx_doc_ordinals.size()) * 2 >= chunk.prx_doc_count;
+    }
+
+    size_t position_offset_index() const {
+        if (!offsets_by_prx_ordinal_) {
+            return li_;
+        }
+        return src_->chunks[ci_].prx_doc_ordinals[li_];
+    }
+
     const PosSource* src_ = nullptr;
     size_t ci_ = 0;                       // current chunk
     size_t li_ = 0;                       // current local doc index within the chunk
     size_t decoded_pos_chunk_ = kNoChunk; // which chunk pflat_/poff_ currently hold
-    std::vector<uint32_t> pflat_;         // current chunk's flat positions (reused)
-    std::vector<uint32_t> poff_;          // current chunk's per-doc offsets (reused)
+    bool offsets_by_prx_ordinal_ = false;
+    std::vector<uint32_t> pflat_; // current chunk's flat positions (reused)
+    std::vector<uint32_t> poff_;  // current chunk's per-doc offsets (reused)
 };
 
 size_t AnchorPhrasePosition(const std::vector<TermPlan>& plans,

@@ -14,6 +14,12 @@ Status term_query(const LogicalIndexReader& idx, std::string_view term,
                   std::vector<uint32_t>* docids) {
     if (docids == nullptr) return Status::InvalidArgument("term_query: null out");
     docids->clear();
+    VectorDocIdSink sink(*docids);
+    return term_query(idx, term, &sink);
+}
+
+Status term_query(const LogicalIndexReader& idx, std::string_view term, DocIdSink* sink) {
+    if (sink == nullptr) return Status::InvalidArgument("term_query: null sink");
 
     bool found = false;
     DictEntry entry;
@@ -21,7 +27,7 @@ Status term_query(const LogicalIndexReader& idx, std::string_view term,
     uint64_t prx_base = 0;
     SNII_RETURN_IF_ERROR(idx.lookup(term, &found, &entry, &frq_base, &prx_base));
     if (!found) return Status::OK();
-    return internal::read_docid_posting(idx, entry, frq_base, prx_base, docids);
+    return internal::read_docid_posting(idx, entry, frq_base, prx_base, sink);
 }
 
 Status term_query(const LogicalIndexReader& idx, std::string_view term,

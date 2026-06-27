@@ -116,13 +116,45 @@ Status window_dd_slice(Slice dd_block, const WindowMeta& meta, Slice* out) {
     return Status::OK();
 }
 
+Status first_docid_in_window(const WindowMeta& meta, uint32_t window_ordinal, uint32_t* first) {
+    if (window_ordinal == 0) {
+        *first = 0;
+        return Status::OK();
+    }
+    if (meta.win_base >= std::numeric_limits<uint32_t>::max()) {
+        return Status::Corruption("docid_posting_reader: window base exceeds docid range");
+    }
+    *first = static_cast<uint32_t>(meta.win_base + 1);
+    if (*first > meta.last_docid) {
+        return Status::Corruption("docid_posting_reader: invalid window docid range");
+    }
+    return Status::OK();
+}
+
+Status is_dense_full_window(const WindowMeta& meta, uint32_t window_ordinal, bool* full) {
+    uint32_t first = 0;
+    SNII_RETURN_IF_ERROR(first_docid_in_window(meta, window_ordinal, &first));
+    const uint64_t width = static_cast<uint64_t>(meta.last_docid) - first + 1;
+    *full = meta.doc_count == width;
+    return Status::OK();
+}
+
 Status decode_flat_plan(const snii::io::BatchRangeFetcher& fetcher, const FlatPlan& plan,
                         std::vector<uint32_t>* out) {
     return decode_flat_docs(*plan.entry, fetcher.get(plan.handle), out);
 }
 
 Status decode_window_prefix_plan(const snii::io::BatchRangeFetcher& fetcher, const WindowPlan& plan,
+                                 DocIdSink* sink);
+
+Status decode_window_prefix_plan(const snii::io::BatchRangeFetcher& fetcher, const WindowPlan& plan,
                                  std::vector<uint32_t>* out) {
+    VectorDocIdSink sink(*out);
+    return decode_window_prefix_plan(fetcher, plan, &sink);
+}
+
+Status decode_window_prefix_plan(const snii::io::BatchRangeFetcher& fetcher, const WindowPlan& plan,
+                                 DocIdSink* sink) {
     const DictEntry& entry = plan.posting->entry;
     const Slice prefix = fetcher.get(plan.prefix_handle);
     if (entry.prelude_len > prefix.size()) {
@@ -140,18 +172,30 @@ Status decode_window_prefix_plan(const snii::io::BatchRangeFetcher& fetcher, con
         return Status::Corruption("docid_posting_reader: docs prefix length mismatch");
     }
     const Slice dd_block = prefix.subslice(prelude_len, prefix.size() - prelude_len);
+    std::vector<uint32_t> docs;
+    std::vector<uint32_t> freqs;
+    std::vector<std::vector<uint32_t>> positions;
     for (uint32_t w = 0; w < prelude.n_windows(); ++w) {
         WindowMeta meta;
         Slice dd_region;
         SNII_RETURN_IF_ERROR(prelude.window(w, &meta));
         SNII_RETURN_IF_ERROR(window_dd_slice(dd_block, meta, &dd_region));
-        std::vector<uint32_t> docs;
-        std::vector<uint32_t> freqs;
-        std::vector<std::vector<uint32_t>> positions;
+        bool dense_full = false;
+        SNII_RETURN_IF_ERROR(is_dense_full_window(meta, w, &dense_full));
+        if (dense_full) {
+            uint32_t first = 0;
+            SNII_RETURN_IF_ERROR(first_docid_in_window(meta, w, &first));
+            SNII_RETURN_IF_ERROR(
+                    sink->append_range(first, static_cast<uint64_t>(meta.last_docid) + 1));
+            continue;
+        }
+        docs.clear();
+        freqs.clear();
+        positions.clear();
         SNII_RETURN_IF_ERROR(snii::reader::decode_window_slices(
                 meta, dd_region, Slice(), Slice(), /*want_positions=*/false,
                 /*want_freq=*/false, &docs, &freqs, &positions));
-        out->insert(out->end(), docs.begin(), docs.end());
+        SNII_RETURN_IF_ERROR(sink->append_sorted(docs));
     }
     return Status::OK();
 }
@@ -163,11 +207,41 @@ Status read_docid_posting(const LogicalIndexReader& idx, const DictEntry& entry,
     if (docids == nullptr) {
         return Status::InvalidArgument("docid_posting_reader: null out");
     }
-    std::vector<std::vector<uint32_t>> batched;
-    SNII_RETURN_IF_ERROR(read_docid_postings_batched(
-            idx, {ResolvedDocidPosting {entry, frq_base, prx_base}}, &batched));
-    *docids = std::move(batched.front());
-    return Status::OK();
+    docids->clear();
+    VectorDocIdSink sink(*docids);
+    return read_docid_posting(idx, entry, frq_base, prx_base, &sink);
+}
+
+Status read_docid_posting(const LogicalIndexReader& idx, const DictEntry& entry, uint64_t frq_base,
+                          uint64_t prx_base, DocIdSink* sink) {
+    if (sink == nullptr) {
+        return Status::InvalidArgument("docid_posting_reader: null sink");
+    }
+    ResolvedDocidPosting posting {entry, frq_base, prx_base};
+    if (posting.entry.kind == DictEntryKind::kInline) {
+        std::vector<uint32_t> docs;
+        SNII_RETURN_IF_ERROR(decode_inline_docs(posting.entry, &docs));
+        return sink->append_sorted(docs);
+    }
+
+    snii::io::BatchRangeFetcher docs_fetcher(idx.reader());
+    if (posting.entry.enc == DictEntryEnc::kWindowed) {
+        WindowPlan plan;
+        plan.out_index = 0;
+        plan.posting = &posting;
+        SNII_RETURN_IF_ERROR(plan_window_prefix(idx, &plan, &docs_fetcher));
+        if (docs_fetcher.pending() > 0) SNII_RETURN_IF_ERROR(docs_fetcher.fetch());
+        return decode_window_prefix_plan(docs_fetcher, plan, sink);
+    }
+
+    FlatPlan plan;
+    plan.out_index = 0;
+    plan.entry = &posting.entry;
+    SNII_RETURN_IF_ERROR(plan_flat_docs(idx, posting, &docs_fetcher, &plan));
+    if (docs_fetcher.pending() > 0) SNII_RETURN_IF_ERROR(docs_fetcher.fetch());
+    std::vector<uint32_t> docs;
+    SNII_RETURN_IF_ERROR(decode_flat_plan(docs_fetcher, plan, &docs));
+    return sink->append_sorted(docs);
 }
 
 Status read_docid_postings_batched(const LogicalIndexReader& idx,

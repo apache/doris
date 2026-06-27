@@ -19,6 +19,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <numeric>
 #include <string>
 #include <utility>
 #include <vector>
@@ -30,7 +31,9 @@
 #include "snii/format/prx_pod.h"
 #include "snii/io/file_reader.h"
 #include "snii/io/file_writer.h"
+#include "snii/query/docid_sink.h"
 #include "snii/query/phrase_query.h"
+#include "snii/query/term_query.h"
 #include "snii/reader/logical_index_reader.h"
 #include "snii/reader/snii_segment_reader.h"
 #include "snii/writer/snii_compound_writer.h"
@@ -70,6 +73,25 @@ public:
 private:
     std::vector<uint8_t> data_;
     bool finalized_ = false;
+};
+
+class RecordingDocIdSink final : public DocIdSink {
+public:
+    Status append_sorted(std::span<const uint32_t> docids) override {
+        out.insert(out.end(), docids.begin(), docids.end());
+        return Status::OK();
+    }
+
+    Status append_range(uint32_t first, uint64_t last_exclusive) override {
+        ++range_calls;
+        for (uint64_t docid = first; docid < last_exclusive; ++docid) {
+            out.push_back(static_cast<uint32_t>(docid));
+        }
+        return Status::OK();
+    }
+
+    std::vector<uint32_t> out;
+    size_t range_calls = 0;
 };
 
 struct PostingDoc {
@@ -183,6 +205,21 @@ TEST(SniiPhraseQueryTest, SingleTailPhrasePrefixUsesStreamingPhrasePath) {
 
     const std::vector<uint32_t> expected {5000, 7000, 8000};
     EXPECT_EQ(docids, expected);
+}
+
+TEST(SniiTermQueryTest, WindowedDenseTermEmitsRangesToSink) {
+    MemoryFile file;
+    reader::SniiSegmentReader segment_reader;
+    reader::LogicalIndexReader index_reader;
+    assert_ok(build_reader(&file, &segment_reader, &index_reader));
+
+    RecordingDocIdSink sink;
+    assert_ok(term_query(index_reader, "failed", &sink));
+
+    std::vector<uint32_t> expected(9000);
+    std::iota(expected.begin(), expected.end(), 0);
+    EXPECT_EQ(sink.out, expected);
+    EXPECT_GT(sink.range_calls, 0);
 }
 
 TEST(SniiPrxPodTest, SelectivePforCsrMatchesFullCsrAcrossRuns) {

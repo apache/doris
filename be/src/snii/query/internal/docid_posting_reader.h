@@ -5,6 +5,7 @@
 
 #include "snii/common/status.h"
 #include "snii/format/dict_entry.h"
+#include "snii/query/docid_sink.h"
 #include "snii/reader/logical_index_reader.h"
 
 namespace snii::query::internal {
@@ -21,6 +22,10 @@ struct ResolvedDocidPosting {
 Status read_docid_posting(const snii::reader::LogicalIndexReader& idx,
                           const snii::format::DictEntry& entry, uint64_t frq_base,
                           uint64_t prx_base, std::vector<uint32_t>* docids);
+
+Status read_docid_posting(const snii::reader::LogicalIndexReader& idx,
+                          const snii::format::DictEntry& entry, uint64_t frq_base,
+                          uint64_t prx_base, snii::query::DocIdSink* sink);
 
 // Batch counterpart for multi-term docid-only operators. Windowed terms share one
 // prelude fetch round and one docid fetch round, so OR-style operators pay by

@@ -53,8 +53,6 @@ private:
                               InvertedIndexQueryType query_type,
                               const InvertedIndexAnalyzerCtx* analyzer_ctx,
                               InvertedIndexQueryInfo* query_info);
-    static void _docids_to_bitmap(const std::vector<uint32_t>& docids,
-                                  std::shared_ptr<roaring::Roaring>* bit_map);
 
     InvertedIndexReaderType _reader_type;
 };
