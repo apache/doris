@@ -31,6 +31,7 @@ import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.SupportsNamespaces;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.catalog.ViewCatalog;
+import org.apache.iceberg.types.Type;
 import org.apache.iceberg.types.Types;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -40,6 +41,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -315,13 +317,27 @@ public interface IcebergCatalogOps {
             }
             // Iceberg can widen required -> optional but never optional -> required (existing data may hold
             // nulls), so a NOT NULL request on an already-nullable column fails loud — legacy parity
-            // (IcebergMetadataOps.validateForModifyColumn).
+            // (IcebergMetadataOps.validateForModifyColumn / validateForModifyComplexColumn).
             if (current.isOptional() && !column.isNullable()) {
                 throw new DorisConnectorException(
                         "Can not change nullable column " + column.getName() + " to not null");
             }
             UpdateSchema updateSchema = table.updateSchema();
-            updateSchema.updateColumn(column.getName(), column.getType().asPrimitiveType(), column.getComment());
+            Type newType = column.getType();
+            if (newType.isPrimitiveType()) {
+                updateSchema.updateColumn(column.getName(), newType.asPrimitiveType(), column.getComment());
+            } else {
+                // A complex (STRUCT/ARRAY/MAP) modify diffs the new type against the current one field-by-field
+                // (IcebergComplexTypeDiff); the top-level column doc is updated separately, as in legacy.
+                if (current.type().isPrimitiveType()) {
+                    throw new DorisConnectorException("Modify column type from non-complex to complex is not"
+                            + " supported: " + column.getName());
+                }
+                IcebergComplexTypeDiff.apply(updateSchema, column.getName(), current.type(), newType);
+                if (!Objects.equals(current.doc(), column.getComment())) {
+                    updateSchema.updateColumnDoc(column.getName(), column.getComment());
+                }
+            }
             if (column.isNullable()) {
                 updateSchema.makeColumnOptional(column.getName());
             }

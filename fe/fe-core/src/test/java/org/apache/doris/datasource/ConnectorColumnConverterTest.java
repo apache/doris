@@ -289,6 +289,37 @@ class ConnectorColumnConverterTest {
     }
 
     @Test
+    void toConnectorTypeCarriesStructFieldNullabilityAndComment() {
+        // WHY (B2b): a complex MODIFY COLUMN diffs field-by-field on the connector side, and CREATE TABLE
+        // must preserve a NOT NULL / commented STRUCT field. toConnectorType must thread each field's
+        // nullability + comment across the SPI; a mutation dropping them flips these asserts.
+        ArrayList<StructField> fields = new ArrayList<>();
+        fields.add(new StructField("a", ScalarType.INT, "ca", true));
+        fields.add(new StructField("b", ScalarType.createStringType(), null, false));
+        ConnectorType ct = ConnectorColumnConverter.toConnectorType(new StructType(fields));
+        Assertions.assertTrue(ct.isChildNullable(0));
+        Assertions.assertEquals("ca", ct.getChildComment(0));
+        Assertions.assertFalse(ct.isChildNullable(1));
+    }
+
+    @Test
+    void toConnectorTypeThreadsArrayElementNullability() {
+        // Doris ARRAY elements are always nullable (ArrayType.getContainsNull() is hard-coded true), so the
+        // threaded value is always true; honoring a NOT NULL element from a non-Doris source happens in the
+        // connector schema builder (IcebergSchemaBuilderTest.testNestedNullabilityAndCommentPreserved).
+        ConnectorType ct = ConnectorColumnConverter.toConnectorType(ArrayType.create(ScalarType.INT, true));
+        Assertions.assertTrue(ct.isChildNullable(0));
+    }
+
+    @Test
+    void toConnectorTypeCarriesMapValueNullability() {
+        // child index 1 is the MAP value (keys are always required).
+        MapType notNullValue = new MapType(ScalarType.createStringType(), ScalarType.INT, true, false);
+        ConnectorType ct = ConnectorColumnConverter.toConnectorType(notNullValue);
+        Assertions.assertFalse(ct.isChildNullable(1));
+    }
+
+    @Test
     void testToConnectorColumnsConvertsList() {
         java.util.List<ConnectorColumn> cols = ConnectorColumnConverter.toConnectorColumns(
                 Arrays.asList(new Column("a", Type.INT), new Column("b", Type.INT)));

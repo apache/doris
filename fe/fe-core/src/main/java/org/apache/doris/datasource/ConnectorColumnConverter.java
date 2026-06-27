@@ -131,21 +131,31 @@ public final class ConnectorColumnConverter {
     public static ConnectorType toConnectorType(Type dorisType) {
         if (dorisType instanceof ArrayType) {
             ArrayType arr = (ArrayType) dorisType;
-            return ConnectorType.arrayOf(toConnectorType(arr.getItemType()));
+            // Carry the element's nullability so a connector can preserve a NOT NULL ARRAY element
+            // (e.g. iceberg CREATE TABLE / complex MODIFY COLUMN); legacy lost it (defaulted optional).
+            return ConnectorType.arrayOf(toConnectorType(arr.getItemType()), arr.getContainsNull());
         } else if (dorisType instanceof MapType) {
             MapType map = (MapType) dorisType;
+            // Map keys are always required; only the value nullability is carried.
             return ConnectorType.mapOf(
                     toConnectorType(map.getKeyType()),
-                    toConnectorType(map.getValueType()));
+                    toConnectorType(map.getValueType()),
+                    map.getIsValueContainsNull());
         } else if (dorisType instanceof StructType) {
             StructType struct = (StructType) dorisType;
             List<String> names = new ArrayList<>();
             List<ConnectorType> types = new ArrayList<>();
+            List<Boolean> nullables = new ArrayList<>();
+            List<String> comments = new ArrayList<>();
+            // Carry each field's nullability + comment so a connector can preserve a NOT NULL / commented
+            // STRUCT field and diff a complex MODIFY COLUMN field-by-field; legacy carried neither.
             for (StructField f : struct.getFields()) {
                 names.add(f.getName());
                 types.add(toConnectorType(f.getType()));
+                nullables.add(f.getContainsNull());
+                comments.add(f.getComment());
             }
-            return ConnectorType.structOf(names, types);
+            return ConnectorType.structOf(names, types, nullables, comments);
         } else if (dorisType instanceof ScalarType) {
             ScalarType scalar = (ScalarType) dorisType;
             PrimitiveType primitiveType = scalar.getPrimitiveType();

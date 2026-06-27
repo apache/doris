@@ -197,14 +197,31 @@ public class IcebergConnectorMetadataColumnEvolutionTest {
     }
 
     @Test
-    public void testModifyComplexColumnFailsBeforeRemote() {
+    public void testModifyComplexColumnBuildsTreeAndIsAuthWrapped() {
+        // B2b: a complex modify now routes to the seam carrying the FULL new complex iceberg type
+        // (built PURELY outside auth); the seam diffs it against the current schema.
         RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
         RecordingConnectorContext ctx = new RecordingConnectorContext();
         ConnectorColumn arr = new ConnectorColumn("arr",
                 ConnectorType.arrayOf(ConnectorType.of("INT")), "", true, null, false);
+        metadata(ops, ctx).modifyColumn(null, HANDLE, arr, null);
+        Assertions.assertEquals(Collections.singletonList("modifyColumn:db1.t1:arr"), ops.log);
+        Assertions.assertEquals(Type.TypeID.LIST, ops.lastModifyColumn.getType().typeId());
+        Assertions.assertEquals(Type.TypeID.INTEGER,
+                ops.lastModifyColumn.getType().asListType().elementType().typeId());
+        Assertions.assertEquals(1, ctx.authCount, "modifyColumn must run inside executeAuthenticated");
+    }
+
+    @Test
+    public void testModifyComplexColumnWithDefaultFailsBeforeRemote() {
+        // Legacy parity (validateForModifyComplexColumn): a complex modify may only carry a NULL default.
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        RecordingConnectorContext ctx = new RecordingConnectorContext();
+        ConnectorColumn arr = new ConnectorColumn("arr",
+                ConnectorType.arrayOf(ConnectorType.of("INT")), "", true, "1", false);
         DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
                 () -> metadata(ops, ctx).modifyColumn(null, HANDLE, arr, null));
-        Assertions.assertTrue(ex.getMessage().contains("complex"));
+        Assertions.assertTrue(ex.getMessage().contains("Complex type default"));
         Assertions.assertTrue(ops.log.isEmpty());
         Assertions.assertEquals(0, ctx.authCount);
     }

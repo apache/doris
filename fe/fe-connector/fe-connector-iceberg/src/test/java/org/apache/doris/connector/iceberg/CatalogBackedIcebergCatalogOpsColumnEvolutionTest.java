@@ -184,4 +184,177 @@ public class CatalogBackedIcebergCatalogOpsColumnEvolutionTest {
         ops.reorderColumns("db1", "t1", Arrays.asList("name", "req", "id", "val"));
         Assertions.assertEquals(Arrays.asList("name", "req", "id", "val"), columnOrder());
     }
+
+    // ---------- modifyColumn: complex types (B2b) — diffs the new type against the current one ----------
+
+    private Schema reload(String table) {
+        return ops.loadTable("db1", table).schema();
+    }
+
+    /** Creates db1.<table> with a single column built from {@code col}. */
+    private void createTable(String table, ConnectorColumn col) {
+        ops.createTable("db1", table,
+                IcebergSchemaBuilder.buildSchema(Collections.singletonList(col)),
+                PartitionSpec.unpartitioned(), null,
+                IcebergSchemaBuilder.buildTableProperties(Collections.emptyMap()));
+    }
+
+    /** Modifies db1.<table>.<colName> to the (top-level nullable) complex {@code newType}. */
+    private void modifyComplex(String table, String colName, ConnectorType newType, boolean topNullable) {
+        ops.modifyColumn("db1", table,
+                new IcebergColumnChange(colName, IcebergSchemaBuilder.buildColumnType(newType), null, null,
+                        topNullable), null);
+    }
+
+    private static ConnectorType structType(List<String> names, List<ConnectorType> types,
+            List<Boolean> nullable, List<String> comments) {
+        return ConnectorType.structOf(names, types, nullable, comments);
+    }
+
+    @Test
+    public void testModifyStructAddsNullableField() {
+        createTable("s_add", new ConnectorColumn("st",
+                structType(Arrays.asList("a"), Arrays.asList(ConnectorType.of("INT")),
+                        Arrays.asList(true), Arrays.asList((String) null)), "", true, null, false));
+        modifyComplex("s_add", "st",
+                structType(Arrays.asList("a", "b"),
+                        Arrays.asList(ConnectorType.of("INT"), ConnectorType.of("STRING")),
+                        Arrays.asList(true, true), Arrays.asList(null, "the b")), true);
+        Types.StructType st = reload("s_add").findField("st").type().asStructType();
+        Assertions.assertEquals(2, st.fields().size());
+        Assertions.assertEquals("b", st.fields().get(1).name());
+        Assertions.assertEquals(Type.TypeID.STRING, st.fields().get(1).type().typeId());
+        Assertions.assertTrue(st.fields().get(1).isOptional());
+        Assertions.assertEquals("the b", st.fields().get(1).doc());
+    }
+
+    @Test
+    public void testModifyStructWidensFieldTypeAndComment() {
+        createTable("s_widen", new ConnectorColumn("st",
+                structType(Arrays.asList("a"), Arrays.asList(ConnectorType.of("INT")),
+                        Arrays.asList(true), Arrays.asList("old")), "", true, null, false));
+        modifyComplex("s_widen", "st",
+                structType(Arrays.asList("a"), Arrays.asList(ConnectorType.of("BIGINT")),
+                        Arrays.asList(true), Arrays.asList("new")), true);
+        Types.NestedField a = reload("s_widen").findField("st").type().asStructType().fields().get(0);
+        Assertions.assertEquals(Type.TypeID.LONG, a.type().typeId());
+        Assertions.assertEquals("new", a.doc());
+    }
+
+    @Test
+    public void testModifyStructFieldWidensNotNullToNullable() {
+        createTable("s_null", new ConnectorColumn("st",
+                structType(Arrays.asList("a"), Arrays.asList(ConnectorType.of("INT")),
+                        Arrays.asList(false), Arrays.asList((String) null)), "", true, null, false));
+        Assertions.assertTrue(reload("s_null").findField("st").type().asStructType().fields().get(0).isRequired());
+        modifyComplex("s_null", "st",
+                structType(Arrays.asList("a"), Arrays.asList(ConnectorType.of("INT")),
+                        Arrays.asList(true), Arrays.asList((String) null)), true);
+        Assertions.assertTrue(reload("s_null").findField("st").type().asStructType().fields().get(0).isOptional());
+    }
+
+    @Test
+    public void testModifyStructNarrowToNotNullFailsLoud() {
+        createTable("s_narrow", new ConnectorColumn("st",
+                structType(Arrays.asList("a"), Arrays.asList(ConnectorType.of("INT")),
+                        Arrays.asList(true), Arrays.asList((String) null)), "", true, null, false));
+        DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
+                () -> modifyComplex("s_narrow", "st",
+                        structType(Arrays.asList("a"), Arrays.asList(ConnectorType.of("INT")),
+                                Arrays.asList(false), Arrays.asList((String) null)), true));
+        Assertions.assertTrue(ex.getMessage().contains("not null"));
+        Assertions.assertTrue(reload("s_narrow").findField("st").type().asStructType().fields().get(0).isOptional());
+    }
+
+    @Test
+    public void testModifyStructReduceFieldsFailsLoud() {
+        createTable("s_reduce", new ConnectorColumn("st",
+                structType(Arrays.asList("a", "b"),
+                        Arrays.asList(ConnectorType.of("INT"), ConnectorType.of("STRING")),
+                        Arrays.asList(true, true), Arrays.asList(null, null)), "", true, null, false));
+        DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
+                () -> modifyComplex("s_reduce", "st",
+                        structType(Arrays.asList("a"), Arrays.asList(ConnectorType.of("INT")),
+                                Arrays.asList(true), Arrays.asList((String) null)), true));
+        Assertions.assertTrue(ex.getMessage().contains("reduce"));
+        Assertions.assertEquals(2, reload("s_reduce").findField("st").type().asStructType().fields().size());
+    }
+
+    @Test
+    public void testModifyStructRenameFieldFailsLoud() {
+        createTable("s_rename", new ConnectorColumn("st",
+                structType(Arrays.asList("a"), Arrays.asList(ConnectorType.of("INT")),
+                        Arrays.asList(true), Arrays.asList((String) null)), "", true, null, false));
+        DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
+                () -> modifyComplex("s_rename", "st",
+                        structType(Arrays.asList("c"), Arrays.asList(ConnectorType.of("INT")),
+                                Arrays.asList(true), Arrays.asList((String) null)), true));
+        Assertions.assertTrue(ex.getMessage().contains("rename struct field"));
+    }
+
+    @Test
+    public void testModifyStructNewFieldNotNullableFailsLoud() {
+        createTable("s_newreq", new ConnectorColumn("st",
+                structType(Arrays.asList("a"), Arrays.asList(ConnectorType.of("INT")),
+                        Arrays.asList(true), Arrays.asList((String) null)), "", true, null, false));
+        DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
+                () -> modifyComplex("s_newreq", "st",
+                        structType(Arrays.asList("a", "b"),
+                                Arrays.asList(ConnectorType.of("INT"), ConnectorType.of("STRING")),
+                                Arrays.asList(true, false), Arrays.asList(null, null)), true));
+        Assertions.assertTrue(ex.getMessage().contains("must be nullable"));
+    }
+
+    @Test
+    public void testModifyNestedDecimalPrecisionFailsLoud() {
+        // Legacy parity: a nested primitive change is restricted to int->long / float->double / exact; a
+        // DECIMAL precision change inside a struct is rejected (checkSupportSchemaChangeForNestedPrimitive).
+        createTable("s_dec", new ConnectorColumn("st",
+                structType(Arrays.asList("a"), Arrays.asList(ConnectorType.of("DECIMALV3", 10, 2)),
+                        Arrays.asList(true), Arrays.asList((String) null)), "", true, null, false));
+        DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
+                () -> modifyComplex("s_dec", "st",
+                        structType(Arrays.asList("a"), Arrays.asList(ConnectorType.of("DECIMALV3", 20, 2)),
+                                Arrays.asList(true), Arrays.asList((String) null)), true));
+        Assertions.assertTrue(ex.getMessage().contains("nested"));
+    }
+
+    @Test
+    public void testModifyArrayElementWidens() {
+        createTable("a_widen", new ConnectorColumn("arr",
+                ConnectorType.arrayOf(ConnectorType.of("INT")), "", true, null, false));
+        modifyComplex("a_widen", "arr", ConnectorType.arrayOf(ConnectorType.of("BIGINT")), true);
+        Assertions.assertEquals(Type.TypeID.LONG,
+                reload("a_widen").findField("arr").type().asListType().elementType().typeId());
+    }
+
+    @Test
+    public void testModifyMapValueWidens() {
+        createTable("m_widen", new ConnectorColumn("m",
+                ConnectorType.mapOf(ConnectorType.of("STRING"), ConnectorType.of("INT")), "", true, null, false));
+        modifyComplex("m_widen", "m",
+                ConnectorType.mapOf(ConnectorType.of("STRING"), ConnectorType.of("BIGINT")), true);
+        Assertions.assertEquals(Type.TypeID.LONG,
+                reload("m_widen").findField("m").type().asMapType().valueType().typeId());
+    }
+
+    @Test
+    public void testModifyMapKeyChangeFailsLoud() {
+        createTable("m_key", new ConnectorColumn("m",
+                ConnectorType.mapOf(ConnectorType.of("STRING"), ConnectorType.of("INT")), "", true, null, false));
+        DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
+                () -> modifyComplex("m_key", "m",
+                        ConnectorType.mapOf(ConnectorType.of("BIGINT"), ConnectorType.of("INT")), true));
+        Assertions.assertTrue(ex.getMessage().contains("MAP key"));
+    }
+
+    @Test
+    public void testModifyComplexCategoryMismatchFailsLoud() {
+        createTable("c_cat", new ConnectorColumn("st",
+                structType(Arrays.asList("a"), Arrays.asList(ConnectorType.of("INT")),
+                        Arrays.asList(true), Arrays.asList((String) null)), "", true, null, false));
+        DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
+                () -> modifyComplex("c_cat", "st", ConnectorType.arrayOf(ConnectorType.of("INT")), true));
+        Assertions.assertTrue(ex.getMessage().contains("category"));
+    }
 }

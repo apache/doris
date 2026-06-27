@@ -58,11 +58,11 @@ import java.util.UUID;
  * scheme. (Iceberg reassigns fresh ids in {@code TableMetadata.newTableMetadata} on create, so only internal
  * consistency + name-resolvability of the partition/sort spec matters here.)</p>
  *
- * <p><b>Nested nullability:</b> the neutral {@link ConnectorType} carries no per-element nullability for
- * complex types (only the top-level {@link ConnectorColumn#isNullable()} survives the SPI), so ARRAY elements,
- * MAP values, and STRUCT fields default to OPTIONAL — matching the paimon connector's createTable precedent.
- * A NOT NULL declared inside a complex type is therefore not preserved (FU-nested-nullability); the FORMAT
- * of the top-level column is preserved.</p>
+ * <p><b>Nested nullability:</b> the neutral {@link ConnectorType} now carries per-element nullability +
+ * per-STRUCT-field comments ({@link ConnectorType#isChildNullable(int)}/{@link ConnectorType#getChildComment}),
+ * so a NOT NULL (or a comment) declared inside a complex type — ARRAY element, MAP value, STRUCT field — is
+ * preserved on the iceberg side. When the neutral type does not carry them (legacy factories / the paimon
+ * write path), every element defaults to OPTIONAL, preserving the prior behavior.</p>
  */
 public final class IcebergSchemaBuilder {
 
@@ -97,21 +97,35 @@ public final class IcebergSchemaBuilder {
         return new Schema(fields);
     }
 
-    /** Recursively converts a neutral type to an Iceberg type, allocating ids for nested fields. */
+    /**
+     * Recursively converts a neutral type to an Iceberg type, allocating ids for nested fields.
+     *
+     * <p>Per-element nullability ({@link ConnectorType#isChildNullable(int)}) and per-STRUCT-field comments
+     * ({@link ConnectorType#getChildComment(int)}) are honored when the neutral type carries them — closing
+     * the former FU-nested-nullability gap so a NOT NULL declared inside a complex type survives. When unset
+     * (legacy factories / connectors that do not thread them) every element defaults to OPTIONAL with no doc,
+     * preserving the prior behavior.</p>
+     */
     private static Type convert(ConnectorType type, IdAllocator ids) {
         String name = type.getTypeName().toUpperCase(Locale.ROOT);
         switch (name) {
             case "ARRAY": {
                 // Element type/ids first, then the list's element id (post-order, matching legacy visitor).
                 Type element = convert(type.getChildren().get(0), ids);
-                return Types.ListType.ofOptional(ids.next(), element);
+                int elementId = ids.next();
+                return type.isChildNullable(0)
+                        ? Types.ListType.ofOptional(elementId, element)
+                        : Types.ListType.ofRequired(elementId, element);
             }
             case "MAP": {
                 Type key = convert(type.getChildren().get(0), ids);
                 Type value = convert(type.getChildren().get(1), ids);
                 int keyId = ids.next();
                 int valueId = ids.next();
-                return Types.MapType.ofOptional(keyId, valueId, key, value);
+                // Iceberg map keys are always required; child index 1 (the value) carries the nullability.
+                return type.isChildNullable(1)
+                        ? Types.MapType.ofOptional(keyId, valueId, key, value)
+                        : Types.MapType.ofRequired(keyId, valueId, key, value);
             }
             case "STRUCT": {
                 List<ConnectorType> childTypes = type.getChildren();
@@ -120,7 +134,10 @@ public final class IcebergSchemaBuilder {
                 for (int i = 0; i < childTypes.size(); i++) {
                     String fieldName = i < fieldNames.size() ? fieldNames.get(i) : "col" + i;
                     Type fieldType = convert(childTypes.get(i), ids);
-                    sub.add(Types.NestedField.optional(ids.next(), fieldName, fieldType));
+                    String fieldDoc = type.getChildComment(i);
+                    sub.add(type.isChildNullable(i)
+                            ? Types.NestedField.optional(ids.next(), fieldName, fieldType, fieldDoc)
+                            : Types.NestedField.required(ids.next(), fieldName, fieldType, fieldDoc));
                 }
                 return Types.StructType.of(sub);
             }
@@ -230,8 +247,9 @@ public final class IcebergSchemaBuilder {
      * ARRAY/MAP/STRUCT recursively). Iceberg's {@code UpdateSchema.addColumn/updateColumn} assigns the field
      * ids itself, so the throwaway allocator values here are irrelevant — only the type shape matters.
      *
-     * <p>Nested nullability is lost (complex elements default OPTIONAL), same as {@link #buildSchema}
-     * (FU-nested-nullability); B2b closes this together with complex-type {@code MODIFY COLUMN}.</p>
+     * <p>Per-element nullability + per-STRUCT-field comments are honored when the neutral type carries them
+     * (same as {@link #buildSchema}), so the full new complex type built here for a {@code MODIFY COLUMN}
+     * faithfully drives the {@link IcebergComplexTypeDiff} field-by-field diff.</p>
      *
      * @throws DorisConnectorException if the column type cannot be represented in iceberg
      */

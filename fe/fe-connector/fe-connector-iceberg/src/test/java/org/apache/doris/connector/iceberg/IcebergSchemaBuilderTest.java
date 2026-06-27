@@ -149,6 +149,35 @@ public class IcebergSchemaBuilderTest {
         Assertions.assertEquals(total, distinct);
     }
 
+    @Test
+    public void testNestedNullabilityAndCommentPreserved() {
+        // STRUCT<x INT NULL COMMENT 'cx', y DOUBLE NOT NULL>, ARRAY<INT NOT NULL>, MAP<STRING, BIGINT NOT NULL>
+        ConnectorType struct = ConnectorType.structOf(
+                Arrays.asList("x", "y"),
+                Arrays.asList(ConnectorType.of("INT"), ConnectorType.of("DOUBLE")),
+                Arrays.asList(true, false), Arrays.asList("cx", null));
+        ConnectorType arr = ConnectorType.arrayOf(ConnectorType.of("INT"), false);
+        ConnectorType map = ConnectorType.mapOf(ConnectorType.of("STRING"), ConnectorType.of("BIGINT"), false);
+        Schema schema = IcebergSchemaBuilder.buildSchema(Arrays.asList(
+                col("st", struct, true), col("arr", arr, true), col("m", map, true)));
+
+        Types.StructType st = schema.findField("st").type().asStructType();
+        Assertions.assertTrue(st.fields().get(0).isOptional());
+        Assertions.assertEquals("cx", st.fields().get(0).doc());
+        Assertions.assertTrue(st.fields().get(1).isRequired());
+        Assertions.assertFalse(schema.findField("arr").type().asListType().isElementOptional());
+        Assertions.assertFalse(schema.findField("m").type().asMapType().isValueOptional());
+    }
+
+    @Test
+    public void testNestedDefaultsToOptionalWhenNullabilityNotCarried() {
+        // Legacy factories carry no per-field nullability -> every nested element defaults OPTIONAL.
+        ConnectorType struct = ConnectorType.structOf(
+                Arrays.asList("x"), Arrays.asList(ConnectorType.of("INT")));
+        Schema schema = IcebergSchemaBuilder.buildSchema(Collections.singletonList(col("st", struct, true)));
+        Assertions.assertTrue(schema.findField("st").type().asStructType().fields().get(0).isOptional());
+    }
+
     private static List<Integer> idsOf(Type type) {
         java.util.List<Integer> ids = new java.util.ArrayList<>();
         collectIds(type, ids);

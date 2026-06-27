@@ -592,23 +592,23 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
     }
 
     /**
-     * Modifies a column, mirroring legacy {@code IcebergMetadataOps.modifyColumn} (primitive branch): the
-     * neutral column is turned into an iceberg primitive type PURELY, then the seam validates the current
-     * column (exists / not optional&rarr;required) and commits the {@code updateColumn} (+ make-optional +
-     * reposition).
+     * Modifies a column, mirroring legacy {@code IcebergMetadataOps.modifyColumn}: the neutral column is turned
+     * into the full iceberg type PURELY (scalar leaf or the whole {@code STRUCT}/{@code ARRAY}/{@code MAP} tree,
+     * carrying nested nullability + per-field comments), then the seam validates the current column
+     * (exists / not optional&rarr;required) and either commits a scalar {@code updateColumn} or diffs the new
+     * complex type against the current one field-by-field ({@link IcebergComplexTypeDiff}), plus make-optional +
+     * reposition.
      *
-     * <p>B2a: a complex-type ({@code STRUCT}/{@code ARRAY}/{@code MAP}) modify needs the per-field nullability
-     * + comment the neutral {@code ConnectorType} cannot yet carry, so it fails loud here; B2b lands the full
-     * recursive diff once the neutral type system carries those.</p>
+     * <p>A complex-type modify may only carry a {@code NULL} default (legacy
+     * {@code validateForModifyComplexColumn} parity), checked here before the remote call.</p>
      */
     @Override
     public void modifyColumn(ConnectorSession session, ConnectorTableHandle handle,
             ConnectorColumn column, ConnectorColumnPosition position) {
         IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
         validateCommonColumnInfo(column);
-        if (isComplexType(column.getType())) {
-            throw new DorisConnectorException("Modify column to complex type (STRUCT/ARRAY/MAP) is not yet"
-                    + " supported via the connector SPI: " + column.getName());
+        if (isComplexType(column.getType()) && column.getDefaultValue() != null) {
+            throw new DorisConnectorException("Complex type default value only supports NULL: " + column.getName());
         }
         Type icebergType = IcebergSchemaBuilder.buildColumnType(column.getType());
         IcebergColumnChange change = new IcebergColumnChange(column.getName(), icebergType,
