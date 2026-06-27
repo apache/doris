@@ -5,7 +5,9 @@
 
 ---
 
-# 🎯 下一个 session 的任务 = **C5 翻闸就绪修复（按 `P6.6-C5-flip-readiness.md` 的 A 类硬阻塞 + B 类应修；先做不依赖决策的小项）**
+# 🎯 下一个 session 的任务 = **C5 翻闸就绪修复（A+B 两类全修，按 `P6.6-C5-flip-readiness.md` 推荐顺序；决策已锁）**
+
+> **⚠️ 本 session 已很长（R7 实现 + 2 个大 workflow 审计），上下文高 → 在此干净节点交接。下个 session 从全新上下文开始实现 C5 修复（A2/A3 连接器 SPI + 持久化迁移是大块，新上下文做更稳）。**
 
 > **2026-06-27 翻闸就绪度审计（`wf_265f4359-47f`）改写了「下一步」**：原以为 R7 后即 R8（rewrite e2e），实测**翻闸前还有一批 fe-core 缺口**（翻闸后对真实 iceberg 表报错/错误结果，docker 写入测不到）。R8（rewrite 真写 e2e）只是其中**写路径**那一块 = **用户 docker 验证**（C 类）。**详见 `plan-doc/tasks/designs/P6.6-C5-flip-readiness.md`**（A/B/C/D 分类 + 2 项用户决策 + 推荐顺序）。
 
@@ -13,9 +15,9 @@
 
 ## ⛳ 审计结论（一句话）：**还不能翻闸**。scan + write-dispatch 面已干净（按 PluginDriven 类型/物理 sink 路由，非 iceberg cast）；剩缺口集中在 **DDL/SHOW 渲染、统计、优化器、分区演进、建表、视图、持久化迁移**。
 
-## ❓ 2 项用户决策待定（动 C5 修复前需用户定，已在审计文档 §决策）
-- **[DEC-FLIP-1] 持久化/混合舰队**：iceberg 缺 `GsonUtils.registerCompatibleSubtype→PluginDriven`（ES/JDBC/Trino/MaxCompute/Paimon 都有，`GsonUtils:389-411`）→只加列表不加 remap=重启后混合舰队。方向一（推荐，跟 paimon 加 remap）/ 方向二（接受混合舰队）。
-- **[DEC-FLIP-2] B 类 + 视图/分区演进取舍**：哪些翻闸前必修 / 哪些作已知限制（不用视图则 A3/B6 暂缓；不用分区演进则 A2 暂缓）。
+## ✅ 2 项用户决策已锁（2026-06-27，详审计文档 §决策）
+- **[DEC-FLIP-1] = 方向一（加 GSON 迁移）**：实现 `GsonUtils.registerCompatibleSubtype(PluginDrivenExternalCatalog.class, "Iceberg…")` 全 8 catalog 变体 + 库 + 表（跟 paimon `:389-411` 范式），重启自动升级、全集群统一。
+- **[DEC-FLIP-2] = A+B 两类全部翻闸前修**（A1/A2/A3/A4 + B1–B6）：含视图查询(A3)+SHOW-视图(B6) 共用中立视图 SPI、分区演进(A2)。**仅 C 类（写路径正确性）归用户 docker 验证**，D 类翻闸后再做。
 
 ## 📖 起步必读（动 C5 修复前）
 1. **`plan-doc/tasks/designs/P6.6-C5-flip-readiness.md`**（**主**：缺口清单 A/B/C/D + 2 决策 + 推荐顺序；动码前 re-grep 锚点）。
