@@ -17,6 +17,8 @@
 
 package org.apache.doris.connector.iceberg;
 
+import org.apache.doris.connector.api.ddl.ConnectorColumnPosition;
+
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.SortOrder;
@@ -77,6 +79,17 @@ final class RecordingIcebergCatalogOps implements IcebergCatalogOps {
     /** Canned location answers for the load-before-drop helpers (default: absent). */
     Optional<String> tableLocation = Optional.empty();
     Optional<String> namespaceLocation = Optional.empty();
+
+    // ---- Column-evolution write recording (B2) ----
+    IcebergColumnChange lastAddColumn;
+    ConnectorColumnPosition lastAddColumnPos;
+    List<IcebergColumnChange> lastAddColumns;
+    String lastDropColumn;
+    String lastRenameColumnOld;
+    String lastRenameColumnNew;
+    IcebergColumnChange lastModifyColumn;
+    ConnectorColumnPosition lastModifyColumnPos;
+    List<String> lastReorder;
 
     @Override
     public List<String> listDatabaseNames() {
@@ -158,6 +171,47 @@ final class RecordingIcebergCatalogOps implements IcebergCatalogOps {
     public Optional<String> loadNamespaceLocation(String dbName) {
         log.add("loadNamespaceLocation:" + dbName);
         return namespaceLocation;
+    }
+
+    @Override
+    public void addColumn(String dbName, String tableName, IcebergColumnChange column,
+            ConnectorColumnPosition position) {
+        log.add("addColumn:" + dbName + "." + tableName + ":" + column.getName());
+        lastAddColumn = column;
+        lastAddColumnPos = position;
+    }
+
+    @Override
+    public void addColumns(String dbName, String tableName, List<IcebergColumnChange> columns) {
+        log.add("addColumns:" + dbName + "." + tableName + ":" + columns.size());
+        lastAddColumns = columns;
+    }
+
+    @Override
+    public void dropColumn(String dbName, String tableName, String columnName) {
+        log.add("dropColumn:" + dbName + "." + tableName + ":" + columnName);
+        lastDropColumn = columnName;
+    }
+
+    @Override
+    public void renameColumn(String dbName, String tableName, String oldName, String newName) {
+        log.add("renameColumn:" + dbName + "." + tableName + ":" + oldName + "->" + newName);
+        lastRenameColumnOld = oldName;
+        lastRenameColumnNew = newName;
+    }
+
+    @Override
+    public void modifyColumn(String dbName, String tableName, IcebergColumnChange column,
+            ConnectorColumnPosition position) {
+        log.add("modifyColumn:" + dbName + "." + tableName + ":" + column.getName());
+        lastModifyColumn = column;
+        lastModifyColumnPos = position;
+    }
+
+    @Override
+    public void reorderColumns(String dbName, String tableName, List<String> newOrder) {
+        log.add("reorderColumns:" + dbName + "." + tableName + ":" + newOrder);
+        lastReorder = newOrder;
     }
 
     @Override

@@ -17,6 +17,7 @@
 
 package org.apache.doris.connector.api;
 
+import org.apache.doris.connector.api.ddl.ConnectorColumnPosition;
 import org.apache.doris.connector.api.ddl.ConnectorCreateTableRequest;
 import org.apache.doris.connector.api.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
@@ -134,6 +135,51 @@ public interface ConnectorTableOps {
             ConnectorTableHandle handle) {
         throw new DorisConnectorException(
                 "DROP TABLE not supported");
+    }
+
+    /**
+     * Adds a column to the table at the given position.
+     *
+     * @param position where to place the column ({@link ConnectorColumnPosition#FIRST} /
+     *        {@link ConnectorColumnPosition#after(String)}); {@code null} appends at the end.
+     */
+    default void addColumn(ConnectorSession session, ConnectorTableHandle handle,
+            ConnectorColumn column, ConnectorColumnPosition position) {
+        throw new DorisConnectorException("ADD COLUMN not supported");
+    }
+
+    /** Adds multiple columns to the table, appended in order. */
+    default void addColumns(ConnectorSession session, ConnectorTableHandle handle,
+            List<ConnectorColumn> columns) {
+        throw new DorisConnectorException("ADD COLUMNS not supported");
+    }
+
+    /** Drops the named column from the table. */
+    default void dropColumn(ConnectorSession session, ConnectorTableHandle handle,
+            String columnName) {
+        throw new DorisConnectorException("DROP COLUMN not supported");
+    }
+
+    /** Renames a column. */
+    default void renameColumn(ConnectorSession session, ConnectorTableHandle handle,
+            String oldName, String newName) {
+        throw new DorisConnectorException("RENAME COLUMN not supported");
+    }
+
+    /**
+     * Modifies a column's type and/or comment, optionally repositioning it.
+     *
+     * @param position where to move the column; {@code null} keeps its current position.
+     */
+    default void modifyColumn(ConnectorSession session, ConnectorTableHandle handle,
+            ConnectorColumn column, ConnectorColumnPosition position) {
+        throw new DorisConnectorException("MODIFY COLUMN not supported");
+    }
+
+    /** Reorders the table's columns to match the given full ordered list of column names. */
+    default void reorderColumns(ConnectorSession session, ConnectorTableHandle handle,
+            List<String> newOrder) {
+        throw new DorisConnectorException("REORDER COLUMNS not supported");
     }
 
     /** Returns the primary key column names for the given table. */

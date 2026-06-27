@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource;
 
+import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.MapType;
@@ -267,5 +268,32 @@ class ConnectorColumnConverterTest {
         Assertions.assertFalse(converted.isVisible(), "the row-id column must be hidden");
         Assertions.assertEquals(legacy.isVisible(), converted.isVisible());
         Assertions.assertEquals(legacy.isAllowNull(), converted.isAllowNull());
+    }
+
+    @Test
+    void testToConnectorColumnPreservesKeyAndAggregation() {
+        Column key = new Column("k", Type.INT, true, null, true, null, "");
+        ConnectorColumn ck = ConnectorColumnConverter.toConnectorColumn(key);
+        Assertions.assertTrue(ck.isKey());
+        Assertions.assertFalse(ck.isAggregated());
+
+        // WHY (B2): the iceberg connector rejects aggregated columns in ALTER ADD/MODIFY COLUMN
+        // (validateCommonColumnInfo); toConnectorColumn must carry isAggregated across the SPI or the
+        // connector could not tell an aggregated column apart from a plain one. A mutation reverting to
+        // the 5-arg ctor (dropping these flags) makes isAggregated default false -> this assert goes red.
+        Column agg = new Column("s", Type.INT, false, AggregateType.SUM, true, null, "");
+        ConnectorColumn ca = ConnectorColumnConverter.toConnectorColumn(agg);
+        Assertions.assertTrue(ca.isAggregated());
+        Assertions.assertFalse(ca.isKey());
+        Assertions.assertEquals("s", ca.getName());
+    }
+
+    @Test
+    void testToConnectorColumnsConvertsList() {
+        java.util.List<ConnectorColumn> cols = ConnectorColumnConverter.toConnectorColumns(
+                Arrays.asList(new Column("a", Type.INT), new Column("b", Type.INT)));
+        Assertions.assertEquals(2, cols.size());
+        Assertions.assertEquals("a", cols.get(0).getName());
+        Assertions.assertEquals("b", cols.get(1).getName());
     }
 }

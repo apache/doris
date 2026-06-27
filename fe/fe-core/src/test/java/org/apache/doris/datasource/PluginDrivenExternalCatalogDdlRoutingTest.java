@@ -17,14 +17,20 @@
 
 package org.apache.doris.datasource;
 
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.RefreshManager;
+import org.apache.doris.catalog.Type;
+import org.apache.doris.catalog.info.ColumnPosition;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.UserException;
 import org.apache.doris.connector.api.Connector;
+import org.apache.doris.connector.api.ConnectorColumn;
 import org.apache.doris.connector.api.ConnectorMetadata;
 import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.DorisConnectorException;
+import org.apache.doris.connector.api.ddl.ConnectorColumnPosition;
 import org.apache.doris.connector.api.ddl.ConnectorCreateTableRequest;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.ddl.CreateTableInfoToConnectorRequestConverter;
@@ -39,6 +45,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
@@ -62,6 +69,7 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
 
     private MockedStatic<Env> mockedEnv;
     private EditLog mockEditLog;
+    private RefreshManager mockRefreshManager;
     private Connector connector;
     private ConnectorMetadata metadata;
     private ConnectorSession session;
@@ -81,9 +89,11 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
 
         Env mockEnv = Mockito.mock(Env.class);
         mockEditLog = Mockito.mock(EditLog.class);
+        mockRefreshManager = Mockito.mock(RefreshManager.class);
         mockedEnv = Mockito.mockStatic(Env.class);
         mockedEnv.when(Env::getCurrentEnv).thenReturn(mockEnv);
         Mockito.when(mockEnv.getEditLog()).thenReturn(mockEditLog);
+        Mockito.when(mockEnv.getRefreshManager()).thenReturn(mockRefreshManager);
     }
 
     @AfterEach
@@ -592,7 +602,181 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
         }
     }
 
+    // ==================== COLUMN EVOLUTION (B2) ====================
+    // The 6 column-op overrides resolve the connector handle by REMOTE names (like dropTable), convert the
+    // Doris Column/ColumnPosition to the neutral SPI types, dispatch, wrap DorisConnectorException as
+    // DdlException, and run afterExternalDdl (editlog with LOCAL names + RefreshManager.refreshTableInternal
+    // re-resolving by REMOTE names). PluginDriven has no metadataOps, so without these overrides the base ops
+    // would throw "not supported".
+
+    @Test
+    public void testAddColumnRoutesConvertsAndLogsRefresh() throws Exception {
+        ExternalTable table = mockAlterTable();
+        ConnectorTableHandle handle = stubAlterHandle();
+
+        catalog.addColumn(table, nullableIntColumn("age"), ColumnPosition.FIRST);
+
+        ArgumentCaptor<ConnectorColumn> colCap = ArgumentCaptor.forClass(ConnectorColumn.class);
+        ArgumentCaptor<ConnectorColumnPosition> posCap = ArgumentCaptor.forClass(ConnectorColumnPosition.class);
+        Mockito.verify(metadata).addColumn(Mockito.eq(session), Mockito.eq(handle),
+                colCap.capture(), posCap.capture());
+        Assertions.assertEquals("age", colCap.getValue().getName());
+        // WHY: position FIRST must be neutralized to ConnectorColumnPosition.FIRST (toConnectorPosition); a
+        // mutation dropping the isFirst() branch makes this red.
+        Assertions.assertTrue(posCap.getValue().isFirst());
+        // WHY (Rule 9): the editlog MUST carry the LOCAL names for follower replay (base
+        // logRefreshExternalTable parity); a mutation persisting the remote names turns these red.
+        ArgumentCaptor<ExternalObjectLog> logCap = ArgumentCaptor.forClass(ExternalObjectLog.class);
+        Mockito.verify(mockEditLog).logRefreshExternalTable(logCap.capture());
+        Assertions.assertEquals("db1", logCap.getValue().getDbName());
+        Assertions.assertEquals("t1", logCap.getValue().getTableName());
+    }
+
+    @Test
+    public void testAddColumnsRoutesConvertedList() throws Exception {
+        ExternalTable table = mockAlterTable();
+        ConnectorTableHandle handle = stubAlterHandle();
+
+        catalog.addColumns(table, Arrays.asList(nullableIntColumn("a"), nullableIntColumn("b")));
+
+        ArgumentCaptor<java.util.List<ConnectorColumn>> cap = ArgumentCaptor.forClass(java.util.List.class);
+        Mockito.verify(metadata).addColumns(Mockito.eq(session), Mockito.eq(handle), cap.capture());
+        Assertions.assertEquals(2, cap.getValue().size());
+        Assertions.assertEquals("a", cap.getValue().get(0).getName());
+        Assertions.assertEquals("b", cap.getValue().get(1).getName());
+    }
+
+    @Test
+    public void testDropColumnRoutes() throws Exception {
+        ExternalTable table = mockAlterTable();
+        ConnectorTableHandle handle = stubAlterHandle();
+
+        catalog.dropColumn(table, "age");
+
+        Mockito.verify(metadata).dropColumn(session, handle, "age");
+        Mockito.verify(mockEditLog).logRefreshExternalTable(Mockito.any());
+    }
+
+    @Test
+    public void testRenameColumnRoutes() throws Exception {
+        ExternalTable table = mockAlterTable();
+        ConnectorTableHandle handle = stubAlterHandle();
+
+        catalog.renameColumn(table, "old", "new");
+
+        Mockito.verify(metadata).renameColumn(session, handle, "old", "new");
+    }
+
+    @Test
+    public void testModifyColumnRoutesWithAfterPosition() throws Exception {
+        ExternalTable table = mockAlterTable();
+        ConnectorTableHandle handle = stubAlterHandle();
+
+        catalog.modifyColumn(table, nullableIntColumn("age"), new ColumnPosition("id"));
+
+        ArgumentCaptor<ConnectorColumnPosition> posCap = ArgumentCaptor.forClass(ConnectorColumnPosition.class);
+        Mockito.verify(metadata).modifyColumn(Mockito.eq(session), Mockito.eq(handle),
+                Mockito.any(ConnectorColumn.class), posCap.capture());
+        // WHY: AFTER <col> must be neutralized to ConnectorColumnPosition.after(col); a mutation that drops
+        // the afterColumn or flips it to FIRST makes these red.
+        Assertions.assertFalse(posCap.getValue().isFirst());
+        Assertions.assertEquals("id", posCap.getValue().getAfterColumn());
+    }
+
+    @Test
+    public void testReorderColumnsRoutes() throws Exception {
+        ExternalTable table = mockAlterTable();
+        ConnectorTableHandle handle = stubAlterHandle();
+
+        catalog.reorderColumns(table, Arrays.asList("b", "a"));
+
+        Mockito.verify(metadata).reorderColumns(session, handle, Arrays.asList("b", "a"));
+    }
+
+    @Test
+    public void testColumnOpNullPositionConvertedToNull() throws Exception {
+        ExternalTable table = mockAlterTable();
+        stubAlterHandle();
+
+        catalog.addColumn(table, nullableIntColumn("age"), null);
+
+        ArgumentCaptor<ConnectorColumnPosition> posCap = ArgumentCaptor.forClass(ConnectorColumnPosition.class);
+        Mockito.verify(metadata).addColumn(Mockito.any(), Mockito.any(),
+                Mockito.any(ConnectorColumn.class), posCap.capture());
+        // WHY: a null ColumnPosition (no position clause) must stay null across the SPI (toConnectorPosition
+        // null-guard); a mutation returning FIRST/after for null would change append semantics.
+        Assertions.assertNull(posCap.getValue());
+    }
+
+    @Test
+    public void testColumnOpRefreshesTableCacheViaRefreshManager() throws Exception {
+        ExternalTable table = mockAlterTable();
+        stubAlterHandle();
+        // afterExternalDdl re-resolves the cached table by the REMOTE names (legacy IcebergMetadataOps.refreshTable
+        // parity), then calls RefreshManager.refreshTableInternal — the cache-invalidation the base column op
+        // delegated into metadataOps and PluginDriven (metadataOps == null) must reproduce explicitly.
+        ExternalDatabase<? extends ExternalTable> replayDb = mockExternalDatabase();
+        ExternalTable cached = Mockito.mock(ExternalTable.class);
+        Mockito.doReturn(Optional.of(cached)).when(replayDb).getTableForReplay("TBL1");
+        catalog.dbForReplayResult = Optional.of(replayDb);
+
+        catalog.dropColumn(table, "age");
+
+        // WHY (Rule 9 / BLOCKER-2): the base column ops do NOT invalidate the cache themselves — they delegate it
+        // into metadataOps.refreshTable -> RefreshManager.refreshTableInternal. A helper that only writes the
+        // editlog (the literal "copy the base op" reading) would SILENTLY lose cache invalidation after every
+        // connector-driven schema change. These asserts pin that the refresh actually runs, re-resolving by the
+        // REMOTE names. A mutation dropping the refreshTableInternal call goes red.
+        Assertions.assertEquals("DB1", catalog.lastGetDbForReplayArg,
+                "afterExternalDdl must re-resolve the cached table by the REMOTE db name (legacy parity)");
+        Mockito.verify(replayDb).getTableForReplay("TBL1");
+        Mockito.verify(mockRefreshManager)
+                .refreshTableInternal(Mockito.eq(replayDb), Mockito.eq(cached), Mockito.anyLong());
+    }
+
+    @Test
+    public void testColumnOpHandleAbsentThrows() {
+        ExternalTable table = mockAlterTable();
+        Mockito.when(metadata.getTableHandle(session, "DB1", "TBL1")).thenReturn(Optional.empty());
+
+        Assertions.assertThrows(DdlException.class, () -> catalog.dropColumn(table, "age"));
+        Mockito.verify(metadata, Mockito.never()).dropColumn(Mockito.any(), Mockito.any(), Mockito.any());
+    }
+
+    @Test
+    public void testColumnOpWrapsConnectorException() {
+        ExternalTable table = mockAlterTable();
+        ConnectorTableHandle handle = stubAlterHandle();
+        Mockito.doThrow(new DorisConnectorException("boom"))
+                .when(metadata).dropColumn(session, handle, "age");
+
+        DdlException ex = Assertions.assertThrows(DdlException.class, () -> catalog.dropColumn(table, "age"));
+        Assertions.assertTrue(ex.getMessage().contains("boom"));
+    }
+
     // ==================== helpers ====================
+
+    /** A mock external table whose LOCAL names are db1.t1 and REMOTE names DB1.TBL1 (name mapping enabled). */
+    private ExternalTable mockAlterTable() {
+        ExternalTable table = Mockito.mock(ExternalTable.class);
+        Mockito.when(table.getDbName()).thenReturn("db1");
+        Mockito.when(table.getName()).thenReturn("t1");
+        Mockito.when(table.getRemoteDbName()).thenReturn("DB1");
+        Mockito.when(table.getRemoteName()).thenReturn("TBL1");
+        return table;
+    }
+
+    /** Stubs the connector handle resolution for the REMOTE names of {@link #mockAlterTable()}. */
+    private ConnectorTableHandle stubAlterHandle() {
+        ConnectorTableHandle handle = Mockito.mock(ConnectorTableHandle.class);
+        Mockito.when(metadata.getTableHandle(session, "DB1", "TBL1")).thenReturn(Optional.of(handle));
+        return handle;
+    }
+
+    /** A nullable INT Doris column (iceberg add/modify reject non-nullable adds). */
+    private static Column nullableIntColumn(String name) {
+        return new Column(name, Type.INT, false, null, true, null, "");
+    }
 
     @SuppressWarnings("unchecked")
     private ExternalDatabase<? extends ExternalTable> mockExternalDatabase() {

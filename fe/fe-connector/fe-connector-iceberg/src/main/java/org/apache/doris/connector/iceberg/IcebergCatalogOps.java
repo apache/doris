@@ -18,17 +18,20 @@
 package org.apache.doris.connector.iceberg;
 
 import org.apache.doris.connector.api.DorisConnectorException;
+import org.apache.doris.connector.api.ddl.ConnectorColumnPosition;
 
 import com.google.common.base.Splitter;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.SortOrder;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.UpdateSchema;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.SupportsNamespaces;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.catalog.ViewCatalog;
+import org.apache.iceberg.types.Types;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -99,6 +102,26 @@ public interface IcebergCatalogOps {
 
     /** The database (namespace)'s {@code location} metadata, or empty when absent/blank. */
     Optional<String> loadNamespaceLocation(String dbName);
+
+    // ---- Column evolution (B2) — build + commit an UpdateSchema; thin delegations to the real Table ----
+
+    /** Adds {@code column} to {@code dbName.tableName} at {@code position} (null = append at the end). */
+    void addColumn(String dbName, String tableName, IcebergColumnChange column, ConnectorColumnPosition position);
+
+    /** Adds {@code columns} to {@code dbName.tableName}, appended in order, in a single schema update. */
+    void addColumns(String dbName, String tableName, List<IcebergColumnChange> columns);
+
+    /** Drops {@code columnName} from {@code dbName.tableName}. */
+    void dropColumn(String dbName, String tableName, String columnName);
+
+    /** Renames {@code oldName} to {@code newName} in {@code dbName.tableName}. */
+    void renameColumn(String dbName, String tableName, String oldName, String newName);
+
+    /** Modifies a primitive {@code column} (type/comment/nullable) of {@code dbName.tableName}, optional move. */
+    void modifyColumn(String dbName, String tableName, IcebergColumnChange column, ConnectorColumnPosition position);
+
+    /** Reorders the columns of {@code dbName.tableName} to match {@code newOrder} (full ordered name list). */
+    void reorderColumns(String dbName, String tableName, List<String> newOrder);
 
     void close() throws IOException;
 
@@ -246,6 +269,87 @@ public interface IcebergCatalogOps {
             Map<String, String> metadata = requireNamespaces().loadNamespaceMetadata(toNamespace(dbName));
             String location = metadata.get(NAMESPACE_LOCATION_PROP);
             return isBlank(location) ? Optional.empty() : Optional.of(location);
+        }
+
+        @Override
+        public void addColumn(String dbName, String tableName, IcebergColumnChange column,
+                ConnectorColumnPosition position) {
+            UpdateSchema updateSchema = loadTable(dbName, tableName).updateSchema();
+            updateSchema.addColumn(column.getName(), column.getType(), column.getComment(),
+                    column.getDefaultValue());
+            applyPosition(updateSchema, position, column.getName());
+            updateSchema.commit();
+        }
+
+        @Override
+        public void addColumns(String dbName, String tableName, List<IcebergColumnChange> columns) {
+            UpdateSchema updateSchema = loadTable(dbName, tableName).updateSchema();
+            for (IcebergColumnChange column : columns) {
+                updateSchema.addColumn(column.getName(), column.getType(), column.getComment(),
+                        column.getDefaultValue());
+            }
+            updateSchema.commit();
+        }
+
+        @Override
+        public void dropColumn(String dbName, String tableName, String columnName) {
+            UpdateSchema updateSchema = loadTable(dbName, tableName).updateSchema();
+            updateSchema.deleteColumn(columnName);
+            updateSchema.commit();
+        }
+
+        @Override
+        public void renameColumn(String dbName, String tableName, String oldName, String newName) {
+            UpdateSchema updateSchema = loadTable(dbName, tableName).updateSchema();
+            updateSchema.renameColumn(oldName, newName);
+            updateSchema.commit();
+        }
+
+        @Override
+        public void modifyColumn(String dbName, String tableName, IcebergColumnChange column,
+                ConnectorColumnPosition position) {
+            Table table = loadTable(dbName, tableName);
+            Types.NestedField current = table.schema().findField(column.getName());
+            if (current == null) {
+                throw new DorisConnectorException("Column " + column.getName() + " does not exist");
+            }
+            // Iceberg can widen required -> optional but never optional -> required (existing data may hold
+            // nulls), so a NOT NULL request on an already-nullable column fails loud — legacy parity
+            // (IcebergMetadataOps.validateForModifyColumn).
+            if (current.isOptional() && !column.isNullable()) {
+                throw new DorisConnectorException(
+                        "Can not change nullable column " + column.getName() + " to not null");
+            }
+            UpdateSchema updateSchema = table.updateSchema();
+            updateSchema.updateColumn(column.getName(), column.getType().asPrimitiveType(), column.getComment());
+            if (column.isNullable()) {
+                updateSchema.makeColumnOptional(column.getName());
+            }
+            applyPosition(updateSchema, position, column.getName());
+            updateSchema.commit();
+        }
+
+        @Override
+        public void reorderColumns(String dbName, String tableName, List<String> newOrder) {
+            UpdateSchema updateSchema = loadTable(dbName, tableName).updateSchema();
+            updateSchema.moveFirst(newOrder.get(0));
+            for (int i = 1; i < newOrder.size(); i++) {
+                updateSchema.moveAfter(newOrder.get(i), newOrder.get(i - 1));
+            }
+            updateSchema.commit();
+        }
+
+        /** Applies the (nullable) position to a not-yet-committed schema update: FIRST / AFTER / no-op. */
+        private void applyPosition(UpdateSchema updateSchema, ConnectorColumnPosition position,
+                String columnName) {
+            if (position == null) {
+                return;
+            }
+            if (position.isFirst()) {
+                updateSchema.moveFirst(columnName);
+            } else {
+                updateSchema.moveAfter(columnName, position.getAfterColumn());
+            }
         }
 
         /** The catalog as a {@link SupportsNamespaces}, or a fail-loud error (legacy cast unconditionally). */

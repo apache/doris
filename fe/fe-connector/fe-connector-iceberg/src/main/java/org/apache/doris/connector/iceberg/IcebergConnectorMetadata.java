@@ -23,6 +23,7 @@ import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.ConnectorTableSchema;
 import org.apache.doris.connector.api.ConnectorType;
 import org.apache.doris.connector.api.DorisConnectorException;
+import org.apache.doris.connector.api.ddl.ConnectorColumnPosition;
 import org.apache.doris.connector.api.ddl.ConnectorCreateTableRequest;
 import org.apache.doris.connector.api.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
@@ -513,6 +514,168 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         }
         tableLocation.ifPresent(location ->
                 context.cleanupEmptyManagedLocation(location, IcebergSchemaBuilder.tableLocationChildDirs()));
+    }
+
+    // ========== Column evolution (B2) — mirror legacy IcebergMetadataOps add/drop/rename/modify/reorder ==========
+
+    /**
+     * Adds a column, mirroring legacy {@code IcebergMetadataOps.addColumn}/{@code addOneColumn}: the neutral
+     * column is turned into an iceberg type + parsed DEFAULT literal PURELY (outside auth), then committed
+     * through the seam at {@code position} ({@code null} = append at the end). A non-nullable column cannot be
+     * added to an existing iceberg table (legacy parity).
+     */
+    @Override
+    public void addColumn(ConnectorSession session, ConnectorTableHandle handle,
+            ConnectorColumn column, ConnectorColumnPosition position) {
+        IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
+        IcebergColumnChange change = toAddColumnChange(column);
+        try {
+            context.executeAuthenticated(() -> {
+                catalogOps.addColumn(iceHandle.getDbName(), iceHandle.getTableName(), change, position);
+                return null;
+            });
+        } catch (Exception e) {
+            throw new DorisConnectorException("Failed to add column " + column.getName() + " to Iceberg table "
+                    + iceHandle.getDbName() + "." + iceHandle.getTableName() + ": " + e.getMessage(), e);
+        }
+    }
+
+    /** Adds columns in one schema update, mirroring legacy {@code IcebergMetadataOps.addColumns}. */
+    @Override
+    public void addColumns(ConnectorSession session, ConnectorTableHandle handle, List<ConnectorColumn> columns) {
+        IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
+        List<IcebergColumnChange> changes = new ArrayList<>(columns.size());
+        for (ConnectorColumn column : columns) {
+            changes.add(toAddColumnChange(column));
+        }
+        try {
+            context.executeAuthenticated(() -> {
+                catalogOps.addColumns(iceHandle.getDbName(), iceHandle.getTableName(), changes);
+                return null;
+            });
+        } catch (Exception e) {
+            throw new DorisConnectorException("Failed to add columns to Iceberg table "
+                    + iceHandle.getDbName() + "." + iceHandle.getTableName() + ": " + e.getMessage(), e);
+        }
+    }
+
+    /** Drops a column, mirroring legacy {@code IcebergMetadataOps.dropColumn}. */
+    @Override
+    public void dropColumn(ConnectorSession session, ConnectorTableHandle handle, String columnName) {
+        IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
+        try {
+            context.executeAuthenticated(() -> {
+                catalogOps.dropColumn(iceHandle.getDbName(), iceHandle.getTableName(), columnName);
+                return null;
+            });
+        } catch (Exception e) {
+            throw new DorisConnectorException("Failed to drop column " + columnName + " from Iceberg table "
+                    + iceHandle.getDbName() + "." + iceHandle.getTableName() + ": " + e.getMessage(), e);
+        }
+    }
+
+    /** Renames a column, mirroring legacy {@code IcebergMetadataOps.renameColumn}. */
+    @Override
+    public void renameColumn(ConnectorSession session, ConnectorTableHandle handle, String oldName,
+            String newName) {
+        IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
+        try {
+            context.executeAuthenticated(() -> {
+                catalogOps.renameColumn(iceHandle.getDbName(), iceHandle.getTableName(), oldName, newName);
+                return null;
+            });
+        } catch (Exception e) {
+            throw new DorisConnectorException("Failed to rename column " + oldName + " to " + newName
+                    + " in Iceberg table " + iceHandle.getDbName() + "." + iceHandle.getTableName()
+                    + ": " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Modifies a column, mirroring legacy {@code IcebergMetadataOps.modifyColumn} (primitive branch): the
+     * neutral column is turned into an iceberg primitive type PURELY, then the seam validates the current
+     * column (exists / not optional&rarr;required) and commits the {@code updateColumn} (+ make-optional +
+     * reposition).
+     *
+     * <p>B2a: a complex-type ({@code STRUCT}/{@code ARRAY}/{@code MAP}) modify needs the per-field nullability
+     * + comment the neutral {@code ConnectorType} cannot yet carry, so it fails loud here; B2b lands the full
+     * recursive diff once the neutral type system carries those.</p>
+     */
+    @Override
+    public void modifyColumn(ConnectorSession session, ConnectorTableHandle handle,
+            ConnectorColumn column, ConnectorColumnPosition position) {
+        IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
+        validateCommonColumnInfo(column);
+        if (isComplexType(column.getType())) {
+            throw new DorisConnectorException("Modify column to complex type (STRUCT/ARRAY/MAP) is not yet"
+                    + " supported via the connector SPI: " + column.getName());
+        }
+        Type icebergType = IcebergSchemaBuilder.buildColumnType(column.getType());
+        IcebergColumnChange change = new IcebergColumnChange(column.getName(), icebergType,
+                column.getComment(), null, column.isNullable());
+        try {
+            context.executeAuthenticated(() -> {
+                catalogOps.modifyColumn(iceHandle.getDbName(), iceHandle.getTableName(), change, position);
+                return null;
+            });
+        } catch (Exception e) {
+            throw new DorisConnectorException("Failed to modify column " + column.getName()
+                    + " in Iceberg table " + iceHandle.getDbName() + "." + iceHandle.getTableName()
+                    + ": " + e.getMessage(), e);
+        }
+    }
+
+    /** Reorders columns, mirroring legacy {@code IcebergMetadataOps.reorderColumns}. */
+    @Override
+    public void reorderColumns(ConnectorSession session, ConnectorTableHandle handle, List<String> newOrder) {
+        if (newOrder == null || newOrder.isEmpty()) {
+            throw new DorisConnectorException("Reorder columns failed: the new order is empty");
+        }
+        IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
+        try {
+            context.executeAuthenticated(() -> {
+                catalogOps.reorderColumns(iceHandle.getDbName(), iceHandle.getTableName(), newOrder);
+                return null;
+            });
+        } catch (Exception e) {
+            throw new DorisConnectorException("Failed to reorder columns in Iceberg table "
+                    + iceHandle.getDbName() + "." + iceHandle.getTableName() + ": " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Builds the iceberg {@code ADD COLUMN} artifacts from a neutral column, mirroring legacy
+     * {@code addOneColumn}: reject aggregated / auto-inc columns and a non-nullable add, build the iceberg
+     * type, parse the DEFAULT literal. Pure (no remote call); runs outside the auth context.
+     */
+    private IcebergColumnChange toAddColumnChange(ConnectorColumn column) {
+        validateCommonColumnInfo(column);
+        if (!column.isNullable()) {
+            throw new DorisConnectorException("can't add a non-nullable column to an Iceberg table: "
+                    + column.getName());
+        }
+        Type icebergType = IcebergSchemaBuilder.buildColumnType(column.getType());
+        return new IcebergColumnChange(column.getName(), icebergType, column.getComment(),
+                IcebergSchemaBuilder.parseDefaultLiteral(column.getDefaultValue(), icebergType),
+                column.isNullable());
+    }
+
+    /** Rejects aggregated / auto-increment columns on iceberg, mirroring legacy {@code validateCommonColumnInfo}. */
+    private static void validateCommonColumnInfo(ConnectorColumn column) {
+        if (column.isAggregated()) {
+            throw new DorisConnectorException("Can not specify aggregation method for iceberg table column: "
+                    + column.getName());
+        }
+        if (column.isAutoInc()) {
+            throw new DorisConnectorException("Can not specify auto incremental iceberg table column: "
+                    + column.getName());
+        }
+    }
+
+    /** Whether a neutral type is a complex (STRUCT / ARRAY / MAP) type, by its type name. */
+    private static boolean isComplexType(ConnectorType type) {
+        String name = type.getTypeName().toUpperCase(Locale.ROOT);
+        return "ARRAY".equals(name) || "MAP".equals(name) || "STRUCT".equals(name);
     }
 
     /** The configured {@code iceberg.catalog.type}, or {@code null} when unset. */

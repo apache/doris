@@ -30,14 +30,18 @@ import org.apache.iceberg.RowLevelOperationMode;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.SortOrder;
 import org.apache.iceberg.TableProperties;
+import org.apache.iceberg.expressions.Literal;
 import org.apache.iceberg.types.Type;
 import org.apache.iceberg.types.Types;
 
+import java.math.BigDecimal;
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.UUID;
 
 /**
  * Builds the Iceberg create-table artifacts (Schema / PartitionSpec / SortOrder / default properties)
@@ -218,6 +222,92 @@ public final class IcebergSchemaBuilder {
         props.putIfAbsent(TableProperties.UPDATE_MODE, RowLevelOperationMode.MERGE_ON_READ.modeName());
         props.putIfAbsent(TableProperties.MERGE_MODE, RowLevelOperationMode.MERGE_ON_READ.modeName());
         return props;
+    }
+
+    /**
+     * Builds the iceberg {@link Type} for a SINGLE column added/modified on an EXISTING table, reusing the
+     * same neutral-type conversion as {@link #buildSchema} (scalars via {@link IcebergTypeMapping}, plus
+     * ARRAY/MAP/STRUCT recursively). Iceberg's {@code UpdateSchema.addColumn/updateColumn} assigns the field
+     * ids itself, so the throwaway allocator values here are irrelevant — only the type shape matters.
+     *
+     * <p>Nested nullability is lost (complex elements default OPTIONAL), same as {@link #buildSchema}
+     * (FU-nested-nullability); B2b closes this together with complex-type {@code MODIFY COLUMN}.</p>
+     *
+     * @throws DorisConnectorException if the column type cannot be represented in iceberg
+     */
+    public static Type buildColumnType(ConnectorType type) {
+        return convert(type, new IdAllocator(0));
+    }
+
+    /**
+     * Parses a column {@code DEFAULT} value string into an iceberg {@link Literal} of {@code type}, or
+     * {@code null} when {@code value} is null (no DEFAULT clause). Byte-faithful port of the legacy fe-core
+     * {@code IcebergUtils.parseIcebergLiteral} (self-contained — only iceberg + JDK types), so that an
+     * {@code ADD COLUMN ... DEFAULT} keeps its initial-default after the flip.
+     *
+     * @throws IllegalArgumentException for an unparseable value or a type that cannot carry a default
+     */
+    public static Literal<?> parseDefaultLiteral(String value, Type type) {
+        if (value == null) {
+            return null;
+        }
+        switch (type.typeId()) {
+            case BOOLEAN:
+                try {
+                    return Literal.of(Boolean.parseBoolean(value));
+                } catch (IllegalArgumentException e) {
+                    throw new IllegalArgumentException("Invalid Boolean string: " + value, e);
+                }
+            case INTEGER:
+            case DATE:
+                try {
+                    return Literal.of(Integer.parseInt(value));
+                } catch (NumberFormatException e) {
+                    throw new IllegalArgumentException("Invalid Int string: " + value, e);
+                }
+            case LONG:
+            case TIME:
+            case TIMESTAMP:
+            case TIMESTAMP_NANO:
+                try {
+                    return Literal.of(Long.parseLong(value));
+                } catch (NumberFormatException e) {
+                    throw new IllegalArgumentException("Invalid Long string: " + value, e);
+                }
+            case FLOAT:
+                try {
+                    return Literal.of(Float.parseFloat(value));
+                } catch (NumberFormatException e) {
+                    throw new IllegalArgumentException("Invalid Float string: " + value, e);
+                }
+            case DOUBLE:
+                try {
+                    return Literal.of(Double.parseDouble(value));
+                } catch (NumberFormatException e) {
+                    throw new IllegalArgumentException("Invalid Double string: " + value, e);
+                }
+            case STRING:
+                return Literal.of(value);
+            case UUID:
+                try {
+                    return Literal.of(UUID.fromString(value));
+                } catch (IllegalArgumentException e) {
+                    throw new IllegalArgumentException("Invalid UUID string: " + value, e);
+                }
+            case FIXED:
+            case BINARY:
+            case GEOMETRY:
+            case GEOGRAPHY:
+                return Literal.of(ByteBuffer.wrap(value.getBytes()));
+            case DECIMAL:
+                try {
+                    return Literal.of(new BigDecimal(value));
+                } catch (NumberFormatException e) {
+                    throw new IllegalArgumentException("Invalid Decimal string: " + value, e);
+                }
+            default:
+                throw new IllegalArgumentException("Cannot parse unknown type: " + type);
+        }
     }
 
     /** Sequential Iceberg field-id allocator for nested fields (legacy {@code DorisTypeToIcebergType} scheme). */

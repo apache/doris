@@ -93,8 +93,22 @@ public final class ConnectorColumnConverter {
     }
 
     /**
+     * Converts a list of Doris {@link Column} to a list of {@link ConnectorColumn}.
+     */
+    public static List<ConnectorColumn> toConnectorColumns(List<Column> columns) {
+        return columns.stream()
+                .map(ConnectorColumnConverter::toConnectorColumn)
+                .collect(Collectors.toList());
+    }
+
+    /**
      * Converts a Doris {@link Column} to a {@link ConnectorColumn}.
      * This is the inverse of {@link #convertColumn(ConnectorColumn)}.
+     *
+     * <p>The {@code isKey}/{@code isAutoInc}/{@code isAggregated} flags are carried so a connector can
+     * re-enforce its column-validation parity (e.g. iceberg rejects aggregated / auto-increment columns
+     * in {@code ALTER TABLE ADD/MODIFY COLUMN}); without them those flags would default to {@code false}
+     * and the connector could not tell an aggregated/auto-inc column apart from a plain one.</p>
      */
     public static ConnectorColumn toConnectorColumn(Column col) {
         ConnectorType connectorType = toConnectorType(col.getType());
@@ -103,7 +117,10 @@ public final class ConnectorColumnConverter {
                 connectorType,
                 col.getComment(),
                 col.isAllowNull(),
-                col.getDefaultValue());
+                col.getDefaultValue(),
+                col.isKey(),
+                col.isAutoInc(),
+                col.isAggregated());
     }
 
     /**
