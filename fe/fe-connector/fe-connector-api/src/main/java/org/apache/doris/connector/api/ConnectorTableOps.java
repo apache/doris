@@ -17,8 +17,11 @@
 
 package org.apache.doris.connector.api;
 
+import org.apache.doris.connector.api.ddl.BranchChange;
 import org.apache.doris.connector.api.ddl.ConnectorColumnPosition;
 import org.apache.doris.connector.api.ddl.ConnectorCreateTableRequest;
+import org.apache.doris.connector.api.ddl.DropRefChange;
+import org.apache.doris.connector.api.ddl.TagChange;
 import org.apache.doris.connector.api.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.api.mvcc.ConnectorMvccSnapshot;
@@ -187,6 +190,30 @@ public interface ConnectorTableOps {
     default void reorderColumns(ConnectorSession session, ConnectorTableHandle handle,
             List<String> newOrder) {
         throw new DorisConnectorException("REORDER COLUMNS not supported");
+    }
+
+    /** Creates or replaces a named branch (snapshot ref) on the table. */
+    default void createOrReplaceBranch(ConnectorSession session, ConnectorTableHandle handle,
+            BranchChange branch) {
+        throw new DorisConnectorException("CREATE/REPLACE BRANCH not supported");
+    }
+
+    /** Creates or replaces a named tag (snapshot ref) on the table. */
+    default void createOrReplaceTag(ConnectorSession session, ConnectorTableHandle handle,
+            TagChange tag) {
+        throw new DorisConnectorException("CREATE/REPLACE TAG not supported");
+    }
+
+    /** Drops a named branch (snapshot ref) from the table. */
+    default void dropBranch(ConnectorSession session, ConnectorTableHandle handle,
+            DropRefChange branch) {
+        throw new DorisConnectorException("DROP BRANCH not supported");
+    }
+
+    /** Drops a named tag (snapshot ref) from the table. */
+    default void dropTag(ConnectorSession session, ConnectorTableHandle handle,
+            DropRefChange tag) {
+        throw new DorisConnectorException("DROP TAG not supported");
     }
 
     /** Returns the primary key column names for the given table. */

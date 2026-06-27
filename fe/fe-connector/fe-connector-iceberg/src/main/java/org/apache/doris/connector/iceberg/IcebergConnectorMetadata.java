@@ -23,8 +23,11 @@ import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.ConnectorTableSchema;
 import org.apache.doris.connector.api.ConnectorType;
 import org.apache.doris.connector.api.DorisConnectorException;
+import org.apache.doris.connector.api.ddl.BranchChange;
 import org.apache.doris.connector.api.ddl.ConnectorColumnPosition;
 import org.apache.doris.connector.api.ddl.ConnectorCreateTableRequest;
+import org.apache.doris.connector.api.ddl.DropRefChange;
+import org.apache.doris.connector.api.ddl.TagChange;
 import org.apache.doris.connector.api.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.api.handle.ConnectorTransaction;
@@ -661,6 +664,77 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         } catch (Exception e) {
             throw new DorisConnectorException("Failed to reorder columns in Iceberg table "
                     + iceHandle.getDbName() + "." + iceHandle.getTableName() + ": " + e.getMessage(), e);
+        }
+    }
+
+    // ========== Branch / tag refs (B4) — mirror legacy IcebergMetadataOps createOrReplace/drop Branch/Tag ==========
+
+    /**
+     * Creates or replaces a branch, mirroring legacy {@code IcebergMetadataOps.createOrReplaceBranchImpl}: the
+     * whole {@code ManageSnapshots} build + commit (which reads the live table's current snapshot / refs) runs
+     * through the seam inside the auth context. The neutral {@link BranchChange} carries the SQL options; the
+     * iceberg {@code ManageSnapshots} logic stays in the seam.
+     */
+    @Override
+    public void createOrReplaceBranch(ConnectorSession session, ConnectorTableHandle handle, BranchChange branch) {
+        IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
+        try {
+            context.executeAuthenticated(() -> {
+                catalogOps.createOrReplaceBranch(iceHandle.getDbName(), iceHandle.getTableName(), branch);
+                return null;
+            });
+        } catch (Exception e) {
+            throw new DorisConnectorException("Failed to create or replace branch " + branch.getName()
+                    + " on Iceberg table " + iceHandle.getDbName() + "." + iceHandle.getTableName()
+                    + ": " + e.getMessage(), e);
+        }
+    }
+
+    /** Creates or replaces a tag, mirroring legacy {@code IcebergMetadataOps.createOrReplaceTagImpl}. */
+    @Override
+    public void createOrReplaceTag(ConnectorSession session, ConnectorTableHandle handle, TagChange tag) {
+        IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
+        try {
+            context.executeAuthenticated(() -> {
+                catalogOps.createOrReplaceTag(iceHandle.getDbName(), iceHandle.getTableName(), tag);
+                return null;
+            });
+        } catch (Exception e) {
+            throw new DorisConnectorException("Failed to create or replace tag " + tag.getName()
+                    + " on Iceberg table " + iceHandle.getDbName() + "." + iceHandle.getTableName()
+                    + ": " + e.getMessage(), e);
+        }
+    }
+
+    /** Drops a branch, mirroring legacy {@code IcebergMetadataOps.dropBranchImpl}. */
+    @Override
+    public void dropBranch(ConnectorSession session, ConnectorTableHandle handle, DropRefChange branch) {
+        IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
+        try {
+            context.executeAuthenticated(() -> {
+                catalogOps.dropBranch(iceHandle.getDbName(), iceHandle.getTableName(), branch);
+                return null;
+            });
+        } catch (Exception e) {
+            throw new DorisConnectorException("Failed to drop branch " + branch.getName()
+                    + " from Iceberg table " + iceHandle.getDbName() + "." + iceHandle.getTableName()
+                    + ": " + e.getMessage(), e);
+        }
+    }
+
+    /** Drops a tag, mirroring legacy {@code IcebergMetadataOps.dropTagImpl}. */
+    @Override
+    public void dropTag(ConnectorSession session, ConnectorTableHandle handle, DropRefChange tag) {
+        IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
+        try {
+            context.executeAuthenticated(() -> {
+                catalogOps.dropTag(iceHandle.getDbName(), iceHandle.getTableName(), tag);
+                return null;
+            });
+        } catch (Exception e) {
+            throw new DorisConnectorException("Failed to drop tag " + tag.getName()
+                    + " from Iceberg table " + iceHandle.getDbName() + "." + iceHandle.getTableName()
+                    + ": " + e.getMessage(), e);
         }
     }
 

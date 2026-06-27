@@ -19,12 +19,20 @@ package org.apache.doris.connector.iceberg;
 
 import org.apache.doris.connector.api.ConnectorColumn;
 import org.apache.doris.connector.api.ConnectorType;
+import org.apache.doris.connector.api.DorisConnectorException;
+import org.apache.doris.connector.api.ddl.BranchChange;
 import org.apache.doris.connector.api.ddl.ConnectorSortField;
+import org.apache.doris.connector.api.ddl.DropRefChange;
+import org.apache.doris.connector.api.ddl.TagChange;
 import org.apache.doris.connector.iceberg.IcebergCatalogOps.CatalogBackedIcebergCatalogOps;
 
+import org.apache.iceberg.DataFiles;
+import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
+import org.apache.iceberg.SnapshotRef;
 import org.apache.iceberg.SortOrder;
+import org.apache.iceberg.Table;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.inmemory.InMemoryCatalog;
@@ -170,5 +178,201 @@ public class CatalogBackedIcebergCatalogOpsDdlTest {
     public void testRenameMissingTableFailsLoud() {
         ops.createDatabase("db1", Collections.emptyMap());
         Assertions.assertThrows(Exception.class, () -> ops.renameTable("db1", "ghost", "t2"));
+    }
+
+    // ---------- Branch / tag (B4): real ManageSnapshots round-trips on an InMemoryCatalog ----------
+
+    /** Creates db1.t1 and seeds {@code snapshots} consecutive snapshots; returns the current snapshot id. */
+    private long createTableWithSnapshots(String table, int snapshots) {
+        ops.createDatabase("db1", Collections.emptyMap());
+        ops.createTable("db1", table, schema(), PartitionSpec.unpartitioned(), null,
+                IcebergSchemaBuilder.buildTableProperties(Collections.emptyMap()));
+        Table t = ops.loadTable("db1", table);
+        for (int i = 0; i < snapshots; i++) {
+            t.newAppend().appendFile(DataFiles.builder(PartitionSpec.unpartitioned())
+                    .withPath("s3://b/db1/" + table + "-" + i + ".parquet")
+                    .withFileSizeInBytes(1024).withRecordCount(1).withFormat(FileFormat.PARQUET).build())
+                    .commit();
+        }
+        return ops.loadTable("db1", table).currentSnapshot().snapshotId();
+    }
+
+    private SnapshotRef ref(String table, String name) {
+        return ops.loadTable("db1", table).refs().get(name);
+    }
+
+    @Test
+    public void testCreateBranchPinsExplicitSnapshot() {
+        long snap = createTableWithSnapshots("t1", 1);
+        ops.createOrReplaceBranch("db1", "t1",
+                new BranchChange("b1", true, false, false, snap, null, null, null));
+        SnapshotRef r = ref("t1", "b1");
+        Assertions.assertNotNull(r);
+        Assertions.assertTrue(r.isBranch());
+        Assertions.assertEquals(snap, r.snapshotId());
+    }
+
+    @Test
+    public void testCreateBranchNullSnapshotUsesCurrent() {
+        long current = createTableWithSnapshots("t1", 2);
+        ops.createOrReplaceBranch("db1", "t1",
+                new BranchChange("b1", true, false, false, null, null, null, null));
+        Assertions.assertEquals(current, ref("t1", "b1").snapshotId());
+    }
+
+    @Test
+    public void testCreateBranchAppliesRetentionOptions() {
+        long snap = createTableWithSnapshots("t1", 1);
+        ops.createOrReplaceBranch("db1", "t1",
+                new BranchChange("b1", true, false, false, snap, 86400000L, 5, 172800000L));
+        SnapshotRef r = ref("t1", "b1");
+        // retain -> maxSnapshotAgeMs, numSnapshots -> minSnapshotsToKeep, retention -> maxRefAgeMs (legacy mapping).
+        Assertions.assertEquals(86400000L, r.maxSnapshotAgeMs());
+        Assertions.assertEquals(5, r.minSnapshotsToKeep());
+        Assertions.assertEquals(172800000L, r.maxRefAgeMs());
+    }
+
+    @Test
+    public void testReplaceBranchRepointsToNewSnapshot() {
+        long snap1 = createTableWithSnapshots("t1", 1);
+        ops.createOrReplaceBranch("db1", "t1",
+                new BranchChange("b1", true, false, false, snap1, null, null, null));
+        long snap2 = appendOneSnapshot("t1");
+        ops.createOrReplaceBranch("db1", "t1",
+                new BranchChange("b1", false, true, false, snap2, null, null, null));
+        Assertions.assertEquals(snap2, ref("t1", "b1").snapshotId());
+    }
+
+    @Test
+    public void testReplaceBranchOnEmptyTableFailsLoud() {
+        ops.createDatabase("db1", Collections.emptyMap());
+        ops.createTable("db1", "t1", schema(), PartitionSpec.unpartitioned(), null,
+                IcebergSchemaBuilder.buildTableProperties(Collections.emptyMap()));
+        DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
+                () -> ops.createOrReplaceBranch("db1", "t1",
+                        new BranchChange("b1", false, true, false, null, null, null, null)));
+        Assertions.assertTrue(ex.getMessage().contains("has no snapshot"), ex.getMessage());
+    }
+
+    @Test
+    public void testCreateBranchIfNotExistsKeepsExistingTarget() {
+        long snap1 = createTableWithSnapshots("t1", 1);
+        ops.createOrReplaceBranch("db1", "t1",
+                new BranchChange("b1", true, false, false, snap1, null, null, null));
+        long snap2 = appendOneSnapshot("t1");
+        // create IF NOT EXISTS targeting snap2 must NO-OP: the branch keeps pointing at snap1.
+        ops.createOrReplaceBranch("db1", "t1",
+                new BranchChange("b1", true, false, true, snap2, null, null, null));
+        Assertions.assertEquals(snap1, ref("t1", "b1").snapshotId());
+    }
+
+    @Test
+    public void testCreateBranchEmptyNameFailsLoud() {
+        createTableWithSnapshots("t1", 1);
+        DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
+                () -> ops.createOrReplaceBranch("db1", "t1",
+                        new BranchChange("  ", true, false, false, null, null, null, null)));
+        Assertions.assertTrue(ex.getMessage().contains("Branch name cannot be empty"), ex.getMessage());
+    }
+
+    @Test
+    public void testCreateTagPinsSnapshotAndRetention() {
+        long snap = createTableWithSnapshots("t1", 1);
+        ops.createOrReplaceTag("db1", "t1",
+                new TagChange("v1", true, false, false, snap, 99000L));
+        SnapshotRef r = ref("t1", "v1");
+        Assertions.assertNotNull(r);
+        Assertions.assertTrue(r.isTag());
+        Assertions.assertEquals(snap, r.snapshotId());
+        Assertions.assertEquals(99000L, r.maxRefAgeMs());
+    }
+
+    @Test
+    public void testCreateTagNullSnapshotUsesCurrent() {
+        long current = createTableWithSnapshots("t1", 1);
+        ops.createOrReplaceTag("db1", "t1",
+                new TagChange("v1", true, false, false, null, null));
+        Assertions.assertEquals(current, ref("t1", "v1").snapshotId());
+    }
+
+    @Test
+    public void testCreateTagOnEmptyTableFailsLoud() {
+        ops.createDatabase("db1", Collections.emptyMap());
+        ops.createTable("db1", "t1", schema(), PartitionSpec.unpartitioned(), null,
+                IcebergSchemaBuilder.buildTableProperties(Collections.emptyMap()));
+        DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
+                () -> ops.createOrReplaceTag("db1", "t1",
+                        new TagChange("v1", true, false, false, null, null)));
+        Assertions.assertTrue(ex.getMessage().contains("has no snapshot"), ex.getMessage());
+    }
+
+    @Test
+    public void testReplaceTagRepointsToNewSnapshot() {
+        long snap1 = createTableWithSnapshots("t1", 1);
+        ops.createOrReplaceTag("db1", "t1",
+                new TagChange("v1", true, false, false, snap1, null));
+        long snap2 = appendOneSnapshot("t1");
+        ops.createOrReplaceTag("db1", "t1",
+                new TagChange("v1", false, true, false, snap2, null));
+        Assertions.assertEquals(snap2, ref("t1", "v1").snapshotId());
+    }
+
+    @Test
+    public void testCreateTagEmptyNameFailsLoud() {
+        long snap = createTableWithSnapshots("t1", 1);
+        DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
+                () -> ops.createOrReplaceTag("db1", "t1",
+                        new TagChange(" ", true, false, false, snap, null)));
+        Assertions.assertTrue(ex.getMessage().contains("Tag name cannot be empty"), ex.getMessage());
+    }
+
+    @Test
+    public void testDropBranchRemovesRef() {
+        long snap = createTableWithSnapshots("t1", 1);
+        ops.createOrReplaceBranch("db1", "t1",
+                new BranchChange("b1", true, false, false, snap, null, null, null));
+        ops.dropBranch("db1", "t1", new DropRefChange("b1", false));
+        Assertions.assertNull(ref("t1", "b1"));
+    }
+
+    @Test
+    public void testDropBranchIfExistsMissingIsNoOp() {
+        createTableWithSnapshots("t1", 1);
+        // No exception, and "main" (the default branch) is untouched.
+        ops.dropBranch("db1", "t1", new DropRefChange("ghost", true));
+        Assertions.assertNotNull(ref("t1", "main"));
+    }
+
+    @Test
+    public void testDropBranchMissingWithoutIfExistsFailsLoud() {
+        createTableWithSnapshots("t1", 1);
+        Assertions.assertThrows(Exception.class,
+                () -> ops.dropBranch("db1", "t1", new DropRefChange("ghost", false)));
+    }
+
+    @Test
+    public void testDropTagRemovesRef() {
+        long snap = createTableWithSnapshots("t1", 1);
+        ops.createOrReplaceTag("db1", "t1",
+                new TagChange("v1", true, false, false, snap, null));
+        ops.dropTag("db1", "t1", new DropRefChange("v1", false));
+        Assertions.assertNull(ref("t1", "v1"));
+    }
+
+    @Test
+    public void testDropTagIfExistsMissingIsNoOp() {
+        createTableWithSnapshots("t1", 1);
+        ops.dropTag("db1", "t1", new DropRefChange("ghost", true));
+        Assertions.assertNotNull(ref("t1", "main"));
+    }
+
+    /** Appends one more snapshot to an existing db1.{table} and returns the new current snapshot id. */
+    private long appendOneSnapshot(String table) {
+        Table t = ops.loadTable("db1", table);
+        t.newAppend().appendFile(DataFiles.builder(PartitionSpec.unpartitioned())
+                .withPath("s3://b/db1/" + table + "-extra-" + t.currentSnapshot().snapshotId() + ".parquet")
+                .withFileSizeInBytes(1024).withRecordCount(1).withFormat(FileFormat.PARQUET).build())
+                .commit();
+        return ops.loadTable("db1", table).currentSnapshot().snapshotId();
     }
 }

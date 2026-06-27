@@ -21,6 +21,10 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.info.ColumnPosition;
+import org.apache.doris.catalog.info.CreateOrReplaceBranchInfo;
+import org.apache.doris.catalog.info.CreateOrReplaceTagInfo;
+import org.apache.doris.catalog.info.DropBranchInfo;
+import org.apache.doris.catalog.info.DropTagInfo;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
@@ -626,6 +630,86 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
         long updateTime = System.currentTimeMillis();
         try {
             metadata.reorderColumns(session, handle, newOrder);
+        } catch (DorisConnectorException e) {
+            throw new DdlException(e.getMessage(), e);
+        }
+        afterExternalDdl(externalTable, updateTime);
+    }
+
+    /**
+     * Routes {@code ALTER TABLE ... CREATE/REPLACE/DROP BRANCH/TAG} through the SPI's {@code ConnectorTableOps}
+     * branch/tag methods instead of the legacy {@code metadataOps} path (which PluginDriven never sets, so the
+     * base ops throw {@code metadataOps == null}).
+     *
+     * <p>Each override resolves the connector handle (by REMOTE names, like {@link #dropTable}), neutralizes the
+     * nereids info type to the SPI carrier ({@link ConnectorBranchTagConverter}), dispatches, wraps a
+     * {@link DorisConnectorException} as a {@link DdlException}, and runs {@link #afterExternalDdl} for the
+     * editlog + cache invalidation the base op delegated to {@code metadataOps}. A branch/tag op is a
+     * table-level change whose cache effect ({@code refreshTableInternal}) is identical to a column evolution, so
+     * the column-op bookkeeping helper is reused (the base {@code OP_BRANCH_OR_TAG} editlog's replay is
+     * {@code metadataOps}-gated and would be a no-op for PluginDriven; the replay-neutral
+     * {@code OP_REFRESH_EXTERNAL_TABLE} that {@code afterExternalDdl} emits yields the same refresh on
+     * followers).</p>
+     */
+    @Override
+    public void createOrReplaceBranch(TableIf dorisTable, CreateOrReplaceBranchInfo branchInfo)
+            throws UserException {
+        ExternalTable externalTable = checkExternalTable(dorisTable);
+        ConnectorSession session = buildConnectorSession();
+        ConnectorMetadata metadata = connector.getMetadata(session);
+        ConnectorTableHandle handle = resolveAlterHandle(externalTable, session, metadata);
+        long updateTime = System.currentTimeMillis();
+        try {
+            metadata.createOrReplaceBranch(session, handle,
+                    ConnectorBranchTagConverter.toBranchChange(branchInfo));
+        } catch (DorisConnectorException e) {
+            throw new DdlException(e.getMessage(), e);
+        }
+        afterExternalDdl(externalTable, updateTime);
+    }
+
+    @Override
+    public void createOrReplaceTag(TableIf dorisTable, CreateOrReplaceTagInfo tagInfo) throws UserException {
+        ExternalTable externalTable = checkExternalTable(dorisTable);
+        ConnectorSession session = buildConnectorSession();
+        ConnectorMetadata metadata = connector.getMetadata(session);
+        ConnectorTableHandle handle = resolveAlterHandle(externalTable, session, metadata);
+        long updateTime = System.currentTimeMillis();
+        try {
+            metadata.createOrReplaceTag(session, handle,
+                    ConnectorBranchTagConverter.toTagChange(tagInfo));
+        } catch (DorisConnectorException e) {
+            throw new DdlException(e.getMessage(), e);
+        }
+        afterExternalDdl(externalTable, updateTime);
+    }
+
+    @Override
+    public void dropBranch(TableIf dorisTable, DropBranchInfo branchInfo) throws UserException {
+        ExternalTable externalTable = checkExternalTable(dorisTable);
+        ConnectorSession session = buildConnectorSession();
+        ConnectorMetadata metadata = connector.getMetadata(session);
+        ConnectorTableHandle handle = resolveAlterHandle(externalTable, session, metadata);
+        long updateTime = System.currentTimeMillis();
+        try {
+            metadata.dropBranch(session, handle,
+                    ConnectorBranchTagConverter.toDropRefChange(branchInfo));
+        } catch (DorisConnectorException e) {
+            throw new DdlException(e.getMessage(), e);
+        }
+        afterExternalDdl(externalTable, updateTime);
+    }
+
+    @Override
+    public void dropTag(TableIf dorisTable, DropTagInfo tagInfo) throws UserException {
+        ExternalTable externalTable = checkExternalTable(dorisTable);
+        ConnectorSession session = buildConnectorSession();
+        ConnectorMetadata metadata = connector.getMetadata(session);
+        ConnectorTableHandle handle = resolveAlterHandle(externalTable, session, metadata);
+        long updateTime = System.currentTimeMillis();
+        try {
+            metadata.dropTag(session, handle,
+                    ConnectorBranchTagConverter.toDropRefChange(tagInfo));
         } catch (DorisConnectorException e) {
             throw new DdlException(e.getMessage(), e);
         }

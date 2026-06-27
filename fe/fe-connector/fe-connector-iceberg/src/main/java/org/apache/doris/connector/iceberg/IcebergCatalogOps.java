@@ -18,11 +18,17 @@
 package org.apache.doris.connector.iceberg;
 
 import org.apache.doris.connector.api.DorisConnectorException;
+import org.apache.doris.connector.api.ddl.BranchChange;
 import org.apache.doris.connector.api.ddl.ConnectorColumnPosition;
+import org.apache.doris.connector.api.ddl.DropRefChange;
+import org.apache.doris.connector.api.ddl.TagChange;
 
 import com.google.common.base.Splitter;
+import org.apache.iceberg.ManageSnapshots;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
+import org.apache.iceberg.Snapshot;
+import org.apache.iceberg.SnapshotRef;
 import org.apache.iceberg.SortOrder;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.UpdateSchema;
@@ -127,6 +133,20 @@ public interface IcebergCatalogOps {
 
     /** Reorders the columns of {@code dbName.tableName} to match {@code newOrder} (full ordered name list). */
     void reorderColumns(String dbName, String tableName, List<String> newOrder);
+
+    // ---- Branch / tag refs (B4) — build + commit a ManageSnapshots; needs the live Table ----
+
+    /** Creates or replaces the branch described by {@code branch} on {@code dbName.tableName}. */
+    void createOrReplaceBranch(String dbName, String tableName, BranchChange branch);
+
+    /** Creates or replaces the tag described by {@code tag} on {@code dbName.tableName}. */
+    void createOrReplaceTag(String dbName, String tableName, TagChange tag);
+
+    /** Drops the branch named by {@code branch} from {@code dbName.tableName} (no-op when absent + ifExists). */
+    void dropBranch(String dbName, String tableName, DropRefChange branch);
+
+    /** Drops the tag named by {@code tag} from {@code dbName.tableName} (no-op when absent + ifExists). */
+    void dropTag(String dbName, String tableName, DropRefChange tag);
 
     void close() throws IOException;
 
@@ -361,6 +381,111 @@ public interface IcebergCatalogOps {
                 updateSchema.moveAfter(newOrder.get(i), newOrder.get(i - 1));
             }
             updateSchema.commit();
+        }
+
+        @Override
+        public void createOrReplaceBranch(String dbName, String tableName, BranchChange branch) {
+            Table icebergTable = loadTable(dbName, tableName);
+            String branchName = branch.getName();
+            if (branchName == null || branchName.trim().isEmpty()) {
+                throw new DorisConnectorException("Branch name cannot be empty");
+            }
+            // null snapshotId == "use the table's current snapshot" (may itself be null for an empty table),
+            // mirroring legacy IcebergMetadataOps.createOrReplaceBranchImpl.
+            Long snapshotId = resolveSnapshotId(branch.getSnapshotId(), icebergTable);
+            boolean refExists = icebergTable.refs().get(branchName) != null;
+            ManageSnapshots manageSnapshots = icebergTable.manageSnapshots();
+            if (branch.isCreate() && branch.isReplace() && !refExists) {
+                createBranch(manageSnapshots, branchName, snapshotId);
+            } else if (branch.isReplace()) {
+                if (snapshotId == null) {
+                    throw new DorisConnectorException("Cannot complete replace branch operation on "
+                            + icebergTable.name() + " , main has no snapshot");
+                }
+                manageSnapshots.replaceBranch(branchName, snapshotId);
+            } else {
+                if (refExists && branch.isIfNotExists()) {
+                    return;
+                }
+                createBranch(manageSnapshots, branchName, snapshotId);
+            }
+            if (branch.getMaxSnapshotAgeMs() != null) {
+                manageSnapshots.setMaxSnapshotAgeMs(branchName, branch.getMaxSnapshotAgeMs());
+            }
+            if (branch.getMinSnapshotsToKeep() != null) {
+                manageSnapshots.setMinSnapshotsToKeep(branchName, branch.getMinSnapshotsToKeep());
+            }
+            if (branch.getMaxRefAgeMs() != null) {
+                manageSnapshots.setMaxRefAgeMs(branchName, branch.getMaxRefAgeMs());
+            }
+            manageSnapshots.commit();
+        }
+
+        @Override
+        public void createOrReplaceTag(String dbName, String tableName, TagChange tag) {
+            Table icebergTable = loadTable(dbName, tableName);
+            Long snapshotId = resolveSnapshotId(tag.getSnapshotId(), icebergTable);
+            if (snapshotId == null) {
+                // Creating a tag on an empty table is not allowed (legacy parity, incl. the legacy message text).
+                throw new DorisConnectorException("Cannot complete replace branch operation on "
+                        + icebergTable.name() + " , main has no snapshot");
+            }
+            String tagName = tag.getName();
+            if (tagName == null || tagName.trim().isEmpty()) {
+                throw new DorisConnectorException("Tag name cannot be empty");
+            }
+            boolean refExists = icebergTable.refs().get(tagName) != null;
+            ManageSnapshots manageSnapshots = icebergTable.manageSnapshots();
+            if (tag.isCreate() && tag.isReplace() && !refExists) {
+                manageSnapshots.createTag(tagName, snapshotId);
+            } else if (tag.isReplace()) {
+                manageSnapshots.replaceTag(tagName, snapshotId);
+            } else {
+                if (refExists && tag.isIfNotExists()) {
+                    return;
+                }
+                manageSnapshots.createTag(tagName, snapshotId);
+            }
+            if (tag.getMaxRefAgeMs() != null) {
+                manageSnapshots.setMaxRefAgeMs(tagName, tag.getMaxRefAgeMs());
+            }
+            manageSnapshots.commit();
+        }
+
+        @Override
+        public void dropBranch(String dbName, String tableName, DropRefChange branch) {
+            Table icebergTable = loadTable(dbName, tableName);
+            SnapshotRef ref = icebergTable.refs().get(branch.getName());
+            if (ref != null || !branch.isIfExists()) {
+                icebergTable.manageSnapshots().removeBranch(branch.getName()).commit();
+            }
+        }
+
+        @Override
+        public void dropTag(String dbName, String tableName, DropRefChange tag) {
+            Table icebergTable = loadTable(dbName, tableName);
+            SnapshotRef ref = icebergTable.refs().get(tag.getName());
+            if (ref != null || !tag.isIfExists()) {
+                icebergTable.manageSnapshots().removeTag(tag.getName()).commit();
+            }
+        }
+
+        /** The explicit snapshot id, else the table's current snapshot id, else {@code null} (empty table). */
+        private static Long resolveSnapshotId(Long explicitSnapshotId, Table icebergTable) {
+            if (explicitSnapshotId != null) {
+                return explicitSnapshotId;
+            }
+            Snapshot current = icebergTable.currentSnapshot();
+            return current == null ? null : current.snapshotId();
+        }
+
+        /** {@code createBranch(name)} when no snapshot is pinned, else {@code createBranch(name, id)}. */
+        private static void createBranch(ManageSnapshots manageSnapshots, String branchName, Long snapshotId) {
+            if (snapshotId == null) {
+                manageSnapshots.createBranch(branchName);
+            } else {
+                manageSnapshots.createBranch(branchName, snapshotId);
+            }
         }
 
         /** Applies the (nullable) position to a not-yet-committed schema update: FIRST / AFTER / no-op. */

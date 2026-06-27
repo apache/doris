@@ -20,10 +20,13 @@ package org.apache.doris.connector.iceberg;
 import org.apache.doris.connector.api.ConnectorColumn;
 import org.apache.doris.connector.api.ConnectorType;
 import org.apache.doris.connector.api.DorisConnectorException;
+import org.apache.doris.connector.api.ddl.BranchChange;
 import org.apache.doris.connector.api.ddl.ConnectorCreateTableRequest;
 import org.apache.doris.connector.api.ddl.ConnectorPartitionField;
 import org.apache.doris.connector.api.ddl.ConnectorPartitionSpec;
 import org.apache.doris.connector.api.ddl.ConnectorSortField;
+import org.apache.doris.connector.api.ddl.DropRefChange;
+import org.apache.doris.connector.api.ddl.TagChange;
 
 import org.apache.iceberg.TableProperties;
 import org.junit.jupiter.api.Assertions;
@@ -243,6 +246,93 @@ public class IcebergConnectorMetadataDdlTest {
         Assertions.assertThrows(DorisConnectorException.class,
                 () -> metadata(ops, ctx, IcebergConnectorProperties.TYPE_REST)
                         .renameTable(null, new IcebergTableHandle("db1", "t1"), "t2"));
+        Assertions.assertTrue(ops.log.isEmpty());
+    }
+
+    // ---------- Branch / tag (B4): route by handle, auth-wrap, wrap auth failures ----------
+
+    @Test
+    public void testCreateOrReplaceBranchRoutesByHandleAndIsAuthWrapped() {
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        RecordingConnectorContext ctx = new RecordingConnectorContext();
+        BranchChange branch = new BranchChange("b1", true, false, false, 7L, null, null, null);
+        metadata(ops, ctx, IcebergConnectorProperties.TYPE_REST)
+                .createOrReplaceBranch(null, new IcebergTableHandle("db1", "t1"), branch);
+        Assertions.assertEquals(Collections.singletonList("createOrReplaceBranch:db1.t1:b1"), ops.log);
+        Assertions.assertEquals("db1", ops.lastBranchTagDb);
+        Assertions.assertEquals("t1", ops.lastBranchTagTable);
+        Assertions.assertSame(branch, ops.lastBranch);
+        Assertions.assertEquals(1, ctx.authCount, "createOrReplaceBranch must run inside executeAuthenticated");
+    }
+
+    @Test
+    public void testCreateOrReplaceBranchAuthFailureWraps() {
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        RecordingConnectorContext ctx = new RecordingConnectorContext();
+        ctx.failAuth = true;
+        Assertions.assertThrows(DorisConnectorException.class,
+                () -> metadata(ops, ctx, IcebergConnectorProperties.TYPE_REST).createOrReplaceBranch(
+                        null, new IcebergTableHandle("db1", "t1"),
+                        new BranchChange("b1", true, false, false, null, null, null, null)));
+        Assertions.assertTrue(ops.log.isEmpty());
+    }
+
+    @Test
+    public void testCreateOrReplaceTagRoutesByHandleAndIsAuthWrapped() {
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        RecordingConnectorContext ctx = new RecordingConnectorContext();
+        TagChange tag = new TagChange("v1", true, false, false, 7L, null);
+        metadata(ops, ctx, IcebergConnectorProperties.TYPE_REST)
+                .createOrReplaceTag(null, new IcebergTableHandle("db1", "t1"), tag);
+        Assertions.assertEquals(Collections.singletonList("createOrReplaceTag:db1.t1:v1"), ops.log);
+        Assertions.assertSame(tag, ops.lastTag);
+        Assertions.assertEquals(1, ctx.authCount, "createOrReplaceTag must run inside executeAuthenticated");
+    }
+
+    @Test
+    public void testCreateOrReplaceTagAuthFailureWraps() {
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        RecordingConnectorContext ctx = new RecordingConnectorContext();
+        ctx.failAuth = true;
+        Assertions.assertThrows(DorisConnectorException.class,
+                () -> metadata(ops, ctx, IcebergConnectorProperties.TYPE_REST).createOrReplaceTag(
+                        null, new IcebergTableHandle("db1", "t1"),
+                        new TagChange("v1", true, false, false, null, null)));
+        Assertions.assertTrue(ops.log.isEmpty());
+    }
+
+    @Test
+    public void testDropBranchRoutesByHandleAndIsAuthWrapped() {
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        RecordingConnectorContext ctx = new RecordingConnectorContext();
+        DropRefChange drop = new DropRefChange("b1", true);
+        metadata(ops, ctx, IcebergConnectorProperties.TYPE_REST)
+                .dropBranch(null, new IcebergTableHandle("db1", "t1"), drop);
+        Assertions.assertEquals(Collections.singletonList("dropBranch:db1.t1:b1"), ops.log);
+        Assertions.assertSame(drop, ops.lastDropBranch);
+        Assertions.assertEquals(1, ctx.authCount, "dropBranch must run inside executeAuthenticated");
+    }
+
+    @Test
+    public void testDropTagRoutesByHandleAndIsAuthWrapped() {
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        RecordingConnectorContext ctx = new RecordingConnectorContext();
+        DropRefChange drop = new DropRefChange("v1", false);
+        metadata(ops, ctx, IcebergConnectorProperties.TYPE_REST)
+                .dropTag(null, new IcebergTableHandle("db1", "t1"), drop);
+        Assertions.assertEquals(Collections.singletonList("dropTag:db1.t1:v1"), ops.log);
+        Assertions.assertSame(drop, ops.lastDropTag);
+        Assertions.assertEquals(1, ctx.authCount, "dropTag must run inside executeAuthenticated");
+    }
+
+    @Test
+    public void testDropTagAuthFailureWraps() {
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        RecordingConnectorContext ctx = new RecordingConnectorContext();
+        ctx.failAuth = true;
+        Assertions.assertThrows(DorisConnectorException.class,
+                () -> metadata(ops, ctx, IcebergConnectorProperties.TYPE_REST).dropTag(
+                        null, new IcebergTableHandle("db1", "t1"), new DropRefChange("v1", false)));
         Assertions.assertTrue(ops.log.isEmpty());
     }
 }

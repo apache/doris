@@ -22,8 +22,14 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.RefreshManager;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.constraint.ConstraintManager;
+import org.apache.doris.catalog.info.BranchOptions;
 import org.apache.doris.catalog.info.ColumnPosition;
+import org.apache.doris.catalog.info.CreateOrReplaceBranchInfo;
+import org.apache.doris.catalog.info.CreateOrReplaceTagInfo;
+import org.apache.doris.catalog.info.DropBranchInfo;
+import org.apache.doris.catalog.info.DropTagInfo;
 import org.apache.doris.catalog.info.TableNameInfo;
+import org.apache.doris.catalog.info.TagOptions;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.UserException;
@@ -32,8 +38,11 @@ import org.apache.doris.connector.api.ConnectorColumn;
 import org.apache.doris.connector.api.ConnectorMetadata;
 import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.DorisConnectorException;
+import org.apache.doris.connector.api.ddl.BranchChange;
 import org.apache.doris.connector.api.ddl.ConnectorColumnPosition;
 import org.apache.doris.connector.api.ddl.ConnectorCreateTableRequest;
+import org.apache.doris.connector.api.ddl.DropRefChange;
+import org.apache.doris.connector.api.ddl.TagChange;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.ddl.CreateTableInfoToConnectorRequestConverter;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
@@ -842,6 +851,139 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
 
         DdlException ex = Assertions.assertThrows(DdlException.class, () -> catalog.dropColumn(table, "age"));
         Assertions.assertTrue(ex.getMessage().contains("boom"));
+    }
+
+    // Branch/tag ALTERs resolve the handle by REMOTE names (like the column ops), neutralize the nereids info
+    // type to the SPI carrier (ConnectorBranchTagConverter), wrap a DorisConnectorException as a DdlException,
+    // and run afterExternalDdl (editlog with LOCAL names + refreshTableInternal). PluginDriven has no
+    // metadataOps, so without these overrides the base ops would throw "branching operation is not supported".
+
+    @Test
+    public void testCreateOrReplaceBranchRoutesConvertsAndRefreshes() throws Exception {
+        ExternalTable table = mockAlterTable();
+        ConnectorTableHandle handle = stubAlterHandle();
+        catalog.dbForReplayResult = Optional.of(mockExternalDatabase());
+
+        CreateOrReplaceBranchInfo info = new CreateOrReplaceBranchInfo("b1", true, false, true,
+                new BranchOptions(Optional.of(42L), Optional.of(86400000L),
+                        Optional.of(5), Optional.of(172800000L)));
+        catalog.createOrReplaceBranch(table, info);
+
+        // WHY (Rule 9): the converter must map every field of the nereids info/options to the neutral carrier
+        // (incl. the legacy retain->maxSnapshotAge / numSnapshots->minSnapshotsToKeep / retention->maxRefAge
+        // mapping). A mutation dropping any field makes one of these asserts red.
+        ArgumentCaptor<BranchChange> cap = ArgumentCaptor.forClass(BranchChange.class);
+        Mockito.verify(metadata).createOrReplaceBranch(Mockito.eq(session), Mockito.eq(handle), cap.capture());
+        BranchChange b = cap.getValue();
+        Assertions.assertEquals("b1", b.getName());
+        Assertions.assertTrue(b.isCreate());
+        Assertions.assertFalse(b.isReplace());
+        Assertions.assertTrue(b.isIfNotExists());
+        Assertions.assertEquals(42L, b.getSnapshotId().longValue());
+        Assertions.assertEquals(86400000L, b.getMaxSnapshotAgeMs().longValue());
+        Assertions.assertEquals(5, b.getMinSnapshotsToKeep().intValue());
+        Assertions.assertEquals(172800000L, b.getMaxRefAgeMs().longValue());
+        // WHY: branch/tag share the column-op bookkeeping (afterExternalDdl) — editlog with LOCAL names + cache
+        // refresh re-resolving by REMOTE names. A mutation dropping the bookkeeping turns these red.
+        ArgumentCaptor<ExternalObjectLog> logCap = ArgumentCaptor.forClass(ExternalObjectLog.class);
+        Mockito.verify(mockEditLog).logRefreshExternalTable(logCap.capture());
+        Assertions.assertEquals("db1", logCap.getValue().getDbName());
+        Assertions.assertEquals("t1", logCap.getValue().getTableName());
+        Assertions.assertEquals("DB1", catalog.lastGetDbForReplayArg,
+                "afterExternalDdl must re-resolve the cached table by the REMOTE db name");
+    }
+
+    @Test
+    public void testCreateOrReplaceBranchEmptyOptionsConvertToNulls() throws Exception {
+        ExternalTable table = mockAlterTable();
+        ConnectorTableHandle handle = stubAlterHandle();
+        catalog.dbForReplayResult = Optional.of(mockExternalDatabase());
+
+        catalog.createOrReplaceBranch(table, new CreateOrReplaceBranchInfo("b1", true, false, false,
+                BranchOptions.EMPTY));
+
+        ArgumentCaptor<BranchChange> cap = ArgumentCaptor.forClass(BranchChange.class);
+        Mockito.verify(metadata).createOrReplaceBranch(Mockito.eq(session), Mockito.eq(handle), cap.capture());
+        BranchChange b = cap.getValue();
+        // An absent SQL option must become a null carrier field (== "leave the snapshot/retention untouched").
+        Assertions.assertNull(b.getSnapshotId());
+        Assertions.assertNull(b.getMaxSnapshotAgeMs());
+        Assertions.assertNull(b.getMinSnapshotsToKeep());
+        Assertions.assertNull(b.getMaxRefAgeMs());
+    }
+
+    @Test
+    public void testCreateOrReplaceBranchWrapsConnectorException() {
+        ExternalTable table = mockAlterTable();
+        ConnectorTableHandle handle = stubAlterHandle();
+        Mockito.doThrow(new DorisConnectorException("boom"))
+                .when(metadata).createOrReplaceBranch(Mockito.eq(session), Mockito.eq(handle), Mockito.any());
+
+        DdlException ex = Assertions.assertThrows(DdlException.class, () -> catalog.createOrReplaceBranch(table,
+                new CreateOrReplaceBranchInfo("b1", true, false, false, BranchOptions.EMPTY)));
+        Assertions.assertTrue(ex.getMessage().contains("boom"));
+        // A remote failure must abort BEFORE bookkeeping (no editlog).
+        Mockito.verify(mockEditLog, Mockito.never()).logRefreshExternalTable(Mockito.any());
+    }
+
+    @Test
+    public void testCreateOrReplaceTagRoutesConvertsAndRefreshes() throws Exception {
+        ExternalTable table = mockAlterTable();
+        ConnectorTableHandle handle = stubAlterHandle();
+        catalog.dbForReplayResult = Optional.of(mockExternalDatabase());
+
+        catalog.createOrReplaceTag(table, new CreateOrReplaceTagInfo("v1", false, true, false,
+                new TagOptions(Optional.of(9L), Optional.of(99000L))));
+
+        ArgumentCaptor<TagChange> cap = ArgumentCaptor.forClass(TagChange.class);
+        Mockito.verify(metadata).createOrReplaceTag(Mockito.eq(session), Mockito.eq(handle), cap.capture());
+        TagChange t = cap.getValue();
+        Assertions.assertEquals("v1", t.getName());
+        Assertions.assertFalse(t.isCreate());
+        Assertions.assertTrue(t.isReplace());
+        Assertions.assertEquals(9L, t.getSnapshotId().longValue());
+        Assertions.assertEquals(99000L, t.getMaxRefAgeMs().longValue());
+        Mockito.verify(mockEditLog).logRefreshExternalTable(Mockito.any());
+    }
+
+    @Test
+    public void testDropBranchRoutesConvertsAndRefreshes() throws Exception {
+        ExternalTable table = mockAlterTable();
+        ConnectorTableHandle handle = stubAlterHandle();
+        catalog.dbForReplayResult = Optional.of(mockExternalDatabase());
+
+        catalog.dropBranch(table, new DropBranchInfo("b1", true));
+
+        ArgumentCaptor<DropRefChange> cap = ArgumentCaptor.forClass(DropRefChange.class);
+        Mockito.verify(metadata).dropBranch(Mockito.eq(session), Mockito.eq(handle), cap.capture());
+        Assertions.assertEquals("b1", cap.getValue().getName());
+        Assertions.assertTrue(cap.getValue().isIfExists());
+        Mockito.verify(mockEditLog).logRefreshExternalTable(Mockito.any());
+    }
+
+    @Test
+    public void testDropTagRoutesConvertsAndRefreshes() throws Exception {
+        ExternalTable table = mockAlterTable();
+        ConnectorTableHandle handle = stubAlterHandle();
+        catalog.dbForReplayResult = Optional.of(mockExternalDatabase());
+
+        catalog.dropTag(table, new DropTagInfo("v1", false));
+
+        ArgumentCaptor<DropRefChange> cap = ArgumentCaptor.forClass(DropRefChange.class);
+        Mockito.verify(metadata).dropTag(Mockito.eq(session), Mockito.eq(handle), cap.capture());
+        Assertions.assertEquals("v1", cap.getValue().getName());
+        Assertions.assertFalse(cap.getValue().isIfExists());
+        Mockito.verify(mockEditLog).logRefreshExternalTable(Mockito.any());
+    }
+
+    @Test
+    public void testBranchTagHandleAbsentThrows() {
+        ExternalTable table = mockAlterTable();
+        Mockito.when(metadata.getTableHandle(session, "DB1", "TBL1")).thenReturn(Optional.empty());
+
+        Assertions.assertThrows(DdlException.class, () -> catalog.dropTag(table, new DropTagInfo("v1", false)));
+        Mockito.verify(metadata, Mockito.never())
+                .dropTag(Mockito.any(), Mockito.any(), Mockito.any());
     }
 
     // ==================== helpers ====================

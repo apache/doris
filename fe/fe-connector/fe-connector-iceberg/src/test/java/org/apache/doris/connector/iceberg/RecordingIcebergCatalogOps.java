@@ -17,7 +17,10 @@
 
 package org.apache.doris.connector.iceberg;
 
+import org.apache.doris.connector.api.ddl.BranchChange;
 import org.apache.doris.connector.api.ddl.ConnectorColumnPosition;
+import org.apache.doris.connector.api.ddl.DropRefChange;
+import org.apache.doris.connector.api.ddl.TagChange;
 
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
@@ -93,6 +96,14 @@ final class RecordingIcebergCatalogOps implements IcebergCatalogOps {
     IcebergColumnChange lastModifyColumn;
     ConnectorColumnPosition lastModifyColumnPos;
     List<String> lastReorder;
+
+    // ---- Branch / tag write recording (B4) ----
+    String lastBranchTagDb;
+    String lastBranchTagTable;
+    BranchChange lastBranch;
+    TagChange lastTag;
+    DropRefChange lastDropBranch;
+    DropRefChange lastDropTag;
 
     @Override
     public List<String> listDatabaseNames() {
@@ -223,6 +234,38 @@ final class RecordingIcebergCatalogOps implements IcebergCatalogOps {
     public void reorderColumns(String dbName, String tableName, List<String> newOrder) {
         log.add("reorderColumns:" + dbName + "." + tableName + ":" + newOrder);
         lastReorder = newOrder;
+    }
+
+    @Override
+    public void createOrReplaceBranch(String dbName, String tableName, BranchChange branch) {
+        log.add("createOrReplaceBranch:" + dbName + "." + tableName + ":" + branch.getName());
+        lastBranchTagDb = dbName;
+        lastBranchTagTable = tableName;
+        lastBranch = branch;
+    }
+
+    @Override
+    public void createOrReplaceTag(String dbName, String tableName, TagChange tag) {
+        log.add("createOrReplaceTag:" + dbName + "." + tableName + ":" + tag.getName());
+        lastBranchTagDb = dbName;
+        lastBranchTagTable = tableName;
+        lastTag = tag;
+    }
+
+    @Override
+    public void dropBranch(String dbName, String tableName, DropRefChange branch) {
+        log.add("dropBranch:" + dbName + "." + tableName + ":" + branch.getName());
+        lastBranchTagDb = dbName;
+        lastBranchTagTable = tableName;
+        lastDropBranch = branch;
+    }
+
+    @Override
+    public void dropTag(String dbName, String tableName, DropRefChange tag) {
+        log.add("dropTag:" + dbName + "." + tableName + ":" + tag.getName());
+        lastBranchTagDb = dbName;
+        lastBranchTagTable = tableName;
+        lastDropTag = tag;
     }
 
     @Override
