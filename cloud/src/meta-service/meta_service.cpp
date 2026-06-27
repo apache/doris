@@ -2655,6 +2655,201 @@ bool check_recycle_rowset_key(Transaction* txn, const std::string& recycle_rs_ke
     return true;
 }
 
+void MetaServiceImpl::commit_rowset_meta(Transaction* txn, const std::string& instance_id,
+                                         const std::string& tablet_job_id,
+                                         doris::RowsetMetaCloudPB& rowset_meta,
+                                         doris::RowsetMetaCloudPB* existed_rowset_meta,
+                                         MetaServiceCode& code, std::string& msg) {
+    int64_t tablet_id = rowset_meta.tablet_id();
+    const auto& rowset_id = rowset_meta.rowset_id_v2();
+    auto tmp_rs_key = meta_rowset_tmp_key({instance_id, rowset_meta.txn_id(), tablet_id});
+    bool is_versioned_read = is_version_read_enabled(instance_id);
+    auto recycle_rs_key = recycle_rowset_key({instance_id, tablet_id, rowset_id});
+
+    if (!config::enable_recycle_delete_rowset_key_check) {
+        if (config::enable_tablet_job_check && !tablet_job_id.empty()) {
+            if (!check_job_existed(txn, code, msg, instance_id, tablet_id, rowset_id, tablet_job_id,
+                                   is_versioned_read, resource_mgr_.get())) {
+                return;
+            }
+        }
+
+        // Check if the commit rowset request is invalid.
+        // If the transaction has been finished, it means this commit rowset is a timeout retry request.
+        // In this case, do not write the recycle key again, otherwise it may cause data loss.
+        // If the rowset had load id, it means it is a load request, otherwise it is a
+        // compaction/sc request.
+        if (config::enable_load_txn_status_check && rowset_meta.has_load_id() &&
+            !check_transaction_status(TxnStatusPB::TXN_STATUS_PREPARED, txn, instance_id,
+                                      rowset_meta.txn_id(), code, msg)) {
+            LOG(WARNING) << "commit rowset failed, txn_id=" << rowset_meta.txn_id()
+                         << ", tablet_id=" << tablet_id << ", rowset_id=" << rowset_id
+                         << ", rowset_state=" << rowset_meta.rowset_state() << ", msg=" << msg;
+            return;
+        }
+    }
+
+    // Check if commit key already exists.
+    std::string existed_commit_val;
+    TxnErrorCode err = txn->get(tmp_rs_key, &existed_commit_val);
+    if (err == TxnErrorCode::TXN_OK) {
+        if (config::enable_recycle_delete_rowset_key_check) {
+            bool recycle_rs_key_exists = false;
+            if (!check_recycle_rowset_key(txn, recycle_rs_key, rowset_meta, &recycle_rs_key_exists,
+                                          code, msg)) {
+                return;
+            }
+            if (recycle_rs_key_exists) {
+                code = MetaServiceCode::INVALID_ARGUMENT;
+                msg = fmt::format(
+                        "tmp rowset key and recycle rowset key are mutually exclusive, "
+                        "tmp_rs_key={}, recycle_rs_key={}",
+                        hex(tmp_rs_key), hex(recycle_rs_key));
+                LOG(INFO) << "skip commit rowset because tmp rowset key and recycle rowset key are "
+                             "mutually exclusive, txn_id="
+                          << rowset_meta.txn_id() << ", tablet_id=" << tablet_id
+                          << ", rowset_id=" << rowset_id << ", tmp_rs_key=" << hex(tmp_rs_key)
+                          << ", recycle_rs_key=" << hex(recycle_rs_key) << ", msg=" << msg;
+                return;
+            }
+        }
+
+        doris::RowsetMetaCloudPB existed_meta;
+        if (!existed_meta.ParseFromString(existed_commit_val)) {
+            code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+            msg = fmt::format("malformed rowset meta value. key={}", hex(tmp_rs_key));
+            return;
+        }
+        if (existed_meta.rowset_id_v2() == rowset_meta.rowset_id_v2()) {
+            return;
+        }
+        if (!existed_meta.has_index_id()) {
+            if (rowset_meta.has_index_id()) {
+                existed_meta.set_index_id(rowset_meta.index_id());
+            } else if (!is_versioned_read) {
+                TabletIndexPB tablet_idx;
+                get_tablet_idx(code, msg, txn, instance_id, rowset_meta.tablet_id(), tablet_idx);
+                if (code != MetaServiceCode::OK) return;
+                existed_meta.set_index_id(tablet_idx.index_id());
+            } else {
+                CloneChainReader reader(instance_id, resource_mgr_.get());
+                TabletIndexPB tablet_idx;
+                TxnErrorCode idx_err = reader.get_tablet_index(txn, tablet_id, &tablet_idx);
+                if (idx_err != TxnErrorCode::TXN_OK) {
+                    code = idx_err == TxnErrorCode::TXN_KEY_NOT_FOUND
+                                   ? MetaServiceCode::TABLET_NOT_FOUND
+                                   : cast_as<ErrCategory::READ>(idx_err);
+                    msg = fmt::format("failed to get tablet index, tablet_id={}, err={}", tablet_id,
+                                      idx_err);
+                    LOG(WARNING) << msg;
+                    return;
+                }
+                existed_meta.set_index_id(tablet_idx.index_id());
+            }
+        }
+        if (!existed_meta.has_tablet_schema()) {
+            set_schema_in_existed_rowset(code, msg, txn, instance_id, rowset_meta, existed_meta,
+                                         is_versioned_read, resource_mgr_.get());
+            if (code != MetaServiceCode::OK) return;
+        } else {
+            existed_meta.set_schema_version(existed_meta.tablet_schema().schema_version());
+        }
+        if (existed_meta.has_variant_type_in_schema()) {
+            fill_schema_from_dict(code, msg, instance_id, txn, &existed_meta);
+            if (code != MetaServiceCode::OK) return;
+        }
+        if (existed_rowset_meta != nullptr) {
+            existed_rowset_meta->CopyFrom(existed_meta);
+        }
+        code = MetaServiceCode::ALREADY_EXISTED;
+        msg = "rowset already exists";
+        return;
+    }
+    if (err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
+        code = cast_as<ErrCategory::READ>(err);
+        msg = fmt::format("failed to check whether rowset exists, err={}", err);
+        return;
+    }
+
+    if (config::enable_recycle_delete_rowset_key_check) {
+        bool recycle_rs_key_exists = false;
+        if (!check_recycle_rowset_key(txn, recycle_rs_key, rowset_meta, &recycle_rs_key_exists,
+                                      code, msg)) {
+            return;
+        }
+        if (!recycle_rs_key_exists) {
+            code = MetaServiceCode::INVALID_ARGUMENT;
+            msg = fmt::format("recycle rowset key not found, key={}", hex(recycle_rs_key));
+            LOG(INFO) << "skip commit rowset because recycle rowset key does not exist, txn_id="
+                      << rowset_meta.txn_id() << ", tablet_id=" << tablet_id
+                      << ", rowset_id=" << rowset_id << ", recycle_rs_key=" << hex(recycle_rs_key);
+            return;
+        }
+    }
+
+    // write schema kv if rowset_meta has schema
+    if (config::write_schema_kv && rowset_meta.has_tablet_schema()) {
+        if (!rowset_meta.has_index_id() && !is_versioned_read) {
+            TabletIndexPB tablet_idx;
+            get_tablet_idx(code, msg, txn, instance_id, rowset_meta.tablet_id(), tablet_idx);
+            if (code != MetaServiceCode::OK) return;
+            rowset_meta.set_index_id(tablet_idx.index_id());
+        } else if (!rowset_meta.has_index_id()) {
+            CloneChainReader reader(instance_id, resource_mgr_.get());
+            TabletIndexPB tablet_idx;
+            TxnErrorCode idx_err = reader.get_tablet_index(txn, rowset_meta.tablet_id(), &tablet_idx);
+            if (idx_err != TxnErrorCode::TXN_OK) {
+                code = idx_err == TxnErrorCode::TXN_KEY_NOT_FOUND
+                               ? MetaServiceCode::TABLET_NOT_FOUND
+                               : cast_as<ErrCategory::READ>(idx_err);
+                msg = fmt::format("failed to get tablet index, tablet_id={}, err={}",
+                                  rowset_meta.tablet_id(), idx_err);
+                LOG(WARNING) << msg;
+                return;
+            }
+            rowset_meta.set_index_id(tablet_idx.index_id());
+        }
+        DCHECK(rowset_meta.tablet_schema().has_schema_version());
+        DCHECK_GE(rowset_meta.tablet_schema().schema_version(), 0);
+        rowset_meta.set_schema_version(rowset_meta.tablet_schema().schema_version());
+        if (rowset_meta.has_variant_type_in_schema()) {
+            write_schema_dict(code, msg, instance_id, txn, &rowset_meta);
+            if (code != MetaServiceCode::OK) return;
+        }
+        bool is_versioned_write = is_version_write_enabled(instance_id);
+        std::string schema_key =
+                meta_schema_key({instance_id, rowset_meta.index_id(), rowset_meta.schema_version()});
+        put_schema_kv(code, msg, txn, schema_key, rowset_meta.tablet_schema());
+        if (code != MetaServiceCode::OK) return;
+        if (is_versioned_write) {
+            std::string versioned_schema_key = versioned::meta_schema_key(
+                    {instance_id, rowset_meta.index_id(), rowset_meta.schema_version()});
+            put_versioned_schema_kv(code, msg, txn, versioned_schema_key,
+                                    rowset_meta.tablet_schema());
+            if (code != MetaServiceCode::OK) return;
+        }
+        rowset_meta.set_allocated_tablet_schema(nullptr);
+    }
+
+    txn->remove(recycle_rs_key);
+    DCHECK_GT(rowset_meta.txn_expiration(), 0);
+    auto tmp_rs_val = rowset_meta.SerializeAsString();
+    txn->put(tmp_rs_key, tmp_rs_val);
+
+    if (is_version_write_enabled(instance_id)) {
+        std::string rowset_ref_count_key =
+                versioned::data_rowset_ref_count_key({instance_id, tablet_id, rowset_id});
+        LOG(INFO) << "add rowset ref count key, instance_id=" << instance_id
+                  << "key=" << hex(rowset_ref_count_key);
+        txn->atomic_add(rowset_ref_count_key, 1);
+    }
+
+    std::size_t segment_key_bounds_bytes = get_segments_key_bounds_bytes(rowset_meta);
+    LOG(INFO) << "put tmp_rs_key " << hex(tmp_rs_key) << " delete recycle_rs_key "
+              << hex(recycle_rs_key) << " value_size " << tmp_rs_val.size() << " txn_id "
+              << rowset_meta.txn_id() << " segment_key_bounds_bytes " << segment_key_bounds_bytes;
+}
+
 /**
  * 1. Check and confirm tmp rowset kv does not exist
  *     a. if exist
@@ -2691,9 +2886,6 @@ void MetaServiceImpl::commit_rowset(::google::protobuf::RpcController* controlle
 
     int64_t tablet_id = rowset_meta.tablet_id();
     const auto& rowset_id = rowset_meta.rowset_id_v2();
-
-    auto tmp_rs_key = meta_rowset_tmp_key({instance_id, rowset_meta.txn_id(), tablet_id});
-
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::CREATE>(err);
@@ -2701,191 +2893,13 @@ void MetaServiceImpl::commit_rowset(::google::protobuf::RpcController* controlle
         return;
     }
 
-    bool is_versioned_read = is_version_read_enabled(instance_id);
-    auto recycle_rs_key = recycle_rowset_key({instance_id, tablet_id, rowset_id});
-
-    if (!config::enable_recycle_delete_rowset_key_check) {
-        std::string tablet_job_id = request->tablet_job_id();
-        if (config::enable_tablet_job_check && !tablet_job_id.empty()) {
-            if (!check_job_existed(txn.get(), code, msg, instance_id, tablet_id, rowset_id,
-                                   tablet_job_id, is_versioned_read, resource_mgr_.get())) {
-                return;
-            }
-        }
-
-        // Check if the commit rowset request is invalid.
-        // If the transaction has been finished, it means this commit rowset is a timeout retry request.
-        // In this case, do not write the recycle key again, otherwise it may cause data loss.
-        // If the rowset had load id, it means it is a load request, otherwise it is a
-        // compaction/sc request.
-        if (config::enable_load_txn_status_check && rowset_meta.has_load_id() &&
-            !check_transaction_status(TxnStatusPB::TXN_STATUS_PREPARED, txn.get(), instance_id,
-                                      rowset_meta.txn_id(), code, msg)) {
-            LOG(WARNING) << "commit rowset failed, txn_id=" << rowset_meta.txn_id()
-                         << ", tablet_id=" << tablet_id << ", rowset_id=" << rowset_id
-                         << ", rowset_state=" << rowset_meta.rowset_state() << ", msg=" << msg;
-            return;
-        }
-    }
-
-    // Check if commit key already exists.
-    std::string existed_commit_val;
-    err = txn->get(tmp_rs_key, &existed_commit_val);
-    if (err == TxnErrorCode::TXN_OK) {
-        if (config::enable_recycle_delete_rowset_key_check) {
-            bool recycle_rs_key_exists = false;
-            if (!check_recycle_rowset_key(txn.get(), recycle_rs_key, rowset_meta,
-                                          &recycle_rs_key_exists, code, msg)) {
-                return;
-            }
-            if (recycle_rs_key_exists) {
-                code = MetaServiceCode::INVALID_ARGUMENT;
-                msg = fmt::format(
-                        "tmp rowset key and recycle rowset key are mutually exclusive, "
-                        "tmp_rs_key={}, recycle_rs_key={}",
-                        hex(tmp_rs_key), hex(recycle_rs_key));
-                LOG(INFO) << "skip commit rowset because tmp rowset key and recycle rowset key are "
-                             "mutually exclusive, txn_id="
-                          << rowset_meta.txn_id() << ", tablet_id=" << tablet_id
-                          << ", rowset_id=" << rowset_id << ", tmp_rs_key=" << hex(tmp_rs_key)
-                          << ", recycle_rs_key=" << hex(recycle_rs_key) << ", msg=" << msg;
-                return;
-            }
-        }
-        auto existed_rowset_meta = response->mutable_existed_rowset_meta();
-        if (!existed_rowset_meta->ParseFromString(existed_commit_val)) {
-            code = MetaServiceCode::PROTOBUF_PARSE_ERR;
-            msg = fmt::format("malformed rowset meta value. key={}", hex(tmp_rs_key));
-            return;
-        }
-        if (existed_rowset_meta->rowset_id_v2() == rowset_meta.rowset_id_v2()) {
-            // Same request, return OK
-            response->set_allocated_existed_rowset_meta(nullptr);
-            return;
-        }
-        if (!existed_rowset_meta->has_index_id()) {
-            if (rowset_meta.has_index_id()) {
-                existed_rowset_meta->set_index_id(rowset_meta.index_id());
-            } else if (!is_versioned_read) {
-                TabletIndexPB tablet_idx;
-                get_tablet_idx(code, msg, txn.get(), instance_id, rowset_meta.tablet_id(),
-                               tablet_idx);
-                if (code != MetaServiceCode::OK) return;
-                existed_rowset_meta->set_index_id(tablet_idx.index_id());
-            } else {
-                CloneChainReader reader(instance_id, resource_mgr_.get());
-                TabletIndexPB tablet_idx;
-                TxnErrorCode err = reader.get_tablet_index(txn.get(), tablet_id, &tablet_idx);
-                if (err != TxnErrorCode::TXN_OK) {
-                    code = err == TxnErrorCode::TXN_KEY_NOT_FOUND
-                                   ? MetaServiceCode::TABLET_NOT_FOUND
-                                   : cast_as<ErrCategory::READ>(err);
-                    msg = fmt::format("failed to get tablet index, tablet_id={}, err={}", tablet_id,
-                                      err);
-                    LOG(WARNING) << msg;
-                    return;
-                }
-                existed_rowset_meta->set_index_id(tablet_idx.index_id());
-            }
-        }
-        if (!existed_rowset_meta->has_tablet_schema()) {
-            set_schema_in_existed_rowset(code, msg, txn.get(), instance_id, rowset_meta,
-                                         *existed_rowset_meta, is_versioned_read,
-                                         resource_mgr_.get());
-            if (code != MetaServiceCode::OK) return;
-        } else {
-            existed_rowset_meta->set_schema_version(
-                    existed_rowset_meta->tablet_schema().schema_version());
-        }
-        if (existed_rowset_meta->has_variant_type_in_schema()) {
-            fill_schema_from_dict(code, msg, instance_id, txn.get(), existed_rowset_meta);
-            if (code != MetaServiceCode::OK) return;
-        }
-        code = MetaServiceCode::ALREADY_EXISTED;
-        msg = "rowset already exists";
-        return;
-    }
-    if (err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
-        code = cast_as<ErrCategory::READ>(err);
-        msg = fmt::format("failed to check whether rowset exists, err={}", err);
-        return;
-    }
-    if (config::enable_recycle_delete_rowset_key_check) {
-        bool recycle_rs_key_exists = false;
-        if (!check_recycle_rowset_key(txn.get(), recycle_rs_key, rowset_meta,
-                                      &recycle_rs_key_exists, code, msg)) {
-            return;
-        }
-        if (!recycle_rs_key_exists) {
-            code = MetaServiceCode::INVALID_ARGUMENT;
-            msg = fmt::format("recycle rowset key not found, key={}", hex(recycle_rs_key));
-            LOG(INFO) << "skip commit rowset because recycle rowset key does not exist, txn_id="
-                      << rowset_meta.txn_id() << ", tablet_id=" << tablet_id
-                      << ", rowset_id=" << rowset_id << ", recycle_rs_key=" << hex(recycle_rs_key);
-            return;
-        }
-    }
-    // write schema kv if rowset_meta has schema
-    if (config::write_schema_kv && rowset_meta.has_tablet_schema()) {
-        if (!rowset_meta.has_index_id() && !is_versioned_read) {
-            TabletIndexPB tablet_idx;
-            get_tablet_idx(code, msg, txn.get(), instance_id, rowset_meta.tablet_id(), tablet_idx);
-            if (code != MetaServiceCode::OK) return;
-            rowset_meta.set_index_id(tablet_idx.index_id());
-        } else if (!rowset_meta.has_index_id()) {
-            CloneChainReader reader(instance_id, resource_mgr_.get());
-            TabletIndexPB tablet_idx;
-            TxnErrorCode err =
-                    reader.get_tablet_index(txn.get(), rowset_meta.tablet_id(), &tablet_idx);
-            if (err != TxnErrorCode::TXN_OK) {
-                code = err == TxnErrorCode::TXN_KEY_NOT_FOUND ? MetaServiceCode::TABLET_NOT_FOUND
-                                                              : cast_as<ErrCategory::READ>(err);
-                msg = fmt::format("failed to get tablet index, tablet_id={}, err={}",
-                                  rowset_meta.tablet_id(), err);
-                LOG(WARNING) << msg;
-                return;
-            }
-            rowset_meta.set_index_id(tablet_idx.index_id());
-        }
-        DCHECK(rowset_meta.tablet_schema().has_schema_version());
-        DCHECK_GE(rowset_meta.tablet_schema().schema_version(), 0);
-        rowset_meta.set_schema_version(rowset_meta.tablet_schema().schema_version());
-        if (rowset_meta.has_variant_type_in_schema()) {
-            write_schema_dict(code, msg, instance_id, txn.get(), &rowset_meta);
-            if (code != MetaServiceCode::OK) return;
-        }
-        bool is_versioned_write = is_version_write_enabled(instance_id);
-        std::string schema_key = meta_schema_key(
-                {instance_id, rowset_meta.index_id(), rowset_meta.schema_version()});
-        put_schema_kv(code, msg, txn.get(), schema_key, rowset_meta.tablet_schema());
-        if (code != MetaServiceCode::OK) return;
-        if (is_versioned_write) {
-            std::string versioned_schema_key = versioned::meta_schema_key(
-                    {instance_id, rowset_meta.index_id(), rowset_meta.schema_version()});
-            put_versioned_schema_kv(code, msg, txn.get(), versioned_schema_key,
-                                    rowset_meta.tablet_schema());
-            if (code != MetaServiceCode::OK) return;
-        }
-        rowset_meta.set_allocated_tablet_schema(nullptr);
-    }
-
-    txn->remove(recycle_rs_key);
-    DCHECK_GT(rowset_meta.txn_expiration(), 0);
-    auto tmp_rs_val = rowset_meta.SerializeAsString();
-    txn->put(tmp_rs_key, tmp_rs_val);
-
-    if (is_version_write_enabled(instance_id)) {
-        std::string rowset_ref_count_key =
-                versioned::data_rowset_ref_count_key({instance_id, tablet_id, rowset_id});
-        LOG(INFO) << "add rowset ref count key, instance_id=" << instance_id
-                  << "key=" << hex(rowset_ref_count_key);
-        txn->atomic_add(rowset_ref_count_key, 1);
-    }
+    commit_rowset_meta(txn.get(), instance_id, request->tablet_job_id(), rowset_meta,
+                       response->mutable_existed_rowset_meta(), code, msg);
+    if (code == MetaServiceCode::ALREADY_EXISTED) return;
+    response->set_allocated_existed_rowset_meta(nullptr);
+    if (code != MetaServiceCode::OK) return;
 
     std::size_t segment_key_bounds_bytes = get_segments_key_bounds_bytes(rowset_meta);
-    LOG(INFO) << "put tmp_rs_key " << hex(tmp_rs_key) << " delete recycle_rs_key "
-              << hex(recycle_rs_key) << " value_size " << tmp_rs_val.size() << " txn_id "
-              << request->txn_id() << " segment_key_bounds_bytes " << segment_key_bounds_bytes;
     err = txn->commit();
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::COMMIT>(err);
@@ -2905,6 +2919,184 @@ void MetaServiceImpl::commit_rowset(::google::protobuf::RpcController* controlle
         msg = ss.str();
         return;
     }
+}
+
+void MetaServiceImpl::commit_rowsets(::google::protobuf::RpcController* controller,
+                                     const CreateRowsetsRequest* request,
+                                     CreateRowsetsResponse* response,
+                                     ::google::protobuf::Closure* done) {
+    RPC_PREPROCESS(commit_rowset, get, put, del);
+    if (!request->has_rowset_meta()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "no rowset meta";
+        return;
+    }
+    if (!request->has_attach_row_binlog()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "no attach row binlog";
+        return;
+    }
+    instance_id = get_instance_id(resource_mgr_, request->cloud_unique_id());
+    if (instance_id.empty()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "empty instance_id";
+        LOG(INFO) << msg << ", cloud_unique_id=" << request->cloud_unique_id();
+        return;
+    }
+    doris::RowsetMetaCloudPB rowset_meta(request->rowset_meta());
+    if (!rowset_meta.has_tablet_schema() && !rowset_meta.has_schema_version()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "rowset_meta must have either schema or schema_version";
+        return;
+    }
+    doris::RowsetMetaCloudPB attach_row_binlog(request->attach_row_binlog());
+    if (!attach_row_binlog.has_tablet_schema() && !attach_row_binlog.has_schema_version()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "attach_row_binlog must have either schema or schema_version";
+        return;
+    }
+    RPC_RATE_LIMIT(commit_rowset)
+
+    TxnErrorCode err = txn_kv_->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::CREATE>(err);
+        msg = "failed to create txn";
+        return;
+    }
+
+    {
+        MetaServiceCode commit_code = MetaServiceCode::OK;
+        std::string commit_msg;
+        commit_rowset_meta(txn.get(), instance_id, request->tablet_job_id(), rowset_meta,
+                           response->mutable_existed_rowset_meta(), commit_code, commit_msg);
+        if (commit_code != MetaServiceCode::OK &&
+            commit_code != MetaServiceCode::ALREADY_EXISTED) {
+            code = commit_code;
+            msg = commit_msg;
+            return;
+        }
+        if (commit_code != MetaServiceCode::ALREADY_EXISTED) {
+            response->set_allocated_existed_rowset_meta(nullptr);
+        }
+        code = commit_code;
+        msg = commit_msg;
+    }
+
+    {
+        MetaServiceCode commit_code = MetaServiceCode::OK;
+        std::string commit_msg;
+        commit_rowset_meta(txn.get(), instance_id, request->tablet_job_id(), attach_row_binlog,
+                           response->mutable_existed_attach_row_binlog(), commit_code, commit_msg);
+        if (commit_code != MetaServiceCode::OK &&
+            commit_code != MetaServiceCode::ALREADY_EXISTED) {
+            code = commit_code;
+            msg = commit_msg;
+            return;
+        }
+        if (commit_code != MetaServiceCode::ALREADY_EXISTED) {
+            response->set_allocated_existed_attach_row_binlog(nullptr);
+        }
+
+        bool rowset_already_exists = code == MetaServiceCode::ALREADY_EXISTED;
+        bool binlog_already_exists = commit_code == MetaServiceCode::ALREADY_EXISTED;
+        if (rowset_already_exists != binlog_already_exists) {
+            msg = fmt::format("rowset and attach row binlog existence mismatch, rowset_code={}, "
+                              "binlog_code={}",
+                              MetaServiceCode_Name(code), MetaServiceCode_Name(commit_code));
+            code = MetaServiceCode::INVALID_ARGUMENT;
+            return;
+        }
+        if (rowset_already_exists) {
+            msg = "rowsets already exist";
+            return;
+        }
+    }
+
+    std::size_t segment_key_bounds_bytes = get_segments_key_bounds_bytes(rowset_meta) +
+                                           get_segments_key_bounds_bytes(attach_row_binlog);
+    std::size_t rowsets_meta_bytes =
+            rowset_meta.ByteSizeLong() + attach_row_binlog.ByteSizeLong();
+    err = txn->commit();
+    if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::COMMIT>(err);
+        ss << "failed to save rowset meta, err=" << err;
+        if (err == TxnErrorCode::TXN_VALUE_TOO_LARGE) {
+            LOG(WARNING) << "failed to commit rowsets, err=value too large"
+                         << ", txn_id=" << request->txn_id()
+                         << ", tablet_id=" << rowset_meta.tablet_id()
+                         << ", rowset_id=" << rowset_meta.rowset_id_v2()
+                         << ", rowsets_meta_bytes=" << rowsets_meta_bytes
+                         << ", segment_key_bounds_bytes=" << segment_key_bounds_bytes
+                         << ", num_segments=" << rowset_meta.num_segments() + attach_row_binlog.num_segments()
+                         << ", attach_row_binlog_tablet_id=" << attach_row_binlog.tablet_id()
+                         << ", attach_row_binlog_rowset_id=" << attach_row_binlog.rowset_id_v2();
+            ss << ". The key column data is too large, or too many partitions are being loaded "
+                  "simultaneously. Please reduce the size of the key column data or lower the "
+                  "number of partitions involved in a single load or update.";
+        }
+        msg = ss.str();
+        return;
+    }
+}
+
+void MetaServiceImpl::update_tmp_rowset_meta(Transaction* txn, const std::string& instance_id,
+                                             doris::RowsetMetaCloudPB& rowset_meta,
+                                             doris::RowsetMetaCloudPB* existed_rowset_meta,
+                                             MetaServiceCode& code, std::string& msg) {
+    int64_t tablet_id = rowset_meta.tablet_id();
+
+    std::string update_key;
+    std::string update_val;
+
+    int64_t txn_id = rowset_meta.txn_id();
+    MetaRowsetTmpKeyInfo key_info {instance_id, txn_id, tablet_id};
+    meta_rowset_tmp_key(key_info, &update_key);
+
+    // Check if commit key already exists.
+    std::string existed_commit_val;
+    TxnErrorCode err = txn->get(update_key, &existed_commit_val);
+    if (err == TxnErrorCode::TXN_OK) {
+        if (existed_rowset_meta != nullptr &&
+            !existed_rowset_meta->ParseFromString(existed_commit_val)) {
+            code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+            msg = fmt::format("malformed rowset meta value. key={}", hex(update_key));
+            return;
+        }
+    } else if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+        code = MetaServiceCode::ROWSET_META_NOT_FOUND;
+        LOG_WARNING(
+                "fail to find the rowset meta with key={}, instance_id={}, txn_id={}, "
+                "tablet_id={}, rowset_id={}",
+                hex(update_key), instance_id, rowset_meta.txn_id(), tablet_id,
+                rowset_meta.rowset_id_v2());
+        msg = "can't find the rowset";
+        return;
+    } else {
+        code = cast_as<ErrCategory::READ>(err);
+        LOG_WARNING(
+                "internal error, fail to find the rowset meta with key={}, instance_id={}, "
+                "txn_id={}, tablet_id={}, rowset_id={}",
+                hex(update_key), instance_id, rowset_meta.txn_id(), tablet_id,
+                rowset_meta.rowset_id_v2());
+        msg = fmt::format("failed to check whether rowset exists, err={}", err);
+        return;
+    }
+    if (rowset_meta.has_variant_type_in_schema()) {
+        write_schema_dict(code, msg, instance_id, txn, &rowset_meta);
+        if (code != MetaServiceCode::OK) return;
+    }
+    DCHECK_GT(rowset_meta.txn_expiration(), 0);
+    if (!rowset_meta.SerializeToString(&update_val)) {
+        code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
+        msg = "failed to serialize rowset meta";
+        return;
+    }
+
+    txn->put(update_key, update_val);
+    std::size_t segment_key_bounds_bytes = get_segments_key_bounds_bytes(rowset_meta);
+    LOG(INFO) << "xxx put "
+              << "update_rowset_key " << hex(update_key) << " value_size " << update_val.size()
+              << " segment_key_bounds_bytes " << segment_key_bounds_bytes;
 }
 
 void MetaServiceImpl::update_tmp_rowset(::google::protobuf::RpcController* controller,
@@ -2931,14 +3123,6 @@ void MetaServiceImpl::update_tmp_rowset(::google::protobuf::RpcController* contr
         return;
     }
     RPC_RATE_LIMIT(update_tmp_rowset)
-    int64_t tablet_id = rowset_meta.tablet_id();
-
-    std::string update_key;
-    std::string update_val;
-
-    int64_t txn_id = rowset_meta.txn_id();
-    MetaRowsetTmpKeyInfo key_info {instance_id, txn_id, tablet_id};
-    meta_rowset_tmp_key(key_info, &update_key);
 
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
@@ -2947,63 +3131,101 @@ void MetaServiceImpl::update_tmp_rowset(::google::protobuf::RpcController* contr
         return;
     }
 
-    // Check if commit key already exists.
-    std::string existed_commit_val;
-    err = txn->get(update_key, &existed_commit_val);
-    if (err == TxnErrorCode::TXN_OK) {
-        auto existed_rowset_meta = response->mutable_existed_rowset_meta();
-        if (!existed_rowset_meta->ParseFromString(existed_commit_val)) {
-            code = MetaServiceCode::PROTOBUF_PARSE_ERR;
-            msg = fmt::format("malformed rowset meta value. key={}", hex(update_key));
-            return;
-        }
-    } else if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
-        code = MetaServiceCode::ROWSET_META_NOT_FOUND;
-        LOG_WARNING(
-                "fail to find the rowset meta with key={}, instance_id={}, txn_id={}, "
-                "tablet_id={}, rowset_id={}",
-                hex(update_key), instance_id, rowset_meta.txn_id(), tablet_id,
-                rowset_meta.rowset_id_v2());
-        msg = "can't find the rowset";
-        return;
-    } else {
-        code = cast_as<ErrCategory::READ>(err);
-        LOG_WARNING(
-                "internal error, fail to find the rowset meta with key={}, instance_id={}, "
-                "txn_id={}, tablet_id={}, rowset_id={}",
-                hex(update_key), instance_id, rowset_meta.txn_id(), tablet_id,
-                rowset_meta.rowset_id_v2());
-        msg = fmt::format("failed to check whether rowset exists, err={}", err);
-        return;
-    }
-    if (rowset_meta.has_variant_type_in_schema()) {
-        write_schema_dict(code, msg, instance_id, txn.get(), &rowset_meta);
-        if (code != MetaServiceCode::OK) return;
-    }
-    DCHECK_GT(rowset_meta.txn_expiration(), 0);
-    if (!rowset_meta.SerializeToString(&update_val)) {
-        code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
-        msg = "failed to serialize rowset meta";
-        return;
-    }
+    update_tmp_rowset_meta(txn.get(), instance_id, rowset_meta,
+                           response->mutable_existed_rowset_meta(), code, msg);
+    if (code != MetaServiceCode::OK) return;
 
-    txn->put(update_key, update_val);
-    std::size_t segment_key_bounds_bytes = get_segments_key_bounds_bytes(rowset_meta);
-    LOG(INFO) << "xxx put "
-              << "update_rowset_key " << hex(update_key) << " value_size " << update_val.size()
-              << " segment_key_bounds_bytes " << segment_key_bounds_bytes;
     err = txn->commit();
     if (err != TxnErrorCode::TXN_OK) {
         code = cast_as<ErrCategory::COMMIT>(err);
         ss << "failed to update rowset meta, err=" << err;
         if (err == TxnErrorCode::TXN_VALUE_TOO_LARGE) {
             const auto& rowset_id = rowset_meta.rowset_id_v2();
+            int64_t tablet_id = rowset_meta.tablet_id();
+            std::size_t segment_key_bounds_bytes = get_segments_key_bounds_bytes(rowset_meta);
             LOG(WARNING) << "failed to update tmp rowset, err=value too large"
                          << ", txn_id=" << request->txn_id() << ", tablet_id=" << tablet_id
                          << ", rowset_id=" << rowset_id
                          << ", rowset_meta_bytes=" << rowset_meta.ByteSizeLong()
                          << ", segment_key_bounds_bytes=" << segment_key_bounds_bytes
                          << ", rowset_meta=" << rowset_meta.ShortDebugString();
+            ss << ". The key column data is too large, or too many partitions are being loaded "
+                  "simultaneously. Please reduce the size of the key column data or lower the "
+                  "number of partitions involved in a single load or update.";
+        }
+        msg = ss.str();
+        return;
+    }
+}
+
+void MetaServiceImpl::update_tmp_rowsets(::google::protobuf::RpcController* controller,
+                                         const CreateRowsetsRequest* request,
+                                         CreateRowsetsResponse* response,
+                                         ::google::protobuf::Closure* done) {
+    RPC_PREPROCESS(update_tmp_rowset, get, put);
+    if (!request->has_rowset_meta()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "no rowset meta";
+        return;
+    }
+    if (!request->has_attach_row_binlog()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "no attach row binlog";
+        return;
+    }
+    instance_id = get_instance_id(resource_mgr_, request->cloud_unique_id());
+    if (instance_id.empty()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "empty instance_id";
+        LOG(INFO) << msg << ", cloud_unique_id=" << request->cloud_unique_id();
+        return;
+    }
+    doris::RowsetMetaCloudPB rowset_meta(request->rowset_meta());
+    if (!rowset_meta.has_tablet_schema() && !rowset_meta.has_schema_version()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "rowset_meta must have either schema or schema_version";
+        return;
+    }
+    doris::RowsetMetaCloudPB attach_row_binlog(request->attach_row_binlog());
+    if (!attach_row_binlog.has_tablet_schema() && !attach_row_binlog.has_schema_version()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "attach_row_binlog must have either schema or schema_version";
+        return;
+    }
+    RPC_RATE_LIMIT(update_tmp_rowset)
+
+    TxnErrorCode err = txn_kv_->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::CREATE>(err);
+        msg = "failed to create txn";
+        return;
+    }
+
+    update_tmp_rowset_meta(txn.get(), instance_id, rowset_meta,
+                           response->mutable_existed_rowset_meta(), code, msg);
+    if (code != MetaServiceCode::OK) return;
+    update_tmp_rowset_meta(txn.get(), instance_id, attach_row_binlog,
+                           response->mutable_existed_attach_row_binlog(), code, msg);
+    if (code != MetaServiceCode::OK) return;
+
+    err = txn->commit();
+    if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::COMMIT>(err);
+        ss << "failed to update rowsets meta, err=" << err;
+        if (err == TxnErrorCode::TXN_VALUE_TOO_LARGE) {
+            std::size_t segment_key_bounds_bytes = get_segments_key_bounds_bytes(rowset_meta) +
+                                                   get_segments_key_bounds_bytes(attach_row_binlog);
+            std::size_t rowsets_meta_bytes =
+                    rowset_meta.ByteSizeLong() + attach_row_binlog.ByteSizeLong();
+            LOG(WARNING) << "failed to update tmp rowsets, err=value too large"
+                         << ", txn_id=" << request->txn_id()
+                         << ", tablet_id=" << rowset_meta.tablet_id()
+                         << ", rowset_id=" << rowset_meta.rowset_id_v2()
+                         << ", rowsets_meta_bytes=" << rowsets_meta_bytes
+                         << ", segment_key_bounds_bytes=" << segment_key_bounds_bytes
+                         << ", num_segments=" << rowset_meta.num_segments() + attach_row_binlog.num_segments()
+                         << ", attach_row_binlog_tablet_id=" << attach_row_binlog.tablet_id()
+                         << ", attach_row_binlog_rowset_id=" << attach_row_binlog.rowset_id_v2();
             ss << ". The key column data is too large, or too many partitions are being loaded "
                   "simultaneously. Please reduce the size of the key column data or lower the "
                   "number of partitions involved in a single load or update.";

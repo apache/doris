@@ -1197,6 +1197,18 @@ Status CloudTablet::save_delete_bitmap(const TabletTxnInfo* txn_info, int64_t tx
                                        int64_t next_visible_version) {
     RowsetSharedPtr rowset = txn_info->rowset;
     int64_t cur_version = rowset->start_version();
+    const bool build_row_binlog = txn_info->attach_row_binlog.rowset != nullptr;
+    const RowsetId cur_build_rid = rowset->rowset_id();
+    const RowsetId binlog_rid =
+            build_row_binlog ? txn_info->attach_row_binlog.rowset->rowset_id() : cur_build_rid;
+    auto* row_binlog_delete_bitmap = txn_info->attach_row_binlog.delete_bitmap.get();
+    if (build_row_binlog) {
+        DCHECK(txn_info->attach_row_binlog.rowset->rowset_meta() != nullptr);
+        DCHECK(txn_info->attach_row_binlog.rowset->rowset_meta()->is_row_binlog());
+        DCHECK(txn_info->attach_row_binlog.tablet != nullptr);
+        DCHECK(row_binlog_delete_bitmap != nullptr);
+    }
+
     // update delete bitmap info, in order to avoid recalculation when trying again
     RETURN_IF_ERROR(_engine.txn_delete_bitmap_cache().update_tablet_txn_info(
             txn_id, tablet_id(), delete_bitmap, cur_rowset_ids, PublishStatus::PREPARE));
@@ -1207,11 +1219,34 @@ Status CloudTablet::save_delete_bitmap(const TabletTxnInfo* txn_info, int64_t tx
             return Status::InternalError<false>("injected update_tmp_rowset error.");
         });
         const auto& rowset_meta = rowset->rowset_meta();
-        RETURN_IF_ERROR(_engine.meta_mgr().update_tmp_rowset(*rowset_meta, table_id()));
+        if (build_row_binlog) {
+            const auto& binlog_rowset_meta = txn_info->attach_row_binlog.rowset->rowset_meta();
+            RETURN_IF_ERROR(_engine.meta_mgr().update_tmp_rowsets(*rowset_meta, *binlog_rowset_meta,
+                                                                  table_id()));
+        } else {
+            RETURN_IF_ERROR(_engine.meta_mgr().update_tmp_rowset(*rowset_meta, table_id()));
+        }
     }
 
     RETURN_IF_ERROR(save_delete_bitmap_to_ms(cur_version, txn_id, delete_bitmap, lock_id,
                                              next_visible_version, rowset));
+    if (build_row_binlog) {
+        for (const auto& [key, bitmap] : delete_bitmap->delete_bitmap) {
+            if (std::get<1>(key) != DeleteBitmap::INVALID_SEGMENT_ID &&
+                std::get<0>(key) == cur_build_rid) {
+                row_binlog_delete_bitmap->merge(
+                        {binlog_rid, std::get<1>(key), cast_set<uint64_t>(cur_version)}, bitmap);
+            }
+        }
+        auto* binlog_tablet =
+                static_cast<CloudTablet*>(txn_info->attach_row_binlog.tablet.get());
+        RETURN_IF_ERROR(binlog_tablet->save_delete_bitmap_to_ms(
+                cur_version, txn_id, txn_info->attach_row_binlog.delete_bitmap, lock_id,
+                next_visible_version, txn_info->attach_row_binlog.rowset));
+        RETURN_IF_ERROR(_engine.txn_delete_bitmap_cache().update_tablet_txn_info(
+                txn_id, binlog_tablet->tablet_id(), txn_info->attach_row_binlog.delete_bitmap,
+                cur_rowset_ids, PublishStatus::SUCCEED, txn_info->publish_info));
+    }
 
     // store the delete bitmap with sentinel marks in txn_delete_bitmap_cache because if the txn is retried for some reason,
     // it will use the delete bitmap from txn_delete_bitmap_cache when re-calculating the delete bitmap, during which it will do
@@ -1970,7 +2005,7 @@ void CloudTablet::clear_unused_visible_pending_rowsets() {
 
 void CloudTablet::try_make_committed_rs_visible(int64_t txn_id, int64_t visible_version,
                                                 int64_t version_update_time_ms) {
-    if (enable_unique_key_merge_on_write()) {
+    if (enable_unique_key_merge_on_write() || is_row_binlog_tablet()) {
         // for mow tablet, we get committed rowset from `CloudTxnDeleteBitmapCache` rather than `CommittedRowsetManager`
         try_make_committed_rs_visible_for_mow(txn_id, visible_version, version_update_time_ms);
         return;

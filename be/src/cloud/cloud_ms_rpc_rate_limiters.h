@@ -39,7 +39,9 @@ namespace doris::cloud {
     X(GET_ROWSET, get_rowset, "get rowset")                               \
     X(PREPARE_ROWSET, prepare_rowset, "prepare rowset")                   \
     X(COMMIT_ROWSET, commit_rowset, "commit rowset")                      \
+    X(COMMIT_ROWSETS, commit_rowset, "commit rowsets")                    \
     X(UPDATE_TMP_ROWSET, update_tmp_rowset, "update tmp rowset")          \
+    X(UPDATE_TMP_ROWSETS, update_tmp_rowset, "update tmp rowsets")        \
     X(COMMIT_TXN, commit_txn, "commit txn")                               \
     X(ABORT_TXN, abort_txn, "abort txn")                                  \
     X(PRECOMMIT_TXN, precommit_txn, "precommit txn")                      \

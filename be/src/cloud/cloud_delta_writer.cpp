@@ -38,6 +38,19 @@ CloudDeltaWriter::CloudDeltaWriter(CloudStorageEngine& engine, const WriteReques
     _resource_ctx = thread_context()->resource_ctx();
 }
 
+CloudDeltaWriter::CloudDeltaWriter(CloudStorageEngine& engine, const WriteRequest& group_build_req,
+                                   const WriteRequest& sub_data_req,
+                                   const WriteRequest& sub_row_binlog_req, RuntimeProfile* profile,
+                                   const UniqueId& load_id)
+        : BaseDeltaWriter(group_build_req, profile, load_id), _engine(engine) {
+    DCHECK(group_build_req.write_req_type == WriteRequestType::GROUP &&
+           sub_data_req.write_req_type == WriteRequestType::DATA &&
+           sub_row_binlog_req.write_req_type == WriteRequestType::ROW_BINLOG);
+    _rowset_builder = std::make_unique<CloudGroupRowsetBuilder>(
+            engine, group_build_req, sub_data_req, sub_row_binlog_req, profile);
+    _resource_ctx = thread_context()->resource_ctx();
+}
+
 CloudDeltaWriter::~CloudDeltaWriter() = default;
 
 Status CloudDeltaWriter::batch_init(std::vector<CloudDeltaWriter*> writers) {
@@ -124,10 +137,6 @@ void CloudDeltaWriter::update_tablet_stats() {
     rowset_builder()->update_tablet_stats();
 }
 
-const RowsetMetaSharedPtr& CloudDeltaWriter::rowset_meta() {
-    return rowset_builder()->rowset_meta();
-}
-
 Status CloudDeltaWriter::commit_rowset() {
     g_cloud_commit_rowset_count << 1;
     std::lock_guard<bthread::Mutex> lock(_mtx);
@@ -138,9 +147,7 @@ Status CloudDeltaWriter::commit_rowset() {
         return _commit_empty_rowset();
     }
 
-    // Handle normal rowset with data
-    return _engine.meta_mgr().commit_rowset(*rowset_meta(), "",
-                                            _rowset_builder->tablet()->table_id());
+    return rowset_builder()->commit_rowset("", _rowset_builder->tablet()->table_id());
 }
 
 Status CloudDeltaWriter::_commit_empty_rowset() {
@@ -158,8 +165,7 @@ Status CloudDeltaWriter::_commit_empty_rowset() {
         return Status::OK();
     }
     // write a empty rowset kv to keep version continuous
-    return _engine.meta_mgr().commit_rowset(*rowset_meta(), "",
-                                            _rowset_builder->tablet()->table_id());
+    return rowset_builder()->commit_rowset("", _rowset_builder->tablet()->table_id());
 }
 
 Status CloudDeltaWriter::set_txn_related_info() {
