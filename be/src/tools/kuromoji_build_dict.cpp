@@ -37,7 +37,7 @@
 #include "storage/index/inverted/analyzer/kuromoji/dict/kuromoji_ipadic_parser.h"
 
 namespace fs = std::filesystem;
-using namespace doris::segment_v2::kuromoji;
+using namespace doris::segment_v2::inverted_index::kuromoji;
 using doris::Status;
 
 namespace {

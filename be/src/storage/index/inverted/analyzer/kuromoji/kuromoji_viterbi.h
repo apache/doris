@@ -24,7 +24,7 @@
 #include "storage/index/inverted/analyzer/kuromoji/KuromojiMode.h"
 #include "storage/index/inverted/analyzer/kuromoji/dict/kuromoji_dictionary.h"
 
-namespace doris::segment_v2::kuromoji {
+namespace doris::segment_v2::inverted_index::kuromoji {
 
 // One morpheme on the best path. `surface` is identified by byte range into the
 // analyzed input; `known` distinguishes a system-dictionary word from a
@@ -61,4 +61,4 @@ private:
     KuromojiMode _mode;
 };
 
-} // namespace doris::segment_v2::kuromoji
+} // namespace doris::segment_v2::inverted_index::kuromoji

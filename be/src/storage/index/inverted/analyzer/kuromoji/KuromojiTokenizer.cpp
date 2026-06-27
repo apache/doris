@@ -84,7 +84,7 @@ void ascii_lower(std::string& s) {
 } // namespace
 
 KuromojiTokenizer::KuromojiTokenizer(KuromojiMode mode, bool lower_case, bool own_reader,
-                                     const kuromoji::KuromojiDictionary* dict)
+                                     const inverted_index::kuromoji::KuromojiDictionary* dict)
         : mode_(mode), dict_(dict) {
     this->lowercase = lower_case;
     this->ownReader = own_reader;
@@ -108,8 +108,8 @@ void KuromojiTokenizer::reset(lucene::util::Reader* reader) {
         // Viterbi morphological segmentation, then OpenSearch-default-style filtering:
         // drop stop part-of-speech (particles/auxiliaries/...), emit the dictionary
         // base form for conjugated words, and lowercase embedded ASCII.
-        kuromoji::KuromojiViterbi viterbi(*dict_, mode_);
-        std::vector<kuromoji::KuromojiMorpheme> morphemes;
+        inverted_index::kuromoji::KuromojiViterbi viterbi(*dict_, mode_);
+        std::vector<inverted_index::kuromoji::KuromojiMorpheme> morphemes;
         viterbi.segment(text, &morphemes);
         tokens_text_.reserve(morphemes.size());
         for (const auto& m : morphemes) {
@@ -122,7 +122,7 @@ void KuromojiTokenizer::reset(lucene::util::Reader* reader) {
             const std::string_view base = feature_field(feat, 6);
             std::string term = (base.empty() || base == "*") ? text.substr(m.byte_start, m.byte_len)
                                                              : std::string(base);
-            term = kuromoji::cjk_width_normalize(
+            term = inverted_index::kuromoji::cjk_width_normalize(
                     term); // full-width ASCII -> ASCII before lowercase
             if (this->lowercase) {
                 ascii_lower(term);

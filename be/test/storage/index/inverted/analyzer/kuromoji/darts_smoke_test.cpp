@@ -24,7 +24,7 @@
 
 #include "storage/index/inverted/analyzer/kuromoji/dict/darts.h"
 
-namespace doris::segment_v2::kuromoji {
+namespace doris::segment_v2::inverted_index::kuromoji {
 
 // Proves the vendored Darts-clone header builds + queries: surface forms ->
 // non-negative values, then common-prefix search (the API the kuromoji lattice
@@ -67,4 +67,4 @@ TEST(DartsSmokeTest, BuildAndCommonPrefixSearch) {
     EXPECT_TRUE(saw_len6);
 }
 
-} // namespace doris::segment_v2::kuromoji
+} // namespace doris::segment_v2::inverted_index::kuromoji

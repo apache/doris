@@ -21,7 +21,7 @@
 #include <cstddef>
 #include <limits>
 
-namespace doris::segment_v2::kuromoji {
+namespace doris::segment_v2::inverted_index::kuromoji {
 
 namespace {
 
@@ -260,4 +260,4 @@ void KuromojiViterbi::segment(std::string_view text, std::vector<KuromojiMorphem
     }
 }
 
-} // namespace doris::segment_v2::kuromoji
+} // namespace doris::segment_v2::inverted_index::kuromoji

@@ -40,7 +40,7 @@ public:
     // unavailable the tokenizer degrades to a per-codepoint split (logged), rather
     // than failing index/query.
     void initDict(const std::string& dictPath) override {
-        dict_ = kuromoji::KuromojiDictionary::get_or_load(dictPath);
+        dict_ = inverted_index::kuromoji::KuromojiDictionary::get_or_load(dictPath);
         if (dict_ == nullptr) {
             LOG(WARNING) << "kuromoji: dictionary unavailable at " << dictPath
                          << "; falling back to per-codepoint tokenization";
@@ -65,7 +65,7 @@ public:
     }
 
 private:
-    const kuromoji::KuromojiDictionary* dict_ {nullptr};
+    const inverted_index::kuromoji::KuromojiDictionary* dict_ {nullptr};
     KuromojiMode mode_ {KuromojiMode::Search};
     std::unique_ptr<KuromojiTokenizer> tokenizer_;
 };

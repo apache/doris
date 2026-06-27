@@ -19,7 +19,7 @@
 
 #include <cstdint>
 
-namespace doris::segment_v2::kuromoji {
+namespace doris::segment_v2::inverted_index::kuromoji {
 
 // "DORISKMJ" as 8 bytes; little-endian only.
 inline constexpr char KMJ_MAGIC[8] = {'D', 'O', 'R', 'I', 'S', 'K', 'M', 'J'};
@@ -126,4 +126,4 @@ inline int16_t connection_cost(const int16_t* cells, uint32_t forward_size, uint
     return cells[static_cast<uint64_t>(backward_id) * forward_size + forward_id];
 }
 
-} // namespace doris::segment_v2::kuromoji
+} // namespace doris::segment_v2::inverted_index::kuromoji

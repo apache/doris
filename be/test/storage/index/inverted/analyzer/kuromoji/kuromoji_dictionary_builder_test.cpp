@@ -24,7 +24,7 @@
 
 #include "storage/index/inverted/analyzer/kuromoji/dict/kuromoji_dict_format.h"
 
-namespace doris::segment_v2::kuromoji {
+namespace doris::segment_v2::inverted_index::kuromoji {
 
 static bool file_nonempty(const std::string& p) {
     struct stat st {};
@@ -71,4 +71,4 @@ TEST(KuromojiDictionaryBuilderTest, WritesFourFiles) {
     EXPECT_FALSE(KuromojiDictionaryBuilder::write_matrix(dir + "/bad.bin", bad).ok());
 }
 
-} // namespace doris::segment_v2::kuromoji
+} // namespace doris::segment_v2::inverted_index::kuromoji

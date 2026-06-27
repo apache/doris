@@ -26,7 +26,7 @@
 
 // Parsers for the mecab-ipadic source files (assumed already transcoded to UTF-8).
 // Pure text->struct transforms feeding KuromojiDictionaryBuilder. Build-time only.
-namespace doris::segment_v2::kuromoji {
+namespace doris::segment_v2::inverted_index::kuromoji {
 
 // Maps an IPADIC char.def category name (e.g. "KANJI") to our canonical
 // CharCategory ordinal. Returns CAT_CLASS_COUNT for an unknown name.
@@ -47,4 +47,4 @@ Status parse_char_def(std::string_view content, CharDefInput* out);
 // Parse the whole unk.def: CATEGORY,left,right,cost,<feature columns...> rows.
 Status parse_unk_def(std::string_view content, UnkDictInput* out);
 
-} // namespace doris::segment_v2::kuromoji
+} // namespace doris::segment_v2::inverted_index::kuromoji

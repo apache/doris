@@ -24,7 +24,7 @@
 
 #include "storage/index/inverted/analyzer/kuromoji/dict/darts.h"
 
-namespace doris::segment_v2::kuromoji {
+namespace doris::segment_v2::inverted_index::kuromoji {
 
 namespace {
 
@@ -260,4 +260,4 @@ Status KuromojiDictionaryBuilder::write_unkdict(const std::string& path, const U
     return flush_file(path, sink.buf());
 }
 
-} // namespace doris::segment_v2::kuromoji
+} // namespace doris::segment_v2::inverted_index::kuromoji

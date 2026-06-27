@@ -31,7 +31,7 @@
 #include "storage/index/inverted/analyzer/kuromoji/dict/kuromoji_dictionary.h"
 #include "storage/index/inverted/analyzer/kuromoji/dict/kuromoji_dictionary_builder.h"
 
-namespace doris::segment_v2::kuromoji {
+namespace doris::segment_v2::inverted_index::kuromoji {
 
 // 東 = E6 9D B1 (U+6771), 京 = E4 BA AC (U+4EAC), 府 = E5 BA 9C (U+5E9C)
 static const std::string TOU = "\xE6\x9D\xB1";
@@ -253,4 +253,4 @@ TEST_F(KuromojiSearchModeTest, ExtendedModeStillDecompoundsKnownCompound) {
               (std::vector<std::string> {TOU, KYO, TO}));
 }
 
-} // namespace doris::segment_v2::kuromoji
+} // namespace doris::segment_v2::inverted_index::kuromoji
