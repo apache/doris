@@ -148,4 +148,15 @@ final class RecordingConnectorContext implements ConnectorContext {
         }
         return task.call();
     }
+
+    /** Locations the connector asked the engine to clean (B1 managed-location cleanup). */
+    final List<String> cleanedLocations = new ArrayList<>();
+    /** The child-dirs arg paired with each {@link #cleanedLocations} entry (same index). */
+    final List<List<String>> cleanedChildDirs = new ArrayList<>();
+
+    @Override
+    public void cleanupEmptyManagedLocation(String location, List<String> tableChildDirs) {
+        cleanedLocations.add(location);
+        cleanedChildDirs.add(tableChildDirs);
+    }
 }

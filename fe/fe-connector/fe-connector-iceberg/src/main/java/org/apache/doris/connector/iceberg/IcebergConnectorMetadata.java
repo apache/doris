@@ -23,6 +23,7 @@ import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.ConnectorTableSchema;
 import org.apache.doris.connector.api.ConnectorType;
 import org.apache.doris.connector.api.DorisConnectorException;
+import org.apache.doris.connector.api.ddl.ConnectorCreateTableRequest;
 import org.apache.doris.connector.api.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.api.handle.ConnectorTransaction;
@@ -39,10 +40,12 @@ import org.apache.iceberg.BaseTable;
 import org.apache.iceberg.MetadataTableType;
 import org.apache.iceberg.MetadataTableUtils;
 import org.apache.iceberg.PartitionField;
+import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.RowLevelOperationMode;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.SnapshotRef;
+import org.apache.iceberg.SortOrder;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.catalog.TableIdentifier;
@@ -386,6 +389,140 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
                 tableId, TTableType.ICEBERG_TABLE, numCols, 0, tableName, dbName);
         desc.setIcebergTable(tIcebergTable);
         return desc;
+    }
+
+    // ========== DDL writes (B1): create/drop database + table ==========
+
+    /**
+     * Iceberg supports CREATE DATABASE (namespace). Declaring it lets {@code PluginDrivenExternalCatalog.createDb}
+     * consult the remote namespace existence for IF NOT EXISTS (the SPI default {@code false} would skip that
+     * check). Mirrors paimon.
+     */
+    @Override
+    public boolean supportsCreateDatabase() {
+        return true;
+    }
+
+    /**
+     * Creates an iceberg namespace, mirroring legacy {@code IcebergMetadataOps.performCreateDb}. Namespace
+     * properties are only honored by an HMS catalog; for every other flavor a non-empty property map fails
+     * loud (legacy parity) — the gate is a pure local check run BEFORE the auth context, like paimon.
+     * Existence / IF NOT EXISTS is resolved upstream by {@code PluginDrivenExternalCatalog.createDb}.
+     */
+    @Override
+    public void createDatabase(ConnectorSession session, String dbName, Map<String, String> properties) {
+        if (!properties.isEmpty() && !isHmsCatalog()) {
+            throw new DorisConnectorException(
+                    "Not supported: create database with properties for iceberg catalog type: " + catalogType());
+        }
+        try {
+            context.executeAuthenticated(() -> {
+                catalogOps.createDatabase(dbName, properties);
+                return null;
+            });
+        } catch (Exception e) {
+            throw new DorisConnectorException(
+                    "Failed to create Iceberg database " + dbName + ": " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Drops an iceberg namespace, mirroring legacy {@code IcebergMetadataOps.performDropDb}. With
+     * {@code force} the contained tables are dropped (purged) first so a non-empty namespace can be removed;
+     * the namespace location is captured BEFORE the drop and its empty directory shell pruned afterwards
+     * (HMS only). Existence / IF EXISTS is resolved upstream by {@code PluginDrivenExternalCatalog.dropDb}, so
+     * {@code ifExists} is accepted for SPI parity but not re-checked here.
+     *
+     * <p>Views are out of B1 scope (A3/B6): a {@code force} drop of a namespace that still contains iceberg
+     * VIEWS will fail loud at {@code dropNamespace} (namespace not empty) until view DDL lands.
+     */
+    @Override
+    public void dropDatabase(ConnectorSession session, String dbName, boolean ifExists, boolean force) {
+        Optional<String> namespaceLocation;
+        try {
+            namespaceLocation = context.executeAuthenticated(() -> {
+                Optional<String> location = isHmsCatalog()
+                        ? catalogOps.loadNamespaceLocation(dbName) : Optional.empty();
+                if (force) {
+                    for (String table : catalogOps.listTableNames(dbName)) {
+                        catalogOps.dropTable(dbName, table, true);
+                    }
+                }
+                catalogOps.dropDatabase(dbName);
+                return location;
+            });
+        } catch (Exception e) {
+            throw new DorisConnectorException(
+                    "Failed to drop Iceberg database " + dbName + ": " + e.getMessage(), e);
+        }
+        // Cleanup runs OUTSIDE the iceberg auth scope: it is engine-side (its own storage creds) and
+        // best-effort (failures are swallowed by the engine), so it must never fail the completed drop.
+        namespaceLocation.ifPresent(location ->
+                context.cleanupEmptyManagedLocation(location, Collections.emptyList()));
+    }
+
+    /**
+     * Creates an iceberg table, mirroring legacy {@code IcebergMetadataOps.performCreateTable}: the neutral
+     * request is turned into an iceberg Schema / PartitionSpec / SortOrder / properties (with the Doris
+     * merge-on-read defaults) by {@link IcebergSchemaBuilder}, then created through the seam. The artifact
+     * build is pure (no remote call) and runs outside the auth context. Existence / IF NOT EXISTS is resolved
+     * upstream by {@code PluginDrivenExternalCatalog.createTable}.
+     */
+    @Override
+    public void createTable(ConnectorSession session, ConnectorCreateTableRequest request) {
+        Schema schema = IcebergSchemaBuilder.buildSchema(request.getColumns());
+        PartitionSpec partitionSpec = IcebergSchemaBuilder.buildPartitionSpec(request.getPartitionSpec(), schema);
+        SortOrder sortOrder = IcebergSchemaBuilder.buildSortOrder(request.getSortOrder(), schema);
+        Map<String, String> tableProperties = IcebergSchemaBuilder.buildTableProperties(request.getProperties());
+        try {
+            context.executeAuthenticated(() -> {
+                catalogOps.createTable(request.getDbName(), request.getTableName(),
+                        schema, partitionSpec, sortOrder, tableProperties);
+                return null;
+            });
+        } catch (Exception e) {
+            throw new DorisConnectorException("Failed to create Iceberg table "
+                    + request.getDbName() + "." + request.getTableName() + ": " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Drops an iceberg table, mirroring legacy {@code IcebergMetadataOps.performDropTable}: the table location
+     * is captured BEFORE the drop (HMS only), the table is dropped with {@code purge=true} (iceberg deletes the
+     * data + metadata files), then the empty directory shell is pruned. {@code PluginDrivenExternalCatalog}
+     * has already resolved the handle / IF EXISTS upstream.
+     *
+     * <p>Views are out of B1 scope (A3/B6): legacy routed a view to {@code performDropView}; here a DROP on an
+     * iceberg view will fail loud (no such table) until view DDL lands.
+     */
+    @Override
+    public void dropTable(ConnectorSession session, ConnectorTableHandle handle) {
+        IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
+        Optional<String> tableLocation;
+        try {
+            tableLocation = context.executeAuthenticated(() -> {
+                Optional<String> location = isHmsCatalog()
+                        ? catalogOps.loadTableLocation(iceHandle.getDbName(), iceHandle.getTableName())
+                        : Optional.empty();
+                catalogOps.dropTable(iceHandle.getDbName(), iceHandle.getTableName(), true);
+                return location;
+            });
+        } catch (Exception e) {
+            throw new DorisConnectorException("Failed to drop Iceberg table "
+                    + iceHandle.getDbName() + "." + iceHandle.getTableName() + ": " + e.getMessage(), e);
+        }
+        tableLocation.ifPresent(location ->
+                context.cleanupEmptyManagedLocation(location, IcebergSchemaBuilder.tableLocationChildDirs()));
+    }
+
+    /** The configured {@code iceberg.catalog.type}, or {@code null} when unset. */
+    private String catalogType() {
+        return properties.get(IcebergConnectorProperties.ICEBERG_CATALOG_TYPE);
+    }
+
+    /** Whether this is an HMS-backed iceberg catalog (case-insensitive, matching the read-path fork). */
+    private boolean isHmsCatalog() {
+        return IcebergConnectorProperties.TYPE_HMS.equalsIgnoreCase(catalogType());
     }
 
     // ========== E7: System Tables (P6.5) ==========

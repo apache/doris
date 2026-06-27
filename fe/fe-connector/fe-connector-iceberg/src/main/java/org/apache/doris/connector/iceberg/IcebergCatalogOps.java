@@ -17,7 +17,12 @@
 
 package org.apache.doris.connector.iceberg;
 
+import org.apache.doris.connector.api.DorisConnectorException;
+
 import com.google.common.base.Splitter;
+import org.apache.iceberg.PartitionSpec;
+import org.apache.iceberg.Schema;
+import org.apache.iceberg.SortOrder;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.Namespace;
@@ -31,6 +36,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -70,6 +76,30 @@ public interface IcebergCatalogOps {
     /** Loads the Iceberg {@link Table} for {@code dbName.tableName}. */
     Table loadTable(String dbName, String tableName);
 
+    // ---- DDL writes (B1) — thin delegations to the real Catalog / SupportsNamespaces ----
+
+    /** Creates the database (namespace) {@code dbName} with {@code properties}. */
+    void createDatabase(String dbName, Map<String, String> properties);
+
+    /** Drops the (already-emptied) database (namespace) {@code dbName}. */
+    void dropDatabase(String dbName);
+
+    /**
+     * Creates {@code dbName.tableName} with the given Iceberg {@code schema} / {@code partitionSpec} /
+     * {@code properties} and, when non-null and sorted, {@code sortOrder}.
+     */
+    void createTable(String dbName, String tableName, Schema schema, PartitionSpec partitionSpec,
+            SortOrder sortOrder, Map<String, String> properties);
+
+    /** Drops {@code dbName.tableName}; {@code purge} requests deletion of the underlying data + metadata. */
+    void dropTable(String dbName, String tableName, boolean purge);
+
+    /** The table's storage location, or empty when blank — read BEFORE a drop to prune empty dirs. */
+    Optional<String> loadTableLocation(String dbName, String tableName);
+
+    /** The database (namespace)'s {@code location} metadata, or empty when absent/blank. */
+    Optional<String> loadNamespaceLocation(String dbName);
+
     void close() throws IOException;
 
     /**
@@ -80,6 +110,9 @@ public interface IcebergCatalogOps {
     class CatalogBackedIcebergCatalogOps implements IcebergCatalogOps {
 
         private static final Logger LOG = LogManager.getLogger(CatalogBackedIcebergCatalogOps.class);
+
+        // The iceberg namespace-metadata key carrying the database location (legacy NAMESPACE_LOCATION_PROP).
+        private static final String NAMESPACE_LOCATION_PROP = "location";
 
         private final Catalog catalog;
         // Listing-parity gating mirrored from legacy IcebergMetadataOps (threaded from IcebergConnector):
@@ -170,6 +203,59 @@ public interface IcebergCatalogOps {
             return catalog.loadTable(toTableIdentifier(dbName, tableName));
         }
 
+        @Override
+        public void createDatabase(String dbName, Map<String, String> properties) {
+            requireNamespaces().createNamespace(toNamespace(dbName), properties);
+        }
+
+        @Override
+        public void dropDatabase(String dbName) {
+            requireNamespaces().dropNamespace(toNamespace(dbName));
+        }
+
+        @Override
+        public void createTable(String dbName, String tableName, Schema schema, PartitionSpec partitionSpec,
+                SortOrder sortOrder, Map<String, String> properties) {
+            TableIdentifier id = toTableIdentifier(dbName, tableName);
+            // Mirror legacy IcebergMetadataOps.performCreateTable: the buildTable path is only needed to
+            // attach a sort order; otherwise the plain createTable overload is used.
+            if (sortOrder != null && !sortOrder.isUnsorted()) {
+                catalog.buildTable(id, schema)
+                        .withPartitionSpec(partitionSpec)
+                        .withProperties(properties)
+                        .withSortOrder(sortOrder)
+                        .create();
+            } else {
+                catalog.createTable(id, schema, partitionSpec, properties);
+            }
+        }
+
+        @Override
+        public void dropTable(String dbName, String tableName, boolean purge) {
+            catalog.dropTable(toTableIdentifier(dbName, tableName), purge);
+        }
+
+        @Override
+        public Optional<String> loadTableLocation(String dbName, String tableName) {
+            String location = catalog.loadTable(toTableIdentifier(dbName, tableName)).location();
+            return isBlank(location) ? Optional.empty() : Optional.of(location);
+        }
+
+        @Override
+        public Optional<String> loadNamespaceLocation(String dbName) {
+            Map<String, String> metadata = requireNamespaces().loadNamespaceMetadata(toNamespace(dbName));
+            String location = metadata.get(NAMESPACE_LOCATION_PROP);
+            return isBlank(location) ? Optional.empty() : Optional.of(location);
+        }
+
+        /** The catalog as a {@link SupportsNamespaces}, or a fail-loud error (legacy cast unconditionally). */
+        private SupportsNamespaces requireNamespaces() {
+            if (!(catalog instanceof SupportsNamespaces)) {
+                throw new DorisConnectorException("Iceberg catalog does not support databases (namespaces)");
+            }
+            return (SupportsNamespaces) catalog;
+        }
+
         /** View filtering is on iff the catalog is a {@link ViewCatalog} and (for REST) views are enabled. */
         private boolean isViewCatalogEnabled() {
             if (!(catalog instanceof ViewCatalog)) {
@@ -199,6 +285,10 @@ public interface IcebergCatalogOps {
 
         private TableIdentifier toTableIdentifier(String dbName, String tableName) {
             return TableIdentifier.of(toNamespace(dbName), tableName);
+        }
+
+        private static boolean isBlank(String s) {
+            return s == null || s.trim().isEmpty();
         }
 
         @Override

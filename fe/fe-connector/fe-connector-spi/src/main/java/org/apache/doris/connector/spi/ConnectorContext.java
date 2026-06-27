@@ -270,4 +270,26 @@ public interface ConnectorContext {
     default List<StorageProperties> getStorageProperties() {
         return Collections.emptyList();
     }
+
+    /**
+     * Best-effort removal of the EMPTY directory shells left behind after a connector drops a managed
+     * table or database. The data + metadata FILES are already deleted by the connector's own drop (e.g.
+     * iceberg {@code dropTable(purge=true)}); this only prunes now-empty directories (the parent table /
+     * database location, descending {@code tableChildDirs} first). A directory is removed ONLY when it
+     * contains no files — never recursively deleting live data.
+     *
+     * <p>The connector decides WHEN to call this (e.g. iceberg only for HMS-managed locations) and captures
+     * {@code location} BEFORE the drop; the engine owns the {@code fe-filesystem} machinery to build a
+     * {@code FileSystem} from the catalog's storage properties (which the connector cannot construct). Any
+     * failure is swallowed (logged) — cleanup is cosmetic and must never fail the drop.
+     *
+     * <p>The default is a no-op, so connectors whose engine does not manage storage cleanup are unaffected.
+     *
+     * @param location       the table/database root location to prune (no-op when blank)
+     * @param tableChildDirs engine-format child directories to descend first (e.g. iceberg
+     *                       {@code ["data", "metadata"]}); empty/{@code null} for a database/namespace root
+     */
+    default void cleanupEmptyManagedLocation(String location, List<String> tableChildDirs) {
+        // no-op: the engine that manages storage overrides this.
+    }
 }

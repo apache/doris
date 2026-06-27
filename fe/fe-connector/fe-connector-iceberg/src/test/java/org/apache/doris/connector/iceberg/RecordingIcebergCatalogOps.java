@@ -17,10 +17,15 @@
 
 package org.apache.doris.connector.iceberg;
 
+import org.apache.iceberg.PartitionSpec;
+import org.apache.iceberg.Schema;
+import org.apache.iceberg.SortOrder;
 import org.apache.iceberg.Table;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 
 /**
  * Hand-written recording fake for {@link IcebergCatalogOps} (no Mockito), mirroring the paimon
@@ -55,6 +60,23 @@ final class RecordingIcebergCatalogOps implements IcebergCatalogOps {
     /** The (dbName, tableName) the metadata layer passed to the most recent {@link #tableExists}. */
     String lastExistsDb;
     String lastExistsTable;
+
+    // ---- DDL write recording (B1) ----
+    String lastCreateDb;
+    Map<String, String> lastCreateDbProps;
+    String lastDropDb;
+    String lastCreateTableDb;
+    String lastCreateTableName;
+    Schema lastCreateSchema;
+    PartitionSpec lastCreateSpec;
+    SortOrder lastCreateSortOrder;
+    Map<String, String> lastCreateProps;
+    String lastDropTableDb;
+    String lastDropTableName;
+    boolean lastDropPurge;
+    /** Canned location answers for the load-before-drop helpers (default: absent). */
+    Optional<String> tableLocation = Optional.empty();
+    Optional<String> namespaceLocation = Optional.empty();
 
     @Override
     public List<String> listDatabaseNames() {
@@ -91,6 +113,51 @@ final class RecordingIcebergCatalogOps implements IcebergCatalogOps {
             throw new RuntimeException("simulated loadTable failure for " + dbName + "." + tableName);
         }
         return table;
+    }
+
+    @Override
+    public void createDatabase(String dbName, Map<String, String> properties) {
+        log.add("createDatabase:" + dbName);
+        lastCreateDb = dbName;
+        lastCreateDbProps = properties;
+    }
+
+    @Override
+    public void dropDatabase(String dbName) {
+        log.add("dropDatabase:" + dbName);
+        lastDropDb = dbName;
+    }
+
+    @Override
+    public void createTable(String dbName, String tableName, Schema schema, PartitionSpec partitionSpec,
+            SortOrder sortOrder, Map<String, String> properties) {
+        log.add("createTable:" + dbName + "." + tableName);
+        lastCreateTableDb = dbName;
+        lastCreateTableName = tableName;
+        lastCreateSchema = schema;
+        lastCreateSpec = partitionSpec;
+        lastCreateSortOrder = sortOrder;
+        lastCreateProps = properties;
+    }
+
+    @Override
+    public void dropTable(String dbName, String tableName, boolean purge) {
+        log.add("dropTable:" + dbName + "." + tableName + ":purge=" + purge);
+        lastDropTableDb = dbName;
+        lastDropTableName = tableName;
+        lastDropPurge = purge;
+    }
+
+    @Override
+    public Optional<String> loadTableLocation(String dbName, String tableName) {
+        log.add("loadTableLocation:" + dbName + "." + tableName);
+        return tableLocation;
+    }
+
+    @Override
+    public Optional<String> loadNamespaceLocation(String dbName) {
+        log.add("loadNamespaceLocation:" + dbName);
+        return namespaceLocation;
     }
 
     @Override

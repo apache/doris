@@ -943,6 +943,8 @@ public class CreateTableInfo {
                 return ENGINE_MAXCOMPUTE;
             case "paimon":
                 return ENGINE_PAIMON;
+            case "iceberg":
+                return ENGINE_ICEBERG;
             default:
                 return null;
         }

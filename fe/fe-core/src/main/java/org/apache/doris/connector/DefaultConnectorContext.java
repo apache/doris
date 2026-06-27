@@ -27,14 +27,22 @@ import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorMetaInvalidator;
 import org.apache.doris.datasource.credentials.CredentialUtils;
 import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.filesystem.FileEntry;
+import org.apache.doris.filesystem.FileIterator;
+import org.apache.doris.filesystem.FileSystem;
+import org.apache.doris.filesystem.Location;
 import org.apache.doris.fs.FileSystemFactory;
+import org.apache.doris.fs.SpiSwitchingFileSystem;
 import org.apache.doris.kerberos.ExecutionAuthenticator;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Strings;
 import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -267,6 +275,94 @@ public class DefaultConnectorContext implements ConnectorContext {
         Map<StorageProperties.Type, StorageProperties> effective =
                 vended != null ? vended : storagePropertiesSupplier.get();
         return LocationPath.of(rawUri, effective).getTFileTypeForBE().name();
+    }
+
+    @Override
+    public void cleanupEmptyManagedLocation(String location, List<String> tableChildDirs) {
+        // Engine-side companion to a connector drop: prune the empty directory shells the connector's drop
+        // leaves behind. The connector decides WHEN (e.g. iceberg HMS-only) and captures the location before
+        // the drop; here we own the fe-filesystem machinery it cannot reach (SpiSwitchingFileSystem from the
+        // catalog's storage properties). Best-effort: a missing storage binding or any IO failure is logged,
+        // never propagated — cleanup is cosmetic and must not fail the completed drop. Conservative: a
+        // directory is removed only when it contains no files (deleteEmptyDirectory aborts on the first file).
+        if (Strings.isNullOrEmpty(location)) {
+            return;
+        }
+        Map<StorageProperties.Type, StorageProperties> storageProperties = storagePropertiesSupplier.get();
+        if (storageProperties == null || storageProperties.isEmpty()) {
+            return;
+        }
+        try (FileSystem fs = new SpiSwitchingFileSystem(storageProperties)) {
+            boolean deleted = (tableChildDirs == null || tableChildDirs.isEmpty())
+                    ? deleteEmptyDirectory(fs, Location.of(location))
+                    : deleteEmptyTableLocation(fs, Location.of(location), tableChildDirs);
+            if (deleted) {
+                LOG.info("Cleaned empty managed location {}", location);
+            } else {
+                LOG.info("Skip cleaning managed location {}, it still contains files", location);
+            }
+        } catch (Exception e) {
+            LOG.warn("Failed to clean managed location {} after drop", location, e);
+        }
+    }
+
+    /**
+     * Deletes the engine-format child directories ({@code tableChildDirs}, e.g. iceberg
+     * {@code ["data", "metadata"]}) under {@code location} first, then {@code location} itself — each only
+     * when empty. Port of legacy {@code IcebergMetadataOps.deleteEmptyTableLocation}.
+     */
+    @VisibleForTesting
+    static boolean deleteEmptyTableLocation(FileSystem fs, Location location, List<String> tableChildDirs)
+            throws IOException {
+        for (String childDir : tableChildDirs) {
+            if (!deleteEmptyDirectory(fs, location.resolve(childDir))) {
+                return false;
+            }
+        }
+        return deleteEmptyDirectory(fs, location);
+    }
+
+    /**
+     * Recursively removes {@code location} iff it (transitively) contains no files: it aborts (returns
+     * {@code false}) on the first non-directory entry, so live data is never deleted. Port of legacy
+     * {@code IcebergMetadataOps.deleteEmptyDirectory}.
+     */
+    @VisibleForTesting
+    static boolean deleteEmptyDirectory(FileSystem fs, Location location) throws IOException {
+        if (!fs.exists(location)) {
+            return true;
+        }
+        List<Location> childDirectories = new ArrayList<>();
+        try (FileIterator iterator = fs.list(location)) {
+            while (iterator.hasNext()) {
+                FileEntry entry = iterator.next();
+                if (!entry.isDirectory()) {
+                    return false;
+                }
+                childDirectories.add(entry.location());
+            }
+        }
+        for (Location childDirectory : childDirectories) {
+            if (!deleteEmptyDirectory(fs, childDirectory)) {
+                return false;
+            }
+        }
+        return deleteEmptyDirectoryMarker(fs, location);
+    }
+
+    /** Deletes the (empty) directory marker for {@code location}. Port of legacy {@code IcebergMetadataOps}. */
+    private static boolean deleteEmptyDirectoryMarker(FileSystem fs, Location location) throws IOException {
+        Location directoryMarker = Location.of(withTrailingSlash(location.uri()));
+        try {
+            fs.delete(directoryMarker, false);
+        } catch (IOException e) {
+            return !fs.exists(location);
+        }
+        return !fs.exists(location);
+    }
+
+    private static String withTrailingSlash(String uri) {
+        return uri.endsWith("/") ? uri : uri + "/";
     }
 
     private static Map<String, String> buildEnvironment() {

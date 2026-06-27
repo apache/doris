@@ -18,12 +18,14 @@
 package org.apache.doris.connector.iceberg;
 
 import org.apache.doris.connector.api.ConnectorType;
+import org.apache.doris.connector.api.DorisConnectorException;
 
 import org.apache.iceberg.types.Type;
 import org.apache.iceberg.types.Types;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 
 /**
  * Maps Iceberg {@link Type} to Doris {@link ConnectorType}.
@@ -128,6 +130,62 @@ public final class IcebergTypeMapping {
                 return ConnectorType.of("UNSUPPORTED");
             default:
                 return ConnectorType.of("UNSUPPORTED");
+        }
+    }
+
+    /**
+     * Maps a SCALAR {@link ConnectorType} (a Doris column type carried across the SPI by name) to an
+     * Iceberg {@link Type} for CREATE TABLE. The inverse of {@link #fromPrimitive}, this is a string-driven
+     * port of the legacy fe-core {@code DorisTypeToIcebergType.atomic} (which walked a Doris {@code Type}
+     * object): the connector only has the neutral {@code typeName} (the Doris {@code PrimitiveType.toString()})
+     * plus precision/scale, so the same set of supported types is matched here.
+     *
+     * <p>Complex types (ARRAY / MAP / STRUCT) are NOT handled here — {@link IcebergSchemaBuilder} owns the
+     * recursive tree walk + field-id allocation and calls this only for scalar leaves. Any type legacy did
+     * not support (TINYINT / SMALLINT / LARGEINT / TIME / JSON / VARIANT / IPv*, ...) fails loud, matching
+     * legacy's {@code UnsupportedOperationException}.</p>
+     */
+    static Type toIcebergPrimitive(ConnectorType type) {
+        String name = type.getTypeName().toUpperCase(Locale.ROOT);
+        switch (name) {
+            case "BOOLEAN":
+                return Types.BooleanType.get();
+            case "INT":
+            case "INTEGER":
+                return Types.IntegerType.get();
+            case "BIGINT":
+                return Types.LongType.get();
+            case "FLOAT":
+                return Types.FloatType.get();
+            case "DOUBLE":
+                return Types.DoubleType.get();
+            case "CHAR":
+            case "VARCHAR":
+            case "STRING":
+                // Legacy parity: every char-family Doris type maps to Iceberg STRING (declared length
+                // dropped) — DorisTypeToIcebergType.atomic uses primitiveType.isCharFamily().
+                return Types.StringType.get();
+            case "DATE":
+            case "DATEV2":
+                return Types.DateType.get();
+            case "DECIMALV2":
+            case "DECIMALV3":
+            case "DECIMAL32":
+            case "DECIMAL64":
+            case "DECIMAL128":
+            case "DECIMAL256":
+                // Precision/scale carried in the ConnectorType (ConnectorColumnConverter.toConnectorType
+                // sets them from ScalarType.getScalarPrecision()/getScalarScale()).
+                return Types.DecimalType.of(type.getPrecision(), Math.max(type.getScale(), 0));
+            case "DATETIME":
+            case "DATETIMEV2":
+                // Legacy parity: timestamp WITHOUT zone (datetime scale dropped — Iceberg timestamps are
+                // microsecond). DorisTypeToIcebergType.atomic returns TimestampType.withoutZone().
+                return Types.TimestampType.withoutZone();
+            case "TIMESTAMPTZ":
+                return Types.TimestampType.withZone();
+            default:
+                throw new DorisConnectorException("Unsupported type for Iceberg: " + type.getTypeName());
         }
     }
 }
