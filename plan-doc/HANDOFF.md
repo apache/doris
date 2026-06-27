@@ -5,43 +5,40 @@
 
 ---
 
-# 🎯 下一个 session 的任务 = **C4 步骤 R4（sink-bind 中立化 + GATHER override，dormant）**
+# 🎯 下一个 session 的任务 = **C4 步骤 R5（连接器 transaction 中立 SPI gap：registerRewriteSourceFiles + post-commit 统计提升，dormant）**
 
-**本 session（session 14）= C4 起步 recon+设计（用户裁 Option B）+ R1（executionMode SPI）✅ + R2（scan path-set 作用域）✅ + R3（连接器 planRewrite SPI）✅**。**P6.1–P6.5 = ✅ 全 DONE**。**P6.6：C1 ✅ / C2 ✅ / C3a ✅ / C3b-pre ✅ / C3b-core+commit-bridge 全闭 ✅ → C4 进行中（R1/R2/R3 ✅，R4–R8 待）**。翻闸 = 5 commit-stream（C1/C2/C3 ✅ / C4 进行中 / C5 FLIP 不可逆待）。iceberg **仍不在** `SPI_READY_TYPES`。
+**本 session = C4 R4（sink-bind 中立化 + GATHER override）= R4a ✅ + R4b ✅**。**P6.1–P6.5 = ✅ 全 DONE**。**P6.6：C1 ✅ / C2 ✅ / C3a ✅ / C3b-pre ✅ / C3b-core+commit-bridge 全闭 ✅ → C4 进行中（R1/R2/R3/R4 ✅，R5–R8 待）**。翻闸 = 5 commit-stream（C1/C2/C3 ✅ / C4 进行中 / C5 FLIP 不可逆待）。iceberg **仍不在** `SPI_READY_TYPES`。
 
-## 📖 起步必读（动 R2 前）
-1. **`plan-doc/tasks/designs/P6.6-C4-ws-rewrite-design.md`**（C4 全量设计；本 session 新建）——含 10-seam 清单 / THE CRUX 解（Option B 中立 path-set）/ 正确性不变式 / R1–R8 实现顺序 / impl 期首核 OPEN。
-2. 本 HANDOFF「C4 关键认知」+「R2 起步」。
+## 📖 起步必读（动 R5 前）
+1. **`plan-doc/tasks/designs/P6.6-C4-ws-rewrite-design.md`** §5（transaction 解）+ §7 R5 + §8 OPEN（`getFilesToAddCount`/统计 accessor 现可见性）。
+2. 本 HANDOFF「C4 关键认知」+「R5 起步」。**动码前 re-grep 锚点**（设计行号可能漂移）。
 
-## ✅ 本 session 完成（C4 recon+design+R1，详设计 §0–§9）
-> 对抗 recon `wf_59515933-9dc`（4 reader〔seams/side-channel/txn-bind/Trino〕+ synthesis + adversarial critic）。critic **以代码证据推翻 synthesis 初稿**（Option A 阈值模型 = BLOCKER：丢失 Doris 已发布的多准则 compaction；defer-WHERE = MAJOR：现存活功能回退），加 3 正确性不变式。
-- **用户已裁（2026-06-26 signed）**：① scan 作用域 = **Option B 全行为对等**（中立 path-set，复用已存在连接器 `RewriteDataFilePlanner`）；② 路由 = **executionMode flag**（非硬编码名字）；③ **WHERE 现在就做**（不 defer）。
-- **R1 impl（commit `1bddf3426d6`，additive/dormant）**：新中立枚举 `ProcedureExecutionMode{SINGLE_CALL,DISTRIBUTED}`；`ConnectorProcedureOps` 加 `default getExecutionMode(name)=SINGLE_CALL`；`IcebergProcedureOps` override：rewrite_data_files→DISTRIBUTED（大小写不敏感）余 SINGLE_CALL。无 live caller（driver 未建）。验证 `ConnectorProcedureOpsDefaultsTest` 4/0 + `IcebergProcedureOpsTest` 11/0；2-mutation KILLED。
-- **R2 impl（commit `0a0d5b8de83`，additive/dormant）**：`IcebergTableHandle` 加不可变 `rewriteFileScope`（`Set<String>` 原始路径，null=全扫）+ `withRewriteFileScope` 复制工厂（仿 `withSnapshot`）+ 纳入 equals/hashCode/toString 身份；`IcebergScanPlanProvider.planScanInternal` 枚举循环按 scope 过滤。**[INV-M1] 已亲核基准**：scope 与过滤两侧都用 RAW `dataFile.path().toString()`（`buildRange:518` originalPath=raw，`.path()`=normalized BE 路径；过滤须用 raw 否则扫错文件 over-read→重复行）。验证 clean build：`IcebergTableHandleTest` 20/0 + `IcebergScanPlanProviderTest` 72/0 + 全模块绿；2-mutation KILLED。
-- **R3 impl（commit `a7c2732d984`，additive/dormant）**：新中立 DTO `ConnectorRewriteGroup`（RAW 路径集 + 3 统计）；`ConnectorProcedureOps` 加 `default planRewrite(...)=throw UnsupportedOperationException`；新连接器 `IcebergRewriteDataFilesAction extends BaseIcebergAction`（端口 10 参数注册 + min/max 75%/180% 默认 + min<=max + validateNoPartitions + `buildRewriteParameters`；executeAction throw；**不**经 factory.createAction——factory 对 rewrite 仍 throw）；`IcebergProcedureOps.planRewrite` override（name 守卫→直建 action→validate→auth-scope 内 loadTable+`RewriteDataFilePlanner.planAndOrganizeTasks`→转中立组，路径 RAW 对齐 [INV-M1]，planning 不变表/不失效）。**关键认知更正**：`NamedArguments`/`ArgumentParsers` 在 **fe-foundation**（`org.apache.doris.foundation.util`，连接器可达，非 fe-core-only——设计 §6 括注「fe-core 不可达」措辞偏差，实为连接器拥校验且能用同一工具）。验证 clean build：`ConnectorProcedureOpsDefaultsTest` 7/0 + `IcebergProcedureOpsTest` 15/0 + `IcebergRewriteDataFilesActionTest` 5/0 + 全 `fe-connector-iceberg` 609/0 + `fe-connector-api` 42/0；4-mutation KILLED。
+## ✅ 本 session 完成（C4 R4，详设计 §5）
+> 起步对抗 recon `wf_93bb76a7-6ec`（5 reader〔unbound-sink / bindsink-rowlineage / rewritecmd-executor / gather-override / planwrite〕+ synthesis）。synthesis 揪出**铁律陷阱**：finding 初稿要在通用连接器绑定路径塞 `IcebergUtils.isIcebergRowLineageColumn` = 违反铁律且无 live caller。code-first 独核交叉确认。
+- **用户裁（2026-06-27 signed）= 去掉 row-lineage 绑定分支**：通用连接器绑定路径 `selectConnectorSinkBindColumns` 用 `getBaseSchema(true)`（**已含隐藏列**），rewrite 不丢 row-lineage（`ExternalTable.getBaseSchema(false)` 才过滤可见列）。设计「否则丢 row-lineage」前提是按 iceberg 专用路径（默认可见列）推断，对通用路径不成立。⇒ R4 只做开关传递 + GATHER override，**不**加 row-lineage 臂。
+- **R4a impl（commit `a3d7210e892`，additive/dormant）**：中立 `rewrite` 标记一路穿连接器 sink 链。`UnboundConnectorTableSink`+rewrite 字段（10 参规范构造，保留 5/9 参重载默认 false，3 个 `UnboundTableSinkCreator` 调用方零改动）；`LogicalConnectorTableSink`+rewrite（构造参+5 with*+纳入 equals/hashCode/toString 身份，memo 不折叠 rewrite/非 rewrite）；`BindSink.bindConnectorTableSink:878` 传 `sink.isRewrite()`（**无** row-lineage 改动）；`PhysicalConnectorTableSink`+`isRewrite`（两构造+4 with*+`getRequirePhysicalProperties` 顶部 `if(isRewrite) return GATHER` 短路，赢过分区 shuffle/并行写臂；中立字段携带，**不**读 ConnectContext、**不** instanceof Iceberg，区别于 `PhysicalIcebergTableSink` 的 StatementContext 旧机制 `useGatherForIcebergRewrite`）；实现规则 `LogicalConnectorTableSinkToPhysicalConnectorTableSink:36` 透传。验证 clean build：`PhysicalConnectorTableSinkTest` 7/0（新增 `rewriteModeGathersEvenOnPartitionedTable`：分区表+rewrite→仍 GATHER）+ `BindConnectorSinkStaticPartitionTest` 5/0（live bind 路未回归）；GATHER override 1-mutation KILLED。
+- **R4b impl（commit `12fe50ee88e`，additive/dormant）**：写入半。新 `ConnectorRewriteExecutor`（fe-core，仿 `IcebergRewriteExecutor` extends `BaseExternalTableInsertExecutor`，no-op beforeExec/doBeforeCommit〔事务由 rewrite 协调方外部持有〕，`transactionType` 返回中立 `UNKNOWN` 非 ICEBERG）；`RewriteTableCommand.selectInsertExecutorFactory:188` 加中立 `else if (physicalSink instanceof PhysicalConnectorTableSink)→ConnectorRewriteExecutor`（按 sink 类型路由不加 instanceof Iceberg；rewrite 标记走 sink 不走 InsertCommandContext 故无 setRewriting；throw 文案改 iceberg+connector）；连接器 `IcebergWritePlanProvider.planWrite` 加 `case REWRITE`+`buildRewriteSink`（复用 buildSink，仅两处 delta，byte-identical 于 legacy `planner.IcebergTableSink.bindDataSink` isRewriting 分支：`write_type=REWRITE` + fv≥3 追加 row-lineage schema；fail-loud：rewrite 与 overwrite 互斥→抛 `DorisConnectorException`）。验证：`IcebergWritePlanProviderTest` 36/0（3 新 REWRITE 用例：fv2 write_type+无 row-lineage / fv3 含 `_row_id`·`_last_updated_sequence_number` / overwrite 拒绝）；3-mutation KILLED；checkstyle 连接器+fe-core 通过。B1/B2（执行器+dispatch）= dormant fe-core，test-compile BUILD SUCCESS。
 
-## 🔑 C4 关键认知（recon 推翻旧 HANDOFF 假设，动码前必懂）
-- **翻闸后 fe-core `IcebergRewriteDataFilesAction` 子树整条不可达**（`ExecuteActionFactory:61` instanceof PluginDriven **先**分流到 `ConnectorExecuteAction`，:66 iceberg 分支永不取）。⇒ **旧 HANDOFF「修 `IcebergRewriteDataFilesAction:173/196` cast」= 修了白修**（不可达）。该子树（action/`RewriteDataFileExecutor`/`RewriteGroupTask`/`IcebergRewriteExecutor`）= legacy-exempt，留 pre-flip 活路径，P6.7 删。
+## 🔑 C4 关键认知（动码前必懂）
+- **翻闸后 fe-core `IcebergRewriteDataFilesAction` 子树整条不可达**（`ExecuteActionFactory:61` instanceof PluginDriven **先**分流到 `ConnectorExecuteAction`）。该子树（action/`RewriteDataFileExecutor`/`RewriteGroupTask`/`IcebergRewriteExecutor`）= legacy-exempt，留 pre-flip 活路径，P6.7 删。
 - **真 fix 落点** = `ConnectorExecuteAction` 按 `executionMode` 分派 → **新 fe-core 分布式 rewrite driver**（R6 建）。连接器 `IcebergExecuteActionFactory:88` 对 rewrite **保持 throw**（rewrite 不走 `execute` 单调用路；走 plan+scope+commit 中立 SPI）。
-- **THE CRUX**：每组 INSERT-SELECT 须只扫自己 bin-pack 那批文件。pre-flip 走 `StatementContext:322` 的 iceberg-typed `List<FileScanTask>` 侧信道→`IcebergScanNode:498` 消费；翻闸后 scan 走 `PluginDrivenScanNode`（**不读**该信道，已实证）→ 不处理则每组扫全表（重复读写/数据错乱）。**Option B 解** = 连接器规划器出 N 组中立 path-set（String）→ 新 handle 变体穿边界 → `planScanInternal:332` 过滤；stash 由 `List<FileScanTask>` 改 `List<String>`。
+- **THE CRUX**：每组 INSERT-SELECT 须只扫自己 bin-pack 那批文件。Option B 解（R2 已建）= 连接器规划器出 N 组中立 path-set（String）→ handle 变体 `withRewriteFileScope` 穿边界 → `planScanInternal:332` 过滤。
+- **GATHER 信号双轨（R4 后）**：pre-flip iceberg 走 `StatementContext.useGatherForIcebergRewrite`（`RewriteGroupTask:263` set，`PhysicalIcebergTableSink:120` 读）；post-flip 连接器走 **sink 字段** `PhysicalConnectorTableSink.isRewrite`（由 R6 driver 建 `UnboundConnectorTableSink(rewrite=true)` 起源，经 bind→logical→physical 链携带）。两轨独立，互不污染。
 
-## 🚦 R4 起步（sink-bind 中立化 + GATHER override，dormant）= **fe-core 重，build 慢，先 recon**
-> R4 = rewrite INSERT-SELECT 的 sink 从 `UnboundIcebergTableSink` 改道到中立 `UnboundConnectorTableSink`，使翻闸后绑定走 `BindSink.bindConnectorTableSink`（收 PluginDriven 表）。**全在 fe-core（dormant 写路），无 live caller 直到 R6 driver**。详设计 §5。
+## 🚦 R5 起步（连接器 transaction 中立 SPI gap，dormant）= **连接器模块（build 快），先 recon `IcebergConnectorTransaction`**
+> R5 = 补连接器 transaction 的中立 SPI 缺口，使翻闸后 fe-core 分布式 driver（R6）能经中立接口注册 rewrite 源文件 + 读 post-commit 统计。详设计 §5「transaction 解」。
 
-R4 工作集（动码前逐一 re-grep 锚点防漂移）：
-1. **`UnboundConnectorTableSink` 加 `isRewrite` 旋钮**（现缺；`UnboundIcebergTableSink` 有，`RewriteGroupTask:219` set true、`BindSink:733` 读）。
-2. **`BindSink:862 bindConnectorTableSink` / `:921 selectConnectorSinkBindColumns` 加 isRewrite row-lineage 臂**（镜像 `bindIcebergTableSink:733-737`；否则 V3 rewrite 丢 row-lineage 列）。
-3. **`RewriteTableCommand:188-200` 加 `PhysicalConnectorTableSink` 中立臂 → 新 `ConnectorRewriteExecutor`**（现 `instanceof PhysicalIcebergTableSink`→else throw "Rewrite only supports iceberg table"，是**通用 nereids command**须加中立分支，非新 instanceof Iceberg）。
-4. **新 `ConnectorRewriteExecutor`**（仿 `IcebergRewriteExecutor:39,57`：no-op `beforeExec`/`doBeforeCommit`，txn 外部持有，commit 经 WriteOperation bridge；中立键非 `TransactionType.ICEBERG`）。
-5. **连接器 `IcebergWritePlanProvider.planWrite` 加 REWRITE 臂**（现无 REWRITE case→default throw）建 rewrite `TIcebergTableSink`。
-6. **⚠️ [INV-M2] GATHER override（正确性地雷）**：`PhysicalConnectorTableSink.getRequiredPhysicalProperties:114-198` 对**分区**连接器返 `DistributionSpecHiveTableSinkHashPartitioned:178`、仅非分区返 GATHER。rewrite 要 GATHER 控输出文件数（`PhysicalIcebergTableSink:120` 在 partition 逻辑前**短路** GATHER）。须注入「rewrite-mode override **赢过** partition-shuffle 臂」，否则分区表 rewrite 输出文件 sizing 崩。mutation 锁：分区表 + rewrite-mode → 仍 GATHER。
-- fe-core 测试用 Mockito（`mockito-inline` + `Deencapsulation` 读私有）。**fe-core build 慢（-am 单类首次 ~5-7min）→ 后台跑读 surefire XML**；mutation 后**验证用 clean test**（stale-.class 坑）。
-- R4 可考虑拆 R4a（`UnboundConnectorTableSink.isRewrite` + BindSink row-lineage 臂）/ R4b（`RewriteTableCommand` 臂 + `ConnectorRewriteExecutor` + planWrite REWRITE 臂 + GATHER override），每子步 green+mutation+commit。
+R5 工作集（动码前逐一 re-grep 锚点防漂移）：
+1. **`IcebergConnectorTransaction.updateRewriteFiles(List<DataFile>)`**（设计称 :286，**re-grep 确认行号+可见性**）：现 **package-visible 且收 iceberg `DataFile`**（注释自述「rewrite coordinator 在连接器，fe-core 不能 traffic iceberg DataFile」）→ post-flip fe-core driver **不能**调它。
+2. **新中立 SPI** `ConnectorTransaction.registerRewriteSourceFiles(Set<String> rawPaths)`（连接器内部把 rawPaths 解析回 `DataFile`；路径基准对齐 [INV-M1] RAW `dataFile.path().toString()`）。
+3. **post-commit 统计 accessor 提升进 SPI**：`getFilesToAddCount` 等。**[INV-stats-order]**：连接器 `getFilesToAddCount` 仅 `commit()` 后有效（legacy 是 `finishRewrite` 后 pre-commit 读）→ 统计读须移到 post-commit。**re-grep `getFilesToAddCount`/统计 accessor 现可见性 + 调用时序**。
+4. 中立 SPI 放置：`fe-connector-api/.../handle/ConnectorTransaction`（与既有 verb 同接口）。连接器 `IcebergConnectorTransaction` 实现。
+- 连接器**无 Mockito**（fail-loud fake + 真 `InMemoryCatalog`）。mutation 验真。**dormant**：无 live caller 直到 R6 driver。
 
 ---
 
 # ⚠️⚠️ 用户铁律：**fe-core 不得 `if(iceberg)` / `instanceof Iceberg*` / `import IcebergUtils`（新 seam）**
-iceberg 逻辑落 `fe-connector` 经中立 SPI。**legacy 豁免类**（含 C4 dead 子树：`IcebergRewriteDataFilesAction`/`RewriteDataFileExecutor`/`RewriteGroupTask`/`IcebergRewriteExecutor` + commit-bridge 旧清单）保留 iceberg 引用合法。**通用 fe-core 类**（C4 新增：rewrite 特例按 `executionMode`/`PhysicalConnectorTableSink` 中立键路由，**不**加 instanceof Iceberg；driver/`ConnectorRewriteExecutor`/`UnboundConnectorTableSink` isRewrite 全中立）须全经中立 SPI。
+iceberg 逻辑落 `fe-connector` 经中立 SPI。**legacy 豁免类**（含 C4 dead 子树：`IcebergRewriteDataFilesAction`/`RewriteDataFileExecutor`/`RewriteGroupTask`/`IcebergRewriteExecutor` + commit-bridge 旧清单 + `PhysicalIcebergTableSink`/`bindIcebergTableSink`）保留 iceberg 引用合法。**通用 fe-core 类**（C4 新增：`ConnectorRewriteExecutor`/`UnboundConnectorTableSink`/`LogicalConnectorTableSink`/`PhysicalConnectorTableSink` isRewrite + `RewriteTableCommand` 按 `PhysicalConnectorTableSink` 中立键路由）须全经中立 SPI，**不**加 instanceof Iceberg。
 
 ---
 
@@ -49,55 +46,54 @@ iceberg 逻辑落 `fe-connector` 经中立 SPI。**legacy 豁免类**（含 C4 d
 
 > 5 commit-stream（C1 ✅ / C2 ✅ / C3 ✅ / **C4 进行中** / C5 FLIP 待）。
 
-- **[C4 进行中 = 当前]** rewrite_data_files 翻闸就绪（Option B 全对等）。**R1/R2/R3 ✅（executionMode SPI / scan path-set 作用域 / 连接器 planRewrite SPI）→ R4（sink-bind 中立化 + GATHER override）→ R5（transaction 中立 SPI gap：registerRewriteSourceFiles + post-commit 统计提升）→ R6（fe-core 分布式 driver）→ R7（WHERE lowering）→ R8（flip rehearsal，flip-gated）**。详设计 §7。
+- **[C4 进行中 = 当前]** rewrite_data_files 翻闸就绪（Option B 全对等）。**R1/R2/R3/R4 ✅（executionMode SPI / scan path-set 作用域 / 连接器 planRewrite SPI / sink-bind 中立化+GATHER override）→ R5（transaction 中立 SPI gap：registerRewriteSourceFiles + post-commit 统计提升）→ R6（fe-core 分布式 driver）→ R7（WHERE lowering）→ R8（flip rehearsal，flip-gated）**。详设计 §7。
 - **[C5 FLIP，不可逆]** `SPI_READY_TYPES`+iceberg / 删 `CatalogFactory case` / GSON compat / capability 核 / Show* parity。**C5 前须 C1–C4 全绿 + 用户二签。**
 
 ## 🆕 翻闸前置项（登记）
 - **[GAP-A → C5]** 翻闸后 iceberg 表类掉出 `MaterializeProbeVisitor.SUPPORT_RELATION_TYPES`→ lazy-top-N 静默失效。修须 capability/engine 判别。
 - **[GAP-B = C3b-core ③] ✅** 隐藏列注入已闭。
 
-**[pre-flip 行为偏差中央登记]**：P6.4=DV-045/046/047；P6.5=DV-048/049；commit-bridge=[DV-S2-rederive]。**C4 R1 无新 DV**（dormant）。
+**[pre-flip 行为偏差中央登记]**：P6.4=DV-045/046/047；P6.5=DV-048/049；commit-bridge=[DV-S2-rederive]。**C4 R1–R4 无新 DV**（dormant，行为零变更）。
 
 **⚠️ C5 才动 `SPI_READY_TYPES`**（`CatalogFactory:50-51`，现 = {jdbc,es,trino-connector,max_compute,paimon}）。
 
 ---
 
 # 🟡 已登记 follow-up（非阻塞，勿在 C4 增量做）
-- **[FU-broker-write]** 连接器三 write builder 均未填 `setBrokerAddresses`（broker-mode 写盘 iceberg 罕用）；翻闸前若需 broker 写盘三 builder 一并补。
-- **[FU-flip-e2e]** commit-bridge + C4 全程 pre-flip UT 锁，但真翻闸端到端（旧删不复活 / operation·row_id BE 解析 / OCC / rewrite 每组只扫自己文件）**未跑**（CI-gated/flip-gated，勿谎称）。
-- **[FU-getRowIdColumn]** `IcebergMergeCommand.getRowIdColumn(562)` 仍 `IcebergExternalTable`（不在合成链）；翻闸/P6.7 核是否 dead。
+- **[FU-connector-bind-visibility]** 通用连接器绑定 `selectConnectorSinkBindColumns` 用 `getBaseSchema(true)`（含隐藏列）→ 翻闸后**普通**（非 rewrite）连接器 INSERT 也会把隐藏 row-lineage 列纳入 bindColumns（iceberg 专用路径默认只取可见列）。R4 范围外（R4 只管 rewrite）。翻闸前若需对齐普通插入语义，须引入**中立**「是否 row-lineage/隐藏写入列」表能力（设计 D1 选 A：`PluginDrivenExternalTable.isRowLineageColumn(Column)` 默认 false，iceberg 插件表 override），**禁** `IcebergUtils.isIcebergRowLineageColumn`（铁律）。
+- **[FU-broker-write]** 连接器三 write builder 均未填 `setBrokerAddresses`；翻闸前若需 broker 写盘三 builder 一并补。
+- **[FU-flip-e2e]** commit-bridge + C4 全程 pre-flip UT 锁，但真翻闸端到端（旧删不复活 / operation·row_id BE 解析 / OCC / rewrite 每组只扫自己文件 / GATHER 输出文件数）**未跑**（CI-gated/flip-gated，勿谎称）。
+- **[FU-getRowIdColumn]** `IcebergMergeCommand.getRowIdColumn(562)` 仍 `IcebergExternalTable`；翻闸/P6.7 核是否 dead。
 - **[FU-step1-nullconn / order/remap/dualdelete/...]** 见 git log 历史 HANDOFF。
 
 ---
 
 # ⚙️ 操作须知（复用）
 
-- maven：`-f /mnt/disk1/yy/git/wt-catalog-spi/fe/pom.xml -pl :<art> **-am** -DfailIfNoTests=false -Dmaven.build.cache.enabled=false`（漏 `-am`→假错）。**连接器模块**（`fe-connector-api`/`-iceberg`）build 快（无 fe-core），可前台或后台；**fe-core -am 单类首次 ~5-7min**→`run_in_background:true` 再读 surefire XML（别前台等；foreground `sleep` 被 harness 阻断）。验证读 surefire **XML**（python ET）。**全量前 `rm -f target/surefire-reports/TEST-*.xml`**。
-- **⚠️ checkstyle 全量 build 跑（除非 `-Dcheckstyle.skip=true`）**：import 须同组无空行 + 组内字母序（本 session R1 踩过：新 import 用空行分组→`CustomImportOrderCheck` "Extra separation"）。
-- 连接器禁 import fe-core：`bash tools/check-connector-imports.sh`。**classloader 隔离**：native `org.apache.iceberg.*` 跨连接器↔fe-core 必 CCE。测试：连接器**无 Mockito**（fail-loud fake + 真 `InMemoryCatalog`）；fe-core **Mockito**（`mockito-inline`+`mockStatic`；`Deencapsulation` 读写私有）。live-e2e CI-gated，勿谎称跑过。
-- **mutation-check（Rule 9/12）**：dormant 路必变异验真。范式 `scratchpad/mutate_r1.py`/`mutate_r2.py`：cp 备份→「行为禁用形」`&& false`/`if(false)`（非删引用，避 UnusedImport 假阴）→`mvn test -Dtest=<class> -Dcheckstyle.skip=true`→查 surefire fail+err>0（KILLED）→restore。**⚠️ exact-string mutate 锚点须唯一**；**⚠️python3.6 无 `capture_output`/`text=`**→`stdout=subprocess.PIPE`。**⚠️ mutation 跑时源文件处于变异态**——commit 前必核已 restore（无 `&& false`/无 `.bak`）。
-- **⚠️ mutation 后 STALE .class 坑（本 session 踩，R2 full-run 假挂）**：脚本 `shutil.move(.bak)` restore 后 .java mtime **早于** mutation 编出的 .class → maven-compiler staleness 跳过重编 → **变异 .class 残留** → 之后任何 `-am`/全量 build 误用残留 .class 假挂（症状：改了/没改的源却测出变异行为）。**修=验证后续 green 用 `mvn clean test`**（HANDOFF 既有「全量用 clean」），或脚本 restore 后 `os.utime(f, None)`。源 git-clean 不代表 .class 干净。
+- maven：`-f /mnt/disk1/yy/git/wt-catalog-spi/fe/pom.xml -pl :<art> **-am** -DfailIfNoTests=false -Dmaven.build.cache.enabled=false`（漏 `-am`→假错）。**连接器模块**（`fe-connector-api`/`-iceberg`）build 快（无 fe-core），可前台或后台；**fe-core -am 单类首次 ~2-7min**（本 session 实测 fe-core 编译 ~1:49–2:14）→`run_in_background:true` 再读 surefire XML。验证读 surefire **XML**（python ET）。**全量前 `rm -f target/surefire-reports/TEST-*.xml`**。
+- **⚠️ checkstyle 全量 build 跑（除非 `-Dcheckstyle.skip=true`）**：import 须同组无空行 + 组内字母序（ASCII 序，大写先于小写）。本 session 加 import 用单独 `mvn checkstyle:check -pl :<mod>` 快验通过。
+- 连接器禁 import fe-core：`bash tools/check-connector-imports.sh`。**classloader 隔离**：native `org.apache.iceberg.*` 跨连接器↔fe-core 必 CCE。测试：连接器**无 Mockito**（fail-loud fake + 真 `InMemoryCatalog`）；fe-core **Mockito**（`mockito-inline`+`mockStatic`；`Deencapsulation` 读写私有 final 字段——本 session R4a 测试用 `Deencapsulation.setField(sink,"isRewrite",true)` 注入物理 sink final 字段）。live-e2e CI-gated，勿谎称跑过。
+- **mutation-check（Rule 9/12）**：dormant 路必变异验真。范式 `scratchpad/mutate_r4a.py`/`mutate_r4b.py`：cp 备份→「行为禁用形」`&& false`/`if(false)`/翻枚举值（非删引用，避 UnusedImport 假阴）→`mvn test -Dtest=<class> -Dcheckstyle.skip=true`→查 surefire fail+err>0（KILLED）→restore + `os.utime(f,None)`（避 stale .class）。**⚠️ exact-string mutate 锚点须唯一**；**⚠️python3.6 无 `capture_output`/`text=`**→`stdout=subprocess.PIPE`。**⚠️ commit 前必核已 restore（无 `&& false`/无 `.bak`）**。
 - cwd 跨 Bash 持久；一律绝对路径。
 
 # ⚠️ Commit 须知（任何 `git add` 前必读）
 
 - **path-whitelist `git add`，严禁 `git add -A`**（scrub `regression-test/conf/regression-conf.groovy` 明文 key + `*.bak` + scratch `.audit-scratch/`·`conf.cmy/`·`META-INF/`·`docker/...`·**仓根游离 `fe/IcebergScanPlanProvider.java`**〔真文件在 `fe/fe-connector/...`，勿提交〕·`plan-doc/reviews/P5-paimon-rereview3-*`〔非本线〕）。
-- **R1 commit = `1bddf3426d6`** / **R2 commit = `0a0d5b8de83`** / **R3 commit = `a7c2732d984`**（新 `ConnectorRewriteGroup` + `IcebergRewriteDataFilesAction` + `ConnectorProcedureOps`/`IcebergProcedureOps` 改 + 3 test）；HANDOFF 单独 commit。
+- **R1=`1bddf3426d6` / R2=`0a0d5b8de83` / R3=`a7c2732d984` / R4a=`a3d7210e892` / R4b=`12fe50ee88e`**；HANDOFF 单独 commit。
 - commit message：见 `git log` 范式 + 末尾 `Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>` + `Claude-Session: …`。PR base = `branch-catalog-spi`，squash。
 
 # 📦 阶段状态
 
 - **工作分支 = `catalog-spi-10-iceberg`**（off `branch-catalog-spi` @ `e5959e1b53d`，PR base = `branch-catalog-spi`，squash）。
-- **⚠️ 推送状态**：P6.4 T01–T06+arg-move 已推 `origin`；**其后全部（含 commit-bridge + C4 R1/R2/R3）未 push**。**用户未要求 push**——留用户裁量。
-- **P6.1–P6.5 ✅**。**P6.6：C1/C2/C3a/C3b-pre/C3b-core+commit-bridge 全闭 ✅ → C4 R1/R2/R3 ✅ / R4–R8 待 → C5 翻闸**。
+- **⚠️ 推送状态**：P6.4 T01–T06+arg-move 已推 `origin`；**其后全部（含 commit-bridge + C4 R1/R2/R3/R4）未 push**。**用户未要求 push**——留用户裁量。
+- **P6.1–P6.5 ✅**。**P6.6：C1/C2/C3a/C3b-pre/C3b-core+commit-bridge 全闭 ✅ → C4 R1/R2/R3/R4 ✅ / R5–R8 待 → C5 翻闸**。
 - iceberg **不在** `SPI_READY_TYPES`（pre-flip 零行为变更）。metastore 子线 CLOSED（勿读）。
-- **⚠️ 环境**：`/mnt/disk1` 紧（2.0T，本 session ~85G free）。**下个 session 起步先 `df -h /mnt/disk1`**；空间紧时 mutation 加 `-Dcheckstyle.skip=true`。**多次增量 build 后 .class 可能 stale→误判**；全量验证用 clean `package`。
+- **⚠️ 环境**：`/mnt/disk1` 紧（2.0T，本 session 起 ~86G free）。**下个 session 起步先 `df -h /mnt/disk1`**；空间紧时 mutation 加 `-Dcheckstyle.skip=true`。多次增量 build 后 .class 可能 stale→误判；全量验证用 clean `package` 或重新 `-am test`。
 
 # 🧠 给下一个 agent 的 meta
 
-- **删除/parity/动码前必 grep 全调用方 + 区分 DEAD vs STILL-CONSUMED**（C4 recon 教训：旧 HANDOFF 的「修 :173/:196」基于错误的可达性假设——dispatch 在 `ExecuteActionFactory:61` 就分流走了）。
-- **HANDOFF/设计/RFC 的依赖名/行号/不变式/可达性可能过时或错** —— 动码前先 recon（grep+实证）再信文档。
-- **Trino-faithful ≠ 总是对**：C4 synthesis 初稿照搬 Trino 阈值模型被 critic 以「Doris 现有 feature 契约更富」推翻。参 Trino 前先核现有 Doris 行为契约（Rule 7 surface conflict 而非 average 向简化）。
-- **clean-room 对抗 review 偏好**：大改动多 agent 对抗（C4 recon `wf_59515933-9dc` 4-reader+synthesis+adversarial-critic）+ 先 code 独立判断、后交叉核历史结论。
-- **C4 逐子步**：R2→R8，每步 additive/dormant + green + mutation + commit + HANDOFF。**C5 前切忌动 `SPI_READY_TYPES`**。
-- **上下文超 30% 即交接**。本 session 完成 C4 起步 recon+design + R1 + R2 + R3，在 R3 收官干净节点交接 R4。
+- **删除/parity/动码前必 grep 全调用方 + 区分 DEAD vs STILL-CONSUMED**；**HANDOFF/设计/RFC 的依赖名/行号/不变式/可达性可能过时或错** —— 动码前先 recon（grep+实证）再信文档。
+- **铁律落地优先于照搬设计 finding**：R4 recon 中 reader 初稿要在通用绑定路径塞 iceberg 专用 row-lineage 判断 = 违反铁律；synthesis/code-first 独核推翻，改为「中立开关 + 既有 getBaseSchema(true) 已含隐藏列」。参 finding 前先核铁律 + 现有 Doris 行为契约（Rule 7 surface conflict）。
+- **clean-room 对抗 review 偏好**：大改动多 agent 对抗（R4 recon `wf_93bb76a7-6ec` 5-reader+synthesis）+ 先 code 独立判断、后交叉核历史结论。
+- **C4 逐子步**：R5→R8，每步 additive/dormant + green + mutation + commit + HANDOFF。**C5 前切忌动 `SPI_READY_TYPES`**。
+- **上下文超 30% 即交接**。本 session 完成 C4 R4（R4a+R4b），在 R4 收官干净节点交接 R5。
