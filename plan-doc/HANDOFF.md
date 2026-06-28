@@ -7,6 +7,9 @@
 
 # 🎯 下一个 session 的任务 = **逐步处理 clean-room 对抗 review 发现（翻闸 BLOCKED，先修后翻）**
 
+> **✅ 本 session 已完成（2026-06-28）**：处理顺序第 1 项 **B-1 + H-1**（写 sink 凭证 key-form + REST vended，合并修）已 commit `203cda3e31a`。设计 `designs/P6.6-FIX-B1-H1-write-creds-keyform-vended-design.md`。验证：fe-connector-iceberg 776 tests 绿 / checkstyle 0 / mutation 3-3 KILLED / clean-room 对抗 review（3 reader + critic）SAFE_TO_COMMIT（仅 3 NIT 无 must-fix）。**e2e flip-gated 未跑**（S3/OSS/REST-vended/HDFS 写翻闸后才能真验）。**未 push**（沿用「先修完 review 发现再一起 push」铁律）。
+> **➡️ 下一项 = 处理顺序第 2 项 `B-2`（+H-11 +M-10，合并）**：iceberg 作 MTMV 基表的分区增量刷新整体坏——连接器未实现 `listPartitions`。详见任务清单 §1 B-2 详情（含 ⚠️RECONCILE：SHOW PARTITIONS 真回归 vs 记忆「误报死码」须回代码重裁）。
+
 > **⚠️ 状态翻转（2026-06-28）**：上一版 HANDOFF 说"翻闸代码基本完成，仅差 docker 验证 + 二签"。**这个结论已被一轮 clean-room 对抗 review 推翻**——review 发现 **2 blocker + 11 high + 11 medium + 25 low + 18 info**，其中 blocker/high 密集覆盖写入、MTMV、统计、time-travel、缓存一致性等核心路径。**翻闸代码侧确实写完了，但不正确——必须先关 P0+关键 P1 + 跑 flip-gated e2e，才能二签翻闸。**
 
 > **📋 任务跟踪入口（下个 session 必先读）**：
@@ -80,7 +83,7 @@ iceberg 逻辑落 `fe-connector` 经中立 SPI / ConnectorCapability。**legacy 
 
 # 📦 阶段状态
 - **工作分支 = `catalog-spi-10-iceberg`**（off `branch-catalog-spi` @ `e5959e1b53d`，PR base = `branch-catalog-spi`，squash）。
-- **进度**：P6.1–P6.5 ✅ / P6.6 C1–C3 ✅ / C4 R1–R7 ✅ / C5 DDL/ALTER B1–B5 ✅ / flip-readiness 只读退化 ✅ / 视图 B0–B3 ✅ / 路由翻闸 `18e1b297d7e` ✅ / GSON 迁移 `e68eb5c00c9` ✅ → **⛔ 现卡在 clean-room review 发现修复（见 `P6.6-iceberg-flip-blockers-tasklist.md`）→ ENG-3 e2e → 翻闸二签**。
+- **进度**：P6.1–P6.5 ✅ / P6.6 C1–C3 ✅ / C4 R1–R7 ✅ / C5 DDL/ALTER B1–B5 ✅ / flip-readiness 只读退化 ✅ / 视图 B0–B3 ✅ / 路由翻闸 `18e1b297d7e` ✅ / GSON 迁移 `e68eb5c00c9` ✅ → **⛔ 现卡在 clean-room review 发现修复（见 `P6.6-iceberg-flip-blockers-tasklist.md`）**：**B-1+H-1 ✅ `203cda3e31a`**（写凭证 key-form+vended）→ 下一 `B-2`（MTMV listPartitions）→ 其余 H/M/L → ENG-1 审计 → ENG-3 e2e → 翻闸二签。
 - **⚠️ 推送状态**：P6.4 T01–T06+arg-move 已推 `origin`；**其后全部未 push**（含路由翻闸 + GSON 迁移 + 视图 + C4/C5）。**先修 review 发现，勿 push 半成品翻闸。** 留用户裁量。
 - **⚠️ 分支 2026-06-28 被 rebase**：commit 哈希全重写，本文档/旧 commit message 旧哈希以 `git log` 为准。rebase 仅引入 1 问题（`MergeIntoCommand` 未用 import）已修 `33b920bf877`。
 
