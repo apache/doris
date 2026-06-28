@@ -428,7 +428,8 @@ public:
 
     StringRef get_raw_data() const override {
         auto values = immutable_data();
-        return StringRef(reinterpret_cast<const char*>(values.data()), values.size());
+        return StringRef(reinterpret_cast<const char*>(values.data()),
+                         values.size() * sizeof(value_type));
     }
 
     bool structure_equals(const IColumn& rhs) const override {

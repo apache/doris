@@ -358,8 +358,14 @@ Status OperatorXBase::do_projections(RuntimeState* state, Block* origin_block,
         if (is_column_nullable(*to) && !is_column_nullable(*from)) {
             if (_keep_origin || !from->is_exclusive()) {
                 auto& null_column = reinterpret_cast<ColumnNullable&>(*to);
+                const auto origin_size = null_column.size();
                 null_column.get_nested_column().insert_range_from(*from, 0, rows);
-                null_column.get_null_map_column().get_data().resize_fill(rows, 0);
+                // Nullable promotion appends non-null values into the nested column, so the
+                // null map must grow to the appended nested size instead of being reset to this
+                // batch's row count. Reused output columns may already contain rows.
+                null_column.get_null_map_column().get_data().resize_fill(origin_size + rows, 0);
+                DCHECK_EQ(null_column.get_nested_column().size(),
+                          null_column.get_null_map_column().size());
                 bytes_usage += null_column.allocated_bytes();
             } else {
                 to = make_nullable(from, false)->assert_mutable();

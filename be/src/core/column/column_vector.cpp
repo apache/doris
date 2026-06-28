@@ -394,6 +394,8 @@ void ColumnVector<T>::insert_indices_from(const IColumn& src, const uint32_t* in
     auto new_size = indices_end - indices_begin;
     materialize_external_data();
     data.resize(origin_size + new_size);
+    const auto src_values =
+            assert_cast<const Self&, TypeCheckOnRelease::DISABLE>(src).immutable_data();
 
     auto copy = [](const value_type* __restrict src, value_type* __restrict dest,
                    const uint32_t* __restrict begin, const uint32_t* __restrict end) {
@@ -402,8 +404,7 @@ void ColumnVector<T>::insert_indices_from(const IColumn& src, const uint32_t* in
             ++dest;
         }
     };
-    copy(reinterpret_cast<const value_type*>(src.get_raw_data().data), data.data() + origin_size,
-         indices_begin, indices_end);
+    copy(src_values.data(), data.data() + origin_size, indices_begin, indices_end);
 }
 
 template <PrimitiveType T>
