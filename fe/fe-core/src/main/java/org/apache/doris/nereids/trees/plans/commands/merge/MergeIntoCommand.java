@@ -52,7 +52,6 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.ForwardWithSync;
-import org.apache.doris.nereids.trees.plans.commands.IcebergMergeCommand;
 import org.apache.doris.nereids.trees.plans.commands.RowLevelDmlArgs;
 import org.apache.doris.nereids.trees.plans.commands.RowLevelDmlCommand;
 import org.apache.doris.nereids.trees.plans.commands.RowLevelDmlOp;
