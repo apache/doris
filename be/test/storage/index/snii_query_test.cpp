@@ -141,9 +141,19 @@ Status build_reader(MemoryFile* file, reader::SniiSegmentReader* segment_reader,
     auto ordinal_docs = docs_with_one_position(0, kDocCount, 2);
     auto driver_docs = docs_with_one_position(0, 8000, 0);
     auto almost_docs = docs_with_one_position(0, kDocCount, 1);
+    std::vector<PostingDoc> sparse_left_docs;
+    std::vector<PostingDoc> sparse_right_docs;
     std::vector<PostingDoc> repeat_docs;
+    sparse_left_docs.reserve(kDocCount / 3 + 1);
+    sparse_right_docs.reserve(kDocCount);
     repeat_docs.reserve(kDocCount);
     for (uint32_t docid = 0; docid < kDocCount; ++docid) {
+        if (docid % 3 == 0) {
+            sparse_left_docs.push_back({docid, {0}});
+        }
+        if (docid % 4 != 1) {
+            sparse_right_docs.push_back({docid, {1}});
+        }
         repeat_docs.push_back({docid, {0, 1, 2}});
     }
     almost_docs.erase(almost_docs.begin() + 4000);
@@ -171,7 +181,9 @@ Status build_reader(MemoryFile* file, reader::SniiSegmentReader* segment_reader,
                    make_term("failed", std::move(failed_docs)),
                    make_term("order", std::move(order_docs)),
                    make_term("ordinal", std::move(ordinal_docs)),
-                   make_term("repeat", std::move(repeat_docs))};
+                   make_term("repeat", std::move(repeat_docs)),
+                   make_term("sparse_left", std::move(sparse_left_docs)),
+                   make_term("sparse_right", std::move(sparse_right_docs))};
 
     writer::SniiCompoundWriter writer(file);
     SNII_RETURN_IF_ERROR(writer.add_logical_index(input));
@@ -280,6 +292,24 @@ TEST(SniiPhraseQueryTest, DenseTermWithMissingDocKeepsCandidateOrdinals) {
     EXPECT_EQ(docids, expected);
 }
 
+TEST(SniiPhraseQueryTest, SparseWindowBitsetKeepsCandidateOrdinals) {
+    MemoryFile file;
+    reader::SniiSegmentReader segment_reader;
+    reader::LogicalIndexReader index_reader;
+    assert_ok(build_reader(&file, &segment_reader, &index_reader));
+
+    std::vector<uint32_t> docids;
+    assert_ok(phrase_query(index_reader, {"sparse_left", "sparse_right"}, &docids));
+
+    std::vector<uint32_t> expected;
+    for (uint32_t docid = 0; docid < 9000; ++docid) {
+        if (docid % 3 == 0 && docid % 4 != 1) {
+            expected.push_back(docid);
+        }
+    }
+    EXPECT_EQ(docids, expected);
+}
+
 TEST(SniiTermQueryTest, WindowedDenseTermEmitsRangesToSink) {
     MemoryFile file;
     reader::SniiSegmentReader segment_reader;
@@ -368,11 +398,35 @@ TEST(SniiPforTest, LowBitWidthFastPathsRoundTrip) {
     }
     assert_round_trip(two_bit, 2);
 
+    std::vector<uint32_t> three_bit(131);
+    for (size_t i = 0; i < three_bit.size(); ++i) {
+        three_bit[i] = static_cast<uint32_t>(i & 7);
+    }
+    assert_round_trip(three_bit, 3);
+
     std::vector<uint32_t> four_bit(128);
     for (size_t i = 0; i < four_bit.size(); ++i) {
         four_bit[i] = static_cast<uint32_t>(i & 15);
     }
     assert_round_trip(four_bit, 4);
+
+    std::vector<uint32_t> five_bit(129);
+    for (size_t i = 0; i < five_bit.size(); ++i) {
+        five_bit[i] = static_cast<uint32_t>(i & 31);
+    }
+    assert_round_trip(five_bit, 5);
+
+    std::vector<uint32_t> six_bit(130);
+    for (size_t i = 0; i < six_bit.size(); ++i) {
+        six_bit[i] = static_cast<uint32_t>(i & 63);
+    }
+    assert_round_trip(six_bit, 6);
+
+    std::vector<uint32_t> seven_bit(131);
+    for (size_t i = 0; i < seven_bit.size(); ++i) {
+        seven_bit[i] = static_cast<uint32_t>(i & 127);
+    }
+    assert_round_trip(seven_bit, 7);
 
     std::vector<uint32_t> eight_bit(256);
     for (size_t i = 0; i < eight_bit.size(); ++i) {

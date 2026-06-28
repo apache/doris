@@ -1,6 +1,7 @@
 #include "snii/query/internal/docid_conjunction.h"
 
 #include <algorithm>
+#include <array>
 #include <iterator>
 #include <limits>
 
@@ -20,6 +21,10 @@ using snii::reader::LogicalIndexReader;
 namespace {
 
 using CandidateIt = std::vector<uint32_t>::const_iterator;
+
+constexpr uint32_t kBoundedSpanBitsetDocs = 16 * 1024;
+constexpr size_t kBoundedSpanBitsetWords = kBoundedSpanBitsetDocs / 64;
+constexpr size_t kBoundedSpanBitsetMinInput = 32;
 
 struct CandidateRange {
     size_t begin = 0;
@@ -286,6 +291,53 @@ bool intersect_dense_term_span_with_ordinals(CandidateIt begin, CandidateIt end,
     return true;
 }
 
+bool intersect_bounded_span_with_ordinals(CandidateIt begin, CandidateIt end,
+                                          const std::vector<uint32_t>& term_docids,
+                                          size_t candidate_count, std::vector<uint32_t>* out,
+                                          DocidChunk* chunk) {
+    if (candidate_count < kBoundedSpanBitsetMinInput ||
+        term_docids.size() < kBoundedSpanBitsetMinInput) {
+        return false;
+    }
+
+    const uint32_t first = std::min(*begin, term_docids.front());
+    const uint32_t last = std::max(*(end - 1), term_docids.back());
+    const uint64_t width = static_cast<uint64_t>(last) - first + 1;
+    if (width > kBoundedSpanBitsetDocs || term_docids.size() > width) {
+        return false;
+    }
+
+    std::array<uint64_t, kBoundedSpanBitsetWords> bits {};
+    for (uint32_t docid : term_docids) {
+        const uint32_t off = docid - first;
+        bits[off >> 6] |= 1ULL << (off & 63);
+    }
+
+    const auto word_count = static_cast<size_t>((width + 63) >> 6);
+    std::array<uint32_t, kBoundedSpanBitsetWords> ordinal_base {};
+    uint32_t ordinal = 0;
+    for (size_t word = 0; word < word_count; ++word) {
+        ordinal_base[word] = ordinal;
+        ordinal += static_cast<uint32_t>(__builtin_popcountll(bits[word]));
+    }
+
+    for (auto it = begin; it != end; ++it) {
+        const uint32_t off = *it - first;
+        const size_t word = off >> 6;
+        const uint64_t mask = 1ULL << (off & 63);
+        if ((bits[word] & mask) == 0) {
+            continue;
+        }
+        out->push_back(*it);
+        chunk->docids.push_back(*it);
+        chunk->prx_doc_ordinals.push_back(
+                ordinal_base[word] +
+                static_cast<uint32_t>(__builtin_popcountll(bits[word] & (mask - 1))));
+    }
+    clear_ordinals_if_all_term_docs_selected(term_docids, chunk);
+    return true;
+}
+
 size_t log2_ceil(size_t n) {
     if (n <= 1) return 1;
     --n;
@@ -370,6 +422,10 @@ Status intersect_window_candidate_range_with_ordinals(CandidateIt begin, Candida
     chunk->prx_doc_ordinals.reserve(max_matches);
     if (intersect_dense_term_span_with_ordinals(begin, end, term_docids, candidate_count, out,
                                                 chunk)) {
+        return Status::OK();
+    }
+    if (intersect_bounded_span_with_ordinals(begin, end, term_docids, candidate_count, out,
+                                             chunk)) {
         return Status::OK();
     }
 
