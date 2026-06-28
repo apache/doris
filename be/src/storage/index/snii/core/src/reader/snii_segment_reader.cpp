@@ -1,5 +1,6 @@
 #include "snii/reader/snii_segment_reader.h"
 
+#include <cstdint>
 #include <vector>
 
 #include "snii/encoding/crc32c.h"
@@ -39,11 +40,26 @@ Status ReadTailPointer(snii::io::FileReader* reader, TailPointer* tp) {
     return snii::format::decode_tail_pointer(Slice(buf), tp);
 }
 
+Status ReadTailMetaHeader(snii::io::FileReader* reader, const TailPointer& tp,
+                          snii::format::TailMetaRegionHeader* header) {
+    const size_t header_size = snii::format::tail_meta_header_size();
+    if (tp.meta_region_length < header_size) {
+        return Status::Corruption("segment: tail meta region smaller than header");
+    }
+    std::vector<uint8_t> buf;
+    SNII_RETURN_IF_ERROR(reader->read_at(tp.meta_region_offset, header_size, &buf));
+    return snii::format::TailMetaRegionReader::parse_header(Slice(buf), header);
+}
+
 } // namespace
 
-Status SniiSegmentReader::open(snii::io::FileReader* reader, SniiSegmentReader* out) {
-    if (reader == nullptr) return Status::InvalidArgument("segment: null reader");
-    if (out == nullptr) return Status::InvalidArgument("segment: null out");
+Status SniiSegmentReader::open(snii::io::FileReader* const reader, SniiSegmentReader* const out) {
+    if (reader == nullptr) {
+        return Status::InvalidArgument("segment: null reader");
+    }
+    if (out == nullptr) {
+        return Status::InvalidArgument("segment: null out");
+    }
 
     BootstrapHeader bh;
     SNII_RETURN_IF_ERROR(ReadBootstrap(reader, &bh));
@@ -54,29 +70,72 @@ Status SniiSegmentReader::open(snii::io::FileReader* reader, SniiSegmentReader* 
         return Status::Corruption("segment: empty tail meta region");
     }
 
-    out->reader_ = reader;
-    SNII_RETURN_IF_ERROR(
-            reader->read_at(tp.meta_region_offset, tp.meta_region_length, &out->meta_region_));
-    // Verify the whole meta region against the tail pointer's checksum BEFORE parsing
-    // it. (TailMetaRegionReader::open also checks the region's own internal checksum;
-    // this is the read-boundary check that makes tp.meta_region_checksum meaningful and
-    // catches corruption before any framed sub-section is touched.)
-    if (snii::crc32c(Slice(out->meta_region_)) != tp.meta_region_checksum) {
-        return Status::Corruption("segment: meta region checksum mismatch");
+    snii::format::TailMetaRegionHeader meta_header;
+    SNII_RETURN_IF_ERROR(ReadTailMetaHeader(reader, tp, &meta_header));
+    if (meta_header.meta_region_len != tp.meta_region_length) {
+        return Status::Corruption("segment: tail meta length mismatch");
     }
-    return TailMetaRegionReader::open(Slice(out->meta_region_), &out->region_reader_);
+
+    std::vector<uint8_t> directory;
+    if (meta_header.directory_offset > UINT64_MAX - tp.meta_region_offset) {
+        return Status::Corruption("segment: tail meta directory file offset overflow");
+    }
+    SNII_RETURN_IF_ERROR(reader->read_at(tp.meta_region_offset + meta_header.directory_offset,
+                                         meta_header.directory_length, &directory));
+
+    out->reader_ = reader;
+    out->meta_region_offset_ = tp.meta_region_offset;
+    out->meta_region_length_ = tp.meta_region_length;
+    return TailMetaRegionReader::open_directory(meta_header, Slice(directory),
+                                                &out->region_reader_);
 }
 
-Status SniiSegmentReader::open_index(uint64_t index_id, std::string_view suffix,
-                                     LogicalIndexReader* out) const {
-    if (out == nullptr) return Status::InvalidArgument("segment: null index out");
-    if (reader_ == nullptr) return Status::InvalidArgument("segment: not opened");
+Status SniiSegmentReader::read_index_meta(uint64_t index_id, std::string_view suffix,
+                                          std::vector<uint8_t>* const out) const {
+    if (out == nullptr) {
+        return Status::InvalidArgument("segment: null meta out");
+    }
+    if (reader_ == nullptr) {
+        return Status::InvalidArgument("segment: not opened");
+    }
 
     bool found = false;
-    Slice meta_bytes;
-    SNII_RETURN_IF_ERROR(region_reader_.find(index_id, suffix, &found, &meta_bytes));
-    if (!found) return Status::NotFound("segment: logical index not found");
+    snii::format::LogicalIndexRef ref;
+    SNII_RETURN_IF_ERROR(region_reader_.find_ref(index_id, suffix, &found, &ref));
+    if (!found) {
+        return Status::NotFound("segment: logical index not found");
+    }
+    if (ref.meta_off > meta_region_length_ || ref.meta_len > meta_region_length_ - ref.meta_off) {
+        return Status::Corruption("segment: logical index meta out of tail region");
+    }
+    if (ref.meta_off > UINT64_MAX - meta_region_offset_) {
+        return Status::Corruption("segment: logical index meta file offset overflow");
+    }
+    SNII_RETURN_IF_ERROR(reader_->read_at(meta_region_offset_ + ref.meta_off, ref.meta_len, out));
+    return Status::OK();
+}
 
+Status SniiSegmentReader::index_exists(uint64_t index_id, std::string_view suffix,
+                                       bool* const exists) const {
+    if (exists == nullptr) {
+        return Status::InvalidArgument("segment: null exists out");
+    }
+    if (reader_ == nullptr) {
+        return Status::InvalidArgument("segment: not opened");
+    }
+
+    snii::format::LogicalIndexRef ref;
+    return region_reader_.find_ref(index_id, suffix, exists, &ref);
+}
+
+Status SniiSegmentReader::open_index_from_meta(Slice meta_bytes,
+                                               LogicalIndexReader* const out) const {
+    if (out == nullptr) {
+        return Status::InvalidArgument("segment: null index out");
+    }
+    if (reader_ == nullptr) {
+        return Status::InvalidArgument("segment: not opened");
+    }
     // Determine tier / positions capability from the per-index meta. Positions
     // capability is read from the PERSISTED header flag (kHasPositions), NOT from
     // any region length: after the frq/prx merge, posting_region.length is non-zero
@@ -88,24 +147,36 @@ Status SniiSegmentReader::open_index(uint64_t index_id, std::string_view suffix,
     SNII_RETURN_IF_ERROR(PerIndexMetaReader::open(meta_bytes, &meta));
     const bool has_norms = meta.section_refs().norms.length > 0;
     const bool has_positions = meta.has_positions() || has_norms;
-    const IndexTier tier =
-            has_norms ? IndexTier::kT3 : (has_positions ? IndexTier::kT2 : IndexTier::kT1);
+    IndexTier tier = IndexTier::kT1;
+    if (has_norms) {
+        tier = IndexTier::kT3;
+    } else if (has_positions) {
+        tier = IndexTier::kT2;
+    }
 
     return LogicalIndexReader::open(reader_, tier, has_positions, meta_bytes, out);
 }
 
+Status SniiSegmentReader::open_index(uint64_t index_id, std::string_view suffix,
+                                     LogicalIndexReader* const out) const {
+    std::vector<uint8_t> meta_bytes;
+    SNII_RETURN_IF_ERROR(read_index_meta(index_id, suffix, &meta_bytes));
+    return open_index_from_meta(Slice(meta_bytes), out);
+}
+
 Status SniiSegmentReader::section_refs_for_index(uint64_t index_id, std::string_view suffix,
-                                                 snii::format::SectionRefs* out) const {
-    if (out == nullptr) return Status::InvalidArgument("segment: null section refs out");
-    if (reader_ == nullptr) return Status::InvalidArgument("segment: not opened");
+                                                 snii::format::SectionRefs* const out) const {
+    if (out == nullptr) {
+        return Status::InvalidArgument("segment: null section refs out");
+    }
+    if (reader_ == nullptr) {
+        return Status::InvalidArgument("segment: not opened");
+    }
 
-    bool found = false;
-    Slice meta_bytes;
-    SNII_RETURN_IF_ERROR(region_reader_.find(index_id, suffix, &found, &meta_bytes));
-    if (!found) return Status::NotFound("segment: logical index not found");
-
+    std::vector<uint8_t> meta_bytes;
+    SNII_RETURN_IF_ERROR(read_index_meta(index_id, suffix, &meta_bytes));
     PerIndexMetaReader meta;
-    SNII_RETURN_IF_ERROR(PerIndexMetaReader::open(meta_bytes, &meta));
+    SNII_RETURN_IF_ERROR(PerIndexMetaReader::open(Slice(meta_bytes), &meta));
     *out = meta.section_refs();
     return Status::OK();
 }

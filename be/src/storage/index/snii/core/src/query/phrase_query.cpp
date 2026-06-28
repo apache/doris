@@ -574,7 +574,13 @@ bool ContainsTwoTermPhrase(std::pair<const uint32_t*, const uint32_t*> left_span
                            uint32_t right_delta) {
     const uint32_t* left = left_span.first;
     const uint32_t* right = right_span.first;
+    if (left == left_span.second || right == right_span.second) {
+        return false;
+    }
     const uint32_t max_start = std::numeric_limits<uint32_t>::max() - right_delta;
+    if (left + 1 == left_span.second && right + 1 == right_span.second) {
+        return *left <= max_start && *right == *left + right_delta;
+    }
     while (left != left_span.second && right != right_span.second) {
         if (*left > max_start) {
             return false;

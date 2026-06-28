@@ -72,7 +72,7 @@ public:
     MOCK_FUNCTION Result<std::unique_ptr<DorisCompoundReader, DirectoryDeleter>> open(
             const TabletIndex* index_meta, const io::IOContext* io_ctx = nullptr) const;
     Result<std::unique_ptr<snii::reader::LogicalIndexReader>> open_snii_index(
-            const TabletIndex* index_meta) const;
+            const TabletIndex* index_meta, const io::IOContext* io_ctx = nullptr) const;
     void debug_file_entries();
     std::string get_index_file_cache_key(const TabletIndex* index_meta) const;
     std::string get_index_file_path(const TabletIndex* index_meta) const;

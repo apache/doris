@@ -1242,6 +1242,31 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
         }
     }};
 
+    // SNII precise-read bypass (diagnostic snii_*_bypass_file_cache and NO_CACHE
+    // per-open readers): serve the exact byte range straight from the remote
+    // reader -- no 1 MiB block alignment, no cache population -- and account it
+    // as a remote physical read so the golden SNII IO metrics stay truthful.
+    if (!io_ctx->read_file_cache) {
+        SCOPED_RAW_TIMER(&stats.remote_read_timer);
+        size_t direct_bytes_read = 0;
+        read_st = _remote_file_reader->read_at(offset, result, &direct_bytes_read, io_ctx);
+        if (!read_st.ok()) {
+            return read_st;
+        }
+        if (direct_bytes_read != bytes_req) {
+            read_st = Status::IOError("short remote read at offset {}, expect {}, got {}", offset,
+                                      bytes_req, direct_bytes_read);
+            return read_st;
+        }
+        *bytes_read = direct_bytes_read;
+        stats.hit_cache = false;
+        stats.skip_cache = true;
+        stats.bytes_read_from_remote += direct_bytes_read;
+        ++stats.remote_physical_read_count;
+        stats.remote_physical_read_bytes += direct_bytes_read;
+        return Status::OK();
+    }
+
     if (io_ctx->file_cache_miss_policy == FileCacheMissPolicy::REMOTE_ONLY_ON_MISS) {
         read_st = _read_remote_only_on_cache_miss(offset, result, bytes_req, is_dryrun, bytes_read,
                                                   stats, source_read_breakdown, io_ctx);

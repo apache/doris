@@ -152,6 +152,11 @@ void append_candidate_range(CandidateIt begin, CandidateIt end, std::vector<uint
     out->insert(out->end(), begin, end);
 }
 
+void append_new_chunk_docids_to_out(const DocidChunk& chunk, size_t chunk_docids_begin,
+                                    std::vector<uint32_t>* out) {
+    out->insert(out->end(), chunk.docids.begin() + chunk_docids_begin, chunk.docids.end());
+}
+
 void clear_ordinals_if_all_term_docs_selected(const std::vector<uint32_t>& term_docids,
                                               DocidChunk* chunk) {
     if (chunk->docids.size() == term_docids.size() && !chunk->docids.empty() &&
@@ -185,8 +190,9 @@ bool append_term_docs_if_candidates_cover_span(CandidateIt begin, CandidateIt en
         return false;
     }
 
-    out->insert(out->end(), term_docids.begin(), term_docids.end());
+    const size_t chunk_docids_begin = chunk->docids.size();
     chunk->docids.insert(chunk->docids.end(), term_docids.begin(), term_docids.end());
+    append_new_chunk_docids_to_out(*chunk, chunk_docids_begin, out);
     return true;
 }
 
@@ -202,17 +208,18 @@ Status append_candidate_range_with_ordinals(CandidateIt begin, CandidateIt end, 
     chunk->prx_doc_count = static_cast<uint32_t>(width);
     const bool full_dense_range =
             candidate_count == width && begin != end && *begin == first && *(end - 1) == last;
+    const size_t chunk_docids_begin = chunk->docids.size();
     if (full_dense_range) {
-        out->insert(out->end(), begin, end);
         chunk->docids.insert(chunk->docids.end(), begin, end);
+        append_new_chunk_docids_to_out(*chunk, chunk_docids_begin, out);
         return Status::OK();
     }
-    chunk->prx_doc_ordinals.reserve(candidate_count);
+    chunk->prx_doc_ordinals.reserve(chunk->prx_doc_ordinals.size() + candidate_count);
     for (auto it = begin; it != end; ++it) {
-        out->push_back(*it);
         chunk->docids.push_back(*it);
         chunk->prx_doc_ordinals.push_back(*it - first);
     }
+    append_new_chunk_docids_to_out(*chunk, chunk_docids_begin, out);
     return Status::OK();
 }
 
@@ -233,6 +240,7 @@ bool intersect_dense_term_span_with_ordinals(CandidateIt begin, CandidateIt end,
         return false;
     }
 
+    const size_t chunk_docids_begin = chunk->docids.size();
     if (missing_count == 0) {
         for (auto it = begin; it != end; ++it) {
             if (*it < first) {
@@ -241,10 +249,10 @@ bool intersect_dense_term_span_with_ordinals(CandidateIt begin, CandidateIt end,
             if (*it > last) {
                 break;
             }
-            out->push_back(*it);
             chunk->docids.push_back(*it);
             chunk->prx_doc_ordinals.push_back(*it - first);
         }
+        append_new_chunk_docids_to_out(*chunk, chunk_docids_begin, out);
         clear_ordinals_if_all_term_docs_selected(term_docids, chunk);
         return true;
     }
@@ -283,10 +291,10 @@ bool intersect_dense_term_span_with_ordinals(CandidateIt begin, CandidateIt end,
         if (miss < missing.size() && missing[miss] == *it) {
             continue;
         }
-        out->push_back(*it);
         chunk->docids.push_back(*it);
         chunk->prx_doc_ordinals.push_back(static_cast<uint32_t>(*it - first - miss));
     }
+    append_new_chunk_docids_to_out(*chunk, chunk_docids_begin, out);
     clear_ordinals_if_all_term_docs_selected(term_docids, chunk);
     return true;
 }
@@ -307,20 +315,22 @@ bool intersect_bounded_span_with_ordinals(CandidateIt begin, CandidateIt end,
         return false;
     }
 
-    std::array<uint64_t, kBoundedSpanBitsetWords> bits {};
+    const auto word_count = static_cast<size_t>((width + 63) >> 6);
+    std::array<uint64_t, kBoundedSpanBitsetWords> bits;
+    std::fill_n(bits.begin(), word_count, 0);
     for (uint32_t docid : term_docids) {
         const uint32_t off = docid - first;
         bits[off >> 6] |= 1ULL << (off & 63);
     }
 
-    const auto word_count = static_cast<size_t>((width + 63) >> 6);
-    std::array<uint32_t, kBoundedSpanBitsetWords> ordinal_base {};
+    std::array<uint32_t, kBoundedSpanBitsetWords> ordinal_base;
     uint32_t ordinal = 0;
     for (size_t word = 0; word < word_count; ++word) {
         ordinal_base[word] = ordinal;
         ordinal += static_cast<uint32_t>(__builtin_popcountll(bits[word]));
     }
 
+    const size_t chunk_docids_begin = chunk->docids.size();
     for (auto it = begin; it != end; ++it) {
         const uint32_t off = *it - first;
         const size_t word = off >> 6;
@@ -328,12 +338,12 @@ bool intersect_bounded_span_with_ordinals(CandidateIt begin, CandidateIt end,
         if ((bits[word] & mask) == 0) {
             continue;
         }
-        out->push_back(*it);
         chunk->docids.push_back(*it);
         chunk->prx_doc_ordinals.push_back(
                 ordinal_base[word] +
                 static_cast<uint32_t>(__builtin_popcountll(bits[word] & (mask - 1))));
     }
+    append_new_chunk_docids_to_out(*chunk, chunk_docids_begin, out);
     clear_ordinals_if_all_term_docs_selected(term_docids, chunk);
     return true;
 }
@@ -408,18 +418,19 @@ Status intersect_window_candidate_range_with_ordinals(CandidateIt begin, Candida
     const size_t candidate_count = static_cast<size_t>(end - begin);
     const size_t max_matches = std::min(candidate_count, term_docids.size());
     out->reserve(out->size() + max_matches);
-    chunk->docids.reserve(max_matches);
+    chunk->docids.reserve(chunk->docids.size() + max_matches);
     if (candidate_count == term_docids.size() && *begin == term_docids.front() &&
         *(end - 1) == term_docids.back() && std::equal(begin, end, term_docids.begin())) {
-        out->insert(out->end(), begin, end);
+        const size_t chunk_docids_begin = chunk->docids.size();
         chunk->docids.insert(chunk->docids.end(), begin, end);
+        append_new_chunk_docids_to_out(*chunk, chunk_docids_begin, out);
         return Status::OK();
     }
     if (append_term_docs_if_candidates_cover_span(begin, end, term_docids, out, chunk)) {
         return Status::OK();
     }
 
-    chunk->prx_doc_ordinals.reserve(max_matches);
+    chunk->prx_doc_ordinals.reserve(chunk->prx_doc_ordinals.size() + max_matches);
     if (intersect_dense_term_span_with_ordinals(begin, end, term_docids, candidate_count, out,
                                                 chunk)) {
         return Status::OK();
@@ -431,6 +442,7 @@ Status intersect_window_candidate_range_with_ordinals(CandidateIt begin, Candida
 
     const size_t probes_per_candidate = log2_ceil(term_docids.size()) + 1;
     if (candidate_count < term_docids.size() / probes_per_candidate) {
+        const size_t chunk_docids_begin = chunk->docids.size();
         size_t doc_index = 0;
         for (auto it = begin; it != end; ++it) {
             const auto found =
@@ -438,32 +450,34 @@ Status intersect_window_candidate_range_with_ordinals(CandidateIt begin, Candida
             if (found == term_docids.end()) break;
             doc_index = static_cast<size_t>(found - term_docids.begin());
             if (*found != *it) continue;
-            out->push_back(*it);
             chunk->docids.push_back(*it);
             chunk->prx_doc_ordinals.push_back(static_cast<uint32_t>(doc_index));
             ++doc_index;
         }
+        append_new_chunk_docids_to_out(*chunk, chunk_docids_begin, out);
         clear_ordinals_if_all_term_docs_selected(term_docids, chunk);
         return Status::OK();
     }
 
     const size_t probes_per_term_doc = log2_ceil(candidate_count) + 1;
     if (term_docids.size() < candidate_count / probes_per_term_doc) {
+        const size_t chunk_docids_begin = chunk->docids.size();
         auto candidate_it = begin;
         for (size_t doc_index = 0; doc_index < term_docids.size(); ++doc_index) {
             const uint32_t docid = term_docids[doc_index];
             candidate_it = std::lower_bound(candidate_it, end, docid);
             if (candidate_it == end) break;
             if (*candidate_it != docid) continue;
-            out->push_back(docid);
             chunk->docids.push_back(docid);
             chunk->prx_doc_ordinals.push_back(static_cast<uint32_t>(doc_index));
             ++candidate_it;
         }
+        append_new_chunk_docids_to_out(*chunk, chunk_docids_begin, out);
         clear_ordinals_if_all_term_docs_selected(term_docids, chunk);
         return Status::OK();
     }
 
+    const size_t chunk_docids_begin = chunk->docids.size();
     size_t doc_index = 0;
     for (auto it = begin; it != end; ++it) {
         while (doc_index < term_docids.size() && term_docids[doc_index] < *it) {
@@ -471,11 +485,11 @@ Status intersect_window_candidate_range_with_ordinals(CandidateIt begin, Candida
         }
         if (doc_index == term_docids.size()) break;
         if (term_docids[doc_index] != *it) continue;
-        out->push_back(*it);
         chunk->docids.push_back(*it);
         chunk->prx_doc_ordinals.push_back(static_cast<uint32_t>(doc_index));
         ++doc_index;
     }
+    append_new_chunk_docids_to_out(*chunk, chunk_docids_begin, out);
     clear_ordinals_if_all_term_docs_selected(term_docids, chunk);
     return Status::OK();
 }

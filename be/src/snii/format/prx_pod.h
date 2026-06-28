@@ -23,10 +23,10 @@
 //   per doc: VInt pos_count, followed by pos_count position deltas (VInt)
 //   positions within a doc are ascending, stored as deltas (first absolute).
 //
-// pfor payload (default build codec; no entropy coding):
+// pfor payload (one auto-build candidate; no entropy coding):
 //   VInt doc_count
 //   VInt total_pos                   # sum of all pos_counts
-//   per doc: VInt pos_count
+//   PFOR_runs(pos_counts)            # doc_count values
 //   PFOR_runs(position_deltas)       # total_pos deltas, kFrqBaseUnit per run,
 //                                    #   flat doc order (first per doc
 //                                    absolute)
@@ -40,9 +40,9 @@ namespace snii::format {
 // per_doc_positions[d] is the position list for the d-th doc within this
 // window; must be ascending (duplicates allowed).
 // zstd_level_or_negative_for_auto:
-//   <0  → auto: use ZSTD (default level) when payload is large enough,
-//   otherwise raw. 0   → force raw (no compression). >0  → force ZSTD with the
-//   given level.
+//   <0  → auto: use the smaller PFOR or ZSTD(default level) frame.
+//   0   → force raw varint payload.
+//   >0  → force ZSTD with the given level.
 // Non-ascending positions within a doc return InvalidArgument.
 Status build_prx_window(std::span<const std::vector<uint32_t>> per_doc_positions,
                         int zstd_level_or_negative_for_auto, ByteSink* sink);

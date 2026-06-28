@@ -36,7 +36,7 @@ namespace snii::reader {
 // one physical Range GET trades a little over-read for fewer remote GETs (the
 // design's higher-priority metric). Only applied to same-term multi-window
 // batches, never to cross-term.
-inline constexpr uint64_t kSameTermCoalesceGap = 0;
+inline constexpr uint64_t kSameTermCoalesceGap = 16 * 1024;
 
 // Full decoded posting for one windowed term (docids ascending across windows).
 struct DecodedPosting {

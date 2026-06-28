@@ -35,8 +35,8 @@
 //   abs_frq = posting_region.offset + frq_base + entry.frq_off_delta
 //   abs_prx = posting_region.offset + prx_base + entry.prx_off_delta
 //
-// The meta block bytes must outlive this reader (they are owned by the parent
-// SniiSegmentReader's resident meta region).
+// The reader copies the meta block bytes at open so every parsed sub-reader has
+// stable backing storage for the reader lifetime.
 namespace snii::reader {
 
 class LogicalIndexReader {
@@ -98,6 +98,7 @@ private:
     snii::io::FileReader* reader_ = nullptr;
     snii::format::IndexTier tier_ = snii::format::IndexTier::kT1;
     bool has_positions_ = false;
+    std::vector<uint8_t> meta_block_;
     snii::format::PerIndexMetaReader meta_;
     snii::format::SampledTermIndexReader sti_;
     snii::format::DictBlockDirectoryReader dbd_;
@@ -105,7 +106,9 @@ private:
     bool has_bsbf_ = false;
     // L0 tiering: when the bsbf section is small (<= kBsbfResidentMaxBytes) its
     // whole bitset is loaded here at open -> in-memory probe, no per-lookup
-    // round. Empty => L1 (on-demand single-block probe via bsbf_probe).
+    // round. Larger filters keep only the parsed header here, so the small
+    // header enters Doris searcher cache and lookup reads just one 32-byte body
+    // block for an L1 probe.
     bool bsbf_resident_ = false;
     std::vector<uint8_t> bsbf_resident_bitset_;
 

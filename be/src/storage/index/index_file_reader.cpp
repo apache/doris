@@ -22,6 +22,7 @@
 
 #include "common/cast_set.h"
 #include "common/config.h"
+#include "snii/format/per_index_meta.h"
 #include "storage/index/inverted/inverted_index_compound_reader.h"
 #include "storage/index/inverted/inverted_index_fs_directory.h"
 #include "storage/tablet/tablet_schema.h"
@@ -164,6 +165,7 @@ Status IndexFileReader::_init_snii(const io::IOContext* io_ctx) {
     }
     meta_io_ctx.is_inverted_index = true;
     meta_io_ctx.is_index_data = true;
+    meta_io_ctx.read_file_cache = false;
     meta_io_ctx.snii_section_type = io::SNII_SECTION_META;
     snii_doris::DorisSniiFileReader::ScopedIOContext io_context_scope(&meta_io_ctx);
     RETURN_IF_ERROR(snii_doris::to_doris_status(snii::reader::SniiSegmentReader::open(
@@ -274,7 +276,7 @@ Result<std::unique_ptr<DorisCompoundReader, DirectoryDeleter>> IndexFileReader::
 }
 
 Result<std::unique_ptr<snii::reader::LogicalIndexReader>> IndexFileReader::open_snii_index(
-        const TabletIndex* index_meta) const {
+        const TabletIndex* index_meta, const io::IOContext* io_ctx) const {
     DCHECK(_storage_format == InvertedIndexStorageFormatPB::SNII);
     std::shared_lock<std::shared_mutex> lock(_mutex);
     if (_snii_segment_reader == nullptr) {
@@ -282,19 +284,36 @@ Result<std::unique_ptr<snii::reader::LogicalIndexReader>> IndexFileReader::open_
                 "SNII index file {} is not opened",
                 InvertedIndexDescriptor::get_index_file_path_v2(_index_path_prefix)));
     }
-    snii::format::SectionRefs section_refs;
-    auto status = _snii_segment_reader->section_refs_for_index(
-            cast_set<uint64_t>(index_meta->index_id()), index_meta->get_index_suffix(),
-            &section_refs);
+    io::IOContext meta_io_ctx;
+    if (io_ctx != nullptr) {
+        meta_io_ctx = *io_ctx;
+    }
+    meta_io_ctx.is_inverted_index = true;
+    meta_io_ctx.is_index_data = true;
+    meta_io_ctx.read_file_cache = false;
+    meta_io_ctx.snii_section_type = io::SNII_SECTION_META;
+    snii_doris::DorisSniiFileReader::ScopedIOContext io_context_scope(&meta_io_ctx);
+
+    std::vector<uint8_t> meta_bytes;
+    auto status =
+            _snii_segment_reader->read_index_meta(cast_set<uint64_t>(index_meta->index_id()),
+                                                  index_meta->get_index_suffix(), &meta_bytes);
     auto doris_status = snii_doris::to_doris_status(status);
     if (!doris_status.ok()) {
         return ResultError(doris_status);
     }
+    snii::format::PerIndexMetaReader meta;
+    status = snii::format::PerIndexMetaReader::open(snii::Slice(meta_bytes), &meta);
+    doris_status = snii_doris::to_doris_status(status);
+    if (!doris_status.ok()) {
+        return ResultError(doris_status);
+    }
+    const auto& section_refs = meta.section_refs();
     _snii_file_reader->register_section_refs(section_refs);
 
     auto logical_reader = std::make_unique<snii::reader::LogicalIndexReader>();
-    status = _snii_segment_reader->open_index(cast_set<uint64_t>(index_meta->index_id()),
-                                              index_meta->get_index_suffix(), logical_reader.get());
+    status = _snii_segment_reader->open_index_from_meta(snii::Slice(meta_bytes),
+                                                        logical_reader.get());
     doris_status = snii_doris::to_doris_status(status);
     if (!doris_status.ok()) {
         return ResultError(doris_status);
@@ -338,17 +357,8 @@ Status IndexFileReader::index_file_exist(const TabletIndex* index_meta, bool* re
             *res = false;
             return Status::OK();
         }
-        auto logical_reader = std::make_unique<snii::reader::LogicalIndexReader>();
-        auto status = _snii_segment_reader->open_index(cast_set<uint64_t>(index_meta->index_id()),
-                                                       index_meta->get_index_suffix(),
-                                                       logical_reader.get());
-        if (status.code() == snii::StatusCode::kNotFound) {
-            *res = false;
-            return Status::OK();
-        }
-        RETURN_IF_ERROR(snii_doris::to_doris_status(status));
-        *res = true;
-        return Status::OK();
+        return snii_doris::to_doris_status(_snii_segment_reader->index_exists(
+                cast_set<uint64_t>(index_meta->index_id()), index_meta->get_index_suffix(), res));
     } else {
         std::shared_lock<std::shared_mutex> lock(_mutex); // Lock for reading
         if (_stream == nullptr) {

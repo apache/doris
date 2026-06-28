@@ -18,8 +18,10 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <cstdlib>
 #include <cstring>
 #include <numeric>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -30,6 +32,7 @@
 #include "snii/encoding/pfor.h"
 #include "snii/format/format_constants.h"
 #include "snii/format/prx_pod.h"
+#include "snii/format/tail_pointer.h"
 #include "snii/io/file_reader.h"
 #include "snii/io/file_writer.h"
 #include "snii/query/docid_sink.h"
@@ -45,6 +48,11 @@ namespace {
 
 class MemoryFile final : public snii::io::FileReader, public snii::io::FileWriter {
 public:
+    struct Read {
+        uint64_t offset = 0;
+        size_t len = 0;
+    };
+
     Status append(Slice data) override {
         data_.insert(data_.end(), data.data(), data.data() + data.size());
         return Status::OK();
@@ -62,6 +70,8 @@ public:
         if (offset > data_.size() || len > data_.size() - offset) {
             return Status::Corruption("memory file read past eof");
         }
+        reads_.push_back({offset, len});
+        read_bytes_ += len;
         out->resize(len);
         if (len != 0) {
             std::memcpy(out->data(), data_.data() + offset, len);
@@ -72,10 +82,40 @@ public:
 
     uint64_t size() const override { return data_.size(); }
     bool finalized() const { return finalized_; }
+    const std::vector<Read>& reads() const { return reads_; }
+    size_t read_bytes() const { return read_bytes_; }
+    void clear_reads() {
+        reads_.clear();
+        read_bytes_ = 0;
+    }
 
 private:
     std::vector<uint8_t> data_;
+    std::vector<Read> reads_;
+    size_t read_bytes_ = 0;
     bool finalized_ = false;
+};
+
+class ScopedEnv {
+public:
+    ScopedEnv(const char* key, const char* value) : key_(key) {
+        if (const char* old = std::getenv(key); old != nullptr) {
+            old_value_ = old;
+        }
+        setenv(key, value, 1);
+    }
+
+    ~ScopedEnv() {
+        if (old_value_.has_value()) {
+            setenv(key_, old_value_->c_str(), 1);
+        } else {
+            unsetenv(key_);
+        }
+    }
+
+private:
+    const char* key_;
+    std::optional<std::string> old_value_;
 };
 
 class RecordingDocIdSink final : public DocIdSink {
@@ -131,6 +171,24 @@ std::vector<PostingDoc> docs_with_one_position(uint32_t begin, uint32_t end, uin
 
 void assert_ok(const Status& status) {
     ASSERT_TRUE(status.ok()) << status.to_string();
+}
+
+void assert_selective_prx_matches_constant_positions(Slice window,
+                                                     const std::vector<uint32_t>& selected_docs,
+                                                     uint32_t expected_position) {
+    std::vector<uint32_t> selected_positions;
+    std::vector<uint32_t> selected_offsets;
+    ByteSource selected_source(window);
+    assert_ok(format::read_prx_window_csr_selective(&selected_source, selected_docs,
+                                                    &selected_positions, &selected_offsets));
+
+    ASSERT_EQ(selected_offsets.size(), selected_docs.size() + 1);
+    ASSERT_EQ(selected_positions.size(), selected_docs.size());
+    for (size_t i = 0; i < selected_docs.size(); ++i) {
+        EXPECT_EQ(selected_offsets[i], i);
+        EXPECT_EQ(selected_positions[i], expected_position);
+    }
+    EXPECT_EQ(selected_offsets.back(), selected_positions.size());
 }
 
 Status build_reader(MemoryFile* file, reader::SniiSegmentReader* segment_reader,
@@ -192,6 +250,112 @@ Status build_reader(MemoryFile* file, reader::SniiSegmentReader* segment_reader,
 
     SNII_RETURN_IF_ERROR(reader::SniiSegmentReader::open(file, segment_reader));
     return segment_reader->open_index(input.index_id, input.index_suffix, index_reader);
+}
+
+writer::SniiIndexInput make_many_term_input(uint64_t index_id, std::string suffix,
+                                            uint32_t n_terms) {
+    writer::SniiIndexInput input;
+    input.index_id = index_id;
+    input.index_suffix = std::move(suffix);
+    input.config = format::IndexConfig::kDocsOnly;
+    input.doc_count = n_terms + 1;
+    input.target_dict_block_bytes = 128;
+    input.terms.reserve(n_terms);
+    for (uint32_t i = 0; i < n_terms; ++i) {
+        input.terms.push_back(make_term("term_" + std::to_string(1000000 + i), {{i, {0}}}));
+    }
+    return input;
+}
+
+format::TailPointer read_tail_pointer(MemoryFile* file) {
+    std::vector<uint8_t> bytes;
+    assert_ok(file->read_at(file->size() - format::tail_pointer_size(), format::tail_pointer_size(),
+                            &bytes));
+    format::TailPointer tp;
+    assert_ok(format::decode_tail_pointer(Slice(bytes), &tp));
+    return tp;
+}
+
+TEST(SniiSegmentReaderTest, OpenDoesNotReadWholeTailMetaRegion) {
+    MemoryFile file;
+    writer::SniiCompoundWriter writer(&file);
+    assert_ok(writer.add_logical_index(make_many_term_input(7, "Body", 4096)));
+    assert_ok(writer.finish());
+
+    const format::TailPointer tp = read_tail_pointer(&file);
+    file.clear_reads();
+
+    reader::SniiSegmentReader segment_reader;
+    assert_ok(reader::SniiSegmentReader::open(&file, &segment_reader));
+
+    EXPECT_LT(file.read_bytes(), tp.meta_region_length);
+    for (const auto& read : file.reads()) {
+        EXPECT_FALSE(read.offset == tp.meta_region_offset && read.len == tp.meta_region_length);
+    }
+}
+
+TEST(SniiSegmentReaderTest, IndexExistsUsesCachedTailDirectory) {
+    MemoryFile file;
+    writer::SniiCompoundWriter writer(&file);
+    writer::SniiIndexInput input = make_many_term_input(7, "Body", 4096);
+    assert_ok(writer.add_logical_index(input));
+    assert_ok(writer.finish());
+
+    reader::SniiSegmentReader segment_reader;
+    assert_ok(reader::SniiSegmentReader::open(&file, &segment_reader));
+
+    file.clear_reads();
+    bool exists = false;
+    assert_ok(segment_reader.index_exists(input.index_id, input.index_suffix, &exists));
+    EXPECT_TRUE(exists);
+    EXPECT_EQ(file.read_bytes(), 0);
+
+    assert_ok(segment_reader.index_exists(input.index_id + 1, input.index_suffix, &exists));
+    EXPECT_FALSE(exists);
+    EXPECT_EQ(file.read_bytes(), 0);
+}
+
+TEST(SniiSegmentReaderTest, NonResidentBsbfCachesHeaderAndProbesBodyBlock) {
+    ScopedEnv disable_resident_bsbf("SNII_BSBF_RESIDENT_MAX", "0");
+
+    MemoryFile file;
+    writer::SniiCompoundWriter writer(&file);
+    writer::SniiIndexInput input = make_many_term_input(7, "Body", 1024);
+    assert_ok(writer.add_logical_index(input));
+    assert_ok(writer.finish());
+
+    reader::SniiSegmentReader segment_reader;
+    assert_ok(reader::SniiSegmentReader::open(&file, &segment_reader));
+    format::SectionRefs refs;
+    assert_ok(segment_reader.section_refs_for_index(input.index_id, input.index_suffix, &refs));
+
+    file.clear_reads();
+    reader::LogicalIndexReader index_reader;
+    assert_ok(segment_reader.open_index(input.index_id, input.index_suffix, &index_reader));
+    bool header_read = false;
+    for (const auto& read : file.reads()) {
+        if (read.offset == refs.bsbf.offset && read.len == format::kBsbfHeaderSize) {
+            header_read = true;
+        }
+    }
+    EXPECT_TRUE(header_read);
+
+    file.clear_reads();
+
+    std::vector<uint32_t> docids;
+    assert_ok(term_query(index_reader, "absent_term", &docids));
+    EXPECT_TRUE(docids.empty());
+    bool body_probe_read = false;
+    for (const auto& read : file.reads()) {
+        const uint64_t read_end = read.offset + read.len;
+        const uint64_t bsbf_end = refs.bsbf.offset + refs.bsbf.length;
+        EXPECT_FALSE(read.offset == refs.bsbf.offset && read.len == format::kBsbfHeaderSize);
+        if (read.len == format::kBsbfBytesPerBlock &&
+            refs.bsbf.offset + format::kBsbfHeaderSize <= read.offset && read_end <= bsbf_end) {
+            body_probe_read = true;
+        }
+    }
+    EXPECT_TRUE(body_probe_read);
 }
 
 TEST(SniiPhraseQueryTest, WindowedPhraseQueryKeepsCorrectCandidateOrdinals) {
@@ -367,6 +531,91 @@ TEST(SniiPrxPodTest, SelectivePforCsrMatchesFullCsrAcrossRuns) {
 
     assert_selected_matches_full({0, 1, 2});
     assert_selected_matches_full({0, 1, 127, 128, 129, 255, 256, 319});
+}
+
+TEST(SniiPrxPodTest, SelectivePforCsrHandlesDocsSpanningPforRuns) {
+    const std::vector<uint32_t> freqs {300, 1, 260, 2, 1};
+    std::vector<uint32_t> positions;
+    positions.reserve(564);
+    auto append_doc = [&](uint32_t count, uint32_t base, uint32_t seed) {
+        uint32_t pos = base;
+        uint32_t state = seed;
+        for (uint32_t i = 0; i < count; ++i) {
+            state = state * 1664525 + 1013904223;
+            pos += 1 + (state & 0xFFFF);
+            positions.push_back(pos);
+        }
+    };
+    append_doc(freqs[0], 3, 11);
+    append_doc(freqs[1], 11, 13);
+    append_doc(freqs[2], 19, 17);
+    append_doc(freqs[3], 29, 19);
+    append_doc(freqs[4], 37, 23);
+
+    ByteSink sink;
+    assert_ok(format::build_prx_window_flat(positions, freqs, -1, &sink));
+    ASSERT_FALSE(sink.buffer().empty());
+    ASSERT_EQ(sink.buffer().front(), static_cast<uint8_t>(format::PrxCodec::kPfor));
+
+    std::vector<uint32_t> full_positions;
+    std::vector<uint32_t> full_offsets;
+    ByteSource full_source(sink.view());
+    assert_ok(format::read_prx_window_csr(&full_source, &full_positions, &full_offsets));
+
+    const std::vector<uint32_t> selected_docs {0, 2, 3};
+    std::vector<uint32_t> selected_positions;
+    std::vector<uint32_t> selected_offsets;
+    ByteSource selected_source(sink.view());
+    assert_ok(format::read_prx_window_csr_selective(&selected_source, selected_docs,
+                                                    &selected_positions, &selected_offsets));
+
+    ASSERT_EQ(selected_offsets.size(), selected_docs.size() + 1);
+    for (size_t i = 0; i < selected_docs.size(); ++i) {
+        const uint32_t doc = selected_docs[i];
+        const std::vector<uint32_t> expected(full_positions.begin() + full_offsets[doc],
+                                             full_positions.begin() + full_offsets[doc + 1]);
+        const std::vector<uint32_t> actual(selected_positions.begin() + selected_offsets[i],
+                                           selected_positions.begin() + selected_offsets[i + 1]);
+        EXPECT_EQ(actual, expected);
+    }
+}
+
+TEST(SniiPrxPodTest, AutoCodecUsesZstdWhenItIsSmaller) {
+    std::vector<uint32_t> freqs(1024, 1);
+    std::vector<uint32_t> positions(1024, 7);
+
+    ByteSink sink;
+    assert_ok(format::build_prx_window_flat(positions, freqs, -1, &sink));
+
+    ASSERT_FALSE(sink.buffer().empty());
+    EXPECT_EQ(sink.buffer().front(), static_cast<uint8_t>(format::PrxCodec::kZstd));
+
+    std::vector<uint32_t> decoded_positions;
+    std::vector<uint32_t> decoded_offsets;
+    ByteSource source(sink.view());
+    assert_ok(format::read_prx_window_csr(&source, &decoded_positions, &decoded_offsets));
+
+    ASSERT_EQ(decoded_offsets.size(), freqs.size() + 1);
+    ASSERT_EQ(decoded_positions.size(), positions.size());
+    for (size_t i = 0; i < freqs.size(); ++i) {
+        EXPECT_EQ(decoded_offsets[i], i);
+        EXPECT_EQ(decoded_positions[i], 7);
+    }
+    EXPECT_EQ(decoded_offsets.back(), positions.size());
+
+    const std::vector<uint32_t> selected_docs {0, 17, 511, 1023};
+    assert_selective_prx_matches_constant_positions(sink.view(), selected_docs, 7);
+}
+
+TEST(SniiPrxPodTest, AutoCodecKeepsPforForTinyWindows) {
+    const std::vector<uint32_t> freqs {1, 2};
+    const std::vector<uint32_t> positions {3, 5, 8};
+
+    ByteSink sink;
+    assert_ok(format::build_prx_window_flat(positions, freqs, -1, &sink));
+
+    ASSERT_FALSE(sink.buffer().empty());
+    EXPECT_EQ(sink.buffer().front(), static_cast<uint8_t>(format::PrxCodec::kPfor));
 }
 
 TEST(SniiPforTest, LowBitWidthFastPathsRoundTrip) {

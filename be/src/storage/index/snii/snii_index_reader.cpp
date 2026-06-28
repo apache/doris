@@ -330,7 +330,8 @@ Status SniiIndexReader::_get_logical_reader(
     context->stats->inverted_index_searcher_cache_miss++;
     RETURN_IF_ERROR(
             _index_file_reader->init(config::inverted_index_read_buffer_size, context->io_ctx));
-    auto opened_reader = DORIS_TRY(_index_file_reader->open_snii_index(&_index_meta));
+    auto opened_reader =
+            DORIS_TRY(_index_file_reader->open_snii_index(&_index_meta, context->io_ctx));
 
     if (!enable_searcher_cache) {
         *logical_reader = opened_reader.get();

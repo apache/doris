@@ -168,23 +168,28 @@ Status LogicalIndexReader::open(snii::io::FileReader* file_reader, IndexTier tie
     if (out == nullptr) {
         return Status::InvalidArgument("logical_index: null out");
     }
+    if (meta_block.empty()) {
+        return Status::Corruption("logical_index: empty meta block");
+    }
     *out = LogicalIndexReader {};
 
     out->reader_ = file_reader;
     out->tier_ = tier;
     out->has_positions_ = has_positions;
+    out->meta_block_.assign(meta_block.data(), meta_block.data() + meta_block.size());
+    const Slice owned_meta(out->meta_block_);
 
-    SNII_RETURN_IF_ERROR(PerIndexMetaReader::open(meta_block, &out->meta_));
+    SNII_RETURN_IF_ERROR(PerIndexMetaReader::open(owned_meta, &out->meta_));
     SNII_RETURN_IF_ERROR(
             SampledTermIndexReader::open(out->meta_.sampled_term_index_bytes(), &out->sti_));
     SNII_RETURN_IF_ERROR(
             DictBlockDirectoryReader::open(out->meta_.dict_block_directory_bytes(), &out->dbd_));
     SNII_RETURN_IF_ERROR(out->load_resident_dict_blocks());
 
-    // Block-split bloom XFilter: derive the resident header from the section ref
-    // (offset+length) -- ZERO open-time I/O, the whole point of the on-demand
-    // design. The bitset starts at the constant offset section.offset + 28; one
-    // 32-byte block is read on demand per probe in lookup().
+    // Block-split bloom XFilter. L0 reads the whole small filter so probes are
+    // in-memory. L1 reads only the small header at open; the header is kept in
+    // LogicalIndexReader and enters Doris searcher cache with the rest of the
+    // logical-index metadata.
     const RegionRef& bsbf = out->meta_.section_refs().bsbf;
     if (bsbf.length > 0) {
         if (bsbf.length <= kBsbfHeaderSize) {
@@ -192,13 +197,6 @@ Status LogicalIndexReader::open(snii::io::FileReader* file_reader, IndexTier tie
         }
         const uint64_t num_bytes = bsbf.length - kBsbfHeaderSize;
         const bool resident = bsbf.length <= bsbf_resident_max_bytes();
-        // L0: read the WHOLE section (header + bitset) so probes are in-memory AND
-        // the bitset crc can be verified once. L1: read only the 28-byte header so
-        // open stays near-zero I/O; the on-demand single-block probe cannot verify
-        // a whole-bitset crc, so L1 relies on the storage layer's own integrity for
-        // the bitset body. Either way the header (magic/version/strategy/geometry +
-        // header crc) is parsed and verified -- BsbfHeader::parse rejects a corrupt
-        // header.
         std::vector<uint8_t> head;
         SNII_RETURN_IF_ERROR(
                 file_reader->read_at(bsbf.offset, resident ? bsbf.length : kBsbfHeaderSize, &head));
@@ -228,7 +226,7 @@ Status LogicalIndexReader::open(snii::io::FileReader* file_reader, IndexTier tie
 }
 
 size_t LogicalIndexReader::memory_usage() const {
-    size_t bytes = sizeof(*this) + bsbf_resident_bitset_.capacity();
+    size_t bytes = sizeof(*this) + meta_block_.capacity() + bsbf_resident_bitset_.capacity();
     for (const auto& block : resident_dict_blocks_) {
         bytes += sizeof(block) + block.bytes.capacity();
     }
@@ -248,13 +246,11 @@ Status LogicalIndexReader::lookup(std::string_view term, bool* found, DictEntry*
         const uint64_t h = bsbf_hash(term);
         bool maybe = false;
         if (bsbf_resident_) {
-            // L0: in-memory probe of the resident bitset (no round).
             const uint32_t blk = snii::format::bsbf_block_index(h, bsbf_header_.num_blocks);
             maybe = snii::format::bsbf_block_contains(
                     h,
                     bsbf_resident_bitset_.data() + static_cast<size_t>(blk) * kBsbfBytesPerBlock);
         } else {
-            // L1: on-demand single-block probe.
             SNII_RETURN_IF_ERROR(bsbf_probe(reader_, bsbf_header_, h, &maybe));
         }
         if (!maybe) {

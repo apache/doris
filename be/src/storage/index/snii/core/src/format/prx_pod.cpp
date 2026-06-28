@@ -213,6 +213,49 @@ void write_pfor(Slice payload, ByteSink* sink) {
     sink->put_fixed32(crc32c(framed.view()));
 }
 
+size_t varint32_size(uint32_t value) {
+    size_t bytes = 1;
+    while (value >= 128) {
+        value >>= 7;
+        ++bytes;
+    }
+    return bytes;
+}
+
+size_t pfor_frame_size(size_t payload_size) {
+    return 1 + varint32_size(static_cast<uint32_t>(payload_size)) + payload_size + sizeof(uint32_t);
+}
+
+size_t zstd_frame_size(size_t plain_size, size_t compressed_size) {
+    return 1 + varint32_size(static_cast<uint32_t>(plain_size)) +
+           varint32_size(static_cast<uint32_t>(compressed_size)) + compressed_size +
+           sizeof(uint32_t);
+}
+
+void write_zstd_compressed(Slice plain, Slice compressed, ByteSink* sink) {
+    ByteSink framed;
+    framed.put_u8(static_cast<uint8_t>(PrxCodec::kZstd));
+    framed.put_varint32(static_cast<uint32_t>(plain.size()));
+    framed.put_varint32(static_cast<uint32_t>(compressed.size()));
+    framed.put_bytes(compressed);
+    sink->put_bytes(framed.view());
+    sink->put_fixed32(crc32c(framed.view()));
+}
+
+Status write_auto_pfor_or_zstd(Slice pfor_payload, Slice plain_payload, ByteSink* sink) {
+    if (plain_payload.size() >= kAutoZstdMinBytes) {
+        std::vector<uint8_t> compressed;
+        SNII_RETURN_IF_ERROR(zstd_compress(plain_payload, kDefaultZstdLevel, &compressed));
+        if (zstd_frame_size(plain_payload.size(), compressed.size()) <
+            pfor_frame_size(pfor_payload.size())) {
+            write_zstd_compressed(plain_payload, Slice(compressed), sink);
+            return Status::OK();
+        }
+    }
+    write_pfor(pfor_payload, sink);
+    return Status::OK();
+}
+
 // Decode per-doc position lists from a plain payload.
 Status decode_payload(Slice plain, std::vector<std::vector<uint32_t>>* out) {
     ByteSource src(plain);
@@ -342,31 +385,6 @@ bool should_decode_full_prx_positions(std::span<const SelectedRange> selected,
     return covered_runs * 4 >= total_runs * 3;
 }
 
-void compact_selected_pfor_positions(std::span<const SelectedRange> selected,
-                                     std::vector<uint32_t>& pos_flat,
-                                     std::vector<uint32_t>& pos_off) {
-    size_t write_off = 0;
-    pos_off.clear();
-    pos_off.reserve(selected.size() + 1);
-    pos_off.push_back(0);
-    for (const SelectedRange& range : selected) {
-        const uint32_t count = range.end - range.begin;
-        if (count == 1) {
-            pos_flat[write_off++] = pos_flat[range.begin];
-            pos_off.push_back(static_cast<uint32_t>(write_off));
-            continue;
-        }
-        uint32_t prev = 0;
-        for (uint32_t i = 0; i < count; ++i) {
-            const uint32_t delta = pos_flat[range.begin + i];
-            prev = (i == 0) ? delta : prev + delta;
-            pos_flat[write_off++] = prev;
-        }
-        pos_off.push_back(static_cast<uint32_t>(write_off));
-    }
-    pos_flat.resize(write_off);
-}
-
 Status decode_selected_pfor_count_ranges(ByteSource* src, uint32_t doc_count,
                                          std::span<const uint32_t> doc_ordinals,
                                          std::vector<SelectedRange>& selected,
@@ -390,6 +408,9 @@ Status decode_selected_pfor_count_ranges(ByteSource* src, uint32_t doc_count,
             const uint32_t d = run_begin + i;
             const uint32_t count = run_buf[i];
             *total_pos_count += count;
+            if (*total_pos_count > kMaxWindowPositions) {
+                return Status::Corruption("prx: pos_count sum exceeds sane cap");
+            }
             if (next_doc < doc_ordinals.size() && doc_ordinals[next_doc] == d) {
                 selected.emplace_back(delta_begin, delta_begin + count, *selected_pos_count);
                 *selected_pos_count += count;
@@ -405,45 +426,47 @@ Status decode_selected_pfor_count_ranges(ByteSource* src, uint32_t doc_count,
     return Status::OK();
 }
 
-Status decode_sparse_selected_pfor_positions(ByteSource* src, uint32_t total_pos,
-                                             std::span<const SelectedRange> selected,
-                                             std::span<uint32_t> pos_flat) {
+Status decode_selected_pfor_positions(ByteSource* src, uint32_t total_pos,
+                                      std::span<const SelectedRange> selected, bool decode_all_runs,
+                                      std::span<uint32_t> pos_flat) {
     std::array<uint32_t, kFrqBaseUnit> run_buf {};
     size_t range_idx = 0;
+    uint32_t prev = 0;
     for (uint32_t run_begin = 0; run_begin < total_pos; run_begin += kFrqBaseUnit) {
         const uint32_t run_len = std::min<uint32_t>(kFrqBaseUnit, total_pos - run_begin);
         const uint32_t run_end = run_begin + run_len;
         while (range_idx < selected.size() && selected[range_idx].end <= run_begin) {
             ++range_idx;
+            prev = 0;
         }
-        if (range_idx == selected.size() || selected[range_idx].begin >= run_end) {
+        if (!decode_all_runs &&
+            (range_idx == selected.size() || selected[range_idx].begin >= run_end)) {
             SNII_RETURN_IF_ERROR(pfor_skip(src, run_len));
             continue;
         }
 
         SNII_RETURN_IF_ERROR(pfor_decode(src, run_len, run_buf.data()));
-        for (size_t ri = range_idx; ri < selected.size() && selected[ri].begin < run_end; ++ri) {
-            const SelectedRange& range = selected[ri];
+        while (range_idx < selected.size() && selected[range_idx].begin < run_end) {
+            const SelectedRange& range = selected[range_idx];
             const uint32_t copy_begin = std::max(range.begin, run_begin);
             const uint32_t copy_end = std::min(range.end, run_end);
-            const uint32_t dst_begin = range.out_begin + copy_begin - range.begin;
-            std::copy_n(run_buf.data() + copy_begin - run_begin, copy_end - copy_begin,
-                        pos_flat.data() + dst_begin);
+            if (copy_begin == range.begin) {
+                prev = 0;
+            }
+            uint32_t dst = range.out_begin + copy_begin - range.begin;
+            for (uint32_t off = copy_begin; off < copy_end; ++off) {
+                const uint32_t delta = run_buf[off - run_begin];
+                prev = (off == range.begin) ? delta : prev + delta;
+                pos_flat[dst++] = prev;
+            }
+            if (copy_end < range.end) {
+                break;
+            }
+            ++range_idx;
+            prev = 0;
         }
     }
     return Status::OK();
-}
-
-void restore_selected_position_deltas(const std::vector<uint32_t>& pos_off,
-                                      std::span<uint32_t> pos_flat) {
-    for (size_t i = 0; i + 1 < pos_off.size(); ++i) {
-        uint32_t prev = 0;
-        for (uint32_t off = pos_off[i]; off < pos_off[i + 1]; ++off) {
-            uint32_t& value = pos_flat[off];
-            prev = (off == pos_off[i]) ? value : prev + value;
-            value = prev;
-        }
-    }
 }
 
 Status decode_pfor_payload_csr_selective(Slice plain, std::span<const uint32_t> doc_ordinals,
@@ -472,21 +495,11 @@ Status decode_pfor_payload_csr_selective(Slice plain, std::span<const uint32_t> 
         return Status::Corruption("prx: pos_count sum mismatch");
     }
 
-    if (should_decode_full_prx_positions(selected, selected_pos_count, total_pos)) {
-        SNII_RETURN_IF_ERROR(decode_pfor_runs(&src, total_pos, pos_flat));
-        compact_selected_pfor_positions(selected, *pos_flat, *pos_off);
-        if (!src.eof()) {
-            return Status::Corruption("prx: trailing bytes after pfor payload");
-        }
-        return Status::OK();
-    }
-
     pos_flat->resize(selected_pos_count);
-    SNII_RETURN_IF_ERROR(decode_sparse_selected_pfor_positions(
-            &src, total_pos, selected, std::span<uint32_t>(pos_flat->data(), pos_flat->size())));
-
-    restore_selected_position_deltas(*pos_off,
-                                     std::span<uint32_t>(pos_flat->data(), pos_flat->size()));
+    SNII_RETURN_IF_ERROR(decode_selected_pfor_positions(
+            &src, total_pos, selected,
+            should_decode_full_prx_positions(selected, selected_pos_count, total_pos),
+            std::span<uint32_t>(pos_flat->data(), pos_flat->size())));
     if (!src.eof()) {
         return Status::Corruption("prx: trailing bytes after pfor payload");
     }
@@ -590,13 +603,7 @@ void write_raw(Slice plain, ByteSink* sink) {
 Status write_zstd(Slice plain, int level, ByteSink* sink) {
     std::vector<uint8_t> comp;
     SNII_RETURN_IF_ERROR(zstd_compress(plain, level > 0 ? level : kDefaultZstdLevel, &comp));
-    ByteSink framed;
-    framed.put_u8(static_cast<uint8_t>(PrxCodec::kZstd));
-    framed.put_varint32(static_cast<uint32_t>(plain.size()));
-    framed.put_varint32(static_cast<uint32_t>(comp.size()));
-    framed.put_bytes(Slice(comp));
-    sink->put_bytes(framed.view());
-    sink->put_fixed32(crc32c(framed.view()));
+    write_zstd_compressed(plain, Slice(comp), sink);
     return Status::OK();
 }
 
@@ -651,8 +658,9 @@ Status build_prx_window(std::span<const std::vector<uint32_t>> per_doc_positions
     }
     ByteSink payload;
     SNII_RETURN_IF_ERROR(encode_pfor_payload(per_doc_positions, &payload));
-    write_pfor(payload.view(), sink);
-    return Status::OK();
+    ByteSink plain;
+    SNII_RETURN_IF_ERROR(encode_payload(per_doc_positions, &plain));
+    return write_auto_pfor_or_zstd(payload.view(), plain.view(), sink);
 }
 
 Status build_prx_window_flat(std::span<const uint32_t> positions_flat,
@@ -671,8 +679,9 @@ Status build_prx_window_flat(std::span<const uint32_t> positions_flat,
     }
     ByteSink payload;
     SNII_RETURN_IF_ERROR(encode_pfor_payload_flat(positions_flat, freqs, &payload));
-    write_pfor(payload.view(), sink);
-    return Status::OK();
+    ByteSink plain;
+    SNII_RETURN_IF_ERROR(encode_payload_flat(positions_flat, freqs, &plain));
+    return write_auto_pfor_or_zstd(payload.view(), plain.view(), sink);
 }
 
 Status read_prx_window(ByteSource* source, std::vector<std::vector<uint32_t>>* per_doc_positions) {
