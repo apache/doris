@@ -177,7 +177,7 @@ std::string FileScanRequest::debug_string() const {
         << join_debug_strings(
                    column_predicate_filters,
                    [](const FileColumnPredicateFilter& filter) { return filter.debug_string(); })
-        << "}";
+        << ", reader_expression_count=" << reader_expression_map.size() << "}";
     return out.str();
 }
 

@@ -453,6 +453,33 @@ static bool table_filter_has_only_local_entries(
     return true;
 }
 
+static bool table_filter_needs_reader_expression(const TableFilter& table_filter,
+                                                 const std::vector<ColumnMapping>& mappings) {
+    for (const auto global_index : table_filter.global_indices) {
+        const auto mapping_it = std::ranges::find_if(mappings, [&](const ColumnMapping& mapping) {
+            return mapping.global_index == global_index;
+        });
+        if (mapping_it != mappings.end() &&
+            mapping_it->filter_conversion == FilterConversionType::READER_EXPRESSION) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static std::optional<LocalColumnId> first_filter_local_column_id(
+        const TableFilter& table_filter, const std::vector<ColumnMapping>& mappings) {
+    for (const auto global_index : table_filter.global_indices) {
+        const auto mapping_it = std::ranges::find_if(mappings, [&](const ColumnMapping& mapping) {
+            return mapping.global_index == global_index;
+        });
+        if (mapping_it != mappings.end() && mapping_it->file_local_id.has_value()) {
+            return LocalColumnId(*mapping_it->file_local_id);
+        }
+    }
+    return std::nullopt;
+}
+
 static VExprSPtr unwrap_literal_for_file_cast(const VExprSPtr& expr,
                                               const DataTypePtr& table_type) {
     if (expr == nullptr) {
@@ -1703,6 +1730,7 @@ Status TableColumnMapper::create_scan_request(
     file_request->conjuncts.clear();
     file_request->delete_conjuncts.clear();
     file_request->column_predicate_filters.clear();
+    file_request->reader_expression_map.clear();
     _filter_entries.clear();
     // 1. Build referenced non-predicate columns
     for (size_t column_idx = 0; column_idx < projected_columns.size(); ++column_idx) {
@@ -1831,6 +1859,7 @@ Status TableColumnMapper::localize_filters(const std::vector<TableFilter>& table
                         "Failed to clone table filter for file-local rewrite: {}, expr={}",
                         e.to_string(), table_filter.conjunct->root()->debug_string());
 #else
+                (void)e;
                 continue;
 #endif
             } catch (const std::exception& e) {
@@ -1839,6 +1868,7 @@ Status TableColumnMapper::localize_filters(const std::vector<TableFilter>& table
                         "Failed to clone table filter for file-local rewrite: {}, expr={}",
                         e.what(), table_filter.conjunct->root()->debug_string());
 #else
+                (void)e;
                 continue;
 #endif
             }
@@ -1860,7 +1890,18 @@ Status TableColumnMapper::localize_filters(const std::vector<TableFilter>& table
             }
             auto localized_conjunct = VExprContext::create_shared(std::move(localized_root));
             RETURN_IF_ERROR(rewrite_context.prepare_created_exprs(localized_conjunct.get()));
-            file_request->conjuncts.push_back(std::move(localized_conjunct));
+            if (table_filter_needs_reader_expression(table_filter, filter_mappings)) {
+                const auto local_column_id =
+                        first_filter_local_column_id(table_filter, filter_mappings);
+                if (!local_column_id.has_value()) {
+                    return Status::InvalidArgument(
+                            "Reader expression filter has no file-local source");
+                }
+                file_request->reader_expression_map.emplace_back(*local_column_id,
+                                                                 std::move(localized_conjunct));
+            } else {
+                file_request->conjuncts.push_back(std::move(localized_conjunct));
+            }
         }
     }
     if (enable_column_predicate_filters()) {
@@ -1892,7 +1933,8 @@ Status TableColumnMapper::localize_filters(const std::vector<TableFilter>& table
         }
         for (const auto& table_filter : table_filters) {
             if (table_filter.conjunct == nullptr ||
-                !table_filter_has_only_local_entries(table_filter, _filter_entries)) {
+                !table_filter_has_only_local_entries(table_filter, _filter_entries) ||
+                table_filter_needs_reader_expression(table_filter, filter_mappings)) {
                 continue;
             }
             std::vector<FileColumnPredicateFilter> nested_column_predicate_filters;

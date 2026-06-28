@@ -28,6 +28,10 @@ std::shared_ptr<ColumnPredicate> create_comparison_predicate(const uint32_t cid,
                                                              const std::string col_name,
                                                              const DataTypePtr& data_type,
                                                              const Field& value, bool opposite) {
+    const ColumnPredicateLiteralTypeInfo literal_type_info {
+            .precision = data_type->get_precision(),
+            .scale = data_type->get_scale(),
+    };
     switch (data_type->get_primitive_type()) {
     case TYPE_TINYINT: {
         return ComparisonPredicateBase<TYPE_TINYINT, PT>::create_shared(cid, col_name, value,
@@ -57,24 +61,24 @@ std::shared_ptr<ColumnPredicate> create_comparison_predicate(const uint32_t cid,
                                                                        opposite);
     }
     case TYPE_DECIMALV2: {
-        return ComparisonPredicateBase<TYPE_DECIMALV2, PT>::create_shared(cid, col_name, value,
-                                                                          opposite);
+        return ComparisonPredicateBase<TYPE_DECIMALV2, PT>::create_shared(
+                cid, col_name, value, opposite, literal_type_info);
     }
     case TYPE_DECIMAL32: {
-        return ComparisonPredicateBase<TYPE_DECIMAL32, PT>::create_shared(cid, col_name, value,
-                                                                          opposite);
+        return ComparisonPredicateBase<TYPE_DECIMAL32, PT>::create_shared(
+                cid, col_name, value, opposite, literal_type_info);
     }
     case TYPE_DECIMAL64: {
-        return ComparisonPredicateBase<TYPE_DECIMAL64, PT>::create_shared(cid, col_name, value,
-                                                                          opposite);
+        return ComparisonPredicateBase<TYPE_DECIMAL64, PT>::create_shared(
+                cid, col_name, value, opposite, literal_type_info);
     }
     case TYPE_DECIMAL128I: {
-        return ComparisonPredicateBase<TYPE_DECIMAL128I, PT>::create_shared(cid, col_name, value,
-                                                                            opposite);
+        return ComparisonPredicateBase<TYPE_DECIMAL128I, PT>::create_shared(
+                cid, col_name, value, opposite, literal_type_info);
     }
     case TYPE_DECIMAL256: {
-        return ComparisonPredicateBase<TYPE_DECIMAL256, PT>::create_shared(cid, col_name, value,
-                                                                           opposite);
+        return ComparisonPredicateBase<TYPE_DECIMAL256, PT>::create_shared(
+                cid, col_name, value, opposite, literal_type_info);
     }
     case TYPE_CHAR: {
         return ComparisonPredicateBase<TYPE_CHAR, PT>::create_shared(

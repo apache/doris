@@ -45,6 +45,7 @@
 #include "format_v2/delimited_text/text_reader.h"
 #include "format_v2/json/json_reader.h"
 #include "format_v2/native/native_reader.h"
+#include "format_v2/orc/orc_reader.h"
 #include "format_v2/parquet/parquet_reader.h"
 #include "roaring/roaring64map.hh"
 #include "storage/segment/condition_cache.h"
@@ -703,6 +704,12 @@ Status TableReader::create_file_reader(std::unique_ptr<FileReader>* reader) {
         *reader = std::make_unique<format::parquet::ParquetReader>(
                 _system_properties, _current_task->data_file, _io_ctx, _scanner_profile,
                 _global_rowid_context, enable_mapping_timestamp_tz);
+        return Status::OK();
+    }
+    if (_format == FileFormat::ORC) {
+        *reader = std::make_unique<format::orc::OrcReader>(_system_properties,
+                                                           _current_task->data_file, _io_ctx,
+                                                           _scanner_profile, _global_rowid_context);
         return Status::OK();
     }
     if (_format == FileFormat::CSV) {

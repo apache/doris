@@ -144,6 +144,10 @@ struct FileScanRequest {
     // Single-column predicates used only for file-layer pruning, such as statistics, page index,
     // dictionary and bloom filter. They must not be used for batch row-level filtering.
     std::vector<FileColumnPredicateFilter> column_predicate_filters;
+    // Fallback expressions evaluated by file readers after decoding file-local columns. These are
+    // used when a mapping requires reader-local expression semantics that cannot be represented as
+    // a plain localized conjunct.
+    std::vector<std::pair<LocalColumnId, VExprContextSPtr>> reader_expression_map;
 };
 
 // Helper for constructing the scan-column layout in FileScanRequest.
