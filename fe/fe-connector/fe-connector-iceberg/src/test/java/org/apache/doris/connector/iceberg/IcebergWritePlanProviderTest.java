@@ -29,10 +29,6 @@ import org.apache.doris.connector.api.write.ConnectorSinkPlan;
 import org.apache.doris.connector.api.write.ConnectorWritePartitionField;
 import org.apache.doris.connector.api.write.ConnectorWritePartitionSpec;
 import org.apache.doris.connector.api.write.ConnectorWriteSortColumn;
-import org.apache.doris.filesystem.FileSystemType;
-import org.apache.doris.filesystem.properties.HadoopStorageProperties;
-import org.apache.doris.filesystem.properties.StorageKind;
-import org.apache.doris.filesystem.properties.StorageProperties;
 import org.apache.doris.thrift.TDataSinkType;
 import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileContent;
@@ -60,6 +56,9 @@ import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.expressions.Expressions;
 import org.apache.iceberg.inmemory.InMemoryCatalog;
+import org.apache.iceberg.io.FileIO;
+import org.apache.iceberg.io.InputFile;
+import org.apache.iceberg.io.OutputFile;
 import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -130,8 +129,9 @@ public class IcebergWritePlanProviderTest {
 
     private static RecordingConnectorContext contextWithStorage() {
         RecordingConnectorContext ctx = new RecordingConnectorContext();
-        ctx.storageProperties = Collections.singletonList(new FakeHadoopStorageProperties(
-                Collections.singletonMap("fs.s3a.access.key", "AK123")));
+        // Static catalog creds in BE-canonical form (AWS_*), the form the write sink ships to BE — NOT the
+        // fs.s3a.* hadoop form (s3_util.cpp convert_properties_to_s3_conf reads only AWS_*).
+        ctx.backendStorageProperties = Collections.singletonMap("AWS_ACCESS_KEY", "AK123");
         ctx.backendFileType = TFileType.FILE_S3;
         return ctx;
     }
@@ -305,8 +305,68 @@ public class IcebergWritePlanProviderTest {
         TIcebergTableSink sink = planSink(table, contextWithStorage(),
                 new WriteHandle(new IcebergTableHandle("db1", "t1")));
 
-        Assertions.assertEquals("AK123", sink.getHadoopConfig().get("fs.s3a.access.key"),
-                "hadoop config must be merged from the catalog's storage properties (legacy getBackendConfigProperties)");
+        // B-1: the sink's hadoop_config must carry the BE-canonical static creds (AWS_*), NOT the fs.s3a.*
+        // hadoop form — BE s3_util.cpp reads only AWS_*, so fs.s3a.* would leave the writer credential-less.
+        Assertions.assertEquals("AK123", sink.getHadoopConfig().get("AWS_ACCESS_KEY"),
+                "hadoop config must carry BE-canonical static creds (legacy getBackendConfigProperties / AWS_*)");
+        Assertions.assertNull(sink.getHadoopConfig().get("fs.s3a.access.key"),
+                "the sink must not ship the fs.s3a.* hadoop form (BE cannot read it)");
+    }
+
+    @Test
+    public void planWriteOverlaysVendedCredentials() {
+        // H-1: a REST vending catalog's static storage map is empty by design; the per-table vended token (read
+        // from the table's FileIO) must be overlaid into the write sink's hadoop_config in BE-canonical form
+        // (AWS_*), winning over a colliding static key — mirroring the scan path. The token here is non-empty so
+        // RecordingConnectorContext.vendStorageCredentials yields the configured BE-canonical vended creds.
+        //
+        // We drive a FakeIcebergTable whose io() carries a (non-empty) vended token; beginWrite needs a live SDK
+        // transaction, so we inject one from a throwaway real catalog table (the planning path stores but never
+        // dereferences it).
+        InMemoryCatalog catalog = freshCatalog();
+        Map<String, String> tableProps = new HashMap<>();
+        tableProps.put("write.format.default", "parquet");
+        tableProps.put("write.data.path", "oss://bucket/wh/db1/tvend/data");
+        Table real = catalog.createTable(TableIdentifier.of("db1", "tvend"), SCHEMA,
+                PartitionSpec.unpartitioned(), tableProps);
+
+        FakeIcebergTable fake = new FakeIcebergTable("tvend", SCHEMA, PartitionSpec.unpartitioned(),
+                "oss://bucket/wh/db1/tvend", tableProps);
+        fake.setIo(new PropsFileIO(Collections.singletonMap("s3.access-key-id", "vended-raw")));
+        fake.setNewTransaction(real.newTransaction());
+
+        RecordingConnectorContext ctx = new RecordingConnectorContext();
+        Map<String, String> staticCreds = new HashMap<>();
+        staticCreds.put("AWS_ACCESS_KEY", "static-ak");
+        staticCreds.put("AWS_REGION", "us-east-1");
+        ctx.backendStorageProperties = staticCreds;
+        Map<String, String> vendedCreds = new HashMap<>();
+        vendedCreds.put("AWS_ACCESS_KEY", "vended-ak");
+        vendedCreds.put("AWS_TOKEN", "vended-tok");
+        ctx.vendedBeProps = vendedCreds;
+
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        ops.table = fake;
+        IcebergWritePlanProvider provider = new IcebergWritePlanProvider(restVendedProps(), ops, ctx);
+        WriteSession session = new WriteSession(new IcebergConnectorTransaction(42L, ops, ctx));
+
+        ConnectorSinkPlan plan = provider.planWrite(session,
+                new WriteHandle(new IcebergTableHandle("db1", "tvend")));
+        TIcebergTableSink sink = plan.getDataSink().getIcebergTableSink();
+
+        Assertions.assertEquals("vended-ak", sink.getHadoopConfig().get("AWS_ACCESS_KEY"),
+                "vended creds must win over a colliding static key (legacy/scan precedence)");
+        Assertions.assertEquals("vended-tok", sink.getHadoopConfig().get("AWS_TOKEN"),
+                "vended-only key must be present in the write sink's hadoop_config (H-1 overlay)");
+        Assertions.assertEquals("us-east-1", sink.getHadoopConfig().get("AWS_REGION"),
+                "static-only key must remain alongside the vended overlay");
+    }
+
+    private static Map<String, String> restVendedProps() {
+        Map<String, String> props = new HashMap<>();
+        props.put(IcebergConnectorProperties.ICEBERG_CATALOG_TYPE, IcebergConnectorProperties.TYPE_REST);
+        props.put(IcebergConnectorProperties.REST_VENDED_CREDENTIALS_ENABLED, "true");
+        return props;
     }
 
     @Test
@@ -583,7 +643,8 @@ public class IcebergWritePlanProviderTest {
         Assertions.assertEquals(TFileFormatType.FORMAT_PARQUET, sink.getFileFormat());
         Assertions.assertEquals(TFileCompressType.ZSTD, sink.getCompressType(),
                 "the delete sink carries compress_type (thrift field 6), NOT compression_type (the merge/table field)");
-        Assertions.assertEquals("AK123", sink.getHadoopConfig().get("fs.s3a.access.key"));
+        Assertions.assertEquals("AK123", sink.getHadoopConfig().get("AWS_ACCESS_KEY"),
+                "hadoop config must carry BE-canonical static creds (AWS_*), not the fs.s3a.* hadoop form");
         Assertions.assertEquals("s3://bucket/wh/db1/t1/data", sink.getOutputPath(),
                 "delete output path is the normalized data location (legacy LocationPath.toStorageLocation)");
         Assertions.assertEquals("oss://bucket/wh/db1/t1/data", sink.getTableLocation(),
@@ -811,7 +872,8 @@ public class IcebergWritePlanProviderTest {
         Assertions.assertEquals(TFileFormatType.FORMAT_PARQUET, sink.getFileFormat());
         Assertions.assertEquals(TFileCompressType.ZSTD, sink.getCompressionType(),
                 "the merge sink carries compression_type (thrift field 8), NOT compress_type (the delete field)");
-        Assertions.assertEquals("AK123", sink.getHadoopConfig().get("fs.s3a.access.key"));
+        Assertions.assertEquals("AK123", sink.getHadoopConfig().get("AWS_ACCESS_KEY"),
+                "hadoop config must carry BE-canonical static creds (AWS_*), not the fs.s3a.* hadoop form");
         Assertions.assertEquals("s3://bucket/wh/db1/t1/data", sink.getOutputPath());
         Assertions.assertEquals("oss://bucket/wh/db1/t1/data", sink.getOriginalOutputPath());
         Assertions.assertEquals("oss://bucket/wh/db1/t1/data", sink.getTableLocation());
@@ -1007,47 +1069,34 @@ public class IcebergWritePlanProviderTest {
         }
     }
 
-    /** Minimal {@link StorageProperties} that yields a known hadoop configuration map. */
-    private static final class FakeHadoopStorageProperties implements StorageProperties, HadoopStorageProperties {
-        private final Map<String, String> hadoopConfig;
+    /** Minimal {@link FileIO} whose {@link #properties()} yields a known (non-empty) vended token map, so
+     * {@link IcebergScanPlanProvider#extractVendedToken} returns a non-empty token through the write path
+     * (H-1). Mirrors the scan test's equivalent double; the read/write file methods are never exercised. */
+    private static final class PropsFileIO implements FileIO {
+        private final Map<String, String> props;
 
-        FakeHadoopStorageProperties(Map<String, String> hadoopConfig) {
-            this.hadoopConfig = hadoopConfig;
+        PropsFileIO(Map<String, String> props) {
+            this.props = props;
         }
 
         @Override
-        public Optional<HadoopStorageProperties> toHadoopProperties() {
-            return Optional.of(this);
+        public Map<String, String> properties() {
+            return props;
         }
 
         @Override
-        public Map<String, String> toHadoopConfigurationMap() {
-            return hadoopConfig;
+        public InputFile newInputFile(String path) {
+            throw new UnsupportedOperationException();
         }
 
         @Override
-        public String providerName() {
-            return "S3";
+        public OutputFile newOutputFile(String path) {
+            throw new UnsupportedOperationException();
         }
 
         @Override
-        public StorageKind kind() {
-            return StorageKind.OBJECT_STORAGE;
-        }
-
-        @Override
-        public FileSystemType type() {
-            return FileSystemType.S3;
-        }
-
-        @Override
-        public Map<String, String> rawProperties() {
-            return Collections.emptyMap();
-        }
-
-        @Override
-        public Map<String, String> matchedProperties() {
-            return Collections.emptyMap();
+        public void deleteFile(String path) {
+            throw new UnsupportedOperationException();
         }
     }
 }

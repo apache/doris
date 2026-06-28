@@ -74,6 +74,11 @@ final class FakeIcebergTable implements Table {
     // table.sortOrder()). Null by default -> the render path treats it as unsorted (legacy getSortOrderSql
     // guards `sortOrder == null`), so unsorted tables emit no ORDER BY; only the sort-clause test injects one.
     private SortOrder sortOrder;
+    // Optional SDK transaction for the write planWrite path (IcebergConnectorTransaction.beginWrite calls
+    // newTransaction()). Null by default -> newTransaction() keeps its fail-loud contract; only the write
+    // credential test injects one (sourced from a real catalog table). The planning path stores but never
+    // dereferences it (commit is out of scope for these unit tests).
+    private Transaction newTransaction;
 
     FakeIcebergTable(String name, Schema schema, PartitionSpec spec,
             String location, Map<String, String> properties) {
@@ -92,6 +97,12 @@ final class FakeIcebergTable implements Table {
     /** Inject a sort order so {@link #sortOrder()} returns it (SHOW CREATE TABLE sort-clause test). */
     void setSortOrder(SortOrder sortOrder) {
         this.sortOrder = sortOrder;
+    }
+
+    /** Inject an SDK transaction so {@link #newTransaction()} returns it (write planWrite path); otherwise
+     * newTransaction() throws. */
+    void setNewTransaction(Transaction newTransaction) {
+        this.newTransaction = newTransaction;
     }
 
     @Override
@@ -245,6 +256,9 @@ final class FakeIcebergTable implements Table {
 
     @Override
     public Transaction newTransaction() {
+        if (newTransaction != null) {
+            return newTransaction;
+        }
         throw new UnsupportedOperationException();
     }
 

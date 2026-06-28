@@ -54,6 +54,10 @@ final class RecordingConnectorContext implements ConnectorContext {
     /** Storage properties the fake returns from {@link #getStorageProperties()} (default: none). */
     List<StorageProperties> storageProperties = Collections.emptyList();
 
+    /** BE-canonical static catalog creds the fake returns from {@link #getBackendStorageProperties()} (the
+     * AWS_* or dfs/hadoop map the write sink ships to BE; default: none). */
+    Map<String, String> backendStorageProperties = Collections.emptyMap();
+
     /** BE-canonical vended creds the fake returns from {@link #vendStorageCredentials} for a NON-EMPTY token
      * (an empty/null token -> empty result, mirroring {@code DefaultConnectorContext} — so a test can prove the
      * catalog-flag GATE end-to-end: flag off -> empty token -> no vended {@code location.*}). */
@@ -116,6 +120,11 @@ final class RecordingConnectorContext implements ConnectorContext {
     @Override
     public List<StorageProperties> getStorageProperties() {
         return storageProperties;
+    }
+
+    @Override
+    public Map<String, String> getBackendStorageProperties() {
+        return backendStorageProperties;
     }
 
     @Override

@@ -31,7 +31,6 @@ import org.apache.doris.connector.api.write.ConnectorWritePartitionSpec;
 import org.apache.doris.connector.api.write.ConnectorWritePlanProvider;
 import org.apache.doris.connector.api.write.ConnectorWriteSortColumn;
 import org.apache.doris.connector.spi.ConnectorContext;
-import org.apache.doris.filesystem.properties.StorageProperties;
 import org.apache.doris.thrift.TDataSink;
 import org.apache.doris.thrift.TDataSinkType;
 import org.apache.doris.thrift.TFileCompressType;
@@ -342,10 +341,9 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
         tSink.setFileFormat(toTFileFormatType(IcebergWriterHelper.getFileFormat(table)));
         tSink.setCompressionType(toTFileCompressType(getFileCompress(table)));
 
-        // Hadoop config (static storage properties). The vended-credentials overlay (REST object-store
-        // writes) is DV-T06-vended: vendStorageCredentials yields BE-canonical creds, not the hadoop
-        // (fs.s3a.*) form the sink needs — closed at the P6.6 cutover.
-        tSink.setHadoopConfig(buildHadoopConfig());
+        // Hadoop config: BE-canonical static catalog creds (AWS_*/dfs) plus the REST per-table vended overlay
+        // (see buildHadoopConfig), mirroring legacy IcebergTableSink + the scan-side credential assembly.
+        tSink.setHadoopConfig(buildHadoopConfig(table));
 
         // Output location: normalized for the BE writer, raw kept as the original; the BE file type comes
         // from the engine (broker-aware). All vended-aware so a REST catalog's path still resolves.
@@ -403,7 +401,7 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
         tSink.setDeleteType(TFileContent.POSITION_DELETES);
         tSink.setFileFormat(toTFileFormatType(IcebergWriterHelper.getFileFormat(table)));
         tSink.setCompressType(toTFileCompressType(getFileCompress(table)));
-        tSink.setHadoopConfig(buildHadoopConfig());
+        tSink.setHadoopConfig(buildHadoopConfig(table));
 
         LocationFields location = resolveLocationFields(table);
         tSink.setOutputPath(location.outputPath);
@@ -461,7 +459,7 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
 
         tSink.setFileFormat(toTFileFormatType(IcebergWriterHelper.getFileFormat(table)));
         tSink.setCompressionType(toTFileCompressType(getFileCompress(table)));
-        tSink.setHadoopConfig(buildHadoopConfig());
+        tSink.setHadoopConfig(buildHadoopConfig(table));
 
         LocationFields location = resolveLocationFields(table);
         tSink.setOutputPath(location.outputPath);
@@ -557,12 +555,19 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
         }
     }
 
-    private Map<String, String> buildHadoopConfig() {
+    private Map<String, String> buildHadoopConfig(Table table) {
         Map<String, String> merged = new HashMap<>();
         if (context != null) {
-            for (StorageProperties sp : context.getStorageProperties()) {
-                sp.toHadoopProperties().ifPresent(h -> merged.putAll(h.toHadoopConfigurationMap()));
-            }
+            // Static catalog credentials in BE-canonical form (AWS_* for object stores, dfs/hadoop for HDFS),
+            // mirroring legacy IcebergTableSink getBackendConfigProperties + the scan-side backend overlay. The
+            // BE S3 sink (s3_util.cpp convert_properties_to_s3_conf) reads ONLY AWS_*, so the fs.s3a.* hadoop
+            // form (correct for the FE iceberg-catalog Configuration) would leave the BE writer with no creds.
+            merged.putAll(context.getBackendStorageProperties());
+            // REST per-table vended overlay (colliding key takes the vended value — legacy/scan precedence): a
+            // vending catalog's static storage map is empty by design, so the vended creds are the only ones.
+            merged.putAll(context.vendStorageCredentials(
+                    IcebergScanPlanProvider.extractVendedToken(
+                            table, IcebergScanPlanProvider.restVendedCredentialsEnabled(properties))));
         }
         return merged;
     }
