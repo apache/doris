@@ -385,8 +385,28 @@ Status IndexFileReader::has_null(const TabletIndex* index_meta, bool* res) const
         return Status::OK();
     }
     if (_storage_format == InvertedIndexStorageFormatPB::SNII) {
-        auto logical_reader = DORIS_TRY(open_snii_index(index_meta));
-        *res = logical_reader->section_refs().null_bitmap.length > 0;
+        std::shared_lock<std::shared_mutex> lock(_mutex);
+        if (_snii_segment_reader == nullptr) {
+            return Status::Error<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>(
+                    "SNII index file {} is not opened",
+                    InvertedIndexDescriptor::get_index_file_path_v2(_index_path_prefix));
+        }
+        io::IOContext meta_io_ctx;
+        meta_io_ctx.is_inverted_index = true;
+        meta_io_ctx.is_index_data = true;
+        meta_io_ctx.read_file_cache = false;
+        meta_io_ctx.snii_section_type = io::SNII_SECTION_META;
+        snii_doris::DorisSniiFileReader::ScopedIOContext io_context_scope(&meta_io_ctx);
+
+        std::vector<uint8_t> meta_bytes;
+        auto status =
+                _snii_segment_reader->read_index_meta(cast_set<uint64_t>(index_meta->index_id()),
+                                                      index_meta->get_index_suffix(), &meta_bytes);
+        RETURN_IF_ERROR(snii_doris::to_doris_status(status));
+        snii::format::PerIndexMetaReader meta;
+        status = snii::format::PerIndexMetaReader::open(snii::Slice(meta_bytes), &meta);
+        RETURN_IF_ERROR(snii_doris::to_doris_status(status));
+        *res = meta.section_refs().null_bitmap.length > 0;
         return Status::OK();
     }
     std::shared_lock<std::shared_mutex> lock(_mutex); // Lock for reading

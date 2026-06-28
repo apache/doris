@@ -23,6 +23,7 @@
 
 #include "common/cast_set.h"
 #include "common/config.h"
+#include "snii/format/phrase_bigram.h"
 #include "storage/index/index_file_writer.h"
 #include "storage/index/inverted/analyzer/analyzer.h"
 #include "storage/index/inverted/query/query_info.h"
@@ -98,6 +99,73 @@ Status SniiIndexColumnWriter::_analyze(const Slice& value, std::vector<TermInfo>
     return Status::OK();
 }
 
+Status SniiIndexColumnWriter::_add_phrase_bigram_tokens(const std::vector<TermInfo>& terms,
+                                                        uint32_t docid, uint32_t position_base) {
+    if (!_has_positions || terms.size() < 2) {
+        return Status::OK();
+    }
+
+    struct PositionedTerm {
+        std::string_view term;
+        uint32_t position = 0;
+    };
+
+    std::vector<PositionedTerm> positioned;
+    positioned.reserve(terms.size());
+    for (const auto& term_info : terms) {
+        DCHECK(term_info.is_single_term());
+        const std::string_view term = term_info.get_single_term();
+        if (!snii::format::is_phrase_bigram_indexable_term(term)) {
+            continue;
+        }
+        positioned.push_back({term, position_base + cast_set<uint32_t>(term_info.position)});
+    }
+    if (positioned.size() < 2) {
+        return Status::OK();
+    }
+    std::ranges::sort(positioned, [](const PositionedTerm& lhs, const PositionedTerm& rhs) {
+        if (lhs.position != rhs.position) {
+            return lhs.position < rhs.position;
+        }
+        return lhs.term < rhs.term;
+    });
+
+    size_t left_begin = 0;
+    while (left_begin < positioned.size()) {
+        size_t left_end = left_begin + 1;
+        while (left_end < positioned.size() &&
+               positioned[left_end].position == positioned[left_begin].position) {
+            ++left_end;
+        }
+
+        size_t right_begin = left_end;
+        while (right_begin < positioned.size() &&
+               positioned[right_begin].position <= positioned[left_begin].position) {
+            ++right_begin;
+        }
+        if (right_begin == positioned.size() ||
+            positioned[right_begin].position != positioned[left_begin].position + 1) {
+            left_begin = left_end;
+            continue;
+        }
+        size_t right_end = right_begin + 1;
+        while (right_end < positioned.size() &&
+               positioned[right_end].position == positioned[right_begin].position) {
+            ++right_end;
+        }
+
+        for (size_t l = left_begin; l < left_end; ++l) {
+            for (size_t r = right_begin; r < right_end; ++r) {
+                _term_buffer->add_token(snii::format::make_phrase_bigram_term(positioned[l].term,
+                                                                              positioned[r].term),
+                                        docid, positioned[l].position);
+            }
+        }
+        left_begin = left_end;
+    }
+    return Status::OK();
+}
+
 Status SniiIndexColumnWriter::_add_value_tokens(const Slice& value, uint32_t docid,
                                                 uint32_t position_base, uint32_t* max_position) {
     DCHECK(max_position != nullptr);
@@ -116,6 +184,7 @@ Status SniiIndexColumnWriter::_add_value_tokens(const Slice& value, uint32_t doc
         _term_buffer->add_token(term, docid, position);
         *max_position = std::max(*max_position, position);
     }
+    RETURN_IF_ERROR(_add_phrase_bigram_tokens(terms, docid, position_base));
     return Status::OK();
 }
 
@@ -183,6 +252,9 @@ Status SniiIndexColumnWriter::add_array_nulls(const uint8_t* null_map, size_t nu
 
 Status SniiIndexColumnWriter::finish() {
     DCHECK(_term_buffer != nullptr);
+    if (_has_positions && _rid > 0) {
+        _term_buffer->add_token(snii::format::make_phrase_bigram_sentinel_term(), 0, 0);
+    }
     auto status = _term_buffer->status();
     if (!status.ok()) {
         return Status::InternalError("SNII term buffer error: {}", status.to_string());

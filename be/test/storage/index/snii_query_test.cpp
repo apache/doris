@@ -31,13 +31,17 @@
 #include "snii/encoding/byte_source.h"
 #include "snii/encoding/pfor.h"
 #include "snii/format/format_constants.h"
+#include "snii/format/phrase_bigram.h"
 #include "snii/format/prx_pod.h"
 #include "snii/format/tail_pointer.h"
 #include "snii/io/file_reader.h"
 #include "snii/io/file_writer.h"
 #include "snii/query/docid_sink.h"
 #include "snii/query/phrase_query.h"
+#include "snii/query/prefix_query.h"
+#include "snii/query/regexp_query.h"
 #include "snii/query/term_query.h"
+#include "snii/query/wildcard_query.h"
 #include "snii/reader/logical_index_reader.h"
 #include "snii/reader/snii_segment_reader.h"
 #include "snii/writer/snii_compound_writer.h"
@@ -142,6 +146,11 @@ struct PostingDoc {
     std::vector<uint32_t> positions;
 };
 
+struct PrxRange {
+    uint64_t offset = 0;
+    uint64_t len = 0;
+};
+
 writer::TermPostings make_term(std::string term, std::vector<PostingDoc> docs) {
     std::ranges::sort(docs, [](const PostingDoc& lhs, const PostingDoc& rhs) {
         return lhs.docid < rhs.docid;
@@ -192,7 +201,7 @@ void assert_selective_prx_matches_constant_positions(Slice window,
 }
 
 Status build_reader(MemoryFile* file, reader::SniiSegmentReader* segment_reader,
-                    reader::LogicalIndexReader* index_reader) {
+                    reader::LogicalIndexReader* index_reader, bool include_phrase_bigrams = false) {
     constexpr uint32_t kDocCount = 9000;
     auto failed_docs = docs_with_one_position(0, kDocCount, 0);
     auto order_docs = docs_with_one_position(0, kDocCount, 2);
@@ -200,9 +209,11 @@ Status build_reader(MemoryFile* file, reader::SniiSegmentReader* segment_reader,
     auto driver_docs = docs_with_one_position(0, 8000, 0);
     auto almost_docs = docs_with_one_position(0, kDocCount, 1);
     std::vector<PostingDoc> needle_docs {{100, {0}}, {101, {0}}, {102, {0}}, {6000, {0}}};
+    std::vector<PostingDoc> numeric_tail_docs {{42, {1}}};
     std::vector<PostingDoc> sparse_left_docs;
     std::vector<PostingDoc> sparse_right_docs;
     std::vector<PostingDoc> repeat_docs;
+    std::vector<PostingDoc> trace_docs {{42, {0}}};
     sparse_left_docs.reserve(kDocCount / 3 + 1);
     sparse_right_docs.reserve(kDocCount);
     repeat_docs.reserve(kDocCount);
@@ -236,6 +247,7 @@ Status build_reader(MemoryFile* file, reader::SniiSegmentReader* segment_reader,
     input.config = format::IndexConfig::kDocsPositions;
     input.doc_count = kDocCount;
     input.terms = {make_term("almost", std::move(almost_docs)),
+                   make_term("123", std::move(numeric_tail_docs)),
                    make_term("driver", std::move(driver_docs)),
                    make_term("failed", std::move(failed_docs)),
                    make_term("needle", std::move(needle_docs)),
@@ -243,7 +255,19 @@ Status build_reader(MemoryFile* file, reader::SniiSegmentReader* segment_reader,
                    make_term("ordinal", std::move(ordinal_docs)),
                    make_term("repeat", std::move(repeat_docs)),
                    make_term("sparse_left", std::move(sparse_left_docs)),
-                   make_term("sparse_right", std::move(sparse_right_docs))};
+                   make_term("sparse_right", std::move(sparse_right_docs)),
+                   make_term("trace", std::move(trace_docs))};
+    if (include_phrase_bigrams) {
+        input.terms.push_back(make_term(format::make_phrase_bigram_sentinel_term(), {{0, {0}}}));
+        input.terms.push_back(make_term(format::make_phrase_bigram_term("failed", "order"),
+                                        {{5000, {0}}, {7000, {0}}, {8000, {4}}}));
+        input.terms.push_back(
+                make_term(format::make_phrase_bigram_term("failed", "ordinal"), {{6000, {0}}}));
+    }
+    std::ranges::sort(input.terms,
+                      [](const writer::TermPostings& lhs, const writer::TermPostings& rhs) {
+                          return lhs.term < rhs.term;
+                      });
 
     writer::SniiCompoundWriter writer(file);
     SNII_RETURN_IF_ERROR(writer.add_logical_index(input));
@@ -360,6 +384,32 @@ TEST(SniiSegmentReaderTest, NonResidentBsbfCachesHeaderAndProbesBodyBlock) {
     EXPECT_TRUE(body_probe_read);
 }
 
+TEST(SniiSegmentReaderTest, LogicalIndexOpenCachesResidentMetadataAndSmallHeaders) {
+    ScopedEnv resident_bsbf("SNII_BSBF_RESIDENT_MAX", "1048576");
+    ScopedEnv resident_dict("SNII_DICT_RESIDENT_MAX", "1048576");
+
+    MemoryFile file;
+    reader::SniiSegmentReader segment_reader;
+    reader::LogicalIndexReader index_reader;
+    assert_ok(build_reader(&file, &segment_reader, &index_reader));
+
+    file.clear_reads();
+    bool found = false;
+    format::DictEntry entry;
+    uint64_t frq_base = 0;
+    uint64_t prx_base = 0;
+    assert_ok(index_reader.lookup("failed", &found, &entry, &frq_base, &prx_base));
+    EXPECT_TRUE(found);
+    EXPECT_EQ(file.read_bytes(), 0);
+
+    std::vector<reader::LogicalIndexReader::PrefixHit> hits;
+    assert_ok(index_reader.prefix_terms("ord", &hits, 10));
+    ASSERT_EQ(hits.size(), 2);
+    EXPECT_EQ(hits[0].term, "order");
+    EXPECT_EQ(hits[1].term, "ordinal");
+    EXPECT_EQ(file.read_bytes(), 0);
+}
+
 TEST(SniiPhraseQueryTest, WindowedPhraseQueryKeepsCorrectCandidateOrdinals) {
     MemoryFile file;
     reader::SniiSegmentReader segment_reader;
@@ -397,6 +447,107 @@ TEST(SniiPhraseQueryTest, SingleTailPhrasePrefixUsesStreamingPhrasePath) {
 
     const std::vector<uint32_t> expected {5000, 7000, 8000};
     EXPECT_EQ(docids, expected);
+}
+
+TEST(SniiPhraseQueryTest, TwoTermPhraseUsesHiddenBigramPosting) {
+    MemoryFile file;
+    reader::SniiSegmentReader segment_reader;
+    reader::LogicalIndexReader index_reader;
+    assert_ok(build_reader(&file, &segment_reader, &index_reader,
+                           /*include_phrase_bigrams=*/true));
+
+    const auto original_prx_span = [&](std::string_view term) {
+        bool found = false;
+        format::DictEntry entry;
+        uint64_t frq_base = 0;
+        uint64_t prx_base = 0;
+        assert_ok(index_reader.lookup(term, &found, &entry, &frq_base, &prx_base));
+        EXPECT_TRUE(found);
+        return PrxRange {
+                index_reader.section_refs().posting_region.offset + prx_base + entry.prx_off_delta,
+                entry.prx_len};
+    };
+    const std::vector<PrxRange> original_prx {
+            original_prx_span("failed"),
+            original_prx_span("order"),
+    };
+
+    file.clear_reads();
+    std::vector<uint32_t> docids;
+    assert_ok(phrase_query(index_reader, {"failed", "order"}, &docids));
+
+    const std::vector<uint32_t> expected {5000, 7000, 8000};
+    EXPECT_EQ(docids, expected);
+    for (const PrxRange& prx : original_prx) {
+        const bool original_prx_read = std::ranges::any_of(file.reads(), [&](const auto& read) {
+            return read.offset < prx.offset + prx.len && prx.offset < read.offset + read.len;
+        });
+        EXPECT_FALSE(original_prx_read);
+    }
+}
+
+TEST(SniiPhraseQueryTest, TwoTermPhraseWithNonIndexableTermFallsBackToPositions) {
+    MemoryFile file;
+    reader::SniiSegmentReader segment_reader;
+    reader::LogicalIndexReader index_reader;
+    assert_ok(build_reader(&file, &segment_reader, &index_reader,
+                           /*include_phrase_bigrams=*/true));
+
+    std::vector<uint32_t> docids;
+    assert_ok(phrase_query(index_reader, {"trace", "123"}, &docids));
+
+    const std::vector<uint32_t> expected {42};
+    EXPECT_EQ(docids, expected);
+}
+
+TEST(SniiPhraseQueryTest, TwoTermPhrasePrefixWorksWithHiddenBigramFormat) {
+    MemoryFile file;
+    reader::SniiSegmentReader segment_reader;
+    reader::LogicalIndexReader index_reader;
+    assert_ok(build_reader(&file, &segment_reader, &index_reader,
+                           /*include_phrase_bigrams=*/true));
+
+    std::vector<uint32_t> docids;
+    assert_ok(phrase_prefix_query(index_reader, {"failed", "ord"}, &docids, 10));
+
+    const std::vector<uint32_t> expected {5000, 6000, 7000, 8000};
+    EXPECT_EQ(docids, expected);
+}
+
+TEST(SniiPhraseQueryTest, PrefixQueryDoesNotExposeHiddenBigramTerms) {
+    MemoryFile file;
+    reader::SniiSegmentReader segment_reader;
+    reader::LogicalIndexReader index_reader;
+    assert_ok(build_reader(&file, &segment_reader, &index_reader,
+                           /*include_phrase_bigrams=*/true));
+
+    std::vector<uint32_t> docids;
+    assert_ok(prefix_query(index_reader, std::string(format::kPhraseBigramTermMarker), &docids));
+    EXPECT_TRUE(docids.empty());
+}
+
+TEST(SniiPhraseQueryTest, WildcardQueryDoesNotExposeHiddenBigramTerms) {
+    MemoryFile file;
+    reader::SniiSegmentReader segment_reader;
+    reader::LogicalIndexReader index_reader;
+    assert_ok(build_reader(&file, &segment_reader, &index_reader,
+                           /*include_phrase_bigrams=*/true));
+
+    std::vector<uint32_t> docids;
+    assert_ok(wildcard_query(index_reader, "*failed*order*", &docids));
+    EXPECT_TRUE(docids.empty());
+}
+
+TEST(SniiPhraseQueryTest, RegexpQueryDoesNotExposeHiddenBigramTerms) {
+    MemoryFile file;
+    reader::SniiSegmentReader segment_reader;
+    reader::LogicalIndexReader index_reader;
+    assert_ok(build_reader(&file, &segment_reader, &index_reader,
+                           /*include_phrase_bigrams=*/true));
+
+    std::vector<uint32_t> docids;
+    assert_ok(regexp_query(index_reader, ".*failed.*order.*", &docids));
+    EXPECT_TRUE(docids.empty());
 }
 
 TEST(SniiPhraseQueryTest, MultiTailPhrasePrefixFiltersTailPrxByExpectedDocs) {

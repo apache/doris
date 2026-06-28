@@ -3,6 +3,7 @@
 #include <utility>
 #include <vector>
 
+#include "snii/format/phrase_bigram.h"
 #include "snii/query/internal/docid_posting_reader.h"
 #include "snii/query/internal/docid_union.h"
 
@@ -19,6 +20,9 @@ Status emit_expanded_docid_union(const snii::reader::LogicalIndexReader& idx,
     int32_t count = 0;
     SNII_RETURN_IF_ERROR(idx.visit_prefix_terms(
             enum_prefix, [&](snii::reader::LogicalIndexReader::PrefixHit&& hit, bool* stop) {
+                if (snii::format::is_phrase_bigram_term(hit.term)) {
+                    return Status::OK();
+                }
                 if (!matches(hit.term)) {
                     return Status::OK();
                 }

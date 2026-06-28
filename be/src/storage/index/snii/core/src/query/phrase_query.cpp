@@ -14,9 +14,11 @@
 #include "snii/format/dict_entry.h"
 #include "snii/format/frq_pod.h"
 #include "snii/format/frq_prelude.h"
+#include "snii/format/phrase_bigram.h"
 #include "snii/format/prx_pod.h"
 #include "snii/io/batch_range_fetcher.h"
 #include "snii/query/internal/docid_conjunction.h"
+#include "snii/query/internal/docid_posting_reader.h"
 #include "snii/query/internal/docid_set_ops.h"
 #include "snii/query/internal/position_math.h"
 #include "snii/query/prefix_query.h"
@@ -123,6 +125,43 @@ PhraseTermMapping BuildPhraseTermMapping(const std::vector<std::string>& terms) 
         mapping.phrase_plan_index.push_back(static_cast<size_t>(it - mapping.unique_terms.begin()));
     }
     return mapping;
+}
+
+Status phrase_bigram_enabled(const LogicalIndexReader& idx, bool* enabled) {
+    ResolvedQueryTerm sentinel;
+    return internal::resolve_query_term(idx, snii::format::make_phrase_bigram_sentinel_term(),
+                                        &sentinel, enabled);
+}
+
+Status TryTwoTermPhraseBigram(const LogicalIndexReader& idx, const std::vector<std::string>& terms,
+                              std::vector<uint32_t>* const docids, bool* handled) {
+    *handled = false;
+    if (terms.size() != 2) {
+        return Status::OK();
+    }
+    if (!snii::format::is_phrase_bigram_indexable_term(terms[0]) ||
+        !snii::format::is_phrase_bigram_indexable_term(terms[1])) {
+        return Status::OK();
+    }
+
+    ResolvedQueryTerm resolved;
+    bool found = false;
+    SNII_RETURN_IF_ERROR(internal::resolve_query_term(
+            idx, snii::format::make_phrase_bigram_term(terms[0], terms[1]), &resolved, &found));
+    if (found) {
+        *handled = true;
+        return internal::read_docid_posting(idx, resolved.entry, resolved.frq_base,
+                                            resolved.prx_base, docids);
+    }
+
+    bool enabled = false;
+    SNII_RETURN_IF_ERROR(phrase_bigram_enabled(idx, &enabled));
+    if (!enabled) {
+        return Status::OK();
+    }
+    docids->clear();
+    *handled = true;
+    return Status::OK();
 }
 
 Status append_prx_doc_ordinal(size_t ordinal, std::vector<uint32_t>* out) {
@@ -1126,6 +1165,11 @@ Status phrase_query(const LogicalIndexReader& idx, const std::vector<std::string
     if (!idx.has_positions()) {
         return Status::Unsupported("phrase_query: index has no positions");
     }
+    bool handled_by_bigram = false;
+    SNII_RETURN_IF_ERROR(TryTwoTermPhraseBigram(idx, terms, docids, &handled_by_bigram));
+    if (handled_by_bigram) {
+        return Status::OK();
+    }
 
     // Round 1: preludes (windowed) + docid postings (slim/inline) batched
     // together. Positions are fetched after the docid-only conjunction has
@@ -1163,7 +1207,6 @@ Status phrase_prefix_query(const LogicalIndexReader& idx, const std::vector<std:
     if (!idx.has_positions()) {
         return Status::Unsupported("phrase_prefix_query: index has no positions");
     }
-
     std::vector<ResolvedQueryTerm> exact_terms;
     exact_terms.reserve(terms.size() - 1);
     for (size_t i = 0; i + 1 < terms.size(); ++i) {
@@ -1178,6 +1221,9 @@ Status phrase_prefix_query(const LogicalIndexReader& idx, const std::vector<std:
 
     std::vector<LogicalIndexReader::PrefixHit> tail_hits;
     SNII_RETURN_IF_ERROR(idx.prefix_terms(terms.back(), &tail_hits, max_expansions));
+    std::erase_if(tail_hits, [](const LogicalIndexReader::PrefixHit& hit) {
+        return snii::format::is_phrase_bigram_term(hit.term);
+    });
     if (tail_hits.empty()) {
         return Status::OK();
     }

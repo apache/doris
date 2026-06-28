@@ -3,8 +3,8 @@
 #include <utility>
 #include <vector>
 
-#include "snii/query/internal/docid_posting_reader.h"
-#include "snii/query/internal/docid_union.h"
+#include "snii/format/phrase_bigram.h"
+#include "snii/query/internal/term_expansion.h"
 
 namespace snii::query {
 
@@ -33,15 +33,10 @@ Status prefix_query(const LogicalIndexReader& idx, std::string_view prefix, DocI
         return Status::InvalidArgument("prefix_query: null sink");
     }
 
-    std::vector<LogicalIndexReader::PrefixHit> hits;
-    SNII_RETURN_IF_ERROR(idx.prefix_terms(prefix, &hits, max_expansions));
-
-    std::vector<internal::ResolvedDocidPosting> postings;
-    postings.reserve(hits.size());
-    for (LogicalIndexReader::PrefixHit& hit : hits) {
-        postings.push_back({std::move(hit.entry), hit.frq_base, hit.prx_base});
-    }
-    return internal::emit_docid_union(idx, postings, sink);
+    return internal::emit_expanded_docid_union(
+            idx, prefix,
+            [](std::string_view term) { return !snii::format::is_phrase_bigram_term(term); }, sink,
+            max_expansions);
 }
 
 } // namespace snii::query

@@ -56,6 +56,8 @@ public:
 private:
     Status _add_value_tokens(const Slice& value, uint32_t docid, uint32_t position_base,
                              uint32_t* max_position);
+    Status _add_phrase_bigram_tokens(const std::vector<TermInfo>& terms, uint32_t docid,
+                                     uint32_t position_base);
     Status _analyze(const Slice& value, std::vector<TermInfo>* terms);
 
     IndexFileWriter* _index_file_writer = nullptr;
