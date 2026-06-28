@@ -45,10 +45,10 @@ public class CatalogFactory {
     private static final Logger LOG = LogManager.getLogger(CatalogFactory.class);
 
     // Only these catalog types are routed through the SPI connector path.
-    // Other types (hms, iceberg, hudi) still use
+    // Other types (hms, hudi) still use
     // their built-in ExternalCatalog implementations until their ConnectorProviders are fully ready.
     private static final Set<String> SPI_READY_TYPES =
-            ImmutableSet.of("jdbc", "es", "trino-connector", "max_compute", "paimon");
+            ImmutableSet.of("jdbc", "es", "trino-connector", "max_compute", "paimon", "iceberg");
 
     /**
      * create the catalog instance from catalog log.
