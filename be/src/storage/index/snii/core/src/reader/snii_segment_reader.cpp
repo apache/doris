@@ -94,4 +94,20 @@ Status SniiSegmentReader::open_index(uint64_t index_id, std::string_view suffix,
     return LogicalIndexReader::open(reader_, tier, has_positions, meta_bytes, out);
 }
 
+Status SniiSegmentReader::section_refs_for_index(uint64_t index_id, std::string_view suffix,
+                                                 snii::format::SectionRefs* out) const {
+    if (out == nullptr) return Status::InvalidArgument("segment: null section refs out");
+    if (reader_ == nullptr) return Status::InvalidArgument("segment: not opened");
+
+    bool found = false;
+    Slice meta_bytes;
+    SNII_RETURN_IF_ERROR(region_reader_.find(index_id, suffix, &found, &meta_bytes));
+    if (!found) return Status::NotFound("segment: logical index not found");
+
+    PerIndexMetaReader meta;
+    SNII_RETURN_IF_ERROR(PerIndexMetaReader::open(meta_bytes, &meta));
+    *out = meta.section_refs();
+    return Status::OK();
+}
+
 } // namespace snii::reader

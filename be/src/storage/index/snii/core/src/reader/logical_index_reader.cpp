@@ -227,6 +227,14 @@ Status LogicalIndexReader::open(snii::io::FileReader* file_reader, IndexTier tie
     return Status::OK();
 }
 
+size_t LogicalIndexReader::memory_usage() const {
+    size_t bytes = sizeof(*this) + bsbf_resident_bitset_.capacity();
+    for (const auto& block : resident_dict_blocks_) {
+        bytes += sizeof(block) + block.bytes.capacity();
+    }
+    return bytes;
+}
+
 Status LogicalIndexReader::lookup(std::string_view term, bool* found, DictEntry* entry,
                                   uint64_t* frq_base, uint64_t* prx_base) const {
     *found = false;

@@ -74,7 +74,16 @@ struct ReadStatistics {
     int64_t bytes_read_from_local = 0;
     int64_t bytes_read_from_remote = 0;
     int64_t bytes_read_from_peer = 0;
+    int64_t remote_physical_read_count = 0;
+    int64_t remote_physical_read_bytes = 0;
+    int64_t peer_physical_read_count = 0;
+    int64_t peer_physical_read_bytes = 0;
     int64_t bytes_write_into_file_cache = 0;
+    int64_t file_cache_blocks_total = 0;
+    int64_t file_cache_blocks_hit = 0;
+    int64_t file_cache_blocks_miss = 0;
+    int64_t file_cache_blocks_skip = 0;
+    int64_t file_cache_blocks_downloading = 0;
     int64_t remote_read_timer = 0;
     int64_t peer_read_timer = 0;
     int64_t remote_wait_timer = 0; // wait for other downloader

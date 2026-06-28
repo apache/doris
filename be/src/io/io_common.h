@@ -19,6 +19,9 @@
 
 #include <gen_cpp/Types_types.h>
 
+#include <array>
+#include <cstddef>
+#include <cstdint>
 #include <set>
 #include <string>
 
@@ -40,6 +43,15 @@ enum class ReaderType : uint8_t {
 
 namespace io {
 
+enum SniiSectionType : uint8_t {
+    SNII_SECTION_UNKNOWN = 0,
+    SNII_SECTION_META = 1,
+    SNII_SECTION_DICT = 2,
+    SNII_SECTION_POSTING = 3,
+    SNII_SECTION_BSBF = 4,
+    SNII_SECTION_NORMS = 5,
+    SNII_SECTION_NULL_BITMAP = 6,
+    SNII_SECTION_COUNT = 7,
 enum class FileCacheMissPolicy : uint8_t {
     READ_THROUGH_AND_WRITE_BACK = 0,
     REMOTE_ONLY_ON_MISS = 1,
@@ -60,11 +72,20 @@ struct FileCacheStatistics {
     int64_t bytes_read_from_local = 0;
     int64_t bytes_read_from_remote = 0;
     int64_t bytes_read_from_peer = 0;
+    int64_t remote_physical_read_count = 0;
+    int64_t remote_physical_read_bytes = 0;
+    int64_t peer_physical_read_count = 0;
+    int64_t peer_physical_read_bytes = 0;
     int64_t remote_io_timer = 0;
     int64_t peer_io_timer = 0;
     int64_t remote_wait_timer = 0;
     int64_t write_cache_io_timer = 0;
     int64_t bytes_write_into_cache = 0;
+    int64_t file_cache_blocks_total = 0;
+    int64_t file_cache_blocks_hit = 0;
+    int64_t file_cache_blocks_miss = 0;
+    int64_t file_cache_blocks_skip = 0;
+    int64_t file_cache_blocks_downloading = 0;
     int64_t num_skip_cache_io_total = 0;
     int64_t read_cache_file_directly_timer = 0;
     int64_t cache_get_or_set_timer = 0;
@@ -78,6 +99,16 @@ struct FileCacheStatistics {
     int64_t inverted_index_bytes_read_from_local = 0;
     int64_t inverted_index_bytes_read_from_remote = 0;
     int64_t inverted_index_bytes_read_from_peer = 0;
+    int64_t inverted_index_remote_physical_read_count = 0;
+    int64_t inverted_index_remote_physical_read_bytes = 0;
+    int64_t inverted_index_peer_physical_read_count = 0;
+    int64_t inverted_index_peer_physical_read_bytes = 0;
+    int64_t inverted_index_bytes_write_into_cache = 0;
+    int64_t inverted_index_file_cache_blocks_total = 0;
+    int64_t inverted_index_file_cache_blocks_hit = 0;
+    int64_t inverted_index_file_cache_blocks_miss = 0;
+    int64_t inverted_index_file_cache_blocks_skip = 0;
+    int64_t inverted_index_file_cache_blocks_downloading = 0;
     int64_t inverted_index_local_io_timer = 0;
     int64_t inverted_index_remote_io_timer = 0;
     int64_t inverted_index_peer_io_timer = 0;
@@ -87,6 +118,13 @@ struct FileCacheStatistics {
     int64_t inverted_index_range_read_count = 0;
     int64_t inverted_index_serial_read_rounds = 0;
 
+    std::array<int64_t, SNII_SECTION_COUNT> inverted_index_snii_section_read_bytes {};
+    std::array<int64_t, SNII_SECTION_COUNT>
+            inverted_index_snii_section_remote_physical_read_bytes {};
+    std::array<int64_t, SNII_SECTION_COUNT> inverted_index_snii_section_bytes_write_into_cache {};
+    std::array<int64_t, SNII_SECTION_COUNT> inverted_index_snii_section_file_cache_blocks_total {};
+    std::array<int64_t, SNII_SECTION_COUNT> inverted_index_snii_section_file_cache_blocks_hit {};
+    std::array<int64_t, SNII_SECTION_COUNT> inverted_index_snii_section_file_cache_blocks_miss {};
     int64_t segment_footer_index_num_local_io_total = 0;
     int64_t segment_footer_index_num_remote_io_total = 0;
     int64_t segment_footer_index_num_peer_io_total = 0;
@@ -185,6 +223,7 @@ struct IOContext {
     FileCacheStatistics* file_cache_stats = nullptr; // Ref
     FileReaderStats* file_reader_stats = nullptr;    // Ref
     bool is_inverted_index = false;
+    uint8_t snii_section_type = SNII_SECTION_UNKNOWN;
     // if is_dryrun, read IO will download data to cache but return no data to reader
     // useful to skip cache data read from local disk to accelarate warm up
     bool is_dryrun = false;

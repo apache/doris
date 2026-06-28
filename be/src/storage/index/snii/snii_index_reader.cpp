@@ -46,6 +46,7 @@
 #include "storage/index/inverted/inverted_index_cache.h"
 #include "storage/index/inverted/inverted_index_iterator.h"
 #include "storage/index/snii/snii_doris_adapter.h"
+#include "util/time.h"
 
 namespace doris::segment_v2 {
 
@@ -295,6 +296,60 @@ Status SniiIndexReader::_parse_query_terms(const IndexQueryContextPtr& context,
     return Status::OK();
 }
 
+Status SniiIndexReader::_get_logical_reader(
+        const IndexQueryContextPtr& context, InvertedIndexCacheHandle* searcher_cache_handle,
+        std::unique_ptr<snii::reader::LogicalIndexReader>* uncached_reader,
+        const snii::reader::LogicalIndexReader** logical_reader) {
+    DCHECK(searcher_cache_handle != nullptr);
+    DCHECK(uncached_reader != nullptr);
+    DCHECK(logical_reader != nullptr);
+
+    const bool enable_searcher_cache =
+            context->runtime_state != nullptr &&
+            context->runtime_state->query_options().enable_inverted_index_searcher_cache;
+    const auto index_file_key = _index_file_reader->get_index_file_cache_key(&_index_meta);
+    InvertedIndexSearcherCache::CacheKey searcher_cache_key(index_file_key);
+
+    bool cache_hit = false;
+    if (enable_searcher_cache) {
+        SCOPED_RAW_TIMER(&context->stats->inverted_index_lookup_timer);
+        cache_hit = InvertedIndexSearcherCache::instance()->lookup(searcher_cache_key,
+                                                                   searcher_cache_handle);
+    }
+
+    if (cache_hit) {
+        context->stats->inverted_index_searcher_cache_hit++;
+        *logical_reader = searcher_cache_handle->get_snii_logical_reader();
+        if (*logical_reader == nullptr) {
+            return Status::InternalError("SNII searcher cache entry has no logical reader");
+        }
+        return Status::OK();
+    }
+
+    SCOPED_RAW_TIMER(&context->stats->inverted_index_searcher_open_timer);
+    context->stats->inverted_index_searcher_cache_miss++;
+    RETURN_IF_ERROR(
+            _index_file_reader->init(config::inverted_index_read_buffer_size, context->io_ctx));
+    auto opened_reader = DORIS_TRY(_index_file_reader->open_snii_index(&_index_meta));
+
+    if (!enable_searcher_cache) {
+        *logical_reader = opened_reader.get();
+        *uncached_reader = std::move(opened_reader);
+        return Status::OK();
+    }
+
+    const size_t reader_size = std::max<size_t>(opened_reader->memory_usage(), 1);
+    auto* cache_value = new InvertedIndexSearcherCache::CacheValue(
+            std::move(opened_reader), reader_size, UnixMillis(), _index_file_reader);
+    InvertedIndexSearcherCache::instance()->insert(searcher_cache_key, cache_value,
+                                                   searcher_cache_handle);
+    *logical_reader = searcher_cache_handle->get_snii_logical_reader();
+    if (*logical_reader == nullptr) {
+        return Status::InternalError("SNII searcher cache insert produced empty logical reader");
+    }
+    return Status::OK();
+}
+
 Status SniiIndexReader::query(const IndexQueryContextPtr& context, const std::string& column_name,
                               const Field& query_value, InvertedIndexQueryType query_type,
                               std::shared_ptr<roaring::Roaring>& bit_map,
@@ -345,9 +400,11 @@ Status SniiIndexReader::query(const IndexQueryContextPtr& context, const std::st
     }
 
     snii_doris::DorisSniiFileReader::ScopedIOContext io_context_scope(context->io_ctx);
-    RETURN_IF_ERROR(
-            _index_file_reader->init(config::inverted_index_read_buffer_size, context->io_ctx));
-    auto logical_reader = DORIS_TRY(_index_file_reader->open_snii_index(&_index_meta));
+    InvertedIndexCacheHandle searcher_cache_handle;
+    std::unique_ptr<snii::reader::LogicalIndexReader> uncached_reader;
+    const snii::reader::LogicalIndexReader* logical_reader = nullptr;
+    RETURN_IF_ERROR(_get_logical_reader(context, &searcher_cache_handle, &uncached_reader,
+                                        &logical_reader));
 
     SniiQueryExecutionResult query_result;
     RETURN_IF_ERROR(execute_snii_query(*logical_reader, query_type, query_info, search_str, terms,
@@ -376,9 +433,11 @@ Status SniiIndexReader::read_null_bitmap(const IndexQueryContextPtr& context,
     }
 
     snii_doris::DorisSniiFileReader::ScopedIOContext io_context_scope(context->io_ctx);
-    RETURN_IF_ERROR(
-            _index_file_reader->init(config::inverted_index_read_buffer_size, context->io_ctx));
-    auto logical_reader = DORIS_TRY(_index_file_reader->open_snii_index(&_index_meta));
+    InvertedIndexCacheHandle searcher_cache_handle;
+    std::unique_ptr<snii::reader::LogicalIndexReader> uncached_reader;
+    const snii::reader::LogicalIndexReader* logical_reader = nullptr;
+    RETURN_IF_ERROR(_get_logical_reader(context, &searcher_cache_handle, &uncached_reader,
+                                        &logical_reader));
     auto null_bitmap = std::make_shared<roaring::Roaring>();
     const auto& ref = logical_reader->section_refs().null_bitmap;
     if (ref.length > 0) {

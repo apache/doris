@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <string_view>
@@ -91,6 +92,7 @@ public:
     snii::format::IndexTier tier() const { return tier_; }
     bool has_positions() const { return has_positions_; }
     snii::io::FileReader* reader() const { return reader_; }
+    size_t memory_usage() const;
 
 private:
     snii::io::FileReader* reader_ = nullptr;

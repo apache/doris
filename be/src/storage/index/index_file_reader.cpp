@@ -158,7 +158,14 @@ Status IndexFileReader::_init_snii(const io::IOContext* io_ctx) {
     RETURN_IF_ERROR(_fs->open_file(index_file_full_path, &reader, &opts));
     _snii_file_reader = std::make_shared<snii_doris::DorisSniiFileReader>(std::move(reader));
     _snii_segment_reader = std::make_unique<snii::reader::SniiSegmentReader>();
-    snii_doris::DorisSniiFileReader::ScopedIOContext io_context_scope(io_ctx);
+    io::IOContext meta_io_ctx;
+    if (io_ctx != nullptr) {
+        meta_io_ctx = *io_ctx;
+    }
+    meta_io_ctx.is_inverted_index = true;
+    meta_io_ctx.is_index_data = true;
+    meta_io_ctx.snii_section_type = io::SNII_SECTION_META;
+    snii_doris::DorisSniiFileReader::ScopedIOContext io_context_scope(&meta_io_ctx);
     RETURN_IF_ERROR(snii_doris::to_doris_status(snii::reader::SniiSegmentReader::open(
             _snii_file_reader.get(), _snii_segment_reader.get())));
     return Status::OK();
@@ -275,11 +282,20 @@ Result<std::unique_ptr<snii::reader::LogicalIndexReader>> IndexFileReader::open_
                 "SNII index file {} is not opened",
                 InvertedIndexDescriptor::get_index_file_path_v2(_index_path_prefix)));
     }
-    auto logical_reader = std::make_unique<snii::reader::LogicalIndexReader>();
-    auto status =
-            _snii_segment_reader->open_index(cast_set<uint64_t>(index_meta->index_id()),
-                                             index_meta->get_index_suffix(), logical_reader.get());
+    snii::format::SectionRefs section_refs;
+    auto status = _snii_segment_reader->section_refs_for_index(
+            cast_set<uint64_t>(index_meta->index_id()), index_meta->get_index_suffix(),
+            &section_refs);
     auto doris_status = snii_doris::to_doris_status(status);
+    if (!doris_status.ok()) {
+        return ResultError(doris_status);
+    }
+    _snii_file_reader->register_section_refs(section_refs);
+
+    auto logical_reader = std::make_unique<snii::reader::LogicalIndexReader>();
+    status = _snii_segment_reader->open_index(cast_set<uint64_t>(index_meta->index_id()),
+                                              index_meta->get_index_suffix(), logical_reader.get());
+    doris_status = snii_doris::to_doris_status(status);
     if (!doris_status.ok()) {
         return ResultError(doris_status);
     }

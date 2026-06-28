@@ -24,6 +24,10 @@
 #include "storage/index/inverted/inverted_index_query_type.h"
 #include "storage/index/inverted/inverted_index_reader.h"
 
+namespace snii::reader {
+class LogicalIndexReader;
+} // namespace snii::reader
+
 namespace doris::segment_v2 {
 
 class SniiIndexReader final : public InvertedIndexReader {
@@ -53,6 +57,10 @@ private:
                               InvertedIndexQueryType query_type,
                               const InvertedIndexAnalyzerCtx* analyzer_ctx,
                               InvertedIndexQueryInfo* query_info);
+    Status _get_logical_reader(const IndexQueryContextPtr& context,
+                               InvertedIndexCacheHandle* searcher_cache_handle,
+                               std::unique_ptr<snii::reader::LogicalIndexReader>* uncached_reader,
+                               const snii::reader::LogicalIndexReader** logical_reader);
 
     InvertedIndexReaderType _reader_type;
 };

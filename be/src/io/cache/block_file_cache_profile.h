@@ -19,6 +19,7 @@
 
 #include <gen_cpp/Metrics_types.h>
 
+#include <array>
 #include <atomic>
 #include <cstdint>
 #include <memory>
@@ -77,11 +78,20 @@ struct FileCacheProfileReporter {
     RuntimeProfile::Counter* bytes_scanned_from_cache = nullptr;
     RuntimeProfile::Counter* bytes_scanned_from_remote = nullptr;
     RuntimeProfile::Counter* bytes_scanned_from_peer = nullptr;
+    RuntimeProfile::Counter* remote_physical_read_bytes = nullptr;
+    RuntimeProfile::Counter* remote_physical_read_count = nullptr;
+    RuntimeProfile::Counter* peer_physical_read_bytes = nullptr;
+    RuntimeProfile::Counter* peer_physical_read_count = nullptr;
     RuntimeProfile::Counter* remote_io_timer = nullptr;
     RuntimeProfile::Counter* peer_io_timer = nullptr;
     RuntimeProfile::Counter* remote_wait_timer = nullptr;
     RuntimeProfile::Counter* write_cache_io_timer = nullptr;
     RuntimeProfile::Counter* bytes_write_into_cache = nullptr;
+    RuntimeProfile::Counter* file_cache_blocks_total = nullptr;
+    RuntimeProfile::Counter* file_cache_blocks_hit = nullptr;
+    RuntimeProfile::Counter* file_cache_blocks_miss = nullptr;
+    RuntimeProfile::Counter* file_cache_blocks_skip = nullptr;
+    RuntimeProfile::Counter* file_cache_blocks_downloading = nullptr;
     RuntimeProfile::Counter* num_skip_cache_io_total = nullptr;
     RuntimeProfile::Counter* read_cache_file_directly_timer = nullptr;
     RuntimeProfile::Counter* cache_get_or_set_timer = nullptr;
@@ -95,6 +105,16 @@ struct FileCacheProfileReporter {
     RuntimeProfile::Counter* inverted_index_bytes_scanned_from_cache = nullptr;
     RuntimeProfile::Counter* inverted_index_bytes_scanned_from_remote = nullptr;
     RuntimeProfile::Counter* inverted_index_bytes_scanned_from_peer = nullptr;
+    RuntimeProfile::Counter* inverted_index_remote_physical_read_bytes = nullptr;
+    RuntimeProfile::Counter* inverted_index_remote_physical_read_count = nullptr;
+    RuntimeProfile::Counter* inverted_index_peer_physical_read_bytes = nullptr;
+    RuntimeProfile::Counter* inverted_index_peer_physical_read_count = nullptr;
+    RuntimeProfile::Counter* inverted_index_bytes_write_into_cache = nullptr;
+    RuntimeProfile::Counter* inverted_index_file_cache_blocks_total = nullptr;
+    RuntimeProfile::Counter* inverted_index_file_cache_blocks_hit = nullptr;
+    RuntimeProfile::Counter* inverted_index_file_cache_blocks_miss = nullptr;
+    RuntimeProfile::Counter* inverted_index_file_cache_blocks_skip = nullptr;
+    RuntimeProfile::Counter* inverted_index_file_cache_blocks_downloading = nullptr;
     RuntimeProfile::Counter* inverted_index_local_io_timer = nullptr;
     RuntimeProfile::Counter* inverted_index_remote_io_timer = nullptr;
     RuntimeProfile::Counter* inverted_index_peer_io_timer = nullptr;
@@ -103,6 +123,18 @@ struct FileCacheProfileReporter {
     RuntimeProfile::Counter* inverted_index_read_bytes = nullptr;
     RuntimeProfile::Counter* inverted_index_range_read_count = nullptr;
     RuntimeProfile::Counter* inverted_index_serial_read_rounds = nullptr;
+    std::array<RuntimeProfile::Counter*, SNII_SECTION_COUNT>
+            inverted_index_snii_section_read_bytes {};
+    std::array<RuntimeProfile::Counter*, SNII_SECTION_COUNT>
+            inverted_index_snii_section_remote_physical_read_bytes {};
+    std::array<RuntimeProfile::Counter*, SNII_SECTION_COUNT>
+            inverted_index_snii_section_bytes_write_into_cache {};
+    std::array<RuntimeProfile::Counter*, SNII_SECTION_COUNT>
+            inverted_index_snii_section_file_cache_blocks_total {};
+    std::array<RuntimeProfile::Counter*, SNII_SECTION_COUNT>
+            inverted_index_snii_section_file_cache_blocks_hit {};
+    std::array<RuntimeProfile::Counter*, SNII_SECTION_COUNT>
+            inverted_index_snii_section_file_cache_blocks_miss {};
 
     RuntimeProfile::Counter* segment_footer_index_num_local_io_total = nullptr;
     RuntimeProfile::Counter* segment_footer_index_num_remote_io_total = nullptr;
