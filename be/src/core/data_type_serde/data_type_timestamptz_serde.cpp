@@ -274,13 +274,8 @@ Status DataTypeTimeStampTzSerDe::read_column_from_orc(const std::string& /* time
         }
 
         DateV2Value<DateTimeV2ValueType> utc_dt;
-        utc_dt.from_unixtime(cur_batch->data[row_id], UTC);
-
-        CastParameters params {.status = Status::OK(), .is_strict = false};
-        if (!init_microsecond<DatelikeParseMode::NON_STRICT>(cur_batch->nanoseconds[row_id], 9,
-                                                             utc_dt, _scale, params)) {
-            return params.status;
-        }
+        utc_dt.from_unixtime(cur_batch->data[row_id],
+                             static_cast<int32_t>(cur_batch->nanoseconds[row_id]), UTC, _scale);
         col_data[result_index] = TimestampTzValue(utc_dt);
     }
     return Status::OK();

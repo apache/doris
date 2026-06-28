@@ -28,6 +28,7 @@
 #include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_struct.h"
+#include "core/data_type/data_type_timestamptz.h"
 #include "core/types.h"
 #include "format/orc/orc_memory_stream_test.h"
 #include "format/orc/vorc_reader.h"
@@ -204,7 +205,7 @@ TEST_F(OrcReaderFillDataTest, SchemaChangeNullableNullMapUsesAppendedSlice) {
     EXPECT_EQ(null_map[4], 1);
 }
 
-TEST_F(OrcReaderFillDataTest, TimestampRoundsOrcNanosToMicros) {
+TEST_F(OrcReaderFillDataTest, TimestampTruncatesOrcNanosToMicros) {
     auto batch = create_timestamp_batch(1, {0}, {320999999});
     auto data_type = std::make_shared<DataTypeDateTimeV2>(6);
     auto column = data_type->create_column();
@@ -221,11 +222,32 @@ TEST_F(OrcReaderFillDataTest, TimestampRoundsOrcNanosToMicros) {
     ASSERT_TRUE(status.ok()) << status.to_string();
     const auto& timestamp_column = assert_cast<const ColumnDateTimeV2&>(*mutable_column);
     ASSERT_EQ(timestamp_column.size(), 1);
-    EXPECT_EQ(timestamp_column.get_data()[0].microsecond(), 321000);
-    EXPECT_EQ(data_type->to_string(timestamp_column.get_data()[0]), "1970-01-01 00:00:00.321000");
+    EXPECT_EQ(timestamp_column.get_data()[0].microsecond(), 320999);
+    EXPECT_EQ(data_type->to_string(timestamp_column.get_data()[0]), "1970-01-01 00:00:00.320999");
 }
 
-TEST_F(OrcReaderFillDataTest, NestedTimestampRoundsOrcNanosToMicros) {
+TEST_F(OrcReaderFillDataTest, TimestampTzTruncatesOrcNanosToMicros) {
+    auto batch = create_timestamp_batch(1, {0}, {320999999});
+    auto data_type = std::make_shared<DataTypeTimeStampTz>(6);
+    auto column = data_type->create_column();
+    auto orc_type_ptr = createPrimitiveType(orc::TypeKind::TIMESTAMP);
+
+    TFileScanRangeParams params;
+    TFileRangeDesc range;
+    auto reader = OrcReader::create_unique(params, range, 4064, "UTC", nullptr, nullptr, true);
+
+    MutableColumnPtr mutable_column = column->assert_mutable();
+    Status status =
+            reader->_fill_doris_data_column<false>("test_ts_tz", mutable_column, data_type,
+                                                   const_node, orc_type_ptr.get(), batch.get(), 1);
+
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    const auto& timestamp_column = assert_cast<const ColumnTimeStampTz&>(*mutable_column);
+    ASSERT_EQ(timestamp_column.size(), 1);
+    EXPECT_EQ(timestamp_column.get_data()[0].microsecond(), 320999);
+}
+
+TEST_F(OrcReaderFillDataTest, NestedTimestampTruncatesOrcNanosToMicros) {
     using namespace orc;
     std::unique_ptr<orc::Type> type(
             orc::Type::buildTypeFromString("struct<col1:array<timestamp>>"));
@@ -271,7 +293,7 @@ TEST_F(OrcReaderFillDataTest, NestedTimestampRoundsOrcNanosToMicros) {
             assert_cast<const ColumnDateTimeV2&>(nullable_timestamp_column.get_nested_column());
 
     ASSERT_EQ(timestamp_column.size(), 1);
-    EXPECT_EQ(timestamp_column.get_data()[0].microsecond(), 321000);
+    EXPECT_EQ(timestamp_column.get_data()[0].microsecond(), 320999);
 }
 
 TEST_F(OrcReaderFillDataTest, ComplexTypeConversionTest) {

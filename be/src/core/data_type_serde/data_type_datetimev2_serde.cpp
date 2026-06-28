@@ -530,13 +530,8 @@ Status DataTypeDateTimeV2SerDe::read_column_from_orc(const std::string& timezone
         }
 
         auto& value = col_data[result_index];
-        value.from_unixtime(cur_batch->data[row_id], ctz);
-
-        CastParameters params {.status = Status::OK(), .is_strict = false};
-        if (!init_microsecond<DatelikeParseMode::NON_STRICT>(cur_batch->nanoseconds[row_id], 9,
-                                                             value, _scale, params)) {
-            return params.status;
-        }
+        value.from_unixtime(cur_batch->data[row_id],
+                            static_cast<int32_t>(cur_batch->nanoseconds[row_id]), ctz, _scale);
     }
     return Status::OK();
 }
