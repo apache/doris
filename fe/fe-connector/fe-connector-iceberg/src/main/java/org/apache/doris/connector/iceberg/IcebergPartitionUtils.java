@@ -17,35 +17,52 @@
 
 package org.apache.doris.connector.iceberg;
 
+import org.apache.doris.connector.api.mvcc.ConnectorMvccPartition;
+import org.apache.doris.connector.api.mvcc.ConnectorMvccPartitionView;
+
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.google.common.base.Preconditions;
+import org.apache.iceberg.FileScanTask;
+import org.apache.iceberg.MetadataTableType;
+import org.apache.iceberg.MetadataTableUtils;
 import org.apache.iceberg.PartitionData;
 import org.apache.iceberg.PartitionField;
 import org.apache.iceberg.PartitionSpec;
+import org.apache.iceberg.Snapshot;
+import org.apache.iceberg.StructLike;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.types.Type;
 import org.apache.iceberg.types.Type.TypeID;
 import org.apache.iceberg.types.Types.NestedField;
 import org.apache.iceberg.types.Types.TimestampType;
 import org.apache.iceberg.util.JsonUtil;
+import org.apache.iceberg.util.StructProjection;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.IOException;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
+import java.time.Month;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeFormatterBuilder;
 import java.time.temporal.ChronoField;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Self-contained port of the legacy fe-core {@code IcebergUtils} partition helpers used by the scan path
@@ -329,6 +346,394 @@ final class IcebergPartitionUtils {
         } catch (Exception e) {
             LOG.warn("Failed to parse partition data JSON: {}", partitionDataJson, e);
             return new ArrayList<>();
+        }
+    }
+
+    // ─────────────────────────── B-2: MTMV partition enumeration (RANGE view) ───────────────────────────
+    // Self-contained port of the legacy fe-core iceberg MTMV partition logic — the connector cannot import
+    // fe-core, so it emits a NEUTRAL ConnectorMvccPartitionView (pre-rendered string bounds + resolved
+    // snapshot-id freshness) and the generic PluginDrivenMvccExternalTable assembles the RangePartitionItems.
+    // Source: master IcebergExternalTable.isValidRelatedTable / getPartitionSnapshot + IcebergUtils
+    // .loadPartitionInfo / loadIcebergPartition / generateIcebergPartition / getPartitionRange /
+    // mergeOverlapPartitions + IcebergPartitionInfo.getLatestSnapshotId.
+
+    private static final String YEAR = "year";
+    private static final String MONTH = "month";
+    private static final String DAY = "day";
+    private static final String HOUR = "hour";
+
+    // Iceberg partition field id starts at PARTITION_DATA_ID_START (org.apache.iceberg.PartitionSpec).
+    private static final int PARTITION_DATA_ID_START = 1000;
+    // Master IcebergUtils.UNKNOWN_SNAPSHOT_ID: an empty table / a null last_updated_snapshot_id row.
+    private static final long UNKNOWN_SNAPSHOT_ID = -1;
+
+    private static final DateTimeFormatter RANGE_DATE_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd");
+    private static final DateTimeFormatter RANGE_DATETIME_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+
+    // Sort by partition-range LOW ascending; ties broken by HIGH descending (larger range first), so an
+    // enclosing partition precedes the ones it encloses. Parity with master IcebergUtils.RangeComparator.
+    private static final Comparator<RangeBuild> RANGE_COMPARATOR = (p1, p2) -> {
+        int cmpLow = p1.lower.compareTo(p2.lower);
+        return cmpLow == 0 ? p2.upper.compareTo(p1.upper) : cmpLow;
+    };
+
+    /**
+     * Builds the connector-supplied {@link ConnectorMvccPartitionView} for an iceberg table acting as an MTMV
+     * related (base) table. Port of master {@code IcebergExternalTable.getPartitionType} +
+     * {@code IcebergUtils.loadPartitionInfo}: the eligibility gate decides RANGE vs UNPARTITIONED; the PARTITIONS
+     * metadata table is enumerated at {@code pinnedSnapshotId} (or the table's CURRENT snapshot when it is
+     * {@code < 0}); transform math yields each partition's {@code [lower, upper)} range; overlapping
+     * (partition-evolution) ranges are merged; per-partition freshness is the resolved iceberg snapshot id. Must
+     * be invoked inside {@code context.executeAuthenticated} (the PARTITIONS scan is a remote read).
+     *
+     * @param pinnedSnapshotId the query's pinned snapshot id (so the partition set + freshness stay consistent
+     *        with the data-scan pin — the caller threads {@code beginQuerySnapshot}'s snapshot through the
+     *        handle), or {@code < 0} to enumerate at the table's current (latest) snapshot.
+     */
+    static ConnectorMvccPartitionView buildMvccPartitionView(Table table, long pinnedSnapshotId) {
+        if (!isValidRelatedTable(table)) {
+            return ConnectorMvccPartitionView.unpartitioned();
+        }
+        long snapshotId;
+        if (pinnedSnapshotId >= 0) {
+            snapshotId = pinnedSnapshotId;
+        } else {
+            Snapshot current = table.currentSnapshot();
+            if (current == null) {
+                // A valid related table that is still empty (no snapshot yet): RANGE on the spec alone, with no
+                // partitions. Parity: master getPartitionType=RANGE (spec-only) + getIcebergPartitionItems empty.
+                return new ConnectorMvccPartitionView(ConnectorMvccPartitionView.Style.RANGE,
+                        ConnectorMvccPartitionView.Freshness.SNAPSHOT_ID, Collections.emptyList());
+            }
+            snapshotId = current.snapshotId();
+        }
+        // The freshness fallback base = the enumeration snapshot (master uses snapshotValue.getSnapshot()
+        // .getSnapshotId(), which is the same snapshot the partition info is loaded at).
+        long tableSnapshotId = snapshotId;
+        // The gate guarantees a single, stable source column across all specs, so any spec's field-0 sourceId
+        // resolves the same source column; its iceberg type drives DATE-vs-DATETIME bound rendering.
+        int sourceId = table.spec().fields().get(0).sourceId();
+        Type sourceType = table.schema().findField(sourceId).type();
+
+        // Deduplicate by partition name (last-wins) BEFORE the merge, exactly like master, which keys both
+        // nameToIcebergPartition and nameToPartitionItem by name (IcebergUtils.loadPartitionInfo) so a name can
+        // never enclose its own twin. The overlap merge below MUST run over this deduped set (not the raw rows):
+        // two rows rendering the same field=value name have byte-identical ranges, and feeding both to the merge
+        // would make the name self-enclose and be dropped (0 partitions where master keeps 1).
+        Map<String, RangeBuild> allByName = new LinkedHashMap<>();
+        for (IcebergRawPartition raw : loadRawPartitions(table, snapshotId)) {
+            RangeBuild rb = buildRange(raw.name, raw.values.get(0), raw.transforms.get(0), sourceType,
+                    raw.lastUpdateTime, raw.lastSnapshotId);
+            allByName.put(rb.name, rb);
+        }
+
+        Set<String> survivors = new LinkedHashSet<>(allByName.keySet());
+        Map<String, Set<String>> mergeMap =
+                mergeOverlapPartitions(new ArrayList<>(allByName.values()), survivors);
+
+        List<ConnectorMvccPartition> partitions = new ArrayList<>(survivors.size());
+        for (RangeBuild rb : allByName.values()) {
+            if (!survivors.contains(rb.name)) {
+                continue;   // enclosed by another partition -> merged away (master removes from originPartitions)
+            }
+            long latest = latestSnapshotId(rb.name, mergeMap, allByName);
+            // Parity master getPartitionSnapshot: partition snapshot id <= 0 falls back to the table snapshot
+            // id (always > 0 here — the empty-table case returned above), so no "table snapshot also invalid"
+            // throw is reachable for a non-empty table.
+            long freshness = latest > 0 ? latest : tableSnapshotId;
+            partitions.add(new ConnectorMvccPartition(rb.name, rb.lowerBound, rb.upperBound, freshness));
+        }
+        // Deterministic order (the generic model re-keys by name; sorting only stabilizes tests/diagnostics).
+        partitions.sort(Comparator.comparing(ConnectorMvccPartition::getName));
+        return new ConnectorMvccPartitionView(ConnectorMvccPartitionView.Style.RANGE,
+                ConnectorMvccPartitionView.Freshness.SNAPSHOT_ID, partitions);
+    }
+
+    /**
+     * The raw iceberg partition display names ({@code "f1=v1/f2=v2"}) of {@code table} at its CURRENT snapshot,
+     * for SHOW PARTITIONS (single-column form). Unlike {@link #buildMvccPartitionView} this is NOT gated on the
+     * MTMV eligibility rules — it lists the physical partitions of ANY partitioned iceberg table. An
+     * unpartitioned or empty table yields an empty list. Must run inside {@code context.executeAuthenticated}.
+     */
+    static List<String> listPartitionNames(Table table) {
+        if (table.spec().isUnpartitioned()) {
+            return Collections.emptyList();
+        }
+        Snapshot current = table.currentSnapshot();
+        if (current == null) {
+            return Collections.emptyList();
+        }
+        List<IcebergRawPartition> raws = loadRawPartitions(table, current.snapshotId());
+        List<String> names = new ArrayList<>(raws.size());
+        for (IcebergRawPartition raw : raws) {
+            names.add(raw.name);
+        }
+        return names;
+    }
+
+    /**
+     * Port of master {@code IcebergExternalTable.isValidRelatedTable}: an iceberg table is a valid MTMV related
+     * table iff EVERY partition spec has exactly one field whose transform is {@code year}/{@code month}/{@code
+     * day}/{@code hour}, and the partition source column is stable across partition evolution (a single distinct
+     * source column over all specs). Failure -> the connector reports an UNPARTITIONED view.
+     */
+    static boolean isValidRelatedTable(Table table) {
+        Set<String> allFields = new HashSet<>();
+        for (PartitionSpec spec : table.specs().values()) {
+            if (spec == null) {
+                return false;
+            }
+            List<PartitionField> fields = spec.fields();
+            if (fields.size() != 1) {
+                return false;
+            }
+            PartitionField partitionField = fields.get(0);
+            String transformName = partitionField.transform().toString();
+            if (!YEAR.equals(transformName) && !MONTH.equals(transformName)
+                    && !DAY.equals(transformName) && !HOUR.equals(transformName)) {
+                return false;
+            }
+            allFields.add(table.schema().findColumnName(partitionField.sourceId()));
+        }
+        return allFields.size() == 1;
+    }
+
+    /**
+     * Port of master {@code IcebergUtils.loadIcebergPartition} + {@code generateIcebergPartition}: scan the
+     * PARTITIONS metadata table at {@code snapshotId} and reduce each row to an {@link IcebergRawPartition}.
+     * {@code last_updated_at} (row 9) / {@code last_updated_snapshot_id} (row 10) are optional, so a missing
+     * value (NPE on the typed getter) degrades to {@code 0} / {@code UNKNOWN_SNAPSHOT_ID}, exactly like master.
+     */
+    private static List<IcebergRawPartition> loadRawPartitions(Table table, long snapshotId) {
+        Table partitionsTable = MetadataTableUtils.createMetadataTableInstance(table, MetadataTableType.PARTITIONS);
+        List<IcebergRawPartition> partitions = new ArrayList<>();
+        try (CloseableIterable<FileScanTask> tasks = partitionsTable.newScan().useSnapshot(snapshotId).planFiles()) {
+            for (FileScanTask task : tasks) {
+                CloseableIterable<StructLike> rows = task.asDataTask().rows();
+                for (StructLike row : rows) {
+                    partitions.add(generateRawPartition(table, row));
+                }
+            }
+        } catch (IOException e) {
+            LOG.warn("Failed to get Iceberg table {} partition info.", table.name(), e);
+        }
+        return partitions;
+    }
+
+    private static IcebergRawPartition generateRawPartition(Table table, StructLike row) {
+        // PARTITIONS row layout: 0 partitionData, 1 spec_id, 2 record_count, 3 file_count,
+        // 4 total_data_file_size_in_bytes, 5..8 position/equality delete stats, 9 last_updated_at,
+        // 10 last_updated_snapshot_id. Only 0/1/9/10 are needed by the MTMV partition view.
+        Preconditions.checkState(!table.spec().fields().isEmpty(), table.name() + " is not a partition table.");
+        int specId = row.get(1, Integer.class);
+        PartitionSpec partitionSpec = table.specs().get(specId);
+        StructProjection partitionData = row.get(0, StructProjection.class);
+        StringBuilder sb = new StringBuilder();
+        List<String> partitionValues = new ArrayList<>();
+        List<String> transforms = new ArrayList<>();
+        for (int i = 0; i < partitionSpec.fields().size(); ++i) {
+            PartitionField partitionField = partitionSpec.fields().get(i);
+            Class<?> fieldClass = partitionSpec.javaClasses()[i];
+            int fieldId = partitionField.fieldId();
+            // Iceberg partition field id starts at PARTITION_DATA_ID_START, so the index into partitionData is
+            // fieldId - PARTITION_DATA_ID_START.
+            int index = fieldId - PARTITION_DATA_ID_START;
+            Object o = partitionData.get(index, fieldClass);
+            String fieldValue = o == null ? null : o.toString();
+            sb.append(partitionField.name()).append("=").append(fieldValue).append("/");
+            partitionValues.add(fieldValue);
+            transforms.add(partitionField.transform().toString());
+        }
+        if (sb.length() > 0) {
+            sb.delete(sb.length() - 1, sb.length());
+        }
+        long lastUpdateTime;
+        long lastSnapshotId;
+        try {
+            lastUpdateTime = row.get(9, Long.class);
+        } catch (NullPointerException e) {
+            lastUpdateTime = 0;
+        }
+        try {
+            lastSnapshotId = row.get(10, Long.class);
+        } catch (NullPointerException e) {
+            lastSnapshotId = UNKNOWN_SNAPSHOT_ID;
+        }
+        return new IcebergRawPartition(sb.toString(), partitionValues, transforms, lastUpdateTime, lastSnapshotId);
+    }
+
+    /**
+     * Port of master {@code IcebergUtils.getPartitionRange}, but emits PRE-RENDERED string bounds (fe-core owns
+     * {@code PartitionKey}). The {@code [lower, upper)} {@link LocalDateTime} interval is kept for the overlap
+     * merge; the string bounds are rendered with the partition source column's date/datetime form. A NULL
+     * partition value yields lower {@code "0000-01-01"} and an EMPTY upper bound — the signal for the generic
+     * model to derive the exclusive upper as {@code lowerKey.successor()} (which is column-type/scale aware and
+     * lives in fe-core), matching master's {@code nullLowKey.successor()}.
+     */
+    static RangeBuild buildRange(String name, String value, String transform, Type sourceType,
+            long lastUpdateTime, long lastSnapshotId) {
+        if (value == null) {
+            LocalDateTime nullLower = LocalDateTime.of(0, 1, 1, 0, 0, 0);
+            return new RangeBuild(name, nullLower, nullLower.plusDays(1),
+                    Collections.singletonList("0000-01-01"), Collections.emptyList(),
+                    lastUpdateTime, lastSnapshotId);
+        }
+        LocalDateTime epoch = Instant.EPOCH.atZone(ZoneId.of("UTC")).toLocalDateTime();
+        long longValue = Long.parseLong(value);
+        LocalDateTime target;
+        LocalDateTime lower;
+        LocalDateTime upper;
+        switch (transform) {
+            case HOUR:
+                target = epoch.plusHours(longValue);
+                lower = LocalDateTime.of(target.getYear(), target.getMonth(), target.getDayOfMonth(),
+                        target.getHour(), 0, 0);
+                upper = lower.plusHours(1);
+                break;
+            case DAY:
+                target = epoch.plusDays(longValue);
+                lower = LocalDateTime.of(target.getYear(), target.getMonth(), target.getDayOfMonth(), 0, 0, 0);
+                upper = lower.plusDays(1);
+                break;
+            case MONTH:
+                target = epoch.plusMonths(longValue);
+                lower = LocalDateTime.of(target.getYear(), target.getMonth(), 1, 0, 0, 0);
+                upper = lower.plusMonths(1);
+                break;
+            case YEAR:
+                target = epoch.plusYears(longValue);
+                lower = LocalDateTime.of(target.getYear(), Month.JANUARY, 1, 0, 0, 0);
+                upper = lower.plusYears(1);
+                break;
+            default:
+                throw new RuntimeException("Unsupported transform " + transform);
+        }
+        // Master renders the bound with the Doris partition-column type (the source column): iceberg DATE ->
+        // "yyyy-MM-dd", iceberg TIMESTAMP/TIMESTAMPTZ -> "yyyy-MM-dd HH:mm:ss" (HOUR's source is always a
+        // timestamp). Equivalent to master's c.getType().isDate()||isDateV2() formatter switch.
+        DateTimeFormatter formatter = sourceType.typeId() == TypeID.DATE ? RANGE_DATE_FORMAT : RANGE_DATETIME_FORMAT;
+        return new RangeBuild(name, lower, upper,
+                Collections.singletonList(lower.format(formatter)),
+                Collections.singletonList(upper.format(formatter)),
+                lastUpdateTime, lastSnapshotId);
+    }
+
+    /**
+     * Port of master {@code IcebergUtils.mergeOverlapPartitions}: merge an enclosed partition's range into the
+     * enclosing one (a partition-evolution DAY range inside a MONTH range becomes one Doris partition). Removes
+     * the enclosed names from {@code survivors} (mutated in place, mirroring master's {@code originPartitions
+     * .remove}) and returns the enclosing-name -> {enclosing + enclosed names} map used to resolve the merged
+     * partition's freshness. The merge is on aligned time {@link LocalDateTime} intervals, equivalent to
+     * master's {@code Range<PartitionKey>.encloses} (year/month/day/hour ranges never partially intersect).
+     */
+    static Map<String, Set<String>> mergeOverlapPartitions(List<RangeBuild> builds, Set<String> survivors) {
+        List<RangeBuild> entries = new ArrayList<>(builds);
+        entries.sort(RANGE_COMPARATOR);
+        Map<String, Set<String>> map = new HashMap<>();
+        for (int i = 0; i < entries.size() - 1; i++) {
+            RangeBuild first = entries.get(i);
+            String firstKey = first.name;
+            RangeBuild second = entries.get(i + 1);
+            String secondKey = second.name;
+            while (i < entries.size() && encloses(first, second)) {
+                survivors.remove(secondKey);
+                map.putIfAbsent(firstKey, new HashSet<>(Collections.singleton(firstKey)));
+                final String finalSecondKey = secondKey;
+                map.computeIfPresent(firstKey, (key, value) -> {
+                    value.add(finalSecondKey);
+                    return value;
+                });
+                i++;
+                if (i >= entries.size() - 1) {
+                    break;
+                }
+                second = entries.get(i + 1);
+                secondKey = second.name;
+            }
+        }
+        return map;
+    }
+
+    /** Closed-open {@code a} encloses {@code b} iff {@code a.lower <= b.lower && b.upper <= a.upper}. */
+    private static boolean encloses(RangeBuild a, RangeBuild b) {
+        return !a.lower.isAfter(b.lower) && !b.upper.isAfter(a.upper);
+    }
+
+    /**
+     * Port of master {@code IcebergPartitionInfo.getLatestSnapshotId}: for a merged (enclosing) partition, the
+     * snapshot id of the most-recently-updated iceberg partition in its merge set (skipping {@code <= 0} update
+     * times); for a standalone partition, its own last snapshot id. The lookup uses {@code allByName} (the FULL
+     * set), NOT the survivor set — master keeps {@code nameToIcebergPartition} complete and only prunes the item
+     * map, so an enclosed partition's snapshot id is still resolvable here.
+     */
+    static long latestSnapshotId(String name, Map<String, Set<String>> mergeMap,
+            Map<String, RangeBuild> allByName) {
+        Set<String> mergedNames = mergeMap.get(name);
+        if (mergedNames == null) {
+            return allByName.get(name).lastSnapshotId;
+        }
+        long latestSnapshotId = -1;
+        long latestUpdateTime = -1;
+        for (String mergedName : mergedNames) {
+            RangeBuild partition = allByName.get(mergedName);
+            long lastUpdateTime = partition.lastUpdateTime;
+            // Skip partitions with invalid update time (<= 0 means unknown/invalid).
+            if (lastUpdateTime <= 0) {
+                continue;
+            }
+            if (latestUpdateTime < lastUpdateTime) {
+                latestUpdateTime = lastUpdateTime;
+                latestSnapshotId = partition.lastSnapshotId;
+            }
+        }
+        return latestSnapshotId;
+    }
+
+    /** One PARTITIONS-metadata-table row reduced to what the MTMV partition view needs (port of IcebergPartition). */
+    private static final class IcebergRawPartition {
+        private final String name;
+        private final List<String> values;
+        private final List<String> transforms;
+        private final long lastUpdateTime;
+        private final long lastSnapshotId;
+
+        IcebergRawPartition(String name, List<String> values, List<String> transforms,
+                long lastUpdateTime, long lastSnapshotId) {
+            this.name = name;
+            this.values = values;
+            this.transforms = transforms;
+            this.lastUpdateTime = lastUpdateTime;
+            this.lastSnapshotId = lastSnapshotId;
+        }
+    }
+
+    /** A single physical partition's computed range: time interval (for the overlap merge) + pre-rendered bounds. */
+    static final class RangeBuild {
+        private final String name;
+        private final LocalDateTime lower;
+        private final LocalDateTime upper;
+        private final List<String> lowerBound;
+        private final List<String> upperBound;   // empty => NULL-min partition; fe-core derives lower.successor()
+        private final long lastUpdateTime;
+        private final long lastSnapshotId;
+
+        RangeBuild(String name, LocalDateTime lower, LocalDateTime upper, List<String> lowerBound,
+                List<String> upperBound, long lastUpdateTime, long lastSnapshotId) {
+            this.name = name;
+            this.lower = lower;
+            this.upper = upper;
+            this.lowerBound = lowerBound;
+            this.upperBound = upperBound;
+            this.lastUpdateTime = lastUpdateTime;
+            this.lastSnapshotId = lastSnapshotId;
+        }
+
+        List<String> getLowerBound() {
+            return lowerBound;
+        }
+
+        List<String> getUpperBound() {
+            return upperBound;
         }
     }
 }

@@ -28,6 +28,7 @@ import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.SortOrder;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.exceptions.NoSuchTableException;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -72,6 +73,8 @@ final class RecordingIcebergCatalogOps implements IcebergCatalogOps {
     Table table;
     /** When set, {@link #loadTable(String, String)} throws instead of returning {@link #table}. */
     boolean throwOnLoadTable;
+    /** When set, {@link #loadTable(String, String)} throws {@link NoSuchTableException} (concurrent-drop race). */
+    boolean throwNoSuchTableOnLoadTable;
 
     /** The (dbName, tableName) the metadata layer passed to the most recent {@link #loadTable}. */
     String lastLoadDb;
@@ -184,6 +187,9 @@ final class RecordingIcebergCatalogOps implements IcebergCatalogOps {
         log.add("loadTable:" + dbName + "." + tableName);
         lastLoadDb = dbName;
         lastLoadTable = tableName;
+        if (throwNoSuchTableOnLoadTable) {
+            throw new NoSuchTableException("simulated missing table %s.%s", dbName, tableName);
+        }
         if (throwOnLoadTable) {
             throw new RuntimeException("simulated loadTable failure for " + dbName + "." + tableName);
         }

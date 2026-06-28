@@ -32,6 +32,14 @@ import java.util.Objects;
  * marker (a snapshot id or epoch-millis timestamp, per the view's
  * {@link ConnectorMvccPartitionView#getFreshness()}) the generic model wraps into the matching
  * {@code MTMVSnapshotIf}.</p>
+ *
+ * <p><b>NULL-min sentinel:</b> an <em>empty</em> {@link #getUpperBound()} (with a non-empty
+ * {@link #getLowerBound()}) denotes the genuine-NULL / minimum partition. The exclusive upper bound is NOT
+ * pre-rendered because it is the column-type/scale-aware <em>successor</em> of the lower key, which only the
+ * generic model can compute (it owns the Doris {@code Column}/{@code PartitionKey}). The model MUST derive the
+ * upper as {@code lowerKey.successor()} in that case — matching the connector's source behavior (e.g. iceberg's
+ * {@code nullLowKey.successor()}). A non-NULL RANGE partition always carries BOTH bounds non-empty; the model
+ * must not call {@code createPartitionKey} on an empty upper tuple.</p>
  */
 public final class ConnectorMvccPartition {
 
@@ -62,7 +70,11 @@ public final class ConnectorMvccPartition {
         return lowerBound;
     }
 
-    /** Pre-rendered open upper-bound value tuple (one entry per partition column). */
+    /**
+     * Pre-rendered open upper-bound value tuple (one entry per partition column), OR <em>empty</em> for the
+     * NULL-min partition — in which case the generic model derives the exclusive upper as
+     * {@code lowerKey.successor()} (see the class javadoc).
+     */
     public List<String> getUpperBound() {
         return upperBound;
     }

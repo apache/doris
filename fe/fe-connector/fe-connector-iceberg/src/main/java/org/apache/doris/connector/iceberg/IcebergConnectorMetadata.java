@@ -35,6 +35,7 @@ import org.apache.doris.connector.api.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.api.handle.ConnectorTransaction;
 import org.apache.doris.connector.api.handle.WriteOperation;
+import org.apache.doris.connector.api.mvcc.ConnectorMvccPartitionView;
 import org.apache.doris.connector.api.mvcc.ConnectorMvccSnapshot;
 import org.apache.doris.connector.api.mvcc.ConnectorTimeTravelSpec;
 import org.apache.doris.connector.spi.ConnectorContext;
@@ -56,6 +57,7 @@ import org.apache.iceberg.SortOrder;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.catalog.TableIdentifier;
+import org.apache.iceberg.exceptions.NoSuchTableException;
 import org.apache.iceberg.types.Type;
 import org.apache.iceberg.types.Types;
 import org.apache.iceberg.util.SnapshotUtil;
@@ -1201,6 +1203,70 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
     @Override
     public boolean supportsWriteBranch() {
         return true;
+    }
+
+    // ========== B-2: partition enumeration (MTMV RANGE view + SHOW PARTITIONS) ==========
+
+    /**
+     * The connector-supplied RANGE partition view for an iceberg table acting as an MTMV related (base) table.
+     * Overrides the SPI default (empty) so the generic {@code PluginDrivenMvccExternalTable} never degrades to
+     * the LIST/timestamp path: iceberg time-partitioned tables are intrinsically RANGE with snapshot-id
+     * freshness. All connector-specific math (eligibility gate, transform-to-range, partition-evolution overlap
+     * merge, snapshot-id resolution) happens in {@link IcebergPartitionUtils#buildMvccPartitionView}; the
+     * remote PARTITIONS scan runs inside the FE-injected auth context.
+     *
+     * <p>The partition set + freshness are enumerated at the handle's pinned snapshot when present
+     * ({@code iceHandle.getSnapshotId() >= 0}), else the table's latest snapshot. The generic model (3/3) must
+     * thread the query's pin onto the handle (via {@code applySnapshot} with {@code beginQuerySnapshot}'s
+     * snapshot) before calling this, so the MTMV partition/freshness view stays consistent with the data-scan
+     * pin — mirroring master, which routes enumeration, freshness and the scan through ONE snapshot cache value.</p>
+     *
+     * <p>Fail-loud parity (NOT a degrade): a {@code NoSuchTableException} is allowed to propagate. The common
+     * dropped-table case is already absorbed by the generic model at handle resolution (no handle -&gt; empty
+     * pin); a not-found HERE is the narrow post-resolution concurrent-drop race, where master fails the refresh
+     * rather than masking a vanished base table as "unpartitioned/fresh".</p>
+     */
+    @Override
+    public Optional<ConnectorMvccPartitionView> getMvccPartitionView(
+            ConnectorSession session, ConnectorTableHandle handle) {
+        IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
+        try {
+            return context.executeAuthenticated(() -> {
+                Table table = catalogOps.loadTable(iceHandle.getDbName(), iceHandle.getTableName());
+                return Optional.of(IcebergPartitionUtils.buildMvccPartitionView(table, iceHandle.getSnapshotId()));
+            });
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to build iceberg MVCC partition view, error message is:"
+                    + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * The physical iceberg partition display names ({@code "f1=v1/f2=v2"}) for SHOW PARTITIONS (single-column
+     * form — iceberg does not declare {@code SUPPORTS_PARTITION_STATS}). Post-cutover this restores real rows
+     * for partitioned tables (master rejected iceberg SHOW PARTITIONS outright, so the SPI default empty list
+     * would otherwise return silently zero rows). The remote PARTITIONS scan runs inside the auth context; a
+     * concurrent drop yields an empty list.
+     */
+    @Override
+    public List<String> listPartitionNames(ConnectorSession session, ConnectorTableHandle handle) {
+        IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
+        try {
+            return context.executeAuthenticated(() -> {
+                Table table;
+                try {
+                    table = catalogOps.loadTable(iceHandle.getDbName(), iceHandle.getTableName());
+                } catch (NoSuchTableException e) {
+                    LOG.warn("Iceberg table not found while listing partitions: {}.{}",
+                            iceHandle.getDbName(), iceHandle.getTableName(), e);
+                    return Collections.<String>emptyList();
+                }
+                return IcebergPartitionUtils.listPartitionNames(table);
+            });
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to list iceberg partition names, error message is:"
+                    + e.getMessage(), e);
+        }
     }
 
     // ========== E5: MVCC snapshots / time travel ==========

@@ -17,6 +17,11 @@
 
 package org.apache.doris.connector.iceberg;
 
+import org.apache.doris.connector.api.mvcc.ConnectorMvccPartition;
+import org.apache.doris.connector.api.mvcc.ConnectorMvccPartitionView;
+
+import org.apache.iceberg.DataFiles;
+import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.PartitionData;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
@@ -29,11 +34,18 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
+import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Parity oracle for {@link IcebergPartitionUtils} — the self-contained port of legacy
@@ -331,5 +343,399 @@ public class IcebergPartitionUtilsTest {
         Assertions.assertTrue(IcebergPartitionUtils.parsePartitionValuesFromJson(null).isEmpty());
         Assertions.assertTrue(IcebergPartitionUtils.parsePartitionValuesFromJson("").isEmpty());
         Assertions.assertTrue(IcebergPartitionUtils.parsePartitionValuesFromJson("   ").isEmpty());
+    }
+
+    // ─────────── B-2: MTMV RANGE partition view — transform math (buildRange), port of getPartitionRange ───────────
+    // The transform value is the iceberg partition ordinal: HOUR=hours-since-epoch, DAY=days, MONTH=months, YEAR=years.
+    // Bounds are pre-rendered [lower, upper); a TIMESTAMP source -> "yyyy-MM-dd HH:mm:ss", a DATE source -> "yyyy-MM-dd".
+
+    @Test
+    public void buildRangeDayWithTimestampSourceRendersDatetimeBounds() {
+        // day ordinal 100 = 1970-01-01 + 100 days = 1970-04-11; upper = +1 day. Source TIMESTAMP -> datetime form.
+        IcebergPartitionUtils.RangeBuild rb = IcebergPartitionUtils.buildRange(
+                "ts_day=100", "100", "day", Types.TimestampType.withoutZone(), 5L, 99L);
+        Assertions.assertEquals(Collections.singletonList("1970-04-11 00:00:00"), rb.getLowerBound());
+        Assertions.assertEquals(Collections.singletonList("1970-04-12 00:00:00"), rb.getUpperBound());
+    }
+
+    @Test
+    public void buildRangeDayWithDateSourceRendersDateBounds() {
+        // Same day ordinal, but a DATE source -> "yyyy-MM-dd". MUTATION: a single fixed formatter would render
+        // the datetime form here (or the date form in the timestamp test) -> red.
+        IcebergPartitionUtils.RangeBuild rb = IcebergPartitionUtils.buildRange(
+                "d_day=100", "100", "day", Types.DateType.get(), 5L, 99L);
+        Assertions.assertEquals(Collections.singletonList("1970-04-11"), rb.getLowerBound());
+        Assertions.assertEquals(Collections.singletonList("1970-04-12"), rb.getUpperBound());
+    }
+
+    @Test
+    public void buildRangeHourTruncatesToHourBoundary() {
+        // hour ordinal 5 = 1970-01-01 05:00:00; upper = +1 hour. HOUR's source is always a timestamp.
+        IcebergPartitionUtils.RangeBuild rb = IcebergPartitionUtils.buildRange(
+                "ts_hour=5", "5", "hour", Types.TimestampType.withoutZone(), 1L, 1L);
+        Assertions.assertEquals(Collections.singletonList("1970-01-01 05:00:00"), rb.getLowerBound());
+        Assertions.assertEquals(Collections.singletonList("1970-01-01 06:00:00"), rb.getUpperBound());
+    }
+
+    @Test
+    public void buildRangeMonthTruncatesToMonthBoundary() {
+        // month ordinal 2 = 1970-03-01; upper = +1 month = 1970-04-01.
+        IcebergPartitionUtils.RangeBuild rb = IcebergPartitionUtils.buildRange(
+                "ts_month=2", "2", "month", Types.TimestampType.withoutZone(), 1L, 1L);
+        Assertions.assertEquals(Collections.singletonList("1970-03-01 00:00:00"), rb.getLowerBound());
+        Assertions.assertEquals(Collections.singletonList("1970-04-01 00:00:00"), rb.getUpperBound());
+    }
+
+    @Test
+    public void buildRangeYearTruncatesToYearBoundary() {
+        // year ordinal 2 = 1972; upper = 1973. DATE source -> "yyyy-MM-dd".
+        IcebergPartitionUtils.RangeBuild rb = IcebergPartitionUtils.buildRange(
+                "d_year=2", "2", "year", Types.DateType.get(), 1L, 1L);
+        Assertions.assertEquals(Collections.singletonList("1972-01-01"), rb.getLowerBound());
+        Assertions.assertEquals(Collections.singletonList("1973-01-01"), rb.getUpperBound());
+    }
+
+    @Test
+    public void buildRangeNullValueEmitsSuccessorSignal() {
+        // A NULL partition value -> lower "0000-01-01" + EMPTY upper (the generic model derives lower.successor()).
+        // MUTATION: rendering a concrete upper here would not match master's nullLowKey.successor() per scale.
+        IcebergPartitionUtils.RangeBuild rb = IcebergPartitionUtils.buildRange(
+                "ts_day=null", null, "day", Types.TimestampType.withoutZone(), 1L, 1L);
+        Assertions.assertEquals(Collections.singletonList("0000-01-01"), rb.getLowerBound());
+        Assertions.assertTrue(rb.getUpperBound().isEmpty());
+    }
+
+    @Test
+    public void buildRangeUnsupportedTransformThrows() {
+        Assertions.assertThrows(RuntimeException.class, () -> IcebergPartitionUtils.buildRange(
+                "id_bucket=2", "2", "bucket[4]", Types.IntegerType.get(), 1L, 1L));
+    }
+
+    // ─────────── B-2: overlap merge + snapshot-id resolution (port mergeOverlapPartitions / getLatestSnapshotId) ───────────
+
+    private static IcebergPartitionUtils.RangeBuild rangeBuild(String name, LocalDateTime lower, LocalDateTime upper,
+            long lastUpdateTime, long lastSnapshotId) {
+        return new IcebergPartitionUtils.RangeBuild(name, lower, upper,
+                Collections.singletonList(lower.toString()), Collections.singletonList(upper.toString()),
+                lastUpdateTime, lastSnapshotId);
+    }
+
+    @Test
+    public void mergeEnclosedDayIntoEnclosingMonth() {
+        // MONTH [1970-03-01, 1970-04-01) encloses DAY [1970-03-15, 1970-03-16): the day is merged away and the
+        // month becomes the single surviving Doris partition (parity master mergeOverlapPartitions on aligned ranges).
+        IcebergPartitionUtils.RangeBuild month = rangeBuild("ts_month=2",
+                LocalDateTime.of(1970, 3, 1, 0, 0), LocalDateTime.of(1970, 4, 1, 0, 0), 10L, 100L);
+        IcebergPartitionUtils.RangeBuild day = rangeBuild("ts_day=73",
+                LocalDateTime.of(1970, 3, 15, 0, 0), LocalDateTime.of(1970, 3, 16, 0, 0), 20L, 200L);
+
+        Set<String> survivors = new LinkedHashSet<>(Arrays.asList("ts_month=2", "ts_day=73"));
+        Map<String, Set<String>> mergeMap = IcebergPartitionUtils.mergeOverlapPartitions(
+                Arrays.asList(month, day), survivors);
+
+        Assertions.assertEquals(Collections.singleton("ts_month=2"), survivors);
+        Assertions.assertEquals(new HashSet<>(Arrays.asList("ts_month=2", "ts_day=73")),
+                mergeMap.get("ts_month=2"));
+    }
+
+    @Test
+    public void nonOverlappingPartitionsAreNotMerged() {
+        // Two disjoint days: neither encloses the other, both survive, no merge map entry. MUTATION: an encloses
+        // that returns true for disjoint ranges would wrongly drop one.
+        IcebergPartitionUtils.RangeBuild d1 = rangeBuild("ts_day=1",
+                LocalDateTime.of(1970, 1, 2, 0, 0), LocalDateTime.of(1970, 1, 3, 0, 0), 10L, 100L);
+        IcebergPartitionUtils.RangeBuild d2 = rangeBuild("ts_day=2",
+                LocalDateTime.of(1970, 1, 3, 0, 0), LocalDateTime.of(1970, 1, 4, 0, 0), 20L, 200L);
+
+        Set<String> survivors = new LinkedHashSet<>(Arrays.asList("ts_day=1", "ts_day=2"));
+        Map<String, Set<String>> mergeMap = IcebergPartitionUtils.mergeOverlapPartitions(
+                Arrays.asList(d1, d2), survivors);
+
+        Assertions.assertEquals(new HashSet<>(Arrays.asList("ts_day=1", "ts_day=2")), survivors);
+        Assertions.assertTrue(mergeMap.isEmpty());
+    }
+
+    @Test
+    public void mergeTieBreaksEqualLowerByLargerUpperFirst() {
+        // SAME lower bound (1970-03-01), different uppers: MONTH [03-01,04-01) and first-of-month DAY
+        // [03-01,03-02). The comparator's tie-break (equal lower -> LARGER upper first) must place the month
+        // first so it encloses the day -> one survivor. Inputs are passed day-first to prove the COMPARATOR (not
+        // input order) decides. MUTATION: an ascending tie-break sorts the day first, encloses() is false, both
+        // survive (2 where master yields 1) -> red.
+        IcebergPartitionUtils.RangeBuild month = rangeBuild("ts_month=2",
+                LocalDateTime.of(1970, 3, 1, 0, 0), LocalDateTime.of(1970, 4, 1, 0, 0), 10L, 100L);
+        IcebergPartitionUtils.RangeBuild firstDay = rangeBuild("ts_day=59",
+                LocalDateTime.of(1970, 3, 1, 0, 0), LocalDateTime.of(1970, 3, 2, 0, 0), 20L, 200L);
+
+        Set<String> survivors = new LinkedHashSet<>(Arrays.asList("ts_month=2", "ts_day=59"));
+        Map<String, Set<String>> mergeMap = IcebergPartitionUtils.mergeOverlapPartitions(
+                Arrays.asList(firstDay, month), survivors);
+
+        Assertions.assertEquals(Collections.singleton("ts_month=2"), survivors);
+        Assertions.assertEquals(new HashSet<>(Arrays.asList("ts_month=2", "ts_day=59")),
+                mergeMap.get("ts_month=2"));
+    }
+
+    @Test
+    public void mergeIdenticalNameSelfEnclosesSoCallerMustDedupeFirst() {
+        // Two entries with the SAME name + byte-identical range: encloses() is true on equal endpoints, so the
+        // merge removes the (shared) secondKey -> the name vanishes from survivors. This is exactly WHY
+        // buildMvccPartitionView dedupes the raw rows into allByName (last-wins) BEFORE calling this — master
+        // keys nameToPartitionItem by name (loadPartitionInfo), so a name can never enclose its own twin.
+        // Documents the invariant the merge-input-dedup fix restores.
+        IcebergPartitionUtils.RangeBuild a = rangeBuild("ts_day=100",
+                LocalDateTime.of(1970, 4, 11, 0, 0), LocalDateTime.of(1970, 4, 12, 0, 0), 10L, 100L);
+        IcebergPartitionUtils.RangeBuild b = rangeBuild("ts_day=100",
+                LocalDateTime.of(1970, 4, 11, 0, 0), LocalDateTime.of(1970, 4, 12, 0, 0), 20L, 200L);
+
+        Set<String> survivors = new LinkedHashSet<>(Collections.singletonList("ts_day=100"));
+        IcebergPartitionUtils.mergeOverlapPartitions(Arrays.asList(a, b), survivors);
+
+        Assertions.assertTrue(survivors.isEmpty(),
+                "identical-name entries self-enclose; buildMvccPartitionView must dedupe by name before merging");
+    }
+
+    @Test
+    public void latestSnapshotIdForMergedPicksMostRecentUpdate() {
+        // The merged month's freshness is the snapshot id of the most-recently-updated member (the day, t=20>10).
+        IcebergPartitionUtils.RangeBuild month = rangeBuild("ts_month=2",
+                LocalDateTime.of(1970, 3, 1, 0, 0), LocalDateTime.of(1970, 4, 1, 0, 0), 10L, 100L);
+        IcebergPartitionUtils.RangeBuild day = rangeBuild("ts_day=73",
+                LocalDateTime.of(1970, 3, 15, 0, 0), LocalDateTime.of(1970, 3, 16, 0, 0), 20L, 200L);
+        Map<String, IcebergPartitionUtils.RangeBuild> all = new HashMap<>();
+        all.put("ts_month=2", month);
+        all.put("ts_day=73", day);
+        Map<String, Set<String>> mergeMap = Collections.singletonMap(
+                "ts_month=2", new HashSet<>(Arrays.asList("ts_month=2", "ts_day=73")));
+
+        Assertions.assertEquals(200L, IcebergPartitionUtils.latestSnapshotId("ts_month=2", mergeMap, all));
+    }
+
+    @Test
+    public void latestSnapshotIdForStandalonePartitionIsOwnSnapshot() {
+        // A partition that encloses nothing (absent from the merge map) reports its OWN last snapshot id.
+        IcebergPartitionUtils.RangeBuild day = rangeBuild("ts_day=1",
+                LocalDateTime.of(1970, 1, 2, 0, 0), LocalDateTime.of(1970, 1, 3, 0, 0), 10L, 77L);
+        Map<String, IcebergPartitionUtils.RangeBuild> all =
+                Collections.singletonMap("ts_day=1", day);
+
+        Assertions.assertEquals(77L,
+                IcebergPartitionUtils.latestSnapshotId("ts_day=1", Collections.emptyMap(), all));
+    }
+
+    @Test
+    public void latestSnapshotIdSkipsInvalidUpdateTimesAndAllInvalidReturnsMinusOne() {
+        IcebergPartitionUtils.RangeBuild month = rangeBuild("ts_month=2",
+                LocalDateTime.of(1970, 3, 1, 0, 0), LocalDateTime.of(1970, 4, 1, 0, 0), 10L, 100L);
+        // day has an UNKNOWN (<=0) update time -> skipped; the month (t=10) wins.
+        IcebergPartitionUtils.RangeBuild day = rangeBuild("ts_day=73",
+                LocalDateTime.of(1970, 3, 15, 0, 0), LocalDateTime.of(1970, 3, 16, 0, 0), -1L, 200L);
+        Map<String, IcebergPartitionUtils.RangeBuild> all = new HashMap<>();
+        all.put("ts_month=2", month);
+        all.put("ts_day=73", day);
+        Map<String, Set<String>> mergeMap = Collections.singletonMap(
+                "ts_month=2", new HashSet<>(Arrays.asList("ts_month=2", "ts_day=73")));
+        Assertions.assertEquals(100L, IcebergPartitionUtils.latestSnapshotId("ts_month=2", mergeMap, all));
+
+        // Both members have invalid update times -> no snapshot id resolvable (-1); the caller then falls back
+        // to the table snapshot id.
+        IcebergPartitionUtils.RangeBuild month0 = rangeBuild("ts_month=2",
+                LocalDateTime.of(1970, 3, 1, 0, 0), LocalDateTime.of(1970, 4, 1, 0, 0), 0L, 100L);
+        Map<String, IcebergPartitionUtils.RangeBuild> allInvalid = new HashMap<>();
+        allInvalid.put("ts_month=2", month0);
+        allInvalid.put("ts_day=73", day);
+        Assertions.assertEquals(-1L, IcebergPartitionUtils.latestSnapshotId("ts_month=2", mergeMap, allInvalid));
+    }
+
+    // ─────────── B-2: eligibility gate (isValidRelatedTable), port of IcebergExternalTable.isValidRelatedTable ───────────
+
+    private static final Schema RELATED_SCHEMA = new Schema(
+            Types.NestedField.required(1, "id", Types.IntegerType.get()),
+            Types.NestedField.optional(2, "ts", Types.TimestampType.withoutZone()),
+            Types.NestedField.optional(3, "ts2", Types.TimestampType.withoutZone()),
+            Types.NestedField.optional(4, "region", Types.StringType.get()));
+
+    @Test
+    public void validRelatedTableSingleTimeTransform() {
+        Table table = tableWith(RELATED_SCHEMA, PartitionSpec.builderFor(RELATED_SCHEMA).day("ts").build());
+        Assertions.assertTrue(IcebergPartitionUtils.isValidRelatedTable(table));
+    }
+
+    @Test
+    public void invalidRelatedTableMultipleFields() {
+        // Two partition fields -> not a valid related table (master supports a single field only).
+        Table table = tableWith(RELATED_SCHEMA,
+                PartitionSpec.builderFor(RELATED_SCHEMA).day("ts").identity("region").build());
+        Assertions.assertFalse(IcebergPartitionUtils.isValidRelatedTable(table));
+    }
+
+    @Test
+    public void invalidRelatedTableNonTimeTransform() {
+        // A non year/month/day/hour transform (bucket) -> invalid. MUTATION: accepting any transform -> red.
+        Table table = tableWith(RELATED_SCHEMA, PartitionSpec.builderFor(RELATED_SCHEMA).bucket("id", 4).build());
+        Assertions.assertFalse(IcebergPartitionUtils.isValidRelatedTable(table));
+    }
+
+    @Test
+    public void invalidRelatedTableUnpartitioned() {
+        Table table = tableWith(RELATED_SCHEMA, PartitionSpec.unpartitioned());
+        Assertions.assertFalse(IcebergPartitionUtils.isValidRelatedTable(table));
+    }
+
+    @Test
+    public void invalidRelatedTableEvolutionRetainsVoidFieldSoMultiField() {
+        // Partition evolution that moves the source (ts -> ts2) retains the removed field as a VOID transform, so
+        // the new spec has 2 fields and the table is not a valid related table. This documents that iceberg never
+        // produces "two single-field specs on different sources" — master's allFields.size()==1 source-stability
+        // check is a faithful but practically-unreachable defensive guard (the field-count check fires first).
+        InMemoryCatalog catalog = new InMemoryCatalog();
+        catalog.initialize("test", Collections.emptyMap());
+        catalog.createNamespace(Namespace.of("db1"));
+        Table table = catalog.createTable(TableIdentifier.of("db1", "t"), RELATED_SCHEMA,
+                PartitionSpec.builderFor(RELATED_SCHEMA).day("ts").build());
+        table.updateSpec().removeField("ts_day")
+                .addField(org.apache.iceberg.expressions.Expressions.day("ts2")).commit();
+        Table evolved = catalog.loadTable(TableIdentifier.of("db1", "t"));
+        Assertions.assertFalse(IcebergPartitionUtils.isValidRelatedTable(evolved));
+    }
+
+    // ─────────── B-2: end-to-end PARTITIONS-metadata scan (buildMvccPartitionView / listPartitionNames) ───────────
+    // Real InMemoryCatalog tables with appended partitioned data files; the PARTITIONS metadata table is scanned
+    // exactly as in production (no Mockito). This covers the gate -> RANGE/UNPARTITIONED style decision, the scan,
+    // and the per-partition freshness wiring on top of the unit-tested math/merge above.
+
+    // partitionPaths use the iceberg human-readable form (a DAY transform takes the DATE string, e.g.
+    // "ts_day=1970-04-11"); the PARTITIONS metadata table stores/returns the integer ordinal (100), which is
+    // what the connector reads back into the partition name "ts_day=100".
+    private static Table dayPartitionedTable(PartitionSpec spec, String... partitionPaths) {
+        InMemoryCatalog catalog = new InMemoryCatalog();
+        catalog.initialize("test", Collections.emptyMap());
+        catalog.createNamespace(Namespace.of("db1"));
+        Table table = catalog.createTable(TableIdentifier.of("db1", "t"), RELATED_SCHEMA, spec);
+        org.apache.iceberg.AppendFiles append = table.newAppend();
+        int i = 0;
+        for (String partitionPath : partitionPaths) {
+            append.appendFile(DataFiles.builder(spec)
+                    .withPath("s3://b/db1/t/f" + (i++) + ".parquet")
+                    .withFileSizeInBytes(100)
+                    .withRecordCount(1)
+                    .withPartitionPath(partitionPath)
+                    .withFormat(FileFormat.PARQUET)
+                    .build());
+        }
+        append.commit();
+        return catalog.loadTable(TableIdentifier.of("db1", "t"));
+    }
+
+    @Test
+    public void buildMvccPartitionViewEnumeratesRangePartitions() {
+        PartitionSpec spec = PartitionSpec.builderFor(RELATED_SCHEMA).day("ts").build();
+        Table table = dayPartitionedTable(spec, "ts_day=1970-04-11", "ts_day=1970-07-20");
+        long snapshotId = table.currentSnapshot().snapshotId();
+
+        ConnectorMvccPartitionView view = IcebergPartitionUtils.buildMvccPartitionView(table, -1L);
+
+        Assertions.assertEquals(ConnectorMvccPartitionView.Style.RANGE, view.getStyle());
+        Assertions.assertEquals(ConnectorMvccPartitionView.Freshness.SNAPSHOT_ID, view.getFreshness());
+        List<ConnectorMvccPartition> parts = view.getPartitions();
+        Assertions.assertEquals(2, parts.size());
+        // Sorted by name: "ts_day=100" < "ts_day=200".
+        Assertions.assertEquals(Arrays.asList("ts_day=100", "ts_day=200"),
+                parts.stream().map(ConnectorMvccPartition::getName).collect(Collectors.toList()));
+        // The day=100 partition's pre-rendered datetime bounds match the unit-tested transform math.
+        Assertions.assertEquals(Collections.singletonList("1970-04-11 00:00:00"), parts.get(0).getLowerBound());
+        Assertions.assertEquals(Collections.singletonList("1970-04-12 00:00:00"), parts.get(0).getUpperBound());
+        // Freshness is a resolved iceberg snapshot id (the single commit's snapshot, whether read directly from
+        // last_updated_snapshot_id or fallen back to the table snapshot id). MUTATION: a 0/-1 sentinel -> red.
+        for (ConnectorMvccPartition part : parts) {
+            Assertions.assertEquals(snapshotId, part.getFreshnessValue());
+        }
+    }
+
+    @Test
+    public void buildMvccPartitionViewResolvesPerPartitionSnapshotId() {
+        // Two SEPARATE commits: ts_day=100 lands in snapshot S1, ts_day=200 in S2. Each partition's freshness is
+        // the snapshot that last updated IT (S1 vs S2), NOT the table's current snapshot (S2 for both). This pins
+        // the per-partition snapshot-id resolution AND the `latest > 0 ? latest : tableSnapshotId` branch: a
+        // fallback-to-table mutation would make the first partition report S2 instead of its own S1.
+        InMemoryCatalog catalog = new InMemoryCatalog();
+        catalog.initialize("test", Collections.emptyMap());
+        catalog.createNamespace(Namespace.of("db1"));
+        PartitionSpec spec = PartitionSpec.builderFor(RELATED_SCHEMA).day("ts").build();
+        TableIdentifier id = TableIdentifier.of("db1", "t");
+        Table table = catalog.createTable(id, RELATED_SCHEMA, spec);
+        table.newAppend().appendFile(DataFiles.builder(spec).withPath("s3://b/db1/t/f0.parquet")
+                .withFileSizeInBytes(100).withRecordCount(1).withPartitionPath("ts_day=1970-04-11")
+                .withFormat(FileFormat.PARQUET).build()).commit();
+        long s1 = catalog.loadTable(id).currentSnapshot().snapshotId();
+        table.newAppend().appendFile(DataFiles.builder(spec).withPath("s3://b/db1/t/f1.parquet")
+                .withFileSizeInBytes(100).withRecordCount(1).withPartitionPath("ts_day=1970-07-20")
+                .withFormat(FileFormat.PARQUET).build()).commit();
+        long s2 = catalog.loadTable(id).currentSnapshot().snapshotId();
+        Assertions.assertNotEquals(s1, s2, "the two appends must create distinct snapshots");
+
+        List<ConnectorMvccPartition> parts = IcebergPartitionUtils.buildMvccPartitionView(
+                catalog.loadTable(id), -1L).getPartitions();
+        Assertions.assertEquals(2, parts.size());
+        // Sorted by name: ts_day=100 (committed in S1), ts_day=200 (committed in S2).
+        Assertions.assertEquals("ts_day=100", parts.get(0).getName());
+        Assertions.assertEquals(s1, parts.get(0).getFreshnessValue());
+        Assertions.assertEquals("ts_day=200", parts.get(1).getName());
+        Assertions.assertEquals(s2, parts.get(1).getFreshnessValue());
+
+        // pinnedSnapshotId = S1 enumerates AT the older snapshot: only ts_day=100 existed then. This pins the
+        // partition set + freshness to the query's MVCC snapshot (so the generic model keeps them consistent
+        // with the data-scan pin) instead of always reading the live latest. MUTATION: ignoring the pin and
+        // using currentSnapshot() -> 2 partitions -> red.
+        List<ConnectorMvccPartition> atS1 = IcebergPartitionUtils.buildMvccPartitionView(
+                catalog.loadTable(id), s1).getPartitions();
+        Assertions.assertEquals(Collections.singletonList("ts_day=100"),
+                atS1.stream().map(ConnectorMvccPartition::getName).collect(Collectors.toList()));
+        Assertions.assertEquals(s1, atS1.get(0).getFreshnessValue());
+    }
+
+    @Test
+    public void buildMvccPartitionViewInvalidTableIsUnpartitioned() {
+        // A bucket-partitioned table fails the eligibility gate -> UNPARTITIONED (NOT a degraded LIST).
+        Table table = dayPartitionedTable(
+                PartitionSpec.builderFor(RELATED_SCHEMA).bucket("id", 4).build(), "id_bucket=1");
+        ConnectorMvccPartitionView view = IcebergPartitionUtils.buildMvccPartitionView(table, -1L);
+        Assertions.assertEquals(ConnectorMvccPartitionView.Style.UNPARTITIONED, view.getStyle());
+        Assertions.assertTrue(view.getPartitions().isEmpty());
+    }
+
+    @Test
+    public void buildMvccPartitionViewEmptyValidTableIsRangeWithNoPartitions() {
+        // A valid related spec but no data yet: RANGE on the spec alone, empty partition set (parity master:
+        // getPartitionType=RANGE, getIcebergPartitionItems empty). MUTATION: returning UNPARTITIONED -> red.
+        Table table = tableWith(RELATED_SCHEMA, PartitionSpec.builderFor(RELATED_SCHEMA).day("ts").build());
+        ConnectorMvccPartitionView view = IcebergPartitionUtils.buildMvccPartitionView(table, -1L);
+        Assertions.assertEquals(ConnectorMvccPartitionView.Style.RANGE, view.getStyle());
+        Assertions.assertTrue(view.getPartitions().isEmpty());
+    }
+
+    @Test
+    public void listPartitionNamesReturnsRawIcebergNames() {
+        PartitionSpec spec = PartitionSpec.builderFor(RELATED_SCHEMA).day("ts").build();
+        Table table = dayPartitionedTable(spec, "ts_day=1970-04-11", "ts_day=1970-07-20");
+        List<String> names = IcebergPartitionUtils.listPartitionNames(table);
+        Assertions.assertEquals(new HashSet<>(Arrays.asList("ts_day=100", "ts_day=200")), new HashSet<>(names));
+    }
+
+    @Test
+    public void listPartitionNamesUnpartitionedIsEmpty() {
+        Table table = tableWith(RELATED_SCHEMA, PartitionSpec.unpartitioned());
+        Assertions.assertTrue(IcebergPartitionUtils.listPartitionNames(table).isEmpty());
+    }
+
+    @Test
+    public void listPartitionNamesForNonRelatedPartitionedTableStillLists() {
+        // SHOW PARTITIONS is NOT gated on the MTMV eligibility rules: a bucket-partitioned table still lists its
+        // physical partitions (M-10: master rejected iceberg SHOW PARTITIONS, so an empty default would be a
+        // silent-zero-rows regression).
+        Table table = dayPartitionedTable(
+                PartitionSpec.builderFor(RELATED_SCHEMA).bucket("id", 4).build(), "id_bucket=1");
+        Assertions.assertEquals(Collections.singletonList("id_bucket=1"),
+                IcebergPartitionUtils.listPartitionNames(table));
     }
 }

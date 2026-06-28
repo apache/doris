@@ -21,6 +21,8 @@ import org.apache.doris.connector.api.ConnectorColumn;
 import org.apache.doris.connector.api.ConnectorTableSchema;
 import org.apache.doris.connector.api.DorisConnectorException;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
+import org.apache.doris.connector.api.mvcc.ConnectorMvccPartition;
+import org.apache.doris.connector.api.mvcc.ConnectorMvccPartitionView;
 import org.apache.doris.connector.api.mvcc.ConnectorMvccSnapshot;
 import org.apache.doris.connector.api.mvcc.ConnectorTimeTravelSpec;
 
@@ -385,5 +387,98 @@ public class IcebergConnectorMetadataMvccTest {
         Assertions.assertTrue(snap.isPresent(), "datetime string at-or-after S2 must resolve");
         Assertions.assertEquals(f.s2, snap.get().getSnapshotId());
         Assertions.assertEquals(f.schemaIdS2, snap.get().getSchemaId());
+    }
+
+    // ---------------------------------------------------------------------
+    // B-2: getMvccPartitionView / listPartitionNames (connector level: auth wrap + not-exist degrade)
+    // The math/merge/gate parity is exhaustively covered by IcebergPartitionUtilsTest; these tests pin the
+    // connector wiring (delegation, the executeAuthenticated scope, the concurrent-drop degrade).
+    // ---------------------------------------------------------------------
+
+    private static final Schema PARTITIONED_SCHEMA = new Schema(
+            Types.NestedField.required(1, "id", Types.IntegerType.get()),
+            Types.NestedField.optional(2, "ts", Types.TimestampType.withoutZone()));
+
+    /** A real db1.t1 table partitioned by day(ts) with one data file at day=100 (1970-04-11). */
+    private static Table dayPartitionedTable() {
+        InMemoryCatalog catalog = new InMemoryCatalog();
+        catalog.initialize("test", Collections.emptyMap());
+        catalog.createNamespace(Namespace.of("db1"));
+        PartitionSpec spec = PartitionSpec.builderFor(PARTITIONED_SCHEMA).day("ts").build();
+        Table table = catalog.createTable(TableIdentifier.of("db1", "t1"), PARTITIONED_SCHEMA, spec);
+        table.newAppend().appendFile(DataFiles.builder(spec)
+                .withPath("s3://b/db1/t1/f1.parquet").withFileSizeInBytes(100).withRecordCount(1)
+                .withPartitionPath("ts_day=1970-04-11").withFormat(FileFormat.PARQUET).build()).commit();
+        return catalog.loadTable(TableIdentifier.of("db1", "t1"));
+    }
+
+    @Test
+    public void getMvccPartitionViewReturnsRangeView() {
+        Table table = dayPartitionedTable();
+        Optional<ConnectorMvccPartitionView> view =
+                metadataFor(table, new RecordingIcebergCatalogOps()).getMvccPartitionView(null, handle());
+        Assertions.assertTrue(view.isPresent());
+        Assertions.assertEquals(ConnectorMvccPartitionView.Style.RANGE, view.get().getStyle());
+        Assertions.assertEquals(ConnectorMvccPartitionView.Freshness.SNAPSHOT_ID, view.get().getFreshness());
+        List<String> names = view.get().getPartitions().stream()
+                .map(ConnectorMvccPartition::getName).collect(Collectors.toList());
+        Assertions.assertEquals(Collections.singletonList("ts_day=100"), names);
+    }
+
+    @Test
+    public void getMvccPartitionViewFailsLoudWhenTableMissing() {
+        // The MTMV partition/freshness path FAILS LOUD on a not-found base table (master parity + Rule 12): the
+        // common dropped-table case is already absorbed by the generic model at handle resolution, so a not-found
+        // HERE is the narrow concurrent-drop race, where masking a vanished base table as "unpartitioned/fresh"
+        // would silently under-refresh the MV. MUTATION: degrading to unpartitioned() here -> no throw -> red.
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        ops.throwNoSuchTableOnLoadTable = true;
+        IcebergConnectorMetadata md =
+                new IcebergConnectorMetadata(ops, Collections.emptyMap(), new RecordingConnectorContext());
+        Assertions.assertThrows(RuntimeException.class, () -> md.getMvccPartitionView(null, handle()));
+    }
+
+    @Test
+    public void getMvccPartitionViewRunsInsideAuthContext() {
+        // failAuth throws WITHOUT invoking the task, so the remote PARTITIONS scan must sit INSIDE the wrap:
+        // loadTable is never reached. Proves the Kerberos UGI scope covers the metadata read.
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        ops.table = dayPartitionedTable();
+        RecordingConnectorContext ctx = new RecordingConnectorContext();
+        ctx.failAuth = true;
+        IcebergConnectorMetadata md = new IcebergConnectorMetadata(ops, Collections.emptyMap(), ctx);
+        Assertions.assertThrows(RuntimeException.class, () -> md.getMvccPartitionView(null, handle()));
+        Assertions.assertEquals(1, ctx.authCount);
+        Assertions.assertFalse(ops.log.contains("loadTable:db1.t1"), "loadTable must sit inside executeAuthenticated");
+    }
+
+    @Test
+    public void listPartitionNamesReturnsRawNames() {
+        Table table = dayPartitionedTable();
+        List<String> names = metadataFor(table, new RecordingIcebergCatalogOps())
+                .listPartitionNames(null, handle());
+        Assertions.assertEquals(Collections.singletonList("ts_day=100"), names);
+    }
+
+    @Test
+    public void listPartitionNamesDegradesToEmptyWhenTableMissing() {
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        ops.throwNoSuchTableOnLoadTable = true;
+        List<String> names =
+                new IcebergConnectorMetadata(ops, Collections.emptyMap(), new RecordingConnectorContext())
+                        .listPartitionNames(null, handle());
+        Assertions.assertTrue(names.isEmpty());
+    }
+
+    @Test
+    public void listPartitionNamesRunsInsideAuthContext() {
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        ops.table = dayPartitionedTable();
+        RecordingConnectorContext ctx = new RecordingConnectorContext();
+        ctx.failAuth = true;
+        IcebergConnectorMetadata md = new IcebergConnectorMetadata(ops, Collections.emptyMap(), ctx);
+        Assertions.assertThrows(RuntimeException.class, () -> md.listPartitionNames(null, handle()));
+        Assertions.assertEquals(1, ctx.authCount);
+        Assertions.assertFalse(ops.log.contains("loadTable:db1.t1"), "loadTable must sit inside executeAuthenticated");
     }
 }
