@@ -18,6 +18,7 @@
 package org.apache.doris.connector.api;
 
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
+import org.apache.doris.connector.api.mvcc.ConnectorMvccPartitionView;
 import org.apache.doris.connector.api.mvcc.ConnectorMvccSnapshot;
 import org.apache.doris.connector.api.mvcc.ConnectorTimeTravelSpec;
 
@@ -60,6 +61,27 @@ public interface ConnectorMetadata extends
      * support MVCC and reads see whatever is current.</p>
      */
     default Optional<ConnectorMvccSnapshot> beginQuerySnapshot(
+            ConnectorSession session, ConnectorTableHandle handle) {
+        return Optional.empty();
+    }
+
+    /**
+     * Returns a connector-supplied, range-aware partition view for the MTMV / partition-aware
+     * materialized-view refresh path, or {@link Optional#empty()} when the connector has none.
+     *
+     * <p>The generic table model materializes its partition view from {@code listPartitions} by
+     * default (LIST partitions keyed on a last-modified timestamp). A connector whose partitions are
+     * intrinsically ranges with a snapshot-id freshness marker (e.g. iceberg's time transforms)
+     * overrides this to return a {@link ConnectorMvccPartitionView}; the generic model then builds
+     * {@code RangePartitionItem}s from the pre-rendered bounds and picks the snapshot type from the
+     * view's {@link ConnectorMvccPartitionView#getFreshness()}. All data-source-specific math
+     * (transform-to-range, partition-evolution overlap merge, snapshot-id resolution) happens inside
+     * the connector — fe-core stays source-agnostic.</p>
+     *
+     * <p>The default returns empty: connectors without a range partition view keep the generic
+     * {@code listPartitions} / LIST / timestamp behavior unchanged.</p>
+     */
+    default Optional<ConnectorMvccPartitionView> getMvccPartitionView(
             ConnectorSession session, ConnectorTableHandle handle) {
         return Optional.empty();
     }
