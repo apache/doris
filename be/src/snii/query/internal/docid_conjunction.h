@@ -74,4 +74,11 @@ Status build_docid_only_conjunction(const snii::reader::LogicalIndexReader& idx,
                                     std::vector<uint32_t>* candidates,
                                     std::vector<DocidSource>* sources);
 
+Status filter_docids_by_conjunction(const snii::reader::LogicalIndexReader& idx,
+                                    const snii::io::BatchRangeFetcher& round1,
+                                    const std::vector<TermPlan>& plans,
+                                    const std::vector<uint32_t>& initial_candidates,
+                                    std::vector<uint32_t>* candidates,
+                                    std::vector<DocidSource>* sources);
+
 } // namespace snii::query::internal

@@ -1060,17 +1060,34 @@ Status CollectTailMatchesAtExpectedPositions(const LogicalIndexReader& idx,
     SNII_RETURN_IF_ERROR(internal::plan_resolved_terms(idx, {tail}, &round1, &plans,
                                                        /*need_positions=*/false));
 
-    PhraseExecutionState state;
-    SNII_RETURN_IF_ERROR(BuildPhraseExecutionState(idx, &round1, &plans, &state));
-    if (state.candidates.empty()) return Status::OK();
+    if (round1.pending() > 0) SNII_RETURN_IF_ERROR(round1.fetch());
+    SNII_RETURN_IF_ERROR(internal::open_preludes(round1, &plans,
+                                                 /*need_positions=*/true));
+
+    std::vector<uint32_t> expected_docids;
+    expected_docids.reserve(expected.docs.size());
+    for (const ExpectedTailPositions& doc : expected.docs) {
+        expected_docids.push_back(doc.docid);
+    }
+
+    std::vector<uint32_t> tail_candidates;
+    std::vector<DocidSource> doc_sources;
+    SNII_RETURN_IF_ERROR(internal::filter_docids_by_conjunction(idx, round1, plans, expected_docids,
+                                                                &tail_candidates, &doc_sources));
+    if (tail_candidates.empty()) return Status::OK();
+
+    std::vector<std::unique_ptr<snii::io::BatchRangeFetcher>> owners;
+    std::vector<PosSource> srcs;
+    SNII_RETURN_IF_ERROR(BuildPositionSourcesForCandidates(idx, round1, plans, &doc_sources,
+                                                           tail_candidates, &owners, &srcs));
 
     PostingCursor cursor;
-    cursor.init(&state.srcs[0]);
+    cursor.init(&srcs[0]);
     size_t ei = 0;
     size_t ti = 0;
-    while (ei < expected.docs.size() && ti < state.candidates.size()) {
+    while (ei < expected.docs.size() && ti < tail_candidates.size()) {
         const uint32_t want_doc = expected.docs[ei].docid;
-        const uint32_t tail_doc = state.candidates[ti];
+        const uint32_t tail_doc = tail_candidates[ti];
         if (want_doc < tail_doc) {
             ++ei;
             continue;

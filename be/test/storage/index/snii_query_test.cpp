@@ -199,6 +199,7 @@ Status build_reader(MemoryFile* file, reader::SniiSegmentReader* segment_reader,
     auto ordinal_docs = docs_with_one_position(0, kDocCount, 2);
     auto driver_docs = docs_with_one_position(0, 8000, 0);
     auto almost_docs = docs_with_one_position(0, kDocCount, 1);
+    std::vector<PostingDoc> needle_docs {{100, {0}}, {101, {0}}, {102, {0}}, {6000, {0}}};
     std::vector<PostingDoc> sparse_left_docs;
     std::vector<PostingDoc> sparse_right_docs;
     std::vector<PostingDoc> repeat_docs;
@@ -237,6 +238,7 @@ Status build_reader(MemoryFile* file, reader::SniiSegmentReader* segment_reader,
     input.terms = {make_term("almost", std::move(almost_docs)),
                    make_term("driver", std::move(driver_docs)),
                    make_term("failed", std::move(failed_docs)),
+                   make_term("needle", std::move(needle_docs)),
                    make_term("order", std::move(order_docs)),
                    make_term("ordinal", std::move(ordinal_docs)),
                    make_term("repeat", std::move(repeat_docs)),
@@ -395,6 +397,41 @@ TEST(SniiPhraseQueryTest, SingleTailPhrasePrefixUsesStreamingPhrasePath) {
 
     const std::vector<uint32_t> expected {5000, 7000, 8000};
     EXPECT_EQ(docids, expected);
+}
+
+TEST(SniiPhraseQueryTest, MultiTailPhrasePrefixFiltersTailPrxByExpectedDocs) {
+    MemoryFile file;
+    reader::SniiSegmentReader segment_reader;
+    reader::LogicalIndexReader index_reader;
+    assert_ok(build_reader(&file, &segment_reader, &index_reader));
+
+    std::vector<reader::LogicalIndexReader::PrefixHit> tail_hits;
+    assert_ok(index_reader.prefix_terms("ord", &tail_hits, 10));
+    ASSERT_EQ(tail_hits.size(), 2);
+
+    struct PrxRange {
+        uint64_t offset = 0;
+        uint64_t len = 0;
+    };
+    std::vector<PrxRange> full_tail_prx_ranges;
+    for (const auto& hit : tail_hits) {
+        full_tail_prx_ranges.push_back({index_reader.section_refs().posting_region.offset +
+                                                hit.prx_base + hit.entry.prx_off_delta,
+                                        hit.entry.prx_len});
+    }
+
+    file.clear_reads();
+    std::vector<uint32_t> docids;
+    assert_ok(phrase_prefix_query(index_reader, {"needle", "ord"}, &docids, 10));
+
+    const std::vector<uint32_t> expected {6000};
+    EXPECT_EQ(docids, expected);
+    for (const PrxRange& prx : full_tail_prx_ranges) {
+        const bool full_tail_prx_read = std::ranges::any_of(file.reads(), [&](const auto& read) {
+            return read.offset == prx.offset && read.len == prx.len;
+        });
+        EXPECT_FALSE(full_tail_prx_read);
+    }
 }
 
 TEST(SniiPhraseQueryTest, MultiTermPhraseUsesPairPrefilter) {

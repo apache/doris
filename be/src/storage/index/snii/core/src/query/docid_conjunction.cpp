@@ -724,21 +724,32 @@ Status collect_docids_only(const LogicalIndexReader& idx, const snii::io::BatchR
     return Status::OK();
 }
 
-Status build_docid_only_conjunction_impl(const LogicalIndexReader& idx,
-                                         const snii::io::BatchRangeFetcher& round1,
-                                         const std::vector<TermPlan>& plans,
-                                         std::vector<uint32_t>* candidates,
-                                         std::vector<DocidSource>* sources) {
+Status run_docid_only_conjunction_impl(const LogicalIndexReader& idx,
+                                       const snii::io::BatchRangeFetcher& round1,
+                                       const std::vector<TermPlan>& plans,
+                                       const std::vector<uint32_t>* initial_candidates,
+                                       std::vector<uint32_t>* candidates,
+                                       std::vector<DocidSource>* sources) {
     if (sources != nullptr) {
         sources->assign(plans.size(), DocidSource {});
+    }
+    if (initial_candidates != nullptr) {
+        *candidates = *initial_candidates;
+    } else {
+        candidates->clear();
+    }
+    if (initial_candidates != nullptr && candidates->empty()) {
+        return Status::OK();
     }
     const std::vector<size_t> order = ascending_df_order(plans);
     for (size_t k = 0; k < order.size(); ++k) {
         const size_t ti = order[k];
         std::vector<uint32_t> next;
         DocidSource* source = sources == nullptr ? nullptr : &(*sources)[ti];
-        SNII_RETURN_IF_ERROR(collect_docids_only(idx, round1, plans[ti],
-                                                 k == 0 ? nullptr : candidates, &next, source));
+        const std::vector<uint32_t>* input_candidates =
+                initial_candidates == nullptr && k == 0 ? nullptr : candidates;
+        SNII_RETURN_IF_ERROR(
+                collect_docids_only(idx, round1, plans[ti], input_candidates, &next, source));
         if (source != nullptr && k + 1 == order.size()) {
             source->docids_are_final_candidates = true;
         }
@@ -823,7 +834,7 @@ Status build_docid_only_conjunction(const LogicalIndexReader& idx,
                                     const snii::io::BatchRangeFetcher& round1,
                                     const std::vector<TermPlan>& plans,
                                     std::vector<uint32_t>* candidates) {
-    return build_docid_only_conjunction_impl(idx, round1, plans, candidates, nullptr);
+    return run_docid_only_conjunction_impl(idx, round1, plans, nullptr, candidates, nullptr);
 }
 
 Status build_docid_only_conjunction(const LogicalIndexReader& idx,
@@ -831,7 +842,17 @@ Status build_docid_only_conjunction(const LogicalIndexReader& idx,
                                     const std::vector<TermPlan>& plans,
                                     std::vector<uint32_t>* candidates,
                                     std::vector<DocidSource>* sources) {
-    return build_docid_only_conjunction_impl(idx, round1, plans, candidates, sources);
+    return run_docid_only_conjunction_impl(idx, round1, plans, nullptr, candidates, sources);
+}
+
+Status filter_docids_by_conjunction(const LogicalIndexReader& idx,
+                                    const snii::io::BatchRangeFetcher& round1,
+                                    const std::vector<TermPlan>& plans,
+                                    const std::vector<uint32_t>& initial_candidates,
+                                    std::vector<uint32_t>* candidates,
+                                    std::vector<DocidSource>* sources) {
+    return run_docid_only_conjunction_impl(idx, round1, plans, &initial_candidates, candidates,
+                                           sources);
 }
 
 } // namespace snii::query::internal
