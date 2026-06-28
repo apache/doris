@@ -43,6 +43,55 @@
 
 namespace doris {
 
+TEST(ColumnMapCowTest, MutateDetachesSharedSubcolumns) {
+    auto keys_mut = ColumnInt64::create();
+    keys_mut->insert_value(10);
+    ColumnPtr keys = std::move(keys_mut);
+    ColumnPtr keys_alias = keys;
+
+    auto values_mut = ColumnInt64::create();
+    values_mut->insert_value(100);
+    ColumnPtr values = std::move(values_mut);
+    ColumnPtr values_alias = values;
+
+    auto offsets_mut = ColumnMap::COffsets::create();
+    offsets_mut->insert_value(1);
+    ColumnPtr offsets = std::move(offsets_mut);
+    ColumnPtr offsets_alias = offsets;
+
+    ColumnPtr map = ColumnMap::create(keys, values, offsets);
+    auto mutated = IColumn::mutate(map);
+    const auto& mutated_map = assert_cast<const ColumnMap&>(*mutated);
+
+    EXPECT_NE(mutated_map.get_keys_ptr().get(), keys_alias.get());
+    EXPECT_NE(mutated_map.get_values_ptr().get(), values_alias.get());
+    EXPECT_NE(mutated_map.get_offsets_ptr().get(), offsets_alias.get());
+}
+
+TEST(ColumnMapCowTest, MutateKeepsExclusiveSubcolumns) {
+    auto keys = ColumnInt64::create();
+    keys->insert_value(10);
+
+    auto values = ColumnInt64::create();
+    values->insert_value(100);
+
+    auto offsets = ColumnMap::COffsets::create();
+    offsets->insert_value(1);
+
+    ColumnPtr map = ColumnMap::create(std::move(keys), std::move(values), std::move(offsets));
+    const auto& map_ref = assert_cast<const ColumnMap&>(*map);
+    const auto* keys_raw = map_ref.get_keys_ptr().get();
+    const auto* values_raw = map_ref.get_values_ptr().get();
+    const auto* offsets_raw = map_ref.get_offsets_ptr().get();
+
+    auto mutated = IColumn::mutate(std::move(map));
+    const auto& mutated_map = assert_cast<const ColumnMap&>(*mutated);
+
+    EXPECT_EQ(mutated_map.get_keys_ptr().get(), keys_raw);
+    EXPECT_EQ(mutated_map.get_values_ptr().get(), values_raw);
+    EXPECT_EQ(mutated_map.get_offsets_ptr().get(), offsets_raw);
+}
+
 class ColumnMapTest : public ::testing::Test {
 protected:
     void SetUp() override {}
