@@ -26,7 +26,6 @@ import org.apache.doris.connector.DefaultConnectorContext;
 import org.apache.doris.connector.api.Connector;
 import org.apache.doris.datasource.doris.RemoteDorisExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
-import org.apache.doris.datasource.iceberg.IcebergExternalCatalogFactory;
 import org.apache.doris.datasource.test.TestExternalCatalog;
 import org.apache.doris.nereids.trees.plans.commands.CreateCatalogCommand;
 
@@ -134,10 +133,9 @@ public class CatalogFactory {
                 case "hms":
                     catalog = new HMSExternalCatalog(catalogId, name, resource, props, comment);
                     break;
-                case "iceberg":
-                    catalog = IcebergExternalCatalogFactory.createCatalog(
-                            catalogId, name, resource, props, comment);
-                    break;
+                // iceberg is routed through the SPI connector path (SPI_READY_TYPES) and never reaches this
+                // built-in fallback; its legacy IcebergExternalCatalogFactory case was removed at the GSON
+                // cutover (its GSON subtype is now registerCompatibleSubtype-only -> PluginDriven).
                 case "lakesoul":
                     throw new DdlException("Lakesoul catalog is no longer supported");
                 case "doris":
