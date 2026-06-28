@@ -68,10 +68,11 @@ Status decode_tail_pointer(Slice last_bytes, TailPointer* out) {
         return Status::Corruption("tail_pointer: bad magic");
     }
 
-    uint16_t format_version = 0;
-    SNII_RETURN_IF_ERROR(src.get_fixed16(&format_version));
-    (void)format_version; // Read to advance the cursor; version policy lives in
-                          // the bootstrap header, not here.
+    uint16_t tail_format_version = 0;
+    SNII_RETURN_IF_ERROR(src.get_fixed16(&tail_format_version));
+    if (tail_format_version != kFormatVersion) {
+        return Status::Unsupported("tail_pointer: unsupported container format_version");
+    }
     SNII_RETURN_IF_ERROR(src.get_fixed64(&out->meta_region_offset));
     SNII_RETURN_IF_ERROR(src.get_fixed64(&out->meta_region_length));
     SNII_RETURN_IF_ERROR(src.get_fixed64(&out->hot_off));

@@ -79,7 +79,6 @@ Status TailMetaRegionReader::parse_header(Slice header, TailMetaRegionHeader* co
     uint64_t meta_region_len = 0, directory_offset = 0, directory_length = 0;
     SNII_RETURN_IF_ERROR(hs.get_fixed32(&ver));
     SNII_RETURN_IF_ERROR(hs.get_fixed32(&flags));
-    (void)flags;
     SNII_RETURN_IF_ERROR(hs.get_fixed64(&meta_region_len));
     SNII_RETURN_IF_ERROR(hs.get_fixed32(&n));
     SNII_RETURN_IF_ERROR(hs.get_fixed64(&directory_offset));
@@ -92,6 +91,9 @@ Status TailMetaRegionReader::parse_header(Slice header, TailMetaRegionHeader* co
     }
     if (ver != kMetaFormatVersion) {
         return Status::Unsupported("tail_meta_region: unsupported meta_format_version");
+    }
+    if (flags != 0) {
+        return Status::Unsupported("tail_meta_region: unsupported flags");
     }
     if (meta_region_len < kHeaderSize + kRegionChecksumSize) {
         return Status::Corruption("tail_meta_region: declared length too small");

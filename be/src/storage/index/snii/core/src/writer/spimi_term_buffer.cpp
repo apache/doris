@@ -307,6 +307,10 @@ uint64_t DecodeChainVarint(CompactPostingPool::Cursor* c) {
     return result;
 }
 
+void SkipChainVarint(CompactPostingPool::Cursor* c) {
+    DecodeChainVarint(c);
+}
+
 } // namespace
 
 // Decodes a term's compact tagged chain back into a flat TermPostings (the exact
@@ -377,7 +381,7 @@ TermPostings SpimiTermBuffer::to_postings(std::string term, Term&& t,
             // discarded so the cursor stays aligned with the encoding.
             for (size_t k = 0; k < count; ++k) {
                 const uint64_t tagged = DecodeChainVarint(cur.get());
-                if ((tagged & 1u) != 0) (void)DecodeChainVarint(cur.get()); // skip docid delta
+                if ((tagged & 1u) != 0) SkipChainVarint(cur.get());
                 dst[k] = static_cast<uint32_t>(tagged >> 1);
             }
         };
@@ -388,7 +392,7 @@ TermPostings SpimiTermBuffer::to_postings(std::string term, Term&& t,
         CompactPostingPool::Cursor pc = pool_.cursor(t.head, t.w.cur);
         for (uint32_t i = 0; i < t.ntok; ++i) {
             const uint64_t tagged = DecodeChainVarint(&pc);
-            if ((tagged & 1u) != 0) (void)DecodeChainVarint(&pc); // skip docid delta
+            if ((tagged & 1u) != 0) SkipChainVarint(&pc);
             tp.positions_flat.push_back(static_cast<uint32_t>(tagged >> 1));
         }
     } else if (!t.sorted) {
