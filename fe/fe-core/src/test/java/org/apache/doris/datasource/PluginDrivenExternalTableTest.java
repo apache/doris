@@ -214,6 +214,7 @@ public class PluginDrivenExternalTableTest {
         Assertions.assertFalse(table.supportsColumnAutoAnalyze());
         Assertions.assertFalse(table.supportsTopNLazyMaterialize());
         Assertions.assertFalse(table.supportsShowCreateDdl());
+        Assertions.assertFalse(table.supportsView());
     }
 
     @Test
@@ -228,6 +229,149 @@ public class PluginDrivenExternalTableTest {
         // Independent of the other capabilities: declaring auto-analyze must NOT enable SHOW CREATE rendering.
         Assertions.assertFalse(pluginTableWithCapabilities(
                 EnumSet.of(ConnectorCapability.SUPPORTS_COLUMN_AUTO_ANALYZE)).supportsShowCreateDdl());
+    }
+
+    @Test
+    public void supportsViewReflectsConnectorCapability() {
+        // isView() resolution and the SHOW TABLES view-merge engage only when the connector declares
+        // SUPPORTS_VIEW. MUTATION: dropping the capability check (or always-true) -> view-less connectors
+        // (jdbc/es) would issue view round-trips / look like potential views -> red for the no-capability case.
+        Assertions.assertTrue(pluginTableWithCapabilities(
+                EnumSet.of(ConnectorCapability.SUPPORTS_VIEW)).supportsView());
+        Assertions.assertFalse(pluginTableWithCapabilities(
+                EnumSet.noneOf(ConnectorCapability.class)).supportsView());
+        // Independent of the other capabilities.
+        Assertions.assertFalse(pluginTableWithCapabilities(
+                EnumSet.of(ConnectorCapability.SUPPORTS_SHOW_CREATE_DDL)).supportsView());
+    }
+
+    /**
+     * Builds a CALLS_REAL_METHODS PluginDrivenExternalTable wired so the REAL makeSureInitialized /
+     * resolveIsView / isView path runs end-to-end: the connector declares {@code caps}, its metadata reports
+     * {@code viewExists} for the (db, remote-name) pair, and the table resolves to remote {@code db1.v1}. The
+     * db is wired both as the {@code db} field (used by resolveIsView) and via getDbOrAnalysisException (used
+     * by the base makeSureInitialized).
+     */
+    private static PluginDrivenExternalTable pluginViewTable(Set<ConnectorCapability> caps, boolean viewExists) {
+        ConnectorMetadata metadata = Mockito.mock(ConnectorMetadata.class);
+        Mockito.when(metadata.viewExists(Mockito.any(), Mockito.anyString(), Mockito.anyString()))
+                .thenReturn(viewExists);
+        ConnectorSession session = Mockito.mock(ConnectorSession.class);
+        Connector connector = Mockito.mock(Connector.class);
+        Mockito.when(connector.getCapabilities()).thenReturn(caps);
+        Mockito.when(connector.getMetadata(Mockito.any())).thenReturn(metadata);
+        ExternalDatabase db = Mockito.mock(ExternalDatabase.class);
+        Mockito.when(db.getRemoteName()).thenReturn("db1");
+        Mockito.when(db.getId()).thenReturn(100L);
+        PluginDrivenExternalCatalog catalog = Mockito.mock(PluginDrivenExternalCatalog.class);
+        Mockito.when(catalog.getConnector()).thenReturn(connector);
+        Mockito.when(catalog.buildConnectorSession()).thenReturn(session);
+        try {
+            Mockito.when(catalog.getDbOrAnalysisException(Mockito.anyString())).thenReturn(db);
+        } catch (Exception ignore) {
+            // getDbOrAnalysisException declares a checked exception; the stub never throws.
+        }
+        PluginDrivenExternalTable table =
+                Mockito.mock(PluginDrivenExternalTable.class, Mockito.CALLS_REAL_METHODS);
+        Deencapsulation.setField(table, "catalog", catalog);
+        Deencapsulation.setField(table, "db", db);
+        Deencapsulation.setField(table, "dbName", "db1");
+        Deencapsulation.setField(table, "remoteName", "v1");
+        return table;
+    }
+
+    @Test
+    public void resolveIsViewConsultsConnectorWhenViewCapable() {
+        // WHY: a flipped table reports view-ness by asking the connector (mirrors legacy
+        // IcebergExternalTable.makeSureInitialized -> catalog.viewExists). MUTATION: returning a constant
+        // instead of metadata.viewExists -> red for one of the two cases.
+        Assertions.assertTrue(
+                pluginViewTable(EnumSet.of(ConnectorCapability.SUPPORTS_VIEW), true).resolveIsView());
+        Assertions.assertFalse(
+                pluginViewTable(EnumSet.of(ConnectorCapability.SUPPORTS_VIEW), false).resolveIsView());
+    }
+
+    @Test
+    public void resolveIsViewIsFalseWithoutCapabilityAndIssuesNoViewRoundTrip() {
+        // WHY: view-less connectors (jdbc/es) must issue NO viewExists round-trip and stay isView()==false.
+        // MUTATION: dropping the supportsView() gate -> resolveIsView reaches viewExists(session,"db1","v1")
+        // (both args non-null so the stub returns true AND the verify(never) matches the call) -> the
+        // assertion flips to true and verify(never) trips -> red.
+        // NOTE: the table MUST carry a non-null remoteName + db (so the would-be viewExists call has non-null
+        // string args) — otherwise getRemoteName()==null dodges anyString() in both the stub and the verify,
+        // and the gate-drop mutation survives silently.
+        ConnectorMetadata metadata = Mockito.mock(ConnectorMetadata.class);
+        Mockito.when(metadata.viewExists(Mockito.any(), Mockito.anyString(), Mockito.anyString()))
+                .thenReturn(true);
+        ConnectorSession session = Mockito.mock(ConnectorSession.class);
+        Connector connector = Mockito.mock(Connector.class);
+        Mockito.when(connector.getCapabilities()).thenReturn(EnumSet.noneOf(ConnectorCapability.class));
+        Mockito.when(connector.getMetadata(Mockito.any())).thenReturn(metadata);
+        ExternalDatabase db = Mockito.mock(ExternalDatabase.class);
+        Mockito.when(db.getRemoteName()).thenReturn("db1");
+        PluginDrivenExternalCatalog catalog = Mockito.mock(PluginDrivenExternalCatalog.class);
+        Mockito.when(catalog.getConnector()).thenReturn(connector);
+        Mockito.when(catalog.buildConnectorSession()).thenReturn(session);
+        PluginDrivenExternalTable table =
+                Mockito.mock(PluginDrivenExternalTable.class, Mockito.CALLS_REAL_METHODS);
+        Deencapsulation.setField(table, "catalog", catalog);
+        Deencapsulation.setField(table, "db", db);
+        Deencapsulation.setField(table, "remoteName", "v1");
+
+        Assertions.assertFalse(table.resolveIsView());
+        Mockito.verify(metadata, Mockito.never())
+                .viewExists(Mockito.any(), Mockito.anyString(), Mockito.anyString());
+    }
+
+    @Test
+    public void resolveIsViewIsFalseWhenConnectorAbsent() {
+        // MUTATION: dropping the null-connector guard NPEs — a not-yet-initialized catalog must degrade to
+        // "not a view", never crash planning.
+        PluginDrivenExternalCatalog catalog = Mockito.mock(PluginDrivenExternalCatalog.class);
+        Mockito.when(catalog.getConnector()).thenReturn(null);
+        PluginDrivenExternalTable table =
+                Mockito.mock(PluginDrivenExternalTable.class, Mockito.CALLS_REAL_METHODS);
+        Deencapsulation.setField(table, "catalog", catalog);
+        Assertions.assertFalse(table.resolveIsView());
+    }
+
+    @Test
+    public void isViewSurfacesResolvedFlagThroughRealInit() {
+        // WHY: isView() must run makeSureInitialized (which resolves+caches the flag) and surface it.
+        // MUTATION: hard-coding isView() to the base false, or not triggering makeSureInitialized -> the
+        // resolved view flag is lost -> red.
+        Assertions.assertTrue(
+                pluginViewTable(EnumSet.of(ConnectorCapability.SUPPORTS_VIEW), true).isView());
+        Assertions.assertFalse(
+                pluginViewTable(EnumSet.of(ConnectorCapability.SUPPORTS_VIEW), false).isView());
+    }
+
+    @Test
+    public void systemTableOverridesResolveIsViewToFalse() {
+        // A system/metadata table ($snapshots etc.) overrides resolveIsView to a constant false so the base
+        // never issues a viewExists round-trip on its synthetic "$"-suffixed name. Here the catalog declares
+        // SUPPORTS_VIEW and viewExists==true, so the BASE resolveIsView WOULD return true; the override must
+        // still yield false. MUTATION: dropping the sys override -> base consults the connector -> true -> red.
+        ConnectorMetadata metadata = Mockito.mock(ConnectorMetadata.class);
+        Mockito.when(metadata.viewExists(Mockito.any(), Mockito.anyString(), Mockito.anyString()))
+                .thenReturn(true);
+        ConnectorSession session = Mockito.mock(ConnectorSession.class);
+        Connector connector = Mockito.mock(Connector.class);
+        Mockito.when(connector.getCapabilities()).thenReturn(EnumSet.of(ConnectorCapability.SUPPORTS_VIEW));
+        Mockito.when(connector.getMetadata(Mockito.any())).thenReturn(metadata);
+        ExternalDatabase db = Mockito.mock(ExternalDatabase.class);
+        Mockito.when(db.getRemoteName()).thenReturn("db1");
+        PluginDrivenExternalCatalog catalog = Mockito.mock(PluginDrivenExternalCatalog.class);
+        Mockito.when(catalog.getConnector()).thenReturn(connector);
+        Mockito.when(catalog.buildConnectorSession()).thenReturn(session);
+
+        PluginDrivenSysExternalTable sys =
+                Mockito.mock(PluginDrivenSysExternalTable.class, Mockito.CALLS_REAL_METHODS);
+        Deencapsulation.setField(sys, "catalog", catalog);
+        Deencapsulation.setField(sys, "db", db);
+        Deencapsulation.setField(sys, "remoteName", "v1$snapshots");
+
+        Assertions.assertFalse(sys.resolveIsView(), "a system table must never report itself as a view");
     }
 
     /**

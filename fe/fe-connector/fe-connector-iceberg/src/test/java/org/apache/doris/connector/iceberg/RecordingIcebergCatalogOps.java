@@ -51,10 +51,14 @@ final class RecordingIcebergCatalogOps implements IcebergCatalogOps {
     List<String> databases = new ArrayList<>();
     /** Canned table names returned by {@link #listTableNames(String)}. */
     List<String> tables = new ArrayList<>();
+    /** Canned view names returned by {@link #listViewNames(String)}. */
+    List<String> views = new ArrayList<>();
     /** Canned existence answer for {@link #databaseExists(String)}. */
     boolean databaseExists;
     /** Canned existence answer for {@link #tableExists(String, String)}. */
     boolean tableExists;
+    /** Canned existence answer for {@link #viewExists(String, String)}. */
+    boolean viewExists;
     /** Canned table returned by {@link #loadTable(String, String)}. */
     Table table;
     /** When set, {@link #loadTable(String, String)} throws instead of returning {@link #table}. */
@@ -137,6 +141,18 @@ final class RecordingIcebergCatalogOps implements IcebergCatalogOps {
         lastExistsDb = dbName;
         lastExistsTable = tableName;
         return tableExists;
+    }
+
+    @Override
+    public List<String> listViewNames(String dbName) {
+        log.add("listViewNames:" + dbName);
+        return views;
+    }
+
+    @Override
+    public boolean viewExists(String dbName, String viewName) {
+        log.add("viewExists:" + dbName + "." + viewName);
+        return viewExists;
     }
 
     @Override

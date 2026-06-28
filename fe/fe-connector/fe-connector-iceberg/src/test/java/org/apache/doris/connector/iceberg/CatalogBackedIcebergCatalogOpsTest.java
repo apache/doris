@@ -173,6 +173,75 @@ public class CatalogBackedIcebergCatalogOpsTest {
     }
 
     // ---------------------------------------------------------------------
+    // listViewNames / viewExists — the inverse of listTableNames' view subtraction (B0 view SPI)
+    // ---------------------------------------------------------------------
+
+    @Test
+    public void listViewNamesReturnsViewsWhenViewCatalogEnabled() {
+        // WHY: the catalog re-merges these into SHOW TABLES (listTableNames subtracts them). The real impl
+        // must surface the ViewCatalog's listViews names. MUTATION: returning empty / not casting to
+        // ViewCatalog -> views vanish from SHOW TABLES -> red.
+        FakeIcebergViewCatalog catalog = new FakeIcebergViewCatalog();
+        catalog.viewsByNs.put(Namespace.of("db1"), Arrays.asList("v1", "v2"));
+
+        List<String> result = ops(catalog, true, false, true, Optional.empty()).listViewNames("db1");
+
+        Assertions.assertEquals(Arrays.asList("v1", "v2"), result);
+    }
+
+    @Test
+    public void listViewNamesEmptyWhenNotViewCatalog() {
+        // WHY: a plain Catalog (not a ViewCatalog) has no views. MUTATION: dropping the isViewCatalogEnabled
+        // gate -> a ClassCastException on the non-ViewCatalog -> red.
+        FakeIcebergCatalog catalog = new FakeIcebergCatalog();
+
+        List<String> result = ops(catalog, true, false, true, Optional.empty()).listViewNames("db1");
+
+        Assertions.assertTrue(result.isEmpty(), "a non-ViewCatalog must report no views");
+    }
+
+    @Test
+    public void listViewNamesEmptyWhenRestViewDisabled() {
+        // WHY: even a ViewCatalog reports no views when iceberg.rest.view-enabled=false, and listViews must
+        // NOT be called. MUTATION: ignoring the view-enabled flag -> listViews called / views surface -> red.
+        FakeIcebergViewCatalog catalog = new FakeIcebergViewCatalog();
+        catalog.viewsByNs.put(Namespace.of("db1"), Collections.singletonList("v1"));
+
+        List<String> result = ops(catalog, true, false, false, Optional.empty()).listViewNames("db1");
+
+        Assertions.assertTrue(result.isEmpty(), "REST view-disabled must report no views");
+        Assertions.assertFalse(catalog.log.contains("listViews:db1"),
+                "listViews must not be called when view filtering is disabled");
+    }
+
+    @Test
+    public void viewExistsTrueOnlyForKnownViewWhenViewCatalogEnabled() {
+        // WHY: PluginDrivenExternalTable.isView() resolves from this; it must report true exactly for a view
+        // name. MUTATION: hard-coding true/false, or checking the wrong name -> red on one of the two cases.
+        FakeIcebergViewCatalog catalog = new FakeIcebergViewCatalog();
+        catalog.viewsByNs.put(Namespace.of("db1"), Collections.singletonList("v1"));
+
+        Assertions.assertTrue(ops(catalog, true, false, true, Optional.empty()).viewExists("db1", "v1"));
+        Assertions.assertFalse(ops(catalog, true, false, true, Optional.empty()).viewExists("db1", "t1"),
+                "a non-view name must not report as a view");
+    }
+
+    @Test
+    public void viewExistsFalseWhenNotViewCatalogOrRestDisabled() {
+        // WHY: the isViewCatalogEnabled gate must short-circuit viewExists to false for a plain Catalog and
+        // for a view-disabled REST catalog (never casting / calling viewExists on them). MUTATION: dropping
+        // the gate -> ClassCastException on the plain catalog, or a true on the disabled one -> red.
+        FakeIcebergCatalog plain = new FakeIcebergCatalog();
+        Assertions.assertFalse(ops(plain, true, false, true, Optional.empty()).viewExists("db1", "v1"),
+                "a non-ViewCatalog reports no views");
+
+        FakeIcebergViewCatalog disabled = new FakeIcebergViewCatalog();
+        disabled.viewsByNs.put(Namespace.of("db1"), Collections.singletonList("v1"));
+        Assertions.assertFalse(ops(disabled, true, false, false, Optional.empty()).viewExists("db1", "v1"),
+                "REST view-disabled gates viewExists to false");
+    }
+
+    // ---------------------------------------------------------------------
     // namespace construction — dotted split + external-catalog-name append
     // ---------------------------------------------------------------------
 

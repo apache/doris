@@ -29,6 +29,7 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.DebugPointUtil;
+import org.apache.doris.datasource.PluginDrivenExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.foundation.format.FormatOptions;
 import org.apache.doris.nereids.CascadesContext;
@@ -290,6 +291,12 @@ public class InsertUtils {
             if (hiveTable.isView()) {
                 throw new AnalysisException("View is not support in hive external table.");
             }
+        }
+        // Plugin-driven (flipped) external views: the legacy engine sinks rejected writes to a view (e.g.
+        // IcebergTableSink threw on isView()); on the neutral write path that guard must live here, since a
+        // flipped catalog reaches a connector sink, not the engine-specific sink.
+        if (table instanceof PluginDrivenExternalTable && ((PluginDrivenExternalTable) table).isView()) {
+            throw new AnalysisException("Write data to view is not supported");
         }
         // Re-read partial update settings from session variable to handle multi-statement
         // batches where SET and INSERT are parsed together before execution.

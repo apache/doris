@@ -105,6 +105,24 @@ public interface ConnectorTableOps {
         return Collections.emptyList();
     }
 
+    /**
+     * Returns whether the named view exists in the given database. Connectors that expose views
+     * (declaring {@link ConnectorCapability#SUPPORTS_VIEW}) override this; the default {@code false}
+     * keeps view-less connectors reporting every object as a non-view.
+     */
+    default boolean viewExists(ConnectorSession session, String dbName, String viewName) {
+        return false;
+    }
+
+    /**
+     * Lists all view names within the given database. Connectors that subtract views from
+     * {@link #listTableNames} (e.g. iceberg) expose them here so the catalog can merge them back into
+     * {@code SHOW TABLES}; the default is empty (no view support).
+     */
+    default List<String> listViewNames(ConnectorSession session, String dbName) {
+        return Collections.emptyList();
+    }
+
     /** Creates a new table with the given schema and properties. */
     default void createTable(ConnectorSession session,
             ConnectorTableSchema schema,

@@ -69,6 +69,14 @@ public class PluginDrivenExternalTable extends ExternalTable {
 
     private static final Logger LOG = LogManager.getLogger(PluginDrivenExternalTable.class);
 
+    /**
+     * Whether this table is actually a view, resolved once from the connector in
+     * {@link #makeSureInitialized()} (gated on {@link #supportsView()}) and recomputed after GSON replay
+     * (the {@code objectCreated} reset). Mirrors legacy {@code IcebergExternalTable.isView}; derived
+     * metadata, not persisted.
+     */
+    private boolean isView;
+
     /** No-arg constructor for GSON deserialization. */
     public PluginDrivenExternalTable() {
     }
@@ -145,6 +153,22 @@ public class PluginDrivenExternalTable extends ExternalTable {
         Connector connector = ((PluginDrivenExternalCatalog) catalog).getConnector();
         return connector != null
                 && connector.getCapabilities().contains(ConnectorCapability.SUPPORTS_SHOW_CREATE_DDL);
+    }
+
+    /**
+     * Returns whether the underlying connector exposes views (declares {@code SUPPORTS_VIEW}). When true,
+     * {@link #isView()} resolves this table's view-ness from the connector ({@code viewExists}) and the
+     * catalog merges the connector's {@code listViewNames} back into {@code SHOW TABLES}. View-less
+     * connectors (jdbc/es) return false and keep every object a non-view. Mirror of the other capability
+     * helpers.
+     */
+    public boolean supportsView() {
+        if (!(catalog instanceof PluginDrivenExternalCatalog)) {
+            return false;
+        }
+        Connector connector = ((PluginDrivenExternalCatalog) catalog).getConnector();
+        return connector != null
+                && connector.getCapabilities().contains(ConnectorCapability.SUPPORTS_VIEW);
     }
 
     /**
@@ -284,7 +308,37 @@ public class PluginDrivenExternalTable extends ExternalTable {
         super.makeSureInitialized();
         if (!objectCreated) {
             objectCreated = true;
+            isView = resolveIsView();
         }
+    }
+
+    @Override
+    public boolean isView() {
+        makeSureInitialized();
+        return isView;
+    }
+
+    /**
+     * Resolves whether this table is a view by consulting the connector ({@code viewExists}), mirroring
+     * legacy {@code IcebergExternalTable.makeSureInitialized -> catalog.viewExists}. Gated on
+     * {@link #supportsView()} so view-less connectors (jdbc/es/paimon/maxcompute) issue no remote call and
+     * stay {@code isView()==false}. The system-table subclass overrides this to a constant {@code false}
+     * (metadata tables like {@code $snapshots} are never views, and a {@code viewExists} on their synthetic
+     * name would be a wasted — possibly failing — round-trip).
+     */
+    protected boolean resolveIsView() {
+        if (!supportsView()) {
+            return false;
+        }
+        PluginDrivenExternalCatalog pluginCatalog = (PluginDrivenExternalCatalog) catalog;
+        Connector connector = pluginCatalog.getConnector();
+        if (connector == null) {
+            return false;
+        }
+        ConnectorSession session = pluginCatalog.buildConnectorSession();
+        ConnectorMetadata metadata = connector.getMetadata(session);
+        String dbName = db != null ? db.getRemoteName() : "";
+        return metadata.viewExists(session, dbName, getRemoteName());
     }
 
     @Override

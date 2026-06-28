@@ -86,8 +86,14 @@ public interface IcebergCatalogOps {
     /** Lists the table names in {@code dbName}. */
     List<String> listTableNames(String dbName);
 
+    /** Lists the view names in {@code dbName}; empty when the catalog is not a (view-enabled) ViewCatalog. */
+    List<String> listViewNames(String dbName);
+
     /** Returns {@code true} iff {@code dbName.tableName} exists. */
     boolean tableExists(String dbName, String tableName);
+
+    /** Returns {@code true} iff the view {@code dbName.viewName} exists; {@code false} when no view support. */
+    boolean viewExists(String dbName, String viewName);
 
     /** Loads the Iceberg {@link Table} for {@code dbName.tableName}. */
     Table loadTable(String dbName, String tableName);
@@ -258,8 +264,31 @@ public interface IcebergCatalogOps {
         }
 
         @Override
+        public List<String> listViewNames(String dbName) {
+            // Mirrors legacy IcebergMetadataOps.listViewNames: empty unless the catalog is a
+            // (view-enabled) ViewCatalog. The auth wrapping / exception normalization is in
+            // IcebergConnectorMetadata.listViewNames, keeping this a thin catalog delegation.
+            if (!isViewCatalogEnabled()) {
+                return Collections.emptyList();
+            }
+            return ((ViewCatalog) catalog).listViews(toNamespace(dbName)).stream()
+                    .map(TableIdentifier::name)
+                    .collect(Collectors.toList());
+        }
+
+        @Override
         public boolean tableExists(String dbName, String tableName) {
             return catalog.tableExists(toTableIdentifier(dbName, tableName));
+        }
+
+        @Override
+        public boolean viewExists(String dbName, String viewName) {
+            // Mirrors legacy IcebergMetadataOps.viewExists: false unless the catalog is a
+            // (view-enabled) ViewCatalog. Auth wrapping is in IcebergConnectorMetadata.viewExists.
+            if (!isViewCatalogEnabled()) {
+                return false;
+            }
+            return ((ViewCatalog) catalog).viewExists(toTableIdentifier(dbName, viewName));
         }
 
         @Override

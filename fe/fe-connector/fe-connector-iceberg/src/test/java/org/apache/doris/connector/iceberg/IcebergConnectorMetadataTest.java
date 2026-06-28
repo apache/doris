@@ -282,6 +282,46 @@ public class IcebergConnectorMetadataTest {
         Assertions.assertEquals(Collections.singletonList("listTableNames:db1"), ops.log);
     }
 
+    @Test
+    public void listViewNamesDelegatesToOps() {
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        ops.views = Arrays.asList("v1", "v2");
+
+        List<String> result = metadataWith(ops).listViewNames(null, "db1");
+
+        // WHY: post-cutover the catalog re-merges the connector's view names back into SHOW TABLES (iceberg's
+        // listTableNames subtracts them) and cascades them on force-drop. listViewNames must surface exactly
+        // the remote view list for the given db. MUTATION: returning emptyList (dropping delegation) -> the
+        // catalog merge sees no views -> views vanish from SHOW TABLES -> red.
+        Assertions.assertEquals(Arrays.asList("v1", "v2"), result);
+        Assertions.assertEquals(Collections.singletonList("listViewNames:db1"), ops.log);
+    }
+
+    @Test
+    public void viewExistsDelegatesToOps() {
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        ops.viewExists = true;
+
+        boolean present = metadataWith(ops).viewExists(null, "db1", "v1");
+
+        // WHY: PluginDrivenExternalTable.isView() resolves from this; it must report exactly what the seam
+        // says for the (db, view) pair. MUTATION: returning false (dropping delegation) -> a flipped iceberg
+        // view reports isView()==false -> scanned as a table -> red.
+        Assertions.assertTrue(present);
+        Assertions.assertEquals(Collections.singletonList("viewExists:db1.v1"), ops.log,
+                "viewExists must gate on exactly one viewExists() call carrying the db/view names verbatim");
+    }
+
+    @Test
+    public void viewExistsFalseWhenSeamReportsFalse() {
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        ops.viewExists = false;
+
+        // WHY: a plain table must NOT be reported as a view. MUTATION: hard-coding true -> every table looks
+        // like a view -> red.
+        Assertions.assertFalse(metadataWith(ops).viewExists(null, "db1", "t1"));
+    }
+
     // ---------------------------------------------------------------------
     // getTableHandle — present iff tableExists, carries db/table coordinates
     // ---------------------------------------------------------------------
@@ -889,7 +929,7 @@ public class IcebergConnectorMetadataTest {
     public void everyRemoteReadRunsInsideExecuteAuthenticated() {
         // WHY: legacy IcebergMetadataOps wraps EVERY remote read (list/exists/load) in
         // executionAuthenticator.execute so the FE-injected Kerberos UGI applies; the paimon mirror does
-        // the same. Each of the 6 read entry points must wrap exactly one executeAuthenticated call.
+        // the same. Each of the 8 read entry points must wrap exactly one executeAuthenticated call.
         // MUTATION: calling the seam directly (no wrap) -> authCount stays 0 -> red.
         RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
         ops.databases = Collections.singletonList("db1");
@@ -904,12 +944,14 @@ public class IcebergConnectorMetadataTest {
         md.listDatabaseNames(null);
         md.databaseExists(null, "db1");
         md.listTableNames(null, "db1");
+        md.listViewNames(null, "db1");
         md.getTableHandle(null, "db1", "t1");
+        md.viewExists(null, "db1", "v1");
         md.getTableSchema(null, new IcebergTableHandle("db1", "t1"));
         md.getDatabase(null, "db1");
 
-        Assertions.assertEquals(6, ctx.authCount,
-                "each of the 6 remote reads must wrap exactly one executeAuthenticated call");
+        Assertions.assertEquals(8, ctx.authCount,
+                "each of the 8 remote reads must wrap exactly one executeAuthenticated call");
     }
 
     @Test
@@ -926,7 +968,9 @@ public class IcebergConnectorMetadataTest {
         Assertions.assertThrows(RuntimeException.class, () -> md.listDatabaseNames(null));
         Assertions.assertThrows(RuntimeException.class, () -> md.databaseExists(null, "db1"));
         Assertions.assertThrows(RuntimeException.class, () -> md.listTableNames(null, "db1"));
+        Assertions.assertThrows(RuntimeException.class, () -> md.listViewNames(null, "db1"));
         Assertions.assertThrows(RuntimeException.class, () -> md.getTableHandle(null, "db1", "t1"));
+        Assertions.assertThrows(RuntimeException.class, () -> md.viewExists(null, "db1", "v1"));
         Assertions.assertThrows(RuntimeException.class,
                 () -> md.getTableSchema(null, new IcebergTableHandle("db1", "t1")));
         Assertions.assertThrows(RuntimeException.class, () -> md.getDatabase(null, "db1"));

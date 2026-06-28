@@ -191,6 +191,32 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
     }
 
     @Override
+    public List<String> listViewNames(ConnectorSession session, String dbName) {
+        // Mirror legacy IcebergMetadataOps.listViewNames: wrap in the auth context; a RuntimeException
+        // (e.g. NoSuchNamespaceException) is rethrown verbatim, other failures are wrapped.
+        try {
+            return context.executeAuthenticated(() -> catalogOps.listViewNames(dbName));
+        } catch (RuntimeException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to list view names, error message is: " + e.getMessage(), e);
+        }
+    }
+
+    @Override
+    public boolean viewExists(ConnectorSession session, String dbName, String viewName) {
+        // Mirror legacy IcebergMetadataOps.viewExists (an existence check, like databaseExists / the
+        // getTableHandle tableExists wrapper): wrap the remote check in the auth context and normalize EVERY
+        // failure into a RuntimeException — unlike the listing methods (listTableNames / listViewNames), which
+        // rethrow a RuntimeException verbatim so NoSuchNamespaceException surfaces unwrapped.
+        try {
+            return context.executeAuthenticated(() -> catalogOps.viewExists(dbName, viewName));
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to check view exist, error message is: " + e.getMessage(), e);
+        }
+    }
+
+    @Override
     public Optional<ConnectorTableHandle> getTableHandle(
             ConnectorSession session, String dbName, String tableName) {
         // Mirror legacy IcebergMetadataOps.tableExist: wrap the remote existence check in the auth context

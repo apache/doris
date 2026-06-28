@@ -17,8 +17,15 @@
 
 package org.apache.doris.nereids.trees.plans.commands.insert;
 
+import org.apache.doris.datasource.PluginDrivenExternalTable;
+import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.plans.logical.UnboundLogicalSink;
+
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
+
+import java.util.Optional;
 
 /**
  * Test for InsertUtils.getFinalErrorMsg()
@@ -215,6 +222,41 @@ public class InsertUtilsTest {
         Assertions.assertTrue(result.contains("please use `show load` for detail msg"));
         Assertions.assertFalse(result.contains(url));
         Assertions.assertTrue(result.length() <= MAX_TOTAL_BYTES);
+    }
+
+    /**
+     * normalizePlan must reject INSERT into a flipped plugin-driven view. Pre-flip the engine sink rejected
+     * it (e.g. IcebergTableSink threw on isView()); post-flip the neutral write path reaches a connector sink,
+     * so the guard lives in normalizePlan instead — mirroring the existing HMS-view guard.
+     */
+    @Test
+    public void normalizePlanRejectsInsertIntoPluginView() {
+        PluginDrivenExternalTable view = Mockito.mock(PluginDrivenExternalTable.class);
+        Mockito.when(view.isView()).thenReturn(true);
+        UnboundLogicalSink<?> plan = Mockito.mock(UnboundLogicalSink.class);
+
+        // MUTATION: dropping the guard, or negating the isView() check -> the write proceeds past the guard
+        // (no view rejection) -> this assertThrows finds no exception with the view message -> red.
+        AnalysisException e = Assertions.assertThrows(AnalysisException.class,
+                () -> InsertUtils.normalizePlan(plan, view, Optional.empty(), Optional.empty()));
+        Assertions.assertTrue(e.getMessage().contains("Write data to view is not supported"), e.getMessage());
+    }
+
+    @Test
+    public void normalizePlanDoesNotRejectNonViewPluginTableAtViewGuard() {
+        PluginDrivenExternalTable nonView = Mockito.mock(PluginDrivenExternalTable.class);
+        Mockito.when(nonView.isView()).thenReturn(false);
+        UnboundLogicalSink<?> plan = Mockito.mock(UnboundLogicalSink.class);
+
+        // A non-view plugin table must pass the view guard (the write proceeds; it may fail later for
+        // unrelated reasons, but never with the VIEW rejection). MUTATION: making the guard ignore isView()
+        // (always reject any plugin table) -> the view message surfaces here -> red.
+        try {
+            InsertUtils.normalizePlan(plan, nonView, Optional.empty(), Optional.empty());
+        } catch (Exception e) {
+            Assertions.assertFalse(String.valueOf(e.getMessage()).contains("Write data to view is not supported"),
+                    "non-view plugin table must not be rejected by the view guard: " + e.getMessage());
+        }
     }
 }
 

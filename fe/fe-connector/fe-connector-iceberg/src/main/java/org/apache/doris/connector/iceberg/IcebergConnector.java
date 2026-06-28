@@ -250,11 +250,17 @@ public class IcebergConnector implements Connector {
         // DATABASE); the generic plugin-driven render arm reproduces that ONLY under this capability
         // (the connector pre-renders the partition/sort clauses under the show.* reserved keys, and getDatabase
         // surfaces the namespace location). Inert pre-cutover (P6.6).
+        // SUPPORTS_VIEW: legacy IcebergExternalTable resolves isView() from catalog.viewExists and
+        // IcebergExternalCatalog merges listViewNames back into SHOW TABLES; the generic plugin-driven path
+        // reproduces both ONLY under this capability (PluginDrivenExternalTable.isView() consults the connector,
+        // and listTableNamesFromRemote re-merges the connector's listViewNames), so post-cutover iceberg views
+        // remain visible/queryable/droppable. Inert pre-cutover (P6.6).
         return EnumSet.of(ConnectorCapability.SUPPORTS_MVCC_SNAPSHOT, ConnectorCapability.SUPPORTS_TIME_TRAVEL,
                 ConnectorCapability.SINK_REQUIRE_FULL_SCHEMA_ORDER, ConnectorCapability.SUPPORTS_PARALLEL_WRITE,
                 ConnectorCapability.SUPPORTS_COLUMN_AUTO_ANALYZE,
                 ConnectorCapability.SUPPORTS_TOPN_LAZY_MATERIALIZE,
-                ConnectorCapability.SUPPORTS_SHOW_CREATE_DDL);
+                ConnectorCapability.SUPPORTS_SHOW_CREATE_DDL,
+                ConnectorCapability.SUPPORTS_VIEW);
     }
 
     private Catalog getOrCreateCatalog() {

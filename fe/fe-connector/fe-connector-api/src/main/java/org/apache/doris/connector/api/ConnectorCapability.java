@@ -133,5 +133,16 @@ public enum ConnectorCapability {
      * <b>including credentials</b> (e.g. JDBC, ES) must NOT declare it, or SHOW CREATE TABLE would leak
      * the connection password — the security control the legacy engine-name gate provided.</p>
      */
-    SUPPORTS_SHOW_CREATE_DDL
+    SUPPORTS_SHOW_CREATE_DDL,
+    /**
+     * Indicates the connector exposes views as queryable objects distinct from tables.
+     *
+     * <p>When a connector declares this, a plugin-driven table resolves its {@code isView()} from the
+     * connector ({@link ConnectorTableOps#viewExists}) instead of the {@code false} default, the catalog
+     * merges the connector's {@link ConnectorTableOps#listViewNames} back into {@code SHOW TABLES} (iceberg
+     * subtracts views from {@code listTableNames}), and the read/DML/SHOW CREATE arms treat the object as a
+     * view. Connectors with no view concept (e.g. JDBC, ES) must NOT declare it so every table stays
+     * {@code isView()==false} and no view round-trips are issued.</p>
+     */
+    SUPPORTS_VIEW
 }

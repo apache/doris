@@ -165,4 +165,18 @@ public class IcebergConnectorTest {
                 "iceberg must declare SUPPORTS_SHOW_CREATE_DDL so post-flip SHOW CREATE TABLE/DATABASE keeps "
                         + "rendering LOCATION/PROPERTIES/PARTITION BY/ORDER BY");
     }
+
+    @Test
+    public void declaresViewCapability() {
+        // WHY: legacy IcebergExternalTable resolves isView() from catalog.viewExists and IcebergExternalCatalog
+        // merges listViewNames back into SHOW TABLES (its listTableNames subtracts views). Post-cutover the
+        // generic plugin path reproduces both ONLY when the connector declares SUPPORTS_VIEW
+        // (PluginDrivenExternalTable.isView() consults the connector, and listTableNamesFromRemote re-merges the
+        // connector's listViewNames). MUTATION: dropping the capability -> flipped iceberg views vanish from
+        // SHOW TABLES and report isView()==false (scanned as tables) -> red. (Inert pre-cutover.)
+        IcebergConnector connector = new IcebergConnector(Collections.emptyMap(), new RecordingConnectorContext());
+        Assertions.assertTrue(connector.getCapabilities()
+                        .contains(ConnectorCapability.SUPPORTS_VIEW),
+                "iceberg must declare SUPPORTS_VIEW so post-flip views stay visible/queryable/droppable");
+    }
 }

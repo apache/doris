@@ -35,6 +35,7 @@ import org.apache.doris.connector.ConnectorSessionBuilder;
 import org.apache.doris.connector.DefaultConnectorContext;
 import org.apache.doris.connector.DefaultConnectorValidationContext;
 import org.apache.doris.connector.api.Connector;
+import org.apache.doris.connector.api.ConnectorCapability;
 import org.apache.doris.connector.api.ConnectorMetadata;
 import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.ConnectorTestResult;
@@ -60,6 +61,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -244,7 +246,22 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
     @Override
     protected List<String> listTableNamesFromRemote(SessionContext ctx, String dbName) {
         ConnectorSession session = buildConnectorSession();
-        return connector.getMetadata(session).listTableNames(session, dbName);
+        ConnectorMetadata metadata = connector.getMetadata(session);
+        List<String> tableNames = metadata.listTableNames(session, dbName);
+        if (!connector.getCapabilities().contains(ConnectorCapability.SUPPORTS_VIEW)) {
+            return tableNames;
+        }
+        // Mirror legacy IcebergExternalCatalog.listTableNamesFromRemote: for a view-exposing connector
+        // (iceberg) SHOW TABLES includes both tables AND views, because the connector's listTableNames
+        // subtracts the view names. Re-merge the connector's view names here (the two sets are disjoint
+        // by construction, so a plain addAll cannot introduce duplicates).
+        List<String> viewNames = metadata.listViewNames(session, dbName);
+        if (viewNames.isEmpty()) {
+            return tableNames;
+        }
+        List<String> merged = new ArrayList<>(tableNames);
+        merged.addAll(viewNames);
+        return merged;
     }
 
     @Override

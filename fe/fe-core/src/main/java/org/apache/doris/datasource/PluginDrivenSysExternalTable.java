@@ -86,6 +86,16 @@ public class PluginDrivenSysExternalTable extends PluginDrivenExternalTable {
     }
 
     /**
+     * A system/metadata table (e.g. {@code tbl$snapshots}) is never a view. Short-circuit to {@code false}
+     * so the base {@code resolveIsView} does not issue a {@code viewExists} round-trip on this synthetic
+     * {@code "$"}-suffixed name (which would be wasted work and could fail on an unparseable identifier).
+     */
+    @Override
+    protected boolean resolveIsView() {
+        return false;
+    }
+
+    /**
      * Compute the schema directly on this transient instance instead of going through the base
      * {@link ExternalTable#getSchemaCacheValue()}, which routes through {@code ExternalCatalog.getSchema()}
      * and re-resolves the table by name in the db map. A system table (e.g. {@code tbl$snapshots}) is never

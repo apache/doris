@@ -60,6 +60,13 @@ class FakeIcebergViewCatalog extends FakeIcebergCatalog implements ViewCatalog {
     }
 
     @Override
+    public boolean viewExists(TableIdentifier identifier) {
+        log.add("viewExists:" + identifier);
+        return viewsByNs.getOrDefault(identifier.namespace(), Collections.<String>emptyList())
+                .contains(identifier.name());
+    }
+
+    @Override
     public View loadView(TableIdentifier identifier) {
         throw new UnsupportedOperationException();
     }
