@@ -8,7 +8,7 @@
 # 🎯 下一个 session 的任务 = **逐步处理 clean-room 对抗 review 发现（翻闸 BLOCKED，先修后翻）**
 
 > **✅ 本 session 已完成（2026-06-28）**：处理顺序第 1 项 **B-1 + H-1**（写 sink 凭证 key-form + REST vended，合并修）已 commit `203cda3e31a`。设计 `designs/P6.6-FIX-B1-H1-write-creds-keyform-vended-design.md`。验证：fe-connector-iceberg 776 tests 绿 / checkstyle 0 / mutation 3-3 KILLED / clean-room 对抗 review（3 reader + critic）SAFE_TO_COMMIT（仅 3 NIT 无 must-fix）。**e2e flip-gated 未跑**（S3/OSS/REST-vended/HDFS 写翻闸后才能真验）。**未 push**（沿用「先修完 review 发现再一起 push」铁律）。
-> **➡️ 下一项 = 处理顺序第 2 项 `B-2`（+H-11 +M-10，合并）**：iceberg 作 MTMV 基表的分区增量刷新整体坏——连接器未实现 `listPartitions`。详见任务清单 §1 B-2 详情（含 ⚠️RECONCILE：SHOW PARTITIONS 真回归 vs 记忆「误报死码」须回代码重裁）。
+> **◐ 进行中 = 处理顺序第 2 项 `B-2`（+H-11 +M-10，合并）**：iceberg 作 MTMV 基表的分区增量刷新整体坏——连接器未实现 `listPartitions`。**recon + 用户裁决 + 设计文档已完成**（`designs/P6.6-FIX-B2-mtmv-listpartitions-range-design.md`）：用户裁「完整 RANGE 平价 + 一并实现分区演进重叠合并」；M-10 已回代码重裁 = **真回归**（master 抛 `not allowed`，翻闸后静默 0 行）。**设计 = 新中立 SPI bundle `getMvccPartitionView`（默认 absent → paimon 旧路径字节不变）+ 连接器移植 PARTITIONS 枚举/range 数学/合并/snapshot-id（iceberg 数学全在连接器，发预渲染字符串边界）+ fe-core 通用模型加 present 臂建 RangePartitionItem/MTMVSnapshotIdSnapshot**。⏭ **下一步 = 实现**（3 层 TDD：connector-api DTO → iceberg 连接器 → fe-core 通用模型 → mutation → clean-room → e2e flip-gated）。
 
 > **⚠️ 状态翻转（2026-06-28）**：上一版 HANDOFF 说"翻闸代码基本完成，仅差 docker 验证 + 二签"。**这个结论已被一轮 clean-room 对抗 review 推翻**——review 发现 **2 blocker + 11 high + 11 medium + 25 low + 18 info**，其中 blocker/high 密集覆盖写入、MTMV、统计、time-travel、缓存一致性等核心路径。**翻闸代码侧确实写完了，但不正确——必须先关 P0+关键 P1 + 跑 flip-gated e2e，才能二签翻闸。**
 
