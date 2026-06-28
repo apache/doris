@@ -5,105 +5,94 @@
 
 ---
 
-# 🎯 下一个 session 的任务 = **docker 验证（用户负责）+ 单测/regression 适配；翻闸代码已基本完成**
+# 🎯 下一个 session 的任务 = **逐步处理 clean-room 对抗 review 发现（翻闸 BLOCKED，先修后翻）**
 
-> **⚠️ 注意：本分支 2026-06-28 被用户 rebase 过 → 所有 commit 哈希已重写**。本文档与各 commit message 里出现的旧哈希（`c6735c88817`/`238e2840952` 等）是 rebase 前的，**一律以 `git log` 为准**。rebase 后当前关键哈希见下。rebase 只引入 1 个问题（fe-core `MergeIntoCommand` 未用 import），已修 = commit `33b920bf877`。
+> **⚠️ 状态翻转（2026-06-28）**：上一版 HANDOFF 说"翻闸代码基本完成，仅差 docker 验证 + 二签"。**这个结论已被一轮 clean-room 对抗 review 推翻**——review 发现 **2 blocker + 11 high + 11 medium + 25 low + 18 info**，其中 blocker/high 密集覆盖写入、MTMV、统计、time-travel、缓存一致性等核心路径。**翻闸代码侧确实写完了，但不正确——必须先关 P0+关键 P1 + 跑 flip-gated e2e，才能二签翻闸。**
 
-> **⚠️ 本 session 做了四件事**：① 视图 **B2（DROP + 强制删库视图级联）**（rebase 后 `244531a14b6`）；② **iceberg 路由翻闸**（加 `SPI_READY_TYPES`，rebase 后 `18e1b297d7e`）；③ **持久化 GSON 兼容迁移 + 删 legacy case = commit `e68eb5c00c9`**；④ rebase fixup `33b920bf877`。**用户接管 docker 测试 + 单测适配**（"剩下的测试我来搞"）。
+> **📋 任务跟踪入口（下个 session 必先读）**：
+> 1. **`plan-doc/tasks/P6.6-iceberg-flip-blockers-tasklist.md`** ← **master checkbox 任务清单**，逐条 ID 对齐 review 报告（B-1/B-2/H-1..H-10/M-1..M-11/L-BATCH/ENG-1..4）。**每条任务的状态、位置、修法、验收、依赖、⚠️RECONCILE 标记都在这里。逐步处理 = 按此表逐条 ☐→◐→☑。**
+> 2. **`plan-doc/reviews/P6.6-iceberg-cleanroom-adversarial-review-2026-06-28.md`** ← 完整证据源（每条发现的 file:line、vs master 差异、真回归 vs 内生缺陷、验证者保留意见）。
+> 3. memory `iceberg-cleanroom-adversarial-review-2026-06-28`（结论速览 + 与历史结论的冲突清单）。
 
-> **🔑 翻闸现状 = 代码侧基本完成**：
-> - **路由翻闸**（`18e1b297d7e`）：`SPI_READY_TYPES` 加 `"iceberg"`，建/重放 iceberg catalog 走 `PluginDrivenExternalCatalog`；连接器 provider 已 ServiceLoader 注册、plugin-zip 打包齐备（同 paimon `fe-connector-iceberg/pom.xml:233-241`），运行时从 `connector_plugin_root` 加载。
-> - **持久化 GSON 兼容迁移 ✅ DONE**（`e68eb5c00c9`，镜像 paimon `38e7140ce56`）：`GsonUtils` 把旧 8 catalog 变体 + db + table 标签 `registerCompatibleSubtype`→PluginDriven（table→**Mvcc 变体**，因 iceberg 声明 `SUPPORTS_MVCC_SNAPSHOT`）+ 删旧 `registerSubtype` + 删 10 未用 import；**删 `CatalogFactory` legacy `case "iceberg"`**（已死分支，留着会 new 出无法序列化对象=雷）。新 `IcebergGsonCompatReplayTest` 3/3。**这保的是升级老集群**（全新/docker 本就无旧 iceberg 镜像，零影响）。
-> - **仍欠（验证侧，非代码）**：① **docker 验证**（用户负责）：build FE → 起 iceberg docker-compose → 跑 iceberg regression，**现在真正过插件新路径**（C4/C5 写/DDL/ALTER + 视图 B0–B3）；② **单测/regression 适配**：翻闸后经 CatalogFactory 建 iceberg catalog 的既有用例改走插件路径，预期需改（用户认领）；③ **用户二签**（不可逆翻闸的最终确认）。
-> - 之后清理 fail-loud 范围外项（CREATE/RENAME VIEW、剩余 FU）。
+---
+
+# 🔑 翻闸现状 = **代码侧写完但 review 判定不正确；翻闸 BLOCKED**
+
+- **路由翻闸已在分支**（`18e1b297d7e`）：`SPI_READY_TYPES` 含 `"iceberg"`，建/重放 iceberg catalog 走 `PluginDrivenExternalCatalog`；连接器 ServiceLoader 注册 + plugin-zip 打包齐备。**⚠️ 这意味着 review 所有"this path is live"成立，in-code 的 "dormant / not yet in SPI_READY_TYPES" 注释普遍已过时（false claims）——动码时勿信注释，信控制流。**
+- **GSON 兼容迁移已在分支**（`e68eb5c00c9`）：旧 8 catalog 变体 + db + table 标签 `registerCompatibleSubtype`→PluginDriven（table→Mvcc 变体）+ 删 CatalogFactory legacy case。保升级老集群（全新/docker 零影响）。**review §六确认完整且写安全（正面）。**
+- **未 push、未二签**：路由翻闸 + GSON 迁移**必须一起 push**（[DEC-FLIP-1] 铁律），但**当前不应 push**——先修 review 发现。
+
+## ⛔ 翻闸 gate（全绿才能二签翻闸最后原子提交）
+1. **P0 全清**：B-1（云存储写 fs.s3a.* vs AWS_*）+ B-2（MTMV listPartitions 缺）。
+2. **关键 P1 关**：至少 H-1/H-2/H-3/H-5+H-6/H-8（破坏主力部署的回归）；H-4/H-7/H-9/H-10 强烈建议。
+3. **ENG-1**：legacy iceberg instanceof 臂的能力孪生全量审计（H-10 是已实证漏写样本）。
+4. **ENG-3**：flip-gated e2e 全套实跑（DV/V3/MTMV/time-travel branch/vended 写/Kerberized HDFS/rewrite）。
+5. **用户二签**。
 
 ---
 
 # ⚖️ 关键决策（沿用，用户已签）
 
-## [DEC-FLIP-1] 持久化 GSON 迁移 = 方向 A（**已落地，与路由翻闸拆成两个提交**）
-实证：一个 GSON label 只能登记一次 → 重映射 `"IcebergExternalCatalog"`→PluginDriven 必须先删旧 `registerSubtype`，删后任一 live `IcebergExternalCatalog` 序列化即 null-label 抛 → 升级老集群每存镜像必坏 FE checkpoint。paimon 先例 `38e7140ce56` 把「加 SPI_READY_TYPES + 删 registerSubtype + 加 registerCompatibleSubtype」放同一原子提交。
-> **2026-06-28 落地**：用户改判拆两步——路由翻闸（`18e1b297d7e`）先单独提交供 docker；**GSON 兼容迁移 + 删 legacy case 现已完成 = `e68eb5c00c9`**（实证：全新环境无旧 iceberg 镜像故拆开安全；迁移保的是升级老集群）。**两件合起来 = 完整翻闸代码**，仅差验证（docker + 单测适配）+ 用户二签。
+## [DEC-FLIP-1] 持久化 GSON 迁移 = 方向 A（已落地 `e68eb5c00c9`）
+> **⚠️ 推送顺序铁律不变**：路由翻闸（`18e1b297d7e`）与 GSON 迁移（`e68eb5c00c9`）**必须一起 push/上线**。单 push 路由翻闸而漏 GSON 迁移到会被升级的老集群 → 老 iceberg 镜像反序列化崩。**但当前两者都不应 push——先修 review 发现，翻闸做成最后一个原子提交（路由+GSON 已在前序 commit，最后补齐 fix + e2e + 二签）。**
 
-> **⚠️ 推送顺序铁律**：路由翻闸（`18e1b297d7e`）与 GSON 迁移（`e68eb5c00c9`）**必须一起 push/上线**，且 GSON 迁移须在含路由翻闸的任何版本里同在。单 push 路由翻闸而漏 GSON 迁移到一个会被升级的老集群 → 老 iceberg 镜像反序列化崩。本分支未 push，留用户裁量。
+## [视图范围] = parity only（B0/B1/B2/B3 全 DONE）
+查询 B1 / DROP+删库级联 B2 / SHOW CREATE B3 / 中立地基 B0 全完。CREATE/RENAME VIEW 出范围（fail-loud）。
+> ⚠️ review 发现视图面仍有缺口：**H-8（翻闸后视图无 schema，high）** + L-17/L-18/L-19/L-20（文案/缓存，low）。B0–B3 是写出来了，但 H-8 是翻闸后才暴露的 schema-init 回归——见任务清单 H-8。
 
-## [视图范围] = parity only（用户签，**B0/B1/B2/B3 全 DONE**）
-查询（B1 ✅ `320fa406d6b`）/ DROP VIEW + 强制删库视图级联（B2 ✅ `238e2840952`）/ SHOW CREATE 视图（B3 ✅ `91b7d049eff`）/ 中立地基（B0 ✅ `d3837d4984a`）。**CREATE/RENAME VIEW 出范围**（grep 确认 pre-flip iceberg 无建视图写路径 → fail-loud 留后续）。配置开关保留 `enable_query_iceberg_views` 原名（parity）。
-
----
-
-# ✅ 本 session 完成 = **视图 B2（DROP + 强制删库，`238e2840952`）**
-
-**B2 做了什么（中文详解，不引用代号）**：翻闸到插件目录后，iceberg 视图的「删除」和「强制删库时连带删视图」会回归——插件路径用 `getTableHandle`/`tableExists` 定位对象，而 iceberg 视图存在另一个命名空间，这两个接口对视图一律返回"不存在"：`DROP VIEW 某视图` 报"找不到表"，`DROP DATABASE ... FORCE` 在最后删命名空间时报"非空"。本批补 parity（仅对齐翻闸前 legacy 行为）：
-
-- **新中立 `dropView` SPI**：`ConnectorTableOps.dropView(session, db, view)` 默认 fail-loud（紧贴 B1 的 viewExists/listViewNames/getViewDefinition；调用方先经 `viewExists` 路由故生产不可达，是 guard）。
-- **iceberg 连接器**：`IcebergCatalogOps.dropView` + 内部类 `CatalogBackedIcebergCatalogOps` 实现包 `((ViewCatalog)catalog).dropView`（gate `isViewCatalogEnabled` 否则 fail-loud，复刻 legacy `performDropView`）；`IcebergConnectorMetadata.dropView` 鉴权包裹归一 `DorisConnectorException`（与 dropTable/dropDatabase 写族一致）。
-- **强制删库视图级联**：`IcebergConnectorMetadata.dropDatabase` 的 force 臂在删完所有表后，再 `listViewNames`+`dropView` 删完所有视图，最后删命名空间（复刻 legacy `performDropDb`，全在连接器内部，无新 fe-core SPI）。
-- **删表路由到删视图**：fe-core `PluginDrivenExternalCatalog.dropTable` 在拿 handle 前先问 `metadata.viewExists`，是视图就走 `metadata.dropView`（复刻 legacy `dropTableImpl` 的 viewExists→performDropView 分派）；editlog(DropInfo)+unregisterTable 用 **LOCAL** 名（follower-replay parity），连接器调用用 **REMOTE** 名；`DorisConnectorException` 重包 `DdlException`。对不支持视图的连接器，`viewExists` 默认 false 且**无远程调用** → 路由对非 iceberg/paimon **零行为变化**（无需 supportsView 门）。**无新 instanceof Iceberg**（iron-law 干净；fe-core 内 iceberg 字样仅在镜像/legacy 注释里）。
-
-**📊 B2 实证纠正**：① 设计初稿写的独立类 `CatalogBackedIcebergCatalogOps` 实为 `IcebergCatalogOps` 的**内部类**（非独立文件）；② `dropView` 放视图组（紧贴 loadViewDefinition）非 DDL-writes 组；③ view-less 连接器路由零远程调用。
-
-**验证**：3 模块 fresh recompile；新增/改测试 **api 4 + iceberg 96 + fe-core 54 全绿**；**mutation 9/9 KILLED**（脚本 scratchpad `mutate_view_b2.py`）；**clean-room 对抗 review（5 reader + critic）= SAFE_TO_COMMIT（must-fix 0；critic 反驳 2/3 reader SHOULD_FIX 证测试非 inert）**；checkstyle 0；iron-law 0；连接器 import 0。**写路径需活 FE/真元数据 → flip-gated e2e 未跑（勿谎称）**。
-
-**P6.1–P6.5 ✅ / P6.6：C1–C3 ✅ / C4 R1–R7 ✅ / C5 DDL/ALTER B1–B5 ✅ / flip-readiness 只读退化 ✅ / 视图 B0+B1+B2+B3 全 ✅** → 剩 **C docker e2e → 翻闸（含 GSON 迁移）**。iceberg **仍不在** `SPI_READY_TYPES`。
-
-## ⛳ 结论（一句话）：**视图面全清 + 翻闸代码基本完成**（路由翻闸 `18e1b297d7e` + GSON 兼容迁移/删 legacy case `e68eb5c00c9`）。仅差 **docker 验证 + 单测/regression 适配（用户认领）+ 用户二签**。rebase 引入的 1 个 fe-core 未用 import 已修（`33b920bf877`）。
-
-## 📖 起步必读（动 C/翻闸前）
-1. memory `iceberg-view-b2-done`（本 session）、`iceberg-view-b1-b3-done`、`iceberg-view-b0-done`、`iceberg-flip-readiness-gaps`（缺口全景，含 C 类 docker 清单 + DEC-FLIP）、`handoff-discipline-per-phase`、`consult-trino-before-spi-design`、`clean-room-adversarial-review-pref`、`ask-user-explain-in-chinese-first`、`doris-build-verify-gotchas`。
-2. `plan-doc/tasks/designs/P6.6-C5-flip-readiness.md`（C 类 docker 清单 + 翻闸开关/持久化方案全景）；`plan-doc/tasks/designs/P6.6-view-spi.md`（视图 B0–B3 全 DONE）。
+## [REVIEW 纪律] clean-room，不注入先验（本轮已执行）
+本轮 review 刻意不注入开发先验（忽略 plan-doc/注释/commit message）。**后果：部分发现与历史记忆冲突**（最突出=M-10 SHOW PARTITIONS：本轮判真回归 vs 记忆 `iceberg-bclass-autoanalyze-topn-done` 判"误报死码翻闸反改善"）。**认领冲突项时回代码 + `git show master:` 重裁，不盲信任一方（Rule 7）。**
 
 ---
 
 # ⚠️⚠️ 用户铁律：**fe-core 不得新增 `if(iceberg)` / `instanceof Iceberg*` / `import IcebergUtils` / 引擎名字符串判别（新 seam）**
-iceberg 逻辑落 `fe-connector` 经中立 SPI。**legacy 豁免类**保留 iceberg 引用合法（C4 dead 子树 + commit-bridge 旧清单 + `PhysicalIcebergTableSink`/`bindIcebergTableSink` + `StatementContext` 旧 iceberg-typed stash + `IcebergExternalCatalog` + `ShowCreateDatabaseCommand`/`Env.getDdlStmt` legacy iceberg 臂 + `BindRelation case ICEBERG_EXTERNAL_TABLE` + `ShowCreateTableCommand` legacy ICEBERG 视图臂〔B3 加的是**并列** PLUGIN 臂〕+ `InsertUtils` 既有 `UnboundIcebergTableSink` 分支）。**B2 守则**：fe-core `PluginDrivenExternalCatalog.dropTable` 的视图路由全经中立 `metadata.viewExists`/`metadata.dropView`，无 instanceof Iceberg（已核 + clean-room 验 + iron-law 脚本 0）。
+iceberg 逻辑落 `fe-connector` 经中立 SPI / ConnectorCapability。**legacy 豁免类**保留 iceberg 引用合法（C4 dead 子树 + commit-bridge 旧清单 + `PhysicalIcebergTableSink`/`bindIcebergTableSink` + `StatementContext` 旧 iceberg-typed stash + `IcebergExternalCatalog` + `ShowCreateDatabaseCommand`/`Env.getDdlStmt` legacy iceberg 臂 + `BindRelation case ICEBERG_EXTERNAL_TABLE` + `ShowCreateTableCommand` legacy ICEBERG 视图臂 + `InsertUtils` 既有 `UnboundIcebergTableSink` 分支）。
+> **修 review 发现时尤其注意**：H-7/H-10 等要新增能力门控（`ConnectorCapability`）而非 instanceof；H-5/H-6 的 route resolver PluginDriven 臂走能力/插件检查而非引擎名。
 
 ---
 
-# 🟡 已登记 follow-up（非阻塞）
-- **[FU-forcedrop-nosuchns]（B2 登，pre-existing 非 B2 引入）** `IcebergConnectorMetadata.dropDatabase` force 臂不吞 `NoSuchNamespaceException`（legacy `performDropDb:305-309` 吞→对已被 out-of-band 删的远程命名空间幂等成功）；**HEAD 的表级联已有此缺口**（`git show HEAD` 证），B2 仅把视图级联放进同一 `catch(Exception)` wrap → 视图臂与相邻表臂语义一致（B2 parity 契约）；要修须同时修表+视图两臂（catch NoSuchNamespaceException return），影响 force-drop 幂等性，翻闸前可选修。
-- **[FU-view-gson-roundtrip]（B0 登）** `PluginDrivenExternalTable` 的 GSON round-trip 重算 `isView` 无直测（机制 clean-room code-verified sound）。
-- **[FU-view-exception-arms]（B0 登，低）** 连接器 `viewExists`/`listViewNames`/`getViewDefinition` 异常归一化臂直测（B1 已对 getViewDefinition 加 auth-wrap 直测；viewExists/listViewNames/dropView 仍 byte-mirror）。
-- **[FU-getsqldialect-deadcode]（B1 登，低）** legacy `IcebergExternalTable.getSqlDialect()` 零调用方=死码，可后续清理。
-- **[FU-showcreatedb-render-ut]** `ShowCreateDatabaseCommand` plugin 臂渲染无直接 UT（flip-gated e2e 覆盖）。
-- **[FU-createtablelike-plugin]** `getCreateTableLikeStmt` plugin 臂仍退化（paimon 已退化、非 iceberg 引入）。
-- **[FU-show-partitions-deadcode]** `ShowPartitionsCommand` `instanceof IcebergExternalCatalog` 3 列臂 = 死码；翻闸后可选连接器侧补 5 列。
-- **[FU-rewrite-output-sizing]（R6 登；R8 必触及）** 中立 driver 未线程 target-file-size + 自适应并行度。
-- **[FU-flip-e2e]** 真翻闸端到端**未跑**（CI/flip-gated）；视图 B1/B3 绑定/命令臂、B2 DROP 写路径、所有 DDL/ALTER 写路径均 flip-gated。
-- 其余（nested-nullability / where-literal-coercion / broker-write / doris-version-prop 等）见 git log 历史。
+# 🟡 已登记 follow-up（部分已并入任务清单）
+- **[FU-forcedrop-nosuchns]** = 任务清单 **M-11**（pre-existing，HEAD 表级联早有缺口，非翻闸引入）。
+- **[FU-show-partitions-deadcode]** 与任务清单 **B-2/M-10** 相关（⚠️RECONCILE）。
+- **[FU-flip-e2e]** = 任务清单 **ENG-3**（真翻闸端到端未跑）。
+- **[FU-rewrite-output-sizing]（R6/R8）** 中立 driver 未线程 target-file-size + 自适应并行度（与 H-9 同文件族，可一并）。
+- **[FU-view-gson-roundtrip] / [FU-view-exception-arms] / [FU-getsqldialect-deadcode] / [FU-showcreatedb-render-ut] / [FU-createtablelike-plugin]**（低）见 git log 历史 + 任务清单 L-BATCH。
+- 其余（nested-nullability / where-literal-coercion / broker-write〔=M-5〕/ doris-version-prop〔=L-13〕等）多已被 review 重新发现并归入任务清单。
 
 ---
 
 # ⚙️ 操作须知（复用）
 
-- maven：`-f /mnt/disk1/yy/git/wt-catalog-spi/fe/pom.xml -pl :<art> **-am** -DfailIfNoTests=false -Dmaven.build.cache.enabled=false`（漏 `-am`→假错 `${revision}`）。**fe-core 只依赖 `fe-connector-api`** → `:fe-core -am` 不拖 paimon。**fe-connector-paimon 单独 build 必须 `package`**。**iceberg/api** 正常 `-am test`。
-- **⚠️ checkstyle 别加 `-am`**：`-am` 会把 `fe-common`（2381 个既存 checkstyle error）拖进假红 → 用 `mvn -pl :<art> checkstyle:check`（**不带 -am**）。
-- **⚠️ bash 工具默认 timeout 120s**：fe-core build 超时 → 调 `timeout` 到 ~590000ms，或后台跑（fe-core 全模块 build ~2min）。
-- **⚠️ maven 经管道 `$?` 是管道尾命令的** → 用 `${PIPESTATUS[0]}` 或 grep `BUILD SUCCESS`。`-q` 抑制 console → 读 surefire **XML** 的 `tests=`/`failures=`。
-- **⚠️ stale .class 假红坑**：mutation 后脚本已 `os.utime`；**commit 前最终验证务必 fresh recompile**（本 session 已做：3 模块 clean-state 重编全绿）。
+- maven：`-f /mnt/disk1/yy/git/wt-catalog-spi/fe/pom.xml -pl :<art> **-am** -DfailIfNoTests=false -Dmaven.build.cache.enabled=false`（漏 `-am`→假错 `${revision}`）。**fe-core 只依赖 `fe-connector-api`** → `:fe-core -am` 不拖 paimon。**fe-connector-paimon 单独 build 必须 `package`**（HiveConf 来自 optional shade，`test-compile` 假错）。**iceberg/api** 正常 `-am test`。
+- **⚠️ checkstyle 别加 `-am`**：`-am` 把 `fe-common`（2381 既存 error）拖进假红 → `mvn -pl :<art> checkstyle:check`（不带 -am）。
+- **⚠️ bash 工具默认 timeout 120s**：fe-core build 超时 → 调 `timeout` ~590000ms 或后台跑（全模块 ~2min）。
+- **⚠️ maven 经管道 `$?` 是管道尾的** → 用 `${PIPESTATUS[0]}` 或 grep `BUILD SUCCESS`；`-q` 抑制 console → 读 surefire **XML** 的 `tests=`/`failures=`。
+- **⚠️ stale .class 假红坑**：mutation 后 `os.utime`；**commit 前最终验证务必 fresh recompile**。
 - 连接器禁 import fe-core：`bash tools/check-connector-imports.sh`。**连接器测试无 Mockito**（真 InMemoryCatalog/Recording fakes）；**fe-core 用 Mockito**（`CALLS_REAL_METHODS` + `Deencapsulation.setField` + stub `getConnector`/`getMetadata`/`buildConnectorSession`）。**⚠️ Mockito `anyString()` 不匹配 null**。
-- **⚠️ InMemoryCatalog 是 ViewCatalog**（B2 seam 测可直接 buildView/dropView 真往返）；但 B2 seam 测用 `FakeIcebergViewCatalog`（与 viewExists/listViewNames 测同框架，`viewsByNs` 用**可变** ArrayList 才能 dropView 反映删除）。
-- **mutation-check（Rule 9/12）**：范式 scratchpad `mutate_view_b2.py`（9 变异跨 4 模块；单行 exact-string 锚点 count==1 守；KILLED=maven rc!=0）。**⚠️ Python 3.6**：`subprocess.run(stdout=PIPE,stderr=STDOUT,universal_newlines=True)`（无 `capture_output`）。**⚠️ review（读源）与 mutation（改源）务必串行**。
+- **mutation-check（Rule 9/12）**：范式 scratchpad `mutate_*.py`（单行 exact-string 锚点 count==1 守；KILLED=maven rc!=0）。**⚠️ Python 3.6**：`subprocess.run(stdout=PIPE,stderr=STDOUT,universal_newlines=True)`（无 `capture_output`）。**⚠️ review（读源）与 mutation（改源）务必串行**。
 - **cwd 会被 harness 重置** → 一律绝对路径。
+- **⚠️ 环境**：`/mnt/disk1` 紧（2.0T，96% used）。**下个 session 起步先 `df -h /mnt/disk1`**；**勿用 worktree 隔离编译 agent**（复制整仓，盘不够）。
 
 # ⚠️ Commit 须知（任何 `git add` 前必读）
-
 - **path-whitelist `git add`，严禁 `git add -A`**（scrub `regression-test/conf/regression-conf.groovy` 明文 key + `*.bak` + scratch `.audit-scratch/`·`conf.cmy/`·`META-INF/`·`docker/...`·仓根游离 `fe/IcebergScanPlanProvider.java`·`plan-doc/reviews/P5-paimon-rereview3-*`)。
 - commit message：见 `git log` 范式 + 末尾 `Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>` + `Claude-Session: …`。PR base = `branch-catalog-spi`，squash。
-- **视图 B2 = `238e2840952`（10 文件）**。HANDOFF + 设计文档单独 commit（memory 在 `.claude/`、非仓内）。
+- **每条 fix = 独立 commit**（沿用 P4-T06e-FIX-* 范式）；HANDOFF + 任务清单 + 设计文档单独 commit（memory 在 `.claude/`、非仓内）。
 
 # 📦 阶段状态
-
 - **工作分支 = `catalog-spi-10-iceberg`**（off `branch-catalog-spi` @ `e5959e1b53d`，PR base = `branch-catalog-spi`，squash）。
-- **⚠️ 推送状态**：P6.4 T01–T06+arg-move 已推 `origin`；**其后全部（含 commit-bridge + C4 + C5 + flip-readiness 两轮 + 视图 B0/B1/B2/B3）未 push**。**用户未要求 push**——留用户裁量。
-- **iceberg 现 *已在* `SPI_READY_TYPES`**（`18e1b297d7e` 路由翻闸）。**GSON 兼容迁移 + 删 legacy case 已完成**（`e68eb5c00c9`）。翻闸代码侧基本完成，仅差验证 + 二签。metastore 子线 CLOSED（勿读）。
-- **⚠️ 分支 2026-06-28 被 rebase**：commit 哈希全重写，本文档/旧 commit message 里的旧哈希以 `git log` 为准。rebase 仅引入 1 问题（`MergeIntoCommand` 未用 import）已修 `33b920bf877`；全量 `test-compile` 扫描：fe-core/iceberg/api/paimon(用 `-am package`)均编译干净（paimon `test-compile` 报 HiveConf 缺=build-mode 假错非 rebase 伤，须 `package` 阶段才出 shade）。
-- **⚠️ 环境**：`/mnt/disk1` 紧（2.0T，本 session 起步 ~85G free，96% used）。**下个 session 起步先 `df -h /mnt/disk1`**；**勿用 worktree 隔离编译 agent**（复制整仓，盘不够）。
+- **进度**：P6.1–P6.5 ✅ / P6.6 C1–C3 ✅ / C4 R1–R7 ✅ / C5 DDL/ALTER B1–B5 ✅ / flip-readiness 只读退化 ✅ / 视图 B0–B3 ✅ / 路由翻闸 `18e1b297d7e` ✅ / GSON 迁移 `e68eb5c00c9` ✅ → **⛔ 现卡在 clean-room review 发现修复（见 `P6.6-iceberg-flip-blockers-tasklist.md`）→ ENG-3 e2e → 翻闸二签**。
+- **⚠️ 推送状态**：P6.4 T01–T06+arg-move 已推 `origin`；**其后全部未 push**（含路由翻闸 + GSON 迁移 + 视图 + C4/C5）。**先修 review 发现，勿 push 半成品翻闸。** 留用户裁量。
+- **⚠️ 分支 2026-06-28 被 rebase**：commit 哈希全重写，本文档/旧 commit message 旧哈希以 `git log` 为准。rebase 仅引入 1 问题（`MergeIntoCommand` 未用 import）已修 `33b920bf877`。
 
 # 🧠 给下一个 agent 的 meta
+- **逐步处理 = 按任务清单逐条**：每条 P0/P1/P2 走 step-by-step-fix（recon→design 文档 `designs/P6.6-FIX-<ID>-<slug>-design.md`→impl→test+mutation→clean-room review→独立 commit→回填任务清单状态）。处理顺序建议见任务清单 §8（B-1+H-1 → B-2 → H-5+H-6 → 其余 H → ENG-1 → P2 → P3 → e2e）。
+- **删除/parity/动码前必 grep 全调用方 + 区分 DEAD vs STILL-CONSUMED**；**HANDOFF/review/设计的依赖名/行号/不变式可能过时** —— 动码前先 recon（grep+实证）再信文档。**翻闸已生效 → in-code "dormant" 注释普遍过时，信控制流不信注释。**
+- **⚠️ 冲突优先暴露（Rule 7）**：review 与历史记忆冲突项（M-10 等）回代码重裁，不盲信任一方。`git show master:` 是 legacy 原逻辑的权威来源（工作区 `datasource/iceberg/**` 是迁移后残壳，不可信）。
+- **clean-room 对抗 review 偏好**：moderate+ 改动 = 多 reader 对抗 + critic（review 读源与 mutation 改源不可并发）。verbatim 镜像臂则焦点验证即可。
+- **flip-gated 诚实**：真 post-flip 写/MTMV/time-travel e2e 翻闸后才能跑——**每条 fix 验收的 e2e 项标注 flip-gated 未跑，勿谎称已验**（Rule 12）。
+- **上下文超 30% 即交接**。本 session = 跑完 clean-room review + 建任务清单 + 更新 HANDOFF；在干净节点交接「逐步修 review 发现」。
 
-- **删除/parity/动码前必 grep 全调用方 + 区分 DEAD vs STILL-CONSUMED**；**HANDOFF/设计/RFC 的依赖名/行号/不变式可能过时或错** —— 动码前先 recon（grep+实证）再信文档。**本 session 实证纠正 3 处**（独立类 vs 内部类、dropView 分组、view-less 路由零远程）。
-- **clean-room 对抗 review 偏好**：moderate-大改动 = 多 reader 对抗 + critic（**review 读源与 mutation 改源不可并发**）。B2（10 文件、含元数据写）按 B1 范式跑了 5 reader + critic = SAFE。6 行 verbatim 镜像臂（如 B3）则焦点验证即可。
-- **既有 Doris 行为/parity 优先**：pre-flip 一律零行为变更（B2 零变更，无新 DV）。
-- **C docker e2e**：跑用户 iceberg docker 套件验 pre-flip 零变更；**真 post-flip 写路径 e2e 翻闸后才能跑（flip-gated 跑不了，勿谎称）**。翻闸=最后原子提交（含 GSON 迁移 + 用户二签）。
-- **上下文超 30% 即交接**。本 session = 视图 B2（10 文件 `238e2840952`，mutation 9/9，clean-room SAFE），在干净节点交接「C 类用户 docker e2e → 翻闸」。
+## 📖 起步必读
+1. **`plan-doc/tasks/P6.6-iceberg-flip-blockers-tasklist.md`**（master 任务清单）+ **`plan-doc/reviews/P6.6-iceberg-cleanroom-adversarial-review-2026-06-28.md`**（证据源）。
+2. memory：`iceberg-cleanroom-adversarial-review-2026-06-28`（本轮结论 + 冲突）、`iceberg-flip-readiness-gaps`、`handoff-discipline-per-phase`、`consult-trino-before-spi-design`、`clean-room-adversarial-review-pref`、`ask-user-explain-in-chinese-first`、`doris-build-verify-gotchas`、各 `iceberg-*-done`（已完成各面的实证坑）。
+3. `plan-doc/tasks/designs/P6.6-C5-flip-readiness.md`（C 类 docker 清单 + 翻闸开关/持久化全景）。
