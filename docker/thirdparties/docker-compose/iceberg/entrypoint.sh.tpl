@@ -76,6 +76,13 @@ spark-sql \
 start-thriftserver.sh \
   --master spark://doris--spark-iceberg:7077 \
   --conf "spark.sql.extensions=${SPARK_THRIFT_EXTENSIONS}" \
+  --conf spark.dynamicAllocation.enabled=false \
+  --conf spark.cores.max=8 \
+  --conf spark.executor.cores=4 \
+  --conf spark.executor.memory=8g \
+  --conf spark.driver.memory=4g \
+  --conf spark.sql.shuffle.partitions=16 \
+  --conf spark.default.parallelism=16 \
   --driver-java-options "-Dderby.system.home=/tmp/derby"
 
 SPARK_THRIFT_READY_ATTEMPTS=0
