@@ -5,23 +5,27 @@
 
 ---
 
-# 🎯 下一个 session 的任务 = **跟进 docker 验证结果 + 补齐正式翻闸剩余项（GSON 迁移 + legacy 清理 + 单测适配）**
+# 🎯 下一个 session 的任务 = **docker 验证（用户负责）+ 单测/regression 适配；翻闸代码已基本完成**
 
-> **⚠️ 本 session 做了两件事**：① 完成 **视图 B2（DROP VIEW + 强制删库视图级联）= commit `238e2840952`**（视图面 B0/B1/B2/B3 全清）；② **按用户指示把 iceberg 路由翻闸提交 = commit `c6735c88817`**（`SPI_READY_TYPES` 加 `"iceberg"`，建/重放 iceberg catalog 改走 `PluginDrivenExternalCatalog` 插件路径）。**用户接管 docker 测试**（"剩下的测试我来搞"）。
+> **⚠️ 注意：本分支 2026-06-28 被用户 rebase 过 → 所有 commit 哈希已重写**。本文档与各 commit message 里出现的旧哈希（`c6735c88817`/`238e2840952` 等）是 rebase 前的，**一律以 `git log` 为准**。rebase 后当前关键哈希见下。rebase 只引入 1 个问题（fe-core `MergeIntoCommand` 未用 import），已修 = commit `33b920bf877`。
 
-> **🔑 翻闸现状（用户拆成两步走）**：
-> - **路由翻闸已提交 `c6735c88817`**（仅 1 行 + 过时注释）：iceberg 连接器 provider 已 ServiceLoader 注册、plugin-zip 打包齐备（同 paimon，`fe-connector-iceberg/pom.xml:233-241`），运行时从 `connector_plugin_root` 加载。**全新环境（docker/新集群）自足**：新建 iceberg catalog 一律 `PluginDrivenExternalCatalog` 存盘（GsonUtils 已注册 subtype），存盘/重放正常。
-> - **正式生产翻闸仍欠（未做）**：① **GSON 兼容迁移**——`GsonUtils.registerCompatibleSubtype(PluginDrivenExternalCatalog, "IcebergExternalCatalog"/变体)` + 删旧 `registerSubtype`（否则升级老集群里已存盘的旧 iceberg catalog 仍反序列化为内置类=混合态）；② 删 `CatalogFactory` legacy `case "iceberg"`（现仍是连接器加载失败时的 degraded 兜底）；③ **单测/regression 适配**——翻闸后经 CatalogFactory 建 iceberg catalog 的既有用例会改走插件路径（或测试 classpath 无连接器时抛"No connector plugin loaded"），预期需改；④ 用户二签。详 [DEC-FLIP-1]。
-> - **docker 验证**（用户负责）：build FE（产出 iceberg 连接器 plugin-zip 进 `plugins/connector`）→ 起 iceberg docker-compose → 跑 iceberg regression 套件，**现在会真正过插件新路径**（C4/C5 写/DDL/ALTER + 视图 B0–B3）。
+> **⚠️ 本 session 做了四件事**：① 视图 **B2（DROP + 强制删库视图级联）**（rebase 后 `244531a14b6`）；② **iceberg 路由翻闸**（加 `SPI_READY_TYPES`，rebase 后 `18e1b297d7e`）；③ **持久化 GSON 兼容迁移 + 删 legacy case = commit `e68eb5c00c9`**；④ rebase fixup `33b920bf877`。**用户接管 docker 测试 + 单测适配**（"剩下的测试我来搞"）。
+
+> **🔑 翻闸现状 = 代码侧基本完成**：
+> - **路由翻闸**（`18e1b297d7e`）：`SPI_READY_TYPES` 加 `"iceberg"`，建/重放 iceberg catalog 走 `PluginDrivenExternalCatalog`；连接器 provider 已 ServiceLoader 注册、plugin-zip 打包齐备（同 paimon `fe-connector-iceberg/pom.xml:233-241`），运行时从 `connector_plugin_root` 加载。
+> - **持久化 GSON 兼容迁移 ✅ DONE**（`e68eb5c00c9`，镜像 paimon `38e7140ce56`）：`GsonUtils` 把旧 8 catalog 变体 + db + table 标签 `registerCompatibleSubtype`→PluginDriven（table→**Mvcc 变体**，因 iceberg 声明 `SUPPORTS_MVCC_SNAPSHOT`）+ 删旧 `registerSubtype` + 删 10 未用 import；**删 `CatalogFactory` legacy `case "iceberg"`**（已死分支，留着会 new 出无法序列化对象=雷）。新 `IcebergGsonCompatReplayTest` 3/3。**这保的是升级老集群**（全新/docker 本就无旧 iceberg 镜像，零影响）。
+> - **仍欠（验证侧，非代码）**：① **docker 验证**（用户负责）：build FE → 起 iceberg docker-compose → 跑 iceberg regression，**现在真正过插件新路径**（C4/C5 写/DDL/ALTER + 视图 B0–B3）；② **单测/regression 适配**：翻闸后经 CatalogFactory 建 iceberg catalog 的既有用例改走插件路径，预期需改（用户认领）；③ **用户二签**（不可逆翻闸的最终确认）。
 > - 之后清理 fail-loud 范围外项（CREATE/RENAME VIEW、剩余 FU）。
 
 ---
 
 # ⚖️ 关键决策（沿用，用户已签）
 
-## [DEC-FLIP-1] 持久化 GSON 迁移 = 方向 A（**原 = 并入翻闸原子提交；本 session 用户改判：先单独提交路由翻闸供 docker 验证，GSON 迁移留到正式生产翻闸前**）
+## [DEC-FLIP-1] 持久化 GSON 迁移 = 方向 A（**已落地，与路由翻闸拆成两个提交**）
 实证：一个 GSON label 只能登记一次 → 重映射 `"IcebergExternalCatalog"`→PluginDriven 必须先删旧 `registerSubtype`，删后任一 live `IcebergExternalCatalog` 序列化即 null-label 抛 → 升级老集群每存镜像必坏 FE checkpoint。paimon 先例 `38e7140ce56` 把「加 SPI_READY_TYPES + 删 registerSubtype + 加 registerCompatibleSubtype」放同一原子提交。
-> **2026-06-28 更新**：用户指示先只提交 `SPI_READY_TYPES` 加 iceberg（`c6735c88817`，**不含** GSON 迁移）以便先跑 docker。**全新环境（docker/新集群）安全**：新 catalog 一律 `PluginDrivenExternalCatalog`（已注册），无旧 label 反序列化问题。**GSON 迁移仍是正式生产翻闸（升级老集群）的必备前置**，未做即 push/上线会坏老集群 checkpoint。
+> **2026-06-28 落地**：用户改判拆两步——路由翻闸（`18e1b297d7e`）先单独提交供 docker；**GSON 兼容迁移 + 删 legacy case 现已完成 = `e68eb5c00c9`**（实证：全新环境无旧 iceberg 镜像故拆开安全；迁移保的是升级老集群）。**两件合起来 = 完整翻闸代码**，仅差验证（docker + 单测适配）+ 用户二签。
+
+> **⚠️ 推送顺序铁律**：路由翻闸（`18e1b297d7e`）与 GSON 迁移（`e68eb5c00c9`）**必须一起 push/上线**，且 GSON 迁移须在含路由翻闸的任何版本里同在。单 push 路由翻闸而漏 GSON 迁移到一个会被升级的老集群 → 老 iceberg 镜像反序列化崩。本分支未 push，留用户裁量。
 
 ## [视图范围] = parity only（用户签，**B0/B1/B2/B3 全 DONE**）
 查询（B1 ✅ `320fa406d6b`）/ DROP VIEW + 强制删库视图级联（B2 ✅ `238e2840952`）/ SHOW CREATE 视图（B3 ✅ `91b7d049eff`）/ 中立地基（B0 ✅ `d3837d4984a`）。**CREATE/RENAME VIEW 出范围**（grep 确认 pre-flip iceberg 无建视图写路径 → fail-loud 留后续）。配置开关保留 `enable_query_iceberg_views` 原名（parity）。
@@ -43,7 +47,7 @@
 
 **P6.1–P6.5 ✅ / P6.6：C1–C3 ✅ / C4 R1–R7 ✅ / C5 DDL/ALTER B1–B5 ✅ / flip-readiness 只读退化 ✅ / 视图 B0+B1+B2+B3 全 ✅** → 剩 **C docker e2e → 翻闸（含 GSON 迁移）**。iceberg **仍不在** `SPI_READY_TYPES`。
 
-## ⛳ 结论（一句话）：**视图面全清 + 路由翻闸已提交（`c6735c88817`，供 docker 验证）**。正式生产翻闸仍欠 **GSON 兼容迁移 + legacy case 删除 + 单测适配 + 用户二签**（仅升级老集群必备；全新/docker 不受影响）。
+## ⛳ 结论（一句话）：**视图面全清 + 翻闸代码基本完成**（路由翻闸 `18e1b297d7e` + GSON 兼容迁移/删 legacy case `e68eb5c00c9`）。仅差 **docker 验证 + 单测/regression 适配（用户认领）+ 用户二签**。rebase 引入的 1 个 fe-core 未用 import 已修（`33b920bf877`）。
 
 ## 📖 起步必读（动 C/翻闸前）
 1. memory `iceberg-view-b2-done`（本 session）、`iceberg-view-b1-b3-done`、`iceberg-view-b0-done`、`iceberg-flip-readiness-gaps`（缺口全景，含 C 类 docker 清单 + DEC-FLIP）、`handoff-discipline-per-phase`、`consult-trino-before-spi-design`、`clean-room-adversarial-review-pref`、`ask-user-explain-in-chinese-first`、`doris-build-verify-gotchas`。
@@ -92,7 +96,8 @@ iceberg 逻辑落 `fe-connector` 经中立 SPI。**legacy 豁免类**保留 iceb
 
 - **工作分支 = `catalog-spi-10-iceberg`**（off `branch-catalog-spi` @ `e5959e1b53d`，PR base = `branch-catalog-spi`，squash）。
 - **⚠️ 推送状态**：P6.4 T01–T06+arg-move 已推 `origin`；**其后全部（含 commit-bridge + C4 + C5 + flip-readiness 两轮 + 视图 B0/B1/B2/B3）未 push**。**用户未要求 push**——留用户裁量。
-- **iceberg 现 *已在* `SPI_READY_TYPES`**（`c6735c88817` 路由翻闸；旧描述"不在"已失效）。**GSON 兼容迁移 + legacy case 删除尚未做**（仅升级老集群需要；全新/docker 不受影响）。metastore 子线 CLOSED（勿读）。
+- **iceberg 现 *已在* `SPI_READY_TYPES`**（`18e1b297d7e` 路由翻闸）。**GSON 兼容迁移 + 删 legacy case 已完成**（`e68eb5c00c9`）。翻闸代码侧基本完成，仅差验证 + 二签。metastore 子线 CLOSED（勿读）。
+- **⚠️ 分支 2026-06-28 被 rebase**：commit 哈希全重写，本文档/旧 commit message 里的旧哈希以 `git log` 为准。rebase 仅引入 1 问题（`MergeIntoCommand` 未用 import）已修 `33b920bf877`；全量 `test-compile` 扫描：fe-core/iceberg/api/paimon(用 `-am package`)均编译干净（paimon `test-compile` 报 HiveConf 缺=build-mode 假错非 rebase 伤，须 `package` 阶段才出 shade）。
 - **⚠️ 环境**：`/mnt/disk1` 紧（2.0T，本 session 起步 ~85G free，96% used）。**下个 session 起步先 `df -h /mnt/disk1`**；**勿用 worktree 隔离编译 agent**（复制整仓，盘不够）。
 
 # 🧠 给下一个 agent 的 meta
