@@ -124,16 +124,38 @@ public class IcebergConnectorMetadataDdlTest {
         ops.namespaceLocation = Optional.of("s3://wh/db1");
         RecordingConnectorContext ctx = new RecordingConnectorContext();
         metadata(ops, ctx, IcebergConnectorProperties.TYPE_HMS).dropDatabase(null, "db1", false, true);
-        // location captured BEFORE drop, then the tables cascade-dropped, then the namespace dropped.
+        // location captured BEFORE drop, then the tables cascade-dropped, then the (empty) view list probed,
+        // then the namespace dropped.
         Assertions.assertEquals(Arrays.asList(
                 "loadNamespaceLocation:db1",
                 "listTableNames:db1",
                 "dropTable:db1.t1:purge=true",
                 "dropTable:db1.t2:purge=true",
+                "listViewNames:db1",
                 "dropDatabase:db1"), ops.log);
         // cleanup hook called once with the namespace location + empty child dirs.
         Assertions.assertEquals(Collections.singletonList("s3://wh/db1"), ctx.cleanedLocations);
         Assertions.assertTrue(ctx.cleanedChildDirs.get(0).isEmpty());
+    }
+
+    @Test
+    public void testDropDatabaseForceCascadesViewsAfterTables() {
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        ops.tables = Collections.singletonList("t1");
+        ops.views = Arrays.asList("v1", "v2");
+        RecordingConnectorContext ctx = new RecordingConnectorContext();
+        metadata(ops, ctx, IcebergConnectorProperties.TYPE_REST).dropDatabase(null, "db1", false, true);
+        // WHY: iceberg VIEWS live in their own namespace (listTableNames subtracts them), so a force drop
+        // must cascade them too — AFTER the tables and BEFORE dropNamespace — or the dropDatabase below would
+        // fail loud "namespace not empty". MUTATION: dropping the view cascade -> the dropView entries vanish
+        // (the namespace would not be empty in production) -> red.
+        Assertions.assertEquals(Arrays.asList(
+                "listTableNames:db1",
+                "dropTable:db1.t1:purge=true",
+                "listViewNames:db1",
+                "dropView:db1.v1",
+                "dropView:db1.v2",
+                "dropDatabase:db1"), ops.log);
     }
 
     @Test
@@ -222,6 +244,36 @@ public class IcebergConnectorMetadataDdlTest {
                 .dropTable(null, new IcebergTableHandle("db1", "t1"));
         Assertions.assertEquals(Collections.singletonList("dropTable:db1.t1:purge=true"), ops.log);
         Assertions.assertTrue(ctx.cleanedLocations.isEmpty());
+    }
+
+    // ---------- dropView ----------
+
+    @Test
+    public void testDropViewRoutesToSeamAndIsAuthWrapped() {
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        RecordingConnectorContext ctx = new RecordingConnectorContext();
+        metadata(ops, ctx, IcebergConnectorProperties.TYPE_REST).dropView(null, "db1", "v1");
+        // WHY: PluginDrivenExternalCatalog.dropTable routes a flipped iceberg view here; it must reach the seam
+        // with the (db, view) names verbatim, INSIDE the auth context (mirrors legacy performDropView under the
+        // executionAuthenticator). MUTATION: dropping the delegation / hoisting it outside the auth wrap -> red.
+        Assertions.assertEquals(Collections.singletonList("dropView:db1.v1"), ops.log);
+        Assertions.assertEquals("db1", ops.lastDropViewDb);
+        Assertions.assertEquals("v1", ops.lastDropViewName);
+        Assertions.assertEquals(1, ctx.authCount, "dropView must run inside executeAuthenticated");
+    }
+
+    @Test
+    public void testDropViewAuthFailureWraps() {
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        RecordingConnectorContext ctx = new RecordingConnectorContext();
+        ctx.failAuth = true;
+        // WHY: like the other write ops, a remote/auth failure must surface as a DorisConnectorException so
+        // PluginDrivenExternalCatalog.dropTable can rewrap it as a DdlException; the seam must NOT be reached.
+        DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
+                () -> metadata(ops, ctx, IcebergConnectorProperties.TYPE_REST).dropView(null, "db1", "v1"));
+        Assertions.assertTrue(ex.getMessage().contains("Failed to drop Iceberg view"), ex.getMessage());
+        Assertions.assertFalse(ops.log.contains("dropView:db1.v1"),
+                "the seam must not be reached when the auth wrap throws");
     }
 
     // ---------- renameTable ----------

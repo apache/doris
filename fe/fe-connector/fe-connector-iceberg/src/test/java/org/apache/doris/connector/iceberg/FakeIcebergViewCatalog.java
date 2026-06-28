@@ -169,7 +169,13 @@ class FakeIcebergViewCatalog extends FakeIcebergCatalog implements ViewCatalog {
 
     @Override
     public boolean dropView(TableIdentifier identifier) {
-        throw new UnsupportedOperationException();
+        log.add("dropView:" + identifier);
+        List<String> names = viewsByNs.get(identifier.namespace());
+        if (names == null || !names.contains(identifier.name())) {
+            return false;
+        }
+        names.remove(identifier.name());
+        return true;
     }
 
     @Override

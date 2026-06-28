@@ -499,6 +499,23 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
         }
         ConnectorSession session = buildConnectorSession();
         ConnectorMetadata metadata = connector.getMetadata(session);
+        // Route a DROP on a VIEW to dropView, mirroring legacy IcebergMetadataOps.dropTableImpl's
+        // viewExists -> performDropView dispatch: a connector that exposes views keeps them in a separate
+        // namespace, so getTableHandle/tableExists below is false for a view and the table-handle path
+        // could never drop it. For view-less connectors viewExists defaults to false (no remote call), so
+        // this routing is inert and the table path runs unchanged. The edit log + cache invalidation use
+        // the LOCAL names (follower-replay parity), identical to the table path.
+        if (metadata.viewExists(session, dorisTable.getRemoteDbName(), dorisTable.getRemoteName())) {
+            try {
+                metadata.dropView(session, dorisTable.getRemoteDbName(), dorisTable.getRemoteName());
+            } catch (DorisConnectorException e) {
+                throw new DdlException(e.getMessage(), e);
+            }
+            Env.getCurrentEnv().getEditLog().logDropTable(new DropInfo(getName(), dbName, tableName));
+            getDbForReplay(dbName).ifPresent(d -> d.unregisterTable(tableName));
+            LOG.info("finished to drop view {}.{}.{}", getName(), dbName, tableName);
+            return;
+        }
         Optional<ConnectorTableHandle> handle = metadata.getTableHandle(
                 session, dorisTable.getRemoteDbName(), dorisTable.getRemoteName());
         // The table is present in the FE cache but may have been dropped out-of-band on the remote

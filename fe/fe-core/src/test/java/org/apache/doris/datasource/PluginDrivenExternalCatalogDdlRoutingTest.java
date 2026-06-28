@@ -416,6 +416,66 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
         Assertions.assertTrue(ex.getMessage().contains("boom"));
     }
 
+    // B2: DROP on a flipped iceberg VIEW must route to metadata.dropView (mirroring legacy
+    // IcebergMetadataOps.dropTableImpl's viewExists -> performDropView dispatch). The connector's
+    // getTableHandle/tableExists is false for a view, so without this routing the handle path would no-op
+    // (IF EXISTS) / throw (no such table). Edit log + cache invalidation use the LOCAL names like the table path.
+
+    @Test
+    public void testDropTableRoutesViewToDropViewAndUnregisters() throws Exception {
+        ExternalDatabase<? extends ExternalTable> db = mockExternalDatabase();
+        ExternalTable view = Mockito.mock(ExternalTable.class);
+        Mockito.when(view.getRemoteDbName()).thenReturn("DB1");
+        Mockito.when(view.getRemoteName()).thenReturn("V1");
+        Mockito.doReturn(view).when(db).getTableNullable("v1");
+        catalog.dbNullableResult = db;
+        ExternalDatabase<? extends ExternalTable> replayDb = mockExternalDatabase();
+        catalog.dbForReplayResult = Optional.of(replayDb);
+        // The connector reports the (remote) object as a view.
+        Mockito.when(metadata.viewExists(session, "DB1", "V1")).thenReturn(true);
+
+        catalog.dropTable("db1", "v1", false, false, false, false, false, false);
+
+        // WHY: a view must be dropped via dropView with the REMOTE names, and the table-handle path must be
+        // skipped entirely (getTableHandle/dropTable never consulted) -- legacy dropTableImpl checks viewExists
+        // BEFORE resolving the table. A mutation that drops the routing makes the dropView verify red (and the
+        // getTableHandle would be reached on a non-existent table).
+        Mockito.verify(metadata).dropView(session, "DB1", "V1");
+        Mockito.verify(metadata, Mockito.never()).getTableHandle(Mockito.any(), Mockito.any(), Mockito.any());
+        Mockito.verify(metadata, Mockito.never()).dropTable(Mockito.any(), Mockito.any());
+        // WHY: edit log + cache invalidation MUST use the LOCAL names (follower replay parity), identical to
+        // the table path. A mutation persisting the remote names turns these red.
+        ArgumentCaptor<org.apache.doris.persist.DropInfo> dropInfo =
+                ArgumentCaptor.forClass(org.apache.doris.persist.DropInfo.class);
+        Mockito.verify(mockEditLog).logDropTable(dropInfo.capture());
+        Assertions.assertEquals("db1", dropInfo.getValue().getDb(),
+                "edit-log DropInfo must carry the LOCAL db name for follower replay");
+        Assertions.assertEquals("v1", dropInfo.getValue().getTableName(),
+                "edit-log DropInfo must carry the LOCAL view name for follower replay");
+        Assertions.assertEquals("db1", catalog.lastGetDbForReplayArg,
+                "cache invalidation must look up the LOCAL db name");
+        Mockito.verify(replayDb).unregisterTable("v1");
+    }
+
+    @Test
+    public void testDropViewWrapsConnectorException() {
+        ExternalDatabase<? extends ExternalTable> db = mockExternalDatabase();
+        ExternalTable view = Mockito.mock(ExternalTable.class);
+        Mockito.when(view.getRemoteDbName()).thenReturn("DB1");
+        Mockito.when(view.getRemoteName()).thenReturn("V1");
+        Mockito.doReturn(view).when(db).getTableNullable("v1");
+        catalog.dbNullableResult = db;
+        Mockito.when(metadata.viewExists(session, "DB1", "V1")).thenReturn(true);
+        Mockito.doThrow(new DorisConnectorException("boom")).when(metadata).dropView(session, "DB1", "V1");
+
+        // WHY: a remote view-drop failure must surface as a DdlException (same as the table path) and abort
+        // BEFORE any bookkeeping -- no editlog, no unregister, so the FE cache stays consistent with the remote.
+        DdlException ex = Assertions.assertThrows(DdlException.class,
+                () -> catalog.dropTable("db1", "v1", false, false, false, false, false, false));
+        Assertions.assertTrue(ex.getMessage().contains("boom"));
+        Mockito.verify(mockEditLog, Mockito.never()).logDropTable(Mockito.any());
+    }
+
     // ==================== RENAME TABLE ====================
     // renameTable resolves the SOURCE by REMOTE names (like dropTable) and passes the new name through
     // (legacy renameTableImpl parity); afterExternalRename does the cache fix (unregister old + reset names)

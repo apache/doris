@@ -72,4 +72,15 @@ public class ConnectorViewDefaultsTest {
                 () -> new NoViewMetadata().getViewDefinition(null, "db1", "v1"),
                 "a connector without view support must fail loud when asked for a view definition");
     }
+
+    @Test
+    public void dropViewDefaultsToFailLoud() {
+        // WHY: PluginDrivenExternalCatalog.dropTable routes a DROP to dropView only after viewExists() is
+        // true, so for a view-less connector (viewExists defaults to false) this default is unreachable in
+        // production; it is a fail-loud guard. MUTATION: a default that silently no-ops would let a refactor
+        // that bypasses the viewExists gate drop nothing without surfacing the unsupported operation -> red.
+        Assertions.assertThrows(DorisConnectorException.class,
+                () -> new NoViewMetadata().dropView(null, "db1", "v1"),
+                "a connector without view support must fail loud when asked to drop a view");
+    }
 }

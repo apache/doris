@@ -134,6 +134,17 @@ public interface ConnectorTableOps {
         throw new DorisConnectorException("GET VIEW DEFINITION not supported");
     }
 
+    /**
+     * Drops the named view. Connectors that expose views (declaring {@link ConnectorCapability#SUPPORTS_VIEW})
+     * override this; callers route a DROP through {@link #viewExists} so the default — for view-less
+     * connectors — is unreachable and fails loud as a guard.
+     *
+     * @throws DorisConnectorException if the connector does not support views
+     */
+    default void dropView(ConnectorSession session, String dbName, String viewName) {
+        throw new DorisConnectorException("DROP VIEW not supported");
+    }
+
     /** Creates a new table with the given schema and properties. */
     default void createTable(ConnectorSession session,
             ConnectorTableSchema schema,

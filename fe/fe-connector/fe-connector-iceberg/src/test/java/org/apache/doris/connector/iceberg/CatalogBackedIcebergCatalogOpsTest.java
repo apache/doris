@@ -30,6 +30,7 @@ import org.apache.iceberg.view.ViewVersion;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
@@ -338,6 +339,50 @@ public class CatalogBackedIcebergCatalogOpsTest {
         putView(catalog, versionWith("spark", null, null));
         Assertions.assertThrows(DorisConnectorException.class,
                 () -> ops(catalog, true, false, true, Optional.empty()).loadViewDefinition("db1", "v1"));
+    }
+
+    // ---------------------------------------------------------------------
+    // dropView — delegate to ViewCatalog.dropView, gated like the other view ops (B2 DROP)
+    // ---------------------------------------------------------------------
+
+    @Test
+    public void dropViewDelegatesToViewCatalogByIdentifier() {
+        // WHY: DROP VIEW on a flipped iceberg view must reach ViewCatalog.dropView with the (db, view)
+        // identifier. MUTATION: dropping the delegation / passing the wrong identifier -> the view survives ->
+        // the viewExists assertion below goes red.
+        FakeIcebergViewCatalog catalog = new FakeIcebergViewCatalog();
+        catalog.viewsByNs.put(Namespace.of("db1"), new ArrayList<>(Arrays.asList("v1", "v2")));
+
+        ops(catalog, true, false, true, Optional.empty()).dropView("db1", "v1");
+
+        Assertions.assertTrue(catalog.log.contains("dropView:db1.v1"),
+                "the seam must drop the view by its (db, view) identifier");
+        Assertions.assertFalse(catalog.viewExists(TableIdentifier.of(Namespace.of("db1"), "v1")),
+                "the dropped view must no longer exist");
+        Assertions.assertTrue(catalog.viewExists(TableIdentifier.of(Namespace.of("db1"), "v2")),
+                "only the named view is dropped");
+    }
+
+    @Test
+    public void dropViewThrowsWhenNotViewCatalog() {
+        // WHY: a plain Catalog has no views; dropView must fail loud (gate before any cast), mirroring legacy
+        // performDropView. MUTATION: dropping the isViewCatalogEnabled gate -> ClassCastException on the plain
+        // catalog instead of the clear error.
+        FakeIcebergCatalog plain = new FakeIcebergCatalog();
+        Assertions.assertThrows(DorisConnectorException.class,
+                () -> ops(plain, true, false, true, Optional.empty()).dropView("db1", "v1"));
+    }
+
+    @Test
+    public void dropViewThrowsWhenRestViewDisabled() {
+        // WHY: even a ViewCatalog reports no views when iceberg.rest.view-enabled=false; dropView must NOT be
+        // called. MUTATION: ignoring the view-enabled flag -> dropView reached -> the gate's purpose is lost.
+        FakeIcebergViewCatalog catalog = new FakeIcebergViewCatalog();
+        catalog.viewsByNs.put(Namespace.of("db1"), new ArrayList<>(Collections.singletonList("v1")));
+        Assertions.assertThrows(DorisConnectorException.class,
+                () -> ops(catalog, true, false, false, Optional.empty()).dropView("db1", "v1"));
+        Assertions.assertFalse(catalog.log.contains("dropView:db1.v1"),
+                "dropView must not be called when view support is disabled");
     }
 
     // ---------------------------------------------------------------------

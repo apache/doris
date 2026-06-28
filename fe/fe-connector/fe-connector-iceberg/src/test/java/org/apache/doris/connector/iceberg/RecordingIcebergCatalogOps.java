@@ -65,6 +65,9 @@ final class RecordingIcebergCatalogOps implements IcebergCatalogOps {
     /** The (dbName, viewName) the metadata layer passed to the most recent {@link #loadViewDefinition}. */
     String lastLoadViewDb;
     String lastLoadViewName;
+    /** The (dbName, viewName) the metadata layer passed to the most recent {@link #dropView}. */
+    String lastDropViewDb;
+    String lastDropViewName;
     /** Canned table returned by {@link #loadTable(String, String)}. */
     Table table;
     /** When set, {@link #loadTable(String, String)} throws instead of returning {@link #table}. */
@@ -167,6 +170,13 @@ final class RecordingIcebergCatalogOps implements IcebergCatalogOps {
         lastLoadViewDb = dbName;
         lastLoadViewName = viewName;
         return viewDefinition;
+    }
+
+    @Override
+    public void dropView(String dbName, String viewName) {
+        log.add("dropView:" + dbName + "." + viewName);
+        lastDropViewDb = dbName;
+        lastDropViewName = viewName;
     }
 
     @Override

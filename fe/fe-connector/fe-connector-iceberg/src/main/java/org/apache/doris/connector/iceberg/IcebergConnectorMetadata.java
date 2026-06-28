@@ -230,6 +230,22 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
     }
 
     @Override
+    public void dropView(ConnectorSession session, String dbName, String viewName) {
+        // Mirror legacy IcebergMetadataOps.performDropView (routed from dropTableImpl): drop the view inside
+        // the auth context. Like the other write ops (dropTable / dropDatabase), normalize EVERY failure into a
+        // DorisConnectorException so PluginDrivenExternalCatalog.dropTable rewraps it as a DdlException.
+        try {
+            context.executeAuthenticated(() -> {
+                catalogOps.dropView(dbName, viewName);
+                return null;
+            });
+        } catch (Exception e) {
+            throw new DorisConnectorException("Failed to drop Iceberg view "
+                    + dbName + "." + viewName + ": " + e.getMessage(), e);
+        }
+    }
+
+    @Override
     public Optional<ConnectorTableHandle> getTableHandle(
             ConnectorSession session, String dbName, String tableName) {
         // Mirror legacy IcebergMetadataOps.tableExist: wrap the remote existence check in the auth context
@@ -585,8 +601,8 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
      * (HMS only). Existence / IF EXISTS is resolved upstream by {@code PluginDrivenExternalCatalog.dropDb}, so
      * {@code ifExists} is accepted for SPI parity but not re-checked here.
      *
-     * <p>Views are out of B1 scope (A3/B6): a {@code force} drop of a namespace that still contains iceberg
-     * VIEWS will fail loud at {@code dropNamespace} (namespace not empty) until view DDL lands.
+     * <p>A {@code force} drop cascades the contained iceberg VIEWS as well (they live in their own namespace,
+     * so the table cascade alone would leave them behind and {@code dropNamespace} would fail "not empty").
      */
     @Override
     public void dropDatabase(ConnectorSession session, String dbName, boolean ifExists, boolean force) {
@@ -598,6 +614,12 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
                 if (force) {
                     for (String table : catalogOps.listTableNames(dbName)) {
                         catalogOps.dropTable(dbName, table, true);
+                    }
+                    // Cascade the views too, mirroring legacy IcebergMetadataOps.performDropDb: iceberg
+                    // VIEWS live in their own namespace (listTableNames subtracts them), so without this the
+                    // dropDatabase below would fail loud ("namespace not empty") when the db still has views.
+                    for (String view : catalogOps.listViewNames(dbName)) {
+                        catalogOps.dropView(dbName, view);
                     }
                 }
                 catalogOps.dropDatabase(dbName);
@@ -644,8 +666,9 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
      * data + metadata files), then the empty directory shell is pruned. {@code PluginDrivenExternalCatalog}
      * has already resolved the handle / IF EXISTS upstream.
      *
-     * <p>Views are out of B1 scope (A3/B6): legacy routed a view to {@code performDropView}; here a DROP on an
-     * iceberg view will fail loud (no such table) until view DDL lands.
+     * <p>This handles TABLES only: a DROP on an iceberg view is routed to {@link #dropView} by
+     * {@code PluginDrivenExternalCatalog.dropTable} (via {@link #viewExists}) BEFORE the handle is resolved,
+     * mirroring legacy {@code IcebergMetadataOps.dropTableImpl}'s viewExists -> performDropView dispatch.
      */
     @Override
     public void dropTable(ConnectorSession session, ConnectorTableHandle handle) {

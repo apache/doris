@@ -105,6 +105,9 @@ public interface IcebergCatalogOps {
      */
     ConnectorViewDefinition loadViewDefinition(String dbName, String viewName);
 
+    /** Drops the view {@code dbName.viewName}. Requires a (view-enabled) {@link ViewCatalog}; else fails loud. */
+    void dropView(String dbName, String viewName);
+
     /** Loads the Iceberg {@link Table} for {@code dbName.tableName}. */
     Table loadTable(String dbName, String tableName);
 
@@ -329,6 +332,16 @@ public interface IcebergCatalogOps {
                 throw new DorisConnectorException("Cannot get view text from iceberg view");
             }
             return new ConnectorViewDefinition(sqlViewRepresentation.sql(), dialect);
+        }
+
+        @Override
+        public void dropView(String dbName, String viewName) {
+            // Mirrors legacy IcebergMetadataOps.performDropView: requires a (view-enabled) ViewCatalog;
+            // otherwise fails loud. Auth wrapping is in IcebergConnectorMetadata.dropView.
+            if (!isViewCatalogEnabled()) {
+                throw new DorisConnectorException("Drop Iceberg view is not supported with not view catalog.");
+            }
+            ((ViewCatalog) catalog).dropView(toTableIdentifier(dbName, viewName));
         }
 
         @Override
