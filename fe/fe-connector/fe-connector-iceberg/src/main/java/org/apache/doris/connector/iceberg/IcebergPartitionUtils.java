@@ -402,8 +402,10 @@ final class IcebergPartitionUtils {
             if (current == null) {
                 // A valid related table that is still empty (no snapshot yet): RANGE on the spec alone, with no
                 // partitions. Parity: master getPartitionType=RANGE (spec-only) + getIcebergPartitionItems empty.
+                // Newest-update-time 0 mirrors master's getNewestUpdateVersionOrTime max(...).orElse(0) over an
+                // empty partition set.
                 return new ConnectorMvccPartitionView(ConnectorMvccPartitionView.Style.RANGE,
-                        ConnectorMvccPartitionView.Freshness.SNAPSHOT_ID, Collections.emptyList());
+                        ConnectorMvccPartitionView.Freshness.SNAPSHOT_ID, Collections.emptyList(), 0L);
             }
             snapshotId = current.snapshotId();
         }
@@ -445,8 +447,13 @@ final class IcebergPartitionUtils {
         }
         // Deterministic order (the generic model re-keys by name; sorting only stabilizes tests/diagnostics).
         partitions.sort(Comparator.comparing(ConnectorMvccPartition::getName));
+        // The table's newest data-update time = max(lastUpdateTime) over the FULL deduped partition set
+        // (allByName, NOT just survivors — master uses getNameToIcebergPartition() which keeps enclosed
+        // partitions too). Byte-parity with master getNewestUpdateVersionOrTime: max(...).orElse(0).
+        long newestUpdateTimeMillis = allByName.values().stream()
+                .mapToLong(rb -> rb.lastUpdateTime).max().orElse(0L);
         return new ConnectorMvccPartitionView(ConnectorMvccPartitionView.Style.RANGE,
-                ConnectorMvccPartitionView.Freshness.SNAPSHOT_ID, partitions);
+                ConnectorMvccPartitionView.Freshness.SNAPSHOT_ID, partitions, newestUpdateTimeMillis);
     }
 
     /**

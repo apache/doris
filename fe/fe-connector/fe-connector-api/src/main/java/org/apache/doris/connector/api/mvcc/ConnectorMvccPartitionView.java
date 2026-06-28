@@ -36,6 +36,10 @@ import java.util.Objects;
  * {@link #getFreshness()} — all connector-specific math (transform-to-range, partition-evolution overlap
  * merge, snapshot-id resolution) having already happened inside the connector.</p>
  *
+ * <p>The view also carries a {@link #getNewestUpdateTimeMillis() newest-update-time} marker: a monotonically
+ * non-decreasing table-change timestamp the generic model answers the dictionary auto-refresh probe with
+ * (the snapshot id alone is unusable there because it need not be monotonic).</p>
+ *
  * <p>A connector that does NOT override {@code getMvccPartitionView} leaves the generic model on its
  * default {@code listPartitions} / LIST / timestamp path (byte-unchanged), so this view is purely
  * additive.</p>
@@ -63,20 +67,23 @@ public final class ConnectorMvccPartitionView {
     private final Style style;
     private final Freshness freshness;
     private final List<ConnectorMvccPartition> partitions;
+    private final long newestUpdateTimeMillis;
 
     public ConnectorMvccPartitionView(Style style, Freshness freshness,
-            List<ConnectorMvccPartition> partitions) {
+            List<ConnectorMvccPartition> partitions, long newestUpdateTimeMillis) {
         this.style = Objects.requireNonNull(style, "style");
         this.freshness = Objects.requireNonNull(freshness, "freshness");
         this.partitions = partitions == null
                 ? Collections.emptyList()
                 : Collections.unmodifiableList(partitions);
+        this.newestUpdateTimeMillis = newestUpdateTimeMillis;
     }
 
-    /** Returns an {@code UNPARTITIONED} view (no partitions); the freshness marker is irrelevant. */
+    /** Returns an {@code UNPARTITIONED} view (no partitions, newest-update-time {@code 0}); the freshness
+     * marker is irrelevant. */
     public static ConnectorMvccPartitionView unpartitioned() {
         return new ConnectorMvccPartitionView(Style.UNPARTITIONED, Freshness.SNAPSHOT_ID,
-                Collections.emptyList());
+                Collections.emptyList(), 0L);
     }
 
     public Style getStyle() {
@@ -91,6 +98,22 @@ public final class ConnectorMvccPartitionView {
         return partitions;
     }
 
+    /**
+     * The table's newest data-update marker, used by the dictionary auto-refresh path
+     * ({@code MTMVRelatedTableIf.getNewestUpdateVersionOrTime}). This is a MONOTONICALLY non-decreasing
+     * change marker (NOT the snapshot id, which need not be monotonic), so the generic model can answer
+     * the dictionary's "is the source newer?" probe without crashing on a smaller-than-previous value.
+     *
+     * <p><b>Unit is source-defined, NOT guaranteed epoch millis</b> — only its monotonicity is relied upon, never
+     * its absolute scale. For iceberg this is the {@code last_updated_at} value from the PARTITIONS metadata table,
+     * which iceberg represents in MICROSECONDS; the generic model passes it through verbatim (parity with master,
+     * which also compares this raw value without conversion). Do NOT treat it as millis or convert it.
+     * {@code 0} when the table has no partitions / is unpartitioned (treated as "unchanged").</p>
+     */
+    public long getNewestUpdateTimeMillis() {
+        return newestUpdateTimeMillis;
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) {
@@ -102,18 +125,20 @@ public final class ConnectorMvccPartitionView {
         ConnectorMvccPartitionView that = (ConnectorMvccPartitionView) o;
         return style == that.style
                 && freshness == that.freshness
+                && newestUpdateTimeMillis == that.newestUpdateTimeMillis
                 && partitions.equals(that.partitions);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(style, freshness, partitions);
+        return Objects.hash(style, freshness, partitions, newestUpdateTimeMillis);
     }
 
     @Override
     public String toString() {
         return "ConnectorMvccPartitionView{style=" + style
                 + ", freshness=" + freshness
-                + ", partitions=" + partitions.size() + "}";
+                + ", partitions=" + partitions.size()
+                + ", newestUpdateTimeMillis=" + newestUpdateTimeMillis + "}";
     }
 }
