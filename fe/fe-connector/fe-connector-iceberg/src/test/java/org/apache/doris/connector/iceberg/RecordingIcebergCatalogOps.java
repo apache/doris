@@ -17,6 +17,7 @@
 
 package org.apache.doris.connector.iceberg;
 
+import org.apache.doris.connector.api.ConnectorViewDefinition;
 import org.apache.doris.connector.api.ddl.BranchChange;
 import org.apache.doris.connector.api.ddl.ConnectorColumnPosition;
 import org.apache.doris.connector.api.ddl.DropRefChange;
@@ -59,6 +60,11 @@ final class RecordingIcebergCatalogOps implements IcebergCatalogOps {
     boolean tableExists;
     /** Canned existence answer for {@link #viewExists(String, String)}. */
     boolean viewExists;
+    /** Canned definition returned by {@link #loadViewDefinition(String, String)}. */
+    ConnectorViewDefinition viewDefinition;
+    /** The (dbName, viewName) the metadata layer passed to the most recent {@link #loadViewDefinition}. */
+    String lastLoadViewDb;
+    String lastLoadViewName;
     /** Canned table returned by {@link #loadTable(String, String)}. */
     Table table;
     /** When set, {@link #loadTable(String, String)} throws instead of returning {@link #table}. */
@@ -153,6 +159,14 @@ final class RecordingIcebergCatalogOps implements IcebergCatalogOps {
     public boolean viewExists(String dbName, String viewName) {
         log.add("viewExists:" + dbName + "." + viewName);
         return viewExists;
+    }
+
+    @Override
+    public ConnectorViewDefinition loadViewDefinition(String dbName, String viewName) {
+        log.add("loadViewDefinition:" + dbName + "." + viewName);
+        lastLoadViewDb = dbName;
+        lastLoadViewName = viewName;
+        return viewDefinition;
     }
 
     @Override

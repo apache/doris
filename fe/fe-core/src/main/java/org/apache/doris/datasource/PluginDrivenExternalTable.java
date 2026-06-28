@@ -32,6 +32,7 @@ import org.apache.doris.connector.api.ConnectorPartitionInfo;
 import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.ConnectorTableSchema;
 import org.apache.doris.connector.api.ConnectorTableStatistics;
+import org.apache.doris.connector.api.ConnectorViewDefinition;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.api.write.ConnectorWritePlanProvider;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
@@ -339,6 +340,25 @@ public class PluginDrivenExternalTable extends ExternalTable {
         ConnectorMetadata metadata = connector.getMetadata(session);
         String dbName = db != null ? db.getRemoteName() : "";
         return metadata.viewExists(session, dbName, getRemoteName());
+    }
+
+    /**
+     * Returns the stored SQL text of this view, mirroring legacy {@code IcebergExternalTable.getViewText}.
+     * Issues one connector round-trip ({@code getViewDefinition}) — the same single remote load the legacy
+     * query path made — so {@code BindRelation} (and SHOW CREATE) can parse and analyze the view body.
+     * Callers gate on {@link #supportsView()} + {@link #isView()}; on a view-less connector the SPI default
+     * fails loud. (Legacy {@code getSqlDialect} is intentionally not ported — it has no caller; the view
+     * body is converted by the session dialect in {@code BindRelation.parseAndAnalyzeExternalView}, and the
+     * connector already uses the view's own dialect internally to pick the SQL representation.)
+     */
+    public String getViewText() {
+        PluginDrivenExternalCatalog pluginCatalog = (PluginDrivenExternalCatalog) catalog;
+        Connector connector = pluginCatalog.getConnector();
+        ConnectorSession session = pluginCatalog.buildConnectorSession();
+        ConnectorMetadata metadata = connector.getMetadata(session);
+        String dbName = db != null ? db.getRemoteName() : "";
+        ConnectorViewDefinition definition = metadata.getViewDefinition(session, dbName, getRemoteName());
+        return definition.getSql();
     }
 
     @Override

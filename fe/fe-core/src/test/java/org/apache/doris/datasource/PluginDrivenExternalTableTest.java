@@ -26,6 +26,7 @@ import org.apache.doris.connector.api.ConnectorColumn;
 import org.apache.doris.connector.api.ConnectorMetadata;
 import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.ConnectorType;
+import org.apache.doris.connector.api.ConnectorViewDefinition;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.api.write.ConnectorWritePlanProvider;
 import org.apache.doris.qe.ConnectContext;
@@ -344,6 +345,35 @@ public class PluginDrivenExternalTableTest {
                 pluginViewTable(EnumSet.of(ConnectorCapability.SUPPORTS_VIEW), true).isView());
         Assertions.assertFalse(
                 pluginViewTable(EnumSet.of(ConnectorCapability.SUPPORTS_VIEW), false).isView());
+    }
+
+    @Test
+    public void getViewTextReturnsConnectorViewSqlForVerbatimNames() {
+        // WHY: BindRelation's plugin view arm (and SHOW CREATE) take the view body from getViewText(); it must
+        // surface the connector's view SQL (NOT the dialect) for the table's REMOTE (db, view) pair. MUTATION:
+        // returning getDialect() instead of getSql() -> body becomes "spark" -> red; passing wrong db/view
+        // names -> the eq-stub misses -> null -> NPE -> red.
+        ConnectorMetadata metadata = Mockito.mock(ConnectorMetadata.class);
+        Mockito.when(metadata.getViewDefinition(Mockito.any(), Mockito.eq("db1"), Mockito.eq("v1")))
+                .thenReturn(new ConnectorViewDefinition("SELECT 1", "spark"));
+        ConnectorSession session = Mockito.mock(ConnectorSession.class);
+        Connector connector = Mockito.mock(Connector.class);
+        Mockito.when(connector.getMetadata(Mockito.any())).thenReturn(metadata);
+        ExternalDatabase db = Mockito.mock(ExternalDatabase.class);
+        Mockito.when(db.getRemoteName()).thenReturn("db1");
+        PluginDrivenExternalCatalog catalog = Mockito.mock(PluginDrivenExternalCatalog.class);
+        Mockito.when(catalog.getConnector()).thenReturn(connector);
+        Mockito.when(catalog.buildConnectorSession()).thenReturn(session);
+        PluginDrivenExternalTable table =
+                Mockito.mock(PluginDrivenExternalTable.class, Mockito.CALLS_REAL_METHODS);
+        Deencapsulation.setField(table, "catalog", catalog);
+        Deencapsulation.setField(table, "db", db);
+        Deencapsulation.setField(table, "remoteName", "v1");
+
+        Assertions.assertEquals("SELECT 1", table.getViewText());
+        // Make the verbatim-names contract explicit (not just implicit via the eq-stub -> null -> NPE):
+        // getViewText must ask the connector for THIS table's remote (db, view) pair, exactly once.
+        Mockito.verify(metadata).getViewDefinition(Mockito.any(), Mockito.eq("db1"), Mockito.eq("v1"));
     }
 
     @Test

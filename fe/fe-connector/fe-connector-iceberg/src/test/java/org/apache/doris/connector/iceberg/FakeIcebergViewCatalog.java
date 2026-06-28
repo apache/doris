@@ -17,11 +17,17 @@
 
 package org.apache.doris.connector.iceberg;
 
+import org.apache.iceberg.Schema;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.catalog.ViewCatalog;
+import org.apache.iceberg.view.SQLViewRepresentation;
+import org.apache.iceberg.view.UpdateViewProperties;
 import org.apache.iceberg.view.View;
 import org.apache.iceberg.view.ViewBuilder;
+import org.apache.iceberg.view.ViewHistoryEntry;
+import org.apache.iceberg.view.ViewRepresentation;
+import org.apache.iceberg.view.ViewVersion;
 
 import java.util.Collections;
 import java.util.HashMap;
@@ -38,6 +44,9 @@ class FakeIcebergViewCatalog extends FakeIcebergCatalog implements ViewCatalog {
 
     /** namespace -> view names returned by listViews. */
     final Map<Namespace, List<String>> viewsByNs = new HashMap<>();
+
+    /** identifier -> View returned by loadView (for exercising loadViewDefinition). */
+    final Map<TableIdentifier, View> loadableViews = new HashMap<>();
 
     @Override
     public String name() {
@@ -68,7 +77,89 @@ class FakeIcebergViewCatalog extends FakeIcebergCatalog implements ViewCatalog {
 
     @Override
     public View loadView(TableIdentifier identifier) {
-        throw new UnsupportedOperationException();
+        log.add("loadView:" + identifier);
+        View view = loadableViews.get(identifier);
+        if (view == null) {
+            throw new IllegalArgumentException("no such view: " + identifier);
+        }
+        return view;
+    }
+
+    /**
+     * A minimal {@link View} returning a single configurable {@code currentVersion} (which may be null);
+     * every other accessor fails loud. The {@code View.sqlFor(dialect)} default method resolves the SQL
+     * from {@code currentVersion().representations()}, so the version's representations + summary fully
+     * drive the loadViewDefinition extraction under test.
+     */
+    static final class StubView implements View {
+        private final ViewVersion currentVersion;
+
+        StubView(ViewVersion currentVersion) {
+            this.currentVersion = currentVersion;
+        }
+
+        @Override
+        public String name() {
+            return "stub-view";
+        }
+
+        @Override
+        public ViewVersion currentVersion() {
+            return currentVersion;
+        }
+
+        // The View interface's default sqlFor() throws ("Resolving a sql with a given dialect is not
+        // supported"); the real resolution lives in BaseView. Replicate the core resolution (exact-dialect
+        // match over the current version's SQL representations) so loadViewDefinition's sqlFor call behaves
+        // like a real iceberg View.
+        @Override
+        public SQLViewRepresentation sqlFor(String dialect) {
+            if (currentVersion == null) {
+                return null;
+            }
+            for (ViewRepresentation representation : currentVersion.representations()) {
+                if (representation instanceof SQLViewRepresentation
+                        && ((SQLViewRepresentation) representation).dialect().equalsIgnoreCase(dialect)) {
+                    return (SQLViewRepresentation) representation;
+                }
+            }
+            return null;
+        }
+
+        @Override
+        public Schema schema() {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public Map<Integer, Schema> schemas() {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public Iterable<ViewVersion> versions() {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public ViewVersion version(int versionId) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public List<ViewHistoryEntry> history() {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public Map<String, String> properties() {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public UpdateViewProperties updateProperties() {
+            throw new UnsupportedOperationException();
+        }
     }
 
     @Override

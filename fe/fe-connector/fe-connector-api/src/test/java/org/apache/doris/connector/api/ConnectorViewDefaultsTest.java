@@ -62,4 +62,14 @@ public class ConnectorViewDefaultsTest {
         Assertions.assertTrue(new NoViewMetadata().listViewNames(null, "db1").isEmpty(),
                 "a connector without view support must list no views by default");
     }
+
+    @Test
+    public void getViewDefinitionDefaultsToFailLoud() {
+        // WHY: callers gate on SUPPORTS_VIEW + isView() before asking for a view body; a view-less connector
+        // must never silently return a definition. MUTATION: a default returning null / an empty definition
+        // would let a non-view connector pretend to have a view body -> red.
+        Assertions.assertThrows(DorisConnectorException.class,
+                () -> new NoViewMetadata().getViewDefinition(null, "db1", "v1"),
+                "a connector without view support must fail loud when asked for a view definition");
+    }
 }

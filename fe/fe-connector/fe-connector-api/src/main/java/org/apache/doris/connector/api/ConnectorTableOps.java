@@ -123,6 +123,17 @@ public interface ConnectorTableOps {
         return Collections.emptyList();
     }
 
+    /**
+     * Loads the {@link ConnectorViewDefinition stored SQL definition + dialect} of the named view. Connectors
+     * that expose views (declaring {@link ConnectorCapability#SUPPORTS_VIEW}) override this; callers gate on
+     * {@code SUPPORTS_VIEW} and {@code isView()} so the default — for view-less connectors — fails loud.
+     *
+     * @throws DorisConnectorException if the connector does not support views
+     */
+    default ConnectorViewDefinition getViewDefinition(ConnectorSession session, String dbName, String viewName) {
+        throw new DorisConnectorException("GET VIEW DEFINITION not supported");
+    }
+
     /** Creates a new table with the given schema and properties. */
     default void createTable(ConnectorSession session,
             ConnectorTableSchema schema,

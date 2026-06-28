@@ -20,6 +20,7 @@ package org.apache.doris.connector.iceberg;
 import org.apache.doris.connector.api.ConnectorColumn;
 import org.apache.doris.connector.api.ConnectorDatabaseMetadata;
 import org.apache.doris.connector.api.ConnectorTableSchema;
+import org.apache.doris.connector.api.ConnectorViewDefinition;
 import org.apache.doris.connector.api.DorisConnectorException;
 import org.apache.doris.connector.api.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
@@ -320,6 +321,41 @@ public class IcebergConnectorMetadataTest {
         // WHY: a plain table must NOT be reported as a view. MUTATION: hard-coding true -> every table looks
         // like a view -> red.
         Assertions.assertFalse(metadataWith(ops).viewExists(null, "db1", "t1"));
+    }
+
+    @Test
+    public void getViewDefinitionDelegatesToOpsInsideAuthContext() {
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        ops.viewDefinition = new ConnectorViewDefinition("SELECT 1", "spark");
+
+        ConnectorViewDefinition def = metadataWith(ops).getViewDefinition(null, "db1", "v1");
+
+        // WHY: BindRelation (and SHOW CREATE) take the flipped view's body from here; it must surface exactly
+        // the seam's definition for the (db, view) pair, carrying the names verbatim. MUTATION: returning a
+        // different object / dropping delegation -> the view body is wrong / empty -> red.
+        Assertions.assertEquals("SELECT 1", def.getSql());
+        Assertions.assertEquals("spark", def.getDialect());
+        Assertions.assertEquals("db1", ops.lastLoadViewDb);
+        Assertions.assertEquals("v1", ops.lastLoadViewName);
+        Assertions.assertEquals(Collections.singletonList("loadViewDefinition:db1.v1"), ops.log,
+                "getViewDefinition must gate on exactly one loadViewDefinition() call carrying db/view verbatim");
+    }
+
+    @Test
+    public void getViewDefinitionRunsInsideAuthContext() {
+        // WHY: the remote load must sit INSIDE executeAuthenticated (same as viewExists/listTableNames). With a
+        // context whose executeAuthenticated throws WITHOUT running the task, getViewDefinition must surface a
+        // (normalized) failure and NEVER call the seam. MUTATION: hoisting the call outside the auth wrap ->
+        // the seam is reached / no failure -> red.
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        ops.viewDefinition = new ConnectorViewDefinition("SELECT 1", "spark");
+        RecordingConnectorContext ctx = new RecordingConnectorContext();
+        ctx.failAuth = true;
+
+        Assertions.assertThrows(RuntimeException.class,
+                () -> metadataWith(ops, ctx).getViewDefinition(null, "db1", "v1"));
+        Assertions.assertFalse(ops.log.contains("loadViewDefinition:db1.v1"),
+                "the seam must not be reached when the auth wrap throws");
     }
 
     // ---------------------------------------------------------------------

@@ -23,6 +23,7 @@ import org.apache.doris.connector.api.ConnectorMetadata;
 import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.ConnectorTableSchema;
 import org.apache.doris.connector.api.ConnectorType;
+import org.apache.doris.connector.api.ConnectorViewDefinition;
 import org.apache.doris.connector.api.DorisConnectorException;
 import org.apache.doris.connector.api.ddl.BranchChange;
 import org.apache.doris.connector.api.ddl.ConnectorColumnPosition;
@@ -213,6 +214,18 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
             return context.executeAuthenticated(() -> catalogOps.viewExists(dbName, viewName));
         } catch (Exception e) {
             throw new RuntimeException("Failed to check view exist, error message is: " + e.getMessage(), e);
+        }
+    }
+
+    @Override
+    public ConnectorViewDefinition getViewDefinition(ConnectorSession session, String dbName, String viewName) {
+        // Mirror viewExists: wrap the remote load in the auth context and normalize EVERY failure into a
+        // RuntimeException (the seam's loadViewDefinition already fails loud on a non-view catalog / missing
+        // engine-name with a DorisConnectorException, which is a RuntimeException and surfaces as-is here).
+        try {
+            return context.executeAuthenticated(() -> catalogOps.loadViewDefinition(dbName, viewName));
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to load view definition, error message is: " + e.getMessage(), e);
         }
     }
 
