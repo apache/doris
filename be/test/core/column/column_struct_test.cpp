@@ -43,6 +43,53 @@
 
 namespace doris {
 
+TEST(ColumnStructCowTest, MutateDetachesSharedSubcolumns) {
+    auto first_mut = ColumnInt64::create();
+    first_mut->insert_value(10);
+    ColumnPtr first = std::move(first_mut);
+    ColumnPtr first_alias = first;
+
+    auto second_mut = ColumnInt64::create();
+    second_mut->insert_value(100);
+    ColumnPtr second = std::move(second_mut);
+    ColumnPtr second_alias = second;
+
+    Columns columns = {first, second};
+    ColumnPtr column_struct = ColumnStruct::create(columns);
+    auto mutated = IColumn::mutate(column_struct);
+    auto& mutated_struct = assert_cast<ColumnStruct&>(*mutated);
+
+    EXPECT_NE(mutated_struct.get_column_ptr(0).get(), first_alias.get());
+    EXPECT_NE(mutated_struct.get_column_ptr(1).get(), second_alias.get());
+
+    assert_cast<ColumnInt64&>(mutated_struct.get_column(0)).get_data()[0] = 20;
+    assert_cast<ColumnInt64&>(mutated_struct.get_column(1)).get_data()[0] = 200;
+
+    EXPECT_EQ(assert_cast<const ColumnInt64&>(*first_alias).get_element(0), 10);
+    EXPECT_EQ(assert_cast<const ColumnInt64&>(*second_alias).get_element(0), 100);
+}
+
+TEST(ColumnStructCowTest, MutateKeepsExclusiveSubcolumns) {
+    auto first = ColumnInt64::create();
+    first->insert_value(10);
+    const auto* first_raw = first.get();
+
+    auto second = ColumnInt64::create();
+    second->insert_value(100);
+    const auto* second_raw = second.get();
+
+    MutableColumns columns;
+    columns.push_back(std::move(first));
+    columns.push_back(std::move(second));
+
+    ColumnPtr column_struct = ColumnStruct::create(std::move(columns));
+    auto mutated = IColumn::mutate(std::move(column_struct));
+    const auto& mutated_struct = assert_cast<const ColumnStruct&>(*mutated);
+
+    EXPECT_EQ(mutated_struct.get_column_ptr(0).get(), first_raw);
+    EXPECT_EQ(mutated_struct.get_column_ptr(1).get(), second_raw);
+}
+
 class ColumnStructTest : public ::testing::Test {
 protected:
     void SetUp() override {}

@@ -33,6 +33,33 @@
 
 namespace doris {
 
+TEST(ColumnConstCowTest, MutateDetachesSharedDataColumn) {
+    auto data_mut = ColumnInt64::create();
+    data_mut->insert_value(7);
+    ColumnPtr data = std::move(data_mut);
+    ColumnPtr data_alias = data;
+
+    ColumnPtr column_const = ColumnConst::create(data, 3);
+    auto mutated = IColumn::mutate(column_const);
+    const auto& mutated_const = assert_cast<const ColumnConst&>(*mutated);
+
+    EXPECT_NE(mutated_const.get_data_column_ptr().get(), data_alias.get());
+    EXPECT_EQ(assert_cast<const ColumnInt64&>(*data_alias).get_element(0), 7);
+    EXPECT_EQ(mutated_const.get_data_column().get_int(0), 7);
+}
+
+TEST(ColumnConstCowTest, MutateKeepsExclusiveDataColumn) {
+    auto data = ColumnInt64::create();
+    data->insert_value(7);
+    const auto* data_raw = data.get();
+
+    ColumnPtr column_const = ColumnConst::create(std::move(data), 3);
+    auto mutated = IColumn::mutate(std::move(column_const));
+    const auto& mutated_const = assert_cast<const ColumnConst&>(*mutated);
+
+    EXPECT_EQ(mutated_const.get_data_column_ptr().get(), data_raw);
+}
+
 TEST(ColumnConstTest, TestCreate) {
     auto column_data = ColumnHelper::create_column<DataTypeInt64>({7});
     auto column_const = ColumnConst::create(column_data, 10);

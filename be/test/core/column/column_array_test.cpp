@@ -32,6 +32,25 @@
 
 namespace doris {
 
+TEST(ColumnArrayCowTest, MutateDetachesSharedSubcolumns) {
+    auto data_mut = ColumnInt64::create();
+    data_mut->insert_value(10);
+    ColumnPtr data = std::move(data_mut);
+    ColumnPtr data_alias = data;
+
+    auto offsets_mut = ColumnArray::ColumnOffsets::create();
+    offsets_mut->insert_value(1);
+    ColumnPtr offsets = std::move(offsets_mut);
+    ColumnPtr offsets_alias = offsets;
+
+    ColumnPtr array = ColumnArray::create(data, offsets);
+    auto mutated = IColumn::mutate(array);
+    const auto& mutated_array = assert_cast<const ColumnArray&>(*mutated);
+
+    EXPECT_NE(mutated_array.get_data_ptr().get(), data_alias.get());
+    EXPECT_NE(mutated_array.get_offsets_ptr().get(), offsets_alias.get());
+}
+
 TEST(ColumnArrayCowTest, MutateKeepsExclusiveSubcolumns) {
     auto data = ColumnInt64::create();
     data->insert_value(10);
