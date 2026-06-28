@@ -32,6 +32,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.PluginDrivenExternalTable;
 import org.apache.doris.datasource.PluginDrivenSysExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HiveMetaStoreClientHelper;
@@ -169,6 +170,16 @@ public class ShowCreateTableCommand extends ShowCommand {
                     && ((IcebergExternalTable) table).isView()) {
                 rows.add(Arrays.asList(table.getName(),
                         IcebergUtils.showCreateView(((IcebergExternalTable) table))));
+                return new ShowResultSet(META_DATA, rows);
+            }
+            if (table instanceof PluginDrivenExternalTable && ((PluginDrivenExternalTable) table).isView()) {
+                // Flipped iceberg view: reproduce the legacy ICEBERG_EXTERNAL_TABLE view arm above on the
+                // neutral plugin path (only iceberg declares SUPPORTS_VIEW). Render the same bytes as
+                // IcebergUtils.showCreateView ("CREATE VIEW `name` AS " + view body) and return the same
+                // 2-column META_DATA result set, so SHOW CREATE on a flipped view stays byte-faithful.
+                rows.add(Arrays.asList(table.getName(),
+                        String.format("CREATE VIEW `%s` AS ", table.getName())
+                                + ((PluginDrivenExternalTable) table).getViewText()));
                 return new ShowResultSet(META_DATA, rows);
             }
             List<String> createTableStmt = Lists.newArrayList();
