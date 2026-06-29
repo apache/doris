@@ -78,6 +78,7 @@ import org.apache.paimon.types.VarBinaryType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.IOException;
 import java.io.InputStream;
 import java.lang.reflect.Constructor;
 import java.math.BigDecimal;
@@ -102,11 +103,11 @@ public class PaimonJniWriter {
     private static final String COMMIT_IDENTIFIER = "doris.commit_identifier";
     private static final String COMMIT_USER = "doris.commit_user";
     private static final String SPILL_DIR = "paimon_jni_spill_dir";
-    private static final int COMMIT_PAYLOAD_HEADER_BYTES = 12;
-    private static final int MAX_COMMIT_PAYLOAD_BYTES = 8 * 1024 * 1024;
-    private static final int DEFAULT_COMMIT_CHUNK_SIZE = 512;
-    private static final int DYNAMIC_BUCKET_ASSIGNER_COUNT = 1;
-    private static final int DYNAMIC_BUCKET_ASSIGNER_ID = 1;
+    static final int COMMIT_PAYLOAD_HEADER_BYTES = 12;
+    static final int MAX_COMMIT_PAYLOAD_BYTES = 8 * 1024 * 1024;
+    static final int DEFAULT_COMMIT_CHUNK_SIZE = 512;
+    static final int DYNAMIC_BUCKET_ASSIGNER_COUNT = 1;
+    static final int DYNAMIC_BUCKET_ASSIGNER_ID = 0;
     private static final int DYNAMIC_BUCKET_STATUS = 0;
 
     private BatchTableWrite writer;
@@ -561,7 +562,7 @@ public class PaimonJniWriter {
         while (i < messages.size()) {
             int end = Math.min(i + chunkSize, messages.size());
             byte[] payload = serializeCommitMessageChunk(messages.subList(i, end));
-            if (payload.length > MAX_COMMIT_PAYLOAD_BYTES && chunkSize > 1) {
+            if (shouldReduceCommitChunk(payload, chunkSize)) {
                 chunkSize = Math.max(1, chunkSize / 2);
                 continue;
             }
@@ -569,6 +570,17 @@ public class PaimonJniWriter {
             i = end;
         }
         return payloads.toArray(new byte[0][]);
+    }
+
+    static boolean shouldReduceCommitChunk(byte[] payload, int chunkSize) throws IOException {
+        if (payload.length <= MAX_COMMIT_PAYLOAD_BYTES) {
+            return false;
+        }
+        if (chunkSize > 1) {
+            return true;
+        }
+        throw new IOException("Serialized Paimon commit message payload exceeds limit, payloadBytes="
+                + payload.length + ", maxBytes=" + MAX_COMMIT_PAYLOAD_BYTES);
     }
 
     private byte[] serializeCommitMessageChunk(List<CommitMessage> messages) throws Exception {
@@ -594,7 +606,7 @@ public class PaimonJniWriter {
         return payload;
     }
 
-    public void abort() {
+    public void abort() throws Exception {
         try {
             if (preExecutionAuthenticator != null) {
                 preExecutionAuthenticator.execute(() -> {
@@ -604,10 +616,11 @@ public class PaimonJniWriter {
             }
         } catch (Exception e) {
             LOG.error("Failed to abort paimon writer", e);
+            throw e;
         }
     }
 
-    public void close() {
+    public void close() throws Exception {
         try {
             if (preExecutionAuthenticator != null) {
                 preExecutionAuthenticator.execute(() -> {
@@ -617,6 +630,7 @@ public class PaimonJniWriter {
             }
         } catch (Exception e) {
             LOG.warn("Error while closing PaimonJniWriter", e);
+            throw e;
         }
     }
 
