@@ -83,7 +83,36 @@ suite("load") {
     // Create TPC-H constraints (PK, FK, UK) for query optimization
     log.info("Creating TPC-H constraints ...")
 
-    // Primary Key Constraints
+    // Drop existing constraints first to make setup idempotent on rerun.
+    // FK constraints must be dropped before their referenced PK/UK constraints.
+
+    // Drop Foreign Key Constraints (idempotent)
+    try { sql """ alter table lineitem drop constraint l_ps_fk """ } catch (Exception e) {}
+    try { sql """ alter table lineitem drop constraint l_s_fk """ } catch (Exception e) {}
+    try { sql """ alter table lineitem drop constraint l_p_fk """ } catch (Exception e) {}
+    try { sql """ alter table lineitem drop constraint l_o_fk """ } catch (Exception e) {}
+    try { sql """ alter table orders drop constraint o_c_fk """ } catch (Exception e) {}
+    try { sql """ alter table partsupp drop constraint ps_s_fk """ } catch (Exception e) {}
+    try { sql """ alter table partsupp drop constraint ps_p_fk """ } catch (Exception e) {}
+    try { sql """ alter table customer drop constraint c_n_fk """ } catch (Exception e) {}
+    try { sql """ alter table supplier drop constraint s_n_fk """ } catch (Exception e) {}
+    try { sql """ alter table nation drop constraint n_r_fk """ } catch (Exception e) {}
+
+    // Drop Unique Key Constraints (idempotent)
+    try { sql """ alter table region drop constraint r_uk """ } catch (Exception e) {}
+    try { sql """ alter table nation drop constraint n_uk """ } catch (Exception e) {}
+
+    // Drop Primary Key Constraints (idempotent)
+    try { sql """ alter table lineitem drop constraint l_pk """ } catch (Exception e) {}
+    try { sql """ alter table orders drop constraint o_pk """ } catch (Exception e) {}
+    try { sql """ alter table partsupp drop constraint ps_pk """ } catch (Exception e) {}
+    try { sql """ alter table part drop constraint p_pk """ } catch (Exception e) {}
+    try { sql """ alter table customer drop constraint c_pk """ } catch (Exception e) {}
+    try { sql """ alter table supplier drop constraint s_pk """ } catch (Exception e) {}
+    try { sql """ alter table nation drop constraint n_pk """ } catch (Exception e) {}
+    try { sql """ alter table region drop constraint r_pk """ } catch (Exception e) {}
+
+    // Add Primary Key Constraints
     sql """ alter table region add constraint r_pk primary key (r_regionkey) """
     sql """ alter table nation add constraint n_pk primary key (n_nationkey) """
     sql """ alter table supplier add constraint s_pk primary key (s_suppkey) """
@@ -93,7 +122,7 @@ suite("load") {
     sql """ alter table orders add constraint o_pk primary key (o_orderkey) """
     sql """ alter table lineitem add constraint l_pk primary key (l_orderkey, l_linenumber) """
 
-    // Foreign Key Constraints
+    // Add Foreign Key Constraints
     sql """ alter table nation add constraint n_r_fk foreign key (n_regionkey) references region(r_regionkey) """
     sql """ alter table supplier add constraint s_n_fk foreign key (s_nationkey) references nation(n_nationkey) """
     sql """ alter table customer add constraint c_n_fk foreign key (c_nationkey) references nation(n_nationkey) """
@@ -105,7 +134,7 @@ suite("load") {
     sql """ alter table lineitem add constraint l_s_fk foreign key (l_suppkey) references supplier(s_suppkey) """
     sql """ alter table lineitem add constraint l_ps_fk foreign key (l_partkey, l_suppkey) references partsupp(ps_partkey, ps_suppkey) """
 
-    // Unique Key Constraints
+    // Add Unique Key Constraints
     sql """ alter table region add constraint r_uk unique (r_name) """
     sql """ alter table nation add constraint n_uk unique (n_name) """
 
