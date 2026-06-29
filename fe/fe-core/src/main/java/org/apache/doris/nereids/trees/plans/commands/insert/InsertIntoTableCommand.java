@@ -652,7 +652,8 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
             } else {
                 // TODO: support other table types
                 throw new AnalysisException(
-                        "insert into command only support [olap, remoteOlap, dictionary, hive, iceberg, jdbc, paimon] table");
+                        "insert into command only support "
+                                + "[olap, remoteOlap, dictionary, hive, iceberg, jdbc, paimon] table");
             }
         } catch (Throwable t) {
             Throwables.propagateIfInstanceOf(t, RuntimeException.class);

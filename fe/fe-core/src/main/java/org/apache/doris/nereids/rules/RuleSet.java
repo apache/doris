@@ -84,8 +84,8 @@ import org.apache.doris.nereids.rules.implementation.LogicalMaxComputeTableSinkT
 import org.apache.doris.nereids.rules.implementation.LogicalOdbcScanToPhysicalOdbcScan;
 import org.apache.doris.nereids.rules.implementation.LogicalOlapScanToPhysicalOlapScan;
 import org.apache.doris.nereids.rules.implementation.LogicalOlapTableSinkToPhysicalOlapTableSink;
-import org.apache.doris.nereids.rules.implementation.LogicalPaimonTableSinkToPhysicalPaimonTableSink;
 import org.apache.doris.nereids.rules.implementation.LogicalOneRowRelationToPhysicalOneRowRelation;
+import org.apache.doris.nereids.rules.implementation.LogicalPaimonTableSinkToPhysicalPaimonTableSink;
 import org.apache.doris.nereids.rules.implementation.LogicalPartitionTopNToPhysicalPartitionTopN;
 import org.apache.doris.nereids.rules.implementation.LogicalProjectToPhysicalProject;
 import org.apache.doris.nereids.rules.implementation.LogicalRecursiveUnionAnchorToPhysicalRecursiveUnionAnchor;
