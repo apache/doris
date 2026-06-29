@@ -22,8 +22,8 @@
 #include <string_view>
 #include <vector>
 
-#include "snii/common/slice.h"
 #include "common/status.h"
+#include "snii/common/slice.h"
 #include "snii/encoding/byte_sink.h"
 #include "snii/format/logical_index_directory.h"
 
@@ -93,18 +93,18 @@ public:
     // checksum because callers have not read the whole region; each per-index meta
     // block still carries its own framed-section CRCs.
     static doris::Status open_directory(const TailMetaRegionHeader& header, Slice directory,
-                                 TailMetaRegionReader* const out);
+                                        TailMetaRegionReader* const out);
 
     uint32_t n_logical_indexes() const { return n_; }
     const LogicalIndexDirectoryReader& directory() const { return dir_; }
 
     doris::Status find_ref(uint64_t index_id, std::string_view suffix, bool* const found,
-                    LogicalIndexRef* const ref) const;
+                           LogicalIndexRef* const ref) const;
 
     // Locates the per-index meta block bytes for (index_id, suffix). On match,
     // *found=true and *per_index_meta_bytes views into the region; else *found=false.
     doris::Status find(uint64_t index_id, std::string_view suffix, bool* const found,
-                Slice* const per_index_meta_bytes) const;
+                       Slice* const per_index_meta_bytes) const;
 
 private:
     Slice region_;

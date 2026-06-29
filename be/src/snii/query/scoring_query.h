@@ -50,17 +50,17 @@ struct ScoredDoc {
 // Exhaustive baseline: score every doc that contains any query term, return the
 // top-k by score. params controls k1/b. Unknown terms are skipped.
 doris::Status scoring_query_exhaustive(const snii::reader::LogicalIndexReader& idx,
-                                const snii::stats::SniiStatsProvider& stats,
-                                const std::vector<std::string>& terms, uint32_t k,
-                                const Bm25Params& params, std::vector<ScoredDoc>* out);
+                                       const snii::stats::SniiStatsProvider& stats,
+                                       const std::vector<std::string>& terms, uint32_t k,
+                                       const Bm25Params& params, std::vector<ScoredDoc>* out);
 
 // WAND-style block-max pruning. MUST return the same top-k as the exhaustive
 // path. Windows whose block-max upper bound cannot beat the current k-th score
 // are skipped; windows lacking block-max stats are scored fully.
 doris::Status scoring_query_wand(const snii::reader::LogicalIndexReader& idx,
-                          const snii::stats::SniiStatsProvider& stats,
-                          const std::vector<std::string>& terms, uint32_t k,
-                          const Bm25Params& params, std::vector<ScoredDoc>* out);
+                                 const snii::stats::SniiStatsProvider& stats,
+                                 const std::vector<std::string>& terms, uint32_t k,
+                                 const Bm25Params& params, std::vector<ScoredDoc>* out);
 
 // SELECTIVE-FETCH block-max WAND (design spec section 5, "Phase C"). Same WAND /
 // theta / >= tie machinery as scoring_query_wand, but it DEFERS the .frq window
@@ -72,8 +72,8 @@ doris::Status scoring_query_wand(const snii::reader::LogicalIndexReader& idx,
 // scoring_query_exhaustive / scoring_query_wand; only the bytes read differ.
 // Slim/inline terms (no prelude) are fetched fully, exactly as today.
 doris::Status scoring_query_wand_selective(const snii::reader::LogicalIndexReader& idx,
-                                    const snii::stats::SniiStatsProvider& stats,
-                                    const std::vector<std::string>& terms, uint32_t k,
-                                    const Bm25Params& params, std::vector<ScoredDoc>* out);
+                                           const snii::stats::SniiStatsProvider& stats,
+                                           const std::vector<std::string>& terms, uint32_t k,
+                                           const Bm25Params& params, std::vector<ScoredDoc>* out);
 
 } // namespace snii::query

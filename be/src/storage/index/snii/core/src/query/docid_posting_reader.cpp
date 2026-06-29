@@ -39,14 +39,16 @@ using snii::reader::LogicalIndexReader;
 
 namespace {
 
-doris::Status decode_flat_docs(const DictEntry& entry, Slice dd_region, std::vector<uint32_t>* docids) {
+doris::Status decode_flat_docs(const DictEntry& entry, Slice dd_region,
+                               std::vector<uint32_t>* docids) {
     return snii::format::decode_dd_region(dd_region, entry.dd_meta,
                                           /*win_base=*/0, docids);
 }
 
 doris::Status decode_inline_docs(const DictEntry& entry, std::vector<uint32_t>* docids) {
     if (entry.dd_meta.disk_len > entry.frq_bytes.size()) {
-        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("docid_posting_reader: inline dd region exceeds frq bytes");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "docid_posting_reader: inline dd region exceeds frq bytes");
     }
     return decode_flat_docs(
             entry, Slice(entry.frq_bytes.data(), static_cast<size_t>(entry.dd_meta.disk_len)),
@@ -55,7 +57,8 @@ doris::Status decode_inline_docs(const DictEntry& entry, std::vector<uint32_t>* 
 
 doris::Status slim_docs_fetch_len(const DictEntry& entry, uint64_t win_len, uint64_t* out) {
     if (entry.frq_docs_len > win_len) {
-        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("docid_posting_reader: slim frq_docs_len exceeds frq window");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "docid_posting_reader: slim frq_docs_len exceeds frq window");
     }
     *out = entry.frq_docs_len > 0 ? entry.frq_docs_len : win_len;
     return doris::Status::OK();
@@ -63,30 +66,34 @@ doris::Status slim_docs_fetch_len(const DictEntry& entry, uint64_t win_len, uint
 
 doris::Status add_u64(uint64_t lhs, uint64_t rhs, const char* message, uint64_t* out) {
     if (rhs > std::numeric_limits<uint64_t>::max() - lhs) {
-        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(message);
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                message);
     }
     *out = lhs + rhs;
     return doris::Status::OK();
 }
 
 doris::Status prelude_abs(const LogicalIndexReader& idx, const DictEntry& entry, uint64_t frq_base,
-                   uint64_t* out) {
+                          uint64_t* out) {
     uint64_t with_base = 0;
     RETURN_IF_ERROR(add_u64(idx.section_refs().posting_region.offset, frq_base,
-                                 "docid_posting_reader: prelude offset overflow", &with_base));
+                            "docid_posting_reader: prelude offset overflow", &with_base));
     return add_u64(with_base, entry.frq_off_delta, "docid_posting_reader: prelude offset overflow",
                    out);
 }
 
 doris::Status validate_windowed_docs_prefix(const DictEntry& entry) {
     if (entry.prelude_len == 0) {
-        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("docid_posting_reader: windowed entry has no prelude");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "docid_posting_reader: windowed entry has no prelude");
     }
     if (entry.prelude_len > entry.frq_docs_len) {
-        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("docid_posting_reader: prelude_len exceeds docs prefix");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "docid_posting_reader: prelude_len exceeds docs prefix");
     }
     if (entry.frq_docs_len > entry.frq_len) {
-        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("docid_posting_reader: docs prefix exceeds frq_len");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "docid_posting_reader: docs prefix exceeds frq_len");
     }
     return doris::Status::OK();
 }
@@ -104,11 +111,10 @@ struct WindowPlan {
 };
 
 doris::Status plan_flat_docs(const LogicalIndexReader& idx, const ResolvedDocidPosting& posting,
-                      snii::io::BatchRangeFetcher* fetcher, FlatPlan* plan) {
+                             snii::io::BatchRangeFetcher* fetcher, FlatPlan* plan) {
     uint64_t win_abs = 0;
     uint64_t win_len = 0;
-    RETURN_IF_ERROR(
-            idx.resolve_frq_window(posting.entry, posting.frq_base, &win_abs, &win_len));
+    RETURN_IF_ERROR(idx.resolve_frq_window(posting.entry, posting.frq_base, &win_abs, &win_len));
     uint64_t docs_len = 0;
     RETURN_IF_ERROR(slim_docs_fetch_len(posting.entry, win_len, &docs_len));
     plan->handle = fetcher->add(win_abs, docs_len);
@@ -116,7 +122,7 @@ doris::Status plan_flat_docs(const LogicalIndexReader& idx, const ResolvedDocidP
 }
 
 doris::Status plan_window_prefix(const LogicalIndexReader& idx, WindowPlan* plan,
-                          snii::io::BatchRangeFetcher* fetcher) {
+                                 snii::io::BatchRangeFetcher* fetcher) {
     const ResolvedDocidPosting& posting = *plan->posting;
     RETURN_IF_ERROR(validate_windowed_docs_prefix(posting.entry));
     uint64_t abs = 0;
@@ -127,24 +133,28 @@ doris::Status plan_window_prefix(const LogicalIndexReader& idx, WindowPlan* plan
 
 doris::Status window_dd_slice(Slice dd_block, const WindowMeta& meta, Slice* out) {
     if (meta.dd_off > dd_block.size() || meta.dd_disk_len > dd_block.size() - meta.dd_off) {
-        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("docid_posting_reader: window dd range out of prefix");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "docid_posting_reader: window dd range out of prefix");
     }
     *out = dd_block.subslice(static_cast<size_t>(meta.dd_off),
                              static_cast<size_t>(meta.dd_disk_len));
     return doris::Status::OK();
 }
 
-doris::Status first_docid_in_window(const WindowMeta& meta, uint32_t window_ordinal, uint32_t* first) {
+doris::Status first_docid_in_window(const WindowMeta& meta, uint32_t window_ordinal,
+                                    uint32_t* first) {
     if (window_ordinal == 0) {
         *first = 0;
         return doris::Status::OK();
     }
     if (meta.win_base >= std::numeric_limits<uint32_t>::max()) {
-        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("docid_posting_reader: window base exceeds docid range");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "docid_posting_reader: window base exceeds docid range");
     }
     *first = static_cast<uint32_t>(meta.win_base + 1);
     if (*first > meta.last_docid) {
-        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("docid_posting_reader: invalid window docid range");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "docid_posting_reader: invalid window docid range");
     }
     return doris::Status::OK();
 }
@@ -158,36 +168,39 @@ doris::Status is_dense_full_window(const WindowMeta& meta, uint32_t window_ordin
 }
 
 doris::Status decode_flat_plan(const snii::io::BatchRangeFetcher& fetcher, const FlatPlan& plan,
-                        std::vector<uint32_t>* out) {
+                               std::vector<uint32_t>* out) {
     return decode_flat_docs(*plan.entry, fetcher.get(plan.handle), out);
 }
 
-doris::Status decode_window_prefix_plan(const snii::io::BatchRangeFetcher& fetcher, const WindowPlan& plan,
-                                 DocIdSink* sink);
+doris::Status decode_window_prefix_plan(const snii::io::BatchRangeFetcher& fetcher,
+                                        const WindowPlan& plan, DocIdSink* sink);
 
-doris::Status decode_window_prefix_plan(const snii::io::BatchRangeFetcher& fetcher, const WindowPlan& plan,
-                                 std::vector<uint32_t>* out) {
+doris::Status decode_window_prefix_plan(const snii::io::BatchRangeFetcher& fetcher,
+                                        const WindowPlan& plan, std::vector<uint32_t>* out) {
     VectorDocIdSink sink(*out);
     return decode_window_prefix_plan(fetcher, plan, &sink);
 }
 
-doris::Status decode_window_prefix_plan(const snii::io::BatchRangeFetcher& fetcher, const WindowPlan& plan,
-                                 DocIdSink* sink) {
+doris::Status decode_window_prefix_plan(const snii::io::BatchRangeFetcher& fetcher,
+                                        const WindowPlan& plan, DocIdSink* sink) {
     const DictEntry& entry = plan.posting->entry;
     const Slice prefix = fetcher.get(plan.prefix_handle);
     if (entry.prelude_len > prefix.size()) {
-        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("docid_posting_reader: short docs prefix");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "docid_posting_reader: short docs prefix");
     }
     const size_t prelude_len = static_cast<size_t>(entry.prelude_len);
     FrqPreludeReader prelude;
     RETURN_IF_ERROR(FrqPreludeReader::open(prefix.subslice(0, prelude_len), &prelude));
     const uint64_t dd_block_len = prelude.dd_block_len();
     if (dd_block_len > static_cast<uint64_t>(std::numeric_limits<size_t>::max()) - prelude_len) {
-        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("docid_posting_reader: docs prefix length overflow");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "docid_posting_reader: docs prefix length overflow");
     }
     const size_t expected_prefix_len = prelude_len + static_cast<size_t>(dd_block_len);
     if (prefix.size() != expected_prefix_len) {
-        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("docid_posting_reader: docs prefix length mismatch");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "docid_posting_reader: docs prefix length mismatch");
     }
     const Slice dd_block = prefix.subslice(prelude_len, prefix.size() - prelude_len);
     std::vector<uint32_t> docs;
@@ -203,8 +216,7 @@ doris::Status decode_window_prefix_plan(const snii::io::BatchRangeFetcher& fetch
         if (dense_full) {
             uint32_t first = 0;
             RETURN_IF_ERROR(first_docid_in_window(meta, w, &first));
-            RETURN_IF_ERROR(
-                    sink->append_range(first, static_cast<uint64_t>(meta.last_docid) + 1));
+            RETURN_IF_ERROR(sink->append_range(first, static_cast<uint64_t>(meta.last_docid) + 1));
             continue;
         }
         docs.clear();
@@ -220,20 +232,23 @@ doris::Status decode_window_prefix_plan(const snii::io::BatchRangeFetcher& fetch
 
 } // namespace
 
-doris::Status read_docid_posting(const LogicalIndexReader& idx, const DictEntry& entry, uint64_t frq_base,
-                          uint64_t prx_base, std::vector<uint32_t>* docids) {
+doris::Status read_docid_posting(const LogicalIndexReader& idx, const DictEntry& entry,
+                                 uint64_t frq_base, uint64_t prx_base,
+                                 std::vector<uint32_t>* docids) {
     if (docids == nullptr) {
-        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("docid_posting_reader: null out");
+        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>(
+                "docid_posting_reader: null out");
     }
     docids->clear();
     VectorDocIdSink sink(*docids);
     return read_docid_posting(idx, entry, frq_base, prx_base, &sink);
 }
 
-doris::Status read_docid_posting(const LogicalIndexReader& idx, const DictEntry& entry, uint64_t frq_base,
-                          uint64_t prx_base, DocIdSink* sink) {
+doris::Status read_docid_posting(const LogicalIndexReader& idx, const DictEntry& entry,
+                                 uint64_t frq_base, uint64_t prx_base, DocIdSink* sink) {
     if (sink == nullptr) {
-        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("docid_posting_reader: null sink");
+        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>(
+                "docid_posting_reader: null sink");
     }
     ResolvedDocidPosting posting {entry, frq_base, prx_base};
     if (posting.entry.kind == DictEntryKind::kInline) {
@@ -263,10 +278,11 @@ doris::Status read_docid_posting(const LogicalIndexReader& idx, const DictEntry&
 }
 
 doris::Status read_docid_postings_batched(const LogicalIndexReader& idx,
-                                   const std::vector<ResolvedDocidPosting>& postings,
-                                   std::vector<std::vector<uint32_t>>* docids) {
+                                          const std::vector<ResolvedDocidPosting>& postings,
+                                          std::vector<std::vector<uint32_t>>* docids) {
     if (docids == nullptr) {
-        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("docid_posting_reader: null batched out");
+        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>(
+                "docid_posting_reader: null batched out");
     }
     docids->clear();
     docids->resize(postings.size());
@@ -305,8 +321,7 @@ doris::Status read_docid_postings_batched(const LogicalIndexReader& idx,
         RETURN_IF_ERROR(decode_flat_plan(docs_fetcher, plan, &(*docids)[plan.out_index]));
     }
     for (const WindowPlan& plan : window_plans) {
-        RETURN_IF_ERROR(
-                decode_window_prefix_plan(docs_fetcher, plan, &(*docids)[plan.out_index]));
+        RETURN_IF_ERROR(decode_window_prefix_plan(docs_fetcher, plan, &(*docids)[plan.out_index]));
     }
     return doris::Status::OK();
 }

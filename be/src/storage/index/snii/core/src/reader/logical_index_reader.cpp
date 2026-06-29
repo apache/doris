@@ -88,22 +88,23 @@ doris::Status dict_block_memory_bytes(const BlockRef& ref, uint64_t* out) {
         return doris::Status::OK();
     }
     if (ref.uncomp_len == 0 || ref.uncomp_len > kMaxDictBlockUncompBytes) {
-        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("dict block: zstd uncomp_len out of range");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "dict block: zstd uncomp_len out of range");
     }
     *out = ref.uncomp_len;
     return doris::Status::OK();
 }
 
 doris::Status read_dict_block_bytes(snii::io::FileReader* reader, const BlockRef& ref,
-                             std::vector<uint8_t>* out) {
+                                    std::vector<uint8_t>* out) {
     size_t read_len = 0;
-    RETURN_IF_ERROR(
-            checked_size(ref.length, "dict block: on-disk length out of range", &read_len));
+    RETURN_IF_ERROR(checked_size(ref.length, "dict block: on-disk length out of range", &read_len));
 
     std::vector<uint8_t> block_bytes;
     RETURN_IF_ERROR(reader->read_at(ref.offset, read_len, &block_bytes));
     if (block_bytes.size() != read_len) {
-        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("dict block: short read");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "dict block: short read");
     }
 
     if ((ref.flags & snii::format::block_ref_flags::kZstd) == 0) {
@@ -120,7 +121,8 @@ doris::Status read_dict_block_bytes(snii::io::FileReader* reader, const BlockRef
 }
 
 doris::Status open_dict_block(snii::io::FileReader* reader, const BlockRef& ref, IndexTier tier,
-                       bool has_positions, std::vector<uint8_t>* bytes, DictBlockReader* out) {
+                              bool has_positions, std::vector<uint8_t>* bytes,
+                              DictBlockReader* out) {
     RETURN_IF_ERROR(read_dict_block_bytes(reader, ref, bytes));
     return DictBlockReader::open(Slice(*bytes), tier, has_positions, out);
 }
@@ -159,12 +161,13 @@ doris::Status LogicalIndexReader::load_resident_dict_blocks() {
 }
 
 doris::Status LogicalIndexReader::dict_block_reader_for_ordinal(uint32_t ordinal,
-                                                         OnDemandDictBlock* on_demand,
-                                                         const DictBlockReader** out) const {
+                                                                OnDemandDictBlock* on_demand,
+                                                                const DictBlockReader** out) const {
     if (!resident_dict_blocks_.empty()) {
         if (resident_dict_blocks_.size() != dbd_.n_blocks() ||
             ordinal >= resident_dict_blocks_.size()) {
-            return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("logical_index: incomplete resident dict");
+            return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                    "logical_index: incomplete resident dict");
         }
         *out = &resident_dict_blocks_[ordinal].reader;
         return doris::Status::OK();
@@ -173,21 +176,25 @@ doris::Status LogicalIndexReader::dict_block_reader_for_ordinal(uint32_t ordinal
     BlockRef ref {};
     RETURN_IF_ERROR(dbd_.get(ordinal, &ref));
     RETURN_IF_ERROR(open_dict_block(reader_, ref, tier_, has_positions_, &on_demand->bytes,
-                                         &on_demand->reader));
+                                    &on_demand->reader));
     *out = &on_demand->reader;
     return doris::Status::OK();
 }
 
 doris::Status LogicalIndexReader::open(snii::io::FileReader* file_reader, IndexTier tier,
-                                bool has_positions, Slice meta_block, LogicalIndexReader* out) {
+                                       bool has_positions, Slice meta_block,
+                                       LogicalIndexReader* out) {
     if (file_reader == nullptr) {
-        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("logical_index: null file reader");
+        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>(
+                "logical_index: null file reader");
     }
     if (out == nullptr) {
-        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("logical_index: null out");
+        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>(
+                "logical_index: null out");
     }
     if (meta_block.empty()) {
-        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("logical_index: empty meta block");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "logical_index: empty meta block");
     }
     *out = LogicalIndexReader {};
 
@@ -211,7 +218,8 @@ doris::Status LogicalIndexReader::open(snii::io::FileReader* file_reader, IndexT
     const RegionRef& bsbf = out->meta_.section_refs().bsbf;
     if (bsbf.length > 0) {
         if (bsbf.length <= kBsbfHeaderSize) {
-            return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("logical_index: bsbf section too small");
+            return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                    "logical_index: bsbf section too small");
         }
         const uint64_t num_bytes = bsbf.length - kBsbfHeaderSize;
         const bool resident = bsbf.length <= bsbf_resident_max_bytes();
@@ -219,22 +227,26 @@ doris::Status LogicalIndexReader::open(snii::io::FileReader* file_reader, IndexT
         RETURN_IF_ERROR(
                 file_reader->read_at(bsbf.offset, resident ? bsbf.length : kBsbfHeaderSize, &head));
         if (head.size() < kBsbfHeaderSize) {
-            return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("logical_index: short bsbf header read");
+            return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                    "logical_index: short bsbf header read");
         }
         RETURN_IF_ERROR(snii::format::BsbfHeader::parse(Slice(head.data(), kBsbfHeaderSize),
-                                                             bsbf.offset, &out->bsbf_header_));
+                                                        bsbf.offset, &out->bsbf_header_));
         // Cross-check the header geometry against the section ref.
         if (out->bsbf_header_.num_bytes != num_bytes) {
-            return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("logical_index: bsbf header/section size mismatch");
+            return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                    "logical_index: bsbf header/section size mismatch");
         }
         out->has_bsbf_ = true;
         if (resident) {
             if (head.size() < bsbf.length) {
-                return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("logical_index: short bsbf resident read");
+                return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                        "logical_index: short bsbf resident read");
             }
             const Slice bitset(head.data() + kBsbfHeaderSize, out->bsbf_header_.num_bytes);
             if (snii::crc32c(bitset) != out->bsbf_header_.bitset_crc) {
-                return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("logical_index: bsbf bitset crc mismatch");
+                return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                        "logical_index: bsbf bitset crc mismatch");
             }
             out->bsbf_resident_bitset_.assign(bitset.data(), bitset.data() + bitset.size());
             out->bsbf_resident_ = true;
@@ -252,10 +264,11 @@ size_t LogicalIndexReader::memory_usage() const {
 }
 
 doris::Status LogicalIndexReader::lookup(std::string_view term, bool* found, DictEntry* entry,
-                                  uint64_t* frq_base, uint64_t* prx_base) const {
+                                         uint64_t* frq_base, uint64_t* prx_base) const {
     *found = false;
     if (reader_ == nullptr) {
-        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("logical_index: not opened");
+        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>(
+                "logical_index: not opened");
     }
 
     // 1. XFilter fast rejection. DEFINITELY-ABSENT returns empty without the
@@ -303,12 +316,14 @@ doris::Status LogicalIndexReader::lookup(std::string_view term, bool* found, Dic
 }
 
 doris::Status LogicalIndexReader::visit_prefix_terms(std::string_view prefix,
-                                              const PrefixHitVisitor& visitor) const {
+                                                     const PrefixHitVisitor& visitor) const {
     if (!visitor) {
-        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("logical_index: null prefix visitor");
+        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>(
+                "logical_index: null prefix visitor");
     }
     if (reader_ == nullptr) {
-        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("logical_index: not opened");
+        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>(
+                "logical_index: not opened");
     }
 
     // Seek the start block: the SampledTermIndex block whose first term <= prefix
@@ -356,10 +371,12 @@ doris::Status LogicalIndexReader::visit_prefix_terms(std::string_view prefix,
     return doris::Status::OK();
 }
 
-doris::Status LogicalIndexReader::prefix_terms(std::string_view prefix, std::vector<PrefixHit>* const out,
-                                        int32_t max_terms) const {
+doris::Status LogicalIndexReader::prefix_terms(std::string_view prefix,
+                                               std::vector<PrefixHit>* const out,
+                                               int32_t max_terms) const {
     if (out == nullptr) {
-        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("logical_index: null out");
+        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>(
+                "logical_index: null out");
     }
     out->clear();
     return visit_prefix_terms(prefix, [&](PrefixHit&& hit, bool* stop) {
@@ -374,17 +391,21 @@ namespace {
 // Validates a pod_ref window locator against the posting region and returns the
 // absolute window range (after the prelude). Rejects corrupt locators rather
 // than letting size_t underflow / uint64 overflow reach read_at.
-doris::Status resolve_window(const snii::format::RegionRef& section, uint64_t base, uint64_t off_delta,
-                      uint64_t total_len, uint64_t prelude_len, uint64_t* abs_off, uint64_t* len) {
+doris::Status resolve_window(const snii::format::RegionRef& section, uint64_t base,
+                             uint64_t off_delta, uint64_t total_len, uint64_t prelude_len,
+                             uint64_t* abs_off, uint64_t* len) {
     if (prelude_len > total_len) {
-        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("logical_index: prelude_len exceeds window len");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "logical_index: prelude_len exceeds window len");
     }
     const uint64_t in_region = base + off_delta;
     if (in_region < base) {
-        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("logical_index: locator overflow");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "logical_index: locator overflow");
     }
     if (in_region > section.length || total_len > section.length - in_region) {
-        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("logical_index: window past posting region");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "logical_index: window past posting region");
     }
     *abs_off = section.offset + in_region + prelude_len;
     *len = total_len - prelude_len;
@@ -394,15 +415,15 @@ doris::Status resolve_window(const snii::format::RegionRef& section, uint64_t ba
 } // namespace
 
 doris::Status LogicalIndexReader::resolve_frq_window(const snii::format::DictEntry& entry,
-                                              uint64_t frq_base, uint64_t* abs_off,
-                                              uint64_t* len) const {
+                                                     uint64_t frq_base, uint64_t* abs_off,
+                                                     uint64_t* len) const {
     return resolve_window(section_refs().posting_region, frq_base, entry.frq_off_delta,
                           entry.frq_len, entry.prelude_len, abs_off, len);
 }
 
 doris::Status LogicalIndexReader::resolve_prx_window(const snii::format::DictEntry& entry,
-                                              uint64_t prx_base, uint64_t* abs_off,
-                                              uint64_t* len) const {
+                                                     uint64_t prx_base, uint64_t* abs_off,
+                                                     uint64_t* len) const {
     // .prx windows carry no prelude (prelude_len = 0); both spans live in the
     // same posting region (prx span precedes frq span for the same term).
     return resolve_window(section_refs().posting_region, prx_base, entry.prx_off_delta,

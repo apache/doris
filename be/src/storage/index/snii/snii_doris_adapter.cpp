@@ -130,8 +130,7 @@ DorisSniiFileReader::ScopedIOContext::~ScopedIOContext() {
     _scoped_io_ctx = _previous;
 }
 
-doris::Status DorisSniiFileReader::read_at(uint64_t offset, size_t len,
-                                            std::vector<uint8_t>* out) {
+doris::Status DorisSniiFileReader::read_at(uint64_t offset, size_t len, std::vector<uint8_t>* out) {
     RETURN_IF_ERROR(_check_read_range(offset, len));
     const auto* current_io_ctx = _current_io_ctx();
     uint8_t section_type = _classify_section(offset, len);
@@ -148,7 +147,7 @@ doris::Status DorisSniiFileReader::read_at(uint64_t offset, size_t len,
 
 // NOLINTNEXTLINE(readability-non-const-parameter): out is the SNII read output buffer.
 doris::Status DorisSniiFileReader::_read_at(uint64_t offset, size_t len, std::vector<uint8_t>* out,
-                                             const io::IOContext* io_ctx) const {
+                                            const io::IOContext* io_ctx) const {
     if (_reader == nullptr) {
         return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>(
                 "doris reader is null");
@@ -177,7 +176,7 @@ doris::Status DorisSniiFileReader::_read_at(uint64_t offset, size_t len, std::ve
 
 // NOLINTBEGIN(readability-non-const-parameter): outs is the SNII batch read output buffer.
 doris::Status DorisSniiFileReader::read_batch(const std::vector<::snii::io::Range>& ranges,
-                                               std::vector<std::vector<uint8_t>>* outs) {
+                                              std::vector<std::vector<uint8_t>>* outs) {
     if (outs == nullptr) {
         return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>(
                 "output buffers is null");

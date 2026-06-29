@@ -20,8 +20,8 @@
 #include <cstdint>
 #include <vector>
 
-#include "snii/common/slice.h"
 #include "common/status.h"
+#include "snii/common/slice.h"
 #include "snii/format/dict_entry.h"
 #include "snii/format/frq_prelude.h"
 #include "snii/reader/logical_index_reader.h"
@@ -69,9 +69,10 @@ struct DecodedPosting {
 // DecodedPosting.freqs stays empty; when true the freq-block is additionally
 // fetched (scoring). Returns Corruption on any prelude/block inconsistency
 // (doc-count mismatch, out-of-range offsets).
-doris::Status read_windowed_posting(const LogicalIndexReader& idx, const snii::format::DictEntry& entry,
-                             uint64_t frq_base, uint64_t prx_base, bool want_positions,
-                             bool want_freq, DecodedPosting* out);
+doris::Status read_windowed_posting(const LogicalIndexReader& idx,
+                                    const snii::format::DictEntry& entry, uint64_t frq_base,
+                                    uint64_t prx_base, bool want_positions, bool want_freq,
+                                    DecodedPosting* out);
 
 // --- Sub-block (window) skipping helpers (shared with phrase / selective WAND)
 // --
@@ -95,17 +96,19 @@ struct WindowAbsRange {
 
 // Fetches + parses the two-level prelude of a windowed entry (one batched
 // read).
-doris::Status fetch_windowed_prelude(const LogicalIndexReader& idx, const snii::format::DictEntry& entry,
-                              uint64_t frq_base, snii::format::FrqPreludeReader* prelude);
+doris::Status fetch_windowed_prelude(const LogicalIndexReader& idx,
+                                     const snii::format::DictEntry& entry, uint64_t frq_base,
+                                     snii::format::FrqPreludeReader* prelude);
 
 // Computes the absolute file ranges of window w's dd region (and freq region
 // when want_freq, and .prx window when want_positions), fully validated against
 // the POD sections (anti-DoS: rejects out-of-range offsets and overflowing
 // locators).
-doris::Status windowed_window_range(const LogicalIndexReader& idx, const snii::format::DictEntry& entry,
-                             uint64_t frq_base, uint64_t prx_base,
-                             const snii::format::FrqPreludeReader& prelude, uint32_t w,
-                             bool want_positions, bool want_freq, WindowAbsRange* out);
+doris::Status windowed_window_range(const LogicalIndexReader& idx,
+                                    const snii::format::DictEntry& entry, uint64_t frq_base,
+                                    uint64_t prx_base,
+                                    const snii::format::FrqPreludeReader& prelude, uint32_t w,
+                                    bool want_positions, bool want_freq, WindowAbsRange* out);
 
 // Decodes one window's docids (and per-doc positions when want_positions, and
 // per-doc freqs when want_freq) from already-fetched byte slices: dd_region is
@@ -114,9 +117,9 @@ doris::Status windowed_window_range(const LogicalIndexReader& idx, const snii::f
 // (win_base applied). Returns Corruption on any doc-count mismatch between the
 // prelude, dd/freq and prx.
 doris::Status decode_window_slices(const snii::format::WindowMeta& meta, Slice dd_region,
-                            Slice freq_region, Slice prx_window, bool want_positions,
-                            bool want_freq, std::vector<uint32_t>* docids,
-                            std::vector<uint32_t>* freqs,
-                            std::vector<std::vector<uint32_t>>* positions);
+                                   Slice freq_region, Slice prx_window, bool want_positions,
+                                   bool want_freq, std::vector<uint32_t>* docids,
+                                   std::vector<uint32_t>* freqs,
+                                   std::vector<std::vector<uint32_t>>* positions);
 
 } // namespace snii::reader

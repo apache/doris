@@ -47,7 +47,8 @@ uint64_t PreludeAbs(const LogicalIndexReader& idx, const DictEntry& entry, uint6
 // Validates that [off, off+len) fits within [0, total).
 doris::Status InBounds(uint64_t off, uint64_t len, uint64_t total) {
     if (off > total || len > total - off) {
-        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("windowed_posting: range out of section");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "windowed_posting: range out of section");
     }
     return doris::Status::OK();
 }
@@ -63,10 +64,11 @@ struct BlockGeometry {
 
 // Derives the dd-block / freq-block absolute ranges from the entry + prelude,
 // validating they tile the post-prelude .frq region exactly.
-doris::Status ResolveBlocks(const LogicalIndexReader& idx, const DictEntry& entry, uint64_t frq_base,
-                     const FrqPreludeReader& prelude, BlockGeometry* g) {
+doris::Status ResolveBlocks(const LogicalIndexReader& idx, const DictEntry& entry,
+                            uint64_t frq_base, const FrqPreludeReader& prelude, BlockGeometry* g) {
     if (entry.prelude_len > entry.frq_len) {
-        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("windowed_posting: prelude_len exceeds frq_len");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "windowed_posting: prelude_len exceeds frq_len");
     }
     const uint64_t frq_window_start = PreludeAbs(idx, entry, frq_base) + entry.prelude_len;
     g->frq_region_len = entry.frq_len - entry.prelude_len;
@@ -75,7 +77,8 @@ doris::Status ResolveBlocks(const LogicalIndexReader& idx, const DictEntry& entr
     // dd-block + freq-block must fit exactly within the post-prelude region.
     if (g->dd_block_len > g->frq_region_len ||
         g->freq_block_len > g->frq_region_len - g->dd_block_len) {
-        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("windowed_posting: blocks exceed frq region");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "windowed_posting: blocks exceed frq region");
     }
     g->dd_block_off = frq_window_start;
     g->freq_block_off = frq_window_start + g->dd_block_len;
@@ -92,8 +95,8 @@ struct WindowSlices {
 
 // Carves window w's dd (and freq when want_freq) sub-slices out of the fetched
 // blocks, validating each locator against its block length.
-doris::Status CarveRegionSlices(const WindowMeta& m, Slice dd_block, Slice freq_block, bool want_freq,
-                         WindowSlices* out) {
+doris::Status CarveRegionSlices(const WindowMeta& m, Slice dd_block, Slice freq_block,
+                                bool want_freq, WindowSlices* out) {
     RETURN_IF_ERROR(InBounds(m.dd_off, m.dd_disk_len, dd_block.size()));
     out->dd_region =
             dd_block.subslice(static_cast<size_t>(m.dd_off), static_cast<size_t>(m.dd_disk_len));
@@ -106,11 +109,11 @@ doris::Status CarveRegionSlices(const WindowMeta& m, Slice dd_block, Slice freq_
 
 // Decodes window w from the fetched blocks (+ optional prx slice) and appends to out.
 doris::Status AppendWindow(const WindowSlices& ws, bool want_positions, bool want_freq,
-                    DecodedPosting* out) {
+                           DecodedPosting* out) {
     std::vector<uint32_t> docids, freqs;
     std::vector<std::vector<uint32_t>> pos;
     RETURN_IF_ERROR(decode_window_slices(ws.meta, ws.dd_region, ws.freq_region, ws.prx_window,
-                                              want_positions, want_freq, &docids, &freqs, &pos));
+                                         want_positions, want_freq, &docids, &freqs, &pos));
     out->docids.insert(out->docids.end(), docids.begin(), docids.end());
     out->freqs.insert(out->freqs.end(), freqs.begin(), freqs.end());
     if (want_positions) {
@@ -122,12 +125,14 @@ doris::Status AppendWindow(const WindowSlices& ws, bool want_positions, bool wan
 } // namespace
 
 doris::Status fetch_windowed_prelude(const LogicalIndexReader& idx, const DictEntry& entry,
-                              uint64_t frq_base, FrqPreludeReader* prelude) {
+                                     uint64_t frq_base, FrqPreludeReader* prelude) {
     if (entry.prelude_len == 0) {
-        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("windowed_posting: windowed entry has no prelude");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "windowed_posting: windowed entry has no prelude");
     }
     if (entry.prelude_len > entry.frq_len) {
-        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("windowed_posting: prelude_len exceeds frq_len");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "windowed_posting: prelude_len exceeds frq_len");
     }
     const uint64_t prelude_abs = PreludeAbs(idx, entry, frq_base);
     snii::io::BatchRangeFetcher fetcher(idx.reader());
@@ -137,9 +142,12 @@ doris::Status fetch_windowed_prelude(const LogicalIndexReader& idx, const DictEn
 }
 
 doris::Status windowed_window_range(const LogicalIndexReader& idx, const DictEntry& entry,
-                             uint64_t frq_base, uint64_t prx_base, const FrqPreludeReader& prelude,
-                             uint32_t w, bool want_positions, bool want_freq, WindowAbsRange* out) {
-    if (out == nullptr) return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("windowed_posting: null range");
+                                    uint64_t frq_base, uint64_t prx_base,
+                                    const FrqPreludeReader& prelude, uint32_t w,
+                                    bool want_positions, bool want_freq, WindowAbsRange* out) {
+    if (out == nullptr)
+        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>(
+                "windowed_posting: null range");
     *out = WindowAbsRange {};
     BlockGeometry g;
     RETURN_IF_ERROR(ResolveBlocks(idx, entry, frq_base, prelude, &g));
@@ -159,7 +167,8 @@ doris::Status windowed_window_range(const LogicalIndexReader& idx, const DictEnt
 
     if (!want_positions) return doris::Status::OK();
     if (!prelude.has_prx()) {
-        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("windowed_posting: positions requested but prelude has none");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "windowed_posting: positions requested but prelude has none");
     }
     const uint64_t prx_region_start =
             idx.section_refs().posting_region.offset + prx_base + entry.prx_off_delta;
@@ -170,9 +179,9 @@ doris::Status windowed_window_range(const LogicalIndexReader& idx, const DictEnt
 }
 
 doris::Status decode_window_slices(const WindowMeta& meta, Slice dd_region, Slice freq_region,
-                            Slice prx_window, bool want_positions, bool want_freq,
-                            std::vector<uint32_t>* docids, std::vector<uint32_t>* freqs,
-                            std::vector<std::vector<uint32_t>>* positions) {
+                                   Slice prx_window, bool want_positions, bool want_freq,
+                                   std::vector<uint32_t>* docids, std::vector<uint32_t>* freqs,
+                                   std::vector<std::vector<uint32_t>>* positions) {
     FrqRegionMeta dd_meta;
     dd_meta.zstd = meta.dd_zstd;
     dd_meta.uncomp_len = meta.dd_uncomp_len;
@@ -181,7 +190,8 @@ doris::Status decode_window_slices(const WindowMeta& meta, Slice dd_region, Slic
     dd_meta.verify_crc = meta.verify_crc;
     RETURN_IF_ERROR(snii::format::decode_dd_region(dd_region, dd_meta, meta.win_base, docids));
     if (docids->size() != meta.doc_count) {
-        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("windowed_posting: frq doc_count mismatch");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "windowed_posting: frq doc_count mismatch");
     }
     if (want_freq) {
         FrqRegionMeta freq_meta;
@@ -200,7 +210,8 @@ doris::Status decode_window_slices(const WindowMeta& meta, Slice dd_region, Slic
     ByteSource psrc(prx_window);
     RETURN_IF_ERROR(snii::format::read_prx_window(&psrc, positions));
     if (positions->size() != docids->size()) {
-        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("windowed_posting: prx/frq doc-count mismatch");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "windowed_posting: prx/frq doc-count mismatch");
     }
     return doris::Status::OK();
 }
@@ -212,9 +223,9 @@ namespace {
 // in-memory block slices. The dd-block is a single contiguous range -> the
 // docid-only / phrase path reads it as one Range GET (the byte-saving core).
 doris::Status FetchBlocks(const LogicalIndexReader& idx, const DictEntry& entry, uint64_t prx_base,
-                   const BlockGeometry& g, bool want_positions, bool want_freq,
-                   snii::io::BatchRangeFetcher* fetcher, size_t* dd_h, size_t* freq_h,
-                   size_t* prx_h) {
+                          const BlockGeometry& g, bool want_positions, bool want_freq,
+                          snii::io::BatchRangeFetcher* fetcher, size_t* dd_h, size_t* freq_h,
+                          size_t* prx_h) {
     *dd_h = fetcher->add(g.dd_block_off, g.dd_block_len);
     if (want_freq) {
         *freq_h = fetcher->add(g.freq_block_off, g.freq_block_len);
@@ -230,25 +241,27 @@ doris::Status FetchBlocks(const LogicalIndexReader& idx, const DictEntry& entry,
 } // namespace
 
 doris::Status read_windowed_posting(const LogicalIndexReader& idx, const DictEntry& entry,
-                             uint64_t frq_base, uint64_t prx_base, bool want_positions,
-                             bool want_freq, DecodedPosting* out) {
+                                    uint64_t frq_base, uint64_t prx_base, bool want_positions,
+                                    bool want_freq, DecodedPosting* out) {
     if (out == nullptr) {
-        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("windowed_posting: null out");
+        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>(
+                "windowed_posting: null out");
     }
     *out = DecodedPosting {};
 
     FrqPreludeReader prelude;
     RETURN_IF_ERROR(fetch_windowed_prelude(idx, entry, frq_base, &prelude));
     if (want_positions && !prelude.has_prx()) {
-        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("windowed_posting: positions requested but prelude has none");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "windowed_posting: positions requested but prelude has none");
     }
     BlockGeometry g;
     RETURN_IF_ERROR(ResolveBlocks(idx, entry, frq_base, prelude, &g));
 
     snii::io::BatchRangeFetcher fetcher(idx.reader());
     size_t dd_h = 0, freq_h = 0, prx_h = 0;
-    RETURN_IF_ERROR(FetchBlocks(idx, entry, prx_base, g, want_positions, want_freq, &fetcher,
-                                     &dd_h, &freq_h, &prx_h));
+    RETURN_IF_ERROR(FetchBlocks(idx, entry, prx_base, g, want_positions, want_freq, &fetcher, &dd_h,
+                                &freq_h, &prx_h));
     const Slice dd_block = fetcher.get(dd_h);
     const Slice freq_block = want_freq ? fetcher.get(freq_h) : Slice();
     const Slice prx_region = want_positions ? fetcher.get(prx_h) : Slice();

@@ -39,7 +39,8 @@ doris::Status decode_payload(Slice payload, StatsBlock* out) {
     RETURN_IF_ERROR(ps.get_varint64(&out->sum_total_term_freq));
     RETURN_IF_ERROR(ps.get_varint64(&out->null_count));
     if (!ps.eof()) {
-        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("stats_block: trailing bytes in payload");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "stats_block: trailing bytes in payload");
     }
     return doris::Status::OK();
 }
@@ -56,7 +57,8 @@ doris::Status decode_stats_block(ByteSource* src, StatsBlock* out) {
     FramedSection sec;
     RETURN_IF_ERROR(SectionFramer::read(*src, &sec));
     if (sec.type != static_cast<uint8_t>(SectionType::kStatsBlock)) {
-        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("stats_block: unexpected section type");
+        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>(
+                "stats_block: unexpected section type");
     }
     return decode_payload(sec.payload, out);
 }

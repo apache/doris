@@ -51,7 +51,8 @@ doris::Status read_term_key(ByteSource* src, std::string_view prev, std::string*
     RETURN_IF_ERROR(src->get_varint32(&prefix));
     RETURN_IF_ERROR(src->get_varint32(&suffix_len));
     if (prefix > prev.size()) {
-        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("sampled_term_index: prefix_len exceeds prev_term length");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "sampled_term_index: prefix_len exceeds prev_term length");
     }
     Slice suffix;
     RETURN_IF_ERROR(src->get_bytes(suffix_len, &suffix));
@@ -92,7 +93,8 @@ doris::Status parse_payload(Slice payload, std::vector<std::string>* terms) {
     RETURN_IF_ERROR(src.get_varint32(&n_blocks));
     if (n_blocks == 0) {
         if (!src.eof()) {
-            return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("sampled_term_index: empty index contains trailing bytes");
+            return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                    "sampled_term_index: empty index contains trailing bytes");
         }
         terms->clear();
         return doris::Status::OK();
@@ -114,10 +116,12 @@ doris::Status parse_payload(Slice payload, std::vector<std::string>* terms) {
         out.push_back(std::move(term));
     }
     if (!src.eof()) {
-        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("sampled_term_index: payload contains trailing bytes");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "sampled_term_index: payload contains trailing bytes");
     }
     if (out.front() != min_term || out.back() != max_term) {
-        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("sampled_term_index: min/max inconsistent with sample_terms");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "sampled_term_index: min/max inconsistent with sample_terms");
     }
     *terms = std::move(out);
     return doris::Status::OK();
@@ -127,22 +131,25 @@ doris::Status parse_payload(Slice payload, std::vector<std::string>* terms) {
 
 doris::Status SampledTermIndexReader::open(Slice section, SampledTermIndexReader* out) {
     if (out == nullptr) {
-        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("sampled_term_index: out is null");
+        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>(
+                "sampled_term_index: out is null");
     }
     ByteSource src(section);
     FramedSection sec;
     RETURN_IF_ERROR(SectionFramer::read(src, &sec));
     if (sec.type != static_cast<uint8_t>(SectionType::kSampledTermIndex)) {
-        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("sampled_term_index: not a kSampledTermIndex section");
+        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>(
+                "sampled_term_index: not a kSampledTermIndex section");
     }
     *out = SampledTermIndexReader {};
     return parse_payload(sec.payload, &out->sample_terms_);
 }
 
 doris::Status SampledTermIndexReader::locate(std::string_view target, bool* maybe_present,
-                                      uint32_t* block_ordinal) const {
+                                             uint32_t* block_ordinal) const {
     if (maybe_present == nullptr || block_ordinal == nullptr) {
-        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("sampled_term_index: output pointer is null");
+        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>(
+                "sampled_term_index: output pointer is null");
     }
     *maybe_present = false;
     *block_ordinal = 0;

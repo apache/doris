@@ -33,10 +33,10 @@
 namespace snii::query {
 
 doris::Status term_query(const snii::reader::LogicalIndexReader& idx, std::string_view term,
-                  std::vector<uint32_t>* docids);
+                         std::vector<uint32_t>* docids);
 doris::Status term_query(const snii::reader::LogicalIndexReader& idx, std::string_view term,
-                  DocIdSink* sink);
+                         DocIdSink* sink);
 doris::Status term_query(const snii::reader::LogicalIndexReader& idx, std::string_view term,
-                  std::vector<uint32_t>* docids, QueryProfile* profile);
+                         std::vector<uint32_t>* docids, QueryProfile* profile);
 
 } // namespace snii::query

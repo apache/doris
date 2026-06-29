@@ -21,8 +21,8 @@
 #include <string>
 #include <vector>
 
-#include "snii/common/slice.h"
 #include "common/status.h"
+#include "snii/common/slice.h"
 #include "snii/io/file_reader.h"
 #include "snii/io/file_writer.h"
 

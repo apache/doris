@@ -54,7 +54,8 @@ uint8_t make_win_mode(const WindowMeta& m, bool has_freq) {
 
 doris::Status checked_add_u64(uint64_t lhs, uint64_t rhs, const char* message, uint64_t* out) {
     if (rhs > std::numeric_limits<uint64_t>::max() - lhs) {
-        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(message);
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                message);
     }
     *out = lhs + rhs;
     return doris::Status::OK();
@@ -62,25 +63,28 @@ doris::Status checked_add_u64(uint64_t lhs, uint64_t rhs, const char* message, u
 
 doris::Status checked_u32(uint64_t value, const char* message, uint32_t* out) {
     if (value > std::numeric_limits<uint32_t>::max()) {
-        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(message);
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                message);
     }
     *out = static_cast<uint32_t>(value);
     return doris::Status::OK();
 }
 
 doris::Status validate_window_doc_count(bool first_window, uint64_t win_base, uint64_t last_docid,
-                                 uint64_t doc_count) {
+                                        uint64_t doc_count) {
     uint64_t first_docid = 0;
     if (!first_window) {
-        RETURN_IF_ERROR(checked_add_u64(
-                win_base, 1, "frq_prelude: window base exceeds docid range", &first_docid));
+        RETURN_IF_ERROR(checked_add_u64(win_base, 1, "frq_prelude: window base exceeds docid range",
+                                        &first_docid));
     }
     if (last_docid < first_docid) {
-        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("frq_prelude: invalid window docid range");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "frq_prelude: invalid window docid range");
     }
     const uint64_t width = last_docid - first_docid + 1;
     if (doc_count > width) {
-        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("frq_prelude: doc_count exceeds window width");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "frq_prelude: doc_count exceeds window width");
     }
     return doris::Status::OK();
 }
@@ -88,16 +92,21 @@ doris::Status validate_window_doc_count(bool first_window, uint64_t win_base, ui
 // Validates builder input: non-null sink, group_size>=1, sane count, and
 // non-decreasing absolute last_docid across windows.
 doris::Status validate_input(const FrqPreludeColumns& cols, ByteSink* out) {
-    if (out == nullptr) return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("frq_prelude: null sink");
+    if (out == nullptr)
+        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>(
+                "frq_prelude: null sink");
     if (cols.group_size == 0) {
-        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("frq_prelude: group_size must be >= 1");
+        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>(
+                "frq_prelude: group_size must be >= 1");
     }
     if (cols.windows.size() > kMaxWindows) {
-        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("frq_prelude: window count exceeds cap");
+        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>(
+                "frq_prelude: window count exceeds cap");
     }
     for (size_t w = 1; w < cols.windows.size(); ++w) {
         if (cols.windows[w].last_docid < cols.windows[w - 1].last_docid) {
-            return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("frq_prelude: last_docid not monotonic");
+            return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>(
+                    "frq_prelude: last_docid not monotonic");
         }
     }
     return doris::Status::OK();
@@ -210,13 +219,15 @@ struct Header {
 doris::Status verify_covered_crc(Slice prelude, size_t header_end, uint64_t sbdir_len) {
     const size_t covered = header_end + static_cast<size_t>(sbdir_len);
     if (covered + sizeof(uint32_t) > prelude.size()) {
-        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("frq_prelude: buffer too short for crc region");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "frq_prelude: buffer too short for crc region");
     }
     uint32_t stored = 0;
     ByteSource crc_src(prelude.subslice(covered, sizeof(uint32_t)));
     RETURN_IF_ERROR(crc_src.get_fixed32(&stored));
     if (crc32c(prelude.subslice(0, covered)) != stored) {
-        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("frq_prelude: crc32c mismatch");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "frq_prelude: crc32c mismatch");
     }
     return doris::Status::OK();
 }
@@ -232,13 +243,16 @@ doris::Status parse_header(ByteSource* src, Header* h) {
     RETURN_IF_ERROR(src->get_varint64(&h->n_super));
     RETURN_IF_ERROR(src->get_varint64(&h->sbdir_len));
     if (h->n > kMaxWindows || h->n_super > kMaxWindows) {
-        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("frq_prelude: window count exceeds sane cap");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "frq_prelude: window count exceeds sane cap");
     }
     if (h->group_size == 0) {
-        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("frq_prelude: group_size is zero");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "frq_prelude: group_size is zero");
     }
     if (h->n_super != ceil_div(h->n, h->group_size)) {
-        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("frq_prelude: n_super inconsistent with N/G");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "frq_prelude: n_super inconsistent with N/G");
     }
     return doris::Status::OK();
 }
@@ -253,7 +267,7 @@ struct SbDirRow {
 // Decodes the super_block_dir region into absolute-last-docid rows, validating
 // monotonic last docids and contiguous, in-bounds block offsets.
 doris::Status decode_super_block_dir(Slice dir, const Header& h, std::vector<SbDirRow>* rows,
-                              uint64_t* window_region_len) {
+                                     uint64_t* window_region_len) {
     ByteSource src(dir);
     rows->clear();
     rows->reserve(static_cast<size_t>(h.n_super));
@@ -268,17 +282,19 @@ doris::Status decode_super_block_dir(Slice dir, const Header& h, std::vector<SbD
         RETURN_IF_ERROR(checked_add_u64(
                 prev_last, ldd, "frq_prelude: super-block last_docid overflow", &r.last_docid));
         uint32_t checked_last = 0;
-        RETURN_IF_ERROR(checked_u32(
-                r.last_docid, "frq_prelude: super-block last_docid exceeds u32", &checked_last));
+        RETURN_IF_ERROR(checked_u32(r.last_docid, "frq_prelude: super-block last_docid exceeds u32",
+                                    &checked_last));
         if (r.last_docid < prev_last || r.block_off != expect_off) {
-            return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("frq_prelude: super-block dir inconsistent");
+            return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                    "frq_prelude: super-block dir inconsistent");
         }
         expect_off += r.block_len;
         prev_last = r.last_docid;
         rows->push_back(r);
     }
     if (!src.eof()) {
-        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("frq_prelude: super-block dir has trailing bytes");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "frq_prelude: super-block dir has trailing bytes");
     }
     *window_region_len = expect_off;
     return doris::Status::OK();
@@ -287,17 +303,19 @@ doris::Status decode_super_block_dir(Slice dir, const Header& h, std::vector<SbD
 // Validates a per-window codec mode byte against the known bits.
 doris::Status check_win_mode(uint8_t mode, bool has_freq) {
     if ((mode & ~frq_win_mode::kKnownBits) != 0) {
-        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("frq_prelude: unknown win_mode bits");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "frq_prelude: unknown win_mode bits");
     }
     if (!has_freq && (mode & frq_win_mode::kFreqZstd) != 0) {
-        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("frq_prelude: freq mode set without has_freq");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "frq_prelude: freq mode set without has_freq");
     }
     return doris::Status::OK();
 }
 
 // Decodes one window row, advancing prev_last to this window's absolute last.
 doris::Status decode_window_row(ByteSource* src, bool has_freq, bool has_prx, bool first_window,
-                         uint64_t* prev_last, WindowMeta* m) {
+                                uint64_t* prev_last, WindowMeta* m) {
     uint64_t ldd = 0, doc_count = 0;
     RETURN_IF_ERROR(src->get_varint64(&ldd));
     RETURN_IF_ERROR(src->get_varint64(&doc_count));
@@ -325,9 +343,8 @@ doris::Status decode_window_row(ByteSource* src, bool has_freq, bool has_prx, bo
     RETURN_IF_ERROR(src->get_u8(&m->max_norm));
     uint64_t last_docid = 0;
     RETURN_IF_ERROR(checked_add_u64(*prev_last, ldd, "frq_prelude: window last_docid overflow",
-                                         &last_docid));
-    RETURN_IF_ERROR(
-            validate_window_doc_count(first_window, *prev_last, last_docid, doc_count));
+                                    &last_docid));
+    RETURN_IF_ERROR(validate_window_doc_count(first_window, *prev_last, last_docid, doc_count));
     m->win_base = *prev_last;
     RETURN_IF_ERROR(
             checked_u32(last_docid, "frq_prelude: window last_docid exceeds u32", &m->last_docid));
@@ -341,8 +358,9 @@ doris::Status decode_window_row(ByteSource* src, bool has_freq, bool has_prx, bo
 
 // Decodes one super-block's window block (<=G rows) into the global window list,
 // seeding win_base from prev_last and re-checking the recorded sb last docid.
-doris::Status decode_one_block(Slice block, const Header& h, uint64_t sb_last_docid, size_t row_count,
-                        uint64_t* prev_last, std::vector<WindowMeta>* windows) {
+doris::Status decode_one_block(Slice block, const Header& h, uint64_t sb_last_docid,
+                               size_t row_count, uint64_t* prev_last,
+                               std::vector<WindowMeta>* windows) {
     ByteSource src(block);
     for (size_t i = 0; i < row_count; ++i) {
         WindowMeta m;
@@ -351,17 +369,20 @@ doris::Status decode_one_block(Slice block, const Header& h, uint64_t sb_last_do
         windows->push_back(m);
     }
     if (!src.eof()) {
-        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("frq_prelude: window block has trailing bytes");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "frq_prelude: window block has trailing bytes");
     }
     if (*prev_last != sb_last_docid) {
-        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("frq_prelude: window block last docid mismatch");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "frq_prelude: window block last docid mismatch");
     }
     return doris::Status::OK();
 }
 
 // Decodes all window blocks pointed to by the super_block_dir.
-doris::Status decode_all_blocks(Slice window_region, const Header& h, const std::vector<SbDirRow>& dir,
-                         std::vector<WindowMeta>* windows) {
+doris::Status decode_all_blocks(Slice window_region, const Header& h,
+                                const std::vector<SbDirRow>& dir,
+                                std::vector<WindowMeta>* windows) {
     windows->clear();
     windows->reserve(static_cast<size_t>(h.n));
     uint64_t prev_last = 0;
@@ -369,17 +390,19 @@ doris::Status decode_all_blocks(Slice window_region, const Header& h, const std:
         const SbDirRow& r = dir[s];
         if (r.block_off + r.block_len > window_region.size() ||
             r.block_off + r.block_len < r.block_off) {
-            return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("frq_prelude: window block out of region");
+            return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                    "frq_prelude: window block out of region");
         }
         const uint64_t already = static_cast<uint64_t>(windows->size());
         const uint64_t rows = std::min<uint64_t>(h.group_size, h.n - already);
         Slice block = window_region.subslice(static_cast<size_t>(r.block_off),
                                              static_cast<size_t>(r.block_len));
         RETURN_IF_ERROR(decode_one_block(block, h, r.last_docid, static_cast<size_t>(rows),
-                                              &prev_last, windows));
+                                         &prev_last, windows));
     }
     if (windows->size() != h.n) {
-        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("frq_prelude: decoded window count mismatch");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "frq_prelude: decoded window count mismatch");
     }
     return doris::Status::OK();
 }
@@ -388,26 +411,31 @@ doris::Status decode_all_blocks(Slice window_region, const Header& h, const std:
 // (each region starts where the previous one ended) and returns the block lengths.
 // Contiguity makes the docs-only prefix one solid run and bounds the read range.
 doris::Status validate_region_layout(const Header& h, const std::vector<WindowMeta>& windows,
-                              uint64_t* dd_block_len, uint64_t* freq_block_len) {
+                                     uint64_t* dd_block_len, uint64_t* freq_block_len) {
     uint64_t dd_expect = 0;
     uint64_t freq_expect = 0;
     for (const WindowMeta& m : windows) {
         if (m.dd_off != dd_expect) {
-            return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("frq_prelude: dd region not contiguous");
+            return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                    "frq_prelude: dd region not contiguous");
         }
         if (m.dd_disk_len > m.dd_uncomp_len && !m.dd_zstd) {
-            return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("frq_prelude: raw dd region length inconsistent");
+            return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                    "frq_prelude: raw dd region length inconsistent");
         }
         if (dd_expect + m.dd_disk_len < dd_expect) {
-            return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("frq_prelude: dd block length overflow");
+            return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                    "frq_prelude: dd block length overflow");
         }
         dd_expect += m.dd_disk_len;
         if (h.has_freq) {
             if (m.freq_off != freq_expect) {
-                return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("frq_prelude: freq region not contiguous");
+                return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                        "frq_prelude: freq region not contiguous");
             }
             if (freq_expect + m.freq_disk_len < freq_expect) {
-                return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("frq_prelude: freq block length overflow");
+                return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                        "frq_prelude: freq block length overflow");
             }
             freq_expect += m.freq_disk_len;
         }
@@ -427,7 +455,8 @@ doris::Status FrqPreludeReader::open(Slice prelude, FrqPreludeReader* out) {
     RETURN_IF_ERROR(verify_covered_crc(prelude, header_end, h.sbdir_len));
 
     if (header_end + static_cast<size_t>(h.sbdir_len) > prelude.size()) {
-        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("frq_prelude: sbdir_len past buffer");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "frq_prelude: sbdir_len past buffer");
     }
     Slice dir = prelude.subslice(header_end, static_cast<size_t>(h.sbdir_len));
     std::vector<SbDirRow> rows;
@@ -436,7 +465,8 @@ doris::Status FrqPreludeReader::open(Slice prelude, FrqPreludeReader* out) {
 
     const size_t region_start = header_end + static_cast<size_t>(h.sbdir_len) + sizeof(uint32_t);
     if (region_start + static_cast<size_t>(window_region_len) > prelude.size()) {
-        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("frq_prelude: window region past buffer");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "frq_prelude: window region past buffer");
     }
     Slice window_region = prelude.subslice(region_start, static_cast<size_t>(window_region_len));
 
@@ -452,9 +482,12 @@ doris::Status FrqPreludeReader::open(Slice prelude, FrqPreludeReader* out) {
 }
 
 doris::Status FrqPreludeReader::window(uint32_t w, WindowMeta* out) const {
-    if (out == nullptr) return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("frq_prelude: null window out");
+    if (out == nullptr)
+        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>(
+                "frq_prelude: null window out");
     if (w >= windows_.size()) {
-        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("frq_prelude: window index out of range");
+        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>(
+                "frq_prelude: window index out of range");
     }
     *out = windows_[w];
     return doris::Status::OK();
@@ -462,7 +495,8 @@ doris::Status FrqPreludeReader::window(uint32_t w, WindowMeta* out) const {
 
 doris::Status FrqPreludeReader::locate_window(uint32_t docid, bool* found, uint32_t* w) const {
     if (found == nullptr || w == nullptr) {
-        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("frq_prelude: null locate out");
+        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>(
+                "frq_prelude: null locate out");
     }
     *found = false;
     if (windows_.empty()) return doris::Status::OK();

@@ -216,7 +216,8 @@ void SpimiTermBuffer::add_token(uint32_t term_id, uint32_t docid, uint32_t pos) 
     // construction per token. Reject (and latch) an out-of-range id.
     if (term_id >= slot_of_.size()) {
         if (spill_status_.ok()) {
-            spill_status_ = doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("spimi: term_id out of vocab range");
+            spill_status_ = doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>(
+                    "spimi: term_id out of vocab range");
         }
         return;
     }
@@ -456,7 +457,7 @@ void SpimiTermBuffer::release_term(uint32_t term_id) {
 }
 
 doris::Status SpimiTermBuffer::drain_sorted(const std::function<void(TermPostings&&)>& fn,
-                                     bool allow_stream_positions) {
+                                            bool allow_stream_positions) {
     const std::vector<std::string>& v = vocab();
     for (uint32_t id : sorted_ids()) {
         Term term = std::move(slots_[slot_of_[id] - 1]);
@@ -512,9 +513,10 @@ doris::Status SpimiTermBuffer::spill_to_run() {
     const uint64_t resident = resident_bytes();
     const uint64_t avail = temp_dir_available_bytes(dir);
     if (avail < resident) {
-        return doris::Status::Error<doris::ErrorCode::IO_ERROR, false>("spimi: insufficient temp space in '" + dir + "' to spill ~" +
-                               std::to_string(resident) + " B (~" + std::to_string(avail) +
-                               " B free); set SNII_TEMP_DIR/TMPDIR to a larger disk");
+        return doris::Status::Error<doris::ErrorCode::IO_ERROR, false>(
+                "spimi: insufficient temp space in '" + dir + "' to spill ~" +
+                std::to_string(resident) + " B (~" + std::to_string(avail) +
+                " B free); set SNII_TEMP_DIR/TMPDIR to a larger disk");
     }
     const std::string path = MakeRunPath(dir);
     RunWriter w;
@@ -528,7 +530,7 @@ doris::Status SpimiTermBuffer::spill_to_run() {
 }
 
 doris::Status SpimiTermBuffer::merge_runs(const std::function<void(TermPostings&&)>& fn,
-                                   bool allow_stream_positions) {
+                                          bool allow_stream_positions) {
     // Flush whatever is still resident as one final sorted run so the k-way merge
     // sees a uniform set of run files (and never holds two term sources at once).
     if (!touched_ids_.empty()) {
@@ -564,7 +566,8 @@ doris::Status SpimiTermBuffer::for_each_term_sorted(const std::function<void(Ter
     // files and re-emit every term, or emit nothing in the in-memory path. Return
     // an error and emit NOTHING rather than produce a wrong second stream.
     if (drained_) {
-        return doris::Status::Error<doris::ErrorCode::INTERNAL_ERROR, false>("spimi: already drained (single-drain contract)");
+        return doris::Status::Error<doris::ErrorCode::INTERNAL_ERROR, false>(
+                "spimi: already drained (single-drain contract)");
     }
     drained_ = true;
     // The callback is invoked synchronously while the arena is resident, so large
@@ -586,7 +589,8 @@ std::vector<TermPostings> SpimiTermBuffer::finalize_sorted() {
     // emit nothing. Latch an error and return EMPTY rather than a wrong result.
     if (drained_) {
         if (spill_status_.ok()) {
-            spill_status_ = doris::Status::Error<doris::ErrorCode::INTERNAL_ERROR, false>("spimi: already drained (single-drain contract)");
+            spill_status_ = doris::Status::Error<doris::ErrorCode::INTERNAL_ERROR, false>(
+                    "spimi: already drained (single-drain contract)");
         }
         return out;
     }
@@ -596,13 +600,13 @@ std::vector<TermPostings> SpimiTermBuffer::finalize_sorted() {
     // (a streamed pos_pump would reference the arena, freed when the drain ends).
     if (run_paths_.empty() && spill_status_.ok()) {
         doris::Status s = drain_sorted([&out](TermPostings&& tp) { out.push_back(std::move(tp)); },
-                                /*allow_stream_positions=*/false);
+                                       /*allow_stream_positions=*/false);
         if (!s.ok() && spill_status_.ok()) spill_status_ = s;
     } else {
         // RETAINS each TermPostings past the merge, so positions MUST be materialized
         // (a streamed pos_pump would reference run readers freed when the merge ends).
         doris::Status s = merge_runs([&out](TermPostings&& tp) { out.push_back(std::move(tp)); },
-                              /*allow_stream_positions=*/false);
+                                     /*allow_stream_positions=*/false);
         if (!s.ok() && spill_status_.ok()) spill_status_ = s;
     }
     return out;

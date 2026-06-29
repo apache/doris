@@ -80,7 +80,8 @@ doris::Status NullBitmapReader::open(Slice framed, NullBitmapReader* out) {
     uint64_t doc_count = 0;
     RETURN_IF_ERROR(payload.get_varint64(&doc_count));
     if (doc_count > std::numeric_limits<uint32_t>::max()) {
-        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("null bitmap doc_count overflows uint32");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "null bitmap doc_count overflows uint32");
     }
 
     uint64_t roaring_size = 0;
@@ -88,7 +89,8 @@ doris::Status NullBitmapReader::open(Slice framed, NullBitmapReader* out) {
     // Anti-DoS: the declared roaring_size must not exceed the bytes actually
     // present, otherwise readSafe could be told to walk past the payload.
     if (roaring_size > payload.remaining()) {
-        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("null bitmap roaring_size exceeds payload");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "null bitmap roaring_size exceeds payload");
     }
 
     Slice roaring_bytes;
@@ -103,7 +105,8 @@ doris::Status NullBitmapReader::open(Slice framed, NullBitmapReader* out) {
     const size_t probed =
             roaring_bitmap_portable_deserialize_size(rb, static_cast<size_t>(roaring_size));
     if (probed == 0 || probed != static_cast<size_t>(roaring_size)) {
-        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("null bitmap: malformed roaring container");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "null bitmap: malformed roaring container");
     }
     *out->bitmap_ = roaring::Roaring::readSafe(rb, static_cast<size_t>(roaring_size));
     out->doc_count_ = static_cast<uint32_t>(doc_count);

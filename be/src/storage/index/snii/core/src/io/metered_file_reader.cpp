@@ -41,11 +41,16 @@ void MeteredFileReader::reset_metrics() {
 }
 
 doris::Status MeteredFileReader::validate_range(uint64_t offset, size_t len) const {
-    if (inner_ == nullptr) return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("metered: null inner reader");
-    if (block_size_ == 0) return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("metered: zero block size");
+    if (inner_ == nullptr)
+        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>(
+                "metered: null inner reader");
+    if (block_size_ == 0)
+        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>(
+                "metered: zero block size");
     const uint64_t total = inner_->size();
     if (offset > total || len > total - offset) {
-        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("metered: read range past end");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "metered: read range past end");
     }
     return doris::Status::OK();
 }
@@ -79,7 +84,8 @@ bool MeteredFileReader::account_blocks(uint64_t offset, size_t len) {
 }
 
 doris::Status MeteredFileReader::read_at(uint64_t offset, size_t len, std::vector<uint8_t>* out) {
-    if (out == nullptr) return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("metered: null out");
+    if (out == nullptr)
+        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("metered: null out");
     RETURN_IF_ERROR(validate_range(offset, len));
     ++metrics_.read_at_calls;
     metrics_.total_request_bytes += len;
@@ -90,8 +96,10 @@ doris::Status MeteredFileReader::read_at(uint64_t offset, size_t len, std::vecto
 }
 
 doris::Status MeteredFileReader::read_batch(const std::vector<Range>& ranges,
-                                     std::vector<std::vector<uint8_t>>* outs) {
-    if (outs == nullptr) return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("metered: null batch out");
+                                            std::vector<std::vector<uint8_t>>* outs) {
+    if (outs == nullptr)
+        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>(
+                "metered: null batch out");
     for (const Range& r : ranges) {
         RETURN_IF_ERROR(validate_range(r.offset, r.len));
     }

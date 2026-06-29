@@ -51,7 +51,8 @@ struct CandidateRange {
 
 doris::Status slim_frq_docs_len(const DictEntry& entry, uint64_t win_len, uint64_t* out) {
     if (entry.frq_docs_len > win_len) {
-        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("docid_conjunction: slim frq_docs_len exceeds frq window");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "docid_conjunction: slim frq_docs_len exceeds frq window");
     }
     *out = entry.frq_docs_len > 0 ? entry.frq_docs_len : win_len;
     return doris::Status::OK();
@@ -59,30 +60,30 @@ doris::Status slim_frq_docs_len(const DictEntry& entry, uint64_t win_len, uint64
 
 doris::Status add_u64(uint64_t lhs, uint64_t rhs, const char* message, uint64_t* out) {
     if (rhs > std::numeric_limits<uint64_t>::max() - lhs) {
-        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(message);
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                message);
     }
     *out = lhs + rhs;
     return doris::Status::OK();
 }
 
 doris::Status posting_abs_offset(const LogicalIndexReader& idx, uint64_t base, uint64_t delta,
-                          const char* message, uint64_t* out) {
+                                 const char* message, uint64_t* out) {
     uint64_t with_base = 0;
-    RETURN_IF_ERROR(
-            add_u64(idx.section_refs().posting_region.offset, base, message, &with_base));
+    RETURN_IF_ERROR(add_u64(idx.section_refs().posting_region.offset, base, message, &with_base));
     return add_u64(with_base, delta, message, out);
 }
 
 doris::Status configure_term_plan(const LogicalIndexReader& idx, bool need_positions,
-                           snii::io::BatchRangeFetcher* fetcher, TermPlan* p) {
+                                  snii::io::BatchRangeFetcher* fetcher, TermPlan* p) {
     p->df = p->entry.df;
     p->pod_ref = (p->entry.kind == DictEntryKind::kPodRef);
     p->windowed = p->pod_ref && p->entry.enc == DictEntryEnc::kWindowed;
     if (p->windowed) {
         uint64_t prelude_abs = 0;
         RETURN_IF_ERROR(posting_abs_offset(idx, p->frq_base, p->entry.frq_off_delta,
-                                                "docid_conjunction: prelude offset overflow",
-                                                &prelude_abs));
+                                           "docid_conjunction: prelude offset overflow",
+                                           &prelude_abs));
         p->prelude_handle = fetcher->add(prelude_abs, p->entry.prelude_len);
     } else if (p->pod_ref) {
         uint64_t foff = 0;
@@ -115,17 +116,20 @@ std::vector<size_t> ascending_df_order(const std::vector<TermPlan>& plans) {
     return order;
 }
 
-doris::Status first_docid_in_window(const WindowMeta& meta, uint32_t window_ordinal, uint32_t* first) {
+doris::Status first_docid_in_window(const WindowMeta& meta, uint32_t window_ordinal,
+                                    uint32_t* first) {
     if (window_ordinal == 0) {
         *first = 0;
         return doris::Status::OK();
     }
     if (meta.win_base >= std::numeric_limits<uint32_t>::max()) {
-        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("docid_conjunction: window base exceeds docid range");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "docid_conjunction: window base exceeds docid range");
     }
     *first = static_cast<uint32_t>(meta.win_base + 1);
     if (*first > meta.last_docid) {
-        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("docid_conjunction: invalid window docid range");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "docid_conjunction: invalid window docid range");
     }
     return doris::Status::OK();
 }
@@ -140,11 +144,13 @@ doris::Status is_dense_full_window(const WindowMeta& meta, uint32_t window_ordin
 
 doris::Status append_docid_range(uint32_t first, uint32_t last, std::vector<uint32_t>* out) {
     if (last < first) {
-        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("docid_conjunction: invalid dense docid range");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "docid_conjunction: invalid dense docid range");
     }
     const uint64_t count64 = static_cast<uint64_t>(last) - first + 1;
     if (count64 > static_cast<uint64_t>(std::numeric_limits<size_t>::max() - out->size())) {
-        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("docid_conjunction: dense docid range too large");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "docid_conjunction: dense docid range too large");
     }
     out->reserve(out->size() + static_cast<size_t>(count64));
     uint32_t docid = first;
@@ -214,14 +220,15 @@ bool append_term_docs_if_candidates_cover_span(CandidateIt begin, CandidateIt en
     return true;
 }
 
-doris::Status append_candidate_range_with_ordinals(CandidateIt begin, CandidateIt end, uint32_t first,
-                                            uint32_t last, std::vector<uint32_t>* out,
-                                            DocidChunk* chunk) {
+doris::Status append_candidate_range_with_ordinals(CandidateIt begin, CandidateIt end,
+                                                   uint32_t first, uint32_t last,
+                                                   std::vector<uint32_t>* out, DocidChunk* chunk) {
     const size_t candidate_count = static_cast<size_t>(end - begin);
     chunk->docids.reserve(candidate_count);
     const uint64_t width = static_cast<uint64_t>(last) - first + 1;
     if (width > std::numeric_limits<uint32_t>::max()) {
-        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("docid_conjunction: dense window exceeds doc count range");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "docid_conjunction: dense window exceeds doc count range");
     }
     chunk->prx_doc_count = static_cast<uint32_t>(width);
     const bool full_dense_range =
@@ -423,12 +430,12 @@ void intersect_window_candidate_range(CandidateIt begin, CandidateIt end,
                           std::back_inserter(*out));
 }
 
-doris::Status intersect_window_candidate_range_with_ordinals(CandidateIt begin, CandidateIt end,
-                                                      const std::vector<uint32_t>& term_docids,
-                                                      std::vector<uint32_t>* out,
-                                                      DocidChunk* chunk) {
+doris::Status intersect_window_candidate_range_with_ordinals(
+        CandidateIt begin, CandidateIt end, const std::vector<uint32_t>& term_docids,
+        std::vector<uint32_t>* out, DocidChunk* chunk) {
     if (term_docids.size() > std::numeric_limits<uint32_t>::max()) {
-        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("docid_conjunction: prx doc count exceeds u32");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "docid_conjunction: prx doc count exceeds u32");
     }
     chunk->prx_doc_count = static_cast<uint32_t>(term_docids.size());
     if (begin == end || term_docids.empty()) return doris::Status::OK();
@@ -513,8 +520,8 @@ doris::Status intersect_window_candidate_range_with_ordinals(CandidateIt begin, 
 }
 
 doris::Status select_covering_windows(const FrqPreludeReader& prelude,
-                               const std::vector<uint32_t>& candidates,
-                               std::vector<uint32_t>* windows) {
+                                      const std::vector<uint32_t>& candidates,
+                                      std::vector<uint32_t>* windows) {
     std::vector<uint32_t> sel;
     uint32_t last = UINT32_MAX;
     for (uint32_t d : candidates) {
@@ -542,7 +549,7 @@ bool should_scan_all_windows(const LogicalIndexReader& idx, const TermPlan& p,
 }
 
 doris::Status decode_flat_docids_only(const snii::io::BatchRangeFetcher& round1, const TermPlan& p,
-                               std::vector<uint32_t>* docids) {
+                                      std::vector<uint32_t>* docids) {
     Slice dd;
     if (p.pod_ref) {
         dd = round1.get(p.frq_handle);
@@ -560,8 +567,9 @@ struct WindowWork {
     bool dense_full = false;
 };
 
-doris::Status emit_dense_full_window_docids(const WindowWork& f, const std::vector<uint32_t>* candidates,
-                                     std::vector<uint32_t>& out, DocidSource* source) {
+doris::Status emit_dense_full_window_docids(const WindowWork& f,
+                                            const std::vector<uint32_t>* candidates,
+                                            std::vector<uint32_t>& out, DocidSource* source) {
     uint32_t first = 0;
     RETURN_IF_ERROR(first_docid_in_window(f.meta, f.ordinal, &first));
     if (source != nullptr) {
@@ -574,8 +582,8 @@ doris::Status emit_dense_full_window_docids(const WindowWork& f, const std::vect
         } else {
             const auto begin = candidates->begin() + f.candidates.begin;
             const auto end = candidates->begin() + f.candidates.end;
-            RETURN_IF_ERROR(append_candidate_range_with_ordinals(
-                    begin, end, first, f.meta.last_docid, &out, &chunk));
+            RETURN_IF_ERROR(append_candidate_range_with_ordinals(begin, end, first,
+                                                                 f.meta.last_docid, &out, &chunk));
         }
         source->chunks.push_back(std::move(chunk));
     }
@@ -588,11 +596,12 @@ doris::Status emit_dense_full_window_docids(const WindowWork& f, const std::vect
     return doris::Status::OK();
 }
 
-doris::Status emit_decoded_window_docids(const WindowWork& f, const snii::io::BatchRangeFetcher& fetcher,
-                                  const std::vector<uint32_t>* candidates,
-                                  std::vector<uint32_t>& out, DocidSource* source,
-                                  std::vector<uint32_t>& docs, std::vector<uint32_t>& freqs,
-                                  std::vector<std::vector<uint32_t>>& positions) {
+doris::Status emit_decoded_window_docids(const WindowWork& f,
+                                         const snii::io::BatchRangeFetcher& fetcher,
+                                         const std::vector<uint32_t>* candidates,
+                                         std::vector<uint32_t>& out, DocidSource* source,
+                                         std::vector<uint32_t>& docs, std::vector<uint32_t>& freqs,
+                                         std::vector<std::vector<uint32_t>>& positions) {
     docs.clear();
     freqs.clear();
     positions.clear();
@@ -606,7 +615,8 @@ doris::Status emit_decoded_window_docids(const WindowWork& f, const snii::io::Ba
         if (candidates == nullptr) {
             chunk.docids = docs;
             if (docs.size() > std::numeric_limits<uint32_t>::max()) {
-                return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("docid_conjunction: prx doc count exceeds u32");
+                return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                        "docid_conjunction: prx doc count exceeds u32");
             }
             chunk.prx_doc_count = static_cast<uint32_t>(docs.size());
             source->chunks.push_back(std::move(chunk));
@@ -636,9 +646,9 @@ doris::Status emit_decoded_window_docids(const WindowWork& f, const snii::io::Ba
 }
 
 doris::Status collect_windowed_docids_only(const LogicalIndexReader& idx, const TermPlan& p,
-                                    const std::vector<uint32_t>& windows,
-                                    const std::vector<uint32_t>* candidates,
-                                    std::vector<uint32_t>* out, DocidSource* source) {
+                                           const std::vector<uint32_t>& windows,
+                                           const std::vector<uint32_t>* candidates,
+                                           std::vector<uint32_t>* out, DocidSource* source) {
     snii::io::BatchRangeFetcher fetcher(idx.reader(), snii::reader::kSameTermCoalesceGap);
     std::vector<WindowWork> work;
     work.reserve(windows.size());
@@ -689,14 +699,15 @@ doris::Status collect_windowed_docids_only(const LogicalIndexReader& idx, const 
             continue;
         }
         RETURN_IF_ERROR(emit_decoded_window_docids(f, fetcher, candidates, *out, source, docs,
-                                                        freqs, positions));
+                                                   freqs, positions));
     }
     return doris::Status::OK();
 }
 
-doris::Status collect_docids_only(const LogicalIndexReader& idx, const snii::io::BatchRangeFetcher& round1,
-                           const TermPlan& p, const std::vector<uint32_t>* candidates,
-                           std::vector<uint32_t>* out, DocidSource* source) {
+doris::Status collect_docids_only(const LogicalIndexReader& idx,
+                                  const snii::io::BatchRangeFetcher& round1, const TermPlan& p,
+                                  const std::vector<uint32_t>* candidates,
+                                  std::vector<uint32_t>* out, DocidSource* source) {
     if (p.windowed) {
         std::vector<uint32_t> windows;
         if (candidates == nullptr) {
@@ -716,7 +727,8 @@ doris::Status collect_docids_only(const LogicalIndexReader& idx, const snii::io:
     if (source != nullptr) {
         DocidChunk chunk;
         if (term_docids.size() > std::numeric_limits<uint32_t>::max()) {
-            return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("docid_conjunction: prx doc count exceeds u32");
+            return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                    "docid_conjunction: prx doc count exceeds u32");
         }
         chunk.prx_doc_count = static_cast<uint32_t>(term_docids.size());
         if (candidates == nullptr) {
@@ -724,8 +736,8 @@ doris::Status collect_docids_only(const LogicalIndexReader& idx, const snii::io:
         } else if (!term_docids.empty()) {
             const auto begin = std::ranges::lower_bound(*candidates, term_docids.front());
             const auto end = std::upper_bound(begin, candidates->end(), term_docids.back());
-            RETURN_IF_ERROR(intersect_window_candidate_range_with_ordinals(
-                    begin, end, term_docids, out, &chunk));
+            RETURN_IF_ERROR(intersect_window_candidate_range_with_ordinals(begin, end, term_docids,
+                                                                           out, &chunk));
         }
         if (candidates == nullptr || !chunk.docids.empty()) {
             source->chunks.push_back(std::move(chunk));
@@ -743,11 +755,11 @@ doris::Status collect_docids_only(const LogicalIndexReader& idx, const snii::io:
 }
 
 doris::Status run_docid_only_conjunction_impl(const LogicalIndexReader& idx,
-                                       const snii::io::BatchRangeFetcher& round1,
-                                       const std::vector<TermPlan>& plans,
-                                       const std::vector<uint32_t>* initial_candidates,
-                                       std::vector<uint32_t>* candidates,
-                                       std::vector<DocidSource>* sources) {
+                                              const snii::io::BatchRangeFetcher& round1,
+                                              const std::vector<TermPlan>& plans,
+                                              const std::vector<uint32_t>* initial_candidates,
+                                              std::vector<uint32_t>* candidates,
+                                              std::vector<DocidSource>* sources) {
     if (sources != nullptr) {
         sources->assign(plans.size(), DocidSource {});
     }
@@ -782,7 +794,7 @@ doris::Status run_docid_only_conjunction_impl(const LogicalIndexReader& idx,
 } // namespace
 
 doris::Status resolve_query_term(const LogicalIndexReader& idx, const std::string& term,
-                          ResolvedQueryTerm* resolved, bool* found) {
+                                 ResolvedQueryTerm* resolved, bool* found) {
     *found = false;
     RETURN_IF_ERROR(
             idx.lookup(term, found, &resolved->entry, &resolved->frq_base, &resolved->prx_base));
@@ -790,8 +802,8 @@ doris::Status resolve_query_term(const LogicalIndexReader& idx, const std::strin
 }
 
 doris::Status plan_terms(const LogicalIndexReader& idx, const std::vector<std::string>& terms,
-                  snii::io::BatchRangeFetcher* fetcher, std::vector<TermPlan>* plans,
-                  bool* all_present, bool need_positions) {
+                         snii::io::BatchRangeFetcher* fetcher, std::vector<TermPlan>* plans,
+                         bool* all_present, bool need_positions) {
     *all_present = true;
     plans->resize(terms.size());
     for (size_t i = 0; i < terms.size(); ++i) {
@@ -813,9 +825,9 @@ doris::Status plan_terms(const LogicalIndexReader& idx, const std::vector<std::s
 }
 
 doris::Status plan_resolved_terms(const LogicalIndexReader& idx,
-                           const std::vector<ResolvedQueryTerm>& terms,
-                           snii::io::BatchRangeFetcher* fetcher, std::vector<TermPlan>* plans,
-                           bool need_positions) {
+                                  const std::vector<ResolvedQueryTerm>& terms,
+                                  snii::io::BatchRangeFetcher* fetcher,
+                                  std::vector<TermPlan>* plans, bool need_positions) {
     plans->resize(terms.size());
     for (size_t i = 0; i < terms.size(); ++i) {
         TermPlan& p = (*plans)[i];
@@ -828,13 +840,14 @@ doris::Status plan_resolved_terms(const LogicalIndexReader& idx,
     return doris::Status::OK();
 }
 
-doris::Status open_preludes(const snii::io::BatchRangeFetcher& fetcher, std::vector<TermPlan>* plans,
-                     bool need_positions) {
+doris::Status open_preludes(const snii::io::BatchRangeFetcher& fetcher,
+                            std::vector<TermPlan>* plans, bool need_positions) {
     for (TermPlan& p : *plans) {
         if (!p.windowed) continue;
         RETURN_IF_ERROR(FrqPreludeReader::open(fetcher.get(p.prelude_handle), &p.prelude));
         if (need_positions && !p.prelude.has_prx()) {
-            return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("docid_conjunction: windowed prelude has no positions");
+            return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                    "docid_conjunction: windowed prelude has no positions");
         }
     }
     return doris::Status::OK();
@@ -842,33 +855,34 @@ doris::Status open_preludes(const snii::io::BatchRangeFetcher& fetcher, std::vec
 
 doris::Status inline_dd_region(const DictEntry& entry, Slice* out) {
     if (entry.dd_meta.disk_len > entry.frq_bytes.size()) {
-        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("docid_conjunction: inline dd region exceeds frq bytes");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "docid_conjunction: inline dd region exceeds frq bytes");
     }
     *out = Slice(entry.frq_bytes.data(), static_cast<size_t>(entry.dd_meta.disk_len));
     return doris::Status::OK();
 }
 
 doris::Status build_docid_only_conjunction(const LogicalIndexReader& idx,
-                                    const snii::io::BatchRangeFetcher& round1,
-                                    const std::vector<TermPlan>& plans,
-                                    std::vector<uint32_t>* candidates) {
+                                           const snii::io::BatchRangeFetcher& round1,
+                                           const std::vector<TermPlan>& plans,
+                                           std::vector<uint32_t>* candidates) {
     return run_docid_only_conjunction_impl(idx, round1, plans, nullptr, candidates, nullptr);
 }
 
 doris::Status build_docid_only_conjunction(const LogicalIndexReader& idx,
-                                    const snii::io::BatchRangeFetcher& round1,
-                                    const std::vector<TermPlan>& plans,
-                                    std::vector<uint32_t>* candidates,
-                                    std::vector<DocidSource>* sources) {
+                                           const snii::io::BatchRangeFetcher& round1,
+                                           const std::vector<TermPlan>& plans,
+                                           std::vector<uint32_t>* candidates,
+                                           std::vector<DocidSource>* sources) {
     return run_docid_only_conjunction_impl(idx, round1, plans, nullptr, candidates, sources);
 }
 
 doris::Status filter_docids_by_conjunction(const LogicalIndexReader& idx,
-                                    const snii::io::BatchRangeFetcher& round1,
-                                    const std::vector<TermPlan>& plans,
-                                    const std::vector<uint32_t>& initial_candidates,
-                                    std::vector<uint32_t>* candidates,
-                                    std::vector<DocidSource>* sources) {
+                                           const snii::io::BatchRangeFetcher& round1,
+                                           const std::vector<TermPlan>& plans,
+                                           const std::vector<uint32_t>& initial_candidates,
+                                           std::vector<uint32_t>* candidates,
+                                           std::vector<DocidSource>* sources) {
     return run_docid_only_conjunction_impl(idx, round1, plans, &initial_candidates, candidates,
                                            sources);
 }

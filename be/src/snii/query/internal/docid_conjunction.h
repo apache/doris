@@ -21,8 +21,8 @@
 #include <string>
 #include <vector>
 
-#include "snii/common/slice.h"
 #include "common/status.h"
+#include "snii/common/slice.h"
 #include "snii/format/dict_entry.h"
 #include "snii/format/frq_prelude.h"
 #include "snii/io/batch_range_fetcher.h"
@@ -63,39 +63,40 @@ struct DocidSource {
     bool docids_are_final_candidates = false;
 };
 
-doris::Status resolve_query_term(const snii::reader::LogicalIndexReader& idx, const std::string& term,
-                          ResolvedQueryTerm* resolved, bool* found);
+doris::Status resolve_query_term(const snii::reader::LogicalIndexReader& idx,
+                                 const std::string& term, ResolvedQueryTerm* resolved, bool* found);
 
 doris::Status plan_terms(const snii::reader::LogicalIndexReader& idx,
-                  const std::vector<std::string>& terms, snii::io::BatchRangeFetcher* fetcher,
-                  std::vector<TermPlan>* plans, bool* all_present, bool need_positions);
+                         const std::vector<std::string>& terms,
+                         snii::io::BatchRangeFetcher* fetcher, std::vector<TermPlan>* plans,
+                         bool* all_present, bool need_positions);
 
 doris::Status plan_resolved_terms(const snii::reader::LogicalIndexReader& idx,
-                           const std::vector<ResolvedQueryTerm>& terms,
-                           snii::io::BatchRangeFetcher* fetcher, std::vector<TermPlan>* plans,
-                           bool need_positions);
+                                  const std::vector<ResolvedQueryTerm>& terms,
+                                  snii::io::BatchRangeFetcher* fetcher,
+                                  std::vector<TermPlan>* plans, bool need_positions);
 
-doris::Status open_preludes(const snii::io::BatchRangeFetcher& fetcher, std::vector<TermPlan>* plans,
-                     bool need_positions);
+doris::Status open_preludes(const snii::io::BatchRangeFetcher& fetcher,
+                            std::vector<TermPlan>* plans, bool need_positions);
 
 doris::Status inline_dd_region(const snii::format::DictEntry& entry, Slice* out);
 
 doris::Status build_docid_only_conjunction(const snii::reader::LogicalIndexReader& idx,
-                                    const snii::io::BatchRangeFetcher& round1,
-                                    const std::vector<TermPlan>& plans,
-                                    std::vector<uint32_t>* candidates);
+                                           const snii::io::BatchRangeFetcher& round1,
+                                           const std::vector<TermPlan>& plans,
+                                           std::vector<uint32_t>* candidates);
 
 doris::Status build_docid_only_conjunction(const snii::reader::LogicalIndexReader& idx,
-                                    const snii::io::BatchRangeFetcher& round1,
-                                    const std::vector<TermPlan>& plans,
-                                    std::vector<uint32_t>* candidates,
-                                    std::vector<DocidSource>* sources);
+                                           const snii::io::BatchRangeFetcher& round1,
+                                           const std::vector<TermPlan>& plans,
+                                           std::vector<uint32_t>* candidates,
+                                           std::vector<DocidSource>* sources);
 
 doris::Status filter_docids_by_conjunction(const snii::reader::LogicalIndexReader& idx,
-                                    const snii::io::BatchRangeFetcher& round1,
-                                    const std::vector<TermPlan>& plans,
-                                    const std::vector<uint32_t>& initial_candidates,
-                                    std::vector<uint32_t>* candidates,
-                                    std::vector<DocidSource>* sources);
+                                           const snii::io::BatchRangeFetcher& round1,
+                                           const std::vector<TermPlan>& plans,
+                                           const std::vector<uint32_t>& initial_candidates,
+                                           std::vector<uint32_t>* candidates,
+                                           std::vector<DocidSource>* sources);
 
 } // namespace snii::query::internal

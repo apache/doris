@@ -59,7 +59,8 @@ doris::Status decode_payload(Slice payload, std::vector<BlockRef>* refs) {
     // so cap before reserve to avoid a huge allocation.
     constexpr size_t kMinRefBytes = 8;
     if (n_blocks > ps.remaining() / kMinRefBytes) {
-        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("dict_block_directory: n_blocks exceeds payload capacity");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "dict_block_directory: n_blocks exceeds payload capacity");
     }
     refs->clear();
     refs->reserve(n_blocks);
@@ -69,7 +70,8 @@ doris::Status decode_payload(Slice payload, std::vector<BlockRef>* refs) {
         refs->push_back(ref);
     }
     if (!ps.eof()) {
-        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("dict_block_directory: trailing bytes in payload");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "dict_block_directory: trailing bytes in payload");
     }
     return doris::Status::OK();
 }
@@ -91,14 +93,16 @@ doris::Status DictBlockDirectoryReader::open(Slice section, DictBlockDirectoryRe
     FramedSection sec;
     RETURN_IF_ERROR(SectionFramer::read(src, &sec));
     if (sec.type != static_cast<uint8_t>(SectionType::kDictBlockDirectory)) {
-        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("dict_block_directory: unexpected section type");
+        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>(
+                "dict_block_directory: unexpected section type");
     }
     return decode_payload(sec.payload, &out->refs_);
 }
 
 doris::Status DictBlockDirectoryReader::get(uint32_t ordinal, BlockRef* out) const {
     if (ordinal >= refs_.size()) {
-        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_SNII_NOT_FOUND, false>("dict_block_directory: ordinal out of range");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_SNII_NOT_FOUND, false>(
+                "dict_block_directory: ordinal out of range");
     }
     *out = refs_[ordinal];
     return doris::Status::OK();

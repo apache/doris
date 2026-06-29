@@ -151,8 +151,9 @@ doris::Status phrase_bigram_enabled(const LogicalIndexReader& idx, bool* enabled
                                         &sentinel, enabled);
 }
 
-doris::Status TryTwoTermPhraseBigram(const LogicalIndexReader& idx, const std::vector<std::string>& terms,
-                              std::vector<uint32_t>* const docids, bool* handled) {
+doris::Status TryTwoTermPhraseBigram(const LogicalIndexReader& idx,
+                                     const std::vector<std::string>& terms,
+                                     std::vector<uint32_t>* const docids, bool* handled) {
     *handled = false;
     if (terms.size() != 2) {
         return doris::Status::OK();
@@ -184,14 +185,16 @@ doris::Status TryTwoTermPhraseBigram(const LogicalIndexReader& idx, const std::v
 
 doris::Status append_prx_doc_ordinal(size_t ordinal, std::vector<uint32_t>* out) {
     if (ordinal > std::numeric_limits<uint32_t>::max()) {
-        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("phrase_query: prx doc ordinal exceeds u32");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "phrase_query: prx doc ordinal exceeds u32");
     }
     out->push_back(static_cast<uint32_t>(ordinal));
     return doris::Status::OK();
 }
 
-doris::Status append_selected_ordinal(size_t doc_index, const std::vector<uint32_t>& prx_doc_ordinals,
-                               std::vector<uint32_t>* selected_ordinals) {
+doris::Status append_selected_ordinal(size_t doc_index,
+                                      const std::vector<uint32_t>& prx_doc_ordinals,
+                                      std::vector<uint32_t>* selected_ordinals) {
     if (!prx_doc_ordinals.empty()) {
         selected_ordinals->push_back(prx_doc_ordinals[doc_index]);
         return doris::Status::OK();
@@ -200,18 +203,18 @@ doris::Status append_selected_ordinal(size_t doc_index, const std::vector<uint32
 }
 
 doris::Status append_selected_doc(size_t doc_index, uint32_t docid,
-                           const std::vector<uint32_t>& prx_doc_ordinals,
-                           std::vector<uint32_t>* selected_docids,
-                           std::vector<uint32_t>* selected_ordinals) {
+                                  const std::vector<uint32_t>& prx_doc_ordinals,
+                                  std::vector<uint32_t>* selected_docids,
+                                  std::vector<uint32_t>* selected_ordinals) {
     selected_docids->push_back(docid);
     return append_selected_ordinal(doc_index, prx_doc_ordinals, selected_ordinals);
 }
 
 doris::Status materialize_selected_prefix(size_t count, size_t capacity,
-                                   const std::vector<uint32_t>& docids,
-                                   const std::vector<uint32_t>& prx_doc_ordinals,
-                                   std::vector<uint32_t>* selected_docids,
-                                   std::vector<uint32_t>* selected_ordinals) {
+                                          const std::vector<uint32_t>& docids,
+                                          const std::vector<uint32_t>& prx_doc_ordinals,
+                                          std::vector<uint32_t>* selected_docids,
+                                          std::vector<uint32_t>* selected_ordinals) {
     selected_docids->reserve(capacity);
     selected_ordinals->reserve(capacity);
     selected_docids->insert(selected_docids->end(), docids.begin(), docids.begin() + count);
@@ -221,11 +224,12 @@ doris::Status materialize_selected_prefix(size_t count, size_t capacity,
     return doris::Status::OK();
 }
 
-doris::Status materialize_selected_prefix_if_needed(bool* selected_all, size_t count, size_t capacity,
-                                             const std::vector<uint32_t>& docids,
-                                             const std::vector<uint32_t>& prx_doc_ordinals,
-                                             std::vector<uint32_t>* selected_docids,
-                                             std::vector<uint32_t>* selected_ordinals) {
+doris::Status materialize_selected_prefix_if_needed(bool* selected_all, size_t count,
+                                                    size_t capacity,
+                                                    const std::vector<uint32_t>& docids,
+                                                    const std::vector<uint32_t>& prx_doc_ordinals,
+                                                    std::vector<uint32_t>* selected_docids,
+                                                    std::vector<uint32_t>* selected_ordinals) {
     if (!*selected_all) {
         return doris::Status::OK();
     }
@@ -235,12 +239,14 @@ doris::Status materialize_selected_prefix_if_needed(bool* selected_all, size_t c
 }
 
 doris::Status SelectCandidateDocsForPrx(std::vector<uint32_t>* docids,
-                                 std::vector<uint32_t>* prx_doc_ordinals, uint32_t prx_doc_count,
-                                 const std::vector<uint32_t>& candidates, PosChunk* chunk) {
+                                        std::vector<uint32_t>* prx_doc_ordinals,
+                                        uint32_t prx_doc_count,
+                                        const std::vector<uint32_t>& candidates, PosChunk* chunk) {
     chunk->docids.clear();
     chunk->prx_doc_ordinals.clear();
     if (prx_doc_count == 0 && docids->size() > std::numeric_limits<uint32_t>::max()) {
-        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("phrase_query: prx doc count exceeds u32");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "phrase_query: prx doc count exceeds u32");
     }
     chunk->prx_doc_count =
             prx_doc_count == 0 ? static_cast<uint32_t>(docids->size()) : prx_doc_count;
@@ -248,7 +254,8 @@ doris::Status SelectCandidateDocsForPrx(std::vector<uint32_t>* docids,
         return doris::Status::OK();
     }
     if (!prx_doc_ordinals->empty() && prx_doc_ordinals->size() != docids->size()) {
-        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("phrase_query: prx ordinal/docid count mismatch");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "phrase_query: prx ordinal/docid count mismatch");
     }
 
     std::vector<uint32_t> selected_docids;
@@ -278,7 +285,7 @@ doris::Status SelectCandidateDocsForPrx(std::vector<uint32_t>* docids,
 
         if (!selected_all) {
             RETURN_IF_ERROR(append_selected_doc(doc_index, docid, *prx_doc_ordinals,
-                                                     &selected_docids, &selected_ordinals));
+                                                &selected_docids, &selected_ordinals));
         }
         ++candidate_index;
     }
@@ -298,11 +305,10 @@ doris::Status SelectCandidateDocsForPrx(std::vector<uint32_t>* docids,
     return doris::Status::OK();
 }
 
-doris::Status BuildFlatPositionSource(const LogicalIndexReader& idx,
-                               const snii::io::BatchRangeFetcher& round1, DocidSource* doc_source,
-                               const TermPlan& p, const std::vector<uint32_t>& candidates,
-                               std::vector<std::unique_ptr<snii::io::BatchRangeFetcher>>* owners,
-                               PosSource* src) {
+doris::Status BuildFlatPositionSource(
+        const LogicalIndexReader& idx, const snii::io::BatchRangeFetcher& round1,
+        DocidSource* doc_source, const TermPlan& p, const std::vector<uint32_t>& candidates,
+        std::vector<std::unique_ptr<snii::io::BatchRangeFetcher>>* owners, PosSource* src) {
     PosChunk chunk;
     std::vector<uint32_t> docids;
     std::vector<uint32_t> prx_doc_ordinals;
@@ -334,9 +340,10 @@ doris::Status BuildFlatPositionSource(const LogicalIndexReader& idx,
             RETURN_IF_ERROR(internal::inline_dd_region(p.entry, &dd));
         }
         RETURN_IF_ERROR(snii::format::decode_dd_region(dd, p.entry.dd_meta,
-                                                            /*win_base=*/0, &docids));
+                                                       /*win_base=*/0, &docids));
         if (docids.size() > std::numeric_limits<uint32_t>::max()) {
-            return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("phrase_query: prx doc count exceeds u32");
+            return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                    "phrase_query: prx doc count exceeds u32");
         }
         chunk.prx_doc_count = static_cast<uint32_t>(docids.size());
     }
@@ -347,7 +354,7 @@ doris::Status BuildFlatPositionSource(const LogicalIndexReader& idx,
         return doris::Status::OK();
     }
     RETURN_IF_ERROR(SelectCandidateDocsForPrx(&docids, &prx_doc_ordinals, chunk.prx_doc_count,
-                                                   candidates, &chunk));
+                                              candidates, &chunk));
     if (!chunk.docids.empty()) src->chunks.push_back(std::move(chunk));
     return doris::Status::OK();
 }
@@ -378,7 +385,8 @@ doris::Status DecodeWindowedPositionSource(
             continue;
         }
         if (!doc_chunk.windowed) {
-            return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("phrase_query: expected windowed doc chunk");
+            return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                    "phrase_query: expected windowed doc chunk");
         }
         PosChunk chunk;
         if (doc_source->docids_are_final_candidates) {
@@ -386,9 +394,9 @@ doris::Status DecodeWindowedPositionSource(
             chunk.prx_doc_ordinals = std::move(doc_chunk.prx_doc_ordinals);
             chunk.prx_doc_count = doc_chunk.prx_doc_count;
         } else {
-            RETURN_IF_ERROR(
-                    SelectCandidateDocsForPrx(&doc_chunk.docids, &doc_chunk.prx_doc_ordinals,
-                                              doc_chunk.prx_doc_count, candidates, &chunk));
+            RETURN_IF_ERROR(SelectCandidateDocsForPrx(&doc_chunk.docids,
+                                                      &doc_chunk.prx_doc_ordinals,
+                                                      doc_chunk.prx_doc_count, candidates, &chunk));
         }
         if (chunk.docids.empty()) continue;
 
@@ -423,12 +431,12 @@ doris::Status BuildPositionSourcesForCandidates(
     for (size_t i = 0; i < plans.size(); ++i) {
         const TermPlan& p = plans[i];
         if (p.windowed) {
-            RETURN_IF_ERROR(DecodeWindowedPositionSource(idx, p, &(*doc_sources)[i],
-                                                              candidates, owners, &(*srcs)[i]));
+            RETURN_IF_ERROR(DecodeWindowedPositionSource(idx, p, &(*doc_sources)[i], candidates,
+                                                         owners, &(*srcs)[i]));
             continue;
         }
         RETURN_IF_ERROR(BuildFlatPositionSource(idx, round1, &(*doc_sources)[i], p, candidates,
-                                                     owners, &(*srcs)[i]));
+                                                owners, &(*srcs)[i]));
     }
     return doris::Status::OK();
 }
@@ -450,30 +458,36 @@ public:
             RETURN_IF_ERROR(snii::format::read_prx_window_csr(&ps, &pflat_, &poff_));
             offsets_by_prx_ordinal_ = true;
         } else {
-            RETURN_IF_ERROR(snii::format::read_prx_window_csr_selective(
-                    &ps, chunk.prx_doc_ordinals, &pflat_, &poff_));
+            RETURN_IF_ERROR(snii::format::read_prx_window_csr_selective(&ps, chunk.prx_doc_ordinals,
+                                                                        &pflat_, &poff_));
         }
         if (offsets_by_prx_ordinal_) {
             if (poff_.size() != static_cast<size_t>(chunk.prx_doc_count) + 1) {
-                return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("phrase_query: full prx doc-count mismatch");
+                return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                        "phrase_query: full prx doc-count mismatch");
             }
         } else if (poff_.size() != chunk.docids.size() + 1) {
-            return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("phrase_query: selected prx/doc-count mismatch");
+            return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                    "phrase_query: selected prx/doc-count mismatch");
         }
         if (poff_.back() > pflat_.size()) {
-            return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("phrase_query: prx final offset out of range");
+            return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                    "phrase_query: prx final offset out of range");
         }
         return doris::Status::OK();
     }
 
-    doris::Status positions(size_t doc_index, std::pair<const uint32_t*, const uint32_t*>* out) const {
+    doris::Status positions(size_t doc_index,
+                            std::pair<const uint32_t*, const uint32_t*>* out) const {
         if (chunk_ == nullptr || doc_index >= chunk_->docids.size()) {
-            return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("phrase_query: decoded chunk doc index out of range");
+            return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                    "phrase_query: decoded chunk doc index out of range");
         }
         const size_t pos_index =
                 offsets_by_prx_ordinal_ ? chunk_->prx_doc_ordinals[doc_index] : doc_index;
         if (pos_index + 1 >= poff_.size()) {
-            return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("phrase_query: prx ordinal offset out of range");
+            return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                    "phrase_query: prx ordinal offset out of range");
         }
         const uint32_t begin = poff_[pos_index];
         const uint32_t end = poff_[pos_index + 1];
@@ -482,7 +496,8 @@ public:
             return doris::Status::OK();
         }
         if (end > pflat_.size()) {
-            return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("phrase_query: prx offset out of range");
+            return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                    "phrase_query: prx offset out of range");
         }
         *out = {pflat_.data() + begin, pflat_.data() + end};
         return doris::Status::OK();
@@ -540,12 +555,14 @@ public:
             li_ = 0;
         }
         if (ci_ >= src_->chunks.size()) {
-            return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("phrase_query: cursor exhausted before target docid");
+            return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                    "phrase_query: cursor exhausted before target docid");
         }
         const std::vector<uint32_t>& d = src_->chunks[ci_].docids;
         while (li_ < d.size() && d[li_] < target) ++li_;
         if (li_ >= d.size() || d[li_] != target) {
-            return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("phrase_query: candidate missing from posting chunk");
+            return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                    "phrase_query: candidate missing from posting chunk");
         }
         return doris::Status::OK();
     }
@@ -554,7 +571,8 @@ public:
     // .prx exactly once (cached). Must follow a seek that landed on a real doc.
     doris::Status positions(std::pair<const uint32_t*, const uint32_t*>* out) {
         if (ci_ >= src_->chunks.size() || li_ >= src_->chunks[ci_].docids.size()) {
-            return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("phrase_query: cursor positions out of range");
+            return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                    "phrase_query: cursor positions out of range");
         }
         if (decoded_pos_chunk_ != ci_) {
             RETURN_IF_ERROR(decoder_.decode(src_->chunks[ci_]));
@@ -570,7 +588,8 @@ public:
             li_ = 0;
         }
         if (ci_ >= src_->chunks.size()) {
-            return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("phrase_query: cursor exhausted before next docid");
+            return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                    "phrase_query: cursor exhausted before next docid");
         }
         *docid = src_->chunks[ci_].docids[li_];
         RETURN_IF_ERROR(positions(out));
@@ -606,8 +625,9 @@ public:
         }
     }
 
-    doris::Status positions_for_phrase_pos(const std::vector<size_t>& phrase_plan_index, size_t phrase_pos,
-                                    std::pair<const uint32_t*, const uint32_t*>* out) {
+    doris::Status positions_for_phrase_pos(const std::vector<size_t>& phrase_plan_index,
+                                           size_t phrase_pos,
+                                           std::pair<const uint32_t*, const uint32_t*>* out) {
         const size_t plan_index = phrase_plan_index[phrase_pos];
         if (loaded_epoch_[plan_index] != epoch_) {
             RETURN_IF_ERROR(cursors_[plan_index].seek(docid_));
@@ -699,10 +719,10 @@ void CollectTwoTermPhraseStarts(std::pair<const uint32_t*, const uint32_t*> left
 }
 
 doris::Status EmitTwoTermPhraseStreaming(const std::vector<size_t>& phrase_plan_index,
-                                  const std::vector<uint32_t>& position_offsets,
-                                  std::vector<PosSource>& srcs,
-                                  const std::vector<uint32_t>& candidates,
-                                  std::vector<uint32_t>* docids) {
+                                         const std::vector<uint32_t>& position_offsets,
+                                         std::vector<PosSource>& srcs,
+                                         const std::vector<uint32_t>& candidates,
+                                         std::vector<uint32_t>* docids) {
     const size_t left_plan = phrase_plan_index[0];
     const size_t right_plan = phrase_plan_index[1];
     const uint32_t right_delta = position_offsets[1] - position_offsets[0];
@@ -715,7 +735,8 @@ doris::Status EmitTwoTermPhraseStreaming(const std::vector<size_t>& phrase_plan_
             std::pair<const uint32_t*, const uint32_t*> span;
             RETURN_IF_ERROR(cursor.next(&docid, &span));
             if (docid != expected_docid) {
-                return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("phrase_query: repeated-term cursor/docid mismatch");
+                return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                        "phrase_query: repeated-term cursor/docid mismatch");
             }
             if (ContainsTwoTermPhrase(span, span, right_delta)) {
                 docids->push_back(docid);
@@ -736,7 +757,8 @@ doris::Status EmitTwoTermPhraseStreaming(const std::vector<size_t>& phrase_plan_
         RETURN_IF_ERROR(left_cursor.next(&left_docid, &left_span));
         RETURN_IF_ERROR(right_cursor.next(&right_docid, &right_span));
         if (left_docid != expected_docid || right_docid != expected_docid) {
-            return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("phrase_query: two-term cursor/docid mismatch");
+            return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                    "phrase_query: two-term cursor/docid mismatch");
         }
         if (ContainsTwoTermPhrase(left_span, right_span, right_delta)) {
             docids->push_back(expected_docid);
@@ -780,9 +802,9 @@ void EmitTwoTermPhraseChunkPair(const PosChunk& left, const PosChunk& right,
 }
 
 doris::Status EmitTwoTermPhraseChunkMerge(const std::vector<size_t>& phrase_plan_index,
-                                   const std::vector<uint32_t>& position_offsets,
-                                   std::vector<PosSource>& srcs,
-                                   std::vector<uint32_t>* const docids) {
+                                          const std::vector<uint32_t>& position_offsets,
+                                          std::vector<PosSource>& srcs,
+                                          std::vector<uint32_t>* const docids) {
     const size_t left_plan = phrase_plan_index[0];
     const size_t right_plan = phrase_plan_index[1];
     const uint32_t right_delta = position_offsets[1] - position_offsets[0];
@@ -858,9 +880,9 @@ bool PhraseStartMatchesAllTerms(
 }
 
 doris::Status EmitSingleTermPhraseStreaming(const std::vector<size_t>& phrase_plan_index,
-                                     std::vector<PosSource>& srcs,
-                                     const std::vector<uint32_t>& candidates,
-                                     std::vector<uint32_t>* docids) {
+                                            std::vector<PosSource>& srcs,
+                                            const std::vector<uint32_t>& candidates,
+                                            std::vector<uint32_t>* docids) {
     PhrasePositionLoader loader(srcs.size(), srcs);
     for (uint32_t d : candidates) {
         loader.begin_doc(d);
@@ -874,11 +896,11 @@ doris::Status EmitSingleTermPhraseStreaming(const std::vector<size_t>& phrase_pl
 }
 
 doris::Status EmitMultiTermPhraseStreaming(const std::vector<TermPlan>& plans,
-                                    const std::vector<size_t>& phrase_plan_index,
-                                    const std::vector<uint32_t>& position_offsets,
-                                    std::vector<PosSource>& srcs,
-                                    const std::vector<uint32_t>& candidates,
-                                    std::vector<uint32_t>* docids) {
+                                           const std::vector<size_t>& phrase_plan_index,
+                                           const std::vector<uint32_t>& position_offsets,
+                                           std::vector<PosSource>& srcs,
+                                           const std::vector<uint32_t>& candidates,
+                                           std::vector<uint32_t>* docids) {
     const size_t phrase_len = phrase_plan_index.size();
     PhrasePositionLoader loader(plans.size(), srcs);
     std::vector<std::pair<const uint32_t*, const uint32_t*>> span(phrase_len);
@@ -889,8 +911,7 @@ doris::Status EmitMultiTermPhraseStreaming(const std::vector<TermPlan>& plans,
         loader.begin_doc(d);
         std::pair<const uint32_t*, const uint32_t*> left_span;
         std::pair<const uint32_t*, const uint32_t*> right_span;
-        RETURN_IF_ERROR(
-                loader.positions_for_phrase_pos(phrase_plan_index, pair_left, &left_span));
+        RETURN_IF_ERROR(loader.positions_for_phrase_pos(phrase_plan_index, pair_left, &left_span));
         RETURN_IF_ERROR(
                 loader.positions_for_phrase_pos(phrase_plan_index, pair_right, &right_span));
 
@@ -930,10 +951,11 @@ doris::Status EmitMultiTermPhraseStreaming(const std::vector<TermPlan>& plans,
 // position materialization. Candidates are ascending so the emitted docids are
 // already sorted.
 doris::Status EmitPhraseStreaming(const std::vector<TermPlan>& plans,
-                           const std::vector<size_t>& phrase_plan_index,
-                           const std::vector<uint32_t>& position_offsets,
-                           std::vector<PosSource>& srcs, const std::vector<uint32_t>& candidates,
-                           std::vector<uint32_t>* docids) {
+                                  const std::vector<size_t>& phrase_plan_index,
+                                  const std::vector<uint32_t>& position_offsets,
+                                  std::vector<PosSource>& srcs,
+                                  const std::vector<uint32_t>& candidates,
+                                  std::vector<uint32_t>* docids) {
     const size_t phrase_len = phrase_plan_index.size();
     if (phrase_len == 1) {
         return EmitSingleTermPhraseStreaming(phrase_plan_index, srcs, candidates, docids);
@@ -949,17 +971,18 @@ doris::Status EmitPhraseStreaming(const std::vector<TermPlan>& plans,
                                         candidates, docids);
 }
 
-doris::Status BuildPhraseExecutionState(const LogicalIndexReader& idx, snii::io::BatchRangeFetcher* round1,
-                                 std::vector<TermPlan>* plans, PhraseExecutionState* state) {
+doris::Status BuildPhraseExecutionState(const LogicalIndexReader& idx,
+                                        snii::io::BatchRangeFetcher* round1,
+                                        std::vector<TermPlan>* plans, PhraseExecutionState* state) {
     if (round1->pending() > 0) RETURN_IF_ERROR(round1->fetch());
     RETURN_IF_ERROR(internal::open_preludes(*round1, plans,
-                                                 /*need_positions=*/true));
+                                            /*need_positions=*/true));
 
     state->owners.clear();
     state->candidates.clear();
     std::vector<DocidSource> doc_sources;
-    RETURN_IF_ERROR(internal::build_docid_only_conjunction(idx, *round1, *plans,
-                                                                &state->candidates, &doc_sources));
+    RETURN_IF_ERROR(internal::build_docid_only_conjunction(idx, *round1, *plans, &state->candidates,
+                                                           &doc_sources));
     if (state->candidates.empty()) return doris::Status::OK();
     RETURN_IF_ERROR(BuildPositionSourcesForCandidates(
             idx, *round1, *plans, &doc_sources, state->candidates, &state->owners, &state->srcs));
@@ -967,38 +990,39 @@ doris::Status BuildPhraseExecutionState(const LogicalIndexReader& idx, snii::io:
 }
 
 doris::Status ExecutePhrasePlans(const LogicalIndexReader& idx, snii::io::BatchRangeFetcher* round1,
-                          std::vector<TermPlan>* plans,
-                          const std::vector<size_t>& phrase_plan_index,
-                          std::vector<uint32_t>* docids) {
+                                 std::vector<TermPlan>* plans,
+                                 const std::vector<size_t>& phrase_plan_index,
+                                 std::vector<uint32_t>* docids) {
     PhraseExecutionState state;
     RETURN_IF_ERROR(BuildPhraseExecutionState(idx, round1, plans, &state));
     if (state.candidates.empty()) return doris::Status::OK();
 
     std::vector<uint32_t> position_offsets;
     if (!internal::build_position_offsets(phrase_plan_index.size(), &position_offsets)) {
-        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("phrase_query: phrase length exceeds doc position range");
+        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>(
+                "phrase_query: phrase length exceeds doc position range");
     }
     return EmitPhraseStreaming(*plans, phrase_plan_index, position_offsets, state.srcs,
                                state.candidates, docids);
 }
 
 doris::Status ExecuteResolvedPhraseTerms(const LogicalIndexReader& idx,
-                                  const std::vector<ResolvedQueryTerm>& terms,
-                                  std::vector<uint32_t>* docids) {
+                                         const std::vector<ResolvedQueryTerm>& terms,
+                                         std::vector<uint32_t>* docids) {
     snii::io::BatchRangeFetcher round1(idx.reader());
     std::vector<TermPlan> plans;
     RETURN_IF_ERROR(internal::plan_resolved_terms(idx, terms, &round1, &plans,
-                                                       /*need_positions=*/false));
+                                                  /*need_positions=*/false));
     std::vector<size_t> phrase_plan_index(terms.size());
     std::iota(phrase_plan_index.begin(), phrase_plan_index.end(), 0);
     return ExecutePhrasePlans(idx, &round1, &plans, phrase_plan_index, docids);
 }
 
 doris::Status CollectExpectedTailPositions(const std::vector<TermPlan>& plans,
-                                    const std::vector<uint32_t>& position_offsets,
-                                    std::vector<PosSource>& srcs,
-                                    const std::vector<uint32_t>& candidates,
-                                    ExpectedTailPositionSet* out) {
+                                           const std::vector<uint32_t>& position_offsets,
+                                           std::vector<PosSource>& srcs,
+                                           const std::vector<uint32_t>& candidates,
+                                           ExpectedTailPositionSet* out) {
     const size_t n = plans.size();
     std::vector<PostingCursor> cur(n);
     for (size_t i = 0; i < n; ++i) cur[i].init(&srcs[i]);
@@ -1042,8 +1066,9 @@ doris::Status CollectExpectedTailPositions(const std::vector<TermPlan>& plans,
 }
 
 doris::Status CollectSingleTermExpectedTailPositions(std::vector<PosSource>& srcs,
-                                              const std::vector<uint32_t>& candidates,
-                                              uint32_t tail_offset, ExpectedTailPositionSet* out) {
+                                                     const std::vector<uint32_t>& candidates,
+                                                     uint32_t tail_offset,
+                                                     ExpectedTailPositionSet* out) {
     PostingCursor cursor;
     cursor.init(srcs.data());
     out->reserve_docs(out->docs.size() + candidates.size());
@@ -1069,13 +1094,13 @@ doris::Status CollectSingleTermExpectedTailPositions(std::vector<PosSource>& src
 }
 
 doris::Status CollectExpectedTailPositions(const LogicalIndexReader& idx,
-                                    const std::vector<ResolvedQueryTerm>& exact_terms,
-                                    ExpectedTailPositionSet* out) {
+                                           const std::vector<ResolvedQueryTerm>& exact_terms,
+                                           ExpectedTailPositionSet* out) {
     out->clear();
     snii::io::BatchRangeFetcher round1(idx.reader());
     std::vector<TermPlan> plans;
     RETURN_IF_ERROR(internal::plan_resolved_terms(idx, exact_terms, &round1, &plans,
-                                                       /*need_positions=*/false));
+                                                  /*need_positions=*/false));
 
     PhraseExecutionState state;
     RETURN_IF_ERROR(BuildPhraseExecutionState(idx, &round1, &plans, &state));
@@ -1105,9 +1130,9 @@ bool contains_any_position(const ExpectedTailPositionSet& expected,
 }
 
 doris::Status CollectTailMatchesAtExpectedPositions(const LogicalIndexReader& idx,
-                                             const ResolvedQueryTerm& tail,
-                                             const ExpectedTailPositionSet& expected,
-                                             std::vector<uint32_t>* out) {
+                                                    const ResolvedQueryTerm& tail,
+                                                    const ExpectedTailPositionSet& expected,
+                                                    std::vector<uint32_t>* out) {
     if (expected.docs.empty()) {
         return doris::Status::OK();
     }
@@ -1115,11 +1140,11 @@ doris::Status CollectTailMatchesAtExpectedPositions(const LogicalIndexReader& id
     snii::io::BatchRangeFetcher round1(idx.reader());
     std::vector<TermPlan> plans;
     RETURN_IF_ERROR(internal::plan_resolved_terms(idx, {tail}, &round1, &plans,
-                                                       /*need_positions=*/false));
+                                                  /*need_positions=*/false));
 
     if (round1.pending() > 0) RETURN_IF_ERROR(round1.fetch());
     RETURN_IF_ERROR(internal::open_preludes(round1, &plans,
-                                                 /*need_positions=*/true));
+                                            /*need_positions=*/true));
 
     std::vector<uint32_t> expected_docids;
     expected_docids.reserve(expected.docs.size());
@@ -1130,13 +1155,13 @@ doris::Status CollectTailMatchesAtExpectedPositions(const LogicalIndexReader& id
     std::vector<uint32_t> tail_candidates;
     std::vector<DocidSource> doc_sources;
     RETURN_IF_ERROR(internal::filter_docids_by_conjunction(idx, round1, plans, expected_docids,
-                                                                &tail_candidates, &doc_sources));
+                                                           &tail_candidates, &doc_sources));
     if (tail_candidates.empty()) return doris::Status::OK();
 
     std::vector<std::unique_ptr<snii::io::BatchRangeFetcher>> owners;
     std::vector<PosSource> srcs;
     RETURN_IF_ERROR(BuildPositionSourcesForCandidates(idx, round1, plans, &doc_sources,
-                                                           tail_candidates, &owners, &srcs));
+                                                      tail_candidates, &owners, &srcs));
 
     PostingCursor cursor;
     cursor.init(&srcs[0]);
@@ -1169,9 +1194,10 @@ doris::Status CollectTailMatchesAtExpectedPositions(const LogicalIndexReader& id
 } // namespace
 
 doris::Status phrase_query(const LogicalIndexReader& idx, const std::vector<std::string>& terms,
-                    std::vector<uint32_t>* const docids) {
+                           std::vector<uint32_t>* const docids) {
     if (docids == nullptr) {
-        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("phrase_query: null out");
+        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>(
+                "phrase_query: null out");
     }
     docids->clear();
     if (terms.empty()) {
@@ -1181,7 +1207,8 @@ doris::Status phrase_query(const LogicalIndexReader& idx, const std::vector<std:
         return term_query(idx, terms.front(), docids);
     }
     if (!idx.has_positions()) {
-        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_NOT_SUPPORTED, false>("phrase_query: index has no positions");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_NOT_SUPPORTED, false>(
+                "phrase_query: index has no positions");
     }
     bool handled_by_bigram = false;
     RETURN_IF_ERROR(TryTwoTermPhraseBigram(idx, terms, docids, &handled_by_bigram));
@@ -1197,23 +1224,24 @@ doris::Status phrase_query(const LogicalIndexReader& idx, const std::vector<std:
     const PhraseTermMapping mapping = BuildPhraseTermMapping(terms);
     std::vector<TermPlan> plans;
     bool all_present = false;
-    RETURN_IF_ERROR(internal::plan_terms(idx, mapping.unique_terms, &round1, &plans,
-                                              &all_present,
-                                              /*need_positions=*/false));
+    RETURN_IF_ERROR(internal::plan_terms(idx, mapping.unique_terms, &round1, &plans, &all_present,
+                                         /*need_positions=*/false));
     if (!all_present) return doris::Status::OK();
     return ExecutePhrasePlans(idx, &round1, &plans, mapping.phrase_plan_index, docids);
 }
 
 doris::Status phrase_query(const LogicalIndexReader& idx, const std::vector<std::string>& terms,
-                    std::vector<uint32_t>* const docids, QueryProfile* profile) {
+                           std::vector<uint32_t>* const docids, QueryProfile* profile) {
     QueryProfileScope profile_scope(idx.reader(), profile);
     return phrase_query(idx, terms, docids);
 }
 
-doris::Status phrase_prefix_query(const LogicalIndexReader& idx, const std::vector<std::string>& terms,
-                           std::vector<uint32_t>* const docids, int32_t max_expansions) {
+doris::Status phrase_prefix_query(const LogicalIndexReader& idx,
+                                  const std::vector<std::string>& terms,
+                                  std::vector<uint32_t>* const docids, int32_t max_expansions) {
     if (docids == nullptr) {
-        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("phrase_prefix_query: null out");
+        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>(
+                "phrase_prefix_query: null out");
     }
     docids->clear();
     if (terms.empty()) {
@@ -1223,7 +1251,8 @@ doris::Status phrase_prefix_query(const LogicalIndexReader& idx, const std::vect
         return prefix_query(idx, terms.front(), docids, max_expansions);
     }
     if (!idx.has_positions()) {
-        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_NOT_SUPPORTED, false>("phrase_prefix_query: index has no positions");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_NOT_SUPPORTED, false>(
+                "phrase_prefix_query: index has no positions");
     }
     std::vector<ResolvedQueryTerm> exact_terms;
     exact_terms.reserve(terms.size() - 1);
@@ -1263,17 +1292,17 @@ doris::Status phrase_prefix_query(const LogicalIndexReader& idx, const std::vect
     for (LogicalIndexReader::PrefixHit& hit : tail_hits) {
         ResolvedQueryTerm tail {std::move(hit.entry), hit.frq_base, hit.prx_base};
         std::vector<uint32_t> tail_docs;
-        RETURN_IF_ERROR(
-                CollectTailMatchesAtExpectedPositions(idx, tail, expected, &tail_docs));
+        RETURN_IF_ERROR(CollectTailMatchesAtExpectedPositions(idx, tail, expected, &tail_docs));
         internal::union_sorted_into(&acc, tail_docs);
     }
     *docids = std::move(acc);
     return doris::Status::OK();
 }
 
-doris::Status phrase_prefix_query(const LogicalIndexReader& idx, const std::vector<std::string>& terms,
-                           std::vector<uint32_t>* const docids, QueryProfile* profile,
-                           int32_t max_expansions) {
+doris::Status phrase_prefix_query(const LogicalIndexReader& idx,
+                                  const std::vector<std::string>& terms,
+                                  std::vector<uint32_t>* const docids, QueryProfile* profile,
+                                  int32_t max_expansions) {
     QueryProfileScope profile_scope(idx.reader(), profile);
     return phrase_prefix_query(idx, terms, docids, max_expansions);
 }

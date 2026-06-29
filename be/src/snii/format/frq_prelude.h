@@ -20,8 +20,8 @@
 #include <cstdint>
 #include <vector>
 
-#include "snii/common/slice.h"
 #include "common/status.h"
+#include "snii/common/slice.h"
 #include "snii/encoding/byte_sink.h"
 
 // FrqPrelude: a TWO-LEVEL (super-block -> window) skippable directory that

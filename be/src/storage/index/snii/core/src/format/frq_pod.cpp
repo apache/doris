@@ -71,11 +71,13 @@ doris::Status decode_pfor_runs(ByteSource* src, size_t n, std::vector<uint32_t>*
 doris::Status validate_docs(std::span<const uint32_t> docs, uint64_t win_base) {
     if (docs.empty()) return doris::Status::OK();
     if (static_cast<uint64_t>(docs.front()) < win_base) {
-        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("frq: first docid below win_base");
+        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>(
+                "frq: first docid below win_base");
     }
     for (size_t i = 1; i < docs.size(); ++i) {
         if (docs[i] < docs[i - 1]) {
-            return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("frq: docids must be ascending");
+            return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>(
+                    "frq: docids must be ascending");
         }
     }
     return doris::Status::OK();
@@ -93,7 +95,8 @@ bool should_compress(int level, size_t plain_len) {
 // header.
 doris::Status emit_region(Slice plain, int level, ByteSink* out, FrqRegionMeta* meta) {
     if (out == nullptr || meta == nullptr) {
-        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("frq: null region out");
+        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>(
+                "frq: null region out");
     }
     meta->uncomp_len = plain.size();
     std::vector<uint8_t> disk;
@@ -113,22 +116,26 @@ doris::Status emit_region(Slice plain, int level, ByteSink* out, FrqRegionMeta* 
 // Materializes a region's plaintext (raw borrows the view; zstd decompresses)
 // and verifies its crc + slice length against meta.
 doris::Status open_region(Slice disk, const FrqRegionMeta& meta, std::vector<uint8_t>* holder,
-                   Slice* plain) {
+                          Slice* plain) {
     if (disk.size() != static_cast<size_t>(meta.disk_len)) {
-        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("frq: region slice length mismatch");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "frq: region slice length mismatch");
     }
     if (meta.uncomp_len > kMaxRegionUncompBytes) {
-        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("frq: region uncomp_len exceeds sane cap");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "frq: region uncomp_len exceeds sane cap");
     }
     // Inline entries (verify_crc=false) carry no per-region crc: their on-disk
     // bytes are covered by the enclosing dict block's block-level crc32c, so the
     // region crc would be redundant. POD-ref regions keep their own crc check.
     if (meta.verify_crc && crc32c(disk) != meta.crc) {
-        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("frq: region crc mismatch");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "frq: region crc mismatch");
     }
     if (!meta.zstd) {
         if (meta.uncomp_len != meta.disk_len) {
-            return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("frq: raw region length inconsistent");
+            return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                    "frq: raw region length inconsistent");
         }
         *plain = disk;
         return doris::Status::OK();
@@ -141,9 +148,10 @@ doris::Status open_region(Slice disk, const FrqRegionMeta& meta, std::vector<uin
 } // namespace
 
 doris::Status build_dd_region(std::span<const uint32_t> docids_ascending, uint64_t win_base,
-                       int zstd_level_or_neg_for_auto, ByteSink* out, FrqRegionMeta* meta) {
+                              int zstd_level_or_neg_for_auto, ByteSink* out, FrqRegionMeta* meta) {
     if (out == nullptr || meta == nullptr) {
-        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("frq: null dd region out");
+        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>(
+                "frq: null dd region out");
     }
     RETURN_IF_ERROR(validate_docs(docids_ascending, win_base));
     ByteSink plain; // VInt n ++ PFOR_runs(doc_delta)
@@ -159,9 +167,10 @@ doris::Status build_dd_region(std::span<const uint32_t> docids_ascending, uint64
 }
 
 doris::Status build_freq_region(std::span<const uint32_t> freqs, int zstd_level_or_neg_for_auto,
-                         ByteSink* out, FrqRegionMeta* meta) {
+                                ByteSink* out, FrqRegionMeta* meta) {
     if (out == nullptr || meta == nullptr) {
-        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("frq: null freq region out");
+        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>(
+                "frq: null freq region out");
     }
     ByteSink plain;
     encode_pfor_runs(freqs, &plain);
@@ -169,18 +178,23 @@ doris::Status build_freq_region(std::span<const uint32_t> freqs, int zstd_level_
 }
 
 doris::Status decode_dd_region(Slice dd_disk, const FrqRegionMeta& meta, uint64_t win_base,
-                        std::vector<uint32_t>* docids) {
-    if (docids == nullptr) return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("frq: null docids out");
+                               std::vector<uint32_t>* docids) {
+    if (docids == nullptr)
+        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>(
+                "frq: null docids out");
     std::vector<uint8_t> holder;
     Slice plain;
     RETURN_IF_ERROR(open_region(dd_disk, meta, &holder, &plain));
     ByteSource src(plain);
     uint32_t n = 0;
     RETURN_IF_ERROR(src.get_varint32(&n));
-    if (n > kMaxWindowDocs) return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("frq: doc count exceeds sane cap");
+    if (n > kMaxWindowDocs)
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "frq: doc count exceeds sane cap");
     RETURN_IF_ERROR(decode_pfor_runs(&src, n, docids));
     if (!src.eof()) {
-        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("frq: trailing bytes after dd region payload");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "frq: trailing bytes after dd region payload");
     }
     uint64_t cur = win_base;
     for (uint32_t i = 0; i < n; ++i) {
@@ -191,14 +205,17 @@ doris::Status decode_dd_region(Slice dd_disk, const FrqRegionMeta& meta, uint64_
 }
 
 doris::Status decode_freq_region(Slice freq_disk, const FrqRegionMeta& meta, size_t doc_count,
-                          std::vector<uint32_t>* freqs) {
-    if (freqs == nullptr) return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("frq: null freqs out");
+                                 std::vector<uint32_t>* freqs) {
+    if (freqs == nullptr)
+        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>(
+                "frq: null freqs out");
     std::vector<uint8_t> holder;
     Slice plain;
     RETURN_IF_ERROR(open_region(freq_disk, meta, &holder, &plain));
     if (doc_count == 0) {
         if (meta.uncomp_len != 0) {
-            return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("frq: empty freq region expected");
+            return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                    "frq: empty freq region expected");
         }
         freqs->clear();
         return doris::Status::OK();
@@ -206,7 +223,8 @@ doris::Status decode_freq_region(Slice freq_disk, const FrqRegionMeta& meta, siz
     ByteSource src(plain);
     RETURN_IF_ERROR(decode_pfor_runs(&src, doc_count, freqs));
     if (!src.eof()) {
-        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("frq: trailing bytes after freq region payload");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "frq: trailing bytes after freq region payload");
     }
     return doris::Status::OK();
 }

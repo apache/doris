@@ -22,8 +22,8 @@
 #include <string_view>
 #include <vector>
 
-#include "snii/common/slice.h"
 #include "common/status.h"
+#include "snii/common/slice.h"
 #include "snii/encoding/byte_sink.h"
 
 namespace snii::format {
@@ -81,7 +81,7 @@ public:
     // when absent, *found=false and *out is left untouched. Returns kInvalidArgument on null
     // output pointers. The pair (index_id, suffix) is the unique key.
     doris::Status find(uint64_t index_id, std::string_view suffix, bool* found,
-                LogicalIndexRef* out) const;
+                       LogicalIndexRef* out) const;
 
 private:
     std::vector<LogicalIndexRef> refs_;

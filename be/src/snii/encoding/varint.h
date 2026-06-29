@@ -30,8 +30,10 @@ size_t encode_varint32(uint32_t v, uint8_t* out);
 size_t encode_varint64(uint64_t v, uint8_t* out);
 
 // Decode a varint from the range [p, end); on success *next points to the next byte after the consumed input.
-doris::Status decode_varint32(const uint8_t* p, const uint8_t* end, uint32_t* v, const uint8_t** next);
-doris::Status decode_varint64(const uint8_t* p, const uint8_t* end, uint64_t* v, const uint8_t** next);
+doris::Status decode_varint32(const uint8_t* p, const uint8_t* end, uint32_t* v,
+                              const uint8_t** next);
+doris::Status decode_varint64(const uint8_t* p, const uint8_t* end, uint64_t* v,
+                              const uint8_t** next);
 
 inline uint64_t zigzag_encode(int64_t v) {
     return (static_cast<uint64_t>(v) << 1) ^ static_cast<uint64_t>(v >> 63);

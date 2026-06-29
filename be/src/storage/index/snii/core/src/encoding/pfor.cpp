@@ -346,7 +346,8 @@ doris::Status pfor_decode(ByteSource* src, size_t n, uint32_t* out) {
         RETURN_IF_ERROR(src->get_varint32(&val));
         idx += d;
         if (idx >= n) {
-            return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("pfor exception index out of range");
+            return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                    "pfor exception index out of range");
         }
         out[idx] = val;
     }
@@ -369,7 +370,8 @@ doris::Status pfor_skip(ByteSource* src, size_t n) {
         RETURN_IF_ERROR(src->get_varint32(&val));
         idx += d;
         if (idx >= n) {
-            return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("pfor exception index out of range");
+            return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                    "pfor exception index out of range");
         }
     }
     return doris::Status::OK();

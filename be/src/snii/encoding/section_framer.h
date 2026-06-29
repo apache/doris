@@ -19,8 +19,8 @@
 
 #include <cstdint>
 
-#include "snii/common/slice.h"
 #include "common/status.h"
+#include "snii/common/slice.h"
 #include "snii/encoding/byte_sink.h"
 #include "snii/encoding/byte_source.h"
 

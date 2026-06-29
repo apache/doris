@@ -26,7 +26,8 @@ namespace {
 
 doris::Status checked_end(uint64_t offset, uint64_t len, uint64_t* out) {
     if (len > std::numeric_limits<uint64_t>::max() - offset) {
-        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("batch_range_fetcher: range end overflow");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "batch_range_fetcher: range end overflow");
     }
     *out = offset + len;
     return doris::Status::OK();
@@ -34,7 +35,8 @@ doris::Status checked_end(uint64_t offset, uint64_t len, uint64_t* out) {
 
 doris::Status checked_size(uint64_t len, size_t* out) {
     if (len > static_cast<uint64_t>(std::numeric_limits<size_t>::max())) {
-        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("batch_range_fetcher: physical range too large");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "batch_range_fetcher: physical range too large");
     }
     *out = static_cast<size_t>(len);
     return doris::Status::OK();
@@ -56,7 +58,9 @@ void BatchRangeFetcher::clear() {
 }
 
 doris::Status BatchRangeFetcher::fetch() {
-    if (reader_ == nullptr) return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("batch_range_fetcher: null reader");
+    if (reader_ == nullptr)
+        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>(
+                "batch_range_fetcher: null reader");
     phys_.clear();
     if (reqs_.empty()) return doris::Status::OK();
 

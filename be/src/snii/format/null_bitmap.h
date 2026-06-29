@@ -20,8 +20,8 @@
 #include <cstdint>
 #include <memory>
 
-#include "snii/common/slice.h"
 #include "common/status.h"
+#include "snii/common/slice.h"
 #include "snii/encoding/byte_sink.h"
 
 // Forward-declare the CRoaring C++ bitmap so this header stays free of the

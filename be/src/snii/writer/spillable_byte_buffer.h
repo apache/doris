@@ -35,7 +35,6 @@
 #include "io/fs/local_file_system.h"
 #include "io/fs/path.h"
 #include "snii/common/slice.h"
-#include "common/status.h"
 #include "snii/io/file_writer.h"
 #include "snii/writer/memory_reporter.h"
 #include "snii/writer/temp_dir.h"
@@ -149,7 +148,8 @@ public:
             RETURN_IF_ERROR(to_snii(reader->read_at(
                     off, doris::Slice(buf.data(), static_cast<size_t>(n)), &bytes_read)));
             if (bytes_read != n) {
-                return doris::Status::Error<doris::ErrorCode::IO_ERROR, false>("short read from spill scratch file");
+                return doris::Status::Error<doris::ErrorCode::IO_ERROR, false>(
+                        "short read from spill scratch file");
             }
             RETURN_IF_ERROR(out->append(Slice(buf.data(), static_cast<size_t>(n))));
         }

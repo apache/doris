@@ -25,7 +25,6 @@
 #include "io/fs/file_reader.h"
 #include "io/fs/file_writer.h"
 #include "io/io_common.h"
-#include "common/status.h"
 #include "snii/io/file_reader.h"
 #include "snii/io/file_writer.h"
 #include "util/slice.h"
@@ -69,7 +68,7 @@ public:
 
     doris::Status read_at(uint64_t offset, size_t len, std::vector<uint8_t>* out) override;
     doris::Status read_batch(const std::vector<::snii::io::Range>& ranges,
-                              std::vector<std::vector<uint8_t>>* outs) override;
+                             std::vector<std::vector<uint8_t>>* outs) override;
     uint64_t size() const override;
 
 private:
@@ -85,7 +84,7 @@ private:
     uint8_t _classify_section(uint64_t offset, size_t len) const;
     doris::Status _check_read_range(uint64_t offset, size_t len) const;
     doris::Status _read_at(uint64_t offset, size_t len, std::vector<uint8_t>* out,
-                            const io::IOContext* io_ctx) const;
+                           const io::IOContext* io_ctx) const;
     const io::IOContext* _current_io_ctx() const;
     void _record_read_stats(int64_t request_bytes, int64_t read_bytes, int64_t range_read_count,
                             int64_t serial_read_rounds) const;

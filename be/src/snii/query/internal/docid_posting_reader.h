@@ -37,18 +37,18 @@ struct ResolvedDocidPosting {
 // lookup and can batch/plan lookups independently; this module owns only the
 // three posting encodings (inline, slim pod_ref, windowed pod_ref).
 doris::Status read_docid_posting(const snii::reader::LogicalIndexReader& idx,
-                          const snii::format::DictEntry& entry, uint64_t frq_base,
-                          uint64_t prx_base, std::vector<uint32_t>* docids);
+                                 const snii::format::DictEntry& entry, uint64_t frq_base,
+                                 uint64_t prx_base, std::vector<uint32_t>* docids);
 
 doris::Status read_docid_posting(const snii::reader::LogicalIndexReader& idx,
-                          const snii::format::DictEntry& entry, uint64_t frq_base,
-                          uint64_t prx_base, snii::query::DocIdSink* sink);
+                                 const snii::format::DictEntry& entry, uint64_t frq_base,
+                                 uint64_t prx_base, snii::query::DocIdSink* sink);
 
 // Batch counterpart for multi-term docid-only operators. Windowed terms share one
 // prelude fetch round and one docid fetch round, so OR-style operators pay by
 // stage rather than by term.
 doris::Status read_docid_postings_batched(const snii::reader::LogicalIndexReader& idx,
-                                   const std::vector<ResolvedDocidPosting>& postings,
-                                   std::vector<std::vector<uint32_t>>* docids);
+                                          const std::vector<ResolvedDocidPosting>& postings,
+                                          std::vector<std::vector<uint32_t>>* docids);
 
 } // namespace snii::query::internal

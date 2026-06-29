@@ -36,8 +36,8 @@ using snii::format::RegionRef;
 namespace {
 
 // Resolves a term's DictEntry. *found=false for an absent term (OK status).
-doris::Status LookupEntry(const snii::reader::LogicalIndexReader& idx, std::string_view term, bool* found,
-                   DictEntry* entry) {
+doris::Status LookupEntry(const snii::reader::LogicalIndexReader& idx, std::string_view term,
+                          bool* found, DictEntry* entry) {
     uint64_t frq_base = 0;
     uint64_t prx_base = 0;
     return idx.lookup(term, found, entry, &frq_base, &prx_base);
@@ -46,9 +46,10 @@ doris::Status LookupEntry(const snii::reader::LogicalIndexReader& idx, std::stri
 } // namespace
 
 doris::Status SniiStatsProvider::open(const snii::reader::LogicalIndexReader* idx,
-                               SniiStatsProvider* out) {
+                                      SniiStatsProvider* out) {
     if (idx == nullptr || out == nullptr) {
-        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("stats_provider: null argument");
+        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>(
+                "stats_provider: null argument");
     }
     out->idx_ = idx;
     const auto& sb = idx->stats();
@@ -78,7 +79,9 @@ double SniiStatsProvider::avgdl() const {
 }
 
 doris::Status SniiStatsProvider::doc_freq(std::string_view term, uint64_t* df) const {
-    if (df == nullptr) return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("stats_provider: null df");
+    if (df == nullptr)
+        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>(
+                "stats_provider: null df");
     *df = 0;
     bool found = false;
     DictEntry entry;
@@ -88,7 +91,9 @@ doris::Status SniiStatsProvider::doc_freq(std::string_view term, uint64_t* df) c
 }
 
 doris::Status SniiStatsProvider::total_term_freq(std::string_view term, uint64_t* ttf) const {
-    if (ttf == nullptr) return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("stats_provider: null ttf");
+    if (ttf == nullptr)
+        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>(
+                "stats_provider: null ttf");
     *ttf = 0;
     bool found = false;
     DictEntry entry;
@@ -101,9 +106,12 @@ doris::Status SniiStatsProvider::total_term_freq(std::string_view term, uint64_t
 }
 
 doris::Status SniiStatsProvider::encoded_norm(uint32_t docid, uint8_t* out) const {
-    if (out == nullptr) return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("stats_provider: null out");
+    if (out == nullptr)
+        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>(
+                "stats_provider: null out");
     if (!has_norms_) {
-        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("stats_provider: index has no norms");
+        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>(
+                "stats_provider: index has no norms");
     }
     return norms_reader_.try_encoded_norm(docid, out);
 }

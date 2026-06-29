@@ -49,11 +49,13 @@ public:
             return doris::Status::OK();
         }
         if (last_exclusive > static_cast<uint64_t>(std::numeric_limits<uint32_t>::max()) + 1) {
-            return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("docid_sink: range exceeds uint32 docid space");
+            return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>(
+                    "docid_sink: range exceeds uint32 docid space");
         }
         const uint64_t count = last_exclusive - first;
         if (count > static_cast<uint64_t>(docids_.max_size() - docids_.size())) {
-            return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("docid_sink: range too large");
+            return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>(
+                    "docid_sink: range too large");
         }
         docids_.reserve(docids_.size() + static_cast<size_t>(count));
         for (uint64_t docid = first; docid < last_exclusive; ++docid) {

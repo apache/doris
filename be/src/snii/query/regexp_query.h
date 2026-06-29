@@ -32,11 +32,11 @@
 namespace snii::query {
 
 doris::Status regexp_query(const snii::reader::LogicalIndexReader& idx, std::string_view pattern,
-                    std::vector<uint32_t>* const docids, int32_t max_expansions = 0);
+                           std::vector<uint32_t>* const docids, int32_t max_expansions = 0);
 doris::Status regexp_query(const snii::reader::LogicalIndexReader& idx, std::string_view pattern,
-                    std::vector<uint32_t>* const docids, QueryProfile* profile,
-                    int32_t max_expansions = 0);
+                           std::vector<uint32_t>* const docids, QueryProfile* profile,
+                           int32_t max_expansions = 0);
 doris::Status regexp_query(const snii::reader::LogicalIndexReader& idx, std::string_view pattern,
-                    DocIdSink* const sink, int32_t max_expansions = 0);
+                           DocIdSink* const sink, int32_t max_expansions = 0);
 
 } // namespace snii::query

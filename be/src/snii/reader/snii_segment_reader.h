@@ -21,8 +21,8 @@
 #include <string_view>
 #include <vector>
 
-#include "snii/common/slice.h"
 #include "common/status.h"
+#include "snii/common/slice.h"
 #include "snii/format/per_index_meta.h"
 #include "snii/format/tail_meta_region.h"
 #include "snii/io/file_reader.h"
@@ -56,17 +56,18 @@ public:
     // Reads the per-index meta block bytes for (index_id, suffix). The returned
     // vector owns the exact meta block and may be passed to open_index_from_meta().
     doris::Status read_index_meta(uint64_t index_id, std::string_view suffix,
-                           std::vector<uint8_t>* const out) const;
-    doris::Status index_exists(uint64_t index_id, std::string_view suffix, bool* const exists) const;
+                                  std::vector<uint8_t>* const out) const;
+    doris::Status index_exists(uint64_t index_id, std::string_view suffix,
+                               bool* const exists) const;
 
     doris::Status open_index_from_meta(Slice meta_bytes, LogicalIndexReader* const out) const;
 
     // Loads the per-index meta block for (index_id, suffix) and builds a
     // LogicalIndexReader bound to the same FileReader. Absent index -> NotFound.
     doris::Status open_index(uint64_t index_id, std::string_view suffix,
-                      LogicalIndexReader* const out) const;
+                             LogicalIndexReader* const out) const;
     doris::Status section_refs_for_index(uint64_t index_id, std::string_view suffix,
-                                  snii::format::SectionRefs* const out) const;
+                                         snii::format::SectionRefs* const out) const;
 
     snii::io::FileReader* reader() const { return reader_; }
 

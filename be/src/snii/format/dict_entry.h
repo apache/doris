@@ -114,13 +114,13 @@ struct DictEntry {
 // coding relative to prev_term. tier determines whether optional fields are
 // written.
 doris::Status encode_dict_entry(const DictEntry& entry, std::string_view prev_term, IndexTier tier,
-                         ByteSink* sink);
+                                ByteSink* sink);
 
 // Decodes one entry from the current position of src; term is reconstructed
 // from prev_term + suffix. Verifies the trailing CRC; out-of-range / CRC
 // mismatch / invalid prefix_len all return Corruption.
 doris::Status decode_dict_entry(ByteSource* src, std::string_view prev_term, IndexTier tier,
-                         DictEntry* out);
+                                DictEntry* out);
 
 // Skips one entry using only entry_len (does not parse internal fields or
 // verify CRC).

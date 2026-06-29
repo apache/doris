@@ -76,7 +76,8 @@ uint32_t CurrentDoc(const TermCursor& c) {
 // Reads one slim .frq window's bytes for a slim pod_ref/inline entry (prelude
 // stripped). Windowed entries are handled separately via the prelude decode.
 doris::Status FetchSlimWindowBytes(const LogicalIndexReader& idx, const DictEntry& entry,
-                            uint64_t frq_base, std::vector<uint8_t>* window_owned, Slice* window) {
+                                   uint64_t frq_base, std::vector<uint8_t>* window_owned,
+                                   Slice* window) {
     if (entry.kind == DictEntryKind::kInline) {
         *window = Slice(entry.frq_bytes);
         return doris::Status::OK();
@@ -95,7 +96,7 @@ doris::Status FetchSlimWindowBytes(const LogicalIndexReader& idx, const DictEntr
 
 // Reads a windowed entry's frq_prelude (block-max columns live here).
 doris::Status FetchPrelude(const LogicalIndexReader& idx, const DictEntry& entry, uint64_t frq_base,
-                    FrqPreludeReader* out) {
+                           FrqPreludeReader* out) {
     const auto& region = idx.section_refs().posting_region;
     const uint64_t prelude_abs = region.offset + frq_base + entry.frq_off_delta;
     snii::io::BatchRangeFetcher fetcher(idx.reader());
@@ -107,8 +108,9 @@ doris::Status FetchPrelude(const LogicalIndexReader& idx, const DictEntry& entry
 // Builds per-window block-max bounds from a windowed entry's prelude. Each
 // WindowMeta carries the window's max_freq / max_norm and its covered docid
 // range (win_base+1 .. last_docid), so bounds come straight from the directory.
-doris::Status BuildWindowBounds(const FrqPreludeReader& prelude, const ScorerContext& ctx, double avgdl,
-                         const Bm25Params& params, std::vector<WindowBound>* windows) {
+doris::Status BuildWindowBounds(const FrqPreludeReader& prelude, const ScorerContext& ctx,
+                                double avgdl, const Bm25Params& params,
+                                std::vector<WindowBound>* windows) {
     const uint32_t n = prelude.n_windows();
     for (uint32_t w = 0; w < n; ++w) {
         WindowMeta m;
@@ -139,8 +141,8 @@ void SingleWindowFallback(const std::vector<TermPosting>& postings,
 
 // Computes exact per-doc BM25 scores from decoded (docid, freq) vectors.
 doris::Status ScoreDecoded(const snii::stats::SniiStatsProvider& stats, const ScorerContext& ctx,
-                    const Bm25Params& params, const std::vector<uint32_t>& docids,
-                    const std::vector<uint32_t>& freqs, std::vector<TermPosting>* out) {
+                           const Bm25Params& params, const std::vector<uint32_t>& docids,
+                           const std::vector<uint32_t>& freqs, std::vector<TermPosting>* out) {
     const double avgdl = stats.avgdl();
     out->reserve(docids.size());
     for (size_t i = 0; i < docids.size(); ++i) {
@@ -155,17 +157,18 @@ doris::Status ScoreDecoded(const snii::stats::SniiStatsProvider& stats, const Sc
 // Decodes a slim/inline term's single .frq window ([dd_region][freq_region]) into
 // docids/freqs using the entry's region metadata.
 doris::Status DecodeSlim(const LogicalIndexReader& idx, const DictEntry& entry, uint64_t frq_base,
-                  std::vector<uint32_t>* docids, std::vector<uint32_t>* freqs) {
+                         std::vector<uint32_t>* docids, std::vector<uint32_t>* freqs) {
     std::vector<uint8_t> owned;
     Slice window;
     RETURN_IF_ERROR(FetchSlimWindowBytes(idx, entry, frq_base, &owned, &window));
     const uint64_t dd_len = entry.dd_meta.disk_len;
     if (dd_len > window.size()) {
-        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("scoring_query: slim dd region exceeds window");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "scoring_query: slim dd region exceeds window");
     }
     Slice dd_region = window.subslice(0, static_cast<size_t>(dd_len));
     RETURN_IF_ERROR(snii::format::decode_dd_region(dd_region, entry.dd_meta,
-                                                        /*win_base=*/0, docids));
+                                                   /*win_base=*/0, docids));
     Slice freq_region = window.subslice(static_cast<size_t>(dd_len),
                                         window.size() - static_cast<size_t>(dd_len));
     return snii::format::decode_freq_region(freq_region, entry.freq_meta, docids->size(), freqs);
@@ -174,28 +177,28 @@ doris::Status DecodeSlim(const LogicalIndexReader& idx, const DictEntry& entry, 
 // Builds the cursor for a windowed term: tiles all windows for exact scores and
 // reads the prelude once for true per-window block-max bounds.
 doris::Status BuildWindowedCursor(const LogicalIndexReader& idx,
-                           const snii::stats::SniiStatsProvider& stats, const ScorerContext& ctx,
-                           const DictEntry& entry, uint64_t frq_base, uint64_t prx_base,
-                           const Bm25Params& params, TermCursor* cursor) {
+                                  const snii::stats::SniiStatsProvider& stats,
+                                  const ScorerContext& ctx, const DictEntry& entry,
+                                  uint64_t frq_base, uint64_t prx_base, const Bm25Params& params,
+                                  TermCursor* cursor) {
     snii::reader::DecodedPosting posting;
     // Scoring needs freqs for BM25: fetch the FULL windows (want_freq=true).
     RETURN_IF_ERROR(snii::reader::read_windowed_posting(idx, entry, frq_base, prx_base,
-                                                             /*want_positions=*/false,
-                                                             /*want_freq=*/true, &posting));
+                                                        /*want_positions=*/false,
+                                                        /*want_freq=*/true, &posting));
     RETURN_IF_ERROR(
             ScoreDecoded(stats, ctx, params, posting.docids, posting.freqs, &cursor->postings));
     FrqPreludeReader prelude;
     if (FetchPrelude(idx, entry, frq_base, &prelude).ok()) {
-        RETURN_IF_ERROR(
-                BuildWindowBounds(prelude, ctx, stats.avgdl(), params, &cursor->windows));
+        RETURN_IF_ERROR(BuildWindowBounds(prelude, ctx, stats.avgdl(), params, &cursor->windows));
     }
     return doris::Status::OK();
 }
 
 // Builds the cursor for one term: postings with exact scores + window bounds.
-doris::Status BuildCursor(const LogicalIndexReader& idx, const snii::stats::SniiStatsProvider& stats,
-                   const std::string& term, const Bm25Params& params, bool* found,
-                   TermCursor* cursor) {
+doris::Status BuildCursor(const LogicalIndexReader& idx,
+                          const snii::stats::SniiStatsProvider& stats, const std::string& term,
+                          const Bm25Params& params, bool* found, TermCursor* cursor) {
     DictEntry entry;
     uint64_t frq_base = 0;
     uint64_t prx_base = 0;
@@ -276,9 +279,10 @@ void DrainSorted(TopK* topk, std::vector<ScoredDoc>* out) {
     *out = std::move(all);
 }
 
-doris::Status BuildCursors(const LogicalIndexReader& idx, const snii::stats::SniiStatsProvider& stats,
-                    const std::vector<std::string>& terms, const Bm25Params& params,
-                    std::vector<TermCursor>* cursors) {
+doris::Status BuildCursors(const LogicalIndexReader& idx,
+                           const snii::stats::SniiStatsProvider& stats,
+                           const std::vector<std::string>& terms, const Bm25Params& params,
+                           std::vector<TermCursor>* cursors) {
     for (const auto& term : terms) {
         bool found = false;
         TermCursor c;
@@ -291,10 +295,12 @@ doris::Status BuildCursors(const LogicalIndexReader& idx, const snii::stats::Sni
 } // namespace
 
 doris::Status scoring_query_exhaustive(const LogicalIndexReader& idx,
-                                const snii::stats::SniiStatsProvider& stats,
-                                const std::vector<std::string>& terms, uint32_t k,
-                                const Bm25Params& params, std::vector<ScoredDoc>* out) {
-    if (out == nullptr) return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("scoring_query: null out");
+                                       const snii::stats::SniiStatsProvider& stats,
+                                       const std::vector<std::string>& terms, uint32_t k,
+                                       const Bm25Params& params, std::vector<ScoredDoc>* out) {
+    if (out == nullptr)
+        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>(
+                "scoring_query: null out");
     out->clear();
     if (k == 0) return doris::Status::OK();
 
@@ -385,11 +391,12 @@ doris::Status MaterializeWindow(LazyTermCursor* c, uint32_t w) {
     std::vector<uint32_t> docids;
     std::vector<uint32_t> freqs;
     std::vector<std::vector<uint32_t>> pos;
-    RETURN_IF_ERROR(snii::reader::decode_window_slices(
-            meta, fetcher.get(dh), fetcher.get(fh), Slice(), /*want_positions=*/false,
-            /*want_freq=*/true, &docids, &freqs, &pos));
+    RETURN_IF_ERROR(snii::reader::decode_window_slices(meta, fetcher.get(dh), fetcher.get(fh),
+                                                       Slice(), /*want_positions=*/false,
+                                                       /*want_freq=*/true, &docids, &freqs, &pos));
     if (docids.size() != c->win_start[w + 1] - c->win_start[w]) {
-        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("scoring_query: selective window doc-count drift");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "scoring_query: selective window doc-count drift");
     }
     std::vector<TermPosting> scored;
     RETURN_IF_ERROR(ScoreDecoded(*c->stats, c->ctx, c->params, docids, freqs, &scored));
@@ -469,9 +476,9 @@ doris::Status BuildLazySlim(LazyTermCursor* c) {
 
 // Builds a LazyTermCursor for one term: prelude-only for windowed terms (no .frq
 // fetched), fully-materialized single window for slim/inline (small).
-doris::Status BuildLazyCursor(const LogicalIndexReader& idx, const snii::stats::SniiStatsProvider& stats,
-                       const std::string& term, const Bm25Params& params, bool* found,
-                       LazyTermCursor* c) {
+doris::Status BuildLazyCursor(const LogicalIndexReader& idx,
+                              const snii::stats::SniiStatsProvider& stats, const std::string& term,
+                              const Bm25Params& params, bool* found, LazyTermCursor* c) {
     uint64_t prx_base = 0;
     RETURN_IF_ERROR(idx.lookup(term, found, &c->entry, &c->frq_base, &prx_base));
     if (!*found) return doris::Status::OK();
@@ -486,9 +493,9 @@ doris::Status BuildLazyCursor(const LogicalIndexReader& idx, const snii::stats::
 }
 
 doris::Status SelectiveBuildCursors(const LogicalIndexReader& idx,
-                             const snii::stats::SniiStatsProvider& stats,
-                             const std::vector<std::string>& terms, const Bm25Params& params,
-                             std::vector<LazyTermCursor>* cursors) {
+                                    const snii::stats::SniiStatsProvider& stats,
+                                    const std::vector<std::string>& terms, const Bm25Params& params,
+                                    std::vector<LazyTermCursor>* cursors) {
     for (const auto& term : terms) {
         bool found = false;
         LazyTermCursor c;
@@ -530,7 +537,7 @@ doris::Status SelectiveSortByDoc(std::vector<LazyTermCursor>* cursors, uint32_t*
 // accumulated block-max bound reaches theta. >= keeps boundary ties (matching the
 // exhaustive total order). *found=false when no remaining doc can beat theta.
 doris::Status SelectivePivot(std::vector<LazyTermCursor>* cursors, double theta, size_t* pivot,
-                      uint32_t* pivot_doc, bool* found) {
+                             uint32_t* pivot_doc, bool* found) {
     double bound = 0.0;
     *found = false;
     for (size_t i = 0; i < cursors->size(); ++i) {
@@ -550,7 +557,8 @@ doris::Status SelectivePivot(std::vector<LazyTermCursor>* cursors, double theta,
 
 // Scores the aligned pivot doc exactly (summing all cursors AT pivot_doc) and
 // advances those cursors by one posting.
-doris::Status SelectiveScorePivot(std::vector<LazyTermCursor>* cursors, uint32_t pivot_doc, TopK* topk) {
+doris::Status SelectiveScorePivot(std::vector<LazyTermCursor>* cursors, uint32_t pivot_doc,
+                                  TopK* topk) {
     double doc_score = 0.0;
     for (auto& c : *cursors) {
         uint32_t d = 0;
@@ -589,8 +597,7 @@ doris::Status SelectiveStep(std::vector<LazyTermCursor>* cursors, TopK* topk, bo
     size_t pivot = 0;
     uint32_t pivot_doc = 0;
     bool found_pivot = false;
-    RETURN_IF_ERROR(
-            SelectivePivot(cursors, topk->threshold(), &pivot, &pivot_doc, &found_pivot));
+    RETURN_IF_ERROR(SelectivePivot(cursors, topk->threshold(), &pivot, &pivot_doc, &found_pivot));
     if (!found_pivot) {
         *done = true;
         return doris::Status::OK();
@@ -612,10 +619,12 @@ doris::Status SelectiveWandLoop(std::vector<LazyTermCursor>* cursors, TopK* topk
 } // namespace
 
 doris::Status scoring_query_wand_selective(const LogicalIndexReader& idx,
-                                    const snii::stats::SniiStatsProvider& stats,
-                                    const std::vector<std::string>& terms, uint32_t k,
-                                    const Bm25Params& params, std::vector<ScoredDoc>* out) {
-    if (out == nullptr) return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("scoring_query: null out");
+                                           const snii::stats::SniiStatsProvider& stats,
+                                           const std::vector<std::string>& terms, uint32_t k,
+                                           const Bm25Params& params, std::vector<ScoredDoc>* out) {
+    if (out == nullptr)
+        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>(
+                "scoring_query: null out");
     out->clear();
     if (k == 0) return doris::Status::OK();
 
@@ -629,10 +638,12 @@ doris::Status scoring_query_wand_selective(const LogicalIndexReader& idx,
 }
 
 doris::Status scoring_query_wand(const LogicalIndexReader& idx,
-                          const snii::stats::SniiStatsProvider& stats,
-                          const std::vector<std::string>& terms, uint32_t k,
-                          const Bm25Params& params, std::vector<ScoredDoc>* out) {
-    if (out == nullptr) return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("scoring_query: null out");
+                                 const snii::stats::SniiStatsProvider& stats,
+                                 const std::vector<std::string>& terms, uint32_t k,
+                                 const Bm25Params& params, std::vector<ScoredDoc>* out) {
+    if (out == nullptr)
+        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>(
+                "scoring_query: null out");
     out->clear();
     if (k == 0) return doris::Status::OK();
 

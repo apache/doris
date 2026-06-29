@@ -22,8 +22,8 @@
 #include <cstdint>
 #include <vector>
 
-#include "snii/common/slice.h"
 #include "common/status.h"
+#include "snii/common/slice.h"
 #include "snii/encoding/byte_sink.h"
 
 namespace snii::format {
@@ -72,7 +72,9 @@ public:
 
     // Checked access: returns InvalidArgument if docid is out of range; never reads out-of-range memory.
     doris::Status try_encoded_norm(uint32_t docid, uint8_t* out) const {
-        if (docid >= doc_count_) return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("norms: docid out of range");
+        if (docid >= doc_count_)
+            return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>(
+                    "norms: docid out of range");
         *out = norms_[docid];
         return doris::Status::OK();
     }

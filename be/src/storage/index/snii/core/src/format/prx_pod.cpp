@@ -60,11 +60,13 @@ inline constexpr uint32_t kMaxWindowDocs = 1u << 24; // 16M docs/window
 // never UB. (sum < size leaves trailing positions unused, which is also a
 // writer bug, so we require exact equality.) Uint64 accumulation cannot
 // overflow for uint32 freqs.
-doris::Status check_flat_partition(std::span<const uint32_t> flat, std::span<const uint32_t> freqs) {
+doris::Status check_flat_partition(std::span<const uint32_t> flat,
+                                   std::span<const uint32_t> freqs) {
     uint64_t sum = 0;
     for (uint32_t fc : freqs) sum += fc;
     if (sum != flat.size()) {
-        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("prx: sum(freqs) does not match positions_flat size");
+        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>(
+                "prx: sum(freqs) does not match positions_flat size");
     }
     return doris::Status::OK();
 }
@@ -79,7 +81,8 @@ doris::Status encode_payload(std::span<const std::vector<uint32_t>> per_doc, Byt
         for (size_t i = 0; i < doc.size(); ++i) {
             uint32_t pos = doc[i];
             if (i > 0 && pos < prev) {
-                return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("prx: positions within a doc must be ascending");
+                return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>(
+                        "prx: positions within a doc must be ascending");
             }
             out->put_varint32(i == 0 ? pos : pos - prev);
             prev = pos;
@@ -94,7 +97,7 @@ doris::Status encode_payload(std::span<const std::vector<uint32_t>> per_doc, Byt
 // vector-of-vectors for the window; freqs.size() is the doc count and
 // sum(freqs) == flat.size().
 doris::Status encode_payload_flat(std::span<const uint32_t> flat, std::span<const uint32_t> freqs,
-                           ByteSink* out) {
+                                  ByteSink* out) {
     RETURN_IF_ERROR(check_flat_partition(flat, freqs));
     out->put_varint32(static_cast<uint32_t>(freqs.size()));
     size_t off = 0;
@@ -104,7 +107,8 @@ doris::Status encode_payload_flat(std::span<const uint32_t> flat, std::span<cons
         for (uint32_t i = 0; i < fc; ++i) {
             const uint32_t pos = flat[off + i];
             if (i > 0 && pos < prev) {
-                return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("prx: positions within a doc must be ascending");
+                return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>(
+                        "prx: positions within a doc must be ascending");
             }
             out->put_varint32(i == 0 ? pos : pos - prev);
             prev = pos;
@@ -146,8 +150,8 @@ doris::Status decode_pfor_runs(ByteSource* src, size_t n, std::vector<uint32_t>*
 // uniform corpus most docs have freq 1, so the count column packs to ~1
 // bit/doc. Builds the payload from a flat positions span partitioned per-doc by
 // `freqs`.
-doris::Status encode_pfor_payload_flat(std::span<const uint32_t> flat, std::span<const uint32_t> freqs,
-                                ByteSink* out) {
+doris::Status encode_pfor_payload_flat(std::span<const uint32_t> flat,
+                                       std::span<const uint32_t> freqs, ByteSink* out) {
     RETURN_IF_ERROR(check_flat_partition(flat, freqs));
     out->put_varint32(static_cast<uint32_t>(freqs.size()));
     out->put_varint32(static_cast<uint32_t>(flat.size()));
@@ -160,7 +164,8 @@ doris::Status encode_pfor_payload_flat(std::span<const uint32_t> flat, std::span
         for (uint32_t i = 0; i < fc; ++i) {
             const uint32_t pos = flat[off + i];
             if (i > 0 && pos < prev) {
-                return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("prx: positions within a doc must be ascending");
+                return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>(
+                        "prx: positions within a doc must be ascending");
             }
             deltas.push_back(i == 0 ? pos : pos - prev);
             prev = pos;
@@ -189,17 +194,20 @@ doris::Status decode_pfor_payload(Slice plain, std::vector<std::vector<uint32_t>
     RETURN_IF_ERROR(src.get_varint32(&doc_count));
     RETURN_IF_ERROR(src.get_varint32(&total_pos));
     if (total_pos > kMaxWindowPositions) {
-        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("prx: position count exceeds sane cap");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "prx: position count exceeds sane cap");
     }
     if (doc_count > kMaxWindowDocs) {
-        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("prx: doc count exceeds sane cap");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "prx: doc count exceeds sane cap");
     }
     std::vector<uint32_t> pos_counts;
     RETURN_IF_ERROR(decode_pfor_runs(&src, doc_count, &pos_counts));
     uint64_t sum = 0;
     for (uint32_t d = 0; d < doc_count; ++d) sum += pos_counts[d];
     if (sum != total_pos) {
-        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("prx: pos_count sum mismatch");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "prx: pos_count sum mismatch");
     }
     std::vector<uint32_t> deltas;
     RETURN_IF_ERROR(decode_pfor_runs(&src, total_pos, &deltas));
@@ -217,7 +225,9 @@ doris::Status decode_pfor_payload(Slice plain, std::vector<std::vector<uint32_t>
         off += pos_counts[d];
         out->push_back(std::move(doc));
     }
-    if (!src.eof()) return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("prx: trailing bytes after pfor payload");
+    if (!src.eof())
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "prx: trailing bytes after pfor payload");
     return doris::Status::OK();
 }
 
@@ -280,7 +290,8 @@ doris::Status decode_payload(Slice plain, std::vector<std::vector<uint32_t>>* ou
     uint32_t doc_count = 0;
     RETURN_IF_ERROR(src.get_varint32(&doc_count));
     if (doc_count > kMaxWindowDocs) {
-        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("prx: doc count exceeds sane cap");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "prx: doc count exceeds sane cap");
     }
     out->clear();
     out->reserve(doc_count);
@@ -298,7 +309,9 @@ doris::Status decode_payload(Slice plain, std::vector<std::vector<uint32_t>>* ou
         }
         out->push_back(std::move(doc));
     }
-    if (!src.eof()) return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("prx: trailing bytes after payload");
+    if (!src.eof())
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "prx: trailing bytes after payload");
     return doris::Status::OK();
 }
 
@@ -307,23 +320,27 @@ doris::Status decode_payload(Slice plain, std::vector<std::vector<uint32_t>>* ou
 // doc_count+1 entries (pos_off[0]==0); doc d's positions are
 // pos_flat[pos_off[d] .. pos_off[d+1]).
 doris::Status decode_pfor_payload_csr(Slice plain, std::vector<uint32_t>* pos_flat,
-                               std::vector<uint32_t>* pos_off) {
+                                      std::vector<uint32_t>* pos_off) {
     ByteSource src(plain);
     uint32_t doc_count = 0, total_pos = 0;
     RETURN_IF_ERROR(src.get_varint32(&doc_count));
     RETURN_IF_ERROR(src.get_varint32(&total_pos));
     if (total_pos > kMaxWindowPositions) {
-        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("prx: position count exceeds sane cap");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "prx: position count exceeds sane cap");
     }
     if (doc_count > kMaxWindowDocs) {
-        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("prx: doc count exceeds sane cap");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "prx: doc count exceeds sane cap");
     }
     pos_off->clear();
     pos_off->reserve(static_cast<size_t>(doc_count) + 1);
     RETURN_IF_ERROR(decode_pfor_runs(&src, doc_count, pos_off));
     uint64_t sum = 0;
     for (uint32_t d = 0; d < doc_count; ++d) sum += (*pos_off)[d];
-    if (sum != total_pos) return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("prx: pos_count sum mismatch");
+    if (sum != total_pos)
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "prx: pos_count sum mismatch");
     pos_flat->reserve(total_pos);
     RETURN_IF_ERROR(decode_pfor_runs(&src, total_pos, pos_flat));
     size_t off = 0;
@@ -341,7 +358,9 @@ doris::Status decode_pfor_payload_csr(Slice plain, std::vector<uint32_t>* pos_fl
         next_off += pos_count;
     }
     pos_off->push_back(next_off);
-    if (!src.eof()) return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("prx: trailing bytes after pfor payload");
+    if (!src.eof())
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "prx: trailing bytes after pfor payload");
     return doris::Status::OK();
 }
 
@@ -350,10 +369,12 @@ doris::Status validate_doc_ordinals(std::span<const uint32_t> doc_ordinals, uint
     for (size_t i = 0; i < doc_ordinals.size(); ++i) {
         const uint32_t doc = doc_ordinals[i];
         if (doc >= doc_count) {
-            return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("prx: selected doc ordinal out of range");
+            return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                    "prx: selected doc ordinal out of range");
         }
         if (i != 0 && doc <= prev) {
-            return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("prx: selected doc ordinals must be strictly ascending");
+            return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>(
+                    "prx: selected doc ordinals must be strictly ascending");
         }
         prev = doc;
     }
@@ -404,10 +425,11 @@ bool should_decode_full_prx_positions(std::span<const SelectedRange> selected,
 }
 
 doris::Status decode_selected_pfor_count_ranges(ByteSource* src, uint32_t doc_count,
-                                         std::span<const uint32_t> doc_ordinals,
-                                         std::vector<SelectedRange>& selected,
-                                         std::vector<uint32_t>& pos_off, uint64_t* total_pos_count,
-                                         uint32_t* selected_pos_count) {
+                                                std::span<const uint32_t> doc_ordinals,
+                                                std::vector<SelectedRange>& selected,
+                                                std::vector<uint32_t>& pos_off,
+                                                uint64_t* total_pos_count,
+                                                uint32_t* selected_pos_count) {
     selected.clear();
     selected.reserve(doc_ordinals.size());
     pos_off.clear();
@@ -427,7 +449,8 @@ doris::Status decode_selected_pfor_count_ranges(ByteSource* src, uint32_t doc_co
             const uint32_t count = run_buf[i];
             *total_pos_count += count;
             if (*total_pos_count > kMaxWindowPositions) {
-                return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("prx: pos_count sum exceeds sane cap");
+                return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                        "prx: pos_count sum exceeds sane cap");
             }
             if (next_doc < doc_ordinals.size() && doc_ordinals[next_doc] == d) {
                 selected.emplace_back(delta_begin, delta_begin + count, *selected_pos_count);
@@ -439,14 +462,15 @@ doris::Status decode_selected_pfor_count_ranges(ByteSource* src, uint32_t doc_co
         }
     }
     if (next_doc != doc_ordinals.size()) {
-        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("prx: selected doc ordinal was not decoded");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "prx: selected doc ordinal was not decoded");
     }
     return doris::Status::OK();
 }
 
 doris::Status decode_selected_pfor_positions(ByteSource* src, uint32_t total_pos,
-                                      std::span<const SelectedRange> selected, bool decode_all_runs,
-                                      std::span<uint32_t> pos_flat) {
+                                             std::span<const SelectedRange> selected,
+                                             bool decode_all_runs, std::span<uint32_t> pos_flat) {
     std::array<uint32_t, kFrqBaseUnit> run_buf {};
     size_t range_idx = 0;
     uint32_t prev = 0;
@@ -488,17 +512,19 @@ doris::Status decode_selected_pfor_positions(ByteSource* src, uint32_t total_pos
 }
 
 doris::Status decode_pfor_payload_csr_selective(Slice plain, std::span<const uint32_t> doc_ordinals,
-                                         std::vector<uint32_t>* pos_flat,
-                                         std::vector<uint32_t>* pos_off) {
+                                                std::vector<uint32_t>* pos_flat,
+                                                std::vector<uint32_t>* pos_off) {
     ByteSource src(plain);
     uint32_t doc_count = 0, total_pos = 0;
     RETURN_IF_ERROR(src.get_varint32(&doc_count));
     RETURN_IF_ERROR(src.get_varint32(&total_pos));
     if (total_pos > kMaxWindowPositions) {
-        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("prx: position count exceeds sane cap");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "prx: position count exceeds sane cap");
     }
     if (doc_count > kMaxWindowDocs) {
-        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("prx: doc count exceeds sane cap");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "prx: doc count exceeds sane cap");
     }
     RETURN_IF_ERROR(validate_doc_ordinals(doc_ordinals, doc_count));
 
@@ -508,9 +534,10 @@ doris::Status decode_pfor_payload_csr_selective(Slice plain, std::span<const uin
     uint64_t sum = 0;
     uint32_t selected_pos_count = 0;
     RETURN_IF_ERROR(decode_selected_pfor_count_ranges(&src, doc_count, doc_ordinals, selected,
-                                                           *pos_off, &sum, &selected_pos_count));
+                                                      *pos_off, &sum, &selected_pos_count));
     if (sum != total_pos) {
-        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("prx: pos_count sum mismatch");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "prx: pos_count sum mismatch");
     }
 
     pos_flat->resize(selected_pos_count);
@@ -519,19 +546,21 @@ doris::Status decode_pfor_payload_csr_selective(Slice plain, std::span<const uin
             should_decode_full_prx_positions(selected, selected_pos_count, total_pos),
             std::span<uint32_t>(pos_flat->data(), pos_flat->size())));
     if (!src.eof()) {
-        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("prx: trailing bytes after pfor payload");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "prx: trailing bytes after pfor payload");
     }
     return doris::Status::OK();
 }
 
 // CSR decode of a plain (raw) payload. See decode_pfor_payload_csr.
 doris::Status decode_payload_csr(Slice plain, std::vector<uint32_t>* pos_flat,
-                          std::vector<uint32_t>* pos_off) {
+                                 std::vector<uint32_t>* pos_off) {
     ByteSource src(plain);
     uint32_t doc_count = 0;
     RETURN_IF_ERROR(src.get_varint32(&doc_count));
     if (doc_count > kMaxWindowDocs) {
-        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("prx: doc count exceeds sane cap");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "prx: doc count exceeds sane cap");
     }
     pos_flat->clear();
     pos_off->clear();
@@ -543,7 +572,8 @@ doris::Status decode_payload_csr(Slice plain, std::vector<uint32_t>* pos_flat,
         RETURN_IF_ERROR(src.get_varint32(&pos_count));
         total_pos += pos_count;
         if (total_pos > kMaxWindowPositions) {
-            return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("prx: position count exceeds sane cap");
+            return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                    "prx: position count exceeds sane cap");
         }
         uint32_t prev = 0;
         for (uint32_t i = 0; i < pos_count; ++i) {
@@ -554,18 +584,21 @@ doris::Status decode_payload_csr(Slice plain, std::vector<uint32_t>* pos_flat,
         }
         pos_off->push_back(static_cast<uint32_t>(pos_flat->size()));
     }
-    if (!src.eof()) return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("prx: trailing bytes after payload");
+    if (!src.eof())
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "prx: trailing bytes after payload");
     return doris::Status::OK();
 }
 
 doris::Status decode_payload_csr_selective(Slice plain, std::span<const uint32_t> doc_ordinals,
-                                    std::vector<uint32_t>* pos_flat,
-                                    std::vector<uint32_t>* pos_off) {
+                                           std::vector<uint32_t>* pos_flat,
+                                           std::vector<uint32_t>* pos_off) {
     ByteSource src(plain);
     uint32_t doc_count = 0;
     RETURN_IF_ERROR(src.get_varint32(&doc_count));
     if (doc_count > kMaxWindowDocs) {
-        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("prx: doc count exceeds sane cap");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "prx: doc count exceeds sane cap");
     }
     RETURN_IF_ERROR(validate_doc_ordinals(doc_ordinals, doc_count));
     pos_flat->clear();
@@ -579,7 +612,8 @@ doris::Status decode_payload_csr_selective(Slice plain, std::span<const uint32_t
         RETURN_IF_ERROR(src.get_varint32(&pos_count));
         total_pos += pos_count;
         if (total_pos > kMaxWindowPositions) {
-            return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("prx: position count exceeds sane cap");
+            return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                    "prx: position count exceeds sane cap");
         }
         const bool selected = next_doc < doc_ordinals.size() && doc_ordinals[next_doc] == d;
         uint32_t prev = 0;
@@ -595,7 +629,9 @@ doris::Status decode_payload_csr_selective(Slice plain, std::span<const uint32_t
             ++next_doc;
         }
     }
-    if (!src.eof()) return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("prx: trailing bytes after payload");
+    if (!src.eof())
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "prx: trailing bytes after payload");
     return doris::Status::OK();
 }
 
@@ -633,11 +669,13 @@ doris::Status read_framed(ByteSource* src, uint8_t* codec, uint32_t* uncomp_len,
     if (*codec != static_cast<uint8_t>(PrxCodec::kRaw) &&
         *codec != static_cast<uint8_t>(PrxCodec::kZstd) &&
         *codec != static_cast<uint8_t>(PrxCodec::kPfor)) {
-        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("prx: unknown codec");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "prx: unknown codec");
     }
     RETURN_IF_ERROR(src->get_varint32(uncomp_len));
     if (*uncomp_len > kMaxWindowUncompBytes) {
-        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("prx: uncomp_len exceeds sane window cap");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "prx: uncomp_len exceeds sane window cap");
     }
     size_t payload_len = *uncomp_len;
     if (*codec == static_cast<uint8_t>(PrxCodec::kZstd)) {
@@ -650,7 +688,8 @@ doris::Status read_framed(ByteSource* src, uint8_t* codec, uint32_t* uncomp_len,
     uint32_t stored = 0;
     RETURN_IF_ERROR(src->get_fixed32(&stored));
     if (crc32c(src->slice_from(start, framed_len)) != stored) {
-        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("prx: window crc mismatch");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "prx: window crc mismatch");
     }
     return doris::Status::OK();
 }
@@ -658,8 +697,9 @@ doris::Status read_framed(ByteSource* src, uint8_t* codec, uint32_t* uncomp_len,
 } // namespace
 
 doris::Status build_prx_window(std::span<const std::vector<uint32_t>> per_doc_positions,
-                        int zstd_level_or_negative_for_auto, ByteSink* sink) {
-    if (sink == nullptr) return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("prx: null sink");
+                               int zstd_level_or_negative_for_auto, ByteSink* sink) {
+    if (sink == nullptr)
+        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("prx: null sink");
     // Forced legacy codecs (level 0 = raw varint, level > 0 = zstd) are kept so
     // the test/legacy paths still exercise them; the auto path (< 0) now emits
     // PFOR bit-packed deltas -- no entropy coding, far cheaper build CPU than
@@ -682,9 +722,10 @@ doris::Status build_prx_window(std::span<const std::vector<uint32_t>> per_doc_po
 }
 
 doris::Status build_prx_window_flat(std::span<const uint32_t> positions_flat,
-                             std::span<const uint32_t> freqs, int zstd_level_or_negative_for_auto,
-                             ByteSink* sink) {
-    if (sink == nullptr) return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("prx: null sink");
+                                    std::span<const uint32_t> freqs,
+                                    int zstd_level_or_negative_for_auto, ByteSink* sink) {
+    if (sink == nullptr)
+        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("prx: null sink");
     if (zstd_level_or_negative_for_auto >= 0) {
         ByteSink plain;
         RETURN_IF_ERROR(encode_payload_flat(positions_flat, freqs, &plain));
@@ -702,7 +743,8 @@ doris::Status build_prx_window_flat(std::span<const uint32_t> positions_flat,
     return write_auto_pfor_or_zstd(payload.view(), plain.view(), sink);
 }
 
-doris::Status read_prx_window(ByteSource* source, std::vector<std::vector<uint32_t>>* per_doc_positions) {
+doris::Status read_prx_window(ByteSource* source,
+                              std::vector<std::vector<uint32_t>>* per_doc_positions) {
     if (source == nullptr || per_doc_positions == nullptr) {
         return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("prx: null arg");
     }
@@ -722,7 +764,7 @@ doris::Status read_prx_window(ByteSource* source, std::vector<std::vector<uint32
 }
 
 doris::Status read_prx_window_csr(ByteSource* source, std::vector<uint32_t>* pos_flat,
-                           std::vector<uint32_t>* pos_off) {
+                                  std::vector<uint32_t>* pos_off) {
     if (source == nullptr || pos_flat == nullptr || pos_off == nullptr) {
         return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("prx: null arg");
     }
@@ -741,9 +783,10 @@ doris::Status read_prx_window_csr(ByteSource* source, std::vector<uint32_t>* pos
     return decode_payload_csr(Slice(plain), pos_flat, pos_off);
 }
 
-doris::Status read_prx_window_csr_selective(ByteSource* source, std::span<const uint32_t> doc_ordinals,
-                                     std::vector<uint32_t>* pos_flat,
-                                     std::vector<uint32_t>* pos_off) {
+doris::Status read_prx_window_csr_selective(ByteSource* source,
+                                            std::span<const uint32_t> doc_ordinals,
+                                            std::vector<uint32_t>* pos_flat,
+                                            std::vector<uint32_t>* pos_off) {
     if (source == nullptr || pos_flat == nullptr || pos_off == nullptr) {
         return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("prx: null arg");
     }

@@ -43,8 +43,8 @@ std::vector<std::string_view> unique_terms(const std::vector<std::string>& terms
 }
 
 doris::Status resolve_or_postings(const snii::reader::LogicalIndexReader& idx,
-                           const std::vector<std::string>& terms,
-                           std::vector<internal::ResolvedDocidPosting>* postings) {
+                                  const std::vector<std::string>& terms,
+                                  std::vector<internal::ResolvedDocidPosting>* postings) {
     postings->clear();
     for (std::string_view term : unique_terms(terms)) {
         bool found = false;
@@ -62,8 +62,10 @@ doris::Status resolve_or_postings(const snii::reader::LogicalIndexReader& idx,
 } // namespace
 
 doris::Status boolean_or(const snii::reader::LogicalIndexReader& idx,
-                  const std::vector<std::string>& terms, std::vector<uint32_t>* docids) {
-    if (docids == nullptr) return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("boolean_or: null out");
+                         const std::vector<std::string>& terms, std::vector<uint32_t>* docids) {
+    if (docids == nullptr)
+        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>(
+                "boolean_or: null out");
     docids->clear();
     if (terms.empty()) return doris::Status::OK();
 
@@ -73,15 +75,17 @@ doris::Status boolean_or(const snii::reader::LogicalIndexReader& idx,
 }
 
 doris::Status boolean_or(const snii::reader::LogicalIndexReader& idx,
-                  const std::vector<std::string>& terms, std::vector<uint32_t>* docids,
-                  QueryProfile* profile) {
+                         const std::vector<std::string>& terms, std::vector<uint32_t>* docids,
+                         QueryProfile* profile) {
     QueryProfileScope profile_scope(idx.reader(), profile);
     return boolean_or(idx, terms, docids);
 }
 
 doris::Status boolean_or(const snii::reader::LogicalIndexReader& idx,
-                  const std::vector<std::string>& terms, DocIdSink* sink) {
-    if (sink == nullptr) return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("boolean_or: null sink");
+                         const std::vector<std::string>& terms, DocIdSink* sink) {
+    if (sink == nullptr)
+        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>(
+                "boolean_or: null sink");
     if (terms.empty()) return doris::Status::OK();
 
     std::vector<internal::ResolvedDocidPosting> postings;
@@ -90,8 +94,10 @@ doris::Status boolean_or(const snii::reader::LogicalIndexReader& idx,
 }
 
 doris::Status boolean_and(const snii::reader::LogicalIndexReader& idx,
-                   const std::vector<std::string>& terms, std::vector<uint32_t>* docids) {
-    if (docids == nullptr) return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("boolean_and: null out");
+                          const std::vector<std::string>& terms, std::vector<uint32_t>* docids) {
+    if (docids == nullptr)
+        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>(
+                "boolean_and: null out");
     docids->clear();
     if (terms.empty()) return doris::Status::OK();
 
@@ -99,17 +105,17 @@ doris::Status boolean_and(const snii::reader::LogicalIndexReader& idx,
     std::vector<internal::TermPlan> plans;
     bool all_present = false;
     RETURN_IF_ERROR(internal::plan_terms(idx, terms, &round1, &plans, &all_present,
-                                              /*need_positions=*/false));
+                                         /*need_positions=*/false));
     if (!all_present) return doris::Status::OK();
     if (round1.pending() > 0) RETURN_IF_ERROR(round1.fetch());
     RETURN_IF_ERROR(internal::open_preludes(round1, &plans,
-                                                 /*need_positions=*/false));
+                                            /*need_positions=*/false));
     return internal::build_docid_only_conjunction(idx, round1, plans, docids);
 }
 
 doris::Status boolean_and(const snii::reader::LogicalIndexReader& idx,
-                   const std::vector<std::string>& terms, std::vector<uint32_t>* docids,
-                   QueryProfile* profile) {
+                          const std::vector<std::string>& terms, std::vector<uint32_t>* docids,
+                          QueryProfile* profile) {
     QueryProfileScope profile_scope(idx.reader(), profile);
     return boolean_and(idx, terms, docids);
 }

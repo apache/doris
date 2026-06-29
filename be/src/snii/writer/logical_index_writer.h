@@ -159,8 +159,8 @@ public:
     // Builds the per-index meta block bytes given the resolved ABSOLUTE section
     // refs (filled by the orchestrator), appending them to out. The DICT block
     // directory entries are rebased to absolute offsets using dict_region_offset.
-    doris::Status finish_meta(const snii::format::SectionRefs& abs_refs, uint64_t dict_region_offset,
-                       ByteSink* out) const;
+    doris::Status finish_meta(const snii::format::SectionRefs& abs_refs,
+                              uint64_t dict_region_offset, ByteSink* out) const;
 
 private:
     // One DICT block's directory record. The block's serialized bytes are appended to
@@ -198,15 +198,15 @@ private:
     uint64_t posting_size() const { return posting_out_->bytes_written() - posting_off0_; }
     // Builds one DictEntry (inline or pod_ref), growing the posting region as needed.
     doris::Status build_entry(TermPostings& tp, uint64_t frq_base, uint64_t prx_base,
-                       snii::format::DictEntry* e);
+                              snii::format::DictEntry* e);
     // Builds a windowed (df >= kSlimDfThreshold) entry: multi-window + two-level
     // prelude. The term's [prx span][frq span] is appended to the posting region.
     doris::Status build_windowed_entry(TermPostings& tp, uint64_t frq_base, uint64_t prx_base,
-                                snii::format::DictEntry* e);
+                                       snii::format::DictEntry* e);
     // Builds a slim (df < kSlimDfThreshold) entry: single window, inline or
     // pod_ref, no prelude.
     doris::Status build_slim_entry(TermPostings& tp, uint64_t frq_base, uint64_t prx_base,
-                            snii::format::DictEntry* e);
+                                   snii::format::DictEntry* e);
     // Serializes the current open block, streams its bytes into the dict scratch
     // file, and records a compact directory entry (no block bytes retained).
     doris::Status flush_block(snii::format::DictBlockBuilder* block, std::string first_term);

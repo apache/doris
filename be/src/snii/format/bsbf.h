@@ -21,8 +21,8 @@
 #include <string_view>
 #include <vector>
 
-#include "snii/common/slice.h"
 #include "common/status.h"
+#include "snii/common/slice.h"
 #include "snii/encoding/byte_sink.h"
 #include "snii/io/file_reader.h"
 
@@ -129,6 +129,6 @@ struct BsbfHeader {
 // On-demand probe: read EXACTLY ONE 32-byte block via `reader`, then test. No whole
 // blob load, no deep copy. *maybe_present=false means DEFINITELY ABSENT.
 doris::Status bsbf_probe(snii::io::FileReader* reader, const BsbfHeader& header, uint64_t hash,
-                  bool* maybe_present);
+                         bool* maybe_present);
 
 } // namespace snii::format

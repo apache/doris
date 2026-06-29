@@ -42,16 +42,19 @@ doris::Status LocalFileReader::open(const std::string& path) {
     fd_ = ::open(path.c_str(), O_RDONLY);
     if (fd_ < 0) return doris::Status::Error<doris::ErrorCode::IO_ERROR, false>(errno_msg("open"));
     struct stat st;
-    if (::fstat(fd_, &st) != 0) return doris::Status::Error<doris::ErrorCode::IO_ERROR, false>(errno_msg("fstat"));
+    if (::fstat(fd_, &st) != 0)
+        return doris::Status::Error<doris::ErrorCode::IO_ERROR, false>(errno_msg("fstat"));
     size_ = static_cast<uint64_t>(st.st_size);
     return doris::Status::OK();
 }
 
 doris::Status LocalFileReader::read_at(uint64_t offset, size_t len, std::vector<uint8_t>* out) {
-    if (fd_ < 0) return doris::Status::Error<doris::ErrorCode::IO_ERROR, false>("read_at on unopened file");
+    if (fd_ < 0)
+        return doris::Status::Error<doris::ErrorCode::IO_ERROR, false>("read_at on unopened file");
     // Non-wrapping bounds check (offset+len could overflow uint64 on a corrupt arg).
     if (offset > size_ || len > size_ - offset) {
-        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("read_at past end of file");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "read_at past end of file");
     }
     out->resize(len);
     size_t done = 0;
@@ -61,7 +64,9 @@ doris::Status LocalFileReader::read_at(uint64_t offset, size_t len, std::vector<
             if (errno == EINTR) continue;
             return doris::Status::Error<doris::ErrorCode::IO_ERROR, false>(errno_msg("pread"));
         }
-        if (n == 0) return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("pread returned 0 before len");
+        if (n == 0)
+            return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                    "pread returned 0 before len");
         done += static_cast<size_t>(n);
     }
     return doris::Status::OK();
@@ -99,7 +104,8 @@ doris::Status LocalFileWriter::flush_buffer() {
 }
 
 doris::Status LocalFileWriter::append(Slice data) {
-    if (fd_ < 0) return doris::Status::Error<doris::ErrorCode::IO_ERROR, false>("append on unopened file");
+    if (fd_ < 0)
+        return doris::Status::Error<doris::ErrorCode::IO_ERROR, false>("append on unopened file");
     const size_t len = data.size();
     if (len == 0) return doris::Status::OK();
     // Spans larger than the buffer go straight to the fd (after flushing pending
@@ -117,9 +123,11 @@ doris::Status LocalFileWriter::append(Slice data) {
 }
 
 doris::Status LocalFileWriter::finalize() {
-    if (fd_ < 0) return doris::Status::Error<doris::ErrorCode::IO_ERROR, false>("finalize on unopened file");
+    if (fd_ < 0)
+        return doris::Status::Error<doris::ErrorCode::IO_ERROR, false>("finalize on unopened file");
     RETURN_IF_ERROR(flush_buffer());
-    if (::fsync(fd_) != 0) return doris::Status::Error<doris::ErrorCode::IO_ERROR, false>(errno_msg("fsync"));
+    if (::fsync(fd_) != 0)
+        return doris::Status::Error<doris::ErrorCode::IO_ERROR, false>(errno_msg("fsync"));
     if (::close(fd_) != 0) {
         fd_ = -1;
         return doris::Status::Error<doris::ErrorCode::IO_ERROR, false>(errno_msg("close"));

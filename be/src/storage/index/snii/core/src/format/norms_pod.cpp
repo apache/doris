@@ -47,11 +47,13 @@ doris::Status NormsPodReader::open(Slice framed, NormsPodReader* out) {
     uint64_t doc_count = 0;
     RETURN_IF_ERROR(payload.get_varint64(&doc_count));
     if (doc_count > std::numeric_limits<uint32_t>::max()) {
-        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("norms POD doc_count overflows uint32");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "norms POD doc_count overflows uint32");
     }
     // doc_count must exactly equal the remaining byte count (1 byte per doc).
     if (payload.remaining() != doc_count) {
-        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("norms POD length mismatch");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "norms POD length mismatch");
     }
 
     Slice bytes;

@@ -83,9 +83,9 @@ using snii::format::FrqRegionMeta;
 // layout (regions concatenated into posting-level blocks) and the single-window
 // slim/inline layout ([dd_region][freq_region]).
 doris::Status EncodeRegions(std::span<const uint32_t> docids, std::span<const uint32_t> freqs,
-                     uint64_t win_base, bool has_freq, std::vector<uint8_t>* dd_out,
-                     FrqRegionMeta* dd_meta, std::vector<uint8_t>* freq_out,
-                     FrqRegionMeta* freq_meta) {
+                            uint64_t win_base, bool has_freq, std::vector<uint8_t>* dd_out,
+                            FrqRegionMeta* dd_meta, std::vector<uint8_t>* freq_out,
+                            FrqRegionMeta* freq_meta) {
     ByteSink dd_sink;
     RETURN_IF_ERROR(
             snii::format::build_dd_region(docids, win_base, kRawFrqRegion, &dd_sink, dd_meta));
@@ -96,8 +96,7 @@ doris::Status EncodeRegions(std::span<const uint32_t> docids, std::span<const ui
         return doris::Status::OK();
     }
     ByteSink freq_sink;
-    RETURN_IF_ERROR(
-            snii::format::build_freq_region(freqs, kRawFrqRegion, &freq_sink, freq_meta));
+    RETURN_IF_ERROR(snii::format::build_freq_region(freqs, kRawFrqRegion, &freq_sink, freq_meta));
     *freq_out = freq_sink.take();
     return doris::Status::OK();
 }
@@ -117,8 +116,8 @@ struct WindowScratch {
 // the bytes directly to the grouped blocks via LayoutWindowRegions. Reuses the
 // sinks.
 doris::Status EncodeRegionsInto(WindowScratch* sc, std::span<const uint32_t> docids,
-                         std::span<const uint32_t> freqs, uint64_t win_base, bool has_freq,
-                         FrqRegionMeta* dd_meta, FrqRegionMeta* freq_meta) {
+                                std::span<const uint32_t> freqs, uint64_t win_base, bool has_freq,
+                                FrqRegionMeta* dd_meta, FrqRegionMeta* freq_meta) {
     sc->dd_sink.clear();
     RETURN_IF_ERROR(
             snii::format::build_dd_region(docids, win_base, kRawFrqRegion, &sc->dd_sink, dd_meta));
@@ -137,11 +136,10 @@ doris::Status EncodeRegionsInto(WindowScratch* sc, std::span<const uint32_t> doc
 // to building from per-doc vectors, but with NO vector-of-vectors
 // materialization: the writer indexes straight into the term's flat positions
 // buffer.
-doris::Status MakePrxWindow(std::span<const uint32_t> positions_flat, std::span<const uint32_t> freqs,
-                     std::vector<uint8_t>* out) {
+doris::Status MakePrxWindow(std::span<const uint32_t> positions_flat,
+                            std::span<const uint32_t> freqs, std::vector<uint8_t>* out) {
     ByteSink sink;
-    RETURN_IF_ERROR(
-            snii::format::build_prx_window_flat(positions_flat, freqs, kAutoZstd, &sink));
+    RETURN_IF_ERROR(snii::format::build_prx_window_flat(positions_flat, freqs, kAutoZstd, &sink));
     *out = sink.take();
     return doris::Status::OK();
 }
@@ -185,7 +183,7 @@ uint32_t AdaptiveWindowDocs(uint32_t df) {
 
 // Builds the two-level .frq prelude for a windowed term and returns its bytes.
 doris::Status BuildPrelude(const std::vector<WindowMeta>& windows, bool has_freq, bool has_prx,
-                    std::vector<uint8_t>* out) {
+                           std::vector<uint8_t>* out) {
     FrqPreludeColumns cols;
     cols.has_freq = has_freq;
     cols.has_prx = has_prx;
@@ -255,8 +253,8 @@ void LayoutWindowRegions(const FrqRegionMeta& dd_meta, const std::vector<uint8_t
 // byte-identical to the single-pass build (regions/prelude/prx are
 // independent).
 doris::Status BuildWindowedPosting(TermPostings& tp, bool has_freq, bool has_prx,
-                            const std::vector<uint8_t>& norms, snii::io::FileWriter* posting_out,
-                            WindowedPosting* out) {
+                                   const std::vector<uint8_t>& norms,
+                                   snii::io::FileWriter* posting_out, WindowedPosting* out) {
     const uint32_t unit = AdaptiveWindowDocs(static_cast<uint32_t>(tp.docids.size()));
     const size_t n = tp.docids.size();
     const std::span<const uint32_t> all_docs(tp.docids);
@@ -314,7 +312,7 @@ doris::Status BuildWindowedPosting(TermPostings& tp, bool has_freq, bool has_prx
                 }
                 sc.prx_sink.clear();
                 RETURN_IF_ERROR(snii::format::build_prx_window_flat(pos_span, freqs, kAutoZstd,
-                                                                         &sc.prx_sink));
+                                                                    &sc.prx_sink));
                 m.prx_off = out->prx_total_len;
                 m.prx_len = static_cast<uint64_t>(sc.prx_sink.size());
                 RETURN_IF_ERROR(posting_out->append(sc.prx_sink.view()));
@@ -370,7 +368,8 @@ LogicalIndexWriter::LogicalIndexWriter(const SniiIndexInput& in)
 
 doris::Status LogicalIndexWriter::validate_term(const TermPostings& tp) const {
     if (tp.freqs.size() != tp.docids.size()) {
-        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("logical_index: freqs length must equal docids");
+        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>(
+                "logical_index: freqs length must equal docids");
     }
     if (has_prx_) {
         uint64_t total_pos = 0;
@@ -380,12 +379,14 @@ doris::Status LogicalIndexWriter::validate_term(const TermPostings& tp) const {
         // flat buffer.
         const uint64_t have = tp.pos_pump ? tp.pos_total : tp.positions_flat.size();
         if (total_pos != have) {
-            return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("logical_index: positions count must equal sum(freqs)");
+            return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>(
+                    "logical_index: positions count must equal sum(freqs)");
         }
     }
     for (size_t i = 1; i < tp.docids.size(); ++i) {
         if (tp.docids[i] <= tp.docids[i - 1]) {
-            return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("logical_index: docids must be strictly ascending");
+            return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>(
+                    "logical_index: docids must be strictly ascending");
         }
     }
     return doris::Status::OK();
@@ -398,7 +399,7 @@ doris::Status LogicalIndexWriter::validate_term(const TermPostings& tp) const {
 // enc=windowed + has_sb. frq_docs_len = prelude_len + dd_block_len is the
 // contiguous docs-only prefix, which stays INSIDE the frq span.
 doris::Status LogicalIndexWriter::build_windowed_entry(TermPostings& tp, uint64_t frq_base,
-                                                uint64_t prx_base, DictEntry* e) {
+                                                       uint64_t prx_base, DictEntry* e) {
     // The prx span starts here: pass 1 streams each .prx window straight into
     // the posting sink, so prx_off_delta is measured against the live
     // posting-sink size.
@@ -447,12 +448,12 @@ doris::Status LogicalIndexWriter::build_windowed_entry(TermPostings& tp, uint64_
 // single posting region with the prx span FIRST (consistent with the windowed
 // path); the reader resolves each delta independently so the relative order is
 // not load-bearing.
-doris::Status LogicalIndexWriter::build_slim_entry(TermPostings& tp, uint64_t frq_base, uint64_t prx_base,
-                                            DictEntry* e) {
+doris::Status LogicalIndexWriter::build_slim_entry(TermPostings& tp, uint64_t frq_base,
+                                                   uint64_t prx_base, DictEntry* e) {
     std::vector<uint8_t> dd_bytes, freq_bytes;
     FrqRegionMeta dd_meta, freq_meta;
     RETURN_IF_ERROR(EncodeRegions(tp.docids, tp.freqs, /*win_base=*/0, has_freq_, &dd_bytes,
-                                       &dd_meta, &freq_bytes, &freq_meta));
+                                  &dd_meta, &freq_bytes, &freq_meta));
     std::vector<uint8_t> frq_win = dd_bytes; // [dd_region][freq_region]
     AppendBytes(&frq_win, freq_bytes);
     std::vector<uint8_t> prx_win;
@@ -492,8 +493,8 @@ doris::Status LogicalIndexWriter::build_slim_entry(TermPostings& tp, uint64_t fr
 // bytes; pod_ref entries append [prx][frq] bytes to the single posting region
 // and record off_delta relative to frq_base/prx_base (the posting-region size
 // captured when the block opened; both bases hold that same value).
-doris::Status LogicalIndexWriter::build_entry(TermPostings& tp, uint64_t frq_base, uint64_t prx_base,
-                                       DictEntry* e) {
+doris::Status LogicalIndexWriter::build_entry(TermPostings& tp, uint64_t frq_base,
+                                              uint64_t prx_base, DictEntry* e) {
     e->term = tp.term;
     e->df = static_cast<uint32_t>(tp.docids.size());
     e->ttf_delta = SumOf(tp.freqs); // simple: ttf stored directly as ttf_delta
@@ -606,10 +607,12 @@ doris::Status LogicalIndexWriter::build_blocks() {
 
 doris::Status LogicalIndexWriter::build(snii::io::FileWriter* posting_out) {
     if (posting_out == nullptr) {
-        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("logical_index: null posting sink");
+        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>(
+                "logical_index: null posting sink");
     }
     if (has_norms_ && encoded_norms_.size() != doc_count_) {
-        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("logical_index: norms length must equal doc_count");
+        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>(
+                "logical_index: norms length must equal doc_count");
     }
     // The interleaved posting region streams STRAIGHT into the container output
     // (no temp round-trip): posting_size() is the region-relative byte count,
@@ -664,9 +667,11 @@ doris::Status LogicalIndexWriter::build(snii::io::FileWriter* posting_out) {
     return doris::Status::OK();
 }
 
-doris::Status LogicalIndexWriter::finish_meta(const SectionRefs& abs_refs, uint64_t dict_region_offset,
-                                       ByteSink* out) const {
-    if (out == nullptr) return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("logical_index: null meta sink");
+doris::Status LogicalIndexWriter::finish_meta(const SectionRefs& abs_refs,
+                                              uint64_t dict_region_offset, ByteSink* out) const {
+    if (out == nullptr)
+        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>(
+                "logical_index: null meta sink");
 
     SampledTermIndexBuilder sti;
     for (const auto& b : blocks_) sti.add_block_first_term(b.first_term);

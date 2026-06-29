@@ -33,7 +33,7 @@ using TermMatcher = std::function<bool(std::string_view)>;
 // and emits the sorted docid union for matching entries. PrefixHit carries the
 // DictEntry and block bases, so callers avoid a second lookup per expanded term.
 doris::Status emit_expanded_docid_union(const snii::reader::LogicalIndexReader& idx,
-                                 std::string_view enum_prefix, const TermMatcher& matches,
-                                 DocIdSink* const sink, int32_t max_expansions = 0);
+                                        std::string_view enum_prefix, const TermMatcher& matches,
+                                        DocIdSink* const sink, int32_t max_expansions = 0);
 
 } // namespace snii::query::internal

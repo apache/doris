@@ -151,9 +151,10 @@ doris::Status check_flags(uint8_t flags, bool has_positions) {
 } // namespace
 
 doris::Status DictBlockReader::open(Slice block, IndexTier tier, bool has_positions,
-                             DictBlockReader* out) {
+                                    DictBlockReader* out) {
     if (out == nullptr)
-        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("dict_block: out is null");
+        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>(
+                "dict_block: out is null");
     *out = DictBlockReader {};
 
     Slice covered;
@@ -250,7 +251,8 @@ bool DictBlockReader::locate_anchor(std::string_view target, size_t* anchor_idx)
 
 doris::Status DictBlockReader::decode_all(std::vector<DictEntry>* out) const {
     if (out == nullptr)
-        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("dict_block: out is null");
+        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>(
+                "dict_block: out is null");
     out->clear();
     out->reserve(n_entries_);
     for (size_t a = 0; a < anchor_offsets_.size(); ++a) {
@@ -279,8 +281,8 @@ doris::Status DictBlockReader::decode_all(std::vector<DictEntry>* out) const {
     return doris::Status::OK();
 }
 
-doris::Status DictBlockReader::scan_from_anchor(size_t anchor_idx, std::string_view target, bool* found,
-                                         DictEntry* out) const {
+doris::Status DictBlockReader::scan_from_anchor(size_t anchor_idx, std::string_view target,
+                                                bool* found, DictEntry* out) const {
     // Byte range of this anchor segment: [anchor_offset, next anchor offset or anchor table start).
     const size_t seg_begin = anchor_offsets_[anchor_idx];
     const bool is_last = anchor_idx + 1 == anchor_offsets_.size();
@@ -313,7 +315,8 @@ doris::Status DictBlockReader::scan_from_anchor(size_t anchor_idx, std::string_v
     return doris::Status::OK();
 }
 
-doris::Status DictBlockReader::find_term(std::string_view target, bool* found, DictEntry* out) const {
+doris::Status DictBlockReader::find_term(std::string_view target, bool* found,
+                                         DictEntry* out) const {
     if (found == nullptr || out == nullptr) {
         return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>(
                 "dict_block: found / out is null");

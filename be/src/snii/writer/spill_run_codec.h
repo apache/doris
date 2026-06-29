@@ -147,7 +147,7 @@ public:
     doris::Status advance();
 
 private:
-    size_t available() const;        // buffered bytes from pos_ to window end
+    size_t available() const;               // buffered bytes from pos_ to window end
     doris::Status fill();                   // tops up the decode window from disk
     doris::Status ensure(size_t n);         // guarantees >= n buffered bytes (or eof)
     doris::Status read_varint(uint64_t* v); // bounds-checked streamed varint
@@ -191,8 +191,9 @@ private:
 // references live readers freed when the merge advances). Callers that retain the
 // term (e.g. finalize_sorted) MUST pass false, so positions are always fully
 // materialized. The produced bytes are identical either way.
-doris::Status MergeRuns(const std::vector<std::string>& run_paths, const std::vector<std::string>& vocab,
-                 bool has_positions, const std::function<void(TermPostings&&)>& fn,
-                 bool allow_stream_positions = true);
+doris::Status MergeRuns(const std::vector<std::string>& run_paths,
+                        const std::vector<std::string>& vocab, bool has_positions,
+                        const std::function<void(TermPostings&&)>& fn,
+                        bool allow_stream_positions = true);
 
 } // namespace snii::writer

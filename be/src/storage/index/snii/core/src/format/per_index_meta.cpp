@@ -62,7 +62,8 @@ doris::Status decode_section_refs(Slice payload, SectionRefs* out) {
     RETURN_IF_ERROR(decode_region(&ps, &out->null_bitmap));
     RETURN_IF_ERROR(decode_region(&ps, &out->bsbf));
     if (!ps.eof()) {
-        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("per_index_meta: trailing bytes in section_refs");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "per_index_meta: trailing bytes in section_refs");
     }
     return doris::Status::OK();
 }
@@ -82,18 +83,20 @@ void encode_header(uint64_t index_id, const std::string& suffix, uint32_t flags,
 
 // Parses and crc-verifies the header prefix, advancing src past the crc field.
 doris::Status decode_header(Slice block, ByteSource* src, uint64_t* index_id, std::string* suffix,
-                     uint32_t* flags) {
+                            uint32_t* flags) {
     size_t start = src->position();
     uint16_t version = 0;
     RETURN_IF_ERROR(src->get_fixed16(&version));
     if (version != kMetaFormatVersion) {
-        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("per_index_meta: unsupported meta_format_version");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "per_index_meta: unsupported meta_format_version");
     }
     RETURN_IF_ERROR(src->get_varint64(index_id));
     uint32_t suffix_len = 0;
     RETURN_IF_ERROR(src->get_varint32(&suffix_len));
     if (suffix_len > kMaxSuffixLen || suffix_len > src->remaining()) {
-        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("per_index_meta: suffix_len exceeds bounds");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "per_index_meta: suffix_len exceeds bounds");
     }
     Slice suffix_view;
     RETURN_IF_ERROR(src->get_bytes(suffix_len, &suffix_view));
@@ -102,7 +105,8 @@ doris::Status decode_header(Slice block, ByteSource* src, uint64_t* index_id, st
     uint32_t stored = 0;
     RETURN_IF_ERROR(src->get_fixed32(&stored));
     if (crc32c(block.subslice(start, covered)) != stored) {
-        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("per_index_meta: header crc mismatch");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "per_index_meta: header crc mismatch");
     }
     suffix->assign(reinterpret_cast<const char*>(suffix_view.data()), suffix_view.size());
     return doris::Status::OK();
@@ -160,7 +164,8 @@ void PerIndexMetaBuilder::add_raw_section(Slice framed_bytes) {
 
 doris::Status PerIndexMetaBuilder::finish(ByteSink* sink) const {
     if (sink == nullptr) {
-        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("per_index_meta: null sink");
+        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>(
+                "per_index_meta: null sink");
     }
     encode_header(index_id_, index_suffix_, flags_, sink);
     encode_stats_block(stats_, sink);
@@ -175,11 +180,11 @@ doris::Status PerIndexMetaBuilder::finish(ByteSink* sink) const {
 
 doris::Status PerIndexMetaReader::open(Slice block, PerIndexMetaReader* out) {
     if (out == nullptr) {
-        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("per_index_meta: null reader");
+        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>(
+                "per_index_meta: null reader");
     }
     ByteSource src(block);
-    RETURN_IF_ERROR(
-            decode_header(block, &src, &out->index_id_, &out->index_suffix_, &out->flags_));
+    RETURN_IF_ERROR(decode_header(block, &src, &out->index_id_, &out->index_suffix_, &out->flags_));
     bool have_stats = false;
     bool have_refs = false;
     while (!src.eof()) {
@@ -201,7 +206,8 @@ doris::Status PerIndexMetaReader::open(Slice block, PerIndexMetaReader* out) {
         }
     }
     if (!have_stats || !have_refs) {
-        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("per_index_meta: missing required sub-section");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "per_index_meta: missing required sub-section");
     }
     return doris::Status::OK();
 }

@@ -43,7 +43,7 @@ public:
 
     doris::Status read_at(uint64_t offset, size_t len, std::vector<uint8_t>* out) override;
     doris::Status read_batch(const std::vector<Range>& ranges,
-                      std::vector<std::vector<uint8_t>>* outs) override;
+                             std::vector<std::vector<uint8_t>>* outs) override;
     uint64_t size() const override { return inner_->size(); }
 
     const IoMetrics& metrics() const { return metrics_; }

@@ -21,8 +21,8 @@
 #include <cstdint>
 #include <vector>
 
-#include "snii/common/slice.h"
 #include "common/status.h"
+#include "snii/common/slice.h"
 #include "snii/io/io_metrics.h"
 
 namespace snii::io {
@@ -49,7 +49,7 @@ public:
     // sequential loop; backends that model concurrency (MeteredFileReader) or
     // perform real parallel fetches (object storage) override this.
     virtual doris::Status read_batch(const std::vector<Range>& ranges,
-                              std::vector<std::vector<uint8_t>>* outs) {
+                                     std::vector<std::vector<uint8_t>>* outs) {
         outs->resize(ranges.size());
         for (size_t i = 0; i < ranges.size(); ++i) {
             RETURN_IF_ERROR(read_at(ranges[i].offset, ranges[i].len, &(*outs)[i]));

@@ -28,10 +28,11 @@ namespace snii::query::internal {
 using doris::Status; // RETURN_IF_ERROR expands to bare Status
 
 doris::Status emit_expanded_docid_union(const snii::reader::LogicalIndexReader& idx,
-                                 std::string_view enum_prefix, const TermMatcher& matches,
-                                 DocIdSink* const sink, int32_t max_expansions) {
+                                        std::string_view enum_prefix, const TermMatcher& matches,
+                                        DocIdSink* const sink, int32_t max_expansions) {
     if (sink == nullptr) {
-        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("term_expansion: null sink");
+        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>(
+                "term_expansion: null sink");
     }
 
     std::vector<ResolvedDocidPosting> postings;

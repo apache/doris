@@ -45,7 +45,8 @@ void encode_fields(const BootstrapHeader& header, ByteSink* sink) {
 
 doris::Status encode_bootstrap_header(const BootstrapHeader& header, ByteSink* sink) {
     if (sink == nullptr) {
-        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("bootstrap_header: null sink");
+        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>(
+                "bootstrap_header: null sink");
     }
     ByteSink fields;
     encode_fields(header, &fields);
@@ -57,13 +58,15 @@ doris::Status encode_bootstrap_header(const BootstrapHeader& header, ByteSink* s
 
 doris::Status decode_bootstrap_header(Slice data, BootstrapHeader* out) {
     if (out == nullptr) {
-        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("bootstrap_header: null out");
+        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>(
+                "bootstrap_header: null out");
     }
     // Reject any size other than the exact fixed header: short input is
     // truncation, longer input means stray trailing bytes the parser would
     // otherwise ignore.
     if (data.size() != kBootstrapHeaderSize) {
-        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("bootstrap_header: wrong header size");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "bootstrap_header: wrong header size");
     }
 
     ByteSource src(data);
@@ -81,20 +84,24 @@ doris::Status decode_bootstrap_header(Slice data, BootstrapHeader* out) {
     RETURN_IF_ERROR(src.get_fixed32(&stored_checksum));
 
     if (magic != kContainerMagic) {
-        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("bootstrap_header: bad container magic");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "bootstrap_header: bad container magic");
     }
     const uint32_t computed = crc32c(data.subslice(0, kChecksumCoverage));
     if (computed != stored_checksum) {
-        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("bootstrap_header: checksum mismatch");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "bootstrap_header: checksum mismatch");
     }
 
     const auto min_reader_version = static_cast<uint16_t>((version_pair >> 16) & 0xFFFFu);
     const auto format_version = static_cast<uint16_t>(version_pair & 0xFFFFu);
     if (format_version != kFormatVersion) {
-        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_NOT_SUPPORTED, false>("bootstrap_header: unsupported container format_version");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_NOT_SUPPORTED, false>(
+                "bootstrap_header: unsupported container format_version");
     }
     if (min_reader_version > kFormatVersion) {
-        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_NOT_SUPPORTED, false>("bootstrap_header: container requires a newer reader version");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_NOT_SUPPORTED, false>(
+                "bootstrap_header: container requires a newer reader version");
     }
 
     out->magic = magic;

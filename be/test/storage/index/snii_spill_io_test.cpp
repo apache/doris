@@ -39,8 +39,8 @@
 #include <utility>
 #include <vector>
 
-#include "snii/common/slice.h"
 #include "common/status.h"
+#include "snii/common/slice.h"
 #include "snii/io/file_writer.h"
 #include "snii/writer/spillable_byte_buffer.h"
 

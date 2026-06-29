@@ -21,8 +21,8 @@
 #include <string>
 #include <vector>
 
-#include "snii/common/slice.h"
 #include "common/status.h"
+#include "snii/common/slice.h"
 #include "snii/encoding/byte_sink.h"
 #include "snii/format/format_constants.h"
 #include "snii/format/stats_block.h"

@@ -22,8 +22,8 @@
 #include <string_view>
 #include <vector>
 
-#include "snii/common/slice.h"
 #include "common/status.h"
+#include "snii/common/slice.h"
 #include "snii/encoding/byte_sink.h"
 #include "snii/format/format_constants.h"
 
@@ -74,7 +74,8 @@ public:
     // Binary-search locate: returns the block ordinal of the last sample_term <= target.
     //   target < min_term or target > max_term (including empty index) → *maybe_present=false (out of range, term is definitely absent).
     //   Otherwise *maybe_present=true and *block_ordinal is the ordinal of the matching block.
-    doris::Status locate(std::string_view target, bool* maybe_present, uint32_t* block_ordinal) const;
+    doris::Status locate(std::string_view target, bool* maybe_present,
+                         uint32_t* block_ordinal) const;
 
     uint32_t n_blocks() const { return static_cast<uint32_t>(sample_terms_.size()); }
 

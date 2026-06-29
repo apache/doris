@@ -87,10 +87,12 @@ void TailMetaRegionBuilder::finish(ByteSink* sink) const {
 
 doris::Status TailMetaRegionReader::parse_header(Slice header, TailMetaRegionHeader* const out) {
     if (out == nullptr) {
-        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("tail_meta_region: null header out");
+        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>(
+                "tail_meta_region: null header out");
     }
     if (header.size() != kHeaderSize) {
-        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("tail_meta_region: header size mismatch");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "tail_meta_region: header size mismatch");
     }
     ByteSource hs(header.subslice(0, kHeaderFields));
     uint32_t ver = 0, flags = 0, n = 0;
@@ -105,20 +107,25 @@ doris::Status TailMetaRegionReader::parse_header(Slice header, TailMetaRegionHea
     uint32_t header_crc = 0;
     RETURN_IF_ERROR(hc.get_fixed32(&header_crc));
     if (crc32c(header.subslice(0, kHeaderFields)) != header_crc) {
-        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("tail_meta_region: header crc mismatch");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "tail_meta_region: header crc mismatch");
     }
     if (ver != kMetaFormatVersion) {
-        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_NOT_SUPPORTED, false>("tail_meta_region: unsupported meta_format_version");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_NOT_SUPPORTED, false>(
+                "tail_meta_region: unsupported meta_format_version");
     }
     if (flags != 0) {
-        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_NOT_SUPPORTED, false>("tail_meta_region: unsupported flags");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_NOT_SUPPORTED, false>(
+                "tail_meta_region: unsupported flags");
     }
     if (meta_region_len < kHeaderSize + kRegionChecksumSize) {
-        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("tail_meta_region: declared length too small");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "tail_meta_region: declared length too small");
     }
     if (directory_offset < kHeaderSize || directory_offset > meta_region_len ||
         directory_length > meta_region_len - directory_offset) {
-        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("tail_meta_region: directory out of range");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "tail_meta_region: directory out of range");
     }
     out->meta_region_len = meta_region_len;
     out->directory_offset = directory_offset;
@@ -127,18 +134,22 @@ doris::Status TailMetaRegionReader::parse_header(Slice header, TailMetaRegionHea
     return doris::Status::OK();
 }
 
-doris::Status TailMetaRegionReader::open_directory(const TailMetaRegionHeader& header, Slice directory,
-                                            TailMetaRegionReader* const out) {
+doris::Status TailMetaRegionReader::open_directory(const TailMetaRegionHeader& header,
+                                                   Slice directory,
+                                                   TailMetaRegionReader* const out) {
     if (out == nullptr) {
-        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("tail_meta_region: null out");
+        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>(
+                "tail_meta_region: null out");
     }
     if (directory.size() != header.directory_length) {
-        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("tail_meta_region: directory length mismatch");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "tail_meta_region: directory length mismatch");
     }
 
     RETURN_IF_ERROR(LogicalIndexDirectoryReader::open(directory, &out->dir_));
     if (out->dir_.size() != header.n_logical_indexes) {
-        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("tail_meta_region: directory size mismatch");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "tail_meta_region: directory size mismatch");
     }
     out->region_ = Slice {};
     out->meta_region_len_ = header.meta_region_len;
@@ -148,10 +159,12 @@ doris::Status TailMetaRegionReader::open_directory(const TailMetaRegionHeader& h
 
 doris::Status TailMetaRegionReader::open(Slice region, TailMetaRegionReader* const out) {
     if (out == nullptr) {
-        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("tail_meta_region: null out");
+        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>(
+                "tail_meta_region: null out");
     }
     if (region.size() < kHeaderSize + kRegionChecksumSize) {
-        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("tail_meta_region: region too short");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "tail_meta_region: region too short");
     }
 
     // Verify the trailing region checksum.
@@ -160,13 +173,15 @@ doris::Status TailMetaRegionReader::open(Slice region, TailMetaRegionReader* con
     uint32_t region_crc = 0;
     RETURN_IF_ERROR(cs.get_fixed32(&region_crc));
     if (crc32c(region.subslice(0, covered)) != region_crc) {
-        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("tail_meta_region: meta_region_checksum mismatch");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "tail_meta_region: meta_region_checksum mismatch");
     }
 
     TailMetaRegionHeader header;
     RETURN_IF_ERROR(parse_header(region.subslice(0, kHeaderSize), &header));
     if (header.meta_region_len != region.size()) {
-        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("tail_meta_region: declared length mismatch");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "tail_meta_region: declared length mismatch");
     }
     RETURN_IF_ERROR(open_directory(
             header, region.subslice(header.directory_offset, header.directory_length), out));
@@ -174,24 +189,27 @@ doris::Status TailMetaRegionReader::open(Slice region, TailMetaRegionReader* con
     return doris::Status::OK();
 }
 
-doris::Status TailMetaRegionReader::find_ref(uint64_t index_id, std::string_view suffix, bool* const found,
-                                      LogicalIndexRef* const ref) const {
+doris::Status TailMetaRegionReader::find_ref(uint64_t index_id, std::string_view suffix,
+                                             bool* const found, LogicalIndexRef* const ref) const {
     return dir_.find(index_id, suffix, found, ref);
 }
 
-doris::Status TailMetaRegionReader::find(uint64_t index_id, std::string_view suffix, bool* const found,
-                                  Slice* const per_index_meta_bytes) const {
+doris::Status TailMetaRegionReader::find(uint64_t index_id, std::string_view suffix,
+                                         bool* const found,
+                                         Slice* const per_index_meta_bytes) const {
     LogicalIndexRef ref;
     RETURN_IF_ERROR(find_ref(index_id, suffix, found, &ref));
     if (!*found) {
         return doris::Status::OK();
     }
     if (region_.empty()) {
-        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("tail_meta_region: region bytes not resident");
+        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>(
+                "tail_meta_region: region bytes not resident");
     }
     if (ref.meta_off > region_.size() || ref.meta_len > region_.size() - ref.meta_off ||
         ref.meta_off > meta_region_len_ || ref.meta_len > meta_region_len_ - ref.meta_off) {
-        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("tail_meta_region: meta block out of range");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "tail_meta_region: meta block out of range");
     }
     *per_index_meta_bytes = region_.subslice(ref.meta_off, ref.meta_len);
     return doris::Status::OK();

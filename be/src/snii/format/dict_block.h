@@ -23,8 +23,8 @@
 #include <string_view>
 #include <vector>
 
-#include "snii/common/slice.h"
 #include "common/status.h"
+#include "snii/common/slice.h"
 #include "snii/encoding/byte_sink.h"
 #include "snii/format/dict_entry.h"
 #include "snii/format/format_constants.h"
@@ -118,7 +118,8 @@ public:
     // Parse and verify the entire block. CRC mismatch / truncation / invalid
     // structure → Corruption; has_positions in the header inconsistent with the
     // supplied argument → InvalidArgument.
-    static doris::Status open(Slice block, IndexTier tier, bool has_positions, DictBlockReader* out);
+    static doris::Status open(Slice block, IndexTier tier, bool has_positions,
+                              DictBlockReader* out);
 
     // Anchor binary search + local scan to locate target. Hit → *found=true and
     // *out is filled; miss (including out-of-range, gap) → *found=false.
@@ -139,7 +140,7 @@ private:
     // Sequentially scan from anchor anchor_idx to the end of that anchor segment,
     // searching for target.
     doris::Status scan_from_anchor(size_t anchor_idx, std::string_view target, bool* found,
-                            DictEntry* out) const;
+                                   DictEntry* out) const;
 
     // Find the last anchor index where first_term(anchor) <= target; return false
     // if none exists.

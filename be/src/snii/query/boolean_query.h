@@ -33,20 +33,20 @@
 namespace snii::query {
 
 doris::Status boolean_or(const snii::reader::LogicalIndexReader& idx,
-                  const std::vector<std::string>& terms, std::vector<uint32_t>* docids);
+                         const std::vector<std::string>& terms, std::vector<uint32_t>* docids);
 doris::Status boolean_or(const snii::reader::LogicalIndexReader& idx,
-                  const std::vector<std::string>& terms, std::vector<uint32_t>* docids,
-                  QueryProfile* profile);
+                         const std::vector<std::string>& terms, std::vector<uint32_t>* docids,
+                         QueryProfile* profile);
 doris::Status boolean_or(const snii::reader::LogicalIndexReader& idx,
-                  const std::vector<std::string>& terms, DocIdSink* sink);
+                         const std::vector<std::string>& terms, DocIdSink* sink);
 
 // boolean_and (MATCH all-terms): sorted docid set of docs containing EVERY
 // term, no positional constraint. Valid on docs-only indexes. Empty terms or
 // any absent term -> empty result.
 doris::Status boolean_and(const snii::reader::LogicalIndexReader& idx,
-                   const std::vector<std::string>& terms, std::vector<uint32_t>* docids);
+                          const std::vector<std::string>& terms, std::vector<uint32_t>* docids);
 doris::Status boolean_and(const snii::reader::LogicalIndexReader& idx,
-                   const std::vector<std::string>& terms, std::vector<uint32_t>* docids,
-                   QueryProfile* profile);
+                          const std::vector<std::string>& terms, std::vector<uint32_t>* docids,
+                          QueryProfile* profile);
 
 } // namespace snii::query

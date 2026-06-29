@@ -23,13 +23,17 @@ namespace snii {
 using doris::Status; // RETURN_IF_ERROR expands to bare Status
 
 doris::Status ByteSource::get_u8(uint8_t* v) {
-    if (remaining() < 1) return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("get_u8 overrun");
+    if (remaining() < 1)
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "get_u8 overrun");
     *v = s_[pos_++];
     return doris::Status::OK();
 }
 
 doris::Status ByteSource::get_fixed16(uint16_t* v) {
-    if (remaining() < 2) return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("get_fixed16 overrun");
+    if (remaining() < 2)
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "get_fixed16 overrun");
     uint16_t r = 0;
     for (int i = 0; i < 2; ++i) r |= static_cast<uint16_t>(s_[pos_ + i]) << (8 * i);
     pos_ += 2;
@@ -38,7 +42,9 @@ doris::Status ByteSource::get_fixed16(uint16_t* v) {
 }
 
 doris::Status ByteSource::get_fixed32(uint32_t* v) {
-    if (remaining() < 4) return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("get_fixed32 overrun");
+    if (remaining() < 4)
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "get_fixed32 overrun");
     uint32_t r = 0;
     for (int i = 0; i < 4; ++i) r |= static_cast<uint32_t>(s_[pos_ + i]) << (8 * i);
     pos_ += 4;
@@ -47,7 +53,9 @@ doris::Status ByteSource::get_fixed32(uint32_t* v) {
 }
 
 doris::Status ByteSource::get_fixed64(uint64_t* v) {
-    if (remaining() < 8) return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("get_fixed64 overrun");
+    if (remaining() < 8)
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "get_fixed64 overrun");
     uint64_t r = 0;
     for (int i = 0; i < 8; ++i) r |= static_cast<uint64_t>(s_[pos_ + i]) << (8 * i);
     pos_ += 8;
@@ -66,7 +74,9 @@ doris::Status ByteSource::get_varint64(uint64_t* v) {
 doris::Status ByteSource::get_varint32(uint32_t* v) {
     uint64_t tmp;
     RETURN_IF_ERROR(get_varint64(&tmp));
-    if (tmp > 0xFFFFFFFFu) return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("varint32 overflow");
+    if (tmp > 0xFFFFFFFFu)
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "varint32 overflow");
     *v = static_cast<uint32_t>(tmp);
     return doris::Status::OK();
 }
@@ -79,7 +89,9 @@ doris::Status ByteSource::get_zigzag(int64_t* v) {
 }
 
 doris::Status ByteSource::get_bytes(size_t n, Slice* out) {
-    if (remaining() < n) return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("get_bytes overrun");
+    if (remaining() < n)
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "get_bytes overrun");
     *out = s_.subslice(pos_, n);
     pos_ += n;
     return doris::Status::OK();

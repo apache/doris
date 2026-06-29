@@ -74,7 +74,8 @@ doris::Status WriteAll(int fd, const uint8_t* data, size_t len) {
         const ssize_t n = ::write(fd, data + off, len - off);
         if (n < 0) {
             if (errno == EINTR) continue;
-            return doris::Status::Error<doris::ErrorCode::IO_ERROR, false>(std::string("run write failed: ") + std::strerror(errno));
+            return doris::Status::Error<doris::ErrorCode::IO_ERROR, false>(
+                    std::string("run write failed: ") + std::strerror(errno));
         }
         off += static_cast<size_t>(n);
     }
@@ -94,7 +95,8 @@ RunWriter::~RunWriter() {
 doris::Status RunWriter::open(const std::string& path) {
     fd_ = ::open(path.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0600);
     if (fd_ < 0) {
-        return doris::Status::Error<doris::ErrorCode::IO_ERROR, false>("run open(" + path + "): " + std::strerror(errno));
+        return doris::Status::Error<doris::ErrorCode::IO_ERROR, false>(
+                "run open(" + path + "): " + std::strerror(errno));
     }
     buf_.clear();
     return doris::Status::OK();
@@ -134,7 +136,8 @@ doris::Status RunWriter::close() {
     const int fd = fd_;
     fd_ = -1;
     if (::close(fd) != 0) {
-        return doris::Status::Error<doris::ErrorCode::IO_ERROR, false>(std::string("run close: ") + std::strerror(errno));
+        return doris::Status::Error<doris::ErrorCode::IO_ERROR, false>(std::string("run close: ") +
+                                                                       std::strerror(errno));
     }
     return doris::Status::OK();
 }
@@ -150,7 +153,8 @@ RunReader::~RunReader() {
 doris::Status RunReader::open(const std::string& path, bool has_positions) {
     fd_ = ::open(path.c_str(), O_RDONLY);
     if (fd_ < 0) {
-        return doris::Status::Error<doris::ErrorCode::IO_ERROR, false>("run reopen(" + path + "): " + std::strerror(errno));
+        return doris::Status::Error<doris::ErrorCode::IO_ERROR, false>(
+                "run reopen(" + path + "): " + std::strerror(errno));
     }
     // Record the run's byte size so every length decoded from the stream can be
     // bounded against it before allocating (no record holds more u32s than the whole
@@ -159,7 +163,8 @@ doris::Status RunReader::open(const std::string& path, bool has_positions) {
     // uncaught std::bad_alloc from a giant resize().
     struct stat st {};
     if (::fstat(fd_, &st) != 0) {
-        return doris::Status::Error<doris::ErrorCode::IO_ERROR, false>(std::string("run fstat: ") + std::strerror(errno));
+        return doris::Status::Error<doris::ErrorCode::IO_ERROR, false>(std::string("run fstat: ") +
+                                                                       std::strerror(errno));
     }
     file_size_ = static_cast<uint64_t>(st.st_size);
     has_positions_ = has_positions;
@@ -185,7 +190,9 @@ doris::Status RunReader::fill() {
     do {
         n = ::read(fd_, window_.data() + base, kReadChunkBytes);
     } while (n < 0 && errno == EINTR);
-    if (n < 0) return doris::Status::Error<doris::ErrorCode::IO_ERROR, false>(std::string("run read: ") + std::strerror(errno));
+    if (n < 0)
+        return doris::Status::Error<doris::ErrorCode::IO_ERROR, false>(std::string("run read: ") +
+                                                                       std::strerror(errno));
     window_.resize(base + static_cast<size_t>(n));
     if (n == 0) eof_ = true;
     return doris::Status::OK();
@@ -203,7 +210,8 @@ doris::Status RunReader::ensure(size_t n) {
         const size_t had = available();
         RETURN_IF_ERROR(fill());
         if (available() == had && eof_) {
-            return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("run truncated: needed more bytes than available");
+            return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                    "run truncated: needed more bytes than available");
         }
     }
     return doris::Status::OK();
@@ -223,11 +231,14 @@ doris::Status RunReader::read_varint(uint64_t* v) {
             pos_ += static_cast<size_t>(next - p);
             return doris::Status::OK();
         }
-        if (eof_) return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("run truncated: incomplete varint");
+        if (eof_)
+            return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                    "run truncated: incomplete varint");
         const size_t had = available();
         RETURN_IF_ERROR(fill());
         if (available() == had && eof_) {
-            return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("run truncated: incomplete varint at eof");
+            return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                    "run truncated: incomplete varint at eof");
         }
     }
 }
@@ -246,7 +257,8 @@ doris::Status RunReader::pull_raw_u32(uint8_t* dst, size_t count) {
             const size_t had = available();
             RETURN_IF_ERROR(fill());
             if (available() == had && eof_) {
-                return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("run truncated: needed more raw bytes than available");
+                return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                        "run truncated: needed more raw bytes than available");
             }
         }
         const size_t take = std::min(need, available());
@@ -264,7 +276,8 @@ doris::Status RunReader::read_raw_u32(size_t count, std::vector<uint32_t>* out) 
     // hold more u32s than the whole file. Rejects a corrupt/truncated length varint
     // (which is otherwise an unbounded resize -> uncaught std::bad_alloc).
     if (count > file_size_ / sizeof(uint32_t)) {
-        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("run: raw u32 count exceeds file size");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "run: raw u32 count exceeds file size");
     }
     out->resize(count);
     if (count == 0) return doris::Status::OK();
@@ -295,7 +308,8 @@ doris::Status RunReader::materialize_positions() {
 doris::Status RunReader::stream_positions(uint32_t* dst, size_t n) {
     if (n == 0) return doris::Status::OK();
     if (n > pos_remaining_) {
-        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("run: stream_positions past block end");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "run: stream_positions past block end");
     }
     RETURN_IF_ERROR(pull_raw_u32(reinterpret_cast<uint8_t*>(dst), n));
     pos_remaining_ -= n;
@@ -327,7 +341,9 @@ doris::Status RunReader::advance() {
     }
     uint64_t term_id = 0;
     RETURN_IF_ERROR(read_varint(&term_id));
-    if (term_id > UINT32_MAX) return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("run term_id exceeds uint32");
+    if (term_id > UINT32_MAX)
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "run term_id exceeds uint32");
     current_id_ = static_cast<uint32_t>(term_id);
     current_.term.clear(); // runs store only the id; owner resolves the string
 
@@ -443,9 +459,10 @@ bool ShouldStreamPositions(uint64_t total_docs, uint64_t total_pos, bool has_pos
 
 } // namespace
 
-doris::Status MergeRuns(const std::vector<std::string>& run_paths, const std::vector<std::string>& vocab,
-                 bool has_positions, const std::function<void(TermPostings&&)>& fn,
-                 bool allow_stream_positions) {
+doris::Status MergeRuns(const std::vector<std::string>& run_paths,
+                        const std::vector<std::string>& vocab, bool has_positions,
+                        const std::function<void(TermPostings&&)>& fn,
+                        bool allow_stream_positions) {
     std::vector<std::unique_ptr<RunReader>> readers;
     readers.reserve(run_paths.size());
     std::priority_queue<HeapItem, std::vector<HeapItem>, HeapGreater> heap(HeapGreater {&vocab});
@@ -454,7 +471,8 @@ doris::Status MergeRuns(const std::vector<std::string>& run_paths, const std::ve
         RETURN_IF_ERROR(r->open(run_paths[i], has_positions));
         if (!r->exhausted()) {
             if (r->current_id() >= vocab.size()) {
-                return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("run term_id out of vocab range");
+                return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                        "run term_id out of vocab range");
             }
             heap.push({r->current_id(), i});
         }
@@ -588,7 +606,7 @@ doris::Status MergeRuns(const std::vector<std::string>& run_paths, const std::ve
                 if (off < n) std::memset(dst + off, 0, (n - off) * sizeof(uint32_t));
             };
             fn(std::move(merged));
-            *pump_alive = false;               // any later pos_pump call now throws instead of UAF
+            *pump_alive = false;          // any later pos_pump call now throws instead of UAF
             RETURN_IF_ERROR(pump_status); // surface a streamed-read I/O error
         } else {
             fn(std::move(merged));
@@ -603,7 +621,8 @@ doris::Status MergeRuns(const std::vector<std::string>& run_paths, const std::ve
             RETURN_IF_ERROR(r->advance()); // frees this run's slice, loads next term
             if (!r->exhausted()) {
                 if (r->current_id() >= vocab.size()) {
-                    return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("run term_id out of vocab range");
+                    return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED,
+                                                false>("run term_id out of vocab range");
                 }
                 heap.push({r->current_id(), ri});
             }

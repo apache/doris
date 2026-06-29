@@ -25,9 +25,11 @@ namespace snii::query::internal {
 using doris::Status; // RETURN_IF_ERROR expands to bare Status
 
 doris::Status build_docid_union(const snii::reader::LogicalIndexReader& idx,
-                         const std::vector<ResolvedDocidPosting>& postings,
-                         std::vector<uint32_t>* out) {
-    if (out == nullptr) return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("docid_union: null out");
+                                const std::vector<ResolvedDocidPosting>& postings,
+                                std::vector<uint32_t>* out) {
+    if (out == nullptr)
+        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>(
+                "docid_union: null out");
     out->clear();
     if (postings.empty()) return doris::Status::OK();
 
@@ -38,8 +40,10 @@ doris::Status build_docid_union(const snii::reader::LogicalIndexReader& idx,
 }
 
 doris::Status emit_docid_union(const snii::reader::LogicalIndexReader& idx,
-                        const std::vector<ResolvedDocidPosting>& postings, DocIdSink* sink) {
-    if (sink == nullptr) return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("docid_union: null sink");
+                               const std::vector<ResolvedDocidPosting>& postings, DocIdSink* sink) {
+    if (sink == nullptr)
+        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>(
+                "docid_union: null sink");
     std::vector<uint32_t> acc;
     RETURN_IF_ERROR(build_docid_union(idx, postings, &acc));
     if (acc.empty()) return doris::Status::OK();

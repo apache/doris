@@ -29,15 +29,19 @@ using snii::format::DictEntry;
 using snii::reader::LogicalIndexReader;
 
 doris::Status term_query(const LogicalIndexReader& idx, std::string_view term,
-                  std::vector<uint32_t>* docids) {
-    if (docids == nullptr) return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("term_query: null out");
+                         std::vector<uint32_t>* docids) {
+    if (docids == nullptr)
+        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>(
+                "term_query: null out");
     docids->clear();
     VectorDocIdSink sink(*docids);
     return term_query(idx, term, &sink);
 }
 
 doris::Status term_query(const LogicalIndexReader& idx, std::string_view term, DocIdSink* sink) {
-    if (sink == nullptr) return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("term_query: null sink");
+    if (sink == nullptr)
+        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>(
+                "term_query: null sink");
 
     bool found = false;
     DictEntry entry;
@@ -49,7 +53,7 @@ doris::Status term_query(const LogicalIndexReader& idx, std::string_view term, D
 }
 
 doris::Status term_query(const LogicalIndexReader& idx, std::string_view term,
-                  std::vector<uint32_t>* docids, QueryProfile* profile) {
+                         std::vector<uint32_t>* docids, QueryProfile* profile) {
     QueryProfileScope profile_scope(idx.reader(), profile);
     return term_query(idx, term, docids);
 }

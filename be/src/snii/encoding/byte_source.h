@@ -20,8 +20,8 @@
 #include <cstddef>
 #include <cstdint>
 
-#include "snii/common/slice.h"
 #include "common/status.h"
+#include "snii/common/slice.h"
 
 namespace snii {
 

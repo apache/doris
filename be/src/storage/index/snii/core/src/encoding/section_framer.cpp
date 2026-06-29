@@ -45,7 +45,8 @@ doris::Status SectionFramer::read(ByteSource& src, FramedSection* out) {
     uint32_t stored;
     RETURN_IF_ERROR(src.get_fixed32(&stored));
     if (crc32c(src.slice_from(start, framed_len)) != stored) {
-        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("section crc mismatch");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "section crc mismatch");
     }
     out->type = type;
     out->payload = payload;

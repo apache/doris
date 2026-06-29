@@ -46,7 +46,8 @@ doris::Status decode_entry(ByteSource* ps, LogicalIndexRef* ref) {
     RETURN_IF_ERROR(ps->get_varint32(&suffix_len));
     // Anti-DoS: reject a suffix_len that cannot fit in the remaining bytes before allocating.
     if (suffix_len > ps->remaining()) {
-        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("logical_index_directory: suffix_len exceeds payload");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "logical_index_directory: suffix_len exceeds payload");
     }
     Slice suffix;
     RETURN_IF_ERROR(ps->get_bytes(suffix_len, &suffix));
@@ -63,7 +64,8 @@ doris::Status decode_payload(Slice payload, std::vector<LogicalIndexRef>* refs) 
     // Anti-DoS: cap n_entries against the remaining payload before reserving, so a corrupted
     // inflated count cannot trigger a huge allocation.
     if (n_entries > ps.remaining() / kMinEntryBytes) {
-        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("logical_index_directory: n_entries exceeds payload capacity");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "logical_index_directory: n_entries exceeds payload capacity");
     }
     refs->clear();
     refs->reserve(n_entries);
@@ -73,7 +75,8 @@ doris::Status decode_payload(Slice payload, std::vector<LogicalIndexRef>* refs) 
         refs->push_back(std::move(ref));
     }
     if (!ps.eof()) {
-        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("logical_index_directory: trailing bytes in payload");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "logical_index_directory: trailing bytes in payload");
     }
     return doris::Status::OK();
 }
@@ -92,32 +95,37 @@ void LogicalIndexDirectoryBuilder::finish(ByteSink* sink) const {
 
 doris::Status LogicalIndexDirectoryReader::open(Slice framed, LogicalIndexDirectoryReader* out) {
     if (out == nullptr) {
-        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("logical_index_directory: out is null");
+        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>(
+                "logical_index_directory: out is null");
     }
     ByteSource src(framed);
     FramedSection sec;
     RETURN_IF_ERROR(SectionFramer::read(src, &sec));
     if (sec.type != static_cast<uint8_t>(SectionType::kLogicalIndexDirectory)) {
-        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("logical_index_directory: unexpected section type");
+        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>(
+                "logical_index_directory: unexpected section type");
     }
     return decode_payload(sec.payload, &out->refs_);
 }
 
 doris::Status LogicalIndexDirectoryReader::get(uint32_t i, LogicalIndexRef* out) const {
     if (out == nullptr) {
-        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("logical_index_directory: out is null");
+        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>(
+                "logical_index_directory: out is null");
     }
     if (i >= refs_.size()) {
-        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_SNII_NOT_FOUND, false>("logical_index_directory: index out of range");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_SNII_NOT_FOUND, false>(
+                "logical_index_directory: index out of range");
     }
     *out = refs_[i];
     return doris::Status::OK();
 }
 
-doris::Status LogicalIndexDirectoryReader::find(uint64_t index_id, std::string_view suffix, bool* found,
-                                         LogicalIndexRef* out) const {
+doris::Status LogicalIndexDirectoryReader::find(uint64_t index_id, std::string_view suffix,
+                                                bool* found, LogicalIndexRef* out) const {
     if (found == nullptr || out == nullptr) {
-        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("logical_index_directory: output pointer is null");
+        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>(
+                "logical_index_directory: output pointer is null");
     }
     *found = false;
     for (const auto& ref : refs_) {

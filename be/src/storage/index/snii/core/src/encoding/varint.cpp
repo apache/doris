@@ -43,7 +43,8 @@ size_t encode_varint32(uint32_t v, uint8_t* out) {
     return encode_varint64(v, out);
 }
 
-doris::Status decode_varint64(const uint8_t* p, const uint8_t* end, uint64_t* v, const uint8_t** next) {
+doris::Status decode_varint64(const uint8_t* p, const uint8_t* end, uint64_t* v,
+                              const uint8_t** next) {
     uint64_t result = 0;
     int shift = 0;
     while (p < end) {
@@ -55,15 +56,21 @@ doris::Status decode_varint64(const uint8_t* p, const uint8_t* end, uint64_t* v,
             return doris::Status::OK();
         }
         shift += 7;
-        if (shift >= 64) return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("varint64 overflow");
+        if (shift >= 64)
+            return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                    "varint64 overflow");
     }
-    return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("varint truncated");
+    return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+            "varint truncated");
 }
 
-doris::Status decode_varint32(const uint8_t* p, const uint8_t* end, uint32_t* v, const uint8_t** next) {
+doris::Status decode_varint32(const uint8_t* p, const uint8_t* end, uint32_t* v,
+                              const uint8_t** next) {
     uint64_t tmp;
     RETURN_IF_ERROR(decode_varint64(p, end, &tmp, next));
-    if (tmp > 0xFFFFFFFFu) return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("varint32 overflow");
+    if (tmp > 0xFFFFFFFFu)
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "varint32 overflow");
     *v = static_cast<uint32_t>(tmp);
     return doris::Status::OK();
 }

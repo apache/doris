@@ -167,8 +167,8 @@ Status IndexFileReader::_init_snii(const io::IOContext* io_ctx) {
     meta_io_ctx.is_index_data = true;
     meta_io_ctx.snii_section_type = io::SNII_SECTION_META;
     snii_doris::DorisSniiFileReader::ScopedIOContext io_context_scope(&meta_io_ctx);
-    RETURN_IF_ERROR(snii::reader::SniiSegmentReader::open(
-            _snii_file_reader.get(), _snii_segment_reader.get()));
+    RETURN_IF_ERROR(snii::reader::SniiSegmentReader::open(_snii_file_reader.get(),
+                                                          _snii_segment_reader.get()));
     return Status::OK();
 }
 
@@ -355,8 +355,8 @@ Status IndexFileReader::index_file_exist(const TabletIndex* index_meta, bool* re
             *res = false;
             return Status::OK();
         }
-        return _snii_segment_reader->index_exists(
-                cast_set<uint64_t>(index_meta->index_id()), index_meta->get_index_suffix(), res);
+        return _snii_segment_reader->index_exists(cast_set<uint64_t>(index_meta->index_id()),
+                                                  index_meta->get_index_suffix(), res);
     } else {
         std::shared_lock<std::shared_mutex> lock(_mutex); // Lock for reading
         if (_stream == nullptr) {

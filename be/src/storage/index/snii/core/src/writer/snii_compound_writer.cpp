@@ -52,8 +52,12 @@ doris::Status SniiCompoundWriter::ensure_bootstrap() {
 }
 
 doris::Status SniiCompoundWriter::add_logical_index(const SniiIndexInput& in) {
-    if (out_ == nullptr) return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("compound: null file writer");
-    if (finished_) return doris::Status::Error<doris::ErrorCode::INTERNAL_ERROR, false>("compound: add after finish");
+    if (out_ == nullptr)
+        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>(
+                "compound: null file writer");
+    if (finished_)
+        return doris::Status::Error<doris::ErrorCode::INTERNAL_ERROR, false>(
+                "compound: add after finish");
     RETURN_IF_ERROR(ensure_bootstrap());
     auto liw = std::make_unique<LogicalIndexWriter>(in);
     Placement p;
@@ -151,8 +155,12 @@ doris::Status SniiCompoundWriter::write_tail() {
 }
 
 doris::Status SniiCompoundWriter::finish() {
-    if (out_ == nullptr) return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("compound: null file writer");
-    if (finished_) return doris::Status::Error<doris::ErrorCode::INTERNAL_ERROR, false>("compound: finish called twice");
+    if (out_ == nullptr)
+        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>(
+                "compound: null file writer");
+    if (finished_)
+        return doris::Status::Error<doris::ErrorCode::INTERNAL_ERROR, false>(
+                "compound: finish called twice");
     finished_ = true;
 
     RETURN_IF_ERROR(ensure_bootstrap()); // empty container still gets a header

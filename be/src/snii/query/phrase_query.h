@@ -37,20 +37,20 @@
 namespace snii::query {
 
 doris::Status phrase_query(const snii::reader::LogicalIndexReader& idx,
-                    const std::vector<std::string>& terms, std::vector<uint32_t>* docids);
+                           const std::vector<std::string>& terms, std::vector<uint32_t>* docids);
 doris::Status phrase_query(const snii::reader::LogicalIndexReader& idx,
-                    const std::vector<std::string>& terms, std::vector<uint32_t>* docids,
-                    QueryProfile* profile);
+                           const std::vector<std::string>& terms, std::vector<uint32_t>* docids,
+                           QueryProfile* profile);
 
 // phrase_prefix_query -- MATCH_PHRASE_PREFIX: the last item in `terms` is a
 // term prefix and preceding items are exact terms. For example {"quick", "bro"}
 // matches "quick brown" and "quick bronze". Empty terms -> empty result.
 doris::Status phrase_prefix_query(const snii::reader::LogicalIndexReader& idx,
-                           const std::vector<std::string>& terms,
-                           std::vector<uint32_t>* const docids, int32_t max_expansions = 0);
+                                  const std::vector<std::string>& terms,
+                                  std::vector<uint32_t>* const docids, int32_t max_expansions = 0);
 doris::Status phrase_prefix_query(const snii::reader::LogicalIndexReader& idx,
-                           const std::vector<std::string>& terms,
-                           std::vector<uint32_t>* const docids, QueryProfile* profile,
-                           int32_t max_expansions = 0);
+                                  const std::vector<std::string>& terms,
+                                  std::vector<uint32_t>* const docids, QueryProfile* profile,
+                                  int32_t max_expansions = 0);
 
 } // namespace snii::query
