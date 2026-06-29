@@ -141,6 +141,51 @@ std::vector<ParquetPageCacheRange> build_page_cache_ranges(
     return ranges;
 }
 
+const ParquetColumnSchema& projected_root_schema(
+        const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
+        const format::LocalColumnIndex& projection) {
+    const auto local_id = projection.local_id();
+    DORIS_CHECK(local_id >= 0 && local_id < static_cast<int32_t>(file_schema.size()));
+    DORIS_CHECK(file_schema[local_id] != nullptr);
+    return *file_schema[local_id];
+}
+
+int64_t count_loaded_non_null_values(const ParquetColumnSchema& root_schema,
+                                     const ParquetColumnReader& shape_reader,
+                                     int64_t expected_rows) {
+    const auto& def_levels = shape_reader.nested_definition_levels();
+    const auto& rep_levels = shape_reader.nested_repetition_levels();
+    const int64_t levels_written = shape_reader.nested_levels_written();
+    DORIS_CHECK(levels_written >= expected_rows);
+    if (root_schema.max_repetition_level == 0) {
+        DORIS_CHECK(levels_written == expected_rows);
+        const int16_t non_null_definition_level = root_schema.nullable_definition_level;
+        int64_t count = 0;
+        for (int64_t level_idx = 0; level_idx < levels_written; ++level_idx) {
+            count += def_levels[level_idx] >= non_null_definition_level ? 1 : 0;
+        }
+        return count;
+    }
+
+    // For repeated encodings, one top-level row starts when the leaf repetition level moves above
+    // no higher than the top-level container's repeated boundary. Empty MAP/LIST rows have no
+    // entries but still carry a level slot; they are non-NULL and must be counted by count(col).
+    const int16_t non_null_definition_level =
+            static_cast<int16_t>(root_schema.definition_level - 1);
+    int64_t counted_rows = 0;
+    int64_t non_null_rows = 0;
+    for (int64_t level_idx = 0; level_idx < levels_written && counted_rows < expected_rows;
+         ++level_idx) {
+        if (rep_levels[level_idx] >= root_schema.repetition_level) {
+            continue;
+        }
+        ++counted_rows;
+        non_null_rows += def_levels[level_idx] >= non_null_definition_level ? 1 : 0;
+    }
+    DORIS_CHECK(counted_rows == expected_rows);
+    return non_null_rows;
+}
+
 DataTypePtr nullable_like_original(const DataTypePtr& type, DataTypePtr nested_type) {
     return type != nullptr && type->is_nullable() ? make_nullable(nested_type) : nested_type;
 }
@@ -509,6 +554,58 @@ Status ParquetReader::get_aggregate_result(const format::FileAggregateRequest& r
         result->count += row_group_metadata->num_rows();
     }
     if (request.agg_type == TPushAggOp::type::COUNT) {
+        if (request.columns.empty()) {
+            return Status::OK();
+        }
+        if (request.columns.size() != 1) {
+            return Status::NotSupported("Parquet COUNT pushdown only supports one count column");
+        }
+        const auto& count_projection = request.columns[0].projection;
+        const auto& root_schema = projected_root_schema(_state->file_schema, count_projection);
+        result->count = 0;
+        for (const auto& row_group_plan : _state->scan_plan.row_groups) {
+            std::shared_ptr<::parquet::RowGroupReader> row_group;
+            try {
+                row_group = _state->file_context.file_reader->RowGroup(row_group_plan.row_group_id);
+            } catch (const ::parquet::ParquetException& e) {
+                return Status::Corruption("Failed to open parquet row group {}: {}",
+                                          row_group_plan.row_group_id, e.what());
+            } catch (const std::exception& e) {
+                return Status::InternalError("Failed to open parquet row group {}: {}",
+                                             row_group_plan.row_group_id, e.what());
+            }
+
+            ParquetColumnReaderFactory column_reader_factory(
+                    row_group, _state->file_context.schema->num_columns(),
+                    &row_group_plan.page_skip_plans, _parquet_profile.page_skip_profile(),
+                    _state->timezone, _state->enable_strict_mode,
+                    _parquet_profile.scan_profile().column_reader_profile);
+            std::unique_ptr<ParquetColumnReader> shape_reader;
+            RETURN_IF_ERROR(column_reader_factory.create_count_shape_reader(
+                    root_schema, &count_projection, &shape_reader));
+            DORIS_CHECK(shape_reader != nullptr);
+
+            int64_t row_group_cursor = 0;
+            for (const auto& selected_range : row_group_plan.selected_ranges) {
+                DORIS_CHECK(selected_range.start >= row_group_cursor);
+                RETURN_IF_ERROR(shape_reader->skip(selected_range.start - row_group_cursor));
+                row_group_cursor = selected_range.start;
+
+                int64_t range_rows_read = 0;
+                while (range_rows_read < selected_range.length) {
+                    const int64_t batch_rows =
+                            std::min<int64_t>(_batch_size, selected_range.length - range_rows_read);
+                    // COUNT(col) only needs the top-level NULL state. The shape reader loads
+                    // def/rep levels from a representative leaf and deliberately avoids MAP value
+                    // readers, so large value strings are not materialized.
+                    RETURN_IF_ERROR(shape_reader->load_nested_batch(batch_rows));
+                    result->count +=
+                            count_loaded_non_null_values(root_schema, *shape_reader, batch_rows);
+                    range_rows_read += batch_rows;
+                    row_group_cursor += batch_rows;
+                }
+            }
+        }
         return Status::OK();
     }
 

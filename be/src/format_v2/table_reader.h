@@ -1334,6 +1334,25 @@ protected:
         request->agg_type = agg_type;
         request->columns.clear();
         if (agg_type == TPushAggOp::type::COUNT) {
+            // COUNT pushdown historically meant COUNT(*) and therefore carried no columns. For
+            // complex COUNT(col), materializing the full MAP/LIST/STRUCT value only to test the
+            // top-level NULL bit can be extremely expensive. When the scan projects exactly one
+            // directly-mapped complex column, pass that file column to the reader so formats such
+            // as Parquet can count the column shape from metadata/levels without decoding payload
+            // values like MAP value strings. Other COUNT cases stay on the existing row-count path
+            // to avoid changing count(*) semantics.
+            if (_data_reader.column_mapper->mappings().size() == 1) {
+                const auto& mapping = _data_reader.column_mapper->mappings()[0];
+                if (mapping.file_local_id.has_value() && mapping.file_type != nullptr &&
+                    is_complex_type(remove_nullable(mapping.file_type)->get_primitive_type()) &&
+                    mapping.virtual_column_type == TableVirtualColumnType::INVALID &&
+                    mapping.default_expr == nullptr) {
+                    FileAggregateRequest::Column column;
+                    column.projection =
+                            LocalColumnIndex::top_level(LocalColumnId(*mapping.file_local_id));
+                    request->columns.push_back(std::move(column));
+                }
+            }
             return Status::OK();
         }
         request->columns.reserve(_data_reader.column_mapper->mappings().size());

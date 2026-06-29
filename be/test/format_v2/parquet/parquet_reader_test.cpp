@@ -281,6 +281,46 @@ void write_parquet_file(const std::string& file_path, int64_t row_group_size = R
                                                       row_group_size, builder.build()));
 }
 
+std::shared_ptr<arrow::Array> build_nullable_int_string_map_array() {
+    auto key_builder = std::make_shared<arrow::Int32Builder>();
+    auto value_builder = std::make_shared<arrow::StringBuilder>();
+    auto map_type = arrow::map(arrow::int32(), arrow::field("value", arrow::utf8(), true));
+    arrow::MapBuilder builder(arrow::default_memory_pool(), key_builder, value_builder, map_type);
+
+    EXPECT_TRUE(builder.Append().ok());
+    EXPECT_TRUE(key_builder->Append(10).ok());
+    EXPECT_TRUE(value_builder->Append("small").ok());
+
+    EXPECT_TRUE(builder.AppendNull().ok());
+    EXPECT_TRUE(builder.AppendEmptyValue().ok());
+
+    EXPECT_TRUE(builder.Append().ok());
+    EXPECT_TRUE(key_builder->Append(20).ok());
+    EXPECT_TRUE(value_builder->Append(std::string(4096, 'x')).ok());
+
+    EXPECT_TRUE(builder.Append().ok());
+    EXPECT_TRUE(key_builder->Append(30).ok());
+    EXPECT_TRUE(value_builder->AppendNull().ok());
+    return finish_array(&builder);
+}
+
+void write_nullable_map_parquet_file(const std::string& file_path) {
+    auto array = build_nullable_int_string_map_array();
+    auto field = arrow::field("arr", array->type(), true);
+    auto table = arrow::Table::Make(arrow::schema({field}), {array});
+
+    auto file_result = arrow::io::FileOutputStream::Open(file_path);
+    ASSERT_TRUE(file_result.ok()) << file_result.status();
+    std::shared_ptr<arrow::io::FileOutputStream> out = *file_result;
+
+    ::parquet::WriterProperties::Builder builder;
+    builder.version(::parquet::ParquetVersion::PARQUET_2_6);
+    builder.data_page_version(::parquet::ParquetDataPageVersion::V2);
+    builder.compression(::parquet::Compression::UNCOMPRESSED);
+    PARQUET_THROW_NOT_OK(::parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), out,
+                                                      ROW_COUNT, builder.build()));
+}
+
 void write_int96_timestamp_parquet_file(const std::string& file_path) {
     auto field = arrow::field("ts_tz", arrow::timestamp(arrow::TimeUnit::MICRO), true);
     auto array =
@@ -703,6 +743,25 @@ TEST_F(NewParquetReaderTest, CreatesParquetColumnMapper) {
             reader->create_column_mapper({.mode = format::TableColumnMappingMode::BY_FIELD_ID});
 
     ASSERT_NE(dynamic_cast<format::ParquetColumnMapper*>(mapper.get()), nullptr);
+}
+
+TEST_F(NewParquetReaderTest, CountComplexColumnUsesShapeOnlyPath) {
+    write_nullable_map_parquet_file(_file_path);
+    auto reader = create_reader();
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+    ASSERT_TRUE(reader->open(std::make_shared<format::FileScanRequest>()).ok());
+
+    format::FileAggregateRequest request;
+    request.agg_type = TPushAggOp::type::COUNT;
+    request.columns.push_back(
+            {.projection = format::LocalColumnIndex::top_level(format::LocalColumnId(0))});
+    format::FileAggregateResult result;
+    ASSERT_TRUE(reader->get_aggregate_result(request, &result).ok());
+
+    // Rows are: non-empty map, NULL map, empty map, non-empty map with large value string,
+    // non-empty map with NULL value. COUNT(arr) excludes only the top-level NULL map.
+    EXPECT_EQ(result.count, 4);
 }
 
 TEST_F(NewParquetReaderTest, GetSchemaReturnsNullableNestedChildren) {

@@ -194,6 +194,14 @@ public:
                   const format::LocalColumnIndex* projection,
                   std::unique_ptr<ParquetColumnReader>* reader) const;
 
+    // Create a scalar reader for one representative leaf that carries the top-level column shape.
+    // This is used by COUNT(col): the caller needs definition/repetition levels to decide whether
+    // the top-level value is NULL, but must not materialize heavy payload leaves. MAP deliberately
+    // uses the key leaf because the key stream owns entry existence and avoids reading value pages.
+    Status create_count_shape_reader(const ParquetColumnSchema& column_schema,
+                                     const format::LocalColumnIndex* projection,
+                                     std::unique_ptr<ParquetColumnReader>* reader) const;
+
     // 便捷重载：projection = nullptr（读取全部子列）。
     Status create(const ParquetColumnSchema& column_schema,
                   std::unique_ptr<ParquetColumnReader>* reader) const {
@@ -240,6 +248,10 @@ private:
     Status create_column_reader(const ParquetColumnSchema& column_schema,
                                 const format::LocalColumnIndex* projection, bool is_nested,
                                 std::unique_ptr<ParquetColumnReader>* reader) const;
+    Status create_count_shape_reader_impl(const ParquetColumnSchema& column_schema,
+                                          const format::LocalColumnIndex* projection,
+                                          bool is_nested,
+                                          std::unique_ptr<ParquetColumnReader>* reader) const;
 
     // 惰性创建并缓存 Arrow RecordReader（按 leaf_column_id 索引）。
     // 多个 Doris reader 可能通过不同嵌套路径共享同一个物理列的数据流，

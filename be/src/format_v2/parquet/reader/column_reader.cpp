@@ -27,6 +27,7 @@
 #include <exception>
 #include <map>
 #include <memory>
+#include <ranges>
 #include <string>
 #include <utility>
 #include <vector>
@@ -493,6 +494,75 @@ Status ParquetColumnReaderFactory::create(const ParquetColumnSchema& column_sche
                                           const format::LocalColumnIndex* projection,
                                           std::unique_ptr<ParquetColumnReader>* reader) const {
     return create_column_reader(column_schema, projection, false, reader);
+}
+
+Status ParquetColumnReaderFactory::create_count_shape_reader(
+        const ParquetColumnSchema& column_schema, const format::LocalColumnIndex* projection,
+        std::unique_ptr<ParquetColumnReader>* reader) const {
+    return create_count_shape_reader_impl(column_schema, projection, false, reader);
+}
+
+Status ParquetColumnReaderFactory::create_count_shape_reader_impl(
+        const ParquetColumnSchema& column_schema, const format::LocalColumnIndex* projection,
+        bool is_nested, std::unique_ptr<ParquetColumnReader>* reader) const {
+    if (reader == nullptr) {
+        return Status::InvalidArgument("reader is null");
+    }
+    switch (column_schema.kind) {
+    case ParquetColumnSchemaKind::PRIMITIVE:
+        if (format::is_partial_projection(projection)) {
+            return Status::InvalidArgument("Parquet COUNT projection is invalid for column {}",
+                                           column_schema.name);
+        }
+        return create_scalar_column_reader(column_schema, is_nested, reader);
+    case ParquetColumnSchemaKind::STRUCT: {
+        if (column_schema.children.empty()) {
+            return Status::NotSupported("Parquet COUNT shape reader found empty STRUCT column {}",
+                                        column_schema.name);
+        }
+        const ParquetColumnSchema* child_schema = nullptr;
+        const format::LocalColumnIndex* child_projection = nullptr;
+        if (format::is_partial_projection(projection)) {
+            const auto child_id = projection->children[0].local_id();
+            const auto child_it = std::ranges::find_if(
+                    column_schema.children,
+                    [&](const auto& child) { return child->local_id == child_id; });
+            if (child_it == column_schema.children.end()) {
+                return Status::InvalidArgument(
+                        "Parquet COUNT projection for column {} contains invalid child",
+                        column_schema.name);
+            }
+            child_schema = child_it->get();
+            child_projection = &projection->children[0];
+        } else {
+            child_schema = column_schema.children[0].get();
+        }
+        DORIS_CHECK(child_schema != nullptr);
+        return create_count_shape_reader_impl(*child_schema, child_projection, true, reader);
+    }
+    case ParquetColumnSchemaKind::LIST: {
+        if (column_schema.children.size() != 1) {
+            return Status::NotSupported("Unsupported parquet LIST layout for COUNT column {}",
+                                        column_schema.name);
+        }
+        const auto& element_schema = *column_schema.children[0];
+        const auto* element_projection =
+                format::find_child_projection(projection, element_schema.local_id);
+        return create_count_shape_reader_impl(element_schema, element_projection, true, reader);
+    }
+    case ParquetColumnSchemaKind::MAP: {
+        if (column_schema.children.empty()) {
+            return Status::NotSupported("Unsupported parquet MAP layout for COUNT column {}",
+                                        column_schema.name);
+        }
+        // The key stream defines MAP entry existence and offsets. Counting top-level MAP NULL-ness
+        // from it avoids creating a value reader, which is the expensive path for files with huge
+        // MAP value strings.
+        return create_count_shape_reader_impl(*column_schema.children[0], nullptr, true, reader);
+    }
+    }
+    return Status::NotSupported("Unsupported parquet column schema kind for COUNT column {}",
+                                column_schema.name);
 }
 
 Status ParquetColumnReaderFactory::create_column_reader(

@@ -250,11 +250,14 @@ private:
 struct FileAggregateRequest {
     struct Column {
         // File-local projection for the aggregate column. For nested MIN/MAX, this points to the
-        // single primitive leaf that can be represented by file statistics.
+        // single primitive leaf that can be represented by file statistics. For COUNT(col), this
+        // points to the top-level column whose NULL-ness should be counted.
         LocalColumnIndex projection;
     };
 
     TPushAggOp::type agg_type = TPushAggOp::type::NONE;
+    // Empty for COUNT(*)/row-count pushdown. Non-empty for COUNT(col), where the file reader must
+    // return the number of non-NULL rows for the requested column instead of total rows.
     std::vector<Column> columns;
 };
 
