@@ -209,12 +209,13 @@ public class PartitionPruner extends DefaultExpressionRewriter<Void> {
                         sortedPartitionRanges.get(), partitionSlots, partitionPredicate, cascadesContext,
                         expandThreshold, predicateRanges
                 );
-                boolean hasPartitionPredicate = hasEffectivePartitionPredicate(res.first, idToPartitions.size());
+                List<K> selectedPartitions = keepPartitionsInSnapshot(res.first, idToPartitions);
+                boolean hasPartitionPredicate = hasEffectivePartitionPredicate(selectedPartitions, idToPartitions.size());
                 if (res.second) {
-                    return new PartitionPruneResult<>(res.first, Optional.of(originalPartitionPredicate),
+                    return new PartitionPruneResult<>(selectedPartitions, Optional.of(originalPartitionPredicate),
                             hasPartitionPredicate);
                 } else {
-                    return new PartitionPruneResult<>(res.first, Optional.empty(), hasPartitionPredicate);
+                    return new PartitionPruneResult<>(selectedPartitions, Optional.empty(), hasPartitionPredicate);
                 }
             }
         }
@@ -234,6 +235,17 @@ public class PartitionPruner extends DefaultExpressionRewriter<Void> {
     private static <K extends Comparable<K>> boolean hasEffectivePartitionPredicate(
             List<K> selectedPartitions, int totalPartitions) {
         return selectedPartitions.size() != totalPartitions;
+    }
+
+    private static <K extends Comparable<K>> List<K> keepPartitionsInSnapshot(
+            List<K> selectedPartitions, Map<K, PartitionItem> idToPartitions) {
+        Builder<K> partitions = ImmutableList.builder();
+        for (K partition : selectedPartitions) {
+            if (idToPartitions.containsKey(partition)) {
+                partitions.add(partition);
+            }
+        }
+        return partitions.build();
     }
 
     /**

@@ -31,6 +31,7 @@ import org.apache.doris.nereids.rules.expression.rules.OnePartitionEvaluator;
 import org.apache.doris.nereids.rules.expression.rules.PartitionPruner;
 import org.apache.doris.nereids.rules.expression.rules.PartitionPruner.PartitionPruneResult;
 import org.apache.doris.nereids.rules.expression.rules.PartitionPruner.PartitionTableType;
+import org.apache.doris.nereids.rules.expression.rules.SortedPartitionRanges;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -341,6 +342,24 @@ public class PartitionPrunerTest extends TestWithFeService {
                 PartitionTableType.OLAP, Optional.empty());
 
         Assertions.assertEquals(1, result.partitions.size());
+        Assertions.assertTrue(result.hasPartitionPredicate);
+    }
+
+    @Test
+    public void testPruneWithResultDoesNotReturnPartitionOutsideSnapshot() throws AnalysisException {
+        Map<String, PartitionItem> idToPartitions = ImmutableMap.of(
+                "p1", createListPartitionItem("1"),
+                "p2", createListPartitionItem("2"));
+        SortedPartitionRanges<String> sortedPartitionRanges = SortedPartitionRanges.build(ImmutableMap.of(
+                "p1", createListPartitionItem("1"),
+                "p2", createListPartitionItem("2"),
+                "p3", createListPartitionItem("3")));
+
+        PartitionPruneResult<String> result = PartitionPruner.pruneWithResult(
+                ImmutableList.of(slotA), new EqualTo(slotA, Literal.of(3)), idToPartitions, cascadesContext,
+                PartitionTableType.EXTERNAL, Optional.of(sortedPartitionRanges));
+
+        Assertions.assertTrue(result.partitions.isEmpty());
         Assertions.assertTrue(result.hasPartitionPredicate);
     }
 
