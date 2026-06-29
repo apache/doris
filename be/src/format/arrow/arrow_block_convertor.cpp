@@ -26,6 +26,7 @@
 #include <arrow/status.h>
 #include <arrow/type.h>
 #include <arrow/util/decimal.h>
+#include <arrow/util/key_value_metadata.h>
 #include <arrow/visit_type_inline.h>
 #include <arrow/visitor.h>
 #include <cctz/time_zone.h>
@@ -193,8 +194,11 @@ Status FromBlockToRecordBatchConverter::convert(std::shared_ptr<arrow::RecordBat
         _cur_type = _block.get_by_position(idx).type;
         auto column = _cur_col->convert_to_full_column_if_const();
         auto arrow_type = _schema->field(idx)->type();
-        if (arrow_type->name() == "utf8" && column->byte_size() >= MAX_ARROW_UTF8) {
+        if (arrow_type->id() == arrow::Type::STRING && column->byte_size() >= MAX_ARROW_UTF8) {
             arrow_type = arrow::large_utf8();
+        } else if (arrow_type->id() == arrow::Type::BINARY &&
+                   column->byte_size() >= MAX_ARROW_UTF8) {
+            arrow_type = arrow::large_binary();
         }
         std::unique_ptr<arrow::ArrayBuilder> builder;
         auto arrow_st = arrow::MakeBuilder(_pool, arrow_type, &builder);

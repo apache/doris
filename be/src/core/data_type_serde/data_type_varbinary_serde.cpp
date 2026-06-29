@@ -70,6 +70,21 @@ Status DataTypeVarbinarySerDe::write_column_to_arrow(const IColumn& column, cons
     if (array_builder->type()->id() == arrow::Type::BINARY) {
         auto& builder = assert_cast<arrow::BinaryBuilder&>(*array_builder);
         return lambda_function(builder);
+    } else if (array_builder->type()->id() == arrow::Type::LARGE_BINARY) {
+        auto& builder = assert_cast<arrow::LargeBinaryBuilder&>(*array_builder);
+        const auto& varbinary_column_data = assert_cast<const ColumnVarbinary&>(column).get_data();
+        for (size_t i = start; i < end; ++i) {
+            if (null_map && (*null_map)[i]) {
+                RETURN_IF_ERROR(checkArrowStatus(builder.AppendNull(), column, builder));
+                continue;
+            }
+            const auto& string_view = varbinary_column_data[i];
+            RETURN_IF_ERROR(checkArrowStatus(
+                    builder.Append(reinterpret_cast<const uint8_t*>(string_view.data()),
+                                   cast_set<int64_t, size_t, false>(string_view.size())),
+                    column, builder));
+        }
+        return Status::OK();
     } else if (array_builder->type()->id() == arrow::Type::STRING) {
         auto& builder = assert_cast<arrow::StringBuilder&>(*array_builder);
         return lambda_function(builder);

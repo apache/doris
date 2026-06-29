@@ -16,6 +16,7 @@
 // under the License.
 
 #include <arrow/array/array_binary.h>
+#include <arrow/array/array_nested.h>
 #include <arrow/array/builder_base.h>
 #include <arrow/array/builder_binary.h>
 #include <arrow/array/builder_decimal.h>
@@ -552,6 +553,78 @@ TEST(DataTypeSerDeArrowTest, IcebergUuidStringToFixedSizeBinary) {
                                  0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff};
     EXPECT_EQ(0, std::memcmp(uuid_array->GetValue(0), expected0, sizeof(expected0)));
     EXPECT_EQ(0, std::memcmp(uuid_array->GetValue(1), expected1, sizeof(expected1)));
+}
+
+TEST(DataTypeSerDeArrowTest, NestedIcebergUuidStringToFixedSizeBinary) {
+    auto block = std::make_shared<Block>();
+    DataTypePtr data_type = std::make_shared<DataTypeStruct>(
+            std::vector<DataTypePtr> {std::make_shared<DataTypeString>()});
+    auto struct_column = data_type->create_column();
+
+    Struct row;
+    row.push_back(Field::create_field<TYPE_STRING>("550e8400-e29b-41d4-a716-446655440000"));
+    struct_column->insert(Field::create_field<TYPE_STRUCT>(row));
+    block->insert(ColumnWithTypeAndName(struct_column->get_ptr(), data_type, "uuid_struct"));
+
+    auto metadata = arrow::KeyValueMetadata::Make({"originalType"}, {"uuid"});
+    auto schema = arrow::schema({arrow::field(
+            "uuid_struct",
+            arrow::struct_({arrow::field("id", arrow::fixed_size_binary(16), true, metadata)}),
+            true)});
+
+    std::shared_ptr<arrow::RecordBatch> record_batch;
+    cctz::time_zone default_timezone;
+    Status status = convert_to_arrow_batch(*block, schema, arrow::default_memory_pool(),
+                                           &record_batch, default_timezone);
+    ASSERT_TRUE(status.ok()) << status;
+
+    auto struct_array = std::static_pointer_cast<arrow::StructArray>(record_batch->column(0));
+    auto uuid_array = std::static_pointer_cast<arrow::FixedSizeBinaryArray>(struct_array->field(0));
+    const uint8_t expected[] = {0x55, 0x0e, 0x84, 0x00, 0xe2, 0x9b, 0x41, 0xd4,
+                                0xa7, 0x16, 0x44, 0x66, 0x55, 0x44, 0x00, 0x00};
+    EXPECT_EQ(0, std::memcmp(uuid_array->GetValue(0), expected, sizeof(expected)));
+}
+
+TEST(DataTypeSerDeArrowTest, CharToFixedSizeBinaryPadsZeros) {
+    auto block = std::make_shared<Block>();
+    auto strcol = ColumnString::create();
+    strcol->insert_data("ab", 2);
+    DataTypePtr data_type(std::make_shared<DataTypeString>(4, TYPE_CHAR));
+    block->insert(ColumnWithTypeAndName(strcol->get_ptr(), data_type, "fixed_col"));
+
+    auto schema = arrow::schema({arrow::field("fixed_col", arrow::fixed_size_binary(4), true)});
+
+    std::shared_ptr<arrow::RecordBatch> record_batch;
+    cctz::time_zone default_timezone;
+    Status status = convert_to_arrow_batch(*block, schema, arrow::default_memory_pool(),
+                                           &record_batch, default_timezone);
+    ASSERT_TRUE(status.ok()) << status;
+
+    auto fixed_array =
+            std::static_pointer_cast<arrow::FixedSizeBinaryArray>(record_batch->column(0));
+    const char expected[] = {'a', 'b', '\0', '\0'};
+    EXPECT_EQ(0, std::memcmp(fixed_array->GetValue(0), expected, sizeof(expected)));
+}
+
+TEST(DataTypeSerDeArrowTest, StringToLargeBinary) {
+    auto block = std::make_shared<Block>();
+    auto strcol = ColumnString::create();
+    strcol->insert_data("binary-value", 12);
+    DataTypePtr data_type(std::make_shared<DataTypeString>());
+    block->insert(ColumnWithTypeAndName(strcol->get_ptr(), data_type, "bin_col"));
+
+    auto schema = arrow::schema({arrow::field("bin_col", arrow::large_binary(), true)});
+
+    std::shared_ptr<arrow::RecordBatch> record_batch;
+    cctz::time_zone default_timezone;
+    Status status = convert_to_arrow_batch(*block, schema, arrow::default_memory_pool(),
+                                           &record_batch, default_timezone);
+    ASSERT_TRUE(status.ok()) << status;
+
+    auto binary_array = std::static_pointer_cast<arrow::LargeBinaryArray>(record_batch->column(0));
+    ASSERT_EQ(12, binary_array->value_length(0));
+    const uint8_t* raw = binary_array->value_data()->data() + binary_array->value_offset(0);
+    EXPECT_EQ(0, std::memcmp(raw, "binary-value", 12));
 }
 
 TEST(DataTypeSerDeArrowTest, BlockConverterTest) {
