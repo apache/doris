@@ -63,6 +63,11 @@ enum TParquetCompressionType {
     LZO = 5,
     BZ2 = 6,
     UNCOMPRESSED = 7,
+    // Hadoop-framed (deprecated Parquet "LZ4") codec. Distinct from LZ4 above, which maps to
+    // Arrow LZ4_RAW. Used by the Iceberg/Hive Parquet writers so the output stays readable by
+    // engines that support only the Hadoop-framed LZ4 codec (e.g. Trino), matching what
+    // Spark/Iceberg writes for `write.parquet.compression-codec=lz4`.
+    LZ4_HADOOP = 8,
 }
 
 enum TParquetVersion {
