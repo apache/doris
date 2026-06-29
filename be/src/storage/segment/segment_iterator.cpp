@@ -3270,7 +3270,6 @@ Status SegmentIterator::_next_batch_internal(Block* block) {
                                 survival_ratio <= _predicate_lm_stage1_survival_ratio_threshold;
 
                         if (stage2_by_rowids) {
-
                             _opts.stats->predicate_lm_stage2_by_rowids_batches += 1;
                             _opts.stats->predicate_lm_stage2_rows_read += stage1_size;
 
@@ -3347,7 +3346,7 @@ Status SegmentIterator::_next_batch_internal(Block* block) {
 
                             _sel_rowid_idx.clear();
                             _sel_rowid_idx.reserve(
-                                       std::min<uint16_t>(stage1_size, stage2_size_all));
+                                    std::min<uint16_t>(stage1_size, stage2_size_all));
                             uint16_t i = 0;
                             uint16_t j = 0;
                             while (i < stage1_size && j < stage2_size_all) {
