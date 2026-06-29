@@ -207,4 +207,110 @@ TEST_F(CacheLRUDumperTest, test_lru_log_record_queue_hard_cap) {
     EXPECT_EQ(recorder->get_shadow_queue(FileCacheType::INDEX).get_elements_num_unsafe(), 2);
 }
 
+TEST_F(CacheLRUDumperTest, test_shadow_queue_keeps_tail_when_replay_exceeds_limit) {
+    const auto old_tail_record_num = config::file_cache_background_lru_dump_tail_record_num;
+    const auto old_queue_limit = config::file_cache_background_lru_log_queue_max_size;
+    Defer defer {[old_tail_record_num, old_queue_limit] {
+        config::file_cache_background_lru_dump_tail_record_num = old_tail_record_num;
+        config::file_cache_background_lru_log_queue_max_size = old_queue_limit;
+    }};
+
+    config::file_cache_background_lru_dump_tail_record_num = 3;
+    config::file_cache_background_lru_log_queue_max_size = 10;
+
+    UInt128Wrapper hash(112233ULL);
+    for (size_t offset = 0; offset < 5; ++offset) {
+        recorder->record_queue_event(FileCacheType::NORMAL, CacheLRULogType::ADD, hash, offset,
+                                     4096);
+    }
+
+    EXPECT_EQ(recorder->replay_queue_event(FileCacheType::NORMAL), 5);
+    auto& shadow_queue = recorder->get_shadow_queue(FileCacheType::NORMAL);
+    ASSERT_EQ(shadow_queue.get_elements_num_unsafe(), 3);
+    auto stats = mock_cache->get_stats_unsafe();
+    EXPECT_EQ(stats["lru_recorder_normal_shadow_queue_curr_elements"], 3);
+
+    std::vector<size_t> offsets;
+    for (auto it = shadow_queue.begin(); it != shadow_queue.end(); ++it) {
+        offsets.push_back(it->offset);
+    }
+    EXPECT_EQ(offsets, std::vector<size_t>({2, 3, 4}));
+}
+
+TEST_F(CacheLRUDumperTest, test_remove_event_trims_existing_oversized_shadow_queue) {
+    const auto old_tail_record_num = config::file_cache_background_lru_dump_tail_record_num;
+    const auto old_queue_limit = config::file_cache_background_lru_log_queue_max_size;
+    Defer defer {[old_tail_record_num, old_queue_limit] {
+        config::file_cache_background_lru_dump_tail_record_num = old_tail_record_num;
+        config::file_cache_background_lru_log_queue_max_size = old_queue_limit;
+    }};
+
+    config::file_cache_background_lru_dump_tail_record_num = 2;
+    config::file_cache_background_lru_log_queue_max_size = 10;
+
+    UInt128Wrapper hash(556677ULL);
+    {
+        std::lock_guard lru_log_lock(recorder->_mutex_lru_log);
+        auto& shadow_queue = recorder->get_shadow_queue(FileCacheType::NORMAL);
+        for (size_t offset = 0; offset < 4; ++offset) {
+            shadow_queue.add(hash, offset, 4096, lru_log_lock);
+        }
+    }
+    recorder->record_queue_event(FileCacheType::NORMAL, CacheLRULogType::REMOVE, hash, 3, 4096);
+
+    EXPECT_EQ(recorder->replay_queue_event(FileCacheType::NORMAL), 1);
+    auto& shadow_queue = recorder->get_shadow_queue(FileCacheType::NORMAL);
+    ASSERT_EQ(shadow_queue.get_elements_num_unsafe(), 2);
+
+    std::vector<size_t> offsets;
+    for (auto it = shadow_queue.begin(); it != shadow_queue.end(); ++it) {
+        offsets.push_back(it->offset);
+    }
+    EXPECT_EQ(offsets, std::vector<size_t>({1, 2}));
+}
+
+TEST_F(CacheLRUDumperTest, test_update_shadow_queue_metric_does_not_trim_queue) {
+    const auto old_tail_record_num = config::file_cache_background_lru_dump_tail_record_num;
+    Defer defer {[old_tail_record_num] {
+        config::file_cache_background_lru_dump_tail_record_num = old_tail_record_num;
+    }};
+
+    config::file_cache_background_lru_dump_tail_record_num = 1;
+
+    UInt128Wrapper hash(778899ULL);
+    {
+        std::lock_guard lru_log_lock(recorder->_mutex_lru_log);
+        auto& shadow_queue = recorder->get_shadow_queue(FileCacheType::INDEX);
+        for (size_t offset = 0; offset < 3; ++offset) {
+            shadow_queue.add(hash, offset, 4096, lru_log_lock);
+        }
+    }
+
+    recorder->update_shadow_queue_element_count_metrics();
+
+    EXPECT_EQ(recorder->get_shadow_queue(FileCacheType::INDEX).get_elements_num_unsafe(), 3);
+    auto stats = mock_cache->get_stats_unsafe();
+    EXPECT_EQ(stats["lru_recorder_index_shadow_queue_curr_elements"], 3);
+}
+
+TEST_F(CacheLRUDumperTest, test_remove_event_still_obeys_replay_queue_cap) {
+    const auto old_tail_record_num = config::file_cache_background_lru_dump_tail_record_num;
+    const auto old_queue_limit = config::file_cache_background_lru_log_queue_max_size;
+    Defer defer {[old_tail_record_num, old_queue_limit] {
+        config::file_cache_background_lru_dump_tail_record_num = old_tail_record_num;
+        config::file_cache_background_lru_log_queue_max_size = old_queue_limit;
+    }};
+
+    config::file_cache_background_lru_dump_tail_record_num = 100;
+    config::file_cache_background_lru_log_queue_max_size = 1;
+
+    UInt128Wrapper hash(445566ULL);
+    recorder->record_queue_event(FileCacheType::INDEX, CacheLRULogType::ADD, hash, 0, 4096);
+    recorder->record_queue_event(FileCacheType::INDEX, CacheLRULogType::REMOVE, hash, 0, 4096);
+
+    EXPECT_EQ(recorder->lru_log_queue_size(FileCacheType::INDEX), 1);
+    EXPECT_EQ(recorder->replay_queue_event(FileCacheType::INDEX), 1);
+    EXPECT_EQ(recorder->get_shadow_queue(FileCacheType::INDEX).get_elements_num_unsafe(), 1);
+}
+
 } // namespace doris::io
