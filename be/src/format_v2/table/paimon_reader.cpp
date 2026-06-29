@@ -16,6 +16,7 @@
 // under the License.
 
 #include "format_v2/table/paimon_reader.h"
+
 #include <glog/logging.h>
 
 #include <cstring>
@@ -124,7 +125,8 @@ Status PaimonHybridReader::_ensure_current_split_reader(const format::SplitReadO
         format::FileFormat file_format;
         RETURN_IF_ERROR(_to_file_format(options.current_range, &file_format));
         DCHECK(options.current_split_format == file_format);
-        DCHECK(file_format == format::FileFormat::PARQUET || file_format == format::FileFormat::ORC);
+        DCHECK(file_format == format::FileFormat::PARQUET ||
+               file_format == format::FileFormat::ORC);
         if (_native_reader == nullptr) {
             _native_reader = format::paimon::PaimonReader::create_unique();
             RETURN_IF_ERROR(_init_child_reader(_native_reader.get(), file_format));
