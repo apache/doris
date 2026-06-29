@@ -2239,9 +2239,9 @@ public class DynamicPartitionTableTest {
     public void testAutoPartitionRetentionTimestampTzCutoffNormalized() throws Exception {
         String originalTimeZone = connectContext.getSessionVariable().getTimeZone();
         try {
-            // Session TZ Asia/Shanghai (UTC+8). Without normalization, the buggy
-            // cutoff would be ~8h ahead of UTC, dropping partitions whose upper
-            // bounds are between the true UTC cutoff and the shifted cutoff.
+            // Session TZ Asia/Shanghai (UTC+8). Without normalization, the
+            // buggy cutoff would be ~8h ahead of UTC, misclassifying a
+            // partition whose upper bound is just ahead of UTC now as history.
             connectContext.getSessionVariable().setTimeZone("Asia/Shanghai");
 
             String createSql = "CREATE TABLE test.`auto_retention_tstz` (\n"
@@ -2252,37 +2252,50 @@ public class DynamicPartitionTableTest {
                     + "DISTRIBUTED BY HASH(`k1`) BUCKETS 1\n"
                     + "PROPERTIES (\n"
                     + "\"replication_num\" = \"1\",\n"
-                    + "\"partition.retention_count\" = \"0\"\n"
+                    + "\"partition.retention_count\" = \"1\"\n"
                     + ");";
             createTable(createSql);
 
             Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException("test");
             OlapTable tbl = (OlapTable) db.getTableOrAnalysisException("auto_retention_tstz");
 
+            // Definitively historical partition (year 2000) — always history.
+            alterTable("ALTER TABLE test.auto_retention_tstz ADD PARTITION p_old VALUES "
+                    + "[('2000-01-01 00:00:00+00:00'), ('2000-01-02 00:00:00+00:00'))");
+            // Another historical partition (year 2020) — always history.
+            alterTable("ALTER TABLE test.auto_retention_tstz ADD PARTITION p_mid VALUES "
+                    + "[('2020-01-01 00:00:00+00:00'), ('2020-01-02 00:00:00+00:00'))");
+
             // Recent partition: upper bound is 4h in the future (UTC).
-            // With the fix: cutoff is UTC-normalized, upper > cutoff → not history → kept.
-            // Without the fix: cutoff ≈ UTC now + 8h (Asia/Shanghai parsed as UTC),
-            // upper < cutoff → incorrectly classified as history → dropped.
+            // With the fix: cutoff is UTC-normalized → upper > cutoff → not history → kept.
+            // Without the fix: cutoff ≈ UTC now + 8h (Asia/Shanghai parsed as UTC)
+            // → upper < cutoff → incorrectly classified as history.
             DateTimeFormatter fmt = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
             ZonedDateTime utcNow = ZonedDateTime.now(ZoneOffset.UTC);
             String recentLower = utcNow.minusHours(1).format(fmt) + "+00:00";
             String recentUpper = utcNow.plusHours(4).format(fmt) + "+00:00";
 
-            String alterRecent = "ALTER TABLE test.auto_retention_tstz ADD PARTITION p_recent VALUES "
-                    + "[('" + recentLower + "'), ('" + recentUpper + "'))";
-            alterTable(alterRecent);
+            alterTable("ALTER TABLE test.auto_retention_tstz ADD PARTITION p_recent VALUES "
+                    + "[('" + recentLower + "'), ('" + recentUpper + "'))");
 
-            Assert.assertEquals(1, tbl.getPartitionNames().size());
+            Assert.assertEquals(3, tbl.getPartitionNames().size());
 
-            // Run retention: retention_count=0 drops all history partitions.
+            // Run retention: retention_count=1 keeps the latest history partition
+            // plus any non-history partitions.
             Env.getCurrentEnv().getDynamicPartitionScheduler()
                     .executeDynamicPartitionFirstTime(db.getId(), tbl.getId());
 
-            // Recent partition should survive because its upper bound is ahead of
-            // the UTC-normalized cutoff (it is not a history partition).
-            Assert.assertEquals("Recent partition with upper bound ahead of UTC cutoff"
-                    + " should not be dropped", 1, tbl.getPartitionNames().size());
-            Assert.assertTrue(tbl.getPartitionNames().contains("p_recent"));
+            // Expected outcome with the fix:
+            // - p_old (2000): is history, oldest → dropped
+            // - p_mid (2020): is history, but the latest one → kept (retention_count=1)
+            // - p_recent: upper bound ahead of UTC cutoff → not history → kept
+            // Total: 2 partitions survive.
+            Assert.assertEquals("After retention, 2 partitions should remain", 2,
+                    tbl.getPartitionNames().size());
+            Assert.assertTrue("p_mid should be kept as the latest history partition",
+                    tbl.getPartitionNames().contains("p_mid"));
+            Assert.assertTrue("p_recent should survive (not history)",
+                    tbl.getPartitionNames().contains("p_recent"));
         } finally {
             connectContext.getSessionVariable().setTimeZone(originalTimeZone);
         }
