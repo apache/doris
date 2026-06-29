@@ -154,7 +154,18 @@ Status VPaimonJniTableWriter::open(RuntimeState* state, RuntimeProfile* profile)
     LOG(INFO) << "paimon: table location: " << paimon_sink.table_location;
 
     jstring j_location = env->NewStringUTF(paimon_sink.table_location.c_str());
-    std::map<std::string, std::string> jni_options = paimon_sink.options;
+    std::map<std::string, std::string> jni_options;
+    if (paimon_sink.__isset.paimon_options) {
+        jni_options.insert(paimon_sink.paimon_options.begin(), paimon_sink.paimon_options.end());
+    }
+    if (paimon_sink.__isset.hadoop_config) {
+        for (const auto& [key, value] : paimon_sink.hadoop_config) {
+            jni_options[key] = value;
+            if (key.rfind("hadoop.", 0) != 0) {
+                jni_options["hadoop." + key] = value;
+            }
+        }
+    }
     jni_options["db_name"] = paimon_sink.db_name;
     jni_options["table_name"] = paimon_sink.tb_name;
     if (paimon_sink.__isset.serialized_table && !paimon_sink.serialized_table.empty()) {

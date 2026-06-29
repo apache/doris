@@ -51,8 +51,8 @@ import java.util.Set;
  * Paimon table sink
  *
  * This class materializes the TPaimonTableSink payload consumed by BE,
- * including table location, write options, partition keys, bucket keys,
- * bucket metadata and sink column names.
+ * including table location, Paimon options, Hadoop config, bucket metadata
+ * and sink column names.
  */
 public class PaimonTableSink extends BaseExternalTableDataSink {
     private static final Logger LOG = LogManager.getLogger(PaimonTableSink.class);
@@ -99,47 +99,41 @@ public class PaimonTableSink extends BaseExternalTableDataSink {
     public void bindDataSink(Optional<InsertCommandContext> insertCtx) throws AnalysisException {
         TPaimonTableSink tSink = new TPaimonTableSink();
 
-        // basic identifiers
-        tSink.setCatalogName(targetTable.getCatalog().getName());
         tSink.setDbName(targetTable.getDbName());
         tSink.setTbName(targetTable.getName());
 
-        Map<String, String> catalogProps = targetTable.getCatalog().getCatalogProperty().getHadoopProperties();
-        Map<String, String> options = new HashMap<>();
-        options.putAll(catalogProps);
+        Map<String, String> hadoopConfig = new HashMap<>(
+                targetTable.getCatalog().getCatalogProperty().getHadoopProperties());
+        Map<String, String> paimonOptions = new HashMap<>();
         String warehouse = ((PaimonExternalCatalog) targetTable.getCatalog()).getPaimonOptionsMap()
                 .get(CatalogOptions.WAREHOUSE.key());
         String defaultFsName = resolveDefaultFsName(warehouse);
         if (defaultFsName != null && !defaultFsName.isEmpty()) {
-            String currentDefaultFs = options.get("fs.defaultFS");
+            String currentDefaultFs = hadoopConfig.get("fs.defaultFS");
             if (currentDefaultFs == null || currentDefaultFs.isEmpty() || currentDefaultFs.startsWith("file:/")) {
-                options.put("fs.defaultFS", defaultFsName);
+                hadoopConfig.put("fs.defaultFS", defaultFsName);
             }
         }
         if (insertCtx.isPresent() && insertCtx.get() instanceof BaseExternalTableInsertCommandContext) {
             BaseExternalTableInsertCommandContext ctx = (BaseExternalTableInsertCommandContext) insertCtx.get();
             if (ctx.getTxnId() > 0) {
-                options.put("doris.commit_identifier", String.valueOf(ctx.getTxnId()));
+                paimonOptions.put("doris.commit_identifier", String.valueOf(ctx.getTxnId()));
             }
             if (ctx.getCommitUser() != null && !ctx.getCommitUser().isEmpty()) {
-                options.put("doris.commit_user", ctx.getCommitUser());
+                paimonOptions.put("doris.commit_user", ctx.getCommitUser());
             }
         }
 
         if (ConnectContext.get() != null) {
-            options.put("target-file-size",
-                    String.valueOf(ConnectContext.get().getSessionVariable().paimonTargetFileSize));
-            options.put("write-buffer-size",
-                    String.valueOf(ConnectContext.get().getSessionVariable().paimonWriteBufferSize));
-            String hadoopUser = options.get("hadoop.username");
+            String hadoopUser = hadoopConfig.get("hadoop.username");
             if (hadoopUser == null || hadoopUser.isEmpty()) {
-                hadoopUser = options.get("hadoop.user.name");
+                hadoopUser = hadoopConfig.get("hadoop.user.name");
             }
             if (hadoopUser == null || hadoopUser.isEmpty()) {
                 hadoopUser = "hadoop";
             }
-            options.put("hadoop.user.name", hadoopUser);
-            options.put("hadoop.username", hadoopUser);
+            hadoopConfig.put("hadoop.user.name", hadoopUser);
+            hadoopConfig.put("hadoop.username", hadoopUser);
         }
 
         String tableLocation = null;
@@ -174,52 +168,35 @@ public class PaimonTableSink extends BaseExternalTableDataSink {
 
         if (paimonTable != null) {
             tSink.setSerializedTable(encodeObjectToString(paimonTable));
-            putPaimonFormatOption(options, paimonTable, "file.format");
-            putPaimonFormatOption(options, paimonTable, "manifest.format");
+            putPaimonFormatOption(paimonOptions, paimonTable, "file.format");
+            putPaimonFormatOption(paimonOptions, paimonTable, "manifest.format");
         }
 
-        ArrayList<String> partitionKeys = new ArrayList<>();
-        try {
-            targetTable.getPartitionColumns(MvccUtil.getSnapshotFromContext(targetTable)).forEach(c -> {
-                partitionKeys.add(c.getName());
-            });
-        } catch (Exception e) {
-            LOG.warn("paimon: failed to get partition keys for table={}.{}: {}",
-                    targetTable.getDbName(), targetTable.getName(), e.getMessage());
-            throw new AnalysisException("Failed to get partition keys for paimon table", e);
-        }
-        tSink.setPartitionKeys(partitionKeys);
-
-        ArrayList<String> bucketKeys = new ArrayList<>();
         int bucketNum = 0;
         try {
             if (paimonTable instanceof org.apache.paimon.table.FileStoreTable) {
                 org.apache.paimon.schema.TableSchema schema =
                         ((org.apache.paimon.table.FileStoreTable) paimonTable).schema();
                 bucketNum = schema.numBuckets();
-                bucketKeys.addAll(schema.bucketKeys());
-                if (bucketNum > 0 && bucketKeys.isEmpty()) {
-                    bucketKeys.addAll(schema.fieldNames());
-                }
             }
         } catch (Exception e) {
             LOG.error("paimon: failed to get bucket info for table={}.{}: {}",
                     targetTable.getDbName(), targetTable.getName(), e.getMessage());
             throw new AnalysisException("Failed to get bucket info for paimon table", e);
         }
-        tSink.setBucketKeys(bucketKeys);
         if (bucketNum > 0) {
             tSink.setBucketNum(bucketNum);
         }
 
-        options.put("paimon_use_jni", "true");
+        paimonOptions.put("paimon_use_jni", "true");
         if (ConnectContext.get() != null) {
             boolean enableJniCompact = ConnectContext.get().getSessionVariable().enablePaimonJniCompact;
-            options.put("paimon_use_jni_compact", String.valueOf(enableJniCompact));
+            paimonOptions.put("paimon_use_jni_compact", String.valueOf(enableJniCompact));
         } else {
-            options.put("paimon_use_jni_compact", "false");
+            paimonOptions.put("paimon_use_jni_compact", "false");
         }
-        tSink.setOptions(options);
+        tSink.setPaimonOptions(paimonOptions);
+        tSink.setHadoopConfig(hadoopConfig);
 
         // Pass column names to BE because PipelineX may strip them from Block
         ArrayList<String> columnNames = new ArrayList<>();

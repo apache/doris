@@ -488,17 +488,6 @@ struct TQueryOptions {
   // Default 8MB. Sent by FE session variable preferred_block_size_bytes.
   218: optional i64 preferred_block_size_bytes = 8388608
 
-  // Options for Paimon JNI write.
-  322: optional bool enable_paimon_adaptive_buffer_size = false;
-  323: optional i64 paimon_target_file_size = 268435456;
-  324: optional i64 paimon_write_buffer_size = 268435456;
-  325: optional bool enable_paimon_jni_spill = false;
-  326: optional i64 paimon_spill_max_disk_size = 53687091200; // 50GB
-  327: optional i64 paimon_spill_sort_buffer_size = 67108864; // 64MB
-  328: optional i32 paimon_spill_sort_threshold = 10;
-  329: optional string paimon_spill_compression = "zstd";
-  330: optional i64 paimon_global_memory_pool_size = 1073741824; // 1GB default
-
   // Push LIMIT into SegmentIterator when safe.
   219: optional bool enable_segment_limit_pushdown = true
 
@@ -518,6 +507,17 @@ struct TQueryOptions {
   225: optional i64 runtime_filter_tree_publish_max_send_bytes = 268435456
 
   226: optional bool enable_prune_nested_column = false;
+
+  // Options for Paimon JNI write.
+  227: optional bool enable_paimon_adaptive_buffer_size = false;
+  228: optional i64 paimon_target_file_size = 268435456;
+  229: optional i64 paimon_write_buffer_size = 268435456;
+  230: optional bool enable_paimon_jni_spill = false;
+  231: optional i64 paimon_spill_max_disk_size = 53687091200; // 50GB
+  232: optional i64 paimon_spill_sort_buffer_size = 67108864; // 64MB
+  233: optional i32 paimon_spill_sort_threshold = 10;
+  234: optional string paimon_spill_compression = "zstd";
+  235: optional i64 paimon_global_memory_pool_size = 1073741824; // 1GB default
   // For cloud, to control if the content would be written into file cache
   // In write path, to control if the content would be written into file cache.
   // In read path, read from file cache or remote storage when execute query.

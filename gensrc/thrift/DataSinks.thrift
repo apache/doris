@@ -615,16 +615,14 @@ struct TPaimonCommitMessage {
 }
 
 struct TPaimonTableSink {
-    1: optional string catalog_name
-    2: optional string db_name
-    3: optional string tb_name
-    4: optional string table_location
-    5: optional map<string, string> options
-    6: optional list<string> partition_keys
-    7: optional list<string> bucket_keys
-    8: optional i32 bucket_num
-    9: optional list<string> column_names
-    10: optional string serialized_table
+    1: optional string db_name
+    2: optional string tb_name
+    3: optional string table_location
+    4: optional map<string, string> paimon_options
+    5: optional map<string, string> hadoop_config
+    6: optional i32 bucket_num
+    7: optional list<string> column_names
+    8: optional string serialized_table
 }
 
 struct TDataSink {
