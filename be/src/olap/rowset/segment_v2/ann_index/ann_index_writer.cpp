@@ -17,6 +17,7 @@
 
 #include "olap/rowset/segment_v2/ann_index/ann_index_writer.h"
 
+#include <algorithm>
 #include <cstddef>
 #include <memory>
 #include <string>
@@ -72,6 +73,23 @@ Status AnnIndexColumnWriter::init() {
 
     _vector_index = faiss_index;
 
+    // Minimum training points the index needs: IVF k-means needs >= nlist,
+    // PQ needs 2^pq_nbits * 100; fewer makes train() throw 'nx >= k'.
+    {
+        int64_t ivf_min = 0;
+        if (build_parameter.index_type == FaissBuildParameter::IndexType::IVF) {
+            ivf_min = build_parameter.ivf_nlist;
+        }
+        int64_t quantizer_min = 0;
+        if (build_parameter.quantizer == FaissBuildParameter::Quantizer::PQ) {
+            quantizer_min = (int64_t(1) << build_parameter.pq_nbits) * 100;
+        } else if (build_parameter.quantizer == FaissBuildParameter::Quantizer::SQ4 ||
+                   build_parameter.quantizer == FaissBuildParameter::Quantizer::SQ8) {
+            quantizer_min = 1;
+        }
+        _min_train_rows = std::max(ivf_min, quantizer_min);
+    }
+
     LOG_INFO(
             "Create a new faiss index, index_type {} dim {} metric_type {} max_degree {}, "
             "ef_construction {}, quantizer {}",
@@ -109,6 +127,8 @@ Status AnnIndexColumnWriter::add_array_values(size_t field_size, const void* val
     }
 
     const float* p = reinterpret_cast<const float*>(value_ptr);
+
+    _total_rows += cast_set<int64_t>(num_rows);
 
     const size_t full_elements = AnnIndexColumnWriter::chunk_size() * dim;
     size_t remaining_elements = num_rows * dim;
@@ -151,11 +171,27 @@ int64_t AnnIndexColumnWriter::size() const {
 }
 
 Status AnnIndexColumnWriter::finish() {
+    // Too few rows to train the index: skip the build and delete the entry.
+    // Queries on this segment fall back to brute-force (no ANN index present).
+    if (_total_rows < _min_train_rows) {
+        LOG_INFO(
+                "Total rows {} is less than the minimum {} required to train the ANN index. "
+                "Skipping ANN index build for this segment.",
+                _total_rows, _min_train_rows);
+        _float_array.clear();
+        return _index_file_writer->delete_index(_index_meta);
+    }
+
     // train/add the remaining data
     if (!_float_array.empty()) {
         DCHECK(_float_array.size() % _vector_index->get_dimension() == 0);
         vectorized::Int64 num_rows = _float_array.size() / _vector_index->get_dimension();
-        RETURN_IF_ERROR(_vector_index->train(num_rows, _float_array.data()));
+        // If a full chunk was already flushed in add_array_values, the index is
+        // already trained; retraining on a small remainder would throw for IVF.
+        // Only train here when this remainder is the segment's entire data set.
+        if (_total_rows == num_rows) {
+            RETURN_IF_ERROR(_vector_index->train(num_rows, _float_array.data()));
+        }
         RETURN_IF_ERROR(_vector_index->add(num_rows, _float_array.data()));
         _float_array.clear();
     }
