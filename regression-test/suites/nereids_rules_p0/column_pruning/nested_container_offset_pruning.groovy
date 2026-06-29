@@ -133,7 +133,7 @@ suite("nested_container_offset_pruning") {
             FROM nested_container_offset_pruning_tbl
             WHERE length(element_at(element_at(s, 'm'), 'a')) >= 1
         """
-        contains "all access paths: [s.m.*]"
-        contains "predicate access paths: [s.m.*.OFFSET]"
+        contains "all access paths: [s.m.KEYS, s.m.VALUES, s.m.VALUES.OFFSET]"
+        contains "predicate access paths: [s.m.KEYS, s.m.VALUES.OFFSET]"
     }
 }

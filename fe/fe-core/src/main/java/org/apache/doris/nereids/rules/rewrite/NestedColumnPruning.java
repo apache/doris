@@ -234,7 +234,7 @@ public class NestedColumnPruning implements CustomRewriter {
                     ColumnAccessPathType pathType = collectAccessPathResult.getType();
                     Pair<ColumnAccessPathType, List<String>> allPath =
                             normalizePredicateMetaPathForAllAccessPath(
-                                    collectAccessPathResult, hasRegularAccessPath);
+                                    slot, collectAccessPathResult, hasRegularAccessPath);
                     allAccessPaths.put(slot.getExprId().asInt(), allPath);
                     if (collectAccessPathResult.isPredicate()) {
                         predicateAccessPaths.put(
@@ -249,7 +249,7 @@ public class NestedColumnPruning implements CustomRewriter {
                 ColumnAccessPathType pathType = collectAccessPathResult.getType();
                 Pair<ColumnAccessPathType, List<String>> allPath =
                         normalizePredicateMetaPathForAllAccessPath(
-                                collectAccessPathResult, hasRegularAccessPath);
+                                slot, collectAccessPathResult, hasRegularAccessPath);
                 DataTypeAccessTree allAccessTree = slotIdToAllAccessTree.computeIfAbsent(
                         slot, i -> DataTypeAccessTree.ofRoot(slot, allPath.first)
                 );
@@ -271,7 +271,9 @@ public class NestedColumnPruning implements CustomRewriter {
         // phase 1.5: for slots with meta paths, expand map-star paths before building final
         // access path lists. Predicate NULL/OFFSET paths are kept in predicateAccessPaths.
         // When regular data paths also exist, allAccessPaths uses the stripped data path for
-        // mixed-version safety with older BEs that only understand allAccessPaths.
+        // mixed-version safety with older BEs that only understand allAccessPaths, except
+        // map-star predicate metadata paths. Those paths must stay unstripped until this phase
+        // so map.*.OFFSET can become map.KEYS + map.VALUES.OFFSET instead of broad map.*.
         for (Entry<Slot, DataTypeAccessTree> kv : slotIdToAllAccessTree.entrySet()) {
             Slot slot = kv.getKey();
             DataTypeAccessTree accessTree = kv.getValue();
@@ -332,14 +334,25 @@ public class NestedColumnPruning implements CustomRewriter {
     }
 
     private static Pair<ColumnAccessPathType, List<String>> normalizePredicateMetaPathForAllAccessPath(
-            CollectAccessPathResult accessPathResult, boolean hasRegularAccessPath) {
+            Slot slot, CollectAccessPathResult accessPathResult, boolean hasRegularAccessPath) {
         List<String> path = accessPathResult.getPath();
         ColumnAccessPathType pathType = accessPathResult.getType();
         if (accessPathResult.isPredicate() && hasRegularAccessPath
                 && isDataSkippingOnlyAccessPath(path)) {
+            if (hasMapStarAccessPath(slot, path)) {
+                // Keep map-star metadata until expandMapStarPaths() turns it into precise
+                // KEYS/VALUES paths. Stripping here would broaden map value reads to map.*.
+                return Pair.of(pathType, path);
+            }
             return Pair.of(ColumnAccessPathType.DATA, stripDataSkippingSuffix(path));
         }
         return Pair.of(pathType, path);
+    }
+
+    private static boolean hasMapStarAccessPath(Slot slot, List<String> path) {
+        List<Integer> positions = new ArrayList<>();
+        findMapStarPositions(path, slot.getDataType(), positions);
+        return !positions.isEmpty();
     }
 
     /**

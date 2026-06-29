@@ -307,8 +307,8 @@ suite("string_length_column_pruning") {
     explain {
         sql "select map_arr_struct_col['a'][1].verified from slcp_str_tbl where cardinality(map_arr_struct_col['a']) > 0"
         contains "nested columns"
-        contains "all access paths: [map_arr_struct_col.*, map_arr_struct_col.*.*.verified]"
-        contains "predicate access paths: [map_arr_struct_col.*.OFFSET]"
+        contains "all access paths: [map_arr_struct_col.KEYS, map_arr_struct_col.VALUES.*.verified, map_arr_struct_col.VALUES.OFFSET]"
+        contains "predicate access paths: [map_arr_struct_col.KEYS, map_arr_struct_col.VALUES.OFFSET]"
         notContains "type=bigint"
     }
 
@@ -323,8 +323,8 @@ suite("string_length_column_pruning") {
     explain {
         sql "select map_arr_struct_col['a'][1].verified from slcp_str_tbl where map_arr_struct_col['a'] is null"
         contains "nested columns"
-        contains "all access paths: [map_arr_struct_col.*, map_arr_struct_col.*.*.verified]"
-        contains "predicate access paths: [map_arr_struct_col.*.NULL]"
+        contains "all access paths: [map_arr_struct_col.KEYS, map_arr_struct_col.VALUES.*.verified, map_arr_struct_col.VALUES.NULL]"
+        contains "predicate access paths: [map_arr_struct_col.KEYS, map_arr_struct_col.VALUES.NULL]"
     }
 
     // ─── Non-optimizable cases ──────────────────────────────────────────────────

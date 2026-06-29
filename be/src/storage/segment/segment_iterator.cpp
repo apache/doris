@@ -2784,7 +2784,7 @@ Status SegmentIterator::_read_lazy_pruned_columns(Block* block) {
     }
 
     for (auto cid : _support_lazy_read_pruned_columns) {
-        auto loc = _schema_block_id_map[cid];
+        auto loc = _schema->column_index(cid);
         auto column = IColumn::mutate(std::move(block->get_by_position(loc).column));
         auto* column_iter = _column_iterators[cid].get();
         ScopedColumnIteratorReadPhase scoped_read_phase {column_iter,

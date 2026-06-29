@@ -225,13 +225,21 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
         }
         Assertions.assertFalse(allAccessPaths.contains(path("s", "m", "*", "OFFSET")),
                 "allAccessPaths=" + allAccessPaths);
-        Assertions.assertTrue(predicateAccessPaths.contains(path("s", "m", "*", "OFFSET")),
+        Assertions.assertTrue(allAccessPaths.contains(path("s", "m", "KEYS")),
+                "allAccessPaths=" + allAccessPaths);
+        Assertions.assertTrue(allAccessPaths.contains(path("s", "m", "VALUES", "*", "verified")),
+                "allAccessPaths=" + allAccessPaths);
+        Assertions.assertTrue(allAccessPaths.contains(path("s", "m", "VALUES", "OFFSET")),
+                "allAccessPaths=" + allAccessPaths);
+        Assertions.assertTrue(predicateAccessPaths.contains(path("s", "m", "KEYS")),
+                "predicateAccessPaths=" + predicateAccessPaths);
+        Assertions.assertTrue(predicateAccessPaths.contains(path("s", "m", "VALUES", "OFFSET")),
                 "predicateAccessPaths=" + predicateAccessPaths);
     }
 
     @Test
     public void testMapElementArrayNullPredicateStaysOutOfAllAccessPaths() throws Exception {
-        // [s, m, *, *, verified] strips [s, m, *, NULL] (pure string prefix).
+        // The map-star NULL path expands to precise KEYS/VALUES paths instead of broad s.m.*.
         Pair<PhysicalPlan, List<SlotDescriptor>> result = collectComplexSlots(
                 "select element_at(element_at(element_at(element_at(s, 'm'), 'null'), 1), 'verified') "
                         + "from map_array_value_tbl "
@@ -244,7 +252,15 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
         }
         Assertions.assertFalse(allAccessPaths.contains(path("s", "m", "*", "NULL")),
                 "allAccessPaths=" + allAccessPaths);
-        Assertions.assertTrue(predicateAccessPaths.contains(path("s", "m", "*", "NULL")),
+        Assertions.assertTrue(allAccessPaths.contains(path("s", "m", "KEYS")),
+                "allAccessPaths=" + allAccessPaths);
+        Assertions.assertTrue(allAccessPaths.contains(path("s", "m", "VALUES", "*", "verified")),
+                "allAccessPaths=" + allAccessPaths);
+        Assertions.assertTrue(allAccessPaths.contains(path("s", "m", "VALUES", "NULL")),
+                "allAccessPaths=" + allAccessPaths);
+        Assertions.assertTrue(predicateAccessPaths.contains(path("s", "m", "KEYS")),
+                "predicateAccessPaths=" + predicateAccessPaths);
+        Assertions.assertTrue(predicateAccessPaths.contains(path("s", "m", "VALUES", "NULL")),
                 "predicateAccessPaths=" + predicateAccessPaths);
     }
 

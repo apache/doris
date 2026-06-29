@@ -19,6 +19,7 @@ import org.apache.doris.regression.action.ProfileAction
 
 suite("test_pruned_columns") {
     sql "set batch_size = 32;"
+    sql "set enable_prune_nested_column = true"
     sql """DROP TABLE IF EXISTS `tbl_test_pruned_columns`"""
     sql """
         CREATE TABLE `tbl_test_pruned_columns` (
@@ -224,7 +225,6 @@ suite("test_pruned_columns") {
     sql "set enable_profile = true"
     sql "set profile_level = 2"
     sql "set enable_common_expr_pushdown = true"
-    sql "set enable_prune_nested_column = true"
 
     def lazyPrunedToken = "lazy_pruned_column_recovery_" + UUID.randomUUID().toString()
     sql """
@@ -302,7 +302,6 @@ suite("test_pruned_columns") {
     sql "set enable_profile = false"
     sql "unset variable profile_level"
     sql "set enable_common_expr_pushdown = false"
-    sql "set enable_prune_nested_column = false"
 
     qt_sql7 """
         select count(element_at(dynamic_attributes['theme_preference'], 'confidence_score')) from `tbl_test_pruned_columns_map`;

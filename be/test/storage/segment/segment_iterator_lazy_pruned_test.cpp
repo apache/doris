@@ -125,7 +125,6 @@ protected:
         auto iter = std::make_unique<SegmentIterator>(nullptr, _read_schema);
         iter->_opts.tablet_schema = _tablet_schema;
         iter->_opts.stats = &_stats;
-        iter->_schema_block_id_map = {0};
         iter->_support_lazy_read_pruned_columns.insert(0);
         iter->_column_iterators.resize(1);
 
