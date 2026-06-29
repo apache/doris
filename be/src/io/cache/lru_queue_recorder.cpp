@@ -58,54 +58,62 @@ size_t LRUQueueRecorder::replay_queue_event(FileCacheType type) {
     CacheLRULogQueue& log_queue = get_lru_log_queue(type);
     LRUQueue& shadow_queue = get_shadow_queue(type);
 
-    std::lock_guard<std::mutex> lru_log_lock(_mutex_lru_log);
-    std::unique_ptr<CacheLRULog> log;
+    size_t idx = file_cache_type_index(type);
     size_t replayed = 0;
-    while (log_queue.try_dequeue(log)) {
-        release_lru_log_queue_slot(type);
-        ++replayed;
-        try {
-            switch (log->type) {
-            case CacheLRULogType::ADD: {
-                shadow_queue.add(log->hash, log->offset, log->size, lru_log_lock);
-                break;
-            }
-            case CacheLRULogType::REMOVE: {
-                auto it = shadow_queue.get(log->hash, log->offset, lru_log_lock);
-                if (it != std::list<LRUQueue::FileKeyAndOffset>::iterator()) {
-                    shadow_queue.remove(it, lru_log_lock);
-                } else {
-                    LOG(WARNING) << "REMOVE failed, doesn't exist in shadow queue";
+    {
+        std::lock_guard<std::mutex> lru_log_lock(_mutex_lru_log);
+        std::unique_ptr<CacheLRULog> log;
+        while (log_queue.try_dequeue(log)) {
+            release_lru_log_queue_slot(type);
+            ++replayed;
+            try {
+                switch (log->type) {
+                case CacheLRULogType::ADD: {
+                    shadow_queue.add(log->hash, log->offset, log->size, lru_log_lock);
+                    limit_shadow_queue_size(shadow_queue, lru_log_lock);
+                    break;
                 }
-                break;
-            }
-            case CacheLRULogType::MOVETOBACK: {
-                auto it = shadow_queue.get(log->hash, log->offset, lru_log_lock);
-                if (it != std::list<LRUQueue::FileKeyAndOffset>::iterator()) {
-                    shadow_queue.move_to_end(it, lru_log_lock);
-                } else {
-                    LOG(WARNING) << "MOVETOBACK failed, doesn't exist in shadow queue";
+                case CacheLRULogType::REMOVE: {
+                    auto it = shadow_queue.get(log->hash, log->offset, lru_log_lock);
+                    if (it != std::list<LRUQueue::FileKeyAndOffset>::iterator()) {
+                        shadow_queue.remove(it, lru_log_lock);
+                    } else {
+                        LOG(WARNING) << "REMOVE failed, doesn't exist in shadow queue";
+                    }
+                    limit_shadow_queue_size(shadow_queue, lru_log_lock);
+                    break;
                 }
-                break;
-            }
-            case CacheLRULogType::RESIZE: {
-                auto it = shadow_queue.get(log->hash, log->offset, lru_log_lock);
-                if (it != std::list<LRUQueue::FileKeyAndOffset>::iterator()) {
-                    shadow_queue.resize(it, log->size, lru_log_lock);
-                } else {
-                    LOG(WARNING) << "RESIZE failed, doesn't exist in shadow queue";
+                case CacheLRULogType::MOVETOBACK: {
+                    auto it = shadow_queue.get(log->hash, log->offset, lru_log_lock);
+                    if (it != std::list<LRUQueue::FileKeyAndOffset>::iterator()) {
+                        shadow_queue.move_to_end(it, lru_log_lock);
+                    } else {
+                        LOG(WARNING) << "MOVETOBACK failed, doesn't exist in shadow queue";
+                    }
+                    break;
                 }
-                break;
+                case CacheLRULogType::RESIZE: {
+                    auto it = shadow_queue.get(log->hash, log->offset, lru_log_lock);
+                    if (it != std::list<LRUQueue::FileKeyAndOffset>::iterator()) {
+                        shadow_queue.resize(it, log->size, lru_log_lock);
+                    } else {
+                        LOG(WARNING) << "RESIZE failed, doesn't exist in shadow queue";
+                    }
+                    break;
+                }
+                default:
+                    LOG(WARNING) << "Unknown CacheLRULogType: " << static_cast<int>(log->type);
+                    break;
+                }
+            } catch (const std::exception& e) {
+                LOG(WARNING) << "Failed to replay queue event: " << e.what();
             }
-            default:
-                LOG(WARNING) << "Unknown CacheLRULogType: " << static_cast<int>(log->type);
-                break;
-            }
-        } catch (const std::exception& e) {
-            LOG(WARNING) << "Failed to replay queue event: " << e.what();
+        }
+        if (replayed > 0) {
+            _mgr->_lru_recorder_shadow_queue_element_count_metrics[idx]->set_value(
+                    shadow_queue.get_elements_num(lru_log_lock));
         }
     }
-    size_t idx = file_cache_type_index(type);
     if (replayed > 0) {
         *(_mgr->_lru_recorder_queue_consume_metrics[idx]) << replayed;
     }
@@ -171,6 +179,37 @@ void LRUQueueRecorder::reset_lru_queue_update_cnt_from_last_dump(FileCacheType t
 
 size_t LRUQueueRecorder::lru_log_queue_size(FileCacheType type) const {
     return _lru_log_queue_size[file_cache_type_index(type)].load(std::memory_order_relaxed);
+}
+
+void LRUQueueRecorder::update_shadow_queue_element_count_metrics() {
+    std::lock_guard<std::mutex> lru_log_lock(_mutex_lru_log);
+    update_shadow_queue_element_count_metrics_unlocked(lru_log_lock);
+}
+
+void LRUQueueRecorder::limit_shadow_queue_size(LRUQueue& shadow_queue,
+                                               std::lock_guard<std::mutex>& lru_log_lock) {
+    int64_t queue_limit = config::file_cache_background_lru_dump_tail_record_num;
+    if (queue_limit <= 0) {
+        return;
+    }
+    size_t limit = static_cast<size_t>(queue_limit);
+    size_t queue_size = shadow_queue.get_elements_num(lru_log_lock);
+    while (queue_size > limit) {
+        if (!shadow_queue.pop_front(lru_log_lock)) {
+            return;
+        }
+        --queue_size;
+    }
+}
+
+void LRUQueueRecorder::update_shadow_queue_element_count_metrics_unlocked(
+        std::lock_guard<std::mutex>& lru_log_lock) {
+    for (FileCacheType type : {FileCacheType::DISPOSABLE, FileCacheType::NORMAL,
+                               FileCacheType::INDEX, FileCacheType::TTL}) {
+        size_t idx = file_cache_type_index(type);
+        _mgr->_lru_recorder_shadow_queue_element_count_metrics[idx]->set_value(
+                get_shadow_queue(type).get_elements_num(lru_log_lock));
+    }
 }
 
 bool LRUQueueRecorder::reserve_lru_log_queue_slot(FileCacheType type) {

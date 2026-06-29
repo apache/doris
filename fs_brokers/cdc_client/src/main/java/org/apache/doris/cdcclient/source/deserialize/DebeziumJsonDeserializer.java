@@ -34,15 +34,18 @@ import java.io.IOException;
 import java.math.BigDecimal;
 import java.nio.ByteBuffer;
 import java.time.DateTimeException;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.ZoneId;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -412,19 +415,56 @@ public class DebeziumJsonDeserializer
         return dbzObj.toString();
     }
 
+    // Format a since-midnight time value given as total microseconds (may be negative or exceed
+    // 24h) as MySQL TIME literal text: ±HH:MM:SS[.ffffff], with trailing fractional zeros removed.
+    private static String formatTimeText(long microsTotal) {
+        String sign = microsTotal < 0 ? "-" : "";
+        Duration d = Duration.of(Math.abs(microsTotal), ChronoUnit.MICROS);
+        StringBuilder sb = new StringBuilder(sign);
+        // toHours may exceed two digits (e.g. 838); minute/second parts are always < 60.
+        sb.append(
+                String.format(
+                        Locale.ROOT,
+                        "%02d:%02d:%02d",
+                        d.toHours(),
+                        d.toMinutesPart(),
+                        d.toSecondsPart()));
+        long micros = d.toNanosPart() / 1000L;
+        if (micros > 0) {
+            // six-digit zero-padded micros, then drop trailing zeros (e.g. 500000 -> "5").
+            sb.append('.')
+                    .append(StringUtils.stripEnd(String.format(Locale.ROOT, "%06d", micros), "0"));
+        }
+        return sb.toString();
+    }
+
     protected Object convertToTime(Object dbzObj, Schema schema) {
         try {
             if (dbzObj instanceof Long) {
+                long v = (Long) dbzObj;
                 switch (schema.name()) {
                     case MicroTime.SCHEMA_NAME:
-                        // micro to nano
-                        return LocalTime.ofNanoOfDay((Long) dbzObj * 1000L).toString();
+                        // MySQL TIME spans [-838:59:59, 838:59:59]; out-of-range (negative or
+                        // >=24h) cannot use LocalTime, format as ±HH:MM:SS instead. micro to nano.
+                        if (v >= 0 && v < 86_400_000_000L) {
+                            return LocalTime.ofNanoOfDay(v * 1000L).toString();
+                        }
+                        return formatTimeText(v);
                     case NanoTime.SCHEMA_NAME:
-                        return LocalTime.ofNanoOfDay((Long) dbzObj).toString();
+                        if (v >= 0 && v < 86_400_000_000_000L) {
+                            return LocalTime.ofNanoOfDay(v).toString();
+                        }
+                        // out-of-range: nano to micro. MySQL/PG TIME carries at most microsecond
+                        // precision, so dropping the sub-micro nanos here is lossless for them.
+                        return formatTimeText(v / 1000L);
                 }
             } else if (dbzObj instanceof Integer) {
-                // millis to nano
-                return LocalTime.ofNanoOfDay((Integer) dbzObj * 1_000_000L).toString();
+                // millis to nano; out-of-range formats as ±HH:MM:SS.
+                int v = (Integer) dbzObj;
+                if (v >= 0 && v < 86_400_000) {
+                    return LocalTime.ofNanoOfDay((long) v * 1_000_000L).toString();
+                }
+                return formatTimeText((long) v * 1000L);
             } else if (dbzObj instanceof java.util.Date) {
                 long millisOfDay = ((Date) dbzObj).getTime() % (24 * 60 * 60 * 1000);
                 // mills to nano

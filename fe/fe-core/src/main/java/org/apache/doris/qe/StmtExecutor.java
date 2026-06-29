@@ -102,6 +102,7 @@ import org.apache.doris.nereids.trees.plans.commands.Forward;
 import org.apache.doris.nereids.trees.plans.commands.LoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.PrepareCommand;
 import org.apache.doris.nereids.trees.plans.commands.Redirect;
+import org.apache.doris.nereids.trees.plans.commands.SupportProfile;
 import org.apache.doris.nereids.trees.plans.commands.TransactionCommand;
 import org.apache.doris.nereids.trees.plans.commands.UpdateCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.BatchInsertIntoTableCommand;
@@ -109,6 +110,7 @@ import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableComma
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertOverwriteTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.OlapGroupCommitInsertExecutor;
 import org.apache.doris.nereids.trees.plans.commands.insert.OlapInsertExecutor;
+import org.apache.doris.nereids.trees.plans.commands.merge.MergeIntoCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSqlCache;
 import org.apache.doris.planner.GroupCommitScanNode;
@@ -1145,12 +1147,19 @@ public class StmtExecutor {
             return true;
         }
 
+        // Computed DML profiles are currently only supported for OLAP target tables.
+        if (plan instanceof SupportProfile && ((SupportProfile) plan).isTargetTableOlap(context)) {
+            return true;
+        }
+
         // Generate profile for:
         // 1. CreateTableCommand(mainly for create as select).
         // 2. LoadCommand.
         // 3. InsertOverwriteTableCommand.
+        // 4. MergeIntoCommand (merge into ... using ...).
         if ((plan instanceof Command) && !(plan instanceof LoadCommand)
-                && !(plan instanceof CreateTableCommand) && !(plan instanceof InsertOverwriteTableCommand)) {
+                && !(plan instanceof CreateTableCommand) && !(plan instanceof InsertOverwriteTableCommand)
+                && !(plan instanceof MergeIntoCommand)) {
             // Commands like SHOW QUERY PROFILE will not have profile.
             return false;
         } else {
