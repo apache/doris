@@ -114,8 +114,11 @@ services:
   network_mode: "host"
 '
     if echo "${docker_compose_hdfs_yaml}" >docker-compose.yaml && docker-compose up -d; then echo; else echo "ERROR: start hdfs docker failed"; fi
+    # Run the regression suite under JDK 17: the Arrow Flight SQL JDBC driver (arrow 19)
+    # is Java 11+ bytecode and cannot be loaded by a JDK 8 runtime.
     JAVA_HOME="$(find /usr/lib/jvm -maxdepth 1 -type d -name 'java-17-*' | sed -n '1p')"
     export JAVA_HOME
+    export PATH="${JAVA_HOME}/bin:${PATH}"
     if "${teamcity_build_checkoutDir}"/run-regression-test.sh \
         --teamcity \
         --run \
