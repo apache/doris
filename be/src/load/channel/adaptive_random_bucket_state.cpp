@@ -23,16 +23,15 @@
 
 namespace doris {
 
-void AdaptiveRandomBucketState::init_partition(int32_t sender_id, int64_t partition_id,
+void AdaptiveRandomBucketState::init_partition(int64_t partition_id,
                                                const std::vector<int64_t>& tablets,
                                                const std::vector<int32_t>& bucket_seqs,
                                                int32_t start_tablet_idx) {
-    if (sender_id < 0 || partition_id < 0 || tablets.empty()) {
+    if (partition_id < 0 || tablets.empty()) {
         return;
     }
     std::lock_guard<std::mutex> lock(_mutex);
-    auto& partition_states = _sender_partition_states[sender_id];
-    if (partition_states.contains(partition_id)) {
+    if (_partition_states.contains(partition_id)) {
         return;
     }
 
@@ -45,34 +44,25 @@ void AdaptiveRandomBucketState::init_partition(int32_t sender_id, int64_t partit
     }
     state.current_tablet_id = state.tablets[state.tablet_pos];
 
-    partition_states.emplace(partition_id, std::move(state));
-    LOG(INFO) << "FIND_TABLET_RANDOM_BUCKET: load_id=" << _load_id << ", sender_id=" << sender_id
-              << ", partition=" << partition_id << ", local tablet count=" << tablets.size()
-              << ", start tablet=" << partition_states.at(partition_id).current_tablet_id;
+    _partition_states.emplace(partition_id, std::move(state));
+    LOG(INFO) << "FIND_TABLET_RANDOM_BUCKET: load_id=" << _load_id << ", partition=" << partition_id
+              << ", local tablet count=" << tablets.size()
+              << ", start tablet=" << _partition_states.at(partition_id).current_tablet_id;
 }
 
-int64_t AdaptiveRandomBucketState::current_tablet(int32_t sender_id, int64_t partition_id) {
+int64_t AdaptiveRandomBucketState::current_tablet(int64_t partition_id) {
     std::lock_guard<std::mutex> lock(_mutex);
-    auto sender_it = _sender_partition_states.find(sender_id);
-    if (sender_it == _sender_partition_states.end()) {
-        return -1;
-    }
-    auto it = sender_it->second.find(partition_id);
-    if (it == sender_it->second.end()) {
+    auto it = _partition_states.find(partition_id);
+    if (it == _partition_states.end()) {
         return -1;
     }
     return it->second.current_tablet_id;
 }
 
-void AdaptiveRandomBucketState::rotate_by_tablet(int32_t sender_id, int64_t partition_id,
-                                                 int64_t tablet_id) {
+void AdaptiveRandomBucketState::rotate_by_tablet(int64_t partition_id, int64_t tablet_id) {
     std::lock_guard<std::mutex> lock(_mutex);
-    auto sender_it = _sender_partition_states.find(sender_id);
-    if (sender_it == _sender_partition_states.end()) {
-        return;
-    }
-    auto state_it = sender_it->second.find(partition_id);
-    if (state_it == sender_it->second.end()) {
+    auto state_it = _partition_states.find(partition_id);
+    if (state_it == _partition_states.end()) {
         return;
     }
     auto& state = state_it->second;
@@ -80,7 +70,7 @@ void AdaptiveRandomBucketState::rotate_by_tablet(int32_t sender_id, int64_t part
         return;
     }
     int32_t next_pos = (state.tablet_pos + 1) % static_cast<int32_t>(state.tablets.size());
-    LOG(INFO) << "FIND_TABLET_RANDOM_BUCKET: load_id=" << _load_id << ", sender_id=" << sender_id
+    LOG(INFO) << "FIND_TABLET_RANDOM_BUCKET: load_id=" << _load_id
               << ", partition=" << state.partition_id << " rotate tablet "
               << state.current_tablet_id << " -> " << state.tablets[next_pos]
               << " after tablet=" << tablet_id << " memtable flushed";

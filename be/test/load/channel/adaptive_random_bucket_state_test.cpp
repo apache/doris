@@ -24,35 +24,35 @@
 namespace doris {
 namespace {
 
-TEST(AdaptiveRandomBucketStateTest, TracksCurrentTabletPerSenderAndPartition) {
+TEST(AdaptiveRandomBucketStateTest, TracksCurrentTabletPerPartition) {
     AdaptiveRandomBucketState state(UniqueId(1, 2));
 
-    state.init_partition(0, 10, std::vector<int64_t> {100, 101}, std::vector<int32_t> {0, 1}, 0);
-    state.init_partition(1, 10, std::vector<int64_t> {200, 201}, std::vector<int32_t> {0, 1}, 1);
+    state.init_partition(10, std::vector<int64_t> {100, 101}, std::vector<int32_t> {0, 1}, 0);
+    state.init_partition(11, std::vector<int64_t> {200, 201}, std::vector<int32_t> {0, 1}, 1);
 
-    EXPECT_EQ(state.current_tablet(0, 10), 100);
-    EXPECT_EQ(state.current_tablet(1, 10), 201);
-    EXPECT_EQ(state.current_tablet(2, 10), -1);
+    EXPECT_EQ(state.current_tablet(10), 100);
+    EXPECT_EQ(state.current_tablet(11), 201);
+    EXPECT_EQ(state.current_tablet(12), -1);
 
-    state.rotate_by_tablet(0, 10, 100);
-    EXPECT_EQ(state.current_tablet(0, 10), 101);
-    EXPECT_EQ(state.current_tablet(1, 10), 201);
+    state.rotate_by_tablet(10, 100);
+    EXPECT_EQ(state.current_tablet(10), 101);
+    EXPECT_EQ(state.current_tablet(11), 201);
 
-    state.rotate_by_tablet(1, 10, 100);
-    EXPECT_EQ(state.current_tablet(1, 10), 201);
+    state.rotate_by_tablet(11, 100);
+    EXPECT_EQ(state.current_tablet(11), 201);
 
-    state.rotate_by_tablet(1, 10, 201);
-    EXPECT_EQ(state.current_tablet(0, 10), 101);
-    EXPECT_EQ(state.current_tablet(1, 10), 200);
+    state.rotate_by_tablet(11, 201);
+    EXPECT_EQ(state.current_tablet(10), 101);
+    EXPECT_EQ(state.current_tablet(11), 200);
 }
 
-TEST(AdaptiveRandomBucketStateTest, IgnoresDuplicateInitForSameSenderPartition) {
+TEST(AdaptiveRandomBucketStateTest, IgnoresDuplicateInitForSamePartition) {
     AdaptiveRandomBucketState state(UniqueId(1, 2));
 
-    state.init_partition(0, 10, std::vector<int64_t> {100, 101}, std::vector<int32_t> {0, 1}, 0);
-    state.init_partition(0, 10, std::vector<int64_t> {200, 201}, std::vector<int32_t> {0, 1}, 1);
+    state.init_partition(10, std::vector<int64_t> {100, 101}, std::vector<int32_t> {0, 1}, 0);
+    state.init_partition(10, std::vector<int64_t> {200, 201}, std::vector<int32_t> {0, 1}, 1);
 
-    EXPECT_EQ(state.current_tablet(0, 10), 100);
+    EXPECT_EQ(state.current_tablet(10), 100);
 }
 
 } // namespace

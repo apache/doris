@@ -292,8 +292,8 @@ Status BaseTabletsChannel::_init_adaptive_random_bucket_state(
         for (auto tablet_id : partition.ordered_tablet_ids()) {
             ordered_tablet_ids.push_back(tablet_id);
         }
-        _adaptive_random_bucket_state->init_partition(request.sender_id(), partition.partition_id(),
-                                                      ordered_tablet_ids, ordered_positions, 0);
+        _adaptive_random_bucket_state->init_partition(partition.partition_id(), ordered_tablet_ids,
+                                                      ordered_positions, 0);
     }
     return Status::OK();
 }
@@ -728,6 +728,15 @@ Status BaseTabletsChannel::_write_block_data(
     return Status::OK();
 }
 
+std::shared_ptr<std::mutex> BaseTabletsChannel::_get_partition_route_lock(int64_t partition_id) {
+    std::lock_guard<std::mutex> l(_partition_route_locks_lock);
+    auto& lock = _partition_route_locks[partition_id];
+    if (lock == nullptr) {
+        lock = std::make_shared<std::mutex>();
+    }
+    return lock;
+}
+
 Status BaseTabletsChannel::_write_block_data_for_adaptive_random_bucket(
         const PTabletWriterAddBlockRequest& request, int64_t cur_seq,
         std::unordered_map<int64_t, DorisVector<uint32_t>>& partition_to_rowidxs,
@@ -760,6 +769,8 @@ Status BaseTabletsChannel::_write_block_data_for_adaptive_random_bucket(
 
     auto write_partition_data = [&](int64_t partition_id,
                                     const DorisVector<uint32_t>& row_idxs) -> Status {
+        auto partition_lock = _get_partition_route_lock(partition_id);
+        std::lock_guard<std::mutex> partition_guard(*partition_lock);
         int64_t tablet_id = -1;
         if (_adaptive_random_bucket_state == nullptr) {
             return Status::InternalError(
@@ -767,8 +778,7 @@ Status BaseTabletsChannel::_write_block_data_for_adaptive_random_bucket(
                     "index_id={}, packet_seq={}, partition_id={}",
                     print_id(_load_id), _index_id, request.packet_seq(), partition_id);
         }
-        tablet_id =
-                _adaptive_random_bucket_state->current_tablet(request.sender_id(), partition_id);
+        tablet_id = _adaptive_random_bucket_state->current_tablet(partition_id);
         if (tablet_id < 0) {
             return Status::InternalError(
                     "invalid current tablet for adaptive random bucket, load_id={}, "
@@ -826,8 +836,7 @@ Status BaseTabletsChannel::_write_block_data_for_adaptive_random_bucket(
                    << ", tablet_id=" << tablet_id << ", row_count=" << row_idxs.size()
                    << ", memtable_flushed=" << memtable_flushed;
         if (memtable_flushed) {
-            _adaptive_random_bucket_state->rotate_by_tablet(request.sender_id(), partition_id,
-                                                            tablet_id);
+            _adaptive_random_bucket_state->rotate_by_tablet(partition_id, tablet_id);
         }
         tablet_writer->set_tablet_load_rowset_num_info(tablet_load_infos);
         return Status::OK();

@@ -135,6 +135,7 @@ protected:
     Status _build_partition_to_rowidxs_for_adaptive_random_bucket(
             const PTabletWriterAddBlockRequest& request,
             std::unordered_map<int64_t, DorisVector<uint32_t>>* partition_to_rowidxs);
+    std::shared_ptr<std::mutex> _get_partition_route_lock(int64_t partition_id);
 
     Status _get_current_seq(int64_t& cur_seq, const PTabletWriterAddBlockRequest& request);
 
@@ -197,6 +198,10 @@ protected:
 
     std::unordered_set<int64_t> _partition_ids;
     std::shared_ptr<AdaptiveRandomBucketState> _adaptive_random_bucket_state;
+    // Protects the route-lock map. Each entry serializes current-tablet selection, write,
+    // and rotation for one partition so all senders on this BE share one current bucket.
+    std::mutex _partition_route_locks_lock;
+    std::unordered_map<int64_t, std::shared_ptr<std::mutex>> _partition_route_locks;
 
     static std::atomic<uint64_t> _s_tablet_writer_count;
 

@@ -30,11 +30,10 @@ class AdaptiveRandomBucketState {
 public:
     explicit AdaptiveRandomBucketState(UniqueId load_id) : _load_id(load_id) {}
 
-    void init_partition(int32_t sender_id, int64_t partition_id,
-                        const std::vector<int64_t>& tablets,
+    void init_partition(int64_t partition_id, const std::vector<int64_t>& tablets,
                         const std::vector<int32_t>& bucket_seqs, int32_t start_tablet_idx);
-    int64_t current_tablet(int32_t sender_id, int64_t partition_id);
-    void rotate_by_tablet(int32_t sender_id, int64_t partition_id, int64_t tablet_id);
+    int64_t current_tablet(int64_t partition_id);
+    void rotate_by_tablet(int64_t partition_id, int64_t tablet_id);
 
 private:
     struct PartitionState {
@@ -47,8 +46,7 @@ private:
 
     std::mutex _mutex;
     UniqueId _load_id;
-    std::unordered_map<int32_t, std::unordered_map<int64_t, PartitionState>>
-            _sender_partition_states;
+    std::unordered_map<int64_t, PartitionState> _partition_states;
 };
 
 } // namespace doris
