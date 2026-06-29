@@ -246,9 +246,6 @@ Status execute_batch_filters(const format::FileScanRequest& request, int64_t bat
 }
 
 namespace {
-// TODO: batch size in SessionVariable
-constexpr int64_t DEFAULT_PARQUET_READ_BATCH_SIZE = 4096;
-
 int64_t count_range_rows(const std::vector<RowRange>& ranges) {
     int64_t rows = 0;
     for (const auto& range : ranges) {
@@ -647,8 +644,7 @@ Status ParquetScanScheduler::read_next_batch(
             continue;
         }
 
-        const int64_t batch_rows =
-                std::min<int64_t>(DEFAULT_PARQUET_READ_BATCH_SIZE, remaining_rows);
+        const int64_t batch_rows = std::min<int64_t>(_batch_size, remaining_rows);
         const int64_t physical_rows_read = batch_rows;
         const int64_t batch_first_file_row =
                 _current_row_group_first_row + _current_row_group_rows_read;

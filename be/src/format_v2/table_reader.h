@@ -154,6 +154,16 @@ public:
     // own init(options); table-format schema and split metadata are provided later per split.
     virtual Status init(TableReadOptions&& options);
 
+    // FileScannerV2 adjusts this before each get_block() using an adaptive bytes-per-row estimate.
+    // Store it here as well as forwarding to the current reader so newly opened split readers start
+    // with the latest predicted batch size.
+    void set_batch_size(size_t batch_size) {
+        _batch_size = std::max<size_t>(1, batch_size);
+        if (_data_reader.reader != nullptr) {
+            _data_reader.reader->set_batch_size(_batch_size);
+        }
+    }
+
     // Prepare for reading a new split/task.
     // 1. Pass a new split/task to reader, which will be used in subsequent open_reader() to initialize the underlying file reader.
     // 2. Parse delete predicates from split/task information, which will be used for later dynamic filtering and delete handling.
@@ -1439,6 +1449,7 @@ protected:
     const std::vector<SlotDescriptor*>* _file_slot_descs = nullptr;
     FileFormat _format;
     TPushAggOp::type _push_down_agg_type = TPushAggOp::type::NONE;
+    size_t _batch_size = 0;
     uint64_t _condition_cache_digest = 0;
     segment_v2::ConditionCache::ExternalCacheKey _condition_cache_key;
     std::shared_ptr<std::vector<bool>> _condition_cache;

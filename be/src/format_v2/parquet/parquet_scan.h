@@ -138,6 +138,8 @@ Status execute_batch_filters(const format::FileScanRequest& request, int64_t bat
 // ============================================================================
 class ParquetScanScheduler {
 public:
+    static constexpr int64_t DEFAULT_READ_BATCH_SIZE = 4096;
+
     void set_plan(RowGroupScanPlan plan);
     void set_page_skip_profile(ParquetPageSkipProfile page_skip_profile) {
         _page_skip_profile = page_skip_profile;
@@ -150,6 +152,11 @@ public:
     void set_timezone(const cctz::time_zone* timezone) { _timezone = timezone; }
     void set_enable_strict_mode(bool enable_strict_mode) {
         _enable_strict_mode = enable_strict_mode;
+    }
+    // Upper scanner owns adaptive memory feedback; scheduler only applies the current row cap when
+    // splitting selected row ranges into physical read batches.
+    void set_batch_size(size_t batch_size) {
+        _batch_size = batch_size == 0 ? 1 : static_cast<int64_t>(batch_size);
     }
     void reset();
     bool empty() const { return _row_group_plans.empty(); }
@@ -209,6 +216,7 @@ private:
     std::optional<format::GlobalRowIdContext> _global_rowid_context;
     const cctz::time_zone* _timezone = nullptr;
     bool _enable_strict_mode = false;
+    int64_t _batch_size = DEFAULT_READ_BATCH_SIZE;
     std::shared_ptr<ConditionCacheContext> _condition_cache_ctx;
     int64_t _condition_cache_filtered_rows = 0;
     int64_t _predicate_filtered_rows = 0;

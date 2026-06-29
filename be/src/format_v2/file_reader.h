@@ -321,6 +321,10 @@ public:
     // Initialize file reader and parse file metadata.
     virtual Status init(RuntimeState* state);
 
+    // Set the maximum row count for the next physical read batch. Readers that do not batch by
+    // rows may ignore it.
+    virtual void set_batch_size(size_t batch_size) { (void)batch_size; }
+
     // Get semantic file-local schema from file metadata. The file schema is determined by file
     // format and file content, and does not contain table/global schema semantics. A file reader may
     // expose raw file identifiers, such as Parquet field_id, through ColumnDefinition::identifier,

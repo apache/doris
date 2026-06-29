@@ -781,6 +781,39 @@ TEST_F(NewParquetReaderTest, ReadSingleRowGroupThenEof) {
     EXPECT_EQ(rows, 0);
 }
 
+TEST_F(NewParquetReaderTest, RespectsConfiguredBatchSize) {
+    auto reader = create_reader();
+    reader->set_batch_size(1);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+
+    auto request = std::make_shared<format::FileScanRequest>();
+    request->non_predicate_columns = {field_projection(0), field_projection(1)};
+    ASSERT_TRUE(reader->open(request).ok());
+
+    for (int32_t expected_id = 1; expected_id <= ROW_COUNT; ++expected_id) {
+        Block block = build_file_block(schema);
+        size_t rows = 0;
+        bool eof = false;
+        ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+        EXPECT_FALSE(eof);
+        ASSERT_EQ(rows, 1);
+        const auto& ids = nullable_nested_column<ColumnInt32>(block, 0);
+        ASSERT_EQ(ids.size(), 1);
+        EXPECT_EQ(ids.get_element(0), expected_id);
+    }
+
+    Block block = build_file_block(schema);
+    size_t rows = 0;
+    bool eof = false;
+    ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+    EXPECT_TRUE(eof);
+    EXPECT_EQ(rows, 0);
+}
+
 TEST_F(NewParquetReaderTest, ConditionCacheMissMarksSurvivingGranules) {
     write_condition_cache_parquet_file(_file_path);
     auto reader = create_reader();

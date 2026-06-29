@@ -686,6 +686,9 @@ Status TableReader::create_next_reader(bool* eos) {
 
     RETURN_IF_ERROR(create_file_reader(&_data_reader.reader));
     DORIS_CHECK(_data_reader.reader != nullptr);
+    if (_batch_size > 0) {
+        _data_reader.reader->set_batch_size(_batch_size);
+    }
     RETURN_IF_ERROR(_data_reader.reader->init(_runtime_state));
     RETURN_IF_ERROR(open_reader());
     if (_data_reader.reader == nullptr) {

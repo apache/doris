@@ -287,6 +287,7 @@ Status ParquetReader::init(RuntimeState* state) {
         _state->scheduler.set_timezone(&state->timezone_obj());
         _state->scheduler.set_enable_strict_mode(state->enable_strict_mode());
     }
+    _state->scheduler.set_batch_size(_batch_size);
     // Open parquet file and parse metadata to get file schema.
     RETURN_IF_ERROR(_state->file_context.open(_tracing_file_reader, _io_ctx.get(),
                                               _state->enable_page_cache, *_file_description));
@@ -300,6 +301,13 @@ Status ParquetReader::init(RuntimeState* state) {
         }
     }
     return Status::OK();
+}
+
+void ParquetReader::set_batch_size(size_t batch_size) {
+    _batch_size = std::max<size_t>(1, batch_size);
+    if (_state != nullptr) {
+        _state->scheduler.set_batch_size(_batch_size);
+    }
 }
 
 Status ParquetReader::get_schema(std::vector<format::ColumnDefinition>* file_schema) const {

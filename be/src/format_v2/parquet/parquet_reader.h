@@ -70,6 +70,8 @@ public:
 
     Status init(RuntimeState* state) override;
 
+    void set_batch_size(size_t batch_size) override;
+
     Status get_schema(std::vector<format::ColumnDefinition>* file_schema) const override;
 
     std::unique_ptr<format::TableColumnMapper> create_column_mapper(
@@ -107,6 +109,7 @@ private:
     ParquetProfile _parquet_profile; // RuntimeProfile 计数器集合
     ParquetPageCacheStats _reported_page_cache_stats;
     std::optional<format::GlobalRowIdContext> _global_rowid_context; // 全局 RowId 上下文
+    size_t _batch_size = ParquetScanScheduler::DEFAULT_READ_BATCH_SIZE;
     bool _enable_mapping_timestamp_tz = false; // 是否将 UTC timestamp 映射为 TIMESTAMPTZ
 };
 

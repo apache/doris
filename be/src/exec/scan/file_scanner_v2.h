@@ -37,6 +37,7 @@
 #include "gen_cpp/PlanNodes_types.h"
 #include "io/io_common.h"
 #include "runtime/runtime_profile.h"
+#include "storage/segment/adaptive_block_size_predictor.h"
 
 namespace doris {
 
@@ -51,6 +52,7 @@ class FileScannerV2 final : public Scanner {
 
 public:
     static constexpr const char* NAME = "FileScannerV2";
+    static constexpr size_t ADAPTIVE_BATCH_INITIAL_PROBE_ROWS = 32;
 
     static bool is_supported(const TFileScanRangeParams& params, const TFileRangeDesc& range);
 #ifdef BE_TEST
@@ -106,6 +108,12 @@ private:
     Status _build_table_conjuncts(VExprContextSPtrs* conjuncts) const;
     static Status _to_file_format(TFileFormatType::type format_type,
                                   format::FileFormat* file_format);
+    void _reset_adaptive_batch_size_state();
+    void _init_adaptive_batch_size_state(TFileFormatType::type format_type);
+    bool _should_enable_adaptive_batch_size(TFileFormatType::type format_type) const;
+    bool _should_run_adaptive_batch_size() const;
+    size_t _predict_reader_batch_rows();
+    void _update_adaptive_batch_size(const Block& block);
     void _report_file_reader_predicate_filtered_rows();
     void _report_condition_cache_profile();
 
@@ -142,6 +150,10 @@ private:
     RuntimeProfile::Counter* _file_read_bytes_counter = nullptr;
     RuntimeProfile::Counter* _file_read_calls_counter = nullptr;
     RuntimeProfile::Counter* _file_read_time_counter = nullptr;
+    RuntimeProfile::Counter* _adaptive_batch_predicted_rows_counter = nullptr;
+    RuntimeProfile::Counter* _adaptive_batch_actual_bytes_counter = nullptr;
+    RuntimeProfile::Counter* _adaptive_batch_probe_count_counter = nullptr;
+    std::unique_ptr<AdaptiveBlockSizePredictor> _block_size_predictor;
     int64_t _reported_predicate_filtered_rows = 0;
     int64_t _reported_condition_cache_hit_count = 0;
     int64_t _reported_condition_cache_filtered_rows = 0;
