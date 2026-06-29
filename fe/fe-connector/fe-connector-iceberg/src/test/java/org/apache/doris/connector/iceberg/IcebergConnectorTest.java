@@ -21,9 +21,16 @@ import org.apache.doris.connector.api.ConnectorCapability;
 import org.apache.doris.connector.api.DorisConnectorException;
 import org.apache.doris.filesystem.properties.StorageProperties;
 
+import org.apache.iceberg.Schema;
+import org.apache.iceberg.catalog.Catalog;
+import org.apache.iceberg.catalog.Namespace;
+import org.apache.iceberg.catalog.TableIdentifier;
+import org.apache.iceberg.inmemory.InMemoryCatalog;
+import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.lang.reflect.Field;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
@@ -178,5 +185,87 @@ public class IcebergConnectorTest {
         Assertions.assertTrue(connector.getCapabilities()
                         .contains(ConnectorCapability.SUPPORTS_VIEW),
                 "iceberg must declare SUPPORTS_VIEW so post-flip views stay visible/queryable/droppable");
+    }
+
+    // ------------------------------------------------------------------------------------------------------
+    // H-2: REST 3-level namespace (external_catalog.name) must reach scan/write/procedure, not just metadata.
+    //
+    // Legacy IcebergMetadataOps was a SINGLE per-catalog ops carrying external_catalog.name, so ALL of
+    // metadata/scan/write/procedure resolved tables under [<db>, <cat>]. The SPI split built the three
+    // provider getters with the 1-arg CatalogBackedIcebergCatalogOps (external_catalog.name dropped), so
+    // post-flip SELECT/INSERT/EXECUTE on a 3-level REST catalog resolved the WRONG namespace ([<db>] only).
+    // Each provider resolves its table exclusively via catalogOps.loadTable, so we assert that loadTable on
+    // the ops the connector hands each provider resolves the 3-level table. MUTATION: revert any one provider
+    // to the 1-arg ctor -> that ops resolves [mydb].t (missing) -> NoSuchTableException -> red.
+    // ------------------------------------------------------------------------------------------------------
+
+    private static final Schema H2_SCHEMA = new Schema(
+            Types.NestedField.required(1, "id", Types.IntegerType.get()));
+
+    /**
+     * Build a connector whose lazily-created catalog is replaced (reflection) with an offline in-memory
+     * catalog holding {@code [mydb, cat].t}, and configured with {@code external_catalog.name=cat}.
+     */
+    private static IcebergConnector connectorOver3LevelCatalog() throws Exception {
+        InMemoryCatalog catalog = new InMemoryCatalog();
+        catalog.initialize("test", Collections.emptyMap());
+        catalog.createNamespace(Namespace.of("mydb"));
+        catalog.createNamespace(Namespace.of("mydb", "cat"));
+        catalog.createTable(TableIdentifier.of(Namespace.of("mydb", "cat"), "t"), H2_SCHEMA);
+        return connectorWithCatalog(
+                Map.of("iceberg.catalog.type", "rest", "external_catalog.name", "cat"), catalog);
+    }
+
+    private static IcebergConnector connectorWithCatalog(Map<String, String> props, Catalog catalog)
+            throws Exception {
+        IcebergConnector connector = new IcebergConnector(props, new RecordingConnectorContext());
+        Field f = IcebergConnector.class.getDeclaredField("icebergCatalog");
+        f.setAccessible(true);
+        f.set(connector, catalog);
+        return connector;
+    }
+
+    /** Reflect out the private {@code catalogOps} the connector built each provider with. */
+    private static IcebergCatalogOps catalogOpsOf(Object provider) throws Exception {
+        Field f = provider.getClass().getDeclaredField("catalogOps");
+        f.setAccessible(true);
+        return (IcebergCatalogOps) f.get(provider);
+    }
+
+    @Test
+    public void scanProviderThreadsExternalCatalogNameInto3LevelNamespace() throws Exception {
+        IcebergCatalogOps ops = catalogOpsOf(connectorOver3LevelCatalog().getScanPlanProvider());
+        Assertions.assertDoesNotThrow(() -> ops.loadTable("mydb", "t"),
+                "scan provider must build ops that thread external_catalog.name so the REST 3-level namespace "
+                        + "[mydb, cat] resolves; the 1-arg ops drops it and loadTable hits [mydb].t -> NoSuchTable");
+    }
+
+    @Test
+    public void writeProviderThreadsExternalCatalogNameInto3LevelNamespace() throws Exception {
+        IcebergCatalogOps ops = catalogOpsOf(connectorOver3LevelCatalog().getWritePlanProvider());
+        Assertions.assertDoesNotThrow(() -> ops.loadTable("mydb", "t"),
+                "write provider must thread external_catalog.name so INSERT/DELETE/MERGE resolve [mydb, cat].t");
+    }
+
+    @Test
+    public void procedureProviderThreadsExternalCatalogNameInto3LevelNamespace() throws Exception {
+        IcebergCatalogOps ops = catalogOpsOf(connectorOver3LevelCatalog().getProcedureOps());
+        Assertions.assertDoesNotThrow(() -> ops.loadTable("mydb", "t"),
+                "procedure provider must thread external_catalog.name so ALTER TABLE ... EXECUTE resolves "
+                        + "[mydb, cat].t");
+    }
+
+    @Test
+    public void scanProviderResolvesTwoLevelNamespaceWithoutExternalCatalogName() throws Exception {
+        // Sanity / reverse-mutation guard: without external_catalog.name the 2-level namespace [mydb] must
+        // still resolve (no spurious extra level appended). MUTATION: unconditionally appending a level -> red.
+        InMemoryCatalog catalog = new InMemoryCatalog();
+        catalog.initialize("test", Collections.emptyMap());
+        catalog.createNamespace(Namespace.of("mydb"));
+        catalog.createTable(TableIdentifier.of(Namespace.of("mydb"), "t"), H2_SCHEMA);
+        IcebergConnector connector = connectorWithCatalog(Map.of("iceberg.catalog.type", "rest"), catalog);
+        IcebergCatalogOps ops = catalogOpsOf(connector.getScanPlanProvider());
+        Assertions.assertDoesNotThrow(() -> ops.loadTable("mydb", "t"),
+                "without external_catalog.name a plain 2-level namespace [mydb] must resolve unchanged");
     }
 }

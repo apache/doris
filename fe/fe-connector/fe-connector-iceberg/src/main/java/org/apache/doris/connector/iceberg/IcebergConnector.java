@@ -152,9 +152,21 @@ public class IcebergConnector implements Connector {
 
     @Override
     public ConnectorMetadata getMetadata(ConnectorSession session) {
-        // Thread the listing-parity gating (mirrored from legacy IcebergMetadataOps) into the seam: nested
-        // namespace recursion is REST-only and flag-gated; view filtering is REST-flag-gated; a configured
-        // external_catalog.name roots namespaces (REST 3-level <catalog>.<db>.<table>).
+        return new IcebergConnectorMetadata(
+                newCatalogBackedOps(), properties, context, latestSnapshotCache);
+    }
+
+    /**
+     * Build the {@link IcebergCatalogOps} seam over the lazily-built live catalog, threading the listing-parity
+     * gating mirrored from legacy {@code IcebergMetadataOps} (a single per-catalog ops that carried this for ALL
+     * of metadata/scan/write/procedure): nested-namespace recursion is REST-only and flag-gated; view filtering
+     * is REST-flag-gated; a configured {@code external_catalog.name} roots namespaces (REST 3-level
+     * {@code <db>.<table>} living under {@code [<db>, <cat>]}). ALL FOUR call sites (getMetadata + the three
+     * provider getters) share this so they resolve namespaces identically — in particular {@code loadTable} (the
+     * only seam method scan/write/procedure use) must honour {@code external_catalog.name} or 3-level REST
+     * catalogs resolve to the wrong namespace.
+     */
+    private IcebergCatalogOps newCatalogBackedOps() {
         String flavor = IcebergCatalogFactory.resolveFlavor(properties);
         boolean restFlavor = IcebergConnectorProperties.TYPE_REST.equals(flavor);
         boolean nestedNamespaceEnabled = Boolean.parseBoolean(properties.getOrDefault(
@@ -163,10 +175,8 @@ public class IcebergConnector implements Connector {
                 IcebergConnectorProperties.REST_VIEW_ENABLED, "true"));
         Optional<String> externalCatalogName =
                 Optional.ofNullable(properties.get(IcebergConnectorProperties.EXTERNAL_CATALOG_NAME));
-        return new IcebergConnectorMetadata(
-                new IcebergCatalogOps.CatalogBackedIcebergCatalogOps(getOrCreateCatalog(),
-                        restFlavor, nestedNamespaceEnabled, viewEnabled, externalCatalogName),
-                properties, context, latestSnapshotCache);
+        return new IcebergCatalogOps.CatalogBackedIcebergCatalogOps(getOrCreateCatalog(),
+                restFlavor, nestedNamespaceEnabled, viewEnabled, externalCatalogName);
     }
 
     /**
@@ -202,11 +212,12 @@ public class IcebergConnector implements Connector {
     @Override
     public ConnectorScanPlanProvider getScanPlanProvider() {
         // Mirrors PaimonConnector.getScanPlanProvider: build a fresh provider per call over the lazily-built
-        // live catalog. Scan planning only loadTable()s the table, so the listing-parity gating flags
-        // (nested-namespace / view / external-catalog name) that getMetadata threads are irrelevant here —
-        // the 1-arg CatalogBackedIcebergCatalogOps (with their defaults) suffices.
+        // live catalog. Scan planning resolves the table via catalogOps.loadTable, which honours
+        // external_catalog.name (REST 3-level catalogs), so it must share getMetadata's fully-threaded ops
+        // (newCatalogBackedOps) — the listing-only flags (nested-namespace / view) are inert on this path but
+        // threaded for parity with the legacy single per-catalog IcebergMetadataOps.
         return new IcebergScanPlanProvider(properties,
-                new IcebergCatalogOps.CatalogBackedIcebergCatalogOps(getOrCreateCatalog()), context, manifestCache,
+                newCatalogBackedOps(), context, manifestCache,
                 rewritableDeleteStash);
     }
 
@@ -214,20 +225,21 @@ public class IcebergConnector implements Connector {
     public ConnectorWritePlanProvider getWritePlanProvider() {
         // Mirrors getScanPlanProvider: a fresh provider per call over the lazily-built live catalog. The
         // provider builds the TIcebergTableSink and binds the write to the executor-opened
-        // IcebergConnectorTransaction. Inert pre-cutover (iceberg writes do not route here until P6.6).
+        // IcebergConnectorTransaction. It resolves the target via catalogOps.loadTable, so it shares the
+        // fully-threaded ops (newCatalogBackedOps) — external_catalog.name must apply to INSERT/DELETE/MERGE.
         return new IcebergWritePlanProvider(properties,
-                new IcebergCatalogOps.CatalogBackedIcebergCatalogOps(getOrCreateCatalog()), context,
+                newCatalogBackedOps(), context,
                 rewritableDeleteStash);
     }
 
     @Override
     public ConnectorProcedureOps getProcedureOps() {
         // Mirrors getWritePlanProvider: a fresh provider per call over the lazily-built live catalog. The
-        // provider loadTable()s the target and runs the procedure body (P6.4-T03/T04). Inert pre-cutover —
-        // iceberg ALTER TABLE EXECUTE routes to the legacy fe-core actions until iceberg enters
-        // SPI_READY_TYPES (P6.6), so this is never reached pre-flip.
+        // provider loadTable()s the target and runs the procedure body (P6.4-T03/T04). It resolves the target
+        // via catalogOps.loadTable, so it shares the fully-threaded ops (newCatalogBackedOps) —
+        // external_catalog.name must apply to ALTER TABLE ... EXECUTE on REST 3-level catalogs.
         return new IcebergProcedureOps(properties,
-                new IcebergCatalogOps.CatalogBackedIcebergCatalogOps(getOrCreateCatalog()), context);
+                newCatalogBackedOps(), context);
     }
 
     /**
