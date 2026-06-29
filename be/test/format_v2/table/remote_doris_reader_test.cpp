@@ -104,6 +104,24 @@ std::vector<SlotDescriptor*> remote_slots(ObjectPool* pool, DescriptorTbl** desc
     return (*desc_tbl)->get_tuple_descriptor(0)->slots();
 }
 
+TSlotDescriptor remote_complex_slot_descriptor(int id, const DataTypePtr& type,
+                                               const std::string& name) {
+    TSlotDescriptor slot_desc;
+    slot_desc.__set_id(id);
+    slot_desc.__set_parent(0);
+    slot_desc.__set_slotType(type->to_thrift());
+    slot_desc.__set_byteOffset(0);
+    slot_desc.__set_nullIndicatorByte(id / 8);
+    slot_desc.__set_nullIndicatorBit(id % 8);
+    slot_desc.__set_slotIdx(id);
+    slot_desc.__set_columnPos(id);
+    slot_desc.__set_isMaterialized(true);
+    slot_desc.__set_is_key(false);
+    slot_desc.__set_colName(name);
+    slot_desc.__set_col_unique_id(id);
+    return slot_desc;
+}
+
 std::vector<SlotDescriptor*> remote_complex_slots(ObjectPool* pool, DescriptorTbl** desc_tbl) {
     const auto string_type = make_nullable(std::make_shared<DataTypeString>());
     const auto int_type = make_nullable(std::make_shared<DataTypeInt32>());
@@ -113,11 +131,19 @@ std::vector<SlotDescriptor*> remote_complex_slots(ObjectPool* pool, DescriptorTb
             DataTypes {int_type, make_nullable(std::make_shared<DataTypeFloat32>()), string_type},
             Strings {"f1", "f2", "f3"}));
 
-    DescriptorTblBuilder builder(pool);
-    builder.declare_tuple() << std::make_tuple(array_type, std::string("c_array_s"))
-                            << std::make_tuple(map_type, std::string("c_map"))
-                            << std::make_tuple(struct_type, std::string("c_struct"));
-    *desc_tbl = builder.build();
+    TDescriptorTable thrift_desc_tbl;
+    TTupleDescriptor tuple_desc;
+    tuple_desc.__set_id(0);
+    tuple_desc.__set_byteSize(0);
+    tuple_desc.__set_numNullBytes(1);
+    thrift_desc_tbl.tupleDescriptors.push_back(std::move(tuple_desc));
+    thrift_desc_tbl.slotDescriptors.push_back(
+            remote_complex_slot_descriptor(0, array_type, "c_array_s"));
+    thrift_desc_tbl.slotDescriptors.push_back(remote_complex_slot_descriptor(1, map_type, "c_map"));
+    thrift_desc_tbl.slotDescriptors.push_back(
+            remote_complex_slot_descriptor(2, struct_type, "c_struct"));
+    auto status = DescriptorTbl::create(pool, thrift_desc_tbl, desc_tbl);
+    EXPECT_TRUE(status.ok()) << status;
     return (*desc_tbl)->get_tuple_descriptor(0)->slots();
 }
 
