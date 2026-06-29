@@ -26,22 +26,6 @@
 
 namespace doris::io {
 
-namespace {
-
-constexpr std::array<const char*, SNII_SECTION_COUNT> kSniiSectionNames {
-        "Unknown", "Meta", "Dict", "Posting", "Bsbf", "Norms", "NullBitmap"};
-
-RuntimeProfile::Counter* add_snii_section_counter(RuntimeProfile* profile, const char* section_name,
-                                                  const char* metric_name, TUnit::type unit,
-                                                  const char* parent) {
-    std::string counter_name = "InvertedIndexSnii";
-    counter_name += section_name;
-    counter_name += metric_name;
-    return ADD_CHILD_COUNTER_WITH_LEVEL(profile, counter_name, unit, parent, 1);
-}
-
-} // namespace
-
 std::shared_ptr<AtomicStatistics> FileCacheMetrics::report() {
     std::shared_ptr<AtomicStatistics> output_stats = std::make_shared<AtomicStatistics>();
     std::lock_guard lock(_mtx);
@@ -161,26 +145,6 @@ FileCacheStatistics diff_file_cache_statistics(const FileCacheStatistics& curren
     SUBTRACT_FIELD(segment_footer_index_remote_io_timer);
     SUBTRACT_FIELD(segment_footer_index_peer_io_timer);
 #undef SUBTRACT_FIELD
-    for (size_t i = 0; i < SNII_SECTION_COUNT; ++i) {
-        diff.inverted_index_snii_section_read_bytes[i] =
-                current.inverted_index_snii_section_read_bytes[i] -
-                previous.inverted_index_snii_section_read_bytes[i];
-        diff.inverted_index_snii_section_remote_physical_read_bytes[i] =
-                current.inverted_index_snii_section_remote_physical_read_bytes[i] -
-                previous.inverted_index_snii_section_remote_physical_read_bytes[i];
-        diff.inverted_index_snii_section_bytes_write_into_cache[i] =
-                current.inverted_index_snii_section_bytes_write_into_cache[i] -
-                previous.inverted_index_snii_section_bytes_write_into_cache[i];
-        diff.inverted_index_snii_section_file_cache_blocks_total[i] =
-                current.inverted_index_snii_section_file_cache_blocks_total[i] -
-                previous.inverted_index_snii_section_file_cache_blocks_total[i];
-        diff.inverted_index_snii_section_file_cache_blocks_hit[i] =
-                current.inverted_index_snii_section_file_cache_blocks_hit[i] -
-                previous.inverted_index_snii_section_file_cache_blocks_hit[i];
-        diff.inverted_index_snii_section_file_cache_blocks_miss[i] =
-                current.inverted_index_snii_section_file_cache_blocks_miss[i] -
-                previous.inverted_index_snii_section_file_cache_blocks_miss[i];
-    }
     return diff;
 }
 
@@ -284,21 +248,6 @@ FileCacheProfileReporter::FileCacheProfileReporter(RuntimeProfile* profile) : _p
             profile, "InvertedIndexRangeReadCount", TUnit::UNIT, cache_profile, 1);
     inverted_index_serial_read_rounds = ADD_CHILD_COUNTER_WITH_LEVEL(
             profile, "InvertedIndexSerialReadRounds", TUnit::UNIT, cache_profile, 1);
-    for (size_t i = 0; i < SNII_SECTION_COUNT; ++i) {
-        inverted_index_snii_section_read_bytes[i] = add_snii_section_counter(
-                profile, kSniiSectionNames[i], "ReadBytes", TUnit::BYTES, cache_profile);
-        inverted_index_snii_section_remote_physical_read_bytes[i] =
-                add_snii_section_counter(profile, kSniiSectionNames[i], "RemotePhysicalReadBytes",
-                                         TUnit::BYTES, cache_profile);
-        inverted_index_snii_section_bytes_write_into_cache[i] = add_snii_section_counter(
-                profile, kSniiSectionNames[i], "BytesWriteIntoCache", TUnit::BYTES, cache_profile);
-        inverted_index_snii_section_file_cache_blocks_total[i] = add_snii_section_counter(
-                profile, kSniiSectionNames[i], "FileCacheBlocksTotal", TUnit::UNIT, cache_profile);
-        inverted_index_snii_section_file_cache_blocks_hit[i] = add_snii_section_counter(
-                profile, kSniiSectionNames[i], "FileCacheBlocksHit", TUnit::UNIT, cache_profile);
-        inverted_index_snii_section_file_cache_blocks_miss[i] = add_snii_section_counter(
-                profile, kSniiSectionNames[i], "FileCacheBlocksMiss", TUnit::UNIT, cache_profile);
-    }
 
     segment_footer_index_num_local_io_total = ADD_CHILD_COUNTER_WITH_LEVEL(
             profile, "SegmentFooterIndexNumLocalIOTotal", TUnit::UNIT, cache_profile, 1);
@@ -410,60 +359,6 @@ void FileCacheProfileReporter::update(const FileCacheStatistics* statistics) con
     COUNTER_UPDATE(inverted_index_range_read_count, statistics->inverted_index_range_read_count);
     COUNTER_UPDATE(inverted_index_serial_read_rounds,
                    statistics->inverted_index_serial_read_rounds);
-    for (size_t i = 0; i < SNII_SECTION_COUNT; ++i) {
-        COUNTER_UPDATE(inverted_index_snii_section_read_bytes[i],
-                       statistics->inverted_index_snii_section_read_bytes[i]);
-        COUNTER_UPDATE(inverted_index_snii_section_remote_physical_read_bytes[i],
-                       statistics->inverted_index_snii_section_remote_physical_read_bytes[i]);
-        COUNTER_UPDATE(inverted_index_snii_section_bytes_write_into_cache[i],
-                       statistics->inverted_index_snii_section_bytes_write_into_cache[i]);
-        COUNTER_UPDATE(inverted_index_snii_section_file_cache_blocks_total[i],
-                       statistics->inverted_index_snii_section_file_cache_blocks_total[i]);
-        COUNTER_UPDATE(inverted_index_snii_section_file_cache_blocks_hit[i],
-                       statistics->inverted_index_snii_section_file_cache_blocks_hit[i]);
-        COUNTER_UPDATE(inverted_index_snii_section_file_cache_blocks_miss[i],
-                       statistics->inverted_index_snii_section_file_cache_blocks_miss[i]);
-
-    COUNTER_UPDATE(segment_footer_index_num_local_io_total,
-                   statistics->segment_footer_index_num_local_io_total);
-    COUNTER_UPDATE(segment_footer_index_num_remote_io_total,
-                   statistics->segment_footer_index_num_remote_io_total);
-    COUNTER_UPDATE(segment_footer_index_num_peer_io_total,
-                   statistics->segment_footer_index_num_peer_io_total);
-    COUNTER_UPDATE(segment_footer_index_bytes_scanned_from_cache,
-                   statistics->segment_footer_index_bytes_read_from_local);
-    COUNTER_UPDATE(segment_footer_index_bytes_scanned_from_remote,
-                   statistics->segment_footer_index_bytes_read_from_remote);
-    COUNTER_UPDATE(segment_footer_index_bytes_scanned_from_peer,
-                   statistics->segment_footer_index_bytes_read_from_peer);
-    COUNTER_UPDATE(segment_footer_index_local_io_timer,
-                   statistics->segment_footer_index_local_io_timer);
-    COUNTER_UPDATE(segment_footer_index_remote_io_timer,
-                   statistics->segment_footer_index_remote_io_timer);
-    COUNTER_UPDATE(segment_footer_index_peer_io_timer,
-                   statistics->segment_footer_index_peer_io_timer);
-
-    COUNTER_UPDATE(num_cross_cg_peer_io_total, statistics->num_cross_cg_peer_io_total);
-    COUNTER_UPDATE(bytes_scanned_from_cross_cg_peer, statistics->bytes_read_from_cross_cg_peer);
-    COUNTER_UPDATE(cross_cg_peer_io_timer, statistics->cross_cg_peer_io_timer);
-    COUNTER_UPDATE(num_same_cg_peer_io_total, statistics->num_same_cg_peer_io_total);
-    COUNTER_UPDATE(bytes_scanned_from_same_cg_peer, statistics->bytes_read_from_same_cg_peer);
-    COUNTER_UPDATE(same_cg_peer_io_timer, statistics->same_cg_peer_io_timer);
-    COUNTER_UPDATE(num_peer_race_peer_win, statistics->num_peer_race_peer_win);
-    COUNTER_UPDATE(num_peer_race_s3_win, statistics->num_peer_race_s3_win);
-    COUNTER_UPDATE(num_peer_lazy_fetch, statistics->num_peer_lazy_fetch);
-    COUNTER_UPDATE(peer_lazy_fetch_timer, statistics->peer_lazy_fetch_timer);
-
-    if (!statistics->peer_hosts.empty() && _profile != nullptr) {
-        std::string peer_nodes;
-        for (const auto& host : statistics->peer_hosts) {
-            if (!peer_nodes.empty()) {
-                peer_nodes += ", ";
-            }
-            peer_nodes += host;
-        }
-        _profile->add_info_string("PeerCacheNodes", peer_nodes);
-    }
 }
 
 } // namespace doris::io

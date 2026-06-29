@@ -118,13 +118,6 @@ struct FileCacheStatistics {
     int64_t inverted_index_range_read_count = 0;
     int64_t inverted_index_serial_read_rounds = 0;
 
-    std::array<int64_t, SNII_SECTION_COUNT> inverted_index_snii_section_read_bytes {};
-    std::array<int64_t, SNII_SECTION_COUNT>
-            inverted_index_snii_section_remote_physical_read_bytes {};
-    std::array<int64_t, SNII_SECTION_COUNT> inverted_index_snii_section_bytes_write_into_cache {};
-    std::array<int64_t, SNII_SECTION_COUNT> inverted_index_snii_section_file_cache_blocks_total {};
-    std::array<int64_t, SNII_SECTION_COUNT> inverted_index_snii_section_file_cache_blocks_hit {};
-    std::array<int64_t, SNII_SECTION_COUNT> inverted_index_snii_section_file_cache_blocks_miss {};
     int64_t segment_footer_index_num_local_io_total = 0;
     int64_t segment_footer_index_num_remote_io_total = 0;
     int64_t segment_footer_index_num_peer_io_total = 0;

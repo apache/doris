@@ -317,7 +317,7 @@ private:
     /// @return None.
     void _update_stats(const ReadStatistics& stats,
                        const SourceReadBreakdown& source_read_breakdown, FileCacheStatistics* state,
-                       FileCacheReadType read_type, uint8_t snii_section_type) const;
+                       FileCacheReadType read_type) const;
 
     bool _is_doris_table = false;
     int64_t _tablet_id = -1;

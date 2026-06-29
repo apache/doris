@@ -175,9 +175,6 @@ TEST_F(BlockFileCacheTest, ReadFileCacheFalseReadsExactRemoteBytesAndDoesNotPopu
         EXPECT_EQ(stats.bytes_write_into_cache, 0);
         EXPECT_EQ(stats.file_cache_blocks_total, 0);
         EXPECT_EQ(stats.num_skip_cache_io_total, 1);
-        EXPECT_EQ(stats.inverted_index_snii_section_read_bytes[SNII_SECTION_META], read_size);
-        EXPECT_EQ(stats.inverted_index_snii_section_remote_physical_read_bytes[SNII_SECTION_META],
-                  read_size);
     }
 
     {

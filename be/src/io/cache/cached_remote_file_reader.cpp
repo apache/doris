@@ -1231,12 +1231,12 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
                                                      : FileCacheReadType::DATA);
             if (io_ctx->file_cache_stats) {
                 _update_stats(stats, source_read_breakdown, io_ctx->file_cache_stats,
-                              file_cache_read_type, io_ctx->snii_section_type);
+                              file_cache_read_type);
             }
             if (!io_ctx->is_warmup) {
                 FileCacheStatistics fcache_stats_increment;
                 _update_stats(stats, source_read_breakdown, &fcache_stats_increment,
-                              file_cache_read_type, io_ctx->snii_section_type);
+                              file_cache_read_type);
                 io::FileCacheMetrics::instance().update(&fcache_stats_increment);
             }
         }
@@ -1331,8 +1331,7 @@ void CachedRemoteFileReader::prefetch_range(size_t offset, size_t size, const IO
 void CachedRemoteFileReader::_update_stats(const ReadStatistics& read_stats,
                                            const SourceReadBreakdown& source_read_breakdown,
                                            FileCacheStatistics* statis,
-                                           FileCacheReadType read_type,
-                                           uint8_t snii_section_type) const {
+                                           FileCacheReadType read_type) const {
     if (statis == nullptr) {
         return;
     }
@@ -1453,23 +1452,6 @@ void CachedRemoteFileReader::_update_stats(const ReadStatistics& read_stats,
         statis->inverted_index_file_cache_blocks_skip += read_stats.file_cache_blocks_skip;
         statis->inverted_index_file_cache_blocks_downloading +=
                 read_stats.file_cache_blocks_downloading;
-        // Per-SNII-section physical/cache attribution (meta / dict / posting /
-        // bsbf / norms / null-bitmap), keyed by the section type the SNII
-        // reader stamped into the IOContext.
-        if (snii_section_type < SNII_SECTION_COUNT) {
-            statis->inverted_index_snii_section_read_bytes[snii_section_type] +=
-                    read_stats.bytes_read;
-            statis->inverted_index_snii_section_remote_physical_read_bytes[snii_section_type] +=
-                    read_stats.remote_physical_read_bytes;
-            statis->inverted_index_snii_section_bytes_write_into_cache[snii_section_type] +=
-                    read_stats.bytes_write_into_file_cache;
-            statis->inverted_index_snii_section_file_cache_blocks_total[snii_section_type] +=
-                    read_stats.file_cache_blocks_total;
-            statis->inverted_index_snii_section_file_cache_blocks_hit[snii_section_type] +=
-                    read_stats.file_cache_blocks_hit;
-            statis->inverted_index_snii_section_file_cache_blocks_miss[snii_section_type] +=
-                    read_stats.file_cache_blocks_miss;
-        }
         break;
     case FileCacheReadType::SEGMENT_FOOTER_INDEX:
         update_index_stats(statis->segment_footer_index_num_local_io_total,
