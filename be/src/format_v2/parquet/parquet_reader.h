@@ -26,6 +26,7 @@
 #include "format_v2/parquet/parquet_column_schema.h"
 #include "format_v2/parquet/parquet_file_context.h"
 #include "format_v2/parquet/parquet_profile.h"
+#include "format_v2/parquet/parquet_scan.h"
 
 namespace doris {
 namespace io {
