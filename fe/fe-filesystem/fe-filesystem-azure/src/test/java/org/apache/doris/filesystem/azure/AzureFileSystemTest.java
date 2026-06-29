@@ -236,6 +236,102 @@ class AzureFileSystemTest {
         Assertions.assertEquals("data/d.csv", listing.getMaxFile());
     }
 
+    @Test
+    void globListWithLimit_listsExpandedDatePrefixesInsteadOfBroadDatePrefix() throws IOException {
+        RemoteObjects empty = new RemoteObjects(List.of(), false, null);
+        Mockito.when(mockStorage.listObjects(ArgumentMatchers.anyString(), ArgumentMatchers.any()))
+                .thenReturn(empty);
+        Mockito.when(mockStorage.listObjects(
+                        ArgumentMatchers.eq("wasbs://c@a.host/asin_trend/sale/month/"
+                                + "date=2025-03-01/mp_id=8/0/0/436/"),
+                        ArgumentMatchers.any()))
+                .thenReturn(new RemoteObjects(
+                        List.of(new RemoteObject(
+                                "asin_trend/sale/month/date=2025-03-01/mp_id=8/0/0/436/a.parquet",
+                                "a.parquet", null, 11L, 0L)),
+                        false, null));
+        Mockito.when(mockStorage.listObjects(
+                        ArgumentMatchers.eq("wasbs://c@a.host/asin_trend/sale/month/"
+                                + "date=2025-10-01/mp_id=8/0/0/436/"),
+                        ArgumentMatchers.any()))
+                .thenReturn(new RemoteObjects(
+                        List.of(new RemoteObject(
+                                "asin_trend/sale/month/date=2025-10-01/mp_id=8/0/0/436/b.parquet",
+                                "b.parquet", null, 12L, 0L)),
+                        false, null));
+
+        GlobListing listing = fs.globListWithLimit(Location.of("wasbs://c@a.host/asin_trend/sale/month/"
+                + "date=2025-{0[3-9],1[0-2]}-01/mp_id=8/0/0/436/*"), null, 0L, 0L);
+
+        Assertions.assertEquals(2, listing.getFiles().size());
+        Assertions.assertEquals("asin_trend/sale/month/date=2025-", listing.getPrefix());
+        Mockito.verify(mockStorage, Mockito.never()).listObjects(
+                ArgumentMatchers.eq("wasbs://c@a.host/asin_trend/sale/month/date=2025-"),
+                ArgumentMatchers.any());
+        Mockito.verify(mockStorage).listObjects(
+                ArgumentMatchers.eq("wasbs://c@a.host/asin_trend/sale/month/"
+                        + "date=2025-03-01/mp_id=8/0/0/436/"),
+                ArgumentMatchers.any());
+        Mockito.verify(mockStorage).listObjects(
+                ArgumentMatchers.eq("wasbs://c@a.host/asin_trend/sale/month/"
+                        + "date=2025-12-01/mp_id=8/0/0/436/"),
+                ArgumentMatchers.any());
+    }
+
+    @Test
+    void globListWithLimit_doesNotAppendSuffixToPartialBraceArmPrefix() throws IOException {
+        Mockito.when(mockStorage.listObjects(
+                        ArgumentMatchers.eq("wasbs://c@a.host/data/"),
+                        ArgumentMatchers.any()))
+                .thenReturn(new RemoteObjects(
+                        List.of(
+                                new RemoteObject("data/foobar/part.parquet",
+                                        "part.parquet", null, 10L, 0L),
+                                new RemoteObject("data/barbaz/part.parquet",
+                                        "part.parquet", null, 20L, 0L)),
+                        false, null));
+
+        GlobListing listing = fs.globListWithLimit(
+                Location.of("wasbs://c@a.host/data/{foo*,bar*}/part.parquet"), null, 0L, 0L);
+
+        Assertions.assertEquals(2, listing.getFiles().size());
+        Mockito.verify(mockStorage).listObjects(
+                ArgumentMatchers.eq("wasbs://c@a.host/data/"), ArgumentMatchers.any());
+        Mockito.verify(mockStorage, Mockito.never()).listObjects(
+                ArgumentMatchers.eq("wasbs://c@a.host/data/foo/part.parquet"), ArgumentMatchers.any());
+        Mockito.verify(mockStorage, Mockito.never()).listObjects(
+                ArgumentMatchers.eq("wasbs://c@a.host/data/bar/part.parquet"), ArgumentMatchers.any());
+    }
+
+    @Test
+    void globListWithLimit_findsNextMatchAcrossExpandedPrefixesAfterLimit() throws IOException {
+        Mockito.when(mockStorage.listObjects(
+                        ArgumentMatchers.eq("wasbs://c@a.host/date=2025-01/file"),
+                        ArgumentMatchers.any()))
+                .thenReturn(new RemoteObjects(
+                        List.of(
+                                new RemoteObject("date=2025-01/file-a.csv",
+                                        "file-a.csv", null, 10L, 0L),
+                                new RemoteObject("date=2025-01/file-b.csv",
+                                        "file-b.csv", null, 20L, 0L)),
+                        false, null));
+        Mockito.when(mockStorage.listObjects(
+                        ArgumentMatchers.eq("wasbs://c@a.host/date=2025-02/file"),
+                        ArgumentMatchers.any()))
+                .thenReturn(new RemoteObjects(
+                        List.of(new RemoteObject("date=2025-02/file-c.csv",
+                                "file-c.csv", null, 30L, 0L)),
+                        false, null));
+
+        GlobListing listing = fs.globListWithLimit(
+                Location.of("wasbs://c@a.host/date=2025-0[12]/file*.csv"), null, 0L, 2L);
+
+        Assertions.assertEquals(2, listing.getFiles().size());
+        Assertions.assertEquals("date=2025-02/file-c.csv", listing.getMaxFile());
+        Mockito.verify(mockStorage).listObjects(
+                ArgumentMatchers.eq("wasbs://c@a.host/date=2025-02/file"), ArgumentMatchers.any());
+    }
+
     // ---------------------------------------------------------------------
     // F04 — listFiles(Location) glob-aware dispatch
     // ---------------------------------------------------------------------

@@ -26,6 +26,7 @@ import org.apache.doris.filesystem.GlobListing;
 import org.apache.doris.filesystem.Location;
 import org.apache.doris.filesystem.UploadPartResult;
 import org.apache.doris.filesystem.spi.ObjFileSystem;
+import org.apache.doris.filesystem.spi.ObjectStorageGlob;
 import org.apache.doris.filesystem.spi.RemoteObject;
 import org.apache.doris.filesystem.spi.RemoteObjects;
 import org.apache.doris.filesystem.spi.RequestBody;
@@ -397,51 +398,61 @@ public class AzureFileSystem extends ObjFileSystem {
         // base = uri with the key portion stripped, preserving the original scheme/host syntax.
         String base = uri.substring(0, uri.length() - keyPattern.length());
 
-        Pattern matcher = Pattern.compile(globToRegex(keyPattern));
-        String listKeyPrefix = longestNonGlobPrefix(keyPattern);
-        String listPrefixUri = base + listKeyPrefix;
+        String expandedKeyPattern = ObjectStorageGlob.expandNumericRanges(keyPattern);
+        Pattern matcher = Pattern.compile(globToRegex(expandedKeyPattern));
+        String listKeyPrefix = longestNonGlobPrefix(expandedKeyPattern);
+        List<String> listKeyPrefixes = ObjectStorageGlob.expandedGlobListPrefixes(expandedKeyPattern);
 
         List<FileEntry> files = new ArrayList<>();
         long totalSize = 0L;
-        String maxFile = "";
-        String continuationToken = null;
+        String nextMatchAfterLimit = "";
+        String lastMatchedKey = "";
         boolean reachLimit = false;
 
-        outer:
-        do {
-            RemoteObjects page = objStorage.listObjects(listPrefixUri, continuationToken);
-            for (RemoteObject obj : page.getObjectList()) {
-                String key = obj.getKey();
-                if (key.endsWith(DIR_MARKER_SUFFIX)) {
-                    continue;
-                }
-                if (startAfter != null && !startAfter.isEmpty() && key.compareTo(startAfter) <= 0) {
-                    continue;
-                }
-                if (!matcher.matcher(key).matches()) {
-                    continue;
-                }
-                if ((maxFiles > 0 && files.size() >= maxFiles)
-                        || (maxBytes > 0 && totalSize >= maxBytes)) {
-                    maxFile = key;
-                    reachLimit = true;
-                    break outer;
-                }
-                files.add(new FileEntry(
-                        Location.of(base + key),
-                        obj.getSize(),
-                        false,
-                        obj.getModificationTime(),
-                        null));
-                totalSize += obj.getSize();
-                maxFile = key;
-            }
-            continuationToken = page.isTruncated() ? page.getContinuationToken() : null;
-        } while (continuationToken != null);
+        for (String currentListKeyPrefix : listKeyPrefixes) {
+            String continuationToken = null;
+            String listPrefixUri = base + currentListKeyPrefix;
+            do {
+                RemoteObjects page = objStorage.listObjects(listPrefixUri, continuationToken);
+                for (RemoteObject obj : page.getObjectList()) {
+                    String key = obj.getKey();
+                    if (key.endsWith(DIR_MARKER_SUFFIX)) {
+                        continue;
+                    }
+                    if (startAfter != null && !startAfter.isEmpty() && key.compareTo(startAfter) <= 0) {
+                        continue;
+                    }
+                    if (reachLimit) {
+                        if (nextMatchAfterLimit.isEmpty() && matcher.matcher(key).matches()) {
+                            nextMatchAfterLimit = key;
+                        }
+                        continue;
+                    }
+                    if (!matcher.matcher(key).matches()) {
+                        continue;
+                    }
+                    files.add(new FileEntry(
+                            Location.of(base + key),
+                            obj.getSize(),
+                            false,
+                            obj.getModificationTime(),
+                            null));
+                    totalSize += obj.getSize();
+                    lastMatchedKey = key;
 
-        if (!reachLimit && files.isEmpty()) {
-            maxFile = "";
+                    if ((maxFiles > 0 && files.size() >= maxFiles)
+                            || (maxBytes > 0 && totalSize >= maxBytes)) {
+                        reachLimit = true;
+                    }
+                }
+                continuationToken = page.isTruncated() ? page.getContinuationToken() : null;
+            } while (continuationToken != null && (!reachLimit || nextMatchAfterLimit.isEmpty()));
+            if (reachLimit && !nextMatchAfterLimit.isEmpty()) {
+                break;
+            }
         }
+
+        String maxFile = nextMatchAfterLimit.isEmpty() ? lastMatchedKey : nextMatchAfterLimit;
         return new GlobListing(files, container, listKeyPrefix, maxFile);
     }
 
@@ -477,111 +488,16 @@ public class AzureFileSystem extends ObjFileSystem {
      * Azure list-blobs call.
      */
     static String longestNonGlobPrefix(String globPattern) {
-        int earliest = globPattern.length();
-        for (char c : new char[]{'*', '?', '[', '{', '\\'}) {
-            int idx = globPattern.indexOf(c);
-            if (idx >= 0 && idx < earliest) {
-                earliest = idx;
-            }
-        }
-        return globPattern.substring(0, earliest);
+        return ObjectStorageGlob.longestNonGlobPrefix(globPattern);
     }
 
     /**
      * Translates a Java NIO glob pattern to a regex matched against raw blob keys.
-     * Mirrors the JDK glob → regex conversion but operates on plain strings, so it
-     * tolerates characters that the host OS path syntax would refuse.  Supports:
-     * <ul>
-     *   <li>{@code *} → any run of non-{@code /} characters;</li>
-     *   <li>{@code **} → any run of characters including {@code /};</li>
-     *   <li>{@code ?} → any single non-{@code /} character;</li>
-     *   <li>{@code [...]} character class (with {@code !} for negation);</li>
-     *   <li>{@code {a,b,c}} alternation;</li>
-     *   <li>{@code \X} escapes the next character literally.</li>
-     * </ul>
+     * Mirrors the JDK glob to regex conversion but operates on plain strings, so it
+     * tolerates characters that the host OS path syntax would refuse.
      */
     static String globToRegex(String glob) {
-        StringBuilder sb = new StringBuilder("^");
-        boolean inClass = false;
-        boolean inGroup = false;
-        int i = 0;
-        while (i < glob.length()) {
-            char c = glob.charAt(i);
-            if (c == '\\') {
-                if (i + 1 < glob.length()) {
-                    sb.append(Pattern.quote(String.valueOf(glob.charAt(i + 1))));
-                    i += 2;
-                } else {
-                    sb.append("\\\\");
-                    i++;
-                }
-                continue;
-            }
-            if (inClass) {
-                if (c == ']') {
-                    inClass = false;
-                    sb.append(']');
-                } else if (c == '\\' || c == '[') {
-                    sb.append('\\').append(c);
-                } else {
-                    sb.append(c);
-                }
-                i++;
-                continue;
-            }
-            switch (c) {
-                case '*':
-                    if (i + 1 < glob.length() && glob.charAt(i + 1) == '*') {
-                        sb.append(".*");
-                        i += 2;
-                    } else {
-                        sb.append("[^/]*");
-                        i++;
-                    }
-                    break;
-                case '?':
-                    sb.append("[^/]");
-                    i++;
-                    break;
-                case '[':
-                    inClass = true;
-                    sb.append('[');
-                    i++;
-                    if (i < glob.length() && glob.charAt(i) == '!') {
-                        sb.append('^');
-                        i++;
-                    }
-                    break;
-                case '{':
-                    inGroup = true;
-                    sb.append("(?:");
-                    i++;
-                    break;
-                case '}':
-                    inGroup = false;
-                    sb.append(')');
-                    i++;
-                    break;
-                case ',':
-                    if (inGroup) {
-                        sb.append('|');
-                    } else {
-                        sb.append(',');
-                    }
-                    i++;
-                    break;
-                default:
-                    if ("\\.^$|+()".indexOf(c) >= 0) {
-                        sb.append('\\').append(c);
-                    } else {
-                        sb.append(c);
-                    }
-                    i++;
-                    break;
-            }
-        }
-        sb.append('$');
-        return sb.toString();
+        return ObjectStorageGlob.globToRegex(glob);
     }
 
     /** Lazy-paginating FileIterator over Azure list results. */

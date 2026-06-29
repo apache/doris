@@ -837,14 +837,7 @@ public abstract class S3CompatibleFileSystem extends ObjFileSystem {
      * ({@code * ? [ { \}).  Used as the {@code prefix} parameter for object storage {@code ListObjectsV2}.
      */
     protected static String longestNonGlobPrefix(String globPattern) {
-        int earliest = globPattern.length();
-        for (char c : new char[]{'*', '?', '[', '{', '\\'}) {
-            int idx = globPattern.indexOf(c);
-            if (idx >= 0 && idx < earliest) {
-                earliest = idx;
-            }
-        }
-        return globPattern.substring(0, earliest);
+        return ObjectStorageGlob.longestNonGlobPrefix(globPattern);
     }
 
     /**
@@ -863,48 +856,7 @@ public abstract class S3CompatibleFileSystem extends ObjFileSystem {
      * </ul>
      */
     private static String expandNumericRanges(String pattern) {
-        java.util.regex.Pattern rangeSegment = java.util.regex.Pattern.compile(
-                "(-?\\d+)\\.\\.(-?\\d+)");
-        java.util.regex.Pattern simpleRange = java.util.regex.Pattern.compile(
-                "\\{(\\d+)\\.\\.(\\d+)\\}");
-        // Match any brace group that contains at least one N..M range
-        java.util.regex.Pattern braceGroup = java.util.regex.Pattern.compile(
-                "\\{([^}]*\\d+\\.\\.\\d+[^}]*)\\}");
-        java.util.regex.Matcher m = braceGroup.matcher(pattern);
-        StringBuffer sb = new StringBuffer();
-        while (m.find()) {
-            String content = m.group(1);
-            boolean isMixed = content.contains(",");
-            if (!isMixed) {
-                // Simple brace group (no comma): only expand non-negative ranges
-                java.util.regex.Matcher sm = simpleRange.matcher(m.group(0));
-                if (!sm.matches()) {
-                    // Not a simple non-negative range (e.g., {-1..1}) — leave unchanged
-                    continue;
-                }
-            }
-            String[] segments = content.split(",", -1);
-            java.util.LinkedHashSet<String> values = new java.util.LinkedHashSet<>();
-            for (String seg : segments) {
-                java.util.regex.Matcher rm = rangeSegment.matcher(seg.trim());
-                if (rm.matches()) {
-                    int from = Integer.parseInt(rm.group(1));
-                    int to = Integer.parseInt(rm.group(2));
-                    int step = from <= to ? 1 : -1;
-                    for (int i = from; step > 0 ? i <= to : i >= to; i += step) {
-                        values.add(String.valueOf(i));
-                    }
-                } else {
-                    values.add(seg.trim());
-                }
-            }
-            StringBuilder expansion = new StringBuilder("{");
-            expansion.append(String.join(",", values));
-            expansion.append('}');
-            m.appendReplacement(sb, java.util.regex.Matcher.quoteReplacement(expansion.toString()));
-        }
-        m.appendTail(sb);
-        return sb.toString();
+        return ObjectStorageGlob.expandNumericRanges(pattern);
     }
 
     @Override
@@ -1005,86 +957,6 @@ public abstract class S3CompatibleFileSystem extends ObjFileSystem {
      * a single {@code *} does not cross directory levels.
      */
     protected static String globToRegex(String glob) {
-        StringBuilder sb = new StringBuilder("^");
-        boolean inClass = false;
-        boolean inGroup = false;
-        int i = 0;
-        while (i < glob.length()) {
-            char c = glob.charAt(i);
-            if (c == '\\') {
-                if (i + 1 < glob.length()) {
-                    sb.append(Pattern.quote(String.valueOf(glob.charAt(i + 1))));
-                    i += 2;
-                } else {
-                    sb.append("\\\\");
-                    i++;
-                }
-                continue;
-            }
-            if (inClass) {
-                if (c == ']') {
-                    inClass = false;
-                    sb.append(']');
-                } else if (c == '\\' || c == '[') {
-                    sb.append('\\').append(c);
-                } else {
-                    sb.append(c);
-                }
-                i++;
-                continue;
-            }
-            switch (c) {
-                case '*':
-                    if (i + 1 < glob.length() && glob.charAt(i + 1) == '*') {
-                        sb.append(".*");
-                        i += 2;
-                    } else {
-                        sb.append("[^/]*");
-                        i++;
-                    }
-                    break;
-                case '?':
-                    sb.append("[^/]");
-                    i++;
-                    break;
-                case '[':
-                    inClass = true;
-                    sb.append('[');
-                    i++;
-                    if (i < glob.length() && glob.charAt(i) == '!') {
-                        sb.append('^');
-                        i++;
-                    }
-                    break;
-                case '{':
-                    inGroup = true;
-                    sb.append("(?:");
-                    i++;
-                    break;
-                case '}':
-                    inGroup = false;
-                    sb.append(')');
-                    i++;
-                    break;
-                case ',':
-                    if (inGroup) {
-                        sb.append('|');
-                    } else {
-                        sb.append(',');
-                    }
-                    i++;
-                    break;
-                default:
-                    if ("\\.^$|+()".indexOf(c) >= 0) {
-                        sb.append('\\').append(c);
-                    } else {
-                        sb.append(c);
-                    }
-                    i++;
-                    break;
-            }
-        }
-        sb.append('$');
-        return sb.toString();
+        return ObjectStorageGlob.globToRegex(glob);
     }
 }
