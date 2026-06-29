@@ -7,11 +7,10 @@
 
 # 🎯 下一个 session 的任务 = **逐步处理 clean-room 对抗 review 发现（翻闸 BLOCKED，先修后翻）**
 
-> **✅ 本 session 已完成（2026-06-29）**：**H-5 + H-6 合并修完成 `d6758ff71f5`**——翻闸后 iceberg 连接器自有缓存的可达性。两层缓存：引擎层（按 LOCAL 名键，route resolver 路由）+ 连接器层（按 REMOTE 名键，`IcebergConnector` 自有 `latestSnapshotCache` TTL 24h + `manifestCache`，未注册进引擎注册表→route resolver 摸不到）。**H-5**：`REFRESH CATALOG` 走 `onRefreshCache`（不经 `resetToUninitialized`，**不重建连接器**）只失效引擎层→连接器 24h 快照缓存原封不动。修=`PluginDrivenExternalCatalog` 覆写 `onRefreshCache`，invalidCache 时调 `connector.invalidateAll()`（通用 SPI，paimon 同受益；读字段+null 守护）+ `IcebergConnector.invalidateAll` 扩清 manifest（目录级平价，REFRESH TABLE 仍保留 manifest）+ `IcebergManifestCache.invalidateAll()` + 修错误注释。**H-6**：执行过程的 master 靠连接器侧通知（只带 REMOTE 名、够不到连接器层）→ 读旧快照 24h、与 follower 分裂。修（**用户裁=引擎统一接管**）=`ConnectorExecuteAction` 过程成功后调 `RefreshManager.refreshTableInternal`（follower/REFRESH TABLE 同一标准路径，从 `ExternalTable` 出发清两层、两名都对）+ 删 `IcebergProcedureOps` REMOTE-名旧通知（唯一生产调用方）+ 其单测重定义。**实证纠正 review/HANDOFF 设想 4 处**（REFRESH CATALOG 不重建连接器 / 连接器拿不到 LOCAL 名故「传 LOCAL 名」不可行 / manifest 注释错 / 通知唯一调用方）。clean-room（4 lens + adversarial verify + critic）= 生产代码确认正确，唯一 must-fix=测试覆盖缺口（super.onRefreshCache 删除变异未杀）已补。验证：fe-core 21 / iceberg 连接器全量 811 全绿 / checkstyle 0 / **mutation 8-8 KILLED** / 铁律干净。**e2e flip-gated 未跑**。**未 push**（沿用铁律）。前序：B-1+H-1 `203cda3e31a`、B-2 `d7482a39ab9`+`b09d364888b`+`ba80cfb0439`。设计 `designs/P6.6-FIX-H5-H6-cache-reachability-design.md`。
-> **✅ DONE = 处理顺序第 3 项 `H-5 + H-6`（合并修，缓存一致性）`d6758ff71f5`**。
+> **✅ 本 session 已完成（2026-06-29）**：**H-2 修完成 `b0c34ec8fe7`**——翻闸后 REST 三级命名空间（`external_catalog.name`）在 scan/write/procedure 静默丢失。REST iceberg 目录配 `external_catalog.name=<cat>` 时库名多套一层（库 `mydb` 的表 `t` 实位 iceberg 命名空间 `[mydb, cat]` 而非 `[mydb]`）。legacy 用**单一** `IcebergMetadataOps` 携 `externalCatalogName`，metadata/scan/write/procedure 全经 `getNamespace(externalCatalogName,dbName)` 故各路径都对；SPI 拆四入口后**只有** `getMetadata` 用 5-arg ctor 线程它，三 provider getter 用 1-arg（externalCatalogName=empty）→ 三级 REST 目录 SELECT/INSERT/EXECUTE 落错命名空间 `[mydb]`→表不存在（三 provider 解析目标表**全部且仅**经 `catalogOps.loadTable`→`toTableIdentifier`→`toNamespace`，而 `toNamespace` 只读 externalCatalogName）。**修**=抽私有 `newCatalogBackedOps()` 集中计算四门控值（与 getMetadata 旧内联块逐字相同）返 5-arg ops，**四处**（getMetadata + 三 provider getter）共用——复刻 master 单 ops 设计、消除当初漂移源；listing-only 三标志（restFlavor/nestedNamespace/viewEnabled）在 loadTable 路径 inert（toNamespace 不读它们），仅为 legacy 平价一并线程；getMetadata 的 ops 字节不变；修正三处过时注释（原称「1-arg 足够」「Inert pre-cutover」——翻闸已生效，信控制流不信注释）。clean-room 对抗复核 5 探针**全 REFUTED**（getMetadata 非回归/loadTable 唯一消费/toNamespace 仅读 externalCatalogName/非 REST 与缺省匹配 master/无遗漏 1-arg 生产调用点）。验证：iceberg 连接器全量 **815 全绿**（+4 新测，1 既有 skip）/ checkstyle 0 / **mutation 3-3 KILLED + 1 反向守护**（两级命名空间不误追加层）/ 铁律干净（纯连接器内部，0 SPI/fe-core/BE）。**e2e（3 级 REST SELECT/INSERT/EXECUTE）flip-gated 未跑**。**未 push**（沿用铁律）。前序：H-5+H-6 `d6758ff71f5`、B-1+H-1 `203cda3e31a`、B-2 `d7482a39ab9`+`b09d364888b`+`ba80cfb0439`。设计 `designs/P6.6-FIX-H2-rest-3level-namespace-providers-design.md`。
+> **✅ DONE = 处理顺序第 4 项首条 `H-2`（REST 3 级 namespace 接通 scan/write/procedure）`b0c34ec8fe7`**。
 >
-> **⏭ 下一步（新 session 从这里起）= 处理顺序第 4 项：其余 high（`H-2`/`H-3`/`H-4`/`H-7`/`H-8`/`H-9`/`H-10`，各自独立可并行认领）**：
-> - **H-2**（REST 3 级 namespace `external_catalog.name` scan/write/procedure 静默丢）：三个 provider getter 改用携 externalCatalogName 的 5-arg ops ctor。
+> **⏭ 下一步（新 session 从这里起）= 处理顺序第 4 项剩余：其余 high（`H-3`/`H-4`/`H-7`/`H-8`/`H-9`/`H-10`，各自独立可并行认领）**：
 > - **H-3**（Kerberized HDFS hadoop catalog 丢 Kerberos 上下文）：各 `Iceberg*MetaStoreProperties` 覆写 `initExecutionAuthenticator` 镜像 paimon。
 > - **H-4**（fetchRowCount 恒 -1→CBO 退化）：`IcebergConnectorMetadata` 覆写 `getTableStatistics` 从 currentSnapshot summary 算行数（镜像 paimon）。
 > - **H-7**（`FOR VERSION AS OF '<branch>'` 破坏）：非数字 VERSION branch+tag 兼试。
@@ -19,7 +18,7 @@
 > - **H-9**（rewrite_data_files WHERE 跨列 OR/NOT 误报错）：rewrite WHERE 改用 scan-mode 矩阵（见记忆 `r7-where-lowering-unbound-failloud`）。
 > - **H-10**（嵌套列裁剪静默关闭）：新增 nested-prune `ConnectorCapability`，iceberg 声明之（**ENG-1 能力孪生审计已实证失败样本**）。
 > - **起步**：先 `/step-by-step-fix` → 每条 recon（grep + `git show master:` 实证，**HANDOFF/review 行号/不变式可能过时，信控制流不信注释**）→ 设计文档 `designs/P6.6-FIX-<ID>-<slug>-design.md` → impl → test+mutation → clean-room review → 独立 commit → 回填任务清单 ☑。
-> - 处理顺序（任务清单 §8）：B-1+H-1 ✅ → B-2 ✅ → H-5+H-6 ✅ → **其余 H ⏭** → ENG-1 能力孪生审计 → P2(M-*) → P3(L-BATCH) → ENG-3 flip-gated e2e 全跑 → 用户二签翻闸。
+> - 处理顺序（任务清单 §8）：B-1+H-1 ✅ → B-2 ✅ → H-5+H-6 ✅ → H-2 ✅ → **其余 H（H-3/4/7/8/9/10）⏭** → ENG-1 能力孪生审计 → P2(M-*) → P3(L-BATCH) → ENG-3 flip-gated e2e 全跑 → 用户二签翻闸。
 
 > **⚠️ 状态翻转（2026-06-28）**：上一版 HANDOFF 说"翻闸代码基本完成，仅差 docker 验证 + 二签"。**这个结论已被一轮 clean-room 对抗 review 推翻**——review 发现 **2 blocker + 11 high + 11 medium + 25 low + 18 info**，其中 blocker/high 密集覆盖写入、MTMV、统计、time-travel、缓存一致性等核心路径。**翻闸代码侧确实写完了，但不正确——必须先关 P0+关键 P1 + 跑 flip-gated e2e，才能二签翻闸。**
 
@@ -94,7 +93,7 @@ iceberg 逻辑落 `fe-connector` 经中立 SPI / ConnectorCapability。**legacy 
 
 # 📦 阶段状态
 - **工作分支 = `catalog-spi-10-iceberg`**（off `branch-catalog-spi` @ `e5959e1b53d`，PR base = `branch-catalog-spi`，squash）。
-- **进度**：P6.1–P6.5 ✅ / P6.6 C1–C3 ✅ / C4 R1–R7 ✅ / C5 DDL/ALTER B1–B5 ✅ / flip-readiness 只读退化 ✅ / 视图 B0–B3 ✅ / 路由翻闸 `18e1b297d7e` ✅ / GSON 迁移 `e68eb5c00c9` ✅ → **⛔ 现卡在 clean-room review 发现修复（见 `P6.6-iceberg-flip-blockers-tasklist.md`）**：**B-1+H-1 ✅ `203cda3e31a`** → **B-2 ✅**（`d7482a39ab9`+`b09d364888b`+`ba80cfb0439`）→ **H-5+H-6 ✅ `d6758ff71f5`**（缓存可达，引擎统一接管）→ **其余 H（H-2/3/4/7/8/9/10）⏭（下一）** → M/L → ENG-1 审计 → ENG-3 e2e → 翻闸二签。
+- **进度**：P6.1–P6.5 ✅ / P6.6 C1–C3 ✅ / C4 R1–R7 ✅ / C5 DDL/ALTER B1–B5 ✅ / flip-readiness 只读退化 ✅ / 视图 B0–B3 ✅ / 路由翻闸 `18e1b297d7e` ✅ / GSON 迁移 `e68eb5c00c9` ✅ → **⛔ 现卡在 clean-room review 发现修复（见 `P6.6-iceberg-flip-blockers-tasklist.md`）**：**B-1+H-1 ✅ `203cda3e31a`** → **B-2 ✅**（`d7482a39ab9`+`b09d364888b`+`ba80cfb0439`）→ **H-5+H-6 ✅ `d6758ff71f5`**（缓存可达，引擎统一接管）→ **H-2 ✅ `b0c34ec8fe7`**（REST 3 级 namespace 接通 scan/write/procedure）→ **其余 H（H-3/4/7/8/9/10）⏭（下一）** → M/L → ENG-1 审计 → ENG-3 e2e → 翻闸二签。
 - **⚠️ 推送状态**：P6.4 T01–T06+arg-move 已推 `origin`；**其后全部未 push**（含路由翻闸 + GSON 迁移 + 视图 + C4/C5）。**先修 review 发现，勿 push 半成品翻闸。** 留用户裁量。
 - **⚠️ 分支 2026-06-28 被 rebase**：commit 哈希全重写，本文档/旧 commit message 旧哈希以 `git log` 为准。rebase 仅引入 1 问题（`MergeIntoCommand` 未用 import）已修 `33b920bf877`。
 
