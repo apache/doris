@@ -58,6 +58,21 @@ public class IcebergFileSystemMetaStoreProperties extends AbstractIcebergPropert
         }
     }
 
+    /**
+     * Wires the HDFS Kerberos authenticator on the plugin/cutover path: legacy iceberg only set the real
+     * authenticator inside {@link #initCatalog} (dead on the plugin path, where the connector builds its own
+     * catalog), so {@code doAs} was silently lost over Kerberized HDFS. {@code
+     * PluginDrivenExternalCatalog.initPreExecutionAuthenticator} invokes this hook and then reads {@link
+     * #getExecutionAuthenticator()}; reuse the existing {@link #buildExecutionAuthenticator} (Kerberos-only,
+     * mirroring legacy — non-Kerberos HDFS keeps the base no-op, which needs no {@code doAs}). HMS sets its
+     * authenticator in {@code initNormalizeAndCheckProps}; the cloud flavors have no HDFS UGI. Mirrors paimon
+     * {@code Paimon{FileSystem,Jdbc}MetaStoreProperties.initExecutionAuthenticator}.
+     */
+    @Override
+    public void initExecutionAuthenticator(List<StorageProperties> storagePropertiesList) {
+        buildExecutionAuthenticator(storagePropertiesList);
+    }
+
     private void buildExecutionAuthenticator(List<StorageProperties> storagePropertiesList) {
         if (storagePropertiesList.size() == 1 && storagePropertiesList.get(0) instanceof HdfsProperties) {
             HdfsProperties hdfsProps = (HdfsProperties) storagePropertiesList.get(0);
