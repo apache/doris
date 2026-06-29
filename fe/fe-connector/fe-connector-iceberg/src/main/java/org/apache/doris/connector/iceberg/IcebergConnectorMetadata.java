@@ -22,6 +22,7 @@ import org.apache.doris.connector.api.ConnectorDatabaseMetadata;
 import org.apache.doris.connector.api.ConnectorMetadata;
 import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.ConnectorTableSchema;
+import org.apache.doris.connector.api.ConnectorTableStatistics;
 import org.apache.doris.connector.api.ConnectorType;
 import org.apache.doris.connector.api.ConnectorViewDefinition;
 import org.apache.doris.connector.api.DorisConnectorException;
@@ -107,6 +108,15 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
     private static final int ICEBERG_ROW_ID_FIELD_ID = 2147483540;
     private static final int ICEBERG_LAST_UPDATED_SEQUENCE_NUMBER_FIELD_ID = 2147483539;
     private static final int ICEBERG_ROW_LINEAGE_MIN_VERSION = 3;
+
+    // Snapshot-summary keys for table-level row count (getTableStatistics). Local literal copies of the
+    // spec-stable iceberg strings — byte-identical to legacy IcebergUtils.TOTAL_* and to the COUNT(*)
+    // pushdown copies in IcebergScanPlanProvider (themselves deliberately NOT org.apache.iceberg
+    // .SnapshotSummary.* per that file's note). Duplicated rather than shared so this fix does not touch
+    // the unrelated scan provider. WHY two keys only: legacy getIcebergRowCount nets out position deletes
+    // but (unlike the COUNT pushdown) does NOT gate on equality deletes — see computeRowCount.
+    private static final String TOTAL_RECORDS = "total-records";
+    private static final String TOTAL_POSITION_DELETES = "total-position-deletes";
 
     private final IcebergCatalogOps catalogOps;
     private final Map<String, String> properties;
@@ -515,6 +525,60 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
             handles.put(name, new IcebergColumnHandle(name, field.fieldId()));
         }
         return handles;
+    }
+
+    /**
+     * Table-level row count, surfaced to the FE optimizer via {@code PluginDrivenExternalTable.fetchRowCount}
+     * (without this override the connector inherits {@code ConnectorStatisticsOps}'s {@code Optional.empty()},
+     * so every iceberg table reports rowCount -1 -> CBO collapses cardinality to 1 and disables join reorder).
+     * Mirrors {@code PaimonConnectorMetadata.getTableStatistics} in STRUCTURE, but uses the legacy iceberg
+     * FORMULA ({@code IcebergUtils.getIcebergRowCount}: currentSnapshot summary {@code total-records -
+     * total-position-deletes}). Parity decisions:
+     * <ul>
+     *   <li>System tables -> empty: legacy {@code IcebergSysExternalTable.fetchRowCount} is unconditionally
+     *       UNKNOWN; a sys handle would otherwise load the BASE table and misreport its data row count for a
+     *       metadata table. (This is a deliberate divergence from paimon, which reports sys-table counts.)</li>
+     *   <li>{@code rowCount > 0} gate: legacy data-table consumer is {@code rowCount > 0 ? rowCount : UNKNOWN},
+     *       but the NEW consumer takes the value whenever {@code >= 0}, so a 0-row table would wrongly report 0.
+     *       Collapsing {@code <= 0} to empty pins the "0 -> UNKNOWN" semantics here (matches paimon).</li>
+     *   <li>Any failure degrades to empty (best effort): a statistics miss must never break query planning.</li>
+     * </ul>
+     */
+    @Override
+    public Optional<ConnectorTableStatistics> getTableStatistics(
+            ConnectorSession session, ConnectorTableHandle handle) {
+        IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
+        if (iceHandle.isSystemTable()) {
+            return Optional.empty();
+        }
+        long rowCount;
+        try {
+            rowCount = computeRowCount(loadTable(iceHandle));
+        } catch (Exception e) {
+            LOG.warn("Failed to compute Iceberg row count for {}.{}",
+                    iceHandle.getDbName(), iceHandle.getTableName(), e);
+            return Optional.empty();
+        }
+        if (rowCount > 0) {
+            return Optional.of(new ConnectorTableStatistics(rowCount, -1));
+        }
+        return Optional.empty();
+    }
+
+    /**
+     * Row count from the current snapshot summary: {@code total-records - total-position-deletes} (legacy
+     * {@code IcebergUtils.getIcebergRowCount}). NOT the COUNT(*)-pushdown formula in
+     * {@code IcebergScanPlanProvider.getCountFromSnapshot} — that one gates on equality deletes and honors the
+     * dangling-delete session var (scan cardinality), which would over-degrade table statistics. Empty table
+     * (no current snapshot) -> -1, which the caller maps to UNKNOWN.
+     */
+    private static long computeRowCount(Table table) {
+        Snapshot snapshot = table.currentSnapshot();
+        if (snapshot == null) {
+            return -1;
+        }
+        Map<String, String> summary = snapshot.summary();
+        return Long.parseLong(summary.get(TOTAL_RECORDS)) - Long.parseLong(summary.get(TOTAL_POSITION_DELETES));
     }
 
     @Override
