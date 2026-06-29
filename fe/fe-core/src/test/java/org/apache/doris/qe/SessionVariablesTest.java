@@ -156,6 +156,22 @@ public class SessionVariablesTest extends TestWithFeService {
     }
 
     @Test
+    public void testRuntimeFilterBroadcastJoinProducerNumDescription() throws Exception {
+        SessionVariable sessionVar = new SessionVariable();
+        Assertions.assertEquals(3, sessionVar.getRuntimeFilterBroadcastJoinProducerNum());
+
+        Field field = SessionVariable.class.getDeclaredField("runtimeFilterBroadcastJoinProducerNum");
+        VarAttrDef.VarAttr varAttr = field.getAnnotation(VarAttrDef.VarAttr.class);
+        Assertions.assertArrayEquals(new String[] {
+                "控制 Nereids 分布式规划中每个 broadcast join runtime filter 的生产 BE 数量。"
+                        + "设置为小于等于 0 时不限制。Legacy Coordinator 路径保持原行为。",
+                "Controls the number of producer BEs for each broadcast join runtime filter in "
+                        + "the Nereids distributed planner. Values less than or equal to 0 disable the limit. "
+                        + "The legacy Coordinator path keeps the existing behavior."
+        }, varAttr.description());
+    }
+
+    @Test
     public void testForceEagerAggHintParseWhenSetSessionVariable() throws Exception {
         SessionVariable sessionVar = new SessionVariable();
 
