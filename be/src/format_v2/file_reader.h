@@ -118,6 +118,7 @@ enum class FileFormat {
     TEXT,
     JNI,
     NATIVE,
+    ARROW,
 };
 
 // 通用文件层 scan 请求。

@@ -108,6 +108,9 @@ TEST(FileScannerV2Test, SupportedFormatMatrix) {
             {"hive", TFileFormatType::FORMAT_PARQUET, TFileFormatType::FORMAT_TEXT, true},
             {"hive", TFileFormatType::FORMAT_PARQUET, TFileFormatType::FORMAT_JSON, true},
             {"tvf", TFileFormatType::FORMAT_PARQUET, TFileFormatType::FORMAT_NATIVE, true},
+            {"remote_doris", TFileFormatType::FORMAT_ARROW, std::nullopt, true},
+            {"hive", TFileFormatType::FORMAT_ARROW, std::nullopt, false},
+            {"", TFileFormatType::FORMAT_ARROW, std::nullopt, false},
             {"", TFileFormatType::FORMAT_WAL, std::nullopt, false},
     };
 
@@ -183,6 +186,7 @@ TEST(FileScannerV2Test, FileFormatConversionMatrix) {
             {TFileFormatType::FORMAT_TEXT, format::FileFormat::TEXT},
             {TFileFormatType::FORMAT_JSON, format::FileFormat::JSON},
             {TFileFormatType::FORMAT_NATIVE, format::FileFormat::NATIVE},
+            {TFileFormatType::FORMAT_ARROW, format::FileFormat::ARROW},
             {TFileFormatType::FORMAT_ORC, std::nullopt},
     };
 

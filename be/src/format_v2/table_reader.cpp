@@ -83,6 +83,8 @@ std::string file_format_to_string(FileFormat format) {
         return "JNI";
     case FileFormat::NATIVE:
         return "NATIVE";
+    case FileFormat::ARROW:
+        return "ARROW";
     }
     return "UNKNOWN";
 }

@@ -54,6 +54,7 @@
 #include "format_v2/table/hudi_reader.h"
 #include "format_v2/table/iceberg_reader.h"
 #include "format_v2/table/paimon_reader.h"
+#include "format_v2/table/remote_doris_reader.h"
 #include "format_v2/table_reader.h"
 #include "io/fs/file_meta_cache.h"
 #include "io/io_common.h"
@@ -88,6 +89,10 @@ bool is_supported_table_format(const TFileRangeDesc& range) {
     }
     return table_format == "NotSet" || table_format == "tvf" || table_format == "hive" ||
            table_format == "iceberg" || table_format == "paimon" || table_format == "hudi";
+}
+
+bool is_supported_arrow_table_format(const TFileRangeDesc& range) {
+    return table_format_name(range) == "remote_doris";
 }
 
 bool is_supported_jni_table_format(const TFileRangeDesc& range) {
@@ -222,6 +227,8 @@ bool FileScannerV2::is_supported(const TFileScanRangeParams& params, const TFile
     const auto format_type = get_range_format_type(params, range);
     if (format_type == TFileFormatType::FORMAT_PARQUET) {
         return is_supported_table_format(range);
+    } else if (format_type == TFileFormatType::FORMAT_ARROW) {
+        return is_supported_arrow_table_format(range);
     } else if (format_type == TFileFormatType::FORMAT_JNI) {
         return is_supported_jni_table_format(range);
     } else if (is_csv_format(format_type) || is_text_format(format_type) ||
@@ -379,6 +386,8 @@ Status FileScannerV2::_create_table_reader_for_format(
         *reader = std::make_unique<format::max_compute::MaxComputeJniReader>(mc_desc);
     } else if (table_format == "trino_connector") {
         *reader = std::make_unique<format::trino_connector::TrinoConnectorJniReader>();
+    } else if (table_format == "remote_doris") {
+        *reader = std::make_unique<format::remote_doris::RemoteDorisReader>();
     } else {
         return Status::NotSupported("FileScannerV2 does not support table format {}", table_format);
     }
@@ -621,6 +630,9 @@ Status FileScannerV2::_to_file_format(TFileFormatType::type format_type,
         return Status::OK();
     case TFileFormatType::FORMAT_NATIVE:
         *file_format = format::FileFormat::NATIVE;
+        return Status::OK();
+    case TFileFormatType::FORMAT_ARROW:
+        *file_format = format::FileFormat::ARROW;
         return Status::OK();
     default:
         return Status::NotSupported("FileScannerV2 does not support file format {}",
