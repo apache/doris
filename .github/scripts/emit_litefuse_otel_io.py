@@ -816,15 +816,20 @@ def session_observation_shape(event, call_outputs, max_json_chars):
         }
 
     if item_type == "reasoning":
+        encrypted_content_present = bool(payload.get("encrypted_content"))
         return {
             "name": "codex.subagent.reasoning",
             "type": "span",
             "input": {
                 "session_event_type": event_type,
                 "item_type": item_type,
-                "encrypted_content_present": bool(payload.get("encrypted_content")),
+                "encrypted_content_present": encrypted_content_present,
             },
-            "output": {"summary": truncate_json(payload.get("summary"), max_json_chars)},
+            "output": {
+                "summary": truncate_json(payload.get("summary"), max_json_chars),
+                "encrypted_content_present": encrypted_content_present,
+                "status": "recorded",
+            },
             "metadata": {"session_event_type": event_type, "item_type": item_type},
         }
 
