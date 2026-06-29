@@ -306,6 +306,39 @@ class AzureFileSystemTest {
     }
 
     @Test
+    void globListWithLimit_preservesOversizedNumericRangeAfterPrefixFallback()
+            throws IOException {
+        Mockito.when(mockStorage.listObjects(
+                        ArgumentMatchers.eq("wasbs://c@a.host/date="),
+                        ArgumentMatchers.any()))
+                .thenReturn(new RemoteObjects(
+                        List.of(
+                                new RemoteObject("date=123/file.parquet",
+                                        "file.parquet", null, 10L, 0L),
+                                new RemoteObject("date=10000000/file.parquet",
+                                        "file.parquet", null, 20L, 0L),
+                                new RemoteObject("date=0/file.parquet",
+                                        "file.parquet", null, 30L, 0L),
+                                new RemoteObject("date=10000001/file.parquet",
+                                        "file.parquet", null, 40L, 0L),
+                                new RemoteObject("date=0001/file.parquet",
+                                        "file.parquet", null, 50L, 0L)),
+                        false, null));
+
+        GlobListing listing = fs.globListWithLimit(
+                Location.of("wasbs://c@a.host/date={1..10000000}/*"), null, 0L, 0L);
+
+        Assertions.assertEquals("date=", listing.getPrefix());
+        Assertions.assertEquals(2, listing.getFiles().size());
+        Assertions.assertEquals("wasbs://c@a.host/date=123/file.parquet",
+                listing.getFiles().get(0).location().uri());
+        Assertions.assertEquals("wasbs://c@a.host/date=10000000/file.parquet",
+                listing.getFiles().get(1).location().uri());
+        Mockito.verify(mockStorage).listObjects(
+                ArgumentMatchers.eq("wasbs://c@a.host/date="), ArgumentMatchers.any());
+    }
+
+    @Test
     void globListWithLimit_doesNotAppendSuffixToPartialBraceArmPrefix() throws IOException {
         Mockito.when(mockStorage.listObjects(
                         ArgumentMatchers.eq("wasbs://c@a.host/data/"),

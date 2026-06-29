@@ -21,6 +21,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.regex.Pattern;
 
 class ObjectStorageGlobTest {
 
@@ -48,5 +49,38 @@ class ObjectStorageGlobTest {
     void expandedGlobListPrefixes_fallsBackForUnexpandedNumericRanges() {
         Assertions.assertEquals(List.of("date="),
                 ObjectStorageGlob.expandedGlobListPrefixes("date={1..10000000}/*"));
+    }
+
+    @Test
+    void globToRegex_preservesOversizedNumericRangeSemantics() {
+        Pattern matcher = Pattern.compile(ObjectStorageGlob.globToRegex("date={1..10000000}/*"));
+
+        Assertions.assertTrue(matcher.matcher("date=123/file.csv").matches());
+        Assertions.assertTrue(matcher.matcher("date=10000000/file.csv").matches());
+        Assertions.assertFalse(matcher.matcher("date=0/file.csv").matches());
+        Assertions.assertFalse(matcher.matcher("date=10000001/file.csv").matches());
+        Assertions.assertFalse(matcher.matcher("date=0001/file.csv").matches());
+    }
+
+    @Test
+    void globToRegex_preservesMixedOversizedNumericRangeSemantics() {
+        Pattern matcher = Pattern.compile(ObjectStorageGlob.globToRegex(
+                "date={x,0..9223372036854775807}/*"));
+
+        Assertions.assertTrue(matcher.matcher("date=x/file.csv").matches());
+        Assertions.assertTrue(matcher.matcher("date=9223372036854775807/file.csv").matches());
+        Assertions.assertFalse(matcher.matcher("date=-1/file.csv").matches());
+        Assertions.assertFalse(matcher.matcher("date=9223372036854775808/file.csv").matches());
+    }
+
+    @Test
+    void globToRegex_preservesOversizedZeroPaddedNumericRangeSemantics() {
+        Pattern matcher = Pattern.compile(ObjectStorageGlob.globToRegex("date={0001..1000}/*"));
+
+        Assertions.assertTrue(matcher.matcher("date=0001/file.csv").matches());
+        Assertions.assertTrue(matcher.matcher("date=0999/file.csv").matches());
+        Assertions.assertTrue(matcher.matcher("date=1000/file.csv").matches());
+        Assertions.assertFalse(matcher.matcher("date=999/file.csv").matches());
+        Assertions.assertFalse(matcher.matcher("date=1001/file.csv").matches());
     }
 }

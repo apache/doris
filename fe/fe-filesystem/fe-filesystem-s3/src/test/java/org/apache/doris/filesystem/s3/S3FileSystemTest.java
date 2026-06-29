@@ -18,6 +18,7 @@
 package org.apache.doris.filesystem.s3;
 
 import org.apache.doris.filesystem.DorisOutputFile;
+import org.apache.doris.filesystem.GlobListing;
 import org.apache.doris.filesystem.Location;
 import org.apache.doris.filesystem.spi.ObjectListOptions;
 import org.apache.doris.filesystem.spi.RemoteObject;
@@ -684,6 +685,16 @@ class S3FileSystemTest {
     }
 
     @Test
+    void globToRegex_oversizedNumericRangeKeepsRangeSemantics() {
+        java.util.regex.Pattern p = java.util.regex.Pattern.compile(
+                S3FileSystem.globToRegex("date={1..10000000}/*"));
+        Assertions.assertTrue(p.matcher("date=123/file.csv").matches());
+        Assertions.assertTrue(p.matcher("date=10000000/file.csv").matches());
+        Assertions.assertFalse(p.matcher("date=0/file.csv").matches());
+        Assertions.assertFalse(p.matcher("date=10000001/file.csv").matches());
+    }
+
+    @Test
     void globToRegex_keysWithSpaceAreLiteral() {
         java.util.regex.Pattern p = java.util.regex.Pattern.compile(
                 S3FileSystem.globToRegex("file with space.csv"));
@@ -717,6 +728,37 @@ class S3FileSystemTest {
                 S3FileSystem.globToRegex("file\\*.csv"));
         Assertions.assertTrue(p.matcher("file*.csv").matches());
         Assertions.assertFalse(p.matcher("filea.csv").matches());
+    }
+
+    @Test
+    void globListWithLimit_preservesOversizedNumericRangeAfterPrefixFallback()
+            throws IOException {
+        Mockito.when(mockStorage.listObjects(
+                        ArgumentMatchers.eq("s3://bucket/date="),
+                        ArgumentMatchers.any()))
+                .thenReturn(new RemoteObjects(
+                        List.of(
+                                new RemoteObject("date=123/file.parquet",
+                                        "file.parquet", null, 10L, 0L),
+                                new RemoteObject("date=10000000/file.parquet",
+                                        "file.parquet", null, 20L, 0L),
+                                new RemoteObject("date=0/file.parquet",
+                                        "file.parquet", null, 30L, 0L),
+                                new RemoteObject("date=10000001/file.parquet",
+                                        "file.parquet", null, 40L, 0L)),
+                        false, null));
+
+        GlobListing listing = fs.globListWithLimit(
+                Location.of("s3://bucket/date={1..10000000}/*"), null, 0L, 0L);
+
+        Assertions.assertEquals("date=", listing.getPrefix());
+        Assertions.assertEquals(2, listing.getFiles().size());
+        Assertions.assertEquals("s3://bucket/date=123/file.parquet",
+                listing.getFiles().get(0).location().uri());
+        Assertions.assertEquals("s3://bucket/date=10000000/file.parquet",
+                listing.getFiles().get(1).location().uri());
+        Mockito.verify(mockStorage).listObjects(
+                ArgumentMatchers.eq("s3://bucket/date="), ArgumentMatchers.any());
     }
 
     // ------------------------------------------------------------------

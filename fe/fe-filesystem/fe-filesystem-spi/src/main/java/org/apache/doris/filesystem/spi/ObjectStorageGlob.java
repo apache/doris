@@ -17,11 +17,13 @@
 
 package org.apache.doris.filesystem.spi;
 
+import java.math.BigInteger;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
@@ -32,6 +34,7 @@ public final class ObjectStorageGlob {
     private static final int MAX_EXPANDED_GLOB_LIST_PREFIXES = 256;
     private static final Comparator<String> UTF8_BINARY_ORDER = ObjectStorageGlob::compareUtf8Binary;
     private static final Pattern NUMERIC_RANGE_PATTERN = Pattern.compile("-?\\d+\\.\\.-?\\d+");
+    private static final Pattern NUMERIC_RANGE_ALTERNATIVE = Pattern.compile("(-?\\d+)\\.\\.(-?\\d+)");
 
     private ObjectStorageGlob() {
     }
@@ -315,8 +318,6 @@ public final class ObjectStorageGlob {
      * Expands bounded {N..M} numeric ranges inside brace groups into comma-separated alternatives.
      */
     public static String expandNumericRanges(String pattern) {
-        java.util.regex.Pattern rangeSegment = java.util.regex.Pattern.compile(
-                "(-?\\d+)\\.\\.(-?\\d+)");
         java.util.regex.Pattern simpleRange = java.util.regex.Pattern.compile(
                 "\\{(\\d+)\\.\\.(\\d+)\\}");
         java.util.regex.Pattern braceGroup = java.util.regex.Pattern.compile(
@@ -336,7 +337,7 @@ public final class ObjectStorageGlob {
             java.util.LinkedHashSet<String> values = new java.util.LinkedHashSet<>();
             boolean canExpand = true;
             for (String seg : segments) {
-                java.util.regex.Matcher rm = rangeSegment.matcher(seg.trim());
+                java.util.regex.Matcher rm = NUMERIC_RANGE_ALTERNATIVE.matcher(seg.trim());
                 if (rm.matches()) {
                     long from;
                     long to;
@@ -425,6 +426,12 @@ public final class ObjectStorageGlob {
      */
     public static String globToRegex(String glob) {
         StringBuilder sb = new StringBuilder("^");
+        appendGlobRegex(sb, glob);
+        sb.append('$');
+        return sb.toString();
+    }
+
+    private static void appendGlobRegex(StringBuilder sb, String glob) {
         boolean inClass = false;
         boolean inGroup = false;
         int i = 0;
@@ -476,6 +483,12 @@ public final class ObjectStorageGlob {
                     }
                     break;
                 case '{':
+                    int closeIndex = findClosingBrace(glob, i);
+                    if (closeIndex >= 0) {
+                        appendBraceGroupRegex(sb, glob.substring(i + 1, closeIndex));
+                        i = closeIndex + 1;
+                        break;
+                    }
                     inGroup = true;
                     sb.append("(?:");
                     i++;
@@ -503,8 +516,171 @@ public final class ObjectStorageGlob {
                     break;
             }
         }
-        sb.append('$');
+    }
+
+    private static void appendBraceGroupRegex(StringBuilder sb, String content) {
+        List<String> alternatives = splitBraceAlternatives(content);
+        if (alternatives.isEmpty()) {
+            sb.append("(?:)");
+            return;
+        }
+        boolean isMixed = alternatives.size() > 1;
+        sb.append("(?:");
+        for (int i = 0; i < alternatives.size(); i++) {
+            if (i > 0) {
+                sb.append('|');
+            }
+            String rangeRegex = numericRangeRegex(alternatives.get(i), isMixed);
+            if (rangeRegex != null) {
+                sb.append(rangeRegex);
+            } else {
+                appendGlobRegex(sb, alternatives.get(i));
+            }
+        }
+        sb.append(')');
+    }
+
+    private static String numericRangeRegex(String alternative, boolean isMixed) {
+        Matcher matcher = NUMERIC_RANGE_ALTERNATIVE.matcher(alternative.trim());
+        if (!matcher.matches()) {
+            return null;
+        }
+        String fromText = matcher.group(1);
+        String toText = matcher.group(2);
+        if (!isMixed && (fromText.startsWith("-") || toText.startsWith("-"))) {
+            return null;
+        }
+        BigInteger from = new BigInteger(fromText);
+        BigInteger to = new BigInteger(toText);
+        BigInteger min = from.min(to);
+        BigInteger max = from.max(to);
+        boolean zeroPad = hasLeadingZero(fromText) || hasLeadingZero(toText);
+        int width = Math.max(digitWidth(fromText), digitWidth(toText));
+
+        List<String> alternatives = new ArrayList<>();
+        if (min.signum() < 0) {
+            BigInteger negativeUpper = max.min(BigInteger.ONE.negate());
+            alternatives.add("-" + unsignedRangeRegex(
+                    negativeUpper.abs(), min.abs(), width, zeroPad));
+        }
+        if (min.signum() <= 0 && max.signum() >= 0) {
+            alternatives.add(zeroPad ? repeatDigit('0', width) : "0");
+        }
+        if (max.signum() > 0) {
+            alternatives.add(unsignedRangeRegex(
+                    min.max(BigInteger.ONE), max, width, zeroPad));
+        }
+        return joinRegexAlternatives(alternatives);
+    }
+
+    private static String unsignedRangeRegex(BigInteger from, BigInteger to,
+            int width, boolean zeroPad) {
+        if (zeroPad) {
+            return sameLengthRangeRegex(leftPadWithZeros(from.toString(), width),
+                    leftPadWithZeros(to.toString(), width));
+        }
+        List<String> alternatives = new ArrayList<>();
+        int minLength = from.toString().length();
+        int maxLength = to.toString().length();
+        for (int length = minLength; length <= maxLength; length++) {
+            BigInteger low = from.max(minValueForLength(length));
+            BigInteger high = to.min(maxValueForLength(length));
+            if (low.compareTo(high) <= 0) {
+                alternatives.add(sameLengthRangeRegex(low.toString(), high.toString()));
+            }
+        }
+        return joinRegexAlternatives(alternatives);
+    }
+
+    private static BigInteger minValueForLength(int length) {
+        if (length == 1) {
+            return BigInteger.ZERO;
+        }
+        return BigInteger.TEN.pow(length - 1);
+    }
+
+    private static BigInteger maxValueForLength(int length) {
+        return BigInteger.TEN.pow(length).subtract(BigInteger.ONE);
+    }
+
+    private static String sameLengthRangeRegex(String low, String high) {
+        if (low.isEmpty()) {
+            return "";
+        }
+        if (low.equals(high)) {
+            return low;
+        }
+        if (isAll(low, '0') && isAll(high, '9')) {
+            return digitRepeat(low.length());
+        }
+
+        char lowFirst = low.charAt(0);
+        char highFirst = high.charAt(0);
+        String lowRest = low.substring(1);
+        String highRest = high.substring(1);
+        if (lowFirst == highFirst) {
+            return lowFirst + sameLengthRangeRegex(lowRest, highRest);
+        }
+        int restLength = low.length() - 1;
+
+        List<String> alternatives = new ArrayList<>();
+        alternatives.add(lowFirst + sameLengthRangeRegex(
+                lowRest, repeatDigit('9', restLength)));
+        if (lowFirst + 1 <= highFirst - 1) {
+            alternatives.add(digitClass((char) (lowFirst + 1), (char) (highFirst - 1))
+                    + digitRepeat(restLength));
+        }
+        alternatives.add(highFirst + sameLengthRangeRegex(
+                repeatDigit('0', restLength), highRest));
+        return joinRegexAlternatives(alternatives);
+    }
+
+    private static boolean isAll(String value, char expected) {
+        for (int i = 0; i < value.length(); i++) {
+            if (value.charAt(i) != expected) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static String leftPadWithZeros(String value, int width) {
+        if (value.length() >= width) {
+            return value;
+        }
+        return repeatDigit('0', width - value.length()) + value;
+    }
+
+    private static String digitClass(char from, char to) {
+        if (from == to) {
+            return String.valueOf(from);
+        }
+        return "[" + from + "-" + to + "]";
+    }
+
+    private static String digitRepeat(int count) {
+        if (count == 0) {
+            return "";
+        }
+        if (count == 1) {
+            return "\\d";
+        }
+        return "\\d{" + count + "}";
+    }
+
+    private static String repeatDigit(char digit, int count) {
+        StringBuilder sb = new StringBuilder(count);
+        for (int i = 0; i < count; i++) {
+            sb.append(digit);
+        }
         return sb.toString();
+    }
+
+    private static String joinRegexAlternatives(List<String> alternatives) {
+        if (alternatives.size() == 1) {
+            return alternatives.get(0);
+        }
+        return "(?:" + String.join("|", alternatives) + ")";
     }
 
     private static class PrefixExpansion {
