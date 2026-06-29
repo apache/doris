@@ -25,6 +25,9 @@
 
 #include "common/phdr_cache.h"
 #include "common/status.h"
+#if defined(__ELF__) && !defined(__FreeBSD__)
+#include "common/symbol_index.h"
+#endif
 #include "jni.h"
 #include "jni_md.h"
 
@@ -56,6 +59,9 @@ doris::Status resolve_symbol(T& pointer, void* handle, const char* symbol) {
 void close_jvm_handle(void* handle) {
     dlclose(handle);
     ::updatePHDRCache();
+#if defined(__ELF__) && !defined(__FreeBSD__)
+    doris::SymbolIndex::reload();
+#endif
 }
 
 } // namespace
@@ -94,15 +100,20 @@ Status LibJVMLoader::load() {
     static std::once_flag resolve_symbols;
     static Status status;
     std::call_once(resolve_symbols, [this]() {
-        _handle = std::unique_ptr<void, void (*)(void*)>(dlopen(_library.c_str(), RTLD_LAZY),
-                                                         close_jvm_handle);
-        if (!_handle) {
-            status = Status::RuntimeError(dlerror());
-            return;
+        {
+            void* handle = dlopen(_library.c_str(), RTLD_LAZY);
+            if (handle == nullptr) {
+                status = Status::RuntimeError(dlerror());
+                return;
+            }
+            _handle = std::unique_ptr<void, void (*)(void*)>(handle, close_jvm_handle);
+            // libjvm bypasses the generic dynamic_open wrapper, so refresh the same diagnostic
+            // snapshots here to avoid first-use loader/symbol rebuilds on the stack HTTP path.
+            ::updatePHDRCache();
+#if defined(__ELF__) && !defined(__FreeBSD__)
+            SymbolIndex::reload();
+#endif
         }
-        // libjvm is loaded outside the generic UDF dynamic_open wrapper. Refresh the diagnostic
-        // PHDR snapshot so signal-context unwinding can resolve frames through JVM native code.
-        ::updatePHDRCache();
 
         if (status = resolve_symbol(JNI_GetCreatedJavaVMs, _handle.get(), "JNI_GetCreatedJavaVMs");
             !status.ok()) {

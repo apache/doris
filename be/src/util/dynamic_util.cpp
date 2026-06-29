@@ -23,6 +23,9 @@
 #include <dlfcn.h>
 
 #include "common/phdr_cache.h"
+#if defined(__ELF__) && !defined(__FreeBSD__)
+#include "common/symbol_index.h"
+#endif
 
 namespace doris {
 
@@ -46,9 +49,12 @@ Status dynamic_open(const char* library, void** handle) {
         return Status::InternalError("Unable to load {}\ndlerror: {}", library, dlerror());
     }
 
-    // Refresh the signal-handler PHDR snapshot after Doris-controlled dlopen so diagnostic stack
-    // traces can see newly loaded UDF libraries without taking the loader lock in the handler.
+    // Doris-controlled dynamic loads should be visible to diagnostic stack snapshots without
+    // forcing the next /api/stack_trace request to rebuild loader-derived state on demand.
     updatePHDRCache();
+#if defined(__ELF__) && !defined(__FreeBSD__)
+    SymbolIndex::reload();
+#endif
     return Status::OK();
 }
 
@@ -57,9 +63,12 @@ void dynamic_close(void* handle) {
 // https://github.com/google/sanitizers/issues/89
 #if !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER)
     dlclose(handle);
-    // dlclose changes the loader object list. Refresh after the close so the next stack-trace
-    // signal handler does not consult stale PHDR entries for Doris-controlled dynamic libraries.
+    // Refresh after dlclose so later symbolization does not keep stale Doris-controlled library
+    // entries. SymbolIndex::reload() serializes concurrent rebuilds internally.
     updatePHDRCache();
+#if defined(__ELF__) && !defined(__FreeBSD__)
+    SymbolIndex::reload();
+#endif
 #endif
 }
 

@@ -50,6 +50,9 @@
 #include "cloud/config.h"
 #include "common/phdr_cache.h"
 #include "common/stack_trace.h"
+#if defined(__ELF__) && !defined(__FreeBSD__)
+#include "common/symbol_index.h"
+#endif
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "storage/tablet/tablet_schema_cache.h"
 #include "storage/utils.h"
@@ -591,6 +594,11 @@ int main(int argc, char** argv) {
     // dl_iterate_phdr, and only the signal handler reads this snapshot while unwinding.
     updatePHDRCache();
     LOG(INFO) << "PHDR cache enabled: " << hasPHDRCache();
+#if defined(__ELF__) && !defined(__FreeBSD__)
+    auto symbol_index = doris::SymbolIndex::instance();
+    LOG(INFO) << "SymbolIndex preloaded: objects=" << symbol_index->objects().size()
+              << " symbols=" << symbol_index->symbols().size();
+#endif
     if (!doris::BackendOptions::init()) {
         exit(-1);
     }
