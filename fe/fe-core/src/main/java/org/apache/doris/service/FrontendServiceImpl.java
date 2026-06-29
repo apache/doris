@@ -752,7 +752,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                             if (needTableStatusColumn(requiredColumns, "CREATE_TIME")) {
                                 status.setCreateTime(table.getCreateTime());
                             }
-                            if (needTableStatusColumn(requiredColumns, "LAST_CHECK_TIME")) {
+                            if (needTableStatusColumn(requiredColumns, "LAST_CHECK_TIME")
+                                    || needTableStatusColumn(requiredColumns, "CHECK_TIME")) {
                                 status.setLastCheckTime(lastCheckTime / 1000);
                             }
                             if (needTableStatusColumn(requiredColumns, "UPDATE_TIME")) {
