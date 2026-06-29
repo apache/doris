@@ -330,6 +330,8 @@ DECLARE_mInt32(download_low_speed_limit_kbps);
 DECLARE_mInt32(download_low_speed_time);
 // whether to download small files in batch.
 DECLARE_mBool(enable_batch_download);
+// whether to enable stream load forward endpoint for cloud group commit
+DECLARE_mBool(enable_group_commit_streamload_be_forward);
 // whether to check md5sum when download
 DECLARE_mBool(enable_download_md5sum_check);
 // download binlog meta timeout
