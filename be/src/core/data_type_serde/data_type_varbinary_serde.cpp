@@ -85,9 +85,8 @@ Status DataTypeVarbinarySerDe::write_column_to_arrow(const IColumn& column, cons
             }
             const auto& string_view = varbinary_column_data[i];
             if (string_view.size() != byte_width) {
-                return Status::InvalidArgument(
-                        "Fixed size binary column expects {} bytes, got {}", byte_width,
-                        string_view.size());
+                return Status::InvalidArgument("Fixed size binary column expects {} bytes, got {}",
+                                               byte_width, string_view.size());
             }
             RETURN_IF_ERROR(checkArrowStatus(
                     builder.Append(reinterpret_cast<const uint8_t*>(string_view.data())), column,
