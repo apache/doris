@@ -413,7 +413,8 @@ public class AlterRoutineLoadCommand extends AlterCommand {
         }
         if (job.isLoadToSingleTablet()
                 && !(olapTable.getDefaultDistributionInfo() instanceof RandomDistributionInfo)) {
-            throw new AnalysisException("if load_to_single_tablet set to true, the olap table must be with random distribution");
+            throw new AnalysisException(
+                    "if load_to_single_tablet set to true, the olap table must be with random distribution");
         }
         job.validateTargetTable(db, olapTable);
         this.targetTableId = olapTable.getId();

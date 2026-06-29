@@ -18,8 +18,8 @@
 package org.apache.doris.persist;
 
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.io.Text;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.load.routineload.kafka.KafkaConfiguration;
 import org.apache.doris.load.routineload.kafka.KafkaDataSourceProperties;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateRoutineLoadInfo;
