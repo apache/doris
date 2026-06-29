@@ -5831,8 +5831,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     private static void assignAdaptiveBucketToPartition(TOlapTablePartition partition,
             List<TTabletLocation> partitionTablets, long currentBeId, long tableId, TUniqueId queryId,
             boolean enableAdaptiveRandomBucket) {
-        if (!enableAdaptiveRandomBucket || !Config.enable_adaptive_random_bucket_load
-                || !partition.isSetLoadTabletIdx() || currentBeId <= 0) {
+        if (!enableAdaptiveRandomBucket || !partition.isSetLoadTabletIdx() || currentBeId <= 0) {
             return;
         }
         AdaptiveBucketSinkContext sinkContext = collectAdaptiveBucketSinkContext(queryId, tableId);
