@@ -1420,7 +1420,7 @@ TEST_F(SchemaUtilTest, TestParseVariantColumnsWithNulls) {
     auto nullable_string = make_nullable(string_column->get_ptr());
 
     auto variant_column = ColumnVariant::create(10, false);
-    variant_column->create_root(string_type, nullable_string->assume_mutable());
+    variant_column->create_root(string_type, nullable_string->assert_mutable());
     auto nullable_variant = make_nullable(variant_column->get_ptr());
 
     block.insert({nullable_variant, variant_type, "nullable_variant"});

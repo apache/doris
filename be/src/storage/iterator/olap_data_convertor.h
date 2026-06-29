@@ -182,7 +182,7 @@ private:
 
         static ColumnPtr clone_and_padding(const ColumnString* input, size_t padding_length) {
             auto column = ColumnString::create();
-            auto padded_column = assert_cast<ColumnString*>(column->assume_mutable().get());
+            auto padded_column = assert_cast<ColumnString*>(column->assert_mutable().get());
 
             column->offsets.resize(input->size());
             column->chars.resize(input->size() * padding_length);

@@ -341,8 +341,9 @@ bool AnalyticSinkLocalState::_get_next_for_range_between(int64_t current_block_r
     return false;
 }
 
-Status AnalyticSinkLocalState::_execute_impl() {
+Status AnalyticSinkLocalState::_execute_impl(RuntimeState* state) {
     while (_output_block_index < _input_blocks.size()) {
+        RETURN_IF_CANCELLED(state);
         {
             _get_partition_by_end();
             // streaming_mode means no need get all parition data, could calculate data when it's arrived
@@ -754,7 +755,7 @@ Status AnalyticSinkOperatorX::sink(doris::RuntimeState* state, Block* input_bloc
     local_state._reserve_mem_size = 0;
     SCOPED_PEAK_MEM(&local_state._reserve_mem_size);
     RETURN_IF_ERROR(_add_input_block(state, input_block));
-    RETURN_IF_ERROR(local_state._execute_impl());
+    RETURN_IF_ERROR(local_state._execute_impl(state));
     if (local_state._input_eos) {
         LockGuard lc(local_state._shared_state->sink_eos_lock);
         local_state._shared_state->sink_eos = true;

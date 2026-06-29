@@ -201,6 +201,7 @@ protected:
     virtual Status _create_line_reader();
     virtual Status _deserialize_one_cell(DataTypeSerDeSPtr serde, IColumn& column, Slice& slice);
     virtual Status _deserialize_nullable_string(IColumn& column, Slice& slice);
+    virtual bool _empty_line_as_record() const { return false; }
     // check the utf8 encoding of a line.
     // return error status to stop processing.
     // If return Status::OK but "success" is false, which means this is load request

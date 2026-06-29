@@ -573,7 +573,7 @@ size_t ColumnMap::filter(const Filter& filter) {
     static_cast<IColumn::Ptr&>(keys_column) = k_arr->get_data_ptr();
     static_cast<IColumn::Ptr&>(offsets_column) = k_arr->get_offsets_ptr();
     static_cast<IColumn::Ptr&>(values_column) = v_arr->get_data_ptr();
-    // Use const access to avoid assume_mutable_ref() on the just-written-back offsets_column
+    // Use const access to avoid assert_mutable_ref() on the just-written-back offsets_column
     // (k_arr still holds a ref, so use_count > 1 until k_arr goes out of scope)
     return static_cast<const IColumn::Ptr&>(offsets_column)->size();
 }

@@ -534,6 +534,12 @@ fi
 if [[ -z "${WITH_TDE_DIR}" ]]; then
     WITH_TDE_DIR=''
 fi
+if [[ -z "${ENABLE_VARIANT_NESTED_GROUP}" ]]; then
+    ENABLE_VARIANT_NESTED_GROUP='OFF'
+fi
+if [[ -z "${VARIANT_NESTED_GROUP_MODULE_DIR}" ]]; then
+    VARIANT_NESTED_GROUP_MODULE_DIR=''
+fi
 
 echo "Get params:
     BUILD_FE                            -- ${BUILD_FE}
@@ -564,10 +570,13 @@ echo "Get params:
     DISPLAY_BUILD_TIME                  -- ${DISPLAY_BUILD_TIME}
     ENABLE_PCH                          -- ${ENABLE_PCH}
     WITH_TDE_DIR                        -- ${WITH_TDE_DIR}
+    ENABLE_VARIANT_NESTED_GROUP         -- ${ENABLE_VARIANT_NESTED_GROUP}
+    VARIANT_NESTED_GROUP_MODULE_DIR     -- ${VARIANT_NESTED_GROUP_MODULE_DIR}
 "
 
 FEAT=()
 FEAT+=($([[ -n "${WITH_TDE_DIR}" ]] && echo "+TDE" || echo "-TDE"))
+FEAT+=($([[ "${ENABLE_VARIANT_NESTED_GROUP}" == "ON" ]] && echo "+VARIANT_NESTED_GROUP" || echo "-VARIANT_NESTED_GROUP"))
 FEAT+=($([[ "${ENABLE_HDFS_STORAGE_VAULT:-OFF}" == "ON" ]] && echo "+HDFS_STORAGE_VAULT" || echo "-HDFS_STORAGE_VAULT"))
 FEAT+=($([[ ${BUILD_UI} -eq 1 ]] && echo "+UI" || echo "-UI"))
 FEAT+=($([[ "${BUILD_AZURE}" == "ON" ]] && echo "+AZURE_BLOB,+AZURE_STORAGE_VAULT" || echo "-AZURE_BLOB,-AZURE_STORAGE_VAULT"))
@@ -701,6 +710,8 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
         -DDORIS_JAVA_HOME="${JAVA_HOME}" \
         -DBUILD_AZURE="${BUILD_AZURE}" \
         -DWITH_TDE_DIR="${WITH_TDE_DIR}" \
+        -DENABLE_VARIANT_NESTED_GROUP="${ENABLE_VARIANT_NESTED_GROUP}" \
+        -DVARIANT_NESTED_GROUP_MODULE_DIR="${VARIANT_NESTED_GROUP_MODULE_DIR}" \
         "${DORIS_HOME}/be"
 
     if [[ "${OUTPUT_BE_BINARY}" -eq 1 ]]; then

@@ -1567,7 +1567,7 @@ Status VariantColumnWriterImpl::_process_root_column(ColumnVariant* ptr,
     converter->add_column_data_convertor(*_tablet_column);
     const uint8_t* nullmap = nullptr;
     // get_root() already returns a MutableColumnPtr; store it to avoid dangling ref and
-    // to avoid calling assume_mutable() again (which would see use_count>1 and throw).
+    // to avoid calling assert_mutable() again (which would see use_count>1 and throw).
     auto root_mut = ptr->get_root();
     auto& nullable_column = assert_cast<ColumnNullable&>(*root_mut);
     // Use const access to get the nested column ptr without bumping use_count in the

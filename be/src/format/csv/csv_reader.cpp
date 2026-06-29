@@ -362,8 +362,10 @@ Status CsvReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
                 continue;
             }
             if (size == 0) {
-                if (!_line_reader_eof && _state->is_read_csv_empty_line_as_null()) {
-                    ++rows;
+                if (!_line_reader_eof) {
+                    if (_empty_line_as_record() || _state->is_read_csv_empty_line_as_null()) {
+                        ++rows;
+                    }
                 }
                 // Read empty line, continue
                 continue;
@@ -400,8 +402,16 @@ Status CsvReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
                 continue;
             }
             if (size == 0) {
-                if (!_line_reader_eof && _state->is_read_csv_empty_line_as_null()) {
-                    RETURN_IF_ERROR(_fill_empty_line(columns, &rows));
+                if (!_line_reader_eof) {
+                    if (_empty_line_as_record()) {
+                        Slice empty_line("", 0);
+                        RETURN_IF_ERROR(_validate_line(empty_line, &success));
+                        if (success) {
+                            RETURN_IF_ERROR(_fill_dest_columns(empty_line, columns, &rows));
+                        }
+                    } else if (_state->is_read_csv_empty_line_as_null()) {
+                        RETURN_IF_ERROR(_fill_empty_line(columns, &rows));
+                    }
                 }
                 // Read empty line, continue
                 continue;

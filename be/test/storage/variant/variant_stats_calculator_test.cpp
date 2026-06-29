@@ -31,6 +31,7 @@
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
+#include "exec/common/variant_util.h"
 #include "storage/tablet/tablet_schema.h"
 #include "util/json/path_in_data.h"
 
@@ -115,6 +116,28 @@ protected:
 
         offsets->insert_value(0);
         offsets->insert_value(2);
+
+        return ColumnMap::create(std::move(keys), std::move(values), std::move(offsets));
+    }
+
+    ColumnPtr create_sparse_map_column_for_limit_test() {
+        auto keys = ColumnString::create();
+        auto values = ColumnString::create();
+        auto offsets = ColumnArray::ColumnOffsets::create();
+
+        offsets->insert_value(0);
+
+        keys->insert_data("hot", 3);
+        values->insert_data("h0", 2);
+        keys->insert_data("warm", 4);
+        values->insert_data("w0", 2);
+        offsets->insert_value(2);
+
+        keys->insert_data("hot", 3);
+        values->insert_data("h1", 2);
+        keys->insert_data("cold", 4);
+        values->insert_data("c1", 2);
+        offsets->insert_value(4);
 
         return ColumnMap::create(std::move(keys), std::move(values), std::move(offsets));
     }
@@ -233,6 +256,27 @@ TEST_F(VariantStatsCalculatorTest, CalculateVariantStatsWithSparseColumn) {
     EXPECT_TRUE(column_meta.has_variant_statistics());
 }
 
+TEST_F(VariantStatsCalculatorTest, CalculateVariantStatsStopsAddingKeysAtSparseStatsLimit) {
+    auto map_column = create_sparse_map_column_for_limit_test();
+    VariantStatisticsPB stats;
+
+    variant_util::VariantCompactionUtil::calculate_variant_stats(*map_column, &stats, 2, 1, 2);
+
+    ASSERT_EQ(stats.sparse_column_non_null_size_size(), 2);
+    EXPECT_EQ(stats.sparse_column_non_null_size().at("hot"), 2);
+    EXPECT_EQ(stats.sparse_column_non_null_size().at("warm"), 1);
+    EXPECT_FALSE(stats.sparse_column_non_null_size().contains("cold"));
+}
+
+TEST_F(VariantStatsCalculatorTest, CalculateVariantStatsWithZeroSparseStatsLimitDropsAllNewKeys) {
+    auto map_column = create_sparse_map_column_for_limit_test();
+    VariantStatisticsPB stats;
+
+    variant_util::VariantCompactionUtil::calculate_variant_stats(*map_column, &stats, 0, 1, 2);
+
+    EXPECT_TRUE(stats.sparse_column_non_null_size().empty());
+}
+
 TEST_F(VariantStatsCalculatorTest, CalculateVariantStatsWithMissingFooterEntry) {
     // Create variant sub column but don't add corresponding footer entry
     TabletColumn sub_column = create_variant_column(2, "variant_col.missing_sub", 1, "missing_sub");
@@ -312,7 +356,7 @@ TEST_F(VariantStatsCalculatorTest, CalculateVariantStatsWithMultipleColumns) {
                   std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>()), "sub1"});
 
     auto map_col = create_map_column();
-    map_col->assume_mutable()->insert_many_defaults(3);
+    map_col->assert_mutable()->insert_many_defaults(3);
     block.insert({std::move(map_col),
                   std::make_shared<DataTypeMap>(std::make_shared<DataTypeString>(),
                                                 std::make_shared<DataTypeString>()),

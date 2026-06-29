@@ -49,6 +49,7 @@ import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshMethod;
 import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshTrigger;
 import org.apache.doris.mtmv.MTMVUtil;
+import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.qe.QeProcessorImpl;
@@ -131,6 +132,10 @@ public final class MetricRepo {
     public static AutoMappedMetric<HistogramMetric> USER_HISTO_QUERY_LATENCY;
     public static AutoMappedMetric<GaugeMetricImpl<Long>> USER_GAUGE_QUERY_INSTANCE_NUM;
     public static AutoMappedMetric<GaugeMetricImpl<Integer>> USER_GAUGE_CONNECTIONS;
+    public static AutoMappedMetric<GaugeMetricImpl<Long>> USER_GAUGE_CONNECTION_MAX;
+    public static GaugeMetric<Integer> GAUGE_ARROW_FLIGHT_CONNECTIONS;
+    public static GaugeMetric<Integer> GAUGE_ARROW_FLIGHT_CONNECTION_MAX;
+    public static GaugeMetric<Integer> GAUGE_CONNECTION_MAX;
     public static AutoMappedMetric<LongCounterMetric> USER_COUNTER_QUERY_INSTANCE_BEGIN;
     public static AutoMappedMetric<LongCounterMetric> BE_COUNTER_QUERY_RPC_ALL;
     public static AutoMappedMetric<LongCounterMetric> BE_COUNTER_QUERY_RPC_FAILED;
@@ -420,6 +425,9 @@ public final class MetricRepo {
         USER_GAUGE_CONNECTIONS = addLabeledMetrics("user", () ->
                 new GaugeMetricImpl<>("connection_total", MetricUnit.CONNECTIONS,
                         "total connections", 0));
+        USER_GAUGE_CONNECTION_MAX = addLabeledMetrics("user", () ->
+                new GaugeMetricImpl<>("user_connection_max", MetricUnit.CONNECTIONS,
+                        "max connections for single user", 0L));
         GaugeMetric<Integer> connections = new GaugeMetric<Integer>("connection_total",
                 MetricUnit.CONNECTIONS, "total connections") {
             @Override
@@ -430,6 +438,31 @@ public final class MetricRepo {
             }
         };
         DORIS_METRIC_REGISTER.addMetrics(connections);
+        GAUGE_ARROW_FLIGHT_CONNECTIONS = new GaugeMetric<Integer>("arrow_flight_connection_total",
+                MetricUnit.CONNECTIONS, "total arrow flight connections") {
+            @Override
+            public Integer getValue() {
+                return ExecuteEnv.getInstance().getScheduler().getFlightSqlConnectPoolMgr().getConnectionNum();
+            }
+        };
+        DORIS_METRIC_REGISTER.addMetrics(GAUGE_ARROW_FLIGHT_CONNECTIONS);
+        GAUGE_CONNECTION_MAX = new GaugeMetric<Integer>("connection_max",
+                MetricUnit.CONNECTIONS, "max connections") {
+            @Override
+            public Integer getValue() {
+                return Config.qe_max_connection + Config.arrow_flight_max_connections;
+            }
+        };
+        DORIS_METRIC_REGISTER.addMetrics(GAUGE_CONNECTION_MAX);
+        GAUGE_ARROW_FLIGHT_CONNECTION_MAX = new GaugeMetric<Integer>("arrow_flight_connection_max",
+                MetricUnit.CONNECTIONS, "max arrow flight connections") {
+            @Override
+            public Integer getValue() {
+                return Config.arrow_flight_max_connections;
+            }
+        };
+        DORIS_METRIC_REGISTER.addMetrics(GAUGE_ARROW_FLIGHT_CONNECTION_MAX);
+        syncUserConnectionMaxMetrics();
 
         // journal id
         GaugeMetric<Long> maxJournalId = new GaugeMetric<Long>("max_journal_id", MetricUnit.NOUNIT,
@@ -1595,6 +1628,47 @@ public final class MetricRepo {
             MetricRepo.DORIS_METRIC_REGISTER.addMetrics(m);
             return m;
         });
+    }
+
+    public static void syncUserConnectionMaxMetrics() {
+        if (USER_GAUGE_CONNECTION_MAX == null) {
+            return;
+        }
+        Env.getServingEnv().getAuth().getMaxConnForAllUsers()
+                .forEach(MetricRepo::updateUserConnectionMaxMetric);
+    }
+
+    public static void updateUserConnectionMaxMetric(Auth auth, String user, long maxConn) {
+        if (USER_GAUGE_CONNECTION_MAX == null || Env.getServingEnv().getAuth() != auth) {
+            return;
+        }
+        updateUserConnectionMaxMetric(user, maxConn);
+    }
+
+    public static void updateUserConnectionMaxMetric(String user, long maxConn) {
+        if (USER_GAUGE_CONNECTION_MAX == null) {
+            return;
+        }
+        USER_GAUGE_CONNECTION_MAX.getOrAdd(user).setValue(maxConn);
+    }
+
+    public static void removeUserConnectionMaxMetric(Auth auth, String user) {
+        if (USER_GAUGE_CONNECTION_MAX == null || Env.getServingEnv().getAuth() != auth) {
+            return;
+        }
+        removeUserConnectionMaxMetric(user);
+    }
+
+    public static void removeUserConnectionMaxMetric(String user) {
+        if (USER_GAUGE_CONNECTION_MAX == null) {
+            return;
+        }
+        GaugeMetricImpl<Long> metric = USER_GAUGE_CONNECTION_MAX.getMetrics().get(user);
+        if (metric == null) {
+            return;
+        }
+        DORIS_METRIC_REGISTER.removeMetricsByNameAndLabels(metric.getName(), metric.getLabels());
+        USER_GAUGE_CONNECTION_MAX.remove(user);
     }
 
     public static void visitHistograms(MetricVisitor visitor) {

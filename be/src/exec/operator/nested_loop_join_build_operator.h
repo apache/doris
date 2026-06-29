@@ -80,7 +80,6 @@ private:
 
     VExprContextSPtrs _filter_src_expr_ctxs;
 
-    const bool _is_output_left_side_only;
     RowDescriptor _row_descriptor;
 };
 

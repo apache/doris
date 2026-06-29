@@ -512,7 +512,7 @@ TEST(CsvSerde, ComplexTypeSerdeSchemaChangedCsvTest) {
         DataTypeSerDeSPtr serde = data_type_ptr->get_serde();
         Status st = serde->deserialize_one_cell_from_hive_text(*col, slice, formatOptions);
         EXPECT_EQ(st, Status::OK());
-        // Use const access for read-only assertions: avoids assume_mutable_ref() on sub-columns.
+        // Use const access for read-only assertions: avoids assert_mutable_ref() on sub-columns.
         const auto& struct_col = static_cast<const ColumnStruct&>(
                 static_cast<const ColumnNullable&>(*col.get()).get_nested_column());
         EXPECT_EQ(struct_col.get_column(0).get_data_at(0).to_string(), "false");

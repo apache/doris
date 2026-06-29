@@ -32,7 +32,7 @@ import java.time.format.DateTimeFormatter;
  * across all matched tables, then computes gap = requested - finished.
  */
 public class JobWarmUpStats {
-    private static final DateTimeFormatter TIME_FMT = DateTimeFormatter.ofPattern("HH:mm:ss");
+    private static final DateTimeFormatter DATETIME_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
     // Aggregated requested
     public long requestedSegmentNum5m;
@@ -277,7 +277,7 @@ public class JobWarmUpStats {
         }
         try {
             return LocalDateTime.ofInstant(Instant.ofEpochMilli(epochMs), ZoneId.systemDefault())
-                    .format(TIME_FMT);
+                    .format(DATETIME_FMT);
         } catch (Exception e) {
             return "";
         }
