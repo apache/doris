@@ -28,6 +28,7 @@ import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
@@ -167,33 +168,30 @@ public class CreateMTMVInfo extends CreateTableInfo {
         }
         validateRefreshStrategyForCreate();
         this.partitionDesc = generatePartitionDesc(ctx);
-        if (distribution == null) {
-            throw new AnalysisException("Create async materialized view should contain distribution desc");
-        }
 
         if (properties == null) {
             properties = Maps.newHashMap();
         }
 
-        // IVM MVs are UNIQUE_KEYS (MOW) tables keyed on __DORIS_IVM_ROW_ID_COL__.
-        // MOW dedup only works within the same tablet, so the distribution MUST be
-        // HASH on the row-id column; RANDOM distribution would allow the same key
-        // to land in different tablets across successive INSERTs, breaking dedup.
-        if (isEnableIvm()) {
-            int bucketNum = distribution.translateToCatalogStyle().getBuckets();
-            distribution = new DistributionDescriptor(
-                    true, distribution.isAutoBucket(), bucketNum,
-                    Lists.newArrayList(Column.IVM_ROW_ID_COL));
-        }
-
-        CreateTableInfo.maybeRewriteByAutoBucket(distribution, properties);
-
         // analyze distribute
         Map<String, ColumnDefinition> columnMap = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
         columns.forEach(c -> columnMap.put(c.getName(), c));
-        distribution.updateCols(columns.get(0).getName());
         KeysType distributionKeysType = isEnableIvm() ? KeysType.UNIQUE_KEYS : KeysType.DUP_KEYS;
+        boolean userHashDistributionForIvm = isEnableIvm() && distribution != null && distribution.isHash();
+        if (isEnableIvm()) {
+            if (!userHashDistributionForIvm) {
+                distribution = buildIvmRowIdDistribution(distribution);
+            }
+        } else if (distribution == null) {
+            distribution = new DistributionDescriptor(false, false, FeConstants.default_bucket_num, null);
+        }
+
+        properties = CreateTableInfo.maybeRewriteByAutoBucket(distribution, properties);
+        distribution.updateCols(columns.get(0).getName());
         distribution.validate(columnMap, distributionKeysType);
+        if (userHashDistributionForIvm) {
+            validateUserDistributionForIvm(columnMap);
+        }
         refreshInfo.validate();
 
         analyzeProperties();
@@ -201,6 +199,26 @@ public class CreateMTMVInfo extends CreateTableInfo {
 
         // set CreateTableInfo information
         setTableInformation(ctx);
+    }
+
+    private void validateUserDistributionForIvm(Map<String, ColumnDefinition> columnMap) {
+        for (String columnName : distribution.getCols()) {
+            ColumnDefinition column = columnMap.get(columnName);
+            if (!column.isVisible()) {
+                throw new AnalysisException("IVM hidden column can not be distribution column: " + columnName);
+            }
+        }
+    }
+
+    /**
+     * Build the physical IVM row-id distribution for omitted or RANDOM user distribution.
+     */
+    private DistributionDescriptor buildIvmRowIdDistribution(DistributionDescriptor sourceDistribution) {
+        boolean isAutoBucket = sourceDistribution == null || sourceDistribution.isAutoBucket();
+        int bucketNum = sourceDistribution == null ? FeConstants.default_bucket_num
+                : sourceDistribution.translateToCatalogStyle().getBuckets();
+        return new DistributionDescriptor(true, isAutoBucket, bucketNum,
+                Lists.newArrayList(Column.IVM_ROW_ID_COL));
     }
 
     private void analyzeAutoRefreshQuery(ConnectContext ctx) throws UserException {
@@ -295,6 +313,7 @@ public class CreateMTMVInfo extends CreateTableInfo {
                 this.logicalQuery, isEnableIvm());
         this.mvPartitionInfo = mtmvAnalyzeQueryInfo.getMvPartitionInfo();
         this.columns = mtmvAnalyzeQueryInfo.getColumnDefinitions();
+        this.keys = Utils.copyRequiredList(mtmvAnalyzeQueryInfo.getKeys());
         this.relation = mtmvAnalyzeQueryInfo.getRelation();
         this.properties = mtmvAnalyzeQueryInfo.getProperties();
         if (isEnableIvm()) {
@@ -308,10 +327,10 @@ public class CreateMTMVInfo extends CreateTableInfo {
     }
 
     private void checkUserSpecifiedKeysForIvm() {
-        if (isEnableIvm() && !keys.isEmpty()) {
+        if (isEnableIvm() && keys.stream().anyMatch(Column.IVM_ROW_ID_COL::equalsIgnoreCase)) {
             throw new IvmException(IvmFailureReason.PLAN_PATTERN_UNSUPPORTED,
-                    "Incremental materialized view does not allow specifying key columns. "
-                    + "The unique key is the hidden row-id column managed by IVM.");
+                    "Incremental materialized view does not allow specifying the hidden row-id column. "
+                    + "The row-id column is managed by IVM.");
         }
     }
 
@@ -408,13 +427,17 @@ public class CreateMTMVInfo extends CreateTableInfo {
             }
         });
 
+        // CreateMTMVInfo does not run CreateTableInfo.validate(), but an IVM MV
+        // is physically a MOW UNIQUE table. Reuse the ordinary MOW partition
+        // rule so partition columns must be key columns after IVM key rewrite.
+        boolean validateAsMow = isEnableIvm() || isEnableMergeOnWrite();
         getPartitionTableInfo().validatePartitionInfo(
                 getEngineName(),
                 columns,
                 columnMap,
                 properties,
                 ctx,
-                isEnableMergeOnWrite(),
+                validateAsMow,
                 isExternal());
     }
 
@@ -477,6 +500,7 @@ public class CreateMTMVInfo extends CreateTableInfo {
     private static class AnalyzeQueryState {
         private final Map<String, String> properties;
         private final List<ColumnDefinition> columns;
+        private final List<String> keys;
         private final DistributionDescriptor distribution;
         private final PartitionDesc partitionDesc;
         private final LogicalPlan logicalQuery;
@@ -490,6 +514,7 @@ public class CreateMTMVInfo extends CreateTableInfo {
         private AnalyzeQueryState(CreateMTMVInfo info) {
             this.properties = info.properties == null ? null : Maps.newHashMap(info.properties);
             this.columns = info.columns;
+            this.keys = Utils.copyRequiredList(info.keys);
             this.distribution = info.distribution;
             this.partitionDesc = info.partitionDesc;
             this.logicalQuery = info.logicalQuery;
@@ -508,6 +533,7 @@ public class CreateMTMVInfo extends CreateTableInfo {
         private void restore(CreateMTMVInfo info) {
             info.properties = properties == null ? null : Maps.newHashMap(properties);
             info.columns = columns;
+            info.keys = Utils.copyRequiredList(keys);
             info.distribution = distribution;
             info.partitionDesc = partitionDesc;
             info.logicalQuery = logicalQuery;

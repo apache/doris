@@ -48,6 +48,7 @@ import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.task.AbstractTask;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
+import org.apache.doris.mtmv.ivm.IvmNormalizeResult;
 import org.apache.doris.mtmv.ivm.IvmUtil;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
@@ -62,6 +63,7 @@ import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewUtils;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
@@ -82,6 +84,7 @@ import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.types.coercion.CharacterType;
+import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 import org.apache.doris.qe.AuditLogHelper;
 import org.apache.doris.qe.ConnectContext;
@@ -89,6 +92,7 @@ import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -99,10 +103,12 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.function.Consumer;
 import java.util.stream.Collectors;
 import javax.annotation.Nullable;
@@ -358,8 +364,8 @@ public class MTMVPlanUtil {
         if (slots.isEmpty()) {
             throw new org.apache.doris.nereids.exceptions.AnalysisException("table should contain at least one column");
         }
-        // Separate IVM hidden columns from user-visible columns.
-        // Schema layout must match normalized plan output: [row_id, user visible, trailing hidden agg cols]
+        // Separate IVM hidden columns from user-visible columns. The final physical schema is
+        // adjusted in analyzeIvmKeys() after final key columns are known.
         Slot rowIdSlot = null;
         List<Slot> trailingHiddenSlots = new ArrayList<>();
         List<Slot> userSlots = new ArrayList<>();
@@ -377,12 +383,7 @@ public class MTMVPlanUtil {
             throw new org.apache.doris.nereids.exceptions.AnalysisException(
                     "simpleColumnDefinitions size is not equal to the query's");
         }
-        // 1. Row-id column first (if present)
-        if (rowIdSlot != null) {
-            columns.add(IvmUtil.newIvmRowIdColumnDefinition(
-                    rowIdSlot.getDataType().conversion(), rowIdSlot.nullable()));
-        }
-        // 2. User-visible column definitions
+        // 1. User-visible column definitions
         Set<String> colNames = Sets.newHashSet();
         for (int i = 0; i < userSlots.size(); i++) {
             Slot userSlot = userSlots.get(i);
@@ -410,7 +411,13 @@ public class MTMVPlanUtil {
                     CollectionUtils.isEmpty(simpleColumnDefinitions) ? null
                             : simpleColumnDefinitions.get(i).getComment()));
         }
-        // 3. Trailing hidden agg state columns (after user-visible)
+        // 2. IVM row-id column, placed temporarily after visible columns. analyzeIvmKeys()
+        // will move it behind the final visible key prefix.
+        if (rowIdSlot != null) {
+            columns.add(IvmUtil.newIvmRowIdColumnDefinition(
+                    rowIdSlot.getDataType().conversion(), rowIdSlot.nullable()));
+        }
+        // 3. Trailing hidden agg state columns (after row-id)
         for (Slot hiddenSlot : trailingHiddenSlots) {
             columns.add(IvmUtil.newIvmAggHiddenColumnDefinition(
                     hiddenSlot.getName(), hiddenSlot.getDataType().conversion(), hiddenSlot.nullable()));
@@ -490,7 +497,7 @@ public class MTMVPlanUtil {
             mtmvPartitionDefinition.setFunctionCallExpression(new NereidsParser().parseExpression(
                     expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE)));
         }
-        List<String> keys = mtmv.getBaseSchema().stream()
+        List<String> keys = mtmv.getBaseSchema(false).stream()
                 .filter(Column::isKey)
                 .map(Column::getName)
                 .collect(Collectors.toList());
@@ -590,7 +597,9 @@ public class MTMVPlanUtil {
                     (distribution == null || CollectionUtils.isEmpty(distribution.getCols())) ? Sets.newHashSet()
                             : Sets.newHashSet(distribution.getCols()),
                     simpleColumnDefinitions, properties);
-            keys = analyzeKeys(keys, properties, columns, isIvm);
+            Optional<IvmNormalizeResult> ivmNormalizeResult = planner.getCascadesContext().getIvmNormalizeResult();
+            keys = analyzeKeys(keys, properties, columns, isIvm, mvPartitionInfo, distribution,
+                    ivmNormalizeResult.orElse(null));
             properties = CreateTableInfo.addOlapHiddenColumns(
                     columns, isIvm ? KeysType.UNIQUE_KEYS : KeysType.DUP_KEYS,
                     isIvm, properties, false);
@@ -599,10 +608,10 @@ public class MTMVPlanUtil {
             Set<String> keysSet = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
             keysSet.addAll(keys);
             validateColumns(columns, keysSet, finalEnableMergeOnWrite);
-            MTMVAnalyzeQueryInfo queryInfo = new MTMVAnalyzeQueryInfo(columns, mvPartitionInfo, relation, properties);
+            MTMVAnalyzeQueryInfo queryInfo = new MTMVAnalyzeQueryInfo(columns, keys, mvPartitionInfo, relation,
+                    properties);
             if (isIvm) {
-                planner.getCascadesContext().getIvmNormalizeResult().ifPresent(
-                        queryInfo::setIvmNormalizeResult);
+                ivmNormalizeResult.ifPresent(queryInfo::setIvmNormalizeResult);
             }
             return queryInfo;
         }
@@ -660,17 +669,10 @@ public class MTMVPlanUtil {
     }
 
     private static List<String> analyzeKeys(List<String> keys, Map<String, String> properties,
-            List<ColumnDefinition> columns, boolean isIvm) {
+            List<ColumnDefinition> columns, boolean isIvm, MTMVPartitionInfo mvPartitionInfo,
+            DistributionDescriptor distribution, IvmNormalizeResult ivmNormalizeResult) {
         if (isIvm) {
-            // for IVM, the hidden row-id column is the sole unique key
-            for (ColumnDefinition col : columns) {
-                if (Column.IVM_ROW_ID_COL.equals(col.getName())) {
-                    col.setIsKey(true);
-                    return Lists.newArrayList(col.getName());
-                }
-            }
-            throw new org.apache.doris.nereids.exceptions.AnalysisException(
-                    "IVM row-id column not found in generated columns; IVM normalization may have failed.");
+            return analyzeIvmKeys(keys, columns, mvPartitionInfo, distribution, ivmNormalizeResult);
         }
         boolean enableDuplicateWithoutKeysByDefault = false;
         try {
@@ -710,6 +712,220 @@ public class MTMVPlanUtil {
             }
         }
         return keys;
+    }
+
+    private static List<String> analyzeIvmKeys(List<String> keys, List<ColumnDefinition> columns,
+            MTMVPartitionInfo mvPartitionInfo, DistributionDescriptor distribution,
+            IvmNormalizeResult ivmNormalizeResult) {
+        Map<String, ColumnDefinition> columnMap = columns.stream()
+                .collect(Collectors.toMap(ColumnDefinition::getName, column -> column,
+                        (left, right) -> left, () -> new TreeMap<>(String.CASE_INSENSITIVE_ORDER)));
+        if (!columnMap.containsKey(Column.IVM_ROW_ID_COL)) {
+            throw new org.apache.doris.nereids.exceptions.AnalysisException(
+                    "IVM row-id column not found in generated columns; IVM normalization may have failed.");
+        }
+
+        List<ColumnDefinition> visibleColumns = columns.stream()
+                .filter(ColumnDefinition::isVisible)
+                .collect(Collectors.toList());
+        List<String> visibleOutputNames = visibleColumns.stream()
+                .map(ColumnDefinition::getName)
+                .collect(Collectors.toList());
+        LinkedHashSet<String> visibleKeys = new LinkedHashSet<>();
+        boolean hasExplicitKeys = !CollectionUtils.isEmpty(keys);
+        validateIvmPartition(mvPartitionInfo);
+        if (hasExplicitKeys) {
+            for (String key : keys) {
+                validateIvmKeyColumn(columnMap, key);
+                addIvmFinalKey(visibleKeys, columnMap.get(key).getName());
+            }
+        } else {
+            Set<String> requiredVisibleKeys = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
+            addIvmPartitionKeyIfNeeded(requiredVisibleKeys, columnMap, mvPartitionInfo);
+            addIvmHashDistributionKeysIfNeeded(requiredVisibleKeys, columnMap, distribution);
+            for (ColumnDefinition column : visibleColumns) {
+                if (requiredVisibleKeys.contains(column.getName())) {
+                    addIvmFinalKey(visibleKeys, column.getName());
+                }
+            }
+        }
+        LinkedHashSet<String> finalKeys = new LinkedHashSet<>(visibleKeys);
+        addIvmFinalKey(finalKeys, Column.IVM_ROW_ID_COL);
+        validateIvmAggregateKeys(finalKeys, visibleColumns, ivmNormalizeResult);
+        validateIvmVisibleKeyPrefix(Lists.newArrayList(visibleKeys), visibleOutputNames, hasExplicitKeys);
+        applyIvmPhysicalKeyLayout(columns, columnMap, Lists.newArrayList(visibleKeys), Lists.newArrayList(finalKeys));
+        return Lists.newArrayList(finalKeys);
+    }
+
+    private static void addIvmHashDistributionKeysIfNeeded(Set<String> requiredVisibleKeys,
+            Map<String, ColumnDefinition> columnMap, DistributionDescriptor distribution) {
+        if (distribution == null || !distribution.isHash()) {
+            return;
+        }
+        for (String columnName : distribution.getCols()) {
+            if (!columnMap.containsKey(columnName)) {
+                throw new AnalysisException(String.format("Distribution column(%s) doesn't exist", columnName));
+            }
+            ColumnDefinition column = columnMap.get(columnName);
+            if (IvmUtil.isIvmHiddenColumn(column.getName())) {
+                continue;
+            }
+            if (!column.isVisible()) {
+                throw new AnalysisException("IVM hidden column can not be distribution column: " + columnName);
+            }
+            validateIvmKeyColumn(columnMap, columnName);
+            requiredVisibleKeys.add(column.getName());
+        }
+    }
+
+    private static void addIvmPartitionKeyIfNeeded(Set<String> requiredVisibleKeys,
+            Map<String, ColumnDefinition> columnMap, MTMVPartitionInfo mvPartitionInfo) {
+        if (mvPartitionInfo == null || mvPartitionInfo.getPartitionType() == MTMVPartitionType.SELF_MANAGE) {
+            return;
+        }
+        validateIvmKeyColumn(columnMap, mvPartitionInfo.getPartitionCol());
+        requiredVisibleKeys.add(columnMap.get(mvPartitionInfo.getPartitionCol()).getName());
+    }
+
+    private static void validateIvmVisibleKeyPrefix(List<String> visibleKeys, List<String> visibleOutputNames,
+            boolean hasExplicitKeys) {
+        for (int i = 0; i < visibleKeys.size(); i++) {
+            if (i >= visibleOutputNames.size() || !visibleKeys.get(i).equalsIgnoreCase(visibleOutputNames.get(i))) {
+                String keySource = hasExplicitKeys ? "IVM key columns " : "IVM generated key columns ";
+                String suggestion = hasExplicitKeys
+                        ? " Please reorder SELECT columns to match KEY order."
+                        : " Please reorder SELECT columns or specify KEY explicitly.";
+                throw new AnalysisException(keySource + visibleKeys
+                        + " must be an ordered prefix of SELECT output " + visibleOutputNames + "."
+                        + suggestion);
+            }
+        }
+    }
+
+    private static void applyIvmPhysicalKeyLayout(List<ColumnDefinition> columns,
+            Map<String, ColumnDefinition> columnMap, List<String> visibleKeys, List<String> finalKeys) {
+        Set<String> visibleKeySet = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
+        visibleKeySet.addAll(visibleKeys);
+        List<ColumnDefinition> reorderedColumns = new ArrayList<>(columns.size());
+        for (String key : visibleKeys) {
+            ColumnDefinition keyColumn = columnMap.get(key);
+            Preconditions.checkState(keyColumn != null && keyColumn.isVisible(),
+                    "visible IVM key column must exist: %s", key);
+            keyColumn.setIsKey(true);
+            reorderedColumns.add(keyColumn);
+        }
+
+        ColumnDefinition rowIdColumn = columnMap.get(Column.IVM_ROW_ID_COL);
+        Preconditions.checkState(rowIdColumn != null && !rowIdColumn.isVisible(),
+                "IVM row-id column must exist and be hidden");
+        rowIdColumn.setIsKey(true);
+        reorderedColumns.add(rowIdColumn);
+
+        for (ColumnDefinition column : columns) {
+            if (Column.IVM_ROW_ID_COL.equalsIgnoreCase(column.getName())
+                    || visibleKeySet.contains(column.getName())) {
+                continue;
+            }
+            column.setIsKey(false);
+            reorderedColumns.add(column);
+        }
+        Preconditions.checkState(reorderedColumns.size() == columns.size(),
+                "reordered IVM schema size must match original schema size");
+        columns.clear();
+        columns.addAll(reorderedColumns);
+        assertIvmPhysicalKeyPrefix(columns, finalKeys);
+    }
+
+    private static void assertIvmPhysicalKeyPrefix(List<ColumnDefinition> columns, List<String> finalKeys) {
+        Preconditions.checkState(finalKeys.size() <= columns.size(),
+                "IVM key size must be no larger than schema size");
+        for (int i = 0; i < finalKeys.size(); i++) {
+            Preconditions.checkState(finalKeys.get(i).equalsIgnoreCase(columns.get(i).getName()),
+                    "IVM key columns must be the physical schema prefix");
+        }
+    }
+
+    private static void validateIvmPartition(MTMVPartitionInfo mvPartitionInfo) {
+        if (mvPartitionInfo == null || mvPartitionInfo.getPartitionType() == MTMVPartitionType.SELF_MANAGE) {
+            return;
+        }
+        if (mvPartitionInfo.getPartitionType() == MTMVPartitionType.EXPR) {
+            throw new AnalysisException("IVM materialized view only supports column partition");
+        }
+    }
+
+    private static void addIvmFinalKey(LinkedHashSet<String> finalKeys, String columnName) {
+        if (!containsIgnoreCase(finalKeys, columnName)) {
+            finalKeys.add(columnName);
+        }
+    }
+
+    private static void validateIvmAggregateKeys(Set<String> keySet, List<ColumnDefinition> visibleColumns,
+            IvmNormalizeResult ivmNormalizeResult) {
+        if (ivmNormalizeResult == null || !ivmNormalizeResult.isAggMv()) {
+            return;
+        }
+        List<String> visibleKeys = keySet.stream()
+                .filter(key -> !IvmUtil.isIvmHiddenColumn(key))
+                .collect(Collectors.toList());
+        if (visibleKeys.isEmpty()) {
+            return;
+        }
+
+        Plan normalizedPlan = Preconditions.checkNotNull(ivmNormalizeResult.getNormalizedPlan(),
+                "IVM aggregate key validation requires normalized plan");
+        Map<String, Slot> visibleOutputSlotByColumn = buildVisibleOutputSlotByColumn(visibleColumns, normalizedPlan);
+
+        List<Expression> expressions = new ArrayList<>(visibleKeys.size());
+        for (String key : visibleKeys) {
+            expressions.add(visibleOutputSlotByColumn.get(key));
+        }
+
+        List<? extends Expression> shuttledExpressions =
+                ExpressionUtils.shuttleExpressionWithLineage(expressions, normalizedPlan);
+        for (int i = 0; i < visibleKeys.size(); i++) {
+            Expression keyLineage = shuttledExpressions.get(i);
+            if (keyLineage.containsType(AggregateFunction.class)) {
+                throw new AnalysisException(
+                        "IVM aggregate materialized view key can not depend on aggregate result column: "
+                        + visibleKeys.get(i));
+            }
+        }
+    }
+
+    private static Map<String, Slot> buildVisibleOutputSlotByColumn(List<ColumnDefinition> visibleColumns,
+            Plan normalizedPlan) {
+        List<Slot> visibleOutputSlots = normalizedPlan.getOutput().stream()
+                .filter(slot -> !IvmUtil.isIvmHiddenColumn(slot.getName()))
+                .collect(Collectors.toList());
+        if (visibleOutputSlots.size() != visibleColumns.size()) {
+            throw new AnalysisException("IVM aggregate key validation failed to map MV columns to normalized output");
+        }
+
+        Map<String, Slot> visibleOutputSlotByColumn = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+        for (int i = 0; i < visibleColumns.size(); i++) {
+            visibleOutputSlotByColumn.put(visibleColumns.get(i).getName(), visibleOutputSlots.get(i));
+        }
+        return visibleOutputSlotByColumn;
+    }
+
+    private static void validateIvmKeyColumn(Map<String, ColumnDefinition> columnMap, String columnName) {
+        if (!columnMap.containsKey(columnName)) {
+            throw new AnalysisException("IVM key column does not exist in MV output: " + columnName);
+        }
+        ColumnDefinition column = columnMap.get(columnName);
+        if (!column.isVisible()) {
+            throw new AnalysisException("IVM hidden column can not be key column: " + columnName);
+        }
+    }
+
+    private static boolean containsIgnoreCase(Set<String> values, String value) {
+        for (String item : values) {
+            if (item.equalsIgnoreCase(value)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static void analyzeExpressions(Plan plan, Map<String, String> mvProperties) {

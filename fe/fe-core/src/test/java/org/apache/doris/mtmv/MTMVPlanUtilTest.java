@@ -60,6 +60,11 @@ import java.util.Map;
 import java.util.Optional;
 
 public class MTMVPlanUtilTest extends SqlTestBase {
+    @Override
+    protected void runBeforeAll() throws Exception {
+        super.runBeforeAll();
+        Config.enable_table_stream = true;
+    }
 
     @Test
     public void testGenerateColumnsBySql() throws Exception {
@@ -601,28 +606,43 @@ public class MTMVPlanUtilTest extends SqlTestBase {
         Assertions.assertEquals(org.apache.doris.catalog.KeysType.DUP_KEYS, mtmv.getKeysType());
     }
 
-    // User explicitly specifying UNIQUE KEY on IVM MV must fail — the system auto-assigns UNIQUE_KEYS
+    // User key syntax is allowed on IVM MV, but the physical model remains UNIQUE_KEYS + MOW.
     @Test
-    public void testIncrementalMvWithUserSpecifiedUniqueKeyFails() {
-        Assertions.assertThrows(Exception.class, () ->
-                createMvByNereids("create materialized view mv_ivm_user_unique_key "
-                        + "UNIQUE KEY(id) "
-                        + "BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
-                        + "        DISTRIBUTED BY HASH(id) BUCKETS 1\n"
-                        + "        PROPERTIES ('replication_num' = '1') \n"
-                        + "        as select * from test.T4;"));
+    public void testIncrementalMvWithUserSpecifiedKeySucceeds() throws Exception {
+        createMvByNereids("create materialized view mv_ivm_user_key "
+                + "BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
+                + "KEY(id)\n"
+                + "        DISTRIBUTED BY HASH(id) BUCKETS 1\n"
+                + "        PROPERTIES ('replication_num' = '1') \n"
+                + "        as select * from test.T4;");
+
+        Database db = Env.getCurrentEnv().getInternalCatalog().getDbOrAnalysisException("test");
+        MTMV mtmv = (MTMV) db.getTableOrAnalysisException("mv_ivm_user_key");
+
+        Assertions.assertEquals(org.apache.doris.catalog.KeysType.UNIQUE_KEYS, mtmv.getKeysType());
+        Assertions.assertTrue(mtmv.getEnableUniqueKeyMergeOnWrite());
+        Assertions.assertEquals(Lists.newArrayList("id", Column.IVM_ROW_ID_COL),
+                mtmv.getBaseSchema(true).stream()
+                        .filter(Column::isKey)
+                        .map(Column::getName)
+                        .collect(java.util.stream.Collectors.toList()));
     }
 
-    // User explicitly specifying DUPLICATE KEY on IVM MV must fail — same reason as above
+    // Async MV grammar keeps DUPLICATE KEY as legacy key-column syntax; IVM still creates UNIQUE_KEYS + MOW.
     @Test
-    public void testIncrementalMvWithUserSpecifiedDupKeyFails() {
-        Assertions.assertThrows(Exception.class, () ->
-                createMvByNereids("create materialized view mv_ivm_user_dup_key "
-                        + "DUPLICATE KEY(id) "
-                        + "BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
-                        + "        DISTRIBUTED BY HASH(id) BUCKETS 1\n"
-                        + "        PROPERTIES ('replication_num' = '1') \n"
-                        + "        as select * from test.T4;"));
+    public void testIncrementalMvWithLegacyDuplicateKeySyntaxUsesIvmUniqueKeys() throws Exception {
+        createMvByNereids("create materialized view mv_ivm_user_dup_key "
+                + "BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
+                + "DUPLICATE KEY(id)\n"
+                + "        DISTRIBUTED BY HASH(id) BUCKETS 1\n"
+                + "        PROPERTIES ('replication_num' = '1') \n"
+                + "        as select * from test.T4;");
+
+        Database db = Env.getCurrentEnv().getInternalCatalog().getDbOrAnalysisException("test");
+        MTMV mtmv = (MTMV) db.getTableOrAnalysisException("mv_ivm_user_dup_key");
+
+        Assertions.assertEquals(org.apache.doris.catalog.KeysType.UNIQUE_KEYS, mtmv.getKeysType());
+        Assertions.assertTrue(mtmv.getEnableUniqueKeyMergeOnWrite());
     }
 
     // IVM value columns must have aggTypeImplicit=false (UNIQUE_KEYS+MOW behavior)
