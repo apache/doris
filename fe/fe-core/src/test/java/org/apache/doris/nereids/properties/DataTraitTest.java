@@ -349,7 +349,7 @@ class DataTraitTest extends TestWithFeService {
             Assertions.assertEquals(plan.getLogicalProperties().getTrait(),
                     plan.child(1).getLogicalProperties().getTrait());
 
-            Plan physicalPlan= PlanChecker.from(connectContext)
+            Plan physicalPlan = PlanChecker.from(connectContext)
                     .analyze("with t as (select * from agg) select id from t where id = 1")
                     .rewrite()
                     .optimize()
