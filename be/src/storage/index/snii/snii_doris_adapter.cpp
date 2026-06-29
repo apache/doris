@@ -99,9 +99,7 @@ io::IOContext DorisSniiFileReader::_make_section_io_context(const io::IOContext*
                                                             uint8_t section_type) {
     io::IOContext section_io_ctx = _make_index_io_context(io_ctx);
     section_io_ctx.snii_section_type = section_type;
-    section_io_ctx.is_index_data = section_type != io::SNII_SECTION_POSTING &&
-                                   section_type != io::SNII_SECTION_NORMS &&
-                                   section_type != io::SNII_SECTION_NULL_BITMAP;
+    section_io_ctx.is_index_data = section_type == io::SNII_SECTION_META;
     return section_io_ctx;
 }
 
@@ -164,7 +162,7 @@ DorisSniiFileReader::ScopedIOContext::~ScopedIOContext() {
 }
 
 ::snii::Status DorisSniiFileReader::read_at(uint64_t offset, size_t len,
-                                            std::vector<uint8_t>* const out) {
+                                            std::vector<uint8_t>* out) {
     SNII_RETURN_IF_ERROR(_check_read_range(offset, len));
     const auto* current_io_ctx = _current_io_ctx();
     uint8_t section_type = _classify_section(offset, len);
@@ -179,8 +177,8 @@ DorisSniiFileReader::ScopedIOContext::~ScopedIOContext() {
     return ::snii::Status::OK();
 }
 
-::snii::Status DorisSniiFileReader::_read_at(uint64_t offset, size_t len,
-                                             std::vector<uint8_t>* const out,
+// NOLINTNEXTLINE(readability-non-const-parameter): out is the SNII read output buffer.
+::snii::Status DorisSniiFileReader::_read_at(uint64_t offset, size_t len, std::vector<uint8_t>* out,
                                              const io::IOContext* io_ctx) const {
     if (_reader == nullptr) {
         return ::snii::Status::InvalidArgument("doris reader is null");
@@ -206,8 +204,9 @@ DorisSniiFileReader::ScopedIOContext::~ScopedIOContext() {
     return ::snii::Status::OK();
 }
 
+// NOLINTBEGIN(readability-non-const-parameter): outs is the SNII batch read output buffer.
 ::snii::Status DorisSniiFileReader::read_batch(const std::vector<::snii::io::Range>& ranges,
-                                               std::vector<std::vector<uint8_t>>* const outs) {
+                                               std::vector<std::vector<uint8_t>>* outs) {
     if (outs == nullptr) {
         return ::snii::Status::InvalidArgument("output buffers is null");
     }
@@ -281,6 +280,7 @@ DorisSniiFileReader::ScopedIOContext::~ScopedIOContext() {
     _record_read_stats(request_bytes, read_bytes, range_read_count, range_read_count);
     return ::snii::Status::OK();
 }
+// NOLINTEND(readability-non-const-parameter)
 
 uint64_t DorisSniiFileReader::size() const {
     return _reader == nullptr ? 0 : _reader->size();

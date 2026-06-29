@@ -165,7 +165,6 @@ Status IndexFileReader::_init_snii(const io::IOContext* io_ctx) {
     }
     meta_io_ctx.is_inverted_index = true;
     meta_io_ctx.is_index_data = true;
-    meta_io_ctx.read_file_cache = false;
     meta_io_ctx.snii_section_type = io::SNII_SECTION_META;
     snii_doris::DorisSniiFileReader::ScopedIOContext io_context_scope(&meta_io_ctx);
     RETURN_IF_ERROR(snii_doris::to_doris_status(snii::reader::SniiSegmentReader::open(
@@ -290,7 +289,6 @@ Result<std::unique_ptr<snii::reader::LogicalIndexReader>> IndexFileReader::open_
     }
     meta_io_ctx.is_inverted_index = true;
     meta_io_ctx.is_index_data = true;
-    meta_io_ctx.read_file_cache = false;
     meta_io_ctx.snii_section_type = io::SNII_SECTION_META;
     snii_doris::DorisSniiFileReader::ScopedIOContext io_context_scope(&meta_io_ctx);
 
@@ -394,7 +392,6 @@ Status IndexFileReader::has_null(const TabletIndex* index_meta, bool* res) const
         io::IOContext meta_io_ctx;
         meta_io_ctx.is_inverted_index = true;
         meta_io_ctx.is_index_data = true;
-        meta_io_ctx.read_file_cache = false;
         meta_io_ctx.snii_section_type = io::SNII_SECTION_META;
         snii_doris::DorisSniiFileReader::ScopedIOContext io_context_scope(&meta_io_ctx);
 
