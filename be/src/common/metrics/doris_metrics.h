@@ -147,17 +147,6 @@ public:
     IntCounter* memtable_flush_total = nullptr;
     IntCounter* memtable_flush_duration_us = nullptr;
 
-    IntCounter* paimon_write_rows = nullptr;
-    IntCounter* paimon_write_bytes = nullptr;
-    IntCounter* paimon_prepare_commit_messages = nullptr;
-    IntCounter* paimon_commit_payload_chunks = nullptr;
-    HistogramMetric* paimon_write_send_data_latency_ms = nullptr;
-    HistogramMetric* paimon_write_project_latency_ms = nullptr;
-    HistogramMetric* paimon_write_arrow_convert_latency_ms = nullptr;
-    HistogramMetric* paimon_write_file_store_write_latency_ms = nullptr;
-    HistogramMetric* paimon_prepare_commit_latency_ms = nullptr;
-    HistogramMetric* paimon_serialize_commit_messages_latency_ms = nullptr;
-
     IntGauge* memory_pool_bytes_total = nullptr;
     IntGauge* process_thread_num = nullptr;
     IntGauge* process_fd_num_used = nullptr;

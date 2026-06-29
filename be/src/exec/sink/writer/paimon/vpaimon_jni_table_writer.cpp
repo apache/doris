@@ -23,7 +23,6 @@
 #include <arrow/record_batch.h>
 #include <arrow/type.h>
 
-#include "common/metrics/doris_metrics.h"
 #include "core/block/block.h"
 #include "exec/sink/writer/paimon/paimon_writer_utils.h"
 #include "format/arrow/arrow_block_convertor.h"
@@ -34,20 +33,10 @@
 #include "service/backend_options.h"
 #include "storage/options.h"
 #include "storage/storage_engine.h"
-#include "util/defer_op.h"
 #include "util/jni-util.h"
 #include "util/jni_native_method.h"
 
 namespace doris {
-
-namespace {
-uint64_t to_ms_ceil(int64_t ns) {
-    if (ns <= 0) {
-        return 0;
-    }
-    return static_cast<uint64_t>((ns + 999999) / 1000000);
-}
-} // namespace
 
 const std::string PAIMON_JNI_CLASS = "org/apache/doris/paimon/PaimonJniWriter";
 
@@ -270,21 +259,12 @@ Status VPaimonJniTableWriter::write(RuntimeState* state, ::doris::Block& block) 
     }
 
     SCOPED_TIMER(_send_data_timer);
-    int64_t send_data_ns = 0;
-    Defer record_send_data_latency {[&]() {
-        DorisMetrics::instance()->paimon_write_send_data_latency_ms->add(to_ms_ceil(send_data_ns));
-    }};
-    SCOPED_RAW_TIMER(&send_data_ns);
 
     ::doris::Block output_block;
-    int64_t project_ns = 0;
     {
         SCOPED_TIMER(_project_timer);
-        SCOPED_RAW_TIMER(&project_ns);
         RETURN_IF_ERROR(_projection_block(block, &output_block));
     }
-
-    DorisMetrics::instance()->paimon_write_project_latency_ms->add(to_ms_ceil(project_ns));
 
     RETURN_IF_ERROR(_append_to_buffer(output_block));
     if (_buffered_rows >= _batch_max_rows || _buffered_bytes >= _batch_max_bytes) {
@@ -302,18 +282,14 @@ Status VPaimonJniTableWriter::_write_projected_block(::doris::Block& block) {
 
     COUNTER_UPDATE(_written_rows_counter, block.rows());
     COUNTER_UPDATE(_written_bytes_counter, block.bytes());
-    DorisMetrics::instance()->paimon_write_rows->increment(block.rows());
-    DorisMetrics::instance()->paimon_write_bytes->increment(block.bytes());
 
     _state->update_num_rows_load_total(block.rows());
     _state->update_num_bytes_load_total(block.bytes());
 
     std::shared_ptr<arrow::Buffer> buffer;
-    int64_t arrow_convert_ns = 0;
     std::shared_ptr<arrow::Schema> arrow_schema;
     {
         SCOPED_TIMER(_arrow_convert_timer);
-        SCOPED_RAW_TIMER(&arrow_convert_ns);
 
         RETURN_IF_ERROR(get_arrow_schema_from_block(block, &arrow_schema, _state->timezone()));
 
@@ -346,27 +322,17 @@ Status VPaimonJniTableWriter::_write_projected_block(::doris::Block& block) {
         buffer = *buffer_res;
     }
 
-    DorisMetrics::instance()->paimon_write_arrow_convert_latency_ms->add(
-            to_ms_ceil(arrow_convert_ns));
-
     JNIEnv* env = nullptr;
     RETURN_IF_ERROR(_get_jni_env(&env));
 
     auto address = reinterpret_cast<jlong>(buffer->data());
     jint length = static_cast<jint>(buffer->size());
 
-    int64_t file_store_write_ns = 0;
     {
         SCOPED_TIMER(_file_store_write_timer);
-        SCOPED_RAW_TIMER(&file_store_write_ns);
         env->CallVoidMethod(_jni_writer_obj, _write_id, address, length);
     }
-    Status st = _check_jni_exception(env, "write");
-    if (st.ok()) {
-        DorisMetrics::instance()->paimon_write_file_store_write_latency_ms->add(
-                to_ms_ceil(file_store_write_ns));
-    }
-    return st;
+    return _check_jni_exception(env, "write");
 }
 
 Status VPaimonJniTableWriter::_append_to_buffer(const ::doris::Block& block) {
@@ -406,12 +372,6 @@ Status VPaimonJniTableWriter::close(Status status) {
     }
 
     SCOPED_TIMER(_close_timer);
-    auto to_ms_ceil = [](int64_t ns) -> uint64_t {
-        if (ns <= 0) {
-            return 0;
-        }
-        return static_cast<uint64_t>((ns + 999999) / 1000000);
-    };
 
     if (status.ok()) {
         Status flush_st = _flush_buffer();
@@ -427,32 +387,19 @@ Status VPaimonJniTableWriter::close(Status status) {
     std::vector<TPaimonCommitMessage> pending_commit_messages;
     if (status.ok()) {
         jobject j_payloads_obj = nullptr;
-        int64_t prepare_commit_ns = 0;
         {
             SCOPED_TIMER(_prepare_commit_timer);
-            SCOPED_RAW_TIMER(&prepare_commit_ns);
             j_payloads_obj = env->CallObjectMethod(_jni_writer_obj, _prepare_commit_id);
         }
         Status st = _check_jni_exception(env, "prepareCommit");
-        DorisMetrics::instance()->paimon_prepare_commit_latency_ms->add(
-                to_ms_ceil(prepare_commit_ns));
 
         if (st.ok() && j_payloads_obj != nullptr) {
             auto* j_payloads = (jobjectArray)j_payloads_obj;
             jsize num_payloads = env->GetArrayLength(j_payloads);
 
-            DorisMetrics::instance()->paimon_prepare_commit_messages->increment(num_payloads);
-            DorisMetrics::instance()->paimon_commit_payload_chunks->increment(num_payloads);
-
             pending_commit_messages.reserve(static_cast<size_t>(num_payloads));
-            int64_t serialize_ns = 0;
-            Defer record_serialize_commit_messages_latency {[&]() {
-                DorisMetrics::instance()->paimon_serialize_commit_messages_latency_ms->add(
-                        to_ms_ceil(serialize_ns));
-            }};
             {
                 SCOPED_TIMER(_serialize_commit_messages_timer);
-                SCOPED_RAW_TIMER(&serialize_ns);
 
                 for (jsize i = 0; i < num_payloads; ++i) {
                     jbyteArray j_bytes = (jbyteArray)env->GetObjectArrayElement(j_payloads, i);
