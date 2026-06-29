@@ -17,6 +17,7 @@
 
 package org.apache.doris.filesystem.s3;
 
+import org.apache.doris.filesystem.spi.ObjectStorageGlob;
 import org.apache.doris.filesystem.spi.S3CompatibleFileSystem;
 
 import java.util.List;
@@ -48,19 +49,19 @@ public class S3FileSystem extends S3CompatibleFileSystem {
     }
 
     @Override
-    protected String globListPrefix(String globPattern) {
+    protected String globListListingPrefix(String globPattern) {
         if (isDirectoryBucketEndpoint()) {
             return slashTerminatedNonGlobPrefix(globPattern);
         }
-        return super.globListPrefix(globPattern);
+        return super.globListListingPrefix(globPattern);
     }
 
     @Override
-    protected List<String> globListPrefixes(String globPattern, String listPrefix) {
+    protected List<String> globListObjectPrefixes(String globPattern, String listingPrefix) {
         if (isDirectoryBucketEndpoint()) {
-            return List.of(listPrefix);
+            return List.of(listingPrefix);
         }
-        return super.globListPrefixes(globPattern, listPrefix);
+        return super.globListObjectPrefixes(globPattern, listingPrefix);
     }
 
     private boolean isDirectoryBucketEndpoint() {
@@ -85,7 +86,7 @@ public class S3FileSystem extends S3CompatibleFileSystem {
     }
 
     protected static List<String> expandedGlobListPrefixes(String globPattern) {
-        return S3CompatibleFileSystem.expandedGlobListPrefixes(globPattern);
+        return ObjectStorageGlob.expandedGlobListPrefixes(globPattern);
     }
 
     protected static String globToRegex(String glob) {
