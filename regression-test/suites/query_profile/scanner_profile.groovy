@@ -62,20 +62,11 @@ suite('scanner_profile') {
         select "${token}", * from scanner_profile limit 10;
     """
     def profileAction = new ProfileAction(context)
-    def getProfileByToken = { pattern ->
-        List profileData = profileAction.getProfileList()
-        def profileContent = ""
-        for (final def profileItem in profileData) {
-            if (profileItem["Sql Statement"].toString().contains(pattern)) {
-                profileContent = profileAction.getProfile(profileItem["Profile ID"].toString())
-                break
-            }
-        }
-        return profileContent        
+    def getProfileByToken = { pattern, requiredContents ->
+        return profileAction.getProfileBySql(pattern, requiredContents)
     }
 
-    List profileData = profileAction.getProfileList()
-    def profileWithLimit1 = getProfileByToken(token)
+    def profileWithLimit1 = getProfileByToken(token, ["TaskCpuTime", "MaxScanConcurrency"])
     logger.info("${token} Profile Data: ${profileWithLimit1}")
     assertTrue(profileWithLimit1.toString().contains("- TaskCpuTime:"))
     assertTrue(profileWithLimit1.toString().contains("- MaxScanConcurrency: 1"))
@@ -85,7 +76,7 @@ suite('scanner_profile') {
         select "${token}", * from scanner_profile where id < 10;
     """
 
-    String profileWithFilter = getProfileByToken(token)
+    String profileWithFilter = getProfileByToken(token, ["TaskCpuTime", "ScannerCpuTime"])
     logger.info("${token} Profile Data: ${profileWithFilter}")
     assertTrue(profileWithFilter.toString().contains("- TaskCpuTime:"))
     assertTrue(profileWithFilter.toString().contains("- ScannerCpuTime:"))

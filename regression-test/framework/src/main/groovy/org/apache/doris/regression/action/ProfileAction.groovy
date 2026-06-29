@@ -26,6 +26,10 @@ import org.apache.doris.regression.util.JdbcUtils
 
 @Slf4j
 class ProfileAction implements SuiteAction {
+    private static final long DEFAULT_PROFILE_WAIT_TIMEOUT_MS = 10000
+    private static final long DEFAULT_PROFILE_WAIT_INTERVAL_MS = 500
+    private static final String PROFILE_COMPLETE = "Profile Completion State: COMPLETE"
+
     private String tag
     private Runnable runCallback
     private Closure<String> check
@@ -76,6 +80,26 @@ class ProfileAction implements SuiteAction {
         return profileData
     }
 
+    private String normalizeProfileText(String profileText) {
+        // Convert HTML entities and actual NBSPs to regular spaces,
+        // retain line breaks, and then compress multiple consecutive spaces into a single space.
+        profileText = profileText.replace("&nbsp;", " ")
+        profileText = profileText.replace("</br>", "\n")
+        profileText = profileText.replace('\u00A0' as char, ' ' as char)
+        return profileText.replaceAll(" {2,}", " ")
+    }
+
+    boolean isProfileReady(String profileText, List<String> requiredContents = []) {
+        if (profileText == null || profileText.isEmpty()) {
+            return false
+        }
+        if (requiredContents != null && !requiredContents.isEmpty()
+                && requiredContents.every { profileText.contains(it) }) {
+            return true
+        }
+        return profileText.contains(PROFILE_COMPLETE)
+    }
+
     String getProfile(String profileId) {
         def profileCli = new HttpCliAction(context)
         def addr = context.getFeHttpAddress()
@@ -97,18 +121,56 @@ class ProfileAction implements SuiteAction {
 
             def jsonSlurper2 = new JsonSlurper()
             def profileText = jsonSlurper2.parseText(profileResp).data
-            // Convert HTML entities and actual NBSPs to regular spaces, 
-            // retain line breaks, and then compress multiple consecutive spaces into a single space
-            profileText = profileText.replace("&nbsp;", " ")
-            profileText = profileText.replace("</br>", "\n")
-            // Replace the actual NBSP characters with regular spaces
-            profileText = profileText.replace('\u00A0' as char, ' ' as char)
-            // Compress two or more consecutive regular spaces into a single space (without affecting line breaks)
-            profileText = profileText.replaceAll(" {2,}", " ")
-            result.text = profileText
+            result.text = normalizeProfileText(profileText)
         }
         profileCli.run()
         return result.text
+    }
+
+    String getProfile(String profileId, List<String> requiredContents, long timeoutMs = DEFAULT_PROFILE_WAIT_TIMEOUT_MS,
+            long intervalMs = DEFAULT_PROFILE_WAIT_INTERVAL_MS) {
+        String profileText = ""
+        long deadline = System.currentTimeMillis() + timeoutMs
+        while (System.currentTimeMillis() <= deadline) {
+            profileText = getProfile(profileId)
+            if (isProfileReady(profileText, requiredContents)) {
+                return profileText
+            }
+            log.info("Profile {} is not ready, required contents: {}", profileId, requiredContents)
+            Thread.sleep(intervalMs)
+        }
+        return profileText
+    }
+
+    String getProfileBySql(String sqlPattern, List<String> requiredContents = [],
+            long timeoutMs = DEFAULT_PROFILE_WAIT_TIMEOUT_MS, long intervalMs = DEFAULT_PROFILE_WAIT_INTERVAL_MS) {
+        String profileId = ""
+        String profileText = ""
+        long deadline = System.currentTimeMillis() + timeoutMs
+        while (System.currentTimeMillis() <= deadline) {
+            for (final def profileItem in getProfileList()) {
+                if (profileItem["Sql Statement"].toString().contains(sqlPattern)) {
+                    profileId = profileItem["Profile ID"].toString()
+                    long remainingMs = Math.max(1, deadline - System.currentTimeMillis())
+                    profileText = getProfile(profileId, requiredContents, remainingMs, intervalMs)
+                    if (isProfileReady(profileText, requiredContents)) {
+                        return profileText
+                    }
+                    break
+                }
+            }
+            if (profileId == "") {
+                log.info("Profile with sql pattern {} is not found yet", sqlPattern)
+            } else {
+                log.info("Profile {} with sql pattern {} is not ready", profileId, sqlPattern)
+            }
+            Thread.sleep(intervalMs)
+        }
+
+        if (profileId == "") {
+            throw new IllegalStateException("Missing profile with sql pattern: " + sqlPattern)
+        }
+        return profileText
     }
 
     @Override
@@ -130,63 +192,7 @@ class ProfileAction implements SuiteAction {
                 exception = t
             }
 
-            def httpCli = new HttpCliAction(context)
-            def addr = context.getFeHttpAddress()
-            httpCli.endpoint("${addr.hostString}:${addr.port}")
-            httpCli.uri("/rest/v1/query_profile")
-            httpCli.op("get")
-            httpCli.printResponse(false)
-
-            if (context.config.isCloudMode()) {
-                httpCli.basicAuthorization(context.config.feCloudHttpUser, context.config.feCloudHttpPassword)
-            } else {
-                httpCli.basicAuthorization(context.config.feHttpUser, context.config.feHttpPassword)
-            }
-            httpCli.check { code, body ->
-                if (code != 200) {
-                    throw new IllegalStateException("Get profile list failed, code: ${code}, body:\n${body}")
-                }
-
-                def jsonSlurper = new JsonSlurper()
-                List profileData = jsonSlurper.parseText(body).data.rows
-                def canFindProfile = false;
-                for (final def profileItem in profileData) {
-                    if (profileItem["Sql Statement"].toString().contains(tag)) {
-                        canFindProfile = true
-                        def profileId = profileItem["Profile ID"].toString()
-
-                        def profileCli = new HttpCliAction(context)
-                        profileCli.endpoint("${addr.hostString}:${addr.port}")
-                        profileCli.uri("/rest/v1/query_profile/${profileId}")
-                        profileCli.op("get")
-                        profileCli.printResponse(false)
-
-                        if (context.config.isCloudMode()) {
-                            profileCli.basicAuthorization(context.config.feCloudHttpUser, context.config.feCloudHttpPassword)
-                        } else {
-                            profileCli.basicAuthorization(context.config.feHttpUser, context.config.feHttpPassword)
-                        }
-                        profileCli.check { profileCode, profileResp ->
-                            if (profileCode != 200) {
-                                throw new IllegalStateException("Get profile failed, url: ${"/rest/v1/query_profile/${profileId}"}, code: ${profileCode}, body:\n${profileResp}")
-                            }
-
-                            def jsonSlurper2 = new JsonSlurper()
-                            def profileText = jsonSlurper2.parseText(profileResp).data
-                            profileText = profileText.replace("&nbsp;", " ")
-                            profileText = profileText.replace("</br>", "\n")
-                            this.check(profileText, exception)
-                        }
-                        profileCli.run()
-
-                        break
-                    }
-                }
-                if (!canFindProfile) {
-                    throw new IllegalStateException("Missing profile with tag: " + tag)
-                }
-            }
-            httpCli.run()
+            this.check(getProfileBySql(tag), exception)
         } finally {
             JdbcUtils.executeToList(conn, "set enable_profile=false")
         }

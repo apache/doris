@@ -22,39 +22,10 @@ import org.apache.doris.regression.action.ProfileAction
 
 def verifyProfileContent = { suiteContext, stmt, serialReadOnLimit ->
     def profileAction = new ProfileAction(suiteContext)
-    String profileId = ""
-    String profileContent = ""
-    long deadline = System.currentTimeMillis() + 10000
-    while (System.currentTimeMillis() <= deadline) {
-        List profileData = profileAction.getProfileList()
-        for (def profileItem : profileData) {
-            if (profileItem["Sql Statement"].toString().contains(stmt)) {
-                profileId = profileItem["Profile ID"].toString()
-                break
-            }
-        }
-
-        if (profileId != "" && profileId != null) {
-            profileContent = profileAction.getProfile(profileId)
-            if (profileContent.contains("MaxScanConcurrency")
-                    || profileContent.contains("Profile Completion State: COMPLETE")) {
-                logger.info("Profile ID of ${stmt} is ${profileId}")
-                logger.info("Profile content of ${stmt} is\n${profileContent}")
-                break
-            }
-            logger.info("Profile of ${stmt} is not ready, profileId=${profileId}")
-        } else {
-            logger.info("Profile ID of ${stmt} is not found yet")
-        }
-        Thread.sleep(500)
-    }
-
-    if (profileId == "" || profileId == null) {
-        logger.error("Profile ID of ${stmt} is not found")
-        return false
-    }
+    String profileContent = profileAction.getProfileBySql(stmt, ["MaxScanConcurrency"])
+    logger.info("Profile content of ${stmt} is\n${profileContent}")
     if (!profileContent.contains("MaxScanConcurrency")) {
-        logger.error("Profile of ${stmt} does not contain MaxScanConcurrency, profileId=${profileId}, content:\n${profileContent}")
+        logger.error("Profile of ${stmt} does not contain MaxScanConcurrency, content:\n${profileContent}")
         return false
     }
     // Check if the profile contains the expected content
