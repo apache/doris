@@ -35,6 +35,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.common.util.DatasourcePrintableMap;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
 import org.apache.doris.common.util.SmallFileMgr;
@@ -733,6 +734,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         customProperties.forEach((key, value) -> {
             String lowerKey = key.toLowerCase(Locale.ROOT);
             boolean sensitive = KafkaConfiguration.SASL_JAAS_CONFIG.equalsIgnoreCase(key)
+                    || DatasourcePrintableMap.SENSITIVE_KEY.contains(key)
                     || lowerKey.endsWith(".password")
                     || lowerKey.endsWith(".secret")
                     || lowerKey.endsWith(".secret_key")

@@ -279,6 +279,9 @@ public class KafkaRoutineLoadJobTest {
         customProperties.put("ssl.key.pem", "key_pem_secret");
         customProperties.put("aws.secret_key", "aws_secret");
         customProperties.put("aws.session_key", "aws_session_secret");
+        customProperties.put("password", "bare_password_secret");
+        customProperties.put("secret_key", "bare_secret_key");
+        customProperties.put("session_token", "bare_session_token");
         Deencapsulation.setField(routineLoadJob, "customProperties", customProperties);
 
         String customPropertiesJson = routineLoadJob.customPropertiesJsonToString();
@@ -295,6 +298,9 @@ public class KafkaRoutineLoadJobTest {
         Assert.assertFalse(customPropertiesJson.contains("key_pem_secret"));
         Assert.assertFalse(customPropertiesJson.contains("aws_secret"));
         Assert.assertFalse(customPropertiesJson.contains("aws_session_secret"));
+        Assert.assertFalse(customPropertiesJson.contains("bare_password_secret"));
+        Assert.assertFalse(customPropertiesJson.contains("bare_secret_key"));
+        Assert.assertFalse(customPropertiesJson.contains("bare_session_token"));
         Assert.assertTrue(customPropertiesJson.contains("\"sasl.password\":\"******\""));
         Assert.assertTrue(customPropertiesJson.contains("\"sasl.jaas.config\":\"******\""));
         Assert.assertTrue(customPropertiesJson.contains("\"sasl.oauthbearer.client.secret\":\"******\""));
@@ -308,6 +314,9 @@ public class KafkaRoutineLoadJobTest {
         Assert.assertTrue(customPropertiesJson.contains("\"ssl.key.pem\":\"******\""));
         Assert.assertTrue(customPropertiesJson.contains("\"aws.secret_key\":\"******\""));
         Assert.assertTrue(customPropertiesJson.contains("\"aws.session_key\":\"******\""));
+        Assert.assertTrue(customPropertiesJson.contains("\"password\":\"******\""));
+        Assert.assertTrue(customPropertiesJson.contains("\"secret_key\":\"******\""));
+        Assert.assertTrue(customPropertiesJson.contains("\"session_token\":\"******\""));
         Assert.assertEquals("******", showCreateCustomProperties.get("property.sasl.password"));
         Assert.assertEquals("******", showCreateCustomProperties.get("property.sasl.jaas.config"));
         Assert.assertEquals("******", showCreateCustomProperties.get("property.sasl.oauthbearer.client.secret"));
@@ -322,6 +331,9 @@ public class KafkaRoutineLoadJobTest {
         Assert.assertEquals("******", showCreateCustomProperties.get("property.ssl.key.pem"));
         Assert.assertEquals("******", showCreateCustomProperties.get("property.aws.secret_key"));
         Assert.assertEquals("******", showCreateCustomProperties.get("property.aws.session_key"));
+        Assert.assertEquals("******", showCreateCustomProperties.get("property.password"));
+        Assert.assertEquals("******", showCreateCustomProperties.get("property.secret_key"));
+        Assert.assertEquals("******", showCreateCustomProperties.get("property.session_token"));
         Assert.assertEquals("doris", showCreateCustomProperties.get("property.sasl.username"));
         Assert.assertEquals("plain_secret", customProperties.get("sasl.password"));
     }
