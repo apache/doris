@@ -51,6 +51,7 @@ struct ParquetReaderScanState {
     const cctz::time_zone* timezone = nullptr;
     bool enable_bloom_filter = false;
     bool enable_page_cache = false;
+    bool enable_strict_mode = false;
 };
 
 int64_t column_chunk_start_offset(const ::parquet::ColumnChunkMetaData& column_metadata) {
@@ -329,8 +330,9 @@ Status ParquetReader::init(RuntimeState* state) {
             state != nullptr && state->query_options().enable_parquet_file_page_cache;
     if (state != nullptr) {
         _state->timezone = &state->timezone_obj();
+        _state->enable_strict_mode = state->enable_strict_mode();
         _state->scheduler.set_timezone(&state->timezone_obj());
-        _state->scheduler.set_enable_strict_mode(state->enable_strict_mode());
+        _state->scheduler.set_enable_strict_mode(_state->enable_strict_mode);
     }
     _state->scheduler.set_batch_size(_batch_size);
     // Open parquet file and parse metadata to get file schema.
