@@ -22,5 +22,6 @@ public enum TransactionType {
     HMS,
     ICEBERG,
     JDBC,
-    MAXCOMPUTE
+    MAXCOMPUTE,
+    PAIMON
 }

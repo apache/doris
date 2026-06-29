@@ -46,6 +46,7 @@ enum TDataSinkType {
     MAXCOMPUTE_TABLE_SINK = 18,
     ICEBERG_DELETE_SINK = 19,
     ICEBERG_MERGE_SINK = 20,
+    PAIMON_TABLE_SINK = 21,
 }
 
 enum TResultSinkType {
@@ -609,6 +610,23 @@ struct TMaxComputeTableSink {
     18: optional i64 txn_id                       // FE external transaction ID for runtime block_id allocation
 }
 
+struct TPaimonCommitMessage {
+    1: optional binary payload
+}
+
+struct TPaimonTableSink {
+    1: optional string catalog_name
+    2: optional string db_name
+    3: optional string tb_name
+    4: optional string table_location
+    5: optional map<string, string> options
+    6: optional list<string> partition_keys
+    7: optional list<string> bucket_keys
+    8: optional i32 bucket_num
+    9: optional list<string> column_names
+    10: optional string serialized_table
+}
+
 struct TDataSink {
   1: required TDataSinkType type
   2: optional TDataStreamSink stream_sink
@@ -629,4 +647,5 @@ struct TDataSink {
   18: optional TMaxComputeTableSink max_compute_table_sink
   19: optional TIcebergDeleteSink iceberg_delete_sink
   20: optional TIcebergMergeSink iceberg_merge_sink
+  21: optional TPaimonTableSink paimon_table_sink
 }

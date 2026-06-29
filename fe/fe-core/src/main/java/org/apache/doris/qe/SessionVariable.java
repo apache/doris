@@ -166,6 +166,15 @@ public class SessionVariable implements Serializable, Writable {
     public static final String BATCH_SIZE = "batch_size";
     public static final String BROKER_LOAD_BATCH_SIZE = "broker_load_batch_size";
     public static final String PREFERRED_BLOCK_SIZE_BYTES = "preferred_block_size_bytes";
+    public static final String ENABLE_PAIMON_ADAPTIVE_BUFFER_SIZE = "enable_paimon_adaptive_buffer_size";
+    public static final String PAIMON_TARGET_FILE_SIZE = "paimon_target_file_size";
+    public static final String PAIMON_WRITE_BUFFER_SIZE = "paimon_write_buffer_size";
+    public static final String ENABLE_PAIMON_JNI_SPILL = "enable_paimon_jni_spill";
+    public static final String PAIMON_SPILL_MAX_DISK_SIZE = "paimon_spill_max_disk_size";
+    public static final String PAIMON_SPILL_SORT_BUFFER_SIZE = "paimon_spill_sort_buffer_size";
+    public static final String PAIMON_SPILL_SORT_THRESHOLD = "paimon_spill_sort_threshold";
+    public static final String PAIMON_SPILL_COMPRESSION = "paimon_spill_compression";
+    public static final String PAIMON_GLOBAL_MEMORY_POOL_SIZE = "paimon_global_memory_pool_size";
     public static final String DISABLE_STREAMING_PREAGGREGATIONS = "disable_streaming_preaggregations";
     public static final String ENABLE_DISTINCT_STREAMING_AGGREGATION = "enable_distinct_streaming_aggregation";
     public static final String ENABLE_STREAMING_AGG_HASH_JOIN_FORCE_PASSTHROUGH =
@@ -1207,6 +1216,36 @@ public class SessionVariable implements Serializable, Writable {
 
     @VarAttrDef.VarAttr(name = INSERT_TIMEOUT, needForward = true)
     public int insertTimeoutS = 14400;
+
+    @VarAttrDef.VarAttr(name = "enable_paimon_jni_compact", needForward = true)
+    public boolean enablePaimonJniCompact = false;
+
+    @VarAttrDef.VarAttr(name = ENABLE_PAIMON_ADAPTIVE_BUFFER_SIZE, needForward = true)
+    public boolean enablePaimonAdaptiveBufferSize = false;
+
+    @VarAttrDef.VarAttr(name = PAIMON_TARGET_FILE_SIZE, needForward = true)
+    public long paimonTargetFileSize = 268435456L;
+
+    @VarAttrDef.VarAttr(name = PAIMON_WRITE_BUFFER_SIZE, needForward = true)
+    public long paimonWriteBufferSize = 268435456L;
+
+    @VarAttrDef.VarAttr(name = ENABLE_PAIMON_JNI_SPILL, needForward = true)
+    public boolean enablePaimonJniSpill = false;
+
+    @VarAttrDef.VarAttr(name = PAIMON_SPILL_MAX_DISK_SIZE, needForward = true)
+    public long paimonSpillMaxDiskSize = 53687091200L;
+
+    @VarAttrDef.VarAttr(name = PAIMON_SPILL_SORT_BUFFER_SIZE, needForward = true)
+    public long paimonSpillSortBufferSize = 67108864L;
+
+    @VarAttrDef.VarAttr(name = PAIMON_SPILL_SORT_THRESHOLD, needForward = true)
+    public int paimonSpillSortThreshold = 10;
+
+    @VarAttrDef.VarAttr(name = PAIMON_SPILL_COMPRESSION, needForward = true)
+    public String paimonSpillCompression = "zstd";
+
+    @VarAttrDef.VarAttr(name = PAIMON_GLOBAL_MEMORY_POOL_SIZE, needForward = true)
+    public long paimonGlobalMemoryPoolSize = 1073741824L;
 
     // if true, need report to coordinator when plan fragment execute successfully.
     @VarAttrDef.VarAttr(name = ENABLE_PROFILE, needForward = true)
@@ -5585,6 +5624,15 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setReturnObjectDataAsBinary(returnObjectDataAsBinary);
         tResult.setTrimTailingSpacesForExternalTableQuery(trimTailingSpacesForExternalTableQuery);
         tResult.setEnableShareHashTableForBroadcastJoin(enableShareHashTableForBroadcastJoin);
+        tResult.setEnablePaimonAdaptiveBufferSize(enablePaimonAdaptiveBufferSize);
+        tResult.setPaimonTargetFileSize(paimonTargetFileSize);
+        tResult.setPaimonWriteBufferSize(paimonWriteBufferSize);
+        tResult.setEnablePaimonJniSpill(enablePaimonJniSpill);
+        tResult.setPaimonSpillMaxDiskSize(paimonSpillMaxDiskSize);
+        tResult.setPaimonSpillSortBufferSize(paimonSpillSortBufferSize);
+        tResult.setPaimonSpillSortThreshold(paimonSpillSortThreshold);
+        tResult.setPaimonSpillCompression(paimonSpillCompression);
+        tResult.setPaimonGlobalMemoryPoolSize(paimonGlobalMemoryPoolSize);
 
         tResult.setBatchSize(batchSize);
         tResult.setPreferredBlockSizeBytes(preferredBlockSizeBytes);

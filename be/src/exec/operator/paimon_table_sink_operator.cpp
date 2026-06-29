@@ -15,37 +15,20 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.plans.commands.insert;
+#include "exec/operator/paimon_table_sink_operator.h"
 
-/**
- * For Base External Table
- */
-public class BaseExternalTableInsertCommandContext extends InsertCommandContext {
-    protected boolean overwrite = false;
-    protected long txnId = -1L;
-    protected String commitUser = "";
+#include "common/status.h"
 
-    public boolean isOverwrite() {
-        return overwrite;
-    }
+namespace doris {
 
-    public void setOverwrite(boolean overwrite) {
-        this.overwrite = overwrite;
-    }
+Status PaimonTableSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
+    RETURN_IF_ERROR(Base::init(state, info));
+    SCOPED_TIMER(exec_time_counter());
+    SCOPED_TIMER(_init_timer);
 
-    public long getTxnId() {
-        return txnId;
-    }
-
-    public void setTxnId(long txnId) {
-        this.txnId = txnId;
-    }
-
-    public String getCommitUser() {
-        return commitUser;
-    }
-
-    public void setCommitUser(String commitUser) {
-        this.commitUser = commitUser;
-    }
+    auto& p = _parent->cast<Parent>();
+    RETURN_IF_ERROR(_writer->init_properties(p._pool));
+    return Status::OK();
 }
+
+} // namespace doris

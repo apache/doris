@@ -15,37 +15,28 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.plans.commands.insert;
+#pragma once
 
-/**
- * For Base External Table
- */
-public class BaseExternalTableInsertCommandContext extends InsertCommandContext {
-    protected boolean overwrite = false;
-    protected long txnId = -1L;
-    protected String commitUser = "";
+#include <algorithm>
+#include <cstdint>
 
-    public boolean isOverwrite() {
-        return overwrite;
+namespace doris {
+
+inline int64_t get_paimon_write_buffer_size(int64_t configured_buffer_size, bool enable_adaptive,
+                                            int32_t bucket_num) {
+    if (!enable_adaptive || bucket_num <= 0) {
+        return configured_buffer_size;
     }
-
-    public void setOverwrite(boolean overwrite) {
-        this.overwrite = overwrite;
+    if (bucket_num >= 500) {
+        return std::min(configured_buffer_size, 32L * 1024L * 1024L);
     }
-
-    public long getTxnId() {
-        return txnId;
+    if (bucket_num >= 200) {
+        return std::min(configured_buffer_size, 64L * 1024L * 1024L);
     }
-
-    public void setTxnId(long txnId) {
-        this.txnId = txnId;
+    if (bucket_num >= 50) {
+        return std::min(configured_buffer_size, 128L * 1024L * 1024L);
     }
-
-    public String getCommitUser() {
-        return commitUser;
-    }
-
-    public void setCommitUser(String commitUser) {
-        this.commitUser = commitUser;
-    }
+    return configured_buffer_size;
 }
+
+} // namespace doris

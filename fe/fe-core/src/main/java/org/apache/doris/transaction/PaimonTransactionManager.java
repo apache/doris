@@ -15,37 +15,29 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.plans.commands.insert;
+package org.apache.doris.transaction;
+
+import org.apache.doris.datasource.paimon.PaimonMetadataOps;
+import org.apache.doris.datasource.paimon.PaimonTransaction;
 
 /**
- * For Base External Table
+ * Transaction manager for Paimon external tables.
+ *
+ * This is a thin wrapper around {@link PaimonTransaction}. BE writers
+ * produce commit payloads, while FE tracks the transaction lifecycle
+ * and performs the final payload aggregation and commit.
  */
-public class BaseExternalTableInsertCommandContext extends InsertCommandContext {
-    protected boolean overwrite = false;
-    protected long txnId = -1L;
-    protected String commitUser = "";
+public class PaimonTransactionManager extends AbstractExternalTransactionManager<PaimonTransaction> {
 
-    public boolean isOverwrite() {
-        return overwrite;
+    private final PaimonMetadataOps paimonOps;
+
+    public PaimonTransactionManager(PaimonMetadataOps ops) {
+        super(ops);
+        this.paimonOps = ops;
     }
 
-    public void setOverwrite(boolean overwrite) {
-        this.overwrite = overwrite;
-    }
-
-    public long getTxnId() {
-        return txnId;
-    }
-
-    public void setTxnId(long txnId) {
-        this.txnId = txnId;
-    }
-
-    public String getCommitUser() {
-        return commitUser;
-    }
-
-    public void setCommitUser(String commitUser) {
-        this.commitUser = commitUser;
+    @Override
+    PaimonTransaction createTransaction() {
+        return new PaimonTransaction(paimonOps);
     }
 }
