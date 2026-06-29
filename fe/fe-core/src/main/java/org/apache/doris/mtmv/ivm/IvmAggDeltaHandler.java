@@ -101,7 +101,7 @@ class IvmAggDeltaHandler {
      * Intermediate result from {@link #buildDeltaSubPlan}.
      * Carries the delta aggregate project plus slot mappings needed by {@link #buildApplyPlan}.
      */
-    private static final class DeltaPlanParts {
+    static final class DeltaPlanParts {
         /** Top project above the delta aggregate: [row_id, group_keys, delta_agg_outputs...] */
         private final LogicalProject<?> topDeltaProject;
         /** Row-id slot from the top project (hash of group keys, or 0 for scalar). */
@@ -124,17 +124,16 @@ class IvmAggDeltaHandler {
     }
 
     /**
-     * Core entry point: builds the entire agg delta + apply plan.
+     * Rewrites an aggregate subtree for IVM delta refresh.
      *
-     * <p>Steps:
-     * 1. Validates normalize result and aggregate metadata exist.
-     * 2. Walks the aggregate's child subtree to inject dml_factor (via super's visitor).
-     * 3. Builds the delta sub-plan (signed aggregate).
-     * 4. Builds the apply plan (RIGHT JOIN + state merge + visible derivation + dml_factor).
-     * 5. Returns IvmDeltaRewriteResult with the apply plan's dml_factor.
+     * <p>Takes a pre-processed child where dml_factor is already injected by the visitor
+     * on each branch before UNION ALL merging, and is called directly by
+     * {@code IvmDeltaRewriter} after the AGG is re-attached on top of the merged child.
      */
-    IvmDeltaRewriteResult rewriteAggregate(LogicalAggregate<? extends Plan> agg,
-            IvmDeltaRewriteVisitor visitor, IvmRefreshContext context) {
+    IvmDeltaRewriteResult rewriteAggregate(
+            LogicalAggregate<? extends Plan> agg,
+            IvmDeltaRewriteResult childResult,
+            IvmRefreshContext context) {
         IvmNormalizeResult normalizeResult = context.getNormalizeResult();
         if (normalizeResult == null) {
             throw new AnalysisException("IVM agg delta rewrite requires normalize result");
@@ -143,10 +142,6 @@ class IvmAggDeltaHandler {
         if (aggMeta == null) {
             throw new AnalysisException("IVM agg delta rewrite requires aggregate metadata");
         }
-
-        // Walk agg child to inject dml_factor
-        IvmDeltaRewriteResult childResult = agg.child().accept(visitor, context);
-
         DeltaPlanParts delta = buildDeltaSubPlan(agg, childResult, aggMeta);
         LogicalProject<?> applyProject = buildApplyPlan(agg, delta, aggMeta, context);
         Slot dmlFactorSlot = helper.findSlotByName(applyProject.getOutput(), Column.IVM_DML_FACTOR_COL);
@@ -181,7 +176,7 @@ class IvmAggDeltaHandler {
      * 1. Compute row_id (hash of group keys for grouped, 0 for scalar).
      * 2. Apply COALESCE to NULL-susceptible outputs (SUM may return NULL for all-NULL groups).
      */
-    private DeltaPlanParts buildDeltaSubPlan(LogicalAggregate<?> normalizedAgg,
+    DeltaPlanParts buildDeltaSubPlan(LogicalAggregate<?> normalizedAgg,
             IvmDeltaRewriteResult childResult, IvmAggMeta aggMeta) {
         Plan newAggChild = childResult.plan;
         Slot dmlFactorSlot = childResult.dmlFactorSlot;
@@ -271,7 +266,7 @@ class IvmAggDeltaHandler {
      * <p>Net-zero filter (grouped only): NOT(mv.row_id IS NULL AND delta_group_count <= 0)
      * prevents inserting delete-sign rows for groups that never existed in the MV.
      */
-    private LogicalProject<?> buildApplyPlan(LogicalAggregate<?> normalizedAgg,
+    LogicalProject<?> buildApplyPlan(LogicalAggregate<?> normalizedAgg,
             DeltaPlanParts delta, IvmAggMeta aggMeta, IvmRefreshContext ctx) {
         LogicalOlapScan rawMvScan = buildMvScan(ctx.getMtmv(), ctx);
         LogicalPlan mvPlan = BindRelation.checkAndAddDeleteSignFilter(

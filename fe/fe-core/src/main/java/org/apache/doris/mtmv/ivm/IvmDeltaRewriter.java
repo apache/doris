@@ -27,19 +27,26 @@ import org.apache.doris.catalog.stream.OlapTableStreamWrapper;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.info.TableNameInfoUtils;
 import org.apache.doris.mtmv.MTMVPartitionUtil;
+import org.apache.doris.mtmv.ivm.agg.IvmAggMeta;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.ExprId;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
+import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.Command;
+import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableStreamScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -71,17 +78,173 @@ import java.util.function.Predicate;
  */
 public class IvmDeltaRewriter {
 
-    /** Rewrites the normalized plan into a list of delta commands. */
+    private final IvmDeltaRewriteHelper helper = IvmDeltaRewriteHelper.INSTANCE;
+    private final IvmAggDeltaHandler aggHandler = new IvmAggDeltaHandler();
+
+    /** Rewrites the normalized plan into a single merged delta command. */
     public List<Command> rewrite(Plan normalizedPlan, IvmRefreshContext ctx) {
         Set<TableNameInfo> excluded = ctx.getMtmv().getExcludedTriggerTables();
         Predicate<LogicalOlapScan> isExcluded = scan -> isExcludedTriggerTable(scan, excluded);
-        List<Plan> deltaPlans = generateDeltaPlans(normalizedPlan, ctx, isExcluded);
-
-        List<Command> allCommands = new ArrayList<>();
-        for (Plan deltaPlan : deltaPlans) {
-            allCommands.addAll(IvmDeltaCommandBuilder.INSTANCE.rewrite(deltaPlan, ctx));
+        Plan mergedPlan = generateMergedDeltaPlan(normalizedPlan, ctx, isExcluded, false);
+        if (mergedPlan == null) {
+            return Collections.emptyList();
         }
-        return allCommands;
+        // sink + command
+        Slot dmlSlot = helper.findSlotByName(mergedPlan.getOutput(), Column.IVM_DML_FACTOR_COL);
+        IvmDeltaRewriteResult finalResult = new IvmDeltaRewriteResult(mergedPlan, dmlSlot);
+        Plan sinkPlan = helper.buildSinkProject(finalResult, ctx);
+        return ImmutableList.of(IvmDeltaCommandBuilder.INSTANCE.buildCommandWithDeleteSign(sinkPlan, ctx));
+    }
+
+    /**
+     * Generates the merged delta plan (without INSERT wrapper) for EXPLAIN or execution.
+     *
+     * @param includeUpToDate if true, includes delta plans for up-to-date streams (EXPLAIN).
+     *                         if false, skips them (execution).
+     * @return merged plan, or null if no delta plans are available
+     */
+    Plan generateMergedDeltaPlan(Plan normalizedPlan, IvmRefreshContext ctx,
+            Predicate<LogicalOlapScan> isExcluded, boolean includeUpToDate) {
+        // --- Step 0: strip result sink, check AGG ---
+        Plan rootPlan = helper.stripResultSink(normalizedPlan);
+        IvmAggMeta aggMeta = ctx.getNormalizeResult() != null
+                ? ctx.getNormalizeResult().getAggMeta() : null;
+        boolean isAgg = aggMeta != null;
+
+        // --- Step 1 (AGG only): detach entire chain above+including AGG ---
+        LogicalAggregate<?> savedAgg = null;
+        List<LogicalProject<?>> savedChain = new ArrayList<>();
+        Plan workPlan = rootPlan;
+        if (isAgg) {
+            Plan current = rootPlan;
+            while (current != null && !(current instanceof LogicalAggregate)) {
+                Preconditions.checkState(current instanceof LogicalProject,
+                        "IVM: unexpected node above AGG: " + current.getClass().getSimpleName());
+                savedChain.add((LogicalProject<?>) current);
+                current = current.child(0);
+            }
+            Preconditions.checkState(current instanceof LogicalAggregate,
+                    "IVM: AGG MV missing aggregate node");
+            savedAgg = (LogicalAggregate<?>) current;
+            workPlan = savedAgg.child(0);
+        }
+
+        // --- Step 2: generate delta plans from workPlan ---
+        List<Plan> deltaPlans = generateDeltaPlans(workPlan, ctx, isExcluded, includeUpToDate);
+        if (deltaPlans.isEmpty()) {
+            return null;
+        }
+
+        // --- Step 3: per-table visitor rewrite ---
+        // Each delta plan is an independent subtree whose ExprIds come from the same
+        // normalized plan ancestor. helper.buildUnionAll creates synthetic output slots
+        // so children's overlapping ExprIds do not leak into the union output.
+        IvmDeltaRewriteVisitor visitor = new IvmDeltaRewriteVisitor();
+        List<Plan> rewrittenPlans = new ArrayList<>();
+        for (Plan deltaPlan : deltaPlans) {
+            IvmDeltaRewriteResult result = visitor.rewritePlan(deltaPlan, ctx);
+            rewrittenPlans.add(result.plan);
+        }
+
+        // --- Step 4: UNION ALL ---
+        Plan mergedPlan;
+        if (rewrittenPlans.size() == 1) {
+            mergedPlan = rewrittenPlans.get(0);
+        } else {
+            mergedPlan = helper.buildUnionAll(rewrittenPlans);
+        }
+
+        // --- Step 5 (AGG only): re-attach AGG, call aggHandler directly ---
+        if (isAgg) {
+            mergedPlan = reattachAggAndProcess(savedAgg, workPlan, mergedPlan, aggMeta, ctx);
+            // --- Step 6 (AGG only): rebuild above-AGG chain bottom-up ---
+            mergedPlan = rebuildAboveAggChain(savedChain, mergedPlan);
+        }
+
+        return mergedPlan;
+    }
+
+    // ---------------------------------------------------------------------------
+    // AGG chain detach / re-attach helpers
+    // ---------------------------------------------------------------------------
+
+    /**
+     * Remaps the saved aggregate's group-by and output expressions from old child output slots
+     * to merged plan output slots, then calls {@link IvmAggDeltaHandler#rewriteAggregate}.
+     */
+    private Plan reattachAggAndProcess(LogicalAggregate<?> savedAgg, Plan aggChild,
+            Plan mergedPlan, IvmAggMeta aggMeta, IvmRefreshContext ctx) {
+        // Build positional map: aggChild old output → mergedPlan new output
+        Map<ExprId, ExprId> mapping = buildPositionalMap(aggChild.getOutput(), mergedPlan.getOutput());
+        LogicalAggregate<?> remappedAgg = remapAggSlots(savedAgg, mapping);
+        Slot dmlSlot = helper.findSlotByName(mergedPlan.getOutput(), Column.IVM_DML_FACTOR_COL);
+        IvmDeltaRewriteResult childResult = new IvmDeltaRewriteResult(mergedPlan, dmlSlot);
+        return aggHandler.rewriteAggregate(remappedAgg, childResult, ctx).plan;
+    }
+
+    /** Remaps group-by and output expressions of the aggregate node. */
+    private LogicalAggregate<?> remapAggSlots(LogicalAggregate<?> agg, Map<ExprId, ExprId> mapping) {
+        List<Expression> newGroupBy = new ArrayList<>();
+        for (Expression expr : agg.getGroupByExpressions()) {
+            newGroupBy.add(remapExprId(expr, mapping));
+        }
+        List<NamedExpression> newOutputs = new ArrayList<>();
+        for (NamedExpression expr : agg.getOutputExpressions()) {
+            newOutputs.add((NamedExpression) remapExprId(expr, mapping));
+        }
+        return agg.withGroupByAndOutput(newGroupBy, newOutputs);
+    }
+
+    /**
+     * Rebuilds the above-AGG chain bottom-up, remapping expressions and passing dml_factor
+     * through each project (matching what {@code IvmLinearDeltaHandler} does in the visitor).
+     */
+    private Plan rebuildAboveAggChain(List<LogicalProject<?>> savedChain, Plan applyPlan) {
+        Plan currentPlan = applyPlan;
+        Slot dmlSlot = helper.findSlotByName(currentPlan.getOutput(), Column.IVM_DML_FACTOR_COL);
+        for (int i = savedChain.size() - 1; i >= 0; i--) {
+            LogicalProject<?> savedProj = savedChain.get(i);
+            List<Slot> oldChildOut = savedProj.child(0).getOutput();
+            List<Slot> newChildOut = currentPlan.getOutput();
+            Map<ExprId, ExprId> mapping = buildPositionalMap(oldChildOut, newChildOut);
+            currentPlan = rebuildProjectNode(savedProj, currentPlan, mapping, dmlSlot);
+            dmlSlot = helper.findSlotByName(currentPlan.getOutput(), Column.IVM_DML_FACTOR_COL);
+        }
+        return currentPlan;
+    }
+
+    /** Rebuilds a single saved project node remapping its expressions and adding dml_factor. */
+    private LogicalProject<?> rebuildProjectNode(LogicalProject<?> savedProj, Plan newChild,
+            Map<ExprId, ExprId> mapping, Slot dmlSlot) {
+        List<NamedExpression> newExprs = new ArrayList<>();
+        for (NamedExpression expr : savedProj.getProjects()) {
+            newExprs.add((NamedExpression) remapExprId(expr, mapping));
+        }
+        newExprs.add(new Alias(dmlSlot, dmlSlot.getName()));
+        return new LogicalProject<>(ImmutableList.copyOf(newExprs), newChild);
+    }
+
+    /** Builds a positional ExprId map from old output slots to new output slots. */
+    private Map<ExprId, ExprId> buildPositionalMap(List<Slot> oldOutput, List<Slot> newOutput) {
+        Map<ExprId, ExprId> map = new HashMap<>();
+        for (int i = 0; i < oldOutput.size(); i++) {
+            map.put(oldOutput.get(i).getExprId(), newOutput.get(i).getExprId());
+        }
+        return map;
+    }
+
+    /** Replaces SlotReference ExprIds in an expression tree using the given mapping. */
+    private Expression remapExprId(Expression expr, Map<ExprId, ExprId> map) {
+        return expr.accept(new DefaultExpressionRewriter<Map<ExprId, ExprId>>() {
+            @Override
+            public Expression visitSlotReference(SlotReference slot, Map<ExprId, ExprId> ctx) {
+                ExprId newId = ctx.get(slot.getExprId());
+                if (newId != null) {
+                    return slot.withExprId(newId);
+                }
+                return slot;
+            }
+        }, map);
     }
 
     /**
@@ -100,10 +263,11 @@ public class IvmDeltaRewriter {
      */
     List<Plan> generateDeltaPlans(Plan normalizedPlan,
             IvmRefreshContext ctx,
-            Predicate<LogicalOlapScan> isExcluded) {
+            Predicate<LogicalOlapScan> isExcluded,
+            boolean includeUpToDate) {
         long mvId = ctx.getMtmv().getId();
         List<DeltaPlanContext> deltaPlanContexts = generateDeltaPlanContexts(normalizedPlan, ctx,
-                isExcluded, false, mvId);
+                isExcluded, includeUpToDate, mvId);
         if (deltaPlanContexts.isEmpty()) {
             return Collections.emptyList();
         }
@@ -134,32 +298,6 @@ public class IvmDeltaRewriter {
             deltaPlanContexts.add(new DeltaPlanContext(scanContext, deltaPlan));
         }
         return deltaPlanContexts;
-    }
-
-    /**
-     * Generates dry-run delta bundles for EXPLAIN. Unlike execution, this includes
-     * up-to-date streams so users can inspect the delta plan shape even when a base
-     * table currently has no pending rows.
-     */
-    List<IvmDeltaExplainBundle> generateDeltaExplainBundles(Plan normalizedPlan,
-            IvmRefreshContext ctx,
-            Predicate<LogicalOlapScan> isExcluded) {
-        List<DeltaPlanContext> deltaPlanContexts = generateDeltaPlanContexts(normalizedPlan, ctx,
-                isExcluded, true, ctx.getMtmv().getId());
-        if (deltaPlanContexts.isEmpty()) {
-            return Collections.emptyList();
-        }
-
-        List<IvmDeltaExplainBundle> bundles = new ArrayList<>();
-        for (int i = 0; i < deltaPlanContexts.size(); i++) {
-            DeltaPlanContext deltaPlanContext = deltaPlanContexts.get(i);
-            DeltaScanContext scanContext = deltaPlanContext.scanContext;
-            bundles.add(new IvmDeltaExplainBundle(i + 1, scanContext.tableNameInfo,
-                    scanContext.occurrence, scanContext.consumedTso,
-                    scanContext.latestTso, scanContext.isUpToDate(),
-                    deltaPlanContext.deltaPlan));
-        }
-        return bundles;
     }
 
     private List<DeltaScanContext> collectDeltaScanContexts(Plan normalizedPlan,

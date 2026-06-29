@@ -140,10 +140,9 @@ public class IvmRefreshManager {
         IvmRefreshContext rewriteCtx = new IvmRefreshContext(
                 mtmv, context.getConnectContext(), normalizeResult);
         IvmDeltaRewriter rewriter = new IvmDeltaRewriter();
-        List<IvmDeltaExplainBundle> bundles = rewriter
-                .generateDeltaExplainBundles(normalizedPlan, rewriteCtx,
-                        scan -> rewriter.isExcludedTriggerTable(scan, mtmv.getExcludedTriggerTables()));
-        return new IvmRefreshExplainResult(normalizedPlan, bundles);
+        Plan mergedDeltaPlan = rewriter.generateMergedDeltaPlan(normalizedPlan, rewriteCtx,
+                scan -> rewriter.isExcludedTriggerTable(scan, mtmv.getExcludedTriggerTables()), true);
+        return new IvmRefreshExplainResult(normalizedPlan, mergedDeltaPlan);
     }
 
     @VisibleForTesting
