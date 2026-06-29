@@ -298,7 +298,7 @@ Status VPaimonJniTableWriter::_append_to_buffer(const ::doris::Block& block) {
         _buffered_rows = 0;
         _buffered_bytes = 0;
     }
-    auto columns = _buffer->mutate_columns();
+    auto columns = std::move(*_buffer).mutate_columns();
     const int cols = block.columns();
     const size_t rows = block.rows();
     for (int col = 0; col < cols; ++col) {

@@ -614,6 +614,8 @@ public:
         _obj = nullptr;
     }
 
+    jobject get() const { return _obj; }
+
     template <RefType T>
     bool equal(JNIEnv* env, const Object<T>& other) {
         DCHECK(!uninitialized());
