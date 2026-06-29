@@ -681,7 +681,25 @@ bool FileScannerV2::_should_enable_adaptive_batch_size(TFileFormatType::type for
     if (!config::enable_adaptive_batch_size) {
         return false;
     }
-    return format_type == TFileFormatType::FORMAT_PARQUET;
+    switch (format_type) {
+    case TFileFormatType::FORMAT_PARQUET:
+    case TFileFormatType::FORMAT_ORC:
+    case TFileFormatType::FORMAT_CSV_PLAIN:
+    case TFileFormatType::FORMAT_CSV_GZ:
+    case TFileFormatType::FORMAT_CSV_BZ2:
+    case TFileFormatType::FORMAT_CSV_LZ4FRAME:
+    case TFileFormatType::FORMAT_CSV_LZ4BLOCK:
+    case TFileFormatType::FORMAT_CSV_LZOP:
+    case TFileFormatType::FORMAT_CSV_DEFLATE:
+    case TFileFormatType::FORMAT_CSV_SNAPPYBLOCK:
+    case TFileFormatType::FORMAT_PROTO:
+    case TFileFormatType::FORMAT_TEXT:
+    case TFileFormatType::FORMAT_JSON:
+    case TFileFormatType::FORMAT_JNI:
+        return true;
+    default:
+        return false;
+    }
 }
 
 bool FileScannerV2::_should_run_adaptive_batch_size() const {
