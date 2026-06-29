@@ -23,7 +23,10 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.DatasourcePrintableMap;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
+import org.apache.doris.datasource.metacache.NameCacheValue;
 import org.apache.doris.datasource.test.TestExternalCatalog;
+import org.apache.doris.datasource.test.TestExternalDatabase;
+import org.apache.doris.datasource.test.TestExternalTable;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.CreateCatalogCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -401,6 +404,45 @@ public class ExternalCatalogTest extends TestWithFeService {
         Assertions.assertTrue(includeTableMap.get("db2").contains("tbl3"));
     }
 
+    @Test
+    public void testIncrementalDatabaseRegisterDoesNotPreheatColdCache() {
+        IncrementalUpdateCatalog catalog = new IncrementalUpdateCatalog();
+        catalog.setInitializedForTest(true);
+
+        TestExternalDatabase db = new TestExternalDatabase(catalog, 100L, "db_new", "db_new");
+        Assertions.assertNull(catalog.getCachedDatabaseNamesForTest());
+        Assertions.assertNull(catalog.getCachedDatabaseForTest("db_new"));
+        Assertions.assertNull(catalog.getCachedDatabaseNameByIdForTest(100L));
+
+        catalog.simulateIncrementalRegisterDatabase(db);
+
+        Assertions.assertNull(catalog.getCachedDatabaseNamesForTest());
+        Assertions.assertNull(catalog.getCachedDatabaseForTest("db_new"));
+        Assertions.assertNull(catalog.getCachedDatabaseNameByIdForTest(100L));
+        Assertions.assertTrue(catalog.getDbForReplay("db_new").isEmpty());
+    }
+
+    @Test
+    public void testIncrementalTableRegisterDoesNotPreheatColdCache() {
+        IncrementalUpdateCatalog catalog = new IncrementalUpdateCatalog();
+        catalog.setInitializedForTest(true);
+
+        IncrementalUpdateDatabase db = new IncrementalUpdateDatabase(catalog, 200L, "db1", "db1");
+        db.setInitializedForTest(true);
+        TestExternalTable table = new TestExternalTable(300L, "tbl_new", "tbl_new", catalog, db);
+
+        Assertions.assertNull(db.getCachedTableNamesForTest());
+        Assertions.assertNull(db.getCachedTableForTest("tbl_new"));
+        Assertions.assertNull(db.getCachedTableNameByIdForTest(300L));
+
+        db.registerTable(table);
+
+        Assertions.assertNull(db.getCachedTableNamesForTest());
+        Assertions.assertNull(db.getCachedTableForTest("tbl_new"));
+        Assertions.assertNull(db.getCachedTableNameByIdForTest(300L));
+        Assertions.assertTrue(db.getTableForReplay("tbl_new").isEmpty());
+    }
+
     public static class RefreshCatalogProvider implements TestExternalCatalog.TestCatalogProvider {
         public static final Map<String, Map<String, List<Column>>> MOCKED_META;
 
@@ -429,6 +471,47 @@ public class ExternalCatalogTest extends TestWithFeService {
         @Override
         public Map<String, Map<String, List<Column>>> getMetadata() {
             return MOCKED_META;
+        }
+    }
+
+    public static class IncrementalCatalogProvider implements TestExternalCatalog.TestCatalogProvider {
+        @Override
+        public Map<String, Map<String, List<Column>>> getMetadata() {
+            return Maps.newHashMap();
+        }
+    }
+
+    private static class IncrementalUpdateCatalog extends TestExternalCatalog {
+        IncrementalUpdateCatalog() {
+            super(1000L, "incremental_test", "", buildIncrementalCatalogProps(), "");
+        }
+
+        void simulateIncrementalRegisterDatabase(TestExternalDatabase db) {
+            updateDatabaseCache(db.getId(), db.getRemoteName(), db.getFullName(), db);
+        }
+
+        NameCacheValue getCachedDatabaseNamesForTest() {
+            return databaseNames == null ? null : databaseNames.getIfPresent("");
+        }
+
+        ExternalDatabase<? extends ExternalTable> getCachedDatabaseForTest(String localDbName) {
+            return databases == null ? null : databases.getIfPresent(localDbName);
+        }
+
+        String getCachedDatabaseNameByIdForTest(long dbId) {
+            return dbIdToName.get(dbId);
+        }
+
+        private static Map<String, String> buildIncrementalCatalogProps() {
+            Map<String, String> props = Maps.newHashMap();
+            props.put("catalog_provider.class", IncrementalCatalogProvider.class.getName());
+            return props;
+        }
+    }
+
+    private static class IncrementalUpdateDatabase extends TestExternalDatabase {
+        IncrementalUpdateDatabase(ExternalCatalog extCatalog, long id, String name, String remoteName) {
+            super(extCatalog, id, name, remoteName);
         }
     }
 }

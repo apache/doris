@@ -211,8 +211,8 @@ public class HMSExternalCatalog extends ExternalCatalog {
 
         ExternalDatabase<? extends ExternalTable> db = buildDbForInit(dbName, null, dbId, logType, false);
         if (isInitialized()) {
-            metaCache.updateCache(db.getRemoteName(), db.getFullName(), db,
-                    Util.genIdByName(name, db.getFullName()));
+            // Keep names/object/id cache updates in one helper so HMS incremental sync follows the same ordering.
+            updateDatabaseCache(db.getId(), db.getRemoteName(), db.getFullName(), db);
         }
     }
 
