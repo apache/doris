@@ -92,12 +92,17 @@ Status RuntimeFilterMgr::register_local_merge_producer_filter(
     int32_t key = desc.filter_id;
 
     std::lock_guard<std::mutex> l(_lock);
-    auto& context = _local_merge_map[key];
-    if (!context || producer->stage() > context->stage) {
+    auto iter = _local_merge_map.find(key);
+    std::shared_ptr<LocalMergeContext> context;
+    if (iter == _local_merge_map.end() || !iter->second ||
+        producer->stage() > iter->second->stage) {
         auto new_context = std::make_shared<LocalMergeContext>();
         RETURN_IF_ERROR(RuntimeFilterMerger::create(query_ctx, &desc, &new_context->merger));
         new_context->stage = producer->stage();
+        _local_merge_map.insert_or_assign(key, new_context);
         context = new_context;
+    } else {
+        context = iter->second;
     }
 
     context->producers.emplace_back(producer);
@@ -106,16 +111,6 @@ Status RuntimeFilterMgr::register_local_merge_producer_filter(
     // (via _push_to_remote) carry the correct recursive CTE round number.
     context->merger->set_stage(producer->stage());
     return Status::OK();
-}
-
-std::string LocalMergeContext::debug_string() const {
-    std::string result =
-            fmt::format("stage: {}, {}\n", stage,
-                        merger ? merger->debug_string() : "local merge context merger is nullptr");
-    for (const auto& producer : producers) {
-        result += fmt::format("{}\n", producer->debug_string());
-    }
-    return result;
 }
 
 Status RuntimeFilterMgr::get_local_merge_context(int filter_id, uint32_t expected_stage,
@@ -314,27 +309,19 @@ Status RuntimeFilterMgr::sync_filter_size(const PSyncFilterSizeRequest* request)
 
 std::string RuntimeFilterMgr::debug_string() {
     std::string result = "Local Merger Info:\n";
-    std::vector<std::pair<int32_t, LocalMergeContext>> local_merge_contexts;
-    std::vector<std::shared_ptr<RuntimeFilterConsumer>> consumers;
-    {
-        std::lock_guard l(_lock);
-        for (auto& [filter_id, ctx] : _local_merge_map) {
-            if (ctx) {
-                local_merge_contexts.emplace_back(filter_id, *ctx);
-            } else {
-                result += fmt::format("filter_id: {}, local merge context is nullptr\n", filter_id);
-            }
+    std::lock_guard l(_lock);
+    for (const auto& [filter_id, ctx] : _local_merge_map) {
+        DORIS_CHECK(ctx);
+        result += fmt::format("{}\n", ctx->merger->debug_string());
+        for (const auto& producer : ctx->producers) {
+            result += fmt::format("{}\n", producer->debug_string());
         }
-        for (const auto& [filter_id, filter_consumers] : _consumer_map) {
-            consumers.insert(consumers.end(), filter_consumers.begin(), filter_consumers.end());
-        }
-    }
-    for (const auto& [filter_id, ctx] : local_merge_contexts) {
-        result += fmt::format("filter_id: {}, {}", filter_id, ctx.debug_string());
     }
     result += "Consumer Info:\n";
-    for (const auto& consumer : consumers) {
-        result += fmt::format("{}\n", consumer->debug_string());
+    for (const auto& [filter_id, consumers] : _consumer_map) {
+        for (const auto& consumer : consumers) {
+            result += fmt::format("{}\n", consumer->debug_string());
+        }
     }
     return result;
 }

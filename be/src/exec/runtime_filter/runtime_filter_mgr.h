@@ -56,8 +56,6 @@ class HandleErrorBrpcCallback;
 class SyncSizeCallback;
 
 struct LocalMergeContext {
-    std::string debug_string() const;
-
     std::shared_ptr<RuntimeFilterMerger> merger;
     std::vector<std::shared_ptr<RuntimeFilterProducer>> producers;
     // Tracks the recursive CTE round.  When a producer from a newer round
