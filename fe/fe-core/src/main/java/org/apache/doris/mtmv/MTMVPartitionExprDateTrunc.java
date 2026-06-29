@@ -34,7 +34,9 @@ import org.apache.doris.nereids.trees.expressions.functions.executable.DateTimeE
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
+import org.apache.doris.nereids.trees.expressions.literal.TimestampTzLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.format.DateTimeChecker;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
@@ -179,6 +181,14 @@ public class MTMVPartitionExprDateTrunc implements MTMVPartitionExprService {
     private DateTimeV2Literal strToDate(String value,
             Optional<String> dateFormat) throws AnalysisException {
         try {
+            if (DateTimeChecker.hasTimeZone(value)) {
+                // For TIMESTAMPTZ values, parse preserving UTC semantics.
+                // DateTimeV2Literal would convert to session timezone, which would
+                // produce incorrect MV partition boundaries when session tz != UTC.
+                TimestampTzLiteral tzLiteral = new TimestampTzLiteral(value);
+                return new DateTimeV2Literal(tzLiteral.getYear(), tzLiteral.getMonth(), tzLiteral.getDay(),
+                        tzLiteral.getHour(), tzLiteral.getMinute(), tzLiteral.getSecond());
+            }
             return new DateTimeV2Literal(value);
         } catch (Exception e) {
             if (!dateFormat.isPresent()) {

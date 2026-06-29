@@ -31,6 +31,8 @@ import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.time.LocalDateTime;
 import java.util.Objects;
@@ -42,6 +44,8 @@ public class TimestampTzLiteral extends DateTimeLiteral {
 
     public static final TimestampTzLiteral USE_IN_FLOOR_CEIL
             = new TimestampTzLiteral(0001L, 01L, 01L, 0L, 0L, 0L, 0L);
+
+    private static final Logger LOG = LogManager.getLogger(TimestampTzLiteral.class);
 
     public TimestampTzLiteral(String s) {
         this(TimeStampTzType.forTypeFromString(s), s);
@@ -91,6 +95,7 @@ public class TimestampTzLiteral extends DateTimeLiteral {
      * Build a TIMESTAMPTZ literal from a datetime string, explicitly specifying the source timezone.
      * Strings with an explicit zone/offset keep their own timezone semantics;
      * strings without one are converted from the given timeZone to UTC.
+     * @param timeZone Fallback timezone used only when the string has no explicit offset
      */
     public static TimestampTzLiteral fromTimeZone(TimeStampTzType dateType, String s, String timeZone) {
         if (DateTimeChecker.hasTimeZone(s)) {
@@ -120,6 +125,9 @@ public class TimestampTzLiteral extends DateTimeLiteral {
 
     private static String getSessionTimeZone() {
         ConnectContext context = ConnectContext.get();
+        if (context == null && LOG.isDebugEnabled()) {
+            LOG.debug("context is null, session time zone is fallback to UTC");
+        }
         return context == null ? "UTC" : context.getSessionVariable().timeZone;
     }
 

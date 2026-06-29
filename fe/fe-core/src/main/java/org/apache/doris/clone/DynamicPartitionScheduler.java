@@ -39,6 +39,7 @@ import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.RangePartitionInfo;
 import org.apache.doris.catalog.RangePartitionItem;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -502,7 +503,8 @@ public class DynamicPartitionScheduler extends MasterDaemon {
     private static String convertToUtcTimestamp(Column column, String border, TimeZone timeZone) {
         if (column.getDataType() == PrimitiveType.TIMESTAMPTZ) {
             TimestampTzLiteral utcLiteral = TimestampTzLiteral.fromTimeZone(
-                    TimeStampTzType.SYSTEM_DEFAULT, border, timeZone.toZoneId().toString());
+                    TimeStampTzType.of(((ScalarType) column.getType()).getScalarScale()),
+                    border, timeZone.toZoneId().toString());
             return utcLiteral.getStringValue();
         }
         return border;
