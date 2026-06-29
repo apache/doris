@@ -43,15 +43,6 @@ enum class ReaderType : uint8_t {
 
 namespace io {
 
-enum SniiSectionType : uint8_t {
-    SNII_SECTION_UNKNOWN = 0,
-    SNII_SECTION_META = 1,
-    SNII_SECTION_DICT = 2,
-    SNII_SECTION_POSTING = 3,
-    SNII_SECTION_BSBF = 4,
-    SNII_SECTION_NORMS = 5,
-    SNII_SECTION_NULL_BITMAP = 6,
-    SNII_SECTION_COUNT = 7,
 enum class FileCacheMissPolicy : uint8_t {
     READ_THROUGH_AND_WRITE_BACK = 0,
     REMOTE_ONLY_ON_MISS = 1,
@@ -199,7 +190,6 @@ struct IOContext {
     FileCacheStatistics* file_cache_stats = nullptr; // Ref
     FileReaderStats* file_reader_stats = nullptr;    // Ref
     bool is_inverted_index = false;
-    uint8_t snii_section_type = SNII_SECTION_UNKNOWN;
     // if is_dryrun, read IO will download data to cache but return no data to reader
     // useful to skip cache data read from local disk to accelarate warm up
     bool is_dryrun = false;

@@ -18,7 +18,6 @@
 #pragma once
 
 #include <memory>
-#include <shared_mutex>
 #include <vector>
 
 #include "common/status.h"
@@ -28,10 +27,6 @@
 #include "snii/io/file_reader.h"
 #include "snii/io/file_writer.h"
 #include "util/slice.h"
-
-namespace snii::format {
-struct SectionRefs;
-} // namespace snii::format
 
 namespace doris::segment_v2::snii_doris {
 
@@ -64,24 +59,13 @@ public:
 
     explicit DorisSniiFileReader(io::FileReaderSPtr reader, const io::IOContext* io_ctx = nullptr);
 
-    void register_section_refs(const ::snii::format::SectionRefs& refs);
-
     doris::Status read_at(uint64_t offset, size_t len, std::vector<uint8_t>* out) override;
     doris::Status read_batch(const std::vector<::snii::io::Range>& ranges,
                              std::vector<std::vector<uint8_t>>* outs) override;
     uint64_t size() const override;
 
 private:
-    struct SectionRange {
-        uint64_t offset = 0;
-        uint64_t end = 0;
-        uint8_t section_type = io::SNII_SECTION_UNKNOWN;
-    };
-
     static io::IOContext _make_index_io_context(const io::IOContext* io_ctx);
-    static io::IOContext _make_section_io_context(const io::IOContext* io_ctx,
-                                                  uint8_t section_type);
-    uint8_t _classify_section(uint64_t offset, size_t len) const;
     doris::Status _check_read_range(uint64_t offset, size_t len) const;
     doris::Status _read_at(uint64_t offset, size_t len, std::vector<uint8_t>* out,
                            const io::IOContext* io_ctx) const;
@@ -91,8 +75,6 @@ private:
 
     io::FileReaderSPtr _reader;
     io::IOContext _default_io_ctx;
-    mutable std::shared_mutex _section_ranges_mutex;
-    std::vector<SectionRange> _section_ranges;
     static thread_local const io::IOContext* _scoped_io_ctx;
 };
 

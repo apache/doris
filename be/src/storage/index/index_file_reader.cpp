@@ -165,7 +165,6 @@ Status IndexFileReader::_init_snii(const io::IOContext* io_ctx) {
     }
     meta_io_ctx.is_inverted_index = true;
     meta_io_ctx.is_index_data = true;
-    meta_io_ctx.snii_section_type = io::SNII_SECTION_META;
     snii_doris::DorisSniiFileReader::ScopedIOContext io_context_scope(&meta_io_ctx);
     RETURN_IF_ERROR(snii::reader::SniiSegmentReader::open(_snii_file_reader.get(),
                                                           _snii_segment_reader.get()));
@@ -289,7 +288,6 @@ Result<std::unique_ptr<snii::reader::LogicalIndexReader>> IndexFileReader::open_
     }
     meta_io_ctx.is_inverted_index = true;
     meta_io_ctx.is_index_data = true;
-    meta_io_ctx.snii_section_type = io::SNII_SECTION_META;
     snii_doris::DorisSniiFileReader::ScopedIOContext io_context_scope(&meta_io_ctx);
 
     std::vector<uint8_t> meta_bytes;
@@ -306,9 +304,6 @@ Result<std::unique_ptr<snii::reader::LogicalIndexReader>> IndexFileReader::open_
     if (!doris_status.ok()) {
         return ResultError(doris_status);
     }
-    const auto& section_refs = meta.section_refs();
-    _snii_file_reader->register_section_refs(section_refs);
-
     auto logical_reader = std::make_unique<snii::reader::LogicalIndexReader>();
     status = _snii_segment_reader->open_index_from_meta(snii::Slice(meta_bytes),
                                                         logical_reader.get());
@@ -392,7 +387,6 @@ Status IndexFileReader::has_null(const TabletIndex* index_meta, bool* res) const
         io::IOContext meta_io_ctx;
         meta_io_ctx.is_inverted_index = true;
         meta_io_ctx.is_index_data = true;
-        meta_io_ctx.snii_section_type = io::SNII_SECTION_META;
         snii_doris::DorisSniiFileReader::ScopedIOContext io_context_scope(&meta_io_ctx);
 
         std::vector<uint8_t> meta_bytes;
