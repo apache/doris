@@ -5,9 +5,7 @@
 // to you under the Apache License, Version 2.0 (the
 // "License"); you may not use this file except in compliance
 // with the License.  You may obtain a copy of the License at
-//
 //   http://www.apache.org/licenses/LICENSE-2.0
-//
 // Unless required by applicable law or agreed to in writing,
 // software distributed under the License is distributed on an
 // "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
@@ -28,9 +26,6 @@
 
 namespace doris::format::parquet {
 
-// 选择提供 shape 信息的子 reader：返回第一个非 repeated 的子 reader。
-// 如果所有子 reader 都是 repeated 的，返回第一个子 reader。
-// shape source 的 def/rep levels 决定 struct 的 null 状态和嵌套边界。
 ParquetColumnReader* StructColumnReader::shape_source_reader() const {
     for (const auto& child : _children) {
         auto* child_reader = child.get();
@@ -119,22 +114,6 @@ Status StructColumnReader::load_nested_batch(int64_t rows) {
     return Status::OK();
 }
 
-// STRUCT 的嵌套构建核心逻辑：
-//
-// 整体策略：STRUCT 拥有行对齐责任。子 reader 只消费 STRUCT 非 NULL 父行的 level stream，
-// NULL 父行为所有子列填充 default 占位符。
-//
-// 流程：
-// 1. 从 shape_source_reader 的 def/rep levels 解析 struct 的 null 状态，
-//    构建 parent_nulls[] 和 parent_level_indices[]。
-// 2. 遍历所有子 reader，按 parent_nulls 分批次调用子 reader 的 build_nested_column()：
-//    - 连续的非 NULL 父行 → 批量 build（如 100 个 present → build 100 个子列行）
-//    - NULL 父行 → 子列 insert_default()，并推进子 reader 的游标跳过该 NULL slot
-// 3. 将 parent_nulls 写入 struct 外层 ColumnNullable 的 null_map。
-//
-// 对于 NULL 父行下 ScalarColumnReader 子列的特殊处理：
-// Scalar 子列的 level stream 中 NULL struct parent 也占一个 slot（但低于 value threshold），
-// 需要将子 cursor 精确推进到 parent_level_idx + 1 以跳过该 slot。
 Status StructColumnReader::build_nested_column(int64_t length_upper_bound, MutableColumnPtr& column,
                                                int64_t* values_read) {
     if (column.get() == nullptr || values_read == nullptr) {

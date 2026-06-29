@@ -5,9 +5,7 @@
 // to you under the Apache License, Version 2.0 (the
 // "License"); you may not use this file except in compliance
 // with the License.  You may obtain a copy of the License at
-//
 //   http://www.apache.org/licenses/LICENSE-2.0
-//
 // Unless required by applicable law or agreed to in writing,
 // software distributed under the License is distributed on an
 // "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
@@ -51,7 +49,6 @@ class TableColumnMapper;
 struct TableColumnMapperOptions;
 
 // Struct-only nested predicate target used by file-layer pruning.
-//
 // This intentionally models only a STRUCT field chain. LIST/MAP/repeated predicates need explicit
 // quantified semantics, so they must not be encoded here.
 struct FileStructPredicateTarget {
@@ -91,7 +88,6 @@ struct FileNestedPredicateTarget {
 
 // File-local single-column predicates for file-layer pruning, such as min/max, page index,
 // dictionary and bloom filter.
-//
 // Predicates must all belong to target.file_column_id. target.struct_target points to the nested
 // primitive leaf under that root; null means the top-level column itself is the primitive leaf.
 // These predicates are pruning hints only and are not row-level conjuncts.
@@ -121,10 +117,6 @@ enum class FileFormat {
     ARROW,
 };
 
-// 通用文件层 scan 请求。
-// 该结构描述所有文件格式都可以共享的 file-local 读取输入。这里不出现 table/global
-// schema。所有 schema change、filter localization、default/generated/partition
-// 列都应在 table 层完成。
 struct FileScanRequest {
     virtual ~FileScanRequest() = default;
 
@@ -148,7 +140,6 @@ struct FileScanRequest {
 };
 
 // Helper for constructing the scan-column layout in FileScanRequest.
-//
 // FileScanRequest keeps predicate and non-predicate columns separate because columnar readers such
 // as Parquet can read predicate columns first, filter rows, and then lazily read the remaining
 // projected columns. The two lists still share one file-local output block, whose positions are
@@ -157,7 +148,6 @@ struct FileScanRequest {
 // - predicate columns dominate non-predicate columns because they are already returned in the file
 //   block and can be reused for final materialization;
 // - repeated nested projections for the same root are merged instead of duplicated.
-//
 // TableColumnMapper should still own table-to-file semantic resolution. This helper only owns the
 // FileScanRequest layout contract after a file-local projection has been produced.
 class FileScanRequestBuilder {
@@ -276,9 +266,6 @@ struct FileAggregateResult {
     std::vector<Column> columns;
 };
 
-// 文件物理读取层通用接口。
-// 该接口只描述 file-local schema、file-local scan request 和 file-local block。
-// TableReader/IcebergTableReader 可以通过它组合不同文件格式 reader。
 /**
  *                                +-----> get_schema() -----------------+
  * FileReader() -----> init() ----|                                      -----> close()
@@ -335,13 +322,11 @@ public:
     // default/generated columns, or partition columns. File-format physical wrappers should be
     // normalized away before exposing this schema; for example, Parquet MAP is exposed as key/value
     // children rather than key_value/entry.
-    //
     // Doris plans external-table scan types as nullable, including all nested children of complex
     // types. This protects Doris from illegal or inconsistent values produced by external systems.
     // Therefore every ColumnDefinition::type returned here must be nullable. Complex types must
     // also expose nullable child types recursively, even if the physical file marks those fields as
     // required.
-    //
     // This method can only be called after init() successfully, but does not require open() to be
     // called.
     virtual Status get_schema(std::vector<ColumnDefinition>* file_schema) const = 0;
@@ -359,13 +344,7 @@ public:
         return Status::OK();
     }
 
-    // 读取下一批 file-local block。
-    // 该方法只能在 open(FileScanRequest) 成功后调用。
-    // file_block 的列顺序和类型必须遵守 FileScanRequest，而不是 table/global schema。
-    // rows 返回当前批次输出行数；eof 表示当前文件 reader 是否读完；多文件切换由
-    // TableReader 负责。
     virtual Status get_block(Block* file_block, size_t* rows, bool* eof) {
-        // stub 默认立即 EOF。
         if (rows != nullptr) {
             *rows = 0;
         }
@@ -392,8 +371,6 @@ public:
     // Readers should return 0 if the metadata is unavailable or the row coordinate is unstable.
     virtual int64_t get_total_rows() const { return 0; }
 
-    // 关闭当前物理文件 reader 并释放文件层状态。
-    // 该方法不处理 table-level delete/finalize 状态，后者由 TableReader 子类管理。
     virtual Status close() {
         _file_reader.reset();
         _tracing_file_reader.reset();

@@ -5,9 +5,7 @@
 // to you under the Apache License, Version 2.0 (the
 // "License"); you may not use this file except in compliance
 // with the License.  You may obtain a copy of the License at
-//
 //   http://www.apache.org/licenses/LICENSE-2.0
-//
 // Unless required by applicable law or agreed to in writing,
 // software distributed under the License is distributed on an
 // "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
@@ -169,11 +167,6 @@ std::string build_page_cache_file_key(const io::FileReader& file_reader,
                        file_reader.path().native(), mtime, file_size);
 }
 
-// 将 Doris 的 io::FileReader 适配为 Arrow 的 RandomAccessFile 接口。
-//
-// ParquetFileReader::Open() 要求一个 Arrow::RandomAccessFile，
-// 本适配器将 Doris 的 read_at() / size() 等接口映射为 Arrow 的 ReadAt() / GetSize()。
-// Seek() 和 Tell() 维护了内部的 position 游标用于顺序 read() 操作。
 class DorisRandomAccessFile final : public arrow::io::RandomAccessFile {
 public:
     DorisRandomAccessFile(io::FileReaderSPtr file_reader, io::IOContext* io_ctx,
@@ -332,7 +325,6 @@ private:
         ++_page_cache_stats.read_count;
         // Fast path: Arrow issues the same ReadAt(offset, size) again, so the exact
         // StoragePageCache key matches.
-        //
         // Fallback path: Arrow may read a different but related byte range on another scan.
         // Examples:
         // - Current request [120, 150) can be served from cached [100, 200) by copying the
@@ -437,7 +429,6 @@ Status ParquetFileContext::close() {
         try {
             file_reader->Close();
         } catch (const std::exception&) {
-            // close 需要保持幂等；这里不覆盖此前 scan 路径上的真实错误。
         }
     }
     if (arrow_file != nullptr) {
