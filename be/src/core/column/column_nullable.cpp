@@ -182,18 +182,15 @@ void ColumnNullable::update_crcs_with_value(uint32_t* __restrict hashes, doris::
 void ColumnNullable::update_crc32c_batch(uint32_t* __restrict hashes,
                                          const uint8_t* __restrict /* null_map */) const {
     const auto* __restrict real_null_data = get_null_map_column().get_data().data();
-    if (_nested_column->support_replace_column_null_data()) {
-        // nullmap process is slow, replace null data to default value to avoid nullmap process
-        // This is an intentional in-place mutation inside a logically-const hash computation:
-        // null positions are overwritten with defaults so the inner hash loop needs no null checks.
-        // The invariant is that a column instance is not hashed concurrently through the same
-        // owner while this per-block hash path runs. Shared aliases are detached by mutate()
-        // before this normalized nested column is written back.
-        auto nested_mut = std::move(*static_cast<const IColumn::Ptr&>(_nested_column)).mutate();
-        nested_mut->replace_column_null_data(real_null_data);
-        static_cast<IColumn::Ptr&>(const_cast<IColumn::WrappedPtr&>(_nested_column)) =
-                std::move(nested_mut);
+    if (!has_null()) {
         _nested_column->update_crc32c_batch(hashes, nullptr);
+        return;
+    }
+
+    if (_nested_column->support_replace_column_null_data()) {
+        auto nested_for_hash = _nested_column->clone_resized(_nested_column->size());
+        nested_for_hash->replace_column_null_data(real_null_data);
+        nested_for_hash->update_crc32c_batch(hashes, nullptr);
     } else {
         auto s = size();
         for (int i = 0; i < s; ++i) {
