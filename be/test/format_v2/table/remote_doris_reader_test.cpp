@@ -33,9 +33,12 @@
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
 #include "core/column/column_vector.h"
+#include "core/data_type/data_type_array.h"
+#include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
+#include "core/data_type/data_type_struct.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
 #include "format_v2/file_reader.h"
@@ -97,6 +100,23 @@ std::vector<SlotDescriptor*> remote_slots(ObjectPool* pool, DescriptorTbl** desc
     builder.declare_tuple() << std::make_tuple(std::make_shared<DataTypeInt32>(), std::string("id"))
                             << std::make_tuple(std::make_shared<DataTypeString>(),
                                                std::string("name"));
+    *desc_tbl = builder.build();
+    return (*desc_tbl)->get_tuple_descriptor(0)->slots();
+}
+
+std::vector<SlotDescriptor*> remote_complex_slots(ObjectPool* pool, DescriptorTbl** desc_tbl) {
+    const auto string_type = make_nullable(std::make_shared<DataTypeString>());
+    const auto int_type = make_nullable(std::make_shared<DataTypeInt32>());
+    const auto array_type = make_nullable(std::make_shared<DataTypeArray>(string_type));
+    const auto map_type = make_nullable(std::make_shared<DataTypeMap>(string_type, int_type));
+    const auto struct_type = make_nullable(std::make_shared<DataTypeStruct>(
+            DataTypes {int_type, make_nullable(std::make_shared<DataTypeFloat32>()), string_type},
+            Strings {"f1", "f2", "f3"}));
+
+    DescriptorTblBuilder builder(pool);
+    builder.declare_tuple() << std::make_tuple(array_type, std::string("c_array_s"))
+                            << std::make_tuple(map_type, std::string("c_map"))
+                            << std::make_tuple(struct_type, std::string("c_struct"));
     *desc_tbl = builder.build();
     return (*desc_tbl)->get_tuple_descriptor(0)->slots();
 }
@@ -266,6 +286,43 @@ TEST(RemoteDorisV2ReaderTest, BuildsSchemaFromSlotsAndProjectsRequestedColumns) 
     EXPECT_TRUE(eof);
     ASSERT_TRUE(reader->close().ok());
     EXPECT_EQ(*close_count, 1);
+}
+
+TEST(RemoteDorisV2ReaderTest, BuildsComplexSchemaChildrenFromSlots) {
+    ObjectPool pool;
+    DescriptorTbl* desc_tbl = nullptr;
+    const auto slots = remote_complex_slots(&pool, &desc_tbl);
+    RuntimeState state;
+    RuntimeProfile profile("remote_doris_v2_reader_complex_schema_test");
+    auto close_count = std::make_shared<int>(0);
+    auto reader = create_reader(&profile, remote_doris_range(), slots, {}, close_count);
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    ASSERT_EQ(schema.size(), 3);
+
+    ASSERT_EQ(schema[0].name, "c_array_s");
+    ASSERT_EQ(schema[0].children.size(), 1);
+    EXPECT_EQ(schema[0].children[0].name, "element");
+    EXPECT_EQ(schema[0].children[0].local_id, 0);
+    EXPECT_TRUE(schema[0].children[0].children.empty());
+
+    ASSERT_EQ(schema[1].name, "c_map");
+    ASSERT_EQ(schema[1].children.size(), 2);
+    EXPECT_EQ(schema[1].children[0].name, "key");
+    EXPECT_EQ(schema[1].children[0].local_id, 0);
+    EXPECT_EQ(schema[1].children[1].name, "value");
+    EXPECT_EQ(schema[1].children[1].local_id, 1);
+
+    ASSERT_EQ(schema[2].name, "c_struct");
+    ASSERT_EQ(schema[2].children.size(), 3);
+    EXPECT_EQ(schema[2].children[0].name, "f1");
+    EXPECT_EQ(schema[2].children[0].local_id, 0);
+    EXPECT_EQ(schema[2].children[1].name, "f2");
+    EXPECT_EQ(schema[2].children[1].local_id, 1);
+    EXPECT_EQ(schema[2].children[2].name, "f3");
+    EXPECT_EQ(schema[2].children[2].local_id, 2);
 }
 
 TEST(RemoteDorisV2ReaderTest, HandlesDifferentArrowColumnOrder) {

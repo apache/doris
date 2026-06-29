@@ -26,8 +26,13 @@
 #include <vector>
 
 #include "common/cast_set.h"
+#include "core/assert_cast.h"
 #include "core/block/block.h"
 #include "core/data_type/data_type.h"
+#include "core/data_type/data_type_array.h"
+#include "core/data_type/data_type_map.h"
+#include "core/data_type/data_type_nullable.h"
+#include "core/data_type/data_type_struct.h"
 #include "core/data_type_serde/data_type_serde.h"
 #include "format/arrow/arrow_utils.h"
 #include "format_v2/materialized_reader_util.h"
@@ -106,6 +111,53 @@ Status create_flight_stream(const TFileRangeDesc& range, std::unique_ptr<RemoteD
     return Status::OK();
 }
 
+ColumnDefinition remote_doris_child_definition(const std::string& name, DataTypePtr type,
+                                               int32_t local_id);
+
+std::vector<ColumnDefinition> synthesize_remote_doris_children(const DataTypePtr& type) {
+    std::vector<ColumnDefinition> children;
+    DORIS_CHECK(type != nullptr);
+    const auto nested_type = remove_nullable(type);
+    switch (nested_type->get_primitive_type()) {
+    case TYPE_ARRAY: {
+        const auto* array_type = assert_cast<const DataTypeArray*>(nested_type.get());
+        children.push_back(
+                remote_doris_child_definition("element", array_type->get_nested_type(), 0));
+        break;
+    }
+    case TYPE_MAP: {
+        const auto* map_type = assert_cast<const DataTypeMap*>(nested_type.get());
+        children.push_back(remote_doris_child_definition("key", map_type->get_key_type(), 0));
+        children.push_back(remote_doris_child_definition("value", map_type->get_value_type(), 1));
+        break;
+    }
+    case TYPE_STRUCT: {
+        const auto* struct_type = assert_cast<const DataTypeStruct*>(nested_type.get());
+        children.reserve(struct_type->get_elements().size());
+        for (size_t idx = 0; idx < struct_type->get_elements().size(); ++idx) {
+            children.push_back(remote_doris_child_definition(struct_type->get_element_name(idx),
+                                                             struct_type->get_element(idx),
+                                                             cast_set<int32_t>(idx)));
+        }
+        break;
+    }
+    default:
+        break;
+    }
+    return children;
+}
+
+ColumnDefinition remote_doris_child_definition(const std::string& name, DataTypePtr type,
+                                               int32_t local_id) {
+    ColumnDefinition child;
+    child.identifier = Field::create_field<TYPE_STRING>(name);
+    child.local_id = local_id;
+    child.name = name;
+    child.type = std::move(type);
+    child.children = synthesize_remote_doris_children(child.type);
+    return child;
+}
+
 } // namespace
 
 RemoteDorisFileReader::RemoteDorisFileReader(
@@ -145,6 +197,9 @@ Status RemoteDorisFileReader::get_schema(std::vector<ColumnDefinition>* file_sch
                 .local_id = cast_set<int32_t>(idx),
                 .name = slot->col_name(),
                 .type = slot->type(),
+                // Remote Doris exposes table slots as file columns. Complex columns still need
+                // structural children so TableColumnMapper can validate and project them.
+                .children = synthesize_remote_doris_children(slot->type()),
         });
     }
     return Status::OK();
