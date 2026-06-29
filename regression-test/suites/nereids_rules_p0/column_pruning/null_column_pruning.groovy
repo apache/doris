@@ -23,10 +23,8 @@
 // The EXPLAIN plan should show:
 //   nested columns:  <col>: all access paths: [<col>.NULL]
 //
-// When the same column is also accessed for data (e.g., projected or used in element_at), the
-// allAccessPaths keep the data path and also keep the predicate metadata path. This preserves
-// the invariant that allAccessPaths is a superset of predicateAccessPaths, while the BE only
-// enables metadata-only read mode when all paths are pure current-level metadata paths.
+// When the same column is also accessed for data (e.g., projected or used in element_at),
+// allAccessPaths keep the data path and predicateAccessPaths keep the predicate metadata path.
 
 suite("null_column_pruning") {
     sql """ DROP TABLE IF EXISTS ncp_tbl """
@@ -123,7 +121,7 @@ suite("null_column_pruning") {
     explain {
         sql "select id, arr_col from ncp_tbl where arr_col is null"
         contains "nested columns"
-        contains "all access paths: [arr_col, arr_col.NULL]"
+        contains "all access paths: [arr_col]"
         contains "predicate access paths: [arr_col.NULL]"
     }
 
@@ -144,7 +142,7 @@ suite("null_column_pruning") {
     explain {
         sql "select id, map_col from ncp_tbl where map_col is null"
         contains "nested columns"
-        contains "all access paths: [map_col, map_col.NULL]"
+        contains "all access paths: [map_col]"
         contains "predicate access paths: [map_col.NULL]"
     }
 
@@ -185,29 +183,23 @@ suite("null_column_pruning") {
     order_qt_10 "select int_col from ncp_tbl where int_col is null";
 
     // ─── Mixed: struct IS NULL + partial field access ───────────────────────────
-    // struct_col IS NULL in WHERE + element_at in SELECT → child data is also needed.
-    // The parent struct_col.NULL path may remain beside child paths. The BE only switches to
-    // NULL_MAP_ONLY when the access paths are pure metadata paths, so mixed metadata + child data
-    // still reads the child data correctly.
+    // struct_col IS NULL in WHERE + element_at in SELECT needs struct data for projection, while
+    // the predicate keeps the parent null map separately.
     explain {
         sql "select element_at(struct_col, 'city') from ncp_tbl where struct_col is null"
         contains "nested columns"
-        contains "struct_col.NULL"
-        contains "struct_col.city"
+        contains "all access paths: [struct_col]"
         contains "predicate access paths: [struct_col.NULL]"
     }
 
     order_qt_11 "select element_at(struct_col, 'city') from ncp_tbl where struct_col is null";
 
-    // This query verifies the real correctness risk: one branch needs the parent null
-    // map, another branch needs a child null map, and the projection needs another
-    // child data path. Keeping struct_col.NULL in allAccessPaths is safe because the BE only enters
-    // NULL_MAP_ONLY mode when all paths are pure current-level metadata paths; with child data paths
-    // present, allAccessPaths remains data-reading while predicateAccessPaths keeps the metadata.
+    // This query verifies the real correctness risk: predicate paths need both parent and child
+    // null maps, while allAccessPaths keeps the struct data path for projection.
     explain {
         sql "select element_at(struct_col, 'zip') from ncp_tbl where struct_col is null or element_at(struct_col, 'city') is null"
         contains "nested columns"
-        contains "struct_col.zip"
+        contains "all access paths: [struct_col]"
         contains "predicate access paths:"
         contains "struct_col.NULL"
         contains "struct_col.city.NULL"
@@ -216,12 +208,12 @@ suite("null_column_pruning") {
     order_qt_parent_null_with_child_data "select element_at(struct_col, 'zip') from ncp_tbl where struct_col is null or element_at(struct_col, 'city') is null";
 
     // ─── Non-optimizable: struct IS NULL + full struct projected ────────────────
-    // Full struct access covers its own null flag in allAccessPaths. The predicate still keeps
-    // [struct_col.NULL] in predicateAccessPaths.
+    // Full struct access stays in allAccessPaths. The predicate keeps [struct_col.NULL]
+    // in predicateAccessPaths.
     explain {
         sql "select struct_col from ncp_tbl where struct_col is null"
         contains "nested columns"
-        contains "all access paths: [struct_col, struct_col.NULL]"
+        contains "all access paths: [struct_col]"
         contains "predicate access paths: [struct_col.NULL]"
     }
 
@@ -398,24 +390,24 @@ suite("null_column_pruning") {
     order_qt_24 "select count(1) from ncp_tbl where element_at(struct_col, 'city') is not null";
 
     // ─── Mixed: map_keys IS NULL + map_keys projected ──────────────────────────
-    // Projection needs key data, while the predicate checks whether the parent map is NULL. The
-    // parent NULL path stays in predicateAccessPaths and must not make allAccessPaths meta-only.
+    // Projection needs map data, while the predicate checks whether the parent map is NULL. The
+    // parent NULL path stays in predicateAccessPaths.
     explain {
         sql "select map_keys(map_col) from ncp_tbl where map_keys(map_col) is null"
         contains "nested columns"
-        contains "map_col.KEYS"
+        contains "all access paths: [map_col]"
         contains "predicate access paths: [map_col.NULL]"
     }
 
     order_qt_25 "select map_keys(map_col) from ncp_tbl where map_keys(map_col) is null";
 
     // ─── Mixed: map_values IS NULL + map_values projected ──────────────────────
-    // Projection needs value data, while the predicate checks whether the parent
+    // Projection needs map data, while the predicate checks whether the parent
     // map is NULL. A NULL value element does not make map_values(map_col) NULL.
     explain {
         sql "select map_values(map_col) from ncp_tbl where map_values(map_col) is null"
         contains "nested columns"
-        contains "map_col.VALUES"
+        contains "all access paths: [map_col]"
         contains "predicate access paths: [map_col.NULL]"
     }
 

@@ -302,13 +302,13 @@ suite("string_length_column_pruning") {
         order by id
     """
 
-    // Keep VALUES.OFFSET in both all and predicate paths: predicate evaluation needs it for
+    // Keep the value-array offset in predicate paths: predicate evaluation needs it for
     // cardinality(), and lazy materialization still needs the verified field after filtering.
     explain {
         sql "select map_arr_struct_col['a'][1].verified from slcp_str_tbl where cardinality(map_arr_struct_col['a']) > 0"
         contains "nested columns"
-        contains "all access paths: [map_arr_struct_col.KEYS, map_arr_struct_col.VALUES.*.verified, map_arr_struct_col.VALUES.OFFSET]"
-        contains "predicate access paths: [map_arr_struct_col.KEYS, map_arr_struct_col.VALUES.OFFSET]"
+        contains "all access paths: [map_arr_struct_col.*, map_arr_struct_col.*.*.verified]"
+        contains "predicate access paths: [map_arr_struct_col.*.OFFSET]"
         notContains "type=bigint"
     }
 
@@ -318,15 +318,13 @@ suite("string_length_column_pruning") {
         order by 1
     """
 
-    // [map_arr_struct_col, VALUES, *, verified] strips [map_arr_struct_col, VALUES, NULL]
-    // from allAccessPaths. The predicate keeps VALUES.NULL so IS NULL can read the value-array
-    // null map during predicate evaluation.
+    // Predicate keeps the value-array NULL path so IS NULL can read the value-array null map
+    // during predicate evaluation, while allAccessPaths keeps the data paths used by projection.
     explain {
         sql "select map_arr_struct_col['a'][1].verified from slcp_str_tbl where map_arr_struct_col['a'] is null"
         contains "nested columns"
-        contains "map_arr_struct_col.KEYS"
-        contains "map_arr_struct_col.VALUES.*.verified"
-        contains "predicate access paths: [map_arr_struct_col.KEYS, map_arr_struct_col.VALUES.NULL]"
+        contains "all access paths: [map_arr_struct_col.*, map_arr_struct_col.*.*.verified]"
+        contains "predicate access paths: [map_arr_struct_col.*.NULL]"
     }
 
     // ─── Non-optimizable cases ──────────────────────────────────────────────────
