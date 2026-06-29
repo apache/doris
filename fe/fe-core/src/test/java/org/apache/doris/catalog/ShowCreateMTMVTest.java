@@ -17,6 +17,7 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.mtmv.ivm.IvmUtil;
 import org.apache.doris.nereids.sqltest.SqlTestBase;
 
@@ -42,6 +43,7 @@ public class ShowCreateMTMVTest extends SqlTestBase {
     @Override
     protected void runBeforeAll() throws Exception {
         super.runBeforeAll();
+        Config.enable_table_stream = true;
         createTable("CREATE TABLE IF NOT EXISTS show_create_ivm_base (\n"
                 + "    id bigint,\n"
                 + "    score bigint\n"

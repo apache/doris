@@ -191,7 +191,7 @@ class IvmDeltaRewriterTest extends IvmDeltaTestBase {
         LogicalOlapScan scan = buildScanForTable(1, "a");
         Map<TableNameInfo, Long> streams = makeStreamsWithTso(scan, 10, 20);
 
-        List<Plan> plans = new IvmDeltaRewriter().generateDeltaPlans(scan, rewriteContext(streams), NO_EXCLUSIONS);
+        List<Plan> plans = new IvmDeltaRewriter().generateDeltaPlans(scan, rewriteContext(streams), NO_EXCLUSIONS, false);
 
         Assertions.assertEquals(1, plans.size());
         List<LogicalOlapScan> scans = collectScans(plans.get(0));
@@ -206,7 +206,7 @@ class IvmDeltaRewriterTest extends IvmDeltaTestBase {
         Map<TableNameInfo, Long> streams = makeStreamsWithTso(scan, 10, 20);
 
         List<Plan> plans = new IvmDeltaRewriter().generateDeltaPlans(
-                scanInMemo, rewriteContext(streams), NO_EXCLUSIONS);
+                scanInMemo, rewriteContext(streams), NO_EXCLUSIONS, false);
 
         Assertions.assertEquals(1, plans.size());
         Assertions.assertFalse(plans.get(0).getGroupExpression().isPresent());
@@ -219,28 +219,22 @@ class IvmDeltaRewriterTest extends IvmDeltaTestBase {
         LogicalOlapScan scan = buildScanForTable(1, "a");
         Map<TableNameInfo, Long> streams = makeStreamsWithTso(scan, 20, 20);
 
-        List<Plan> plans = new IvmDeltaRewriter().generateDeltaPlans(scan, rewriteContext(streams), NO_EXCLUSIONS);
+        List<Plan> plans = new IvmDeltaRewriter().generateDeltaPlans(scan, rewriteContext(streams), NO_EXCLUSIONS, false);
 
         Assertions.assertTrue(plans.isEmpty(), "Up-to-date scan should produce no delta plans");
     }
 
     @org.junit.jupiter.api.Disabled("TODO: Re-enable when stream-based TSO tracking is implemented in IvmDeltaRewriter.collectDeltaScanContexts()")
     @Test
-    void testGenExplainBundleIncludesUpToDateScan() {
+    void testGenMergedPlanIncludesUpToDateScan() {
         LogicalOlapScan scan = buildScanForTable(1, "a");
         Map<TableNameInfo, Long> streams = makeStreamsWithTso(scan, 20, 20);
 
-        List<IvmDeltaExplainBundle> bundles = new IvmDeltaRewriter()
-                .generateDeltaExplainBundles(scan, rewriteContext(streams), NO_EXCLUSIONS);
+        Plan mergedPlan = new IvmDeltaRewriter()
+                .generateMergedDeltaPlan(scan, rewriteContext(streams), NO_EXCLUSIONS, true);
 
-        Assertions.assertEquals(1, bundles.size());
-        IvmDeltaExplainBundle bundle = bundles.get(0);
-        Assertions.assertEquals(1, bundle.getDeltaId());
-        Assertions.assertEquals(1, bundle.getOccurrence());
-        Assertions.assertEquals(20, bundle.getConsumedTso());
-        Assertions.assertEquals(20, bundle.getLatestTso());
-        Assertions.assertTrue(bundle.isNoOp());
-        List<LogicalOlapScan> scans = collectScans(bundle.getDeltaPlan());
+        Assertions.assertNotNull(mergedPlan);
+        List<LogicalOlapScan> scans = collectScans(mergedPlan);
         Assertions.assertEquals(1, scans.size());
         Assertions.assertTrue(IvmDeltaRewriteHelper.INSTANCE.isIncrementalDeltaScan(scans.get(0)));
     }
@@ -258,7 +252,7 @@ class IvmDeltaRewriterTest extends IvmDeltaTestBase {
         addStream(streams, scanA, 10, 20);
         addStream(streams, scanB, 30, 40);
 
-        List<Plan> plans = new IvmDeltaRewriter().generateDeltaPlans(join, rewriteContext(streams), NO_EXCLUSIONS);
+        List<Plan> plans = new IvmDeltaRewriter().generateDeltaPlans(join, rewriteContext(streams), NO_EXCLUSIONS, false);
 
         Assertions.assertEquals(2, plans.size());
 
@@ -288,7 +282,7 @@ class IvmDeltaRewriterTest extends IvmDeltaTestBase {
         addStream(streams, scanA, 10, 20);  // pending
         addStream(streams, scanB, 40, 40);  // up-to-date
 
-        List<Plan> plans = new IvmDeltaRewriter().generateDeltaPlans(join, rewriteContext(streams), NO_EXCLUSIONS);
+        List<Plan> plans = new IvmDeltaRewriter().generateDeltaPlans(join, rewriteContext(streams), NO_EXCLUSIONS, false);
 
         Assertions.assertEquals(1, plans.size());
 
@@ -310,7 +304,7 @@ class IvmDeltaRewriterTest extends IvmDeltaTestBase {
         addStream(streams, scanA, 20, 20);
         addStream(streams, scanB, 40, 40);
 
-        List<Plan> plans = new IvmDeltaRewriter().generateDeltaPlans(join, rewriteContext(streams), NO_EXCLUSIONS);
+        List<Plan> plans = new IvmDeltaRewriter().generateDeltaPlans(join, rewriteContext(streams), NO_EXCLUSIONS, false);
 
         Assertions.assertTrue(plans.isEmpty(), "Both up-to-date should produce no plans");
     }
@@ -326,7 +320,7 @@ class IvmDeltaRewriterTest extends IvmDeltaTestBase {
 
         Map<TableNameInfo, Long> streams = makeStreamsWithTso(scanA1, 10, 20);
 
-        List<Plan> plans = new IvmDeltaRewriter().generateDeltaPlans(join, rewriteContext(streams), NO_EXCLUSIONS);
+        List<Plan> plans = new IvmDeltaRewriter().generateDeltaPlans(join, rewriteContext(streams), NO_EXCLUSIONS, false);
 
         Assertions.assertEquals(2, plans.size());
 
@@ -361,7 +355,7 @@ class IvmDeltaRewriterTest extends IvmDeltaTestBase {
         addStream(streams, scanB, 30, 40);
         addStream(streams, scanC, 50, 60);
 
-        List<Plan> plans = new IvmDeltaRewriter().generateDeltaPlans(abcJoin, rewriteContext(streams), NO_EXCLUSIONS);
+        List<Plan> plans = new IvmDeltaRewriter().generateDeltaPlans(abcJoin, rewriteContext(streams), NO_EXCLUSIONS, false);
 
         Assertions.assertEquals(3, plans.size());
 
@@ -401,7 +395,7 @@ class IvmDeltaRewriterTest extends IvmDeltaTestBase {
         addStream(streams, scanB, 40, 40);  // up-to-date
         addStream(streams, scanC, 50, 60);
 
-        List<Plan> plans = new IvmDeltaRewriter().generateDeltaPlans(abcJoin, rewriteContext(streams), NO_EXCLUSIONS);
+        List<Plan> plans = new IvmDeltaRewriter().generateDeltaPlans(abcJoin, rewriteContext(streams), NO_EXCLUSIONS, false);
 
         Assertions.assertEquals(2, plans.size());
 
@@ -434,7 +428,7 @@ class IvmDeltaRewriterTest extends IvmDeltaTestBase {
         // Exclude table with id=2 ("b")
         Predicate<LogicalOlapScan> excludeB = scan -> scan.getTable().getId() == 2;
 
-        List<Plan> plans = new IvmDeltaRewriter().generateDeltaPlans(join, rewriteContext(streams), excludeB);
+        List<Plan> plans = new IvmDeltaRewriter().generateDeltaPlans(join, rewriteContext(streams), excludeB, false);
 
         // Only scanA is collected; scanB is excluded → 1 plan
         Assertions.assertEquals(1, plans.size());
@@ -455,7 +449,7 @@ class IvmDeltaRewriterTest extends IvmDeltaTestBase {
 
         Predicate<LogicalOlapScan> excludeAll = scan -> true;
 
-        List<Plan> plans = new IvmDeltaRewriter().generateDeltaPlans(scanA, rewriteContext(streams), excludeAll);
+        List<Plan> plans = new IvmDeltaRewriter().generateDeltaPlans(scanA, rewriteContext(streams), excludeAll, false);
 
         Assertions.assertTrue(plans.isEmpty());
     }
@@ -480,7 +474,7 @@ class IvmDeltaRewriterTest extends IvmDeltaTestBase {
         // Exclude b (id=2)
         Predicate<LogicalOlapScan> excludeB = scan -> scan.getTable().getId() == 2;
 
-        List<Plan> plans = new IvmDeltaRewriter().generateDeltaPlans(abcJoin, rewriteContext(streams), excludeB);
+        List<Plan> plans = new IvmDeltaRewriter().generateDeltaPlans(abcJoin, rewriteContext(streams), excludeB, false);
 
         // a and c are collected (both pending) → 2 plans
         Assertions.assertEquals(2, plans.size());
@@ -509,7 +503,7 @@ class IvmDeltaRewriterTest extends IvmDeltaTestBase {
         Map<TableNameInfo, Long> streams = new HashMap<>();
 
         Assertions.assertThrows(Exception.class,
-                () -> new IvmDeltaRewriter().generateDeltaPlans(scanA, rewriteContext(streams), NO_EXCLUSIONS));
+                () -> new IvmDeltaRewriter().generateDeltaPlans(scanA, rewriteContext(streams), NO_EXCLUSIONS, false));
     }
 
     // ---------- TSO value correctness ----------
@@ -525,7 +519,7 @@ class IvmDeltaRewriterTest extends IvmDeltaTestBase {
         addStream(streams, scanA, 100, 200);
         addStream(streams, scanB, 300, 400);
 
-        List<Plan> plans = new IvmDeltaRewriter().generateDeltaPlans(join, rewriteContext(streams), NO_EXCLUSIONS);
+        List<Plan> plans = new IvmDeltaRewriter().generateDeltaPlans(join, rewriteContext(streams), NO_EXCLUSIONS, false);
 
         // Plan 0: delta(a) JOIN b(consumedTso_b=300)
         LogicalOlapScan b0 = collectScans(plans.get(0)).get(1);
@@ -541,7 +535,7 @@ class IvmDeltaRewriterTest extends IvmDeltaTestBase {
         LogicalOlapScan scan = buildScanForTable(1, "a");
         Map<TableNameInfo, Long> streams = makeStreamsWithTso(scan, 10, 20);
 
-        List<Plan> plans = new IvmDeltaRewriter().generateDeltaPlans(scan, rewriteContext(streams), NO_EXCLUSIONS);
+        List<Plan> plans = new IvmDeltaRewriter().generateDeltaPlans(scan, rewriteContext(streams), NO_EXCLUSIONS, false);
 
         LogicalOlapScan deltaScan = collectScans(plans.get(0)).get(0);
         Assertions.assertTrue(IvmDeltaRewriteHelper.INSTANCE.isIncrementalDeltaScan(deltaScan));
@@ -556,6 +550,6 @@ class IvmDeltaRewriterTest extends IvmDeltaTestBase {
         Map<TableNameInfo, Long> streams = makeStreamsWithTso(scan, 100, 5);
 
         Assertions.assertThrows(IllegalStateException.class,
-                () -> new IvmDeltaRewriter().generateDeltaPlans(scan, rewriteContext(streams), NO_EXCLUSIONS));
+                () -> new IvmDeltaRewriter().generateDeltaPlans(scan, rewriteContext(streams), NO_EXCLUSIONS, false));
     }
 }

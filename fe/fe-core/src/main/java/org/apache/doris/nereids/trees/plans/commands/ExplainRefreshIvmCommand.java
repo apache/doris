@@ -66,18 +66,16 @@ public class ExplainRefreshIvmCommand extends Command implements NoForward {
     private final RefreshMTMVInfo refreshMTMVInfo;
     private final ExplainLevel level;
     private final boolean showPlanProcess;
-    private final Integer deltaId;
 
     /**
      * Creates an EXPLAIN REFRESH command for IVM refresh planning.
      */
     public ExplainRefreshIvmCommand(RefreshMTMVInfo refreshMTMVInfo, ExplainLevel level,
-            boolean showPlanProcess, Integer deltaId) {
+            boolean showPlanProcess) {
         super(PlanType.EXPLAIN_REFRESH_IVM_COMMAND);
         this.refreshMTMVInfo = Objects.requireNonNull(refreshMTMVInfo, "refreshMTMVInfo can not be null");
         this.level = Objects.requireNonNull(level, "level can not be null");
         this.showPlanProcess = showPlanProcess;
-        this.deltaId = deltaId;
     }
 
     @Override
@@ -85,14 +83,6 @@ public class ExplainRefreshIvmCommand extends Command implements NoForward {
         if (refreshMTMVInfo.getRefreshMode() != RefreshMode.INCREMENTAL) {
             throw new org.apache.doris.nereids.exceptions.AnalysisException(
                     "EXPLAIN REFRESH only supports IVM materialized views");
-        }
-        if (deltaId == null && level != ExplainLevel.NORMAL) {
-            throw new org.apache.doris.nereids.exceptions.AnalysisException(
-                    "EXPLAIN " + level + " REFRESH requires FOR DELTA k");
-        }
-        if (showPlanProcess && deltaId == null) {
-            throw new org.apache.doris.nereids.exceptions.AnalysisException(
-                    "EXPLAIN REFRESH PLAN PROCESS requires FOR DELTA k");
         }
 
         refreshMTMVInfo.analyze(ctx);
@@ -103,14 +93,14 @@ public class ExplainRefreshIvmCommand extends Command implements NoForward {
         } finally {
             ctx.setThreadLocalInfo();
         }
-        if (deltaId == null) {
+        if (level == ExplainLevel.NORMAL && !showPlanProcess) {
             executor.sendResultSet(new ShowResultSet(OVERVIEW_META_DATA, result.formatOverviewRows()));
         } else {
-            explainDeltaPlan(ctx, executor, mtmv, result.getDeltaBundle(deltaId).getDeltaPlan());
+            explainMergedPlan(ctx, executor, mtmv, result.getMergedDeltaPlan());
         }
     }
 
-    private void explainDeltaPlan(ConnectContext ctx, StmtExecutor executor,
+    private void explainMergedPlan(ConnectContext ctx, StmtExecutor executor,
             MTMV mtmv, Plan deltaPlan) throws Exception {
         if (!(deltaPlan instanceof LogicalPlan)) {
             throw new org.apache.doris.nereids.exceptions.AnalysisException(
@@ -150,13 +140,6 @@ public class ExplainRefreshIvmCommand extends Command implements NoForward {
         if (!(logicalPlan instanceof LogicalResultSink)) {
             return logicalPlan;
         }
-
-        // IVM normalized plans can contain nested result sinks because the MV query is parsed as a
-        // query statement with its own result sink, and MTMV analyze wraps the logical query with
-        // another result sink before planning. For EXPLAIN ANALYZED PLAN we print the raw delta
-        // rewriter output, but for fragment/logical/physical explain we continue planning the delta
-        // plan. Collapse consecutive root result sinks first so Nereids sees a single root sink,
-        // matching the shape of a normal query explain.
         LogicalResultSink<?> resultSink = (LogicalResultSink<?>) logicalPlan;
         Plan child = resultSink.child();
         if (!(child instanceof LogicalResultSink)) {
@@ -189,10 +172,6 @@ public class ExplainRefreshIvmCommand extends Command implements NoForward {
 
     public boolean showPlanProcess() {
         return showPlanProcess;
-    }
-
-    public Integer getDeltaId() {
-        return deltaId;
     }
 
     @Override
