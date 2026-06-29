@@ -21,28 +21,42 @@ import groovy.json.StringEscapeUtils
 import org.apache.doris.regression.action.ProfileAction
 
 def verifyProfileContent = { suiteContext, stmt, serialReadOnLimit ->
-    // Sleep 1000ms to wait for the profile collection
-    Thread.sleep(1000)
-    // Get profile list by using getProfileList
     def profileAction = new ProfileAction(suiteContext)
-    List profileData = profileAction.getProfileList()
-    // Find the profile id for the query that we just emitted
     String profileId = ""
-    for (def profileItem : profileData) {
-        if (profileItem["Sql Statement"].toString().contains(stmt)) {
-            profileId = profileItem["Profile ID"].toString()
-            logger.info("Profile ID of ${stmt} is ${profileId}")
-            break
+    String profileContent = ""
+    long deadline = System.currentTimeMillis() + 10000
+    while (System.currentTimeMillis() <= deadline) {
+        List profileData = profileAction.getProfileList()
+        for (def profileItem : profileData) {
+            if (profileItem["Sql Statement"].toString().contains(stmt)) {
+                profileId = profileItem["Profile ID"].toString()
+                break
+            }
         }
+
+        if (profileId != "" && profileId != null) {
+            profileContent = profileAction.getProfile(profileId)
+            if (profileContent.contains("MaxScanConcurrency")
+                    || profileContent.contains("Profile Completion State: COMPLETE")) {
+                logger.info("Profile ID of ${stmt} is ${profileId}")
+                logger.info("Profile content of ${stmt} is\n${profileContent}")
+                break
+            }
+            logger.info("Profile of ${stmt} is not ready, profileId=${profileId}")
+        } else {
+            logger.info("Profile ID of ${stmt} is not found yet")
+        }
+        Thread.sleep(500)
     }
 
     if (profileId == "" || profileId == null) {
         logger.error("Profile ID of ${stmt} is not found")
         return false
     }
-    // Get profile content by using getProfile
-    String profileContent = profileAction.getProfile(profileId)
-    logger.info("Profile content of ${stmt} is\n${profileContent}")
+    if (!profileContent.contains("MaxScanConcurrency")) {
+        logger.error("Profile of ${stmt} does not contain MaxScanConcurrency, profileId=${profileId}, content:\n${profileContent}")
+        return false
+    }
     // Check if the profile contains the expected content
     if (serialReadOnLimit) {
         return profileContent.contains("- MaxScanConcurrency: 1") == true
