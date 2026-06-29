@@ -248,9 +248,9 @@ public:
             input.null_docids = {1};
         }
 
-        st = snii_doris::to_doris_status(writer.add_logical_index(input));
+        st = writer.add_logical_index(input);
         ASSERT_TRUE(st.ok()) << st;
-        st = snii_doris::to_doris_status(writer.finish());
+        st = writer.finish();
         ASSERT_TRUE(st.ok()) << st;
         st = file_writer->close(false);
         ASSERT_TRUE(st.ok()) << st;
