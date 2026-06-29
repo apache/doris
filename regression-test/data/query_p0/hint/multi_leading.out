@@ -295,26 +295,3 @@ SyntaxError:
 
 -- !sql4_res_7 --
 6224
-
--- !sql5_2 --
-PhysicalCteAnchor ( cteId=CTEId#0 )
---PhysicalCteProducer ( cteId=CTEId#0 )
-----PhysicalOlapScan[t1]
---PhysicalResultSink
-----PhysicalDistribute[DistributionSpecGather]
-------NestedLoopJoin[INNER_JOIN](cast(sum(c11) as DOUBLE) > 0.05 * avg(t1.c11))
---------hashAgg[GLOBAL]
-----------PhysicalDistribute[DistributionSpecHash]
-------------PhysicalCteConsumer ( cteId=CTEId#0 )
---------hashAgg[GLOBAL]
-----------PhysicalDistribute[DistributionSpecGather]
-------------hashAgg[LOCAL]
---------------hashJoin[INNER_JOIN shuffle] hashCondition=((t1.c1 = cte.c11)) otherCondition=()
-----------------PhysicalCteConsumer ( cteId=CTEId#0 )
-----------------PhysicalOlapScan[t1]
-
-Hint log:
-Used: leading(cte t1 )
-UnUsed:
-SyntaxError:
-

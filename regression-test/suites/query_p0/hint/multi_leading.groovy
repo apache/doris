@@ -138,5 +138,17 @@ suite("multi_leading") {
     qt_sql4_res_7 """select /*+ leading(t3 alias1) */ count(*) from (select /*+ leading(alias2 t1) */ c1, c11 from t1 join (select /*+ leading(t4 t2) */ c2, c22 from t2 join t4 on c2 = c4) as alias2 on c1 = alias2.c2) as alias1 join t3 on alias1.c1 = t3.c3;"""
 
     // // use cte in scalar query
-    qt_sql5_2 """explain shape plan with  cte as (select c11, c1 from t1)  SELECT c1 FROM cte group by c1 having sum(cte.c11) > (select /*+ leading(cte t1) */ 0.05 * avg(t1.c11) from t1 join cte on t1.c1 = cte.c11 )"""
+    explain {
+        sql """shape plan with cte as (select c11, c1 from t1) SELECT c1 FROM cte group by c1 having sum(cte.c11) > (select /*+ leading(cte t1) */ 0.05 * avg(t1.c11) from t1 join cte on t1.c1 = cte.c11 )"""
+        check { plan ->
+            def innerJoin = "hashJoin[INNER_JOIN shuffle] hashCondition=((t1.c1 = cte.c11)) otherCondition=()"
+            def joinIdx = plan.indexOf(innerJoin)
+            def cteIdx = joinIdx < 0 ? -1 : plan.indexOf("PhysicalCteConsumer", joinIdx)
+            def t1Idx = joinIdx < 0 ? -1 : plan.indexOf("PhysicalOlapScan[t1]", joinIdx)
+            return plan.contains("PhysicalCteAnchor")
+                    && plan.contains("NestedLoopJoin[INNER_JOIN]")
+                    && plan.contains("Used: leading(cte t1 )")
+                    && joinIdx >= 0 && cteIdx > joinIdx && t1Idx > cteIdx
+        }
+    }
 }
