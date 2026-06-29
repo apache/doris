@@ -16,14 +16,16 @@
 // under the License.
 
 import org.apache.kafka.clients.admin.AdminClient
+import org.apache.kafka.clients.admin.DeleteTopicsOptions
 import org.apache.kafka.clients.admin.NewTopic
 import org.apache.kafka.clients.producer.KafkaProducer
 import org.apache.kafka.clients.producer.ProducerRecord
 import org.apache.kafka.clients.producer.ProducerConfig
 
 suite("test_routine_load_alter","p0") {
+    def kafkaCsvDataFile = "test_routine_load_alter"
     def kafkaCsvTpoics = [
-                  "test_routine_load_alter",
+                  "test_routine_load_alter_${System.currentTimeMillis()}".toString(),
                 ]
     String enabled = context.config.otherConfigs.get("enableKafkaTest")
     String kafka_port = context.config.otherConfigs.get("kafka_port")
@@ -38,6 +40,17 @@ suite("test_routine_load_alter","p0") {
         // add timeout config
         props.put(ProducerConfig.MAX_BLOCK_MS_CONFIG, "10000")  
         props.put(ProducerConfig.REQUEST_TIMEOUT_MS_CONFIG, "10000")
+
+        def adminProps = new Properties()
+        adminProps.put("bootstrap.servers", "${kafka_broker}".toString())
+        def mainTopicAdmin = AdminClient.create(adminProps)
+        try {
+            kafkaCsvTpoics.each { topic ->
+                mainTopicAdmin.createTopics([new NewTopic(topic.toString(), 1, (short) 1)]).all().get()
+            }
+        } finally {
+            mainTopicAdmin.close()
+        }
 
         // check conenction
         def verifyKafkaConnection = { prod ->
@@ -64,7 +77,7 @@ suite("test_routine_load_alter","p0") {
         logger.info("Kafka connect success")
 
         for (String kafkaCsvTopic in kafkaCsvTpoics) {
-            def txt = new File("""${context.file.parent}/data/${kafkaCsvTopic}.csv""").text
+            def txt = new File("""${context.file.parent}/data/${kafkaCsvDataFile}.csv""").text
             def lines = txt.readLines()
             lines.each { line ->
                 logger.info("=====${line}========")
@@ -113,7 +126,7 @@ suite("test_routine_load_alter","p0") {
             """
             sql "sync"
 
-            def count = 0
+            def visibleCount = 0
             while (true) {
                 def res = sql "select count(*) from ${tableName}"
                 def state = sql "show routine load for ${jobName}"
@@ -123,13 +136,13 @@ suite("test_routine_load_alter","p0") {
                 if (res[0][0] > 0) {
                     break
                 }
-                if (count >= 120) {
+                if (visibleCount >= 120) {
                     log.error("routine load can not visible for long time")
                     assertEquals(20, res[0][0])
                     break
                 }
                 sleep(5000)
-                count++
+                visibleCount++
             }
             qt_sql_before "select * from ${tableName} order by k1"
 
@@ -146,7 +159,7 @@ suite("test_routine_load_alter","p0") {
             def producer = new KafkaProducer<>(props)
 
             for (String kafkaCsvTopic in kafkaCsvTpoics) {
-                def txt = new File("""${context.file.parent}/data/${kafkaCsvTopic}.csv""").text
+                def txt = new File("""${context.file.parent}/data/${kafkaCsvDataFile}.csv""").text
                 def lines = txt.readLines()
                 lines.each { line ->
                     logger.info("=====${line}========")
@@ -155,7 +168,7 @@ suite("test_routine_load_alter","p0") {
                 }
             }
 
-            def count = 0
+            def offsetVisibleCount = 0
             while (true) {
                 def res = sql "select count(*) from ${tableName}"
                 log.info("count: ${res[0][0]}".toString())
@@ -166,13 +179,13 @@ suite("test_routine_load_alter","p0") {
                 if (res[0][0] >= 6) {
                     break
                 }
-                if (count >= 120) {
+                if (offsetVisibleCount >= 120) {
                     log.error("routine load can not visible for long time")
                     assertEquals(20, res[0][0])
                     break
                 }
                 sleep(1000)
-                count++
+                offsetVisibleCount++
             }
             qt_sql_alter_after "select * from ${tableName} order by k1" 
         } finally {
@@ -199,7 +212,7 @@ suite("test_routine_load_alter","p0") {
             sql "ALTER ROUTINE LOAD FOR ${jobName} COLUMNS(k1, k2, v1, v2, v3, v4);"
             sql "ALTER ROUTINE LOAD FOR ${jobName} COLUMNS TERMINATED BY ',';"
             sql "resume routine load for ${jobName}"
-            def count = 0
+            def columnVisibleCount = 0
             while (true) {
                 def res = sql "select count(*) from ${tableName}"
                 log.info("count: ${res[0][0]}".toString())
@@ -211,13 +224,13 @@ suite("test_routine_load_alter","p0") {
                 if (res[0][0] > 0) {
                     break
                 }
-                if (count >= 120) {
+                if (columnVisibleCount >= 120) {
                     log.error("routine load can not visible for long time")
                     assertEquals(20, res[0][0])
                     break
                 }
                 sleep(1000)
-                count++
+                columnVisibleCount++
             }
             def res = sql "select * from ${tableName} order by k1"
             log.info("res: ${res.size()}".toString())
@@ -295,6 +308,18 @@ suite("test_routine_load_alter","p0") {
             sql "truncate table ${tableName}"
         }
 
+        def mainTopicCleanupProps = new Properties()
+        mainTopicCleanupProps.put("bootstrap.servers", "${kafka_broker}".toString())
+        def mainTopicCleanupAdmin = AdminClient.create(mainTopicCleanupProps)
+        try {
+            mainTopicCleanupAdmin.deleteTopics(kafkaCsvTpoics.collect { it.toString() },
+                    new DeleteTopicsOptions().timeoutMs(10000)).all().get()
+        } catch (Exception e) {
+            logger.warn("failed to delete kafka topics ${kafkaCsvTpoics}: ${e.message}".toString())
+        } finally {
+            mainTopicCleanupAdmin.close()
+        }
+
         // test alter target table
         def srcTableName = "test_routine_load_alter_src"
         def dstTableName = "test_routine_load_alter_dst"
@@ -350,7 +375,7 @@ suite("test_routine_load_alter","p0") {
             producerProps.put(ProducerConfig.REQUEST_TIMEOUT_MS_CONFIG, "10000")
             alterTopicProducer = new KafkaProducer<>(producerProps)
 
-            def firstBatch = new File("""${context.file.parent}/data/${kafkaCsvTpoics[0]}.csv""").readLines()
+            def firstBatch = new File("""${context.file.parent}/data/${kafkaCsvDataFile}.csv""").readLines()
             firstBatch.each { line ->
                 alterTopicProducer.send(new ProducerRecord<>(alterTargetTopic, null, line)).get()
             }
@@ -375,7 +400,7 @@ suite("test_routine_load_alter","p0") {
             """
             sql "sync"
 
-            def count = 0
+            def targetVisibleCount = 0
             while (true) {
                 def res = sql "select count(*) from ${srcTableName}"
                 def state = sql "show routine load for ${alterTargetJob}"
@@ -385,13 +410,13 @@ suite("test_routine_load_alter","p0") {
                 if (res[0][0] >= 3) {
                     break
                 }
-                if (count >= 120) {
+                if (targetVisibleCount >= 120) {
                     log.error("routine load can not visible for long time")
                     assertEquals(3, res[0][0])
                     break
                 }
                 sleep(1000)
-                count++
+                targetVisibleCount++
             }
 
             sql "pause routine load for ${alterTargetJob}"
@@ -417,7 +442,7 @@ suite("test_routine_load_alter","p0") {
 
             sql "resume routine load for ${alterTargetJob}"
 
-            def count = 0
+            def targetAlterVisibleCount = 0
             def stableCount = 0
             while (true) {
                 def srcCount = sql "select count(*) from ${srcTableName}"
@@ -443,32 +468,18 @@ suite("test_routine_load_alter","p0") {
                         assertEquals(3L, dstCountValue)
                     }
                 }
-                if (count >= 120) {
+                if (targetAlterVisibleCount >= 120) {
                     log.error("routine load target table alter can not visible for long time")
                     assertEquals(3L, srcCountValue)
                     assertEquals(3L, dstCountValue)
                     break
                 }
                 sleep(1000)
-                count++
+                targetAlterVisibleCount++
             }
 
-            def srcRows = sql "select k1, k2 from ${srcTableName} order by k1"
-            def dstRows = sql "select k1, k2 from ${dstTableName} order by k1"
-            assertEquals(3, srcRows.size())
-            assertEquals(3, dstRows.size())
-            assertEquals(1, srcRows[0][0])
-            assertEquals("eab", srcRows[0][1])
-            assertEquals(2, srcRows[1][0])
-            assertEquals("eab", srcRows[1][1])
-            assertEquals(3, srcRows[2][0])
-            assertEquals("eab", srcRows[2][1])
-            assertEquals(4, dstRows[0][0])
-            assertEquals("eab", dstRows[0][1])
-            assertEquals(5, dstRows[1][0])
-            assertEquals("eab", dstRows[1][1])
-            assertEquals(6, dstRows[2][0])
-            assertEquals("eab", dstRows[2][1])
+            qt_sql_alter_target_src "select k1, k2 from ${srcTableName} order by k1"
+            qt_sql_alter_target_dst "select k1, k2 from ${dstTableName} order by k1"
         } finally {
             try {
                 sql "stop routine load for ${alterTargetJob}"
@@ -479,6 +490,12 @@ suite("test_routine_load_alter","p0") {
                 alterTopicProducer.close()
             }
             if (alterTopicAdmin != null) {
+                try {
+                    alterTopicAdmin.deleteTopics([alterTargetTopic.toString()],
+                            new DeleteTopicsOptions().timeoutMs(10000)).all().get()
+                } catch (Exception e) {
+                    logger.warn("failed to delete kafka topic ${alterTargetTopic}: ${e.message}".toString())
+                }
                 alterTopicAdmin.close()
             }
             sql "truncate table ${srcTableName}"

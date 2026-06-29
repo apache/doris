@@ -10,3 +10,12 @@
 3	eab	2023-07-15	def	2023-07-20T05:48:31	"ghi"
 3	eab	2023-07-15	def	2023-07-20T05:48:31	"ghi"
 
+-- !sql_alter_target_src --
+1	eab
+2	eab
+3	eab
+
+-- !sql_alter_target_dst --
+4	eab
+5	eab
+6	eab
