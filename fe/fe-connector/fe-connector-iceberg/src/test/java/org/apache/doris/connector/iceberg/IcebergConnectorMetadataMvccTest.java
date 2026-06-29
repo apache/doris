@@ -262,6 +262,42 @@ public class IcebergConnectorMetadataMvccTest {
     }
 
     @Test
+    public void resolveVersionRefResolvesATag() {
+        Fixture f = fixture();
+        // WHY: non-numeric FOR VERSION AS OF '<name>' (VERSION_REF) accepts a TAG name (legacy
+        // refs().containsKey). Resolves tag1 -> S1 with schema v0, pinned by ref name.
+        Optional<ConnectorMvccSnapshot> snap = metadataFor(f.table, new RecordingIcebergCatalogOps())
+                .resolveTimeTravel(null, handle(), ConnectorTimeTravelSpec.versionRef("tag1"));
+        Assertions.assertTrue(snap.isPresent());
+        Assertions.assertEquals(f.s1, snap.get().getSnapshotId());
+        Assertions.assertEquals(f.schemaIdS1, snap.get().getSchemaId());
+        Assertions.assertEquals("tag1", snap.get().getProperties().get(IcebergConnectorMetadata.REF_PROPERTY));
+    }
+
+    @Test
+    public void resolveVersionRefResolvesABranch() {
+        Fixture f = fixture();
+        // WHY (H-7 core fix): non-numeric FOR VERSION AS OF '<name>' (VERSION_REF) must ALSO accept a
+        // BRANCH name (legacy branch∪tag). Before the fix this dispatched as TAG-only and a branch ref
+        // was rejected ("can't find snapshot by tag"). Resolves b1 -> S2 with schema v1.
+        Optional<ConnectorMvccSnapshot> snap = metadataFor(f.table, new RecordingIcebergCatalogOps())
+                .resolveTimeTravel(null, handle(), ConnectorTimeTravelSpec.versionRef("b1"));
+        Assertions.assertTrue(snap.isPresent(), "FOR VERSION AS OF '<branch>' must resolve a branch ref");
+        Assertions.assertEquals(f.s2, snap.get().getSnapshotId());
+        Assertions.assertEquals(f.schemaIdS2, snap.get().getSchemaId());
+        Assertions.assertEquals("b1", snap.get().getProperties().get(IcebergConnectorMetadata.REF_PROPERTY));
+    }
+
+    @Test
+    public void resolveVersionRefRejectsUnknownRef() {
+        Fixture f = fixture();
+        // WHY: a name that is neither a tag nor a branch is "not found" (empty -> fe-core renders
+        // "can't find snapshot by tag or branch").
+        Assertions.assertFalse(metadataFor(f.table, new RecordingIcebergCatalogOps())
+                .resolveTimeTravel(null, handle(), ConnectorTimeTravelSpec.versionRef("no_such_ref")).isPresent());
+    }
+
+    @Test
     public void resolveIncrementalFailsLoud() {
         Fixture f = fixture();
         // WHY: legacy iceberg never dispatched @incr (it silently read latest); fail loud instead of a wrong

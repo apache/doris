@@ -468,6 +468,26 @@ public class PaimonConnectorMetadataMvccTest {
                 "a missing tag must yield Optional.empty");
     }
 
+    @Test
+    public void resolveVersionRefResolvesAsTagForParity() {
+        RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+        PaimonTableHandle handle = normalHandle(ops);
+        ops.tagSnapshot = new PaimonCatalogOps.TagSnapshot(42L, 4L);
+
+        // WHY: a non-numeric FOR VERSION AS OF '<name>' is dispatched as VERSION_REF. For paimon this must
+        // resolve EXACTLY as a tag (legacy parity: PaimonExternalTable treats a non-digital FOR VERSION AS
+        // OF value as a tag name) — the connector stacks VERSION_REF onto its TAG case. MUTATION: dropping
+        // the VERSION_REF fall-through (so VERSION_REF hits the default) -> UnsupportedOperationException
+        // instead of a tag pin -> red.
+        ConnectorMvccSnapshot snap = metadataWith(ops)
+                .resolveTimeTravel(null, handle, ConnectorTimeTravelSpec.versionRef("release-1")).get();
+
+        Assertions.assertEquals(42L, snap.getSnapshotId());
+        Assertions.assertEquals(4L, snap.getSchemaId());
+        Assertions.assertEquals("release-1", snap.getProperties().get("scan.tag-name"),
+                "paimon must resolve a non-numeric FOR VERSION AS OF as a tag (scan.tag-name)");
+    }
+
     // ==================== resolveTimeTravel: BRANCH ====================
 
     @Test

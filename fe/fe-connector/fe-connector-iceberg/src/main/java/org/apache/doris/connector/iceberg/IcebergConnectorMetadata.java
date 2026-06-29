@@ -74,6 +74,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Predicate;
 
 /**
  * {@link ConnectorMetadata} implementation for Iceberg catalogs.
@@ -1376,6 +1377,9 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
      *       (carried in {@code properties[iceberg.scan.ref]}) so a later commit to the ref is honored (legacy
      *       {@code createTableScan} uses {@code scan.useRef(name)}). Schema id from
      *       {@code SnapshotUtil.schemaFor(table, name)}.</li>
+     *   <li>{@code VERSION_REF} — non-numeric {@code FOR VERSION AS OF '<name>'}: resolves ANY ref (branch OR
+     *       tag), mirroring legacy {@code IcebergUtils.getQuerySpecSnapshot}'s {@code table.refs().containsKey}.
+     *       Unlike {@code TAG} ({@code @tag}, tag-only) it does not require the ref to be a tag.</li>
      *   <li>{@code INCREMENTAL} — unsupported for iceberg (legacy {@code getQuerySpecSnapshot} never dispatches
      *       {@code @incr}); fail loud rather than silently read latest.</li>
      * </ul>
@@ -1412,9 +1416,14 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
                         .build());
             }
             case TAG:
-                return resolveRef(table, spec.getStringValue(), false);
+                return resolveRef(table, spec.getStringValue(), SnapshotRef::isTag);
             case BRANCH:
-                return resolveRef(table, spec.getStringValue(), true);
+                return resolveRef(table, spec.getStringValue(), SnapshotRef::isBranch);
+            case VERSION_REF:
+                // Non-numeric FOR VERSION AS OF: accept ANY ref (branch or tag), matching legacy
+                // getQuerySpecSnapshot's table.refs().containsKey(value). Unlike @tag/@branch it does
+                // not constrain the ref kind.
+                return resolveRef(table, spec.getStringValue(), ref -> true);
             case INCREMENTAL:
             default:
                 throw new DorisConnectorException(
@@ -1423,14 +1432,16 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
     }
 
     /**
-     * Resolves a tag ({@code wantBranch=false}) or branch ({@code wantBranch=true}) ref to a pinned snapshot.
-     * Empty when the ref is absent or the wrong kind (legacy threw "Table X does not have branch/tag named Y";
-     * the SPI returns empty so fe-core renders the user-facing message). Pins the ref NAME, not its current
-     * snapshot id — {@code applySnapshot} routes it to {@code scan.useRef(name)} (legacy parity).
+     * Resolves a named ref to a pinned snapshot, accepting it only when {@code accept} passes
+     * ({@code SnapshotRef::isTag} for {@code @tag}, {@code SnapshotRef::isBranch} for {@code @branch},
+     * {@code ref -> true} for non-numeric {@code FOR VERSION AS OF}, which takes any ref). Empty when the
+     * ref is absent or rejected (legacy threw "Table X does not have branch/tag named Y"; the SPI returns
+     * empty so fe-core renders the user-facing message). Pins the ref NAME, not its current snapshot id —
+     * {@code applySnapshot} routes it to {@code scan.useRef(name)} (legacy parity).
      */
-    private Optional<ConnectorMvccSnapshot> resolveRef(Table table, String refName, boolean wantBranch) {
+    private Optional<ConnectorMvccSnapshot> resolveRef(Table table, String refName, Predicate<SnapshotRef> accept) {
         SnapshotRef ref = table.refs().get(refName);
-        if (ref == null || (wantBranch ? !ref.isBranch() : !ref.isTag())) {
+        if (ref == null || !accept.test(ref)) {
             return Optional.empty();
         }
         long schemaId = SnapshotUtil.schemaFor(table, refName).schemaId();

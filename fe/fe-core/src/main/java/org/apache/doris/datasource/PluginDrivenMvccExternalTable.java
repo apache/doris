@@ -370,8 +370,9 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
     /**
      * Source-agnostic dispatch of the analyzer's {@code FOR VERSION/TIME AS OF} ({@link TableSnapshot})
      * or {@code @tag/@branch/@incr} ({@link TableScanParams}) into a {@link ConnectorTimeTravelSpec}.
-     * Mirrors the legacy {@code PaimonExternalTable.getPaimonSnapshotCacheValue} + {@code PaimonScanNode}
-     * dispatch: a digital {@code FOR VERSION AS OF} is a snapshot id, a non-digital one is a tag name.
+     * A digital {@code FOR VERSION AS OF} is a snapshot id; a non-digital one is a source-resolved ref
+     * ({@link ConnectorTimeTravelSpec.Kind#VERSION_REF}) — fe-core does NOT pre-decide tag-vs-branch
+     * (the connector owns that: iceberg accepts a branch or a tag, paimon resolves it as a tag).
      */
     private ConnectorTimeTravelSpec toTimeTravelSpec(Optional<TableSnapshot> ts, Optional<TableScanParams> sp) {
         if (ts.isPresent()) {
@@ -380,10 +381,10 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
             if (snap.getType() == TableSnapshot.VersionType.TIME) {
                 return ConnectorTimeTravelSpec.timestamp(value, isDigital(value));   // FOR TIME AS OF
             }
-            // FOR VERSION AS OF: digital -> snapshot id, non-digital -> tag name.
+            // FOR VERSION AS OF: digital -> snapshot id, non-digital -> source-resolved ref (branch/tag).
             return isDigital(value)
                     ? ConnectorTimeTravelSpec.snapshotId(value)
-                    : ConnectorTimeTravelSpec.tag(value);
+                    : ConnectorTimeTravelSpec.versionRef(value);
         }
         TableScanParams params = sp.get();
         if (params.isTag()) {
@@ -422,6 +423,12 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
         switch (spec.getKind()) {
             case SNAPSHOT_ID:
                 return "can't find snapshot by id: " + spec.getStringValue();   // parity PaimonUtil:687
+            case VERSION_REF:
+                // Non-numeric FOR VERSION AS OF may name a branch OR a tag (iceberg resolves both), but the
+                // source-agnostic wording must NOT claim a branch lookup a tag-only source never performed
+                // (paimon: FOR VERSION AS OF == tag), and "no such tag" is never false. Empty fall-through to
+                // TAG keeps the message byte-identical to legacy paimon. (iceberg legacy's more precise "tag
+                // or branch" wording is a pre-existing cosmetic gap, out of this functional fix's scope.)
             case TAG:
                 return "can't find snapshot by tag: " + spec.getStringValue();  // parity PaimonUtil:694
             case BRANCH:

@@ -426,14 +426,18 @@ public class PluginDrivenMvccExternalTableTest {
     }
 
     @Test
-    public void testForVersionAsOfNonDigitalDispatchesTag() {
+    public void testForVersionAsOfNonDigitalDispatchesVersionRef() {
         Fixture f = Fixture.timeTravel();
-        f.table.loadSnapshot(Optional.of(TableSnapshot.versionOf("my_tag")), Optional.empty());
+        f.table.loadSnapshot(Optional.of(TableSnapshot.versionOf("my_ref")), Optional.empty());
         ConnectorTimeTravelSpec spec = f.captureSpec();
         // MUTATION: always picking SNAPSHOT_ID (ignoring the isDigitalString branch) makes this red.
-        Assertions.assertEquals(ConnectorTimeTravelSpec.Kind.TAG, spec.getKind(),
-                "a non-digital FOR VERSION AS OF is a TAG name, not a snapshot id");
-        Assertions.assertEquals("my_tag", spec.getStringValue());
+        // A non-digital FOR VERSION AS OF is a source-resolved ref (VERSION_REF), NOT @tag (TAG): the
+        // connector decides branch-vs-tag (iceberg accepts a branch OR a tag; paimon resolves a tag).
+        // MUTATION: dispatching TAG here (the old paimon-only assumption) would re-introduce H-7 (a
+        // branch ref rejected) — keep VERSION_REF so the connector owns the semantics.
+        Assertions.assertEquals(ConnectorTimeTravelSpec.Kind.VERSION_REF, spec.getKind(),
+                "a non-digital FOR VERSION AS OF is a source-resolved ref (VERSION_REF), not @tag");
+        Assertions.assertEquals("my_ref", spec.getStringValue());
     }
 
     @Test
@@ -558,9 +562,23 @@ public class PluginDrivenMvccExternalTableTest {
     }
 
     @Test
-    public void testNotFoundTranslationTag() {
-        assertNotFound(TableSnapshot.versionOf("no_such_tag"), Optional.empty(),
-                "can't find snapshot by tag: no_such_tag");
+    public void testNotFoundTranslationVersionRef() {
+        // Non-numeric FOR VERSION AS OF (VERSION_REF) renders "can't find snapshot by tag" — the
+        // source-agnostic wording must not claim a branch lookup a tag-only source (paimon) never did, and
+        // "no such tag" is never false. Byte-identical to legacy paimon (paimon_time_travel.groovy pins it).
+        // MUTATION: a default/other-kind message, or "tag or branch" (which breaks paimon parity), makes
+        // this red.
+        assertNotFound(TableSnapshot.versionOf("no_such_ref"), Optional.empty(),
+                "can't find snapshot by tag: no_such_ref");
+    }
+
+    @Test
+    public void testNotFoundTranslationScanParamTag() {
+        // @tag('x') (explicit scan param, Kind.TAG) -> "can't find snapshot by tag" — covers the scan-param
+        // tag path (the FOR VERSION path above is Kind.VERSION_REF; both share the TAG wording by design).
+        TableScanParams params = new TableScanParams(TableScanParams.TAG,
+                Collections.singletonMap(TableScanParams.PARAMS_NAME, "no_such_tag"), Collections.emptyList());
+        assertNotFound(null, Optional.of(params), "can't find snapshot by tag: no_such_tag");
     }
 
     @Test
