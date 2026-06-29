@@ -58,6 +58,15 @@ class ObjectStorageGlobTest {
     }
 
     @Test
+    void compareUtf8Binary_matchesObjectStoreOrderForNonBmpKeys() {
+        String privateUseKey = "data/" + Character.toString(0xE000) + "/file.csv";
+        String emojiKey = "data/" + Character.toString(0x1F600) + "/file.csv";
+
+        Assertions.assertTrue(privateUseKey.compareTo(emojiKey) > 0);
+        Assertions.assertTrue(ObjectStorageGlob.compareUtf8Binary(privateUseKey, emojiKey) < 0);
+    }
+
+    @Test
     void globToRegex_preservesOversizedNumericRangeSemantics() {
         Pattern matcher = Pattern.compile(ObjectStorageGlob.globToRegex("date={1..10000000}/*"));
 

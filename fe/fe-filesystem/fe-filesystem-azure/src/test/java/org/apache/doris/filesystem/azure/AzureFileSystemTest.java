@@ -21,6 +21,7 @@ import org.apache.doris.filesystem.DorisOutputFile;
 import org.apache.doris.filesystem.FileEntry;
 import org.apache.doris.filesystem.GlobListing;
 import org.apache.doris.filesystem.Location;
+import org.apache.doris.filesystem.spi.ObjectStorageGlob;
 import org.apache.doris.filesystem.spi.RemoteObject;
 import org.apache.doris.filesystem.spi.RemoteObjects;
 import org.apache.doris.filesystem.spi.RequestBody;
@@ -234,6 +235,39 @@ class AzureFileSystemTest {
         Assertions.assertEquals("wasbs://c@a.host/data/d.csv", listing.getFiles().get(1).location().uri());
         // Limit not yet reached after consuming both, listing exhausted → maxFile = last returned key.
         Assertions.assertEquals("data/d.csv", listing.getMaxFile());
+    }
+
+    @Test
+    void globListWithLimit_startAfterUsesUtf8BinaryOrderAcrossExpandedPrefixes()
+            throws IOException {
+        String privateUse = Character.toString(0xE000);
+        String emoji = Character.toString(0x1F600);
+        String privateUseKey = "data/" + privateUse + "/file.csv";
+        String emojiKey = "data/" + emoji + "/file.csv";
+        Assertions.assertTrue(emojiKey.compareTo(privateUseKey) < 0);
+        Assertions.assertTrue(ObjectStorageGlob.compareUtf8Binary(emojiKey, privateUseKey) > 0);
+
+        Mockito.when(mockStorage.listObjects(
+                        ArgumentMatchers.eq("wasbs://c@a.host/" + privateUseKey),
+                        ArgumentMatchers.any()))
+                .thenReturn(new RemoteObjects(
+                        List.of(new RemoteObject(privateUseKey, "file.csv", null, 10L, 0L)),
+                        false, null));
+        Mockito.when(mockStorage.listObjects(
+                        ArgumentMatchers.eq("wasbs://c@a.host/" + emojiKey),
+                        ArgumentMatchers.any()))
+                .thenReturn(new RemoteObjects(
+                        List.of(new RemoteObject(emojiKey, "file.csv", null, 20L, 0L)),
+                        false, null));
+
+        GlobListing listing = fs.globListWithLimit(
+                Location.of("wasbs://c@a.host/data/{" + privateUse + "," + emoji + "}/file.csv"),
+                privateUseKey, 0L, 0L);
+
+        Assertions.assertEquals(1, listing.getFiles().size());
+        Assertions.assertEquals("wasbs://c@a.host/" + emojiKey,
+                listing.getFiles().get(0).location().uri());
+        Assertions.assertEquals(emojiKey, listing.getMaxFile());
     }
 
     @Test

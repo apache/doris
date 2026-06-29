@@ -419,7 +419,8 @@ public class AzureFileSystem extends ObjFileSystem {
                     if (key.endsWith(DIR_MARKER_SUFFIX)) {
                         continue;
                     }
-                    if (startAfter != null && !startAfter.isEmpty() && key.compareTo(startAfter) <= 0) {
+                    if (startAfter != null && !startAfter.isEmpty()
+                            && ObjectStorageGlob.compareUtf8Binary(key, startAfter) <= 0) {
                         continue;
                     }
                     if (reachLimit) {

@@ -300,7 +300,10 @@ public final class ObjectStorageGlob {
         return compact;
     }
 
-    private static int compareUtf8Binary(String left, String right) {
+    /**
+     * Compares object keys by unsigned UTF-8 byte order, matching object-store listing order.
+     */
+    public static int compareUtf8Binary(String left, String right) {
         byte[] leftBytes = left.getBytes(StandardCharsets.UTF_8);
         byte[] rightBytes = right.getBytes(StandardCharsets.UTF_8);
         int commonLength = Math.min(leftBytes.length, rightBytes.length);
