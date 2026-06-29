@@ -17,9 +17,12 @@
 
 package org.apache.doris.filesystem.s3;
 
+import org.apache.doris.filesystem.GlobListing;
+import org.apache.doris.filesystem.Location;
 import org.apache.doris.filesystem.spi.ObjectStorageGlob;
 import org.apache.doris.filesystem.spi.S3CompatibleFileSystem;
 
+import java.io.IOException;
 import java.util.List;
 import java.util.Optional;
 
@@ -46,6 +49,17 @@ public class S3FileSystem extends S3CompatibleFileSystem {
 
     public Optional<S3FileSystemProperties> properties() {
         return Optional.ofNullable(properties);
+    }
+
+    @Override
+    public GlobListing globListWithLimit(Location path, String startAfter, long maxBytes,
+            long maxFiles) throws IOException {
+        if (isDirectoryBucketEndpoint()
+                && ((startAfter != null && !startAfter.isEmpty()) || maxBytes > 0 || maxFiles > 0)) {
+            throw new IOException("S3 directory bucket glob listing does not support key-based pagination "
+                    + "because StartAfter is unsupported and object order is not lexicographical");
+        }
+        return super.globListWithLimit(path, startAfter, maxBytes, maxFiles);
     }
 
     @Override

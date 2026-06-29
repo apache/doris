@@ -703,6 +703,26 @@ class S3FileSystemTest {
     }
 
     @Test
+    void globListWithLimit_rejectsDirectoryBucketKeyCursorPagination() throws IOException {
+        S3FileSystemProperties properties = S3FileSystemProperties.of(Map.of(
+                "s3.endpoint", "https://s3express-usw2-az1.us-west-2.amazonaws.com",
+                "s3.region", "us-west-2"));
+        S3FileSystem directoryBucketFs = new S3FileSystem(properties, mockStorage);
+        Location path = Location.of("s3://bucket/data/*.csv");
+
+        IOException resumed = Assertions.assertThrows(IOException.class,
+                () -> directoryBucketFs.globListWithLimit(path, "data/a.csv", 0L, 0L));
+        Assertions.assertTrue(resumed.getMessage().contains("directory bucket"));
+        Assertions.assertThrows(IOException.class,
+                () -> directoryBucketFs.globListWithLimit(path, null, 0L, 1L));
+        Assertions.assertThrows(IOException.class,
+                () -> directoryBucketFs.globListWithLimit(path, null, 10L, 0L));
+
+        Mockito.verify(mockStorage, Mockito.never()).listObjectsWithOptions(
+                ArgumentMatchers.anyString(), ArgumentMatchers.<ObjectListOptions>any());
+    }
+
+    @Test
     void globListWithLimit_listsExpandedDatePrefixesInsteadOfBroadDatePrefix() throws IOException {
         Mockito.when(mockStorage.listObjects(ArgumentMatchers.anyString(), ArgumentMatchers.isNull()))
                 .thenReturn(new RemoteObjects(List.of(), false, null));
