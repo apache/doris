@@ -47,6 +47,29 @@ inline size_t trim_right(const char* s, size_t size) {
     return size;
 }
 
+template <typename Offsets>
+Status fill_array_offsets(const std::string& column_name, Offsets& doris_offsets,
+                          const orc::DataBuffer<int64_t>& orc_offsets, size_t num_values,
+                          size_t* element_size) {
+    if (num_values > 0) {
+        // The const variable uses a non-const method from a third-party dependency
+        // without modification, so const_cast can be used.
+        if (const_cast<orc::DataBuffer<int64_t>&>(orc_offsets).size() < num_values + 1) {
+            return Status::InternalError("Wrong array offsets in orc file for column '{}'",
+                                         column_name);
+        }
+        auto prev_offset = doris_offsets.back();
+        auto base_offset = orc_offsets[0];
+        for (int i = 1; i < num_values + 1; ++i) {
+            doris_offsets.emplace_back(prev_offset + orc_offsets[i] - base_offset);
+        }
+        *element_size = orc_offsets[num_values] - base_offset;
+    } else {
+        *element_size = 0;
+    }
+    return Status::OK();
+}
+
 template <PrimitiveType PType, typename OrcColumnType>
 Status read_flat_column(IColumn& column, const orc::ColumnVectorBatch* orc_col_batch, int64_t start,
                         int64_t end, const UInt8* filter) {

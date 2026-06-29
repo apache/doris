@@ -26,8 +26,10 @@
 #include "core/column/column_const.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_array.h"
+#include "core/data_type/data_type_nullable.h"
 #include "core/data_type/get_least_supertype.h"
 #include "core/data_type_serde/complex_type_deserialize_util.h"
+#include "core/data_type_serde/orc_data_type_serde.h"
 #include "core/string_ref.h"
 #include "exprs/function/function_helpers.h"
 #include "util/jsonb_document.h"
@@ -372,6 +374,40 @@ Status DataTypeArraySerDe::write_column_to_orc(const std::string& timezone, cons
 
     cur_batch->numElements = end - start;
     return Status::OK();
+}
+
+Status DataTypeArraySerDe::read_column_from_orc(const OrcSerDeReadContext& context,
+                                                const std::string& column_name,
+                                                const DataTypePtr& data_type, IColumn& column,
+                                                const orc::Type* orc_type,
+                                                const orc::ColumnVectorBatch* orc_col_batch,
+                                                int64_t start, int64_t end) const {
+    if (start != 0) {
+        return Status::NotSupported("read_column_from_orc with non-zero start for type {}",
+                                    get_name());
+    }
+    if (orc_type->getKind() != orc::TypeKind::LIST) {
+        return Status::InternalError("Wrong data type for column '{}', expected list, actual {}",
+                                     column_name, orc_type->getKind());
+    }
+    const auto* orc_list = dynamic_cast<const orc::ListVectorBatch*>(orc_col_batch);
+    if (orc_list == nullptr) {
+        return Status::InternalError("Wrong ORC data type for array column {}, actual {}",
+                                     column_name, orc_col_batch->toString());
+    }
+
+    auto& doris_array = assert_cast<ColumnArray&>(column);
+    size_t element_size = 0;
+    RETURN_IF_ERROR(orc_serde::fill_array_offsets(column_name, doris_array.get_offsets(),
+                                                  orc_list->offsets, end - start, &element_size));
+    const auto* array_type = assert_cast<const DataTypeArray*>(remove_nullable(data_type).get());
+    const DataTypePtr& nested_type = array_type->get_nested_type();
+    const orc::Type* nested_orc_type = orc_type->getSubtype(0);
+    std::string element_name = column_name + ".element";
+    return context.read_nested_column(element_name, doris_array.get_data_ptr(), nested_type,
+                                      context.get_element_node(context.schema_node),
+                                      nested_orc_type, orc_list->elements.get(), element_size,
+                                      false);
 }
 
 Status DataTypeArraySerDe::write_column_to_pb(const IColumn& column, PValues& result, int64_t start,

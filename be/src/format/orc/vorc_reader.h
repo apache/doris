@@ -415,11 +415,6 @@ private:
                                        const orc::Type* orc_column_type,
                                        const orc::ColumnVectorBatch* cvb, size_t num_values);
 
-    Status _fill_doris_array_offsets(const std::string& col_name,
-                                     ColumnArray::Offsets64& doris_offsets,
-                                     const orc::DataBuffer<int64_t>& orc_offsets, size_t num_values,
-                                     size_t* element_size);
-
     bool _can_filter_by_dict(int slot_id);
 
     Status _rewrite_dict_conjuncts(std::vector<int32_t>& dict_codes, int slot_id, bool is_nullable);
