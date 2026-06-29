@@ -31,6 +31,7 @@ public final class ObjectStorageGlob {
 
     private static final int MAX_EXPANDED_GLOB_LIST_PREFIXES = 256;
     private static final Comparator<String> UTF8_BINARY_ORDER = ObjectStorageGlob::compareUtf8Binary;
+    private static final Pattern NUMERIC_RANGE_PATTERN = Pattern.compile("-?\\d+\\.\\.-?\\d+");
 
     private ObjectStorageGlob() {
     }
@@ -210,6 +211,9 @@ public final class ObjectStorageGlob {
         }
         List<String> values = new ArrayList<>();
         for (String alternative : alternatives) {
+            if (containsNumericRange(alternative)) {
+                return null;
+            }
             List<String> expandedAlternative = expandGlobListPrefixes(alternative, false);
             if (expandedAlternative == null) {
                 return null;
@@ -308,7 +312,7 @@ public final class ObjectStorageGlob {
     }
 
     /**
-     * Expands {N..M} numeric ranges inside brace groups into comma-separated alternatives.
+     * Expands bounded {N..M} numeric ranges inside brace groups into comma-separated alternatives.
      */
     public static String expandNumericRanges(String pattern) {
         java.util.regex.Pattern rangeSegment = java.util.regex.Pattern.compile(
@@ -330,18 +334,42 @@ public final class ObjectStorageGlob {
             }
             String[] segments = content.split(",", -1);
             java.util.LinkedHashSet<String> values = new java.util.LinkedHashSet<>();
+            boolean canExpand = true;
             for (String seg : segments) {
                 java.util.regex.Matcher rm = rangeSegment.matcher(seg.trim());
                 if (rm.matches()) {
-                    int from = Integer.parseInt(rm.group(1));
-                    int to = Integer.parseInt(rm.group(2));
-                    int step = from <= to ? 1 : -1;
-                    for (int i = from; step > 0 ? i <= to : i >= to; i += step) {
-                        values.add(String.valueOf(i));
+                    long from;
+                    long to;
+                    try {
+                        from = Long.parseLong(rm.group(1));
+                        to = Long.parseLong(rm.group(2));
+                    } catch (NumberFormatException e) {
+                        canExpand = false;
+                        break;
+                    }
+                    long cardinality = numericRangeCardinality(from, to);
+                    if (cardinality < 0
+                            || cardinality > MAX_EXPANDED_GLOB_LIST_PREFIXES - values.size()) {
+                        canExpand = false;
+                        break;
+                    }
+                    long step = from <= to ? 1L : -1L;
+                    boolean zeroPad = hasLeadingZero(rm.group(1)) || hasLeadingZero(rm.group(2));
+                    int width = Math.max(digitWidth(rm.group(1)), digitWidth(rm.group(2)));
+                    for (long offset = 0; offset < cardinality; offset++) {
+                        long value = step > 0 ? from + offset : from - offset;
+                        values.add(formatRangeValue(value, width, zeroPad));
                     }
                 } else {
                     values.add(seg.trim());
+                    if (values.size() > MAX_EXPANDED_GLOB_LIST_PREFIXES) {
+                        canExpand = false;
+                        break;
+                    }
                 }
+            }
+            if (!canExpand) {
+                continue;
             }
             StringBuilder expansion = new StringBuilder("{");
             expansion.append(String.join(",", values));
@@ -350,6 +378,46 @@ public final class ObjectStorageGlob {
         }
         m.appendTail(sb);
         return sb.toString();
+    }
+
+    private static boolean containsNumericRange(String text) {
+        return NUMERIC_RANGE_PATTERN.matcher(text).find();
+    }
+
+    private static long numericRangeCardinality(long from, long to) {
+        try {
+            long distance = from <= to
+                    ? Math.subtractExact(to, from)
+                    : Math.subtractExact(from, to);
+            return Math.addExact(distance, 1L);
+        } catch (ArithmeticException e) {
+            return -1L;
+        }
+    }
+
+    private static boolean hasLeadingZero(String value) {
+        String digits = value.startsWith("-") ? value.substring(1) : value;
+        return digits.length() > 1 && digits.charAt(0) == '0';
+    }
+
+    private static int digitWidth(String value) {
+        return value.startsWith("-") ? value.length() - 1 : value.length();
+    }
+
+    private static String formatRangeValue(long value, int width, boolean zeroPad) {
+        if (!zeroPad) {
+            return Long.toString(value);
+        }
+        if (value == Long.MIN_VALUE) {
+            return Long.toString(value);
+        }
+        String sign = value < 0 ? "-" : "";
+        String digits = Long.toString(value < 0 ? -value : value);
+        StringBuilder padded = new StringBuilder(sign);
+        for (int i = digits.length(); i < width; i++) {
+            padded.append('0');
+        }
+        return padded.append(digits).toString();
     }
 
     /**

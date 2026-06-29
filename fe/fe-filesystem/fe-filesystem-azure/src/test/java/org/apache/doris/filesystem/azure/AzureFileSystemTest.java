@@ -279,6 +279,33 @@ class AzureFileSystemTest {
     }
 
     @Test
+    void globListWithLimit_preservesZeroPaddedNumericRangePrefixes() throws IOException {
+        RemoteObjects empty = new RemoteObjects(List.of(), false, null);
+        Mockito.when(mockStorage.listObjects(ArgumentMatchers.anyString(), ArgumentMatchers.any()))
+                .thenReturn(empty);
+        Mockito.when(mockStorage.listObjects(
+                        ArgumentMatchers.eq("wasbs://c@a.host/date=2025-01-01/"),
+                        ArgumentMatchers.any()))
+                .thenReturn(new RemoteObjects(
+                        List.of(new RemoteObject("date=2025-01-01/file.parquet",
+                                "file.parquet", null, 10L, 0L)),
+                        false, null));
+
+        GlobListing listing = fs.globListWithLimit(
+                Location.of("wasbs://c@a.host/date=2025-{01..03}-01/*"), null, 0L, 0L);
+
+        Assertions.assertEquals(1, listing.getFiles().size());
+        Assertions.assertEquals("wasbs://c@a.host/date=2025-01-01/file.parquet",
+                listing.getFiles().get(0).location().uri());
+        Mockito.verify(mockStorage).listObjects(
+                ArgumentMatchers.eq("wasbs://c@a.host/date=2025-01-01/"), ArgumentMatchers.any());
+        Mockito.verify(mockStorage).listObjects(
+                ArgumentMatchers.eq("wasbs://c@a.host/date=2025-03-01/"), ArgumentMatchers.any());
+        Mockito.verify(mockStorage, Mockito.never()).listObjects(
+                ArgumentMatchers.eq("wasbs://c@a.host/date=2025-1-01/"), ArgumentMatchers.any());
+    }
+
+    @Test
     void globListWithLimit_doesNotAppendSuffixToPartialBraceArmPrefix() throws IOException {
         Mockito.when(mockStorage.listObjects(
                         ArgumentMatchers.eq("wasbs://c@a.host/data/"),
