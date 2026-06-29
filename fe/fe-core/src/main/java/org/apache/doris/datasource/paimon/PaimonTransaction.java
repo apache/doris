@@ -35,6 +35,7 @@ import org.apache.paimon.table.sink.StreamTableCommit;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Base64;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -42,21 +43,28 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.Callable;
 
 public class PaimonTransaction implements Transaction {
     private static final Logger LOG = LogManager.getLogger(PaimonTransaction.class);
     private static final int COMMIT_MESSAGE_HEADER_SIZE = 12;
+    private static final byte[] COMMIT_MESSAGE_MAGIC = new byte[] {'D', 'P', 'C', 'M'};
 
-    private final PaimonMetadataOps ops;
+    private final CommitExecutor commitExecutor;
     private PaimonExternalTable table;
     private long transactionId = -1L;
     private String commitUser = "";
+    private boolean committed = false;
 
-    private final List<TPaimonCommitMessage> commitMessages = Lists.newArrayList();
+    private final List<byte[]> commitPayloads = Lists.newArrayList();
     private final Set<String> commitPayloadSet = new HashSet<>();
 
     public PaimonTransaction(PaimonMetadataOps ops) {
-        this.ops = ops;
+        this(new DefaultCommitExecutor(ops));
+    }
+
+    PaimonTransaction(CommitExecutor commitExecutor) {
+        this.commitExecutor = commitExecutor;
     }
 
     public void updateCommitMessages(List<TPaimonCommitMessage> messages) {
@@ -65,17 +73,7 @@ public class PaimonTransaction implements Transaction {
         }
         synchronized (this) {
             for (TPaimonCommitMessage message : messages) {
-                if (message == null || !message.isSetPayload()) {
-                    continue;
-                }
-                byte[] payload = message.getPayload();
-                if (payload == null || payload.length == 0) {
-                    continue;
-                }
-                String key = Base64.getEncoder().encodeToString(payload);
-                if (commitPayloadSet.add(key)) {
-                    commitMessages.add(message);
-                }
+                addCommitPayload(message);
             }
         }
     }
@@ -89,11 +87,9 @@ public class PaimonTransaction implements Transaction {
 
     @Override
     public void commit() throws UserException {
-        List<TPaimonCommitMessage> rawMessages;
-        synchronized (this) {
-            rawMessages = Lists.newArrayList(commitMessages);
-        }
-        if (rawMessages.isEmpty()) {
+        List<byte[]> rawPayloads = snapshotCommitPayloads();
+        if (rawPayloads.isEmpty()) {
+            LOG.info("Skip empty PaimonTransaction commit, txnId={}, table={}", transactionId, tableName());
             return;
         }
         if (table == null) {
@@ -104,40 +100,16 @@ public class PaimonTransaction implements Transaction {
         }
 
         try {
-            ExecutionAuthenticator authenticator = ops.dorisCatalog.getExecutionAuthenticator();
-            authenticator.execute(() -> {
-                org.apache.paimon.table.Table paimonTable =
-                        table.getPaimonTable(MvccUtil.getSnapshotFromContext(table));
-                if (!(paimonTable instanceof InnerTable)) {
-                    throw new RuntimeException("Paimon table does not support commit: " + paimonTable.getClass());
-                }
-
-                List<CommitMessage> allMessages = new ArrayList<>();
-                for (TPaimonCommitMessage msg : rawMessages) {
-                    if (msg == null || !msg.isSetPayload()) {
-                        continue;
-                    }
-                    byte[] payload = msg.getPayload();
-                    if (payload == null || payload.length == 0) {
-                        continue;
-                    }
-                    allMessages.addAll(deserializeCommitMessagePayload(payload));
-                }
-                LOG.info("paimon: rawMessages size={}, allMessages size={}", rawMessages.size(), allMessages.size());
-                if (allMessages.isEmpty()) {
-                    throw new RuntimeException("allMessages is empty! rawMessages size=" + rawMessages.size());
-                }
-
-                StreamTableCommit committer = ((InnerTable) paimonTable).newCommit(commitUser);
-                try {
-                    Map<Long, List<CommitMessage>> commitMap = new HashMap<>();
-                    commitMap.put(transactionId, allMessages);
-                    committer.filterAndCommit(commitMap);
-                    return null;
-                } finally {
-                    committer.close();
-                }
-            });
+            List<CommitMessage> allMessages = deserializeCommitMessagePayloads(rawPayloads);
+            LOG.info("Commit PaimonTransaction, txnId={}, table={}, rawPayloads={}, commitMessages={}",
+                    transactionId, tableName(), rawPayloads.size(), allMessages.size());
+            if (allMessages.isEmpty()) {
+                throw new RuntimeException("Paimon commit messages are empty, raw payload size=" + rawPayloads.size());
+            }
+            commitExecutor.commit(table, commitUser, transactionId, allMessages);
+            synchronized (this) {
+                committed = true;
+            }
         } catch (Exception e) {
             throw new UserException("Failed to commit paimon transaction on FE", e);
         }
@@ -145,7 +117,34 @@ public class PaimonTransaction implements Transaction {
 
     @Override
     public void rollback() {
-        LOG.info("Rollback PaimonTransaction for table {}", table == null ? "null" : table.getName());
+        if (isCommitted()) {
+            LOG.info("Skip rollback for committed PaimonTransaction, txnId={}, table={}", transactionId, tableName());
+            return;
+        }
+        List<byte[]> rawPayloads = snapshotCommitPayloads();
+        if (rawPayloads.isEmpty()) {
+            LOG.info("Skip empty PaimonTransaction rollback, txnId={}, table={}", transactionId, tableName());
+            return;
+        }
+        if (table == null) {
+            LOG.warn("Skip PaimonTransaction rollback because table is missing, txnId={}, rawPayloads={}",
+                    transactionId, rawPayloads.size());
+            return;
+        }
+
+        try {
+            List<CommitMessage> allMessages = deserializeCommitMessagePayloads(rawPayloads);
+            if (allMessages.isEmpty()) {
+                LOG.info("Skip PaimonTransaction rollback with empty decoded messages, txnId={}, "
+                        + "table={}, rawPayloads={}", transactionId, tableName(), rawPayloads.size());
+                return;
+            }
+            LOG.info("Rollback PaimonTransaction, txnId={}, table={}, rawPayloads={}, commitMessages={}",
+                    transactionId, tableName(), rawPayloads.size(), allMessages.size());
+            commitExecutor.abort(table, commitUser, allMessages);
+        } catch (Exception e) {
+            LOG.warn("Failed to rollback PaimonTransaction, txnId={}, table={}", transactionId, tableName(), e);
+        }
     }
 
     public long getUpdateCnt() {
@@ -161,16 +160,57 @@ public class PaimonTransaction implements Transaction {
         return commitUser;
     }
 
-    private static List<CommitMessage> deserializeCommitMessagePayload(byte[] payload) throws IOException {
-        if (payload == null || payload.length < COMMIT_MESSAGE_HEADER_SIZE
-                || payload[0] != 'D' || payload[1] != 'P' || payload[2] != 'C' || payload[3] != 'M') {
+    boolean isCommitted() {
+        synchronized (this) {
+            return committed;
+        }
+    }
+
+    int getCommitPayloadCount() {
+        synchronized (this) {
+            return commitPayloads.size();
+        }
+    }
+
+    private void addCommitPayload(TPaimonCommitMessage message) {
+        if (message == null || !message.isSetPayload()) {
+            return;
+        }
+        byte[] payload = message.getPayload();
+        if (payload == null || payload.length == 0) {
+            return;
+        }
+        String key = Base64.getEncoder().encodeToString(payload);
+        if (commitPayloadSet.add(key)) {
+            commitPayloads.add(Arrays.copyOf(payload, payload.length));
+        }
+    }
+
+    private List<byte[]> snapshotCommitPayloads() {
+        synchronized (this) {
+            List<byte[]> rawPayloads = new ArrayList<>(commitPayloads.size());
+            for (byte[] payload : commitPayloads) {
+                rawPayloads.add(Arrays.copyOf(payload, payload.length));
+            }
+            return rawPayloads;
+        }
+    }
+
+    static List<CommitMessage> deserializeCommitMessagePayloads(List<byte[]> payloads) throws IOException {
+        List<CommitMessage> allMessages = new ArrayList<>();
+        for (byte[] payload : payloads) {
+            allMessages.addAll(deserializeCommitMessagePayload(payload));
+        }
+        return allMessages;
+    }
+
+    static List<CommitMessage> deserializeCommitMessagePayload(byte[] payload) throws IOException {
+        if (payload == null || payload.length < COMMIT_MESSAGE_HEADER_SIZE || !hasValidMagic(payload)) {
             throw new IOException("Invalid paimon commit message payload header");
         }
 
-        int version = ((payload[4] & 0xFF) << 24) | ((payload[5] & 0xFF) << 16)
-                | ((payload[6] & 0xFF) << 8) | (payload[7] & 0xFF);
-        int len = ((payload[8] & 0xFF) << 24) | ((payload[9] & 0xFF) << 16)
-                | ((payload[10] & 0xFF) << 8) | (payload[11] & 0xFF);
+        int version = readInt(payload, 4);
+        int len = readInt(payload, 8);
         if (len < 0 || payload.length != COMMIT_MESSAGE_HEADER_SIZE + len) {
             throw new IOException("Invalid paimon commit message payload length");
         }
@@ -184,4 +224,84 @@ public class PaimonTransaction implements Transaction {
         }
         return messages;
     }
+
+    private static boolean hasValidMagic(byte[] payload) {
+        for (int i = 0; i < COMMIT_MESSAGE_MAGIC.length; i++) {
+            if (payload[i] != COMMIT_MESSAGE_MAGIC[i]) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static int readInt(byte[] payload, int offset) {
+        return ((payload[offset] & 0xFF) << 24) | ((payload[offset + 1] & 0xFF) << 16)
+                | ((payload[offset + 2] & 0xFF) << 8) | (payload[offset + 3] & 0xFF);
+    }
+
+    private String tableName() {
+        return table == null ? "null" : table.getName();
+    }
+
+    interface CommitExecutor {
+        void commit(PaimonExternalTable table, String commitUser, long transactionId,
+                List<CommitMessage> commitMessages) throws Exception;
+
+        void abort(PaimonExternalTable table, String commitUser, List<CommitMessage> commitMessages) throws Exception;
+    }
+
+    private static class DefaultCommitExecutor implements CommitExecutor {
+        private final PaimonMetadataOps ops;
+
+        private DefaultCommitExecutor(PaimonMetadataOps ops) {
+            this.ops = ops;
+        }
+
+        @Override
+        public void commit(PaimonExternalTable table, String commitUser, long transactionId,
+                List<CommitMessage> commitMessages) throws Exception {
+            execute(() -> {
+                InnerTable paimonTable = getInnerTable(table);
+                StreamTableCommit committer = paimonTable.newCommit(commitUser);
+                try {
+                    Map<Long, List<CommitMessage>> commitMap = new HashMap<>();
+                    commitMap.put(transactionId, commitMessages);
+                    committer.filterAndCommit(commitMap);
+                    return null;
+                } finally {
+                    committer.close();
+                }
+            });
+        }
+
+        @Override
+        public void abort(PaimonExternalTable table, String commitUser,
+                List<CommitMessage> commitMessages) throws Exception {
+            execute(() -> {
+                InnerTable paimonTable = getInnerTable(table);
+                StreamTableCommit committer = paimonTable.newCommit(commitUser);
+                try {
+                    committer.abort(commitMessages);
+                    return null;
+                } finally {
+                    committer.close();
+                }
+            });
+        }
+
+        private <T> T execute(Callable<T> callable) throws Exception {
+            ExecutionAuthenticator authenticator = ops.dorisCatalog.getExecutionAuthenticator();
+            return authenticator.execute(callable);
+        }
+
+        private InnerTable getInnerTable(PaimonExternalTable table) {
+            org.apache.paimon.table.Table paimonTable =
+                    table.getPaimonTable(MvccUtil.getSnapshotFromContext(table));
+            if (!(paimonTable instanceof InnerTable)) {
+                throw new RuntimeException("Paimon table does not support commit: " + paimonTable.getClass());
+            }
+            return (InnerTable) paimonTable;
+        }
+    }
+
 }
