@@ -9284,6 +9284,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         }
         LabelNameInfo labelNameInfo = new LabelNameInfo(dbName, jobName);
 
+        // TODO: Phase 1 only supports altering the target table. Phase 2 will allow altering
+        // the target table and routine load properties in the same statement.
         if (ctx.table != null) {
             return new AlterRoutineLoadCommand(labelNameInfo, ctx.table.getText());
         }

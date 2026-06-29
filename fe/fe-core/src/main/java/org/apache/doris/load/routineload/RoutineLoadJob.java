@@ -469,20 +469,16 @@ public abstract class RoutineLoadJob
         }
     }
 
-    protected RoutineLoadDesc buildRoutineLoadDescSnapshot() {
-        List<ImportColumnDesc> columnsInfo = null;
-        if (columnDescs != null && !columnDescs.descs.isEmpty()) {
-            columnsInfo = new ArrayList<>(columnDescs.descs);
-        }
-        return new RoutineLoadDesc(columnSeparator, lineDelimiter, columnsInfo, precedingFilter, whereExpr,
-                partitionNamesInfo, deleteCondition, mergeType, sequenceCol);
-    }
-
     public void validateTargetTable(Database db, OlapTable targetTable) throws UserException {
         if (isMultiTable) {
             throw new AnalysisException("ALTER ROUTINE LOAD target table change only supports single-table job");
         }
-        checkMeta(targetTable, buildRoutineLoadDescSnapshot());
+        List<ImportColumnDesc> columnsInfo = null;
+        if (columnDescs != null && !columnDescs.descs.isEmpty()) {
+            columnsInfo = new ArrayList<>(columnDescs.descs);
+        }
+        checkMeta(targetTable, new RoutineLoadDesc(columnSeparator, lineDelimiter, columnsInfo, precedingFilter,
+                whereExpr, partitionNamesInfo, deleteCondition, mergeType, sequenceCol));
 
         targetTable.readLock();
         try {
