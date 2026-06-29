@@ -1679,6 +1679,7 @@ Status CloudMetaMgr::abort_txn(const StreamLoadContext& ctx) {
                      << " txn_id=" << ctx.txn_id << " label=" << ctx.label;
         return Status::InternalError<false>("failed to abort txn");
     }
+    TEST_SYNC_POINT_RETURN_WITH_VALUE("CloudMetaMgr::abort_txn.before_rpc", Status::OK(), &req);
     return retry_rpc(MetaServiceRPC::ABORT_TXN, req, &res, &MetaService_Stub::abort_txn,
                      {
                              .host_limiters = host_level_ms_rpc_rate_limiters_,
