@@ -51,6 +51,8 @@ import org.junit.rules.ExpectedException;
 import java.lang.reflect.Method;
 import java.time.LocalDate;
 import java.time.ZoneId;
+import java.time.ZoneOffset;
+import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.Calendar;
 import java.util.Collection;
@@ -2228,6 +2230,59 @@ public class DynamicPartitionTableTest {
                 Assert.assertTrue("Lower key must have +00:00 suffix: " + lowerStr,
                         lowerStr.contains("+00:00"));
             }
+        } finally {
+            connectContext.getSessionVariable().setTimeZone(originalTimeZone);
+        }
+    }
+
+    @Test
+    public void testAutoPartitionRetentionTimestampTzCutoffNormalized() throws Exception {
+        String originalTimeZone = connectContext.getSessionVariable().getTimeZone();
+        try {
+            // Session TZ Asia/Shanghai (UTC+8). Without normalization, the buggy
+            // cutoff would be ~8h ahead of UTC, dropping partitions whose upper
+            // bounds are between the true UTC cutoff and the shifted cutoff.
+            connectContext.getSessionVariable().setTimeZone("Asia/Shanghai");
+
+            String createSql = "CREATE TABLE test.`auto_retention_tstz` (\n"
+                    + "  `k1` TIMESTAMPTZ NULL\n"
+                    + ") ENGINE=OLAP\n"
+                    + "DUPLICATE KEY(`k1`)\n"
+                    + "AUTO PARTITION BY RANGE (k1) ()\n"
+                    + "DISTRIBUTED BY HASH(`k1`) BUCKETS 1\n"
+                    + "PROPERTIES (\n"
+                    + "\"replication_num\" = \"1\",\n"
+                    + "\"partition.retention_count\" = \"0\"\n"
+                    + ");";
+            createTable(createSql);
+
+            Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException("test");
+            OlapTable tbl = (OlapTable) db.getTableOrAnalysisException("auto_retention_tstz");
+
+            // Recent partition: upper bound is 4h in the future (UTC).
+            // With the fix: cutoff is UTC-normalized, upper > cutoff → not history → kept.
+            // Without the fix: cutoff ≈ UTC now + 8h (Asia/Shanghai parsed as UTC),
+            // upper < cutoff → incorrectly classified as history → dropped.
+            DateTimeFormatter fmt = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+            ZonedDateTime utcNow = ZonedDateTime.now(ZoneOffset.UTC);
+            String recentLower = utcNow.minusHours(1).format(fmt) + "+00:00";
+            String recentUpper = utcNow.plusHours(4).format(fmt) + "+00:00";
+
+            String alterRecent = "ALTER TABLE test.auto_retention_tstz ADD PARTITION p_recent VALUES "
+                    + "[('" + recentLower + "'), ('" + recentUpper + "'))";
+            alterTable(alterRecent);
+
+            Assert.assertEquals(1, tbl.getPartitionNames().size());
+
+            // Run retention: retention_count=0 drops all history partitions.
+            Env.getCurrentEnv().getDynamicPartitionScheduler()
+                    .executeDynamicPartitionFirstTime(db.getId(), tbl.getId());
+
+            // Recent partition should survive because its upper bound is ahead of
+            // the UTC-normalized cutoff (it is not a history partition).
+            Assert.assertEquals("Recent partition with upper bound ahead of UTC cutoff"
+                    + " should not be dropped", 1, tbl.getPartitionNames().size());
+            Assert.assertTrue(tbl.getPartitionNames().contains("p_recent"));
         } finally {
             connectContext.getSessionVariable().setTimeZone(originalTimeZone);
         }

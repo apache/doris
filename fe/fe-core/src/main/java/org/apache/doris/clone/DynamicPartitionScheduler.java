@@ -660,6 +660,14 @@ public class DynamicPartitionScheduler extends MasterDaemon {
         String partitionFormat = DynamicPartitionUtil.getPartitionFormat(partitionColumn);
         String currentTimeStr = DateTimeFormatter.ofPattern(partitionFormat).format(now);
 
+        // For TIMESTAMPTZ columns, normalize the cutoff time to UTC so it
+        // matches the stored partition bounds, which are also stored as UTC.
+        // Without this, a suffix-free currentTimeStr formatted in the JVM
+        // timezone would be parsed as UTC via TimestampTzLiteral.fromSessionTimeZone(),
+        // shifting the cutoff and potentially dropping the current UTC-day partition.
+        currentTimeStr = convertToUtcTimestamp(partitionColumn, currentTimeStr,
+                TimeZone.getTimeZone(DateUtils.getTimeZone()));
+
         PartitionValue currentTimeValue = new PartitionValue(currentTimeStr);
         PartitionKey currentTimeKey;
         try {
