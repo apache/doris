@@ -318,7 +318,6 @@ Status execute_s3_read(size_t empty_start, size_t& size, std::unique_ptr<char[]>
     stats.from_peer_cache = false;
     auto st = remote_file_reader->read_at(empty_start, Slice(buffer.get(), size), &size, io_ctx);
     if (st.ok()) {
-        ++stats.remote_physical_read_count;
         stats.remote_physical_read_bytes += size;
     }
     return st;
@@ -802,8 +801,6 @@ std::vector<FileBlockSPtr> CachedRemoteFileReader::_collect_remote_read_blocks(
     for (auto& block : holder.file_blocks) {
         switch (block->state()) {
         case FileBlock::State::EMPTY:
-            ++stats.file_cache_blocks_total;
-            ++stats.file_cache_blocks_miss;
             VLOG_DEBUG << fmt::format("Block EMPTY path={} hash={}:{}:{} offset={} cache_path={}",
                                       path().native(), _cache_hash.to_string(), _cache_hash.high(),
                                       _cache_hash.low(), block->offset(), block->get_cache_file());
@@ -815,8 +812,6 @@ std::vector<FileBlockSPtr> CachedRemoteFileReader::_collect_remote_read_blocks(
             stats.hit_cache = false;
             break;
         case FileBlock::State::SKIP_CACHE:
-            ++stats.file_cache_blocks_total;
-            ++stats.file_cache_blocks_skip;
             VLOG_DEBUG << fmt::format(
                     "Block SKIP_CACHE path={} hash={}:{}:{} offset={} cache_path={}",
                     path().native(), _cache_hash.to_string(), _cache_hash.high(), _cache_hash.low(),
@@ -826,13 +821,9 @@ std::vector<FileBlockSPtr> CachedRemoteFileReader::_collect_remote_read_blocks(
             stats.skip_cache = true;
             break;
         case FileBlock::State::DOWNLOADING:
-            ++stats.file_cache_blocks_total;
-            ++stats.file_cache_blocks_downloading;
             stats.hit_cache = false;
             break;
         case FileBlock::State::DOWNLOADED:
-            ++stats.file_cache_blocks_total;
-            ++stats.file_cache_blocks_hit;
             _insert_file_reader(block);
             break;
         }
@@ -1262,7 +1253,6 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
         stats.hit_cache = false;
         stats.skip_cache = true;
         stats.bytes_read_from_remote += direct_bytes_read;
-        ++stats.remote_physical_read_count;
         stats.remote_physical_read_bytes += direct_bytes_read;
         return Status::OK();
     }
@@ -1373,19 +1363,6 @@ void CachedRemoteFileReader::_update_stats(const ReadStatistics& read_stats,
     statis->local_io_timer += read_stats.local_read_timer;
     statis->num_skip_cache_io_total += read_stats.skip_cache;
     statis->bytes_write_into_cache += read_stats.bytes_write_into_file_cache;
-    // SNII golden physical/file-cache-block metrics. remote_physical_* is set
-    // at the S3 read site; peer_physical_* stays 0 until the peer race paths
-    // grow their own per-RPC accounting (SNII deployments do not exercise the
-    // peer cache; the S3 numbers are the ones the SNII benchmarks key on).
-    statis->remote_physical_read_count += read_stats.remote_physical_read_count;
-    statis->remote_physical_read_bytes += read_stats.remote_physical_read_bytes;
-    statis->peer_physical_read_count += read_stats.peer_physical_read_count;
-    statis->peer_physical_read_bytes += read_stats.peer_physical_read_bytes;
-    statis->file_cache_blocks_total += read_stats.file_cache_blocks_total;
-    statis->file_cache_blocks_hit += read_stats.file_cache_blocks_hit;
-    statis->file_cache_blocks_miss += read_stats.file_cache_blocks_miss;
-    statis->file_cache_blocks_skip += read_stats.file_cache_blocks_skip;
-    statis->file_cache_blocks_downloading += read_stats.file_cache_blocks_downloading;
     statis->write_cache_io_timer += read_stats.local_write_timer;
 
     statis->read_cache_file_directly_timer += read_stats.read_cache_file_directly_timer;
@@ -1441,17 +1418,8 @@ void CachedRemoteFileReader::_update_stats(const ReadStatistics& read_stats,
                 statis->inverted_index_bytes_read_from_remote,
                 statis->inverted_index_bytes_read_from_peer, statis->inverted_index_local_io_timer,
                 statis->inverted_index_remote_io_timer, statis->inverted_index_peer_io_timer);
-        statis->inverted_index_remote_physical_read_count += read_stats.remote_physical_read_count;
         statis->inverted_index_remote_physical_read_bytes += read_stats.remote_physical_read_bytes;
-        statis->inverted_index_peer_physical_read_count += read_stats.peer_physical_read_count;
-        statis->inverted_index_peer_physical_read_bytes += read_stats.peer_physical_read_bytes;
         statis->inverted_index_bytes_write_into_cache += read_stats.bytes_write_into_file_cache;
-        statis->inverted_index_file_cache_blocks_total += read_stats.file_cache_blocks_total;
-        statis->inverted_index_file_cache_blocks_hit += read_stats.file_cache_blocks_hit;
-        statis->inverted_index_file_cache_blocks_miss += read_stats.file_cache_blocks_miss;
-        statis->inverted_index_file_cache_blocks_skip += read_stats.file_cache_blocks_skip;
-        statis->inverted_index_file_cache_blocks_downloading +=
-                read_stats.file_cache_blocks_downloading;
         break;
     case FileCacheReadType::SEGMENT_FOOTER_INDEX:
         update_index_stats(statis->segment_footer_index_num_local_io_total,

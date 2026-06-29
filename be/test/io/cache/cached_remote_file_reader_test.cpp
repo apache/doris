@@ -170,10 +170,7 @@ TEST_F(BlockFileCacheTest, ReadFileCacheFalseReadsExactRemoteBytesAndDoesNotPopu
         EXPECT_EQ(bytes_read, read_size);
         EXPECT_EQ(std::string(read_size, '0'), buffer);
         EXPECT_EQ(stats.bytes_read_from_remote, read_size);
-        EXPECT_EQ(stats.remote_physical_read_count, 1);
-        EXPECT_EQ(stats.remote_physical_read_bytes, read_size);
         EXPECT_EQ(stats.bytes_write_into_cache, 0);
-        EXPECT_EQ(stats.file_cache_blocks_total, 0);
         EXPECT_EQ(stats.num_skip_cache_io_total, 1);
     }
 
@@ -189,10 +186,7 @@ TEST_F(BlockFileCacheTest, ReadFileCacheFalseReadsExactRemoteBytesAndDoesNotPopu
         EXPECT_EQ(bytes_read, read_size);
         EXPECT_EQ(std::string(read_size, '0'), buffer);
         EXPECT_EQ(stats.bytes_read_from_remote, read_size);
-        EXPECT_EQ(stats.remote_physical_read_count, 1);
-        EXPECT_EQ(stats.remote_physical_read_bytes, 1_mb);
         EXPECT_EQ(stats.bytes_write_into_cache, 1_mb);
-        EXPECT_EQ(stats.file_cache_blocks_miss, 1);
     }
 
     EXPECT_TRUE(reader->close().ok());
