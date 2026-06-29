@@ -20,6 +20,9 @@
 
 #include <atomic>
 #include <chrono>
+#include <future>
+#include <stdexcept>
+#include <string>
 #include <thread>
 
 #include "common/config.h"
@@ -30,15 +33,18 @@
 #include "exec/pipeline/dummy_task_queue.h"
 #include "exec/pipeline/pipeline.h"
 #include "exec/pipeline/pipeline_fragment_context.h"
+#include "exec/pipeline/pipeline_tracing.h"
 #include "exec/pipeline/task_scheduler.h"
 #include "exec/pipeline/thrift_builder.h"
 #include "exec/spill/spill_file.h"
+#include "load/stream_load/new_load_stream_mgr.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
 #include "testutil/mock/mock_runtime_state.h"
 #include "testutil/mock/mock_thread_mem_tracker_mgr.h"
 #include "testutil/mock/mock_workload_group_mgr.h"
 #include "util/debug_points.h"
+#include "util/defer_op.h"
 
 namespace doris {
 
@@ -51,6 +57,7 @@ public:
     void SetUp() override {
         _thread_mem_tracker_mgr = std::move(thread_context()->thread_mem_tracker_mgr);
         thread_context()->thread_mem_tracker_mgr = std::make_unique<MockThreadMemTrackerMgr>();
+        ExecEnv::GetInstance()->_pipeline_tracer_ctx = std::make_unique<PipelineTracerContext>();
         _query_options = TQueryOptionsBuilder()
                                  .set_enable_local_exchange(true)
                                  .set_enable_local_shuffle(true)
@@ -115,6 +122,34 @@ public:
 
 private:
     std::atomic<int>* _blockable_checks;
+};
+
+class ThrowStdExceptionTask final : public PipelineTask {
+public:
+    ThrowStdExceptionTask(PipelinePtr& pipeline, uint32_t task_id, RuntimeState* state,
+                          std::shared_ptr<PipelineFragmentContext> fragment_context,
+                          RuntimeProfile* parent_profile,
+                          std::map<int, std::pair<std::shared_ptr<BasicSharedState>,
+                                                  std::vector<std::shared_ptr<Dependency>>>>
+                                  shared_state_map,
+                          int task_idx, std::promise<std::string>* close_status)
+            : PipelineTask(pipeline, task_id, state, fragment_context, parent_profile,
+                           std::move(shared_state_map), task_idx),
+              _close_status(close_status) {}
+
+    Status execute(bool* /*done*/) override {
+        throw std::out_of_range("pipeline task std exception");
+    }
+
+    Status close(Status exec_status, bool /*close_sink*/) override {
+        _close_status->set_value(exec_status.to_string());
+        return Status::OK();
+    }
+
+    Status finalize() override { return Status::OK(); }
+
+private:
+    std::promise<std::string>* _close_status;
 };
 
 TEST_F(PipelineTaskTest, TEST_CONSTRUCTOR) {
@@ -583,6 +618,67 @@ TEST_F(PipelineTaskTest, TEST_CLOSED_TASK_REJECTS_HYBRID_SUBMIT_BEFORE_FINALIZE)
     EXPECT_EQ(blockable_checks.load(std::memory_order_relaxed), 0);
     scheduler.stop();
     EXPECT_TRUE(task->finalize().ok());
+}
+
+TEST_F(PipelineTaskTest, TEST_SCHEDULER_CATCH_STD_EXCEPTION) {
+    auto num_instances = 1;
+    auto pip_id = 0;
+    auto task_id = 0;
+    auto pip = std::make_shared<Pipeline>(pip_id, num_instances, num_instances);
+    OperatorPtr source_op;
+    source_op.reset(new DummyOperator());
+    EXPECT_TRUE(pip->add_operator(source_op, num_instances).ok());
+
+    int op_id = 1;
+    int node_id = 2;
+    int dest_id = 3;
+    DataSinkOperatorPtr sink_op;
+    sink_op.reset(new DummySinkOperatorX(op_id, node_id, dest_id));
+    EXPECT_TRUE(pip->set_sink(sink_op).ok());
+
+    auto profile = std::make_shared<RuntimeProfile>("Pipeline : " + std::to_string(pip_id));
+    std::map<int,
+             std::pair<std::shared_ptr<BasicSharedState>, std::vector<std::shared_ptr<Dependency>>>>
+            shared_state_map;
+    _context->_runtime_state = std::move(_runtime_state);
+    auto* runtime_state = _context->_runtime_state.get();
+    runtime_state->resize_op_id_to_local_state(-1);
+    std::promise<std::string> close_status;
+    auto close_status_future = close_status.get_future();
+    auto task = std::make_shared<ThrowStdExceptionTask>(pip, task_id, runtime_state, _context,
+                                                        profile.get(), shared_state_map, task_id,
+                                                        &close_status);
+    task->_exec_time_slice = 10'000'000'000ULL;
+    std::vector<TScanRangeParams> scan_range;
+    int sender_id = 0;
+    TDataSink tsink;
+    ASSERT_TRUE(task->prepare(scan_range, sender_id, tsink).ok());
+    pip->incr_created_tasks(task_id, task.get());
+    _context->_pip_id_to_pipeline[pip->id()] = pip.get();
+    _context->_total_tasks = 2;
+
+    auto* exec_env = ExecEnv::GetInstance();
+    bool need_clear_new_load_stream_mgr = exec_env->new_load_stream_mgr() == nullptr;
+    if (need_clear_new_load_stream_mgr) {
+        exec_env->set_new_load_stream_mgr(NewLoadStreamMgr::create_unique());
+    }
+    Defer clear_new_load_stream_mgr {[&]() {
+        if (need_clear_new_load_stream_mgr) {
+            exec_env->clear_new_load_stream_mgr();
+        }
+    }};
+
+    HybridTaskScheduler scheduler(1, 1, "test_hybrid_task_scheduler", nullptr);
+    Defer stop_scheduler {[&]() { scheduler.stop(); }};
+    ASSERT_TRUE(scheduler.start().ok());
+    ASSERT_TRUE(scheduler.submit(task).ok());
+    ASSERT_EQ(close_status_future.wait_for(std::chrono::seconds(5)), std::future_status::ready);
+
+    auto close_status_string = close_status_future.get();
+    EXPECT_NE(close_status_string.find("Catch std::exception: pipeline task std exception"),
+              std::string::npos)
+            << close_status_string;
+    EXPECT_TRUE(_context->is_canceled());
 }
 
 TEST_F(PipelineTaskTest, TEST_FINALIZED_TASK_REJECTS_HYBRID_SUBMIT) {
