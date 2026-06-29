@@ -188,13 +188,6 @@ public class PaimonTableSink extends BaseExternalTableDataSink {
             tSink.setBucketNum(bucketNum);
         }
 
-        paimonOptions.put("paimon_use_jni", "true");
-        if (ConnectContext.get() != null) {
-            boolean enableJniCompact = ConnectContext.get().getSessionVariable().enablePaimonJniCompact;
-            paimonOptions.put("paimon_use_jni_compact", String.valueOf(enableJniCompact));
-        } else {
-            paimonOptions.put("paimon_use_jni_compact", "false");
-        }
         tSink.setPaimonOptions(paimonOptions);
         tSink.setHadoopConfig(hadoopConfig);
 

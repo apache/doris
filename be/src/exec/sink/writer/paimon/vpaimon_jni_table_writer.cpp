@@ -24,15 +24,12 @@
 #include <arrow/type.h>
 
 #include "core/block/block.h"
-#include "exec/sink/writer/paimon/paimon_writer_utils.h"
 #include "format/arrow/arrow_block_convertor.h"
 #include "format/arrow/arrow_row_batch.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_profile.h"
 #include "runtime/runtime_state.h"
-#include "service/backend_options.h"
-#include "storage/options.h"
-#include "storage/storage_engine.h"
+#include "storage/index/index_writer.h"
 #include "util/jni-util.h"
 #include "util/jni_native_method.h"
 
@@ -171,71 +168,9 @@ Status VPaimonJniTableWriter::open(RuntimeState* state, RuntimeProfile* profile)
     if (paimon_sink.__isset.serialized_table && !paimon_sink.serialized_table.empty()) {
         jni_options["serialized_table"] = paimon_sink.serialized_table;
     }
-    int64_t buffer_size = 256 * 1024 * 1024L; // Default 256MB
-
-    if (_state->query_options().__isset.paimon_write_buffer_size &&
-        _state->query_options().paimon_write_buffer_size > 0) {
-        buffer_size = _state->query_options().paimon_write_buffer_size;
-    }
-
-    bool enable_adaptive = true;
-    if (_state->query_options().__isset.enable_paimon_adaptive_buffer_size) {
-        enable_adaptive = _state->query_options().enable_paimon_adaptive_buffer_size;
-    }
-
-    if (enable_adaptive && paimon_sink.__isset.bucket_num && paimon_sink.bucket_num > 0) {
-        int bucket_num = paimon_sink.bucket_num;
-        buffer_size = get_paimon_write_buffer_size(buffer_size, true, bucket_num);
-        LOG(INFO) << "Adaptive Paimon JNI Buffer Size: bucket_num=" << bucket_num
-                  << ", adjusted_buffer_size=" << buffer_size;
-    }
-    LOG(INFO) << "Paimon JNI Writer Final Buffer Size: " << buffer_size
-              << " (enable_adaptive=" << enable_adaptive << ")";
-
-    jni_options["write-buffer-size"] = std::to_string(buffer_size);
-
-    if (_state->query_options().__isset.paimon_target_file_size &&
-        _state->query_options().paimon_target_file_size > 0) {
-        jni_options["target-file-size"] =
-                std::to_string(_state->query_options().paimon_target_file_size);
-        LOG(INFO) << "Paimon JNI Writer Target File Size: "
-                  << _state->query_options().paimon_target_file_size;
-    }
-
-    bool enable_spill = false;
-    if (_state->query_options().__isset.enable_paimon_jni_spill) {
-        enable_spill = _state->query_options().enable_paimon_jni_spill;
-    }
-
-    if (enable_spill) {
-        jni_options["write-buffer-spillable"] = "true";
-        LOG(INFO) << "Paimon JNI Writer Spill Enabled";
-
-        // Pass Spill Options
-        if (_state->query_options().__isset.paimon_spill_max_disk_size) {
-            jni_options["write-buffer-spill.max-disk-size"] =
-                    std::to_string(_state->query_options().paimon_spill_max_disk_size);
-        }
-        if (_state->query_options().__isset.paimon_spill_sort_buffer_size) {
-            jni_options["sort-spill-buffer-size"] =
-                    std::to_string(_state->query_options().paimon_spill_sort_buffer_size);
-        }
-        if (_state->query_options().__isset.paimon_spill_sort_threshold) {
-            jni_options["sort-spill-threshold"] =
-                    std::to_string(_state->query_options().paimon_spill_sort_threshold);
-        }
-        if (_state->query_options().__isset.paimon_spill_compression) {
-            jni_options["spill-compression"] = _state->query_options().paimon_spill_compression;
-        }
-        if (_state->query_options().__isset.paimon_global_memory_pool_size) {
-            jni_options["paimon_global_memory_pool_size"] =
-                    std::to_string(_state->query_options().paimon_global_memory_pool_size);
-        }
-
-        // Auto-detect Spill Directory from BE Storage
-        std::string spill_dir = "/tmp/paimon_spill";
-        jni_options["paimon_jni_spill_dir"] = spill_dir;
-        LOG(INFO) << "Paimon JNI Spill Directory: " << spill_dir;
+    auto* tmp_file_dirs = ExecEnv::GetInstance()->get_tmp_file_dirs();
+    if (tmp_file_dirs != nullptr) {
+        jni_options["paimon_jni_spill_dir"] = tmp_file_dirs->get_tmp_file_dir().native();
     }
 
     jobject j_options = _to_java_options(env, jni_options);
@@ -276,6 +211,16 @@ Status VPaimonJniTableWriter::write(RuntimeState* state, ::doris::Block& block) 
     {
         SCOPED_TIMER(_project_timer);
         RETURN_IF_ERROR(_projection_block(block, &output_block));
+    }
+
+    if (output_block.rows() >= _batch_max_rows || output_block.bytes() >= _batch_max_bytes) {
+        RETURN_IF_ERROR(_flush_buffer());
+        return _write_projected_block(output_block);
+    }
+
+    if (_buffered_rows > 0 && (_buffered_rows + output_block.rows() >= _batch_max_rows ||
+                               _buffered_bytes + output_block.bytes() >= _batch_max_bytes)) {
+        RETURN_IF_ERROR(_flush_buffer());
     }
 
     RETURN_IF_ERROR(_append_to_buffer(output_block));

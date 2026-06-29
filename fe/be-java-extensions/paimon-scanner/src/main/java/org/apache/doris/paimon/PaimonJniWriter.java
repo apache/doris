@@ -42,10 +42,12 @@ import org.apache.arrow.vector.types.pojo.ArrowType;
 import org.apache.arrow.vector.types.pojo.Field;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
+import org.apache.paimon.CoreOptions;
 import org.apache.paimon.catalog.Catalog;
 import org.apache.paimon.catalog.CatalogContext;
 import org.apache.paimon.catalog.CatalogFactory;
 import org.apache.paimon.catalog.Identifier;
+import org.apache.paimon.data.BinaryRow;
 import org.apache.paimon.data.BinaryString;
 import org.apache.paimon.data.Decimal;
 import org.apache.paimon.data.GenericArray;
@@ -54,13 +56,18 @@ import org.apache.paimon.data.GenericRow;
 import org.apache.paimon.data.Timestamp;
 import org.apache.paimon.disk.IOManager;
 import org.apache.paimon.disk.IOManagerImpl;
+import org.apache.paimon.index.HashBucketAssigner;
 import org.apache.paimon.io.DataOutputSerializer;
 import org.apache.paimon.memory.HeapMemorySegmentPool;
 import org.apache.paimon.options.Options;
+import org.apache.paimon.table.BucketMode;
+import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.Table;
 import org.apache.paimon.table.sink.BatchTableWrite;
 import org.apache.paimon.table.sink.CommitMessage;
 import org.apache.paimon.table.sink.CommitMessageSerializer;
+import org.apache.paimon.table.sink.RowKeyExtractor;
+import org.apache.paimon.table.sink.TableWriteImpl;
 import org.apache.paimon.types.ArrayType;
 import org.apache.paimon.types.BinaryType;
 import org.apache.paimon.types.DataField;
@@ -71,13 +78,17 @@ import org.apache.paimon.types.VarBinaryType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.File;
 import java.io.InputStream;
+import java.lang.reflect.Constructor;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Paths;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -85,27 +96,38 @@ import java.util.stream.Collectors;
 
 public class PaimonJniWriter {
     private static final Logger LOG = LoggerFactory.getLogger(PaimonJniWriter.class);
+    private static final String PAIMON_OPTION_PREFIX = "paimon.";
+    private static final String HADOOP_OPTION_PREFIX = "hadoop.";
+    private static final String SERIALIZED_TABLE = "serialized_table";
+    private static final String COMMIT_IDENTIFIER = "doris.commit_identifier";
+    private static final String COMMIT_USER = "doris.commit_user";
+    private static final String SPILL_DIR = "paimon_jni_spill_dir";
+    private static final int COMMIT_PAYLOAD_HEADER_BYTES = 12;
+    private static final int MAX_COMMIT_PAYLOAD_BYTES = 8 * 1024 * 1024;
+    private static final int DEFAULT_COMMIT_CHUNK_SIZE = 512;
+    private static final int DYNAMIC_BUCKET_ASSIGNER_COUNT = 1;
+    private static final int DYNAMIC_BUCKET_ASSIGNER_ID = 1;
+    private static final int DYNAMIC_BUCKET_STATUS = 0;
 
     private BatchTableWrite writer;
     private final BufferAllocator allocator;
     private final CommitMessageSerializer serializer = new CommitMessageSerializer();
     private String tableLocation;
-    private static final String PAIMON_OPTION_PREFIX = "paimon.";
-    private static final String HADOOP_OPTION_PREFIX = "hadoop.";
 
     private PreExecutionAuthenticator preExecutionAuthenticator;
     private final ClassLoader classLoader;
 
-    private Map<String, String> paimonOptionParams;
-    private Map<String, String> hadoopOptionParams;
-
-    private List<DataField> paimonFields;
     private Map<String, DataField> paimonFieldMap;
     private DataType[] targetTypes;
 
     private IOManager ioManager;
     private HeapMemorySegmentPool memorySegmentPool;
-    private boolean isDynamicBucketMode;
+    private TableWriteImpl<?> tableWrite;
+    private RowKeyExtractor rowKeyExtractor;
+    private HashBucketAssigner bucketAssigner;
+    private boolean isHashDynamicBucketMode;
+    private long commitIdentifier;
+    private static volatile Constructor<?> directByteBufferConstructor;
 
     public PaimonJniWriter() {
         this.allocator = new RootAllocator(Long.MAX_VALUE);
@@ -139,16 +161,8 @@ public class PaimonJniWriter {
     public void open(String tableLocation, Map<String, String> options, String[] columnNames) throws Exception {
         this.tableLocation = tableLocation;
         Thread.currentThread().setContextClassLoader(classLoader);
-        paimonOptionParams = options.entrySet().stream()
-                .filter(kv -> kv.getKey().startsWith(PAIMON_OPTION_PREFIX))
-                .collect(Collectors
-                        .toMap(kv1 -> kv1.getKey().substring(PAIMON_OPTION_PREFIX.length()),
-                                kv1 -> kv1.getValue()));
-        hadoopOptionParams = options.entrySet().stream()
-                .filter(kv -> kv.getKey().startsWith(HADOOP_OPTION_PREFIX))
-                .collect(Collectors
-                        .toMap(kv1 -> kv1.getKey().substring(HADOOP_OPTION_PREFIX.length()),
-                                kv1 -> kv1.getValue()));
+        Map<String, String> paimonOptionParams = extractOptions(options, PAIMON_OPTION_PREFIX);
+        Map<String, String> hadoopOptionParams = extractOptions(options, HADOOP_OPTION_PREFIX);
         if (!paimonOptionParams.containsKey("warehouse") && tableLocation != null) {
             paimonOptionParams.put("warehouse", tableLocation);
         }
@@ -156,71 +170,12 @@ public class PaimonJniWriter {
         preExecutionAuthenticator.execute(() -> {
             try {
                 LOG.info("paimon: opening writer, location={}, opts_size={}", tableLocation, options.size());
-                Table table;
-                if (options.containsKey("serialized_table")) {
-                    table = PaimonUtils.deserialize(options.get("serialized_table"));
-                } else {
-                    Catalog catalog = createCatalog(paimonOptionParams, hadoopOptionParams);
-                    String dbName = options.getOrDefault("db_name", "default");
-                    String tblName = options.getOrDefault("table_name", "paimon_table");
-                    table = catalog.getTable(Identifier.create(dbName, tblName));
-                }
-                Map<String, String> dynamicOptions = new HashMap<>();
-                if (options.containsKey("write-buffer-size")) {
-                    dynamicOptions.put("write-buffer-size", options.get("write-buffer-size"));
-                }
-                copyIfPresent(options, dynamicOptions, "write-buffer-spillable");
-                copyIfPresent(options, dynamicOptions, "write-buffer-spill.max-disk-size");
-                copyIfPresent(options, dynamicOptions, "sort-spill-buffer-size");
-                copyIfPresent(options, dynamicOptions, "sort-spill-threshold");
-                copyIfPresent(options, dynamicOptions, "spill-compression");
-                boolean enableJniCompact = Boolean.parseBoolean(
-                        options.getOrDefault("paimon_use_jni_compact", "false"));
-                boolean enableInlineCompact = enableJniCompact;
-                if (enableJniCompact && table instanceof org.apache.paimon.table.FileStoreTable) {
-                    int tableBuckets = ((org.apache.paimon.table.FileStoreTable) table).schema().numBuckets();
-                    enableInlineCompact = tableBuckets > 0;
-                }
-                if (enableInlineCompact) {
-                    LOG.info("paimon: enabling inline compaction for JNI writer");
-                    dynamicOptions.put("write-only", "false");
-                    dynamicOptions.put("num-sorted-run.compaction-trigger", "10");
-                    dynamicOptions.put("compaction.max.worker-num", "8");
-                } else {
-                    LOG.info("paimon: write-only mode, compaction disabled");
-                    dynamicOptions.put("write-only", "true");
-                }
-                table = table.copy(dynamicOptions);
-                LOG.info("paimon: applied dynamic options to table: {}", dynamicOptions);
-                this.paimonFields = table.rowType().getFields();
-                this.paimonFieldMap = new HashMap<>();
-                for (DataField f : this.paimonFields) {
-                    this.paimonFieldMap.put(f.name(), f);
-                }
-                this.targetTypes = buildTargetTypes(columnNames);
-                this.writer = table.newBatchWriteBuilder().newWrite();
-                if (table instanceof org.apache.paimon.table.FileStoreTable) {
-                    this.isDynamicBucketMode =
-                            ((org.apache.paimon.table.FileStoreTable) table).schema().numBuckets() == -1;
-                }
-                boolean spillEnabled = Boolean.parseBoolean(options.getOrDefault("write-buffer-spillable", "false"));
-                if (spillEnabled) {
-                    String spillDir = options.get("paimon_jni_spill_dir");
-                    if (spillDir != null && !spillDir.isEmpty()) {
-                        File spillFile = new File(spillDir);
-                        if (!spillFile.exists()) {
-                            spillFile.mkdirs();
-                        }
-                        this.ioManager = new IOManagerImpl(spillDir);
-                    } else {
-                        this.ioManager = new IOManagerImpl(System.getProperty("java.io.tmpdir"));
-                    }
-                    long globalPoolSize = Long.parseLong(options.getOrDefault(
-                            "paimon_global_memory_pool_size", "1073741824"));
-                    this.memorySegmentPool = new HeapMemorySegmentPool(globalPoolSize, 32 * 1024);
-                    this.writer.withIOManager(ioManager).withMemoryPool(memorySegmentPool);
-                    LOG.info("paimon: spill enabled, spill_dir={}", spillDir);
-                }
+                Table table = loadTable(options, paimonOptionParams, hadoopOptionParams);
+                this.commitIdentifier = Long.parseLong(options.getOrDefault(COMMIT_IDENTIFIER, "-1"));
+                initPaimonFieldMap(table.rowType().getFields());
+                RowType writeType = buildWriteType(columnNames);
+                initWriter(table, options);
+                this.writer.withWriteType(writeType);
                 return null;
             } catch (Throwable t) {
                 throw contextException("open", "options_size=" + options.size(), t);
@@ -228,11 +183,88 @@ public class PaimonJniWriter {
         });
     }
 
-    private void copyIfPresent(Map<String, String> options, Map<String, String> dynamicOptions, String key) {
-        String value = options.get(key);
-        if (value != null) {
-            dynamicOptions.put(key, value);
+    private static Map<String, String> extractOptions(Map<String, String> options, String prefix) {
+        return options.entrySet().stream()
+                .filter(kv -> kv.getKey().startsWith(prefix))
+                .collect(Collectors.toMap(kv -> kv.getKey().substring(prefix.length()), Map.Entry::getValue));
+    }
+
+    private Table loadTable(Map<String, String> options, Map<String, String> paimonOptionParams,
+            Map<String, String> hadoopOptionParams) throws Exception {
+        if (options.containsKey(SERIALIZED_TABLE)) {
+            return PaimonUtils.deserialize(options.get(SERIALIZED_TABLE));
         }
+        Catalog catalog = createCatalog(paimonOptionParams, hadoopOptionParams);
+        String dbName = options.getOrDefault("db_name", "default");
+        String tblName = options.getOrDefault("table_name", "paimon_table");
+        return catalog.getTable(Identifier.create(dbName, tblName));
+    }
+
+    private void initPaimonFieldMap(List<DataField> fields) {
+        this.paimonFieldMap = new HashMap<>();
+        for (DataField field : fields) {
+            this.paimonFieldMap.put(field.name(), field);
+        }
+    }
+
+    private void initWriter(Table table, Map<String, String> options) throws Exception {
+        if (!(table instanceof FileStoreTable)) {
+            this.writer = table.newBatchWriteBuilder().newWrite();
+            return;
+        }
+
+        FileStoreTable fileStoreTable = (FileStoreTable) table;
+        CoreOptions coreOptions = CoreOptions.fromMap(fileStoreTable.options());
+        String commitUser = options.get(COMMIT_USER);
+        if (commitUser == null || commitUser.isEmpty()) {
+            commitUser = coreOptions.createCommitUser();
+        }
+
+        this.tableWrite = fileStoreTable.newWrite(commitUser);
+        this.writer = this.tableWrite;
+        initBucketWriter(fileStoreTable, coreOptions, commitUser);
+        initSpillIfNeeded(coreOptions, options);
+    }
+
+    private void initBucketWriter(FileStoreTable fileStoreTable, CoreOptions coreOptions, String commitUser) {
+        BucketMode bucketMode = fileStoreTable.bucketMode();
+        this.isHashDynamicBucketMode = bucketMode == BucketMode.HASH_DYNAMIC;
+        if (bucketMode == BucketMode.KEY_DYNAMIC || bucketMode == BucketMode.POSTPONE_MODE) {
+            throw new UnsupportedOperationException("Unsupported Paimon bucket mode for write: " + bucketMode);
+        }
+        if (!isHashDynamicBucketMode) {
+            return;
+        }
+
+        Integer configuredMaxBuckets = coreOptions.dynamicBucketMaxBuckets();
+        int maxBuckets = configuredMaxBuckets == null ? -1 : configuredMaxBuckets;
+        this.rowKeyExtractor = fileStoreTable.createRowKeyExtractor();
+        this.bucketAssigner = new HashBucketAssigner(
+                fileStoreTable.store().snapshotManager(),
+                commitUser,
+                fileStoreTable.store().newIndexFileHandler(),
+                DYNAMIC_BUCKET_ASSIGNER_COUNT,
+                DYNAMIC_BUCKET_ASSIGNER_ID,
+                DYNAMIC_BUCKET_STATUS,
+                coreOptions.dynamicBucketTargetRowNum(),
+                maxBuckets);
+    }
+
+    private void initSpillIfNeeded(CoreOptions coreOptions, Map<String, String> options) throws Exception {
+        if (!coreOptions.writeBufferSpillable()) {
+            return;
+        }
+
+        String spillDir = options.get(SPILL_DIR);
+        if (spillDir == null || spillDir.isEmpty()) {
+            spillDir = System.getProperty("java.io.tmpdir");
+        } else {
+            Files.createDirectories(Paths.get(spillDir));
+        }
+        this.ioManager = new IOManagerImpl(spillDir);
+        this.memorySegmentPool = new HeapMemorySegmentPool(coreOptions.writeBufferSize(), coreOptions.pageSize());
+        this.writer.withIOManager(ioManager).withMemoryPool(memorySegmentPool);
+        LOG.info("paimon: spill enabled by table options, spill_dir={}", spillDir);
     }
 
     /**
@@ -283,8 +315,8 @@ public class PaimonJniWriter {
                 }
             }
             try {
-                if (isDynamicBucketMode) {
-                    writer.write(reusedRow, 0);
+                if (isHashDynamicBucketMode) {
+                    writer.write(reusedRow, assignDynamicBucket(reusedRow));
                 } else {
                     writer.write(reusedRow);
                 }
@@ -294,6 +326,13 @@ public class PaimonJniWriter {
                         t);
             }
         }
+    }
+
+    private int assignDynamicBucket(GenericRow row) {
+        rowKeyExtractor.setRecord(row);
+        BinaryRow partition = rowKeyExtractor.partition();
+        int hash = rowKeyExtractor.trimmedPrimaryKey().hashCode();
+        return bucketAssigner.assign(partition, hash);
     }
 
     private Object readArrowValue(FieldVector vector, int row, Field arrowField, DataType targetType) {
@@ -372,9 +411,9 @@ public class PaimonJniWriter {
                 System.arraycopy(t.getBytes(), 0, bytes, 0, t.getLength());
                 return bytes;
             } else if (val instanceof String) {
-                return ((String) val).getBytes(java.nio.charset.StandardCharsets.UTF_8);
+                return ((String) val).getBytes(StandardCharsets.UTF_8);
             } else {
-                return val.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8);
+                return val.toString().getBytes(StandardCharsets.UTF_8);
             }
         }
 
@@ -394,7 +433,6 @@ public class PaimonJniWriter {
         if (val instanceof CharSequence) {
             return BinaryString.fromString(val.toString());
         }
-
 
         ArrowType arrowType = arrowField != null ? arrowField.getType() : null;
         ArrowType.ArrowTypeID typeID = arrowType != null ? arrowType.getTypeID() : null;
@@ -493,50 +531,67 @@ public class PaimonJniWriter {
         }
         return preExecutionAuthenticator.execute(() -> {
             try {
-                List<CommitMessage> messages = writer.prepareCommit();
-
+                List<CommitMessage> messages = prepareCommitMessages();
                 if (messages == null || messages.isEmpty()) {
                     LOG.info("paimon: prepareCommit returns empty, location={}", tableLocation);
                     return new byte[0][];
                 }
                 LOG.info("paimon: prepareCommit returns {} messages", messages.size());
-                final int maxPayloadBytes = 8 * 1024 * 1024;
-                int chunkSize = 512;
-                java.util.ArrayList<byte[]> payloads = new java.util.ArrayList<>();
-                int i = 0;
-                while (i < messages.size()) {
-                    int end = Math.min(i + chunkSize, messages.size());
-                    DataOutputSerializer outputView = new DataOutputSerializer(1024);
-                    serializer.serializeList(messages.subList(i, end), outputView);
-                    byte[] data = outputView.getCopyOfBuffer();
-                    int len = data.length;
-                    int version = serializer.getVersion();
-                    byte[] payload = new byte[12 + len];
-                    payload[0] = 'D';
-                    payload[1] = 'P';
-                    payload[2] = 'C';
-                    payload[3] = 'M';
-                    payload[4] = (byte) ((version >>> 24) & 0xFF);
-                    payload[5] = (byte) ((version >>> 16) & 0xFF);
-                    payload[6] = (byte) ((version >>> 8) & 0xFF);
-                    payload[7] = (byte) (version & 0xFF);
-                    payload[8] = (byte) ((len >>> 24) & 0xFF);
-                    payload[9] = (byte) ((len >>> 16) & 0xFF);
-                    payload[10] = (byte) ((len >>> 8) & 0xFF);
-                    payload[11] = (byte) (len & 0xFF);
-                    System.arraycopy(data, 0, payload, 12, len);
-                    if (payload.length > maxPayloadBytes && chunkSize > 1) {
-                        chunkSize = Math.max(1, chunkSize / 2);
-                        continue;
-                    }
-                    payloads.add(payload);
-                    i = end;
-                }
-                return payloads.toArray(new byte[0][]);
+                return serializeCommitMessages(messages);
             } catch (Throwable t) {
                 throw contextException("prepareCommit", "tableLocation=" + tableLocation, t);
             }
         });
+    }
+
+    private List<CommitMessage> prepareCommitMessages() throws Exception {
+        List<CommitMessage> messages = tableWrite != null && commitIdentifier > 0
+                ? tableWrite.prepareCommit(true, commitIdentifier)
+                : writer.prepareCommit();
+        if (bucketAssigner != null && commitIdentifier > 0) {
+            bucketAssigner.prepareCommit(commitIdentifier);
+        }
+        return messages;
+    }
+
+    private byte[][] serializeCommitMessages(List<CommitMessage> messages) throws Exception {
+        int chunkSize = DEFAULT_COMMIT_CHUNK_SIZE;
+        ArrayList<byte[]> payloads = new ArrayList<>();
+        int i = 0;
+        while (i < messages.size()) {
+            int end = Math.min(i + chunkSize, messages.size());
+            byte[] payload = serializeCommitMessageChunk(messages.subList(i, end));
+            if (payload.length > MAX_COMMIT_PAYLOAD_BYTES && chunkSize > 1) {
+                chunkSize = Math.max(1, chunkSize / 2);
+                continue;
+            }
+            payloads.add(payload);
+            i = end;
+        }
+        return payloads.toArray(new byte[0][]);
+    }
+
+    private byte[] serializeCommitMessageChunk(List<CommitMessage> messages) throws Exception {
+        DataOutputSerializer outputView = new DataOutputSerializer(1024);
+        serializer.serializeList(messages, outputView);
+        byte[] data = outputView.getCopyOfBuffer();
+        int len = data.length;
+        int version = serializer.getVersion();
+        byte[] payload = new byte[COMMIT_PAYLOAD_HEADER_BYTES + len];
+        payload[0] = 'D';
+        payload[1] = 'P';
+        payload[2] = 'C';
+        payload[3] = 'M';
+        payload[4] = (byte) ((version >>> 24) & 0xFF);
+        payload[5] = (byte) ((version >>> 16) & 0xFF);
+        payload[6] = (byte) ((version >>> 8) & 0xFF);
+        payload[7] = (byte) (version & 0xFF);
+        payload[8] = (byte) ((len >>> 24) & 0xFF);
+        payload[9] = (byte) ((len >>> 16) & 0xFF);
+        payload[10] = (byte) ((len >>> 8) & 0xFF);
+        payload[11] = (byte) (len & 0xFF);
+        System.arraycopy(data, 0, payload, COMMIT_PAYLOAD_HEADER_BYTES, len);
+        return payload;
     }
 
     public void abort() {
@@ -571,6 +626,9 @@ public class PaimonJniWriter {
                 writer.close();
                 writer = null;
             }
+            tableWrite = null;
+            rowKeyExtractor = null;
+            bucketAssigner = null;
             if (ioManager != null) {
                 ioManager.close();
                 ioManager = null;
@@ -589,20 +647,22 @@ public class PaimonJniWriter {
                 + currentStateSummary() + "}", cause);
     }
 
-    private DataType[] buildTargetTypes(String[] columnNames) {
-        if (columnNames == null) {
-            return null;
+    private RowType buildWriteType(String[] columnNames) {
+        if (columnNames == null || columnNames.length == 0) {
+            throw new IllegalArgumentException("Paimon JNI writer requires explicit column names");
         }
-        DataType[] result = new DataType[columnNames.length];
+        List<DataField> writeFields = new ArrayList<>(columnNames.length);
+        this.targetTypes = new DataType[columnNames.length];
         for (int i = 0; i < columnNames.length; i++) {
             DataField field = paimonFieldMap.get(columnNames[i]);
-            if (field != null) {
-                result[i] = field.type();
-            } else if (i < paimonFields.size()) {
-                result[i] = paimonFields.get(i).type();
+            if (field == null) {
+                throw new IllegalArgumentException("Cannot find Paimon column '" + columnNames[i]
+                        + "' in table schema");
             }
+            writeFields.add(field);
+            this.targetTypes[i] = field.type();
         }
-        return result;
+        return new RowType(writeFields);
     }
 
     private DataType[] resolveTargetTypes(List<Field> fields) {
@@ -613,11 +673,11 @@ public class PaimonJniWriter {
         for (int i = 0; i < fields.size(); i++) {
             Field arrowField = fields.get(i);
             DataField field = paimonFieldMap.get(arrowField.getName());
-            if (field != null) {
-                result[i] = field.type();
-            } else if (i < paimonFields.size()) {
-                result[i] = paimonFields.get(i).type();
+            if (field == null) {
+                throw new IllegalArgumentException("Cannot find Paimon column '" + arrowField.getName()
+                        + "' in table schema");
             }
+            result[i] = field.type();
         }
         return result;
     }
@@ -645,14 +705,19 @@ public class PaimonJniWriter {
                 + ", writerNull=" + (writer == null)
                 + ", ioManagerNull=" + (ioManager == null)
                 + ", memoryPoolNull=" + (memorySegmentPool == null)
-                + ", fieldCount=" + (paimonFields == null ? -1 : paimonFields.size())
+                + ", hashDynamicBucket=" + isHashDynamicBucketMode
+                + ", targetTypeCount=" + (targetTypes == null ? -1 : targetTypes.length)
                 + ", fieldMapSize=" + (paimonFieldMap == null ? -1 : paimonFieldMap.size());
     }
 
     private ByteBuffer getDirectBuffer(long address, int length) throws Exception {
-        Class<?> cls = Class.forName("java.nio.DirectByteBuffer");
-        java.lang.reflect.Constructor<?> ctor = cls.getDeclaredConstructor(long.class, int.class);
-        ctor.setAccessible(true);
+        Constructor<?> ctor = directByteBufferConstructor;
+        if (ctor == null) {
+            Class<?> cls = Class.forName("java.nio.DirectByteBuffer");
+            ctor = cls.getDeclaredConstructor(long.class, int.class);
+            ctor.setAccessible(true);
+            directByteBufferConstructor = ctor;
+        }
         return (ByteBuffer) ctor.newInstance(address, length);
     }
 
@@ -683,10 +748,13 @@ public class PaimonJniWriter {
             Map<String, String> paimonOptionParams,
             Map<String, String> hadoopOptionParams) {
         Options options = new Options();
-        paimonOptionParams.entrySet().stream().forEach(kv -> options.set(kv.getKey(), kv.getValue()));
-        Configuration configuration;
-        configuration = new Configuration();
-        hadoopOptionParams.entrySet().stream().forEach(kv -> configuration.set(kv.getKey(), kv.getValue()));
+        for (Map.Entry<String, String> entry : paimonOptionParams.entrySet()) {
+            options.set(entry.getKey(), entry.getValue());
+        }
+        Configuration configuration = new Configuration();
+        for (Map.Entry<String, String> entry : hadoopOptionParams.entrySet()) {
+            configuration.set(entry.getKey(), entry.getValue());
+        }
         String hadoopConfigPath = options.getString("hadoop-conf-dir", (String) null);
         if (hadoopConfigPath != null) {
             String coreSiteFile = String.format("%score-site.xml", hadoopConfigPath);
@@ -702,7 +770,9 @@ public class PaimonJniWriter {
             Path hiveSitePath = new Path(hiveSiteFile);
             configuration.addResource(hiveSitePath);
         }
-        paimonOptionParams.entrySet().forEach(entry -> configuration.set(entry.getKey(), entry.getValue()));
+        for (Map.Entry<String, String> entry : paimonOptionParams.entrySet()) {
+            configuration.set(entry.getKey(), entry.getValue());
+        }
         CatalogContext context = CatalogContext.create(options, configuration);
         return CatalogFactory.createCatalog(context);
     }
