@@ -25,6 +25,7 @@ import org.apache.doris.connector.api.pushdown.ConnectorColumnRef;
 import org.apache.doris.connector.api.pushdown.ConnectorComparison;
 import org.apache.doris.connector.api.pushdown.ConnectorExpression;
 import org.apache.doris.connector.api.pushdown.ConnectorLiteral;
+import org.apache.doris.connector.api.pushdown.ConnectorNot;
 import org.apache.doris.connector.api.pushdown.ConnectorOr;
 import org.apache.doris.connector.api.pushdown.ConnectorPredicate;
 
@@ -308,7 +309,7 @@ public class RewriteDataFilePlannerTest {
         Assertions.assertEquals(2, totalFiles(groups));
     }
 
-    // ---- WHERE conversion (conflict-mode IcebergPredicateConverter) -----------------------------------------
+    // ---- WHERE conversion (REWRITE-mode IcebergPredicateConverter, precise-or-error) ------------------------
 
     @Test
     public void whereOnPartitionColumnPrunesToMatchingPartition() {
@@ -323,11 +324,13 @@ public class RewriteDataFilePlannerTest {
     }
 
     @Test
-    public void unconvertibleCrossColumnOrThrows() {
-        // User-signed decision (WS-REWRITE R7): a rewrite WHERE is a user-authored data-scope filter, so it must
-        // be honored precisely or the rewrite fails. A cross-column OR is unrepresentable in the conflict matrix
-        // and cannot be pushed to file pruning; rather than silently widening the scan to the whole table (the
-        // earlier DV-T05r-where over-approximation), the planner now THROWS fail-loud.
+    public void whereCrossColumnOrPlans() {
+        // User decision (2026-06-29「精确下推否则报错」): a cross-column OR is precisely file-prunable, so it must
+        // be pushed (the live code pushed it) rather than rejected. REWRITE mode lowers `id = 1 OR name = 'x'` to
+        // a real iceberg OR -- no longer the conflict-matrix rejection that THREW. Both files survive here (the
+        // id=1 file matches the id arm; the id=2 file cannot be excluded by name='x' without name column stats),
+        // but the point is that planning SUCCEEDS. The exact OR shape is pinned in
+        // IcebergPredicateConverterRewriteModeTest#crossColumnOrPushed.
         Table t = createPartitioned("t11");
         append(t, partFile("a", 100, 1), partFile("b", 100, 2));
 
@@ -337,27 +340,42 @@ public class RewriteDataFilePlannerTest {
                         new ConnectorColumnRef("name", ConnectorType.of("STRING")),
                         new ConnectorLiteral(ConnectorType.of("STRING"), "x"))));
 
-        DorisConnectorException e = Assertions.assertThrows(DorisConnectorException.class,
-                () -> plan(t, rewriteAll(1_000_000L, where(crossColumnOr))));
-        Assertions.assertTrue(e.getMessage().contains("cannot be pushed down"),
-                "an un-pushable rewrite WHERE must fail loud, not silently widen the scan to the whole table");
+        List<RewriteDataGroup> groups = plan(t, rewriteAll(1_000_000L, where(crossColumnOr)));
+        Assertions.assertEquals(2, totalFiles(groups));
+    }
+
+    @Test
+    public void whereNotComparisonPrunesToMatchingPartition() {
+        // NOT(comparison) is rejected by the conflict matrix (NOT only over IS NULL) but pushed by REWRITE mode.
+        // NOT(id > 1) -> not(id > 1): the id=2 partition is excluded (2 > 1), only id=1 survives. If NOT were
+        // dropped or the matrix narrowed, both partitions would survive (totalFiles == 2) -> red.
+        Table t = createPartitioned("t20");
+        append(t, partFile("a", 100, 1), partFile("b", 100, 2));
+
+        ConnectorExpression notGt = new ConnectorNot(new ConnectorComparison(ConnectorComparison.Operator.GT,
+                new ConnectorColumnRef("id", ConnectorType.of("INT")),
+                new ConnectorLiteral(ConnectorType.of("INT"), 1L)));
+
+        List<RewriteDataGroup> groups = plan(t, rewriteAll(1_000_000L, where(notGt)));
+
+        Assertions.assertEquals(1, totalFiles(groups));
+        Assertions.assertEquals(new HashSet<>(Collections.singletonList(1)), partitionIds(groups));
     }
 
     @Test
     public void partiallyPushableWhereThrows() {
-        // A top-level AND with one pushable conjunct (id=1) and one un-pushable (cross-column OR). Keeping only
-        // the pushable arm would widen the rewrite past the user's WHERE, so the planner fails when ANY top-level
-        // conjunct cannot be pushed -- not only when nothing pushes. Guards the size-vs-count check (a weaker
-        // "is anything pushable?" gate would wrongly let this through).
+        // A top-level AND with one pushable conjunct (id=1) and one un-pushable one. Keeping only the pushable
+        // arm would widen the rewrite past the user's WHERE, so the planner fails when ANY top-level conjunct
+        // cannot be pushed -- not only when nothing pushes. The un-pushable arm is `id = 'abc'`: an INT column
+        // compared to a non-numeric string literal cannot bind to file pruning, so it drops and the size-vs-count
+        // guard fires. (Cross-column OR no longer qualifies -- REWRITE mode pushes it precisely.)
         Table t = createPartitioned("t19");
         append(t, partFile("a", 100, 1), partFile("b", 100, 2));
 
-        ConnectorExpression crossColumnOr = new ConnectorOr(Arrays.asList(
-                idEq(2),
-                new ConnectorComparison(ConnectorComparison.Operator.EQ,
-                        new ConnectorColumnRef("name", ConnectorType.of("STRING")),
-                        new ConnectorLiteral(ConnectorType.of("STRING"), "x"))));
-        ConnectorExpression partial = new ConnectorAnd(Arrays.asList(idEq(1), crossColumnOr));
+        ConnectorExpression unbindable = new ConnectorComparison(ConnectorComparison.Operator.EQ,
+                new ConnectorColumnRef("id", ConnectorType.of("INT")),
+                new ConnectorLiteral(ConnectorType.of("STRING"), "abc"));
+        ConnectorExpression partial = new ConnectorAnd(Arrays.asList(idEq(1), unbindable));
 
         DorisConnectorException e = Assertions.assertThrows(DorisConnectorException.class,
                 () -> plan(t, rewriteAll(1_000_000L, where(partial))));
@@ -365,10 +383,10 @@ public class RewriteDataFilePlannerTest {
     }
 
     @Test
-    public void whereBetweenPrunesViaConflictMode() {
-        // BETWEEN is in the conflict matrix (-> id>=1 AND id<=1) but NOT the scan-pushdown matrix. This test
-        // pins the user-signed Option-A choice: the planner must use IcebergPredicateConverter conflict mode.
-        // If it used scan mode, BETWEEN would be dropped and BOTH partitions would survive (totalFiles == 2).
+    public void whereBetweenPrunesToMatchingPartition() {
+        // BETWEEN is a node the rewrite-side neutral converter emits directly; REWRITE mode pushes it
+        // (-> id>=1 AND id<=1) just as the live code did. Scan mode has no BETWEEN node case and would drop it,
+        // leaving BOTH partitions (totalFiles == 2) -- so this also pins that the planner uses REWRITE mode.
         Table t = createPartitioned("t12");
         append(t, partFile("a", 100, 1), partFile("b", 100, 2));
 
@@ -389,7 +407,7 @@ public class RewriteDataFilePlannerTest {
         // per-conjunct scan.filter loop: IcebergPredicateConverter.convert returns both convertible arms and
         // each is applied as a separate iceberg filter (iceberg ANDs them). Only the intersecting partition
         // id=1 survives. If the AND-flatten loop broke or dropped the lower-bound arm, the scan would widen to
-        // both partitions (totalFiles == 2) -> red. Distinct from whereBetweenPrunesViaConflictMode, which
+        // both partitions (totalFiles == 2) -> red. Distinct from whereBetweenPrunesToMatchingPartition, which
         // exercises a single ConnectorBetween node rather than the multi-filter flatten loop.
         Table t = createPartitioned("t18");
         append(t, partFile("a", 100, 1), partFile("b", 100, 2));

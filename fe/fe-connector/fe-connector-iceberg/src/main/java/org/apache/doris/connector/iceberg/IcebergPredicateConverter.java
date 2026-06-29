@@ -68,12 +68,21 @@ import java.util.Set;
  * EQ_FOR_NULL + null literal). Anything that cannot be translated yields {@code null} and is left to BE
  * residual filtering — a safe over-approximation (the filter never removes rows that should match).</p>
  *
- * <p>A second mode — selected by the {@code conflictMode} constructor flag (P6.3-T07b) — builds the iceberg
- * expression for write-time optimistic <b>conflict detection</b> (O5-2) instead of scan pushdown. It is a
- * faithful port of legacy {@code IcebergConflictDetectionFilterUtils.convertPredicateToIcebergExpression},
- * a strictly different matrix: it additionally pushes {@code ConnectorIsNull} / {@code ConnectorBetween},
- * restricts {@code ConnectorNot} to {@code NOT(IS NULL)}, guards {@code ConnectorOr} to a single column,
- * applies structural/UUID guards, and drops NE / bare booleans. Scan mode (the default) is unchanged.</p>
+ * <p>A second mode — selected by {@code Mode.CONFLICT} (P6.3-T07b) — builds the iceberg expression for
+ * write-time optimistic <b>conflict detection</b> (O5-2) instead of scan pushdown. It is a faithful port of
+ * legacy {@code IcebergConflictDetectionFilterUtils.convertPredicateToIcebergExpression}, a strictly different
+ * matrix: it additionally pushes {@code ConnectorIsNull} / {@code ConnectorBetween}, restricts
+ * {@code ConnectorNot} to {@code NOT(IS NULL)}, guards {@code ConnectorOr} to a single column, applies
+ * structural/UUID guards, and drops NE / bare booleans. Scan mode (the default) is unchanged.</p>
+ *
+ * <p>A third mode — {@code Mode.REWRITE} (P6.6-FIX-H9) — lowers the {@code WHERE} of {@code rewrite_data_files}
+ * (compaction file scoping). It mirrors legacy {@code IcebergNereidsUtils.convertNereidsToIcebergExpression}:
+ * the broad scan matrix (cross-column {@code OR}, any-child {@code NOT}, {@code NE}, {@code IN}) plus the
+ * node-emitted {@code IS NULL} / {@code BETWEEN} (which the rewrite-side neutral converter produces directly),
+ * but <b>strictly all-or-nothing</b> — a rewrite {@code WHERE} is a user-authored data scope with no downstream
+ * re-filter, so any unrepresentable sub-node collapses the whole expression to {@code null} (the rewrite planner
+ * then fails loud rather than silently widening the set of files rewritten). Unlike conflict mode it keeps
+ * cross-column {@code OR} / {@code NOT(comparison)} / {@code NE} and drops the structural/UUID narrowing.</p>
  */
 public class IcebergPredicateConverter {
 
@@ -85,22 +94,29 @@ public class IcebergPredicateConverter {
 
     private final Schema schema;
     private final ZoneId sessionZone;
-    // When true, build the iceberg expression for write-time optimistic conflict detection (O5-2) instead of
-    // scan pushdown. Conflict mode is a port of legacy
-    // {@code IcebergConflictDetectionFilterUtils.convertPredicateToIcebergExpression}: a strictly different
-    // matrix from scan pushdown -- it additionally pushes IS NULL / BETWEEN, restricts NOT to NOT(IS NULL),
-    // guards OR to a single column, drops NE / bare booleans, and applies structural/UUID guards. The shared
-    // leaf helpers (getPushdownField / extractIcebergLiteral / toMicros / checkConversion) are reused.
-    private final boolean conflictMode;
+    // The conversion matrix. SCAN = scan-time pushdown (BE re-filters, so widening is safe). CONFLICT = O5-2
+    // write-time optimistic conflict detection (no-missed-conflict, so widening is also safe) -- a port of
+    // IcebergConflictDetectionFilterUtils. REWRITE = rewrite_data_files file scoping (no downstream re-filter,
+    // so strictly all-or-nothing/precise) -- mirrors IcebergNereidsUtils.convertNereidsToIcebergExpression. The
+    // shared leaf helpers (getPushdownField / extractIcebergLiteral / toMicros / checkConversion) are reused.
+    private final Mode mode;
+
+    /** Conversion matrix selector. See the field comment and the class javadoc. */
+    public enum Mode { SCAN, CONFLICT, REWRITE }
 
     public IcebergPredicateConverter(Schema schema, ZoneId sessionZone) {
-        this(schema, sessionZone, false);
+        this(schema, sessionZone, Mode.SCAN);
     }
 
+    // Back-compat boolean constructor (scan vs conflict); REWRITE is selected via the Mode constructor.
     public IcebergPredicateConverter(Schema schema, ZoneId sessionZone, boolean conflictMode) {
+        this(schema, sessionZone, conflictMode ? Mode.CONFLICT : Mode.SCAN);
+    }
+
+    public IcebergPredicateConverter(Schema schema, ZoneId sessionZone, Mode mode) {
         this.schema = schema;
         this.sessionZone = sessionZone == null ? ZoneOffset.UTC : sessionZone;
-        this.conflictMode = conflictMode;
+        this.mode = mode;
     }
 
     /**
@@ -144,8 +160,11 @@ public class IcebergPredicateConverter {
         if (expr == null) {
             return null;
         }
-        if (conflictMode) {
+        if (mode == Mode.CONFLICT) {
             return buildConflict(expr);
+        }
+        if (mode == Mode.REWRITE) {
+            return buildRewrite(expr);
         }
         if (expr instanceof ConnectorLiteral) {
             return buildBoolLiteral((ConnectorLiteral) expr);
@@ -172,14 +191,20 @@ public class IcebergPredicateConverter {
         return null;
     }
 
-    // AND degradation: fold over the bind-checked conjuncts, dropping null arms, keeping the pushable subset.
+    // AND composition. SCAN/CONFLICT degrade -- drop unbindable arms, keep the pushable subset (widening is safe
+    // there). REWRITE is all-or-nothing: a single unconvertible arm collapses the whole AND to null, so the
+    // rewrite planner's guard turns it into a hard error rather than silently widening the set of files rewritten.
     private Expression buildAnd(ConnectorAnd and) {
         Expression result = null;
         for (ConnectorExpression child : and.getConjuncts()) {
             Expression c = convertSingle(child);
-            if (c != null) {
-                result = (result == null) ? c : Expressions.and(result, c);
+            if (c == null) {
+                if (mode == Mode.REWRITE) {
+                    return null;
+                }
+                continue;
             }
+            result = (result == null) ? c : Expressions.and(result, c);
         }
         return result;
     }
@@ -458,10 +483,13 @@ public class IcebergPredicateConverter {
     }
 
     /**
-     * Verbatim port of legacy {@code IcebergUtils.checkConversion}: validates that an assembled (unbound)
-     * expression actually binds to the schema, returning the still-unbound expression on success or
-     * {@code null} on failure. AND keeps the bindable arm; OR/NOT are all-or-nothing; TRUE/FALSE always pass;
-     * leaf predicates are bound (case-sensitive) and dropped if the bind throws (e.g. out-of-range literal).
+     * Port of legacy {@code IcebergUtils.checkConversion}: validates that an assembled (unbound) expression
+     * actually binds to the schema, returning the still-unbound expression on success or {@code null} on
+     * failure. AND keeps the bindable arm in SCAN/CONFLICT (widening is safe there) but is all-or-nothing in
+     * REWRITE (a half-bindable AND -- e.g. a BETWEEN whose upper bound is a bindable-but-malformed temporal
+     * string -- must collapse so the rewrite planner fails loud, never degrade to the surviving arm and silently
+     * widen the file set); OR/NOT are all-or-nothing; TRUE/FALSE always pass; leaf predicates are bound
+     * (case-sensitive) and dropped if the bind throws (e.g. out-of-range literal).
      */
     private Expression checkConversion(Expression expression) {
         if (expression == null) {
@@ -474,6 +502,9 @@ public class IcebergPredicateConverter {
                 Expression right = checkConversion(andExpr.right());
                 if (left != null && right != null) {
                     return andExpr;
+                } else if (mode == Mode.REWRITE) {
+                    // all-or-nothing: a single unbindable arm fails the whole AND (no silent widen for rewrite).
+                    return null;
                 } else if (left != null) {
                     return left;
                 } else if (right != null) {
@@ -726,6 +757,76 @@ public class IcebergPredicateConverter {
         for (ConnectorExpression child : expr.getChildren()) {
             collectColumnNames(child, out);
         }
+    }
+
+    // ====================================================================================================
+    // Rewrite-mode (rewrite_data_files file scoping, P6.6-FIX-H9). Mirrors legacy
+    // IcebergNereidsUtils.convertNereidsToIcebergExpression: the broad scan matrix (cross-column OR, any-child
+    // NOT, NE, IN) plus the node-emitted IS NULL / BETWEEN, but strictly all-or-nothing (precise or null, never
+    // widen) -- a rewrite WHERE has no downstream re-filter, so a dropped node would rewrite MORE files than the
+    // user asked. The shared leaves (buildComparison / buildIn / getPushdownField / extractIcebergLiteral /
+    // checkConversion) and the already all-or-nothing buildOr / buildNot are reused; only AND (all-or-nothing via
+    // buildAnd) and IS NULL / BETWEEN (absent from the scan dispatch) are rewrite-specific.
+    // ====================================================================================================
+
+    private Expression buildRewrite(ConnectorExpression expr) {
+        if (expr instanceof ConnectorAnd) {
+            return buildAnd((ConnectorAnd) expr);
+        } else if (expr instanceof ConnectorOr) {
+            return buildOr((ConnectorOr) expr);
+        } else if (expr instanceof ConnectorNot) {
+            return buildNot((ConnectorNot) expr);
+        } else if (expr instanceof ConnectorComparison) {
+            return buildComparison((ConnectorComparison) expr);
+        } else if (expr instanceof ConnectorIn) {
+            return buildIn((ConnectorIn) expr);
+        } else if (expr instanceof ConnectorIsNull) {
+            return buildRewriteIsNull((ConnectorIsNull) expr);
+        } else if (expr instanceof ConnectorBetween) {
+            return buildRewriteBetween((ConnectorBetween) expr);
+        }
+        // bare boolean literal / LIKE / function call: master throws "Unsupported expression type" -> null here,
+        // which the planner guard turns into a hard error (never a silent widen).
+        return null;
+    }
+
+    // IS NULL over a column (legacy convertNereidsToIcebergExpression IS NULL arm). No structural guard -- the
+    // bind-check drops a genuinely-unbindable form, mirroring master. IS NOT NULL arrives as Not(IsNull); a
+    // negated node is handled defensively all the same.
+    private Expression buildRewriteIsNull(ConnectorIsNull isNull) {
+        if (!(isNull.getOperand() instanceof ConnectorColumnRef)) {
+            return null;
+        }
+        Types.NestedField field = getPushdownField(((ConnectorColumnRef) isNull.getOperand()).getColumnName());
+        if (field == null) {
+            return null;
+        }
+        Expression expr = Expressions.isNull(field.name());
+        return isNull.isNegated() ? Expressions.not(expr) : expr;
+    }
+
+    // BETWEEN col, lo, hi -> col >= lo AND col <= hi (legacy convertNereidsBetween). No structural/UUID guard;
+    // extractIcebergLiteral returning null (incl. struct/list/map columns) drops the node, mirroring master.
+    private Expression buildRewriteBetween(ConnectorBetween between) {
+        if (!(between.getValue() instanceof ConnectorColumnRef)) {
+            return null;
+        }
+        Types.NestedField field = getPushdownField(((ConnectorColumnRef) between.getValue()).getColumnName());
+        if (field == null) {
+            return null;
+        }
+        if (!(between.getLower() instanceof ConnectorLiteral)
+                || !(between.getUpper() instanceof ConnectorLiteral)) {
+            return null;
+        }
+        Object lo = extractIcebergLiteral(field.type(), (ConnectorLiteral) between.getLower());
+        Object hi = extractIcebergLiteral(field.type(), (ConnectorLiteral) between.getUpper());
+        if (lo == null || hi == null) {
+            return null;
+        }
+        String colName = field.name();
+        return Expressions.and(
+                Expressions.greaterThanOrEqual(colName, lo), Expressions.lessThanOrEqual(colName, hi));
     }
 
     private static Expression combineOr(Expression left, Expression right) {

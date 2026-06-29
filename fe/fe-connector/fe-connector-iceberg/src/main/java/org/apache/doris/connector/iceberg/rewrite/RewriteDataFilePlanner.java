@@ -56,13 +56,10 @@ import java.util.stream.Collectors;
  *   <li>the nereids {@code Optional<Expression>} {@code WHERE} → the engine-neutral {@link ConnectorPredicate}
  *       carried by {@link Parameters};</li>
  *   <li>{@code IcebergNereidsUtils.convertNereidsToIcebergExpression} → {@link IcebergPredicateConverter} in
- *       <b>conflict mode</b> (the connector's shared converter, P6.2-T02 / P6.3-T07b). The conflict matrix is
- *       the closest connector-side match to the legacy node set (it pushes {@code IS NULL} / {@code BETWEEN}).
- *       It differs from the legacy {@code IcebergNereidsUtils} path in two registered ways (deviations-log
- *       <b>DV-T05r-where</b>): unconvertible nodes are <i>silently dropped</i> (the legacy path threw, so an
- *       unconvertible {@code WHERE} now widens the scan instead of failing the rewrite), and the conflict
- *       matrix narrows cross-column {@code OR} / non-{@code IS NULL} {@code NOT} / {@code NE}. The whole
- *       planner is dormant until the P6.6 cutover.</li>
+ *       <b>REWRITE mode</b> (P6.6-FIX-H9). It mirrors the legacy node set faithfully -- cross-column
+ *       {@code OR}, {@code NOT(comparison)}, {@code NE}, {@code IN}, {@code IS NULL}, {@code BETWEEN} -- and is
+ *       strictly all-or-nothing: any top-level conjunct that cannot be pushed to file pruning is a hard error
+ *       (the {@code size < countTopLevelConjuncts} guard below), never a silent widen of the rewrite scope.</li>
  * </ul>
  * The execution half ({@code RewriteDataFileExecutor} / {@code RewriteGroupTask} / the nereids INSERT-SELECT)
  * stays in fe-core (P6.4-T06).</p>
@@ -118,16 +115,17 @@ public class RewriteDataFilePlanner {
         }
 
         // Apply WHERE condition if specified. The engine-neutral ConnectorPredicate is lowered to iceberg
-        // expressions by IcebergPredicateConverter (conflict mode); each pushable conjunct is applied as a
-        // separate scan.filter (iceberg ANDs them), mirroring IcebergScanPlanProvider.planScan. A rewrite WHERE
-        // is a user-authored data-scope filter: dropping a conjunct would WIDEN the set of files rewritten (at
-        // the limit, rewrite the whole table). So this is FAIL-LOUD -- if any top-level conjunct cannot be
-        // pushed to file pruning, throw rather than silently widen (restores the legacy live-rewrite behaviour,
-        // which threw; supersedes the earlier silent-drop DV-T05r-where for the rewrite path).
+        // expressions by IcebergPredicateConverter in REWRITE mode (P6.6-FIX-H9) -- master's rewrite matrix
+        // (cross-column OR, NOT(comparison), NE, IN, IS NULL, BETWEEN), strictly all-or-nothing. Each pushable
+        // conjunct is applied as a separate scan.filter (iceberg ANDs them), mirroring IcebergScanPlanProvider.
+        // A rewrite WHERE is a user-authored data-scope filter with no downstream re-filter: dropping a conjunct
+        // would WIDEN the set of files rewritten (at the limit, rewrite the whole table). So this is FAIL-LOUD --
+        // if any top-level conjunct cannot be pushed to file pruning, throw rather than silently widen (restores
+        // the legacy live-rewrite behaviour, which threw, with master's full matrix).
         if (parameters.hasWhereCondition()) {
             ConnectorExpression where = parameters.getWhereCondition().getExpression();
             List<Expression> predicates = new IcebergPredicateConverter(
-                    icebergTable.schema(), sessionZone, true).convert(where);
+                    icebergTable.schema(), sessionZone, IcebergPredicateConverter.Mode.REWRITE).convert(where);
             if (predicates.size() < countTopLevelConjuncts(where)) {
                 throw new DorisConnectorException(
                         "WHERE condition for rewrite_data_files cannot be pushed down to file pruning: " + where);
