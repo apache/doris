@@ -192,9 +192,9 @@ bool VariantColumnReader::is_exceeded_sparse_column_limit() const {
 }
 
 bool VariantColumnReader::_is_exceeded_sparse_column_limit_unlocked() const {
-    bool exceeded_sparse_column_limit = !_statistics->sparse_column_non_null_size.empty() &&
-                                        _statistics->sparse_column_non_null_size.size() >=
-                                                _variant_sparse_column_statistics_size;
+    const bool exceeded_sparse_column_limit = !_statistics->sparse_column_non_null_size.empty() &&
+                                              _statistics->sparse_column_non_null_size.size() >=
+                                                      _variant_sparse_column_statistics_size;
     DBUG_EXECUTE_IF("exceeded_sparse_column_limit_must_be_false", {
         if (exceeded_sparse_column_limit) {
             throw doris::Exception(
@@ -882,8 +882,12 @@ Status VariantColumnReader::_build_read_plan(ReadPlan* plan, const TabletColumn&
     }
 
     // Check if path is prefix, example sparse columns path: a.b.c, a.b.e, access prefix: a.b.
-    // Or access root path
-    if (_has_prefix_path_unlocked(relative_path)) {
+    // Or access root path. If sparse stats reached the configured limit, an exact sparse path can
+    // still have unrecorded sparse children such as a.b.c.
+    const bool has_prefix_path = _has_prefix_path_unlocked(relative_path);
+    const bool sparse_stats_may_have_unrecorded_children =
+            exceeded_sparse_column_limit && existed_in_sparse_column;
+    if (has_prefix_path || sparse_stats_may_have_unrecorded_children) {
         // Example {"b" : {"c":456,"e":7.111}}
         // b.c is sparse column, b.e is subcolumn, so b is both the prefix of sparse column and
         // subcolumn
@@ -951,7 +955,8 @@ Status VariantColumnReader::_build_read_plan(ReadPlan* plan, const TabletColumn&
         }
 
         if (exceeded_sparse_column_limit) {
-            // maybe exist prefix path in sparse column
+            // Sparse stats are truncated, so a missing exact sparse path does not prove that the
+            // path is absent. It may still be nested under a recorded sparse object.
             plan->kind = ReadKind::HIERARCHICAL;
             plan->type = create_variant_type(target_col);
             plan->relative_path = relative_path;

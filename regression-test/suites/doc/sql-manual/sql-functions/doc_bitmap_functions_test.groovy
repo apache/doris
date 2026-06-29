@@ -30,16 +30,23 @@ suite("doc_bitmap_functions_test") {
         SELECT bitmap_to_base64(bitmap_empty());
     ''')
 
-    qt_bitmap_to_base64_single '''
+    def bitmapToBase64Single = sql '''
         SELECT bitmap_to_base64(to_bitmap(1));
     '''
+    def bitmapToBase64SingleExpected = ["BQEBAAAAAAAAAA==", "AQEAAAA="]
+    assertTrue(bitmapToBase64SingleExpected.contains(bitmapToBase64Single[0][0].toString()),
+            "Unexpected bitmap_to_base64 single result: ${bitmapToBase64Single}")
     testFoldConst('''
         SELECT bitmap_to_base64(to_bitmap(1));
     ''')
 
-    qt_bitmap_to_base64_multi '''
+    def bitmapToBase64Multi = sql '''
         SELECT bitmap_to_base64(bitmap_from_string("1,9999999"));
     '''
+    def bitmapToBase64MultiExpected = ["BQIBAAAAAAAAAH+WmAAAAAAA",
+            "AjowAAACAAAAAAAAAJgAAAAYAAAAGgAAAAEAf5Y="]
+    assertTrue(bitmapToBase64MultiExpected.contains(bitmapToBase64Multi[0][0].toString()),
+            "Unexpected bitmap_to_base64 multi result: ${bitmapToBase64Multi}")
     testFoldConst('''
         SELECT bitmap_to_base64(bitmap_from_string("1,9999999"));
     ''')

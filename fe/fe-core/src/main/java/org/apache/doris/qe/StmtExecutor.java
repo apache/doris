@@ -102,6 +102,7 @@ import org.apache.doris.nereids.trees.plans.commands.Forward;
 import org.apache.doris.nereids.trees.plans.commands.LoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.PrepareCommand;
 import org.apache.doris.nereids.trees.plans.commands.Redirect;
+import org.apache.doris.nereids.trees.plans.commands.SupportProfile;
 import org.apache.doris.nereids.trees.plans.commands.TransactionCommand;
 import org.apache.doris.nereids.trees.plans.commands.UpdateCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.BatchInsertIntoTableCommand;
@@ -109,6 +110,7 @@ import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableComma
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertOverwriteTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.insert.OlapGroupCommitInsertExecutor;
 import org.apache.doris.nereids.trees.plans.commands.insert.OlapInsertExecutor;
+import org.apache.doris.nereids.trees.plans.commands.merge.MergeIntoCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSqlCache;
 import org.apache.doris.planner.GroupCommitScanNode;
@@ -189,6 +191,10 @@ public class StmtExecutor {
     private MysqlSerializer serializer;
     private OriginStatement originStmt;
     private StatementBase parsedStmt;
+    // Snapshot of changed session variables taken BEFORE per-query SET_VAR hint values are
+    // reverted, so the audit log (built after execute() returns) can reflect the values that
+    // were actually in effect for this statement. Null when no SET_VAR hint was used.
+    private List<List<String>> changedSessionVarsForAudit;
     private ProfileType profileType = ProfileType.QUERY;
 
     @Setter
@@ -551,6 +557,10 @@ public class StmtExecutor {
         return parsedStmt;
     }
 
+    public List<List<String>> getChangedSessionVarsForAudit() {
+        return changedSessionVarsForAudit;
+    }
+
     /**
      * Replace the executor statement context and synchronize it to the owning ConnectContext.
      */
@@ -650,6 +660,17 @@ public class StmtExecutor {
                 throw e;
             }
         } finally {
+            // Snapshot changed session variables (including SET_VAR hint values) BEFORE revert,
+            // so the audit log (logged after execute() returns, i.e. after the revert below) can
+            // reflect what was actually in effect for this statement instead of the reverted values.
+            if (sessionVariable.getIsSingleSetVar()) {
+                try {
+                    changedSessionVarsForAudit = VariableMgr.dumpChangedVars(sessionVariable);
+                } catch (Throwable t) {
+                    LOG.warn("failed to snapshot changed session variables for audit. {}",
+                            context.getQueryIdentifier(), t);
+                }
+            }
             // revert Session Value
             try {
                 VariableMgr.revertSessionValue(sessionVariable);
@@ -1126,12 +1147,19 @@ public class StmtExecutor {
             return true;
         }
 
+        // Computed DML profiles are currently only supported for OLAP target tables.
+        if (plan instanceof SupportProfile && ((SupportProfile) plan).isTargetTableOlap(context)) {
+            return true;
+        }
+
         // Generate profile for:
         // 1. CreateTableCommand(mainly for create as select).
         // 2. LoadCommand.
         // 3. InsertOverwriteTableCommand.
+        // 4. MergeIntoCommand (merge into ... using ...).
         if ((plan instanceof Command) && !(plan instanceof LoadCommand)
-                && !(plan instanceof CreateTableCommand) && !(plan instanceof InsertOverwriteTableCommand)) {
+                && !(plan instanceof CreateTableCommand) && !(plan instanceof InsertOverwriteTableCommand)
+                && !(plan instanceof MergeIntoCommand)) {
             // Commands like SHOW QUERY PROFILE will not have profile.
             return false;
         } else {

@@ -99,8 +99,7 @@ Status DataTypeJsonbSerDe::write_column_to_arrow(const IColumn& column, const Nu
     auto& builder = assert_cast<arrow::StringBuilder&>(*array_builder);
     for (size_t string_i = start; string_i < end; ++string_i) {
         if (null_map && (*null_map)[string_i]) {
-            RETURN_IF_ERROR(checkArrowStatus(builder.AppendNull(), column.get_name(),
-                                             array_builder->type()->name()));
+            RETURN_IF_ERROR(checkArrowStatus(builder.AppendNull(), column, *array_builder));
             continue;
         }
         std::string_view string_ref = string_column.get_data_at(string_i).to_string_view();
@@ -109,7 +108,7 @@ Status DataTypeJsonbSerDe::write_column_to_arrow(const IColumn& column, const Nu
         RETURN_IF_ERROR(
                 checkArrowStatus(builder.Append(json_string.data(),
                                                 cast_set<int, size_t, false>(json_string.size())),
-                                 column.get_name(), array_builder->type()->name()));
+                                 column, *array_builder));
     }
     return Status::OK();
 }

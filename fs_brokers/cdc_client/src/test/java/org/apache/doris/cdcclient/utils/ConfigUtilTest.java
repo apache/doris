@@ -19,11 +19,13 @@ package org.apache.doris.cdcclient.utils;
 
 import org.apache.doris.job.cdc.DataSourceConfigKeys;
 
+import io.debezium.config.CommonConnectorConfig;
 import org.apache.flink.cdc.connectors.mysql.source.config.ServerIdRange;
 
 import java.time.ZoneId;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Properties;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
@@ -126,6 +128,63 @@ class ConfigUtilTest {
         Map<String, String> config = new HashMap<>();
         String[] result = ConfigUtil.getTableList("public", config);
         assertEquals(0, result.length);
+    }
+
+    // ─── getDefaultDebeziumProps: queue byte cap ──────────────────────────────
+
+    private static long queueBytes(Properties props) {
+        return Long.parseLong(
+                props.getProperty(CommonConnectorConfig.MAX_QUEUE_SIZE_IN_BYTES.name()));
+    }
+
+    @Test
+    void defaultQueueBytesWithinClamp() {
+        long bytes = queueBytes(ConfigUtil.getDefaultDebeziumProps());
+        assertTrue(bytes >= 64L * 1024 * 1024 && bytes <= 256L * 1024 * 1024,
+                "expected clamp to [64MB, 256MB] but got " + bytes);
+    }
+
+    @Test
+    void sysPropOverridesAdaptiveValue() {
+        String prev = System.getProperty(ConfigUtil.MAX_QUEUE_BYTES_SYS_PROP);
+        try {
+            System.setProperty(ConfigUtil.MAX_QUEUE_BYTES_SYS_PROP, "1048576");
+            assertEquals(1048576L, queueBytes(ConfigUtil.getDefaultDebeziumProps()));
+        } finally {
+            restore(prev);
+        }
+    }
+
+    @Test
+    void negativeSysPropDisablesByteBound() {
+        String prev = System.getProperty(ConfigUtil.MAX_QUEUE_BYTES_SYS_PROP);
+        try {
+            System.setProperty(ConfigUtil.MAX_QUEUE_BYTES_SYS_PROP, "-1");
+            assertEquals(0L, queueBytes(ConfigUtil.getDefaultDebeziumProps()));
+        } finally {
+            restore(prev);
+        }
+    }
+
+    @Test
+    void malformedSysPropFallsBackToClamp() {
+        String prev = System.getProperty(ConfigUtil.MAX_QUEUE_BYTES_SYS_PROP);
+        try {
+            System.setProperty(ConfigUtil.MAX_QUEUE_BYTES_SYS_PROP, "32MB");
+            long bytes = queueBytes(ConfigUtil.getDefaultDebeziumProps());
+            assertTrue(bytes >= 64L * 1024 * 1024 && bytes <= 256L * 1024 * 1024,
+                    "malformed override should fall back to [64MB, 256MB] but got " + bytes);
+        } finally {
+            restore(prev);
+        }
+    }
+
+    private static void restore(String prev) {
+        if (prev == null) {
+            System.clearProperty(ConfigUtil.MAX_QUEUE_BYTES_SYS_PROP);
+        } else {
+            System.setProperty(ConfigUtil.MAX_QUEUE_BYTES_SYS_PROP, prev);
+        }
     }
 
     // ─── server timezone parsing ──────────────────────────────────────────────

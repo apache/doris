@@ -327,6 +327,11 @@ public final class S3FileSystemProperties
         return StringUtils.isNotBlank(roleArn);
     }
 
+    public boolean isDirectoryBucketEndpoint() {
+        return StringUtils.containsIgnoreCase(endpoint, "s3express-control.")
+                || StringUtils.containsIgnoreCase(endpoint, "s3express-");
+    }
+
     private static void putIfNotBlank(Map<String, String> map, String key, String value) {
         if (StringUtils.isNotBlank(value)) {
             map.put(key, value);

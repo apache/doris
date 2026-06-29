@@ -286,9 +286,11 @@ void Scanner::_collect_profile_before_close() {
     COUNTER_UPDATE(_local_state->_scan_cpu_timer, _scan_cpu_timer);
     COUNTER_UPDATE(_local_state->_rows_read_counter, _num_rows_read);
 
-    // Update stats for load
-    _state->update_num_rows_load_filtered(_counter.num_rows_filtered);
-    _state->update_num_rows_load_unselected(_counter.num_rows_unselected);
+    // Update stats for load. See _should_update_load_counters() for why this is gated.
+    if (_should_update_load_counters()) {
+        _state->update_num_rows_load_filtered(_counter.num_rows_filtered);
+        _state->update_num_rows_load_unselected(_counter.num_rows_unselected);
+    }
 }
 
 void Scanner::_update_scan_cpu_timer() {

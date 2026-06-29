@@ -141,7 +141,7 @@ public class ConnectPoolMgr {
         for (ConnectContext ctx : connectionMap.values()) {
             // Check auth
             if (!ctx.getCurrentUserIdentity().equals(userIdentity) && !Env.getCurrentEnv().getAccessManager()
-                    .checkGlobalPriv(userIdentity, PrivPredicate.GRANT)) {
+                    .checkGlobalPriv(userIdentity, PrivPredicate.ADMIN)) {
                 continue;
             }
             list.add(ctx.toThreadInfo(isShowFullSql).toRow(-1, nowMs, timeZone));

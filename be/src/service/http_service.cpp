@@ -35,6 +35,7 @@
 #include "service/http/action/adjust_log_level.h"
 #include "service/http/action/batch_download_action.h"
 #include "service/http/action/be_proc_thread_action.h"
+#include "service/http/action/be_thread_stack_action.h"
 #include "service/http/action/calc_file_crc_action.h"
 #include "service/http/action/check_encryption_action.h"
 #include "service/http/action/check_rpc_channel_action.h"
@@ -195,6 +196,10 @@ Status HttpService::start() {
     BeProcThreadAction* be_proc_thread_action = _pool.add(new BeProcThreadAction(_env));
     _ev_http_server->register_handler(HttpMethod::GET, "/api/be_process_thread_num",
                                       be_proc_thread_action);
+
+    // Dump C++ stack traces for current BE threads.
+    BeThreadStackAction* be_thread_stack_action = _pool.add(new BeThreadStackAction(_env));
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/stack_trace", be_thread_stack_action);
 
     // Register BE LoadStream action
     LoadStreamAction* load_stream_action = _pool.add(new LoadStreamAction(_env));

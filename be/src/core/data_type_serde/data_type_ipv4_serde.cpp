@@ -106,7 +106,7 @@ Status DataTypeIPv4SerDe::write_column_to_arrow(const IColumn& column, const Nul
             int32_builder.AppendValues(reinterpret_cast<const Int32*>(col_data.data()) + start,
                                        end - start,
                                        reinterpret_cast<const uint8_t*>(arrow_null_map_data)),
-            column.get_name(), array_builder->type()->name()));
+            column, *array_builder));
     return Status::OK();
 }
 

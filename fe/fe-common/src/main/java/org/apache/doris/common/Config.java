@@ -1193,11 +1193,21 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static int streaming_task_timeout_multiplier = 10;
 
+    /**
+     * streaming task min timeout second.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int streaming_task_min_timeout_sec = 300;
+
     @ConfField(mutable = true, masterOnly = true)
     public static int streaming_cdc_light_rpc_timeout_sec = 90;
 
     @ConfField(mutable = true, masterOnly = true)
     public static int streaming_cdc_heavy_rpc_timeout_sec = 600;
+
+    // Max byte length of a PG database name for a CDC job; raise only for a larger NAMEDATALEN build.
+    @ConfField(mutable = true, masterOnly = true)
+    public static int streaming_pg_max_identifier_length = 63;
 
     @ConfField(mutable = true, masterOnly = true)
     public static int streaming_cdc_fetch_splits_batch_size = 100;
@@ -2182,6 +2192,11 @@ public class Config extends ConfigBase {
 
     @ConfField(description = {"The auto-refresh interval of the external meta cache."})
     public static long external_cache_refresh_time_minutes = 10; // 10 mins
+
+    // Enable manual miss load for external meta cache to avoid blocking replayer on slow loaders.
+    @ConfField(mutable = true, masterOnly = false,
+            description = {"Whether external meta cache uses manual miss load instead of Caffeine sync load."})
+    public static boolean enable_external_meta_cache_manual_miss_load = true;
 
     /**
      * Github workflow test type, for setting some session variables

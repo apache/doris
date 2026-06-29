@@ -154,9 +154,12 @@ uint32_t TimeSeriesCumulativeCompactionPolicy::calc_cumulative_compaction_score(
     }
 
     // Condition 6: If there is a continuous set of empty rowsets, prioritize merging.
+    // This is reached via Tablet::suitable_for_compaction() -> _calc_cumulative_compaction_score(),
+    // which already holds a shared `_meta_lock`. Use the unlocked variant to avoid recursively
+    // re-acquiring the (writer-preferring) header lock, which would self-deadlock.
     std::vector<RowsetSharedPtr> input_rowsets;
     std::vector<RowsetSharedPtr> candidate_rowsets =
-            tablet->pick_candidate_rowsets_to_cumulative_compaction();
+            tablet->pick_candidate_rowsets_to_cumulative_compaction_unlocked();
     tablet->calc_consecutive_empty_rowsets(
             &input_rowsets, candidate_rowsets,
             tablet->tablet_meta()->time_series_compaction_empty_rowsets_threshold());
@@ -372,13 +375,15 @@ int32_t TimeSeriesCumulativeCompactionPolicy::pick_input_rowsets(
     if (compaction_level >= 2) {
         int64_t continuous_size = 0;
         std::vector<RowsetSharedPtr> level1_rowsets;
+        int64_t level2_compaction_timeout = MAX_LEVEL2_COMPACTION_TIMEOUT;
+        DBUG_EXECUTE_IF("time_series_level2_file_count", { level2_compaction_timeout = -1; });
         for (const auto& rowset : candidate_rowsets) {
             const auto& rs_meta = rowset->rowset_meta();
             if (rs_meta->compaction_level() == 0) {
                 break;
             }
             if (rs_meta->compaction_level() == 1 &&
-                (now - rs_meta->creation_time()) <= MAX_LEVEL2_COMPACTION_TIMEOUT) {
+                (now - rs_meta->creation_time()) <= level2_compaction_timeout) {
                 continue;
             }
             level1_rowsets.push_back(rowset);

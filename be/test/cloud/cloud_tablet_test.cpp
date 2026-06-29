@@ -1006,7 +1006,7 @@ public:
     }
 
     void add_initial_rowsets(const std::vector<RowsetSharedPtr>& rowsets) {
-        std::unique_lock<std::shared_mutex> meta_wlock(_tablet->get_header_lock());
+        std::unique_lock meta_wlock(_tablet->get_header_lock());
         _tablet->add_rowsets(std::vector<RowsetSharedPtr>(rowsets), false, meta_wlock, false);
     }
 

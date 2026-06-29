@@ -120,6 +120,8 @@ struct ColumnArrayView {
         return false;
     }
 
+    bool is_nullable() const { return outer_null_map != nullptr; }
+
     // Index-based access: uses offsets[actual - 1] (PaddedPODArray sentinel guarantees [-1] is valid)
     ArrayDataView<PType> operator[](size_t idx) const {
         size_t actual = is_const ? 0 : idx;
