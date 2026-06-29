@@ -72,7 +72,8 @@ TEST(PredicateLmUtilsTest, ParseTrimBackticksDedupAndCaseInsensitive) {
     auto schema = build_tablet_schema_for_test();
 
     std::vector<ColumnId> cids;
-    Status st = parse_predicate_lm_stage1_cols_to_column_ids(" `A` , b , a ", schema, "db", "tbl", &cids);
+    Status st = parse_predicate_lm_stage1_cols_to_column_ids(" `A` , b , a ", schema, "db", "tbl",
+                                                             &cids);
     EXPECT_TRUE(st.ok()) << st.to_string();
 
     // Dedup + sorted
@@ -85,7 +86,8 @@ TEST(PredicateLmUtilsTest, ParseUnknownColumnsShouldBeIgnored) {
     auto schema = build_tablet_schema_for_test();
 
     std::vector<ColumnId> cids;
-    Status st = parse_predicate_lm_stage1_cols_to_column_ids("a,not_exist", schema, "db", "tbl", &cids);
+    Status st =
+            parse_predicate_lm_stage1_cols_to_column_ids("a,not_exist", schema, "db", "tbl", &cids);
     EXPECT_TRUE(st.ok()) << st.to_string();
 
     // schema is [k,a,b] => a=1
@@ -97,7 +99,8 @@ TEST(PredicateLmUtilsTest, ParseTableQualifiedColumns) {
     auto schema = build_tablet_schema_for_test();
 
     std::vector<ColumnId> cids;
-    Status st = parse_predicate_lm_stage1_cols_to_column_ids("tbl.a,other.b,b", schema, "db", "tbl", &cids);
+    Status st = parse_predicate_lm_stage1_cols_to_column_ids("tbl.a,other.b,b", schema, "db", "tbl",
+                                                             &cids);
     EXPECT_TRUE(st.ok()) << st.to_string();
 
     // other.b should be ignored, tbl.a applies, b is unqualified and applies.
@@ -110,7 +113,8 @@ TEST(PredicateLmUtilsTest, ParseDbTableQualifiedColumns) {
     auto schema = build_tablet_schema_for_test();
 
     std::vector<ColumnId> cids;
-    Status st = parse_predicate_lm_stage1_cols_to_column_ids("db1.tbl.a,db2.tbl.b,tbl.b", schema, "db1", "tbl", &cids);
+    Status st = parse_predicate_lm_stage1_cols_to_column_ids("db1.tbl.a,db2.tbl.b,tbl.b", schema,
+                                                             "db1", "tbl", &cids);
     EXPECT_TRUE(st.ok()) << st.to_string();
 
     // db2.tbl.b ignored, db1.tbl.a applies, tbl.b (table-qualified) applies.
@@ -123,7 +127,8 @@ TEST(PredicateLmUtilsTest, ParseDbTableQualifiedColumnsWithCatalogPrefixedDbName
     auto schema = build_tablet_schema_for_test();
 
     std::vector<ColumnId> cids;
-    Status st = parse_predicate_lm_stage1_cols_to_column_ids("db1.tbl.a", schema, "catalog.db1", "tbl", &cids);
+    Status st = parse_predicate_lm_stage1_cols_to_column_ids("db1.tbl.a", schema, "catalog.db1",
+                                                             "tbl", &cids);
     EXPECT_TRUE(st.ok()) << st.to_string();
 
     ASSERT_EQ(1u, cids.size());
@@ -134,7 +139,8 @@ TEST(PredicateLmUtilsTest, ParseQualifiedColumnsWithRollupSuffixInCurrentTableNa
     auto schema = build_tablet_schema_for_test();
 
     std::vector<ColumnId> cids;
-    Status st = parse_predicate_lm_stage1_cols_to_column_ids("db1.tbl.a", schema, "db1", "tbl(rollup)", &cids);
+    Status st = parse_predicate_lm_stage1_cols_to_column_ids("db1.tbl.a", schema, "db1",
+                                                             "tbl(rollup)", &cids);
     EXPECT_TRUE(st.ok()) << st.to_string();
 
     ASSERT_EQ(1u, cids.size());

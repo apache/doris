@@ -2021,7 +2021,8 @@ Status SegmentIterator::_vec_init_lazy_materialization() {
                 stage1_pred_col_id_set.insert(_opts.predicate_lm_stage1_column_ids.begin(),
                                               _opts.predicate_lm_stage1_column_ids.end());
             } else {
-                stage1_pred_col_id_set.insert(runtime_filter_cids.begin(), runtime_filter_cids.end());
+                stage1_pred_col_id_set.insert(runtime_filter_cids.begin(),
+                                              runtime_filter_cids.end());
             }
 
             for (auto it = stage1_pred_col_id_set.begin(); it != stage1_pred_col_id_set.end();) {
@@ -2073,9 +2074,8 @@ Status SegmentIterator::_vec_init_lazy_materialization() {
 
         stage1_short_cir_pred_col_id_set.insert(del_cond_id_set.begin(), del_cond_id_set.end());
 
-
         _vec_pred_column_ids.assign(stage1_vec_pred_col_id_set.cbegin(),
-                                   stage1_vec_pred_col_id_set.cend());
+                                    stage1_vec_pred_col_id_set.cend());
         _short_cir_pred_column_ids.assign(stage1_short_cir_pred_col_id_set.cbegin(),
                                           stage1_short_cir_pred_col_id_set.cend());
 
@@ -2091,7 +2091,8 @@ Status SegmentIterator::_vec_init_lazy_materialization() {
                                        stage2_vec_pred_col_id_set.end());
             stage2_read_columns.insert(stage2_short_cir_pred_col_id_set.begin(),
                                        stage2_short_cir_pred_col_id_set.end());
-            _late_predicate_column_ids.assign(stage2_read_columns.begin(), stage2_read_columns.end());
+            _late_predicate_column_ids.assign(stage2_read_columns.begin(),
+                                              stage2_read_columns.end());
         }
     }
 
@@ -2171,7 +2172,8 @@ Status SegmentIterator::_vec_init_lazy_materialization() {
     _predicate_column_ids.clear();
     if (_lazy_materialization_read) {
         std::set<ColumnId> first_read_pred_column_ids = pred_column_ids;
-        if (_enable_multi_stage_predicate_lazy_materialization && !_late_predicate_column_ids.empty()) {
+        if (_enable_multi_stage_predicate_lazy_materialization &&
+            !_late_predicate_column_ids.empty()) {
             for (auto cid : _late_predicate_column_ids) {
                 first_read_pred_column_ids.erase(cid);
             }
@@ -2431,13 +2433,13 @@ Status SegmentIterator::_output_non_pred_columns(Block* block) {
  * rowid sequences and handling discontinuities gracefully in smaller chunks.
  */
 Status SegmentIterator::_read_columns_by_index(const std::vector<ColumnId>& column_ids,
-                                                uint32_t nrows_read_limit, uint16_t& nrows_read,
-                                                bool read_rowids) {
+                                               uint32_t nrows_read_limit, uint16_t& nrows_read,
+                                               bool read_rowids) {
     SCOPED_RAW_TIMER(&_opts.stats->predicate_column_read_ns);
 
     if (read_rowids) {
-        nrows_read = (uint16_t)_range_iter->read_batch_rowids(_block_rowids.data(),
-                                                             nrows_read_limit);
+        nrows_read =
+                (uint16_t)_range_iter->read_batch_rowids(_block_rowids.data(), nrows_read_limit);
     }
     bool is_continuous = (nrows_read > 1) &&
                          (_block_rowids[nrows_read - 1] - _block_rowids[0] == nrows_read - 1);
@@ -2835,7 +2837,8 @@ uint16_t SegmentIterator::_evaluate_short_circuit_predicate(uint16_t* sel_rowid_
     if (!_is_need_short_eval) {
         return selected_size;
     }
-    return _evaluate_short_circuit_predicate(_short_cir_eval_predicate, sel_rowid_idx, selected_size,
+    return _evaluate_short_circuit_predicate(_short_cir_eval_predicate, sel_rowid_idx,
+                                             selected_size,
                                              /*evaluate_delete_condition=*/true);
 }
 
@@ -3207,8 +3210,8 @@ Status SegmentIterator::_next_batch_internal(Block* block) {
                     // when lazy materialization enables, _predicate_column_ids = distinct(_short_cir_pred_column_ids + _vec_pred_column_ids)
                     // see _vec_init_lazy_materialization
                     // todo(wb) need to tell input columnids from output columnids
-                    RETURN_IF_ERROR(_output_column_by_sel_idx(block, _predicate_column_ids,
-                                                              _sel_rowid_idx.data(), _selected_size));
+                    RETURN_IF_ERROR(_output_column_by_sel_idx(
+                            block, _predicate_column_ids, _sel_rowid_idx.data(), _selected_size));
 
                     // step 3.2: read remaining expr column and evaluate it.
                     if (_is_need_expr_eval) {
@@ -3226,8 +3229,8 @@ Status SegmentIterator::_next_batch_internal(Block* block) {
 
                         DCHECK(block->columns() >
                                _schema->column_index(*_common_expr_columns.begin()));
-                        RETURN_IF_ERROR(_process_common_expr(_sel_rowid_idx.data(), _selected_size,
-                                                             block));
+                        RETURN_IF_ERROR(
+                                _process_common_expr(_sel_rowid_idx.data(), _selected_size, block));
                     }
                 } else {
                     _fill_column_nothing();
@@ -3261,8 +3264,8 @@ Status SegmentIterator::_next_batch_internal(Block* block) {
                     bool stage2_columns_dense_on_all_rows = false;
 
                     if (do_stage2) {
-                        const double survival_ratio = static_cast<double>(stage1_size) /
-                                                      static_cast<double>(rows_read);
+                        const double survival_ratio =
+                                static_cast<double>(stage1_size) / static_cast<double>(rows_read);
                         const bool stage2_by_rowids =
                                 survival_ratio <= _predicate_lm_stage1_survival_ratio_threshold;
 
@@ -3287,8 +3290,8 @@ Status SegmentIterator::_next_batch_internal(Block* block) {
                             uint16_t stage2_size = stage1_size;
                             if (_is_need_vec_eval_late) {
                                 stage2_size = _evaluate_vectorization_predicate(
-                                        _late_pre_eval_block_predicate, _sel_rowid_idx_stage2.data(),
-                                        stage2_size);
+                                        _late_pre_eval_block_predicate,
+                                        _sel_rowid_idx_stage2.data(), stage2_size);
                             } else {
                                 for (uint16_t i = 0; i < stage2_size; ++i) {
                                     _sel_rowid_idx_stage2[i] = i;
@@ -3296,14 +3299,14 @@ Status SegmentIterator::_next_batch_internal(Block* block) {
                             }
                             if (_is_need_short_eval_late) {
                                 stage2_size = _evaluate_short_circuit_predicate(
-                                        _late_short_cir_eval_predicate, _sel_rowid_idx_stage2.data(),
-                                        stage2_size, /*evaluate_delete_condition=*/false);
+                                        _late_short_cir_eval_predicate,
+                                        _sel_rowid_idx_stage2.data(), stage2_size,
+                                        /*evaluate_delete_condition=*/false);
                             }
 
                             _sel_rowid_idx.resize(stage2_size);
                             for (uint16_t i = 0; i < stage2_size; ++i) {
-                                _sel_rowid_idx[i] =
-                                        _sel_rowid_idx_stage1[_sel_rowid_idx_stage2[i]];
+                                _sel_rowid_idx[i] = _sel_rowid_idx_stage1[_sel_rowid_idx_stage2[i]];
                             }
                             _selected_size = stage2_size;
                         } else {
@@ -3315,7 +3318,8 @@ Status SegmentIterator::_next_batch_internal(Block* block) {
                             RETURN_IF_ERROR(_read_columns_by_index(_late_predicate_column_ids,
                                                                    rows_read, stage2_rows_read,
                                                                    /*read_rowids=*/false));
-                            _replace_version_col_if_needed(_late_predicate_column_ids, stage2_rows_read);
+                            _replace_version_col_if_needed(_late_predicate_column_ids,
+                                                           stage2_rows_read);
                             _update_lsn_col_if_needed(_late_predicate_column_ids, stage2_rows_read);
                             _update_tso_col_if_needed(_late_predicate_column_ids, stage2_rows_read);
 
@@ -3327,8 +3331,8 @@ Status SegmentIterator::_next_batch_internal(Block* block) {
                             uint16_t stage2_size_all = stage2_rows_read;
                             if (_is_need_vec_eval_late) {
                                 stage2_size_all = _evaluate_vectorization_predicate(
-                                        _late_pre_eval_block_predicate, _sel_rowid_idx_stage2.data(),
-                                        stage2_size_all);
+                                        _late_pre_eval_block_predicate,
+                                        _sel_rowid_idx_stage2.data(), stage2_size_all);
                             } else {
                                 for (uint16_t i = 0; i < stage2_size_all; ++i) {
                                     _sel_rowid_idx_stage2[i] = i;
@@ -3336,12 +3340,14 @@ Status SegmentIterator::_next_batch_internal(Block* block) {
                             }
                             if (_is_need_short_eval_late) {
                                 stage2_size_all = _evaluate_short_circuit_predicate(
-                                        _late_short_cir_eval_predicate, _sel_rowid_idx_stage2.data(),
-                                        stage2_size_all, /*evaluate_delete_condition=*/false);
+                                        _late_short_cir_eval_predicate,
+                                        _sel_rowid_idx_stage2.data(), stage2_size_all,
+                                        /*evaluate_delete_condition=*/false);
                             }
 
                             _sel_rowid_idx.clear();
-                            _sel_rowid_idx.reserve(std::min<uint16_t>(stage1_size, stage2_size_all));
+                            _sel_rowid_idx.reserve(
+                                       std::min<uint16_t>(stage1_size, stage2_size_all));
                             uint16_t i = 0;
                             uint16_t j = 0;
                             while (i < stage1_size && j < stage2_size_all) {
@@ -3380,9 +3386,9 @@ Status SegmentIterator::_next_batch_internal(Block* block) {
                             if (!stage2_columns_dense_on_all_rows) {
                                 stage2_output_sel = _sel_rowid_idx_stage2.data();
                             }
-                            RETURN_IF_ERROR(_output_column_by_sel_idx(block, _late_predicate_column_ids,
-                                                                      stage2_output_sel,
-                                                                      _selected_size));
+                            RETURN_IF_ERROR(
+                                    _output_column_by_sel_idx(block, _late_predicate_column_ids,
+                                                              stage2_output_sel, _selected_size));
                         }
 
                         // common expr (unchanged, uses final selector)
@@ -3390,9 +3396,11 @@ Status SegmentIterator::_next_batch_internal(Block* block) {
                             if (_common_expr_column_ids.size() > 0) {
                                 SCOPED_RAW_TIMER(&_opts.stats->non_predicate_read_ns);
                                 RETURN_IF_ERROR(_read_columns_by_rowids(
-                                        _common_expr_column_ids, _block_rowids, _sel_rowid_idx.data(),
-                                        _selected_size, &_current_return_columns, false, true));
-                                _replace_version_col_if_needed(_common_expr_column_ids, _selected_size);
+                                        _common_expr_column_ids, _block_rowids,
+                                        _sel_rowid_idx.data(), _selected_size,
+                                        &_current_return_columns, false, true));
+                                _replace_version_col_if_needed(_common_expr_column_ids,
+                                                               _selected_size);
                                 _update_lsn_col_if_needed(_common_expr_column_ids, _selected_size);
                                 _update_tso_col_if_needed(_common_expr_column_ids, _selected_size);
                                 RETURN_IF_ERROR(_process_columns(_common_expr_column_ids, block));
@@ -3400,8 +3408,8 @@ Status SegmentIterator::_next_batch_internal(Block* block) {
 
                             DCHECK(block->columns() >
                                    _schema->column_index(*_common_expr_columns.begin()));
-                            RETURN_IF_ERROR(_process_common_expr(_sel_rowid_idx.data(), _selected_size,
-                                                                 block));
+                            RETURN_IF_ERROR(_process_common_expr(_sel_rowid_idx.data(),
+                                                                 _selected_size, block));
                         }
                     } else {
                         _fill_column_nothing();
@@ -3688,7 +3696,8 @@ void SegmentIterator::_output_index_result_column(const VExprContextSPtrs& expr_
 }
 
 void SegmentIterator::_convert_dict_code_for_predicate_if_necessary() {
-    _convert_dict_code_for_predicate_if_necessary(_short_cir_eval_predicate, _pre_eval_block_predicate,
+    _convert_dict_code_for_predicate_if_necessary(_short_cir_eval_predicate,
+                                                  _pre_eval_block_predicate,
                                                   /*include_delete_condition_columns=*/true);
 }
 

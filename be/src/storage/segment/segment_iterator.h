@@ -239,7 +239,8 @@ private:
             const std::vector<std::shared_ptr<ColumnPredicate>>& short_circuit_predicates,
             const std::vector<std::shared_ptr<ColumnPredicate>>& vectorized_predicates,
             bool include_delete_condition_columns);
-    void _convert_dict_code_for_predicate_if_necessary_impl(std::shared_ptr<ColumnPredicate> predicate);
+    void _convert_dict_code_for_predicate_if_necessary_impl(
+            std::shared_ptr<ColumnPredicate> predicate);
 
     Status _apply_read_limit_to_selected_rows(Block* block, uint16_t& selected_size);
     void _collect_runtime_filter_predicate();

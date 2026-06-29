@@ -67,8 +67,8 @@ inline std::string normalize_identifier_piece(std::string_view sv) {
 }
 
 inline bool qualifier_matches_current_table(const std::string& normalized_current_full_table_name,
-                                           const std::string& normalized_current_table_only,
-                                           const std::string& qualifier_raw) {
+                                            const std::string& normalized_current_table_only,
+                                            const std::string& qualifier_raw) {
     std::string qualifier = to_lower_trimmed(std::string_view(qualifier_raw));
     if (qualifier.empty()) {
         return true;
@@ -90,10 +90,10 @@ inline bool qualifier_matches_current_table(const std::string& normalized_curren
 } // namespace predicate_lm_utils_detail
 
 inline Status parse_predicate_lm_stage1_cols_to_column_ids(const std::string& cols,
-                                                          const TabletSchemaSPtr& tablet_schema,
-                                                          std::string_view current_db_name,
-                                                          std::string_view current_table_name,
-                                                          std::vector<ColumnId>* column_ids) {
+                                                           const TabletSchemaSPtr& tablet_schema,
+                                                           std::string_view current_db_name,
+                                                           std::string_view current_table_name,
+                                                           std::vector<ColumnId>* column_ids) {
     column_ids->clear();
     if (cols.empty()) {
         return Status::OK();
@@ -106,7 +106,8 @@ inline Status parse_predicate_lm_stage1_cols_to_column_ids(const std::string& co
 
     std::string normalized_current_full_table_name;
     if (!normalized_db.empty()) {
-        normalized_current_full_table_name.reserve(normalized_db.size() + 1 + normalized_tbl.size());
+        normalized_current_full_table_name.reserve(normalized_db.size() + 1 +
+                                                   normalized_tbl.size());
         normalized_current_full_table_name.append(normalized_db);
         normalized_current_full_table_name.push_back('.');
         normalized_current_full_table_name.append(normalized_tbl);
@@ -128,7 +129,8 @@ inline Status parse_predicate_lm_stage1_cols_to_column_ids(const std::string& co
         std::vector<std::string> ident_parts;
         ident_parts.reserve(dot_parts.size());
         for (const auto& dot_part : dot_parts) {
-            auto piece = predicate_lm_utils_detail::normalize_identifier_piece(std::string_view(dot_part));
+            auto piece = predicate_lm_utils_detail::normalize_identifier_piece(
+                    std::string_view(dot_part));
             if (!piece.empty()) {
                 ident_parts.emplace_back(std::move(piece));
             }
