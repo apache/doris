@@ -22,6 +22,8 @@ import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StringLiteral;
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
@@ -155,11 +157,33 @@ public class MTMVRelatedPartitionDescRollUpGeneratorTest {
                     mtmvPartitionInfo, null);
 
             // Both partitions should roll up to the same UTC day range.
+            // The +00:00 suffix ensures TimestampTzLiteral.fromSessionTimeZone
+            // treats the bounds as explicit UTC rather than session-local time.
             PartitionKeyDesc expectDesc = PartitionKeyDesc.createFixed(
-                    Lists.newArrayList(new PartitionValue("2024-01-15 00:00:00")),
-                    Lists.newArrayList(new PartitionValue("2024-01-16 00:00:00")));
+                    Lists.newArrayList(new PartitionValue("2024-01-15 00:00:00+00:00")),
+                    Lists.newArrayList(new PartitionValue("2024-01-16 00:00:00+00:00")));
             Assert.assertEquals(1, res.size());
             Assert.assertEquals(Sets.newHashSet("name1", "name2"), res.get(expectDesc));
+
+            // Verify that the rolled-up PartitionKeyDesc produces correct UTC partition keys
+            // regardless of session timezone (America/New_York = UTC-5).
+            // Without the +00:00 suffix, TimestampTzLiteral.fromSessionTimeZone would
+            // interpret "2024-01-15 00:00:00" as session-local, shifting the UTC bound
+            // to 2024-01-15 05:00:00+00:00.
+            List<Column> partitionColumns = Lists.newArrayList(
+                    new Column("k1", ScalarType.createTimeStampTzType(6)));
+            PartitionKey lowKey = PartitionKey.createPartitionKey(
+                    expectDesc.getLowerValues(), partitionColumns);
+            PartitionKey upperKey = PartitionKey.createPartitionKey(
+                    expectDesc.getUpperValues(), partitionColumns);
+
+            // Both should be stored as midnight UTC, not shifted to session-local time.
+            String lowKeyStr = lowKey.getKeys().get(0).getStringValue();
+            String upperKeyStr = upperKey.getKeys().get(0).getStringValue();
+            Assert.assertTrue("Lower bound should be 2024-01-15 midnight UTC, but was: " + lowKeyStr,
+                    lowKeyStr.startsWith("2024-01-15 00:00:00"));
+            Assert.assertTrue("Upper bound should be 2024-01-16 midnight UTC, but was: " + upperKeyStr,
+                    upperKeyStr.startsWith("2024-01-16 00:00:00"));
         } finally {
             ConnectContext.remove();
         }

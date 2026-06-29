@@ -247,11 +247,18 @@ public class MTMVPartitionExprDateTrunc implements MTMVPartitionExprService {
         if (partitionColumnType.isDate() || partitionColumnType.isDateV2()) {
             return String.format(PartitionExprUtil.DATE_FORMATTER, literal.getYear(), literal.getMonth(),
                     literal.getDay());
-        } else if (partitionColumnType.isDatetime() || partitionColumnType.isDatetimeV2()
-                || partitionColumnType.isTimeStampTz()) {
+        } else if (partitionColumnType.isDatetime() || partitionColumnType.isDatetimeV2()) {
             return String.format(PartitionExprUtil.DATETIME_FORMATTER,
                     literal.getYear(), literal.getMonth(), literal.getDay(),
                     literal.getHour(), literal.getMinute(), literal.getSecond());
+        } else if (partitionColumnType.isTimeStampTz()) {
+            // The internal DateTimeV2Literal values are always in UTC after truncation.
+            // Emit an explicit +00:00 suffix so that downstream consumers
+            // (PartitionKey.createPartitionKey -> TimestampTzLiteral.fromSessionTimeZone)
+            // interpret the value as UTC rather than session-local time.
+            return String.format(PartitionExprUtil.DATETIME_FORMATTER,
+                    literal.getYear(), literal.getMonth(), literal.getDay(),
+                    literal.getHour(), literal.getMinute(), literal.getSecond()) + "+00:00";
         } else {
             throw new AnalysisException(
                     "MTMV not support partition with column type : " + partitionColumnType);
