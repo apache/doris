@@ -17,7 +17,6 @@
 
 package org.apache.doris.connector.iceberg;
 
-import org.apache.doris.connector.api.ConnectorViewDefinition;
 import org.apache.doris.connector.api.DorisConnectorException;
 import org.apache.doris.connector.api.ddl.BranchChange;
 import org.apache.doris.connector.api.ddl.ConnectorColumnPosition;
@@ -44,9 +43,7 @@ import org.apache.iceberg.expressions.Expressions;
 import org.apache.iceberg.expressions.Term;
 import org.apache.iceberg.types.Type;
 import org.apache.iceberg.types.Types;
-import org.apache.iceberg.view.SQLViewRepresentation;
 import org.apache.iceberg.view.View;
-import org.apache.iceberg.view.ViewVersion;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -100,10 +97,12 @@ public interface IcebergCatalogOps {
     boolean viewExists(String dbName, String viewName);
 
     /**
-     * Loads the stored SQL definition + dialect of the view {@code dbName.viewName}. Requires a
-     * (view-enabled) {@link ViewCatalog}; otherwise fails loud.
+     * Loads the SDK {@link View} for {@code dbName.viewName}, mirroring {@link #loadTable}. Requires a
+     * (view-enabled) {@link ViewCatalog}; otherwise fails loud. The sql/dialect/column extraction lives in
+     * {@code IcebergConnectorMetadata.getViewDefinition} (which holds the type-mapping flags this SDK-only
+     * seam does not).
      */
-    ConnectorViewDefinition loadViewDefinition(String dbName, String viewName);
+    View loadView(String dbName, String viewName);
 
     /** Drops the view {@code dbName.viewName}. Requires a (view-enabled) {@link ViewCatalog}; else fails loud. */
     void dropView(String dbName, String viewName);
@@ -305,33 +304,15 @@ public interface IcebergCatalogOps {
         }
 
         @Override
-        public ConnectorViewDefinition loadViewDefinition(String dbName, String viewName) {
-            // Mirrors legacy IcebergExternalTable.getViewText + getSqlDialect, consolidated into one remote
-            // load: the dialect is the summary's "engine-name", and the SQL is that dialect's representation.
-            // Auth wrapping is in IcebergConnectorMetadata.getViewDefinition.
+        public View loadView(String dbName, String viewName) {
+            // Mirrors loadTable: a thin SDK delegation that returns the iceberg View. Requires a (view-enabled)
+            // ViewCatalog; otherwise fails loud. The sql/dialect/column extraction lives in
+            // IcebergConnectorMetadata.getViewDefinition (which holds the type-mapping flags this SDK-only seam
+            // does not). Auth wrapping is in IcebergConnectorMetadata.getViewDefinition.
             if (!isViewCatalogEnabled()) {
                 throw new DorisConnectorException("View is not supported with not view catalog.");
             }
-            View icebergView = ((ViewCatalog) catalog).loadView(toTableIdentifier(dbName, viewName));
-            ViewVersion viewVersion = icebergView.currentVersion();
-            if (viewVersion == null) {
-                throw new DorisConnectorException(String.format("Cannot get view version for view '%s'", icebergView));
-            }
-            Map<String, String> summary = viewVersion.summary();
-            if (summary == null) {
-                throw new DorisConnectorException(String.format("Cannot get summary for view '%s'", icebergView));
-            }
-            // "engine-name" is the iceberg view-version summary key the writing engine (e.g. spark) records.
-            String engineName = summary.get("engine-name");
-            if (engineName == null || engineName.isEmpty()) {
-                throw new DorisConnectorException(String.format("Cannot get engine-name for view '%s'", icebergView));
-            }
-            String dialect = engineName.toLowerCase(Locale.ROOT);
-            SQLViewRepresentation sqlViewRepresentation = icebergView.sqlFor(dialect);
-            if (sqlViewRepresentation == null) {
-                throw new DorisConnectorException("Cannot get view text from iceberg view");
-            }
-            return new ConnectorViewDefinition(sqlViewRepresentation.sql(), dialect);
+            return ((ViewCatalog) catalog).loadView(toTableIdentifier(dbName, viewName));
         }
 
         @Override

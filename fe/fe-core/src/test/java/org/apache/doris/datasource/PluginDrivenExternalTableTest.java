@@ -25,6 +25,7 @@ import org.apache.doris.connector.api.ConnectorCapability;
 import org.apache.doris.connector.api.ConnectorColumn;
 import org.apache.doris.connector.api.ConnectorMetadata;
 import org.apache.doris.connector.api.ConnectorSession;
+import org.apache.doris.connector.api.ConnectorTableSchema;
 import org.apache.doris.connector.api.ConnectorType;
 import org.apache.doris.connector.api.ConnectorViewDefinition;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
@@ -355,7 +356,10 @@ public class PluginDrivenExternalTableTest {
         // names -> the eq-stub misses -> null -> NPE -> red.
         ConnectorMetadata metadata = Mockito.mock(ConnectorMetadata.class);
         Mockito.when(metadata.getViewDefinition(Mockito.any(), Mockito.eq("db1"), Mockito.eq("v1")))
-                .thenReturn(new ConnectorViewDefinition("SELECT 1", "spark"));
+                .thenReturn(new ConnectorViewDefinition("SELECT 1", "spark",
+                        ImmutableList.of(
+                                new ConnectorColumn("vid", ConnectorType.of("INT"), "", true, null, true),
+                                new ConnectorColumn("vname", ConnectorType.of("STRING"), "", true, null, true))));
         ConnectorSession session = Mockito.mock(ConnectorSession.class);
         Connector connector = Mockito.mock(Connector.class);
         Mockito.when(connector.getMetadata(Mockito.any())).thenReturn(metadata);
@@ -374,6 +378,107 @@ public class PluginDrivenExternalTableTest {
         // Make the verbatim-names contract explicit (not just implicit via the eq-stub -> null -> NPE):
         // getViewText must ask the connector for THIS table's remote (db, view) pair, exactly once.
         Mockito.verify(metadata).getViewDefinition(Mockito.any(), Mockito.eq("db1"), Mockito.eq("v1"));
+    }
+
+    /**
+     * Builds a CALLS_REAL_METHODS PluginDrivenExternalTable wired so the REAL initSchema runs against a stubbed
+     * connector chain: metadata returns {@code viewDef} from getViewDefinition (identity column mapping) and NO
+     * table handle (so a deleted isView() branch would fall through to an empty schema). isView() is stubbed
+     * directly to {@code isView} (the branch under test) — mirroring how the getFullSchema tests stub
+     * needInternalHiddenColumns. Remote (db, view) = (db1, v1).
+     */
+    private static PluginDrivenExternalTable initSchemaViewTable(ConnectorViewDefinition viewDef, boolean isView) {
+        ConnectorMetadata metadata = Mockito.mock(ConnectorMetadata.class);
+        Mockito.when(metadata.getViewDefinition(Mockito.any(), Mockito.eq("db1"), Mockito.eq("v1")))
+                .thenReturn(viewDef);
+        // Identity column-name mapping (the 4th arg is the column name); the Mockito default would return null
+        // and NPE in toSchemaCacheValue.
+        Mockito.when(metadata.fromRemoteColumnName(Mockito.any(), Mockito.any(), Mockito.any(),
+                Mockito.anyString())).thenAnswer(inv -> inv.getArgument(3));
+        // No table handle: proves the view schema does NOT come from the table-handle path.
+        Mockito.when(metadata.getTableHandle(Mockito.any(), Mockito.any(), Mockito.any()))
+                .thenReturn(Optional.empty());
+        ConnectorSession session = Mockito.mock(ConnectorSession.class);
+        Connector connector = Mockito.mock(Connector.class);
+        Mockito.when(connector.getMetadata(Mockito.any())).thenReturn(metadata);
+        ExternalDatabase db = Mockito.mock(ExternalDatabase.class);
+        Mockito.when(db.getRemoteName()).thenReturn("db1");
+        PluginDrivenExternalCatalog catalog = Mockito.mock(PluginDrivenExternalCatalog.class);
+        Mockito.when(catalog.getConnector()).thenReturn(connector);
+        Mockito.when(catalog.buildConnectorSession()).thenReturn(session);
+        PluginDrivenExternalTable table =
+                Mockito.mock(PluginDrivenExternalTable.class, Mockito.CALLS_REAL_METHODS);
+        Deencapsulation.setField(table, "catalog", catalog);
+        Deencapsulation.setField(table, "db", db);
+        Deencapsulation.setField(table, "remoteName", "v1");
+        Mockito.doReturn(isView).when(table).isView();
+        return table;
+    }
+
+    @Test
+    public void initSchemaBuildsViewSchemaFromViewDefinitionColumns() {
+        // WHY (H8): a flipped connector VIEW has no table handle (the SDK tableExists()==false for views), so
+        // initSchema must build the schema from getViewDefinition().getColumns() instead of the table-handle
+        // path — otherwise DESC / SHOW COLUMNS / information_schema.columns of the view are empty. MUTATION:
+        // deleting the isView() branch -> initSchema falls through to the (absent) table handle -> Optional.empty
+        // -> the present-with-columns assertions go red.
+        ConnectorViewDefinition viewDef = new ConnectorViewDefinition("SELECT 1", "spark",
+                ImmutableList.of(
+                        new ConnectorColumn("vid", ConnectorType.of("INT"), "", true, null, true),
+                        new ConnectorColumn("vname", ConnectorType.of("STRING"), "", true, null, true)));
+        PluginDrivenExternalTable table = initSchemaViewTable(viewDef, true);
+
+        Optional<SchemaCacheValue> result = table.initSchema();
+
+        Assertions.assertTrue(result.isPresent(), "a view must resolve a (non-empty) schema cache value");
+        List<Column> columns = result.get().getSchema();
+        Assertions.assertEquals(2, columns.size(), "the view schema columns come from the view definition");
+        Assertions.assertEquals("vid", columns.get(0).getName());
+        Assertions.assertEquals("vname", columns.get(1).getName());
+        // A view has no partition columns (legacy IcebergUtils.loadViewSchemaCacheValue: empty partition list).
+        Assertions.assertTrue(
+                ((PluginDrivenSchemaCacheValue) result.get()).getPartitionColumns().isEmpty(),
+                "a view has no partition columns");
+    }
+
+    @Test
+    public void initSchemaUsesTableHandlePathForNonView() {
+        // WHY: the isView() branch must NOT hijack ordinary tables — a non-view must still resolve its schema
+        // via the table handle (getTableHandle -> getTableSchema) and must never call getViewDefinition.
+        // MUTATION: gating the new branch on something always-true (or inverting isView()) -> a table is routed
+        // through getViewDefinition / the handle path is skipped -> red.
+        ConnectorMetadata metadata = Mockito.mock(ConnectorMetadata.class);
+        ConnectorTableHandle handle = Mockito.mock(ConnectorTableHandle.class);
+        Mockito.when(metadata.getTableHandle(Mockito.any(), Mockito.eq("db1"), Mockito.eq("t1")))
+                .thenReturn(Optional.of(handle));
+        Mockito.when(metadata.getTableSchema(Mockito.any(), Mockito.eq(handle)))
+                .thenReturn(new ConnectorTableSchema("t1",
+                        ImmutableList.of(new ConnectorColumn("id", ConnectorType.of("INT"), "", true, null, true)),
+                        "ICEBERG", Collections.emptyMap()));
+        Mockito.when(metadata.fromRemoteColumnName(Mockito.any(), Mockito.any(), Mockito.any(),
+                Mockito.anyString())).thenAnswer(inv -> inv.getArgument(3));
+        ConnectorSession session = Mockito.mock(ConnectorSession.class);
+        Connector connector = Mockito.mock(Connector.class);
+        Mockito.when(connector.getMetadata(Mockito.any())).thenReturn(metadata);
+        ExternalDatabase db = Mockito.mock(ExternalDatabase.class);
+        Mockito.when(db.getRemoteName()).thenReturn("db1");
+        PluginDrivenExternalCatalog catalog = Mockito.mock(PluginDrivenExternalCatalog.class);
+        Mockito.when(catalog.getConnector()).thenReturn(connector);
+        Mockito.when(catalog.buildConnectorSession()).thenReturn(session);
+        PluginDrivenExternalTable table =
+                Mockito.mock(PluginDrivenExternalTable.class, Mockito.CALLS_REAL_METHODS);
+        Deencapsulation.setField(table, "catalog", catalog);
+        Deencapsulation.setField(table, "db", db);
+        Deencapsulation.setField(table, "remoteName", "t1");
+        Mockito.doReturn(false).when(table).isView();
+
+        Optional<SchemaCacheValue> result = table.initSchema();
+
+        Assertions.assertTrue(result.isPresent());
+        Assertions.assertEquals(1, result.get().getSchema().size());
+        Assertions.assertEquals("id", result.get().getSchema().get(0).getName());
+        Mockito.verify(metadata, Mockito.never())
+                .getViewDefinition(Mockito.any(), Mockito.anyString(), Mockito.anyString());
     }
 
     @Test

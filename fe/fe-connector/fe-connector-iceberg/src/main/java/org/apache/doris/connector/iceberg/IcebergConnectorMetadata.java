@@ -62,6 +62,9 @@ import org.apache.iceberg.exceptions.NoSuchTableException;
 import org.apache.iceberg.types.Type;
 import org.apache.iceberg.types.Types;
 import org.apache.iceberg.util.SnapshotUtil;
+import org.apache.iceberg.view.SQLViewRepresentation;
+import org.apache.iceberg.view.View;
+import org.apache.iceberg.view.ViewVersion;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -233,10 +236,40 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
     @Override
     public ConnectorViewDefinition getViewDefinition(ConnectorSession session, String dbName, String viewName) {
         // Mirror viewExists: wrap the remote load in the auth context and normalize EVERY failure into a
-        // RuntimeException (the seam's loadViewDefinition already fails loud on a non-view catalog / missing
-        // engine-name with a DorisConnectorException, which is a RuntimeException and surfaces as-is here).
+        // RuntimeException (the seam's loadView already fails loud on a non-view catalog with a
+        // DorisConnectorException, which is a RuntimeException and surfaces wrapped here). ONE remote load
+        // yields both the sql/dialect (mirroring legacy IcebergExternalTable.getViewText + getSqlDialect: the
+        // dialect is the view-version summary's "engine-name", the SQL is that dialect's representation) AND
+        // the columns (parseSchema(view.schema()), mirroring legacy IcebergUtils.loadViewSchemaCacheValue — a
+        // view has NO partition columns and NO row-lineage). The sql/dialect/column extraction lives HERE,
+        // not in the SDK-only seam, because parseSchema reads the enable.mapping.* flags that only exist in
+        // this layer's properties (mirrors the table path: seam loadTable -> metadata buildTableSchema).
         try {
-            return context.executeAuthenticated(() -> catalogOps.loadViewDefinition(dbName, viewName));
+            return context.executeAuthenticated(() -> {
+                View icebergView = catalogOps.loadView(dbName, viewName);
+                ViewVersion viewVersion = icebergView.currentVersion();
+                if (viewVersion == null) {
+                    throw new DorisConnectorException(
+                            String.format("Cannot get view version for view '%s'", icebergView));
+                }
+                Map<String, String> summary = viewVersion.summary();
+                if (summary == null) {
+                    throw new DorisConnectorException(String.format("Cannot get summary for view '%s'", icebergView));
+                }
+                // "engine-name" is the iceberg view-version summary key the writing engine (e.g. spark) records.
+                String engineName = summary.get("engine-name");
+                if (engineName == null || engineName.isEmpty()) {
+                    throw new DorisConnectorException(
+                            String.format("Cannot get engine-name for view '%s'", icebergView));
+                }
+                String dialect = engineName.toLowerCase(Locale.ROOT);
+                SQLViewRepresentation sqlViewRepresentation = icebergView.sqlFor(dialect);
+                if (sqlViewRepresentation == null) {
+                    throw new DorisConnectorException("Cannot get view text from iceberg view");
+                }
+                List<ConnectorColumn> columns = parseSchema(icebergView.schema());
+                return new ConnectorViewDefinition(sqlViewRepresentation.sql(), dialect, columns);
+            });
         } catch (Exception e) {
             throw new RuntimeException("Failed to load view definition, error message is: " + e.getMessage(), e);
         }

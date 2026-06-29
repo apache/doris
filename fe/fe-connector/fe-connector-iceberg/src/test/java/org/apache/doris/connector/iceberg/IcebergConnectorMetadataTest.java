@@ -31,7 +31,11 @@ import org.apache.iceberg.RowLevelOperationMode;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.SortOrder;
 import org.apache.iceberg.TableProperties;
+import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.types.Types;
+import org.apache.iceberg.view.ImmutableSQLViewRepresentation;
+import org.apache.iceberg.view.ImmutableViewVersion;
+import org.apache.iceberg.view.ViewVersion;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -79,6 +83,28 @@ public class IcebergConnectorMetadataTest {
         return new Schema(
                 Types.NestedField.required(1, "id", Types.IntegerType.get()),
                 Types.NestedField.optional(2, "name", Types.StringType.get()));
+    }
+
+    /**
+     * A view version whose summary records {@code engine-name} (when non-null) and whose current version
+     * carries a SQL representation for {@code reprDialect} (when non-null) — driving the sql/dialect extraction
+     * in {@code IcebergConnectorMetadata.getViewDefinition}. Mirrors the helper that used to live in the seam
+     * test (the extraction moved up post-H8).
+     */
+    private static ViewVersion viewVersionWith(String engineName, String reprDialect, String sql) {
+        ImmutableViewVersion.Builder builder = ImmutableViewVersion.builder()
+                .versionId(1)
+                .timestampMillis(0L)
+                .schemaId(0)
+                .defaultNamespace(Namespace.of("db1"));
+        if (engineName != null) {
+            builder.putSummary("engine-name", engineName);
+        }
+        if (reprDialect != null) {
+            builder.addRepresentations(ImmutableSQLViewRepresentation.builder()
+                    .sql(sql).dialect(reprDialect).build());
+        }
+        return builder.build();
     }
 
     // ---------------------------------------------------------------------
@@ -324,21 +350,58 @@ public class IcebergConnectorMetadataTest {
     }
 
     @Test
-    public void getViewDefinitionDelegatesToOpsInsideAuthContext() {
+    public void getViewDefinitionReturnsSqlDialectAndColumns() {
         RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
-        ops.viewDefinition = new ConnectorViewDefinition("SELECT 1", "spark");
+        Schema viewSchema = new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "name", Types.StringType.get()));
+        ops.view = new FakeIcebergViewCatalog.StubView(
+                viewVersionWith("Spark", "spark", "SELECT 1"), viewSchema);
 
         ConnectorViewDefinition def = metadataWith(ops).getViewDefinition(null, "db1", "v1");
 
-        // WHY: BindRelation (and SHOW CREATE) take the flipped view's body from here; it must surface exactly
-        // the seam's definition for the (db, view) pair, carrying the names verbatim. MUTATION: returning a
-        // different object / dropping delegation -> the view body is wrong / empty -> red.
+        // WHY (H8): ONE loadView yields the sql/dialect (BindRelation / SHOW CREATE) AND the column schema
+        // (DESC / SHOW COLUMNS / information_schema.columns). The dialect is the summary engine-name LOWERCASED;
+        // the sql is that dialect's representation; the columns are parseSchema(view.schema()). MUTATION:
+        // dropping toLowerCase / wrong representation / not parsing the view schema (empty columns) -> red.
         Assertions.assertEquals("SELECT 1", def.getSql());
         Assertions.assertEquals("spark", def.getDialect());
+        List<ConnectorColumn> cols = def.getColumns();
+        Assertions.assertEquals(2, cols.size(), "the view columns must come from parseSchema(view.schema())");
+        Assertions.assertEquals("id", cols.get(0).getName());
+        Assertions.assertEquals("name", cols.get(1).getName());
         Assertions.assertEquals("db1", ops.lastLoadViewDb);
         Assertions.assertEquals("v1", ops.lastLoadViewName);
-        Assertions.assertEquals(Collections.singletonList("loadViewDefinition:db1.v1"), ops.log,
-                "getViewDefinition must gate on exactly one loadViewDefinition() call carrying db/view verbatim");
+        Assertions.assertEquals(Collections.singletonList("loadView:db1.v1"), ops.log,
+                "getViewDefinition must do exactly one loadView() carrying db/view verbatim");
+    }
+
+    @Test
+    public void getViewDefinitionParsesColumnsHonoringMappingFlags() {
+        // WHY (H8): the view columns are built by the SAME parseSchema the table path uses, so the per-catalog
+        // enable.mapping.* flags — which live in THIS layer's properties, not the SDK-only seam — must thread
+        // into the view's column types and the WITH_TIMEZONE marker, exactly as for a table. This is the reason
+        // the column build lives in the metadata layer (not the seam). MUTATION: building columns in the seam
+        // (no flags) / not threading the flags -> STRING/DATETIMEV2 + no marker -> red.
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        Schema viewSchema = new Schema(
+                Types.NestedField.optional(1, "b", Types.BinaryType.get()),
+                Types.NestedField.optional(2, "ts_tz", Types.TimestampType.withZone()));
+        ops.view = new FakeIcebergViewCatalog.StubView(
+                viewVersionWith("spark", "spark", "SELECT 1"), viewSchema);
+        Map<String, String> props = new HashMap<>();
+        props.put("enable.mapping.varbinary", "true");
+        props.put("enable.mapping.timestamp_tz", "true");
+
+        List<ConnectorColumn> cols =
+                metadataWith(ops, props).getViewDefinition(null, "db1", "v1").getColumns();
+
+        Assertions.assertEquals("VARBINARY", cols.get(0).getType().getTypeName(),
+                "enable.mapping.varbinary=true must thread into the view's BINARY column");
+        Assertions.assertEquals("TIMESTAMPTZ", cols.get(1).getType().getTypeName(),
+                "enable.mapping.timestamp_tz=true must thread into the view's TIMESTAMP-with-zone column");
+        Assertions.assertTrue(cols.get(1).isWithTimeZone(),
+                "a with-zone timestamp view column must carry the WITH_TIMEZONE marker");
     }
 
     @Test
@@ -348,14 +411,48 @@ public class IcebergConnectorMetadataTest {
         // (normalized) failure and NEVER call the seam. MUTATION: hoisting the call outside the auth wrap ->
         // the seam is reached / no failure -> red.
         RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
-        ops.viewDefinition = new ConnectorViewDefinition("SELECT 1", "spark");
+        ops.view = new FakeIcebergViewCatalog.StubView(
+                viewVersionWith("spark", "spark", "SELECT 1"), idNameSchema());
         RecordingConnectorContext ctx = new RecordingConnectorContext();
         ctx.failAuth = true;
 
         Assertions.assertThrows(RuntimeException.class,
                 () -> metadataWith(ops, ctx).getViewDefinition(null, "db1", "v1"));
-        Assertions.assertFalse(ops.log.contains("loadViewDefinition:db1.v1"),
+        Assertions.assertFalse(ops.log.contains("loadView:db1.v1"),
                 "the seam must not be reached when the auth wrap throws");
+    }
+
+    @Test
+    public void getViewDefinitionThrowsWhenNoCurrentVersion() {
+        // WHY (moved from the seam test post-H8): a view with no current version is unusable; the metadata
+        // extraction must fail loud rather than NPE on summary(). MUTATION: dropping the null-version check.
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        ops.view = new FakeIcebergViewCatalog.StubView(null, idNameSchema());
+        Assertions.assertThrows(RuntimeException.class,
+                () -> metadataWith(ops).getViewDefinition(null, "db1", "v1"));
+    }
+
+    @Test
+    public void getViewDefinitionThrowsWhenEngineNameMissing() {
+        // WHY (moved from the seam test post-H8): the dialect IS the summary engine-name; without it the SQL
+        // representation cannot be selected. MUTATION: dropping the empty-engine-name check -> wrong behavior.
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        ops.view = new FakeIcebergViewCatalog.StubView(
+                viewVersionWith(null, "spark", "SELECT 1"), idNameSchema());
+        Assertions.assertThrows(RuntimeException.class,
+                () -> metadataWith(ops).getViewDefinition(null, "db1", "v1"));
+    }
+
+    @Test
+    public void getViewDefinitionThrowsWhenNoSqlForDialect() {
+        // WHY (moved from the seam test post-H8): engine-name present but no SQL representation for that dialect
+        // -> sqlFor returns null -> must fail loud (mirrors legacy "Cannot get view text"). MUTATION: dropping
+        // the null-sql check -> NPE.
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        ops.view = new FakeIcebergViewCatalog.StubView(
+                viewVersionWith("spark", null, null), idNameSchema());
+        Assertions.assertThrows(RuntimeException.class,
+                () -> metadataWith(ops).getViewDefinition(null, "db1", "v1"));
     }
 
     // ---------------------------------------------------------------------

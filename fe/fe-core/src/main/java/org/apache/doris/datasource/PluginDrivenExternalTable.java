@@ -235,6 +235,16 @@ public class PluginDrivenExternalTable extends ExternalTable {
 
         String dbName = db != null ? db.getRemoteName() : "";
         String tableName = getRemoteName();
+        if (isView()) {
+            // A connector view has no table handle (the SDK tableExists() is false for views); build the schema
+            // from the view definition's columns instead. Mirrors legacy IcebergUtils.loadViewSchemaCacheValue
+            // (icebergView.schema()). Gated on isView() => only view-supporting connectors (SUPPORTS_VIEW) reach
+            // here; view-less connectors (jdbc/paimon/maxcompute) keep isView()==false and skip this.
+            ConnectorViewDefinition viewDefinition = metadata.getViewDefinition(session, dbName, tableName);
+            ConnectorTableSchema viewSchema = new ConnectorTableSchema(
+                    tableName, viewDefinition.getColumns(), null, Collections.emptyMap());
+            return Optional.of(toSchemaCacheValue(metadata, session, dbName, tableName, viewSchema));
+        }
         Optional<ConnectorTableHandle> handleOpt = resolveConnectorTableHandle(session, metadata);
         if (!handleOpt.isPresent()) {
             LOG.warn("Table handle not found for plugin-driven table: {}.{}", dbName, tableName);

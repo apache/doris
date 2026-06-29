@@ -45,7 +45,7 @@ class FakeIcebergViewCatalog extends FakeIcebergCatalog implements ViewCatalog {
     /** namespace -> view names returned by listViews. */
     final Map<Namespace, List<String>> viewsByNs = new HashMap<>();
 
-    /** identifier -> View returned by loadView (for exercising loadViewDefinition). */
+    /** identifier -> View returned by loadView (for exercising the view read path). */
     final Map<TableIdentifier, View> loadableViews = new HashMap<>();
 
     @Override
@@ -86,16 +86,24 @@ class FakeIcebergViewCatalog extends FakeIcebergCatalog implements ViewCatalog {
     }
 
     /**
-     * A minimal {@link View} returning a single configurable {@code currentVersion} (which may be null);
-     * every other accessor fails loud. The {@code View.sqlFor(dialect)} default method resolves the SQL
-     * from {@code currentVersion().representations()}, so the version's representations + summary fully
-     * drive the loadViewDefinition extraction under test.
+     * A minimal {@link View} returning a single configurable {@code currentVersion} (which may be null) and an
+     * optional {@code schema}; every other accessor fails loud. The {@code View.sqlFor(dialect)} default method
+     * resolves the SQL from {@code currentVersion().representations()}, so the version's representations +
+     * summary drive the sql/dialect extraction, while {@code schema} drives the column extraction (both done in
+     * {@code IcebergConnectorMetadata.getViewDefinition}). A null {@code schema} still fails loud on
+     * {@link #schema()}, matching the seam tests that never read it.
      */
     static final class StubView implements View {
         private final ViewVersion currentVersion;
+        private final Schema schema;
 
         StubView(ViewVersion currentVersion) {
+            this(currentVersion, null);
+        }
+
+        StubView(ViewVersion currentVersion, Schema schema) {
             this.currentVersion = currentVersion;
+            this.schema = schema;
         }
 
         @Override
@@ -110,7 +118,7 @@ class FakeIcebergViewCatalog extends FakeIcebergCatalog implements ViewCatalog {
 
         // The View interface's default sqlFor() throws ("Resolving a sql with a given dialect is not
         // supported"); the real resolution lives in BaseView. Replicate the core resolution (exact-dialect
-        // match over the current version's SQL representations) so loadViewDefinition's sqlFor call behaves
+        // match over the current version's SQL representations) so the metadata layer's sqlFor call behaves
         // like a real iceberg View.
         @Override
         public SQLViewRepresentation sqlFor(String dialect) {
@@ -128,7 +136,10 @@ class FakeIcebergViewCatalog extends FakeIcebergCatalog implements ViewCatalog {
 
         @Override
         public Schema schema() {
-            throw new UnsupportedOperationException();
+            if (schema == null) {
+                throw new UnsupportedOperationException();
+            }
+            return schema;
         }
 
         @Override

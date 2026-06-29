@@ -17,7 +17,6 @@
 
 package org.apache.doris.connector.iceberg;
 
-import org.apache.doris.connector.api.ConnectorViewDefinition;
 import org.apache.doris.connector.api.ddl.BranchChange;
 import org.apache.doris.connector.api.ddl.ConnectorColumnPosition;
 import org.apache.doris.connector.api.ddl.DropRefChange;
@@ -29,6 +28,7 @@ import org.apache.iceberg.Schema;
 import org.apache.iceberg.SortOrder;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.exceptions.NoSuchTableException;
+import org.apache.iceberg.view.View;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -61,9 +61,9 @@ final class RecordingIcebergCatalogOps implements IcebergCatalogOps {
     boolean tableExists;
     /** Canned existence answer for {@link #viewExists(String, String)}. */
     boolean viewExists;
-    /** Canned definition returned by {@link #loadViewDefinition(String, String)}. */
-    ConnectorViewDefinition viewDefinition;
-    /** The (dbName, viewName) the metadata layer passed to the most recent {@link #loadViewDefinition}. */
+    /** Canned SDK view returned by {@link #loadView(String, String)}. */
+    View view;
+    /** The (dbName, viewName) the metadata layer passed to the most recent {@link #loadView}. */
     String lastLoadViewDb;
     String lastLoadViewName;
     /** The (dbName, viewName) the metadata layer passed to the most recent {@link #dropView}. */
@@ -168,11 +168,11 @@ final class RecordingIcebergCatalogOps implements IcebergCatalogOps {
     }
 
     @Override
-    public ConnectorViewDefinition loadViewDefinition(String dbName, String viewName) {
-        log.add("loadViewDefinition:" + dbName + "." + viewName);
+    public View loadView(String dbName, String viewName) {
+        log.add("loadView:" + dbName + "." + viewName);
         lastLoadViewDb = dbName;
         lastLoadViewName = viewName;
-        return viewDefinition;
+        return view;
     }
 
     @Override

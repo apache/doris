@@ -17,16 +17,13 @@
 
 package org.apache.doris.connector.iceberg;
 
-import org.apache.doris.connector.api.ConnectorViewDefinition;
 import org.apache.doris.connector.api.DorisConnectorException;
 import org.apache.doris.connector.iceberg.IcebergCatalogOps.CatalogBackedIcebergCatalogOps;
 
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
-import org.apache.iceberg.view.ImmutableSQLViewRepresentation;
-import org.apache.iceberg.view.ImmutableViewVersion;
-import org.apache.iceberg.view.ViewVersion;
+import org.apache.iceberg.view.View;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -248,97 +245,48 @@ public class CatalogBackedIcebergCatalogOpsTest {
     }
 
     // ---------------------------------------------------------------------
-    // loadViewDefinition — one remote load -> {sql, dialect} (B1 view query)
+    // loadView — SDK-only delegation: returns the iceberg View, gated like the other view ops.
+    // (Post-H8 the sql/dialect/column extraction moved up to IcebergConnectorMetadata, which holds the
+    //  type-mapping flags; the negative extraction cases now live in IcebergConnectorMetadataTest.)
     // ---------------------------------------------------------------------
 
-    /** A view version whose summary records {@code engine-name} and whose representation carries the SQL. */
-    private static ViewVersion versionWith(String engineName, String reprDialect, String sql) {
-        ImmutableViewVersion.Builder builder = ImmutableViewVersion.builder()
-                .versionId(1)
-                .timestampMillis(0L)
-                .schemaId(0)
-                .defaultNamespace(Namespace.of("db1"));
-        if (engineName != null) {
-            builder.putSummary("engine-name", engineName);
-        }
-        if (reprDialect != null) {
-            builder.addRepresentations(ImmutableSQLViewRepresentation.builder()
-                    .sql(sql).dialect(reprDialect).build());
-        }
-        return builder.build();
-    }
-
-    private static void putView(FakeIcebergViewCatalog catalog, ViewVersion version) {
-        catalog.loadableViews.put(TableIdentifier.of(Namespace.of("db1"), "v1"),
-                new FakeIcebergViewCatalog.StubView(version));
-    }
-
     @Test
-    public void loadViewDefinitionReturnsSqlAndLowercasedDialect() {
-        // WHY: the flipped view's body is taken from here. The dialect is the summary's engine-name LOWERCASED
-        // (the legacy contract: sqlFor(engine.toLowerCase())), and the SQL is that dialect's representation.
-        // MUTATION: dropping toLowerCase / returning the wrong representation's sql / swapping fields -> red.
+    public void loadViewReturnsSdkViewByIdentifier() {
+        // WHY (post-H8): the seam is SDK-only — loadView returns the catalog's iceberg View for the (db, view)
+        // identifier, mirroring loadTable. The sql/dialect/column extraction lives in
+        // IcebergConnectorMetadata.getViewDefinition (which holds the type-mapping flags this SDK-only seam does
+        // not). MUTATION: returning a different/null view, or building from the wrong identifier -> red.
         FakeIcebergViewCatalog catalog = new FakeIcebergViewCatalog();
-        putView(catalog, versionWith("Spark", "spark", "SELECT 1"));
+        FakeIcebergViewCatalog.StubView view = new FakeIcebergViewCatalog.StubView(null);
+        catalog.loadableViews.put(TableIdentifier.of(Namespace.of("db1"), "v1"), view);
 
-        ConnectorViewDefinition def =
-                ops(catalog, true, false, true, Optional.empty()).loadViewDefinition("db1", "v1");
+        View loaded = ops(catalog, true, false, true, Optional.empty()).loadView("db1", "v1");
 
-        Assertions.assertEquals("SELECT 1", def.getSql());
-        Assertions.assertEquals("spark", def.getDialect());
+        Assertions.assertSame(view, loaded, "the seam must return the catalog's SDK View unchanged");
         Assertions.assertTrue(catalog.log.contains("loadView:db1.v1"),
                 "the seam must load the view by its (db, view) identifier");
     }
 
     @Test
-    public void loadViewDefinitionThrowsWhenNotViewCatalog() {
-        // WHY: a plain Catalog has no views; loadViewDefinition must fail loud (gate before any cast).
+    public void loadViewThrowsWhenNotViewCatalog() {
+        // WHY: a plain Catalog has no views; loadView must fail loud (gate before any cast).
         // MUTATION: dropping the isViewCatalogEnabled gate -> ClassCastException instead of the clear error.
         FakeIcebergCatalog plain = new FakeIcebergCatalog();
         Assertions.assertThrows(DorisConnectorException.class,
-                () -> ops(plain, true, false, true, Optional.empty()).loadViewDefinition("db1", "v1"));
+                () -> ops(plain, true, false, true, Optional.empty()).loadView("db1", "v1"));
     }
 
     @Test
-    public void loadViewDefinitionThrowsWhenRestViewDisabled() {
+    public void loadViewThrowsWhenRestViewDisabled() {
         // WHY: even a ViewCatalog reports no views when iceberg.rest.view-enabled=false; loadView must NOT be
         // called. MUTATION: ignoring the view-enabled flag -> loadView reached -> the gate's purpose is lost.
         FakeIcebergViewCatalog catalog = new FakeIcebergViewCatalog();
-        putView(catalog, versionWith("spark", "spark", "SELECT 1"));
+        catalog.loadableViews.put(TableIdentifier.of(Namespace.of("db1"), "v1"),
+                new FakeIcebergViewCatalog.StubView(null));
         Assertions.assertThrows(DorisConnectorException.class,
-                () -> ops(catalog, true, false, false, Optional.empty()).loadViewDefinition("db1", "v1"));
+                () -> ops(catalog, true, false, false, Optional.empty()).loadView("db1", "v1"));
         Assertions.assertFalse(catalog.log.contains("loadView:db1.v1"),
                 "loadView must not be called when view support is disabled");
-    }
-
-    @Test
-    public void loadViewDefinitionThrowsWhenNoCurrentVersion() {
-        // WHY: defensive parity with legacy getViewText (a view with no current version is unusable).
-        // MUTATION: dropping the null-version check -> NPE on summary() instead of the clear error.
-        FakeIcebergViewCatalog catalog = new FakeIcebergViewCatalog();
-        putView(catalog, null);
-        Assertions.assertThrows(DorisConnectorException.class,
-                () -> ops(catalog, true, false, true, Optional.empty()).loadViewDefinition("db1", "v1"));
-    }
-
-    @Test
-    public void loadViewDefinitionThrowsWhenEngineNameMissing() {
-        // WHY: the dialect IS the summary's engine-name; without it the SQL representation cannot be selected.
-        // MUTATION: dropping the empty-engine-name check -> sqlFor(empty) / wrong behavior instead of error.
-        FakeIcebergViewCatalog catalog = new FakeIcebergViewCatalog();
-        putView(catalog, versionWith(null, "spark", "SELECT 1"));
-        Assertions.assertThrows(DorisConnectorException.class,
-                () -> ops(catalog, true, false, true, Optional.empty()).loadViewDefinition("db1", "v1"));
-    }
-
-    @Test
-    public void loadViewDefinitionThrowsWhenNoSqlForDialect() {
-        // WHY: engine-name present but no SQL representation for that dialect -> sqlFor returns null -> must
-        // fail loud (mirrors legacy "Cannot get view text"). MUTATION: dropping the null-sql check -> NPE.
-        FakeIcebergViewCatalog catalog = new FakeIcebergViewCatalog();
-        putView(catalog, versionWith("spark", null, null));
-        Assertions.assertThrows(DorisConnectorException.class,
-                () -> ops(catalog, true, false, true, Optional.empty()).loadViewDefinition("db1", "v1"));
     }
 
     // ---------------------------------------------------------------------

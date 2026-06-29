@@ -17,22 +17,31 @@
 
 package org.apache.doris.connector.api;
 
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 import java.util.Objects;
 
 /**
- * The neutral definition of a connector view: its stored SQL text and the SQL dialect that text is
- * written in. Returned by {@code ConnectorTableOps.getViewDefinition} so fe-core can parse and analyze
- * an external view (e.g. iceberg) without knowing the connector's native view types. Trino-aligned
- * ({@code ConnectorViewDefinition} carries the SQL + dialect as first-class fields).
+ * The neutral definition of a connector view: its stored SQL text, the SQL dialect that text is
+ * written in, and the view's column schema. Returned by {@code ConnectorTableOps.getViewDefinition} so
+ * fe-core can parse and analyze an external view (e.g. iceberg) AND surface its columns
+ * (DESC / SHOW COLUMNS / information_schema.columns) without knowing the connector's native view types.
+ * Trino-aligned ({@code ConnectorViewDefinition} carries the SQL + dialect + columns as first-class
+ * fields).
  */
 public final class ConnectorViewDefinition {
 
     private final String sql;
     private final String dialect;
+    private final List<ConnectorColumn> columns;
 
-    public ConnectorViewDefinition(String sql, String dialect) {
+    public ConnectorViewDefinition(String sql, String dialect, List<ConnectorColumn> columns) {
         this.sql = Objects.requireNonNull(sql, "sql");
         this.dialect = Objects.requireNonNull(dialect, "dialect");
+        this.columns = columns == null
+                ? Collections.emptyList()
+                : Collections.unmodifiableList(new ArrayList<>(columns));
     }
 
     /** The stored view SQL text. */
@@ -45,6 +54,11 @@ public final class ConnectorViewDefinition {
         return dialect;
     }
 
+    /** The view's column schema (an empty list when the connector did not carry columns). */
+    public List<ConnectorColumn> getColumns() {
+        return columns;
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) {
@@ -55,16 +69,17 @@ public final class ConnectorViewDefinition {
         }
         ConnectorViewDefinition that = (ConnectorViewDefinition) o;
         return sql.equals(that.sql)
-                && dialect.equals(that.dialect);
+                && dialect.equals(that.dialect)
+                && columns.equals(that.columns);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(sql, dialect);
+        return Objects.hash(sql, dialect, columns);
     }
 
     @Override
     public String toString() {
-        return "ConnectorViewDefinition{dialect='" + dialect + "'}";
+        return "ConnectorViewDefinition{dialect='" + dialect + "', columnCount=" + columns.size() + "}";
     }
 }
