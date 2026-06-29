@@ -28,13 +28,15 @@ public class MTMVAnalyzeQueryInfo {
     private MTMVRelation relation;
     private MTMVPartitionInfo mvPartitionInfo;
     private List<ColumnDefinition> columnDefinitions;
+    private List<String> keys;
     private Map<String, String> properties;
     // set when IVM normalization is enabled; carries normalizedPlan + aggMeta
     private IvmNormalizeResult ivmNormalizeResult;
 
-    public MTMVAnalyzeQueryInfo(List<ColumnDefinition> columnDefinitions, MTMVPartitionInfo mvPartitionInfo,
-            MTMVRelation relation, Map<String, String> properties) {
+    public MTMVAnalyzeQueryInfo(List<ColumnDefinition> columnDefinitions, List<String> keys,
+            MTMVPartitionInfo mvPartitionInfo, MTMVRelation relation, Map<String, String> properties) {
         this.columnDefinitions = columnDefinitions;
+        this.keys = keys;
         this.mvPartitionInfo = mvPartitionInfo;
         this.relation = relation;
         this.properties = properties;
@@ -42,6 +44,10 @@ public class MTMVAnalyzeQueryInfo {
 
     public List<ColumnDefinition> getColumnDefinitions() {
         return columnDefinitions;
+    }
+
+    public List<String> getKeys() {
+        return keys;
     }
 
     public MTMVPartitionInfo getMvPartitionInfo() {

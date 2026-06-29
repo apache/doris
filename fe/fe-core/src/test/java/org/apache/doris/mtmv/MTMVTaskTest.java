@@ -463,7 +463,7 @@ public class MTMVTaskTest {
             IvmNormalizeResult normalizeResult = new IvmNormalizeResult();
             normalizeResult.setPlanSignature(currentSignature);
             MTMVAnalyzeQueryInfo queryInfo = new MTMVAnalyzeQueryInfo(
-                    Collections.emptyList(), null, null, Collections.emptyMap());
+                    Collections.emptyList(), Collections.emptyList(), null, null, Collections.emptyMap());
             queryInfo.setIvmNormalizeResult(normalizeResult);
             ConnectContext connectContext = new ConnectContext();
             MTMVTask task = new MTMVTask(mtmv, relation, new MTMVTaskContext(MTMVTaskTriggerMode.MANUAL));
