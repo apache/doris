@@ -410,7 +410,7 @@ public class IvmRefreshManagerTest {
 
     private static MTMVAnalyzeQueryInfo newQueryInfo(IvmPlanSignature signature) {
         MTMVAnalyzeQueryInfo queryInfo = new MTMVAnalyzeQueryInfo(
-                Collections.emptyList(), null, null, Collections.emptyMap());
+                Collections.emptyList(), Collections.emptyList(), null, null, Collections.emptyMap());
         IvmNormalizeResult normalizeResult = new IvmNormalizeResult();
         normalizeResult.setPlanSignature(signature);
         queryInfo.setIvmNormalizeResult(normalizeResult);
