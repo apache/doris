@@ -2088,7 +2088,8 @@ public abstract class RoutineLoadJob
                     jobProperties.remove(CreateRoutineLoadInfo.MAX_BATCH_SIZE_PROPERTY));
         }
 
-        boolean hasExplicitUniqueKeyUpdateMode = jobProperties.containsKey(CreateRoutineLoadInfo.UNIQUE_KEY_UPDATE_MODE);
+        boolean hasExplicitUniqueKeyUpdateMode = jobProperties.containsKey(
+                CreateRoutineLoadInfo.UNIQUE_KEY_UPDATE_MODE);
         if (hasExplicitUniqueKeyUpdateMode) {
             String modeStr = jobProperties.remove(CreateRoutineLoadInfo.UNIQUE_KEY_UPDATE_MODE);
             TUniqueKeyUpdateMode newMode = CreateRoutineLoadInfo.parseAndValidateUniqueKeyUpdateMode(modeStr);
