@@ -840,6 +840,18 @@ public abstract class S3CompatibleFileSystem extends ObjFileSystem {
         return ObjectStorageGlob.longestNonGlobPrefix(globPattern);
     }
 
+    protected static List<String> expandedGlobListPrefixes(String globPattern) {
+        return ObjectStorageGlob.expandedGlobListPrefixes(globPattern);
+    }
+
+    protected String globListPrefix(String globPattern) {
+        return longestNonGlobPrefix(globPattern);
+    }
+
+    protected List<String> globListPrefixes(String globPattern, String listPrefix) {
+        return expandedGlobListPrefixes(globPattern);
+    }
+
     /**
      * Expands {@code {N..M}} numeric range syntax in a glob pattern to the equivalent
      * comma-separated alternation {@code {N,N+1,...,M}} that Java's PathMatcher understands.
@@ -875,7 +887,8 @@ public abstract class S3CompatibleFileSystem extends ObjFileSystem {
         // separator is '\' which would corrupt object storage keys, and (b) Paths.get rejects keys
         // containing characters illegal in the host OS path syntax (':', '\', etc.).
         Pattern matcher = Pattern.compile(globToRegex(expandedKeyPattern));
-        String listPrefix = longestNonGlobPrefix(expandedKeyPattern);
+        String listPrefix = globListPrefix(expandedKeyPattern);
+        List<String> listPrefixes = globListPrefixes(expandedKeyPattern, listPrefix);
 
         List<FileEntry> files = new ArrayList<>();
         long totalSize = 0L;
@@ -885,51 +898,56 @@ public abstract class S3CompatibleFileSystem extends ObjFileSystem {
         String nextMatchAfterLimit = "";
         String lastMatchedKey = "";
         boolean isTruncated;
-        String continuationToken = null;
-        String listUri = base + listPrefix;
 
         try {
-            do {
-                RemoteObjects response = objStorage.listObjectsWithOptions(listUri, ObjectListOptions.builder()
-                        .continuationToken(continuationToken)
-                        .startAfter(continuationToken == null ? startAfter : null)
-                        .build());
-                for (RemoteObject obj : response.getObjectList()) {
-                    if (reachLimit) {
-                        // After hitting limit: find the first matching key so callers know more data exists.
-                        if (nextMatchAfterLimit.isEmpty()
-                                && matcher.matcher(obj.getKey()).matches()) {
-                            nextMatchAfterLimit = obj.getKey();
+            for (String currentListPrefix : listPrefixes) {
+                String continuationToken = null;
+                String listUri = base + currentListPrefix;
+                do {
+                    RemoteObjects response = objStorage.listObjectsWithOptions(listUri, ObjectListOptions.builder()
+                            .continuationToken(continuationToken)
+                            .startAfter(continuationToken == null ? startAfter : null)
+                            .build());
+                    for (RemoteObject obj : response.getObjectList()) {
+                        if (reachLimit) {
+                            // After hitting limit: find the first matching key so callers know more data exists.
+                            if (nextMatchAfterLimit.isEmpty()
+                                    && matcher.matcher(obj.getKey()).matches()) {
+                                nextMatchAfterLimit = obj.getKey();
+                            }
+                            continue;
                         }
-                        continue;
+
+                        if (!matcher.matcher(obj.getKey()).matches()) {
+                            continue;
+                        }
+
+                        files.add(new FileEntry(
+                                Location.of(base + obj.getKey()),
+                                obj.getSize(),
+                                false,
+                                obj.getModificationTime(),
+                                null));
+                        totalSize += obj.getSize();
+                        lastMatchedKey = obj.getKey();
+
+                        if ((maxFiles > 0 && files.size() >= maxFiles)
+                                || (maxBytes > 0 && totalSize >= maxBytes)) {
+                            reachLimit = true;
+                        }
                     }
 
-                    if (!matcher.matcher(obj.getKey()).matches()) {
-                        continue;
+                    isTruncated = response.isTruncated();
+                    if (isTruncated) {
+                        continuationToken = response.getContinuationToken();
                     }
-
-                    files.add(new FileEntry(
-                            Location.of(base + obj.getKey()),
-                            obj.getSize(),
-                            false,
-                            obj.getModificationTime(),
-                            null));
-                    totalSize += obj.getSize();
-                    lastMatchedKey = obj.getKey();
-
-                    if ((maxFiles > 0 && files.size() >= maxFiles)
-                            || (maxBytes > 0 && totalSize >= maxBytes)) {
-                        reachLimit = true;
-                    }
+                    // Continue paginating after limit until we find the next matching key,
+                    // so callers can use it as a pagination cursor.
+                } while (isTruncated && (!reachLimit || nextMatchAfterLimit.isEmpty()));
+                if (reachLimit && !nextMatchAfterLimit.isEmpty()) {
+                    break;
                 }
-
-                isTruncated = response.isTruncated();
-                if (isTruncated) {
-                    continuationToken = response.getContinuationToken();
-                }
-                // Continue paginating after limit until we find the next matching key,
-                // so callers can use it as a pagination cursor.
-            } while (isTruncated && (!reachLimit || nextMatchAfterLimit.isEmpty()));
+            }
         } catch (Exception e) {
             throw new IOException("Failed to list object storage objects at " + uri + ": " + e.getMessage(), e);
         }

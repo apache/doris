@@ -362,7 +362,7 @@ public final class ObjectStorageGlob {
                         values.add(formatRangeValue(value, width, zeroPad));
                     }
                 } else {
-                    values.add(seg.trim());
+                    values.add(seg);
                     if (values.size() > MAX_EXPANDED_GLOB_LIST_PREFIXES) {
                         canExpand = false;
                         break;

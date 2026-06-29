@@ -35,6 +35,7 @@ import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.nio.file.FileAlreadyExistsException;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Unit tests for {@link S3FileSystem} using a mock {@link S3ObjStorage}.
@@ -759,6 +760,37 @@ class S3FileSystemTest {
                 listing.getFiles().get(1).location().uri());
         Mockito.verify(mockStorage).listObjects(
                 ArgumentMatchers.eq("s3://bucket/date="), ArgumentMatchers.any());
+    }
+
+    @Test
+    void globListWithLimit_usesSlashTerminatedPrefixForDirectoryBucket()
+            throws IOException {
+        S3FileSystemProperties properties = S3FileSystemProperties.of(Map.of(
+                S3FileSystemProperties.ENDPOINT,
+                "https://s3express-control.us-west-2.amazonaws.com"));
+        S3FileSystem directoryBucketFs = new S3FileSystem(properties, mockStorage);
+        Mockito.when(mockStorage.listObjects(
+                        ArgumentMatchers.eq("s3://bucket/data/"),
+                        ArgumentMatchers.any()))
+                .thenReturn(new RemoteObjects(
+                        List.of(
+                                new RemoteObject("data/file1.csv",
+                                        "file1.csv", null, 10L, 0L),
+                                new RemoteObject("data/file10.csv",
+                                        "file10.csv", null, 20L, 0L)),
+                        false, null));
+
+        GlobListing listing = directoryBucketFs.globListWithLimit(
+                Location.of("s3://bucket/data/file?.csv"), null, 0L, 0L);
+
+        Assertions.assertEquals("data/", listing.getPrefix());
+        Assertions.assertEquals(1, listing.getFiles().size());
+        Assertions.assertEquals("s3://bucket/data/file1.csv",
+                listing.getFiles().get(0).location().uri());
+        Mockito.verify(mockStorage).listObjects(
+                ArgumentMatchers.eq("s3://bucket/data/"), ArgumentMatchers.any());
+        Mockito.verify(mockStorage, Mockito.never()).listObjects(
+                ArgumentMatchers.eq("s3://bucket/data/file"), ArgumentMatchers.any());
     }
 
     // ------------------------------------------------------------------

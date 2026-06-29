@@ -46,6 +46,12 @@ class ObjectStorageGlobTest {
     }
 
     @Test
+    void expandNumericRanges_preservesLiteralSpacesInMixedBraceArms() {
+        Assertions.assertEquals("data/{ x,1,2}/*.csv",
+                ObjectStorageGlob.expandNumericRanges("data/{ x,1..2}/*.csv"));
+    }
+
+    @Test
     void expandedGlobListPrefixes_fallsBackForUnexpandedNumericRanges() {
         Assertions.assertEquals(List.of("date="),
                 ObjectStorageGlob.expandedGlobListPrefixes("date={1..10000000}/*"));
@@ -60,6 +66,16 @@ class ObjectStorageGlobTest {
         Assertions.assertFalse(matcher.matcher("date=0/file.csv").matches());
         Assertions.assertFalse(matcher.matcher("date=10000001/file.csv").matches());
         Assertions.assertFalse(matcher.matcher("date=0001/file.csv").matches());
+    }
+
+    @Test
+    void globToRegex_preservesLiteralSpacesInMixedBraceArms() {
+        Pattern matcher = Pattern.compile(ObjectStorageGlob.globToRegex(
+                ObjectStorageGlob.expandNumericRanges("data/{ x,1..2}/*.csv")));
+
+        Assertions.assertTrue(matcher.matcher("data/ x/file.csv").matches());
+        Assertions.assertTrue(matcher.matcher("data/1/file.csv").matches());
+        Assertions.assertFalse(matcher.matcher("data/x/file.csv").matches());
     }
 
     @Test
