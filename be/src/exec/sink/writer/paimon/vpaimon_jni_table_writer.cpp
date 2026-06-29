@@ -112,6 +112,7 @@ Status VPaimonJniTableWriter::open(RuntimeState* state, RuntimeProfile* profile)
     _close_timer = ADD_TIMER(_profile, "CloseTime");
     _prepare_commit_timer = ADD_TIMER(_profile, "PrepareCommitTime");
     _serialize_commit_messages_timer = ADD_TIMER(_profile, "SerializeCommitMessagesTime");
+    _commit_payload_count = ADD_COUNTER(_profile, "CommitPayloadCount", TUnit::UNIT);
     _commit_payload_bytes_counter = ADD_COUNTER(_profile, "CommitPayloadBytes", TUnit::BYTES);
     _buffer_flush_count = ADD_COUNTER(_profile, "BufferFlushCount", TUnit::UNIT);
 
@@ -397,6 +398,7 @@ Status VPaimonJniTableWriter::close(Status status) {
             auto* j_payloads = (jobjectArray)j_payloads_obj;
             jsize num_payloads = env->GetArrayLength(j_payloads);
 
+            COUNTER_UPDATE(_commit_payload_count, num_payloads);
             pending_commit_messages.reserve(static_cast<size_t>(num_payloads));
             {
                 SCOPED_TIMER(_serialize_commit_messages_timer);
@@ -408,6 +410,7 @@ Status VPaimonJniTableWriter::close(Status status) {
                     }
                     jsize len = env->GetArrayLength(j_bytes);
                     if (len > 0) {
+                        COUNTER_UPDATE(_commit_payload_bytes_counter, len);
                         jbyte* bytes = env->GetByteArrayElements(j_bytes, nullptr);
                         if (bytes != nullptr) {
                             std::string payload(reinterpret_cast<char*>(bytes),

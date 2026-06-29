@@ -78,6 +78,7 @@ private:
     RuntimeProfile::Counter* _close_timer = nullptr;
     RuntimeProfile::Counter* _prepare_commit_timer = nullptr;
     RuntimeProfile::Counter* _serialize_commit_messages_timer = nullptr;
+    RuntimeProfile::Counter* _commit_payload_count = nullptr;
     RuntimeProfile::Counter* _commit_payload_bytes_counter = nullptr;
     RuntimeProfile::Counter* _buffer_flush_count = nullptr;
 
