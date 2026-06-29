@@ -125,8 +125,8 @@ Status parse_uuid_to_bytes(StringRef uuid, std::array<uint8_t, 16>* bytes) {
 }
 
 Status write_iceberg_uuid_string_column_to_arrow(const IColumn& column, const DataTypePtr& type,
-                                                 arrow::ArrayBuilder* array_builder,
-                                                 int64_t start, int64_t end) {
+                                                 arrow::ArrayBuilder* array_builder, int64_t start,
+                                                 int64_t end) {
     if (array_builder->type()->id() != arrow::Type::FIXED_SIZE_BINARY) {
         return Status::InvalidArgument("Iceberg UUID must be written to fixed size binary");
     }
@@ -145,8 +145,9 @@ Status write_iceberg_uuid_string_column_to_arrow(const IColumn& column, const Da
         null_map = &nullable_column.get_null_map_data();
     }
     if (!data_column->is_column_string()) {
-        return Status::InvalidArgument("Iceberg UUID string conversion expects string column, got {}",
-                                       data_column->get_name());
+        return Status::InvalidArgument(
+                "Iceberg UUID string conversion expects string column, got {}",
+                data_column->get_name());
     }
 
     const auto& string_column = assert_cast<const ColumnString&>(*data_column);

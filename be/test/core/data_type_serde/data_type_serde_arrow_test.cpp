@@ -531,8 +531,8 @@ TEST(DataTypeSerDeArrowTest, IcebergUuidStringToFixedSizeBinary) {
     block->insert(ColumnWithTypeAndName(strcol->get_ptr(), data_type, "uuid_col"));
 
     auto metadata = arrow::KeyValueMetadata::Make({"originalType"}, {"uuid"});
-    auto schema = arrow::schema(
-            {arrow::field("uuid_col", arrow::fixed_size_binary(16), true, metadata)});
+    auto schema =
+            arrow::schema({arrow::field("uuid_col", arrow::fixed_size_binary(16), true, metadata)});
 
     std::shared_ptr<arrow::RecordBatch> record_batch;
     cctz::time_zone default_timezone;
@@ -542,7 +542,8 @@ TEST(DataTypeSerDeArrowTest, IcebergUuidStringToFixedSizeBinary) {
     ASSERT_NE(nullptr, record_batch);
     ASSERT_EQ(2, record_batch->num_rows());
 
-    auto uuid_array = std::static_pointer_cast<arrow::FixedSizeBinaryArray>(record_batch->column(0));
+    auto uuid_array =
+            std::static_pointer_cast<arrow::FixedSizeBinaryArray>(record_batch->column(0));
     ASSERT_EQ(16, uuid_array->byte_width());
 
     const uint8_t expected0[] = {0x55, 0x0e, 0x84, 0x00, 0xe2, 0x9b, 0x41, 0xd4,
