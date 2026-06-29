@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.NullToNonNullFunction;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
@@ -141,15 +142,17 @@ public class PushDownAggregation extends DefaultPlanRewriter<JobContext> impleme
                     if (aggFunction.containsVolatileExpression()) {
                         return agg;
                     }
-                    // NullToNonNullFunction: expressions that can convert NULL input to non-NULL output
-                    // (e.g. COALESCE, NVL, IF, CASE WHEN, NULL_OR_EMPTY, NOT_NULL_OR_EMPTY).
+                    // NullToNonNullFunction / AlwaysNotNullable: expressions that can convert NULL
+                    // input to non-NULL output (e.g. COALESCE, NVL, IF, CASE WHEN, Array).
                     // When an agg function contains such an expression wrapping a column from the
                     // nullable side of an outer join, null-extended rows would produce non-NULL values
                     // that get counted by the aggregation. But the pre-aggregation on the base table
                     // cannot see null-extended rows (they are produced by the join), so the push-down
                     // would lose those contributions — producing wrong results.
                     if (!containsNullToNonNull
-                            && aggFunction.anyMatch(e -> e instanceof NullToNonNullFunction)) {
+                            && aggFunction.anyMatch(e -> e instanceof NullToNonNullFunction
+                                    || (e instanceof AlwaysNotNullable
+                                            && !((Expression) e).getInputSlots().isEmpty()))) {
                         containsNullToNonNull = true;
                     }
                     if (aggFunction.arity() > 0 && aggFunction.child(0) instanceof If

@@ -29,6 +29,7 @@ import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.Multiply;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.NullToNonNullFunction;
+import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
@@ -389,7 +390,9 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
         boolean newContainsNullToNonNull = context.containsNullToNonNull;
         if (!newContainsNullToNonNull) {
             for (AggregateFunction aggFunc : aggFunctions) {
-                if (aggFunc.anyMatch(e -> e instanceof NullToNonNullFunction)) {
+                if (aggFunc.anyMatch(e -> e instanceof NullToNonNullFunction
+                        || (e instanceof AlwaysNotNullable
+                                && !((Expression) e).getInputSlots().isEmpty()))) {
                     newContainsNullToNonNull = true;
                     break;
                 }
