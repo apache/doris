@@ -114,7 +114,7 @@ public:
     std::string debug_string();
 
     void remove_filter(int32_t filter_id) {
-        std::lock_guard<std::mutex> l(_lock);
+        LockGuard l(_lock);
         _consumer_map.erase(filter_id);
         // NOTE: _local_merge_map is NOT erased here.  It is replaced lazily in
         // register_local_merge_producer_filter when a producer from a newer
@@ -140,16 +140,21 @@ private:
     // RuntimeFilterMgr is owned by RuntimeState, so we only
     // use filter_id as key
     // key: "filter-id"
-    std::map<int32_t, std::vector<std::shared_ptr<RuntimeFilterConsumer>>> _consumer_map;
-    std::set<int32_t> _producer_id_set;
-    std::map<int32_t, std::shared_ptr<LocalMergeContext>> _local_merge_map;
+    // Protects fields marked GUARDED_BY(_lock). While holding this lock, only
+    // access RuntimeFilterMgr-owned state or copy shared_ptr snapshots; do not
+    // call methods on existing RuntimeFilter objects, because RF objects have
+    // their own locks and may call back into RuntimeFilterMgr.
+    AnnotatedMutex _lock;
+    std::map<int32_t, std::vector<std::shared_ptr<RuntimeFilterConsumer>>> _consumer_map
+            GUARDED_BY(_lock);
+    std::set<int32_t> _producer_id_set GUARDED_BY(_lock);
+    std::map<int32_t, std::shared_ptr<LocalMergeContext>> _local_merge_map GUARDED_BY(_lock);
 
     std::unique_ptr<MemTracker> _tracker;
 
     TNetworkAddress _merge_addr;
 
     bool _has_merge_addr = false;
-    std::mutex _lock;
 };
 
 // controller -> <query-id, entity>

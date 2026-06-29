@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <algorithm>
+
 #include "exec/runtime_filter/runtime_filter.h"
 #include "exec/runtime_filter/runtime_filter_definitions.h"
 #include "exprs/vexpr.h"
@@ -75,14 +77,17 @@ public:
         return st;
     }
 
-    void set_expected_producer_num(int num) {
+    // Only raise the expected producer count. RuntimeFilterMgr may compute the
+    // count under its own lock and apply it after releasing that lock, so
+    // concurrent registrations can update the merger out of order.
+    void increase_expected_producer_num(int num) {
         std::unique_lock<std::recursive_mutex> l(_rmtx);
         if (_received_producer_num > 0 || _received_rf_size_num > 0) {
             throw Exception(ErrorCode::INTERNAL_ERROR,
                             "runtime filter merger set expected producer after receive data, {}",
                             debug_string());
         }
-        _expected_producer_num = num;
+        _expected_producer_num = std::max(_expected_producer_num, num);
     }
 
     int get_expected_producer_num() {
