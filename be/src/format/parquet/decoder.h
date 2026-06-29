@@ -20,6 +20,7 @@
 #include <gen_cpp/parquet_types.h>
 #include <glog/logging.h>
 
+#include <climits>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -100,7 +101,19 @@ public:
     Status set_data(Slice* data) override {
         _data = data;
         _offset = 0;
+        // The first byte of the data page carries the RLE index bit width and is fully
+        // attacker controlled. _index_batch_decoder is a RleBatchDecoder<uint32_t>, so a
+        // width above 32 makes RleBatchDecoder read more bytes than fit in a uint32_t (the
+        // size guard inside it is only a DCHECK, so release builds overflow). Reject empty
+        // pages and out of range widths before constructing the decoder.
+        if (data->size < 1) {
+            return Status::Corruption("Parquet dictionary index page is empty");
+        }
         uint8_t bit_width = *data->data;
+        if (bit_width > sizeof(uint32_t) * CHAR_BIT) {
+            return Status::Corruption("Parquet dictionary index bit width {} out of range",
+                                      bit_width);
+        }
         _index_batch_decoder = std::make_unique<RleBatchDecoder<uint32_t>>(
                 reinterpret_cast<uint8_t*>(data->data) + 1, static_cast<int>(data->size) - 1,
                 bit_width);
