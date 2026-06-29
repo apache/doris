@@ -1121,7 +1121,7 @@ def chunk_payload(payload, max_payload_bytes):
     return chunks
 
 
-def post_payload_once(endpoint, public_key, secret_key, payload):
+def post_payload_once(endpoint, public_key, secret_key, payload, timeout_seconds):
     auth = base64.b64encode(f"{public_key}:{secret_key}".encode()).decode()
     request = urllib.request.Request(
         endpoint,
@@ -1132,7 +1132,7 @@ def post_payload_once(endpoint, public_key, secret_key, payload):
         },
         method="POST",
     )
-    with urllib.request.urlopen(request, timeout=30) as response:
+    with urllib.request.urlopen(request, timeout=timeout_seconds) as response:
         body = response.read().decode()
         detail = json.loads(body) if body else {}
         errors = detail.get("errors") if isinstance(detail, dict) else None
@@ -1161,22 +1161,57 @@ def retry_payload_chunks_after_413(payload, request_size, max_payload_bytes):
     return chunk_payload(payload, next_limit)
 
 
-def post_payload(endpoint, public_key, secret_key, payload, max_payload_bytes):
+def retry_payload_chunks_after_transport_error(payload, request_size, max_payload_bytes):
+    batch = payload.get("batch") or []
+    if len(batch) <= 1:
+        return [(payload, request_size)]
+    next_limit = max(1_000, min(max_payload_bytes - 1, request_size // 2))
+    return chunk_payload(payload, next_limit)
+
+
+def post_payload(
+    endpoint,
+    public_key,
+    secret_key,
+    payload,
+    max_payload_bytes,
+    timeout_seconds,
+    retry_attempts,
+    retry_sleep_seconds,
+):
     statuses = []
     success_count = 0
     request_sizes = []
-    retry_count = 0
+    payload_too_large_retry_count = 0
+    transport_retry_count = 0
     chunks = chunk_payload(payload, max_payload_bytes)
     while chunks:
         chunk, request_size = chunks.pop(0)
         try:
-            status = post_payload_once(endpoint, public_key, secret_key, chunk)
+            status = post_payload_once(
+                endpoint, public_key, secret_key, chunk, timeout_seconds
+            )
         except urllib.error.HTTPError as exc:
             if exc.code != 413:
                 raise
-            retry_count += 1
+            payload_too_large_retry_count += 1
             chunks = (
                 retry_payload_chunks_after_413(
+                    chunk, request_size, max_payload_bytes
+                )
+                + chunks
+            )
+            continue
+        except (TimeoutError, urllib.error.URLError) as exc:
+            transport_retry_count += 1
+            if transport_retry_count > retry_attempts:
+                raise RuntimeError(
+                    "Litefuse ingestion failed after transport retries: "
+                    f"{type(exc).__name__}: {exc}"
+                ) from exc
+            time.sleep(retry_sleep_seconds)
+            chunks = (
+                retry_payload_chunks_after_transport_error(
                     chunk, request_size, max_payload_bytes
                 )
                 + chunks
@@ -1190,7 +1225,8 @@ def post_payload(endpoint, public_key, secret_key, payload, max_payload_bytes):
         "request_count": len(statuses),
         "request_sizes": request_sizes,
         "max_request_size": max(request_sizes) if request_sizes else 0,
-        "payload_too_large_retries": retry_count,
+        "payload_too_large_retries": payload_too_large_retry_count,
+        "transport_retries": transport_retry_count,
         "success_count": success_count,
     }
 
@@ -1481,6 +1517,9 @@ def parse_args():
     parser.add_argument("--max-context-json-chars", type=int, default=0)
     parser.add_argument("--max-payload-bytes", type=int, default=4_000_000)
     parser.add_argument("--max-subagent-sessions", type=int, default=100)
+    parser.add_argument("--post-timeout-seconds", type=int, default=120)
+    parser.add_argument("--post-retry-attempts", type=int, default=5)
+    parser.add_argument("--post-retry-sleep-seconds", type=int, default=5)
     parser.add_argument("--verify", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--verify-attempts", type=int, default=24)
@@ -1556,7 +1595,14 @@ def main():
     public_key = os.environ["LANGFUSE_PUBLIC_KEY"]
     secret_key = os.environ["LANGFUSE_SECRET_KEY"]
     result["status"] = post_payload(
-        endpoint, public_key, secret_key, payload, args.max_payload_bytes
+        endpoint,
+        public_key,
+        secret_key,
+        payload,
+        args.max_payload_bytes,
+        args.post_timeout_seconds,
+        args.post_retry_attempts,
+        args.post_retry_sleep_seconds,
     )
     result["subagent_traces"] = []
     for subagent_payload in subagent_payloads:
@@ -1566,6 +1612,9 @@ def main():
             secret_key,
             subagent_payload["payload"],
             args.max_payload_bytes,
+            args.post_timeout_seconds,
+            args.post_retry_attempts,
+            args.post_retry_sleep_seconds,
         )
         result["subagent_traces"].append(
             {
