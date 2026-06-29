@@ -271,8 +271,10 @@ Status JniTableReader::_open_jni_scanner() {
     // _jni_columns info is used to build Java scanner schema params and JNI block template.
     _prepare_jni_scanner_schema();
 
-    if (_runtime_state != nullptr) {
+    if (_runtime_state != nullptr && _batch_size == 0) {
         _batch_size = _runtime_state->batch_size();
+    }
+    if (_runtime_state != nullptr) {
         _scanner_params["time_zone"] = _runtime_state->timezone();
     }
 
