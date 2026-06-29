@@ -609,6 +609,11 @@ Status ParquetColumnReader::load_nested_batch(int64_t) {
     return Status::NotSupported("Parquet nested batch load is not supported for column {}", _name);
 }
 
+Status ParquetColumnReader::load_nested_levels_batch(int64_t) {
+    return Status::NotSupported("Parquet nested levels batch load is not supported for column {}",
+                                _name);
+}
+
 Status ParquetColumnReader::build_nested_column(int64_t, MutableColumnPtr&, int64_t*) {
     return Status::NotSupported("Parquet nested column build is not supported for column {}",
                                 _name);

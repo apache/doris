@@ -596,9 +596,11 @@ Status ParquetReader::get_aggregate_result(const format::FileAggregateRequest& r
                     const int64_t batch_rows =
                             std::min<int64_t>(_batch_size, selected_range.length - range_rows_read);
                     // COUNT(col) only needs the top-level NULL state. The shape reader loads
-                    // def/rep levels from a representative leaf and deliberately avoids MAP value
-                    // readers, so large value strings are not materialized.
-                    RETURN_IF_ERROR(shape_reader->load_nested_batch(batch_rows));
+                    // def/rep levels from one representative leaf and does not build value_indices
+                    // or values_column. MAP chooses the key leaf; ARRAY/STRUCT may choose a string
+                    // leaf, but the levels-only protocol still avoids Doris-side string
+                    // materialization for that leaf.
+                    RETURN_IF_ERROR(shape_reader->load_nested_levels_batch(batch_rows));
                     result->count +=
                             count_loaded_non_null_values(root_schema, *shape_reader, batch_rows);
                     range_rows_read += batch_rows;

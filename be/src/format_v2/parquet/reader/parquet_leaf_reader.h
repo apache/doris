@@ -68,6 +68,9 @@ struct ParquetLeafReaderTestAccess;
 //   rep_levels[]         - repetition levels 的拷贝
 //   value_indices[]      - level_idx → value buffer 中的下标（-1 表示该 slot 无 value，如 NULL key）
 //   values_column        - 物化后的 value 列（非 nullable 的类型）
+//
+// COUNT(col) 的聚合快路径只消费 records_read / levels_written / def_levels / rep_levels。
+// 该路径不会填充 value_indices / values_column，调用方不能再调用 build_nested_column()。
 struct ParquetNestedScalarBatch {
     int64_t records_read = 0;
     int64_t levels_written = 0;
@@ -183,6 +186,18 @@ public:
             ParquetNestedScalarBatch* batch,
             int16_t value_slot_repetition_level = std::numeric_limits<int16_t>::max()) const;
 
+    // COUNT(col) shape-only 读取路径。它仍调用 Arrow RecordReader::ReadRecords()
+    // 推进 parquet 游标并获得 def/rep levels，但 Doris 侧只拷贝 levels：
+    // - 不调用 BinaryRecordReader::GetBuilderChunks()
+    // - 不构造 value_indices / values_column
+    // - 不进入 DataTypeSerde::read_column_from_decoded_values()
+    //
+    // 这样 MAP/ARRAY/STRUCT 的 COUNT(col) 可以判断顶层 NULL 状态，同时避免把代表 leaf
+    // 的 STRING/BINARY payload 物化到 Doris Column 中。当前 Arrow RecordReader 没有只读
+    // levels 的公开接口，因此底层 ReadRecords 仍可能做必要的页解码；本接口保证的是 V2
+    // reader 不接管和复制 value payload。
+    Status read_nested_levels_batch(int64_t batch_rows, ParquetNestedScalarBatch* batch) const;
+
 private:
     friend struct ParquetLeafReaderTestAccess;
 
@@ -190,6 +205,11 @@ private:
     // 分别处理固定宽度类型（values()）和 binary 类型（GetBuilderChunks()）。
     Status collect_batch(::parquet::internal::RecordReader& record_reader,
                          ParquetLeafBatch* batch) const;
+
+    // collect_batch() 的 levels-only 版本。只快照 def/rep level 状态，不接管 binary
+    // chunks，也不暴露 fixed value buffer。用于 COUNT(col) 聚合快路径。
+    Status collect_levels_batch(::parquet::internal::RecordReader& record_reader,
+                                ParquetLeafBatch* batch) const;
 
     // 为 dense nullable 模式构建间隔排列的固定宽度值数组。
     // Arrow RecordReader 在 read_dense_for_nullable 模式下只写非 NULL 值（紧凑排列），
@@ -203,6 +223,9 @@ private:
                                               int16_t value_slot_definition_level,
                                               ParquetNestedScalarBatch* batch,
                                               int16_t value_slot_repetition_level) const;
+    Status build_nested_levels_batch_from_leaf_batch(const ParquetLeafBatch& leaf_batch,
+                                                     int64_t records_read,
+                                                     ParquetNestedScalarBatch* batch) const;
 
     const ::parquet::ColumnDescriptor* _descriptor =
             nullptr;                        // Arrow 列描述符（physical_type, max_dl, max_rl）

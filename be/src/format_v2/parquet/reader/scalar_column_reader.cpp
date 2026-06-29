@@ -247,6 +247,15 @@ Status ScalarColumnReader::load_nested_batch(int64_t rows) {
     return Status::OK();
 }
 
+Status ScalarColumnReader::load_nested_levels_batch(int64_t rows) {
+    DORIS_CHECK(_nested_batch != nullptr);
+    reset_nested_build_level_cursor();
+    RETURN_IF_ERROR(leaf_reader().read_nested_levels_batch(rows, _nested_batch.get()));
+    advance_rows_read(_nested_batch->records_read);
+    update_reader_read_rows(_nested_batch->records_read);
+    return Status::OK();
+}
+
 Status ScalarColumnReader::build_nested_column(int64_t length_upper_bound, MutableColumnPtr& column,
                                                int64_t* values_read) {
     if (column.get() == nullptr || values_read == nullptr) {

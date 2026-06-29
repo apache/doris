@@ -70,6 +70,7 @@ public:
     // ========== ② 嵌套协议 ==========
 
     Status load_nested_batch(int64_t rows) override;
+    Status load_nested_levels_batch(int64_t rows) override;
     Status build_nested_column(int64_t length_upper_bound, MutableColumnPtr& column,
                                int64_t* values_read) override;
     const std::vector<int16_t>& nested_definition_levels() const override;

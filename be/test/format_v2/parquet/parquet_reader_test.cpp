@@ -304,9 +304,96 @@ std::shared_ptr<arrow::Array> build_nullable_int_string_map_array() {
     return finish_array(&builder);
 }
 
+std::shared_ptr<arrow::Array> build_nullable_string_list_array() {
+    auto value_builder = std::make_shared<arrow::StringBuilder>();
+    arrow::ListBuilder builder(arrow::default_memory_pool(), value_builder,
+                               arrow::list(arrow::field("element", arrow::utf8(), true)));
+
+    EXPECT_TRUE(builder.Append().ok());
+    EXPECT_TRUE(value_builder->Append("small").ok());
+    EXPECT_TRUE(value_builder->Append(std::string(4096, 'a')).ok());
+
+    EXPECT_TRUE(builder.AppendNull().ok());
+    EXPECT_TRUE(builder.AppendEmptyValue().ok());
+
+    EXPECT_TRUE(builder.Append().ok());
+    EXPECT_TRUE(value_builder->AppendNull().ok());
+
+    EXPECT_TRUE(builder.Append().ok());
+    EXPECT_TRUE(value_builder->Append(std::string(4096, 'b')).ok());
+    return finish_array(&builder);
+}
+
+std::shared_ptr<arrow::Array> build_nullable_string_struct_array() {
+    auto struct_type = arrow::struct_({arrow::field("payload", arrow::utf8(), true),
+                                       arrow::field("id", arrow::int32(), false)});
+    std::vector<std::shared_ptr<arrow::ArrayBuilder>> field_builders;
+    auto payload_builder = std::make_unique<arrow::StringBuilder>();
+    field_builders.push_back(std::shared_ptr<arrow::ArrayBuilder>(std::move(payload_builder)));
+    auto id_builder = std::make_unique<arrow::Int32Builder>();
+    field_builders.push_back(std::shared_ptr<arrow::ArrayBuilder>(std::move(id_builder)));
+    arrow::StructBuilder builder(struct_type, arrow::default_memory_pool(),
+                                 std::move(field_builders));
+    auto* struct_payload_builder = assert_cast<arrow::StringBuilder*>(builder.field_builder(0));
+    auto* struct_id_builder = assert_cast<arrow::Int32Builder*>(builder.field_builder(1));
+
+    EXPECT_TRUE(builder.Append().ok());
+    EXPECT_TRUE(struct_payload_builder->Append("small").ok());
+    EXPECT_TRUE(struct_id_builder->Append(1).ok());
+
+    EXPECT_TRUE(builder.AppendNull().ok());
+
+    EXPECT_TRUE(builder.Append().ok());
+    EXPECT_TRUE(struct_payload_builder->Append(std::string(4096, 'c')).ok());
+    EXPECT_TRUE(struct_id_builder->Append(2).ok());
+
+    EXPECT_TRUE(builder.Append().ok());
+    EXPECT_TRUE(struct_payload_builder->AppendNull().ok());
+    EXPECT_TRUE(struct_id_builder->Append(3).ok());
+
+    EXPECT_TRUE(builder.Append().ok());
+    EXPECT_TRUE(struct_payload_builder->Append(std::string(4096, 'd')).ok());
+    EXPECT_TRUE(struct_id_builder->Append(4).ok());
+    return finish_array(&builder);
+}
+
 void write_nullable_map_parquet_file(const std::string& file_path) {
     auto array = build_nullable_int_string_map_array();
     auto field = arrow::field("arr", array->type(), true);
+    auto table = arrow::Table::Make(arrow::schema({field}), {array});
+
+    auto file_result = arrow::io::FileOutputStream::Open(file_path);
+    ASSERT_TRUE(file_result.ok()) << file_result.status();
+    std::shared_ptr<arrow::io::FileOutputStream> out = *file_result;
+
+    ::parquet::WriterProperties::Builder builder;
+    builder.version(::parquet::ParquetVersion::PARQUET_2_6);
+    builder.data_page_version(::parquet::ParquetDataPageVersion::V2);
+    builder.compression(::parquet::Compression::UNCOMPRESSED);
+    PARQUET_THROW_NOT_OK(::parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), out,
+                                                      ROW_COUNT, builder.build()));
+}
+
+void write_nullable_string_list_parquet_file(const std::string& file_path) {
+    auto array = build_nullable_string_list_array();
+    auto field = arrow::field("arr", array->type(), true);
+    auto table = arrow::Table::Make(arrow::schema({field}), {array});
+
+    auto file_result = arrow::io::FileOutputStream::Open(file_path);
+    ASSERT_TRUE(file_result.ok()) << file_result.status();
+    std::shared_ptr<arrow::io::FileOutputStream> out = *file_result;
+
+    ::parquet::WriterProperties::Builder builder;
+    builder.version(::parquet::ParquetVersion::PARQUET_2_6);
+    builder.data_page_version(::parquet::ParquetDataPageVersion::V2);
+    builder.compression(::parquet::Compression::UNCOMPRESSED);
+    PARQUET_THROW_NOT_OK(::parquet::arrow::WriteTable(*table, arrow::default_memory_pool(), out,
+                                                      ROW_COUNT, builder.build()));
+}
+
+void write_nullable_string_struct_parquet_file(const std::string& file_path) {
+    auto array = build_nullable_string_struct_array();
+    auto field = arrow::field("s", array->type(), true);
     auto table = arrow::Table::Make(arrow::schema({field}), {array});
 
     auto file_result = arrow::io::FileOutputStream::Open(file_path);
@@ -747,7 +834,8 @@ TEST_F(NewParquetReaderTest, CreatesParquetColumnMapper) {
 
 TEST_F(NewParquetReaderTest, CountComplexColumnUsesShapeOnlyPath) {
     write_nullable_map_parquet_file(_file_path);
-    auto reader = create_reader();
+    RuntimeProfile profile("count_map_shape_only_path");
+    auto reader = create_reader(0, -1, &profile);
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
     ASSERT_TRUE(reader->init(&state).ok());
     ASSERT_TRUE(reader->open(std::make_shared<format::FileScanRequest>()).ok());
@@ -762,6 +850,52 @@ TEST_F(NewParquetReaderTest, CountComplexColumnUsesShapeOnlyPath) {
     // Rows are: non-empty map, NULL map, empty map, non-empty map with large value string,
     // non-empty map with NULL value. COUNT(arr) excludes only the top-level NULL map.
     EXPECT_EQ(result.count, 4);
+    ASSERT_NE(profile.get_counter("MaterializationTime"), nullptr);
+    EXPECT_EQ(profile.get_counter("MaterializationTime")->value(), 0);
+}
+
+TEST_F(NewParquetReaderTest, CountArrayColumnUsesLevelsOnlyPath) {
+    write_nullable_string_list_parquet_file(_file_path);
+    RuntimeProfile profile("count_array_levels_only_path");
+    auto reader = create_reader(0, -1, &profile);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+    ASSERT_TRUE(reader->open(std::make_shared<format::FileScanRequest>()).ok());
+
+    format::FileAggregateRequest request;
+    request.agg_type = TPushAggOp::type::COUNT;
+    request.columns.push_back(
+            {.projection = format::LocalColumnIndex::top_level(format::LocalColumnId(0))});
+    format::FileAggregateResult result;
+    ASSERT_TRUE(reader->get_aggregate_result(request, &result).ok());
+
+    // Rows are: non-empty array with a large string, NULL array, empty array, non-empty array
+    // with NULL element, non-empty array with a large string. Only the top-level NULL is excluded.
+    EXPECT_EQ(result.count, 4);
+    ASSERT_NE(profile.get_counter("MaterializationTime"), nullptr);
+    EXPECT_EQ(profile.get_counter("MaterializationTime")->value(), 0);
+}
+
+TEST_F(NewParquetReaderTest, CountStructColumnUsesLevelsOnlyPath) {
+    write_nullable_string_struct_parquet_file(_file_path);
+    RuntimeProfile profile("count_struct_levels_only_path");
+    auto reader = create_reader(0, -1, &profile);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+    ASSERT_TRUE(reader->open(std::make_shared<format::FileScanRequest>()).ok());
+
+    format::FileAggregateRequest request;
+    request.agg_type = TPushAggOp::type::COUNT;
+    request.columns.push_back(
+            {.projection = format::LocalColumnIndex::top_level(format::LocalColumnId(0))});
+    format::FileAggregateResult result;
+    ASSERT_TRUE(reader->get_aggregate_result(request, &result).ok());
+
+    // The representative STRUCT leaf is the first child, a nullable STRING payload. A row with
+    // NULL payload but non-NULL struct still counts; only the top-level NULL struct is excluded.
+    EXPECT_EQ(result.count, 4);
+    ASSERT_NE(profile.get_counter("MaterializationTime"), nullptr);
+    EXPECT_EQ(profile.get_counter("MaterializationTime")->value(), 0);
 }
 
 TEST_F(NewParquetReaderTest, GetSchemaReturnsNullableNestedChildren) {

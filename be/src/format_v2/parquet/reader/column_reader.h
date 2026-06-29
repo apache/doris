@@ -119,6 +119,14 @@ public:
     // ParquetLeafReader::read_nested_batch()，返回 def/rep levels + values。
     virtual Status load_nested_batch(int64_t rows);
 
+    // COUNT(col) 专用的 shape-only 加载接口。实现只保证 nested_definition_levels() /
+    // nested_repetition_levels() / nested_levels_written() 可用，不保证 value_indices 或
+    // values_column 存在，因此调用方不能随后调用 build_nested_column()。
+    //
+    // 这个协议让 V2 聚合路径在 ARRAY/STRUCT 的代表 leaf 是 STRING/BINARY 时，也能避免
+    // Doris 侧 value materialization；普通 scan 仍走 load_nested_batch()。
+    virtual Status load_nested_levels_batch(int64_t rows);
+
     // 第二步：从已加载的 levels 重建嵌套结构（offsets + null_map）并填充值。
     // length_upper_bound 是预估值，用于提前 reserve 空间。
     virtual Status build_nested_column(int64_t length_upper_bound, MutableColumnPtr& column,

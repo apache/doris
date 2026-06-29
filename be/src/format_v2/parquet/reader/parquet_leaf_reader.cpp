@@ -290,6 +290,32 @@ Status ParquetLeafReader::collect_batch(::parquet::internal::RecordReader& recor
     return Status::OK();
 }
 
+Status ParquetLeafReader::collect_levels_batch(::parquet::internal::RecordReader& record_reader,
+                                               ParquetLeafBatch* batch) const {
+    DORIS_CHECK(batch != nullptr);
+    batch->_def_levels = nullptr;
+    batch->_rep_levels = nullptr;
+    batch->_fixed_values = nullptr;
+    batch->_binary_chunks.clear();
+    batch->_value_kind = decoded_value_kind(_type_descriptor);
+    batch->_consumed_level_count = record_reader.levels_position();
+    batch->_decoded_level_count = record_reader.levels_written();
+    if (_descriptor->max_definition_level() > 0) {
+        batch->_def_levels = record_reader.def_levels();
+    }
+    if (_descriptor->max_repetition_level() > 0) {
+        batch->_rep_levels = record_reader.rep_levels();
+    }
+    batch->_read_dense_for_nullable = record_reader.read_dense_for_nullable();
+
+    // Deliberately ignore values_written(), values() and BinaryRecordReader::GetBuilderChunks().
+    // COUNT(col) only needs top-level shape. Pulling binary chunks transfers Arrow builder
+    // ownership into Doris arrays and later into ColumnString, which is exactly the OOM-prone
+    // materialization path for huge MAP/ARRAY/STRUCT string payloads.
+    batch->_values_written = 0;
+    return Status::OK();
+}
+
 // 将 batch 中的值写入目标 Doris Column。
 //
 // 数据准备阶段（DecodedColumnView 填充前）：
@@ -547,6 +573,40 @@ Status ParquetLeafReader::read_nested_batch(int64_t batch_rows, int16_t value_sl
                                               batch, value_slot_repetition_level);
 }
 
+Status ParquetLeafReader::read_nested_levels_batch(int64_t batch_rows,
+                                                   ParquetNestedScalarBatch* batch) const {
+    if (batch == nullptr) {
+        return Status::InvalidArgument("Nested scalar levels batch is null for column {}", _name);
+    }
+    if (_record_reader == nullptr) {
+        return Status::InternalError("Parquet record reader is not initialized for column {}",
+                                     _name);
+    }
+
+    int64_t records_read = 0;
+    ParquetLeafBatch leaf_batch;
+    try {
+        _record_reader->Reset();
+        _record_reader->Reserve(batch_rows);
+        {
+            SCOPED_TIMER(_profile.arrow_read_records_time);
+            records_read = _record_reader->ReadRecords(batch_rows);
+        }
+    } catch (const ::parquet::ParquetException& e) {
+        return Status::Corruption("Failed to read parquet levels for column {}: {}", _name,
+                                  e.what());
+    } catch (const std::exception& e) {
+        return Status::InternalError("Failed to read parquet levels for column {}: {}", _name,
+                                     e.what());
+    }
+    if (records_read < 0 || records_read > batch_rows) {
+        return Status::Corruption("Invalid parquet level read result for column {}: {}", _name,
+                                  records_read);
+    }
+    RETURN_IF_ERROR(collect_levels_batch(*_record_reader, &leaf_batch));
+    return build_nested_levels_batch_from_leaf_batch(leaf_batch, records_read, batch);
+}
+
 Status ParquetLeafReader::build_nested_batch_from_leaf_batch(
         const ParquetLeafBatch& leaf_batch, int64_t records_read,
         int16_t value_slot_definition_level, ParquetNestedScalarBatch* batch,
@@ -709,6 +769,63 @@ Status ParquetLeafReader::build_nested_batch_from_leaf_batch(
                                        _record_reader, _profile, _timezone, _enable_strict_mode);
         RETURN_IF_ERROR(value_reader.append_values(leaf_batch, values_written, &value_nulls,
                                                    batch->values_column));
+    }
+    return Status::OK();
+}
+
+Status ParquetLeafReader::build_nested_levels_batch_from_leaf_batch(
+        const ParquetLeafBatch& leaf_batch, int64_t records_read,
+        ParquetNestedScalarBatch* batch) const {
+    if (batch == nullptr) {
+        return Status::InvalidArgument("Nested scalar levels batch is null for column {}", _name);
+    }
+    *batch = ParquetNestedScalarBatch();
+    batch->records_read = records_read;
+    batch->levels_written = leaf_batch.consumed_level_count();
+    if (batch->levels_written > leaf_batch.decoded_level_count()) {
+        return Status::Corruption(
+                "Invalid nested parquet level position for column {}: position={}, levels={}",
+                _name, batch->levels_written, leaf_batch.decoded_level_count());
+    }
+
+    // Required flat leaves do not have physical def/rep level buffers. Synthesize one level slot
+    // per top-level row so the COUNT(col) aggregation code can use the same shape loop.
+    if (batch->levels_written == 0 && batch->records_read > 0 &&
+        _descriptor->max_definition_level() == 0 && _descriptor->max_repetition_level() == 0) {
+        batch->levels_written = batch->records_read;
+    }
+    if (batch->levels_written < batch->records_read) {
+        return Status::Corruption(
+                "Invalid nested parquet levels result for column {}: rows={}, levels={}", _name,
+                batch->records_read, batch->levels_written);
+    }
+    if (batch->levels_written == 0) {
+        return Status::OK();
+    }
+
+    auto* def_levels = leaf_batch.def_levels();
+    if (def_levels == nullptr && _descriptor->max_definition_level() > 0) {
+        return Status::Corruption(
+                "Nested parquet reader returned null definition levels for column {}", _name);
+    }
+    batch->def_levels.resize(static_cast<size_t>(batch->levels_written));
+    if (_descriptor->max_definition_level() == 0 || def_levels == nullptr) {
+        std::fill(batch->def_levels.begin(), batch->def_levels.end(),
+                  _descriptor->max_definition_level());
+    } else {
+        std::copy(def_levels, def_levels + batch->levels_written, batch->def_levels.begin());
+    }
+
+    auto* rep_levels = leaf_batch.rep_levels();
+    if (rep_levels == nullptr && _descriptor->max_repetition_level() > 0) {
+        return Status::Corruption(
+                "Nested parquet reader returned null repetition levels for column {}", _name);
+    }
+    batch->rep_levels.resize(static_cast<size_t>(batch->levels_written));
+    if (_descriptor->max_repetition_level() == 0 || rep_levels == nullptr) {
+        std::fill(batch->rep_levels.begin(), batch->rep_levels.end(), 0);
+    } else {
+        std::copy(rep_levels, rep_levels + batch->levels_written, batch->rep_levels.begin());
     }
     return Status::OK();
 }
