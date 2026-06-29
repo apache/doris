@@ -2088,7 +2088,8 @@ public abstract class RoutineLoadJob
                     jobProperties.remove(CreateRoutineLoadInfo.MAX_BATCH_SIZE_PROPERTY));
         }
 
-        if (jobProperties.containsKey(CreateRoutineLoadInfo.UNIQUE_KEY_UPDATE_MODE)) {
+        boolean hasExplicitUniqueKeyUpdateMode = jobProperties.containsKey(CreateRoutineLoadInfo.UNIQUE_KEY_UPDATE_MODE);
+        if (hasExplicitUniqueKeyUpdateMode) {
             String modeStr = jobProperties.remove(CreateRoutineLoadInfo.UNIQUE_KEY_UPDATE_MODE);
             TUniqueKeyUpdateMode newMode = CreateRoutineLoadInfo.parseAndValidateUniqueKeyUpdateMode(modeStr);
             // Validate flexible partial update constraints when changing to UPDATE_FLEXIBLE_COLUMNS
@@ -2099,6 +2100,7 @@ public abstract class RoutineLoadJob
             this.isPartialUpdate = (uniqueKeyUpdateMode == TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS);
             this.jobProperties.put(CreateRoutineLoadInfo.UNIQUE_KEY_UPDATE_MODE, uniqueKeyUpdateMode.name());
             this.jobProperties.put(CreateRoutineLoadInfo.PARTIAL_COLUMNS, String.valueOf(isPartialUpdate));
+            jobProperties.remove(CreateRoutineLoadInfo.PARTIAL_COLUMNS);
         }
 
         if (jobProperties.containsKey(CreateRoutineLoadInfo.PARTIAL_COLUMNS)) {

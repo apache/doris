@@ -155,7 +155,7 @@ suite("test_routine_load_alter","p0") {
                 }
             }
 
-            count = 0
+            def count = 0
             while (true) {
                 def res = sql "select count(*) from ${tableName}"
                 log.info("count: ${res[0][0]}".toString())
@@ -375,7 +375,7 @@ suite("test_routine_load_alter","p0") {
             """
             sql "sync"
 
-            count = 0
+            def count = 0
             while (true) {
                 def res = sql "select count(*) from ${srcTableName}"
                 def state = sql "show routine load for ${alterTargetJob}"
@@ -417,7 +417,7 @@ suite("test_routine_load_alter","p0") {
 
             sql "resume routine load for ${alterTargetJob}"
 
-            count = 0
+            def count = 0
             def stableCount = 0
             while (true) {
                 def srcCount = sql "select count(*) from ${srcTableName}"

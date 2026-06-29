@@ -47,6 +47,7 @@ import org.apache.doris.nereids.trees.plans.commands.load.LoadSeparator;
 import org.apache.doris.persist.AlterRoutineLoadJobOperationLog;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TResourceInfo;
+import org.apache.doris.thrift.TUniqueKeyUpdateMode;
 
 import com.google.common.base.Joiner;
 import com.google.common.collect.Lists;
@@ -196,6 +197,24 @@ public class KafkaRoutineLoadJobTest {
 
             Assert.assertEquals(15L, routineLoadJob.totalLag().longValue());
         }
+    }
+
+    @Test
+    public void testModifyPropertiesHonorsExplicitUniqueKeyUpdateModePrecedence() throws Exception {
+        KafkaRoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob(1L, "kafka_routine_load_job", 1L,
+                1L, "127.0.0.1:9020", "topic1", UserIdentity.ADMIN);
+        Deencapsulation.setField(routineLoadJob, "uniqueKeyUpdateMode", TUniqueKeyUpdateMode.UPSERT);
+        Deencapsulation.setField(routineLoadJob, "isPartialUpdate", false);
+
+        Map<String, String> jobProperties = Maps.newHashMap();
+        jobProperties.put(CreateRoutineLoadInfo.UNIQUE_KEY_UPDATE_MODE, "UPSERT");
+        jobProperties.put(CreateRoutineLoadInfo.PARTIAL_COLUMNS, "true");
+
+        Deencapsulation.invoke(routineLoadJob, "modifyPropertiesInternal", jobProperties,
+                new KafkaDataSourceProperties(Maps.newHashMap()));
+
+        Assert.assertEquals(TUniqueKeyUpdateMode.UPSERT, routineLoadJob.getUniqueKeyUpdateMode());
+        Assert.assertFalse(routineLoadJob.isFixedPartialUpdate());
     }
 
     @Test

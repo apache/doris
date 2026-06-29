@@ -305,4 +305,33 @@ public class AlterRoutineLoadCommandTest {
         Assertions.assertTrue(Assertions.assertThrows(Exception.class, () -> command.validate(connectContext))
                 .getMessage().contains("PARTIAL_COLUMNS"));
     }
+
+    @Test
+    public void testValidateAllowsExplicitUpsertToOverridePartialColumnsOnNonMowTable() {
+        runBefore();
+        Mockito.when(routineLoadJob.getUniqueKeyUpdateMode()).thenReturn(TUniqueKeyUpdateMode.UPSERT);
+        Mockito.when(currentTable.getEnableUniqueKeyMergeOnWrite()).thenReturn(false);
+        Map<String, String> jobProperties = Maps.newHashMap();
+        jobProperties.put(CreateRoutineLoadInfo.UNIQUE_KEY_UPDATE_MODE, "UPSERT");
+        jobProperties.put(CreateRoutineLoadInfo.PARTIAL_COLUMNS, "true");
+
+        AlterRoutineLoadCommand command = new AlterRoutineLoadCommand(
+                new LabelNameInfo("testDb", "label1"), jobProperties, Maps.newHashMap());
+
+        Assertions.assertDoesNotThrow(() -> command.validate(connectContext));
+    }
+
+    @Test
+    public void testValidateAllowsFlexibleAlterToReachFlexibleValidation() {
+        runBefore();
+        Mockito.when(routineLoadJob.getUniqueKeyUpdateMode()).thenReturn(TUniqueKeyUpdateMode.UPSERT);
+        Mockito.when(currentTable.getEnableUniqueKeyMergeOnWrite()).thenReturn(false);
+        Map<String, String> jobProperties = Maps.newHashMap();
+        jobProperties.put(CreateRoutineLoadInfo.UNIQUE_KEY_UPDATE_MODE, "UPDATE_FLEXIBLE_COLUMNS");
+
+        AlterRoutineLoadCommand command = new AlterRoutineLoadCommand(
+                new LabelNameInfo("testDb", "label1"), jobProperties, Maps.newHashMap());
+
+        Assertions.assertDoesNotThrow(() -> command.validate(connectContext));
+    }
 }

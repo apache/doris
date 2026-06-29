@@ -367,7 +367,7 @@ public class AlterRoutineLoadCommand extends AlterCommand {
         RoutineLoadJob job = Env.getCurrentEnv().getRoutineLoadManager()
                 .getJob(getDbName(), getJobName());
         TUniqueKeyUpdateMode uniqueKeyUpdateMode = getEffectiveUniqueKeyUpdateMode(job);
-        if (uniqueKeyUpdateMode == TUniqueKeyUpdateMode.UPSERT) {
+        if (uniqueKeyUpdateMode != TUniqueKeyUpdateMode.UPDATE_FIXED_COLUMNS) {
             return;
         }
         if (job.isMultiTable()) {

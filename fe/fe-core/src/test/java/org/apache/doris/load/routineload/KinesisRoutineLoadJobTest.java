@@ -25,6 +25,8 @@ import org.apache.doris.load.routineload.kinesis.KinesisDataSourceProperties;
 import org.apache.doris.load.routineload.kinesis.KinesisProgress;
 import org.apache.doris.load.routineload.kinesis.KinesisRoutineLoadJob;
 import org.apache.doris.load.routineload.kinesis.KinesisTaskInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.CreateRoutineLoadInfo;
+import org.apache.doris.thrift.TUniqueKeyUpdateMode;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -99,6 +101,25 @@ public class KinesisRoutineLoadJobTest {
         Assert.assertEquals(3L, ((Number) statistic.get("cachedMillisBehindLatestShardNum")).longValue());
         Assert.assertEquals(100L, ((Number) statistic.get("totalMillisBehindLatest")).longValue());
         Assert.assertEquals(100L, ((Number) statistic.get("maxMillisBehindLatest")).longValue());
+    }
+
+    @Test
+    public void testModifyPropertiesHonorsExplicitUniqueKeyUpdateModePrecedence() throws Exception {
+        KinesisRoutineLoadJob routineLoadJob =
+                new KinesisRoutineLoadJob(1L, "kinesis_routine_load_job", 1L,
+                        1L, "ap-southeast-1", "stream-1", UserIdentity.ADMIN);
+        Deencapsulation.setField(routineLoadJob, "uniqueKeyUpdateMode", TUniqueKeyUpdateMode.UPSERT);
+        Deencapsulation.setField(routineLoadJob, "isPartialUpdate", false);
+
+        Map<String, String> jobProperties = Maps.newHashMap();
+        jobProperties.put(CreateRoutineLoadInfo.UNIQUE_KEY_UPDATE_MODE, "UPSERT");
+        jobProperties.put(CreateRoutineLoadInfo.PARTIAL_COLUMNS, "true");
+
+        Deencapsulation.invoke(routineLoadJob, "modifyPropertiesInternal", jobProperties,
+                new KinesisDataSourceProperties(Maps.newHashMap()));
+
+        Assert.assertEquals(TUniqueKeyUpdateMode.UPSERT, routineLoadJob.getUniqueKeyUpdateMode());
+        Assert.assertFalse(routineLoadJob.isFixedPartialUpdate());
     }
 
     @Test
