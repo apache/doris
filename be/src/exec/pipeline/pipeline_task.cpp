@@ -322,6 +322,11 @@ bool PipelineTask::is_blockable() const {
            _sink->is_blockable(_state);
 }
 
+void PipelineTask::_stop_accepting_submit() {
+    std::unique_lock<std::mutex> lock(_blockable_check_lock);
+    _accept_submit = false;
+}
+
 bool PipelineTask::_is_blocked() {
     // `_dry_run = true` means we do not need data from source operator.
     if (!_dry_run) {
@@ -887,6 +892,7 @@ Status PipelineTask::finalize() {
         return Status::OK();
     }
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(fragment->get_query_ctx()->query_mem_tracker());
+    _stop_accepting_submit();
     // Synchronize with unblock_all_dependencies() before clearing state used by wake_up()->submit().
     std::unique_lock<std::mutex> lock(_dependency_lifecycle_lock);
     RETURN_IF_ERROR(_state_transition(State::FINALIZED));
@@ -901,6 +907,9 @@ Status PipelineTask::finalize() {
 }
 
 Status PipelineTask::close(Status exec_status, bool close_sink) {
+    if (close_sink) {
+        _stop_accepting_submit();
+    }
     int64_t close_ns = 0;
     Status s;
     {
