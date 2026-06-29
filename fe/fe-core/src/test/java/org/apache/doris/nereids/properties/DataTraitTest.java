@@ -23,6 +23,7 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPartitionTopN;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEAnchor;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.utframe.TestWithFeService;
@@ -347,6 +348,17 @@ class DataTraitTest extends TestWithFeService {
                     .getTrait().isUniformAndNotNull(plan.getOutput().get(0)));
             Assertions.assertEquals(plan.getLogicalProperties().getTrait(),
                     plan.child(1).getLogicalProperties().getTrait());
+
+            Plan physicalPlan= PlanChecker.from(connectContext)
+                    .analyze("with t as (select * from agg) select id from t where id = 1")
+                    .rewrite()
+                    .optimize()
+                    .getBestPlanTree();
+            Assertions.assertInstanceOf(PhysicalCTEAnchor.class, physicalPlan);
+            Assertions.assertTrue(physicalPlan.getLogicalProperties()
+                    .getTrait().isUniformAndNotNull(physicalPlan.getOutput().get(0)));
+            Assertions.assertEquals(physicalPlan.getLogicalProperties().getTrait(),
+                    physicalPlan.child(1).getLogicalProperties().getTrait());
         } finally {
             connectContext.getSessionVariable().inlineCTEReferencedThreshold = oldInlineCTEReferencedThreshold;
         }
