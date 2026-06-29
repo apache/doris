@@ -38,7 +38,7 @@ public:
     // FIND_TABLET_EVERY_SINK is used for random distribution info when load_to_single_tablet set to true,
     // which indicates that we should only compute tablet index in the corresponding partition once for the
     // whole time in olap table sink
-    // FIND_TABLET_RANDOM_BUCKET is used for V1 receiver-side random bucket mode.
+    // FIND_TABLET_RANDOM_BUCKET is used for V1 adaptive random bucket mode.
     enum FindTabletMode {
         FIND_TABLET_EVERY_ROW,
         FIND_TABLET_EVERY_BATCH,

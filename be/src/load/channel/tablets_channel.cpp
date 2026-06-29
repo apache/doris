@@ -137,7 +137,7 @@ Status BaseTabletsChannel::open(const PTabletWriterOpenRequest& request) {
     // if _state is kOpened, it's a normal case, already open by other sender
     // if _state is kFinished, already cancelled by other sender
     if (_state == kOpened) {
-        RETURN_IF_ERROR(_init_receiver_side_random_bucket_state(request));
+        RETURN_IF_ERROR(_init_adaptive_random_bucket_state(request));
         return Status::OK();
     }
     if (_state == kFinished) {
@@ -178,7 +178,7 @@ Status BaseTabletsChannel::open(const PTabletWriterOpenRequest& request) {
     _closed_senders.Reset(max_sender);
 
     RETURN_IF_ERROR(_open_all_writers(request));
-    RETURN_IF_ERROR(_init_receiver_side_random_bucket_state(request));
+    RETURN_IF_ERROR(_init_adaptive_random_bucket_state(request));
 
     _state = kOpened;
     return Status::OK();
@@ -247,7 +247,7 @@ Status BaseTabletsChannel::incremental_open(const PTabletWriterOpenRequest& para
         wrequest.txn_expiration = params.txn_expiration(); // Required by CLOUD.
         wrequest.write_file_cache = params.write_file_cache();
         wrequest.storage_vault_id = params.storage_vault_id();
-        wrequest.enable_table_memtable_backpressure = params.is_receiver_side_random_bucket();
+        wrequest.enable_table_memtable_backpressure = params.is_adaptive_random_bucket();
 
         auto delta_writer = create_delta_writer(wrequest);
         {
@@ -261,15 +261,15 @@ Status BaseTabletsChannel::incremental_open(const PTabletWriterOpenRequest& para
 
     _s_tablet_writer_count += incremental_tablet_num;
     LOG(INFO) << ss.str();
-    RETURN_IF_ERROR(_init_receiver_side_random_bucket_state(params));
+    RETURN_IF_ERROR(_init_adaptive_random_bucket_state(params));
 
     _state = kOpened;
     return Status::OK();
 }
 
-Status BaseTabletsChannel::_init_receiver_side_random_bucket_state(
+Status BaseTabletsChannel::_init_adaptive_random_bucket_state(
         const PTabletWriterOpenRequest& request) {
-    if (!request.is_receiver_side_random_bucket() || request.random_bucket_partitions_size() == 0) {
+    if (!request.is_adaptive_random_bucket() || request.random_bucket_partitions_size() == 0) {
         return Status::OK();
     }
     if (_adaptive_random_bucket_state == nullptr) {
@@ -278,7 +278,7 @@ Status BaseTabletsChannel::_init_receiver_side_random_bucket_state(
     for (const auto& partition : request.random_bucket_partitions()) {
         if (partition.ordered_tablet_ids_size() == 0) {
             return Status::InternalError(
-                    "ordered_tablet_ids is empty for receiver-side random bucket, load_id={}, "
+                    "ordered_tablet_ids is empty for adaptive random bucket, load_id={}, "
                     "sender_id={}, partition_id={}",
                     print_id(_load_id), request.sender_id(), partition.partition_id());
         }
@@ -598,7 +598,7 @@ Status BaseTabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& req
                 .is_high_priority = _is_high_priority,
                 .write_file_cache = request.write_file_cache(),
                 .storage_vault_id = request.storage_vault_id(),
-                .enable_table_memtable_backpressure = request.is_receiver_side_random_bucket(),
+                .enable_table_memtable_backpressure = request.is_adaptive_random_bucket(),
         };
 
         auto delta_writer = create_delta_writer(wrequest);
@@ -652,8 +652,8 @@ Status BaseTabletsChannel::_write_block_data(
     [[maybe_unused]] size_t uncompressed_size = 0;
     [[maybe_unused]] int64_t uncompressed_time = 0;
     RETURN_IF_ERROR(send_data.deserialize(request.block(), &uncompressed_size, &uncompressed_time));
-    int request_rows = request.is_receiver_side_random_bucket() ? request.partition_ids_size()
-                                                                : request.tablet_ids_size();
+    int request_rows = request.is_adaptive_random_bucket() ? request.partition_ids_size()
+                                                           : request.tablet_ids_size();
     if (send_data.rows() != request_rows) {
         return Status::InternalError(
                 "invalid add block request row count, load_id={}, index_id={}, packet_seq={}, "
@@ -738,7 +738,7 @@ std::shared_ptr<std::mutex> BaseTabletsChannel::_get_sender_partition_route_lock
     return lock;
 }
 
-Status BaseTabletsChannel::_write_block_data_for_receiver_side_random_bucket(
+Status BaseTabletsChannel::_write_block_data_for_adaptive_random_bucket(
         const PTabletWriterAddBlockRequest& request, int64_t cur_seq,
         std::unordered_map<int64_t, DorisVector<uint32_t>>& partition_to_rowidxs,
         PTabletWriterAddBlockResult* response) {
@@ -748,7 +748,7 @@ Status BaseTabletsChannel::_write_block_data_for_receiver_side_random_bucket(
     RETURN_IF_ERROR(send_data.deserialize(request.block(), &uncompressed_size, &uncompressed_time));
     if (send_data.rows() != request.partition_ids_size()) {
         return Status::InternalError(
-                "invalid receiver-side random bucket add block request row count, load_id={}, "
+                "invalid adaptive random bucket add block request row count, load_id={}, "
                 "index_id={}, packet_seq={}, block_rows={}, partition_ids_size={}",
                 print_id(_load_id), _index_id, request.packet_seq(), send_data.rows(),
                 request.partition_ids_size());
@@ -776,7 +776,7 @@ Status BaseTabletsChannel::_write_block_data_for_receiver_side_random_bucket(
             std::lock_guard<std::mutex> partition_guard(*partition_lock);
             if (_adaptive_random_bucket_state == nullptr) {
                 return Status::InternalError(
-                        "receiver-side random bucket state is not initialized, load_id={}, "
+                        "adaptive random bucket state is not initialized, load_id={}, "
                         "index_id={}, packet_seq={}, partition_id={}",
                         print_id(_load_id), _index_id, request.packet_seq(), partition_id);
             }
@@ -784,7 +784,7 @@ Status BaseTabletsChannel::_write_block_data_for_receiver_side_random_bucket(
                                                                       partition_id);
             if (tablet_id < 0) {
                 return Status::InternalError(
-                        "invalid current tablet for receiver-side random bucket, load_id={}, "
+                        "invalid current tablet for adaptive random bucket, load_id={}, "
                         "index_id={}, sender_id={}, packet_seq={}, partition_id={}",
                         print_id(_load_id), _index_id, request.sender_id(), request.packet_seq(),
                         partition_id);
@@ -800,7 +800,7 @@ Status BaseTabletsChannel::_write_block_data_for_receiver_side_random_bucket(
             std::shared_lock<std::shared_mutex> broken_rlock(_broken_tablets_lock);
             if (_is_broken_tablet(tablet_id)) {
                 return Status::InternalError(
-                        "current tablet is broken for receiver-side random bucket, load_id={}, "
+                        "current tablet is broken for adaptive random bucket, load_id={}, "
                         "index_id={}, sender_id={}, packet_seq={}, partition_id={}, tablet_id={}",
                         print_id(_load_id), _index_id, request.sender_id(), request.packet_seq(),
                         partition_id, tablet_id);
@@ -816,7 +816,7 @@ Status BaseTabletsChannel::_write_block_data_for_receiver_side_random_bucket(
             }
             tablet_writer = tablet_writer_it->second.get();
         }
-        RETURN_IF_ERROR(_prepare_receiver_side_random_bucket_writer(tablet_writer));
+        RETURN_IF_ERROR(_prepare_adaptive_random_bucket_writer(tablet_writer));
 
         bool memtable_flushed = false;
         Status st = tablet_writer->write(&send_data, row_idxs, &memtable_flushed);
@@ -860,22 +860,22 @@ Status BaseTabletsChannel::_write_block_data_for_receiver_side_random_bucket(
     return Status::OK();
 }
 
-Status BaseTabletsChannel::_prepare_receiver_side_random_bucket_writer(BaseDeltaWriter*) {
+Status BaseTabletsChannel::_prepare_adaptive_random_bucket_writer(BaseDeltaWriter*) {
     return Status::OK();
 }
 
-Status BaseTabletsChannel::_build_partition_to_rowidxs_for_receiver_side_random_bucket(
+Status BaseTabletsChannel::_build_partition_to_rowidxs_for_adaptive_random_bucket(
         const PTabletWriterAddBlockRequest& request,
         std::unordered_map<int64_t, DorisVector<uint32_t>>* partition_to_rowidxs) {
     if (_adaptive_random_bucket_state == nullptr) {
         return Status::InternalError(
-                "receiver-side random bucket state is not initialized, load_id={}, index_id={}, "
+                "adaptive random bucket state is not initialized, load_id={}, index_id={}, "
                 "packet_seq={}",
                 print_id(_load_id), _index_id, request.packet_seq());
     }
     if (request.partition_ids_size() == 0) {
         return Status::InternalError(
-                "empty partition ids for receiver-side random bucket add block, load_id={}, "
+                "empty partition ids for adaptive random bucket add block, load_id={}, "
                 "index_id={}, packet_seq={}",
                 print_id(_load_id), _index_id, request.packet_seq());
     }
@@ -910,16 +910,15 @@ Status TabletsChannel::add_batch(const PTabletWriterAddBlockRequest& request,
         return Status::OK();
     }
 
-    // FE exposes this feature as adaptive random bucket load. At the add-block protocol layer,
-    // the same mode is named receiver-side random bucket because the receiver routes rows by
-    // partition id and advances its own selected tablet state.
-    if (request.is_receiver_side_random_bucket()) {
+    // Adaptive random bucket add-block RPCs carry partition ids. The receiver maps rows to
+    // the current tablet and advances its selected-tablet state after memtable flush.
+    if (request.is_adaptive_random_bucket()) {
         std::unordered_map<int64_t /* partition_id */, DorisVector<uint32_t> /* row index */>
                 partition_to_rowidxs;
-        RETURN_IF_ERROR(_build_partition_to_rowidxs_for_receiver_side_random_bucket(
+        RETURN_IF_ERROR(_build_partition_to_rowidxs_for_adaptive_random_bucket(
                 request, &partition_to_rowidxs));
-        return _write_block_data_for_receiver_side_random_bucket(request, cur_seq,
-                                                                 partition_to_rowidxs, response);
+        return _write_block_data_for_adaptive_random_bucket(request, cur_seq, partition_to_rowidxs,
+                                                            response);
     }
 
     std::unordered_map<int64_t /* tablet_id */, DorisVector<uint32_t> /* row index */>

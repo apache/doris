@@ -123,16 +123,16 @@ public:
     bool is_finished() const { return _state == kFinished; }
 
 protected:
-    Status _init_receiver_side_random_bucket_state(const PTabletWriterOpenRequest& request);
+    Status _init_adaptive_random_bucket_state(const PTabletWriterOpenRequest& request);
     Status _write_block_data(const PTabletWriterAddBlockRequest& request, int64_t cur_seq,
                              std::unordered_map<int64_t, DorisVector<uint32_t>>& tablet_to_rowidxs,
                              PTabletWriterAddBlockResult* response);
-    Status _write_block_data_for_receiver_side_random_bucket(
+    Status _write_block_data_for_adaptive_random_bucket(
             const PTabletWriterAddBlockRequest& request, int64_t cur_seq,
             std::unordered_map<int64_t, DorisVector<uint32_t>>& partition_to_rowidxs,
             PTabletWriterAddBlockResult* response);
-    virtual Status _prepare_receiver_side_random_bucket_writer(BaseDeltaWriter* writer);
-    Status _build_partition_to_rowidxs_for_receiver_side_random_bucket(
+    virtual Status _prepare_adaptive_random_bucket_writer(BaseDeltaWriter* writer);
+    Status _build_partition_to_rowidxs_for_adaptive_random_bucket(
             const PTabletWriterAddBlockRequest& request,
             std::unordered_map<int64_t, DorisVector<uint32_t>>* partition_to_rowidxs);
     std::shared_ptr<std::mutex> _get_sender_partition_route_lock(int32_t sender_id,

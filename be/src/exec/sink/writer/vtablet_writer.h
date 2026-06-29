@@ -611,7 +611,7 @@ private:
     std::unordered_map<int64_t, std::shared_ptr<VNodeChannel>> _node_channels;
     // from tablet_id to backend channel
     std::unordered_map<int64_t, std::vector<std::shared_ptr<VNodeChannel>>> _channels_by_tablet;
-    // from partition_id to FE-planned bucket owner channel in cloud receiver-side random bucket mode
+    // from partition_id to FE-planned bucket owner channel in cloud adaptive random bucket mode
     std::unordered_map<int64_t, std::shared_ptr<VNodeChannel>> _channels_by_partition;
     bool _has_inc_node = false;
 

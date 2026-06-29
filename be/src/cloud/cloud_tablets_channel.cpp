@@ -64,9 +64,9 @@ Status CloudTabletsChannel::add_batch(const PTabletWriterAddBlockRequest& reques
         return Status::OK();
     }
 
-    if (request.is_receiver_side_random_bucket()) {
+    if (request.is_adaptive_random_bucket()) {
         std::unordered_map<int64_t, DorisVector<uint32_t>> partition_to_rowidxs;
-        RETURN_IF_ERROR(_build_partition_to_rowidxs_for_receiver_side_random_bucket(
+        RETURN_IF_ERROR(_build_partition_to_rowidxs_for_adaptive_random_bucket(
                 request, &partition_to_rowidxs));
         if (!partition_to_rowidxs.empty() && !config::skip_writing_empty_rowset_metadata) {
             std::unordered_set<int64_t> partition_ids;
@@ -79,8 +79,8 @@ Status CloudTabletsChannel::add_batch(const PTabletWriterAddBlockRequest& reques
                 RETURN_IF_ERROR(_init_writers_by_partition_ids(partition_ids));
             }
         }
-        return _write_block_data_for_receiver_side_random_bucket(request, cur_seq,
-                                                                 partition_to_rowidxs, response);
+        return _write_block_data_for_adaptive_random_bucket(request, cur_seq, partition_to_rowidxs,
+                                                            response);
     }
 
     std::unordered_map<int64_t, DorisVector<uint32_t>> tablet_to_rowidxs;
@@ -110,7 +110,7 @@ Status CloudTabletsChannel::add_batch(const PTabletWriterAddBlockRequest& reques
     return _write_block_data(request, cur_seq, tablet_to_rowidxs, response);
 }
 
-Status CloudTabletsChannel::_prepare_receiver_side_random_bucket_writer(BaseDeltaWriter* writer) {
+Status CloudTabletsChannel::_prepare_adaptive_random_bucket_writer(BaseDeltaWriter* writer) {
     auto* cloud_writer = static_cast<CloudDeltaWriter*>(writer);
     if (!cloud_writer->is_init()) {
         return CloudDeltaWriter::batch_init({cloud_writer});

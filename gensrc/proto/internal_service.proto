@@ -153,7 +153,7 @@ message PTabletWriterOpenRequest {
     optional string storage_vault_id = 18;
     optional int32 sender_id = 19;
     optional int64 workload_group_id = 20;
-    optional bool is_receiver_side_random_bucket = 21 [default = false];
+    optional bool is_adaptive_random_bucket = 21 [default = false];
     repeated PRandomBucketPartitionParam random_bucket_partitions = 22;
 };
 
@@ -212,7 +212,7 @@ message PTabletWriterAddBlockRequest {
     optional bool is_single_tablet_block = 14 [default = false];
     // for auto-partition first stage close, we should hang.
     optional bool hang_wait = 15 [default = false];
-    optional bool is_receiver_side_random_bucket = 16 [default = false];
+    optional bool is_adaptive_random_bucket = 16 [default = false];
 };
 
 message PSlaveTabletNodes {

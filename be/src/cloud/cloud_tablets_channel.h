@@ -41,7 +41,7 @@ public:
                  PTabletWriterAddBlockResult* res, bool* finished) override;
 
 private:
-    Status _prepare_receiver_side_random_bucket_writer(BaseDeltaWriter* writer) override;
+    Status _prepare_adaptive_random_bucket_writer(BaseDeltaWriter* writer) override;
     Status _init_writers_by_partition_ids(const std::unordered_set<int64_t>& partition_ids);
 
     CloudStorageEngine& _engine;

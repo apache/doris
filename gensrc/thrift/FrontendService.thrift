@@ -1408,7 +1408,7 @@ struct TCreatePartitionRequest {
     // Request-side sink mode. FE uses it to decide whether to populate
     // TOlapTablePartition.load_tablet_idx in the result for runtime auto partitions.
     8: optional bool load_to_single_tablet = false
-    // Whether the caller's table sink is using receiver-side adaptive random bucket routing.
+    // Whether the caller's table sink is using adaptive random bucket routing.
     9: optional bool enable_adaptive_random_bucket = false
 }
 
@@ -1433,7 +1433,7 @@ struct TReplacePartitionRequest {
     // Request-side sink mode. FE uses it to decide whether to populate
     // TOlapTablePartition.load_tablet_idx in the result for runtime auto partitions.
     8: optional bool load_to_single_tablet = false
-    // Whether the caller's table sink is using receiver-side adaptive random bucket routing.
+    // Whether the caller's table sink is using adaptive random bucket routing.
     9: optional bool enable_adaptive_random_bucket = false
 }
 

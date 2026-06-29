@@ -628,9 +628,9 @@ Status VNodeChannel::init(RuntimeState* state) {
     _cur_add_block_request->set_sender_id(_parent->_sender_id);
     _cur_add_block_request->set_backend_id(_node_id);
     _cur_add_block_request->set_eos(false);
-    // Adaptive random bucket is carried as receiver-side random bucket in add-block RPCs
-    // because the receiver routes rows by partition id instead of sender-selected tablet ids.
-    _cur_add_block_request->set_is_receiver_side_random_bucket(
+    // Adaptive random bucket add-block RPCs carry partition ids because the receiver
+    // chooses the current tablet from its local adaptive state.
+    _cur_add_block_request->set_is_adaptive_random_bucket(
             _parent->_tablet_finder->is_adaptive_random_bucket());
 
     // add block closure
@@ -760,10 +760,8 @@ void VNodeChannel::_open_internal(bool is_incremental) {
     if (_parent->_t_sink.olap_table_sink.__isset.storage_vault_id) {
         request->set_storage_vault_id(_parent->_t_sink.olap_table_sink.storage_vault_id);
     }
-    // Adaptive random bucket is carried as receiver-side random bucket in open RPCs
-    // because the receiver owns the selected-tablet rotation state.
-    request->set_is_receiver_side_random_bucket(
-            _parent->_tablet_finder->is_adaptive_random_bucket());
+    // Adaptive random bucket open RPCs initialize receiver-side selected-tablet state.
+    request->set_is_adaptive_random_bucket(_parent->_tablet_finder->is_adaptive_random_bucket());
     std::set<int64_t> deduper;
     for (auto& tablet : _tablets_wait_open) {
         if (deduper.contains(tablet.tablet_id)) {
@@ -1084,15 +1082,15 @@ void VNodeChannel::try_send_pending_block(RuntimeState* state) {
     // tablet_ids has already set when add row
     request->set_packet_seq(_next_packet_seq);
     auto block = mutable_block->to_block();
-    int request_rows = request->is_receiver_side_random_bucket() && !request->eos()
+    int request_rows = request->is_adaptive_random_bucket() && !request->eos()
                                ? request->partition_ids_size()
                                : request->tablet_ids_size();
     if (block.rows() != request_rows) {
         cancel(
                 fmt::format("{}, err: invalid add block request row count, block rows: {}, "
-                            "request rows: {}, receiver_side_random_bucket: {}, eos: {}",
+                            "request rows: {}, adaptive_random_bucket: {}, eos: {}",
                             channel_info(), block.rows(), request_rows,
-                            request->is_receiver_side_random_bucket(), request->eos()));
+                            request->is_adaptive_random_bucket(), request->eos()));
         _send_block_callback->clear_in_flight();
         return;
     }
@@ -1136,7 +1134,7 @@ void VNodeChannel::try_send_pending_block(RuntimeState* state) {
     }
 
     if (request->eos()) {
-        if (!request->is_receiver_side_random_bucket() || !request->has_block()) {
+        if (!request->is_adaptive_random_bucket() || !request->has_block()) {
             for (auto pid : _parent->_tablet_finder->partition_ids()) {
                 request->add_partition_ids(pid);
             }
@@ -1489,15 +1487,14 @@ void VNodeChannel::mark_close(bool hang_wait) {
         return;
     }
 
-    bool need_receiver_side_random_bucket_eos =
-            _cur_add_block_request->is_receiver_side_random_bucket();
+    bool need_adaptive_random_bucket_eos = _cur_add_block_request->is_adaptive_random_bucket();
     {
         std::lock_guard<std::mutex> l(_pending_batches_lock);
         if (!_cur_mutable_block) [[unlikely]] {
             // never had a block arrived. add a dummy block
             _cur_mutable_block = MutableBlock::create_unique();
         }
-        if (need_receiver_side_random_bucket_eos && _cur_mutable_block->rows() > 0) {
+        if (need_adaptive_random_bucket_eos && _cur_mutable_block->rows() > 0) {
             _cur_add_block_request->set_eos(false);
             auto tmp_add_block_request =
                     std::make_shared<PTabletWriterAddBlockRequest>(*_cur_add_block_request);
