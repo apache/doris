@@ -657,6 +657,11 @@ public class S3Properties extends AbstractS3CompatibleProperties {
         properties.putIfAbsent(Env.CONNECTION_TIMEOUT_MS, Env.DEFAULT_CONNECTION_TIMEOUT_MS);
     }
 
+    private static boolean hasCredentialsProviderType(Map<String, String> properties) {
+        return properties.containsKey(CREDENTIALS_PROVIDER_TYPE)
+                || properties.containsKey(Env.CREDENTIALS_PROVIDER_TYPE);
+    }
+
     public static Cloud.ObjectStoreInfoPB.Builder getObjStoreInfoPB(Map<String, String> properties) {
         Cloud.ObjectStoreInfoPB.Builder builder = Cloud.ObjectStoreInfoPB.newBuilder();
         if (properties.containsKey(S3Properties.ENDPOINT)) {
@@ -696,12 +701,21 @@ public class S3Properties extends AbstractS3CompatibleProperties {
             builder.setUsePathStyle(value.equalsIgnoreCase("true"));
         }
 
+        if (hasCredentialsProviderType(properties)) {
+            builder.setCredProviderType(getCredProviderTypePB(properties));
+        }
+
         if (properties.containsKey(S3Properties.ROLE_ARN)) {
-            builder.setRoleArn(properties.get(S3Properties.ROLE_ARN));
-            if (properties.containsKey(S3Properties.EXTERNAL_ID)) {
+            String roleArn = properties.get(S3Properties.ROLE_ARN);
+            if (!Strings.isNullOrEmpty(roleArn)) {
+                builder.setRoleArn(roleArn);
+            }
+            if (!Strings.isNullOrEmpty(roleArn) && properties.containsKey(S3Properties.EXTERNAL_ID)) {
                 builder.setExternalId(properties.get(S3Properties.EXTERNAL_ID));
             }
-            builder.setCredProviderType(getCredProviderTypePB(properties));
+            if (!Strings.isNullOrEmpty(roleArn) && !builder.hasCredProviderType()) {
+                builder.setCredProviderType(getCredProviderTypePB(properties));
+            }
         }
 
         return builder;

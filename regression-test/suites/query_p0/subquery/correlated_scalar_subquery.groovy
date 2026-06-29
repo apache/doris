@@ -256,8 +256,227 @@ suite("correlated_scalar_subquery") {
         exception "access outer query column"
     }
 
+    test {
+        sql """
+              SELECT correlated_scalar_t1.c1 FROM correlated_scalar_t1 WHERE correlated_scalar_t1.c1 = (SELECT correlated_scalar_t1.c1);
+        """
+        exception "access outer query's column in project is not supported"
+    }
+
+    test {
+        sql """
+              SELECT o.c1,
+                    (SELECT COUNT(*) FROM (
+                        SELECT i.c1 AS x FROM correlated_scalar_t2 i WHERE i.c1 = o.c1
+                        UNION ALL
+                        SELECT i.c1 AS x FROM correlated_scalar_t2 i WHERE i.c1 = o.c1
+                        ) u) AS c
+                FROM correlated_scalar_t1 o;
+        """
+        exception "access outer query's column before set operation is not supported"
+    }
+
+    test {
+        sql """
+              SELECT o.c1,
+                    (SELECT COUNT(*) FROM (
+                        SELECT i.c1 AS x FROM correlated_scalar_t2 i WHERE i.c1 = o.c1
+                        INTERSECT
+                        SELECT i.c1 AS x FROM correlated_scalar_t2 i WHERE i.c1 = o.c1
+                        ) u) AS c
+                FROM correlated_scalar_t1 o;
+        """
+        exception "access outer query's column before set operation is not supported"
+    }
+
+    test {
+        sql """
+              SELECT o.c1,
+                    (SELECT COUNT(*) FROM (
+                        SELECT i.c1 AS x FROM correlated_scalar_t2 i WHERE i.c1 = o.c1
+                        EXCEPT
+                        SELECT i.c1 AS x FROM correlated_scalar_t2 i WHERE i.c1 = o.c1
+                        ) u) AS c
+                FROM correlated_scalar_t1 o;
+        """
+        exception "access outer query's column before set operation is not supported"
+    }
+
+    test {
+        sql """
+              SELECT c1 FROM correlated_scalar_t1 WHERE c1 IN (
+                SELECT c1 FROM correlated_scalar_t2 WHERE correlated_scalar_t1.c2 = correlated_scalar_t2.c2
+                UNION ALL
+                SELECT c1 FROM correlated_scalar_t3
+              );
+        """
+        exception "Unsupported correlated subquery with set operation"
+    }
+
+    test {
+        sql """
+              SELECT c1 FROM correlated_scalar_t1 WHERE c1 IN (
+                SELECT c1 FROM correlated_scalar_t2 WHERE correlated_scalar_t1.c2 = correlated_scalar_t2.c2
+                INTERSECT
+                SELECT c1 FROM correlated_scalar_t3
+              );
+        """
+        exception "Unsupported correlated subquery with set operation"
+    }
+
+    test {
+        sql """
+              SELECT c1 FROM correlated_scalar_t1 WHERE c1 IN (
+                SELECT c1 FROM correlated_scalar_t2 WHERE correlated_scalar_t1.c2 = correlated_scalar_t2.c2
+                EXCEPT
+                SELECT c1 FROM correlated_scalar_t3
+              );
+        """
+        exception "Unsupported correlated subquery with set operation"
+    }
+
+    test {
+        sql """
+              SELECT c1 FROM correlated_scalar_t1 WHERE EXISTS (
+                SELECT c1 FROM correlated_scalar_t2 WHERE correlated_scalar_t1.c2 = correlated_scalar_t2.c2
+                UNION ALL
+                SELECT c1 FROM correlated_scalar_t3
+              );
+        """
+        exception "Unsupported correlated subquery with set operation"
+    }
+
+    test {
+        sql """
+              SELECT c1 FROM correlated_scalar_t1 WHERE EXISTS (
+                SELECT c1 FROM correlated_scalar_t2 WHERE correlated_scalar_t1.c2 = correlated_scalar_t2.c2
+                INTERSECT
+                SELECT c1 FROM correlated_scalar_t3
+              );
+        """
+        exception "Unsupported correlated subquery with set operation"
+    }
+
+    test {
+        sql """
+              SELECT c1 FROM correlated_scalar_t1 WHERE EXISTS (
+                SELECT c1 FROM correlated_scalar_t2 WHERE correlated_scalar_t1.c2 = correlated_scalar_t2.c2
+                EXCEPT
+                SELECT c1 FROM correlated_scalar_t3
+              );
+        """
+        exception "Unsupported correlated subquery with set operation"
+    }
+
     qt_select_agg_project1 """select c2 from correlated_scalar_t1 where correlated_scalar_t1.c2 > (select if(count(c1) = 0, 2, 100) from correlated_scalar_t2 where correlated_scalar_t1.c1 = correlated_scalar_t2.c1) order by c2;"""
     qt_select_agg_project2 """select c2 from correlated_scalar_t1 where correlated_scalar_t1.c2 = (select if(sum(c1) is null, 2, 100) from correlated_scalar_t2 where correlated_scalar_t1.c1 = correlated_scalar_t2.c1) order by c2;"""
     qt_select_2_aggs """select c2 from correlated_scalar_t1 where correlated_scalar_t1.c2 > (select count(c1) - min(c1) from correlated_scalar_t2 where correlated_scalar_t1.c1 = correlated_scalar_t2.c1) order by c2;"""
     qt_select_3_aggs """select c2 from correlated_scalar_t1 where correlated_scalar_t1.c2 > (select if(sum(c1) is null, count(c1), max(c2)) from correlated_scalar_t2 where correlated_scalar_t1.c1 = correlated_scalar_t2.c1) order by c2;"""
+
+    // EXISTS over a top-level scalar aggregate wraps a set operation:
+    // hasTopLevelScalarAgg() in SubExprAnalyzer folds EXISTS to TRUE and
+    // NOT EXISTS to FALSE before checkNoCorrelatedSlotsUnderSetOp() runs,
+    // because a scalar aggregate (no GROUP BY) always returns one row.
+    qt_exists_over_scalar_agg_union """
+        SELECT EXISTS (
+            SELECT COUNT(*) FROM (
+                SELECT c1 FROM correlated_scalar_t1
+                UNION ALL
+                SELECT c1 FROM correlated_scalar_t2
+            ) u
+        ) AS result
+    """
+    qt_not_exists_over_scalar_agg_union """
+        SELECT NOT EXISTS (
+            SELECT COUNT(*) FROM (
+                SELECT c1 FROM correlated_scalar_t1
+                UNION ALL
+                SELECT c1 FROM correlated_scalar_t2
+            ) u
+        ) AS result
+    """
+    // Correlated EXISTS over scalar agg + UNION: the outer query references
+    // are inside the UNION branches, but the aggregate still guarantees one
+    // row.  This shape must not throw "Unsupported correlated subquery with
+    // set operation" — the scalar aggregate fold happens first.
+    qt_exists_correlated_scalar_agg_union """
+        SELECT c1 FROM correlated_scalar_t1 t1 WHERE EXISTS (
+            SELECT COUNT(*) FROM (
+                SELECT c1 FROM correlated_scalar_t2 t2 WHERE t1.c1 = t2.c1
+                UNION ALL
+                SELECT c1 FROM correlated_scalar_t3 t3 WHERE t1.c1 = t3.c1
+            ) u
+        ) ORDER BY c1
+    """
+
+    // EXISTS over a scalar aggregate with ORDER BY wrapper — the sort cannot
+    // change EXISTS semantics and hasTopLevelScalarAgg() must see through it.
+    // This shape must not throw "Unsupported correlated subquery with set
+    // operation" or "Unsupported correlated subquery with a LIMIT clause".
+    // Non-correlated variant: EXISTS (SELECT COUNT(*) FROM (... UNION ...) u ORDER BY 1)
+    qt_exists_over_scalar_agg_union_orderby """
+        SELECT EXISTS (
+            SELECT COUNT(*) FROM (
+                SELECT c1 FROM correlated_scalar_t1
+                UNION ALL
+                SELECT c1 FROM correlated_scalar_t2
+            ) u ORDER BY 1
+        ) AS result
+    """
+    qt_not_exists_over_scalar_agg_union_orderby """
+        SELECT NOT EXISTS (
+            SELECT COUNT(*) FROM (
+                SELECT c1 FROM correlated_scalar_t1
+                UNION ALL
+                SELECT c1 FROM correlated_scalar_t2
+            ) u ORDER BY 1
+        ) AS result
+    """
+    // Correlated variant: ORDER BY over correlated scalar-agg + UNION.
+    qt_exists_correlated_scalar_agg_union_orderby """
+        SELECT c1 FROM correlated_scalar_t1 t1 WHERE EXISTS (
+            SELECT COUNT(*) FROM (
+                SELECT c1 FROM correlated_scalar_t2 t2 WHERE t1.c1 = t2.c1
+                UNION ALL
+                SELECT c1 FROM correlated_scalar_t3 t3 WHERE t1.c1 = t3.c1
+            ) u ORDER BY 1
+        ) ORDER BY c1
+    """
+
+    // EXISTS over a scalar aggregate wrapped in a derived-table alias:
+    //   WHERE EXISTS (SELECT * FROM (SELECT COUNT(*) FROM (<union>) u) a)
+    // hasTopLevelScalarAgg() must see through LogicalSubQueryAlias to fold.
+    qt_exists_correlated_scalar_agg_union_derived """
+        SELECT c1 FROM correlated_scalar_t1 t1 WHERE EXISTS (
+            SELECT * FROM (
+                SELECT COUNT(*) FROM (
+                    SELECT c1 FROM correlated_scalar_t2 t2 WHERE t1.c1 = t2.c1
+                    UNION ALL
+                    SELECT c1 FROM correlated_scalar_t3 t3 WHERE t1.c1 = t3.c1
+                ) u
+            ) a
+        ) ORDER BY c1
+    """
+    qt_exists_scalar_agg_union_derived """
+        SELECT EXISTS (
+            SELECT * FROM (
+                SELECT COUNT(*) FROM (
+                    SELECT c1 FROM correlated_scalar_t1
+                    UNION ALL
+                    SELECT c1 FROM correlated_scalar_t2
+                ) u
+            ) a
+        ) AS result
+    """
+    qt_not_exists_scalar_agg_union_derived """
+        SELECT NOT EXISTS (
+            SELECT * FROM (
+                SELECT COUNT(*) FROM (
+                    SELECT c1 FROM correlated_scalar_t1
+                    UNION ALL
+                    SELECT c1 FROM correlated_scalar_t2
+                ) u
+            ) a
+        ) AS result
+    """
 }

@@ -1185,6 +1185,12 @@ struct FromBase64Impl {
                 continue;
             }
 
+            if (UNLIKELY(srclen % 4 != 0)) {
+                null_map[i] = 1;
+                dst_offsets[i] = cast_set<uint32_t>(offset);
+                continue;
+            }
+
             auto outlen = base64_decode(source, srclen, dst_data_ptr + offset);
 
             if (outlen < 0) {

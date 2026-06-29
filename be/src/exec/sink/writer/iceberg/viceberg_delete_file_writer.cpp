@@ -93,6 +93,10 @@ Status VIcebergDeleteFileWriter::open(RuntimeState* state, RuntimeProfile* profi
         case TFileCompressType::ZSTD:
             parquet_compression_type = TParquetCompressionType::ZSTD;
             break;
+        case TFileCompressType::LZ4BLOCK:
+            // Hadoop-framed Parquet LZ4 (not LZ4_RAW) for cross-engine compatibility.
+            parquet_compression_type = TParquetCompressionType::LZ4_HADOOP;
+            break;
         default:
             return Status::InternalError("Unsupported compress type {} with parquet",
                                          to_string(_compress_type));

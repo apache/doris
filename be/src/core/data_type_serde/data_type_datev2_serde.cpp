@@ -96,12 +96,11 @@ Status DataTypeDateV2SerDe::write_column_to_arrow(const IColumn& column, const N
     for (size_t i = start; i < end; ++i) {
         auto daynr = col_data[i].daynr() - date_threshold;
         if (null_map && (*null_map)[i]) {
-            RETURN_IF_ERROR(checkArrowStatus(date32_builder.AppendNull(), column.get_name(),
-                                             array_builder->type()->name()));
+            RETURN_IF_ERROR(checkArrowStatus(date32_builder.AppendNull(), column, *array_builder));
         } else {
             RETURN_IF_ERROR(
                     checkArrowStatus(date32_builder.Append(cast_set<int, int64_t, false>(daynr)),
-                                     column.get_name(), array_builder->type()->name()));
+                                     column, *array_builder));
         }
     }
     return Status::OK();

@@ -37,6 +37,9 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.TreeNode;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.iceberg.source.IcebergScanNode;
+import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
+import org.apache.doris.planner.LocalExchangeNode.LocalExchangeType;
+import org.apache.doris.planner.LocalExchangeNode.LocalExchangeTypeRequire;
 import org.apache.doris.planner.normalize.ExprNormalizeVisitor;
 import org.apache.doris.planner.normalize.Normalizer;
 import org.apache.doris.qe.ConnectContext;
@@ -142,7 +145,13 @@ public abstract class PlanNode extends TreeNode<PlanNode> {
 
     protected int nereidsId = -1;
 
-    private List<List<Expr>> childrenDistributeExprLists = new ArrayList<>();
+    // Per-child hash-distribution key exprs: childrenDistributeExprLists.get(i) is the expr list
+    // used to (re)partition this node's i-th child's input — consumed by getChildDistributeExprList()
+    // when deriving local-exchange keys.
+    protected List<List<Expr>> childrenDistributeExprLists = new ArrayList<>();
+    // This node's own output hash-distribution key exprs — serialized to BE for its LocalExchange /
+    // shuffle (see distributeExprLists()).
+    protected List<Expr> distributeExprLists = new ArrayList<>();
 
     protected PlanNode(PlanNodeId id, List<TupleId> tupleIds, String planNodeName) {
         this.id = id;
@@ -467,7 +476,7 @@ public abstract class PlanNode extends TreeNode<PlanNode> {
         TPlanNode msg = new TPlanNode();
         msg.node_id = id.asInt();
         msg.setNereidsId(nereidsId);
-        msg.setIsSerialOperator(isSerialOperator() && fragment.useSerialSource(ConnectContext.get()));
+        msg.setIsSerialOperator(isSerialOperatorOnBe(ConnectContext.get()));
         msg.num_children = children.size();
         msg.limit = limit;
         for (TupleId tid : tupleIds) {
@@ -824,14 +833,97 @@ public abstract class PlanNode extends TreeNode<PlanNode> {
         });
     }
 
-    // Operators need to be executed serially. (e.g. finalized agg without key)
-    public boolean isSerialOperator() {
+    /**
+     * Node-level "is this operator inherently serial" property — answers without looking
+     * at the fragment.  Default false; subclasses override (e.g. finalized agg without key,
+     * UNPARTITIONED ExchangeNode with merge sort).
+     *
+     * Use ONLY in framework-internal places where we are already iterating within a
+     * fragment whose serial-source mode is fixed: {@link #shouldResetSerialFlagForChild}
+     * inputs, {@link #createLocalExchange} heavy-op gate, and child.isSerialNode() checks
+     * embedded inside an enforceRequire path.  Do NOT use it when computing a
+     * {@link LocalExchangeNode.LocalExchangeTypeRequire} on a child — call
+     * {@link #isSerialOperatorOnBe} instead.
+     */
+    public boolean isSerialNode() {
+        return false;
+    }
+
+    /**
+     * Whether this node will be reported to BE as {@code is_serial_operator=true}, i.e. it
+     * actually runs with one task on BE.  Composes {@link #isSerialNode} with the fragment's
+     * {@code useSerialSource(context)} — when the fragment is not in serial-source mode
+     * even an isSerialNode()=true operator still runs with N tasks.
+     *
+     * <p>This is the API to use when deciding what {@code LocalExchangeTypeRequire} to
+     * declare for a child in {@code enforceAndDeriveLocalExchange}.  Using
+     * {@link #isSerialNode} directly there will compute the wrong require under
+     * non-serial-source fragments and misses the {@code hasSerialScanNode()} contribution
+     * that {@link ExchangeNode#isSerialOperatorOnBe} layers in.  Getting this wrong
+     * silently produces wrong results (serial child feeds N-task parent without LE).
+     *
+     * <p>Must match the condition in {@code toThrift()/treeToThriftHelper()}; subclasses
+     * (ExchangeNode) override to fold in {@code hasSerialScanNode()}.
+     */
+    public boolean isSerialOperatorOnBe(ConnectContext context) {
+        return fragment != null && isSerialNode() && fragment.useSerialSource(context);
+    }
+
+    /**
+     * "I depend on hash distribution for correctness, not just performance optimization."
+     * Used by UnionNode to decide whether to propagate hash requirement to its inputs:
+     * when a downstream operator requires shuffle for correctness, Union must pre-shuffle
+     * its inputs so the merged output is hash-distributed.
+     *
+     * Default is false; only operators that truly need hash for correctness override
+     * (finalize AggSink with group keys, HashJoin PARTITIONED/BUCKET_SHUFFLE, Intersect,
+     * Except, analytic SortNode, partition-by AnalyticEvalNode).  Operators that request
+     * hash for performance only (StreamingAgg pre-agg with enable_local_exchange_before_agg)
+     * MUST NOT override — that would cause SetOperationNode to over-insert HASH LE on
+     * every union branch even when nothing downstream actually needs correctness shuffling.
+     *
+     * Mirrors BE's OperatorBase::is_shuffled_operator().
+     *
+     * <h3>Propagation example — multi-distinct over UNION</h3>
+     * <pre>
+     *   AggGlobal(finalize, hasKeys)             ← override = true (chain start)
+     *     └─ Agg(DISTINCT_LOCAL, !finalize)      ← override = false, inherits via
+     *                                              inheritedShuffled in enforceRequire 1b
+     *          └─ Agg(FIRST_MERGE, !finalize)    ← override = false, inherits
+     *               └─ Agg(FIRST_LOCAL, ...)     ← override = false, inherits
+     *                    └─ Union                ← reads inheritedShuffled=true and
+     *                                              pre-shuffles each branch
+     *                         ├─ Scan_t1
+     *                         └─ Scan_t2
+     * </pre>
+     *
+     * Only the top-level correctness consumer needs to override true.  Mid-chain
+     * merge / local phases do NOT need to — the flag flows down through
+     * {@link PlanTranslatorContext#hasShuffleForCorrectnessAncestor} automatically as long
+     * as every link in the chain requires HASH or NOOP (see {@code enforceRequire} step 1b).
+     *
+     * <h3>What happens if you forget to override</h3>
+     * <ul>
+     *   <li><b>Short chain (top consumer directly above Union)</b>: Union doesn't
+     *       pre-shuffle its branches, but {@code enforceRequire} inserts a fallback
+     *       LE(HASH) between the consumer and Union.  Data result is still correct,
+     *       but the plan shape differs from BE-planned mode (one extra fan-in→fan-out).</li>
+     *   <li><b>Long chain</b>: same outcome as short chain, because the fallback LE
+     *       is inserted at the consumer/Union boundary regardless of chain length.</li>
+     *   <li><b>The real wrong-result risk</b> is when {@code enforceRequire}'s fallback
+     *       LE is skipped — e.g. Layer 1 skip when a serial ancestor sits between the
+     *       consumer and Union.  In practice top-level correctness consumers (finalize
+     *       agg, hash join, etc.) are not under serial ancestors so this is rare, but
+     *       the override is the principled fix.</li>
+     * </ul>
+     */
+    public boolean requiresShuffleForCorrectness() {
         return false;
     }
 
     public boolean hasSerialChildren() {
         if (children.isEmpty()) {
-            return isSerialOperator();
+            return isSerialNode();
         }
         return children.stream().allMatch(PlanNode::hasSerialChildren);
     }
@@ -938,5 +1030,264 @@ public abstract class PlanNode extends TreeNode<PlanNode> {
             mergeDisplayAccessPaths.add(StringUtils.join(mergedPath, "."));
         }
         return StringUtils.join(mergeDisplayAccessPaths, ", ");
+    }
+
+    public Pair<PlanNode, LocalExchangeType> enforceAndDeriveLocalExchange(
+            PlanTranslatorContext translatorContext, PlanNode parent, LocalExchangeTypeRequire parentRequire) {
+        ArrayList<PlanNode> newChildren = Lists.newArrayList();
+        for (int i = 0; i < children.size(); i++) {
+            Pair<PlanNode, LocalExchangeType> childOutput
+                    = enforceRequire(translatorContext, children.get(i), i, LocalExchangeTypeRequire.noRequire());
+            newChildren.add(childOutput.first);
+        }
+        this.children = newChildren;
+        return Pair.of(this, LocalExchangeType.NOOP);
+    }
+
+    /**
+     * Unified framework method: propagate serial flag → recurse child → satisfy check → Layer 1 skip → insert LE.
+     * Replaces the old enforceChild/enforceChildExchange/forceEnforceChildExchange trio.
+     *
+     * <h3>Data flow</h3>
+     * <ul>
+     *   <li><b>serial-ancestor flag</b> ({@link PlanTranslatorContext#hasSerialAncestorInPipeline})
+     *       — flows root → leaf during traversal.  Mirrors BE's
+     *       {@code any_of(operators[idx..end], is_serial_operator)} check used by
+     *       {@code _add_local_exchange} to skip LE insertion when an ancestor in the same
+     *       pipeline is already serial.  Reset at pipeline boundaries via
+     *       {@link #shouldResetSerialFlagForChild}.</li>
+     *   <li><b>shuffle-for-correctness flag</b>
+     *       ({@link PlanTranslatorContext#hasShuffleForCorrectnessAncestor}) — also flows
+     *       root → leaf.  Mirrors BE's {@code _followed_by_shuffled_operator}: tells a
+     *       child whether some downstream operator depends on hash distribution for
+     *       correctness, so {@code SetOperationNode} can pre-shuffle union branches.</li>
+     *   <li><b>return value</b> {@code Pair<PlanNode, LocalExchangeType>} — first is the
+     *       (possibly LE-wrapped) child; second is the actual output distribution as
+     *       observed by the parent.  Caller's {@code require.satisfy(output)} decides
+     *       whether more LE is needed.</li>
+     *   <li><b>parent.require</b> describes the constraint on the child output —
+     *       computed inside the parent's {@code enforceAndDeriveLocalExchange} per child.</li>
+     * </ul>
+     *
+     * <h3>Invariants</h3>
+     * <ul>
+     *   <li>Where a serial → non-serial transition needs redistribution, framework step 3 inserts
+     *       the LE (e.g. a serial source fanned out via PASSTHROUGH).  This is not a hard invariant:
+     *       a serial child feeding a parent that requires PASSTHROUGH / noRequire (TableFunction,
+     *       NLJ, Agg) is already correct and needs no LE, so it is intentionally not validated by a
+     *       post-pass.</li>
+     *   <li>{@code LocalExchangeNode} itself is always non-serial — setting it serial
+     *       would defeat its purpose of fanning a 1-task pipeline back to N tasks.</li>
+     *   <li>For pipeline-breaking parents ({@code shouldResetSerialFlagForChild=true}),
+     *       the child starts a fresh pipeline so {@code hasSerialAncestor} is reset; the
+     *       node's own {@code isSerialNode()} still composes in for the child's view.</li>
+     *   <li>{@code RequireHash} accepts any hash flavour; {@code RequireSpecific} demands
+     *       an exact match (with the one PASSTHROUGH/ADAPTIVE_PASSTHROUGH compatibility).
+     *       Pick the looser one whenever correctness allows — see
+     *       {@link LocalExchangeNode.LocalExchangeTypeRequire}.</li>
+     * </ul>
+     *
+     * <h3>Layers</h3>
+     * Layer 1 (shouldSkipLE): mirrors BE's need_to_local_exchange — skip when this node or
+     * an ancestor in the same pipeline is serial (operators[idx..end] has serial → skip).
+     * Layer 2 (require/output): each Node declares require and output in enforceAndDeriveLocalExchange.
+     */
+    protected Pair<PlanNode, LocalExchangeType> enforceRequire(
+            PlanTranslatorContext translatorContext, PlanNode child, int childIndex,
+            LocalExchangeTypeRequire require) {
+        // 1. Propagate serial-ancestor flag to child.
+        // For pipeline-splitting operators (shouldReset=true, e.g. non-streaming AGG):
+        //   Drop inherited serial flag from parent (parent is in a different pipeline),
+        //   but keep this node's own serial status (child is in the same pipeline as this
+        //   node's sink, e.g. Exchange is in AGG_Sink pipeline).
+        // For non-splitting operators (shouldReset=false, e.g. streaming AGG):
+        //   Inherit parent's serial flag + this node's own.
+        boolean inheritedSerial = shouldResetSerialFlagForChild(childIndex)
+                ? false : translatorContext.hasSerialAncestorInPipeline(this);
+        // Use isSerialOperatorOnBe (= isSerialNode && fragment.useSerialSource) instead of the
+        // raw isSerialNode().  BE's OperatorBase reads the Thrift `is_serial_operator` flag —
+        // which is what FE writes via isSerialOperatorOnBe — so when the fragment is not in
+        // serial-source mode, BE treats this operator as non-serial regardless of isSerialNode.
+        // Using isSerialNode here would set the child's serial-ancestor flag wider than BE's
+        // view and over-skip required LocalExchanges downstream.
+        boolean childHasSerialAncestor = inheritedSerial
+                || isSerialOperatorOnBe(translatorContext.getConnectContext());
+        translatorContext.setHasSerialAncestorInPipeline(child, childHasSerialAncestor);
+
+        // 1b. Propagate shuffle-for-correctness-ancestor flag to child.
+        // Mirrors BE's _followed_by_shuffled_operator: a downstream operator needs hash
+        // distribution for correctness, and the chain to here goes through HASH or NOOP
+        // requirements (so the dependency is preserved).
+        //   propagate = ((inheritedShuffled || self.requiresShuffleForCorrectness)
+        //                && require is hash)
+        //            || (inheritedShuffled && require is noop/passthrough)
+        boolean inheritedShuffled = translatorContext.hasShuffleForCorrectnessAncestor(this);
+        boolean selfOrInheritedShuffled = inheritedShuffled || requiresShuffleForCorrectness();
+        boolean requireIsHash = require.preferType().isHashShuffle();
+        boolean requireIsNoop = require.preferType() == LocalExchangeNode.LocalExchangeType.NOOP;
+        boolean childShuffledAncestor = (selfOrInheritedShuffled && requireIsHash)
+                || (inheritedShuffled && requireIsNoop);
+        translatorContext.setHasShuffleForCorrectnessAncestor(child, childShuffledAncestor);
+
+        // 2. Recurse child (Layer 2: child declares its own require/output)
+        Pair<PlanNode, LocalExchangeType> childOutput =
+                child.enforceAndDeriveLocalExchange(translatorContext, this, require);
+
+        // Steps 2.5 and 3 both react to a serial child but address different concerns:
+        //   - Step 2.5 rewrites the OUTPUT-side view (what we tell satisfy/parent about
+        //     the child's actual distribution).  A serial pipeline runs with 1 task so
+        //     its distribution claim is meaningless — flatten to NOOP so the satisfy
+        //     check below doesn't get fooled by a stale "I output BUCKET_HASH" claim.
+        //   - Step 3 rewrites the REQUIRE-side decision (what we want from the child).
+        //     If we previously asked for nothing (noRequire) but the child turns out
+        //     to be serial and we're not, upgrade to requirePassthrough so an LE is
+        //     inserted to restore parallelism.
+
+        // 2.5. Serial child override (output side): if child is serial on BE, force its
+        //      reported output to NOOP.  Distribution is irrelevant when the child runs
+        //      with 1 task; downstream parallelism is restored either by step 3 (LE
+        //      insertion) or skipped entirely by step 4b (we're also serial).
+        if (childOutput.first.isSerialOperatorOnBe(translatorContext.getConnectContext())) {
+            childOutput = Pair.of(childOutput.first, LocalExchangeType.NOOP);
+        }
+
+        // 3. Framework-level serial child check (require side, mirrors BE base class
+        //    required_data_distribution): if child will be serial on BE but this node is
+        //    not serial, the pipeline has a 1-task serial child feeding an N-task non-serial
+        //    parent.  Without LE, pipeline splits (AGG/JOIN) create paired pipelines with
+        //    mismatched num_tasks → crash.  Upgrade noRequire to requirePassthrough so an
+        //    LE is inserted below to restore parallelism.
+        if (require instanceof LocalExchangeNode.NoRequire
+                && childOutput.first.isSerialOperatorOnBe(translatorContext.getConnectContext())
+                && !isSerialOperatorOnBe(translatorContext.getConnectContext())) {
+            require = LocalExchangeTypeRequire.requirePassthrough();
+        }
+
+        // 4. Satisfy check: child output meets requirement → done
+        if (require.satisfy(childOutput.second)) {
+            return childOutput;
+        }
+
+        // 4. Layer 1: skip LE when serial operator or ancestor in same pipeline
+        // Equivalent to BE's need_to_local_exchange: any_of(operators[idx..end], is_serial) → skip.
+        // Use isSerialOperatorOnBe (not isSerialNode) because BE's Pipeline::need_to_local_exchange
+        // checks op->is_serial_operator() which reads the Thrift flag set from isSerialOperatorOnBe;
+        // when fragment.useSerialSource is false, BE treats this node as non-serial.
+        if (translatorContext.hasSerialAncestorInPipeline(this)
+                || isSerialOperatorOnBe(translatorContext.getConnectContext())) {
+            return childOutput;
+        }
+
+        // 5. Resolve exchange type and create LE node
+        LocalExchangeType preferType = AddLocalExchange.resolveExchangeType(require);
+        List<Expr> distributeExprs = getLocalExchangeDistributeExprs(childIndex, selfOrInheritedShuffled);
+        PlanNode leNode = createLocalExchange(translatorContext, childOutput.first, preferType, distributeExprs);
+        return Pair.of(leNode, preferType);
+    }
+
+    /**
+     * Create a LocalExchangeNode wrapping child with the given exchange type.
+     * No child-type skip — matches BE's _add_local_exchange which inserts LE for any child
+     * type without checking instanceof.
+     *
+     * Handles heavy-ops bottleneck avoidance (mirrors BE pipeline_fragment_context.cpp):
+     * when upstream has 1 task (serial source) and exchange is heavy (hash/bucket/adaptive),
+     * insert a PASSTHROUGH fan-out first to avoid single-task bottleneck on the heavy
+     * exchange sink. Only applies to local-shuffle (pooling scan) fragments.
+     */
+    protected PlanNode createLocalExchange(PlanTranslatorContext translatorContext,
+            PlanNode child, LocalExchangeType exchangeType, List<Expr> distributeExprs) {
+        if (fragment != null && fragment.useSerialSource(translatorContext.getConnectContext())
+                && exchangeType.isHeavyOperation() && child.isSerialNode()) {
+            PlanNode ptNode = new LocalExchangeNode(translatorContext.nextPlanNodeId(),
+                    child, LocalExchangeType.PASSTHROUGH, null);
+            return new LocalExchangeNode(translatorContext.nextPlanNodeId(), ptNode,
+                    exchangeType, distributeExprs);
+        }
+        return new LocalExchangeNode(translatorContext.nextPlanNodeId(), child,
+                exchangeType, distributeExprs);
+    }
+
+    /**
+     * Whether the child at {@code childIndex} starts a new pipeline context, causing
+     * its serial-ancestor flag to be reset to {@code false} rather than inherited from this node.
+     * Override to return {@code true} for pipeline-splitting nodes (LocalExchangeNode) and nodes
+     * whose children run in an independent pipeline segment (SortNode before analytic, etc.).
+     */
+    protected boolean shouldResetSerialFlagForChild(int childIndex) {
+        return false;
+    }
+
+    protected List<Expr> getChildDistributeExprList(int childIndex) {
+        if ((childrenDistributeExprLists == null || childrenDistributeExprLists.size() <= childIndex)) {
+            return null;
+        } else {
+            return childrenDistributeExprLists.get(childIndex);
+        }
+    }
+
+    /**
+     * Return distribute exprs used as the hash key when {@link #enforceRequire} inserts a
+     * LocalExchange between this node and {@code child[childIndex]}.  Default returns the
+     * child's output distribution ({@code childrenDistributeExprLists[childIndex]}).
+     *
+     * <p>Subclasses override this to mirror BE-specific {@code _partition_exprs} logic.  For
+     * example BE's {@code AggSinkOperatorX::update_operator} picks
+     * {@code grouping_exprs} when {@code !_followed_by_shuffled_operator && !has_distinct},
+     * even though the child outputs a different (hash) distribution — and the LE inserted
+     * before the streaming preagg must partition by {@code grouping_exprs} so a local
+     * partial reduce actually collapses same-key rows.  Using the default (child
+     * distribution) here would scatter same-group rows across instances and degrade the
+     * preagg to a no-op, also breaking row-arrival order at downstream merge-finalize.
+     *
+     * @param childIndex which child
+     * @param followedByShuffled whether the chain at this node is followed by a shuffled
+     *        operator (mirrors BE's {@code _followed_by_shuffled_operator})
+     */
+    protected List<Expr> getLocalExchangeDistributeExprs(int childIndex, boolean followedByShuffled) {
+        return getChildDistributeExprList(childIndex);
+    }
+
+    /**
+     * Returns the operator's own semantically-defined partition expressions
+     * (e.g. GROUP BY exprs for aggregation, PARTITION BY exprs for analytic).
+     * Corresponds to BE's fallback path: tnode.agg_node.grouping_exprs /
+     * tnode.analytic_node.partition_exprs when _followed_by_shuffled_operator=false.
+     * Override in subclasses that have intrinsic partition keys.
+     */
+    protected List<Expr> getSemanticPartitionExprs() {
+        return null;
+    }
+
+    /**
+     * Returns true if there are effective (non-empty) partition expressions,
+     * mirroring BE's _partition_exprs logic:
+     *   _followed_by_shuffled_operator=true  → distribute_expr_lists[0] (child distribute key)
+     *   _followed_by_shuffled_operator=false → semantic partition exprs (grouping / partition by)
+     * parentRequire.preferType().isHashShuffle() corresponds to _followed_by_shuffled_operator=true.
+     */
+    protected boolean hasPartitionExprs(LocalExchangeTypeRequire parentRequire) {
+        if (parentRequire.preferType().isHashShuffle()) {
+            List<Expr> childExprs = getChildDistributeExprList(0);
+            return childExprs != null && !childExprs.isEmpty();
+        }
+        List<Expr> semanticExprs = getSemanticPartitionExprs();
+        return semanticExprs != null && !semanticExprs.isEmpty();
+    }
+
+    public List<List<Expr>> getChildrenDistributeExprLists() {
+        return childrenDistributeExprLists;
+    }
+
+    public List<Expr> getDistributeExprLists() {
+        return distributeExprLists;
+    }
+
+    public void setDistributeExprLists(List<Expr> distributeExprLists) {
+        if (distributeExprLists == null) {
+            this.distributeExprLists = Collections.emptyList();
+        } else {
+            this.distributeExprLists = distributeExprLists;
+        }
     }
 }

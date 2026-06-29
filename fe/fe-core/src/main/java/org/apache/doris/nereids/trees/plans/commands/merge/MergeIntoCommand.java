@@ -54,6 +54,7 @@ import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.ForwardWithSync;
 import org.apache.doris.nereids.trees.plans.commands.IcebergMergeCommand;
+import org.apache.doris.nereids.trees.plans.commands.SupportProfile;
 import org.apache.doris.nereids.trees.plans.commands.UpdateCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
@@ -84,7 +85,7 @@ import java.util.Optional;
 /**
  * merge into table
  */
-public class MergeIntoCommand extends Command implements ForwardWithSync, Explainable {
+public class MergeIntoCommand extends Command implements ForwardWithSync, Explainable, SupportProfile {
     private static final String BRANCH_LABEL = "__DORIS_MERGE_INTO_BRANCH_LABEL__";
 
     private final List<String> targetNameParts;
@@ -151,6 +152,11 @@ public class MergeIntoCommand extends Command implements ForwardWithSync, Explai
     private TableIf getTargetTableIf(ConnectContext ctx) {
         List<String> qualifiedTableName = RelationUtil.getQualifierName(ctx, targetNameParts);
         return RelationUtil.getTable(qualifiedTableName, ctx.getEnv(), Optional.empty());
+    }
+
+    @Override
+    public List<String> getTargetTableNameParts() {
+        return targetNameParts;
     }
 
     private OlapTable getTargetTable(ConnectContext ctx) {

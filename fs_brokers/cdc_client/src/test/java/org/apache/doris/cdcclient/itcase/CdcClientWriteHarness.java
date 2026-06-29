@@ -159,9 +159,19 @@ final class CdcClientWriteHarness implements AutoCloseable {
         return new JobBaseConfig(jobId, dataSource, config, null);
     }
 
+    /**
+     * Open the job's reader the way FE's CREATE JOB does via {@code /api/initReader}:
+     * createResources=true so the PG slot/publication are pre-created on first open. Idempotent —
+     * later opens reuse the cached reader. Must run before any coordinator write, whose numeric jobId
+     * would otherwise open the reader with createResources=false and never provision them.
+     */
+    private SourceReader openReader() {
+        return Env.getCurrentEnv().getReader(baseConfig(), true);
+    }
+
     /** Compute every snapshot chunk for one table (mirrors FE's /api/fetchSplits cursor). */
     List<SnapshotSplit> fetchAllSnapshotSplits(String table) {
-        SourceReader reader = Env.getCurrentEnv().getReader(baseConfig());
+        SourceReader reader = openReader();
         List<SnapshotSplit> all = new ArrayList<>();
         Object[] nextSplitStart = null;
         Integer nextSplitId = null;
@@ -263,6 +273,7 @@ final class CdcClientWriteHarness implements AutoCloseable {
     }
 
     private void runWrite(Map<String, Object> meta) throws Exception {
+        openReader();
         coordinator.writeRecords(buildRequest(meta));
         capture();
     }

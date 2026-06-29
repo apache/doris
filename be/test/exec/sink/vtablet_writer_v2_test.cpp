@@ -281,6 +281,27 @@ TEST_F(TestVTabletWriterV2, shared_delta_writer_should_not_access_destroyed_crea
     current_writer->_cancel(Status::Cancelled("test cleanup"));
 }
 
+TEST_F(TestVTabletWriterV2, close_wait_notifier_should_be_scoped_to_load_stream_map) {
+    UniqueId load_id1;
+    UniqueId load_id2;
+    load_id2.lo = 1;
+    std::shared_ptr<LoadStreamMap> load_stream_map1 =
+            std::make_shared<LoadStreamMap>(load_id1, src_id, 1, 1, nullptr);
+    std::shared_ptr<LoadStreamMap> load_stream_map2 =
+            std::make_shared<LoadStreamMap>(load_id2, src_id, 1, 1, nullptr);
+    auto streams1 = load_stream_map1->get_or_create(1001);
+    auto streams2 = load_stream_map2->get_or_create(1002);
+    streams1->mark_open();
+    streams2->mark_open();
+
+    int64_t version1 = load_stream_map1->close_wait_version();
+    int64_t version2 = load_stream_map2->close_wait_version();
+    streams1->select_one_stream()->cancel(Status::Cancelled("test"));
+
+    ASSERT_GT(load_stream_map1->close_wait_version(), version1);
+    ASSERT_EQ(load_stream_map2->close_wait_version(), version2);
+}
+
 TEST_F(TestVTabletWriterV2, one_replica) {
     UniqueId load_id;
     std::vector<TTabletCommitInfo> tablet_commit_infos;
