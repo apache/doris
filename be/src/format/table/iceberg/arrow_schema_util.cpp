@@ -25,6 +25,7 @@ namespace doris::iceberg {
 const char* ArrowSchemaUtil::PARQUET_FIELD_ID = "PARQUET:field_id";
 const char* ArrowSchemaUtil::ORIGINAL_TYPE = "originalType";
 const char* ArrowSchemaUtil::MAP_TYPE_VALUE = "mapType";
+const char* ArrowSchemaUtil::UUID_TYPE_VALUE = "uuid";
 
 Status ArrowSchemaUtil::convert(const Schema* schema, const std::string& timezone,
                                 std::vector<std::shared_ptr<arrow::Field>>& fields) {
@@ -84,6 +85,7 @@ Status ArrowSchemaUtil::convert_to(const iceberg::NestedField& field,
         break;
 
     case iceberg::TypeID::UUID:
+        metadata[ORIGINAL_TYPE] = UUID_TYPE_VALUE;
         arrow_type = arrow::fixed_size_binary(16);
         break;
 

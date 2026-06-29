@@ -261,9 +261,8 @@ Status DataTypeStringSerDeBase<ColumnType>::write_column_to_arrow(
             }
             auto string_ref = string_column.get_data_at(string_i);
             if (string_ref.size != byte_width) {
-                return Status::InvalidArgument(
-                        "Fixed size binary column expects {} bytes, got {}", byte_width,
-                        string_ref.size);
+                return Status::InvalidArgument("Fixed size binary column expects {} bytes, got {}",
+                                               byte_width, string_ref.size);
             }
             RETURN_IF_ERROR(checkArrowStatus(
                     builder.Append(reinterpret_cast<const uint8_t*>(string_ref.data)), column,

@@ -249,6 +249,7 @@ TEST(ArrowSchemaUtilTest, test_binary_field_types) {
     ASSERT_EQ(arrow::Type::FIXED_SIZE_BINARY, fields[3]->type()->id());
     auto uuid_type = std::static_pointer_cast<arrow::FixedSizeBinaryType>(fields[3]->type());
     EXPECT_EQ(16, uuid_type->byte_width());
+    EXPECT_EQ("uuid", fields[3]->metadata()->Get("originalType").ValueUnsafe());
 }
 
 TEST(ArrowSchemaUtilTest, test_parquet_filed_id) {

@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <arrow/array/array_binary.h>
 #include <arrow/array/builder_base.h>
 #include <arrow/array/builder_binary.h>
 #include <arrow/array/builder_decimal.h>
@@ -25,6 +26,7 @@
 #include <arrow/type.h>
 #include <arrow/type_fwd.h>
 #include <arrow/util/decimal.h>
+#include <arrow/util/key_value_metadata.h>
 #include <arrow/visit_type_inline.h>
 #include <arrow/visitor.h>
 #include <gen_cpp/Descriptors_types.h>
@@ -35,6 +37,7 @@
 
 #include <cmath>
 #include <cstdint>
+#include <cstring>
 #include <iostream>
 #include <memory>
 #include <string>
@@ -517,6 +520,37 @@ TEST(DataTypeSerDeArrowTest, BigStringSerDeTest) {
     auto assert_block = std::make_shared<Block>(block->clone_empty());
     CommonDataTypeSerdeTest::deserialize_arrow(assert_block, record_batch);
     CommonDataTypeSerdeTest::compare_two_blocks(block, assert_block);
+}
+
+TEST(DataTypeSerDeArrowTest, IcebergUuidStringToFixedSizeBinary) {
+    auto block = std::make_shared<Block>();
+    auto strcol = ColumnString::create();
+    strcol->insert_data("550e8400-e29b-41d4-a716-446655440000", 36);
+    strcol->insert_data("00112233445566778899aabbccddeeff", 32);
+    DataTypePtr data_type(std::make_shared<DataTypeString>());
+    block->insert(ColumnWithTypeAndName(strcol->get_ptr(), data_type, "uuid_col"));
+
+    auto metadata = arrow::KeyValueMetadata::Make({"originalType"}, {"uuid"});
+    auto schema = arrow::schema(
+            {arrow::field("uuid_col", arrow::fixed_size_binary(16), true, metadata)});
+
+    std::shared_ptr<arrow::RecordBatch> record_batch;
+    cctz::time_zone default_timezone;
+    Status status = convert_to_arrow_batch(*block, schema, arrow::default_memory_pool(),
+                                           &record_batch, default_timezone);
+    ASSERT_TRUE(status.ok()) << status;
+    ASSERT_NE(nullptr, record_batch);
+    ASSERT_EQ(2, record_batch->num_rows());
+
+    auto uuid_array = std::static_pointer_cast<arrow::FixedSizeBinaryArray>(record_batch->column(0));
+    ASSERT_EQ(16, uuid_array->byte_width());
+
+    const uint8_t expected0[] = {0x55, 0x0e, 0x84, 0x00, 0xe2, 0x9b, 0x41, 0xd4,
+                                 0xa7, 0x16, 0x44, 0x66, 0x55, 0x44, 0x00, 0x00};
+    const uint8_t expected1[] = {0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77,
+                                 0x88, 0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff};
+    EXPECT_EQ(0, std::memcmp(uuid_array->GetValue(0), expected0, sizeof(expected0)));
+    EXPECT_EQ(0, std::memcmp(uuid_array->GetValue(1), expected1, sizeof(expected1)));
 }
 
 TEST(DataTypeSerDeArrowTest, BlockConverterTest) {
