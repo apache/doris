@@ -81,7 +81,7 @@ func NewDorisClient(cfg *config.Config) (*DorisLoadClient, error) {
 	}
 
 	return &DorisLoadClient{
-		streamLoader: loader.NewStreamLoader(),
+		streamLoader: loader.NewStreamLoader(cfg.InsecureSkipVerify),
 		config:       cfg,
 	}, nil
 }

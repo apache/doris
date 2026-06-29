@@ -38,9 +38,9 @@ type StreamLoader struct {
 }
 
 // NewStreamLoader creates a new StreamLoader
-func NewStreamLoader() *StreamLoader {
+func NewStreamLoader(insecureSkipVerify bool) *StreamLoader {
 	return &StreamLoader{
-		httpClient: util.GetHttpClient(),
+		httpClient: util.BuildHttpClient(insecureSkipVerify),
 		json:       jsoniter.ConfigCompatibleWithStandardLibrary,
 	}
 }

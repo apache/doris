@@ -18,7 +18,6 @@
 package util
 
 import (
-	"crypto/tls"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -30,12 +29,9 @@ import (
 // createTestClient creates an HTTP client with custom connection limits for testing
 func createTestClient(maxIdleConnsPerHost, maxConnsPerHost int) *http.Client {
 	transport := &http.Transport{
-		MaxIdleConnsPerHost: maxIdleConnsPerHost, // Idle connection pool size, affects connection reuse efficiency
-		MaxConnsPerHost:     maxConnsPerHost,     // Maximum concurrent connections, excess will queue
-		MaxIdleConns:        50,                  // Global idle connection limit
-		TLSClientConfig: &tls.Config{
-			InsecureSkipVerify: true,
-		},
+		MaxIdleConnsPerHost: maxIdleConnsPerHost,
+		MaxConnsPerHost:     maxConnsPerHost,
+		MaxIdleConns:        50,
 	}
 
 	return &http.Client{
