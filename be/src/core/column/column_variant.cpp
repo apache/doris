@@ -826,7 +826,7 @@ size_t ColumnVariant::allocated_bytes() const {
     return res;
 }
 
-void ColumnVariant::for_each_subcolumn(MutableColumnCallback callback) {
+void ColumnVariant::for_each_subcolumn(ColumnCallback callback) {
     for (auto& entry : subcolumns) {
         for (auto& part : entry->data.data) {
             callback(part);
@@ -837,16 +837,6 @@ void ColumnVariant::for_each_subcolumn(MutableColumnCallback callback) {
     // callback may be filter, so the row count may be changed
     num_rows = serialized_sparse_column->size();
     ENABLE_CHECK_CONSISTENCY(this);
-}
-
-void ColumnVariant::for_each_subcolumn(ColumnCallback callback) const {
-    for (const auto& entry : subcolumns) {
-        for (const auto& part : entry->data.data) {
-            callback(*static_cast<const IColumn::Ptr&>(part));
-        }
-    }
-    callback(*static_cast<const IColumn::Ptr&>(serialized_sparse_column));
-    callback(*static_cast<const IColumn::Ptr&>(serialized_doc_value_column));
 }
 
 void ColumnVariant::insert_from(const IColumn& src, size_t n) {
@@ -2385,7 +2375,7 @@ size_t ColumnVariant::filter(const Filter& filter) {
         for (auto& subcolumn : subcolumns) {
             subcolumn->data.num_rows = count;
         }
-        MutableColumnCallback callback = [&](IColumn::WrappedPtr& part) {
+        for_each_subcolumn([&](auto& part) {
             if (part->size() != count) {
                 if (part->is_exclusive()) {
                     const auto result_size = part->filter(filter);
@@ -2400,8 +2390,7 @@ size_t ColumnVariant::filter(const Filter& filter) {
                     part = part->filter(filter, count);
                 }
             }
-        };
-        for_each_subcolumn(callback);
+        });
     }
     num_rows = count;
     ENABLE_CHECK_CONSISTENCY(this);
