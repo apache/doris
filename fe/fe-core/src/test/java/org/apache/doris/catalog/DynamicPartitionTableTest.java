@@ -2020,7 +2020,9 @@ public class DynamicPartitionTableTest {
     @Test
     public void testTimeStampTzDynamicPartition() throws Exception {
         // Set session timezone to something different from the partition timezone
-        // to verify scheduler does not incorrectly use session timezone via ConnectContext fallback.
+        // to verify scheduler uses dynamic_partition.time_zone, not session timezone.
+        // With time_zone = "+00:00" and session = "Asia/Shanghai" (UTC+8),
+        // a session-timezone leak would shift bounds by 8 hours (hour=16, not 00).
         String originalTimeZone = connectContext.getSessionVariable().getTimeZone();
         try {
             connectContext.getSessionVariable().setTimeZone("Asia/Shanghai");
@@ -2042,7 +2044,7 @@ public class DynamicPartitionTableTest {
                     + "\"dynamic_partition.time_unit\" = \"day\",\n"
                     + "\"dynamic_partition.prefix\" = \"p\",\n"
                     + "\"dynamic_partition.buckets\" = \"1\",\n"
-                    + "\"dynamic_partition.time_zone\" = \"America/New_York\"\n"
+                    + "\"dynamic_partition.time_zone\" = \"+00:00\"\n"
                     + ");";
             createTable(createOlapTblStmt);
 
@@ -2090,11 +2092,13 @@ public class DynamicPartitionTableTest {
                 Assert.assertTrue("Upper key must be UTC with +00:00 suffix: " + upperStr,
                         upperStr.contains("+00:00"));
 
-                // The lower key hour should NOT be 0 for America/New_York timezone
-                // (America/New_York midnight = 04:00/05:00 UTC depending on DST)
+                // With time_zone = "+00:00", partition boundaries must be midnight UTC
+                // (hour = 00). If the scheduler incorrectly used session timezone
+                // (Asia/Shanghai, UTC+8), the hour would be 16 instead of 00.
                 String lowerHour = lowerStr.substring(11, 13);
-                Assert.assertFalse("Lower key hour should not be 00 for non-UTC timezone: " + lowerStr,
-                        "00".equals(lowerHour));
+                Assert.assertEquals("Lower bound hour should be 00 (midnight UTC), proving"
+                        + " dynamic_partition.time_zone was used: " + lowerStr,
+                        "00", lowerHour);
             }
 
             for (Partition partition : table.getPartitions()) {
