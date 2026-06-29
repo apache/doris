@@ -17,6 +17,15 @@
 
 package org.apache.doris.connector.iceberg;
 
+import org.apache.iceberg.DataFiles;
+import org.apache.iceberg.ManifestFile;
+import org.apache.iceberg.PartitionSpec;
+import org.apache.iceberg.Schema;
+import org.apache.iceberg.Table;
+import org.apache.iceberg.catalog.Namespace;
+import org.apache.iceberg.catalog.TableIdentifier;
+import org.apache.iceberg.inmemory.InMemoryCatalog;
+import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -80,5 +89,43 @@ public class IcebergConnectorCacheTest {
                 new IcebergConnector(Collections.emptyMap(), new RecordingConnectorContext());
         Assertions.assertDoesNotThrow(() -> connector.invalidateTable("db1", "t1"));
         Assertions.assertDoesNotThrow(connector::invalidateAll);
+    }
+
+    @Test
+    public void refreshCatalogInvalidateAllDropsManifestCache() {
+        // H-5: REFRESH CATALOG -> Connector.invalidateAll() must drop the connector's OWN manifest cache too
+        // (legacy catalog-wide group.invalidateAll parity), not just the latest-snapshot cache. REFRESH TABLE
+        // (invalidateTable) intentionally keeps manifest entries, so this is the catalog-level-only behavior.
+        IcebergConnector connector =
+                new IcebergConnector(Collections.emptyMap(), new RecordingConnectorContext());
+        Table table = tableWithOneManifest();
+        ManifestFile manifest = table.currentSnapshot().dataManifests(table.io()).get(0);
+        IcebergManifestCache manifestCache = connector.manifestCacheForTest();
+        manifestCache.getManifestCacheValue(manifest, table);
+        Assertions.assertEquals(1, manifestCache.size(), "the manifest is cached after a load");
+
+        // REFRESH TABLE must NOT drop the manifest cache (path-keyed immutable content; legacy parity).
+        // MUTATION: invalidateTable clearing the manifest cache -> size 0 here -> red.
+        connector.invalidateTable("db1", "t1");
+        Assertions.assertEquals(1, manifestCache.size(), "REFRESH TABLE keeps manifest entries");
+
+        // REFRESH CATALOG drops it. MUTATION: removing manifestCache.invalidateAll() from invalidateAll ->
+        // size stays 1 -> red.
+        connector.invalidateAll();
+        Assertions.assertEquals(0, manifestCache.size(), "REFRESH CATALOG flushes the manifest cache");
+    }
+
+    private static Table tableWithOneManifest() {
+        InMemoryCatalog catalog = new InMemoryCatalog();
+        catalog.initialize("test", Collections.emptyMap());
+        catalog.createNamespace(Namespace.of("db1"));
+        Table table = catalog.createTable(TableIdentifier.of("db1", "t1"),
+                new Schema(Types.NestedField.required(1, "id", Types.IntegerType.get())),
+                PartitionSpec.unpartitioned());
+        table.newAppend()
+                .appendFile(DataFiles.builder(PartitionSpec.unpartitioned())
+                        .withPath("/data/f1.parquet").withFileSizeInBytes(100).withRecordCount(1).build())
+                .commit();
+        return table;
     }
 }

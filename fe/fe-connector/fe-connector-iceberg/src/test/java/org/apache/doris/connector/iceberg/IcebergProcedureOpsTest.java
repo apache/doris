@@ -49,10 +49,16 @@ import java.util.Map;
  * <p><b>WHY this matters:</b> {@code getSupportedProcedures()} exports the factory's name list and
  * {@code execute()} routes through the factory to a {@link org.apache.doris.connector.iceberg.action.BaseIcebergAction}.
  * T04 makes a known procedure executable end-to-end: the body's SDK mutation + {@code commit()} run inside ONE
- * {@code executeAuthenticated} scope (the auth fix the legacy fe-core actions lacked), then the table's cached
- * metadata is invalidated once at dispatch level (replacing the legacy per-action {@code ExtMetaCacheMgr}
- * call), and the {@link ConnectorSession} is threaded to the body (the {@code rollback_to_timestamp} time
- * zone). The whole path is dormant pre-cutover (iceberg is not {@code PluginDrivenExternalTable} until P6.6).</p>
+ * {@code executeAuthenticated} scope (the auth fix the legacy fe-core actions lacked), and the
+ * {@link ConnectorSession} is threaded to the body (the {@code rollback_to_timestamp} time zone). The whole
+ * path is dormant pre-cutover (iceberg is not {@code PluginDrivenExternalTable} until P6.6).</p>
+ *
+ * <p><b>Cache invalidation is the engine's responsibility (H-6 fix):</b> the dispatch must NOT invalidate any
+ * cache — after the procedure returns, the engine ({@code ConnectorExecuteAction}) refreshes the mutated table
+ * through the standard refresh-table path, the only path that drops both the engine meta cache (LOCAL-name
+ * keyed) and the connector's own per-table cache (REMOTE-name keyed). So {@code ctx.invalidatedTables} stays
+ * empty after every dispatch (success or failure); a non-empty list here would mean the removed connector-side
+ * notification was re-introduced.</p>
  */
 public class IcebergProcedureOpsTest {
 
@@ -213,7 +219,7 @@ public class IcebergProcedureOpsTest {
     // ─────────────────── catalog-backed dispatch (T04) ───────────────────
 
     @Test
-    public void runsBodyInAuthScopeAndInvalidatesTableAfterCommit() {
+    public void runsBodyInOneAuthScopeAndDoesNotInvalidateAtDispatch() {
         InMemoryCatalog catalog = catalogWithTwoSnapshots();
         TableIdentifier id = TableIdentifier.of("db1", "t");
         long snap1 = catalog.loadTable(id).history().get(0).snapshotId();
@@ -230,8 +236,10 @@ public class IcebergProcedureOpsTest {
 
         Assertions.assertEquals(1, ctx.authCount, "the body (load + SDK mutation + commit) runs in ONE auth scope");
         Assertions.assertTrue(ops.log.contains("loadTable:db1.t"));
-        Assertions.assertEquals(ImmutableList.of("db1.t"), ctx.invalidatedTables,
-                "the table is invalidated once at dispatch level after a successful commit");
+        // H-6: the connector dispatch must NOT invalidate — the engine refreshes the table after this returns.
+        // A non-empty list would mean the removed connector-side getMetaInvalidator notification was re-added.
+        Assertions.assertTrue(ctx.invalidatedTables.isEmpty(),
+                "the connector dispatch must not invalidate any cache (the engine owns invalidation)");
         Assertions.assertEquals(ImmutableList.of(String.valueOf(snap2), String.valueOf(snap1)),
                 result.getRows().get(0));
         Assertions.assertEquals(snap1, catalog.loadTable(id).currentSnapshot().snapshotId());
@@ -259,7 +267,8 @@ public class IcebergProcedureOpsTest {
 
         Assertions.assertEquals(ImmutableList.of(String.valueOf(snap2), String.valueOf(snap1)),
                 result.getRows().get(0));
-        Assertions.assertEquals(ImmutableList.of("db1.t"), ctx.invalidatedTables);
+        Assertions.assertTrue(ctx.invalidatedTables.isEmpty(),
+                "the connector dispatch must not invalidate any cache (the engine owns invalidation)");
     }
 
     @Test
@@ -315,10 +324,10 @@ public class IcebergProcedureOpsTest {
     }
 
     @Test
-    public void rollbackToCurrentSnapshotStillInvalidates() {
-        // Rolling back to the snapshot that is ALREADY current short-circuits in the body (no commit), yet the
-        // dispatch-level invalidation is unconditional on a normal return — the cache-to-dispatch nuance where
-        // legacy skipped invalidation on the no-op short-circuit.
+    public void rollbackToCurrentSnapshotShortCircuitsWithoutCommit() {
+        // Rolling back to the snapshot that is ALREADY current short-circuits in the body (no commit). The
+        // connector dispatch invalidates nothing regardless (engine owns invalidation), so the no-op short
+        // circuit and a real commit are indistinguishable from the connector's cache perspective.
         InMemoryCatalog catalog = catalogWithTwoSnapshots();
         TableIdentifier id = TableIdentifier.of("db1", "t");
         long snap2 = catalog.loadTable(id).currentSnapshot().snapshotId();
@@ -336,8 +345,8 @@ public class IcebergProcedureOpsTest {
         Assertions.assertEquals(ImmutableList.of(String.valueOf(snap2), String.valueOf(snap2)),
                 result.getRows().get(0));
         Assertions.assertEquals(historyBefore, catalog.loadTable(id).history().size(), "short-circuit: no commit");
-        Assertions.assertEquals(ImmutableList.of("db1.t"), ctx.invalidatedTables,
-                "unconditional dispatch invalidation fires even on the no-op short-circuit");
+        Assertions.assertTrue(ctx.invalidatedTables.isEmpty(),
+                "the connector dispatch must not invalidate any cache (the engine owns invalidation)");
     }
 
     @Test

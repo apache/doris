@@ -39,6 +39,7 @@ import org.apache.doris.connector.api.procedure.ConnectorProcedureResult;
 import org.apache.doris.connector.api.procedure.ProcedureExecutionMode;
 import org.apache.doris.connector.api.pushdown.ConnectorPredicate;
 import org.apache.doris.datasource.ConnectorColumnConverter;
+import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.PluginDrivenExternalCatalog;
 import org.apache.doris.datasource.PluginDrivenExternalTable;
 import org.apache.doris.datasource.UnboundExpressionToConnectorPredicateConverter;
@@ -151,7 +152,9 @@ public class ConnectorExecuteAction implements ExecuteAction {
                     metadata, procedureOps, session, tableHandle, actionType, properties, partitionNames,
                     loweredWhere);
             try {
-                return wrapResult(driver.run());
+                ConnectorProcedureResult result = driver.run();
+                refreshTableCachesAfterMutation();
+                return wrapResult(result);
             } catch (DorisConnectorException e) {
                 throw new UserException(e.getMessage(), e);
             }
@@ -161,6 +164,7 @@ public class ConnectorExecuteAction implements ExecuteAction {
         try {
             ConnectorProcedureResult result = procedureOps.execute(
                     session, tableHandle, actionType, properties, null, partitionNames);
+            refreshTableCachesAfterMutation();
             return wrapResult(result);
         } catch (DorisConnectorException e) {
             // Surface the connector's unchecked exception as a checked UserException so
@@ -170,6 +174,21 @@ public class ConnectorExecuteAction implements ExecuteAction {
             // kept verbatim (the connector preserves the legacy text byte-for-byte — T08 byte-parity).
             throw new UserException(e.getMessage(), e);
         }
+    }
+
+    /**
+     * After a successful procedure commit, drop this FE's caches for the mutated table through the standard
+     * refresh-table path — exactly what a follower FE does when it replays the refresh-table journal that
+     * {@code ExecuteActionCommand} writes after this returns. {@code refreshTableInternal} clears BOTH the
+     * engine meta cache (keyed by the table's LOCAL names) and the connector's own per-table cache (keyed by
+     * the REMOTE names), resolving both from the {@link PluginDrivenExternalTable}. Without this, the FE that
+     * ran the procedure keeps serving stale connector metadata (the iceberg latest-snapshot cache, default TTL
+     * 24h) until expiry — a leader/follower split. Connector-agnostic: {@code refreshTableInternal}'s connector
+     * arm is a generic SPI call (no-op default).
+     */
+    private void refreshTableCachesAfterMutation() {
+        Env.getCurrentEnv().getRefreshManager()
+                .refreshTableInternal((ExternalDatabase) table.getDatabase(), table, System.currentTimeMillis());
     }
 
     /**

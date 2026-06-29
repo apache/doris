@@ -181,9 +181,22 @@ public class IcebergConnector implements Connector {
         latestSnapshotCache.invalidate(TableIdentifier.of(dbName, tableName));
     }
 
+    /**
+     * REFRESH CATALOG hook: drop ALL of this catalog's connector-owned caches. Clears both the latest-snapshot
+     * cache and the (path-keyed) manifest cache — mirroring legacy {@code IcebergExternalMetaCache}'s
+     * catalog-wide {@code group.invalidateAll()}, which dropped table (latest-snapshot projection) AND manifest
+     * entries. Unlike {@link #invalidateTable} (REFRESH TABLE, which keeps manifest entries), the catalog-level
+     * invalidation flushes manifests too.
+     */
     @Override
     public void invalidateAll() {
         latestSnapshotCache.invalidateAll();
+        manifestCache.invalidateAll();
+    }
+
+    /** Test-only: the manifest cache, so cache tests can assert REFRESH CATALOG ({@link #invalidateAll}) drops it. */
+    IcebergManifestCache manifestCacheForTest() {
+        return manifestCache;
     }
 
     @Override

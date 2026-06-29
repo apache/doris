@@ -237,6 +237,31 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
         super.notifyPropertiesUpdated(updatedProps);
     }
 
+    /**
+     * {@code REFRESH CATALOG} must also drop the connector's OWN caches (e.g. the iceberg latest-snapshot
+     * cache, default TTL 24h, and the manifest cache). The base {@link #onRefreshCache} only invalidates the
+     * registered engine caches via the route resolver — which for a plugin catalog resolves to the schema-only
+     * {@code ENGINE_DEFAULT} bucket and never reaches the connector-owned caches. And {@code REFRESH CATALOG}
+     * does NOT rebuild the connector (that only happens on {@code ADD}/{@code MODIFY CATALOG} via
+     * {@link #resetToUninitialized}), so without this the connector keeps serving stale metadata until TTL.
+     *
+     * <p>Connector-agnostic: {@link Connector#invalidateAll()} is a generic SPI (no-op default; paimon clears
+     * its own latest-snapshot cache too). Reads the {@code connector} field directly (no forced init, mirroring
+     * {@link #overlayMetaCacheConfig}): an uninitialized catalog — or one whose connector was just nulled by
+     * {@code resetToUninitialized}'s {@code onClose()} before this runs — has no connector caches to drop, and
+     * the next access lazily rebuilds the connector with empty caches.
+     */
+    @Override
+    public void onRefreshCache(boolean invalidCache) {
+        super.onRefreshCache(invalidCache);
+        if (invalidCache) {
+            Connector localConnector = connector;
+            if (localConnector != null) {
+                localConnector.invalidateAll();
+            }
+        }
+    }
+
     @Override
     protected List<String> listDatabaseNames() {
         ConnectorSession session = buildConnectorSession();

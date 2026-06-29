@@ -41,13 +41,15 @@ import java.util.concurrent.ConcurrentHashMap;
  * {@code planFiles()}). Within one catalog the same manifest file is parsed once and shared across queries
  * (and across tables that reference it).
  *
- * <p><b>No TTL; capacity-bounded; cleared only on REFRESH CATALOG.</b> This mirrors the legacy entry's
+ * <p><b>No TTL; capacity-bounded; cleared on REFRESH CATALOG.</b> This mirrors the legacy entry's
  * registered {@code CacheSpec.of(false, CACHE_NO_TTL, 100_000)}: a manifest's content is immutable for a given
  * path, so entries never go stale and need no TTL; a table-level invalidation (REFRESH TABLE) intentionally
  * keeps them ({@code IcebergConnector.invalidateTable} does not touch this cache, legacy
- * {@code testInvalidateTableKeepsManifestCache} parity). The only clearing event is a REFRESH CATALOG, which
- * rebuilds the {@link IcebergConnector} and thus drops this {@code final} field wholesale. A best-effort size
- * bound flushes on overflow (re-reads are harmless — the value is immutable).
+ * {@code testInvalidateTableKeepsManifestCache} parity). It is cleared by {@link #invalidateAll()} on a
+ * REFRESH CATALOG (via {@link IcebergConnector#invalidateAll()}, mirroring legacy catalog-wide
+ * {@code group.invalidateAll()}) and dropped wholesale when the {@link IcebergConnector} is rebuilt
+ * (ADD/MODIFY CATALOG). A best-effort size bound flushes on overflow (re-reads are harmless — the value is
+ * immutable).
  */
 final class IcebergManifestCache {
 
@@ -116,6 +118,14 @@ final class IcebergManifestCache {
             }
         }
         return deleteFiles;
+    }
+
+    /**
+     * REFRESH CATALOG hook: drop every cached manifest. Called by {@link IcebergConnector#invalidateAll()}
+     * (catalog-wide invalidation); table-level invalidation (REFRESH TABLE) intentionally does not.
+     */
+    void invalidateAll() {
+        cache.clear();
     }
 
     /** Test-only: current number of cached entries. */

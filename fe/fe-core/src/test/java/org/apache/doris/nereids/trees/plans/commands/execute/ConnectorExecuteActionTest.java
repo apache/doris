@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.plans.commands.execute;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.RefreshManager;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.info.PartitionNamesInfo;
 import org.apache.doris.catalog.info.TableNameInfo;
@@ -54,7 +55,9 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.ResultSet;
 
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.MockedStatic;
@@ -86,6 +89,27 @@ public class ConnectorExecuteActionTest {
     private static final String CATALOG = "test_catalog";
     private static final String REMOTE_DB = "remote_db";
     private static final String REMOTE_TBL = "remote_tbl";
+
+    // execute() now refreshes the table's caches after a successful commit (H-6) via
+    // Env.getCurrentEnv().getRefreshManager().refreshTableInternal(...). Stub that statically for every test so
+    // the dispatch paths don't NPE, and so the refresh can be verified.
+    private MockedStatic<Env> envStatic;
+    private Env env;
+    private RefreshManager refreshManager;
+
+    @BeforeEach
+    public void setUpEnv() {
+        envStatic = Mockito.mockStatic(Env.class);
+        env = Mockito.mock(Env.class);
+        refreshManager = Mockito.mock(RefreshManager.class);
+        Mockito.when(env.getRefreshManager()).thenReturn(refreshManager);
+        envStatic.when(Env::getCurrentEnv).thenReturn(env);
+    }
+
+    @AfterEach
+    public void tearDownEnv() {
+        envStatic.close();
+    }
 
     // -------- ExecuteActionFactory routing --------
 
@@ -322,6 +346,66 @@ public class ConnectorExecuteActionTest {
                 "A non-empty schema with zero rows (connector's null-row encoding) wraps to null, like legacy");
     }
 
+    // -------- execute(): leader-side cache refresh after a successful commit (H-6) --------
+
+    @Test
+    public void executeRefreshesTableCachesAfterSuccessfulSingleCall() throws Exception {
+        Fixture f = new Fixture();
+        Mockito.when(f.procedureOps.execute(Mockito.any(), Mockito.any(), Mockito.anyString(),
+                        Mockito.anyMap(), Mockito.any(), Mockito.anyList()))
+                .thenReturn(twoColumnResult(Arrays.asList("100", "200")));
+
+        ConnectorExecuteAction action = new ConnectorExecuteAction("rollback_to_snapshot",
+                f.props, Optional.empty(), Optional.empty(), f.table);
+        action.execute(f.table);
+
+        // H-6: the FE that ran the procedure must refresh the mutated table through the standard refresh-table
+        // path — the only path that clears BOTH the engine meta cache (LOCAL names) and the connector's own
+        // per-table cache (REMOTE names, the iceberg latest-snapshot cache, default TTL 24h). Without this the
+        // leader keeps serving the pre-procedure snapshot up to 24h (leader/follower split). MUTATION: dropping
+        // the refreshTableCachesAfterMutation() call -> verify fails.
+        Mockito.verify(refreshManager).refreshTableInternal(
+                Mockito.eq(f.db), Mockito.eq(f.table), Mockito.anyLong());
+    }
+
+    @Test
+    public void executeRefreshesTableCachesAfterSuccessfulDistributedRewrite() throws Exception {
+        // The DISTRIBUTED rewrite also produces a new snapshot, so it must refresh too. No groups -> the driver
+        // returns the all-zero row without opening a transaction, but the refresh still runs on a normal return.
+        Fixture f = new Fixture();
+        Mockito.when(f.procedureOps.getExecutionMode("rewrite_data_files"))
+                .thenReturn(ProcedureExecutionMode.DISTRIBUTED);
+        Mockito.when(f.procedureOps.planRewrite(Mockito.any(), Mockito.any(), Mockito.anyString(),
+                        Mockito.anyMap(), Mockito.any(), Mockito.anyList()))
+                .thenReturn(Collections.emptyList());
+
+        Expression where = new GreaterThan(new UnboundSlot("a"), new IntegerLiteral(5));
+        ConnectorExecuteAction action = new ConnectorExecuteAction("rewrite_data_files",
+                f.props, Optional.empty(), Optional.of(where), f.table);
+        action.execute(f.table);
+
+        Mockito.verify(refreshManager).refreshTableInternal(
+                Mockito.eq(f.db), Mockito.eq(f.table), Mockito.anyLong());
+    }
+
+    @Test
+    public void executeDoesNotRefreshWhenProcedureFails() {
+        Fixture f = new Fixture();
+        Mockito.when(f.procedureOps.execute(Mockito.any(), Mockito.any(), Mockito.anyString(),
+                        Mockito.anyMap(), Mockito.any(), Mockito.anyList()))
+                .thenThrow(new DorisConnectorException("Snapshot 7 not found in table remote_tbl"));
+
+        ConnectorExecuteAction action = new ConnectorExecuteAction("rollback_to_snapshot",
+                f.props, Optional.empty(), Optional.empty(), f.table);
+
+        Assertions.assertThrows(UserException.class, () -> action.execute(f.table));
+        // A failed procedure committed nothing, so it must not refresh (no spurious cache churn; mirrors follower
+        // replay which only runs on a logged success). MUTATION: refreshing unconditionally / in a finally -> the
+        // never-verify fails.
+        Mockito.verify(refreshManager, Mockito.never())
+                .refreshTableInternal(Mockito.any(), Mockito.any(), Mockito.anyLong());
+    }
+
     // -------- validate(): engine keeps the ALTER privilege check --------
 
     @Test
@@ -334,17 +418,16 @@ public class ConnectorExecuteActionTest {
         ConnectorExecuteAction action = new ConnectorExecuteAction("rollback_to_snapshot",
                 f.props, Optional.empty(), Optional.empty(), f.table);
 
-        Env env = Mockito.mock(Env.class);
         AccessControllerManager access = Mockito.mock(AccessControllerManager.class);
+        // Reuse the shared Env mock (the @BeforeEach MockedStatic<Env> is already active; a second one would
+        // throw "static mocking is already registered"); just wire the access manager onto it.
         Mockito.when(env.getAccessManager()).thenReturn(access);
         ConnectContext ctx = Mockito.mock(ConnectContext.class);
         Mockito.when(ctx.getRemoteIP()).thenReturn("127.0.0.1");
         // ErrorReport.reportCommon records the error on ctx.getState() before throwing the AnalysisException.
         Mockito.when(ctx.getState()).thenReturn(Mockito.mock(QueryState.class));
 
-        try (MockedStatic<Env> envStatic = Mockito.mockStatic(Env.class);
-                MockedStatic<ConnectContext> ctxStatic = Mockito.mockStatic(ConnectContext.class)) {
-            envStatic.when(Env::getCurrentEnv).thenReturn(env);
+        try (MockedStatic<ConnectContext> ctxStatic = Mockito.mockStatic(ConnectContext.class)) {
             ctxStatic.when(ConnectContext::get).thenReturn(ctx);
 
             // Denied -> validate must throw the same access-denied AnalysisException as legacy
@@ -393,8 +476,10 @@ public class ConnectorExecuteActionTest {
         final ConnectorTableHandle handle = Mockito.mock(ConnectorTableHandle.class);
         final ConnectorProcedureOps procedureOps = Mockito.mock(ConnectorProcedureOps.class);
         final Connector connector = Mockito.mock(Connector.class);
+        final ExternalDatabase<PluginDrivenExternalTable> db;
         final PluginDrivenExternalTable table;
 
+        @SuppressWarnings("unchecked")
         Fixture() {
             props.put("snapshot_id", "200");
             Mockito.when(connector.getMetadata(Mockito.any())).thenReturn(metadata);
@@ -403,8 +488,7 @@ public class ConnectorExecuteActionTest {
                     Mockito.anyString(), Mockito.anyString())).thenReturn(Optional.of(handle));
 
             TestPluginCatalog catalog = new TestPluginCatalog(connector, session);
-            @SuppressWarnings("unchecked")
-            ExternalDatabase<PluginDrivenExternalTable> db = Mockito.mock(ExternalDatabase.class);
+            this.db = Mockito.mock(ExternalDatabase.class);
             Mockito.when(db.getRemoteName()).thenReturn(REMOTE_DB);
             this.table = new SchemaPluginTable(1L, "local_tbl", REMOTE_TBL, catalog, db);
         }

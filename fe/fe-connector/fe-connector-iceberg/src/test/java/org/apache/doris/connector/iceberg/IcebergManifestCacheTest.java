@@ -92,6 +92,19 @@ public class IcebergManifestCacheTest {
     }
 
     @Test
+    public void invalidateAllClearsEveryEntry() {
+        Table table = tableWithTwoDataFiles();
+        ManifestFile manifest = table.currentSnapshot().dataManifests(table.io()).get(0);
+        IcebergManifestCache cache = new IcebergManifestCache();
+        cache.getManifestCacheValue(manifest, table);
+        Assertions.assertEquals(1, cache.size());
+        // REFRESH CATALOG hook (H-5): invalidateAll drops every cached manifest (legacy catalog-wide
+        // group.invalidateAll parity). MUTATION: a no-op invalidateAll -> size stays 1 -> red.
+        cache.invalidateAll();
+        Assertions.assertEquals(0, cache.size());
+    }
+
+    @Test
     public void copiesDataFilesSoReaderReuseDoesNotAlias() {
         Table table = tableWithTwoDataFiles();
         ManifestFile manifest = table.currentSnapshot().dataManifests(table.io()).get(0);
