@@ -314,6 +314,21 @@ struct Checker {
 #endif
         ;
 
+// A startup failure that happens after ExecEnv::init() has run must terminate the
+// process the same way normal shutdown does (see the _exit(0) at the end of main):
+// in the default mode we _exit() immediately, skipping global destructors and the
+// LeakSanitizer atexit check. Init-time singletons (e.g. the internal workload
+// group's task scheduler) intentionally live for the whole process lifetime, so
+// running the leak check on this abnormal-exit path reports them as false-positive
+// leaks. enable_graceful_exit_check is honored so memleak-check mode still runs LSAN.
+[[noreturn]] static void exit_on_startup_failure() {
+    google::FlushLogFiles(google::GLOG_INFO);
+    if (!doris::config::enable_graceful_exit_check) {
+        _exit(1);
+    }
+    exit(1);
+}
+
 int main(int argc, char** argv) {
     doris::signal::InstallFailureSignalHandler();
     // create StackTraceCache Instance, at the beginning, other static destructors may use.
@@ -598,7 +613,7 @@ int main(int argc, char** argv) {
     status = doris::ExecEnv::init(doris::ExecEnv::GetInstance(), paths, spill_paths, broken_paths);
     if (status != Status::OK()) {
         std::cerr << "failed to init doris storage engine, res=" << status;
-        return 0;
+        exit_on_startup_failure();
     }
 
     // Start concurrency stats manager
@@ -614,7 +629,7 @@ int main(int argc, char** argv) {
         if (!status.ok()) {
             std::cerr << msg << '\n';
             service->stop_works();
-            exit(-1);
+            exit_on_startup_failure();
         }
     };
 
