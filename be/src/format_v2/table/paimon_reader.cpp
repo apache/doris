@@ -16,6 +16,7 @@
 // under the License.
 
 #include "format_v2/table/paimon_reader.h"
+#include <glog/logging.h>
 
 #include <cstring>
 #include <string>
@@ -113,6 +114,7 @@ Status PaimonHybridReader::close() {
 
 Status PaimonHybridReader::_ensure_current_split_reader(const format::SplitReadOptions& options) {
     if (_is_jni_split(options.current_range)) {
+        DCHECK(options.current_split_format == format::FileFormat::JNI);
         if (_jni_reader == nullptr) {
             _jni_reader = std::make_unique<format::paimon::PaimonJniReader>();
             RETURN_IF_ERROR(_init_child_reader(_jni_reader.get(), format::FileFormat::JNI));
@@ -121,6 +123,8 @@ Status PaimonHybridReader::_ensure_current_split_reader(const format::SplitReadO
     } else {
         format::FileFormat file_format;
         RETURN_IF_ERROR(_to_file_format(options.current_range, &file_format));
+        DCHECK(options.current_split_format == file_format);
+        DCHECK(file_format == format::FileFormat::PARQUET || file_format == format::FileFormat::ORC);
         if (_native_reader == nullptr) {
             _native_reader = format::paimon::PaimonReader::create_unique();
             RETURN_IF_ERROR(_init_child_reader(_native_reader.get(), file_format));

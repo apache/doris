@@ -21,22 +21,21 @@
 #include "format_v2/table_reader.h"
 
 namespace doris::format::hive {
-
+// now hive self only support mixed with orc/parquet files in table and different partitions.
+// But if mixed with orc/parquet files in table and same partition, will failed when read.
+// now fe will plan table format for all files dirctly, and BE could not handle mixed files also.
 class HiveReader final : public format::TableReader {
 public:
     ENABLE_FACTORY_CREATOR(HiveReader);
     ~HiveReader() final = default;
 
-    Status init(format::TableReadOptions&& options) override;
-    format::TableColumnMappingMode mapping_mode() const override { return _mode; }
+    Status prepare_split(const format::SplitReadOptions& options) override;
+    format::TableColumnMappingMode mapping_mode() const override;
     Status annotate_projected_column(const TFileScanSlotInfo& slot_info,
                                      format::ProjectedColumnBuildContext* context,
                                      format::ColumnDefinition* column) const override;
     Status validate_projected_columns(
             const format::ProjectedColumnBuildContext& context) const override;
-
-private:
-    format::TableColumnMappingMode _mode = format::TableColumnMappingMode::BY_NAME;
 };
 
 } // namespace doris::format::hive

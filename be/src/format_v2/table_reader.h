@@ -139,6 +139,7 @@ struct SplitReadOptions {
     std::map<std::string, Field> partition_values;
     ShardedKVCache* cache;
     TFileRangeDesc current_range;
+    FileFormat current_split_format = FileFormat::PARQUET;
     std::optional<GlobalRowIdContext> global_rowid_context;
 };
 

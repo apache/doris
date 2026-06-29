@@ -760,6 +760,8 @@ std::unique_ptr<io::FileDescription> create_file_description(const TFileRangeDes
 
 Status TableReader::prepare_split(const SplitReadOptions& options) {
     SCOPED_TIMER(_profile.prepare_split_timer);
+    // Update to current split format to handle ORC/PARQUET files in one table.
+    _format = options.current_split_format;
     _partition_values = std::move(options.partition_values);
     _current_task = std::make_unique<ScanTask>();
     _current_task->data_file = create_file_description(options.current_range);

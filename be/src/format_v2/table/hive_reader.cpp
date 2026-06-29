@@ -17,8 +17,6 @@
 
 #include "format_v2/table/hive_reader.h"
 
-#include <utility>
-
 #include "common/consts.h"
 #include "format_v2/column_mapper.h"
 #include "format_v2/file_reader.h"
@@ -61,10 +59,17 @@ bool is_file_column_position_slot(const TFileScanSlotInfo& slot_info,
 
 } // namespace
 
-Status HiveReader::init(format::TableReadOptions&& options) {
-    const format::FileFormat file_format = options.format;
-    RETURN_IF_ERROR(format::TableReader::init(std::move(options)));
+Status HiveReader::prepare_split(const format::SplitReadOptions& options) {
+    if (options.current_split_format != _format) {
+        return Status::InternalError(
+                "Hive scan expects all splits to use the same file format, "
+                "initialized_format={}, current_split_format={}",
+                static_cast<int>(_format), static_cast<int>(options.current_split_format));
+    }
+    return format::TableReader::prepare_split(options);
+}
 
+format::TableColumnMappingMode HiveReader::mapping_mode() const {
     // Hive-specific behavior: choose the column matching mode based on file format and the
     // matching session variable.
     //   - hive_orc_use_column_names / hive_parquet_use_column_names == true
@@ -72,30 +77,27 @@ Status HiveReader::init(format::TableReadOptions&& options) {
     //   - those options == false
     //     => BY_INDEX (mainly for Hive1 ORC `_col0` / `_col1`, match by top-level position;
     //                  Parquet exposes the same switch for consistency)
-    // The base init path does not accept file-format-specific mapper configuration, so the mapper
-    // must be replaced here after the base initialization completes.
+    // TableReader updates `_format` in prepare_split(), so this is evaluated per split.
     DORIS_CHECK(_runtime_state != nullptr);
     const auto& query_options = _runtime_state->query_options();
     bool use_column_names = true;
-    if (file_format == format::FileFormat::ORC) {
+    if (_format == format::FileFormat::ORC) {
         use_column_names = query_options.hive_orc_use_column_names;
-    } else if (file_format == format::FileFormat::PARQUET) {
+    } else if (_format == format::FileFormat::PARQUET) {
         use_column_names = query_options.hive_parquet_use_column_names;
-    } else if (file_format == format::FileFormat::CSV || file_format == format::FileFormat::TEXT ||
-               file_format == format::FileFormat::JSON) {
+    } else if (_format == format::FileFormat::CSV || _format == format::FileFormat::TEXT ||
+               _format == format::FileFormat::JSON) {
         // Hive CSV/TEXT/JSON readers synthesize a file-local schema from FE-provided file slots
         // because these formats do not carry embedded column names or field ids. The scan params'
         // format-specific attributes still tell the physical reader how to read values, while the
         // table-level mapper can safely match the synthesized file schema by table column name.
         use_column_names = true;
     } else {
-        return Status::NotSupported("HiveReader does not support file reader format {}",
-                                    file_format);
+        DORIS_CHECK(false) << "HiveReader does not support this file reader format";
     }
 
-    _mode = use_column_names ? format::TableColumnMappingMode::BY_NAME
-                             : format::TableColumnMappingMode::BY_INDEX;
-    return Status::OK();
+    return use_column_names ? format::TableColumnMappingMode::BY_NAME
+                            : format::TableColumnMappingMode::BY_INDEX;
 }
 
 Status HiveReader::annotate_projected_column(const TFileScanSlotInfo& slot_info,

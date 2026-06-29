@@ -384,10 +384,13 @@ Status FileScannerV2::_create_table_reader_for_format(
 Status FileScannerV2::_prepare_table_reader_split(const TFileRangeDesc& range) {
     std::map<std::string, Field> partition_values;
     RETURN_IF_ERROR(_generate_partition_values(range, &partition_values));
+    format::FileFormat current_split_format;
+    RETURN_IF_ERROR(_to_file_format(get_range_format_type(*_params, range), &current_split_format));
     RETURN_IF_ERROR(_table_reader->prepare_split({
             .partition_values = std::move(partition_values),
             .cache = _kv_cache,
             .current_range = range,
+            .current_split_format = current_split_format,
             .global_rowid_context = _create_global_rowid_context(range),
     }));
     return Status::OK();
