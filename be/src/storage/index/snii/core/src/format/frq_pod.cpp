@@ -21,6 +21,7 @@
 #include <span>
 
 #include "snii/common/slice.h"
+#include "snii/common/uninitialized_buffer.h"
 #include "snii/encoding/byte_source.h"
 #include "snii/encoding/crc32c.h"
 #include "snii/encoding/pfor.h"
@@ -59,7 +60,8 @@ void encode_pfor_runs(std::span<const uint32_t> values, ByteSink* out) {
 
 // Decode n uint32 values from source (multiple PFOR runs of 256 each).
 doris::Status decode_pfor_runs(ByteSource* src, size_t n, std::vector<uint32_t>* out) {
-    out->assign(n, 0);
+    // Sized then fully overwritten by pfor_decode below; no zero-fill needed.
+    snii::resize_uninitialized(*out, n);
     for (size_t off = 0; off < n; off += kFrqBaseUnit) {
         size_t run = (n - off < kFrqBaseUnit) ? (n - off) : kFrqBaseUnit;
         RETURN_IF_ERROR(pfor_decode(src, run, out->data() + off));
