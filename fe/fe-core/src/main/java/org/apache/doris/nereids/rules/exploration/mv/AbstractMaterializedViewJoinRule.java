@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.rules.exploration.mv;
 
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.rules.exploration.mv.StructInfo.PatternCheckResult;
 import org.apache.doris.nereids.rules.exploration.mv.StructInfo.PlanCheckContext;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.SlotMapping;
 import org.apache.doris.nereids.trees.expressions.Alias;
@@ -45,10 +46,11 @@ public abstract class AbstractMaterializedViewJoinRule extends AbstractMateriali
             Plan tempRewritedPlan,
             MaterializationContext materializationContext,
             CascadesContext cascadesContext) {
-        // Rewrite top projects, represent the query projects by view
-        List<Expression> expressionsRewritten = rewriteExpression(
+        // Keep the original output order and rewrite from StructInfo output lineage, instead of stopping at
+        // top-level aliases such as out_bu/out_mode.
+        List<Expression> expressionsRewritten = rewriteShuttledExpressions(
                 queryStructInfo.getExpressions(),
-                queryStructInfo.getTopPlan(),
+                queryStructInfo.getPlanOutputShuttledExpressions(),
                 materializationContext.getShuttledExprToScanExprMapping(),
                 targetToSourceMapping,
                 ImmutableMap.of(), cascadesContext
@@ -78,8 +80,9 @@ public abstract class AbstractMaterializedViewJoinRule extends AbstractMateriali
      */
     @Override
     protected boolean checkQueryPattern(StructInfo structInfo, CascadesContext cascadesContext) {
-        PlanCheckContext checkContext = PlanCheckContext.of(SUPPORTED_JOIN_TYPE_SET);
-        return structInfo.getTopPlan().accept(StructInfo.PLAN_PATTERN_CHECKER, checkContext)
+        PatternCheckResult checkResult = structInfo.getPlanPatternCheckResult(SUPPORTED_JOIN_TYPE_SET);
+        PlanCheckContext checkContext = checkResult.getCheckContext();
+        return checkResult.isAccepted()
                 && !checkContext.isContainsTopAggregate()
                 && !checkContext.isContainsTopLimit() && !checkContext.isContainsTopTopN()
                 && !checkContext.isContainsTopWindow();

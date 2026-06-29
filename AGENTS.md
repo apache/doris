@@ -44,6 +44,14 @@ You may modify BE and FE ports and network settings in `conf/` before compilatio
 Build artifacts are in the current directory's `output/`. If starting the service, ensure all process artifacts have their conf set with appropriate non-conflicting ports and the correct `priority_networks` that match the current network environment, for example `priority_networks = 10.16.10.3/24`. Use `--daemon` when starting. Cluster startup is slow; wait at least 30s for success. If still not ready after waiting, continue waiting. If not ready after a long time, check BE and FE logs to investigate.
 For first-time cluster startup, you may need to manually add the backend.
 
+### FE Build and UT Notes
+
+For FE work, use the official scripts instead of hand-written Maven commands: use `DISABLE_JAVA_CHECK_STYLE=ON ./build.sh --fe` for FE builds, and use `DISABLE_JAVA_CHECK_STYLE=ON ./run-fe-ut.sh --run '<test-class-or-method>'` for targeted FE unit tests. During development, you may also set `DISABLE_JAVA_CHECK_STYLE=ON` on FE build commands to bypass checkstyle temporarily; before final delivery, run the build without this bypass when style validation is needed.
+
+Do not run FE build and FE UT in parallel in the same repository or worktree. They both rewrite `fe/fe-core/target` and can cause flaky generated-class or classpath failures.
+
+If FE compilation or UT hits generated-class, classpath, or other suspicious `fe/fe-core/target` issues, do not patch around them in source code. Stop conflicting tasks, clean stale outputs such as `fe/fe-core/target`, and rerun the official script.
+
 ## Testing Standards
 
 All kernel features must have corresponding tests. Prioritize adding regression tests under `regression-test/`, while also having BE unit tests (`be/test/`) and FE unit tests (`fe/fe-core/src/test/`) where possible. Interface usage in test cases must first reference similar cases.

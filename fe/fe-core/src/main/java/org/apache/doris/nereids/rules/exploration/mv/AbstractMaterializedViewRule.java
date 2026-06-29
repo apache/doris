@@ -83,6 +83,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
+import java.util.BitSet;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -137,7 +138,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
         }
         for (MaterializationContext materializationContext : cascadesContext.getMaterializationContexts()) {
             statementContext.getMaterializedViewStopwatch().reset().start();
-            if (checkIfRewritten(queryPlan, materializationContext)) {
+            if (isQueryGroupAlreadyRewritten(queryPlan, materializationContext)) {
                 continue;
             }
             // check mv plan is valid or not
@@ -188,17 +189,25 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
         return rewrittenPlans;
     }
 
+    private boolean isQueryGroupAlreadyRewritten(Plan queryPlan, MaterializationContext materializationContext) {
+        return queryPlan.getGroupExpression().isPresent()
+                && materializationContext.alreadyRewrite(
+                        queryPlan.getGroupExpression().get().getOwnerGroup().getGroupId());
+    }
+
     /**
      * Get valid query struct infos, if invalid record the invalid reason
      */
     protected List<StructInfo> getValidQueryStructInfos(Plan queryPlan, CascadesContext cascadesContext,
             MaterializationContext materializationContext) {
         List<StructInfo> validStructInfos = new ArrayList<>();
-        // For every materialized view we should trigger refreshing struct info map
+        BitSet mvBaseTableIdSet = materializationContext.getBaseTableIdSet();
         List<StructInfo> uncheckedQueryStructInfos = MaterializedViewUtils.extractStructInfoFuzzy(queryPlan, queryPlan,
-                cascadesContext, materializationContext.getCommonTableIdSet(cascadesContext.getStatementContext()));
-        uncheckedQueryStructInfos.forEach(queryStructInfo -> {
-            boolean valid = checkQueryPattern(queryStructInfo, cascadesContext) && queryStructInfo.isValid();
+                cascadesContext, mvBaseTableIdSet);
+        for (StructInfo queryStructInfo : uncheckedQueryStructInfos) {
+            boolean patternValid = checkQueryPattern(queryStructInfo, cascadesContext);
+            boolean structValid = queryStructInfo.isValid();
+            boolean valid = patternValid && structValid;
             if (!valid) {
                 cascadesContext.getMaterializationContexts().forEach(ctx ->
                         ctx.recordFailReason(queryStructInfo, "Query struct info is invalid",
@@ -208,7 +217,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
             } else {
                 validStructInfos.add(queryStructInfo);
             }
-        });
+        }
         return validStructInfos;
     }
 
@@ -228,13 +237,12 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
             return rewriteResults;
         }
         SessionVariable sessionVariable = cascadesContext.getConnectContext().getSessionVariable();
-        int materializedViewRelationMappingMaxCount = sessionVariable.getMaterializedViewRelationMappingMaxCount();
-        List<RelationMapping> queryToViewTableMappings = RelationMapping.generate(queryStructInfo.getRelations(),
-                viewStructInfo.getRelations(), materializedViewRelationMappingMaxCount);
+        List<RelationMapping> queryToViewTableMappings = materializationContext.getRelationMappings(
+                queryStructInfo, sessionVariable.getMaterializedViewRelationMappingMaxCount());
         // if any relation in query and view can not map, bail out.
-        if (queryToViewTableMappings == null) {
+        if (queryToViewTableMappings.isEmpty()) {
             materializationContext.recordFailReason(queryStructInfo,
-                    "Query to view table mapping is null", () -> "");
+                    "Query to view table mapping is empty", () -> "");
             return rewriteResults;
         }
         for (RelationMapping queryToViewTableMapping : queryToViewTableMappings) {
@@ -278,6 +286,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
             Plan rewrittenPlan;
             Plan mvScan = materializationContext.getScanPlan(queryStructInfo, cascadesContext);
             Plan queryPlan = queryStructInfo.getTopPlan();
+            Plan queryOriginalPlan = queryStructInfo.getOriginalPlan();
             if (compensatePredicates.isAlwaysTrue()) {
                 rewrittenPlan = mvScan;
             } else {
@@ -420,7 +429,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                 }
             }
             List<Slot> rewrittenPlanOutput = rewrittenPlan.getOutput();
-            rewrittenPlan = MaterializedViewUtils.normalizeExpressions(rewrittenPlan, queryPlan);
+            rewrittenPlan = MaterializedViewUtils.normalizeExpressions(rewrittenPlan, queryOriginalPlan);
             if (rewrittenPlan == null) {
                 // maybe virtual slot reference added automatically
                 materializationContext.recordFailReason(queryStructInfo,
@@ -428,7 +437,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                         () -> String.format("materialized view rule normalizeExpressions, output size between "
                                         + "origin and rewritten plan is different, rewritten output is %s, "
                                         + "origin output is %s",
-                                rewrittenPlanOutput, queryPlan.getOutput()));
+                                rewrittenPlanOutput, queryOriginalPlan.getOutput()));
                 continue;
             }
             // Merge project
@@ -439,21 +448,17 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                         ).execute();
                         return childContext.getRewritePlan();
                     }, rewrittenPlan, queryPlan, false);
-            if (!isOutputValid(queryPlan, rewrittenPlan)) {
+            if (!isOutputValid(queryOriginalPlan, rewrittenPlan)) {
                 LogicalProperties logicalProperties = rewrittenPlan.getLogicalProperties();
                 materializationContext.recordFailReason(queryStructInfo,
                         "RewrittenPlan output logical properties is different with target group",
                         () -> String.format("planOutput logical"
                                         + " properties = %s,\n groupOutput logical properties = %s",
-                                logicalProperties, queryPlan.getLogicalProperties()));
+                                logicalProperties, queryOriginalPlan.getLogicalProperties()));
                 continue;
             }
-            // need to collect table partition again, because the rewritten plan would contain new relation
-            // and the rewritten plan would part in rewritten later, the table used partition info is needed
-            // for later rewrite
-            // record new mv relation id to table in statement context for nest rewrite, because in nest rewrite,
-            // would get query struct info by mv struct info, if not record,
-            // MaterializedViewUtils.transformToCommonTableId would fail
+            // Record partition usage of the rewritten MV scan. Relation-id search metadata is registered later when
+            // the rewritten plan is copied into Memo.
             long startTimeMs = TimeUtils.getStartTimeMs();
             try {
                 MaterializedViewUtils.collectTableUsedPartitions(rewrittenPlan, cascadesContext);
@@ -469,7 +474,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                     materializationContext.getShuttledExprToScanExprMapping(), viewToQuerySlotMapping,
                     materializationContext);
             rewriteResults.add(rewrittenPlan);
-            recordIfRewritten(queryStructInfo.getOriginalPlan(), materializationContext, cascadesContext);
+            recordRewriteSuccess(queryStructInfo, materializationContext);
             resetMaterializationContext(materializationContext, cascadesContext);
         }
         return rewriteResults;
@@ -576,12 +581,20 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
     protected List<Expression> rewriteExpression(List<? extends Expression> sourceExpressionsToWrite, Plan sourcePlan,
             ExpressionMapping targetExpressionMapping, SlotMapping targetToSourceMapping,
             Map<Expression, ExpressionInfo> queryExprToInfoMap, CascadesContext cascadesContext) {
+        List<? extends Expression> sourceShuttledExpressions = ExpressionUtils.shuttleExpressionWithLineage(
+                sourceExpressionsToWrite, sourcePlan);
+        return rewriteShuttledExpressions(sourceExpressionsToWrite, sourceShuttledExpressions,
+                targetExpressionMapping, targetToSourceMapping, queryExprToInfoMap, cascadesContext);
+    }
+
+    protected List<Expression> rewriteShuttledExpressions(List<? extends Expression> sourceExpressionsToWrite,
+            List<? extends Expression> sourceShuttledExpressions,
+            ExpressionMapping targetExpressionMapping, SlotMapping targetToSourceMapping,
+            Map<Expression, ExpressionInfo> queryExprToInfoMap, CascadesContext cascadesContext) {
         // Firstly, rewrite the target expression using source with inverse mapping
         // then try to use the target expression to represent the query. if any of source expressions
         // could not be represented by target expressions, return null.
         // generate target to target replacement expression mapping, and change target expression to source based
-        List<? extends Expression> sourceShuttledExpressions = ExpressionUtils.shuttleExpressionWithLineage(
-                sourceExpressionsToWrite, sourcePlan);
         ExpressionMapping expressionMappingKeySourceBased = targetExpressionMapping.keyPermute(targetToSourceMapping);
         // target to target replacement expression mapping, because mv is 1:1 so get the first element
         List<Map<Expression, Expression>> flattenExpressionMap = expressionMappingKeySourceBased.flattenMap();
@@ -1050,18 +1063,15 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
         return checkQueryPattern(structInfo, cascadesContext);
     }
 
-    protected void recordIfRewritten(Plan plan, MaterializationContext context, CascadesContext cascadesContext) {
+    protected void recordRewriteSuccess(StructInfo queryStructInfo, MaterializationContext context) {
         context.setSuccess(true);
-        cascadesContext.getStatementContext().addMaterializationRewrittenSuccess(
-                context.generateMaterializationIdentifier());
-        if (plan.getGroupExpression().isPresent()) {
-            context.addMatchedGroup(plan.getGroupExpression().get().getOwnerGroup().getGroupId(), true);
+        // This only suppresses repeated attempts of the same MV against the same query group. It does not reopen parent
+        // failures: current Cascades stack order explores child groups before parent MV rules, so nested child MV scan
+        // alternatives should already be in Memo when the parent group is matched.
+        Plan queryPlan = queryStructInfo.getOriginalPlan();
+        if (queryPlan.getGroupExpression().isPresent()) {
+            context.addMatchedGroup(queryPlan.getGroupExpression().get().getOwnerGroup().getGroupId(), true);
         }
-    }
-
-    protected boolean checkIfRewritten(Plan plan, MaterializationContext context) {
-        return plan.getGroupExpression().isPresent()
-                && context.alreadyRewrite(plan.getGroupExpression().get().getOwnerGroup().getGroupId());
     }
 
     // check mv plan is valid or not, this can use cache for performance

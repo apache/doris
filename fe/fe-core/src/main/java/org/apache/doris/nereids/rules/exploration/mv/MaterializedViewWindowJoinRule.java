@@ -20,6 +20,7 @@ package org.apache.doris.nereids.rules.exploration.mv;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.rules.exploration.mv.StructInfo.PatternCheckResult;
 import org.apache.doris.nereids.rules.exploration.mv.StructInfo.PlanCheckContext;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.SlotMapping;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -51,8 +52,9 @@ public class MaterializedViewWindowJoinRule extends AbstractMaterializedViewWind
      */
     @Override
     protected boolean checkQueryPattern(StructInfo structInfo, CascadesContext cascadesContext) {
-        PlanCheckContext checkContext = PlanCheckContext.of(SUPPORTED_JOIN_TYPE_SET);
-        return structInfo.getTopPlan().accept(StructInfo.PLAN_PATTERN_CHECKER, checkContext)
+        PatternCheckResult checkResult = structInfo.getPlanPatternCheckResult(SUPPORTED_JOIN_TYPE_SET);
+        PlanCheckContext checkContext = checkResult.getCheckContext();
+        return checkResult.isAccepted()
                 && !checkContext.isContainsTopAggregate() && checkContext.isContainsTopWindow()
                 && checkContext.getTopWindowNum() <= 1
                 && !checkContext.isContainsTopTopN() && !checkContext.isContainsTopLimit();
