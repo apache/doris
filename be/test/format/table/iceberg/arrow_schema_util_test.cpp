@@ -224,6 +224,33 @@ TEST(ArrowSchemaUtilTest, test_list_field) {
     EXPECT_EQ("32", arrow_list->value_field()->metadata()->Get(pfid).ValueUnsafe());
 }
 
+TEST(ArrowSchemaUtilTest, test_binary_field_types) {
+    std::vector<NestedField> nested_fields;
+    nested_fields.reserve(4);
+    nested_fields.emplace_back(false, 1, "str_col", std::make_unique<StringType>(), std::nullopt);
+    nested_fields.emplace_back(false, 2, "bin_col", std::make_unique<BinaryType>(), std::nullopt);
+    nested_fields.emplace_back(false, 3, "fixed_col", std::make_unique<FixedType>(4), std::nullopt);
+    nested_fields.emplace_back(false, 4, "uuid_col", std::make_unique<UUIDType>(), std::nullopt);
+
+    Schema schema(1, std::move(nested_fields));
+
+    std::vector<std::shared_ptr<arrow::Field>> fields;
+    Status st = ArrowSchemaUtil::convert(&schema, "utc", fields);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_EQ(4, fields.size());
+
+    EXPECT_EQ(arrow::Type::STRING, fields[0]->type()->id());
+    EXPECT_EQ(arrow::Type::BINARY, fields[1]->type()->id());
+
+    ASSERT_EQ(arrow::Type::FIXED_SIZE_BINARY, fields[2]->type()->id());
+    auto fixed_type = std::static_pointer_cast<arrow::FixedSizeBinaryType>(fields[2]->type());
+    EXPECT_EQ(4, fixed_type->byte_width());
+
+    ASSERT_EQ(arrow::Type::FIXED_SIZE_BINARY, fields[3]->type()->id());
+    auto uuid_type = std::static_pointer_cast<arrow::FixedSizeBinaryType>(fields[3]->type());
+    EXPECT_EQ(16, uuid_type->byte_width());
+}
+
 TEST(ArrowSchemaUtilTest, test_parquet_filed_id) {
     std::string test_dir = "ut_dir/test_parquet_filed_id";
     Status st;

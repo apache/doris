@@ -246,6 +246,30 @@ Status DataTypeStringSerDeBase<ColumnType>::write_column_to_arrow(
     } else if (array_builder->type()->id() == arrow::Type::STRING) {
         auto& builder = assert_cast<arrow::StringBuilder&>(*array_builder);
         return write_column_to_arrow_impl(column, null_map, builder, start, end);
+    } else if (array_builder->type()->id() == arrow::Type::BINARY) {
+        auto& builder = assert_cast<arrow::BinaryBuilder&>(*array_builder);
+        return write_column_to_arrow_impl(column, null_map, builder, start, end);
+    } else if (array_builder->type()->id() == arrow::Type::FIXED_SIZE_BINARY) {
+        auto& builder = assert_cast<arrow::FixedSizeBinaryBuilder&>(*array_builder);
+        const int byte_width =
+                static_cast<const arrow::FixedSizeBinaryType&>(*array_builder->type()).byte_width();
+        const auto& string_column = assert_cast<const ColumnType&>(column);
+        for (size_t string_i = start; string_i < end; ++string_i) {
+            if (null_map && (*null_map)[string_i]) {
+                RETURN_IF_ERROR(checkArrowStatus(builder.AppendNull(), column, builder));
+                continue;
+            }
+            auto string_ref = string_column.get_data_at(string_i);
+            if (string_ref.size != byte_width) {
+                return Status::InvalidArgument(
+                        "Fixed size binary column expects {} bytes, got {}", byte_width,
+                        string_ref.size);
+            }
+            RETURN_IF_ERROR(checkArrowStatus(
+                    builder.Append(reinterpret_cast<const uint8_t*>(string_ref.data)), column,
+                    builder));
+        }
+        return Status::OK();
     } else {
         return Status::InvalidArgument("Unsupported arrow type for string column: {}",
                                        array_builder->type()->name());

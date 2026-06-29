@@ -73,6 +73,27 @@ Status DataTypeVarbinarySerDe::write_column_to_arrow(const IColumn& column, cons
     } else if (array_builder->type()->id() == arrow::Type::STRING) {
         auto& builder = assert_cast<arrow::StringBuilder&>(*array_builder);
         return lambda_function(builder);
+    } else if (array_builder->type()->id() == arrow::Type::FIXED_SIZE_BINARY) {
+        auto& builder = assert_cast<arrow::FixedSizeBinaryBuilder&>(*array_builder);
+        const int byte_width =
+                static_cast<const arrow::FixedSizeBinaryType&>(*array_builder->type()).byte_width();
+        const auto& varbinary_column_data = assert_cast<const ColumnVarbinary&>(column).get_data();
+        for (size_t i = start; i < end; ++i) {
+            if (null_map && (*null_map)[i]) {
+                RETURN_IF_ERROR(checkArrowStatus(builder.AppendNull(), column, builder));
+                continue;
+            }
+            const auto& string_view = varbinary_column_data[i];
+            if (string_view.size() != byte_width) {
+                return Status::InvalidArgument(
+                        "Fixed size binary column expects {} bytes, got {}", byte_width,
+                        string_view.size());
+            }
+            RETURN_IF_ERROR(checkArrowStatus(
+                    builder.Append(reinterpret_cast<const uint8_t*>(string_view.data())), column,
+                    builder));
+        }
+        return Status::OK();
     } else {
         return Status::InvalidArgument("Unsupported arrow type for varbinary column: {}",
                                        array_builder->type()->name());
