@@ -5,9 +5,7 @@
 // to you under the Apache License, Version 2.0 (the
 // "License"); you may not use this file except in compliance
 // with the License.  You may obtain a copy of the License at
-//
 //   http://www.apache.org/licenses/LICENSE-2.0
-//
 // Unless required by applicable law or agreed to in writing,
 // software distributed under the License is distributed on an
 // "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
@@ -33,15 +31,13 @@
 namespace doris::format::parquet {
 namespace {
 
-// Schema 构建过程中的上下文，携带逐层累加的 Dremel level 状态。
-// child_context() 在递归过程中根据子节点的 optional/repeated 属性递增对应的 level。
 struct SchemaBuildContext {
-    int32_t local_id = -1;                          // 父节点内的 child ordinal
-    int16_t definition_level = 0;                   // 累计 optional/repeated 数
-    int16_t repetition_level = 0;                   // 累计 repeated 数
-    int16_t nullable_definition_level = 0;          // 最近 optional 节点的 def level
-    int16_t repeated_repetition_level = 0;          // 最近 repeated 节点的 rep level
-    int16_t repeated_ancestor_definition_level = 0; // 最近 repeated 节点的 def level
+    int32_t local_id = -1;                          // child ordinal in the parent node
+    int16_t definition_level = 0;                   // accumulated optional/repeated level count
+    int16_t repetition_level = 0;                   // accumulated repeated level count
+    int16_t nullable_definition_level = 0;          // definition level of the nearest optional node
+    int16_t repeated_repetition_level = 0;          // repetition level of the nearest repeated node
+    int16_t repeated_ancestor_definition_level = 0; // definition level of the nearest repeated node
 };
 
 enum class SchemaBuildMode {
@@ -166,7 +162,6 @@ void propagate_child_levels(ParquetColumnSchema* column_schema) {
 
 // Mirrors Arrow's ResolveList() compatibility rules, but only decides which Parquet node is the
 // logical LIST element. The caller still builds Doris' semantic LIST->[element] schema tree.
-//
 // Important cases:
 // - repeated primitive: the primitive itself is the element (legacy two-level LIST).
 // - repeated group with multiple children: the group itself is a STRUCT element.
@@ -263,14 +258,12 @@ Status resolve_map_entry_group(const ::parquet::schema::GroupNode& map_group,
     }
     // The Parquet logical MAP spec requires key to be REQUIRED. Some legacy/Hive-written files
     // still mark the key field OPTIONAL even when all actual keys are non-null, for example:
-    //
     //   optional group t_map_varchar (MAP) {
     //     repeated group key_value {
     //       optional binary key (STRING);
     //       optional binary value (STRING);
     //     }
     //   }
-    //
     // Accept that schema here so compatible files can be read. MapColumnReader validates the
     // materialized key column and rejects data that really contains null map keys.
     result->entry_group = &entry_group;
@@ -287,7 +280,6 @@ Status build_node_schema_with_mode(const ::parquet::SchemaDescriptor& schema,
 // Builds a semantic ARRAY schema for a bare repeated field. Arrow handles this in
 // NodeToSchemaField()/GroupToSchemaField(); Doris needs the same compatibility behavior because
 // protobuf and old parquet writers often encode repeated fields without a LIST annotation.
-//
 // Example:
 //   optional group event {
 //     repeated group links {
@@ -297,7 +289,6 @@ Status build_node_schema_with_mode(const ::parquet::SchemaDescriptor& schema,
 //   }
 // Doris exposes event.links as ARRAY<STRUCT<url, rank>>, not STRUCT<url, rank>. This keeps v2's
 // file-local schema aligned with the old schema parser used by HDFS TVF schema fetching.
-//
 // When the repeated field appears inside an already resolved LIST element, only the nested repeated
 // child should be wrapped:
 //   optional group a (LIST) {

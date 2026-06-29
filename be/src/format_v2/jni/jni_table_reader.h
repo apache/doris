@@ -88,7 +88,6 @@ private:
     bool _closed = false;
     bool _scanner_opened = false;
     bool _eof = false;
-    size_t _batch_size = 0;
 
     RuntimeProfile::Counter* _open_scanner_time = nullptr;
     RuntimeProfile::Counter* _java_scan_time = nullptr;

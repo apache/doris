@@ -5,9 +5,7 @@
 // to you under the Apache License, Version 2.0 (the
 // "License"); you may not use this file except in compliance
 // with the License.  You may obtain a copy of the License at
-//
 //   http://www.apache.org/licenses/LICENSE-2.0
-//
 // Unless required by applicable law or agreed to in writing,
 // software distributed under the License is distributed on an
 // "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
@@ -27,20 +25,6 @@
 
 namespace doris::format::parquet {
 
-// LIST（数组）列的读取器，持有单个 element reader。
-//
-// 实现策略：
-//   LIST 的物理 rep/def level 流由 element reader 提供。ListColumnReader 消费这些
-//   levels 来重建 ColumnArray 的 offsets 和 null_map，然后将实际值委托给 element reader。
-//
-// 嵌套协议流程：
-//   1. load_nested_batch() → element reader 加载 def/rep levels
-//   2. build_nested_column() → 从 rep levels 计算每行的 entry_count，
-//      通过 append_offsets() 写入 ColumnArray offsets，
-//      从 def levels 判断 LIST 本身是否为 NULL，
-//      然后委托 element reader 的 build_nested_column() 填充值。
-//
-// 平铺 read() 也走同样的逻辑，只是入口不同。
 class ListColumnReader final : public ParquetColumnReader {
 public:
     ListColumnReader(const ParquetColumnSchema& schema, DataTypePtr type,
@@ -62,7 +46,7 @@ public:
 
 private:
     std::unique_ptr<ParquetColumnReader>
-            _element_reader; // 元素 reader（递归，可能为 Scalar/Struct/List/Map）
+            _element_reader; // element reader (recursive; may be Scalar/Struct/List/Map)
 };
 
 } // namespace doris::format::parquet

@@ -326,7 +326,7 @@ suite("test_hdfs_parquet_group0", "p0,external") {
                         "uri" = "${uri}",
                         "hadoop.username" = "${hdfsUserName}",
                         "format" = "parquet"); """
-                exception "Out-of-bounds access in parquet data decoder"
+                exception "Unexpected end of stream"
             }
 
 

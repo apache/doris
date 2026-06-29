@@ -5,9 +5,7 @@
 // to you under the Apache License, Version 2.0 (the
 // "License"); you may not use this file except in compliance
 // with the License.  You may obtain a copy of the License at
-//
 //   http://www.apache.org/licenses/LICENSE-2.0
-//
 // Unless required by applicable law or agreed to in writing,
 // software distributed under the License is distributed on an
 // "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
@@ -42,14 +40,8 @@ int64_t column_start_offset(const ::parquet::ColumnChunkMetaData& column_metadat
                    : cast_set<int64_t>(column_metadata.data_page_offset());
 }
 
-// 判断 RG 是否在 scan_range 的 offset 范围之外。
-//
-// 策略：取 RG 第一个和最后一个 column chunk 的起始 offset 的中点，
-// 如果中点不在 [range_start, range_end) 内则该 RG 不属于当前 split。
-// 特殊处理：当 scan_range 覆盖整个文件（start=0, size>=file_size）时直接返回 false。
 bool is_row_group_outside_range(const ::parquet::FileMetaData& metadata,
                                 const ParquetScanRange& scan_range, int row_group_idx) {
-    // size < 0 表示不限制范围（读整个文件）
     if (scan_range.size < 0) {
         return false;
     }
@@ -57,7 +49,6 @@ bool is_row_group_outside_range(const ::parquet::FileMetaData& metadata,
     const int64_t range_end_offset = range_start_offset + scan_range.size;
     DORIS_CHECK(range_start_offset >= 0);
     DORIS_CHECK(range_end_offset >= range_start_offset);
-    // 覆盖整个文件 → 不过滤
     if (range_start_offset == 0 &&
         (scan_range.file_size < 0 || range_end_offset >= scan_range.file_size)) {
         return false;
@@ -70,11 +61,9 @@ bool is_row_group_outside_range(const ::parquet::FileMetaData& metadata,
     const auto last_column = row_group_metadata->ColumnChunk(row_group_metadata->num_columns() - 1);
     DORIS_CHECK(first_column != nullptr);
     DORIS_CHECK(last_column != nullptr);
-    // RG 的 offset 范围 = [第一个 column chunk 起始, 最后一个 column chunk 结束)
     const int64_t row_group_start_offset = column_start_offset(*first_column);
     const int64_t row_group_end_offset =
             column_start_offset(*last_column) + last_column->total_compressed_size();
-    // 用 RGB 的中点判断归属 — 中点在哪个 split 的范围就属于哪个 split
     const int64_t row_group_mid_offset =
             row_group_start_offset + (row_group_end_offset - row_group_start_offset) / 2;
     return row_group_mid_offset < range_start_offset || row_group_mid_offset >= range_end_offset;
@@ -82,12 +71,6 @@ bool is_row_group_outside_range(const ::parquet::FileMetaData& metadata,
 
 } // namespace
 
-// 最外层裁剪入口：三级流水线（代价从低到高）→ 输出 RowGroupScanPlan。
-//
-// 1. 计算 first_file_row + 过滤 scan_range 外的 RG — O(1) 算术（is_row_group_outside_range）
-// 2. select_row_groups_by_statistics() — RG 级裁剪 (min/max + dictionary + bloom filter)，
-//    仅对 scan_range 内的 RG 执行，避免对范围外的 RG 做昂贵的 bloom filter/dictionary 读取
-// 3. select_row_group_ranges_by_page_index() — Page 级细粒度裁剪
 Status plan_parquet_row_groups(const ::parquet::FileMetaData& metadata,
                                ::parquet::ParquetFileReader* file_reader,
                                const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
@@ -98,7 +81,6 @@ Status plan_parquet_row_groups(const ::parquet::FileMetaData& metadata,
     plan->row_groups.clear();
     plan->pruning_stats = ParquetPruningStats {};
 
-    // ① 计算 first_file_row + 过滤 scan_range（代价最低，先做）
     std::vector<int64_t> row_group_first_rows(metadata.num_row_groups());
     std::vector<int> scan_range_selected_row_groups;
     scan_range_selected_row_groups.reserve(metadata.num_row_groups());
@@ -118,7 +100,6 @@ Status plan_parquet_row_groups(const ::parquet::FileMetaData& metadata,
         }
     }
 
-    // ② RG 级裁剪：仅对 scan_range 内的 RG 执行
     std::vector<int> statistics_selected_row_groups;
     RETURN_IF_ERROR(select_row_groups_by_statistics(
             metadata, file_reader, file_schema, request, &scan_range_selected_row_groups,
@@ -246,9 +227,6 @@ Status execute_batch_filters(const format::FileScanRequest& request, int64_t bat
 }
 
 namespace {
-// TODO: batch size in SessionVariable
-constexpr int64_t DEFAULT_PARQUET_READ_BATCH_SIZE = 4096;
-
 int64_t count_range_rows(const std::vector<RowRange>& ranges) {
     int64_t rows = 0;
     for (const auto& range : ranges) {
@@ -647,8 +625,7 @@ Status ParquetScanScheduler::read_next_batch(
             continue;
         }
 
-        const int64_t batch_rows =
-                std::min<int64_t>(DEFAULT_PARQUET_READ_BATCH_SIZE, remaining_rows);
+        const int64_t batch_rows = std::min<int64_t>(_batch_size, remaining_rows);
         const int64_t physical_rows_read = batch_rows;
         const int64_t batch_first_file_row =
                 _current_row_group_first_row + _current_row_group_rows_read;

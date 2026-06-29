@@ -268,6 +268,12 @@ Status FileScannerV2::init(RuntimeState* state, const VExprContextSPtrs& conjunc
                                                       "FileReadCalls", TUnit::UNIT, 1);
     _file_read_time_counter =
             ADD_TIMER_WITH_LEVEL(_local_state->scanner_profile(), "FileReadTime", 1);
+    _adaptive_batch_predicted_rows_counter = ADD_COUNTER_WITH_LEVEL(
+            _local_state->scanner_profile(), "AdaptiveBatchPredictedRows", TUnit::UNIT, 1);
+    _adaptive_batch_actual_bytes_counter = ADD_COUNTER_WITH_LEVEL(
+            _local_state->scanner_profile(), "AdaptiveBatchActualBytes", TUnit::BYTES, 1);
+    _adaptive_batch_probe_count_counter = ADD_COUNTER_WITH_LEVEL(
+            _local_state->scanner_profile(), "AdaptiveBatchProbeCount", TUnit::UNIT, 1);
     _file_cache_statistics = std::make_unique<io::FileCacheStatistics>();
     _file_reader_stats = std::make_unique<io::FileReaderStats>();
     RETURN_IF_ERROR(_init_io_ctx());
@@ -302,6 +308,9 @@ Status FileScannerV2::_get_block_impl(RuntimeState* state, Block* block, bool* e
 
         {
             SCOPED_TIMER(_get_block_timer);
+            if (_should_run_adaptive_batch_size()) {
+                _table_reader->set_batch_size(_predict_reader_batch_rows());
+            }
             RETURN_IF_ERROR(_table_reader->get_block(block, eof));
         }
         if (*eof) {
@@ -310,6 +319,7 @@ Status FileScannerV2::_get_block_impl(RuntimeState* state, Block* block, bool* e
             *eof = false;
             continue;
         }
+        _update_adaptive_batch_size(*block);
         return Status::OK();
     }
 }
@@ -326,6 +336,7 @@ Status FileScannerV2::_prepare_next_split(bool* eos) {
     }
     DORIS_CHECK(_table_reader != nullptr);
     _current_range_path = _current_range.path;
+    _init_adaptive_batch_size_state(get_range_format_type(*_params, _current_range));
     RETURN_IF_ERROR(_prepare_table_reader_split(_current_range));
     COUNTER_UPDATE(_file_counter, 1);
     _has_prepared_split = true;
@@ -647,6 +658,84 @@ Status FileScannerV2::_init_io_ctx() {
     _io_ctx = std::make_shared<io::IOContext>();
     _io_ctx->query_id = &_state->query_id();
     return Status::OK();
+}
+
+void FileScannerV2::_reset_adaptive_batch_size_state() {
+    _block_size_predictor.reset();
+    COUNTER_SET(_adaptive_batch_predicted_rows_counter, int64_t(0));
+    COUNTER_SET(_adaptive_batch_actual_bytes_counter, int64_t(0));
+}
+
+void FileScannerV2::_init_adaptive_batch_size_state(TFileFormatType::type format_type) {
+    _reset_adaptive_batch_size_state();
+    if (!_should_enable_adaptive_batch_size(format_type)) {
+        return;
+    }
+
+    // V2 native file readers do not have reliable row-width hints before the first batch. Start
+    // every split with a small probe, then learn bytes-per-row from the materialized table block
+    // and keep later batches close to RuntimeState::preferred_block_size_bytes().
+    _block_size_predictor = std::make_unique<AdaptiveBlockSizePredictor>(
+            _state->preferred_block_size_bytes(), 0.0, ADAPTIVE_BATCH_INITIAL_PROBE_ROWS,
+            _state->batch_size());
+}
+
+bool FileScannerV2::_should_enable_adaptive_batch_size(TFileFormatType::type format_type) const {
+    if (!config::enable_adaptive_batch_size) {
+        return false;
+    }
+    switch (format_type) {
+    case TFileFormatType::FORMAT_PARQUET:
+    case TFileFormatType::FORMAT_ORC:
+    case TFileFormatType::FORMAT_CSV_PLAIN:
+    case TFileFormatType::FORMAT_CSV_GZ:
+    case TFileFormatType::FORMAT_CSV_BZ2:
+    case TFileFormatType::FORMAT_CSV_LZ4FRAME:
+    case TFileFormatType::FORMAT_CSV_LZ4BLOCK:
+    case TFileFormatType::FORMAT_CSV_LZOP:
+    case TFileFormatType::FORMAT_CSV_DEFLATE:
+    case TFileFormatType::FORMAT_CSV_SNAPPYBLOCK:
+    case TFileFormatType::FORMAT_PROTO:
+    case TFileFormatType::FORMAT_TEXT:
+    case TFileFormatType::FORMAT_JSON:
+    case TFileFormatType::FORMAT_JNI:
+        return true;
+    default:
+        return false;
+    }
+}
+
+bool FileScannerV2::_should_run_adaptive_batch_size() const {
+    // COUNT pushdown emits synthetic rows from file metadata and does not materialize file columns,
+    // so there is no useful row-width sample to learn from.
+    return _block_size_predictor != nullptr &&
+           _local_state->get_push_down_agg_type() != TPushAggOp::type::COUNT;
+}
+
+size_t FileScannerV2::_predict_reader_batch_rows() {
+    DORIS_CHECK(_block_size_predictor != nullptr);
+    // Before history exists this returns the probe row count; after update(), it returns roughly
+    // preferred_block_size_bytes / EWMA(bytes_per_row), capped by RuntimeState::batch_size().
+    const size_t predicted_rows = _block_size_predictor->predict_next_rows();
+    COUNTER_SET(_adaptive_batch_predicted_rows_counter, static_cast<int64_t>(predicted_rows));
+    return predicted_rows;
+}
+
+void FileScannerV2::_update_adaptive_batch_size(const Block& block) {
+    if (!_should_run_adaptive_batch_size()) {
+        return;
+    }
+    COUNTER_SET(_adaptive_batch_actual_bytes_counter, static_cast<int64_t>(block.bytes()));
+    if (block.rows() == 0) {
+        return;
+    }
+    // The sample is taken after TableReader has finalized file-local columns to table columns.
+    // This matches the memory shape seen by upstream operators and catches very wide nested
+    // columns, such as map/string payloads, after the first probe batch.
+    if (!_block_size_predictor->has_history()) {
+        COUNTER_UPDATE(_adaptive_batch_probe_count_counter, 1);
+    }
+    _block_size_predictor->update(block);
 }
 
 Status FileScannerV2::close(RuntimeState* state) {

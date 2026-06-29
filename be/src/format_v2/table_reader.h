@@ -155,6 +155,16 @@ public:
     // own init(options); table-format schema and split metadata are provided later per split.
     virtual Status init(TableReadOptions&& options);
 
+    // FileScannerV2 adjusts this before each get_block() using an adaptive bytes-per-row estimate.
+    // Store it here as well as forwarding to the current reader so newly opened split readers start
+    // with the latest predicted batch size.
+    void set_batch_size(size_t batch_size) {
+        _batch_size = std::max<size_t>(1, batch_size);
+        if (_data_reader.reader != nullptr) {
+            _data_reader.reader->set_batch_size(_batch_size);
+        }
+    }
+
     // Prepare for reading a new split/task.
     // 1. Pass a new split/task to reader, which will be used in subsequent open_reader() to initialize the underlying file reader.
     // 2. Parse delete predicates from split/task information, which will be used for later dynamic filtering and delete handling.
@@ -1325,6 +1335,25 @@ protected:
         request->agg_type = agg_type;
         request->columns.clear();
         if (agg_type == TPushAggOp::type::COUNT) {
+            // COUNT pushdown historically meant COUNT(*) and therefore carried no columns. For
+            // complex COUNT(col), materializing the full MAP/LIST/STRUCT value only to test the
+            // top-level NULL bit can be extremely expensive. When the scan projects exactly one
+            // directly-mapped complex column, pass that file column to the reader so formats such
+            // as Parquet can count the column shape from metadata/levels without decoding payload
+            // values like MAP value strings. Other COUNT cases stay on the existing row-count path
+            // to avoid changing count(*) semantics.
+            if (_data_reader.column_mapper->mappings().size() == 1) {
+                const auto& mapping = _data_reader.column_mapper->mappings()[0];
+                if (mapping.file_local_id.has_value() && mapping.file_type != nullptr &&
+                    is_complex_type(remove_nullable(mapping.file_type)->get_primitive_type()) &&
+                    mapping.virtual_column_type == TableVirtualColumnType::INVALID &&
+                    mapping.default_expr == nullptr) {
+                    FileAggregateRequest::Column column;
+                    column.projection =
+                            LocalColumnIndex::top_level(LocalColumnId(*mapping.file_local_id));
+                    request->columns.push_back(std::move(column));
+                }
+            }
             return Status::OK();
         }
         request->columns.reserve(_data_reader.column_mapper->mappings().size());
@@ -1440,6 +1469,7 @@ protected:
     const std::vector<SlotDescriptor*>* _file_slot_descs = nullptr;
     FileFormat _format;
     TPushAggOp::type _push_down_agg_type = TPushAggOp::type::NONE;
+    size_t _batch_size = 0;
     uint64_t _condition_cache_digest = 0;
     segment_v2::ConditionCache::ExternalCacheKey _condition_cache_key;
     std::shared_ptr<std::vector<bool>> _condition_cache;

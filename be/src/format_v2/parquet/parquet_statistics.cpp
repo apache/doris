@@ -5,9 +5,7 @@
 // to you under the Apache License, Version 2.0 (the
 // "License"); you may not use this file except in compliance
 // with the License.  You may obtain a copy of the License at
-//
 //   http://www.apache.org/licenses/LICENSE-2.0
-//
 // Unless required by applicable law or agreed to in writing,
 // software distributed under the License is distributed on an
 // "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
@@ -52,13 +50,11 @@ namespace doris::format::parquet {
 
 namespace {
 
-// RG 级裁剪原因枚举。row_group_prune_reason() 依次检查每种裁剪方式，
-// 返回第一个命中裁剪的原因。NONE 表示该 RG 无法被任何方式裁剪。
 enum class ParquetRowGroupPruneReason {
-    NONE,         // 无法裁剪，需要读取
-    STATISTICS,   // min/max statistics 排除
-    DICTIONARY,   // dictionary 排除
-    BLOOM_FILTER, // bloom filter 排除
+    NONE,         // cannot prune; must read
+    STATISTICS,   // excluded by min/max statistics
+    DICTIONARY,   // excluded by dictionary
+    BLOOM_FILTER, // excluded by bloom filter
 };
 
 PrimitiveType physical_filter_type(const ParquetColumnSchema& column_schema) {
@@ -223,12 +219,6 @@ T load_predicate_value(const char* data) {
     return value;
 }
 
-// 将 Arrow 的 ::parquet::BloomFilter 适配为 Doris 的 segment_v2::BloomFilter 接口。
-// 仅实现 test_bytes()（谓词评估所需），add_bytes/add_hash 等写操作不支持。
-//
-// 适配的关键：Arrow BloomFilter 按物理类型存储 hash，而 Doris ColumnPredicate
-// 通过 evaluate_and( BloomFilter*) 来测试谓词值是否可能存在。
-// 本适配器根据 Doris 类型将谓词值转为对应物理类型的 hash 去查询 Arrow BloomFilter。
 class ArrowParquetBloomFilterAdapter final : public segment_v2::BloomFilter {
 public:
     ArrowParquetBloomFilterAdapter(const ParquetColumnSchema& column_schema,
@@ -711,14 +701,6 @@ ParquetColumnStatistics ParquetStatisticsUtils::TransformColumnStatistics(
 
 namespace {
 
-// 统一的 RG 级裁剪入口 — 依次检查 statistics → dictionary → bloom filter。
-//
-// 裁剪流水线：
-//   1. resolve_predicate_leaf_schema() — 从 file schema 树中定位谓词目标叶子
-//   2. TransformColumnStatistics() + check_statistics() — min/max 范围是否冲突
-//   3. supports_dictionary_pruning() + read_dictionary_words() — EQ/IN_LIST 谓词字典裁剪
-//   4. bloom_filter_prune_reason() — 查询 bloom filter
-// 每个步骤命中即返回对应的 prune reason，否则继续下一步。
 ParquetRowGroupPruneReason row_group_prune_reason(
         const ::parquet::RowGroupMetaData& row_group, ::parquet::ParquetFileReader* file_reader,
         int row_group_idx, const std::vector<std::unique_ptr<ParquetColumnSchema>>& schema,
@@ -777,12 +759,6 @@ void init_bloom_filter_cache(::parquet::ParquetFileReader* file_reader, bool ena
     }
 }
 
-// 统计信息裁剪的主循环。遍历 candidate_row_groups（或所有 RG），
-// 对每个 RG 调用 row_group_prune_reason() 判断是否可跳过。
-//
-// candidate_row_groups 参数：
-//   nullptr → 遍历 [0, num_row_groups)
-//   非 null → 只遍历指定的候选 RG（调用方已通过 scan_range 等其他条件预过滤）
 Status select_row_groups(const ::parquet::FileMetaData& metadata,
                          ::parquet::ParquetFileReader* file_reader,
                          const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
