@@ -656,7 +656,7 @@ public class TypeCoercionUtils {
                 // Signature search can pass TIMESTAMPTZ(*) here. TimestampTzLiteral rounds by scale,
                 // so derive a concrete scale from the literal before parsing.
                 TimeStampTzType timeStampTzType = (TimeStampTzType) dataType;
-                if (timeStampTzType.getScale() < 0) {
+                if (timeStampTzType.getScale() < 0 || timeStampTzType.getScale() == TimeStampTzType.MAX_SCALE) {
                     timeStampTzType = TimeStampTzType.forTypeFromString(value);
                 }
                 ret = TimestampTzLiteral.fromSessionTimeZone(timeStampTzType, value);
