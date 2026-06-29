@@ -144,5 +144,21 @@ public enum ConnectorCapability {
      * view. Connectors with no view concept (e.g. JDBC, ES) must NOT declare it so every table stays
      * {@code isView()==false} and no view round-trips are issued.</p>
      */
-    SUPPORTS_VIEW
+    SUPPORTS_VIEW,
+    /**
+     * Indicates the connector's file-scan tables support nested-column pruning: a query that reads only some
+     * sub-fields of a STRUCT/ARRAY/MAP column reads just those leaves from the data file instead of the whole
+     * complex column (read-amplification avoidance).
+     *
+     * <p>The nereids nested-column-prune probe ({@code LogicalFileScan.supportPruneNestedColumn}) enables it
+     * for a plugin-driven table only when its connector declares this (replacing the legacy exact-class
+     * {@code IcebergExternalTable} arm). It is only correct when the connector also carries a stable per-field
+     * id down its column tree (top-level via {@link ConnectorColumn#withUniqueId} + nested via
+     * {@link ConnectorType#withChildrenFieldIds}), because the engine rewrites the nested access path from
+     * field <em>names</em> to those ids ({@code SlotTypeReplacer}) and the BE field-id scan path matches
+     * nested leaves by id — an un-translated (name / {@code -1}) leaf is skipped and returns NULL. Row/
+     * passthrough connectors (e.g. JDBC, ES) and connectors that do not carry nested field ids must NOT
+     * declare it.</p>
+     */
+    SUPPORTS_NESTED_COLUMN_PRUNE
 }

@@ -24,6 +24,8 @@ import org.apache.iceberg.types.Type;
 import org.apache.iceberg.types.Types;
 
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 
@@ -55,27 +57,36 @@ public final class IcebergTypeMapping {
         }
         switch (icebergType.typeId()) {
             case LIST:
+                // Carry the element field-id (legacy IcebergUtils.updateIcebergColumnUniqueId recurses into
+                // the element with ListType.fields().get(0).fieldId()) so the BE field-id scan path matches
+                // a pruned array-of-struct leaf by id; a -1 leaf is skipped and returns NULL.
                 Types.ListType list = (Types.ListType) icebergType;
                 ConnectorType elemType = fromIcebergType(
                         list.elementType(), enableMappingVarbinary, enableMappingTimestampTz);
-                return ConnectorType.arrayOf(elemType);
+                return ConnectorType.arrayOf(elemType)
+                        .withChildrenFieldIds(Collections.singletonList(list.elementId()));
             case MAP:
+                // Carry key + value field-ids (legacy recurses into both via MapType.fields()).
                 Types.MapType map = (Types.MapType) icebergType;
                 ConnectorType keyType = fromIcebergType(
                         map.keyType(), enableMappingVarbinary, enableMappingTimestampTz);
                 ConnectorType valType = fromIcebergType(
                         map.valueType(), enableMappingVarbinary, enableMappingTimestampTz);
-                return ConnectorType.mapOf(keyType, valType);
+                return ConnectorType.mapOf(keyType, valType)
+                        .withChildrenFieldIds(Arrays.asList(map.keyId(), map.valueId()));
             case STRUCT:
+                // Carry each field's field-id, parallel to the field types (legacy recurses field-by-field).
                 Types.StructType struct = (Types.StructType) icebergType;
                 List<String> names = new ArrayList<>(struct.fields().size());
                 List<ConnectorType> types = new ArrayList<>(struct.fields().size());
+                List<Integer> fieldIds = new ArrayList<>(struct.fields().size());
                 for (Types.NestedField f : struct.fields()) {
                     names.add(f.name());
                     types.add(fromIcebergType(
                             f.type(), enableMappingVarbinary, enableMappingTimestampTz));
+                    fieldIds.add(f.fieldId());
                 }
-                return ConnectorType.structOf(names, types);
+                return ConnectorType.structOf(names, types).withChildrenFieldIds(fieldIds);
             default:
                 return ConnectorType.of("UNSUPPORTED");
         }

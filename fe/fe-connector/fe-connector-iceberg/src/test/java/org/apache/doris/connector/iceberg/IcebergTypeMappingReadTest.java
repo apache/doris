@@ -201,4 +201,43 @@ public class IcebergTypeMappingReadTest {
         Assertions.assertEquals("INT", s.getChildren().get(0).getTypeName());
         assertScalar(s.getChildren().get(1), "TIMESTAMPTZ", MS6, 0);
     }
+
+    @Test
+    public void nestedFieldIdsCarriedForBeFieldIdScan() {
+        // WHY (H-10 L3): post-flip iceberg nested-column pruning requires the per-field iceberg field-id to
+        // reach the Doris column tree (legacy IcebergUtils.updateIcebergColumnUniqueId set them recursively).
+        // fromIcebergType carries them on ConnectorType.childrenFieldIds so ConnectorColumnConverter can stamp
+        // the child Column uniqueIds the BE field-id scan path matches a pruned nested leaf by; an un-stamped
+        // (-1) leaf is skipped and reads NULL. MUTATION: dropping any withChildrenFieldIds(...) ->
+        // getChildFieldId returns -1 -> the e2e (iceberg_complex_type / struct schema-evolution) reds.
+
+        // STRUCT: each field's id, parallel to the field types in order.
+        Types.StructType struct = Types.StructType.of(
+                Types.NestedField.optional(3, "a", Types.IntegerType.get()),
+                Types.NestedField.optional(4, "b", Types.StringType.get()));
+        ConnectorType s = mapOff(struct);
+        Assertions.assertEquals(3, s.getChildFieldId(0), "struct field a carries iceberg field-id 3");
+        Assertions.assertEquals(4, s.getChildFieldId(1), "struct field b carries iceberg field-id 4");
+
+        // LIST: the element field-id (ListType.ofOptional(elementId, type)).
+        Types.ListType list = Types.ListType.ofOptional(7, Types.IntegerType.get());
+        Assertions.assertEquals(7, mapOff(list).getChildFieldId(0), "array element carries iceberg field-id 7");
+
+        // MAP: key id then value id (MapType.ofOptional(keyId, valueId, ...)).
+        Types.MapType map = Types.MapType.ofOptional(8, 9, Types.StringType.get(), Types.IntegerType.get());
+        ConnectorType m = mapOff(map);
+        Assertions.assertEquals(8, m.getChildFieldId(0), "map key carries iceberg field-id 8");
+        Assertions.assertEquals(9, m.getChildFieldId(1), "map value carries iceberg field-id 9");
+
+        // Deep nesting: struct<s2:struct<c:int (id 12)> (id 11)>. The inner struct's own childrenFieldIds are
+        // set by the recursion, proving EVERY level carries ids (a renamed-or-pruned deep leaf matches by id).
+        Types.StructType deep = Types.StructType.of(
+                Types.NestedField.optional(11, "s2", Types.StructType.of(
+                        Types.NestedField.optional(12, "c", Types.IntegerType.get()))));
+        ConnectorType deepCt = mapOff(deep);
+        Assertions.assertEquals(11, deepCt.getChildFieldId(0));
+        ConnectorType innerStruct = deepCt.getChildren().get(0);
+        Assertions.assertEquals(12, innerStruct.getChildFieldId(0),
+                "deep nested field c carries iceberg field-id 12");
+    }
 }

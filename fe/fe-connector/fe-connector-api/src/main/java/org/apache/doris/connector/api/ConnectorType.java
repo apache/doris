@@ -41,6 +41,12 @@ import java.util.Objects;
  * names), matching the legacy Doris {@code Type} comparison that drives schema-change detection (nullability
  * and comment are compared separately, field-by-field, by the consumer) and keeping every existing
  * equality-based caller/test unaffected.</p>
+ *
+ * <p><b>Per-child field id</b> ({@link #getChildFieldId(int)}, set via {@link #withChildrenFieldIds(List)}):
+ * the stable id of each child field, parallel to {@link #getChildren()}. Also <em>additive</em> and excluded
+ * from {@link #equals(Object)}/{@link #hashCode()}. A connector that tracks a stable per-field id (iceberg
+ * field-ids) carries them here so fe-core can stamp the Doris child column tree's {@code uniqueId}, which the
+ * engine's nested access-path rewrite and the BE field-id scan path match nested leaves by.</p>
  */
 public final class ConnectorType {
 
@@ -56,6 +62,13 @@ public final class ConnectorType {
     // Only STRUCT fields carry meaningful comments today; ARRAY element / MAP value are left null (legacy
     // parity: the complex-MODIFY diff drops element/value comments). NOT part of equals().
     private final List<String> childrenComments;
+    // Per-child stable field id, parallel to children (STRUCT field / ARRAY element / MAP key+value). Empty
+    // (or shorter than children) means "unset" -> the missing entries default to -1. NOT part of equals():
+    // like childrenNullable/childrenComments it is metadata carried alongside the structural shape, not
+    // identity. Used by connectors (iceberg) that track a stable per-field id so the engine can rewrite a
+    // nested access path from field names to ids (SlotTypeReplacer) and the BE field-id scan path can match
+    // nested leaves by id; ConnectorColumnConverter applies these onto the Doris child column tree's uniqueId.
+    private final List<Integer> childrenFieldIds;
 
     public ConnectorType(String typeName) {
         this(typeName, -1, -1, Collections.emptyList(),
@@ -82,6 +95,14 @@ public final class ConnectorType {
     public ConnectorType(String typeName, int precision, int scale,
             List<ConnectorType> children, List<String> fieldNames,
             List<Boolean> childrenNullable, List<String> childrenComments) {
+        this(typeName, precision, scale, children, fieldNames, childrenNullable, childrenComments,
+                Collections.emptyList());
+    }
+
+    public ConnectorType(String typeName, int precision, int scale,
+            List<ConnectorType> children, List<String> fieldNames,
+            List<Boolean> childrenNullable, List<String> childrenComments,
+            List<Integer> childrenFieldIds) {
         this.typeName = Objects.requireNonNull(typeName, "typeName");
         this.precision = precision;
         this.scale = scale;
@@ -97,6 +118,9 @@ public final class ConnectorType {
         this.childrenComments = childrenComments == null
                 ? Collections.emptyList()
                 : Collections.unmodifiableList(childrenComments);
+        this.childrenFieldIds = childrenFieldIds == null
+                ? Collections.emptyList()
+                : Collections.unmodifiableList(childrenFieldIds);
     }
 
     /** Factory: simple type with no parameters. */
@@ -153,6 +177,18 @@ public final class ConnectorType {
         return new ConnectorType("STRUCT", -1, -1, fieldTypes, names, fieldNullable, fieldComments);
     }
 
+    /**
+     * Returns a copy of this type carrying the given per-child field ids (parallel to {@link #getChildren()}:
+     * STRUCT fields in order / ARRAY element / MAP key+value). Additive and excluded from equality — used by
+     * connectors that track a stable per-field id (iceberg) so {@code ConnectorColumnConverter} can stamp the
+     * Doris child column tree's {@code uniqueId} for the BE field-id scan path. The other facets
+     * (children/fieldNames/nullability/comments) are preserved.
+     */
+    public ConnectorType withChildrenFieldIds(List<Integer> fieldIds) {
+        return new ConnectorType(typeName, precision, scale, children, fieldNames,
+                childrenNullable, childrenComments, fieldIds);
+    }
+
     public String getTypeName() {
         return typeName;
     }
@@ -181,6 +217,19 @@ public final class ConnectorType {
     /** The full per-child comment list (may be empty / shorter than children when unset). */
     public List<String> getChildrenComments() {
         return childrenComments;
+    }
+
+    /** The full per-child field-id list (may be empty / shorter than children when unset). */
+    public List<Integer> getChildrenFieldIds() {
+        return childrenFieldIds;
+    }
+
+    /**
+     * The stable field id of the child at {@code index} (STRUCT field / ARRAY element / MAP key|value), or
+     * {@code -1} when none was carried for that index (legacy factories / connectors without field ids).
+     */
+    public int getChildFieldId(int index) {
+        return index < childrenFieldIds.size() ? childrenFieldIds.get(index) : -1;
     }
 
     /**

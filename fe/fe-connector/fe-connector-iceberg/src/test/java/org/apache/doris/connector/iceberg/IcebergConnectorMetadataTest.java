@@ -536,6 +536,14 @@ public class IcebergConnectorMetadataTest {
         Assertions.assertTrue(cols.get(1).isKey(),
                 "every iceberg column must be a key column (legacy parity: isKey=true)");
 
+        // WHY (H-10 L3): legacy IcebergUtils.updateIcebergColumnUniqueId set the top-level Column.uniqueId =
+        // field.fieldId(); post-flip parseSchema must carry it on ConnectorColumn.withUniqueId so the BE
+        // field-id scan path keys its read projection / nested matching off the stable id (rename-safe).
+        // idNameSchema assigns field-ids 1 and 2. MUTATION: dropping the withUniqueId(field.fieldId()) call
+        // leaves the uniqueId at the default -1 -> red.
+        Assertions.assertEquals(1, cols.get(0).getUniqueId(), "id carries iceberg field-id 1");
+        Assertions.assertEquals(2, cols.get(1).getUniqueId(), "name carries iceberg field-id 2");
+
         // WHY: the table-format type tag is the fixed "ICEBERG" discriminator the FE uses to route the
         // schema. MUTATION: emitting a different/empty tag -> red.
         Assertions.assertEquals("ICEBERG", schema.getTableFormatType());

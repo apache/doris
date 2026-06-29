@@ -254,9 +254,11 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
     public boolean supportPruneNestedColumn() {
         ExternalTable table = getTable();
         if (table instanceof PluginDrivenExternalTable) {
-            // No SPI capability for nested-column prune yet; default to off.
-            // Future ConnectorCapability flag will refine this.
-            return false;
+            // Post-flip plugin-driven tables (e.g. iceberg as PluginDrivenMvccExternalTable) declare
+            // nested-column prune via ConnectorCapability; the legacy exact-class IcebergExternalTable arm
+            // below is dead for them. Only enabled when the connector also carries nested field ids (see
+            // SUPPORTS_NESTED_COLUMN_PRUNE / SlotTypeReplacer), else nested leaves would read NULL.
+            return ((PluginDrivenExternalTable) table).supportsNestedColumnPrune();
         }
         if (table instanceof IcebergExternalTable || table instanceof IcebergSysExternalTable) {
             return true;

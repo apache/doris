@@ -187,6 +187,22 @@ public class IcebergConnectorTest {
                 "iceberg must declare SUPPORTS_VIEW so post-flip views stay visible/queryable/droppable");
     }
 
+    @Test
+    public void declaresNestedColumnPruneCapability() {
+        // WHY: legacy IcebergExternalTable returns true from LogicalFileScan.supportPruneNestedColumn and the
+        // SlotTypeReplacer rewrites the nested access path to iceberg field-ids. Post-cutover the generic
+        // plugin-driven path reproduces both ONLY when the connector declares SUPPORTS_NESTED_COLUMN_PRUNE; it
+        // is correct only because parseSchema/IcebergTypeMapping also carry the per-field ids the BE field-id
+        // scan path matches nested leaves by. MUTATION: dropping the capability -> flipped iceberg stops pruning
+        // STRUCT/ARRAY/MAP sub-fields (reads the whole complex column = read amplification) -> regression.
+        // (Inert pre-cutover; iceberg not yet in SPI_READY_TYPES.)
+        IcebergConnector connector = new IcebergConnector(Collections.emptyMap(), new RecordingConnectorContext());
+        Assertions.assertTrue(connector.getCapabilities()
+                        .contains(ConnectorCapability.SUPPORTS_NESTED_COLUMN_PRUNE),
+                "iceberg must declare SUPPORTS_NESTED_COLUMN_PRUNE so post-flip nested sub-field queries keep "
+                        + "reading only the accessed leaves");
+    }
+
     // ------------------------------------------------------------------------------------------------------
     // H-2: REST 3-level namespace (external_catalog.name) must reach scan/write/procedure, not just metadata.
     //

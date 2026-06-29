@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.datasource.PluginDrivenExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.nereids.trees.plans.RelationId;
@@ -63,5 +64,30 @@ public class LogicalFileScanTest {
                 "id",
                 IcebergUtils.ICEBERG_ROW_ID_COL,
                 IcebergUtils.ICEBERG_LAST_UPDATED_SEQUENCE_NUMBER_COL), outputNames);
+    }
+
+    @Test
+    public void supportPruneNestedColumnDelegatesToPluginCapability() {
+        // WHY (H-10 L1): a flipped plugin-driven table (e.g. iceberg as PluginDrivenMvccExternalTable) is no
+        // longer an IcebergExternalTable, so supportPruneNestedColumn must consult the connector capability via
+        // PluginDrivenExternalTable.supportsNestedColumnPrune() instead of the dead exact-class arm. MUTATION:
+        // reverting the plugin arm to a hard-coded `return false` -> the capable case below reds.
+        PluginDrivenExternalTable capable = Mockito.mock(PluginDrivenExternalTable.class);
+        Mockito.when(capable.initSelectedPartitions(Mockito.any())).thenReturn(SelectedPartitions.NOT_PRUNED);
+        Mockito.when(capable.supportsNestedColumnPrune()).thenReturn(true);
+        LogicalFileScan capableScan = new LogicalFileScan(new RelationId(2), capable,
+                Collections.singletonList("db"), Collections.emptyList(),
+                Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty());
+        Assertions.assertTrue(capableScan.supportPruneNestedColumn(),
+                "a plugin table whose connector declares the capability must support nested-column prune");
+
+        PluginDrivenExternalTable incapable = Mockito.mock(PluginDrivenExternalTable.class);
+        Mockito.when(incapable.initSelectedPartitions(Mockito.any())).thenReturn(SelectedPartitions.NOT_PRUNED);
+        Mockito.when(incapable.supportsNestedColumnPrune()).thenReturn(false);
+        LogicalFileScan incapableScan = new LogicalFileScan(new RelationId(3), incapable,
+                Collections.singletonList("db"), Collections.emptyList(),
+                Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty());
+        Assertions.assertFalse(incapableScan.supportPruneNestedColumn(),
+                "a plugin table whose connector does not declare the capability must not prune nested columns");
     }
 }

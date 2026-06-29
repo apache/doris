@@ -280,12 +280,20 @@ public class IcebergConnector implements Connector {
         // reproduces both ONLY under this capability (PluginDrivenExternalTable.isView() consults the connector,
         // and listTableNamesFromRemote re-merges the connector's listViewNames), so post-cutover iceberg views
         // remain visible/queryable/droppable. Inert pre-cutover (P6.6).
+        // SUPPORTS_NESTED_COLUMN_PRUNE: legacy IcebergExternalTable.class returns true from
+        // LogicalFileScan.supportPruneNestedColumn (and SlotTypeReplacer rewrites the nested access path to
+        // iceberg field-ids); the generic plugin-driven path reproduces both ONLY under this capability, so
+        // post-cutover iceberg keeps reading just the accessed STRUCT/ARRAY/MAP sub-fields (read-amplification
+        // avoidance). Correct only because the connector also carries per-field ids down its column tree
+        // (parseSchema withUniqueId + IcebergTypeMapping withChildrenFieldIds), which the BE field-id scan
+        // path matches nested leaves by; without them a nested leaf reads NULL. Inert pre-cutover (P6.6).
         return EnumSet.of(ConnectorCapability.SUPPORTS_MVCC_SNAPSHOT, ConnectorCapability.SUPPORTS_TIME_TRAVEL,
                 ConnectorCapability.SINK_REQUIRE_FULL_SCHEMA_ORDER, ConnectorCapability.SUPPORTS_PARALLEL_WRITE,
                 ConnectorCapability.SUPPORTS_COLUMN_AUTO_ANALYZE,
                 ConnectorCapability.SUPPORTS_TOPN_LAZY_MATERIALIZE,
                 ConnectorCapability.SUPPORTS_SHOW_CREATE_DDL,
-                ConnectorCapability.SUPPORTS_VIEW);
+                ConnectorCapability.SUPPORTS_VIEW,
+                ConnectorCapability.SUPPORTS_NESTED_COLUMN_PRUNE);
     }
 
     private Catalog getOrCreateCatalog() {

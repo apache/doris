@@ -89,7 +89,36 @@ public final class ConnectorColumnConverter {
         if (cc.getUniqueId() >= 0) {
             column.setUniqueId(cc.getUniqueId());
         }
+        // Stamp the nested (STRUCT/ARRAY/MAP) child column tree with the per-field ids the connector carried
+        // on the ConnectorType (iceberg), mirroring legacy IcebergUtils.updateIcebergColumnUniqueId's
+        // recursive set. The BE field-id scan path matches a pruned nested leaf by id; a -1 leaf is skipped
+        // and returns NULL. Inert for connectors that don't carry field ids (getChildFieldId returns -1).
+        applyNestedFieldIds(column, cc.getType());
         return column;
+    }
+
+    /**
+     * Recursively stamps {@code column}'s child tree (STRUCT fields / ARRAY element / MAP key+value) with the
+     * per-child field ids carried on {@code type} ({@link ConnectorType#getChildFieldId(int)}). The Doris
+     * child column order built by {@code Column.createChildrenColumn} matches the {@link ConnectorType}
+     * children order (array element / map key,value / struct fields-in-order), so a parallel walk aligns them.
+     * Only sets a child whose carried id is {@code >= 0}, leaving others at the default -1.
+     */
+    private static void applyNestedFieldIds(Column column, ConnectorType type) {
+        List<Column> childColumns = column.getChildren();
+        if (childColumns == null || childColumns.isEmpty()) {
+            return;
+        }
+        List<ConnectorType> childTypes = type.getChildren();
+        int n = Math.min(childColumns.size(), childTypes.size());
+        for (int i = 0; i < n; i++) {
+            Column childColumn = childColumns.get(i);
+            int childFieldId = type.getChildFieldId(i);
+            if (childFieldId >= 0) {
+                childColumn.setUniqueId(childFieldId);
+            }
+            applyNestedFieldIds(childColumn, childTypes.get(i));
+        }
     }
 
     /**

@@ -1567,6 +1567,12 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
                     true,
                     null,
                     true);
+            // Carry the stable iceberg field-id as the column's uniqueId (legacy
+            // IcebergUtils.updateIcebergColumnUniqueId set the top-level Column.uniqueId = field.fieldId()).
+            // fe-core's ConnectorColumnConverter re-applies it (>= 0); the BE field-id scan path keys the
+            // read projection / nested matching off it, so without it a renamed-or-evolved column would
+            // mis-match. Nested children carry their ids via the ConnectorType (IcebergTypeMapping).
+            column = column.withUniqueId(field.fieldId());
             // Legacy parity: a TIMESTAMP-with-zone source field carries the WITH_TIMEZONE "Extra" marker via
             // Column.setWithTZExtraInfo(), keyed on the SOURCE iceberg type root and INDEPENDENT of the
             // enable.mapping.timestamp_tz flag. fe-core's ConnectorColumnConverter re-applies it.

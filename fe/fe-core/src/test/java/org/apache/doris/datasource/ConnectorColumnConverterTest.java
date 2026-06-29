@@ -320,6 +320,84 @@ class ConnectorColumnConverterTest {
     }
 
     @Test
+    void convertColumnStampsNestedFieldIdsOntoChildTree() {
+        // WHY (H-10 L3): post-flip iceberg nested-column pruning is only correct if EVERY level of the Doris
+        // Column tree carries uniqueId = iceberg field-id (legacy IcebergUtils.updateIcebergColumnUniqueId set
+        // them recursively). The connector carries the top-level id on ConnectorColumn.withUniqueId and the
+        // per-child ids on ConnectorType.withChildrenFieldIds; convertColumn must stamp the whole child tree so
+        // SlotTypeReplacer can rewrite the nested access path to ids and BE matches the pruned leaf by id (a -1
+        // leaf is skipped -> NULL). MUTATION: dropping the applyNestedFieldIds call leaves children at -1 -> red.
+        // struct<a:int (field-id 4), b:string (field-id 5)>, top-level field-id 3
+        ConnectorType structType = ConnectorType.structOf(
+                Arrays.asList("a", "b"),
+                Arrays.asList(ConnectorType.of("INT"), ConnectorType.of("STRING")))
+                .withChildrenFieldIds(Arrays.asList(4, 5));
+        Column col = ConnectorColumnConverter.convertColumn(
+                new ConnectorColumn("s", structType, null, true, null).withUniqueId(3));
+        Assertions.assertEquals(3, col.getUniqueId(), "top-level struct column carries field-id 3");
+        Assertions.assertEquals(4, col.getChildren().get(0).getUniqueId(), "struct field a carries field-id 4");
+        Assertions.assertEquals(5, col.getChildren().get(1).getUniqueId(), "struct field b carries field-id 5");
+    }
+
+    @Test
+    void convertColumnStampsDeeplyNestedAndArrayMapFieldIds() {
+        // Verifies the recursion descends through an ARRAY element into a nested STRUCT, and that ARRAY/MAP
+        // child ordering ([item] / [key,value]) aligns with ConnectorType.getChildFieldId (legacy parity:
+        // updateIcebergColumnUniqueId recursed via ListType/MapType .fields()).
+        // array<struct<c:int (id 7)>> with array element id 6, top-level id 5
+        ConnectorType innerStruct = ConnectorType.structOf(
+                Arrays.asList("c"), Arrays.asList(ConnectorType.of("INT")))
+                .withChildrenFieldIds(Arrays.asList(7));
+        ConnectorType arrayType = ConnectorType.arrayOf(innerStruct)
+                .withChildrenFieldIds(Arrays.asList(6));
+        Column arrCol = ConnectorColumnConverter.convertColumn(
+                new ConnectorColumn("arr", arrayType, null, true, null).withUniqueId(5));
+        Assertions.assertEquals(5, arrCol.getUniqueId());
+        Column elem = arrCol.getChildren().get(0);                 // array element (the struct)
+        Assertions.assertEquals(6, elem.getUniqueId(), "array element carries field-id 6");
+        Assertions.assertEquals(7, elem.getChildren().get(0).getUniqueId(),
+                "nested struct field c carries field-id 7");
+
+        // map<string (id 9), int (id 10)>, top-level id 8
+        ConnectorType mapType = ConnectorType.mapOf(ConnectorType.of("STRING"), ConnectorType.of("INT"))
+                .withChildrenFieldIds(Arrays.asList(9, 10));
+        Column mapCol = ConnectorColumnConverter.convertColumn(
+                new ConnectorColumn("m", mapType, null, true, null).withUniqueId(8));
+        Assertions.assertEquals(8, mapCol.getUniqueId());
+        Assertions.assertEquals(9, mapCol.getChildren().get(0).getUniqueId(), "map key carries field-id 9");
+        Assertions.assertEquals(10, mapCol.getChildren().get(1).getUniqueId(), "map value carries field-id 10");
+    }
+
+    @Test
+    void convertColumnLeavesNestedUniqueIdsUnsetWithoutFieldIds() {
+        // Regression guard: a connector that does NOT carry nested field ids (no withChildrenFieldIds, e.g.
+        // paimon) must leave every child uniqueId at the default -1 — applyNestedFieldIds must be inert, so a
+        // non-iceberg connector's nested columns are never accidentally stamped.
+        ConnectorType structType = ConnectorType.structOf(
+                Arrays.asList("a", "b"),
+                Arrays.asList(ConnectorType.of("INT"), ConnectorType.of("STRING")));
+        Column col = ConnectorColumnConverter.convertColumn(
+                new ConnectorColumn("s", structType, null, true, null));
+        Assertions.assertEquals(-1, col.getChildren().get(0).getUniqueId());
+        Assertions.assertEquals(-1, col.getChildren().get(1).getUniqueId());
+    }
+
+    @Test
+    void connectorTypeChildFieldIdDefaultsAndEqualityExclusion() {
+        // getChildFieldId returns -1 for unset / out-of-range indices; withChildrenFieldIds is excluded from
+        // equals/hashCode (type identity stays the structural shape), matching childrenNullable/childrenComments
+        // so existing equality-based schema-change detection is unaffected.
+        ConnectorType bare = ConnectorType.structOf(
+                Arrays.asList("a"), Arrays.asList(ConnectorType.of("INT")));
+        Assertions.assertEquals(-1, bare.getChildFieldId(0), "unset child field id defaults to -1");
+        Assertions.assertEquals(-1, bare.getChildFieldId(5), "out-of-range child field id defaults to -1");
+        ConnectorType withIds = bare.withChildrenFieldIds(Arrays.asList(4));
+        Assertions.assertEquals(4, withIds.getChildFieldId(0));
+        Assertions.assertEquals(bare, withIds, "field ids must be excluded from equals (structural identity)");
+        Assertions.assertEquals(bare.hashCode(), withIds.hashCode(), "field ids must be excluded from hashCode");
+    }
+
+    @Test
     void testToConnectorColumnsConvertsList() {
         java.util.List<ConnectorColumn> cols = ConnectorColumnConverter.toConnectorColumns(
                 Arrays.asList(new Column("a", Type.INT), new Column("b", Type.INT)));

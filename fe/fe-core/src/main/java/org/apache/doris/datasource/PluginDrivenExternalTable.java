@@ -142,6 +142,22 @@ public class PluginDrivenExternalTable extends ExternalTable {
     }
 
     /**
+     * Returns whether the underlying connector's file-scan tables support nested-column pruning (reading only
+     * the accessed STRUCT/ARRAY/MAP sub-fields). The nereids nested-column-prune probe
+     * ({@code LogicalFileScan.supportPruneNestedColumn}) consults this (in place of the legacy exact-class
+     * {@code IcebergExternalTable} arm) to enable pruning for a flipped plugin table, and the
+     * {@code SlotTypeReplacer} name-to-field-id rewrite is gated on the same capability.
+     */
+    public boolean supportsNestedColumnPrune() {
+        if (!(catalog instanceof PluginDrivenExternalCatalog)) {
+            return false;
+        }
+        Connector connector = ((PluginDrivenExternalCatalog) catalog).getConnector();
+        return connector != null
+                && connector.getCapabilities().contains(ConnectorCapability.SUPPORTS_NESTED_COLUMN_PRUNE);
+    }
+
+    /**
      * Returns whether the underlying connector's table properties are user-facing and safe to render in
      * SHOW CREATE TABLE. The SHOW CREATE TABLE plugin-driven arm renders LOCATION + PROPERTIES (+ the
      * pre-rendered PARTITION BY / ORDER BY clauses) only when this is true (in place of the legacy

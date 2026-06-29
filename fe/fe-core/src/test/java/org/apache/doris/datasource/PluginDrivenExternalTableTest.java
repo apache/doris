@@ -205,6 +205,22 @@ public class PluginDrivenExternalTableTest {
     }
 
     @Test
+    public void supportsNestedColumnPruneReflectsConnectorCapability() {
+        // WHY (H-10 L1): LogicalFileScan.supportPruneNestedColumn and the SlotTypeReplacer name->field-id
+        // rewrite both gate on this for a flipped plugin table (replacing the legacy exact-class
+        // IcebergExternalTable arm). MUTATION: hard-coding true/false -> the capability no longer drives it.
+        Assertions.assertTrue(pluginTableWithCapabilities(
+                EnumSet.of(ConnectorCapability.SUPPORTS_NESTED_COLUMN_PRUNE)).supportsNestedColumnPrune());
+        // Independent of the other optimizer capabilities.
+        Assertions.assertFalse(pluginTableWithCapabilities(
+                EnumSet.of(ConnectorCapability.SUPPORTS_NESTED_COLUMN_PRUNE)).supportsTopNLazyMaterialize());
+        Assertions.assertFalse(pluginTableWithCapabilities(
+                EnumSet.of(ConnectorCapability.SUPPORTS_TOPN_LAZY_MATERIALIZE)).supportsNestedColumnPrune());
+        Assertions.assertFalse(pluginTableWithCapabilities(
+                EnumSet.noneOf(ConnectorCapability.class)).supportsNestedColumnPrune());
+    }
+
+    @Test
     public void capabilityHelpersReturnFalseWhenConnectorAbsent() {
         // MUTATION: dropping the null-connector guard NPEs here — a catalog with no connector (read-only /
         // not-yet-initialized) must degrade to "capability absent", never crash planning.
@@ -217,6 +233,7 @@ public class PluginDrivenExternalTableTest {
         Assertions.assertFalse(table.supportsTopNLazyMaterialize());
         Assertions.assertFalse(table.supportsShowCreateDdl());
         Assertions.assertFalse(table.supportsView());
+        Assertions.assertFalse(table.supportsNestedColumnPrune());
     }
 
     @Test
