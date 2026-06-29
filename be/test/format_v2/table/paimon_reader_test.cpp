@@ -522,10 +522,12 @@ TEST(PaimonHybridReaderTest, DispatchesNativeThenJniSplitToMatchingReader) {
 
     SplitReadOptions native_split;
     native_split.current_range = make_paimon_native_range(TFileFormatType::FORMAT_PARQUET);
+    native_split.current_split_format = FileFormat::PARQUET;
     ASSERT_TRUE(reader.prepare_split(native_split).ok());
 
     SplitReadOptions jni_split;
     jni_split.current_range = make_paimon_jni_range();
+    jni_split.current_split_format = FileFormat::JNI;
     auto status = reader.prepare_split(jni_split);
     EXPECT_FALSE(status.ok());
     EXPECT_NE(std::string::npos, status.to_string().find("missing serialized_table"));
