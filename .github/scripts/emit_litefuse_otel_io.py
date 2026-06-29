@@ -488,6 +488,508 @@ def build_ingestion_payload(args, input_text, output_text, events):
     return trace_id, {"batch": batch}, len(batch) - 1
 
 
+def main_trace_metadata(args):
+    trace_metadata = {
+        "repository": args.repository,
+        "workflow": args.workflow,
+        "run_id": args.run_id,
+        "pr_number": args.pr_number,
+        "head_sha": args.head_sha,
+        "base_sha": args.base_sha,
+        "model_reasoning_effort": args.reasoning_effort,
+    }
+    return {
+        key: value for key, value in trace_metadata.items() if value not in (None, "")
+    }
+
+
+def receiver_thread_ids(events):
+    thread_ids = set()
+    for event in events:
+        item = event.get("item") if isinstance(event.get("item"), dict) else {}
+        if item.get("type") != "collab_tool_call":
+            continue
+        for thread_id in item.get("receiver_thread_ids") or []:
+            if thread_id:
+                thread_ids.add(str(thread_id))
+    return thread_ids
+
+
+def session_jsonl_files(root):
+    if not root or not os.path.isdir(root):
+        return []
+    paths = []
+    for dirpath, _dirnames, filenames in os.walk(root):
+        for filename in filenames:
+            if filename.endswith(".jsonl"):
+                paths.append(os.path.join(dirpath, filename))
+    return sorted(paths)
+
+
+def session_meta(events):
+    for event in events:
+        if event.get("type") != "session_meta":
+            continue
+        payload = event.get("payload")
+        if isinstance(payload, dict):
+            return payload
+    return {}
+
+
+def subagent_spawn(meta):
+    source = meta.get("source") if isinstance(meta, dict) else {}
+    source = source if isinstance(source, dict) else {}
+    subagent = source.get("subagent")
+    subagent = subagent if isinstance(subagent, dict) else {}
+    spawn = subagent.get("thread_spawn")
+    return spawn if isinstance(spawn, dict) else {}
+
+
+def is_subagent_meta(meta, expected_thread_ids):
+    if not isinstance(meta, dict):
+        return False
+    thread_id = str(meta.get("id") or "")
+    if expected_thread_ids:
+        return thread_id in expected_thread_ids
+    if meta.get("thread_source") == "subagent":
+        return True
+    source = meta.get("source")
+    return isinstance(source, dict) and bool(source.get("subagent"))
+
+
+def compact_session_meta(meta, max_json_chars):
+    compact = {}
+    for key in (
+        "id",
+        "parent_thread_id",
+        "timestamp",
+        "cwd",
+        "originator",
+        "cli_version",
+        "thread_source",
+        "agent_nickname",
+        "agent_role",
+        "model_provider",
+        "model",
+    ):
+        if meta.get(key) not in (None, ""):
+            compact[key] = meta.get(key)
+    for key in ("base_instructions", "user_instructions"):
+        if key in meta:
+            compact[f"{key}_present"] = True
+    source = meta.get("source")
+    if isinstance(source, dict):
+        compact["source"] = truncate_json(source, max_json_chars)
+    return compact
+
+
+def session_content_text(content, max_chars):
+    if isinstance(content, str):
+        return truncate_text(content, max_chars)
+    if not isinstance(content, list):
+        return truncate_json(content, max_chars)
+    parts = []
+    for item in content:
+        if isinstance(item, str):
+            parts.append(item)
+            continue
+        if not isinstance(item, dict):
+            parts.append(json_attr(item))
+            continue
+        for key in ("text", "input_text", "output_text"):
+            if isinstance(item.get(key), str):
+                parts.append(item[key])
+                break
+        else:
+            parts.append(json_attr(item))
+    return truncate_text("\n".join(parts), max_chars)
+
+
+def session_first_user_message(events, max_chars):
+    for event in events:
+        if event.get("type") != "response_item":
+            continue
+        payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
+        if payload.get("type") == "message" and payload.get("role") == "user":
+            text = session_content_text(payload.get("content"), max_chars)
+            if isinstance(text, str) and text.strip():
+                return text
+    return ""
+
+
+def session_final_assistant_message(events, max_chars):
+    for event in reversed(events):
+        payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
+        if event.get("type") == "response_item":
+            if payload.get("type") == "message" and payload.get("role") == "assistant":
+                text = session_content_text(payload.get("content"), max_chars)
+                if isinstance(text, str) and text.strip():
+                    return text
+        elif event.get("type") == "event_msg" and payload.get("type") == "agent_message":
+            text = payload.get("message") or ""
+            if text.strip():
+                return truncate_text(text, max_chars)
+    return ""
+
+
+def safe_name_component(value):
+    text = str(value or "unknown")
+    safe = "".join(
+        char if char.isalnum() or char in "._-" else "_" for char in text
+    ).strip("._-")
+    return safe[:120] or "unknown"
+
+
+def jsonish(value):
+    if not isinstance(value, str):
+        return value
+    try:
+        return json.loads(value)
+    except json.JSONDecodeError:
+        return value
+
+
+def session_call_outputs(events):
+    outputs = {}
+    for event in events:
+        payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
+        if payload.get("type") != "function_call_output":
+            continue
+        call_id = payload.get("call_id")
+        if call_id and call_id not in outputs:
+            outputs[call_id] = (payload, event)
+    return outputs
+
+
+def session_event_timestamp(event, fallback_ns):
+    timestamp = event.get("timestamp")
+    if isinstance(timestamp, str) and timestamp:
+        return timestamp
+    return iso_from_ns(fallback_ns)
+
+
+def ns_from_iso(timestamp):
+    if not isinstance(timestamp, str) or not timestamp:
+        return None
+    try:
+        normalized = timestamp.replace("Z", "+00:00")
+        return int(datetime.fromisoformat(normalized).timestamp() * 1_000_000_000)
+    except ValueError:
+        return None
+
+
+def session_observation_shape(event, call_outputs, max_json_chars):
+    event_type = event.get("type") or "unknown"
+    payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
+
+    if event_type == "session_meta":
+        compact_meta = compact_session_meta(payload, max_json_chars)
+        return {
+            "name": "codex.subagent.session_meta",
+            "type": "span",
+            "input": compact_meta,
+            "output": {
+                "thread_source": compact_meta.get("thread_source"),
+                "status": "recorded",
+            },
+            "metadata": {"session_event_type": event_type},
+        }
+
+    if event_type == "turn_context":
+        return {
+            "name": "codex.subagent.turn_context",
+            "type": "span",
+            "input": truncate_json(payload, max_json_chars),
+            "output": {"status": "recorded"},
+            "metadata": {"session_event_type": event_type},
+        }
+
+    if event_type == "event_msg":
+        message_type = payload.get("type") or "unknown"
+        message = payload.get("message") or ""
+        body = {
+            key: value
+            for key, value in payload.items()
+            if key not in ("message", "text_elements", "images", "local_images")
+        }
+        if payload.get("text_elements"):
+            body["text_elements"] = truncate_json(
+                payload.get("text_elements"), max_json_chars
+            )
+        if payload.get("images"):
+            body["images"] = truncate_json(payload.get("images"), max_json_chars)
+        return {
+            "name": f"codex.subagent.event.{safe_name_component(message_type)}",
+            "type": "generation" if message_type == "agent_message" else "span",
+            "input": {
+                "session_event_type": event_type,
+                "message_type": message_type,
+                "payload": truncate_json(body, max_json_chars),
+            },
+            "output": {
+                "message": truncate_text(message, max_json_chars),
+                "status": "recorded",
+            },
+            "metadata": {
+                "session_event_type": event_type,
+                "message_type": message_type,
+            },
+        }
+
+    if event_type != "response_item":
+        return {
+            "name": f"codex.subagent.{safe_name_component(event_type)}",
+            "type": "span",
+            "input": {"session_event_type": event_type},
+            "output": truncate_json(payload, max_json_chars),
+            "metadata": {"session_event_type": event_type},
+        }
+
+    item_type = payload.get("type") or "unknown"
+    if item_type == "message":
+        role = payload.get("role") or "unknown"
+        text = session_content_text(payload.get("content"), max_json_chars)
+        is_assistant = role == "assistant"
+        return {
+            "name": f"codex.subagent.message.{safe_name_component(role)}",
+            "type": "generation" if is_assistant else "span",
+            "input": {
+                "session_event_type": event_type,
+                "item_type": item_type,
+                "role": role,
+                "phase": payload.get("phase"),
+                **({} if is_assistant else {"content": text}),
+            },
+            "output": (
+                {"text": text}
+                if is_assistant
+                else {"status": "recorded", "role": role}
+            ),
+            "metadata": {
+                "session_event_type": event_type,
+                "item_type": item_type,
+                "role": role,
+                "phase": payload.get("phase"),
+            },
+        }
+
+    if item_type == "function_call":
+        call_id = payload.get("call_id")
+        output_payload, output_event = call_outputs.get(call_id, ({}, {}))
+        return {
+            "name": f"codex.subagent.tool.{safe_name_component(payload.get('name'))}",
+            "type": "span",
+            "input": {
+                "name": payload.get("name"),
+                "call_id": call_id,
+                "arguments": truncate_json(
+                    jsonish(payload.get("arguments")), max_json_chars
+                ),
+            },
+            "output": {
+                "call_id": call_id,
+                "output": truncate_json(
+                    jsonish(output_payload.get("output")), max_json_chars
+                ),
+                "status": "completed" if output_payload else "unknown",
+            },
+            "metadata": {
+                "session_event_type": event_type,
+                "item_type": item_type,
+                "tool_name": payload.get("name"),
+                "call_id": call_id,
+                "output_line": output_event.get("_line_number"),
+            },
+        }
+
+    if item_type == "function_call_output":
+        return {
+            "name": "codex.subagent.tool_output",
+            "type": "span",
+            "input": {"call_id": payload.get("call_id")},
+            "output": truncate_json(jsonish(payload.get("output")), max_json_chars),
+            "metadata": {
+                "session_event_type": event_type,
+                "item_type": item_type,
+                "call_id": payload.get("call_id"),
+            },
+        }
+
+    if item_type == "reasoning":
+        return {
+            "name": "codex.subagent.reasoning",
+            "type": "span",
+            "input": {
+                "session_event_type": event_type,
+                "item_type": item_type,
+                "encrypted_content_present": bool(payload.get("encrypted_content")),
+            },
+            "output": {"summary": truncate_json(payload.get("summary"), max_json_chars)},
+            "metadata": {"session_event_type": event_type, "item_type": item_type},
+        }
+
+    return {
+        "name": f"codex.subagent.response_item.{safe_name_component(item_type)}",
+        "type": "span",
+        "input": {"session_event_type": event_type, "item_type": item_type},
+        "output": truncate_json(payload, max_json_chars),
+        "metadata": {"session_event_type": event_type, "item_type": item_type},
+    }
+
+
+def build_subagent_session_payload(args, session_path, session_events):
+    now = time.time_ns()
+    meta = session_meta(session_events)
+    spawn = subagent_spawn(meta)
+    thread_id = str(meta.get("id") or os.path.basename(session_path))
+    parent_thread_id = (
+        spawn.get("parent_thread_id") or meta.get("parent_thread_id") or ""
+    )
+    agent_nickname = meta.get("agent_nickname") or spawn.get("agent_nickname") or ""
+    agent_role = meta.get("agent_role") or spawn.get("agent_role") or ""
+    trace_id = secrets.token_hex(16)
+    root_observation_id = secrets.token_hex(16)
+    trace_input = session_first_user_message(session_events, args.max_input_chars)
+    if not trace_input:
+        trace_input = json_attr(compact_session_meta(meta, args.max_json_chars))
+    trace_output = session_final_assistant_message(session_events, args.max_output_chars)
+    if not trace_output:
+        trace_output = json_attr({"session_status": "recorded"})
+
+    trace_metadata = {
+        **main_trace_metadata(args),
+        "codex_session_jsonl": True,
+        "subagent_session": True,
+        "main_session_id": args.session_id,
+        "thread_id": thread_id,
+        "parent_thread_id": parent_thread_id,
+        "agent_nickname": agent_nickname,
+        "agent_role": agent_role,
+        "session_file": session_path,
+        "session_event_count": len(session_events),
+    }
+    trace_metadata = {
+        key: value for key, value in trace_metadata.items() if value not in (None, "")
+    }
+    trace_session_id = f"{args.session_id}:subagent:{thread_id}"
+    first_timestamp = (
+        session_event_timestamp(session_events[0], now)
+        if session_events
+        else iso_from_ns(now)
+    )
+    base_ns = ns_from_iso(first_timestamp) or now
+    event_start_nses = [
+        ns_from_iso(event.get("timestamp")) or base_ns + offset * 1_000_000
+        for offset, event in enumerate(session_events, start=2)
+    ]
+    latest_event_start_ns = max(event_start_nses) if event_start_nses else base_ns
+    root_end = iso_from_ns(latest_event_start_ns + 1_000_000)
+    call_outputs = session_call_outputs(session_events)
+    function_call_ids = {
+        (event.get("payload") or {}).get("call_id")
+        for event in session_events
+        if event.get("type") == "response_item"
+        and isinstance(event.get("payload"), dict)
+        and event["payload"].get("type") == "function_call"
+        and event["payload"].get("call_id")
+    }
+
+    batch = [
+        ingestion_event(
+            "trace-create",
+            first_timestamp,
+            {
+                "id": trace_id,
+                "timestamp": first_timestamp,
+                "name": args.subagent_trace_name,
+                "input": trace_input,
+                "output": trace_output,
+                "sessionId": trace_session_id,
+                "environment": args.environment,
+                "metadata": trace_metadata,
+                "tags": ["doris-ai-review-subagent", "codex-session-jsonl"],
+            },
+        ),
+        ingestion_event(
+            "span-create",
+            first_timestamp,
+            {
+                "id": root_observation_id,
+                "traceId": trace_id,
+                "name": "codex.subagent.review",
+                "startTime": first_timestamp,
+                "endTime": root_end,
+                "input": {"session_file": session_path, "thread_id": thread_id},
+                "output": {"final_message": trace_output},
+                "environment": args.environment,
+                "metadata": trace_metadata,
+            },
+        ),
+    ]
+
+    observation_count = 1
+    for offset, event in enumerate(session_events, start=2):
+        payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
+        if (
+            event.get("type") == "response_item"
+            and payload.get("type") == "function_call_output"
+            and payload.get("call_id") in function_call_ids
+        ):
+            continue
+        shape = session_observation_shape(event, call_outputs, args.max_json_chars)
+        fallback_start_ns = base_ns + offset * 1_000_000
+        start_time = session_event_timestamp(event, fallback_start_ns)
+        end_ns = (ns_from_iso(start_time) or fallback_start_ns) + 750_000
+        body = {
+            "id": secrets.token_hex(16),
+            "traceId": trace_id,
+            "parentObservationId": root_observation_id,
+            "name": shape["name"],
+            "startTime": start_time,
+            "endTime": iso_from_ns(end_ns),
+            "input": shape["input"],
+            "output": shape["output"],
+            "environment": args.environment,
+            "metadata": {
+                **trace_metadata,
+                "session_event_type": event.get("type"),
+                "session_line": event.get("_line_number"),
+            },
+        }
+        for key, value in shape.get("metadata", {}).items():
+            if value not in (None, ""):
+                body["metadata"][key] = value
+        event_type = "generation-create" if shape["type"] == "generation" else "span-create"
+        if shape["type"] == "generation":
+            body["model"] = args.model
+        batch.append(ingestion_event(event_type, start_time, body))
+        observation_count += 1
+
+    return {
+        "trace_id": trace_id,
+        "session_id": trace_session_id,
+        "thread_id": thread_id,
+        "path": session_path,
+        "event_count": len(session_events),
+        "observation_count": observation_count,
+        "payload": {"batch": batch},
+    }
+
+
+def build_subagent_session_payloads(args, main_events):
+    expected_thread_ids = receiver_thread_ids(main_events)
+    payloads = []
+    for path in session_jsonl_files(args.subagent_sessions_dir):
+        events = load_jsonl(path)
+        meta = session_meta(events)
+        if not is_subagent_meta(meta, expected_thread_ids):
+            continue
+        payloads.append(build_subagent_session_payload(args, path, events))
+        if len(payloads) >= args.max_subagent_sessions:
+            break
+    return payloads
+
+
 def compact_json_bytes(payload):
     return json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
 
@@ -961,6 +1463,8 @@ def parse_args():
     parser.add_argument("--events-file", required=True)
     parser.add_argument("--output-file", default="")
     parser.add_argument("--trace-name", default="doris-ai-review")
+    parser.add_argument("--subagent-trace-name", default="doris-ai-review-subagent")
+    parser.add_argument("--subagent-sessions-dir", default="")
     parser.add_argument("--session-id", required=True)
     parser.add_argument("--repository", default="")
     parser.add_argument("--workflow", default="")
@@ -976,6 +1480,7 @@ def parse_args():
     parser.add_argument("--max-json-chars", type=int, default=40_000)
     parser.add_argument("--max-context-json-chars", type=int, default=0)
     parser.add_argument("--max-payload-bytes", type=int, default=4_000_000)
+    parser.add_argument("--max-subagent-sessions", type=int, default=100)
     parser.add_argument("--verify", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--verify-attempts", type=int, default=24)
@@ -1001,6 +1506,11 @@ def main():
     trace_id, payload, observation_count = build_ingestion_payload(
         args, input_text, output_text, events
     )
+    subagent_payloads = (
+        build_subagent_session_payloads(args, events)
+        if args.subagent_sessions_dir
+        else []
+    )
 
     result = {
         "dry_run": args.dry_run,
@@ -1009,6 +1519,7 @@ def main():
         "trace_id": trace_id,
         "session_id": args.session_id,
         "trace_name": args.trace_name,
+        "subagent_trace_count": len(subagent_payloads),
         "model": args.model,
         "reasoning_effort": args.reasoning_effort,
     }
@@ -1021,6 +1532,24 @@ def main():
         result["max_request_size"] = (
             max(result["request_sizes"]) if result["request_sizes"] else 0
         )
+        result["subagent_traces"] = []
+        for subagent_payload in subagent_payloads:
+            chunks = chunk_payload(subagent_payload["payload"], args.max_payload_bytes)
+            request_sizes = [request_size for _chunk, request_size in chunks]
+            result["subagent_traces"].append(
+                {
+                    "trace_id": subagent_payload["trace_id"],
+                    "session_id": subagent_payload["session_id"],
+                    "thread_id": subagent_payload["thread_id"],
+                    "path": subagent_payload["path"],
+                    "event_count": subagent_payload["event_count"],
+                    "observation_count": subagent_payload["observation_count"],
+                    "batch_count": len(subagent_payload["payload"]["batch"]),
+                    "request_count": len(chunks),
+                    "request_sizes": request_sizes,
+                    "max_request_size": max(request_sizes) if request_sizes else 0,
+                }
+            )
         print(json.dumps(result, sort_keys=True))
         return
 
@@ -1029,6 +1558,26 @@ def main():
     result["status"] = post_payload(
         endpoint, public_key, secret_key, payload, args.max_payload_bytes
     )
+    result["subagent_traces"] = []
+    for subagent_payload in subagent_payloads:
+        status = post_payload(
+            endpoint,
+            public_key,
+            secret_key,
+            subagent_payload["payload"],
+            args.max_payload_bytes,
+        )
+        result["subagent_traces"].append(
+            {
+                "trace_id": subagent_payload["trace_id"],
+                "session_id": subagent_payload["session_id"],
+                "thread_id": subagent_payload["thread_id"],
+                "path": subagent_payload["path"],
+                "event_count": subagent_payload["event_count"],
+                "observation_count": subagent_payload["observation_count"],
+                "status": status,
+            }
+        )
 
     if args.verify:
         try:
