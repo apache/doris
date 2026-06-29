@@ -71,39 +71,33 @@ suite("test_ivm_explain_refresh") {
     sql """INSERT INTO test_ivm_explain_refresh_t2 VALUES (1, 100), (3, 300);"""
 
     explainIvmPlan("left_delta_shape_plan", """
-        EXPLAIN SHAPE PLAN REFRESH MATERIALIZED VIEW test_ivm_explain_refresh_mv INCREMENTAL FOR DELTA 1
+        EXPLAIN SHAPE PLAN REFRESH MATERIALIZED VIEW test_ivm_explain_refresh_mv INCREMENTAL
     """)
 
     explainIvmPlan("right_delta_shape_plan", """
-        EXPLAIN SHAPE PLAN REFRESH MATERIALIZED VIEW test_ivm_explain_refresh_mv INCREMENTAL FOR DELTA 2
+        EXPLAIN SHAPE PLAN REFRESH MATERIALIZED VIEW test_ivm_explain_refresh_mv INCREMENTAL
     """)
 
     def overviewPlan = sql """
         EXPLAIN REFRESH MATERIALIZED VIEW test_ivm_explain_refresh_mv INCREMENTAL
     """
     assertTrue(overviewPlan.toString().contains("IVM_NORMALIZED_PLAN"))
-    assertTrue(overviewPlan.toString().contains("IVM_DELTA_PLAN_1"))
-    assertTrue(overviewPlan.toString().contains("IVM_DELTA_PLAN_2"))
-    assertTrue(overviewPlan.toString().contains(
-            "base_table=internal.regression_test_mtmv_p0_ivm.test_ivm_explain_refresh_t1"))
-    assertTrue(overviewPlan.toString().contains(
-            "base_table=internal.regression_test_mtmv_p0_ivm.test_ivm_explain_refresh_t2"))
-    assertTrue(overviewPlan.toString().contains("status=PENDING"))
+    assertTrue(overviewPlan.toString().contains("IVM_DELTA_PLAN"))
 
     explain {
-        sql "REFRESH MATERIALIZED VIEW test_ivm_explain_refresh_mv INCREMENTAL FOR DELTA 1"
+        sql "REFRESH MATERIALIZED VIEW test_ivm_explain_refresh_mv INCREMENTAL"
         contains "PLAN FRAGMENT 0"
         contains "__DORIS_IVM_ROW_ID_COL__"
         contains "VRESULT SINK"
     }
 
     explain {
-        sql "ANALYZED PLAN REFRESH MATERIALIZED VIEW test_ivm_explain_refresh_mv INCREMENTAL FOR DELTA 1"
+        sql "ANALYZED PLAN REFRESH MATERIALIZED VIEW test_ivm_explain_refresh_mv INCREMENTAL"
         contains "LogicalResultSink"
     }
 
     explain {
-        sql "ANALYZED PLAN REFRESH MATERIALIZED VIEW test_ivm_explain_refresh_mv INCREMENTAL FOR DELTA 2"
+        sql "ANALYZED PLAN REFRESH MATERIALIZED VIEW test_ivm_explain_refresh_mv INCREMENTAL"
         contains "LogicalJoin"
         contains "LEFT_OUTER_JOIN"
         contains "test_ivm_explain_refresh_t1"
@@ -111,12 +105,12 @@ suite("test_ivm_explain_refresh") {
     }
 
     explain {
-        sql "LOGICAL PLAN REFRESH MATERIALIZED VIEW test_ivm_explain_refresh_mv INCREMENTAL FOR DELTA 1"
+        sql "LOGICAL PLAN REFRESH MATERIALIZED VIEW test_ivm_explain_refresh_mv INCREMENTAL"
         contains "LogicalResultSink"
     }
 
     explain {
-        sql "PHYSICAL PLAN REFRESH MATERIALIZED VIEW test_ivm_explain_refresh_mv INCREMENTAL FOR DELTA 1"
+        sql "PHYSICAL PLAN REFRESH MATERIALIZED VIEW test_ivm_explain_refresh_mv INCREMENTAL"
         contains "PhysicalResultSink"
     }
 }

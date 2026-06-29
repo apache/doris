@@ -50,6 +50,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.util.PlanConstructor;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
@@ -382,12 +383,13 @@ class IvmAggDeltaHandlerTest extends IvmDeltaTestBase {
 
     @Test
     void testAggMissingNormalizeResultThrows() {
-        PlanBundle bundle = normalizeAggPlan(buildGroupedAgg(buildScan()));
-        MTMV mtmv = buildMtmvFromPlan(bundle.normalizedPlan.getOutput());
+        LogicalAggregate<?> agg = buildGroupedAgg(buildScan());
+        MTMV mtmv = buildMtmvFromPlan(agg.getOutput());
+        IvmRefreshContext ctx = new IvmRefreshContext(mtmv, new ConnectContext(), null);
+        IvmDeltaRewriteResult childResult = new IvmDeltaRewriteResult(agg.child(0), (Slot) null);
 
-        IvmRefreshContext ctx = new IvmRefreshContext(mtmv, bundle.connectContext, null);
         AnalysisException ex = Assertions.assertThrows(AnalysisException.class,
-                () -> IvmDeltaCommandBuilder.INSTANCE.rewrite(bundle.normalizedPlan, ctx));
+                () -> new IvmAggDeltaHandler().rewriteAggregate(agg, childResult, ctx));
         Assertions.assertTrue(ex.getMessage().contains("normalize result"));
     }
 

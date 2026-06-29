@@ -1878,13 +1878,10 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         List<String> nameParts = visitMultipartIdentifier(ctx.mvName);
         RefreshMTMVInfo refreshMTMVInfo = new RefreshMTMVInfo(
                 new TableNameInfo(nameParts), ImmutableList.of(), RefreshMode.INCREMENTAL);
-        Integer deltaId = ctx.explainDeltaClause() == null
-                ? null
-                : Integer.parseInt(ctx.explainDeltaClause().deltaId.getText());
         return ParserUtils.withOrigin(ctx.explain(), () -> {
             Pair<ExplainLevel, Boolean> explainInfo = parseExplain(ctx.explain());
             return new ExplainRefreshIvmCommand(
-                    refreshMTMVInfo, explainInfo.first, explainInfo.second, deltaId);
+                    refreshMTMVInfo, explainInfo.first, explainInfo.second);
         });
     }
 

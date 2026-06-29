@@ -105,6 +105,7 @@ class IvmDeltaRewriteVisitor extends PlanVisitor<IvmDeltaRewriteResult, IvmRefre
     @Override
     public IvmDeltaRewriteResult visitLogicalAggregate(LogicalAggregate<? extends Plan> aggregate,
             IvmRefreshContext ctx) {
-        return aggHandler.rewriteAggregate(aggregate, this, ctx);
+        throw new AnalysisException(
+                "IVM: AGG node must be detached and handled by IvmDeltaRewriter, not the visitor");
     }
 }
