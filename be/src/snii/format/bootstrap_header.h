@@ -3,7 +3,7 @@
 #include <cstdint>
 
 #include "snii/common/slice.h"
-#include "snii/common/status.h"
+#include "common/status.h"
 #include "snii/encoding/byte_sink.h"
 #include "snii/format/format_constants.h"
 
@@ -41,7 +41,7 @@ inline constexpr uint32_t kBootstrapHeaderSize =
 // Serializes the header to sink: writes header_length = kBootstrapHeaderSize
 // and appends a crc32c over all preceding bytes. The caller's header_length
 // field is ignored on input (it is always derived). Returns OK.
-Status encode_bootstrap_header(const BootstrapHeader& header, ByteSink* sink);
+doris::Status encode_bootstrap_header(const BootstrapHeader& header, ByteSink* sink);
 
 // Parses and validates a bootstrap header from the front of data.
 //   - too short / trailing bytes beyond the fixed header -> kCorruption
@@ -49,6 +49,6 @@ Status encode_bootstrap_header(const BootstrapHeader& header, ByteSink* sink);
 //   - checksum mismatch                                  -> kCorruption
 //   - format_version != kFormatVersion                   -> kUnsupported
 //   - min_reader_version > kFormatVersion                -> kUnsupported
-Status decode_bootstrap_header(Slice data, BootstrapHeader* out);
+doris::Status decode_bootstrap_header(Slice data, BootstrapHeader* out);
 
 } // namespace snii::format

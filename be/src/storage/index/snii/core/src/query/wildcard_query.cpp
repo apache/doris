@@ -47,27 +47,27 @@ bool wildcard_match(std::string_view pattern, std::string_view text) {
 
 } // namespace
 
-Status wildcard_query(const snii::reader::LogicalIndexReader& idx, std::string_view pattern,
+doris::Status wildcard_query(const snii::reader::LogicalIndexReader& idx, std::string_view pattern,
                       std::vector<uint32_t>* const docids, int32_t max_expansions) {
     if (docids == nullptr) {
-        return Status::InvalidArgument("wildcard_query: null out");
+        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("wildcard_query: null out");
     }
     docids->clear();
     VectorDocIdSink sink(*docids);
     return wildcard_query(idx, pattern, &sink, max_expansions);
 }
 
-Status wildcard_query(const snii::reader::LogicalIndexReader& idx, std::string_view pattern,
+doris::Status wildcard_query(const snii::reader::LogicalIndexReader& idx, std::string_view pattern,
                       std::vector<uint32_t>* const docids, QueryProfile* profile,
                       int32_t max_expansions) {
     QueryProfileScope profile_scope(idx.reader(), profile);
     return wildcard_query(idx, pattern, docids, max_expansions);
 }
 
-Status wildcard_query(const snii::reader::LogicalIndexReader& idx, std::string_view pattern,
+doris::Status wildcard_query(const snii::reader::LogicalIndexReader& idx, std::string_view pattern,
                       DocIdSink* const sink, int32_t max_expansions) {
     if (sink == nullptr) {
-        return Status::InvalidArgument("wildcard_query: null sink");
+        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("wildcard_query: null sink");
     }
     const std::string enum_prefix = literal_prefix_for_wildcard(pattern);
     return internal::emit_expanded_docid_union(

@@ -3,7 +3,7 @@
 #include <cstdint>
 
 #include "snii/common/slice.h"
-#include "snii/common/status.h"
+#include "common/status.h"
 
 namespace snii::io {
 
@@ -15,8 +15,8 @@ class FileWriter {
 public:
     virtual ~FileWriter() = default;
 
-    virtual Status append(Slice data) = 0;
-    virtual Status finalize() = 0;
+    virtual doris::Status append(Slice data) = 0;
+    virtual doris::Status finalize() = 0;
     virtual uint64_t bytes_written() const = 0;
 };
 

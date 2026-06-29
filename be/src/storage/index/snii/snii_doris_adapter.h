@@ -25,7 +25,7 @@
 #include "io/fs/file_reader.h"
 #include "io/fs/file_writer.h"
 #include "io/io_common.h"
-#include "snii/common/status.h"
+#include "common/status.h"
 #include "snii/io/file_reader.h"
 #include "snii/io/file_writer.h"
 #include "util/slice.h"
@@ -36,15 +36,12 @@ struct SectionRefs;
 
 namespace doris::segment_v2::snii_doris {
 
-Status to_doris_status(const ::snii::Status& status);
-::snii::Status to_snii_status(const Status& status);
-
 class DorisSniiFileWriter final : public ::snii::io::FileWriter {
 public:
     explicit DorisSniiFileWriter(io::FileWriter* writer) : _writer(writer) {}
 
-    ::snii::Status append(::snii::Slice data) override;
-    ::snii::Status finalize() override;
+    doris::Status append(::snii::Slice data) override;
+    doris::Status finalize() override;
     uint64_t bytes_written() const override;
 
 private:
@@ -70,8 +67,8 @@ public:
 
     void register_section_refs(const ::snii::format::SectionRefs& refs);
 
-    ::snii::Status read_at(uint64_t offset, size_t len, std::vector<uint8_t>* out) override;
-    ::snii::Status read_batch(const std::vector<::snii::io::Range>& ranges,
+    doris::Status read_at(uint64_t offset, size_t len, std::vector<uint8_t>* out) override;
+    doris::Status read_batch(const std::vector<::snii::io::Range>& ranges,
                               std::vector<std::vector<uint8_t>>* outs) override;
     uint64_t size() const override;
 
@@ -86,8 +83,8 @@ private:
     static io::IOContext _make_section_io_context(const io::IOContext* io_ctx,
                                                   uint8_t section_type);
     uint8_t _classify_section(uint64_t offset, size_t len) const;
-    ::snii::Status _check_read_range(uint64_t offset, size_t len) const;
-    ::snii::Status _read_at(uint64_t offset, size_t len, std::vector<uint8_t>* out,
+    doris::Status _check_read_range(uint64_t offset, size_t len) const;
+    doris::Status _read_at(uint64_t offset, size_t len, std::vector<uint8_t>* out,
                             const io::IOContext* io_ctx) const;
     const io::IOContext* _current_io_ctx() const;
     void _record_read_stats(int64_t request_bytes, int64_t read_bytes, int64_t range_read_count,

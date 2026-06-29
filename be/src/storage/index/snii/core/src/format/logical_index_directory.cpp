@@ -5,6 +5,7 @@
 #include "snii/format/format_constants.h"
 
 namespace snii::format {
+using doris::Status; // RETURN_IF_ERROR expands to bare Status
 
 namespace {
 
@@ -22,42 +23,42 @@ void encode_entry(const LogicalIndexRef& ref, ByteSink* payload) {
 }
 
 // Decode one directory entry, validating suffix_len against the remaining payload before copying.
-Status decode_entry(ByteSource* ps, LogicalIndexRef* ref) {
-    SNII_RETURN_IF_ERROR(ps->get_varint64(&ref->index_id));
+doris::Status decode_entry(ByteSource* ps, LogicalIndexRef* ref) {
+    RETURN_IF_ERROR(ps->get_varint64(&ref->index_id));
     uint32_t suffix_len = 0;
-    SNII_RETURN_IF_ERROR(ps->get_varint32(&suffix_len));
+    RETURN_IF_ERROR(ps->get_varint32(&suffix_len));
     // Anti-DoS: reject a suffix_len that cannot fit in the remaining bytes before allocating.
     if (suffix_len > ps->remaining()) {
-        return Status::Corruption("logical_index_directory: suffix_len exceeds payload");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("logical_index_directory: suffix_len exceeds payload");
     }
     Slice suffix;
-    SNII_RETURN_IF_ERROR(ps->get_bytes(suffix_len, &suffix));
+    RETURN_IF_ERROR(ps->get_bytes(suffix_len, &suffix));
     ref->index_suffix.assign(reinterpret_cast<const char*>(suffix.data()), suffix.size());
-    SNII_RETURN_IF_ERROR(ps->get_varint64(&ref->meta_off));
-    SNII_RETURN_IF_ERROR(ps->get_varint64(&ref->meta_len));
-    return Status::OK();
+    RETURN_IF_ERROR(ps->get_varint64(&ref->meta_off));
+    RETURN_IF_ERROR(ps->get_varint64(&ref->meta_len));
+    return doris::Status::OK();
 }
 
-Status decode_payload(Slice payload, std::vector<LogicalIndexRef>* refs) {
+doris::Status decode_payload(Slice payload, std::vector<LogicalIndexRef>* refs) {
     ByteSource ps(payload);
     uint32_t n_entries = 0;
-    SNII_RETURN_IF_ERROR(ps.get_varint32(&n_entries));
+    RETURN_IF_ERROR(ps.get_varint32(&n_entries));
     // Anti-DoS: cap n_entries against the remaining payload before reserving, so a corrupted
     // inflated count cannot trigger a huge allocation.
     if (n_entries > ps.remaining() / kMinEntryBytes) {
-        return Status::Corruption("logical_index_directory: n_entries exceeds payload capacity");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("logical_index_directory: n_entries exceeds payload capacity");
     }
     refs->clear();
     refs->reserve(n_entries);
     for (uint32_t i = 0; i < n_entries; ++i) {
         LogicalIndexRef ref {};
-        SNII_RETURN_IF_ERROR(decode_entry(&ps, &ref));
+        RETURN_IF_ERROR(decode_entry(&ps, &ref));
         refs->push_back(std::move(ref));
     }
     if (!ps.eof()) {
-        return Status::Corruption("logical_index_directory: trailing bytes in payload");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("logical_index_directory: trailing bytes in payload");
     }
-    return Status::OK();
+    return doris::Status::OK();
 }
 
 } // namespace
@@ -72,34 +73,34 @@ void LogicalIndexDirectoryBuilder::finish(ByteSink* sink) const {
                          payload.view());
 }
 
-Status LogicalIndexDirectoryReader::open(Slice framed, LogicalIndexDirectoryReader* out) {
+doris::Status LogicalIndexDirectoryReader::open(Slice framed, LogicalIndexDirectoryReader* out) {
     if (out == nullptr) {
-        return Status::InvalidArgument("logical_index_directory: out is null");
+        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("logical_index_directory: out is null");
     }
     ByteSource src(framed);
     FramedSection sec;
-    SNII_RETURN_IF_ERROR(SectionFramer::read(src, &sec));
+    RETURN_IF_ERROR(SectionFramer::read(src, &sec));
     if (sec.type != static_cast<uint8_t>(SectionType::kLogicalIndexDirectory)) {
-        return Status::InvalidArgument("logical_index_directory: unexpected section type");
+        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("logical_index_directory: unexpected section type");
     }
     return decode_payload(sec.payload, &out->refs_);
 }
 
-Status LogicalIndexDirectoryReader::get(uint32_t i, LogicalIndexRef* out) const {
+doris::Status LogicalIndexDirectoryReader::get(uint32_t i, LogicalIndexRef* out) const {
     if (out == nullptr) {
-        return Status::InvalidArgument("logical_index_directory: out is null");
+        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("logical_index_directory: out is null");
     }
     if (i >= refs_.size()) {
-        return Status::NotFound("logical_index_directory: index out of range");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_SNII_NOT_FOUND, false>("logical_index_directory: index out of range");
     }
     *out = refs_[i];
-    return Status::OK();
+    return doris::Status::OK();
 }
 
-Status LogicalIndexDirectoryReader::find(uint64_t index_id, std::string_view suffix, bool* found,
+doris::Status LogicalIndexDirectoryReader::find(uint64_t index_id, std::string_view suffix, bool* found,
                                          LogicalIndexRef* out) const {
     if (found == nullptr || out == nullptr) {
-        return Status::InvalidArgument("logical_index_directory: output pointer is null");
+        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("logical_index_directory: output pointer is null");
     }
     *found = false;
     for (const auto& ref : refs_) {
@@ -108,9 +109,9 @@ Status LogicalIndexDirectoryReader::find(uint64_t index_id, std::string_view suf
         }
         *out = ref;
         *found = true;
-        return Status::OK();
+        return doris::Status::OK();
     }
-    return Status::OK();
+    return doris::Status::OK();
 }
 
 } // namespace snii::format

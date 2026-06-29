@@ -16,6 +16,7 @@
 #include "snii/format/format_constants.h"
 
 namespace snii::writer {
+using doris::Status; // RETURN_IF_ERROR expands to bare Status
 
 namespace {
 
@@ -50,17 +51,17 @@ void AppendRawU32(std::vector<uint8_t>* buf, const uint32_t* src, size_t count) 
 }
 
 // Writes the full byte range [data, data+len) to fd, looping over short writes.
-Status WriteAll(int fd, const uint8_t* data, size_t len) {
+doris::Status WriteAll(int fd, const uint8_t* data, size_t len) {
     size_t off = 0;
     while (off < len) {
         const ssize_t n = ::write(fd, data + off, len - off);
         if (n < 0) {
             if (errno == EINTR) continue;
-            return Status::IoError(std::string("run write failed: ") + std::strerror(errno));
+            return doris::Status::Error<doris::ErrorCode::IO_ERROR, false>(std::string("run write failed: ") + std::strerror(errno));
         }
         off += static_cast<size_t>(n);
     }
-    return Status::OK();
+    return doris::Status::OK();
 }
 
 } // namespace
@@ -73,23 +74,23 @@ RunWriter::~RunWriter() {
     if (fd_ >= 0) ::close(fd_);
 }
 
-Status RunWriter::open(const std::string& path) {
+doris::Status RunWriter::open(const std::string& path) {
     fd_ = ::open(path.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0600);
     if (fd_ < 0) {
-        return Status::IoError("run open(" + path + "): " + std::strerror(errno));
+        return doris::Status::Error<doris::ErrorCode::IO_ERROR, false>("run open(" + path + "): " + std::strerror(errno));
     }
     buf_.clear();
-    return Status::OK();
+    return doris::Status::OK();
 }
 
-Status RunWriter::flush() {
-    if (buf_.empty()) return Status::OK();
-    SNII_RETURN_IF_ERROR(WriteAll(fd_, buf_.data(), buf_.size()));
+doris::Status RunWriter::flush() {
+    if (buf_.empty()) return doris::Status::OK();
+    RETURN_IF_ERROR(WriteAll(fd_, buf_.data(), buf_.size()));
     buf_.clear();
-    return Status::OK();
+    return doris::Status::OK();
 }
 
-Status RunWriter::write_term(uint32_t term_id, const TermPostings& tp) {
+doris::Status RunWriter::write_term(uint32_t term_id, const TermPostings& tp) {
     AppendVarint(&buf_, term_id);
     AppendVarint(&buf_, tp.docids.size());
     // Docids are a RAW fixed-width u32 block (bulk memcpy), NOT per-value VInt.
@@ -106,19 +107,19 @@ Status RunWriter::write_term(uint32_t term_id, const TermPostings& tp) {
     const uint64_t n_pos = tp.positions_flat.size();
     AppendVarint(&buf_, n_pos);
     AppendRawU32(&buf_, tp.positions_flat.data(), tp.positions_flat.size());
-    if (buf_.size() >= kWriteFlushBytes) SNII_RETURN_IF_ERROR(flush());
-    return Status::OK();
+    if (buf_.size() >= kWriteFlushBytes) RETURN_IF_ERROR(flush());
+    return doris::Status::OK();
 }
 
-Status RunWriter::close() {
-    if (fd_ < 0) return Status::OK();
-    SNII_RETURN_IF_ERROR(flush());
+doris::Status RunWriter::close() {
+    if (fd_ < 0) return doris::Status::OK();
+    RETURN_IF_ERROR(flush());
     const int fd = fd_;
     fd_ = -1;
     if (::close(fd) != 0) {
-        return Status::IoError(std::string("run close: ") + std::strerror(errno));
+        return doris::Status::Error<doris::ErrorCode::IO_ERROR, false>(std::string("run close: ") + std::strerror(errno));
     }
-    return Status::OK();
+    return doris::Status::OK();
 }
 
 // ---------------------------------------------------------------------------
@@ -129,19 +130,19 @@ RunReader::~RunReader() {
     if (fd_ >= 0) ::close(fd_);
 }
 
-Status RunReader::open(const std::string& path, bool has_positions) {
+doris::Status RunReader::open(const std::string& path, bool has_positions) {
     fd_ = ::open(path.c_str(), O_RDONLY);
     if (fd_ < 0) {
-        return Status::IoError("run reopen(" + path + "): " + std::strerror(errno));
+        return doris::Status::Error<doris::ErrorCode::IO_ERROR, false>("run reopen(" + path + "): " + std::strerror(errno));
     }
     // Record the run's byte size so every length decoded from the stream can be
     // bounded against it before allocating (no record holds more u32s than the whole
     // file). Honors the header's "lengths validated against the file size" contract,
-    // turning a corrupt/truncated length into Status::Corruption rather than an
+    // turning a corrupt/truncated length into doris::Status::Corruption rather than an
     // uncaught std::bad_alloc from a giant resize().
     struct stat st {};
     if (::fstat(fd_, &st) != 0) {
-        return Status::IoError(std::string("run fstat: ") + std::strerror(errno));
+        return doris::Status::Error<doris::ErrorCode::IO_ERROR, false>(std::string("run fstat: ") + std::strerror(errno));
     }
     file_size_ = static_cast<uint64_t>(st.st_size);
     has_positions_ = has_positions;
@@ -155,22 +156,22 @@ Status RunReader::open(const std::string& path, bool has_positions) {
 }
 
 // Slides consumed bytes out of the window, then appends one disk chunk.
-Status RunReader::fill() {
+doris::Status RunReader::fill() {
     if (pos_ > 0) {
         window_.erase(window_.begin(), window_.begin() + pos_);
         pos_ = 0;
     }
-    if (eof_) return Status::OK();
+    if (eof_) return doris::Status::OK();
     const size_t base = window_.size();
     window_.resize(base + kReadChunkBytes);
     ssize_t n;
     do {
         n = ::read(fd_, window_.data() + base, kReadChunkBytes);
     } while (n < 0 && errno == EINTR);
-    if (n < 0) return Status::IoError(std::string("run read: ") + std::strerror(errno));
+    if (n < 0) return doris::Status::Error<doris::ErrorCode::IO_ERROR, false>(std::string("run read: ") + std::strerror(errno));
     window_.resize(base + static_cast<size_t>(n));
     if (n == 0) eof_ = true;
-    return Status::OK();
+    return doris::Status::OK();
 }
 
 // Buffered bytes available to the decoder right now (from pos_ to window end).
@@ -180,36 +181,36 @@ size_t RunReader::available() const {
     return window_.size() - pos_;
 }
 
-Status RunReader::ensure(size_t n) {
+doris::Status RunReader::ensure(size_t n) {
     while (available() < n) {
         const size_t had = available();
-        SNII_RETURN_IF_ERROR(fill());
+        RETURN_IF_ERROR(fill());
         if (available() == had && eof_) {
-            return Status::Corruption("run truncated: needed more bytes than available");
+            return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("run truncated: needed more bytes than available");
         }
     }
-    return Status::OK();
+    return doris::Status::OK();
 }
 
 // Streamed varint: decode from the current window; if it straddles the buffered
 // boundary, top up from disk and retry. A varint is at most 10 bytes, so this
 // loops at most a couple of times. Bounds-safe: decode_varint64 never reads past
 // `end`, and a partial varint at true eof is reported as corruption.
-Status RunReader::read_varint(uint64_t* v) {
+doris::Status RunReader::read_varint(uint64_t* v) {
     while (true) {
         const uint8_t* p = window_.data() + pos_;
         const uint8_t* end = window_.data() + window_.size();
         const uint8_t* next = nullptr;
-        Status s = decode_varint64(p, end, v, &next);
+        doris::Status s = decode_varint64(p, end, v, &next);
         if (s.ok()) {
             pos_ += static_cast<size_t>(next - p);
-            return Status::OK();
+            return doris::Status::OK();
         }
-        if (eof_) return Status::Corruption("run truncated: incomplete varint");
+        if (eof_) return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("run truncated: incomplete varint");
         const size_t had = available();
-        SNII_RETURN_IF_ERROR(fill());
+        RETURN_IF_ERROR(fill());
         if (available() == had && eof_) {
-            return Status::Corruption("run truncated: incomplete varint at eof");
+            return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("run truncated: incomplete varint at eof");
         }
     }
 }
@@ -219,16 +220,16 @@ Status RunReader::read_varint(uint64_t* v) {
 // Copies whatever is buffered each pass (the window may hold only part of a large
 // block), so a high-df term's freqs/positions stream through in 64 KiB chunks
 // without ever needing the whole block resident at once.
-Status RunReader::pull_raw_u32(uint8_t* dst, size_t count) {
-    if (count == 0) return Status::OK();
+doris::Status RunReader::pull_raw_u32(uint8_t* dst, size_t count) {
+    if (count == 0) return doris::Status::OK();
     size_t need = count * sizeof(uint32_t);
     size_t written = 0;
     while (need > 0) {
         if (available() == 0) {
             const size_t had = available();
-            SNII_RETURN_IF_ERROR(fill());
+            RETURN_IF_ERROR(fill());
             if (available() == had && eof_) {
-                return Status::Corruption("run truncated: needed more raw bytes than available");
+                return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("run truncated: needed more raw bytes than available");
             }
         }
         const size_t take = std::min(need, available());
@@ -237,90 +238,90 @@ Status RunReader::pull_raw_u32(uint8_t* dst, size_t count) {
         written += take;
         need -= take;
     }
-    return Status::OK();
+    return doris::Status::OK();
 }
 
 // Bulk-decodes `count` raw u32s into `out` (resized to count).
-Status RunReader::read_raw_u32(size_t count, std::vector<uint32_t>* out) {
+doris::Status RunReader::read_raw_u32(size_t count, std::vector<uint32_t>* out) {
     // Bound `count` against the run's byte size BEFORE resize(): a record can never
     // hold more u32s than the whole file. Rejects a corrupt/truncated length varint
     // (which is otherwise an unbounded resize -> uncaught std::bad_alloc).
     if (count > file_size_ / sizeof(uint32_t)) {
-        return Status::Corruption("run: raw u32 count exceeds file size");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("run: raw u32 count exceeds file size");
     }
     out->resize(count);
-    if (count == 0) return Status::OK();
+    if (count == 0) return doris::Status::OK();
     return pull_raw_u32(reinterpret_cast<uint8_t*>(out->data()), count);
 }
 
 // Materializes the current term's deferred position block into positions_flat.
 // A no-op once the positions are already drained (idempotent within a term).
-Status RunReader::materialize_positions() {
+doris::Status RunReader::materialize_positions() {
     if (pos_remaining_ == 0) {
         current_.positions_flat.clear();
-        return Status::OK();
+        return doris::Status::OK();
     }
     const size_t n = static_cast<size_t>(pos_remaining_);
     if (has_positions_) {
-        SNII_RETURN_IF_ERROR(read_raw_u32(n, &current_.positions_flat));
+        RETURN_IF_ERROR(read_raw_u32(n, &current_.positions_flat));
     } else {
         // No-positions runs should carry n_pos == 0; tolerate (skip) a stray block.
         std::vector<uint32_t> skip;
-        SNII_RETURN_IF_ERROR(read_raw_u32(n, &skip));
+        RETURN_IF_ERROR(read_raw_u32(n, &skip));
         current_.positions_flat.clear();
     }
     pos_remaining_ = 0;
-    return Status::OK();
+    return doris::Status::OK();
 }
 
 // Streams the next `n` positions of the current term straight from the window.
-Status RunReader::stream_positions(uint32_t* dst, size_t n) {
-    if (n == 0) return Status::OK();
+doris::Status RunReader::stream_positions(uint32_t* dst, size_t n) {
+    if (n == 0) return doris::Status::OK();
     if (n > pos_remaining_) {
-        return Status::Corruption("run: stream_positions past block end");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("run: stream_positions past block end");
     }
-    SNII_RETURN_IF_ERROR(pull_raw_u32(reinterpret_cast<uint8_t*>(dst), n));
+    RETURN_IF_ERROR(pull_raw_u32(reinterpret_cast<uint8_t*>(dst), n));
     pos_remaining_ -= n;
-    return Status::OK();
+    return doris::Status::OK();
 }
 
 // Discards any positions of the current term left unread, so the window cursor
 // lands at the next record boundary before advance() reads the next term.
-Status RunReader::skip_remaining_positions() {
-    if (pos_remaining_ == 0) return Status::OK();
+doris::Status RunReader::skip_remaining_positions() {
+    if (pos_remaining_ == 0) return doris::Status::OK();
     const size_t n = static_cast<size_t>(pos_remaining_);
     std::vector<uint32_t> skip;
-    SNII_RETURN_IF_ERROR(read_raw_u32(n, &skip));
+    RETURN_IF_ERROR(read_raw_u32(n, &skip));
     pos_remaining_ = 0;
-    return Status::OK();
+    return doris::Status::OK();
 }
 
-Status RunReader::advance() {
+doris::Status RunReader::advance() {
     // Drain any positions the owner left unread for the previous term so the window
     // cursor lands at the next record boundary.
-    SNII_RETURN_IF_ERROR(skip_remaining_positions());
+    RETURN_IF_ERROR(skip_remaining_positions());
     // End-of-run detection: at a record boundary, if no bytes remain we are done.
     if (available() == 0) {
-        SNII_RETURN_IF_ERROR(fill());
+        RETURN_IF_ERROR(fill());
         if (available() == 0 && eof_) {
             exhausted_ = true;
-            return Status::OK();
+            return doris::Status::OK();
         }
     }
     uint64_t term_id = 0;
-    SNII_RETURN_IF_ERROR(read_varint(&term_id));
-    if (term_id > UINT32_MAX) return Status::Corruption("run term_id exceeds uint32");
+    RETURN_IF_ERROR(read_varint(&term_id));
+    if (term_id > UINT32_MAX) return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("run term_id exceeds uint32");
     current_id_ = static_cast<uint32_t>(term_id);
     current_.term.clear(); // runs store only the id; owner resolves the string
 
     uint64_t n_docs = 0;
-    SNII_RETURN_IF_ERROR(read_varint(&n_docs));
+    RETURN_IF_ERROR(read_varint(&n_docs));
     // Docids: RAW absolute u32 block (bulk read), matching the writer's AppendRawU32.
-    SNII_RETURN_IF_ERROR(read_raw_u32(static_cast<size_t>(n_docs), &current_.docids));
+    RETURN_IF_ERROR(read_raw_u32(static_cast<size_t>(n_docs), &current_.docids));
     // Freqs: RAW u32 block (bulk read), matching the writer's AppendRawU32.
-    SNII_RETURN_IF_ERROR(read_raw_u32(static_cast<size_t>(n_docs), &current_.freqs));
+    RETURN_IF_ERROR(read_raw_u32(static_cast<size_t>(n_docs), &current_.freqs));
     uint64_t n_pos = 0;
-    SNII_RETURN_IF_ERROR(read_varint(&n_pos));
+    RETURN_IF_ERROR(read_varint(&n_pos));
     // Positions are LAZY: record the block count and leave the window cursor parked
     // at the block start. The owner picks materialize_positions() (default) or
     // stream_positions() (wide-term merge pump). The widest term's tens-of-MiB
@@ -328,7 +329,7 @@ Status RunReader::advance() {
     current_.positions_flat.clear();
     pos_count_ = n_pos;
     pos_remaining_ = n_pos;
-    return Status::OK();
+    return doris::Status::OK();
 }
 
 // ---------------------------------------------------------------------------
@@ -425,7 +426,7 @@ bool ShouldStreamPositions(uint64_t total_docs, uint64_t total_pos, bool has_pos
 
 } // namespace
 
-Status MergeRuns(const std::vector<std::string>& run_paths, const std::vector<std::string>& vocab,
+doris::Status MergeRuns(const std::vector<std::string>& run_paths, const std::vector<std::string>& vocab,
                  bool has_positions, const std::function<void(TermPostings&&)>& fn,
                  bool allow_stream_positions) {
     std::vector<std::unique_ptr<RunReader>> readers;
@@ -433,10 +434,10 @@ Status MergeRuns(const std::vector<std::string>& run_paths, const std::vector<st
     std::priority_queue<HeapItem, std::vector<HeapItem>, HeapGreater> heap(HeapGreater {&vocab});
     for (size_t i = 0; i < run_paths.size(); ++i) {
         auto r = std::make_unique<RunReader>();
-        SNII_RETURN_IF_ERROR(r->open(run_paths[i], has_positions));
+        RETURN_IF_ERROR(r->open(run_paths[i], has_positions));
         if (!r->exhausted()) {
             if (r->current_id() >= vocab.size()) {
-                return Status::Corruption("run term_id out of vocab range");
+                return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("run term_id out of vocab range");
             }
             heap.push({r->current_id(), i});
         }
@@ -487,7 +488,7 @@ Status MergeRuns(const std::vector<std::string>& run_paths, const std::vector<st
             if (stream) {
                 ConcatDocsFreqs(&merged, r->current());
             } else {
-                if (has_positions) SNII_RETURN_IF_ERROR(r->materialize_positions());
+                if (has_positions) RETURN_IF_ERROR(r->materialize_positions());
                 Concat(&merged, r->current(), has_positions);
             }
         }
@@ -502,7 +503,7 @@ Status MergeRuns(const std::vector<std::string>& run_paths, const std::vector<st
             merged.positions_flat.reserve(static_cast<size_t>(total_pos));
             for (size_t ri : matching) {
                 RunReader* r = readers[ri].get();
-                SNII_RETURN_IF_ERROR(r->materialize_positions());
+                RETURN_IF_ERROR(r->materialize_positions());
                 const std::vector<uint32_t>& pf = r->current().positions_flat;
                 merged.positions_flat.insert(merged.positions_flat.end(), pf.begin(), pf.end());
             }
@@ -519,7 +520,7 @@ Status MergeRuns(const std::vector<std::string>& run_paths, const std::vector<st
             // writer does). After fn(), advance the readers past the (now-drained) blocks.
             merged.pos_total = total_pos;
             size_t cursor = 0; // index into `matching` for the run currently being drained
-            Status pump_status = Status::OK();
+            doris::Status pump_status = doris::Status::OK();
             std::vector<std::unique_ptr<RunReader>>* rd = &readers;
             const std::vector<size_t>* match = &matching;
             // Self-contained liveness guard. The pump captures references into THIS stack
@@ -548,7 +549,7 @@ Status MergeRuns(const std::vector<std::string>& run_paths, const std::vector<st
                     RunReader* r = (*rd)[(*match)[cursor]].get();
                     const size_t take =
                             std::min(n - off, static_cast<size_t>(r->positions_remaining()));
-                    Status s = r->stream_positions(dst + off, take);
+                    doris::Status s = r->stream_positions(dst + off, take);
                     if (!s.ok()) {
                         // Mid-stream I/O / corruption: zero-fill the UNFILLED tail before
                         // returning. fn() has the pump and will consume dst BEFORE pump_status
@@ -571,7 +572,7 @@ Status MergeRuns(const std::vector<std::string>& run_paths, const std::vector<st
             };
             fn(std::move(merged));
             *pump_alive = false;               // any later pos_pump call now throws instead of UAF
-            SNII_RETURN_IF_ERROR(pump_status); // surface a streamed-read I/O error
+            RETURN_IF_ERROR(pump_status); // surface a streamed-read I/O error
         } else {
             fn(std::move(merged));
         }
@@ -582,16 +583,16 @@ Status MergeRuns(const std::vector<std::string>& run_paths, const std::vector<st
         // materialized so nothing remains.
         for (size_t ri : matching) {
             RunReader* r = readers[ri].get();
-            SNII_RETURN_IF_ERROR(r->advance()); // frees this run's slice, loads next term
+            RETURN_IF_ERROR(r->advance()); // frees this run's slice, loads next term
             if (!r->exhausted()) {
                 if (r->current_id() >= vocab.size()) {
-                    return Status::Corruption("run term_id out of vocab range");
+                    return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("run term_id out of vocab range");
                 }
                 heap.push({r->current_id(), ri});
             }
         }
     }
-    return Status::OK();
+    return doris::Status::OK();
 }
 
 } // namespace snii::writer

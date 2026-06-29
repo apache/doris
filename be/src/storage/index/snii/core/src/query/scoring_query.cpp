@@ -17,6 +17,7 @@
 #include "snii/reader/windowed_posting.h"
 
 namespace snii::query {
+using doris::Status; // RETURN_IF_ERROR expands to bare Status
 
 using snii::format::DictEntry;
 using snii::format::DictEntryEnc;
@@ -57,44 +58,44 @@ uint32_t CurrentDoc(const TermCursor& c) {
 
 // Reads one slim .frq window's bytes for a slim pod_ref/inline entry (prelude
 // stripped). Windowed entries are handled separately via the prelude decode.
-Status FetchSlimWindowBytes(const LogicalIndexReader& idx, const DictEntry& entry,
+doris::Status FetchSlimWindowBytes(const LogicalIndexReader& idx, const DictEntry& entry,
                             uint64_t frq_base, std::vector<uint8_t>* window_owned, Slice* window) {
     if (entry.kind == DictEntryKind::kInline) {
         *window = Slice(entry.frq_bytes);
-        return Status::OK();
+        return doris::Status::OK();
     }
     uint64_t win_abs = 0;
     uint64_t win_len = 0;
-    SNII_RETURN_IF_ERROR(idx.resolve_frq_window(entry, frq_base, &win_abs, &win_len));
+    RETURN_IF_ERROR(idx.resolve_frq_window(entry, frq_base, &win_abs, &win_len));
     snii::io::BatchRangeFetcher fetcher(idx.reader());
     const size_t h = fetcher.add(win_abs, win_len);
-    SNII_RETURN_IF_ERROR(fetcher.fetch());
+    RETURN_IF_ERROR(fetcher.fetch());
     Slice got = fetcher.get(h);
     window_owned->assign(got.data(), got.data() + got.size());
     *window = Slice(*window_owned);
-    return Status::OK();
+    return doris::Status::OK();
 }
 
 // Reads a windowed entry's frq_prelude (block-max columns live here).
-Status FetchPrelude(const LogicalIndexReader& idx, const DictEntry& entry, uint64_t frq_base,
+doris::Status FetchPrelude(const LogicalIndexReader& idx, const DictEntry& entry, uint64_t frq_base,
                     FrqPreludeReader* out) {
     const auto& region = idx.section_refs().posting_region;
     const uint64_t prelude_abs = region.offset + frq_base + entry.frq_off_delta;
     snii::io::BatchRangeFetcher fetcher(idx.reader());
     const size_t h = fetcher.add(prelude_abs, entry.prelude_len);
-    SNII_RETURN_IF_ERROR(fetcher.fetch());
+    RETURN_IF_ERROR(fetcher.fetch());
     return FrqPreludeReader::open(fetcher.get(h), out);
 }
 
 // Builds per-window block-max bounds from a windowed entry's prelude. Each
 // WindowMeta carries the window's max_freq / max_norm and its covered docid
 // range (win_base+1 .. last_docid), so bounds come straight from the directory.
-Status BuildWindowBounds(const FrqPreludeReader& prelude, const ScorerContext& ctx, double avgdl,
+doris::Status BuildWindowBounds(const FrqPreludeReader& prelude, const ScorerContext& ctx, double avgdl,
                          const Bm25Params& params, std::vector<WindowBound>* windows) {
     const uint32_t n = prelude.n_windows();
     for (uint32_t w = 0; w < n; ++w) {
         WindowMeta m;
-        SNII_RETURN_IF_ERROR(prelude.window(w, &m));
+        RETURN_IF_ERROR(prelude.window(w, &m));
         if (m.doc_count == 0) continue;
         WindowBound wb;
         wb.first_docid = static_cast<uint32_t>(m.win_base) + (w == 0 ? 0u : 1u);
@@ -103,7 +104,7 @@ Status BuildWindowBounds(const FrqPreludeReader& prelude, const ScorerContext& c
         wb.block_max = true;
         windows->push_back(wb);
     }
-    return Status::OK();
+    return doris::Status::OK();
 }
 
 // Fallback single window covering all postings, bounded by the exact max score
@@ -120,33 +121,33 @@ void SingleWindowFallback(const std::vector<TermPosting>& postings,
 }
 
 // Computes exact per-doc BM25 scores from decoded (docid, freq) vectors.
-Status ScoreDecoded(const snii::stats::SniiStatsProvider& stats, const ScorerContext& ctx,
+doris::Status ScoreDecoded(const snii::stats::SniiStatsProvider& stats, const ScorerContext& ctx,
                     const Bm25Params& params, const std::vector<uint32_t>& docids,
                     const std::vector<uint32_t>& freqs, std::vector<TermPosting>* out) {
     const double avgdl = stats.avgdl();
     out->reserve(docids.size());
     for (size_t i = 0; i < docids.size(); ++i) {
         uint8_t norm = 0;
-        SNII_RETURN_IF_ERROR(stats.encoded_norm(docids[i], &norm));
+        RETURN_IF_ERROR(stats.encoded_norm(docids[i], &norm));
         const uint32_t tf = i < freqs.size() ? freqs[i] : 1;
         out->push_back({docids[i], ctx.score(tf, norm, avgdl, params)});
     }
-    return Status::OK();
+    return doris::Status::OK();
 }
 
 // Decodes a slim/inline term's single .frq window ([dd_region][freq_region]) into
 // docids/freqs using the entry's region metadata.
-Status DecodeSlim(const LogicalIndexReader& idx, const DictEntry& entry, uint64_t frq_base,
+doris::Status DecodeSlim(const LogicalIndexReader& idx, const DictEntry& entry, uint64_t frq_base,
                   std::vector<uint32_t>* docids, std::vector<uint32_t>* freqs) {
     std::vector<uint8_t> owned;
     Slice window;
-    SNII_RETURN_IF_ERROR(FetchSlimWindowBytes(idx, entry, frq_base, &owned, &window));
+    RETURN_IF_ERROR(FetchSlimWindowBytes(idx, entry, frq_base, &owned, &window));
     const uint64_t dd_len = entry.dd_meta.disk_len;
     if (dd_len > window.size()) {
-        return Status::Corruption("scoring_query: slim dd region exceeds window");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("scoring_query: slim dd region exceeds window");
     }
     Slice dd_region = window.subslice(0, static_cast<size_t>(dd_len));
-    SNII_RETURN_IF_ERROR(snii::format::decode_dd_region(dd_region, entry.dd_meta,
+    RETURN_IF_ERROR(snii::format::decode_dd_region(dd_region, entry.dd_meta,
                                                         /*win_base=*/0, docids));
     Slice freq_region = window.subslice(static_cast<size_t>(dd_len),
                                         window.size() - static_cast<size_t>(dd_len));
@@ -155,52 +156,52 @@ Status DecodeSlim(const LogicalIndexReader& idx, const DictEntry& entry, uint64_
 
 // Builds the cursor for a windowed term: tiles all windows for exact scores and
 // reads the prelude once for true per-window block-max bounds.
-Status BuildWindowedCursor(const LogicalIndexReader& idx,
+doris::Status BuildWindowedCursor(const LogicalIndexReader& idx,
                            const snii::stats::SniiStatsProvider& stats, const ScorerContext& ctx,
                            const DictEntry& entry, uint64_t frq_base, uint64_t prx_base,
                            const Bm25Params& params, TermCursor* cursor) {
     snii::reader::DecodedPosting posting;
     // Scoring needs freqs for BM25: fetch the FULL windows (want_freq=true).
-    SNII_RETURN_IF_ERROR(snii::reader::read_windowed_posting(idx, entry, frq_base, prx_base,
+    RETURN_IF_ERROR(snii::reader::read_windowed_posting(idx, entry, frq_base, prx_base,
                                                              /*want_positions=*/false,
                                                              /*want_freq=*/true, &posting));
-    SNII_RETURN_IF_ERROR(
+    RETURN_IF_ERROR(
             ScoreDecoded(stats, ctx, params, posting.docids, posting.freqs, &cursor->postings));
     FrqPreludeReader prelude;
     if (FetchPrelude(idx, entry, frq_base, &prelude).ok()) {
-        SNII_RETURN_IF_ERROR(
+        RETURN_IF_ERROR(
                 BuildWindowBounds(prelude, ctx, stats.avgdl(), params, &cursor->windows));
     }
-    return Status::OK();
+    return doris::Status::OK();
 }
 
 // Builds the cursor for one term: postings with exact scores + window bounds.
-Status BuildCursor(const LogicalIndexReader& idx, const snii::stats::SniiStatsProvider& stats,
+doris::Status BuildCursor(const LogicalIndexReader& idx, const snii::stats::SniiStatsProvider& stats,
                    const std::string& term, const Bm25Params& params, bool* found,
                    TermCursor* cursor) {
     DictEntry entry;
     uint64_t frq_base = 0;
     uint64_t prx_base = 0;
-    SNII_RETURN_IF_ERROR(idx.lookup(term, found, &entry, &frq_base, &prx_base));
-    if (!*found) return Status::OK();
+    RETURN_IF_ERROR(idx.lookup(term, found, &entry, &frq_base, &prx_base));
+    if (!*found) return doris::Status::OK();
 
     const ScorerContext ctx = ScorerContext::make(stats.indexed_doc_count(), entry.df);
 
     const bool windowed =
             entry.kind == DictEntryKind::kPodRef && entry.enc == DictEntryEnc::kWindowed;
     if (windowed) {
-        SNII_RETURN_IF_ERROR(
+        RETURN_IF_ERROR(
                 BuildWindowedCursor(idx, stats, ctx, entry, frq_base, prx_base, params, cursor));
     } else {
         std::vector<uint32_t> docids;
         std::vector<uint32_t> freqs;
-        SNII_RETURN_IF_ERROR(DecodeSlim(idx, entry, frq_base, &docids, &freqs));
-        SNII_RETURN_IF_ERROR(ScoreDecoded(stats, ctx, params, docids, freqs, &cursor->postings));
+        RETURN_IF_ERROR(DecodeSlim(idx, entry, frq_base, &docids, &freqs));
+        RETURN_IF_ERROR(ScoreDecoded(stats, ctx, params, docids, freqs, &cursor->postings));
     }
     if (cursor->windows.empty()) {
         SingleWindowFallback(cursor->postings, &cursor->windows);
     }
-    return Status::OK();
+    return doris::Status::OK();
 }
 
 // Block-max upper bound for a term at a given docid: the max_score of the window
@@ -258,30 +259,30 @@ void DrainSorted(TopK* topk, std::vector<ScoredDoc>* out) {
     *out = std::move(all);
 }
 
-Status BuildCursors(const LogicalIndexReader& idx, const snii::stats::SniiStatsProvider& stats,
+doris::Status BuildCursors(const LogicalIndexReader& idx, const snii::stats::SniiStatsProvider& stats,
                     const std::vector<std::string>& terms, const Bm25Params& params,
                     std::vector<TermCursor>* cursors) {
     for (const auto& term : terms) {
         bool found = false;
         TermCursor c;
-        SNII_RETURN_IF_ERROR(BuildCursor(idx, stats, term, params, &found, &c));
+        RETURN_IF_ERROR(BuildCursor(idx, stats, term, params, &found, &c));
         if (found && !c.postings.empty()) cursors->push_back(std::move(c));
     }
-    return Status::OK();
+    return doris::Status::OK();
 }
 
 } // namespace
 
-Status scoring_query_exhaustive(const LogicalIndexReader& idx,
+doris::Status scoring_query_exhaustive(const LogicalIndexReader& idx,
                                 const snii::stats::SniiStatsProvider& stats,
                                 const std::vector<std::string>& terms, uint32_t k,
                                 const Bm25Params& params, std::vector<ScoredDoc>* out) {
-    if (out == nullptr) return Status::InvalidArgument("scoring_query: null out");
+    if (out == nullptr) return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("scoring_query: null out");
     out->clear();
-    if (k == 0) return Status::OK();
+    if (k == 0) return doris::Status::OK();
 
     std::vector<TermCursor> cursors;
-    SNII_RETURN_IF_ERROR(BuildCursors(idx, stats, terms, params, &cursors));
+    RETURN_IF_ERROR(BuildCursors(idx, stats, terms, params, &cursors));
 
     std::unordered_map<uint32_t, double> scores;
     for (const auto& c : cursors)
@@ -296,7 +297,7 @@ Status scoring_query_exhaustive(const LogicalIndexReader& idx,
     });
     if (all.size() > k) all.resize(k);
     *out = std::move(all);
-    return Status::OK();
+    return doris::Status::OK();
 }
 
 namespace {
@@ -351,71 +352,71 @@ uint32_t WindowOf(const LazyTermCursor& c, uint32_t p) {
 
 // Fetches + decodes window w into the cursor's posting cache (idempotent). Only
 // reached when the WAND proves window w can still contribute to the top-K.
-Status MaterializeWindow(LazyTermCursor* c, uint32_t w) {
-    if (c->fetched[w]) return Status::OK();
+doris::Status MaterializeWindow(LazyTermCursor* c, uint32_t w) {
+    if (c->fetched[w]) return doris::Status::OK();
     WindowMeta meta;
-    SNII_RETURN_IF_ERROR(c->prelude.window(w, &meta));
+    RETURN_IF_ERROR(c->prelude.window(w, &meta));
     snii::reader::WindowAbsRange r;
-    SNII_RETURN_IF_ERROR(snii::reader::windowed_window_range(
+    RETURN_IF_ERROR(snii::reader::windowed_window_range(
             *c->idx, c->entry, c->frq_base, c->prx_base, c->prelude, w,
             /*want_positions=*/false, /*want_freq=*/true, &r));
     // Scoring needs docids + freqs: fetch the window's dd sub-range AND freq sub-range.
     snii::io::BatchRangeFetcher fetcher(c->idx->reader(), snii::reader::kSameTermCoalesceGap);
     const size_t dh = fetcher.add(r.dd_off, r.dd_len);
     const size_t fh = fetcher.add(r.freq_off, r.freq_len);
-    SNII_RETURN_IF_ERROR(fetcher.fetch());
+    RETURN_IF_ERROR(fetcher.fetch());
     std::vector<uint32_t> docids;
     std::vector<uint32_t> freqs;
     std::vector<std::vector<uint32_t>> pos;
-    SNII_RETURN_IF_ERROR(snii::reader::decode_window_slices(
+    RETURN_IF_ERROR(snii::reader::decode_window_slices(
             meta, fetcher.get(dh), fetcher.get(fh), Slice(), /*want_positions=*/false,
             /*want_freq=*/true, &docids, &freqs, &pos));
     if (docids.size() != c->win_start[w + 1] - c->win_start[w]) {
-        return Status::Corruption("scoring_query: selective window doc-count drift");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("scoring_query: selective window doc-count drift");
     }
     std::vector<TermPosting> scored;
-    SNII_RETURN_IF_ERROR(ScoreDecoded(*c->stats, c->ctx, c->params, docids, freqs, &scored));
+    RETURN_IF_ERROR(ScoreDecoded(*c->stats, c->ctx, c->params, docids, freqs, &scored));
     std::copy(scored.begin(), scored.end(), c->postings.begin() + c->win_start[w]);
     c->fetched[w] = 1;
-    return Status::OK();
+    return doris::Status::OK();
 }
 
 // Current docid at the cursor, fetching the covering window if needed. Exhausted
 // cursor -> UINT32_MAX.
-Status LazyCurrentDoc(LazyTermCursor* c, uint32_t* docid) {
+doris::Status LazyCurrentDoc(LazyTermCursor* c, uint32_t* docid) {
     if (c->pos >= TotalPostings(*c)) {
         *docid = std::numeric_limits<uint32_t>::max();
-        return Status::OK();
+        return doris::Status::OK();
     }
     const uint32_t w = WindowOf(*c, static_cast<uint32_t>(c->pos));
-    SNII_RETURN_IF_ERROR(MaterializeWindow(c, w));
+    RETURN_IF_ERROR(MaterializeWindow(c, w));
     *docid = c->postings[c->pos].docid;
-    return Status::OK();
+    return doris::Status::OK();
 }
 
 // Advances pos to the first posting with docid >= target, skipping ENTIRE windows
 // whose last_docid < target WITHOUT fetching them (prelude-only), then fetching
 // just the landing window. Lands on the same posting the eager per-doc walk would.
-Status LazySkipTo(LazyTermCursor* c, uint32_t target) {
+doris::Status LazySkipTo(LazyTermCursor* c, uint32_t target) {
     const uint32_t total = TotalPostings(*c);
     while (c->pos < total) {
         const uint32_t w = WindowOf(*c, static_cast<uint32_t>(c->pos));
         if (c->windows[w].last_docid >= target) break;
         c->pos = c->win_start[w + 1]; // skip this window entirely (no fetch)
     }
-    if (c->pos >= total) return Status::OK();
+    if (c->pos >= total) return doris::Status::OK();
     const uint32_t w = WindowOf(*c, static_cast<uint32_t>(c->pos));
-    SNII_RETURN_IF_ERROR(MaterializeWindow(c, w));
+    RETURN_IF_ERROR(MaterializeWindow(c, w));
     while (c->pos < total && c->postings[c->pos].docid < target) ++c->pos;
-    return Status::OK();
+    return doris::Status::OK();
 }
 
 // Initializes a lazy windowed cursor from the prelude alone: per-window block-max
 // bounds + ranges + cache slots, with NO .frq window fetched.
-Status BuildLazyWindowed(LazyTermCursor* c) {
-    SNII_RETURN_IF_ERROR(
+doris::Status BuildLazyWindowed(LazyTermCursor* c) {
+    RETURN_IF_ERROR(
             snii::reader::fetch_windowed_prelude(*c->idx, c->entry, c->frq_base, &c->prelude));
-    SNII_RETURN_IF_ERROR(
+    RETURN_IF_ERROR(
             BuildWindowBounds(c->prelude, c->ctx, c->stats->avgdl(), c->params, &c->windows));
     // BuildWindowBounds keeps only non-empty windows, in window order. Build the
     // matching prefix-sum of doc_counts over those same non-empty windows so the
@@ -427,36 +428,36 @@ Status BuildLazyWindowed(LazyTermCursor* c) {
     uint32_t acc = 0;
     for (uint32_t w = 0; w < c->prelude.n_windows() && bi < nb; ++w) {
         WindowMeta meta;
-        SNII_RETURN_IF_ERROR(c->prelude.window(w, &meta));
+        RETURN_IF_ERROR(c->prelude.window(w, &meta));
         if (meta.doc_count == 0) continue;
         acc += meta.doc_count;
         c->win_start[++bi] = acc;
     }
     c->postings.assign(acc, TermPosting {});
-    return Status::OK();
+    return doris::Status::OK();
 }
 
 // Initializes a slim/inline cursor: its single window is small, so fetch + score
 // it eagerly (exactly as the existing path). One bound covers all its postings.
-Status BuildLazySlim(LazyTermCursor* c) {
+doris::Status BuildLazySlim(LazyTermCursor* c) {
     std::vector<uint32_t> docids;
     std::vector<uint32_t> freqs;
-    SNII_RETURN_IF_ERROR(DecodeSlim(*c->idx, c->entry, c->frq_base, &docids, &freqs));
-    SNII_RETURN_IF_ERROR(ScoreDecoded(*c->stats, c->ctx, c->params, docids, freqs, &c->postings));
+    RETURN_IF_ERROR(DecodeSlim(*c->idx, c->entry, c->frq_base, &docids, &freqs));
+    RETURN_IF_ERROR(ScoreDecoded(*c->stats, c->ctx, c->params, docids, freqs, &c->postings));
     SingleWindowFallback(c->postings, &c->windows);
     c->win_start = {0, static_cast<uint32_t>(c->postings.size())};
     c->fetched.assign(1, 1); // already materialized
-    return Status::OK();
+    return doris::Status::OK();
 }
 
 // Builds a LazyTermCursor for one term: prelude-only for windowed terms (no .frq
 // fetched), fully-materialized single window for slim/inline (small).
-Status BuildLazyCursor(const LogicalIndexReader& idx, const snii::stats::SniiStatsProvider& stats,
+doris::Status BuildLazyCursor(const LogicalIndexReader& idx, const snii::stats::SniiStatsProvider& stats,
                        const std::string& term, const Bm25Params& params, bool* found,
                        LazyTermCursor* c) {
     uint64_t prx_base = 0;
-    SNII_RETURN_IF_ERROR(idx.lookup(term, found, &c->entry, &c->frq_base, &prx_base));
-    if (!*found) return Status::OK();
+    RETURN_IF_ERROR(idx.lookup(term, found, &c->entry, &c->frq_base, &prx_base));
+    if (!*found) return doris::Status::OK();
     c->idx = &idx;
     c->stats = &stats;
     c->params = params;
@@ -467,17 +468,17 @@ Status BuildLazyCursor(const LogicalIndexReader& idx, const snii::stats::SniiSta
     return c->windowed ? BuildLazyWindowed(c) : BuildLazySlim(c);
 }
 
-Status SelectiveBuildCursors(const LogicalIndexReader& idx,
+doris::Status SelectiveBuildCursors(const LogicalIndexReader& idx,
                              const snii::stats::SniiStatsProvider& stats,
                              const std::vector<std::string>& terms, const Bm25Params& params,
                              std::vector<LazyTermCursor>* cursors) {
     for (const auto& term : terms) {
         bool found = false;
         LazyTermCursor c;
-        SNII_RETURN_IF_ERROR(BuildLazyCursor(idx, stats, term, params, &found, &c));
+        RETURN_IF_ERROR(BuildLazyCursor(idx, stats, term, params, &found, &c));
         if (found && TotalPostings(c) > 0) cursors->push_back(std::move(c));
     }
-    return Status::OK();
+    return doris::Status::OK();
 }
 
 // Block-max upper bound for a lazy cursor at docid: block_max of the window
@@ -492,10 +493,10 @@ double LazyTermBoundAt(const LazyTermCursor& c, uint32_t docid) {
 
 // Sorts cursors ascending by current docid (materializing each cursor's current
 // covering window), returning the smallest current docid via *front.
-Status SelectiveSortByDoc(std::vector<LazyTermCursor>* cursors, uint32_t* front) {
+doris::Status SelectiveSortByDoc(std::vector<LazyTermCursor>* cursors, uint32_t* front) {
     std::vector<uint32_t> cur(cursors->size());
     for (size_t i = 0; i < cursors->size(); ++i) {
-        SNII_RETURN_IF_ERROR(LazyCurrentDoc(&(*cursors)[i], &cur[i]));
+        RETURN_IF_ERROR(LazyCurrentDoc(&(*cursors)[i], &cur[i]));
     }
     std::vector<size_t> order(cursors->size());
     for (size_t i = 0; i < order.size(); ++i) order[i] = i;
@@ -505,77 +506,77 @@ Status SelectiveSortByDoc(std::vector<LazyTermCursor>* cursors, uint32_t* front)
     for (size_t i : order) sorted.push_back(std::move((*cursors)[i]));
     *cursors = std::move(sorted);
     *front = order.empty() ? std::numeric_limits<uint32_t>::max() : cur[order.front()];
-    return Status::OK();
+    return doris::Status::OK();
 }
 
 // Finds the pivot term: the first cursor (current-docid order) at which the
 // accumulated block-max bound reaches theta. >= keeps boundary ties (matching the
 // exhaustive total order). *found=false when no remaining doc can beat theta.
-Status SelectivePivot(std::vector<LazyTermCursor>* cursors, double theta, size_t* pivot,
+doris::Status SelectivePivot(std::vector<LazyTermCursor>* cursors, double theta, size_t* pivot,
                       uint32_t* pivot_doc, bool* found) {
     double bound = 0.0;
     *found = false;
     for (size_t i = 0; i < cursors->size(); ++i) {
         uint32_t d = 0;
-        SNII_RETURN_IF_ERROR(LazyCurrentDoc(&(*cursors)[i], &d));
+        RETURN_IF_ERROR(LazyCurrentDoc(&(*cursors)[i], &d));
         if (d == std::numeric_limits<uint32_t>::max()) break;
         bound += LazyTermBoundAt((*cursors)[i], d);
         if (bound >= theta) {
             *pivot = i;
             *pivot_doc = d;
             *found = true;
-            return Status::OK();
+            return doris::Status::OK();
         }
     }
-    return Status::OK();
+    return doris::Status::OK();
 }
 
 // Scores the aligned pivot doc exactly (summing all cursors AT pivot_doc) and
 // advances those cursors by one posting.
-Status SelectiveScorePivot(std::vector<LazyTermCursor>* cursors, uint32_t pivot_doc, TopK* topk) {
+doris::Status SelectiveScorePivot(std::vector<LazyTermCursor>* cursors, uint32_t pivot_doc, TopK* topk) {
     double doc_score = 0.0;
     for (auto& c : *cursors) {
         uint32_t d = 0;
-        SNII_RETURN_IF_ERROR(LazyCurrentDoc(&c, &d));
+        RETURN_IF_ERROR(LazyCurrentDoc(&c, &d));
         if (d == pivot_doc) {
             doc_score += c.postings[c.pos].score; // window already materialized
             ++c.pos;
         }
     }
     topk->offer(pivot_doc, doc_score);
-    return Status::OK();
+    return doris::Status::OK();
 }
 
 // Advances the first lagging cursor (current doc < pivot_doc) up to pivot_doc.
-Status SelectiveAdvanceLagging(std::vector<LazyTermCursor>* cursors, uint32_t pivot_doc) {
+doris::Status SelectiveAdvanceLagging(std::vector<LazyTermCursor>* cursors, uint32_t pivot_doc) {
     for (auto& c : *cursors) {
         uint32_t d = 0;
-        SNII_RETURN_IF_ERROR(LazyCurrentDoc(&c, &d));
+        RETURN_IF_ERROR(LazyCurrentDoc(&c, &d));
         if (d < pivot_doc) {
-            SNII_RETURN_IF_ERROR(LazySkipTo(&c, pivot_doc));
-            return Status::OK();
+            RETURN_IF_ERROR(LazySkipTo(&c, pivot_doc));
+            return doris::Status::OK();
         }
     }
-    return Status::OK();
+    return doris::Status::OK();
 }
 
 // One WAND iteration body: sort, pick pivot, then either score (aligned) or skip
 // a lagging cursor forward. *done=true ends the loop.
-Status SelectiveStep(std::vector<LazyTermCursor>* cursors, TopK* topk, bool* done) {
+doris::Status SelectiveStep(std::vector<LazyTermCursor>* cursors, TopK* topk, bool* done) {
     uint32_t front = 0;
-    SNII_RETURN_IF_ERROR(SelectiveSortByDoc(cursors, &front));
+    RETURN_IF_ERROR(SelectiveSortByDoc(cursors, &front));
     if (cursors->empty() || front == std::numeric_limits<uint32_t>::max()) {
         *done = true;
-        return Status::OK();
+        return doris::Status::OK();
     }
     size_t pivot = 0;
     uint32_t pivot_doc = 0;
     bool found_pivot = false;
-    SNII_RETURN_IF_ERROR(
+    RETURN_IF_ERROR(
             SelectivePivot(cursors, topk->threshold(), &pivot, &pivot_doc, &found_pivot));
     if (!found_pivot) {
         *done = true;
-        return Status::OK();
+        return doris::Status::OK();
     }
     if (front == pivot_doc) {
         return SelectiveScorePivot(cursors, pivot_doc, topk);
@@ -583,43 +584,43 @@ Status SelectiveStep(std::vector<LazyTermCursor>* cursors, TopK* topk, bool* don
     return SelectiveAdvanceLagging(cursors, pivot_doc);
 }
 
-Status SelectiveWandLoop(std::vector<LazyTermCursor>* cursors, TopK* topk) {
+doris::Status SelectiveWandLoop(std::vector<LazyTermCursor>* cursors, TopK* topk) {
     bool done = false;
     while (!done) {
-        SNII_RETURN_IF_ERROR(SelectiveStep(cursors, topk, &done));
+        RETURN_IF_ERROR(SelectiveStep(cursors, topk, &done));
     }
-    return Status::OK();
+    return doris::Status::OK();
 }
 
 } // namespace
 
-Status scoring_query_wand_selective(const LogicalIndexReader& idx,
+doris::Status scoring_query_wand_selective(const LogicalIndexReader& idx,
                                     const snii::stats::SniiStatsProvider& stats,
                                     const std::vector<std::string>& terms, uint32_t k,
                                     const Bm25Params& params, std::vector<ScoredDoc>* out) {
-    if (out == nullptr) return Status::InvalidArgument("scoring_query: null out");
+    if (out == nullptr) return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("scoring_query: null out");
     out->clear();
-    if (k == 0) return Status::OK();
+    if (k == 0) return doris::Status::OK();
 
     std::vector<LazyTermCursor> cursors;
-    SNII_RETURN_IF_ERROR(SelectiveBuildCursors(idx, stats, terms, params, &cursors));
+    RETURN_IF_ERROR(SelectiveBuildCursors(idx, stats, terms, params, &cursors));
 
     TopK topk(k);
-    SNII_RETURN_IF_ERROR(SelectiveWandLoop(&cursors, &topk));
+    RETURN_IF_ERROR(SelectiveWandLoop(&cursors, &topk));
     DrainSorted(&topk, out);
-    return Status::OK();
+    return doris::Status::OK();
 }
 
-Status scoring_query_wand(const LogicalIndexReader& idx,
+doris::Status scoring_query_wand(const LogicalIndexReader& idx,
                           const snii::stats::SniiStatsProvider& stats,
                           const std::vector<std::string>& terms, uint32_t k,
                           const Bm25Params& params, std::vector<ScoredDoc>* out) {
-    if (out == nullptr) return Status::InvalidArgument("scoring_query: null out");
+    if (out == nullptr) return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("scoring_query: null out");
     out->clear();
-    if (k == 0) return Status::OK();
+    if (k == 0) return doris::Status::OK();
 
     std::vector<TermCursor> cursors;
-    SNII_RETURN_IF_ERROR(BuildCursors(idx, stats, terms, params, &cursors));
+    RETURN_IF_ERROR(BuildCursors(idx, stats, terms, params, &cursors));
 
     TopK topk(k);
     // Document-at-a-time WAND with block-max bounds.
@@ -678,7 +679,7 @@ Status scoring_query_wand(const LogicalIndexReader& idx,
         }
     }
     DrainSorted(&topk, out);
-    return Status::OK();
+    return doris::Status::OK();
 }
 
 } // namespace snii::query

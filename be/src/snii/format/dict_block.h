@@ -7,7 +7,7 @@
 #include <vector>
 
 #include "snii/common/slice.h"
-#include "snii/common/status.h"
+#include "common/status.h"
 #include "snii/encoding/byte_sink.h"
 #include "snii/format/dict_entry.h"
 #include "snii/format/format_constants.h"
@@ -101,18 +101,18 @@ public:
     // Parse and verify the entire block. CRC mismatch / truncation / invalid
     // structure → Corruption; has_positions in the header inconsistent with the
     // supplied argument → InvalidArgument.
-    static Status open(Slice block, IndexTier tier, bool has_positions, DictBlockReader* out);
+    static doris::Status open(Slice block, IndexTier tier, bool has_positions, DictBlockReader* out);
 
     // Anchor binary search + local scan to locate target. Hit → *found=true and
     // *out is filled; miss (including out-of-range, gap) → *found=false.
-    // Structural error → non-OK Status.
-    Status find_term(std::string_view target, bool* found, DictEntry* out) const;
+    // Structural error → non-OK doris::Status.
+    doris::Status find_term(std::string_view target, bool* found, DictEntry* out) const;
 
     // Decodes EVERY entry in the block in lexicographic order into *out (each a
     // self-contained DictEntry, owning its term). Used for ordered term
     // enumeration (prefix / range scans). Resets the front-coding base at each
     // anchor segment.
-    Status decode_all(std::vector<DictEntry>* out) const;
+    doris::Status decode_all(std::vector<DictEntry>* out) const;
 
     uint64_t frq_base() const { return frq_base_; }
     uint64_t prx_base() const { return prx_base_; }
@@ -121,7 +121,7 @@ public:
 private:
     // Sequentially scan from anchor anchor_idx to the end of that anchor segment,
     // searching for target.
-    Status scan_from_anchor(size_t anchor_idx, std::string_view target, bool* found,
+    doris::Status scan_from_anchor(size_t anchor_idx, std::string_view target, bool* found,
                             DictEntry* out) const;
 
     // Find the last anchor index where first_term(anchor) <= target; return false

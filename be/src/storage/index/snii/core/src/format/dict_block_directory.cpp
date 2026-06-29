@@ -5,6 +5,7 @@
 #include "snii/format/format_constants.h"
 
 namespace snii::format {
+using doris::Status; // RETURN_IF_ERROR expands to bare Status
 
 namespace {
 
@@ -20,40 +21,40 @@ void encode_ref(const BlockRef& ref, ByteSink* payload) {
     if (ref.flags & block_ref_flags::kZstd) payload->put_varint64(ref.uncomp_len);
 }
 
-Status decode_ref(ByteSource* ps, BlockRef* ref) {
-    SNII_RETURN_IF_ERROR(ps->get_varint64(&ref->offset));
-    SNII_RETURN_IF_ERROR(ps->get_varint64(&ref->length));
-    SNII_RETURN_IF_ERROR(ps->get_varint32(&ref->n_entries));
-    SNII_RETURN_IF_ERROR(ps->get_u8(&ref->flags));
-    SNII_RETURN_IF_ERROR(ps->get_fixed32(&ref->checksum));
+doris::Status decode_ref(ByteSource* ps, BlockRef* ref) {
+    RETURN_IF_ERROR(ps->get_varint64(&ref->offset));
+    RETURN_IF_ERROR(ps->get_varint64(&ref->length));
+    RETURN_IF_ERROR(ps->get_varint32(&ref->n_entries));
+    RETURN_IF_ERROR(ps->get_u8(&ref->flags));
+    RETURN_IF_ERROR(ps->get_fixed32(&ref->checksum));
     if (ref->flags & block_ref_flags::kZstd) {
-        SNII_RETURN_IF_ERROR(ps->get_varint64(&ref->uncomp_len));
+        RETURN_IF_ERROR(ps->get_varint64(&ref->uncomp_len));
     }
-    return Status::OK();
+    return doris::Status::OK();
 }
 
-Status decode_payload(Slice payload, std::vector<BlockRef>* refs) {
+doris::Status decode_payload(Slice payload, std::vector<BlockRef>* refs) {
     ByteSource ps(payload);
     uint32_t n_blocks = 0;
-    SNII_RETURN_IF_ERROR(ps.get_varint32(&n_blocks));
+    RETURN_IF_ERROR(ps.get_varint32(&n_blocks));
     // Guard against a corrupted, inflated count from untrusted bytes: each BlockRef
     // needs >= 8 bytes (flags u8 + checksum u32 + >= 1 byte for each of 3 varints),
     // so cap before reserve to avoid a huge allocation.
     constexpr size_t kMinRefBytes = 8;
     if (n_blocks > ps.remaining() / kMinRefBytes) {
-        return Status::Corruption("dict_block_directory: n_blocks exceeds payload capacity");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("dict_block_directory: n_blocks exceeds payload capacity");
     }
     refs->clear();
     refs->reserve(n_blocks);
     for (uint32_t i = 0; i < n_blocks; ++i) {
         BlockRef ref {};
-        SNII_RETURN_IF_ERROR(decode_ref(&ps, &ref));
+        RETURN_IF_ERROR(decode_ref(&ps, &ref));
         refs->push_back(ref);
     }
     if (!ps.eof()) {
-        return Status::Corruption("dict_block_directory: trailing bytes in payload");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("dict_block_directory: trailing bytes in payload");
     }
-    return Status::OK();
+    return doris::Status::OK();
 }
 
 } // namespace
@@ -68,22 +69,22 @@ void DictBlockDirectoryBuilder::finish(ByteSink* sink) const {
                          payload.view());
 }
 
-Status DictBlockDirectoryReader::open(Slice section, DictBlockDirectoryReader* out) {
+doris::Status DictBlockDirectoryReader::open(Slice section, DictBlockDirectoryReader* out) {
     ByteSource src(section);
     FramedSection sec;
-    SNII_RETURN_IF_ERROR(SectionFramer::read(src, &sec));
+    RETURN_IF_ERROR(SectionFramer::read(src, &sec));
     if (sec.type != static_cast<uint8_t>(SectionType::kDictBlockDirectory)) {
-        return Status::InvalidArgument("dict_block_directory: unexpected section type");
+        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("dict_block_directory: unexpected section type");
     }
     return decode_payload(sec.payload, &out->refs_);
 }
 
-Status DictBlockDirectoryReader::get(uint32_t ordinal, BlockRef* out) const {
+doris::Status DictBlockDirectoryReader::get(uint32_t ordinal, BlockRef* out) const {
     if (ordinal >= refs_.size()) {
-        return Status::NotFound("dict_block_directory: ordinal out of range");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_SNII_NOT_FOUND, false>("dict_block_directory: ordinal out of range");
     }
     *out = refs_[ordinal];
-    return Status::OK();
+    return doris::Status::OK();
 }
 
 } // namespace snii::format

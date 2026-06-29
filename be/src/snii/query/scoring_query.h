@@ -4,7 +4,7 @@
 #include <string>
 #include <vector>
 
-#include "snii/common/status.h"
+#include "common/status.h"
 #include "snii/query/bm25_scorer.h"
 #include "snii/reader/logical_index_reader.h"
 #include "snii/stats/snii_stats_provider.h"
@@ -32,7 +32,7 @@ struct ScoredDoc {
 
 // Exhaustive baseline: score every doc that contains any query term, return the
 // top-k by score. params controls k1/b. Unknown terms are skipped.
-Status scoring_query_exhaustive(const snii::reader::LogicalIndexReader& idx,
+doris::Status scoring_query_exhaustive(const snii::reader::LogicalIndexReader& idx,
                                 const snii::stats::SniiStatsProvider& stats,
                                 const std::vector<std::string>& terms, uint32_t k,
                                 const Bm25Params& params, std::vector<ScoredDoc>* out);
@@ -40,7 +40,7 @@ Status scoring_query_exhaustive(const snii::reader::LogicalIndexReader& idx,
 // WAND-style block-max pruning. MUST return the same top-k as the exhaustive
 // path. Windows whose block-max upper bound cannot beat the current k-th score
 // are skipped; windows lacking block-max stats are scored fully.
-Status scoring_query_wand(const snii::reader::LogicalIndexReader& idx,
+doris::Status scoring_query_wand(const snii::reader::LogicalIndexReader& idx,
                           const snii::stats::SniiStatsProvider& stats,
                           const std::vector<std::string>& terms, uint32_t k,
                           const Bm25Params& params, std::vector<ScoredDoc>* out);
@@ -54,7 +54,7 @@ Status scoring_query_wand(const snii::reader::LogicalIndexReader& idx,
 // result (top-K docids AND scores, INCLUDING ties) is byte-identical to
 // scoring_query_exhaustive / scoring_query_wand; only the bytes read differ.
 // Slim/inline terms (no prelude) are fetched fully, exactly as today.
-Status scoring_query_wand_selective(const snii::reader::LogicalIndexReader& idx,
+doris::Status scoring_query_wand_selective(const snii::reader::LogicalIndexReader& idx,
                                     const snii::stats::SniiStatsProvider& stats,
                                     const std::vector<std::string>& terms, uint32_t k,
                                     const Bm25Params& params, std::vector<ScoredDoc>* out);

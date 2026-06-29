@@ -3,7 +3,7 @@
 #include <cstdint>
 #include <string_view>
 
-#include "snii/common/status.h"
+#include "common/status.h"
 #include "snii/format/norms_pod.h"
 #include "snii/reader/logical_index_reader.h"
 
@@ -29,8 +29,8 @@ public:
 
     // Binds to idx and materializes the norms POD (one range read) when the index
     // carries scoring norms. idx must outlive this provider. A scoring index
-    // without a norms section, or a corrupt norms POD, returns a non-OK Status.
-    static Status open(const snii::reader::LogicalIndexReader* idx, SniiStatsProvider* out);
+    // without a norms section, or a corrupt norms POD, returns a non-OK doris::Status.
+    static doris::Status open(const snii::reader::LogicalIndexReader* idx, SniiStatsProvider* out);
 
     // Segment-level counts (direct StatsBlock fields).
     uint64_t doc_count() const { return doc_count_; }
@@ -41,15 +41,15 @@ public:
     double avgdl() const;
 
     // Per-term document frequency. Absent term -> *df = 0 (OK status).
-    Status doc_freq(std::string_view term, uint64_t* df) const;
+    doris::Status doc_freq(std::string_view term, uint64_t* df) const;
 
     // Per-term total term frequency (ttf = df + ttf_delta at tier>=T2). Absent
     // term -> *ttf = 0 (OK status).
-    Status total_term_freq(std::string_view term, uint64_t* ttf) const;
+    doris::Status total_term_freq(std::string_view term, uint64_t* ttf) const;
 
     // 1-byte encoded doc-length norm for docid (raw byte from the norms POD).
     // Out-of-range docid -> InvalidArgument; index without norms -> InvalidArgument.
-    Status encoded_norm(uint32_t docid, uint8_t* out) const;
+    doris::Status encoded_norm(uint32_t docid, uint8_t* out) const;
 
     bool has_norms() const { return has_norms_; }
 

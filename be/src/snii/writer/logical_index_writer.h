@@ -4,7 +4,7 @@
 #include <string>
 #include <vector>
 
-#include "snii/common/status.h"
+#include "common/status.h"
 #include "snii/encoding/byte_sink.h"
 #include "snii/format/dict_block.h"
 #include "snii/format/dict_block_directory.h"
@@ -109,7 +109,7 @@ public:
     // around this call. Must be called once before the accessors below. Returns
     // InvalidArgument on a null sink or inconsistent input (e.g. norms/doc_count
     // mismatch when scoring is enabled, or non-ascending docids).
-    Status build(snii::io::FileWriter* posting_out);
+    doris::Status build(snii::io::FileWriter* posting_out);
 
     // DICT region byte length (relative; orchestrator decides its absolute offset). The
     // DICT region (zstd-compressed blocks) is built into a tiered buffer during build()
@@ -129,7 +129,7 @@ public:
 
     // Streams the DICT region (RAM or spilled temp) into the append-only container
     // after its posting region.
-    Status stream_dict_region_into(snii::io::FileWriter* out) const {
+    doris::Status stream_dict_region_into(snii::io::FileWriter* out) const {
         return dict_buf_.stream_into(out);
     }
 
@@ -142,7 +142,7 @@ public:
     // Builds the per-index meta block bytes given the resolved ABSOLUTE section
     // refs (filled by the orchestrator), appending them to out. The DICT block
     // directory entries are rebased to absolute offsets using dict_region_offset.
-    Status finish_meta(const snii::format::SectionRefs& abs_refs, uint64_t dict_region_offset,
+    doris::Status finish_meta(const snii::format::SectionRefs& abs_refs, uint64_t dict_region_offset,
                        ByteSink* out) const;
 
 private:
@@ -162,10 +162,10 @@ private:
     };
 
     // Validates one term's shape (parallel lengths, strictly ascending docids).
-    Status validate_term(const TermPostings& tp) const;
+    doris::Status validate_term(const TermPostings& tp) const;
     // Iterates terms (from the streaming source or the materialized vector),
     // splitting DICT blocks by target size and filling PODs + blocks_.
-    Status build_blocks();
+    doris::Status build_blocks();
     // Per-term driver shared by both the streaming and materialized paths:
     // validates the term, opens a block if needed, builds its DictEntry, and cuts
     // the block once it reaches the target size. Mutates the running block state.
@@ -173,26 +173,26 @@ private:
     // `tp` is taken by mutable reference: the encode FREES the term's large flat
     // arrays (docids/freqs/positions_flat) as soon as they are consumed, so the
     // widest term's source does not co-exist with its encoded output at peak RSS.
-    Status process_term(TermPostings& tp, BlockState* st);
+    doris::Status process_term(TermPostings& tp, BlockState* st);
     // Region-relative byte count of the posting bytes written so far (the offset basis
     // for frq_base/prx_base + frq_off_delta/prx_off_delta). During build() the only
     // writes to posting_out_ are this index's posting region, so the count is the
     // output offset advanced since the region began.
     uint64_t posting_size() const { return posting_out_->bytes_written() - posting_off0_; }
     // Builds one DictEntry (inline or pod_ref), growing the posting region as needed.
-    Status build_entry(TermPostings& tp, uint64_t frq_base, uint64_t prx_base,
+    doris::Status build_entry(TermPostings& tp, uint64_t frq_base, uint64_t prx_base,
                        snii::format::DictEntry* e);
     // Builds a windowed (df >= kSlimDfThreshold) entry: multi-window + two-level
     // prelude. The term's [prx span][frq span] is appended to the posting region.
-    Status build_windowed_entry(TermPostings& tp, uint64_t frq_base, uint64_t prx_base,
+    doris::Status build_windowed_entry(TermPostings& tp, uint64_t frq_base, uint64_t prx_base,
                                 snii::format::DictEntry* e);
     // Builds a slim (df < kSlimDfThreshold) entry: single window, inline or
     // pod_ref, no prelude.
-    Status build_slim_entry(TermPostings& tp, uint64_t frq_base, uint64_t prx_base,
+    doris::Status build_slim_entry(TermPostings& tp, uint64_t frq_base, uint64_t prx_base,
                             snii::format::DictEntry* e);
     // Serializes the current open block, streams its bytes into the dict scratch
     // file, and records a compact directory entry (no block bytes retained).
-    Status flush_block(snii::format::DictBlockBuilder* block, std::string first_term);
+    doris::Status flush_block(snii::format::DictBlockBuilder* block, std::string first_term);
 
     uint64_t index_id_;
     std::string index_suffix_;

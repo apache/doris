@@ -4,7 +4,7 @@
 #include <memory>
 #include <vector>
 
-#include "snii/common/status.h"
+#include "common/status.h"
 #include "snii/io/file_writer.h"
 #include "snii/writer/logical_index_writer.h"
 
@@ -52,11 +52,11 @@ public:
 
     // Buffers one logical index: builds its section bytes and meta sub-sections.
     // The actual file writing happens in finish() (single front-to-back pass).
-    Status add_logical_index(const SniiIndexInput& in);
+    doris::Status add_logical_index(const SniiIndexInput& in);
 
     // Writes bootstrap header + all index sections + norms + tail meta region +
     // tail pointer, then finalizes the underlying writer. May be called once.
-    Status finish();
+    doris::Status finish();
 
 private:
     // Absolute placement of one index's sections, resolved during finish().
@@ -73,11 +73,11 @@ private:
         uint64_t bsbf_len = 0;
     };
 
-    Status ensure_bootstrap();
-    Status write_bootstrap();
-    Status write_norms();
-    Status write_tail();
-    Status append(const std::vector<uint8_t>& bytes);
+    doris::Status ensure_bootstrap();
+    doris::Status write_bootstrap();
+    doris::Status write_norms();
+    doris::Status write_tail();
+    doris::Status append(const std::vector<uint8_t>& bytes);
 
     snii::io::FileWriter* out_;
     std::vector<std::unique_ptr<LogicalIndexWriter>> indexes_;

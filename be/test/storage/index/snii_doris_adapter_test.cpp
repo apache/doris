@@ -101,7 +101,7 @@ private:
 
 void assert_read_ok(DorisSniiFileReader* reader, uint64_t offset, std::vector<uint8_t>* out) {
     auto status = reader->read_at(offset, 1, out);
-    ASSERT_TRUE(status.ok()) << status.message();
+    ASSERT_TRUE(status.ok()) << status.to_string();
 }
 
 void expect_captured_io_context_eq(const CapturedIOContext& actual,
@@ -133,7 +133,7 @@ TEST(DorisSniiFileReaderTest, ReadAtPropagatesIndexIOContextAndRecordsStats) {
     {
         DorisSniiFileReader::ScopedIOContext scope(&io_ctx);
         auto status = reader.read_at(2, 5, &out);
-        ASSERT_TRUE(status.ok()) << status.message();
+        ASSERT_TRUE(status.ok()) << status.to_string();
     }
 
     ASSERT_EQ(out.size(), 5);
@@ -214,7 +214,7 @@ TEST(DorisSniiFileReaderTest, ReadBatchRecordsLogicalAndCoalescedPhysicalIO) {
         DorisSniiFileReader::ScopedIOContext scope(&io_ctx);
         std::vector<::snii::io::Range> ranges {{0, 4}, {6, 3}, {20, 2}};
         auto status = reader.read_batch(ranges, &outs);
-        ASSERT_TRUE(status.ok()) << status.message();
+        ASSERT_TRUE(status.ok()) << status.to_string();
     }
 
     ASSERT_EQ(outs.size(), 3);

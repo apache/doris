@@ -1,6 +1,7 @@
 #include "snii/encoding/varint.h"
 
 namespace snii {
+using doris::Status; // RETURN_IF_ERROR expands to bare Status
 
 size_t varint_len(uint64_t v) {
     size_t n = 1;
@@ -25,7 +26,7 @@ size_t encode_varint32(uint32_t v, uint8_t* out) {
     return encode_varint64(v, out);
 }
 
-Status decode_varint64(const uint8_t* p, const uint8_t* end, uint64_t* v, const uint8_t** next) {
+doris::Status decode_varint64(const uint8_t* p, const uint8_t* end, uint64_t* v, const uint8_t** next) {
     uint64_t result = 0;
     int shift = 0;
     while (p < end) {
@@ -34,20 +35,20 @@ Status decode_varint64(const uint8_t* p, const uint8_t* end, uint64_t* v, const 
         if ((b & 0x80) == 0) {
             *v = result;
             *next = p;
-            return Status::OK();
+            return doris::Status::OK();
         }
         shift += 7;
-        if (shift >= 64) return Status::Corruption("varint64 overflow");
+        if (shift >= 64) return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("varint64 overflow");
     }
-    return Status::Corruption("varint truncated");
+    return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("varint truncated");
 }
 
-Status decode_varint32(const uint8_t* p, const uint8_t* end, uint32_t* v, const uint8_t** next) {
+doris::Status decode_varint32(const uint8_t* p, const uint8_t* end, uint32_t* v, const uint8_t** next) {
     uint64_t tmp;
-    SNII_RETURN_IF_ERROR(decode_varint64(p, end, &tmp, next));
-    if (tmp > 0xFFFFFFFFu) return Status::Corruption("varint32 overflow");
+    RETURN_IF_ERROR(decode_varint64(p, end, &tmp, next));
+    if (tmp > 0xFFFFFFFFu) return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("varint32 overflow");
     *v = static_cast<uint32_t>(tmp);
-    return Status::OK();
+    return doris::Status::OK();
 }
 
 } // namespace snii

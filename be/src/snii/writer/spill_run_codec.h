@@ -6,7 +6,7 @@
 #include <string>
 #include <vector>
 
-#include "snii/common/status.h"
+#include "common/status.h"
 #include "snii/writer/spimi_term_buffer.h"
 
 namespace snii::writer {
@@ -58,18 +58,18 @@ public:
     RunWriter& operator=(const RunWriter&) = delete;
 
     // Opens `path` for writing (truncating). Returns IoError on failure.
-    Status open(const std::string& path);
+    doris::Status open(const std::string& path);
 
     // Appends one term's postings under `term_id`. `tp.positions_flat` must be empty
     // iff !has_positions (and otherwise hold sum(freqs) entries in doc order).
     // Caller guarantees ascending docids and parallel docids/freqs lengths.
-    Status write_term(uint32_t term_id, const TermPostings& tp);
+    doris::Status write_term(uint32_t term_id, const TermPostings& tp);
 
     // Flushes the buffer and closes the file. Safe to call once; idempotent.
-    Status close();
+    doris::Status close();
 
 private:
-    Status flush();
+    doris::Status flush();
 
     int fd_ = -1;
     std::vector<uint8_t> buf_; // staging buffer; flushed in fixed-size chunks
@@ -104,7 +104,7 @@ public:
 
     // Opens `path`, loading the first record (if any). has_positions must match
     // the writer's setting so n_pos is interpreted consistently.
-    Status open(const std::string& path, bool has_positions);
+    doris::Status open(const std::string& path, bool has_positions);
 
     bool exhausted() const { return exhausted_; }
     const TermPostings& current() const { return current_; }
@@ -118,31 +118,31 @@ public:
 
     // Materializes the current term's position block into current().positions_flat
     // (bulk read). Idempotent within a term: a no-op once positions are drained.
-    Status materialize_positions();
+    doris::Status materialize_positions();
     // Streams the next `n` positions of the current term into dst[0..n) directly
     // from the decode window (64 KiB chunks topped up on demand). Caller must not
     // request more than positions_remaining(); each call advances the cursor.
-    Status stream_positions(uint32_t* dst, size_t n);
+    doris::Status stream_positions(uint32_t* dst, size_t n);
     uint64_t positions_remaining() const { return pos_remaining_; }
 
     // Loads the next record into current(); sets exhausted() at end of file. Any
     // positions of the current term left unread are skipped first.
-    Status advance();
+    doris::Status advance();
 
 private:
     size_t available() const;        // buffered bytes from pos_ to window end
-    Status fill();                   // tops up the decode window from disk
-    Status ensure(size_t n);         // guarantees >= n buffered bytes (or eof)
-    Status read_varint(uint64_t* v); // bounds-checked streamed varint
+    doris::Status fill();                   // tops up the decode window from disk
+    doris::Status ensure(size_t n);         // guarantees >= n buffered bytes (or eof)
+    doris::Status read_varint(uint64_t* v); // bounds-checked streamed varint
     // Bulk-reads `count` RAW little-endian u32s from the window into `out` (resized
     // to count). Bounds-checked against the run's true length (Corruption on EOF).
-    Status read_raw_u32(size_t count, std::vector<uint32_t>* out);
+    doris::Status read_raw_u32(size_t count, std::vector<uint32_t>* out);
     // Streams `count` raw u32s from the window into dst (caller-owned, sized by the
     // caller); shared by read_raw_u32 (into a vector) and stream_positions.
-    Status pull_raw_u32(uint8_t* dst, size_t count);
+    doris::Status pull_raw_u32(uint8_t* dst, size_t count);
     // Drains (and discards) any remaining positions of the current term so the
     // window cursor lands at the next record boundary.
-    Status skip_remaining_positions();
+    doris::Status skip_remaining_positions();
 
     int fd_ = -1;
     bool has_positions_ = false;
@@ -174,7 +174,7 @@ private:
 // references live readers freed when the merge advances). Callers that retain the
 // term (e.g. finalize_sorted) MUST pass false, so positions are always fully
 // materialized. The produced bytes are identical either way.
-Status MergeRuns(const std::vector<std::string>& run_paths, const std::vector<std::string>& vocab,
+doris::Status MergeRuns(const std::vector<std::string>& run_paths, const std::vector<std::string>& vocab,
                  bool has_positions, const std::function<void(TermPostings&&)>& fn,
                  bool allow_stream_positions = true);
 

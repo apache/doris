@@ -5,7 +5,7 @@
 #include <vector>
 
 #include "snii/common/slice.h"
-#include "snii/common/status.h"
+#include "common/status.h"
 #include "snii/encoding/byte_sink.h"
 #include "snii/format/format_constants.h"
 #include "snii/format/stats_block.h"
@@ -92,7 +92,7 @@ public:
 
     // Serializes the header and all sub-sections into sink.
     // sink == nullptr -> kInvalidArgument.
-    Status finish(ByteSink* sink) const;
+    doris::Status finish(ByteSink* sink) const;
 
 private:
     uint64_t index_id_;
@@ -116,7 +116,7 @@ public:
     // block == the full per-index meta block bytes; out must be non-null.
     // Header crc mismatch / truncation / a sub-section crc mismatch -> kCorruption;
     // missing a required sub-section -> kCorruption; out == nullptr -> kInvalidArgument.
-    static Status open(Slice block, PerIndexMetaReader* out);
+    static doris::Status open(Slice block, PerIndexMetaReader* out);
 
     uint64_t index_id() const { return index_id_; }
     const std::string& index_suffix() const { return index_suffix_; }

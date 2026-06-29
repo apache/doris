@@ -5,6 +5,7 @@
 #include "snii/format/format_constants.h"
 
 namespace snii::format {
+using doris::Status; // RETURN_IF_ERROR expands to bare Status
 
 namespace {
 
@@ -39,23 +40,23 @@ size_t tail_pointer_size() {
     return kFixedSize;
 }
 
-Status encode_tail_pointer(const TailPointer& tp, ByteSink* sink) {
+doris::Status encode_tail_pointer(const TailPointer& tp, ByteSink* sink) {
     ByteSink covered;
     serialize_covered(tp, &covered);
     if (covered.size() != kChecksumCoverage) {
-        return Status::Internal("tail_pointer: covered size mismatch");
+        return doris::Status::Error<doris::ErrorCode::INTERNAL_ERROR, false>("tail_pointer: covered size mismatch");
     }
     const uint32_t tail_checksum = crc32c(covered.view());
     sink->put_bytes(covered.view());
     sink->put_fixed32(tail_checksum);
-    return Status::OK();
+    return doris::Status::OK();
 }
 
-Status decode_tail_pointer(Slice last_bytes, TailPointer* out) {
+doris::Status decode_tail_pointer(Slice last_bytes, TailPointer* out) {
     // Anti-DoS / framing: the tail pointer is a fixed-size footer, so reject any
     // input that is not exactly the fixed size before touching its contents.
     if (last_bytes.size() != kFixedSize) {
-        return Status::Corruption("tail_pointer: input is not the fixed size");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("tail_pointer: input is not the fixed size");
     }
     // Verify the trailing tail_checksum over the covered region first; a mismatch
     // means any parsed field would be untrustworthy.
@@ -63,34 +64,34 @@ Status decode_tail_pointer(Slice last_bytes, TailPointer* out) {
     ByteSource src(last_bytes);
 
     uint32_t magic = 0;
-    SNII_RETURN_IF_ERROR(src.get_fixed32(&magic));
+    RETURN_IF_ERROR(src.get_fixed32(&magic));
     if (magic != kTailMagic) {
-        return Status::Corruption("tail_pointer: bad magic");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("tail_pointer: bad magic");
     }
 
     uint16_t tail_format_version = 0;
-    SNII_RETURN_IF_ERROR(src.get_fixed16(&tail_format_version));
+    RETURN_IF_ERROR(src.get_fixed16(&tail_format_version));
     if (tail_format_version != kFormatVersion) {
-        return Status::Unsupported("tail_pointer: unsupported container format_version");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_NOT_SUPPORTED, false>("tail_pointer: unsupported container format_version");
     }
-    SNII_RETURN_IF_ERROR(src.get_fixed64(&out->meta_region_offset));
-    SNII_RETURN_IF_ERROR(src.get_fixed64(&out->meta_region_length));
-    SNII_RETURN_IF_ERROR(src.get_fixed64(&out->hot_off));
-    SNII_RETURN_IF_ERROR(src.get_fixed32(&out->meta_region_checksum));
-    SNII_RETURN_IF_ERROR(src.get_fixed32(&out->bootstrap_header_checksum));
+    RETURN_IF_ERROR(src.get_fixed64(&out->meta_region_offset));
+    RETURN_IF_ERROR(src.get_fixed64(&out->meta_region_length));
+    RETURN_IF_ERROR(src.get_fixed64(&out->hot_off));
+    RETURN_IF_ERROR(src.get_fixed32(&out->meta_region_checksum));
+    RETURN_IF_ERROR(src.get_fixed32(&out->bootstrap_header_checksum));
 
     uint8_t on_disk_size = 0;
-    SNII_RETURN_IF_ERROR(src.get_u8(&on_disk_size));
+    RETURN_IF_ERROR(src.get_u8(&on_disk_size));
     if (on_disk_size != kFixedSize) {
-        return Status::Corruption("tail_pointer: embedded size mismatch");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("tail_pointer: embedded size mismatch");
     }
 
     uint32_t tail_checksum = 0;
-    SNII_RETURN_IF_ERROR(src.get_fixed32(&tail_checksum));
+    RETURN_IF_ERROR(src.get_fixed32(&tail_checksum));
     if (tail_checksum != crc32c(covered)) {
-        return Status::Corruption("tail_pointer: tail_checksum mismatch");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("tail_pointer: tail_checksum mismatch");
     }
-    return Status::OK();
+    return doris::Status::OK();
 }
 
 } // namespace snii::format

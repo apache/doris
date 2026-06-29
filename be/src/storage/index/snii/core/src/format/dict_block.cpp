@@ -7,6 +7,7 @@
 #include "snii/encoding/varint.h"
 
 namespace snii::format {
+using doris::Status; // RETURN_IF_ERROR expands to bare Status
 
 namespace {
 
@@ -82,7 +83,9 @@ void DictBlockBuilder::finish(ByteSink* sink) const {
             anchor_offsets.push_back(static_cast<uint32_t>(body.size()));
         }
         const std::string_view prev_term = anchor ? std::string_view {} : std::string_view(prev);
-        encode_dict_entry(entries_[i], prev_term, tier_, &body);
+        // finish() is void and entry encoding into an in-memory ByteSink cannot fail;
+        // explicitly discard the (now [[nodiscard]] doris::Status) return.
+        static_cast<void>(encode_dict_entry(entries_[i], prev_term, tier_, &body));
         prev = entries_[i].term;
     }
 
@@ -100,40 +103,44 @@ void DictBlockBuilder::finish(ByteSink* sink) const {
 namespace {
 
 // Verify the block length is sufficient and validate the trailing crc; return a Slice of the covered region (excluding crc footer).
-Status verify_crc(Slice block, Slice* covered) {
+doris::Status verify_crc(Slice block, Slice* covered) {
     if (block.size() < kFooterBytes + kNAnchorsBytes) {
-        return Status::Corruption("dict_block: block too short to contain footer");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "dict_block: block too short to contain footer");
     }
     const size_t covered_len = block.size() - kFooterBytes;
     *covered = block.subslice(0, covered_len);
 
     ByteSource crc_src(block.subslice(covered_len, kFooterBytes));
     uint32_t stored = 0;
-    SNII_RETURN_IF_ERROR(crc_src.get_fixed32(&stored));
+    RETURN_IF_ERROR(crc_src.get_fixed32(&stored));
     if (crc32c(*covered) != stored) {
-        return Status::Corruption("dict_block: crc32c checksum mismatch");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "dict_block: crc32c checksum mismatch");
     }
-    return Status::OK();
+    return doris::Status::OK();
 }
 
 // Read and verify that block_flags is consistent with has_positions.
-Status check_flags(uint8_t flags, bool has_positions) {
+doris::Status check_flags(uint8_t flags, bool has_positions) {
     const bool flag_pos = (flags & dict_block_flags::kHasPositions) != 0;
     if (flag_pos != has_positions) {
-        return Status::InvalidArgument("dict_block: has_positions inconsistent with block_flags");
+        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>(
+                "dict_block: has_positions inconsistent with block_flags");
     }
-    return Status::OK();
+    return doris::Status::OK();
 }
 
 } // namespace
 
-Status DictBlockReader::open(Slice block, IndexTier tier, bool has_positions,
+doris::Status DictBlockReader::open(Slice block, IndexTier tier, bool has_positions,
                              DictBlockReader* out) {
-    if (out == nullptr) return Status::InvalidArgument("dict_block: out is null");
+    if (out == nullptr)
+        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("dict_block: out is null");
     *out = DictBlockReader {};
 
     Slice covered;
-    SNII_RETURN_IF_ERROR(verify_crc(block, &covered));
+    RETURN_IF_ERROR(verify_crc(block, &covered));
     out->block_ = covered;
     out->tier_ = tier;
     out->has_positions_ = has_positions;
@@ -141,33 +148,36 @@ Status DictBlockReader::open(Slice block, IndexTier tier, bool has_positions,
     // header.
     ByteSource src(covered);
     uint64_t n_entries = 0;
-    SNII_RETURN_IF_ERROR(src.get_varint64(&n_entries));
+    RETURN_IF_ERROR(src.get_varint64(&n_entries));
     uint8_t ver = 0;
     uint8_t flags = 0;
-    SNII_RETURN_IF_ERROR(src.get_u8(&ver));
-    SNII_RETURN_IF_ERROR(src.get_u8(&flags));
+    RETURN_IF_ERROR(src.get_u8(&ver));
+    RETURN_IF_ERROR(src.get_u8(&flags));
     if (ver != kDictBlockFormatVer) {
-        return Status::Unsupported("dict_block: unsupported entry_format_ver");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_NOT_SUPPORTED, false>(
+                "dict_block: unsupported entry_format_ver");
     }
-    SNII_RETURN_IF_ERROR(check_flags(flags, has_positions));
-    SNII_RETURN_IF_ERROR(src.get_varint64(&out->frq_base_));
-    if (has_positions) SNII_RETURN_IF_ERROR(src.get_varint64(&out->prx_base_));
+    RETURN_IF_ERROR(check_flags(flags, has_positions));
+    RETURN_IF_ERROR(src.get_varint64(&out->frq_base_));
+    if (has_positions) RETURN_IF_ERROR(src.get_varint64(&out->prx_base_));
 
     out->n_entries_ = static_cast<uint32_t>(n_entries);
     out->entries_begin_ = src.position();
 
     // The anchor table is at the tail of covered: [... anchor_offsets[n] n_anchors(u32)].
     if (covered.size() < kNAnchorsBytes) {
-        return Status::Corruption("dict_block: missing n_anchors");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "dict_block: missing n_anchors");
     }
     ByteSource na_src(covered.subslice(covered.size() - kNAnchorsBytes, kNAnchorsBytes));
     uint32_t n_anchors = 0;
-    SNII_RETURN_IF_ERROR(na_src.get_fixed32(&n_anchors));
+    RETURN_IF_ERROR(na_src.get_fixed32(&n_anchors));
 
     const size_t anchor_table_bytes = static_cast<size_t>(n_anchors) * kAnchorOffBytes;
     if (covered.size() < kNAnchorsBytes + anchor_table_bytes ||
         out->entries_begin_ + anchor_table_bytes + kNAnchorsBytes > covered.size()) {
-        return Status::Corruption("dict_block: anchor table out of range");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "dict_block: anchor table out of range");
     }
     const size_t anchor_table_begin = covered.size() - kNAnchorsBytes - anchor_table_bytes;
 
@@ -176,29 +186,31 @@ Status DictBlockReader::open(Slice block, IndexTier tier, bool has_positions,
     out->anchor_terms_.resize(n_anchors);
     for (uint32_t i = 0; i < n_anchors; ++i) {
         uint32_t off = 0;
-        SNII_RETURN_IF_ERROR(at_src.get_fixed32(&off));
+        RETURN_IF_ERROR(at_src.get_fixed32(&off));
         if (off >= anchor_table_begin) {
-            return Status::Corruption("dict_block: anchor offset out of range");
+            return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                    "dict_block: anchor offset out of range");
         }
         // Anchor offsets must be strictly monotonically increasing, and the first anchor must be exactly the start of the entries region (entry 0 is always an anchor).
         // Otherwise scan_from_anchor's segment-length computation seg_end-seg_begin would underflow as size_t and cause an out-of-range read,
         // guarding against non-monotonic offset tables with a re-stamped crc (remote on-demand read / cache misalignment scenarios).
         if (i == 0) {
             if (off != out->entries_begin_) {
-                return Status::Corruption(
+                return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
                         "dict_block: first anchor offset is not the start of entries");
             }
         } else if (off <= out->anchor_offsets_[i - 1]) {
-            return Status::Corruption("dict_block: anchor offsets are not strictly increasing");
+            return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                    "dict_block: anchor offsets are not strictly increasing");
         }
         out->anchor_offsets_[i] = off;
         // Anchor entries are encoded with prev_term="" and can be decoded independently to retrieve their term.
         ByteSource e_src(covered.subslice(off, anchor_table_begin - off));
         DictEntry probe;
-        SNII_RETURN_IF_ERROR(decode_dict_entry(&e_src, std::string_view {}, tier, &probe));
+        RETURN_IF_ERROR(decode_dict_entry(&e_src, std::string_view {}, tier, &probe));
         out->anchor_terms_[i] = std::move(probe.term);
     }
-    return Status::OK();
+    return doris::Status::OK();
 }
 
 bool DictBlockReader::locate_anchor(std::string_view target, size_t* anchor_idx) const {
@@ -219,8 +231,9 @@ bool DictBlockReader::locate_anchor(std::string_view target, size_t* anchor_idx)
     return true;
 }
 
-Status DictBlockReader::decode_all(std::vector<DictEntry>* out) const {
-    if (out == nullptr) return Status::InvalidArgument("dict_block: out is null");
+doris::Status DictBlockReader::decode_all(std::vector<DictEntry>* out) const {
+    if (out == nullptr)
+        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("dict_block: out is null");
     out->clear();
     out->reserve(n_entries_);
     for (size_t a = 0; a < anchor_offsets_.size(); ++a) {
@@ -230,24 +243,26 @@ Status DictBlockReader::decode_all(std::vector<DictEntry>* out) const {
                                           anchor_offsets_.size() * kAnchorOffBytes)
                                        : anchor_offsets_[a + 1];
         if (seg_end < seg_begin || seg_end > block_.size()) {
-            return Status::Corruption("dict_block: anchor segment range invalid");
+            return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                    "dict_block: anchor segment range invalid");
         }
         ByteSource src(block_.subslice(seg_begin, seg_end - seg_begin));
         std::string prev; // first entry of a segment is an anchor (prev_term="")
         while (!src.eof()) {
             DictEntry e;
-            SNII_RETURN_IF_ERROR(decode_dict_entry(&src, std::string_view(prev), tier_, &e));
+            RETURN_IF_ERROR(decode_dict_entry(&src, std::string_view(prev), tier_, &e));
             prev = e.term;
             out->push_back(std::move(e));
         }
     }
     if (out->size() != n_entries_) {
-        return Status::Corruption("dict_block: decoded entry count mismatch");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "dict_block: decoded entry count mismatch");
     }
-    return Status::OK();
+    return doris::Status::OK();
 }
 
-Status DictBlockReader::scan_from_anchor(size_t anchor_idx, std::string_view target, bool* found,
+doris::Status DictBlockReader::scan_from_anchor(size_t anchor_idx, std::string_view target, bool* found,
                                          DictEntry* out) const {
     // Byte range of this anchor segment: [anchor_offset, next anchor offset or anchor table start).
     const size_t seg_begin = anchor_offsets_[anchor_idx];
@@ -258,35 +273,37 @@ Status DictBlockReader::scan_from_anchor(size_t anchor_idx, std::string_view tar
 
     // Fallback: open() has already verified anchor monotonicity; this additionally guards against seg_end<seg_begin underflow/out-of-range read.
     if (seg_end < seg_begin || seg_end > block_.size()) {
-        return Status::Corruption("dict_block: anchor segment range invalid");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "dict_block: anchor segment range invalid");
     }
     ByteSource src(block_.subslice(seg_begin, seg_end - seg_begin));
     std::string prev; // the first entry in the segment is an anchor, prev_term=""
     while (!src.eof()) {
         DictEntry e;
-        SNII_RETURN_IF_ERROR(decode_dict_entry(&src, std::string_view(prev), tier_, &e));
+        RETURN_IF_ERROR(decode_dict_entry(&src, std::string_view(prev), tier_, &e));
         if (e.term == target) {
             *found = true;
             *out = std::move(e);
-            return Status::OK();
+            return doris::Status::OK();
         }
         if (std::string_view(e.term) > target) {
             *found = false; // already past target; entries are sorted so it does not exist
-            return Status::OK();
+            return doris::Status::OK();
         }
         prev = std::move(e.term);
     }
     *found = false;
-    return Status::OK();
+    return doris::Status::OK();
 }
 
-Status DictBlockReader::find_term(std::string_view target, bool* found, DictEntry* out) const {
+doris::Status DictBlockReader::find_term(std::string_view target, bool* found, DictEntry* out) const {
     if (found == nullptr || out == nullptr) {
-        return Status::InvalidArgument("dict_block: found / out is null");
+        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>(
+                "dict_block: found / out is null");
     }
     *found = false;
     size_t anchor_idx = 0;
-    if (!locate_anchor(target, &anchor_idx)) return Status::OK();
+    if (!locate_anchor(target, &anchor_idx)) return doris::Status::OK();
     return scan_from_anchor(anchor_idx, target, found, out);
 }
 

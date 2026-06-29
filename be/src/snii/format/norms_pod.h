@@ -6,7 +6,7 @@
 #include <vector>
 
 #include "snii/common/slice.h"
-#include "snii/common/status.h"
+#include "common/status.h"
 #include "snii/encoding/byte_sink.h"
 
 namespace snii::format {
@@ -41,7 +41,7 @@ public:
 
     // Parses the entire section (including the framer envelope). Returns Corruption on CRC mismatch, truncation, or length inconsistency.
     // On success, *out borrows the memory pointed to by framer_payload; the caller must ensure its lifetime.
-    static Status open(Slice framed, NormsPodReader* out);
+    static doris::Status open(Slice framed, NormsPodReader* out);
 
     uint32_t doc_count() const { return doc_count_; }
 
@@ -54,10 +54,10 @@ public:
     }
 
     // Checked access: returns InvalidArgument if docid is out of range; never reads out-of-range memory.
-    Status try_encoded_norm(uint32_t docid, uint8_t* out) const {
-        if (docid >= doc_count_) return Status::InvalidArgument("norms: docid out of range");
+    doris::Status try_encoded_norm(uint32_t docid, uint8_t* out) const {
+        if (docid >= doc_count_) return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("norms: docid out of range");
         *out = norms_[docid];
-        return Status::OK();
+        return doris::Status::OK();
     }
 
 private:

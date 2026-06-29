@@ -31,51 +31,20 @@ namespace doris::segment_v2::snii_doris {
 
 thread_local const io::IOContext* DorisSniiFileReader::_scoped_io_ctx = nullptr;
 
-Status to_doris_status(const ::snii::Status& status) {
-    if (status.ok()) {
-        return Status::OK();
-    }
-    switch (status.code()) {
-    case ::snii::StatusCode::kNotFound:
-        return Status::Error<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>("SNII: {}",
-                                                                       status.message());
-    case ::snii::StatusCode::kUnsupported:
-        return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>("SNII: {}", status.message());
-    case ::snii::StatusCode::kInvalidArgument:
-        return Status::Error<ErrorCode::INVALID_ARGUMENT>("SNII: {}", status.message());
-    case ::snii::StatusCode::kCorruption:
-        return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>("SNII: {}",
-                                                                       status.message());
-    case ::snii::StatusCode::kIoError:
-        return Status::IOError("SNII: {}", status.message());
-    case ::snii::StatusCode::kInternal:
-        return Status::InternalError("SNII: {}", status.message());
-    case ::snii::StatusCode::kOk:
-        break;
-    }
-    return Status::InternalError("SNII: {}", status.message());
-}
-
-::snii::Status to_snii_status(const Status& status) {
-    if (status.ok()) {
-        return ::snii::Status::OK();
-    }
-    return ::snii::Status::IoError(status.to_string_no_stack());
-}
-
-::snii::Status DorisSniiFileWriter::append(::snii::Slice data) {
+doris::Status DorisSniiFileWriter::append(::snii::Slice data) {
     if (_writer == nullptr) {
-        return ::snii::Status::InvalidArgument("doris writer is null");
+        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>(
+                "doris writer is null");
     }
-    return to_snii_status(
-            _writer->append(Slice(reinterpret_cast<const char*>(data.data()), data.size())));
+    return _writer->append(Slice(reinterpret_cast<const char*>(data.data()), data.size()));
 }
 
-::snii::Status DorisSniiFileWriter::finalize() {
+doris::Status DorisSniiFileWriter::finalize() {
     if (_writer == nullptr) {
-        return ::snii::Status::InvalidArgument("doris writer is null");
+        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>(
+                "doris writer is null");
     }
-    return ::snii::Status::OK();
+    return doris::Status::OK();
 }
 
 uint64_t DorisSniiFileWriter::bytes_written() const {
@@ -161,59 +130,62 @@ DorisSniiFileReader::ScopedIOContext::~ScopedIOContext() {
     _scoped_io_ctx = _previous;
 }
 
-::snii::Status DorisSniiFileReader::read_at(uint64_t offset, size_t len,
+doris::Status DorisSniiFileReader::read_at(uint64_t offset, size_t len,
                                             std::vector<uint8_t>* out) {
-    SNII_RETURN_IF_ERROR(_check_read_range(offset, len));
+    RETURN_IF_ERROR(_check_read_range(offset, len));
     const auto* current_io_ctx = _current_io_ctx();
     uint8_t section_type = _classify_section(offset, len);
     if (section_type == io::SNII_SECTION_UNKNOWN) {
         section_type = current_io_ctx->snii_section_type;
     }
     const io::IOContext section_io_ctx = _make_section_io_context(current_io_ctx, section_type);
-    SNII_RETURN_IF_ERROR(_read_at(offset, len, out, &section_io_ctx));
+    RETURN_IF_ERROR(_read_at(offset, len, out, &section_io_ctx));
     if (len > 0) {
         _record_read_stats(cast_set<int64_t>(len), cast_set<int64_t>(len), 1, 1);
     }
-    return ::snii::Status::OK();
+    return doris::Status::OK();
 }
 
 // NOLINTNEXTLINE(readability-non-const-parameter): out is the SNII read output buffer.
-::snii::Status DorisSniiFileReader::_read_at(uint64_t offset, size_t len, std::vector<uint8_t>* out,
+doris::Status DorisSniiFileReader::_read_at(uint64_t offset, size_t len, std::vector<uint8_t>* out,
                                              const io::IOContext* io_ctx) const {
     if (_reader == nullptr) {
-        return ::snii::Status::InvalidArgument("doris reader is null");
+        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>(
+                "doris reader is null");
     }
     if (out == nullptr) {
-        return ::snii::Status::InvalidArgument("output buffer is null");
+        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>(
+                "output buffer is null");
     }
-    SNII_RETURN_IF_ERROR(_check_read_range(offset, len));
+    RETURN_IF_ERROR(_check_read_range(offset, len));
     if (len == 0) {
         out->clear();
-        return ::snii::Status::OK();
+        return doris::Status::OK();
     }
     out->resize(len);
     size_t bytes_read = 0;
     auto status = _reader->read_at(offset, Slice(out->data(), len), &bytes_read, io_ctx);
     if (!status.ok()) {
-        return to_snii_status(status);
+        return status;
     }
     if (bytes_read != len) {
-        return ::snii::Status::IoError(
+        return doris::Status::Error<doris::ErrorCode::IO_ERROR, false>(
                 fmt::format("short read at offset {}, expect {}, got {}", offset, len, bytes_read));
     }
-    return ::snii::Status::OK();
+    return doris::Status::OK();
 }
 
 // NOLINTBEGIN(readability-non-const-parameter): outs is the SNII batch read output buffer.
-::snii::Status DorisSniiFileReader::read_batch(const std::vector<::snii::io::Range>& ranges,
+doris::Status DorisSniiFileReader::read_batch(const std::vector<::snii::io::Range>& ranges,
                                                std::vector<std::vector<uint8_t>>* outs) {
     if (outs == nullptr) {
-        return ::snii::Status::InvalidArgument("output buffers is null");
+        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>(
+                "output buffers is null");
     }
     outs->clear();
     outs->resize(ranges.size());
     if (ranges.empty()) {
-        return ::snii::Status::OK();
+        return doris::Status::OK();
     }
 
     struct IndexedRange {
@@ -225,7 +197,7 @@ DorisSniiFileReader::ScopedIOContext::~ScopedIOContext() {
     std::vector<IndexedRange> sorted;
     sorted.reserve(ranges.size());
     for (size_t i = 0; i < ranges.size(); ++i) {
-        SNII_RETURN_IF_ERROR(_check_read_range(ranges[i].offset, ranges[i].len));
+        RETURN_IF_ERROR(_check_read_range(ranges[i].offset, ranges[i].len));
         request_bytes += cast_set<int64_t>(ranges[i].len);
         if (ranges[i].len == 0) {
             continue;
@@ -233,7 +205,7 @@ DorisSniiFileReader::ScopedIOContext::~ScopedIOContext() {
         sorted.push_back({ranges[i].offset, ranges[i].len, i});
     }
     if (sorted.empty()) {
-        return ::snii::Status::OK();
+        return doris::Status::OK();
     }
     std::sort(sorted.begin(), sorted.end(), [](const IndexedRange& lhs, const IndexedRange& rhs) {
         return lhs.offset < rhs.offset;
@@ -266,7 +238,7 @@ DorisSniiFileReader::ScopedIOContext::~ScopedIOContext() {
             section_type = current_io_ctx->snii_section_type;
         }
         const io::IOContext section_io_ctx = _make_section_io_context(current_io_ctx, section_type);
-        SNII_RETURN_IF_ERROR(_read_at(read_offset, read_len, &bytes, &section_io_ctx));
+        RETURN_IF_ERROR(_read_at(read_offset, read_len, &bytes, &section_io_ctx));
         read_bytes += cast_set<int64_t>(read_len);
         ++range_read_count;
         for (size_t i = begin; i < end; ++i) {
@@ -278,7 +250,7 @@ DorisSniiFileReader::ScopedIOContext::~ScopedIOContext() {
         begin = end;
     }
     _record_read_stats(request_bytes, read_bytes, range_read_count, range_read_count);
-    return ::snii::Status::OK();
+    return doris::Status::OK();
 }
 // NOLINTEND(readability-non-const-parameter)
 
@@ -304,21 +276,22 @@ void DorisSniiFileReader::_record_read_stats(int64_t request_bytes, int64_t read
     stats->inverted_index_serial_read_rounds += serial_read_rounds;
 }
 
-::snii::Status DorisSniiFileReader::_check_read_range(uint64_t offset, size_t len) const {
+doris::Status DorisSniiFileReader::_check_read_range(uint64_t offset, size_t len) const {
     if (_reader == nullptr) {
-        return ::snii::Status::InvalidArgument("doris reader is null");
+        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>(
+                "doris reader is null");
     }
     if (offset > std::numeric_limits<uint64_t>::max() - len) {
-        return ::snii::Status::Corruption(
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
                 fmt::format("read range overflows: offset {}, len {}", offset, len));
     }
     const uint64_t end = offset + len;
     if (end > _reader->size()) {
-        return ::snii::Status::Corruption(
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
                 fmt::format("read range exceeds file size: offset {}, len {}, file size {}", offset,
                             len, _reader->size()));
     }
-    return ::snii::Status::OK();
+    return doris::Status::OK();
 }
 
 } // namespace doris::segment_v2::snii_doris

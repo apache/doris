@@ -3,7 +3,7 @@
 #include <cstdint>
 
 #include "snii/common/slice.h"
-#include "snii/common/status.h"
+#include "common/status.h"
 #include "snii/encoding/byte_sink.h"
 #include "snii/encoding/byte_source.h"
 
@@ -21,7 +21,7 @@ struct FramedSection {
 class SectionFramer {
 public:
     static void write(ByteSink& sink, uint8_t section_type, Slice payload);
-    static Status read(ByteSource& src, FramedSection* out);
+    static doris::Status read(ByteSource& src, FramedSection* out);
 };
 
 } // namespace snii

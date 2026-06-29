@@ -40,11 +40,12 @@
 #include <vector>
 
 #include "snii/common/slice.h"
-#include "snii/common/status.h"
+#include "common/status.h"
 #include "snii/io/file_writer.h"
 #include "snii/writer/spillable_byte_buffer.h"
 
 namespace snii::writer {
+using doris::Status;
 namespace {
 
 // Deterministic, position- and seed-dependent byte pattern so a reorder, truncation, or
@@ -61,11 +62,11 @@ std::vector<uint8_t> make_bytes(uint32_t seed, size_t n) {
 // In-memory snii::io::FileWriter that records the exact bytes (and order) streamed into it.
 class CapturingSniiFileWriter final : public snii::io::FileWriter {
 public:
-    snii::Status append(snii::Slice data) override {
+    doris::Status append(snii::Slice data) override {
         bytes_.insert(bytes_.end(), data.data(), data.data() + data.size());
-        return snii::Status::OK();
+        return doris::Status::OK();
     }
-    snii::Status finalize() override { return snii::Status::OK(); }
+    doris::Status finalize() override { return doris::Status::OK(); }
     uint64_t bytes_written() const override { return bytes_.size(); }
 
     const std::vector<uint8_t>& bytes() const { return bytes_; }

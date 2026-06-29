@@ -6,7 +6,7 @@
 #include <vector>
 
 #include "snii/common/slice.h"
-#include "snii/common/status.h"
+#include "common/status.h"
 #include "snii/encoding/byte_sink.h"
 #include "snii/format/logical_index_directory.h"
 
@@ -65,28 +65,28 @@ public:
     // Parses and validates only the fixed tail-meta header. This is used by the
     // lazy segment open path to locate the directory without reading every
     // per-index meta block.
-    static Status parse_header(Slice header, TailMetaRegionHeader* const out);
+    static doris::Status parse_header(Slice header, TailMetaRegionHeader* const out);
 
     // Parses and validates the region (header crc + region checksum + directory).
     // region must outlive this reader (find() returns sub-views of it).
-    static Status open(Slice region, TailMetaRegionReader* const out);
+    static doris::Status open(Slice region, TailMetaRegionReader* const out);
 
     // Opens a reader from an already parsed header and a standalone framed
     // logical-index directory. This intentionally does not verify the whole-region
     // checksum because callers have not read the whole region; each per-index meta
     // block still carries its own framed-section CRCs.
-    static Status open_directory(const TailMetaRegionHeader& header, Slice directory,
+    static doris::Status open_directory(const TailMetaRegionHeader& header, Slice directory,
                                  TailMetaRegionReader* const out);
 
     uint32_t n_logical_indexes() const { return n_; }
     const LogicalIndexDirectoryReader& directory() const { return dir_; }
 
-    Status find_ref(uint64_t index_id, std::string_view suffix, bool* const found,
+    doris::Status find_ref(uint64_t index_id, std::string_view suffix, bool* const found,
                     LogicalIndexRef* const ref) const;
 
     // Locates the per-index meta block bytes for (index_id, suffix). On match,
     // *found=true and *per_index_meta_bytes views into the region; else *found=false.
-    Status find(uint64_t index_id, std::string_view suffix, bool* const found,
+    doris::Status find(uint64_t index_id, std::string_view suffix, bool* const found,
                 Slice* const per_index_meta_bytes) const;
 
 private:

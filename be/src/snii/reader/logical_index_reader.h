@@ -7,7 +7,7 @@
 #include <vector>
 
 #include "snii/common/slice.h"
-#include "snii/common/status.h"
+#include "common/status.h"
 #include "snii/format/bsbf.h"
 #include "snii/format/dict_block.h"
 #include "snii/format/dict_block_directory.h"
@@ -45,13 +45,13 @@ public:
 
     // Parses the per-index meta block and binds the reader to file_reader.
     // file_reader / meta_block must outlive this reader.
-    static Status open(snii::io::FileReader* file_reader, snii::format::IndexTier tier,
+    static doris::Status open(snii::io::FileReader* file_reader, snii::format::IndexTier tier,
                        bool has_positions, Slice meta_block, LogicalIndexReader* out);
 
     // Resolves term to a DictEntry. *found=false when the term is absent (XFilter
     // rejection, out-of-range sample, or DICT-block miss). On a hit, *entry is
     // filled and *frq_base / *prx_base carry the candidate block's bases.
-    Status lookup(std::string_view term, bool* found, snii::format::DictEntry* entry,
+    doris::Status lookup(std::string_view term, bool* found, snii::format::DictEntry* entry,
                   uint64_t* frq_base, uint64_t* prx_base) const;
 
     // One enumerated term whose key has the requested prefix, with its DictEntry
@@ -63,7 +63,7 @@ public:
         uint64_t prx_base = 0;
     };
 
-    using PrefixHitVisitor = std::function<Status(PrefixHit&& hit, bool* stop)>;
+    using PrefixHitVisitor = std::function<doris::Status(PrefixHit&& hit, bool* stop)>;
 
     // Ordered term enumeration: every term with `prefix`, in lexicographic order,
     // by seeking the start DICT block via the SampledTermIndex and scanning
@@ -72,8 +72,8 @@ public:
     // the term-anchor layout was built for (MATCH_PHRASE_PREFIX / prefix / range
     // queries). The visitor form avoids materializing all hits when callers only
     // need a bounded expansion.
-    Status visit_prefix_terms(std::string_view prefix, const PrefixHitVisitor& visitor) const;
-    Status prefix_terms(std::string_view prefix, std::vector<PrefixHit>* const out,
+    doris::Status visit_prefix_terms(std::string_view prefix, const PrefixHitVisitor& visitor) const;
+    doris::Status prefix_terms(std::string_view prefix, std::vector<PrefixHit>* const out,
                         int32_t max_terms = 0) const;
 
     // Resolves a pod_ref entry's absolute .frq / .prx window byte range,
@@ -82,9 +82,9 @@ public:
     // region). Both windows resolve against the single posting_region. *abs_off
     // is the absolute file offset of the window (after prelude); *len its byte
     // length.
-    Status resolve_frq_window(const snii::format::DictEntry& entry, uint64_t frq_base,
+    doris::Status resolve_frq_window(const snii::format::DictEntry& entry, uint64_t frq_base,
                               uint64_t* abs_off, uint64_t* len) const;
-    Status resolve_prx_window(const snii::format::DictEntry& entry, uint64_t prx_base,
+    doris::Status resolve_prx_window(const snii::format::DictEntry& entry, uint64_t prx_base,
                               uint64_t* abs_off, uint64_t* len) const;
 
     const snii::format::SectionRefs& section_refs() const { return meta_.section_refs(); }
@@ -125,8 +125,8 @@ private:
         std::vector<uint8_t> bytes;
         snii::format::DictBlockReader reader;
     };
-    Status load_resident_dict_blocks();
-    Status dict_block_reader_for_ordinal(uint32_t ordinal, OnDemandDictBlock* on_demand,
+    doris::Status load_resident_dict_blocks();
+    doris::Status dict_block_reader_for_ordinal(uint32_t ordinal, OnDemandDictBlock* on_demand,
                                          const snii::format::DictBlockReader** out) const;
     std::vector<ResidentDictBlock> resident_dict_blocks_;
 };

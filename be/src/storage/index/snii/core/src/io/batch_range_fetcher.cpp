@@ -4,22 +4,23 @@
 #include <limits>
 
 namespace snii::io {
+using doris::Status; // RETURN_IF_ERROR expands to bare Status
 namespace {
 
-Status checked_end(uint64_t offset, uint64_t len, uint64_t* out) {
+doris::Status checked_end(uint64_t offset, uint64_t len, uint64_t* out) {
     if (len > std::numeric_limits<uint64_t>::max() - offset) {
-        return Status::Corruption("batch_range_fetcher: range end overflow");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("batch_range_fetcher: range end overflow");
     }
     *out = offset + len;
-    return Status::OK();
+    return doris::Status::OK();
 }
 
-Status checked_size(uint64_t len, size_t* out) {
+doris::Status checked_size(uint64_t len, size_t* out) {
     if (len > static_cast<uint64_t>(std::numeric_limits<size_t>::max())) {
-        return Status::Corruption("batch_range_fetcher: physical range too large");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("batch_range_fetcher: physical range too large");
     }
     *out = static_cast<size_t>(len);
-    return Status::OK();
+    return doris::Status::OK();
 }
 
 } // namespace
@@ -37,10 +38,10 @@ void BatchRangeFetcher::clear() {
     phys_.clear();
 }
 
-Status BatchRangeFetcher::fetch() {
-    if (reader_ == nullptr) return Status::InvalidArgument("batch_range_fetcher: null reader");
+doris::Status BatchRangeFetcher::fetch() {
+    if (reader_ == nullptr) return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("batch_range_fetcher: null reader");
     phys_.clear();
-    if (reqs_.empty()) return Status::OK();
+    if (reqs_.empty()) return doris::Status::OK();
 
     std::vector<size_t> order(reqs_.size());
     for (size_t i = 0; i < order.size(); ++i) order[i] = i;
@@ -54,8 +55,8 @@ Status BatchRangeFetcher::fetch() {
     for (size_t k = 0; k < order.size(); ++k) {
         Req& r = reqs_[order[k]];
         uint64_t r_end = 0;
-        SNII_RETURN_IF_ERROR(checked_end(r.offset, r.len, &r_end));
-        SNII_RETURN_IF_ERROR(checked_size(r.len, &r.len_size));
+        RETURN_IF_ERROR(checked_end(r.offset, r.len, &r_end));
+        RETURN_IF_ERROR(checked_size(r.len, &r.len_size));
         const bool disjoint = r.offset > cur_end && r.offset - cur_end > coalesce_gap_;
         if (segs.empty() || disjoint) {
             segs.push_back(Range {r.offset, 0}); // length finalized below
@@ -65,8 +66,8 @@ Status BatchRangeFetcher::fetch() {
             cur_end = std::max(cur_end, r_end);
         }
         r.phys_idx = segs.size() - 1;
-        SNII_RETURN_IF_ERROR(checked_size(r.offset - cur_start, &r.sub_offset));
-        SNII_RETURN_IF_ERROR(checked_size(cur_end - cur_start, &segs.back().len));
+        RETURN_IF_ERROR(checked_size(r.offset - cur_start, &r.sub_offset));
+        RETURN_IF_ERROR(checked_size(cur_end - cur_start, &segs.back().len));
     }
 
     return reader_->read_batch(segs, &phys_);

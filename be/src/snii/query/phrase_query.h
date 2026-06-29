@@ -4,7 +4,7 @@
 #include <string>
 #include <vector>
 
-#include "snii/common/status.h"
+#include "common/status.h"
 #include "snii/query/query_profile.h"
 #include "snii/reader/logical_index_reader.h"
 
@@ -19,19 +19,19 @@
 // An empty term list -> empty result. Any term absent -> empty result.
 namespace snii::query {
 
-Status phrase_query(const snii::reader::LogicalIndexReader& idx,
+doris::Status phrase_query(const snii::reader::LogicalIndexReader& idx,
                     const std::vector<std::string>& terms, std::vector<uint32_t>* docids);
-Status phrase_query(const snii::reader::LogicalIndexReader& idx,
+doris::Status phrase_query(const snii::reader::LogicalIndexReader& idx,
                     const std::vector<std::string>& terms, std::vector<uint32_t>* docids,
                     QueryProfile* profile);
 
 // phrase_prefix_query -- MATCH_PHRASE_PREFIX: the last item in `terms` is a
 // term prefix and preceding items are exact terms. For example {"quick", "bro"}
 // matches "quick brown" and "quick bronze". Empty terms -> empty result.
-Status phrase_prefix_query(const snii::reader::LogicalIndexReader& idx,
+doris::Status phrase_prefix_query(const snii::reader::LogicalIndexReader& idx,
                            const std::vector<std::string>& terms,
                            std::vector<uint32_t>* const docids, int32_t max_expansions = 0);
-Status phrase_prefix_query(const snii::reader::LogicalIndexReader& idx,
+doris::Status phrase_prefix_query(const snii::reader::LogicalIndexReader& idx,
                            const std::vector<std::string>& terms,
                            std::vector<uint32_t>* const docids, QueryProfile* profile,
                            int32_t max_expansions = 0);

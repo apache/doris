@@ -5,6 +5,7 @@
 #include "snii/common/slice.h"
 
 namespace snii::format {
+using doris::Status; // RETURN_IF_ERROR expands to bare Status
 
 namespace {
 
@@ -118,27 +119,27 @@ void write_body(const DictEntry& e, std::string_view prev, IndexTier tier, ByteS
 
 // ---- Decode entry body ----
 
-Status read_term_key(ByteSource* src, std::string_view prev, DictEntry* out) {
+doris::Status read_term_key(ByteSource* src, std::string_view prev, DictEntry* out) {
     uint32_t prefix = 0;
     uint32_t suffix_len = 0;
-    SNII_RETURN_IF_ERROR(src->get_varint32(&prefix));
-    SNII_RETURN_IF_ERROR(src->get_varint32(&suffix_len));
+    RETURN_IF_ERROR(src->get_varint32(&prefix));
+    RETURN_IF_ERROR(src->get_varint32(&suffix_len));
     if (prefix > prev.size()) {
-        return Status::Corruption("dict_entry: prefix_len exceeds prev_term length");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("dict_entry: prefix_len exceeds prev_term length");
     }
     Slice suffix;
-    SNII_RETURN_IF_ERROR(src->get_bytes(suffix_len, &suffix));
+    RETURN_IF_ERROR(src->get_bytes(suffix_len, &suffix));
     out->term.assign(prev.substr(0, prefix));
     out->term.append(reinterpret_cast<const char*>(suffix.data()), suffix.size());
-    return Status::OK();
+    return doris::Status::OK();
 }
 
-Status read_stats(ByteSource* src, IndexTier tier, DictEntry* out) {
-    SNII_RETURN_IF_ERROR(src->get_varint32(&out->df));
-    if (!tier_has_stats(tier)) return Status::OK();
-    SNII_RETURN_IF_ERROR(src->get_varint64(&out->ttf_delta));
-    SNII_RETURN_IF_ERROR(src->get_varint64(&out->max_freq));
-    return Status::OK();
+doris::Status read_stats(ByteSource* src, IndexTier tier, DictEntry* out) {
+    RETURN_IF_ERROR(src->get_varint32(&out->df));
+    if (!tier_has_stats(tier)) return doris::Status::OK();
+    RETURN_IF_ERROR(src->get_varint64(&out->ttf_delta));
+    RETURN_IF_ERROR(src->get_varint64(&out->max_freq));
+    return doris::Status::OK();
 }
 
 // Reads the slim/inline region codec metadata (mode/uncomp/[crc]) and fills the
@@ -146,102 +147,102 @@ Status read_stats(ByteSource* src, IndexTier tier, DictEntry* out) {
 // (INLINE entries, format v2) means no per-region crc was stored: the on-disk
 // crc field is absent and region decode must skip crc verification (verify_crc=
 // false) since the dict block's own crc32c already covers the inline bytes.
-Status read_region_meta(ByteSource* src, IndexTier tier, bool has_crc, uint64_t dd_disk_len,
+doris::Status read_region_meta(ByteSource* src, IndexTier tier, bool has_crc, uint64_t dd_disk_len,
                         uint64_t freq_disk_len, DictEntry* out) {
     uint8_t mode = 0;
-    SNII_RETURN_IF_ERROR(src->get_u8(&mode));
+    RETURN_IF_ERROR(src->get_u8(&mode));
     if ((mode & ~0x3u) != 0) {
-        return Status::Corruption("dict_entry: unknown win_mode bits");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("dict_entry: unknown win_mode bits");
     }
     out->dd_meta.zstd = (mode & (1u << 0)) != 0;
     out->dd_meta.disk_len = dd_disk_len;
     out->dd_meta.verify_crc = has_crc;
-    SNII_RETURN_IF_ERROR(src->get_varint64(&out->dd_meta.uncomp_len));
-    if (has_crc) SNII_RETURN_IF_ERROR(src->get_fixed32(&out->dd_meta.crc));
+    RETURN_IF_ERROR(src->get_varint64(&out->dd_meta.uncomp_len));
+    if (has_crc) RETURN_IF_ERROR(src->get_fixed32(&out->dd_meta.crc));
     if (!tier_has_stats(tier)) {
         if (mode & (1u << 1)) {
-            return Status::Corruption("dict_entry: freq mode set without freq tier");
+            return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("dict_entry: freq mode set without freq tier");
         }
-        return Status::OK();
+        return doris::Status::OK();
     }
     out->freq_meta.zstd = (mode & (1u << 1)) != 0;
     out->freq_meta.disk_len = freq_disk_len;
     out->freq_meta.verify_crc = has_crc;
-    SNII_RETURN_IF_ERROR(src->get_varint64(&out->freq_meta.uncomp_len));
-    if (has_crc) SNII_RETURN_IF_ERROR(src->get_fixed32(&out->freq_meta.crc));
-    return Status::OK();
+    RETURN_IF_ERROR(src->get_varint64(&out->freq_meta.uncomp_len));
+    if (has_crc) RETURN_IF_ERROR(src->get_fixed32(&out->freq_meta.crc));
+    return doris::Status::OK();
 }
 
-Status read_pod_ref(ByteSource* src, IndexTier tier, DictEntry* out) {
-    SNII_RETURN_IF_ERROR(src->get_varint64(&out->frq_off_delta));
-    SNII_RETURN_IF_ERROR(src->get_varint64(&out->frq_len));
+doris::Status read_pod_ref(ByteSource* src, IndexTier tier, DictEntry* out) {
+    RETURN_IF_ERROR(src->get_varint64(&out->frq_off_delta));
+    RETURN_IF_ERROR(src->get_varint64(&out->frq_len));
     if (out->enc == DictEntryEnc::kWindowed) {
-        SNII_RETURN_IF_ERROR(src->get_varint64(&out->prelude_len));
-        SNII_RETURN_IF_ERROR(src->get_varint64(&out->frq_docs_len));
+        RETURN_IF_ERROR(src->get_varint64(&out->prelude_len));
+        RETURN_IF_ERROR(src->get_varint64(&out->frq_docs_len));
         if (out->prelude_len == 0 || out->prelude_len > out->frq_docs_len ||
             out->frq_docs_len > out->frq_len) {
-            return Status::Corruption("dict_entry: invalid windowed docs prefix");
+            return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("dict_entry: invalid windowed docs prefix");
         }
     } else {
-        SNII_RETURN_IF_ERROR(src->get_varint64(&out->frq_docs_len));
+        RETURN_IF_ERROR(src->get_varint64(&out->frq_docs_len));
         if (out->frq_docs_len > out->frq_len) {
-            return Status::Corruption("dict_entry: frq_docs_len exceeds frq_len");
+            return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("dict_entry: frq_docs_len exceeds frq_len");
         }
-        SNII_RETURN_IF_ERROR(read_region_meta(src, tier, /*has_crc=*/true, out->frq_docs_len,
+        RETURN_IF_ERROR(read_region_meta(src, tier, /*has_crc=*/true, out->frq_docs_len,
                                               out->frq_len - out->frq_docs_len, out));
     }
-    if (!tier_has_stats(tier)) return Status::OK();
-    SNII_RETURN_IF_ERROR(src->get_varint64(&out->prx_off_delta));
-    SNII_RETURN_IF_ERROR(src->get_varint64(&out->prx_len));
-    return Status::OK();
+    if (!tier_has_stats(tier)) return doris::Status::OK();
+    RETURN_IF_ERROR(src->get_varint64(&out->prx_off_delta));
+    RETURN_IF_ERROR(src->get_varint64(&out->prx_len));
+    return doris::Status::OK();
 }
 
-Status read_byte_blob(ByteSource* src, std::vector<uint8_t>* out) {
+doris::Status read_byte_blob(ByteSource* src, std::vector<uint8_t>* out) {
     uint64_t len = 0;
-    SNII_RETURN_IF_ERROR(src->get_varint64(&len));
+    RETURN_IF_ERROR(src->get_varint64(&len));
     Slice bytes;
-    SNII_RETURN_IF_ERROR(src->get_bytes(static_cast<size_t>(len), &bytes));
+    RETURN_IF_ERROR(src->get_bytes(static_cast<size_t>(len), &bytes));
     out->assign(bytes.data(), bytes.data() + bytes.size());
-    return Status::OK();
+    return doris::Status::OK();
 }
 
-Status read_inline(ByteSource* src, IndexTier tier, DictEntry* out) {
-    SNII_RETURN_IF_ERROR(read_byte_blob(src, &out->frq_bytes));
-    SNII_RETURN_IF_ERROR(src->get_varint64(&out->inline_dd_disk_len));
+doris::Status read_inline(ByteSource* src, IndexTier tier, DictEntry* out) {
+    RETURN_IF_ERROR(read_byte_blob(src, &out->frq_bytes));
+    RETURN_IF_ERROR(src->get_varint64(&out->inline_dd_disk_len));
     if (out->inline_dd_disk_len > out->frq_bytes.size()) {
-        return Status::Corruption("dict_entry: inline_dd_disk_len exceeds frq_bytes");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("dict_entry: inline_dd_disk_len exceeds frq_bytes");
     }
     const uint64_t freq_disk_len =
             static_cast<uint64_t>(out->frq_bytes.size()) - out->inline_dd_disk_len;
     // INLINE entries store no per-region crc (covered by the block crc):
     // has_crc=false.
-    SNII_RETURN_IF_ERROR(read_region_meta(src, tier, /*has_crc=*/false, out->inline_dd_disk_len,
+    RETURN_IF_ERROR(read_region_meta(src, tier, /*has_crc=*/false, out->inline_dd_disk_len,
                                           freq_disk_len, out));
-    if (!tier_has_stats(tier)) return Status::OK();
-    SNII_RETURN_IF_ERROR(read_byte_blob(src, &out->prx_bytes));
-    return Status::OK();
+    if (!tier_has_stats(tier)) return doris::Status::OK();
+    RETURN_IF_ERROR(read_byte_blob(src, &out->prx_bytes));
+    return doris::Status::OK();
 }
 
-Status read_locator(ByteSource* src, IndexTier tier, DictEntry* out) {
+doris::Status read_locator(ByteSource* src, IndexTier tier, DictEntry* out) {
     if (out->kind == DictEntryKind::kInline) return read_inline(src, tier, out);
     return read_pod_ref(src, tier, out);
 }
 
 // Read entry_len (= body length) and verify that src has enough remaining
 // bytes.
-Status read_entry_len(ByteSource* src, uint64_t* total) {
-    SNII_RETURN_IF_ERROR(src->get_varint64(total));
+doris::Status read_entry_len(ByteSource* src, uint64_t* total) {
+    RETURN_IF_ERROR(src->get_varint64(total));
     if (*total > src->remaining()) {
-        return Status::Corruption("dict_entry: entry_len out of range");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("dict_entry: entry_len out of range");
     }
-    return Status::OK();
+    return doris::Status::OK();
 }
 
 } // namespace
 
-Status encode_dict_entry(const DictEntry& entry, std::string_view prev_term, IndexTier tier,
+doris::Status encode_dict_entry(const DictEntry& entry, std::string_view prev_term, IndexTier tier,
                          ByteSink* sink) {
-    if (sink == nullptr) return Status::InvalidArgument("dict_entry: sink is null");
+    if (sink == nullptr) return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("dict_entry: sink is null");
 
     // Serialize the body into a temporary buffer first to obtain the exact
     // length, then write entry_len + body. CRC verification is done uniformly at
@@ -252,40 +253,40 @@ Status encode_dict_entry(const DictEntry& entry, std::string_view prev_term, Ind
     write_body(entry, prev_term, tier, &body);
     sink->put_varint64(static_cast<uint64_t>(body.size()));
     sink->put_bytes(body.view());
-    return Status::OK();
+    return doris::Status::OK();
 }
 
-Status decode_dict_entry(ByteSource* src, std::string_view prev_term, IndexTier tier,
+doris::Status decode_dict_entry(ByteSource* src, std::string_view prev_term, IndexTier tier,
                          DictEntry* out) {
     if (src == nullptr || out == nullptr) {
-        return Status::InvalidArgument("dict_entry: src / out is null");
+        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("dict_entry: src / out is null");
     }
     *out = DictEntry {};
 
     uint64_t total = 0;
-    SNII_RETURN_IF_ERROR(read_entry_len(src, &total));
+    RETURN_IF_ERROR(read_entry_len(src, &total));
     const size_t body_start = src->position();
 
-    SNII_RETURN_IF_ERROR(read_term_key(src, prev_term, out));
+    RETURN_IF_ERROR(read_term_key(src, prev_term, out));
     uint8_t flags = 0;
-    SNII_RETURN_IF_ERROR(src->get_u8(&flags));
+    RETURN_IF_ERROR(src->get_u8(&flags));
     apply_flags(flags, out);
-    SNII_RETURN_IF_ERROR(read_stats(src, tier, out));
-    SNII_RETURN_IF_ERROR(read_locator(src, tier, out));
+    RETURN_IF_ERROR(read_stats(src, tier, out));
+    RETURN_IF_ERROR(read_locator(src, tier, out));
 
     // The body must consume exactly entry_len bytes; otherwise the structure is
     // inconsistent with the tier.
     const size_t consumed = src->position() - body_start;
     if (consumed != static_cast<size_t>(total)) {
-        return Status::Corruption("dict_entry: body length does not match entry_len");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("dict_entry: body length does not match entry_len");
     }
-    return Status::OK();
+    return doris::Status::OK();
 }
 
-Status skip_dict_entry(ByteSource* src) {
-    if (src == nullptr) return Status::InvalidArgument("dict_entry: src is null");
+doris::Status skip_dict_entry(ByteSource* src) {
+    if (src == nullptr) return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("dict_entry: src is null");
     uint64_t total = 0;
-    SNII_RETURN_IF_ERROR(read_entry_len(src, &total));
+    RETURN_IF_ERROR(read_entry_len(src, &total));
     Slice unused;
     return src->get_bytes(static_cast<size_t>(total), &unused);
 }

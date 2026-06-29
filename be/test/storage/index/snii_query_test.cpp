@@ -48,6 +48,7 @@
 #include "snii/writer/spimi_term_buffer.h"
 
 namespace snii::query {
+using doris::Status; // RETURN_IF_ERROR expands to bare Status
 namespace {
 
 class MemoryFile final : public snii::io::FileReader, public snii::io::FileWriter {
@@ -270,11 +271,11 @@ Status build_reader(MemoryFile* file, reader::SniiSegmentReader* segment_reader,
                       });
 
     writer::SniiCompoundWriter writer(file);
-    SNII_RETURN_IF_ERROR(writer.add_logical_index(input));
-    SNII_RETURN_IF_ERROR(writer.finish());
+    RETURN_IF_ERROR(writer.add_logical_index(input));
+    RETURN_IF_ERROR(writer.finish());
     EXPECT_TRUE(file->finalized());
 
-    SNII_RETURN_IF_ERROR(reader::SniiSegmentReader::open(file, segment_reader));
+    RETURN_IF_ERROR(reader::SniiSegmentReader::open(file, segment_reader));
     return segment_reader->open_index(input.index_id, input.index_suffix, index_reader);
 }
 

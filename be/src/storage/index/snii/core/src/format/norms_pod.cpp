@@ -8,6 +8,7 @@
 #include "snii/format/format_constants.h"
 
 namespace snii::format {
+using doris::Status; // RETURN_IF_ERROR expands to bare Status
 
 void NormsPodWriter::finish(ByteSink* sink) const {
     // Build inner payload: [varint64 doc_count][raw norm bytes].
@@ -18,29 +19,29 @@ void NormsPodWriter::finish(ByteSink* sink) const {
     SectionFramer::write(*sink, static_cast<uint8_t>(SectionType::kStatsBlock), payload.view());
 }
 
-Status NormsPodReader::open(Slice framed, NormsPodReader* out) {
+doris::Status NormsPodReader::open(Slice framed, NormsPodReader* out) {
     // framer handles CRC verify, truncation detection, and payload slicing.
     ByteSource src(framed);
     FramedSection sec;
-    SNII_RETURN_IF_ERROR(SectionFramer::read(src, &sec));
+    RETURN_IF_ERROR(SectionFramer::read(src, &sec));
 
     // Parse inner payload: [varint64 doc_count][bytes].
     ByteSource payload(sec.payload);
     uint64_t doc_count = 0;
-    SNII_RETURN_IF_ERROR(payload.get_varint64(&doc_count));
+    RETURN_IF_ERROR(payload.get_varint64(&doc_count));
     if (doc_count > std::numeric_limits<uint32_t>::max()) {
-        return Status::Corruption("norms POD doc_count overflows uint32");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("norms POD doc_count overflows uint32");
     }
     // doc_count must exactly equal the remaining byte count (1 byte per doc).
     if (payload.remaining() != doc_count) {
-        return Status::Corruption("norms POD length mismatch");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("norms POD length mismatch");
     }
 
     Slice bytes;
-    SNII_RETURN_IF_ERROR(payload.get_bytes(static_cast<size_t>(doc_count), &bytes));
+    RETURN_IF_ERROR(payload.get_bytes(static_cast<size_t>(doc_count), &bytes));
     out->doc_count_ = static_cast<uint32_t>(doc_count);
     out->norms_ = bytes.data();
-    return Status::OK();
+    return doris::Status::OK();
 }
 
 } // namespace snii::format

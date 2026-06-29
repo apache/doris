@@ -129,7 +129,7 @@ Status IndexFileWriter::add_snii_index(const TabletIndex* index_meta, uint32_t d
     input.null_docids = std::move(null_docids);
     input.term_source = term_buffer;
     input.mem_reporter = mem_reporter;
-    RETURN_IF_ERROR(snii_doris::to_doris_status(_snii_compound_writer->add_logical_index(input)));
+    RETURN_IF_ERROR(_snii_compound_writer->add_logical_index(input));
     ++_snii_index_count;
     return Status::OK();
 }
@@ -252,7 +252,7 @@ Status IndexFileWriter::begin_close() {
             _snii_compound_writer =
                     std::make_unique<snii::writer::SniiCompoundWriter>(_snii_file_writer.get());
         }
-        RETURN_IF_ERROR(snii_doris::to_doris_status(_snii_compound_writer->finish()));
+        RETURN_IF_ERROR(_snii_compound_writer->finish());
         _total_file_size = _idx_v2_writer == nullptr ? 0 : _idx_v2_writer->bytes_appended();
         _file_info.set_index_size(_total_file_size);
         return Status::OK();

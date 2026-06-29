@@ -10,6 +10,7 @@
 #include "snii/encoding/section_framer.h"
 
 namespace snii::format {
+using doris::Status; // RETURN_IF_ERROR expands to bare Status
 
 NullBitmapWriter::
         NullBitmapWriter() // NOLINT(modernize-use-equals-default): roaring type is incomplete in the header.
@@ -50,31 +51,31 @@ NullBitmapReader::~NullBitmapReader() = default;
 NullBitmapReader::NullBitmapReader(NullBitmapReader&&) noexcept = default;
 NullBitmapReader& NullBitmapReader::operator=(NullBitmapReader&&) noexcept = default;
 
-Status NullBitmapReader::open(Slice framed, NullBitmapReader* out) {
+doris::Status NullBitmapReader::open(Slice framed, NullBitmapReader* out) {
     // SectionFramer handles CRC verification, truncation detection, and payload
     // slicing.
     ByteSource src(framed);
     FramedSection sec;
-    SNII_RETURN_IF_ERROR(SectionFramer::read(src, &sec));
+    RETURN_IF_ERROR(SectionFramer::read(src, &sec));
 
     // Parse inner payload: [varint64 doc_count][varint64 roaring_size][bytes].
     ByteSource payload(sec.payload);
     uint64_t doc_count = 0;
-    SNII_RETURN_IF_ERROR(payload.get_varint64(&doc_count));
+    RETURN_IF_ERROR(payload.get_varint64(&doc_count));
     if (doc_count > std::numeric_limits<uint32_t>::max()) {
-        return Status::Corruption("null bitmap doc_count overflows uint32");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("null bitmap doc_count overflows uint32");
     }
 
     uint64_t roaring_size = 0;
-    SNII_RETURN_IF_ERROR(payload.get_varint64(&roaring_size));
+    RETURN_IF_ERROR(payload.get_varint64(&roaring_size));
     // Anti-DoS: the declared roaring_size must not exceed the bytes actually
     // present, otherwise readSafe could be told to walk past the payload.
     if (roaring_size > payload.remaining()) {
-        return Status::Corruption("null bitmap roaring_size exceeds payload");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("null bitmap roaring_size exceeds payload");
     }
 
     Slice roaring_bytes;
-    SNII_RETURN_IF_ERROR(payload.get_bytes(static_cast<size_t>(roaring_size), &roaring_bytes));
+    RETURN_IF_ERROR(payload.get_bytes(static_cast<size_t>(roaring_size), &roaring_bytes));
 
     // Validate the Roaring container BEFORE deserializing. A CRC-valid frame can
     // still carry malformed roaring bytes; Roaring::readSafe / read would then hit
@@ -85,11 +86,11 @@ Status NullBitmapReader::open(Slice framed, NullBitmapReader* out) {
     const size_t probed =
             roaring_bitmap_portable_deserialize_size(rb, static_cast<size_t>(roaring_size));
     if (probed == 0 || probed != static_cast<size_t>(roaring_size)) {
-        return Status::Corruption("null bitmap: malformed roaring container");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("null bitmap: malformed roaring container");
     }
     *out->bitmap_ = roaring::Roaring::readSafe(rb, static_cast<size_t>(roaring_size));
     out->doc_count_ = static_cast<uint32_t>(doc_count);
-    return Status::OK();
+    return doris::Status::OK();
 }
 
 bool NullBitmapReader::is_null(uint32_t docid) const {

@@ -4,6 +4,7 @@
 #include "snii/encoding/crc32c.h"
 
 namespace snii::format {
+using doris::Status; // RETURN_IF_ERROR expands to bare Status
 
 namespace {
 
@@ -25,27 +26,27 @@ void encode_fields(const BootstrapHeader& header, ByteSink* sink) {
 
 } // namespace
 
-Status encode_bootstrap_header(const BootstrapHeader& header, ByteSink* sink) {
+doris::Status encode_bootstrap_header(const BootstrapHeader& header, ByteSink* sink) {
     if (sink == nullptr) {
-        return Status::InvalidArgument("bootstrap_header: null sink");
+        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("bootstrap_header: null sink");
     }
     ByteSink fields;
     encode_fields(header, &fields);
     const uint32_t checksum = crc32c(fields.view());
     sink->put_bytes(fields.view());
     sink->put_fixed32(checksum);
-    return Status::OK();
+    return doris::Status::OK();
 }
 
-Status decode_bootstrap_header(Slice data, BootstrapHeader* out) {
+doris::Status decode_bootstrap_header(Slice data, BootstrapHeader* out) {
     if (out == nullptr) {
-        return Status::InvalidArgument("bootstrap_header: null out");
+        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("bootstrap_header: null out");
     }
     // Reject any size other than the exact fixed header: short input is
     // truncation, longer input means stray trailing bytes the parser would
     // otherwise ignore.
     if (data.size() != kBootstrapHeaderSize) {
-        return Status::Corruption("bootstrap_header: wrong header size");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("bootstrap_header: wrong header size");
     }
 
     ByteSource src(data);
@@ -55,28 +56,28 @@ Status decode_bootstrap_header(Slice data, BootstrapHeader* out) {
     uint32_t header_length = 0;
     uint8_t tail_pointer_size = 0;
     uint32_t stored_checksum = 0;
-    SNII_RETURN_IF_ERROR(src.get_fixed32(&magic));
-    SNII_RETURN_IF_ERROR(src.get_fixed32(&version_pair));
-    SNII_RETURN_IF_ERROR(src.get_fixed32(&flags));
-    SNII_RETURN_IF_ERROR(src.get_fixed32(&header_length));
-    SNII_RETURN_IF_ERROR(src.get_u8(&tail_pointer_size));
-    SNII_RETURN_IF_ERROR(src.get_fixed32(&stored_checksum));
+    RETURN_IF_ERROR(src.get_fixed32(&magic));
+    RETURN_IF_ERROR(src.get_fixed32(&version_pair));
+    RETURN_IF_ERROR(src.get_fixed32(&flags));
+    RETURN_IF_ERROR(src.get_fixed32(&header_length));
+    RETURN_IF_ERROR(src.get_u8(&tail_pointer_size));
+    RETURN_IF_ERROR(src.get_fixed32(&stored_checksum));
 
     if (magic != kContainerMagic) {
-        return Status::Corruption("bootstrap_header: bad container magic");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("bootstrap_header: bad container magic");
     }
     const uint32_t computed = crc32c(data.subslice(0, kChecksumCoverage));
     if (computed != stored_checksum) {
-        return Status::Corruption("bootstrap_header: checksum mismatch");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("bootstrap_header: checksum mismatch");
     }
 
     const auto min_reader_version = static_cast<uint16_t>((version_pair >> 16) & 0xFFFFu);
     const auto format_version = static_cast<uint16_t>(version_pair & 0xFFFFu);
     if (format_version != kFormatVersion) {
-        return Status::Unsupported("bootstrap_header: unsupported container format_version");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_NOT_SUPPORTED, false>("bootstrap_header: unsupported container format_version");
     }
     if (min_reader_version > kFormatVersion) {
-        return Status::Unsupported("bootstrap_header: container requires a newer reader version");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_NOT_SUPPORTED, false>("bootstrap_header: container requires a newer reader version");
     }
 
     out->magic = magic;
@@ -85,7 +86,7 @@ Status decode_bootstrap_header(Slice data, BootstrapHeader* out) {
     out->flags = flags;
     out->header_length = header_length;
     out->tail_pointer_size = tail_pointer_size;
-    return Status::OK();
+    return doris::Status::OK();
 }
 
 } // namespace snii::format

@@ -299,6 +299,7 @@ namespace ErrorCode {
     E(INVERTED_INDEX_COMPACTION_ERROR, -6010, false);        \
     E(INVERTED_INDEX_ANALYZER_ERROR, -6011, false);          \
     E(INVERTED_INDEX_FILE_CORRUPTED, -6012, false);          \
+    E(INVERTED_INDEX_SNII_NOT_FOUND, -6013, false);         \
     E(KEY_NOT_FOUND, -7000, false);                          \
     E(KEY_ALREADY_EXISTS, -7001, false);                     \
     E(ENTRY_NOT_FOUND, -7002, false);                        \

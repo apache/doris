@@ -8,7 +8,7 @@
 #include <unordered_map>
 #include <vector>
 
-#include "snii/common/status.h"
+#include "common/status.h"
 #include "snii/writer/compact_posting_pool.h"
 #include "snii/writer/memory_reporter.h"
 
@@ -197,10 +197,10 @@ public:
     bool has_positions() const { return has_positions_; }
 
     // OK unless an add_token validation error (out-of-range term-id, wrong vocab
-    // mode) was latched. for_each_term_sorted now returns its own I/O Status
+    // mode) was latched. for_each_term_sorted now returns its own I/O doris::Status
     // directly; callers that use add_token's latch-and-report pattern MUST check
     // this after draining to surface input-side validation errors.
-    [[nodiscard]] Status status() const { return spill_status_; }
+    [[nodiscard]] doris::Status status() const { return spill_status_; }
 
     // TEST-ONLY: number of spill run files written so far (== 0 in pure in-memory
     // mode). Lets tests assert that a gate-2 spill actually fired once the REAL
@@ -223,7 +223,7 @@ public:
     // an Internal error (a re-merge of the still-present run files would otherwise
     // re-emit every term). Returns non-OK on spill/merge I/O or corruption errors,
     // or if a prior add_token latched a validation error into status().
-    Status for_each_term_sorted(const std::function<void(TermPostings&&)>& fn);
+    doris::Status for_each_term_sorted(const std::function<void(TermPostings&&)>& fn);
 
 private:
     // Compact per-term accumulator: ONE tagged-varint arena chain plus a few cursors.
@@ -274,11 +274,11 @@ private:
     // sorted terms stream positions via pos_pump (valid only because the callback
     // consumes each term synchronously while the arena is still resident); callers
     // that RETAIN the TermPostings past the drain (finalize_sorted) must pass false.
-    Status drain_sorted(const std::function<void(TermPostings&&)>& fn, bool allow_stream_positions);
+    doris::Status drain_sorted(const std::function<void(TermPostings&&)>& fn, bool allow_stream_positions);
     // Spills the current buffer to a fresh sorted run file and clears memory.
-    Status spill_to_run();
+    doris::Status spill_to_run();
     // Writes all current terms (sorted) to an already-open RunWriter, draining.
-    Status drain_to_writer(class RunWriter* w);
+    doris::Status drain_to_writer(class RunWriter* w);
     // REAL resident accumulator bytes: pool_.arena_bytes() + slot_of_.capacity()*4.
     // The single source of truth for both the gate-2 spill trigger and the spill
     // space-precheck -- replaces the old gated live_bytes_ estimate.
@@ -294,7 +294,7 @@ private:
     // merged term streams positions via pos_pump (valid only because fn consumes
     // synchronously while the run readers stay parked); callers that RETAIN the
     // TermPostings past the merge (finalize_sorted) MUST pass false.
-    Status merge_runs(const std::function<void(TermPostings&&)>& fn, bool allow_stream_positions);
+    doris::Status merge_runs(const std::function<void(TermPostings&&)>& fn, bool allow_stream_positions);
     // Deletes every temp run file; called from the destructor (RAII cleanup).
     void cleanup_runs();
     // Frees a drained term's accumulator (id leaves the touched set).
@@ -346,7 +346,7 @@ private:
     void put_varint(Term* t, uint64_t v);
 
     std::vector<std::string> run_paths_; // spilled run temp files (deleted in dtor)
-    Status spill_status_;                // first spill / range error, at finalize
+    doris::Status spill_status_;                // first spill / range error, at finalize
     bool drained_ = false;               // set once finalize_sorted/for_each_term_sorted has run;
                                          // a second drain would (spilled path) re-merge the run
                                          // files and re-emit every term, or (in-memory path) emit

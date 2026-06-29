@@ -13,6 +13,7 @@
 #include "xxhash.h"
 
 namespace snii::format {
+using doris::Status; // RETURN_IF_ERROR expands to bare Status
 
 const uint32_t kBsbfSalt[kBsbfBitsSetPerBlock] = {0x47b6137bU, 0x44974d91U, 0x8824ad5bU,
                                                   0xa2b7289dU, 0x705495c7U, 0x2df1424bU,
@@ -126,15 +127,15 @@ bool bsbf_block_contains(uint64_t hash, const uint8_t block[kBsbfBytesPerBlock])
     return block_contains_scalar(hash, block);
 }
 
-Status BsbfBuilder::create(uint32_t ndv, double fpp, BsbfBuilder* out) {
-    if (out == nullptr) return Status::InvalidArgument("bsbf: null out");
-    if (!(fpp > 0.0 && fpp < 1.0)) return Status::InvalidArgument("bsbf: fpp out of (0,1)");
+doris::Status BsbfBuilder::create(uint32_t ndv, double fpp, BsbfBuilder* out) {
+    if (out == nullptr) return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("bsbf: null out");
+    if (!(fpp > 0.0 && fpp < 1.0)) return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("bsbf: fpp out of (0,1)");
     if (ndv == 0) ndv = 1;
     out->num_bytes_ = bsbf_optimal_num_bytes(ndv, fpp);
     out->num_blocks_ = out->num_bytes_ / kBsbfBytesPerBlock;
     out->ndv_ = ndv;
     out->words_.assign(out->num_bytes_ / 4, 0u);
-    return Status::OK();
+    return doris::Status::OK();
 }
 
 void BsbfBuilder::insert(uint64_t hash) {
@@ -158,9 +159,9 @@ bool BsbfBuilder::maybe_contains(uint64_t hash) const {
     return find_scalar(words_.data(), block, key);
 }
 
-Status BsbfBuilder::serialize(ByteSink* sink) const {
-    if (sink == nullptr) return Status::InvalidArgument("bsbf: null sink");
-    if (num_bytes_ == 0) return Status::InvalidArgument("bsbf: not built");
+doris::Status BsbfBuilder::serialize(ByteSink* sink) const {
+    if (sink == nullptr) return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("bsbf: null sink");
+    if (num_bytes_ == 0) return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("bsbf: not built");
     uint8_t hdr[kBsbfHeaderSize] = {0};
     hdr[0] = 'B';
     hdr[1] = 'S';
@@ -178,41 +179,41 @@ Status BsbfBuilder::serialize(ByteSink* sink) const {
     store_le32(hdr + 24, crc32c(Slice(bits, num_bytes_))); // bitset crc
     sink->put_bytes(Slice(hdr, kBsbfHeaderSize));
     sink->put_bytes(Slice(bits, num_bytes_)); // contiguous, uncompressed, LE
-    return Status::OK();
+    return doris::Status::OK();
 }
 
-Status BsbfHeader::parse(Slice h, uint64_t section_base, BsbfHeader* out) {
-    if (out == nullptr) return Status::InvalidArgument("bsbf: null out");
-    if (h.size() < kBsbfHeaderSize) return Status::Corruption("bsbf: short header");
+doris::Status BsbfHeader::parse(Slice h, uint64_t section_base, BsbfHeader* out) {
+    if (out == nullptr) return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("bsbf: null out");
+    if (h.size() < kBsbfHeaderSize) return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("bsbf: short header");
     const uint8_t* p = h.data();
     if (p[0] != 'B' || p[1] != 'S' || p[2] != 'B' || p[3] != 'F')
-        return Status::Corruption("bsbf: bad magic");
-    if (p[4] != 1) return Status::Corruption("bsbf: bad version");
-    if (p[5] != 0) return Status::Corruption("bsbf: unsupported hash strategy");
-    if (p[6] != 0) return Status::Corruption("bsbf: unsupported index strategy");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("bsbf: bad magic");
+    if (p[4] != 1) return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("bsbf: bad version");
+    if (p[5] != 0) return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("bsbf: unsupported hash strategy");
+    if (p[6] != 0) return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("bsbf: unsupported index strategy");
     if (crc32c(Slice(p, 20)) != load_le32(p + 20))
-        return Status::Corruption("bsbf: header crc mismatch");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("bsbf: header crc mismatch");
     const uint32_t nb = load_le32(p + 8);
     const uint32_t nblk = load_le32(p + 12);
     if (nb < kBsbfMinBytes || nb > kBsbfMaxBytes || (nb & (nb - 1)) != 0)
-        return Status::Corruption("bsbf: num_bytes out of range or not power of 2");
-    if (nblk != nb / kBsbfBytesPerBlock) return Status::Corruption("bsbf: num_blocks mismatch");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("bsbf: num_bytes out of range or not power of 2");
+    if (nblk != nb / kBsbfBytesPerBlock) return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("bsbf: num_blocks mismatch");
     out->num_bytes = nb;
     out->num_blocks = nblk;
     out->bitset_crc = load_le32(p + 24);
     out->bitset_base = section_base + kBsbfHeaderSize;
-    return Status::OK();
+    return doris::Status::OK();
 }
 
-Status bsbf_probe(snii::io::FileReader* reader, const BsbfHeader& header, uint64_t hash,
+doris::Status bsbf_probe(snii::io::FileReader* reader, const BsbfHeader& header, uint64_t hash,
                   bool* maybe_present) {
     if (reader == nullptr || maybe_present == nullptr)
-        return Status::InvalidArgument("bsbf: null arg");
+        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("bsbf: null arg");
     std::vector<uint8_t> blk;
-    SNII_RETURN_IF_ERROR(reader->read_at(header.block_offset(hash), kBsbfBytesPerBlock, &blk));
-    if (blk.size() < kBsbfBytesPerBlock) return Status::Corruption("bsbf: short block read");
+    RETURN_IF_ERROR(reader->read_at(header.block_offset(hash), kBsbfBytesPerBlock, &blk));
+    if (blk.size() < kBsbfBytesPerBlock) return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("bsbf: short block read");
     *maybe_present = bsbf_block_contains(hash, blk.data());
-    return Status::OK();
+    return doris::Status::OK();
 }
 
 } // namespace snii::format

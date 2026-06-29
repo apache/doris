@@ -3,6 +3,7 @@
 #include "snii/encoding/crc32c.h"
 
 namespace snii {
+using doris::Status; // RETURN_IF_ERROR expands to bare Status
 
 void SectionFramer::write(ByteSink& sink, uint8_t section_type, Slice payload) {
     // Assemble type+len+payload in a temporary sink, compute crc over the whole thing, then write it all out.
@@ -15,23 +16,23 @@ void SectionFramer::write(ByteSink& sink, uint8_t section_type, Slice payload) {
     sink.put_fixed32(crc);
 }
 
-Status SectionFramer::read(ByteSource& src, FramedSection* out) {
+doris::Status SectionFramer::read(ByteSource& src, FramedSection* out) {
     size_t start = src.position();
     uint8_t type;
-    SNII_RETURN_IF_ERROR(src.get_u8(&type));
+    RETURN_IF_ERROR(src.get_u8(&type));
     uint64_t len;
-    SNII_RETURN_IF_ERROR(src.get_varint64(&len));
+    RETURN_IF_ERROR(src.get_varint64(&len));
     Slice payload;
-    SNII_RETURN_IF_ERROR(src.get_bytes(static_cast<size_t>(len), &payload));
+    RETURN_IF_ERROR(src.get_bytes(static_cast<size_t>(len), &payload));
     size_t framed_len = src.position() - start;
     uint32_t stored;
-    SNII_RETURN_IF_ERROR(src.get_fixed32(&stored));
+    RETURN_IF_ERROR(src.get_fixed32(&stored));
     if (crc32c(src.slice_from(start, framed_len)) != stored) {
-        return Status::Corruption("section crc mismatch");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("section crc mismatch");
     }
     out->type = type;
     out->payload = payload;
-    return Status::OK();
+    return doris::Status::OK();
 }
 
 } // namespace snii

@@ -5,10 +5,11 @@
 #include <vector>
 
 #include "snii/common/slice.h"
-#include "snii/common/status.h"
+#include "common/status.h"
 #include "snii/io/io_metrics.h"
 
 namespace snii::io {
+using doris::Status; // RETURN_IF_ERROR expands to bare Status
 
 // One logical read request (offset, length).
 struct Range {
@@ -25,18 +26,18 @@ public:
 
     // Reads exactly len bytes starting at offset into *out (which is resized to
     // len). Reading past EOF is an error (Corruption/IoError).
-    virtual Status read_at(uint64_t offset, size_t len, std::vector<uint8_t>* out) = 0;
+    virtual doris::Status read_at(uint64_t offset, size_t len, std::vector<uint8_t>* out) = 0;
 
     // Reads a batch of ranges that may be served concurrently. The default is a
     // sequential loop; backends that model concurrency (MeteredFileReader) or
     // perform real parallel fetches (object storage) override this.
-    virtual Status read_batch(const std::vector<Range>& ranges,
+    virtual doris::Status read_batch(const std::vector<Range>& ranges,
                               std::vector<std::vector<uint8_t>>* outs) {
         outs->resize(ranges.size());
         for (size_t i = 0; i < ranges.size(); ++i) {
-            SNII_RETURN_IF_ERROR(read_at(ranges[i].offset, ranges[i].len, &(*outs)[i]));
+            RETURN_IF_ERROR(read_at(ranges[i].offset, ranges[i].len, &(*outs)[i]));
         }
-        return Status::OK();
+        return doris::Status::OK();
     }
 
     // Total size of the underlying object in bytes.

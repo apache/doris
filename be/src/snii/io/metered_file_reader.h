@@ -24,8 +24,8 @@ class MeteredFileReader : public FileReader {
 public:
     explicit MeteredFileReader(FileReader* inner, size_t block_size = (1u << 20));
 
-    Status read_at(uint64_t offset, size_t len, std::vector<uint8_t>* out) override;
-    Status read_batch(const std::vector<Range>& ranges,
+    doris::Status read_at(uint64_t offset, size_t len, std::vector<uint8_t>* out) override;
+    doris::Status read_batch(const std::vector<Range>& ranges,
                       std::vector<std::vector<uint8_t>>* outs) override;
     uint64_t size() const override { return inner_->size(); }
 
@@ -35,7 +35,7 @@ public:
     void reset_metrics();
 
 private:
-    Status validate_range(uint64_t offset, size_t len) const;
+    doris::Status validate_range(uint64_t offset, size_t len) const;
 
     // Accounts the cache effect of touching [offset, offset+len): records misses,
     // coalesced GETs, and remote bytes. Returns true iff at least one block missed.

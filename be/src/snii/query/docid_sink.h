@@ -5,7 +5,7 @@
 #include <span>
 #include <vector>
 
-#include "snii/common/status.h"
+#include "common/status.h"
 
 namespace snii::query {
 
@@ -14,35 +14,35 @@ namespace snii::query {
 class DocIdSink {
 public:
     virtual ~DocIdSink() = default;
-    virtual Status append_sorted(std::span<const uint32_t> docids) = 0;
-    virtual Status append_range(uint32_t first, uint64_t last_exclusive) = 0;
+    virtual doris::Status append_sorted(std::span<const uint32_t> docids) = 0;
+    virtual doris::Status append_range(uint32_t first, uint64_t last_exclusive) = 0;
 };
 
 class VectorDocIdSink final : public DocIdSink {
 public:
     explicit VectorDocIdSink(std::vector<uint32_t>& docids) : docids_(docids) {}
 
-    Status append_sorted(std::span<const uint32_t> docids) override {
+    doris::Status append_sorted(std::span<const uint32_t> docids) override {
         docids_.insert(docids_.end(), docids.begin(), docids.end());
-        return Status::OK();
+        return doris::Status::OK();
     }
 
-    Status append_range(uint32_t first, uint64_t last_exclusive) override {
+    doris::Status append_range(uint32_t first, uint64_t last_exclusive) override {
         if (last_exclusive <= first) {
-            return Status::OK();
+            return doris::Status::OK();
         }
         if (last_exclusive > static_cast<uint64_t>(std::numeric_limits<uint32_t>::max()) + 1) {
-            return Status::InvalidArgument("docid_sink: range exceeds uint32 docid space");
+            return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("docid_sink: range exceeds uint32 docid space");
         }
         const uint64_t count = last_exclusive - first;
         if (count > static_cast<uint64_t>(docids_.max_size() - docids_.size())) {
-            return Status::InvalidArgument("docid_sink: range too large");
+            return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("docid_sink: range too large");
         }
         docids_.reserve(docids_.size() + static_cast<size_t>(count));
         for (uint64_t docid = first; docid < last_exclusive; ++docid) {
             docids_.push_back(static_cast<uint32_t>(docid));
         }
-        return Status::OK();
+        return doris::Status::OK();
     }
 
 private:

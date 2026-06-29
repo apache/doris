@@ -18,13 +18,14 @@
 #include "io/fs/local_file_system.h"
 #include "io/fs/path.h"
 #include "snii/common/slice.h"
-#include "snii/common/status.h"
+#include "common/status.h"
 #include "snii/io/file_writer.h"
 #include "snii/writer/memory_reporter.h"
 #include "snii/writer/temp_dir.h"
 #include "util/slice.h"
 
 namespace snii::writer {
+using doris::Status; // RETURN_IF_ERROR expands to bare Status
 
 // A tiered append buffer for one build-time section. While resident it holds the
 // bytes as a CHAIN OF CHUNKS (one per append) rather than a single growing vector:
@@ -67,12 +68,12 @@ public:
     uint64_t size() const { return spilled_ ? spilled_bytes_ : ram_bytes_; }
 
     // Copying append (the Slice bytes are copied into a fresh chunk).
-    Status append(Slice bytes) {
+    doris::Status append(Slice bytes) {
         if (spilled_) {
             const doris::Slice s(bytes.data(), bytes.size());
-            SNII_RETURN_IF_ERROR(to_snii(temp_writer_->appendv(&s, 1)));
+            RETURN_IF_ERROR(to_snii(temp_writer_->appendv(&s, 1)));
             spilled_bytes_ += bytes.size();
-            return Status::OK();
+            return doris::Status::OK();
         }
         if (!bytes.empty()) {
             chunks_.emplace_back(bytes.data(), bytes.data() + bytes.size());
@@ -80,17 +81,17 @@ public:
             if (reporter_) reporter_->report(static_cast<int64_t>(bytes.size()));
         }
         if (over_cap()) return spill_to_disk();
-        return Status::OK();
+        return doris::Status::OK();
     }
 
     // Move append: the section ADOPTS the caller's vector (no copy, no slack). The
     // common dict path -- each flushed block is handed off by move.
-    Status append_move(std::vector<uint8_t>&& v) {
+    doris::Status append_move(std::vector<uint8_t>&& v) {
         if (spilled_) {
             const doris::Slice s(v.data(), v.size());
-            SNII_RETURN_IF_ERROR(to_snii(temp_writer_->appendv(&s, 1)));
+            RETURN_IF_ERROR(to_snii(temp_writer_->appendv(&s, 1)));
             spilled_bytes_ += v.size();
-            return Status::OK();
+            return doris::Status::OK();
         }
         if (!v.empty()) {
             ram_bytes_ += v.size();
@@ -98,29 +99,29 @@ public:
             chunks_.push_back(std::move(v));
         }
         if (over_cap()) return spill_to_disk();
-        return Status::OK();
+        return doris::Status::OK();
     }
 
     // Must be called once after the last append, before stream_into(): flushes the temp
     // (if spilled) so it can be read back. A no-op for a RAM-resident buffer.
-    Status seal() {
+    doris::Status seal() {
         if (spilled_ && !sealed_) {
-            SNII_RETURN_IF_ERROR(to_snii(temp_writer_->close()));
+            RETURN_IF_ERROR(to_snii(temp_writer_->close()));
             sealed_ = true;
         }
-        return Status::OK();
+        return doris::Status::OK();
     }
 
     // Streams the whole section (RAM chunks or sealed temp) into `out`, in append order.
-    Status stream_into(snii::io::FileWriter* out) const {
+    doris::Status stream_into(snii::io::FileWriter* out) const {
         if (!spilled_) {
             for (const auto& c : chunks_) {
-                if (!c.empty()) SNII_RETURN_IF_ERROR(out->append(Slice(c)));
+                if (!c.empty()) RETURN_IF_ERROR(out->append(Slice(c)));
             }
-            return Status::OK();
+            return doris::Status::OK();
         }
         doris::io::FileReaderSPtr reader;
-        SNII_RETURN_IF_ERROR(
+        RETURN_IF_ERROR(
                 to_snii(doris::io::global_local_filesystem()->open_file(temp_path_, &reader)));
         constexpr uint64_t kChunk = 1u << 20; // fixed copy window (no whole-section reload)
         std::vector<uint8_t> buf;
@@ -128,14 +129,14 @@ public:
             const uint64_t n = std::min(kChunk, spilled_bytes_ - off);
             buf.resize(static_cast<size_t>(n));
             size_t bytes_read = 0;
-            SNII_RETURN_IF_ERROR(to_snii(reader->read_at(
+            RETURN_IF_ERROR(to_snii(reader->read_at(
                     off, doris::Slice(buf.data(), static_cast<size_t>(n)), &bytes_read)));
             if (bytes_read != n) {
-                return Status::IoError("short read from spill scratch file");
+                return doris::Status::Error<doris::ErrorCode::IO_ERROR, false>("short read from spill scratch file");
             }
-            SNII_RETURN_IF_ERROR(out->append(Slice(buf.data(), static_cast<size_t>(n))));
+            RETURN_IF_ERROR(out->append(Slice(buf.data(), static_cast<size_t>(n))));
         }
-        return Status::OK();
+        return doris::Status::OK();
     }
 
     bool spilled() const { return spilled_; }
@@ -147,22 +148,22 @@ private:
     bool over_cap() const {
         return (reporter_ != nullptr && reporter_->over_cap()) || ram_bytes_ >= cap_bytes_;
     }
-    // Bridge a Doris IO Status into SNII's Status. R01 (status migration) is not done yet,
-    // so this buffer still returns ::snii::Status; this mirrors snii_doris_adapter's
+    // Bridge a Doris IO doris::Status into SNII's doris::Status. R01 (status migration) is not done yet,
+    // so this buffer still returns doris::Status; this mirrors snii_doris_adapter's
     // to_snii_status (ok -> OK, otherwise IoError carrying the Doris message).
-    static Status to_snii(const doris::Status& s) {
-        if (s.ok()) return Status::OK();
-        return Status::IoError(s.to_string_no_stack());
+    static doris::Status to_snii(const doris::Status& s) {
+        if (s.ok()) return doris::Status::OK();
+        return doris::Status::Error<doris::ErrorCode::IO_ERROR, false>(s.to_string_no_stack());
     }
-    Status spill_to_disk() {
+    doris::Status spill_to_disk() {
         temp_path_ = resolve_temp_dir() + "/snii_" + tag_ + "_" + std::to_string(::getpid()) + "_" +
                      std::to_string(reinterpret_cast<uintptr_t>(this)) + ".tmp";
-        SNII_RETURN_IF_ERROR(to_snii(
+        RETURN_IF_ERROR(to_snii(
                 doris::io::global_local_filesystem()->create_file(temp_path_, &temp_writer_)));
         for (const auto& c : chunks_) {
             if (!c.empty()) {
                 const doris::Slice s(c.data(), c.size());
-                SNII_RETURN_IF_ERROR(to_snii(temp_writer_->appendv(&s, 1)));
+                RETURN_IF_ERROR(to_snii(temp_writer_->appendv(&s, 1)));
             }
         }
         spilled_bytes_ = ram_bytes_;
@@ -173,7 +174,7 @@ private:
         if (reporter_) reporter_->report(-static_cast<int64_t>(ram_bytes_));
         std::vector<std::vector<uint8_t>>().swap(chunks_); // reclaim the RAM immediately
         spilled_ = true;
-        return Status::OK();
+        return doris::Status::OK();
     }
 
     uint64_t cap_bytes_;

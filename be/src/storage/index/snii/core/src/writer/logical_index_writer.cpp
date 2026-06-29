@@ -19,6 +19,7 @@
 #include "snii/format/prx_pod.h"
 
 namespace snii::writer {
+using doris::Status; // RETURN_IF_ERROR expands to bare Status
 
 using snii::format::BlockRef;
 using snii::format::DictBlockBuilder;
@@ -64,24 +65,24 @@ using snii::format::FrqRegionMeta;
 // the freq region is the skippable suffix. Used for both the grouped windowed
 // layout (regions concatenated into posting-level blocks) and the single-window
 // slim/inline layout ([dd_region][freq_region]).
-Status EncodeRegions(std::span<const uint32_t> docids, std::span<const uint32_t> freqs,
+doris::Status EncodeRegions(std::span<const uint32_t> docids, std::span<const uint32_t> freqs,
                      uint64_t win_base, bool has_freq, std::vector<uint8_t>* dd_out,
                      FrqRegionMeta* dd_meta, std::vector<uint8_t>* freq_out,
                      FrqRegionMeta* freq_meta) {
     ByteSink dd_sink;
-    SNII_RETURN_IF_ERROR(
+    RETURN_IF_ERROR(
             snii::format::build_dd_region(docids, win_base, kRawFrqRegion, &dd_sink, dd_meta));
     *dd_out = dd_sink.take();
     if (!has_freq) {
         *freq_out = std::vector<uint8_t>();
         *freq_meta = FrqRegionMeta {};
-        return Status::OK();
+        return doris::Status::OK();
     }
     ByteSink freq_sink;
-    SNII_RETURN_IF_ERROR(
+    RETURN_IF_ERROR(
             snii::format::build_freq_region(freqs, kRawFrqRegion, &freq_sink, freq_meta));
     *freq_out = freq_sink.take();
-    return Status::OK();
+    return doris::Status::OK();
 }
 
 // Reusable per-window scratch for the windowed builder. Each ByteSink RETAINS
@@ -98,20 +99,20 @@ struct WindowScratch {
 // Encodes one window's dd (and freq) region into the scratch sinks and appends
 // the bytes directly to the grouped blocks via LayoutWindowRegions. Reuses the
 // sinks.
-Status EncodeRegionsInto(WindowScratch* sc, std::span<const uint32_t> docids,
+doris::Status EncodeRegionsInto(WindowScratch* sc, std::span<const uint32_t> docids,
                          std::span<const uint32_t> freqs, uint64_t win_base, bool has_freq,
                          FrqRegionMeta* dd_meta, FrqRegionMeta* freq_meta) {
     sc->dd_sink.clear();
-    SNII_RETURN_IF_ERROR(
+    RETURN_IF_ERROR(
             snii::format::build_dd_region(docids, win_base, kRawFrqRegion, &sc->dd_sink, dd_meta));
     if (has_freq) {
         sc->freq_sink.clear();
-        SNII_RETURN_IF_ERROR(
+        RETURN_IF_ERROR(
                 snii::format::build_freq_region(freqs, kRawFrqRegion, &sc->freq_sink, freq_meta));
     } else {
         *freq_meta = FrqRegionMeta {};
     }
-    return Status::OK();
+    return doris::Status::OK();
 }
 
 // Builds a single .prx window directly from a FLAT positions slice + its
@@ -119,13 +120,13 @@ Status EncodeRegionsInto(WindowScratch* sc, std::span<const uint32_t> docids,
 // to building from per-doc vectors, but with NO vector-of-vectors
 // materialization: the writer indexes straight into the term's flat positions
 // buffer.
-Status MakePrxWindow(std::span<const uint32_t> positions_flat, std::span<const uint32_t> freqs,
+doris::Status MakePrxWindow(std::span<const uint32_t> positions_flat, std::span<const uint32_t> freqs,
                      std::vector<uint8_t>* out) {
     ByteSink sink;
-    SNII_RETURN_IF_ERROR(
+    RETURN_IF_ERROR(
             snii::format::build_prx_window_flat(positions_flat, freqs, kAutoZstd, &sink));
     *out = sink.take();
-    return Status::OK();
+    return doris::Status::OK();
 }
 
 uint32_t MaxOf(std::span<const uint32_t> v) {
@@ -166,7 +167,7 @@ uint32_t AdaptiveWindowDocs(uint32_t df) {
 }
 
 // Builds the two-level .frq prelude for a windowed term and returns its bytes.
-Status BuildPrelude(const std::vector<WindowMeta>& windows, bool has_freq, bool has_prx,
+doris::Status BuildPrelude(const std::vector<WindowMeta>& windows, bool has_freq, bool has_prx,
                     std::vector<uint8_t>* out) {
     FrqPreludeColumns cols;
     cols.has_freq = has_freq;
@@ -174,9 +175,9 @@ Status BuildPrelude(const std::vector<WindowMeta>& windows, bool has_freq, bool 
     cols.group_size = kPreludeGroupSize;
     cols.windows = windows;
     ByteSink sink;
-    SNII_RETURN_IF_ERROR(snii::format::build_frq_prelude(cols, &sink));
+    RETURN_IF_ERROR(snii::format::build_frq_prelude(cols, &sink));
     *out = sink.take();
-    return Status::OK();
+    return doris::Status::OK();
 }
 
 void AppendBytes(std::vector<uint8_t>* dst, const std::vector<uint8_t>& src) {
@@ -236,7 +237,7 @@ void LayoutWindowRegions(const FrqRegionMeta& dd_meta, const std::vector<uint8_t
 // docids/freqs are freed by the caller after this returns. Output bytes are
 // byte-identical to the single-pass build (regions/prelude/prx are
 // independent).
-Status BuildWindowedPosting(TermPostings& tp, bool has_freq, bool has_prx,
+doris::Status BuildWindowedPosting(TermPostings& tp, bool has_freq, bool has_prx,
                             const std::vector<uint8_t>& norms, snii::io::FileWriter* posting_out,
                             WindowedPosting* out) {
     const uint32_t unit = AdaptiveWindowDocs(static_cast<uint32_t>(tp.docids.size()));
@@ -295,11 +296,11 @@ Status BuildWindowedPosting(TermPostings& tp, bool has_freq, bool has_prx,
                     pos_span = all_pos.subspan(pos_off, win_pos);
                 }
                 sc.prx_sink.clear();
-                SNII_RETURN_IF_ERROR(snii::format::build_prx_window_flat(pos_span, freqs, kAutoZstd,
+                RETURN_IF_ERROR(snii::format::build_prx_window_flat(pos_span, freqs, kAutoZstd,
                                                                          &sc.prx_sink));
                 m.prx_off = out->prx_total_len;
                 m.prx_len = static_cast<uint64_t>(sc.prx_sink.size());
-                SNII_RETURN_IF_ERROR(posting_out->append(sc.prx_sink.view()));
+                RETURN_IF_ERROR(posting_out->append(sc.prx_sink.view()));
                 out->prx_total_len += m.prx_len;
             }
             pos_off += win_pos;
@@ -319,13 +320,13 @@ Status BuildWindowedPosting(TermPostings& tp, bool has_freq, bool has_prx,
         const auto docs = all_docs.subspan(start, len);
         const auto freqs = all_freqs.subspan(start, len);
         FrqRegionMeta dd_meta, freq_meta;
-        SNII_RETURN_IF_ERROR(
+        RETURN_IF_ERROR(
                 EncodeRegionsInto(&sc, docs, freqs, win_base, has_freq, &dd_meta, &freq_meta));
         LayoutWindowRegions(dd_meta, sc.dd_sink.buffer(), freq_meta, sc.freq_sink.buffer(),
                             has_freq, out, &out->windows[wi]);
         win_base = out->windows[wi].last_docid;
     }
-    return Status::OK();
+    return doris::Status::OK();
 }
 
 } // namespace
@@ -350,9 +351,9 @@ LogicalIndexWriter::LogicalIndexWriter(const SniiIndexInput& in)
           // per-buffer cap.
           dict_buf_(UINT64_MAX, "dict", in.mem_reporter) {}
 
-Status LogicalIndexWriter::validate_term(const TermPostings& tp) const {
+doris::Status LogicalIndexWriter::validate_term(const TermPostings& tp) const {
     if (tp.freqs.size() != tp.docids.size()) {
-        return Status::InvalidArgument("logical_index: freqs length must equal docids");
+        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("logical_index: freqs length must equal docids");
     }
     if (has_prx_) {
         uint64_t total_pos = 0;
@@ -362,15 +363,15 @@ Status LogicalIndexWriter::validate_term(const TermPostings& tp) const {
         // flat buffer.
         const uint64_t have = tp.pos_pump ? tp.pos_total : tp.positions_flat.size();
         if (total_pos != have) {
-            return Status::InvalidArgument("logical_index: positions count must equal sum(freqs)");
+            return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("logical_index: positions count must equal sum(freqs)");
         }
     }
     for (size_t i = 1; i < tp.docids.size(); ++i) {
         if (tp.docids[i] <= tp.docids[i - 1]) {
-            return Status::InvalidArgument("logical_index: docids must be strictly ascending");
+            return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("logical_index: docids must be strictly ascending");
         }
     }
-    return Status::OK();
+    return doris::Status::OK();
 }
 
 // Emits a windowed term: splits into base-unit windows, encodes each window's
@@ -379,14 +380,14 @@ Status LogicalIndexWriter::validate_term(const TermPostings& tp) const {
 // in the single posting region (prx span first, then the frq span). Sets
 // enc=windowed + has_sb. frq_docs_len = prelude_len + dd_block_len is the
 // contiguous docs-only prefix, which stays INSIDE the frq span.
-Status LogicalIndexWriter::build_windowed_entry(TermPostings& tp, uint64_t frq_base,
+doris::Status LogicalIndexWriter::build_windowed_entry(TermPostings& tp, uint64_t frq_base,
                                                 uint64_t prx_base, DictEntry* e) {
     // The prx span starts here: pass 1 streams each .prx window straight into
     // the posting sink, so prx_off_delta is measured against the live
     // posting-sink size.
     const uint64_t prx_off = posting_size();
     WindowedPosting wp;
-    SNII_RETURN_IF_ERROR(
+    RETURN_IF_ERROR(
             BuildWindowedPosting(tp, has_freq_, has_prx_, encoded_norms_, posting_out_, &wp));
     // wp.prx_total_len bytes were just streamed straight to the posting sink (0
     // when !has_prx). docids/freqs are now fully encoded into wp; release the
@@ -395,7 +396,7 @@ Status LogicalIndexWriter::build_windowed_entry(TermPostings& tp, uint64_t frq_b
     std::vector<uint32_t>().swap(tp.docids);
     std::vector<uint32_t>().swap(tp.freqs);
     std::vector<uint8_t> prelude;
-    SNII_RETURN_IF_ERROR(BuildPrelude(wp.windows, has_freq_, has_prx_, &prelude));
+    RETURN_IF_ERROR(BuildPrelude(wp.windows, has_freq_, has_prx_, &prelude));
 
     e->kind = DictEntryKind::kPodRef;
     e->enc = DictEntryEnc::kWindowed;
@@ -409,16 +410,16 @@ Status LogicalIndexWriter::build_windowed_entry(TermPostings& tp, uint64_t frq_b
     // nothing is appended to the posting sink between the prx pass and here --
     // but the delta is measured from the live size, not assumed.
     const uint64_t frq_off = posting_size();
-    SNII_RETURN_IF_ERROR(posting_out_->append(Slice(prelude)));
-    SNII_RETURN_IF_ERROR(posting_out_->append(Slice(wp.dd_block)));
-    SNII_RETURN_IF_ERROR(posting_out_->append(Slice(wp.freq_block)));
+    RETURN_IF_ERROR(posting_out_->append(Slice(prelude)));
+    RETURN_IF_ERROR(posting_out_->append(Slice(wp.dd_block)));
+    RETURN_IF_ERROR(posting_out_->append(Slice(wp.freq_block)));
     e->frq_off_delta = frq_off - frq_base;
     e->frq_len = posting_size() - frq_off;
     if (has_prx_) {
         e->prx_off_delta = prx_off - prx_base;
         e->prx_len = wp.prx_total_len; // == frq_off - prx_off
     }
-    return Status::OK();
+    return doris::Status::OK();
 }
 
 // Emits a slim term as a single .frq window (win_base=0) laid out [dd][freq]:
@@ -429,17 +430,17 @@ Status LogicalIndexWriter::build_windowed_entry(TermPostings& tp, uint64_t frq_b
 // single posting region with the prx span FIRST (consistent with the windowed
 // path); the reader resolves each delta independently so the relative order is
 // not load-bearing.
-Status LogicalIndexWriter::build_slim_entry(TermPostings& tp, uint64_t frq_base, uint64_t prx_base,
+doris::Status LogicalIndexWriter::build_slim_entry(TermPostings& tp, uint64_t frq_base, uint64_t prx_base,
                                             DictEntry* e) {
     std::vector<uint8_t> dd_bytes, freq_bytes;
     FrqRegionMeta dd_meta, freq_meta;
-    SNII_RETURN_IF_ERROR(EncodeRegions(tp.docids, tp.freqs, /*win_base=*/0, has_freq_, &dd_bytes,
+    RETURN_IF_ERROR(EncodeRegions(tp.docids, tp.freqs, /*win_base=*/0, has_freq_, &dd_bytes,
                                        &dd_meta, &freq_bytes, &freq_meta));
     std::vector<uint8_t> frq_win = dd_bytes; // [dd_region][freq_region]
     AppendBytes(&frq_win, freq_bytes);
     std::vector<uint8_t> prx_win;
     if (has_prx_) {
-        SNII_RETURN_IF_ERROR(MakePrxWindow(tp.positions_flat, tp.freqs, &prx_win));
+        RETURN_IF_ERROR(MakePrxWindow(tp.positions_flat, tp.freqs, &prx_win));
     }
 
     e->enc = DictEntryEnc::kSlim;
@@ -451,7 +452,7 @@ Status LogicalIndexWriter::build_slim_entry(TermPostings& tp, uint64_t frq_base,
         e->inline_dd_disk_len = dd_meta.disk_len;
         e->frq_bytes = std::move(frq_win);
         if (has_prx_) e->prx_bytes = std::move(prx_win);
-        return Status::OK();
+        return doris::Status::OK();
     }
 
     // POD_REF: write [prx][frq] into the single posting sink, prx span first.
@@ -459,22 +460,22 @@ Status LogicalIndexWriter::build_slim_entry(TermPostings& tp, uint64_t frq_base,
     e->frq_docs_len = dd_meta.disk_len; // docs-only prefix = the single dd region
     if (has_prx_) {
         const uint64_t prx_off = posting_size();
-        SNII_RETURN_IF_ERROR(posting_out_->append(Slice(prx_win)));
+        RETURN_IF_ERROR(posting_out_->append(Slice(prx_win)));
         e->prx_off_delta = prx_off - prx_base;
         e->prx_len = posting_size() - prx_off;
     }
     const uint64_t frq_off = posting_size(); // immediately after the prx span
-    SNII_RETURN_IF_ERROR(posting_out_->append(Slice(frq_win)));
+    RETURN_IF_ERROR(posting_out_->append(Slice(frq_win)));
     e->frq_off_delta = frq_off - frq_base;
     e->frq_len = posting_size() - frq_off;
-    return Status::OK();
+    return doris::Status::OK();
 }
 
 // Builds the DictEntry for one term. Inline entries embed their .frq/.prx
 // bytes; pod_ref entries append [prx][frq] bytes to the single posting region
 // and record off_delta relative to frq_base/prx_base (the posting-region size
 // captured when the block opened; both bases hold that same value).
-Status LogicalIndexWriter::build_entry(TermPostings& tp, uint64_t frq_base, uint64_t prx_base,
+doris::Status LogicalIndexWriter::build_entry(TermPostings& tp, uint64_t frq_base, uint64_t prx_base,
                                        DictEntry* e) {
     e->term = tp.term;
     e->df = static_cast<uint32_t>(tp.docids.size());
@@ -496,7 +497,7 @@ Status LogicalIndexWriter::build_entry(TermPostings& tp, uint64_t frq_base, uint
 // shrinks the bytes a term lookup fetches from S3 -- aligning with the
 // read-byte thesis. If zstd does not shrink a (tiny) block, it is stored raw so
 // a lookup never pays a pointless decompress.
-Status LogicalIndexWriter::flush_block(DictBlockBuilder* block, std::string first_term) {
+doris::Status LogicalIndexWriter::flush_block(DictBlockBuilder* block, std::string first_term) {
     ByteSink bsink;
     block->finish(&bsink);
     const Slice plain = bsink.view();
@@ -507,20 +508,20 @@ Status LogicalIndexWriter::flush_block(DictBlockBuilder* block, std::string firs
     rec.first_term = std::move(first_term);
 
     std::vector<uint8_t> comp;
-    Status zs = snii::zstd_compress(plain, kDictBlockZstdLevel, &comp);
+    doris::Status zs = snii::zstd_compress(plain, kDictBlockZstdLevel, &comp);
     if (zs.ok() && comp.size() < plain.size()) {
         rec.flags = snii::format::block_ref_flags::kZstd;
         rec.uncomp_len = static_cast<uint64_t>(plain.size());
         rec.length = static_cast<uint64_t>(comp.size());
-        SNII_RETURN_IF_ERROR(dict_buf_.append_move(std::move(comp)));
+        RETURN_IF_ERROR(dict_buf_.append_move(std::move(comp)));
     } else {
         rec.flags = 0;
         rec.uncomp_len = 0;
         rec.length = static_cast<uint64_t>(plain.size());
-        SNII_RETURN_IF_ERROR(dict_buf_.append_move(bsink.take()));
+        RETURN_IF_ERROR(dict_buf_.append_move(bsink.take()));
     }
     blocks_.push_back(std::move(rec));
-    return Status::OK();
+    return doris::Status::OK();
 }
 
 // Running state for the in-flight DICT block while terms stream past.
@@ -531,8 +532,8 @@ struct LogicalIndexWriter::BlockState {
     uint64_t prx_base = 0;
 };
 
-Status LogicalIndexWriter::process_term(TermPostings& tp, BlockState* st) {
-    SNII_RETURN_IF_ERROR(validate_term(tp));
+doris::Status LogicalIndexWriter::process_term(TermPostings& tp, BlockState* st) {
+    RETURN_IF_ERROR(validate_term(tp));
     // Collect only the 8-byte filter key per term (no whole-vocabulary string
     // copy). BSBF key = XXH64 seed 0 (Parquet-canonical).
     term_hashes_.push_back(snii::format::bsbf_hash(tp.term));
@@ -549,29 +550,29 @@ Status LogicalIndexWriter::process_term(TermPostings& tp, BlockState* st) {
     }
 
     DictEntry e;
-    SNII_RETURN_IF_ERROR(build_entry(tp, st->frq_base, st->prx_base, &e));
+    RETURN_IF_ERROR(build_entry(tp, st->frq_base, st->prx_base, &e));
     st->block->add_entry(e);
 
     if (st->block->estimated_bytes() >= target_dict_block_bytes_) {
-        SNII_RETURN_IF_ERROR(flush_block(st->block.get(), st->block_first_term));
+        RETURN_IF_ERROR(flush_block(st->block.get(), st->block_first_term));
         st->block.reset();
     }
-    return Status::OK();
+    return doris::Status::OK();
 }
 
-Status LogicalIndexWriter::build_blocks() {
+doris::Status LogicalIndexWriter::build_blocks() {
     BlockState st;
     if (term_source_ != nullptr) {
-        Status streamed = Status::OK();
+        doris::Status streamed = doris::Status::OK();
         // Drain the SPIMI buffer term-by-term; only one TermPostings is alive at a
-        // time, so the input+output never fully coexist. The returned Status covers
+        // time, so the input+output never fully coexist. The returned doris::Status covers
         // both spill/merge I/O errors and add_token validation errors (the latter
         // flow through merge_runs -> spill_status_), so a separate status() check
         // is no longer needed.
-        SNII_RETURN_IF_ERROR(term_source_->for_each_term_sorted([&](TermPostings&& tp) {
+        RETURN_IF_ERROR(term_source_->for_each_term_sorted([&](TermPostings&& tp) {
             if (streamed.ok()) streamed = process_term(tp, &st);
         }));
-        SNII_RETURN_IF_ERROR(streamed);
+        RETURN_IF_ERROR(streamed);
     } else {
         // Materialized fallback (tests / callers holding a vector): process_term
         // frees the term's arrays, so feed a per-term COPY to keep terms_ intact
@@ -579,19 +580,19 @@ Status LogicalIndexWriter::build_blocks() {
         // is cheap.
         for (const auto& tp : terms_) {
             TermPostings copy = tp;
-            SNII_RETURN_IF_ERROR(process_term(copy, &st));
+            RETURN_IF_ERROR(process_term(copy, &st));
         }
     }
-    if (st.block) SNII_RETURN_IF_ERROR(flush_block(st.block.get(), st.block_first_term));
-    return Status::OK();
+    if (st.block) RETURN_IF_ERROR(flush_block(st.block.get(), st.block_first_term));
+    return doris::Status::OK();
 }
 
-Status LogicalIndexWriter::build(snii::io::FileWriter* posting_out) {
+doris::Status LogicalIndexWriter::build(snii::io::FileWriter* posting_out) {
     if (posting_out == nullptr) {
-        return Status::InvalidArgument("logical_index: null posting sink");
+        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("logical_index: null posting sink");
     }
     if (has_norms_ && encoded_norms_.size() != doc_count_) {
-        return Status::InvalidArgument("logical_index: norms length must equal doc_count");
+        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("logical_index: norms length must equal doc_count");
     }
     // The interleaved posting region streams STRAIGHT into the container output
     // (no temp round-trip): posting_size() is the region-relative byte count,
@@ -602,10 +603,10 @@ Status LogicalIndexWriter::build(snii::io::FileWriter* posting_out) {
     posting_out_ = posting_out;
     posting_off0_ = posting_out->bytes_written();
 
-    SNII_RETURN_IF_ERROR(build_blocks());
+    RETURN_IF_ERROR(build_blocks());
     // Seal the dict buffer so a spilled temp is flushed before
     // stream_dict_region_into reads it back. A no-op for a RAM-resident dict.
-    SNII_RETURN_IF_ERROR(dict_buf_.seal());
+    RETURN_IF_ERROR(dict_buf_.seal());
 
     stats_.doc_count = doc_count_;
     stats_.indexed_doc_count = doc_count_ - static_cast<uint32_t>(null_docids_.size());
@@ -635,20 +636,20 @@ Status LogicalIndexWriter::build(snii::io::FileWriter* posting_out) {
     bsbf_bytes_.clear();
     if (!term_hashes_.empty()) {
         snii::format::BsbfBuilder bf;
-        SNII_RETURN_IF_ERROR(snii::format::BsbfBuilder::create(
+        RETURN_IF_ERROR(snii::format::BsbfBuilder::create(
                 static_cast<uint32_t>(term_hashes_.size()), kBsbfFpp, &bf));
         for (uint64_t k : term_hashes_) bf.insert(k);
         ByteSink bsink;
-        SNII_RETURN_IF_ERROR(bf.serialize(&bsink));
+        RETURN_IF_ERROR(bf.serialize(&bsink));
         bsbf_bytes_ = bsink.take();
     }
     std::vector<uint64_t>().swap(term_hashes_); // release
-    return Status::OK();
+    return doris::Status::OK();
 }
 
-Status LogicalIndexWriter::finish_meta(const SectionRefs& abs_refs, uint64_t dict_region_offset,
+doris::Status LogicalIndexWriter::finish_meta(const SectionRefs& abs_refs, uint64_t dict_region_offset,
                                        ByteSink* out) const {
-    if (out == nullptr) return Status::InvalidArgument("logical_index: null meta sink");
+    if (out == nullptr) return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("logical_index: null meta sink");
 
     SampledTermIndexBuilder sti;
     for (const auto& b : blocks_) sti.add_block_first_term(b.first_term);

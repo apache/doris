@@ -8,6 +8,7 @@
 #include "snii/common/slice.h"
 
 namespace snii {
+using doris::Status; // RETURN_IF_ERROR expands to bare Status
 namespace {
 
 // Unaligned little-endian 64-bit load from a raw byte pointer (single
@@ -247,16 +248,16 @@ void bitunpack_generic(const uint8_t* base, size_t packed, size_t n, uint8_t w, 
     bitunpack_tail(base, packed, n, w, i, mask, out);
 }
 
-Status bitunpack(ByteSource* src, size_t n, uint8_t w, uint32_t* out) {
+doris::Status bitunpack(ByteSource* src, size_t n, uint8_t w, uint32_t* out) {
     if (w == 0) {
         std::memset(out, 0, n * sizeof(uint32_t));
-        return Status::OK();
+        return doris::Status::OK();
     }
     // Pull the packed run once and unpack from the contiguous slice; this keeps
     // the hot decode path free of per-byte ByteSource calls.
     const size_t packed = (static_cast<size_t>(w) * n + 7) / 8;
     Slice buf;
-    SNII_RETURN_IF_ERROR(src->get_bytes(packed, &buf));
+    RETURN_IF_ERROR(src->get_bytes(packed, &buf));
     const uint8_t* base = buf.data();
 
     switch (w) {
@@ -288,7 +289,7 @@ Status bitunpack(ByteSource* src, size_t n, uint8_t w, uint32_t* out) {
         bitunpack_generic(base, packed, n, w, out);
         break;
     }
-    return Status::OK();
+    return doris::Status::OK();
 }
 
 } // namespace
@@ -315,46 +316,46 @@ void pfor_encode(const uint32_t* values, size_t n, ByteSink* out) {
     }
 }
 
-Status pfor_decode(ByteSource* src, size_t n, uint32_t* out) {
+doris::Status pfor_decode(ByteSource* src, size_t n, uint32_t* out) {
     uint8_t w;
-    SNII_RETURN_IF_ERROR(src->get_u8(&w));
+    RETURN_IF_ERROR(src->get_u8(&w));
     uint32_t n_exc;
-    SNII_RETURN_IF_ERROR(src->get_varint32(&n_exc));
-    SNII_RETURN_IF_ERROR(bitunpack(src, n, w, out));
+    RETURN_IF_ERROR(src->get_varint32(&n_exc));
+    RETURN_IF_ERROR(bitunpack(src, n, w, out));
     uint32_t idx = 0;
     for (uint32_t i = 0; i < n_exc; ++i) {
         uint32_t d, val;
-        SNII_RETURN_IF_ERROR(src->get_varint32(&d));
-        SNII_RETURN_IF_ERROR(src->get_varint32(&val));
+        RETURN_IF_ERROR(src->get_varint32(&d));
+        RETURN_IF_ERROR(src->get_varint32(&val));
         idx += d;
         if (idx >= n) {
-            return Status::Corruption("pfor exception index out of range");
+            return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("pfor exception index out of range");
         }
         out[idx] = val;
     }
-    return Status::OK();
+    return doris::Status::OK();
 }
 
-Status pfor_skip(ByteSource* src, size_t n) {
+doris::Status pfor_skip(ByteSource* src, size_t n) {
     uint8_t w = 0;
-    SNII_RETURN_IF_ERROR(src->get_u8(&w));
+    RETURN_IF_ERROR(src->get_u8(&w));
     uint32_t n_exc = 0;
-    SNII_RETURN_IF_ERROR(src->get_varint32(&n_exc));
+    RETURN_IF_ERROR(src->get_varint32(&n_exc));
     const size_t packed = (static_cast<size_t>(w) * n + 7) / 8;
     Slice unused;
-    SNII_RETURN_IF_ERROR(src->get_bytes(packed, &unused));
+    RETURN_IF_ERROR(src->get_bytes(packed, &unused));
     uint32_t idx = 0;
     for (uint32_t i = 0; i < n_exc; ++i) {
         uint32_t d = 0;
         uint32_t val = 0;
-        SNII_RETURN_IF_ERROR(src->get_varint32(&d));
-        SNII_RETURN_IF_ERROR(src->get_varint32(&val));
+        RETURN_IF_ERROR(src->get_varint32(&d));
+        RETURN_IF_ERROR(src->get_varint32(&val));
         idx += d;
         if (idx >= n) {
-            return Status::Corruption("pfor exception index out of range");
+            return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("pfor exception index out of range");
         }
     }
-    return Status::OK();
+    return doris::Status::OK();
 }
 
 } // namespace snii

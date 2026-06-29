@@ -5,7 +5,7 @@
 #include <vector>
 
 #include "snii/common/slice.h"
-#include "snii/common/status.h"
+#include "common/status.h"
 #include "snii/io/file_reader.h"
 
 namespace snii::io {
@@ -27,7 +27,7 @@ public:
     size_t add(uint64_t offset, uint64_t len);
 
     // Coalesces and issues one batched read; fills internal buffers.
-    Status fetch();
+    doris::Status fetch();
 
     // Bytes for handle h (valid only after a successful fetch(), until clear()).
     Slice get(size_t h) const;

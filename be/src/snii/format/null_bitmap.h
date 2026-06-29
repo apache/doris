@@ -4,7 +4,7 @@
 #include <memory>
 
 #include "snii/common/slice.h"
-#include "snii/common/status.h"
+#include "common/status.h"
 #include "snii/encoding/byte_sink.h"
 
 // Forward-declare the CRoaring C++ bitmap so this header stays free of the
@@ -67,7 +67,7 @@ public:
 
     // Parses the entire section (framer envelope + payload). Returns Corruption on
     // CRC mismatch, truncation, doc_count overflow, or an oversized roaring_size.
-    static Status open(Slice framed, NullBitmapReader* out);
+    static doris::Status open(Slice framed, NullBitmapReader* out);
 
     // True iff docid was marked NULL. docids outside the null set (including those
     // >= doc_count) return false.

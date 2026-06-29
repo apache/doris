@@ -5,7 +5,7 @@
 #include <vector>
 
 #include "snii/common/slice.h"
-#include "snii/common/status.h"
+#include "common/status.h"
 #include "snii/io/file_reader.h"
 #include "snii/io/file_writer.h"
 
@@ -21,8 +21,8 @@ public:
     LocalFileReader(const LocalFileReader&) = delete;
     LocalFileReader& operator=(const LocalFileReader&) = delete;
 
-    Status open(const std::string& path);
-    Status read_at(uint64_t offset, size_t len, std::vector<uint8_t>* out) override;
+    doris::Status open(const std::string& path);
+    doris::Status read_at(uint64_t offset, size_t len, std::vector<uint8_t>* out) override;
     uint64_t size() const override { return size_; }
 
 private:
@@ -43,9 +43,9 @@ public:
     LocalFileWriter(const LocalFileWriter&) = delete;
     LocalFileWriter& operator=(const LocalFileWriter&) = delete;
 
-    Status open(const std::string& path);
-    Status append(Slice data) override;
-    Status finalize() override;
+    doris::Status open(const std::string& path);
+    doris::Status append(Slice data) override;
+    doris::Status finalize() override;
     uint64_t bytes_written() const override { return bytes_written_; }
 
 private:
@@ -54,10 +54,10 @@ private:
     static constexpr size_t kBufCapacity = 256u * 1024;
 
     // Flushes the userspace buffer to the fd with a robust partial-write loop.
-    Status flush_buffer();
+    doris::Status flush_buffer();
     // Writes a raw byte span straight to the fd (used for spans larger than the
     // buffer, bypassing a needless copy).
-    Status write_all(const uint8_t* data, size_t len);
+    doris::Status write_all(const uint8_t* data, size_t len);
 
     int fd_ = -1;
     uint64_t bytes_written_ = 0;

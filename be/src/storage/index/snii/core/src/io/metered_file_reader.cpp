@@ -3,6 +3,7 @@
 #include <algorithm>
 
 namespace snii::io {
+using doris::Status; // RETURN_IF_ERROR expands to bare Status
 namespace {
 
 // Inclusive [first, last] block ids touched by a validated [offset, offset+len).
@@ -22,14 +23,14 @@ void MeteredFileReader::reset_metrics() {
     metrics_ = IoMetrics {};
 }
 
-Status MeteredFileReader::validate_range(uint64_t offset, size_t len) const {
-    if (inner_ == nullptr) return Status::InvalidArgument("metered: null inner reader");
-    if (block_size_ == 0) return Status::InvalidArgument("metered: zero block size");
+doris::Status MeteredFileReader::validate_range(uint64_t offset, size_t len) const {
+    if (inner_ == nullptr) return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("metered: null inner reader");
+    if (block_size_ == 0) return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("metered: zero block size");
     const uint64_t total = inner_->size();
     if (offset > total || len > total - offset) {
-        return Status::Corruption("metered: read range past end");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("metered: read range past end");
     }
-    return Status::OK();
+    return doris::Status::OK();
 }
 
 // Accounts the FileCache effect of touching [offset, offset+len): newly missed
@@ -60,9 +61,9 @@ bool MeteredFileReader::account_blocks(uint64_t offset, size_t len) {
     return any_miss;
 }
 
-Status MeteredFileReader::read_at(uint64_t offset, size_t len, std::vector<uint8_t>* out) {
-    if (out == nullptr) return Status::InvalidArgument("metered: null out");
-    SNII_RETURN_IF_ERROR(validate_range(offset, len));
+doris::Status MeteredFileReader::read_at(uint64_t offset, size_t len, std::vector<uint8_t>* out) {
+    if (out == nullptr) return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("metered: null out");
+    RETURN_IF_ERROR(validate_range(offset, len));
     ++metrics_.read_at_calls;
     metrics_.total_request_bytes += len;
     // A single blocking read: any miss forces one serial round (the next offset is
@@ -71,11 +72,11 @@ Status MeteredFileReader::read_at(uint64_t offset, size_t len, std::vector<uint8
     return inner_->read_at(offset, len, out);
 }
 
-Status MeteredFileReader::read_batch(const std::vector<Range>& ranges,
+doris::Status MeteredFileReader::read_batch(const std::vector<Range>& ranges,
                                      std::vector<std::vector<uint8_t>>* outs) {
-    if (outs == nullptr) return Status::InvalidArgument("metered: null batch out");
+    if (outs == nullptr) return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("metered: null batch out");
     for (const Range& r : ranges) {
-        SNII_RETURN_IF_ERROR(validate_range(r.offset, r.len));
+        RETURN_IF_ERROR(validate_range(r.offset, r.len));
     }
 
     // Gather the union of touched blocks so coalescing spans the whole batch, and

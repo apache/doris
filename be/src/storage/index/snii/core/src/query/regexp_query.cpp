@@ -51,34 +51,34 @@ std::string literal_prefix_for_regex(std::string_view pattern) {
 
 } // namespace
 
-Status regexp_query(const snii::reader::LogicalIndexReader& idx, std::string_view pattern,
+doris::Status regexp_query(const snii::reader::LogicalIndexReader& idx, std::string_view pattern,
                     std::vector<uint32_t>* const docids, int32_t max_expansions) {
     if (docids == nullptr) {
-        return Status::InvalidArgument("regexp_query: null out");
+        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("regexp_query: null out");
     }
     docids->clear();
     VectorDocIdSink sink(*docids);
     return regexp_query(idx, pattern, &sink, max_expansions);
 }
 
-Status regexp_query(const snii::reader::LogicalIndexReader& idx, std::string_view pattern,
+doris::Status regexp_query(const snii::reader::LogicalIndexReader& idx, std::string_view pattern,
                     std::vector<uint32_t>* const docids, QueryProfile* profile,
                     int32_t max_expansions) {
     QueryProfileScope profile_scope(idx.reader(), profile);
     return regexp_query(idx, pattern, docids, max_expansions);
 }
 
-Status regexp_query(const snii::reader::LogicalIndexReader& idx, std::string_view pattern,
+doris::Status regexp_query(const snii::reader::LogicalIndexReader& idx, std::string_view pattern,
                     DocIdSink* const sink, int32_t max_expansions) {
     if (sink == nullptr) {
-        return Status::InvalidArgument("regexp_query: null sink");
+        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("regexp_query: null sink");
     }
 
     std::regex re;
     try {
         re = std::regex(std::string(pattern));
     } catch (const std::regex_error& e) {
-        return Status::InvalidArgument(std::string("regexp_query: invalid regex: ") + e.what());
+        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>(std::string("regexp_query: invalid regex: ") + e.what());
     }
 
     const std::string enum_prefix = literal_prefix_for_regex(pattern);

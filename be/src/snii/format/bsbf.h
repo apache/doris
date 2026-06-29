@@ -5,7 +5,7 @@
 #include <vector>
 
 #include "snii/common/slice.h"
-#include "snii/common/status.h"
+#include "common/status.h"
 #include "snii/encoding/byte_sink.h"
 #include "snii/io/file_reader.h"
 
@@ -64,7 +64,7 @@ public:
     BsbfBuilder() = default;
 
     // Sizes the filter for `ndv` distinct keys at target `fpp`. fpp in (0,1).
-    static Status create(uint32_t ndv, double fpp, BsbfBuilder* out);
+    static doris::Status create(uint32_t ndv, double fpp, BsbfBuilder* out);
 
     // Insert a key / term. SIMD-accelerated.
     void insert(uint64_t hash);
@@ -79,7 +79,7 @@ public:
     // Serialize [28-byte header][contiguous LE bitset] into `sink`. The header carries
     // magic/version/hash+index strategy/num_bytes/num_blocks/ndv + header & bitset
     // crc32c. The bitset is Parquet-canonical bytes.
-    Status serialize(ByteSink* sink) const;
+    doris::Status serialize(ByteSink* sink) const;
 
     uint32_t num_bytes() const { return num_bytes_; }
     uint32_t num_blocks() const { return num_blocks_; }
@@ -100,7 +100,7 @@ struct BsbfHeader {
 
     // Parse a 28-byte header located at `section_base` in the file. The bitset_base
     // is set to section_base + kBsbfHeaderSize.
-    static Status parse(Slice header28, uint64_t section_base, BsbfHeader* out);
+    static doris::Status parse(Slice header28, uint64_t section_base, BsbfHeader* out);
 
     // Absolute file offset of the 32-byte block this hash maps to.
     uint64_t block_offset(uint64_t hash) const {
@@ -111,7 +111,7 @@ struct BsbfHeader {
 
 // On-demand probe: read EXACTLY ONE 32-byte block via `reader`, then test. No whole
 // blob load, no deep copy. *maybe_present=false means DEFINITELY ABSENT.
-Status bsbf_probe(snii::io::FileReader* reader, const BsbfHeader& header, uint64_t hash,
+doris::Status bsbf_probe(snii::io::FileReader* reader, const BsbfHeader& header, uint64_t hash,
                   bool* maybe_present);
 
 } // namespace snii::format

@@ -4,7 +4,7 @@
 #include <vector>
 
 #include "snii/common/slice.h"
-#include "snii/common/status.h"
+#include "common/status.h"
 #include "snii/encoding/byte_sink.h"
 
 namespace snii::format {
@@ -58,12 +58,12 @@ class DictBlockDirectoryReader {
 public:
     // Verifies the section crc and deserializes all block_refs.
     // crc mismatch / truncation / trailing bytes → kCorruption; wrong section type → kInvalidArgument.
-    static Status open(Slice section, DictBlockDirectoryReader* out);
+    static doris::Status open(Slice section, DictBlockDirectoryReader* out);
 
     uint32_t n_blocks() const { return static_cast<uint32_t>(refs_.size()); }
 
     // Returns the ordinal-th block_ref; ordinal >= n_blocks → kNotFound.
-    Status get(uint32_t ordinal, BlockRef* out) const;
+    doris::Status get(uint32_t ordinal, BlockRef* out) const;
 
 private:
     std::vector<BlockRef> refs_;

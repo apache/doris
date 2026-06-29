@@ -10,27 +10,27 @@ namespace snii::query {
 
 using snii::reader::LogicalIndexReader;
 
-Status prefix_query(const LogicalIndexReader& idx, std::string_view prefix,
+doris::Status prefix_query(const LogicalIndexReader& idx, std::string_view prefix,
                     std::vector<uint32_t>* const docids, int32_t max_expansions) {
     if (docids == nullptr) {
-        return Status::InvalidArgument("prefix_query: null out");
+        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("prefix_query: null out");
     }
     docids->clear();
     VectorDocIdSink sink(*docids);
     return prefix_query(idx, prefix, &sink, max_expansions);
 }
 
-Status prefix_query(const LogicalIndexReader& idx, std::string_view prefix,
+doris::Status prefix_query(const LogicalIndexReader& idx, std::string_view prefix,
                     std::vector<uint32_t>* const docids, QueryProfile* profile,
                     int32_t max_expansions) {
     QueryProfileScope profile_scope(idx.reader(), profile);
     return prefix_query(idx, prefix, docids, max_expansions);
 }
 
-Status prefix_query(const LogicalIndexReader& idx, std::string_view prefix, DocIdSink* const sink,
+doris::Status prefix_query(const LogicalIndexReader& idx, std::string_view prefix, DocIdSink* const sink,
                     int32_t max_expansions) {
     if (sink == nullptr) {
-        return Status::InvalidArgument("prefix_query: null sink");
+        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("prefix_query: null sink");
     }
 
     return internal::emit_expanded_docid_union(

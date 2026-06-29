@@ -5,7 +5,7 @@
 #include <vector>
 
 #include "snii/common/slice.h"
-#include "snii/common/status.h"
+#include "common/status.h"
 #include "snii/encoding/byte_sink.h"
 
 // .frq region codec (FrqPod): doc-delta (dd) and freq postings, columnar + PFOR
@@ -60,11 +60,11 @@ struct FrqRegionMeta {
 //   raw; >0 force zstd at that level.
 // Non-ascending docids / first_docid < win_base / null out returns
 // InvalidArgument.
-Status build_dd_region(std::span<const uint32_t> docids_ascending, uint64_t win_base,
+doris::Status build_dd_region(std::span<const uint32_t> docids_ascending, uint64_t win_base,
                        int zstd_level_or_neg_for_auto, ByteSink* out, FrqRegionMeta* meta);
 
 // Vector convenience overload (forwards a span view; no copy of the elements).
-inline Status build_dd_region(const std::vector<uint32_t>& docids_ascending, uint64_t win_base,
+inline doris::Status build_dd_region(const std::vector<uint32_t>& docids_ascending, uint64_t win_base,
                               int zstd_level_or_neg_for_auto, ByteSink* out, FrqRegionMeta* meta) {
     return build_dd_region(std::span<const uint32_t>(docids_ascending), win_base,
                            zstd_level_or_neg_for_auto, out, meta);
@@ -73,11 +73,11 @@ inline Status build_dd_region(const std::vector<uint32_t>& docids_ascending, uin
 // Encodes a window's freq_region plaintext (PFOR_runs(freq)) into raw or zstd,
 // APPENDS the on-disk bytes to out, and fills meta. Empty freqs yields a
 // zero-length region. Null out returns InvalidArgument.
-Status build_freq_region(std::span<const uint32_t> freqs, int zstd_level_or_neg_for_auto,
+doris::Status build_freq_region(std::span<const uint32_t> freqs, int zstd_level_or_neg_for_auto,
                          ByteSink* out, FrqRegionMeta* meta);
 
 // Vector convenience overload (forwards a span view; no copy of the elements).
-inline Status build_freq_region(const std::vector<uint32_t>& freqs, int zstd_level_or_neg_for_auto,
+inline doris::Status build_freq_region(const std::vector<uint32_t>& freqs, int zstd_level_or_neg_for_auto,
                                 ByteSink* out, FrqRegionMeta* meta) {
     return build_freq_region(std::span<const uint32_t>(freqs), zstd_level_or_neg_for_auto, out,
                              meta);
@@ -86,16 +86,16 @@ inline Status build_freq_region(const std::vector<uint32_t>& freqs, int zstd_lev
 // Decodes a dd_region from its on-disk slice (exactly disk_len bytes) + meta +
 // win_base, reconstructing ascending docids. Verifies meta.crc against the
 // slice. crc mismatch / wrong slice length / truncation / decompression /
-// oversized count all return a non-OK Status. The freq region is irrelevant
+// oversized count all return a non-OK doris::Status. The freq region is irrelevant
 // here (docs-only path).
-Status decode_dd_region(Slice dd_disk, const FrqRegionMeta& meta, uint64_t win_base,
+doris::Status decode_dd_region(Slice dd_disk, const FrqRegionMeta& meta, uint64_t win_base,
                         std::vector<uint32_t>* docids);
 
 // Decodes a freq_region from its on-disk slice (exactly disk_len bytes) + meta,
 // producing doc_count freqs. Verifies meta.crc. doc_count == 0 yields empty
 // freqs (and requires a zero-length region). crc mismatch / wrong slice length
-// / etc. return a non-OK Status.
-Status decode_freq_region(Slice freq_disk, const FrqRegionMeta& meta, size_t doc_count,
+// / etc. return a non-OK doris::Status.
+doris::Status decode_freq_region(Slice freq_disk, const FrqRegionMeta& meta, size_t doc_count,
                           std::vector<uint32_t>* freqs);
 
 } // namespace snii::format

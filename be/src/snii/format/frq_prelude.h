@@ -4,7 +4,7 @@
 #include <vector>
 
 #include "snii/common/slice.h"
-#include "snii/common/status.h"
+#include "common/status.h"
 #include "snii/encoding/byte_sink.h"
 
 // FrqPrelude: a TWO-LEVEL (super-block -> window) skippable directory that
@@ -129,7 +129,7 @@ struct FrqPreludeColumns {
 // Returns InvalidArgument when out is null, group_size is 0, or the windows are
 // not in non-decreasing last_docid order (a window's absolute last docid must be
 // >= the previous window's).
-Status build_frq_prelude(const FrqPreludeColumns& cols, ByteSink* out);
+doris::Status build_frq_prelude(const FrqPreludeColumns& cols, ByteSink* out);
 
 // Reads and verifies a prelude buffer, exposing two-level skip access. The reader
 // parses the header + super_block_dir on open (verifying the trailing crc) and
@@ -139,7 +139,7 @@ class FrqPreludeReader {
 public:
     // Parses + verifies the prelude. crc mismatch / truncation / inconsistent
     // offsets-or-lengths / oversized counts => kCorruption.
-    static Status open(Slice prelude, FrqPreludeReader* out);
+    static doris::Status open(Slice prelude, FrqPreludeReader* out);
 
     uint32_t n_windows() const { return static_cast<uint32_t>(windows_.size()); }
     uint32_t n_super_blocks() const { return n_super_; }
@@ -154,13 +154,13 @@ public:
     uint64_t freq_block_len() const { return freq_block_len_; }
 
     // Returns the absolute WindowMeta for window w. Out-of-range => InvalidArgument.
-    Status window(uint32_t w, WindowMeta* out) const;
+    doris::Status window(uint32_t w, WindowMeta* out) const;
 
     // Locates the window covering docid via super-block binary search then window
     // binary search. *found=false (with OK) when docid is past the term's last
     // docid; otherwise *w is the index of the covering window (the first window
     // whose absolute last_docid >= docid).
-    Status locate_window(uint32_t docid, bool* found, uint32_t* w) const;
+    doris::Status locate_window(uint32_t docid, bool* found, uint32_t* w) const;
 
 private:
     bool has_freq_ = false;

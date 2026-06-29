@@ -167,8 +167,8 @@ Status IndexFileReader::_init_snii(const io::IOContext* io_ctx) {
     meta_io_ctx.is_index_data = true;
     meta_io_ctx.snii_section_type = io::SNII_SECTION_META;
     snii_doris::DorisSniiFileReader::ScopedIOContext io_context_scope(&meta_io_ctx);
-    RETURN_IF_ERROR(snii_doris::to_doris_status(snii::reader::SniiSegmentReader::open(
-            _snii_file_reader.get(), _snii_segment_reader.get())));
+    RETURN_IF_ERROR(snii::reader::SniiSegmentReader::open(
+            _snii_file_reader.get(), _snii_segment_reader.get()));
     return Status::OK();
 }
 
@@ -296,13 +296,13 @@ Result<std::unique_ptr<snii::reader::LogicalIndexReader>> IndexFileReader::open_
     auto status =
             _snii_segment_reader->read_index_meta(cast_set<uint64_t>(index_meta->index_id()),
                                                   index_meta->get_index_suffix(), &meta_bytes);
-    auto doris_status = snii_doris::to_doris_status(status);
+    auto doris_status = status;
     if (!doris_status.ok()) {
         return ResultError(doris_status);
     }
     snii::format::PerIndexMetaReader meta;
     status = snii::format::PerIndexMetaReader::open(snii::Slice(meta_bytes), &meta);
-    doris_status = snii_doris::to_doris_status(status);
+    doris_status = status;
     if (!doris_status.ok()) {
         return ResultError(doris_status);
     }
@@ -312,7 +312,7 @@ Result<std::unique_ptr<snii::reader::LogicalIndexReader>> IndexFileReader::open_
     auto logical_reader = std::make_unique<snii::reader::LogicalIndexReader>();
     status = _snii_segment_reader->open_index_from_meta(snii::Slice(meta_bytes),
                                                         logical_reader.get());
-    doris_status = snii_doris::to_doris_status(status);
+    doris_status = status;
     if (!doris_status.ok()) {
         return ResultError(doris_status);
     }
@@ -355,8 +355,8 @@ Status IndexFileReader::index_file_exist(const TabletIndex* index_meta, bool* re
             *res = false;
             return Status::OK();
         }
-        return snii_doris::to_doris_status(_snii_segment_reader->index_exists(
-                cast_set<uint64_t>(index_meta->index_id()), index_meta->get_index_suffix(), res));
+        return _snii_segment_reader->index_exists(
+                cast_set<uint64_t>(index_meta->index_id()), index_meta->get_index_suffix(), res);
     } else {
         std::shared_lock<std::shared_mutex> lock(_mutex); // Lock for reading
         if (_stream == nullptr) {
@@ -399,10 +399,10 @@ Status IndexFileReader::has_null(const TabletIndex* index_meta, bool* res) const
         auto status =
                 _snii_segment_reader->read_index_meta(cast_set<uint64_t>(index_meta->index_id()),
                                                       index_meta->get_index_suffix(), &meta_bytes);
-        RETURN_IF_ERROR(snii_doris::to_doris_status(status));
+        RETURN_IF_ERROR(status);
         snii::format::PerIndexMetaReader meta;
         status = snii::format::PerIndexMetaReader::open(snii::Slice(meta_bytes), &meta);
-        RETURN_IF_ERROR(snii_doris::to_doris_status(status));
+        RETURN_IF_ERROR(status);
         *res = meta.section_refs().null_bitmap.length > 0;
         return Status::OK();
     }

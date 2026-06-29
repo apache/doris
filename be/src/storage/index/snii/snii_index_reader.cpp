@@ -58,18 +58,18 @@ public:
         DCHECK(_bitmap != nullptr);
     }
 
-    snii::Status append_sorted(std::span<const uint32_t> docids) override {
+    doris::Status append_sorted(std::span<const uint32_t> docids) override {
         if (!docids.empty()) {
             _bitmap->addMany(docids.size(), docids.data());
         }
-        return snii::Status::OK();
+        return doris::Status::OK();
     }
 
-    snii::Status append_range(uint32_t first, uint64_t last_exclusive) override {
+    doris::Status append_range(uint32_t first, uint64_t last_exclusive) override {
         if (last_exclusive > first) {
             _bitmap->addRange(first, last_exclusive);
         }
-        return snii::Status::OK();
+        return doris::Status::OK();
     }
 
 private:
@@ -166,7 +166,7 @@ Status execute_snii_query(const snii::reader::LogicalIndexReader& logical_reader
     RoaringDocIdSink sink(result->bitmap.get());
     std::vector<uint32_t> docids;
     bool emitted_to_sink = false;
-    snii::Status status;
+    doris::Status status;
     switch (query_type) {
     case InvertedIndexQueryType::EQUAL_QUERY:
     case InvertedIndexQueryType::MATCH_ANY_QUERY:
@@ -223,7 +223,7 @@ Status execute_snii_query(const snii::reader::LogicalIndexReader& logical_reader
         return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
                 "SNII unsupported inverted index query type {}", query_type_to_string(query_type));
     }
-    RETURN_IF_ERROR(snii_doris::to_doris_status(status));
+    RETURN_IF_ERROR(status);
     if (emitted_to_sink) {
         result->bitmap->runOptimize();
     } else {
@@ -443,11 +443,9 @@ Status SniiIndexReader::read_null_bitmap(const IndexQueryContextPtr& context,
     const auto& ref = logical_reader->section_refs().null_bitmap;
     if (ref.length > 0) {
         std::vector<uint8_t> bytes;
-        RETURN_IF_ERROR(snii_doris::to_doris_status(
-                logical_reader->reader()->read_at(ref.offset, ref.length, &bytes)));
+        RETURN_IF_ERROR(logical_reader->reader()->read_at(ref.offset, ref.length, &bytes));
         snii::format::NullBitmapReader reader;
-        RETURN_IF_ERROR(snii_doris::to_doris_status(
-                snii::format::NullBitmapReader::open(snii::Slice(bytes), &reader)));
+        RETURN_IF_ERROR(snii::format::NullBitmapReader::open(snii::Slice(bytes), &reader));
         reader.copy_to(null_bitmap.get());
         null_bitmap->runOptimize();
     }

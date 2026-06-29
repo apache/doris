@@ -4,7 +4,7 @@
 #include <cstdint>
 
 #include "snii/common/slice.h"
-#include "snii/common/status.h"
+#include "common/status.h"
 #include "snii/encoding/byte_sink.h"
 
 namespace snii::format {
@@ -44,12 +44,12 @@ size_t tail_pointer_size();
 // Appends the fixed-layout tail-pointer bytes (magic / version / fields / size /
 // tail_checksum) to sink. Returns Internal if the encoded size would not fit the
 // fixed-size contract (a programming error, never expected at runtime).
-Status encode_tail_pointer(const TailPointer& tp, ByteSink* sink);
+doris::Status encode_tail_pointer(const TailPointer& tp, ByteSink* sink);
 
 // Parses the trailing tail-pointer bytes. last_bytes must be exactly
 // tail_pointer_size() bytes long. Verifies magic and tail_checksum, then fills
 // out with the parsed fields. Wrong magic / checksum mismatch / wrong length ->
 // Corruption.
-Status decode_tail_pointer(Slice last_bytes, TailPointer* out);
+doris::Status decode_tail_pointer(Slice last_bytes, TailPointer* out);
 
 } // namespace snii::format

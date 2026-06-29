@@ -4,7 +4,7 @@
 #include <span>
 #include <vector>
 
-#include "snii/common/status.h"
+#include "common/status.h"
 #include "snii/encoding/byte_sink.h"
 #include "snii/encoding/byte_source.h"
 
@@ -44,14 +44,14 @@ namespace snii::format {
 //   0   → force raw varint payload.
 //   >0  → force ZSTD with the given level.
 // Non-ascending positions within a doc return InvalidArgument.
-Status build_prx_window(std::span<const std::vector<uint32_t>> per_doc_positions,
+doris::Status build_prx_window(std::span<const std::vector<uint32_t>> per_doc_positions,
                         int zstd_level_or_negative_for_auto, ByteSink* sink);
 
 // Vector convenience overload (forwards a span view over the window's per-doc
 // lists; the writer can pass a slice of its flat positions WITHOUT deep-copying
 // the inner vectors into a fresh std::vector<std::vector<uint32_t>> per
 // window).
-inline Status build_prx_window(const std::vector<std::vector<uint32_t>>& per_doc_positions,
+inline doris::Status build_prx_window(const std::vector<std::vector<uint32_t>>& per_doc_positions,
                                int zstd_level_or_negative_for_auto, ByteSink* sink) {
     return build_prx_window(std::span<const std::vector<uint32_t>>(per_doc_positions),
                             zstd_level_or_negative_for_auto, sink);
@@ -62,14 +62,14 @@ inline Status build_prx_window(const std::vector<std::vector<uint32_t>>& per_doc
 // `freqs` (doc d owns the next freqs[d] entries; freqs.size() == doc count and
 // sum(freqs) == positions_flat.size()). Lets the writer pass a subspan of the
 // term's flat positions/freqs with NO vector-of-vectors materialization.
-Status build_prx_window_flat(std::span<const uint32_t> positions_flat,
+doris::Status build_prx_window_flat(std::span<const uint32_t> positions_flat,
                              std::span<const uint32_t> freqs, int zstd_level_or_negative_for_auto,
                              ByteSink* sink);
 
 // Read and verify a .prx window from source, reconstructing the per-doc
 // position list. CRC mismatch / invalid codec / truncation / decompression
-// failure all return a non-OK Status.
-Status read_prx_window(ByteSource* source, std::vector<std::vector<uint32_t>>* per_doc_positions);
+// failure all return a non-OK doris::Status.
+doris::Status read_prx_window(ByteSource* source, std::vector<std::vector<uint32_t>>* per_doc_positions);
 
 // CSR variant of read_prx_window: decodes ALL docs' positions into one flat
 // buffer `pos_flat` with per-doc offsets `pos_off` (size doc_count+1,
@@ -77,13 +77,13 @@ Status read_prx_window(ByteSource* source, std::vector<std::vector<uint32_t>>* p
 // pos_off[d+1]). Avoids the per-doc std::vector allocation of read_prx_window
 // -- both output vectors are flat uint32 buffers whose capacity a caller can
 // retain (clear()) across windows/queries.
-Status read_prx_window_csr(ByteSource* source, std::vector<uint32_t>* pos_flat,
+doris::Status read_prx_window_csr(ByteSource* source, std::vector<uint32_t>* pos_flat,
                            std::vector<uint32_t>* pos_off);
 
 // Selective CSR variant: decodes positions only for the requested local doc
 // ordinals within this PRX window. `doc_ordinals` must be strictly ascending.
 // The output uses the same CSR shape, but has doc_ordinals.size()+1 offsets.
-Status read_prx_window_csr_selective(ByteSource* source, std::span<const uint32_t> doc_ordinals,
+doris::Status read_prx_window_csr_selective(ByteSource* source, std::span<const uint32_t> doc_ordinals,
                                      std::vector<uint32_t>* pos_flat,
                                      std::vector<uint32_t>* pos_off);
 

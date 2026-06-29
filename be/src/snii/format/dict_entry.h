@@ -5,7 +5,7 @@
 #include <string_view>
 #include <vector>
 
-#include "snii/common/status.h"
+#include "common/status.h"
 #include "snii/encoding/byte_sink.h"
 #include "snii/encoding/byte_source.h"
 #include "snii/format/format_constants.h"
@@ -96,17 +96,17 @@ struct DictEntry {
 // Encodes an entry into sink (appending) using the layout above, with front
 // coding relative to prev_term. tier determines whether optional fields are
 // written.
-Status encode_dict_entry(const DictEntry& entry, std::string_view prev_term, IndexTier tier,
+doris::Status encode_dict_entry(const DictEntry& entry, std::string_view prev_term, IndexTier tier,
                          ByteSink* sink);
 
 // Decodes one entry from the current position of src; term is reconstructed
 // from prev_term + suffix. Verifies the trailing CRC; out-of-range / CRC
 // mismatch / invalid prefix_len all return Corruption.
-Status decode_dict_entry(ByteSource* src, std::string_view prev_term, IndexTier tier,
+doris::Status decode_dict_entry(ByteSource* src, std::string_view prev_term, IndexTier tier,
                          DictEntry* out);
 
 // Skips one entry using only entry_len (does not parse internal fields or
 // verify CRC).
-Status skip_dict_entry(ByteSource* src);
+doris::Status skip_dict_entry(ByteSource* src);
 
 } // namespace snii::format

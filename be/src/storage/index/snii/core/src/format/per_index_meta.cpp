@@ -5,6 +5,7 @@
 #include "snii/encoding/section_framer.h"
 
 namespace snii::format {
+using doris::Status; // RETURN_IF_ERROR expands to bare Status
 
 namespace {
 
@@ -18,10 +19,10 @@ void encode_region(const RegionRef& r, ByteSink* payload) {
     payload->put_varint64(r.length);
 }
 
-Status decode_region(ByteSource* ps, RegionRef* r) {
-    SNII_RETURN_IF_ERROR(ps->get_varint64(&r->offset));
-    SNII_RETURN_IF_ERROR(ps->get_varint64(&r->length));
-    return Status::OK();
+doris::Status decode_region(ByteSource* ps, RegionRef* r) {
+    RETURN_IF_ERROR(ps->get_varint64(&r->offset));
+    RETURN_IF_ERROR(ps->get_varint64(&r->length));
+    return doris::Status::OK();
 }
 
 // SectionRefs payload: five RegionRefs in fixed order, each as varint64 pair.
@@ -36,17 +37,17 @@ void encode_section_refs(const SectionRefs& refs, ByteSink* sink) {
     SectionFramer::write(*sink, static_cast<uint8_t>(SectionType::kSectionRefs), payload.view());
 }
 
-Status decode_section_refs(Slice payload, SectionRefs* out) {
+doris::Status decode_section_refs(Slice payload, SectionRefs* out) {
     ByteSource ps(payload);
-    SNII_RETURN_IF_ERROR(decode_region(&ps, &out->dict_region));
-    SNII_RETURN_IF_ERROR(decode_region(&ps, &out->posting_region));
-    SNII_RETURN_IF_ERROR(decode_region(&ps, &out->norms));
-    SNII_RETURN_IF_ERROR(decode_region(&ps, &out->null_bitmap));
-    SNII_RETURN_IF_ERROR(decode_region(&ps, &out->bsbf));
+    RETURN_IF_ERROR(decode_region(&ps, &out->dict_region));
+    RETURN_IF_ERROR(decode_region(&ps, &out->posting_region));
+    RETURN_IF_ERROR(decode_region(&ps, &out->norms));
+    RETURN_IF_ERROR(decode_region(&ps, &out->null_bitmap));
+    RETURN_IF_ERROR(decode_region(&ps, &out->bsbf));
     if (!ps.eof()) {
-        return Status::Corruption("per_index_meta: trailing bytes in section_refs");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("per_index_meta: trailing bytes in section_refs");
     }
-    return Status::OK();
+    return doris::Status::OK();
 }
 
 // Writes the self-checksummed header prefix. Layout matches the class comment.
@@ -63,43 +64,43 @@ void encode_header(uint64_t index_id, const std::string& suffix, uint32_t flags,
 }
 
 // Parses and crc-verifies the header prefix, advancing src past the crc field.
-Status decode_header(Slice block, ByteSource* src, uint64_t* index_id, std::string* suffix,
+doris::Status decode_header(Slice block, ByteSource* src, uint64_t* index_id, std::string* suffix,
                      uint32_t* flags) {
     size_t start = src->position();
     uint16_t version = 0;
-    SNII_RETURN_IF_ERROR(src->get_fixed16(&version));
+    RETURN_IF_ERROR(src->get_fixed16(&version));
     if (version != kMetaFormatVersion) {
-        return Status::Corruption("per_index_meta: unsupported meta_format_version");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("per_index_meta: unsupported meta_format_version");
     }
-    SNII_RETURN_IF_ERROR(src->get_varint64(index_id));
+    RETURN_IF_ERROR(src->get_varint64(index_id));
     uint32_t suffix_len = 0;
-    SNII_RETURN_IF_ERROR(src->get_varint32(&suffix_len));
+    RETURN_IF_ERROR(src->get_varint32(&suffix_len));
     if (suffix_len > kMaxSuffixLen || suffix_len > src->remaining()) {
-        return Status::Corruption("per_index_meta: suffix_len exceeds bounds");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("per_index_meta: suffix_len exceeds bounds");
     }
     Slice suffix_view;
-    SNII_RETURN_IF_ERROR(src->get_bytes(suffix_len, &suffix_view));
-    SNII_RETURN_IF_ERROR(src->get_fixed32(flags));
+    RETURN_IF_ERROR(src->get_bytes(suffix_len, &suffix_view));
+    RETURN_IF_ERROR(src->get_fixed32(flags));
     size_t covered = src->position() - start;
     uint32_t stored = 0;
-    SNII_RETURN_IF_ERROR(src->get_fixed32(&stored));
+    RETURN_IF_ERROR(src->get_fixed32(&stored));
     if (crc32c(block.subslice(start, covered)) != stored) {
-        return Status::Corruption("per_index_meta: header crc mismatch");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("per_index_meta: header crc mismatch");
     }
     suffix->assign(reinterpret_cast<const char*>(suffix_view.data()), suffix_view.size());
-    return Status::OK();
+    return doris::Status::OK();
 }
 
 // Reads one framed section, returning both its type and the FULL frame Slice
 // (type+len+payload+crc) so it can be re-opened by a sub-module reader. The
 // framer itself crc-verifies the frame.
-Status read_frame(Slice block, ByteSource* src, uint8_t* type, Slice* frame) {
+doris::Status read_frame(Slice block, ByteSource* src, uint8_t* type, Slice* frame) {
     size_t start = src->position();
     FramedSection sec;
-    SNII_RETURN_IF_ERROR(SectionFramer::read(*src, &sec));
+    RETURN_IF_ERROR(SectionFramer::read(*src, &sec));
     *type = sec.type;
     *frame = block.subslice(start, src->position() - start);
-    return Status::OK();
+    return doris::Status::OK();
 }
 
 // Captures one frame into the matching reader field by section type. Returns
@@ -140,9 +141,9 @@ void PerIndexMetaBuilder::add_raw_section(Slice framed_bytes) {
     extra_sections_.emplace_back(framed_bytes.data(), framed_bytes.data() + framed_bytes.size());
 }
 
-Status PerIndexMetaBuilder::finish(ByteSink* sink) const {
+doris::Status PerIndexMetaBuilder::finish(ByteSink* sink) const {
     if (sink == nullptr) {
-        return Status::InvalidArgument("per_index_meta: null sink");
+        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("per_index_meta: null sink");
     }
     encode_header(index_id_, index_suffix_, flags_, sink);
     encode_stats_block(stats_, sink);
@@ -152,40 +153,40 @@ Status PerIndexMetaBuilder::finish(ByteSink* sink) const {
     for (const auto& extra : extra_sections_) {
         sink->put_bytes(Slice(extra));
     }
-    return Status::OK();
+    return doris::Status::OK();
 }
 
-Status PerIndexMetaReader::open(Slice block, PerIndexMetaReader* out) {
+doris::Status PerIndexMetaReader::open(Slice block, PerIndexMetaReader* out) {
     if (out == nullptr) {
-        return Status::InvalidArgument("per_index_meta: null reader");
+        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("per_index_meta: null reader");
     }
     ByteSource src(block);
-    SNII_RETURN_IF_ERROR(
+    RETURN_IF_ERROR(
             decode_header(block, &src, &out->index_id_, &out->index_suffix_, &out->flags_));
     bool have_stats = false;
     bool have_refs = false;
     while (!src.eof()) {
         uint8_t type = 0;
         Slice frame;
-        SNII_RETURN_IF_ERROR(read_frame(block, &src, &type, &frame));
+        RETURN_IF_ERROR(read_frame(block, &src, &type, &frame));
         if (type == static_cast<uint8_t>(SectionType::kStatsBlock)) {
             ByteSource fs(frame);
-            SNII_RETURN_IF_ERROR(decode_stats_block(&fs, &out->stats_));
+            RETURN_IF_ERROR(decode_stats_block(&fs, &out->stats_));
             have_stats = true;
         } else if (type == static_cast<uint8_t>(SectionType::kSectionRefs)) {
             FramedSection sec;
             ByteSource fs(frame);
-            SNII_RETURN_IF_ERROR(SectionFramer::read(fs, &sec));
-            SNII_RETURN_IF_ERROR(decode_section_refs(sec.payload, &out->section_refs_));
+            RETURN_IF_ERROR(SectionFramer::read(fs, &sec));
+            RETURN_IF_ERROR(decode_section_refs(sec.payload, &out->section_refs_));
             have_refs = true;
         } else {
             dispatch_frame(type, frame, &out->sampled_term_index_, &out->dict_block_directory_);
         }
     }
     if (!have_stats || !have_refs) {
-        return Status::Corruption("per_index_meta: missing required sub-section");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("per_index_meta: missing required sub-section");
     }
-    return Status::OK();
+    return doris::Status::OK();
 }
 
 } // namespace snii::format

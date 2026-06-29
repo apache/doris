@@ -4,7 +4,7 @@
 #include <cstdint>
 
 #include "snii/common/slice.h"
-#include "snii/common/status.h"
+#include "common/status.h"
 
 namespace snii {
 
@@ -13,14 +13,14 @@ class ByteSource {
 public:
     explicit ByteSource(Slice s) : s_(s) {}
 
-    Status get_u8(uint8_t* v);
-    Status get_fixed16(uint16_t* v);
-    Status get_fixed32(uint32_t* v);
-    Status get_fixed64(uint64_t* v);
-    Status get_varint32(uint32_t* v);
-    Status get_varint64(uint64_t* v);
-    Status get_zigzag(int64_t* v);
-    Status get_bytes(size_t n, Slice* out);
+    doris::Status get_u8(uint8_t* v);
+    doris::Status get_fixed16(uint16_t* v);
+    doris::Status get_fixed32(uint32_t* v);
+    doris::Status get_fixed64(uint64_t* v);
+    doris::Status get_varint32(uint32_t* v);
+    doris::Status get_varint64(uint64_t* v);
+    doris::Status get_zigzag(int64_t* v);
+    doris::Status get_bytes(size_t n, Slice* out);
 
     size_t remaining() const { return s_.size() - pos_; }
     size_t position() const { return pos_; }

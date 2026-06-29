@@ -2,7 +2,7 @@
 
 #include <cstdint>
 
-#include "snii/common/status.h"
+#include "common/status.h"
 #include "snii/encoding/byte_sink.h"
 #include "snii/encoding/byte_source.h"
 #include "snii/encoding/section_framer.h"
@@ -31,6 +31,6 @@ void encode_stats_block(const StatsBlock& sb, ByteSink* sink);
 
 // Reads and verifies a kStatsBlock framed section from src, populates out.
 // CRC mismatch / truncation → kCorruption; type is not kStatsBlock → kInvalidArgument.
-Status decode_stats_block(ByteSource* src, StatsBlock* out);
+doris::Status decode_stats_block(ByteSource* src, StatsBlock* out);
 
 } // namespace snii::format

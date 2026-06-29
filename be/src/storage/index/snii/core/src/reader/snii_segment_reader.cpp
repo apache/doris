@@ -11,6 +11,7 @@
 #include "snii/format/tail_pointer.h"
 
 namespace snii::reader {
+using doris::Status; // RETURN_IF_ERROR expands to bare Status
 
 using snii::format::BootstrapHeader;
 using snii::format::IndexTier;
@@ -22,65 +23,65 @@ using snii::format::TailPointer;
 namespace {
 
 // Reads the bootstrap header from the front of the file and validates it.
-Status ReadBootstrap(snii::io::FileReader* reader, BootstrapHeader* bh) {
+doris::Status ReadBootstrap(snii::io::FileReader* reader, BootstrapHeader* bh) {
     std::vector<uint8_t> buf;
-    SNII_RETURN_IF_ERROR(reader->read_at(0, snii::format::kBootstrapHeaderSize, &buf));
+    RETURN_IF_ERROR(reader->read_at(0, snii::format::kBootstrapHeaderSize, &buf));
     return snii::format::decode_bootstrap_header(Slice(buf), bh);
 }
 
 // Reads the fixed tail pointer (last tail_pointer_size() bytes) of the file.
-Status ReadTailPointer(snii::io::FileReader* reader, TailPointer* tp) {
+doris::Status ReadTailPointer(snii::io::FileReader* reader, TailPointer* tp) {
     const size_t tp_size = snii::format::tail_pointer_size();
     const uint64_t total = reader->size();
     if (total < tp_size) {
-        return Status::Corruption("segment: file smaller than tail pointer");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("segment: file smaller than tail pointer");
     }
     std::vector<uint8_t> buf;
-    SNII_RETURN_IF_ERROR(reader->read_at(total - tp_size, tp_size, &buf));
+    RETURN_IF_ERROR(reader->read_at(total - tp_size, tp_size, &buf));
     return snii::format::decode_tail_pointer(Slice(buf), tp);
 }
 
-Status ReadTailMetaHeader(snii::io::FileReader* reader, const TailPointer& tp,
+doris::Status ReadTailMetaHeader(snii::io::FileReader* reader, const TailPointer& tp,
                           snii::format::TailMetaRegionHeader* header) {
     const size_t header_size = snii::format::tail_meta_header_size();
     if (tp.meta_region_length < header_size) {
-        return Status::Corruption("segment: tail meta region smaller than header");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("segment: tail meta region smaller than header");
     }
     std::vector<uint8_t> buf;
-    SNII_RETURN_IF_ERROR(reader->read_at(tp.meta_region_offset, header_size, &buf));
+    RETURN_IF_ERROR(reader->read_at(tp.meta_region_offset, header_size, &buf));
     return snii::format::TailMetaRegionReader::parse_header(Slice(buf), header);
 }
 
 } // namespace
 
-Status SniiSegmentReader::open(snii::io::FileReader* const reader, SniiSegmentReader* const out) {
+doris::Status SniiSegmentReader::open(snii::io::FileReader* const reader, SniiSegmentReader* const out) {
     if (reader == nullptr) {
-        return Status::InvalidArgument("segment: null reader");
+        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("segment: null reader");
     }
     if (out == nullptr) {
-        return Status::InvalidArgument("segment: null out");
+        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("segment: null out");
     }
 
     BootstrapHeader bh;
-    SNII_RETURN_IF_ERROR(ReadBootstrap(reader, &bh));
+    RETURN_IF_ERROR(ReadBootstrap(reader, &bh));
 
     TailPointer tp;
-    SNII_RETURN_IF_ERROR(ReadTailPointer(reader, &tp));
+    RETURN_IF_ERROR(ReadTailPointer(reader, &tp));
     if (tp.meta_region_length == 0) {
-        return Status::Corruption("segment: empty tail meta region");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("segment: empty tail meta region");
     }
 
     snii::format::TailMetaRegionHeader meta_header;
-    SNII_RETURN_IF_ERROR(ReadTailMetaHeader(reader, tp, &meta_header));
+    RETURN_IF_ERROR(ReadTailMetaHeader(reader, tp, &meta_header));
     if (meta_header.meta_region_len != tp.meta_region_length) {
-        return Status::Corruption("segment: tail meta length mismatch");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("segment: tail meta length mismatch");
     }
 
     std::vector<uint8_t> directory;
     if (meta_header.directory_offset > UINT64_MAX - tp.meta_region_offset) {
-        return Status::Corruption("segment: tail meta directory file offset overflow");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("segment: tail meta directory file offset overflow");
     }
-    SNII_RETURN_IF_ERROR(reader->read_at(tp.meta_region_offset + meta_header.directory_offset,
+    RETURN_IF_ERROR(reader->read_at(tp.meta_region_offset + meta_header.directory_offset,
                                          meta_header.directory_length, &directory));
 
     out->reader_ = reader;
@@ -90,51 +91,51 @@ Status SniiSegmentReader::open(snii::io::FileReader* const reader, SniiSegmentRe
                                                 &out->region_reader_);
 }
 
-Status SniiSegmentReader::read_index_meta(uint64_t index_id, std::string_view suffix,
+doris::Status SniiSegmentReader::read_index_meta(uint64_t index_id, std::string_view suffix,
                                           std::vector<uint8_t>* const out) const {
     if (out == nullptr) {
-        return Status::InvalidArgument("segment: null meta out");
+        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("segment: null meta out");
     }
     if (reader_ == nullptr) {
-        return Status::InvalidArgument("segment: not opened");
+        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("segment: not opened");
     }
 
     bool found = false;
     snii::format::LogicalIndexRef ref;
-    SNII_RETURN_IF_ERROR(region_reader_.find_ref(index_id, suffix, &found, &ref));
+    RETURN_IF_ERROR(region_reader_.find_ref(index_id, suffix, &found, &ref));
     if (!found) {
-        return Status::NotFound("segment: logical index not found");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_SNII_NOT_FOUND, false>("segment: logical index not found");
     }
     if (ref.meta_off > meta_region_length_ || ref.meta_len > meta_region_length_ - ref.meta_off) {
-        return Status::Corruption("segment: logical index meta out of tail region");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("segment: logical index meta out of tail region");
     }
     if (ref.meta_off > UINT64_MAX - meta_region_offset_) {
-        return Status::Corruption("segment: logical index meta file offset overflow");
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>("segment: logical index meta file offset overflow");
     }
-    SNII_RETURN_IF_ERROR(reader_->read_at(meta_region_offset_ + ref.meta_off, ref.meta_len, out));
-    return Status::OK();
+    RETURN_IF_ERROR(reader_->read_at(meta_region_offset_ + ref.meta_off, ref.meta_len, out));
+    return doris::Status::OK();
 }
 
-Status SniiSegmentReader::index_exists(uint64_t index_id, std::string_view suffix,
+doris::Status SniiSegmentReader::index_exists(uint64_t index_id, std::string_view suffix,
                                        bool* const exists) const {
     if (exists == nullptr) {
-        return Status::InvalidArgument("segment: null exists out");
+        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("segment: null exists out");
     }
     if (reader_ == nullptr) {
-        return Status::InvalidArgument("segment: not opened");
+        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("segment: not opened");
     }
 
     snii::format::LogicalIndexRef ref;
     return region_reader_.find_ref(index_id, suffix, exists, &ref);
 }
 
-Status SniiSegmentReader::open_index_from_meta(Slice meta_bytes,
+doris::Status SniiSegmentReader::open_index_from_meta(Slice meta_bytes,
                                                LogicalIndexReader* const out) const {
     if (out == nullptr) {
-        return Status::InvalidArgument("segment: null index out");
+        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("segment: null index out");
     }
     if (reader_ == nullptr) {
-        return Status::InvalidArgument("segment: not opened");
+        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("segment: not opened");
     }
     // Determine tier / positions capability from the per-index meta. Positions
     // capability is read from the PERSISTED header flag (kHasPositions), NOT from
@@ -144,7 +145,7 @@ Status SniiSegmentReader::open_index_from_meta(Slice meta_bytes,
     // DictBlockReader::check_flags hard-fail. The "|| has_norms" is kept only as a
     // defensive belt-and-suspenders (a scoring index always has positions).
     PerIndexMetaReader meta;
-    SNII_RETURN_IF_ERROR(PerIndexMetaReader::open(meta_bytes, &meta));
+    RETURN_IF_ERROR(PerIndexMetaReader::open(meta_bytes, &meta));
     const bool has_norms = meta.section_refs().norms.length > 0;
     const bool has_positions = meta.has_positions() || has_norms;
     IndexTier tier = IndexTier::kT1;
@@ -157,28 +158,28 @@ Status SniiSegmentReader::open_index_from_meta(Slice meta_bytes,
     return LogicalIndexReader::open(reader_, tier, has_positions, meta_bytes, out);
 }
 
-Status SniiSegmentReader::open_index(uint64_t index_id, std::string_view suffix,
+doris::Status SniiSegmentReader::open_index(uint64_t index_id, std::string_view suffix,
                                      LogicalIndexReader* const out) const {
     std::vector<uint8_t> meta_bytes;
-    SNII_RETURN_IF_ERROR(read_index_meta(index_id, suffix, &meta_bytes));
+    RETURN_IF_ERROR(read_index_meta(index_id, suffix, &meta_bytes));
     return open_index_from_meta(Slice(meta_bytes), out);
 }
 
-Status SniiSegmentReader::section_refs_for_index(uint64_t index_id, std::string_view suffix,
+doris::Status SniiSegmentReader::section_refs_for_index(uint64_t index_id, std::string_view suffix,
                                                  snii::format::SectionRefs* const out) const {
     if (out == nullptr) {
-        return Status::InvalidArgument("segment: null section refs out");
+        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("segment: null section refs out");
     }
     if (reader_ == nullptr) {
-        return Status::InvalidArgument("segment: not opened");
+        return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>("segment: not opened");
     }
 
     std::vector<uint8_t> meta_bytes;
-    SNII_RETURN_IF_ERROR(read_index_meta(index_id, suffix, &meta_bytes));
+    RETURN_IF_ERROR(read_index_meta(index_id, suffix, &meta_bytes));
     PerIndexMetaReader meta;
-    SNII_RETURN_IF_ERROR(PerIndexMetaReader::open(Slice(meta_bytes), &meta));
+    RETURN_IF_ERROR(PerIndexMetaReader::open(Slice(meta_bytes), &meta));
     *out = meta.section_refs();
-    return Status::OK();
+    return doris::Status::OK();
 }
 
 } // namespace snii::reader
