@@ -172,10 +172,6 @@ int64_t CloudSizeBasedCumulativeCompactionPolicy::pick_input_rowsets(
         input_rowsets->push_back(rowset);
     }
 
-    if (total_size >= promotion_size) {
-        return transient_size;
-    }
-
     // if there is delete version, do compaction directly
     if (last_delete_version->first != -1) {
         if (input_rowsets->size() == 1) {
@@ -212,7 +208,7 @@ int64_t CloudSizeBasedCumulativeCompactionPolicy::pick_input_rowsets(
 
     auto rs_begin = input_rowsets->begin();
     size_t new_compaction_score = *compaction_score;
-    while (rs_begin != input_rowsets->end()) {
+    while (input_rowsets->size() > 1 && rs_begin != input_rowsets->end()) {
         auto& rs_meta = (*rs_begin)->rowset_meta();
         int64_t current_level = _level_size(rs_meta->total_disk_size());
         int64_t remain_level = _level_size(total_size - rs_meta->total_disk_size());
