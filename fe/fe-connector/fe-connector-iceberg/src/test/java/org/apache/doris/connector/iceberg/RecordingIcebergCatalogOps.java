@@ -27,6 +27,7 @@ import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.SortOrder;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.exceptions.NoSuchNamespaceException;
 import org.apache.iceberg.exceptions.NoSuchTableException;
 import org.apache.iceberg.view.View;
 
@@ -75,6 +76,12 @@ final class RecordingIcebergCatalogOps implements IcebergCatalogOps {
     boolean throwOnLoadTable;
     /** When set, {@link #loadTable(String, String)} throws {@link NoSuchTableException} (concurrent-drop race). */
     boolean throwNoSuchTableOnLoadTable;
+    /**
+     * When set, the namespace-scoped reads/drops ({@link #loadNamespaceLocation}, {@link #listTableNames},
+     * {@link #dropDatabase}) throw {@link NoSuchNamespaceException}, simulating a namespace whose remote side
+     * was deleted out-of-band while the FE cache still holds it.
+     */
+    boolean throwNoSuchNamespace;
 
     /** The (dbName, tableName) the metadata layer passed to the most recent {@link #loadTable}. */
     String lastLoadDb;
@@ -144,6 +151,9 @@ final class RecordingIcebergCatalogOps implements IcebergCatalogOps {
     @Override
     public List<String> listTableNames(String dbName) {
         log.add("listTableNames:" + dbName);
+        if (throwNoSuchNamespace) {
+            throw new NoSuchNamespaceException("simulated missing namespace %s", dbName);
+        }
         return tables;
     }
 
@@ -206,6 +216,9 @@ final class RecordingIcebergCatalogOps implements IcebergCatalogOps {
     @Override
     public void dropDatabase(String dbName) {
         log.add("dropDatabase:" + dbName);
+        if (throwNoSuchNamespace) {
+            throw new NoSuchNamespaceException("simulated missing namespace %s", dbName);
+        }
         lastDropDb = dbName;
     }
 
@@ -246,6 +259,9 @@ final class RecordingIcebergCatalogOps implements IcebergCatalogOps {
     @Override
     public Optional<String> loadNamespaceLocation(String dbName) {
         log.add("loadNamespaceLocation:" + dbName);
+        if (throwNoSuchNamespace) {
+            throw new NoSuchNamespaceException("simulated missing namespace %s", dbName);
+        }
         return namespaceLocation;
     }
 

@@ -58,6 +58,7 @@ import org.apache.iceberg.SortOrder;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.catalog.TableIdentifier;
+import org.apache.iceberg.exceptions.NoSuchNamespaceException;
 import org.apache.iceberg.exceptions.NoSuchTableException;
 import org.apache.iceberg.types.Type;
 import org.apache.iceberg.types.Types;
@@ -715,18 +716,34 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         Optional<String> namespaceLocation;
         try {
             namespaceLocation = context.executeAuthenticated(() -> {
-                Optional<String> location = isHmsCatalog()
-                        ? catalogOps.loadNamespaceLocation(dbName) : Optional.empty();
-                if (force) {
-                    for (String table : catalogOps.listTableNames(dbName)) {
-                        catalogOps.dropTable(dbName, table, true);
+                Optional<String> location;
+                try {
+                    location = isHmsCatalog()
+                            ? catalogOps.loadNamespaceLocation(dbName) : Optional.empty();
+                    if (force) {
+                        for (String table : catalogOps.listTableNames(dbName)) {
+                            catalogOps.dropTable(dbName, table, true);
+                        }
+                        // Cascade the views too, mirroring legacy IcebergMetadataOps.performDropDb: iceberg
+                        // VIEWS live in their own namespace (listTableNames subtracts them), so without this the
+                        // dropDatabase below would fail loud ("namespace not empty") when the db still has views.
+                        for (String view : catalogOps.listViewNames(dbName)) {
+                            catalogOps.dropView(dbName, view);
+                        }
                     }
-                    // Cascade the views too, mirroring legacy IcebergMetadataOps.performDropDb: iceberg
-                    // VIEWS live in their own namespace (listTableNames subtracts them), so without this the
-                    // dropDatabase below would fail loud ("namespace not empty") when the db still has views.
-                    for (String view : catalogOps.listViewNames(dbName)) {
-                        catalogOps.dropView(dbName, view);
+                } catch (NoSuchNamespaceException e) {
+                    // FORCE drop of a namespace whose remote side is already gone: tolerate it as a silent
+                    // success, mirroring legacy IcebergMetadataOps.performDropDb (which swallowed
+                    // NoSuchNamespaceException during the force cascade). The FE cache still holds the db but
+                    // the remote namespace vanished (e.g. dropped out-of-band) -> nothing left to drop or
+                    // clean up. The location probe (HMS only) runs before the cascade, so the tolerant region
+                    // covers it too. A non-force drop keeps failing loud (legacy parity: only FORCE tolerates
+                    // a missing namespace).
+                    if (!force) {
+                        throw e;
                     }
+                    LOG.info("drop database[{}] force which does not exist", dbName);
+                    return Optional.<String>empty();
                 }
                 catalogOps.dropDatabase(dbName);
                 return location;

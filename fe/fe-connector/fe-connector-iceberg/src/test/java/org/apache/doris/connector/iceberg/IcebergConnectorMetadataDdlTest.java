@@ -170,6 +170,55 @@ public class IcebergConnectorMetadataDdlTest {
         Assertions.assertTrue(ctx.cleanedLocations.isEmpty());
     }
 
+    @Test
+    public void testDropDatabaseForceToleratesAlreadyDeletedNamespaceNonHms() {
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        ops.throwNoSuchNamespace = true; // remote namespace dropped out-of-band
+        RecordingConnectorContext ctx = new RecordingConnectorContext();
+
+        // WHY (Rule 9): legacy IcebergMetadataOps.performDropDb swallowed NoSuchNamespaceException during the
+        // FORCE cascade, so a FORCE drop of a db whose remote namespace is already gone succeeds (an orphaned
+        // FE-cache db can still be cleaned up). The port collapsed the cascade into one try/catch(Exception)
+        // and lost that tolerance. This asserts FORCE no longer throws. MUTATION: removing the
+        // catch(NoSuchNamespaceException) re-surfaces it as DorisConnectorException -> red.
+        Assertions.assertDoesNotThrow(() ->
+                metadata(ops, ctx, IcebergConnectorProperties.TYPE_REST).dropDatabase(null, "db1", false, true));
+        // The missing namespace surfaces at the first cascade probe (listTableNames); the namespace drop is skipped.
+        Assertions.assertTrue(ops.log.contains("listTableNames:db1"), ops.log.toString());
+        Assertions.assertFalse(ops.log.contains("dropDatabase:db1"), ops.log.toString());
+    }
+
+    @Test
+    public void testDropDatabaseForceToleratesAlreadyDeletedNamespaceHms() {
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        ops.throwNoSuchNamespace = true; // remote namespace dropped out-of-band
+        RecordingConnectorContext ctx = new RecordingConnectorContext();
+
+        // WHY: on an HMS catalog the namespace-location probe runs BEFORE the cascade, so the missing namespace
+        // throws there first. The tolerant region must cover that pre-step too (full legacy parity for every
+        // flavor), or an HMS FORCE-drop of an already-gone namespace would still fail. MUTATION: scoping the
+        // catch to only the cascade (excluding loadNamespaceLocation) makes this red.
+        Assertions.assertDoesNotThrow(() ->
+                metadata(ops, ctx, IcebergConnectorProperties.TYPE_HMS).dropDatabase(null, "db1", false, true));
+        Assertions.assertTrue(ops.log.contains("loadNamespaceLocation:db1"), ops.log.toString());
+        Assertions.assertFalse(ops.log.contains("dropDatabase:db1"), ops.log.toString());
+        // Tolerated drop returns no location -> the managed-location cleanup hook must not run.
+        Assertions.assertTrue(ctx.cleanedLocations.isEmpty(), ctx.cleanedLocations.toString());
+    }
+
+    @Test
+    public void testDropDatabaseNonForceDoesNotTolerateMissingNamespace() {
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        ops.throwNoSuchNamespace = true;
+        RecordingConnectorContext ctx = new RecordingConnectorContext();
+
+        // WHY: the tolerance is FORCE-only (legacy parity). A plain DROP DATABASE of a missing namespace must
+        // still fail loud. MUTATION: dropping the `if (!force) throw e;` guard (always tolerate) makes this
+        // assertThrows red.
+        Assertions.assertThrows(DorisConnectorException.class, () ->
+                metadata(ops, ctx, IcebergConnectorProperties.TYPE_HMS).dropDatabase(null, "db1", false, false));
+    }
+
     // ---------- createTable ----------
 
     @Test
