@@ -1009,18 +1009,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         return planFragment;
     }
 
-    private long getSelectedIndexId(OlapScanNode scanNode) {
-        return scanNode.getSelectedIndexId() == -1
-                ? scanNode.getOlapTable().getBaseIndexId()
-                : scanNode.getSelectedIndexId();
-    }
-
-    private boolean shouldAlignStorageKeySlots(OlapTable olapTable, long selectedIndexId) {
-        KeysType keysType = olapTable.getIndexMetaByIndexId(selectedIndexId).getKeysType();
-        return keysType == KeysType.AGG_KEYS
-                || (keysType == KeysType.UNIQUE_KEYS && !olapTable.getEnableUniqueKeyMergeOnWrite());
-    }
-
     private void translateRuntimeFilter(PhysicalRelation physicalRelation, ScanNode scanNode,
             PlanTranslatorContext context) {
         if (context.getRuntimeTranslator().isPresent()) {
@@ -2932,7 +2920,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         Set<SlotId> scanIds = lazyScan.getOutput().stream().map(NamedExpression::getExprId)
                 .map(context::findSlotRef).filter(Objects::nonNull).map(SlotRef::getSlotId)
                 .collect(Collectors.toSet());
-        preserveExtraStorageKeySlots(olapScanNode, scanIds);
 
         olapScanNode.getTupleDesc().getSlots().removeIf(slot -> !scanIds.contains(slot.getId()));
         context.createSlotDesc(olapScanNode.getTupleDesc(), lazyScan.getRowId());
@@ -2943,18 +2930,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         }
 
         translateRuntimeFilter(lazyScan, olapScanNode, context);
-
-        if (!olapScanNode.getExtraKeyColumnSlotIds().isEmpty()) {
-            // Extra storage keys stay in the scan tuple for storage semantics, but the lazy-scan
-            // output must still match lazyScan.getOutput(). Keep a projection to hide those keys
-            // from parent operators.
-            List<Expr> projectionExprs = lazyScan.getOutput().stream()
-                    .map(slot -> context.findSlotRef(slot.getExprId()))
-                    .collect(Collectors.toList());
-            TupleDescriptor projectionTuple = generateTupleDesc(lazyScan.getOutput(), lazyScan.getTable(), context);
-            olapScanNode.setProjectList(projectionExprs);
-            olapScanNode.setOutputTupleDesc(projectionTuple);
-        }
 
         return planFragment;
     }
@@ -3071,7 +3046,12 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         if (scanNode.isIncrementalScan()) {
             return false;
         }
-        return shouldAlignStorageKeySlots(scanNode.getOlapTable(), getSelectedIndexId(scanNode));
+        long selectedIndexId = scanNode.getSelectedIndexId() == -1
+                ? scanNode.getOlapTable().getBaseIndexId()
+                : scanNode.getSelectedIndexId();
+        KeysType keysType = scanNode.getOlapTable().getIndexMetaByIndexId(selectedIndexId).getKeysType();
+        return keysType == KeysType.AGG_KEYS
+                || (keysType == KeysType.UNIQUE_KEYS && !scanNode.getOlapTable().getEnableUniqueKeyMergeOnWrite());
     }
 
     /**

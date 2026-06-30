@@ -270,10 +270,6 @@ public class OlapScanNode extends ScanNode {
         this.tableSample = tSample;
     }
 
-    public void setExtraKeyColumnSlotIds(Set<Integer> extraKeyColumnSlotIds) {
-        this.extraKeyColumnSlotIds = extraKeyColumnSlotIds;
-    }
-
     public Set<Integer> getExtraKeyColumnSlotIds() {
         return extraKeyColumnSlotIds;
     }

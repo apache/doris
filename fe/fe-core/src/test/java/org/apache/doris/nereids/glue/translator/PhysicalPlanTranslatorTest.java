@@ -22,13 +22,9 @@ import org.apache.doris.analysis.GroupingInfo;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
-import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.PartitionInfo;
-import org.apache.doris.catalog.Type;
 import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.properties.DataTrait;
@@ -49,6 +45,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.util.PlanChecker;
+import org.apache.doris.nereids.util.PlanConstructor;
 import org.apache.doris.planner.AggregationNode;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.PlanFragment;
@@ -61,7 +58,6 @@ import org.apache.doris.planner.ScanNode;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TScanRangeLocations;
-import org.apache.doris.thrift.TStorageType;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.ImmutableList;
@@ -104,26 +100,14 @@ public class PhysicalPlanTranslatorTest extends TestWithFeService {
     @Test
     public void testOlapPrune() throws Exception {
         LogicalProperties placeHolder = Mockito.mock(LogicalProperties.class);
-        List<Column> columns = ImmutableList.of(
-                new Column("id", Type.INT, true, AggregateType.NONE, "0", ""),
-                new Column("name", Type.STRING, true, AggregateType.NONE, "", ""),
-                new Column("value", Type.INT, false, AggregateType.SUM, "0", ""));
-        OlapTable t1 = new OlapTable(0, "t1", columns, KeysType.AGG_KEYS, new PartitionInfo(),
-                new HashDistributionInfo(3, ImmutableList.of(columns.get(0))));
-        t1.setIndexMeta(-1, "t1", t1.getFullSchema(), 0, 0, (short) 0, TStorageType.COLUMN,
-                KeysType.AGG_KEYS);
+        OlapTable t1 = PlanConstructor.newOlapTable(0, "t1", 0, KeysType.AGG_KEYS);
         List<String> qualifier = new ArrayList<>();
         qualifier.add("test");
-        List<Slot> t1Output = new ArrayList<>();
         SlotReference col1 = SlotReference.fromColumn(StatementScopeIdGenerator.newExprId(),
                 t1, t1.getBaseSchema().get(0), qualifier);
         SlotReference col2 = SlotReference.fromColumn(StatementScopeIdGenerator.newExprId(),
                 t1, t1.getBaseSchema().get(1), qualifier);
-        SlotReference col3 = SlotReference.fromColumn(StatementScopeIdGenerator.newExprId(),
-                t1, t1.getBaseSchema().get(2), qualifier);
-        t1Output.add(col1);
-        t1Output.add(col2);
-        t1Output.add(col3);
+        List<Slot> t1Output = ImmutableList.of(col1, col2);
         LogicalProperties t1Properties = new LogicalProperties(new Supplier<List<Slot>>() {
             @Override
             public List<Slot> get() {
@@ -135,22 +119,22 @@ public class PhysicalPlanTranslatorTest extends TestWithFeService {
                 return DataTrait.EMPTY_TRAIT;
             }
         });
-        PhysicalOlapScan scan = new PhysicalOlapScan(StatementScopeIdGenerator.newRelationId(), t1, qualifier, t1.getBaseIndexId(),
-                Collections.emptyList(), Collections.emptyList(), null, PreAggStatus.on(),
-                ImmutableList.of(), Optional.empty(), t1Properties, Optional.empty(),
-                ImmutableList.of(), ImmutableList.of(), ImmutableList.of(), Optional.empty(),
-                Optional.empty(), ImmutableList.of(), Optional.empty());
+        PhysicalOlapScan scan = new PhysicalOlapScan(StatementScopeIdGenerator.newRelationId(), t1, qualifier,
+                t1.getBaseIndexId(), Collections.emptyList(), Collections.emptyList(), null, PreAggStatus.on(),
+                ImmutableList.of(), Optional.empty(), t1Properties, Optional.empty(), ImmutableList.of(),
+                ImmutableList.of(), ImmutableList.of(), Optional.empty(), Optional.empty(), ImmutableList.of(),
+                Optional.empty());
         Literal t1FilterRight = new IntegerLiteral(1);
         Expression t1FilterExpr = new GreaterThan(col1, t1FilterRight);
         PhysicalFilter<PhysicalOlapScan> filter =
                 new PhysicalFilter<>(ImmutableSet.of(t1FilterExpr), placeHolder, scan);
-        List<NamedExpression> filterProjectList = new ArrayList<>();
-        filterProjectList.add(col2);
-        PhysicalProject<PhysicalFilter<PhysicalOlapScan>> filterProject = new PhysicalProject<>(filterProjectList,
+        List<NamedExpression> projList = new ArrayList<>();
+        projList.add(col2);
+        PhysicalProject<PhysicalFilter<PhysicalOlapScan>> project = new PhysicalProject<>(projList,
                 placeHolder, filter);
         PlanTranslatorContext planTranslatorContext = new PlanTranslatorContext();
         PhysicalPlanTranslator translator = new PhysicalPlanTranslator(planTranslatorContext, null);
-        PlanFragment fragment = translator.visitPhysicalProject(filterProject, planTranslatorContext);
+        PlanFragment fragment = translator.visitPhysicalProject(project, planTranslatorContext);
         PlanNode planNode = fragment.getPlanRoot();
         List<OlapScanNode> scanNodeList = new ArrayList<>();
         planNode.collect(OlapScanNode.class, scanNodeList);
