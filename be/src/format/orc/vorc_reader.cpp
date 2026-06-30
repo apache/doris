@@ -1719,6 +1719,7 @@ Status OrcReader::_fill_doris_data_column(const std::string& col_name,
                                           const orc::ColumnVectorBatch* cvb, size_t num_values) {
     OrcSerDeReadContext context;
     context.timezone = _ctz;
+    context.decode_value_time = &_statistics.decode_value_time;
     if constexpr (is_filter) {
         context.filter = _filter->data();
     }
@@ -1771,14 +1772,6 @@ Status OrcReader::_fill_doris_data_column(const std::string& col_name,
                                                           batch, rows);
             };
 
-    auto logical_type = data_type->get_primitive_type();
-    if (logical_type == PrimitiveType::TYPE_ARRAY || logical_type == PrimitiveType::TYPE_MAP ||
-        logical_type == PrimitiveType::TYPE_STRUCT) {
-        return data_type->get_serde()->read_column_from_orc(
-                context, col_name, data_type, *data_column, orc_column_type, cvb, 0, num_values);
-    }
-
-    SCOPED_RAW_TIMER(&_statistics.decode_value_time);
     return data_type->get_serde()->read_column_from_orc(context, col_name, data_type, *data_column,
                                                         orc_column_type, cvb, 0, num_values);
 }

@@ -109,6 +109,7 @@ struct OrcSerDeReadContext {
 
     std::string timezone;
     const UInt8* filter = nullptr;
+    int64_t* decode_value_time = nullptr;
     std::shared_ptr<SchemaNode> schema_node;
     ReadNestedColumn read_nested_column;
     ResolveFileType resolve_file_type;
@@ -536,10 +537,7 @@ public:
                                         const DataTypePtr& data_type, IColumn& column,
                                         const orc::Type* orc_type,
                                         const orc::ColumnVectorBatch* orc_col_batch, int64_t start,
-                                        int64_t end) const {
-        return read_column_from_orc(context.timezone, column, orc_type, orc_col_batch, start, end,
-                                    context.filter);
-    }
+                                        int64_t end) const;
 
     virtual void set_return_object_as_string(bool value) { _return_object_as_string = value; }
 

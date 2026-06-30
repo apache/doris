@@ -17,6 +17,7 @@
 #include "core/data_type_serde/data_type_serde.h"
 
 #include "common/cast_set.h"
+#include "common/check.h"
 #include "common/exception.h"
 #include "common/status.h"
 #include "core/column/column.h"
@@ -29,10 +30,23 @@
 #include "core/field.h"
 #include "exprs/function/cast/cast_base.h"
 #include "runtime/descriptors.h"
+#include "runtime/runtime_profile.h"
 #include "util/jsonb_document.h"
 #include "util/jsonb_writer.h"
 namespace doris {
 DataTypeSerDe::~DataTypeSerDe() = default;
+
+Status DataTypeSerDe::read_column_from_orc(const OrcSerDeReadContext& context,
+                                           const std::string& /* column_name */,
+                                           const DataTypePtr& /* data_type */, IColumn& column,
+                                           const orc::Type* orc_type,
+                                           const orc::ColumnVectorBatch* orc_col_batch,
+                                           int64_t start, int64_t end) const {
+    DORIS_CHECK(context.decode_value_time != nullptr);
+    SCOPED_RAW_TIMER(context.decode_value_time);
+    return read_column_from_orc(context.timezone, column, orc_type, orc_col_batch, start, end,
+                                context.filter);
+}
 
 DataTypeSerDeSPtrs create_data_type_serdes(const DataTypes& types) {
     DataTypeSerDeSPtrs serdes;

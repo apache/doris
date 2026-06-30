@@ -477,7 +477,8 @@ Status DataTypeMapSerDe::read_column_from_orc(const OrcSerDeReadContext& context
     auto& doris_map = assert_cast<ColumnMap&>(column);
     size_t element_size = 0;
     RETURN_IF_ERROR(orc_serde::fill_array_offsets(column_name, doris_map.get_offsets(),
-                                                  orc_map->offsets, end - start, &element_size));
+                                                  orc_map->offsets, end - start, &element_size,
+                                                  context.decode_value_time));
     const auto* map_type = assert_cast<const DataTypeMap*>(remove_nullable(data_type).get());
     const DataTypePtr& doris_key_type = map_type->get_key_type();
     const DataTypePtr& doris_value_type = map_type->get_value_type();

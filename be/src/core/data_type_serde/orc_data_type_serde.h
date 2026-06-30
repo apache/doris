@@ -23,6 +23,7 @@
 #include <vector>
 
 #include "common/cast_set.h"
+#include "common/check.h"
 #include "common/status.h"
 #include "core/assert_cast.h"
 #include "core/column/column_decimal.h"
@@ -35,6 +36,7 @@
 #include "core/value/vdatetime_value.h"
 #include "exec/common/int_exp.h"
 #include "format/format_common.h"
+#include "runtime/runtime_profile.h"
 
 namespace doris::orc_serde {
 
@@ -50,7 +52,9 @@ inline size_t trim_right(const char* s, size_t size) {
 template <typename Offsets>
 Status fill_array_offsets(const std::string& column_name, Offsets& doris_offsets,
                           const orc::DataBuffer<int64_t>& orc_offsets, size_t num_values,
-                          size_t* element_size) {
+                          size_t* element_size, int64_t* decode_value_time) {
+    DORIS_CHECK(decode_value_time != nullptr);
+    SCOPED_RAW_TIMER(decode_value_time);
     if (num_values > 0) {
         // The const variable uses a non-const method from a third-party dependency
         // without modification, so const_cast can be used.

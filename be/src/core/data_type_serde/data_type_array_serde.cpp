@@ -399,7 +399,8 @@ Status DataTypeArraySerDe::read_column_from_orc(const OrcSerDeReadContext& conte
     auto& doris_array = assert_cast<ColumnArray&>(column);
     size_t element_size = 0;
     RETURN_IF_ERROR(orc_serde::fill_array_offsets(column_name, doris_array.get_offsets(),
-                                                  orc_list->offsets, end - start, &element_size));
+                                                  orc_list->offsets, end - start, &element_size,
+                                                  context.decode_value_time));
     const auto* array_type = assert_cast<const DataTypeArray*>(remove_nullable(data_type).get());
     const DataTypePtr& nested_type = array_type->get_nested_type();
     const orc::Type* nested_orc_type = orc_type->getSubtype(0);
