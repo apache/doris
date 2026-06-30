@@ -38,6 +38,7 @@ import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.plans.AggMode;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanNodeAndHash;
 import org.apache.doris.nereids.trees.plans.algebra.OlapScan;
@@ -64,6 +65,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalStorageLayerAggrega
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalUnion;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.nereids.util.AggregateUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.statistics.ColumnStatistic;
@@ -369,8 +371,7 @@ class CostModel extends PlanVisitor<Cost, PlanContext> {
             // (local+global) aggregation which requires extra serialize/deserialize.
             if (aggregate.getAggMode() == AggMode.INPUT_TO_RESULT
                     && beNumber == 1
-                    && context.getSessionVariable().enableBucketedHashAgg
-                    && !aggregate.getGroupByExpressions().isEmpty()
+                    && AggregateUtils.isBucketedHashAggEnabled(aggregate.getGroupByExpressions().size())
                     && inputStatistics.getRowCount()
                         >= context.getSessionVariable().bucketedAggMinInputRows) {
                 rowCost *= 0.5;

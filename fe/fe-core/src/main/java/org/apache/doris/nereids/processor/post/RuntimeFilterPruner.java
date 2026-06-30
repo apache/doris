@@ -240,7 +240,7 @@ public class RuntimeFilterPruner extends PlanPostProcessor {
                                                             CascadesContext context) {
         return propagateEffectiveSrc(aggregate, context);
     }
-    
+
     /**
      * Visit child and propagate effective source type if applicable.
      * Shared by visitPhysicalHashAggregate.

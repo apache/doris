@@ -158,6 +158,12 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<List<List<PhysicalP
             // group by key is skew
             return skewOnShuffleExpr(aggregate);
         } else {
+            // Bucketed hash agg exception: on single-BE with bucketed agg enabled,
+            // the one-phase GLOBAL + distribute pattern is the basis for translator
+            // fusion into BucketedAggregationNode. Allow this pattern.
+            if (AggregateUtils.isBucketedHashAggEnabled(aggregate.getGroupByExpressions().size())) {
+                return false;
+            }
             return true;
         }
     }
@@ -215,6 +221,14 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<List<List<PhysicalP
     private boolean onePhaseAggWithDistribute(PhysicalHashAggregate<? extends Plan> aggregate) {
         return aggregate.getAggMode() == AggMode.INPUT_TO_RESULT
                 && children.get(0).getPlan() instanceof PhysicalDistribute;
+    }
+
+    /**
+     * Check whether bucketed hash aggregation allows the one-phase GLOBAL + distribute
+     * pattern. Delegates to the shared eligibility check in AggregateUtils.
+     */
+    private boolean shouldAllowForBucketedAgg(PhysicalHashAggregate<? extends Plan> aggregate) {
+        return AggregateUtils.isBucketedHashAggEnabled(aggregate.getGroupByExpressions().size());
     }
 
     private boolean childIsCTEConsumer() {

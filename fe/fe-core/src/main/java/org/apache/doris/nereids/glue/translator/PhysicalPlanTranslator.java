@@ -179,6 +179,7 @@ import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.JsonType;
 import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.nereids.types.StructType;
+import org.apache.doris.nereids.util.AggregateUtils;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.JoinUtils;
 import org.apache.doris.nereids.util.RowStoreFetchChecker;
@@ -233,8 +234,6 @@ import org.apache.doris.planner.UnionNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.statistics.StatisticConstants;
-import org.apache.doris.system.Backend;
-import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.tablefunction.TableValuedFunctionIf;
 import org.apache.doris.thrift.TPartitionType;
 import org.apache.doris.thrift.TPushAggOp;
@@ -2995,32 +2994,14 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
      * overhead on single-BE deployments by using in-memory per-bucket merging.
      */
     private boolean shouldUseBucketedFusion(PhysicalHashAggregate<? extends Plan> aggregate) {
-        SessionVariable sv = ConnectContext.get().getSessionVariable();
-        if (!sv.enableBucketedHashAgg) {
+        // Shared eligibility: session var, single-BE, GROUP BY, smooth upgrade
+        if (!AggregateUtils.isBucketedHashAggEnabled(aggregate.getGroupByExpressions().size())) {
             return false;
         }
         // Must be one-phase: GLOBAL + INPUT_TO_RESULT
         if (aggregate.getAggPhase() != AggPhase.GLOBAL
                 || aggregate.getAggMode() != AggMode.INPUT_TO_RESULT) {
             return false;
-        }
-        // Must have GROUP BY keys
-        if (aggregate.getGroupByExpressions().isEmpty()) {
-            return false;
-        }
-        // Correctness gate: single-BE only (cross-BE in-memory merge is impossible)
-        int beNumber = ConnectContext.get().getEnv().getClusterInfo().getBackendsNumber(true);
-        if (beNumber != 1) {
-            return false;
-        }
-        // Smooth upgrade safety net: old BE processes do not recognize
-        // BUCKETED_AGGREGATION_NODE plan node type
-        SystemInfoService clusterInfo = ConnectContext.get().getEnv().getClusterInfo();
-        for (Long beId : clusterInfo.getAllBackendByCurrentCluster(true)) {
-            Backend be = clusterInfo.getBackend(beId);
-            if (be != null && be.isSmoothUpgradeSrc()) {
-                return false;
-            }
         }
         // Child must be PhysicalDistribute with hash distribution matching group keys
         Plan child = aggregate.child(0);
