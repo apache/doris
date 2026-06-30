@@ -26,6 +26,7 @@ import lombok.Getter;
 import org.apache.commons.lang3.StringUtils;
 
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.EnumMap;
 import java.util.HashSet;
 import java.util.Locale;
@@ -171,5 +172,22 @@ public class MetastoreProperties extends ConnectionProperties {
      */
     public boolean isVendedCredentialsEnabled() {
         return false;
+    }
+
+    /**
+     * Storage-configuration properties derived from this metastore's own properties that the raw catalog
+     * property map does not already supply. {@code CatalogProperty.initStorageProperties} merges them (as
+     * defaults — an explicit user key always wins) into the map fed to {@code StorageProperties.createAll},
+     * before storage-backend detection.
+     *
+     * <p>The default is empty: no derivation, zero behavior change for every existing metastore type. The
+     * iceberg filesystem flavor overrides it to bridge a {@code warehouse=hdfs://<ns>/path} into
+     * {@code fs.defaultFS=hdfs://<ns>} — legacy {@code IcebergHadoopExternalCatalog} did this in its
+     * constructor (dead on the plugin/cutover path), and the shared HDFS detection never reads
+     * {@code warehouse}, so an HA-nameservice hadoop catalog configured with only {@code warehouse} would
+     * otherwise fail to bind HDFS storage.</p>
+     */
+    public Map<String, String> getDerivedStorageProperties() {
+        return Collections.emptyMap();
     }
 }

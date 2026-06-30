@@ -20,6 +20,8 @@ package org.apache.doris.connector.metastore.iceberg.noop;
 import org.apache.doris.connector.metastore.spi.AbstractMetaStoreProperties;
 import org.apache.doris.foundation.property.ConnectorPropertiesUtils;
 
+import org.apache.commons.lang3.StringUtils;
+
 import java.util.Map;
 
 /**
@@ -51,6 +53,13 @@ public final class IcebergNoOpMetaStoreProperties extends AbstractMetaStorePrope
 
     @Override
     public void validate() {
-        // No metastore rules for hadoop / s3tables; storage is validated upstream at fe-filesystem bind.
+        // The hadoop flavor restores the legacy IcebergHadoopExternalCatalog constructor's warehouse-required
+        // check (a HadoopCatalog cannot initialize without a warehouse root). s3tables shares this class but
+        // has no such rule, so the check is gated on the HADOOP provider only. Other storage validation runs
+        // upstream at fe-filesystem bind. isEmpty (not isBlank) mirrors the legacy StringUtils.isNotEmpty.
+        if ("HADOOP".equals(providerName) && StringUtils.isEmpty(warehouse)) {
+            throw new IllegalArgumentException(
+                    "Cannot initialize Iceberg HadoopCatalog because 'warehouse' must not be null or empty");
+        }
     }
 }

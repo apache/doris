@@ -192,7 +192,17 @@ public class CatalogProperty {
                             checkStorageProperties = !msp.isVendedCredentialsEnabled();
                         }
                         if (checkStorageProperties) {
-                            this.orderedStoragePropertiesList = StorageProperties.createAll(getProperties());
+                            Map<String, String> storageProps = getProperties();
+                            if (msp != null) {
+                                Map<String, String> derived = msp.getDerivedStorageProperties();
+                                if (MapUtils.isNotEmpty(derived)) {
+                                    // Merge into a copy: derived props are defaults (an explicit user key wins
+                                    // via putIfAbsent), and the persisted getProperties() map is never mutated.
+                                    storageProps = new HashMap<>(storageProps);
+                                    derived.forEach(storageProps::putIfAbsent);
+                                }
+                            }
+                            this.orderedStoragePropertiesList = StorageProperties.createAll(storageProps);
                             this.storagePropertiesMap = orderedStoragePropertiesList.stream()
                                     .collect(Collectors.toMap(StorageProperties::getType, Function.identity()));
                         } else {

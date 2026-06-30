@@ -17,17 +17,20 @@
 
 package org.apache.doris.datasource.property.metastore;
 
+import org.apache.doris.catalog.HdfsResource;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.property.storage.HdfsProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.kerberos.HadoopExecutionAuthenticator;
 
+import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.CatalogUtil;
 import org.apache.iceberg.catalog.Catalog;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
@@ -71,6 +74,29 @@ public class IcebergFileSystemMetaStoreProperties extends AbstractIcebergPropert
     @Override
     public void initExecutionAuthenticator(List<StorageProperties> storagePropertiesList) {
         buildExecutionAuthenticator(storagePropertiesList);
+    }
+
+    /**
+     * Bridges a hadoop-flavor {@code warehouse=hdfs://<ns>/path} to {@code fs.defaultFS=hdfs://<ns>} for
+     * storage detection: legacy {@code IcebergHadoopExternalCatalog} parsed this in its constructor (dead on
+     * the plugin/cutover path), and the shared HDFS detection ({@code HdfsProperties.guessIsMe}) never reads
+     * {@code warehouse}. Without it an HA-nameservice catalog configured with only {@code warehouse} (relying
+     * on classpath {@code core-site.xml}/{@code hdfs-site.xml} for the nameservice, no inline {@code uri}/
+     * {@code fs.defaultFS}/{@code dfs.*}) would not bind HDFS storage with the warehouse nameservice. Non-hdfs
+     * warehouses (and a blank one) derive nothing. The parse and the empty-nameservice message are verbatim
+     * from the legacy constructor.
+     */
+    @Override
+    public Map<String, String> getDerivedStorageProperties() {
+        if (StringUtils.isBlank(warehouse) || !StringUtils.startsWith(warehouse, HdfsResource.HDFS_PREFIX)) {
+            return Collections.emptyMap();
+        }
+        String nameService = StringUtils.substringBetween(warehouse, HdfsResource.HDFS_FILE_PREFIX, "/");
+        if (StringUtils.isEmpty(nameService)) {
+            throw new IllegalArgumentException("Unrecognized 'warehouse' location format"
+                    + " because name service is required.");
+        }
+        return Collections.singletonMap(HdfsResource.HADOOP_FS_NAME, HdfsResource.HDFS_FILE_PREFIX + nameService);
     }
 
     private void buildExecutionAuthenticator(List<StorageProperties> storagePropertiesList) {

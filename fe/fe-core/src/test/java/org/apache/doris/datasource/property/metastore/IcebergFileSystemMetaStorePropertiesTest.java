@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.property.metastore;
 
+import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.property.storage.HdfsProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.kerberos.HadoopExecutionAuthenticator;
@@ -111,6 +112,86 @@ public class IcebergFileSystemMetaStorePropertiesTest {
                 Collections.singletonList(StorageProperties.createPrimary(props)));
         Assertions.assertNotEquals(HadoopExecutionAuthenticator.class,
                 icebergProps.getExecutionAuthenticator().getClass());
+    }
+
+    // ---- M-1: warehouse=hdfs://<ns> -> fs.defaultFS=hdfs://<ns> derivation (axis 2) ----
+
+    private static IcebergFileSystemMetaStoreProperties hadoopProps(String warehouse) throws Exception {
+        Map<String, String> props = new HashMap<>();
+        props.put("type", "iceberg");
+        props.put("iceberg.catalog.type", "hadoop");
+        if (warehouse != null) {
+            props.put("warehouse", warehouse);
+        }
+        return (IcebergFileSystemMetaStoreProperties) MetastoreProperties.create(props);
+    }
+
+    @Test
+    public void testDerivedFsDefaultFsFromHdfsNameserviceWarehouse() throws Exception {
+        // HA-nameservice warehouse with no inline fs.defaultFS: the nameservice is bridged to fs.defaultFS so
+        // HdfsProperties.guessIsMe (which never reads warehouse) binds HDFS. Mirrors the legacy constructor.
+        // MUTATION: flip the override to return emptyMap -> red.
+        Assertions.assertEquals(Collections.singletonMap("fs.defaultFS", "hdfs://myns"),
+                hadoopProps("hdfs://myns/warehouse").getDerivedStorageProperties());
+    }
+
+    @Test
+    public void testDerivedFsDefaultFsFromSingleNnAuthorityWarehouse() throws Exception {
+        // Single-NN authority (host:port) parity: substringBetween keeps the whole authority.
+        Assertions.assertEquals(Collections.singletonMap("fs.defaultFS", "hdfs://nn-host:8020"),
+                hadoopProps("hdfs://nn-host:8020/warehouse").getDerivedStorageProperties());
+    }
+
+    @Test
+    public void testNoDerivationForNonHdfsWarehouse() throws Exception {
+        // file:// and s3:// warehouses derive nothing: the bridge is hdfs-only (legacy startsWith "hdfs:").
+        Assertions.assertTrue(hadoopProps("file:///tmp/wh").getDerivedStorageProperties().isEmpty());
+        Assertions.assertTrue(hadoopProps("s3://bucket/wh").getDerivedStorageProperties().isEmpty());
+    }
+
+    @Test
+    public void testNoDerivationForBlankWarehouse() throws Exception {
+        // No warehouse configured: fe-core derivation yields nothing (the connector CREATE gate is what
+        // rejects a hadoop catalog without a warehouse).
+        Assertions.assertTrue(hadoopProps(null).getDerivedStorageProperties().isEmpty());
+    }
+
+    @Test
+    public void testMalformedHdfsWarehouseEmptyNameserviceThrows() throws Exception {
+        // hdfs:///wh -> empty nameservice -> verbatim legacy fail-loud message. MUTATION: remove the throw -> red.
+        IcebergFileSystemMetaStoreProperties props = hadoopProps("hdfs:///warehouse");
+        IllegalArgumentException e = Assertions.assertThrows(IllegalArgumentException.class,
+                props::getDerivedStorageProperties);
+        Assertions.assertEquals("Unrecognized 'warehouse' location format because name service is required.",
+                e.getMessage());
+    }
+
+    @Test
+    public void testWarehouseHdfsBridgedToBackendDefaultFsThroughCatalogProperty() {
+        // End-to-end: a hadoop catalog with ONLY warehouse (no inline fs.defaultFS) binds HDFS storage with
+        // the warehouse nameservice shipped to BE -> proves the CatalogProperty merge wiring. MUTATION: skip
+        // the merge in CatalogProperty.initStorageProperties -> fs.defaultFS absent -> red.
+        Map<String, String> props = new HashMap<>();
+        props.put("type", "iceberg");
+        props.put("iceberg.catalog.type", "hadoop");
+        props.put(HdfsProperties.FS_HDFS_SUPPORT, "true");
+        props.put("warehouse", "hdfs://nsbridge/wh");
+        Map<String, String> backend = new CatalogProperty(null, props).getBackendStorageProperties();
+        Assertions.assertEquals("hdfs://nsbridge", backend.get("fs.defaultFS"));
+    }
+
+    @Test
+    public void testExplicitDefaultFsWinsOverDerivedThroughCatalogProperty() {
+        // An explicit user fs.defaultFS is a hard key: the derived default must NOT overwrite it (putIfAbsent).
+        // MUTATION: change putIfAbsent -> put -> derived "hdfs://nsbridge" overwrites -> red.
+        Map<String, String> props = new HashMap<>();
+        props.put("type", "iceberg");
+        props.put("iceberg.catalog.type", "hadoop");
+        props.put(HdfsProperties.FS_HDFS_SUPPORT, "true");
+        props.put("warehouse", "hdfs://nsbridge/wh");
+        props.put("fs.defaultFS", "hdfs://explicit-ns");
+        Map<String, String> backend = new CatalogProperty(null, props).getBackendStorageProperties();
+        Assertions.assertEquals("hdfs://explicit-ns", backend.get("fs.defaultFS"));
     }
 
 }

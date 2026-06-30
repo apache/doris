@@ -82,6 +82,23 @@ public class IcebergConnectorValidatePropertiesTest {
     }
 
     @Test
+    public void hadoopRejectedWithoutWarehouse() {
+        // M-1/L-1: restore the legacy IcebergHadoopExternalCatalog warehouse-required check at CREATE, with
+        // the verbatim message. MUTATION: neuter the isEmpty(warehouse) check -> accepted -> red.
+        Assertions.assertEquals(
+                "Cannot initialize Iceberg HadoopCatalog because 'warehouse' must not be null or empty",
+                rejectMessage(props("iceberg.catalog.type", "hadoop")));
+    }
+
+    @Test
+    public void s3TablesAcceptedWithoutWarehouse() {
+        // s3tables shares the no-op metastore class, but the warehouse gate is HADOOP-only, so a missing
+        // warehouse is still accepted. MUTATION: drop the "HADOOP".equals(providerName) gate -> s3tables
+        // starts throwing here -> red.
+        PROVIDER.validateProperties(props("iceberg.catalog.type", "s3tables"));
+    }
+
+    @Test
     public void unknownFlavorRejected() {
         Assertions.assertTrue(rejectMessage(props("iceberg.catalog.type", "nessie"))
                 .startsWith("No MetaStoreProvider supports"));
