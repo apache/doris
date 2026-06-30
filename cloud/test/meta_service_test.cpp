@@ -10494,7 +10494,7 @@ TEST(MetaServiceTest, CreateS3VaultWithIamRole) {
         vault.mutable_obj_info()->set_prefix("test_credential_provider_prefix");
         vault.mutable_obj_info()->set_provider(
                 ObjectStoreInfoPB::Provider::ObjectStoreInfoPB_Provider_S3);
-        vault.mutable_obj_info()->set_cred_provider_type(CredProviderTypePB::CONTAINER);
+        vault.mutable_obj_info()->set_cred_provider_type(CredProviderTypePB::INSTANCE_PROFILE);
 
         vault.set_name("s3_vault_with_credential_provider");
         req.mutable_vault()->CopyFrom(vault);
@@ -10519,7 +10519,7 @@ TEST(MetaServiceTest, CreateS3VaultWithIamRole) {
             ASSERT_TRUE(get_obj.obj_info().sk().empty()) << get_obj.obj_info().sk();
             ASSERT_FALSE(get_obj.obj_info().has_role_arn());
             ASSERT_FALSE(get_obj.obj_info().has_external_id());
-            ASSERT_EQ(get_obj.obj_info().cred_provider_type(), CredProviderTypePB::CONTAINER)
+            ASSERT_EQ(get_obj.obj_info().cred_provider_type(), CredProviderTypePB::INSTANCE_PROFILE)
                     << get_obj.obj_info().cred_provider_type();
             ASSERT_EQ(get_obj.obj_info().bucket(), "test_credential_provider_bucket")
                     << get_obj.obj_info().bucket();

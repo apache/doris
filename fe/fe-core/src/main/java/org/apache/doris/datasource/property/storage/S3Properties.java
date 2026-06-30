@@ -471,6 +471,7 @@ public class S3Properties extends AbstractS3CompatibleProperties {
 
         public static final String ROLE_ARN = "AWS_ROLE_ARN";
         public static final String EXTERNAL_ID = "AWS_EXTERNAL_ID";
+        public static final String CREDENTIALS_PROVIDER_TYPE = "AWS_CREDENTIALS_PROVIDER_TYPE";
 
         public static final List<String> REQUIRED_FIELDS = Arrays.asList(ENDPOINT);
         public static final List<String> FS_KEYS = Arrays.asList(ENDPOINT, REGION, ACCESS_KEY, SECRET_KEY, TOKEN,
@@ -560,6 +561,9 @@ public class S3Properties extends AbstractS3CompatibleProperties {
         if (properties.containsKey(Env.EXTERNAL_ID)) {
             properties.putIfAbsent(EXTERNAL_ID, properties.get(Env.EXTERNAL_ID));
         }
+        if (properties.containsKey(Env.CREDENTIALS_PROVIDER_TYPE)) {
+            properties.putIfAbsent(CREDENTIALS_PROVIDER_TYPE, properties.get(Env.CREDENTIALS_PROVIDER_TYPE));
+        }
     }
 
     private static final Pattern IPV4_PORT_PATTERN = Pattern.compile("((?:\\d{1,3}\\.){3}\\d{1,3}:\\d{1,5})");
@@ -595,6 +599,18 @@ public class S3Properties extends AbstractS3CompatibleProperties {
     private static boolean hasCredentialsProviderType(Map<String, String> properties) {
         return properties.containsKey(CREDENTIALS_PROVIDER_TYPE)
                 || properties.containsKey(Env.CREDENTIALS_PROVIDER_TYPE);
+    }
+
+    private static Cloud.CredProviderTypePB getCredProviderTypePB(Map<String, String> properties) {
+        String modeValue = properties.get(CREDENTIALS_PROVIDER_TYPE);
+        if (StringUtils.isBlank(modeValue)) {
+            modeValue = properties.get(Env.CREDENTIALS_PROVIDER_TYPE);
+        }
+        AwsCredentialsProviderMode mode = AwsCredentialsProviderMode.fromString(
+                StringUtils.defaultIfBlank(modeValue, AwsCredentialsProviderMode.INSTANCE_PROFILE.name()));
+        Preconditions.checkArgument(mode == AwsCredentialsProviderMode.INSTANCE_PROFILE,
+                "Unsupported AWS credentials provider mode for cloud storage vault: %s", mode);
+        return Cloud.CredProviderTypePB.INSTANCE_PROFILE;
     }
 
     public static Cloud.ObjectStoreInfoPB.Builder getObjStoreInfoPB(Map<String, String> properties) {
