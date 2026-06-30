@@ -15,15 +15,15 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "snii/encoding/section_framer.h"
+#include "storage/index/snii/encoding/section_framer.h"
 
 #include <gtest/gtest.h>
 
 #include "common/status.h"
-#include "snii/encoding/byte_sink.h"
-#include "snii/encoding/byte_source.h"
+#include "storage/index/snii/encoding/byte_sink.h"
+#include "storage/index/snii/encoding/byte_source.h"
 
-using namespace snii;
+using namespace doris::snii;
 
 TEST(SniiSectionFramer, RoundTrip) {
     ByteSink sink;

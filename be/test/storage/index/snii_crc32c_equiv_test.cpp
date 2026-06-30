@@ -31,12 +31,12 @@
 #include <random>
 #include <vector>
 
-#include "snii/common/slice.h"
-#include "snii/encoding/crc32c.h"
+#include "storage/index/snii/common/slice.h"
+#include "storage/index/snii/encoding/crc32c.h"
 
 namespace {
 
-using snii::Slice;
+using doris::snii::Slice;
 
 // Fills n deterministic bytes from a seeded engine. The exact bytes are
 // irrelevant to the equivalence asserts (both sides hash the same buffer); the
@@ -62,41 +62,41 @@ TEST(SniiCrc32cEquiv, StandardVectors) {
     // Classic CRC-32C / iSCSI check value for the ASCII string "123456789".
     {
         const char* s = "123456789";
-        EXPECT_EQ(0xE3069283U, snii::crc32c(Slice(reinterpret_cast<const uint8_t*>(s), 9)));
+        EXPECT_EQ(0xE3069283U, doris::snii::crc32c(Slice(reinterpret_cast<const uint8_t*>(s), 9)));
     }
     // Empty input conditions to 0 (Extend(0, ., 0)).
-    EXPECT_EQ(0x00000000U, snii::crc32c(Slice(nullptr, 0)));
+    EXPECT_EQ(0x00000000U, doris::snii::crc32c(Slice(nullptr, 0)));
 
     // RFC 3720 section B.4 vectors, matching be/test/util/crc32c_test.cpp.
     uint8_t buf[32];
     std::memset(buf, 0x00, sizeof(buf));
-    EXPECT_EQ(0x8A9136AAU, snii::crc32c(Slice(buf, sizeof(buf))));
+    EXPECT_EQ(0x8A9136AAU, doris::snii::crc32c(Slice(buf, sizeof(buf))));
 
     std::memset(buf, 0xFF, sizeof(buf));
-    EXPECT_EQ(0x62A8AB43U, snii::crc32c(Slice(buf, sizeof(buf))));
+    EXPECT_EQ(0x62A8AB43U, doris::snii::crc32c(Slice(buf, sizeof(buf))));
 
     for (int i = 0; i < 32; ++i) {
         buf[i] = static_cast<uint8_t>(i);
     }
-    EXPECT_EQ(0x46DD794EU, snii::crc32c(Slice(buf, sizeof(buf))));
+    EXPECT_EQ(0x46DD794EU, doris::snii::crc32c(Slice(buf, sizeof(buf))));
 
     for (int i = 0; i < 32; ++i) {
         buf[i] = static_cast<uint8_t>(31 - i);
     }
-    EXPECT_EQ(0x113FDB5CU, snii::crc32c(Slice(buf, sizeof(buf))));
+    EXPECT_EQ(0x113FDB5CU, doris::snii::crc32c(Slice(buf, sizeof(buf))));
 }
 
-// (b1) One-shot equivalence: snii::crc32c(Slice(buf, n)) == ::crc32c::Crc32c(buf, n).
+// (b1) One-shot equivalence: doris::snii::crc32c(Slice(buf, n)) == ::crc32c::Crc32c(buf, n).
 TEST(SniiCrc32cEquiv, OneShotMatchesDorisLib) {
     std::mt19937_64 rng(0xC0FFEEULL);
     for (size_t n : kLengths) {
         const std::vector<uint8_t> buf = make_bytes(rng, n);
         const uint8_t* p = buf.data();
-        EXPECT_EQ(snii::crc32c(Slice(p, n)), ::crc32c::Crc32c(p, n)) << "len=" << n;
+        EXPECT_EQ(doris::snii::crc32c(Slice(p, n)), ::crc32c::Crc32c(p, n)) << "len=" << n;
     }
 }
 
-// (b2) Seeded extend equivalence: snii::crc32c_extend(prev, Slice) == ::crc32c::Extend(prev, ...),
+// (b2) Seeded extend equivalence: doris::snii::crc32c_extend(prev, Slice) == ::crc32c::Extend(prev, ...),
 // covering prev == 0 and several non-zero priors.
 TEST(SniiCrc32cEquiv, ExtendMatchesDorisLib) {
     std::mt19937_64 rng(0x12345678ULL);
@@ -105,7 +105,7 @@ TEST(SniiCrc32cEquiv, ExtendMatchesDorisLib) {
         for (size_t n : kLengths) {
             const std::vector<uint8_t> buf = make_bytes(rng, n);
             const uint8_t* p = buf.data();
-            EXPECT_EQ(snii::crc32c_extend(prev, Slice(p, n)), ::crc32c::Extend(prev, p, n))
+            EXPECT_EQ(doris::snii::crc32c_extend(prev, Slice(p, n)), ::crc32c::Extend(prev, p, n))
                     << "prev=" << prev << " len=" << n;
         }
     }
@@ -120,10 +120,10 @@ TEST(SniiCrc32cEquiv, ExtendSplitEqualsWhole) {
     for (size_t n : totals) {
         const std::vector<uint8_t> buf = make_bytes(rng, n);
         const uint8_t* p = buf.data();
-        const uint32_t whole = snii::crc32c(Slice(p, n));
+        const uint32_t whole = doris::snii::crc32c(Slice(p, n));
         for (size_t k = 0; k <= n; ++k) {
-            const uint32_t chained =
-                    snii::crc32c_extend(snii::crc32c(Slice(p, k)), Slice(p + k, n - k));
+            const uint32_t chained = doris::snii::crc32c_extend(doris::snii::crc32c(Slice(p, k)),
+                                                                Slice(p + k, n - k));
             EXPECT_EQ(whole, chained) << "n=" << n << " k=" << k;
             EXPECT_EQ(chained, ::crc32c::Extend(::crc32c::Crc32c(p, k), p + k, n - k))
                     << "n=" << n << " k=" << k;
@@ -139,7 +139,7 @@ TEST(SniiCrc32cEquiv, CrossDecodeBidirectional) {
     for (size_t n : kLengths) {
         const std::vector<uint8_t> buf = make_bytes(rng, n);
         const uint8_t* p = buf.data();
-        EXPECT_EQ(snii::crc32c(Slice(p, n)), ::crc32c::Crc32c(p, n)) << "len=" << n;
-        EXPECT_EQ(::crc32c::Crc32c(p, n), snii::crc32c(Slice(p, n))) << "len=" << n;
+        EXPECT_EQ(doris::snii::crc32c(Slice(p, n)), ::crc32c::Crc32c(p, n)) << "len=" << n;
+        EXPECT_EQ(::crc32c::Crc32c(p, n), doris::snii::crc32c(Slice(p, n))) << "len=" << n;
     }
 }

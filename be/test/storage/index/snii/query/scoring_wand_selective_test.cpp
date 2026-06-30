@@ -29,19 +29,19 @@
 #include <vector>
 
 #include "common/status.h"
-#include "snii/format/dict_entry.h"
-#include "snii/format/format_constants.h"
-#include "snii/format/frq_prelude.h"
-#include "snii/io/local_file.h"
-#include "snii/io/metered_file_reader.h"
-#include "snii/query/bm25_scorer.h"
-#include "snii/query/scoring_query.h"
-#include "snii/reader/logical_index_reader.h"
-#include "snii/reader/snii_segment_reader.h"
-#include "snii/reader/windowed_posting.h"
-#include "snii/stats/snii_stats_provider.h"
-#include "snii/writer/snii_compound_writer.h"
-#include "snii/writer/spimi_term_buffer.h"
+#include "storage/index/snii/format/dict_entry.h"
+#include "storage/index/snii/format/format_constants.h"
+#include "storage/index/snii/format/frq_prelude.h"
+#include "storage/index/snii/io/local_file.h"
+#include "storage/index/snii/io/metered_file_reader.h"
+#include "storage/index/snii/query/bm25_scorer.h"
+#include "storage/index/snii/query/scoring_query.h"
+#include "storage/index/snii/reader/logical_index_reader.h"
+#include "storage/index/snii/reader/snii_segment_reader.h"
+#include "storage/index/snii/reader/windowed_posting.h"
+#include "storage/index/snii/stats/snii_stats_provider.h"
+#include "storage/index/snii/writer/snii_compound_writer.h"
+#include "storage/index/snii/writer/spimi_term_buffer.h"
 
 // Phase C differential test: scoring_query_wand_selective (block-max SELECTIVE
 // FETCH) MUST return top-K (docid sequence AND scores within 1e-9) byte-identical
@@ -51,13 +51,13 @@
 // to force SCORE TIES (uniform doc length). It additionally asserts the selective
 // path fetches FEWER .frq windows / bytes than reading all windows for a small-k
 // high-df query, WITHOUT ever changing the result.
-using namespace snii;
-using namespace snii::format;
-using namespace snii::reader;
-using namespace snii::writer;
-using snii::query::Bm25Params;
-using snii::query::ScoredDoc;
-using snii::stats::SniiStatsProvider;
+using namespace doris::snii;
+using namespace doris::snii::format;
+using namespace doris::snii::reader;
+using namespace doris::snii::writer;
+using doris::snii::query::Bm25Params;
+using doris::snii::query::ScoredDoc;
+using doris::snii::stats::SniiStatsProvider;
 
 namespace {
 
@@ -175,7 +175,7 @@ SniiIndexInput ToInput(const Corpus& c) {
     in.target_dict_block_bytes = 256;
     in.encoded_norms.resize(c.doc_count);
     for (uint32_t d = 0; d < c.doc_count; ++d) {
-        in.encoded_norms[d] = snii::query::encode_norm(c.doc_len[d]);
+        in.encoded_norms[d] = doris::snii::query::encode_norm(c.doc_len[d]);
     }
     for (const auto& [term, plist] : c.postings) {
         TermPostings tp;
@@ -195,7 +195,7 @@ SniiIndexInput ToInput(const Corpus& c) {
 std::vector<uint8_t> EncodeNorms(const Corpus& c) {
     std::vector<uint8_t> v(c.doc_count);
     for (uint32_t d = 0; d < c.doc_count; ++d) {
-        v[d] = snii::query::encode_norm(c.doc_len[d]);
+        v[d] = doris::snii::query::encode_norm(c.doc_len[d]);
     }
     return v;
 }
@@ -219,7 +219,7 @@ std::vector<ScoredDoc> ReferenceRanking(const Corpus& c, const std::vector<uint8
         const double idf =
                 std::log(1.0 + (static_cast<double>(c.doc_count) - df + 0.5) / (df + 0.5));
         for (const auto& [docid, freq] : it->second) {
-            const double dl = snii::query::decode_norm(norms[docid]);
+            const double dl = doris::snii::query::decode_norm(norms[docid]);
             const double denom = freq + params.k1 * (1.0 - params.b + params.b * dl / avgdl);
             scores[docid] += idf * (freq * (params.k1 + 1.0)) / denom;
         }
@@ -375,12 +375,14 @@ TEST(SniiScoringWandSelective, MatchesExhaustiveOverRandomQueries) {
         const uint32_t k = ks[pick_k(rng)];
 
         std::vector<ScoredDoc> sel, ex, wa;
-        ASSERT_TRUE(
-                snii::query::scoring_query_wand_selective(oi.idx, oi.stats, terms, k, params, &sel)
-                        .ok());
-        ASSERT_TRUE(snii::query::scoring_query_exhaustive(oi.idx, oi.stats, terms, k, params, &ex)
+        ASSERT_TRUE(doris::snii::query::scoring_query_wand_selective(oi.idx, oi.stats, terms, k,
+                                                                     params, &sel)
                             .ok());
-        ASSERT_TRUE(snii::query::scoring_query_wand(oi.idx, oi.stats, terms, k, params, &wa).ok());
+        ASSERT_TRUE(doris::snii::query::scoring_query_exhaustive(oi.idx, oi.stats, terms, k, params,
+                                                                 &ex)
+                            .ok());
+        ASSERT_TRUE(doris::snii::query::scoring_query_wand(oi.idx, oi.stats, terms, k, params, &wa)
+                            .ok());
         const std::vector<ScoredDoc> ref = ReferenceRanking(corpus, norms, terms, k, params);
 
         std::string label = "iter " + std::to_string(iter) + " k=" + std::to_string(k) + " terms:";
@@ -415,12 +417,14 @@ TEST(SniiScoringWandSelective, MatchesExhaustiveWithTies) {
     const Bm25Params params;
     auto check = [&](const std::vector<std::string>& terms, uint32_t k) {
         std::vector<ScoredDoc> sel, ex, wa;
-        ASSERT_TRUE(
-                snii::query::scoring_query_wand_selective(oi.idx, oi.stats, terms, k, params, &sel)
-                        .ok());
-        ASSERT_TRUE(snii::query::scoring_query_exhaustive(oi.idx, oi.stats, terms, k, params, &ex)
+        ASSERT_TRUE(doris::snii::query::scoring_query_wand_selective(oi.idx, oi.stats, terms, k,
+                                                                     params, &sel)
                             .ok());
-        ASSERT_TRUE(snii::query::scoring_query_wand(oi.idx, oi.stats, terms, k, params, &wa).ok());
+        ASSERT_TRUE(doris::snii::query::scoring_query_exhaustive(oi.idx, oi.stats, terms, k, params,
+                                                                 &ex)
+                            .ok());
+        ASSERT_TRUE(doris::snii::query::scoring_query_wand(oi.idx, oi.stats, terms, k, params, &wa)
+                            .ok());
         const std::vector<ScoredDoc> ref = ReferenceRanking(corpus, norms, terms, k, params);
         std::string label = "ties terms[0]=" + terms[0] + " k=" + std::to_string(k);
         // Uniform doc length => EXACT ties (bitwise-equal scores): every path must
@@ -472,7 +476,8 @@ TEST(SniiScoringWandSelective, FetchesFewerWindowsForSmallKHighDf) {
     // Selective path metrics (prelude + only the surviving windows fetched).
     oi.metered.reset_metrics();
     std::vector<ScoredDoc> sel;
-    ASSERT_TRUE(snii::query::scoring_query_wand_selective(oi.idx, oi.stats, terms, k, params, &sel)
+    ASSERT_TRUE(doris::snii::query::scoring_query_wand_selective(oi.idx, oi.stats, terms, k, params,
+                                                                 &sel)
                         .ok());
     const io::IoMetrics sel_m = oi.metered.metrics();
 
@@ -493,7 +498,8 @@ TEST(SniiScoringWandSelective, FetchesFewerWindowsForSmallKHighDf) {
     // Result must be unchanged vs exhaustive (byte savings never change the answer).
     std::vector<ScoredDoc> ex;
     ASSERT_TRUE(
-            snii::query::scoring_query_exhaustive(oi.idx, oi.stats, terms, k, params, &ex).ok());
+            doris::snii::query::scoring_query_exhaustive(oi.idx, oi.stats, terms, k, params, &ex)
+                    .ok());
     ExpectValidTopK(sel, ex, "decay small-k [sel~ex]", 1e-9);
 
     // Selective requests strictly fewer raw bytes than reading all windows: later

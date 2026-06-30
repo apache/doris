@@ -15,7 +15,7 @@ SNII **核心层已完全 CLucene-free**：`grep -rniE "clucene|lucene::|CL_NS|<
 
 **类 A — 复用 Doris 分析设施（期望耦合）**：writer 经 `InvertedIndexAnalyzer::create_reader/create_analyzer`（writer.cpp:64-67）与 `get_analyse_result`（writer.cpp:90），reader 经 `get_analyse_result`（reader.cpp:263、283、286）调用 Doris 分词。Doris 的 `AnalyzerPtr` 定义为 `std::shared_ptr<lucene::analysis::Analyzer>`（`analyzer.h:40`），CLucene 类型是 **Doris 自身的实现选择**；SNII 通过 Doris 封装层使用，属"耦合到 Doris"而非"耦合到 CLucene 格式"。对应的 `CLuceneError` catch（writer.cpp:69/92、reader.cpp:265/289）是 Doris analyzer 抛出异常的兜底，与该复用绑定，应保留。
 
-**类 B — 基类签名一致性（vestigial）**：`read_null_bitmap` 的 `lucene::store::Directory* dir` 形参仅为匹配虚基类 `InvertedIndexReader::read_null_bitmap`（`inverted_index_reader.h:233-235`）。SNII 实现完全忽略该参数（reader.cpp:426 标注 `/*dir*/`），实际从自有 `section_refs().null_bitmap` + `snii::format::NullBitmapReader` 读取（reader.cpp:443-453）；调用方以 `nullptr` 传入（`inverted_index_iterator.cpp:127`）。删除它需改 Doris 全局基类签名 → 越界，保留。
+**类 B — 基类签名一致性（vestigial）**：`read_null_bitmap` 的 `lucene::store::Directory* dir` 形参仅为匹配虚基类 `InvertedIndexReader::read_null_bitmap`（`inverted_index_reader.h:233-235`）。SNII 实现完全忽略该参数（reader.cpp:426 标注 `/*dir*/`），实际从自有 `section_refs().null_bitmap` + `doris::snii::format::NullBitmapReader` 读取（reader.cpp:443-453）；调用方以 `nullptr` 传入（`inverted_index_iterator.cpp:127`）。删除它需改 Doris 全局基类签名 → 越界，保留。
 
 ### Doris 等价物
 - 分词：`be/src/storage/index/inverted/analyzer/analyzer.h` 的 `InvertedIndexAnalyzer`（`create_reader` :44 / `create_analyzer` :51 / `get_analyse_result` :53-56）。

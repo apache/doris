@@ -18,7 +18,7 @@
 
 ## 2. 影响的文件/函数
 
-**唯一实现改动**：`be/src/storage/index/snii/core/src/writer/spimi_term_buffer.cpp`
+**唯一实现改动**：`be/src/storage/index/snii/writer/spimi_term_buffer.cpp`
 
 当前签名/实现（`:83-90`）：
 ```cpp

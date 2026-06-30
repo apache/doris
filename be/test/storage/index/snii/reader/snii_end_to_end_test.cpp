@@ -27,20 +27,20 @@
 #include <vector>
 
 #include "common/status.h"
-#include "snii/format/format_constants.h"
-#include "snii/io/local_file.h"
-#include "snii/io/metered_file_reader.h"
-#include "snii/query/phrase_query.h"
-#include "snii/query/term_query.h"
-#include "snii/reader/logical_index_reader.h"
-#include "snii/reader/snii_segment_reader.h"
-#include "snii/writer/snii_compound_writer.h"
-#include "snii/writer/spimi_term_buffer.h"
+#include "storage/index/snii/format/format_constants.h"
+#include "storage/index/snii/io/local_file.h"
+#include "storage/index/snii/io/metered_file_reader.h"
+#include "storage/index/snii/query/phrase_query.h"
+#include "storage/index/snii/query/term_query.h"
+#include "storage/index/snii/reader/logical_index_reader.h"
+#include "storage/index/snii/reader/snii_segment_reader.h"
+#include "storage/index/snii/writer/snii_compound_writer.h"
+#include "storage/index/snii/writer/spimi_term_buffer.h"
 
-using namespace snii;
-using namespace snii::format;
-using namespace snii::reader;
-using namespace snii::writer;
+using namespace doris::snii;
+using namespace doris::snii::format;
+using namespace doris::snii::reader;
+using namespace doris::snii::writer;
 
 namespace {
 

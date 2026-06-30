@@ -24,8 +24,8 @@
 #include "io/fs/file_reader.h"
 #include "io/fs/file_writer.h"
 #include "io/io_common.h"
-#include "snii/io/file_reader.h"
-#include "snii/io/file_writer.h"
+#include "storage/index/snii/io/file_reader.h"
+#include "storage/index/snii/io/file_writer.h"
 #include "util/slice.h"
 
 namespace doris {
@@ -34,19 +34,19 @@ class ThreadPool;
 
 namespace doris::segment_v2::snii_doris {
 
-class DorisSniiFileWriter final : public ::snii::io::FileWriter {
+class DorisSniiFileWriter final : public ::doris::snii::io::FileWriter {
 public:
     explicit DorisSniiFileWriter(io::FileWriter* writer) : _writer(writer) {}
 
-    doris::Status append(::snii::Slice data) override;
-    doris::Status finalize() override;
+    Status append(::doris::snii::Slice data) override;
+    Status finalize() override;
     uint64_t bytes_written() const override;
 
 private:
     io::FileWriter* _writer = nullptr;
 };
 
-class DorisSniiFileReader final : public ::snii::io::FileReader {
+class DorisSniiFileReader final : public ::doris::snii::io::FileReader {
 public:
     class ScopedIOContext {
     public:
@@ -63,9 +63,9 @@ public:
 
     explicit DorisSniiFileReader(io::FileReaderSPtr reader, const io::IOContext* io_ctx = nullptr);
 
-    doris::Status read_at(uint64_t offset, size_t len, std::vector<uint8_t>* out) override;
-    doris::Status read_batch(const std::vector<::snii::io::Range>& ranges,
-                             std::vector<std::vector<uint8_t>>* outs) override;
+    Status read_at(uint64_t offset, size_t len, std::vector<uint8_t>* out) override;
+    Status read_batch(const std::vector<::doris::snii::io::Range>& ranges,
+                      std::vector<std::vector<uint8_t>>* outs) override;
     uint64_t size() const override;
 
     // Test-only: inject (or clear with nullptr) the thread pool used to fan out
@@ -75,9 +75,9 @@ public:
 
 private:
     static io::IOContext _make_index_io_context(const io::IOContext* io_ctx);
-    doris::Status _check_read_range(uint64_t offset, size_t len) const;
-    doris::Status _read_at(uint64_t offset, size_t len, std::vector<uint8_t>* out,
-                           const io::IOContext* io_ctx) const;
+    Status _check_read_range(uint64_t offset, size_t len) const;
+    Status _read_at(uint64_t offset, size_t len, std::vector<uint8_t>* out,
+                    const io::IOContext* io_ctx) const;
     const io::IOContext* _current_io_ctx() const;
     void _record_read_stats(int64_t request_bytes, int64_t read_bytes, int64_t range_read_count,
                             int64_t serial_read_rounds) const;

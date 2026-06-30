@@ -17,7 +17,7 @@
 - **T13**：`compact_posting_pool.h` 内联 `append_byte`/`Cursor::next`/`has_next`（**compact_posting_pool**，非 spimi_term_buffer 主体，但 `spimi_term_buffer.cpp:128/298` 的调用方因内联受益，**不改其源**）。
 - **T15**：改 `merge_runs`（`:530` 调用点）+ `MergeRuns` 签名（加 `string_rank` 参）；复用既有 `ensure_string_rank()`。
 - **T17**：改 `report_arena_delta()`（`:83-90`）加 delta==0 early-return。
-- **裁决**：四者触及 `spimi_term_buffer` 的**不同函数**（intern/add_token vs merge_runs vs report_arena_delta），且 T13 主体在 `compact_posting_pool.*`。无逻辑冲突，但四者都会新增 `snii::writer::testing` 计数 seam（T05 vocab materialization、T12 term_freq_scans、T17 report-count via consume_release）——**测试 seam 命名空间需统一组织**，避免重复定义。建议合并顺序 **T05 → T17 → T15 → T13**（先结构性大改 intern，再小函数去抖/归并键/内联）。
+- **裁决**：四者触及 `spimi_term_buffer` 的**不同函数**（intern/add_token vs merge_runs vs report_arena_delta），且 T13 主体在 `compact_posting_pool.*`。无逻辑冲突，但四者都会新增 `doris::snii::writer::testing` 计数 seam（T05 vocab materialization、T12 term_freq_scans、T17 report-count via consume_release）——**测试 seam 命名空间需统一组织**，避免重复定义。建议合并顺序 **T05 → T17 → T15 → T13**（先结构性大改 intern，再小函数去抖/归并键/内联）。
 - **额外**：T12（`logical_index_writer.cpp`）的 freqs 单遍统计与 T05/T15/T17 不同文件，但同属 writer build 路径；T11（`pfor.cpp`）、T14（`prx_pod.cpp`）、T16（`dict_block.cpp`）也都是 build 路径独立文件，互不冲突。
 
 ### H-C. prx_pod / frq_pod 解码与编码 — T14 / T19 / T22

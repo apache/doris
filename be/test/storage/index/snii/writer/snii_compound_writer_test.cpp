@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "snii/writer/snii_compound_writer.h"
+#include "storage/index/snii/writer/snii_compound_writer.h"
 
 #include <gtest/gtest.h>
 
@@ -26,32 +26,32 @@
 #include <vector>
 
 #include "common/status.h"
-#include "snii/common/slice.h"
-#include "snii/encoding/byte_source.h"
-#include "snii/format/bootstrap_header.h"
-#include "snii/format/bsbf.h"
-#include "snii/format/dict_block.h"
-#include "snii/format/dict_block_directory.h"
-#include "snii/format/dict_entry.h"
-#include "snii/format/format_constants.h"
-#include "snii/format/frq_pod.h"
-#include "snii/format/frq_prelude.h"
-#include "snii/format/per_index_meta.h"
-#include "snii/format/prx_pod.h"
-#include "snii/format/sampled_term_index.h"
-#include "snii/format/tail_meta_region.h"
-#include "snii/format/tail_pointer.h"
-#include "snii/io/local_file.h"
-#include "snii/io/metered_file_reader.h"
-#include "snii/query/phrase_query.h"
-#include "snii/query/term_query.h"
-#include "snii/reader/logical_index_reader.h"
-#include "snii/reader/snii_segment_reader.h"
-#include "snii/writer/logical_index_writer.h"
+#include "storage/index/snii/common/slice.h"
+#include "storage/index/snii/encoding/byte_source.h"
+#include "storage/index/snii/format/bootstrap_header.h"
+#include "storage/index/snii/format/bsbf.h"
+#include "storage/index/snii/format/dict_block.h"
+#include "storage/index/snii/format/dict_block_directory.h"
+#include "storage/index/snii/format/dict_entry.h"
+#include "storage/index/snii/format/format_constants.h"
+#include "storage/index/snii/format/frq_pod.h"
+#include "storage/index/snii/format/frq_prelude.h"
+#include "storage/index/snii/format/per_index_meta.h"
+#include "storage/index/snii/format/prx_pod.h"
+#include "storage/index/snii/format/sampled_term_index.h"
+#include "storage/index/snii/format/tail_meta_region.h"
+#include "storage/index/snii/format/tail_pointer.h"
+#include "storage/index/snii/io/local_file.h"
+#include "storage/index/snii/io/metered_file_reader.h"
+#include "storage/index/snii/query/phrase_query.h"
+#include "storage/index/snii/query/term_query.h"
+#include "storage/index/snii/reader/logical_index_reader.h"
+#include "storage/index/snii/reader/snii_segment_reader.h"
+#include "storage/index/snii/writer/logical_index_writer.h"
 
-using namespace snii;
-using namespace snii::format;
-using namespace snii::writer;
+using namespace doris::snii;
+using namespace doris::snii::format;
+using namespace doris::snii::writer;
 using doris::Status;
 
 namespace {
@@ -238,18 +238,19 @@ TEST(SniiCompoundWriter, ReadBackSelfValidation) {
         // --- XFilter (block-split bloom, physical section): present true, absent false ---
         // Probe the on-disk filter directly: one 32-byte block at a self-computed offset.
         EXPECT_TRUE(meta.has_bsbf());
-        ASSERT_GT(refs.bsbf.length, snii::format::kBsbfHeaderSize);
+        ASSERT_GT(refs.bsbf.length, doris::snii::format::kBsbfHeaderSize);
         ASSERT_LE(refs.bsbf.offset + refs.bsbf.length, file.size());
-        const uint64_t bsbf_bitset = refs.bsbf.offset + snii::format::kBsbfHeaderSize;
+        const uint64_t bsbf_bitset = refs.bsbf.offset + doris::snii::format::kBsbfHeaderSize;
         const auto bsbf_nblocks =
-                static_cast<uint32_t>((refs.bsbf.length - snii::format::kBsbfHeaderSize) /
-                                      snii::format::kBsbfBytesPerBlock);
+                static_cast<uint32_t>((refs.bsbf.length - doris::snii::format::kBsbfHeaderSize) /
+                                      doris::snii::format::kBsbfBytesPerBlock);
         auto bsbf_present = [&](std::string_view term) {
-            const uint64_t h = snii::format::bsbf_hash(term);
-            const uint64_t off = bsbf_bitset + static_cast<uint64_t>(snii::format::bsbf_block_index(
-                                                       h, bsbf_nblocks)) *
-                                                       snii::format::kBsbfBytesPerBlock;
-            return snii::format::bsbf_block_contains(h, file.data() + off);
+            const uint64_t h = doris::snii::format::bsbf_hash(term);
+            const uint64_t off =
+                    bsbf_bitset +
+                    static_cast<uint64_t>(doris::snii::format::bsbf_block_index(h, bsbf_nblocks)) *
+                            doris::snii::format::kBsbfBytesPerBlock;
+            return doris::snii::format::bsbf_block_contains(h, file.data() + off);
         };
         EXPECT_TRUE(bsbf_present("apple"));
         EXPECT_TRUE(bsbf_present("common"));
@@ -643,7 +644,7 @@ TEST(SniiCompoundWriter, ChecksumCorruptionDetectedOnRead) {
     PerIndexMetaReader meta;
     ASSERT_TRUE(PerIndexMetaReader::open(meta_bytes, &meta).ok());
     const auto bsbf = meta.section_refs().bsbf;
-    ASSERT_GT(bsbf.length, snii::format::kBsbfHeaderSize); // small filter -> L0
+    ASSERT_GT(bsbf.length, doris::snii::format::kBsbfHeaderSize); // small filter -> L0
 
     // The clean file opens fine.
     auto opens_ok = [](const std::vector<uint8_t>& bytes) {
@@ -665,7 +666,7 @@ TEST(SniiCompoundWriter, ChecksumCorruptionDetectedOnRead) {
     // (1) bsbf BITSET byte flip -> L0 open verifies the bitset crc -> rejected.
     {
         std::vector<uint8_t> bad = file;
-        bad[bsbf.offset + snii::format::kBsbfHeaderSize] ^= 0xFF;
+        bad[bsbf.offset + doris::snii::format::kBsbfHeaderSize] ^= 0xFF;
         EXPECT_FALSE(opens_ok(bad));
     }
     // (2) bsbf HEADER byte flip (num_bytes field, covered by header crc) -> rejected.

@@ -2,7 +2,7 @@
 
 ## 1. 目标与背景
 
-**问题**：生产读路径 `DorisSniiFileReader::read_batch`（`be/src/storage/index/snii/snii_doris_adapter.cpp:209-283`）破坏了 `read_batch` 的"批=并发=约一次 round-trip"契约（契约见 `be/src/snii/io/file_reader.h:30-33`：`read_batch` ranges "may be served concurrently"；`s3_object_store.cpp:141-164` 的 standalone 实现确实 16 路 `std::async` 扇出）。
+**问题**：生产读路径 `DorisSniiFileReader::read_batch`（`be/src/storage/index/snii/snii_doris_adapter.cpp:209-283`）破坏了 `read_batch` 的"批=并发=约一次 round-trip"契约（契约见 `be/src/storage/index/snii/io/file_reader.h:30-33`：`read_batch` ranges "may be served concurrently"；`s3_object_store.cpp:141-164` 的 standalone 实现确实 16 路 `std::async` 扇出）。
 
 涉及两个 finding：
 
@@ -15,7 +15,7 @@
 ## 2. 影响的文件/函数
 
 - `be/src/storage/index/snii/snii_doris_adapter.cpp`
-  - `::snii::Status DorisSniiFileReader::read_batch(const std::vector<::snii::io::Range>& ranges, std::vector<std::vector<uint8_t>>* const outs)`（:209-283）——主改造。
+  - `::doris::snii::Status DorisSniiFileReader::read_batch(const std::vector<::doris::snii::io::Range>& ranges, std::vector<std::vector<uint8_t>>* const outs)`（:209-283）——主改造。
   - `_classify_section`（:134-155，持 `shared_lock`）、`_make_section_io_context`（:98-106）、`_read_at`（:182-207）、`_record_read_stats`（:293-305）——复用，不改签名。
 - `be/src/storage/index/snii/snii_doris_adapter.h`
   - `DorisSniiFileReader`：新增私有 helper 声明与一个**测试用静态 executor seam**（见 §3）。
@@ -25,7 +25,7 @@
 
 当前签名（保持不变）：
 ```
-::snii::Status read_batch(const std::vector<::snii::io::Range>& ranges,
+::doris::snii::Status read_batch(const std::vector<::doris::snii::io::Range>& ranges,
                           std::vector<std::vector<uint8_t>>* const outs) override;
 ```
 
@@ -42,7 +42,7 @@
 **Phase 2（无锁，并行）— 物理读**：
 - 为每个 seg 准备目标缓冲：`single` 段直接读入 `(*outs)[sorted[begin].index]`（**F27 单段直读，零临时、零二次拷贝**）；多段合并组读入该 seg 独占的临时 `std::vector<uint8_t>`（存于 `std::vector<std::vector<uint8_t>> tmp_bufs`，与 seg 一一对应）。
 - **每段独占一份 `io::FileCacheStatistics`**（`std::vector<io::FileCacheStatistics> seg_stats(segs.size())`），其 `io_ctx.file_cache_stats` 指向自己的槽——这样底层 Doris `read_at` 对 cache 计数的写入落在**不相交内存**，消除 verifier 注（1）所述的非原子 stats 竞争。
-- 派发：`size_t kMaxConcurrent = 16`，按波次提交到 `ExecEnv::GetInstance()->buffered_reader_prefetch_thread_pool()`（`exec_env.h:258`），用 `doris::CountDownLatch`（`util/countdown_latch.h`）join；每段 Status 写入独占的 `std::vector<::snii::Status> seg_status`。**首错语义**：join 后取第一个非 OK。
+- 派发：`size_t kMaxConcurrent = 16`，按波次提交到 `ExecEnv::GetInstance()->buffered_reader_prefetch_thread_pool()`（`exec_env.h:258`），用 `doris::CountDownLatch`（`util/countdown_latch.h`）join；每段 Status 写入独占的 `std::vector<::doris::snii::Status> seg_status`。**首错语义**：join 后取第一个非 OK。
 - **兜底/seam**：新增私有静态 `ThreadPool* _io_pool_for_test`（默认 nullptr）。实际 pool 选择：`_io_pool_for_test ? _io_pool_for_test : (ExecEnv::ready() ? ExecEnv::GetInstance()->buffered_reader_prefetch_thread_pool() : nullptr)`。当 pool==nullptr 或 `segs.size()<=1` 时走**串行兜底**（避免微批调度开销、并保证无 ExecEnv 的环境可用）。新增 `static void set_io_thread_pool_for_test(ThreadPool*)` 供测试注入本地 `ThreadPool`。
 
 **Phase 3（串行）— 散射与计数**：

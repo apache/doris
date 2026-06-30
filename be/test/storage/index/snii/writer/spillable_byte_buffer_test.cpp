@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "snii/writer/spillable_byte_buffer.h"
+#include "storage/index/snii/writer/spillable_byte_buffer.h"
 
 #include <gtest/gtest.h>
 
@@ -23,18 +23,18 @@
 #include <vector>
 
 #include "common/status.h"
-#include "snii/common/slice.h"
-#include "snii/io/file_writer.h"
+#include "storage/index/snii/common/slice.h"
+#include "storage/index/snii/io/file_writer.h"
 
-using snii::writer::SpillableByteBuffer;
-using snii::Slice;
+using doris::snii::writer::SpillableByteBuffer;
+using doris::snii::Slice;
 using doris::Status;
 
 namespace {
 
 // In-RAM sink: collects everything appended so a test can compare stream_into's
 // output against the exact bytes that were fed in.
-class CollectWriter : public snii::io::FileWriter {
+class CollectWriter : public doris::snii::io::FileWriter {
 public:
     Status append(Slice s) override {
         bytes_.insert(bytes_.end(), s.data(), s.data() + s.size());

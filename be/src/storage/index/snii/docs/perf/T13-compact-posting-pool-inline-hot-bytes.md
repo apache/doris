@@ -19,17 +19,17 @@
 
 只动 writer 构建侧两文件中的一个（头）：
 
-- `be/src/snii/writer/compact_posting_pool.h`
+- `be/src/storage/index/snii/writer/compact_posting_pool.h`
   - `void CompactPostingPool::append_byte(SliceWriter* w, uint8_t* level, uint8_t value);`（声明 `:92`）— 函数体将从 `.cpp` 移入头作 `inline`。
   - `bool CompactPostingPool::Cursor::has_next() const;`（声明 `:135`）— 同上。
   - `uint8_t CompactPostingPool::Cursor::next();`（声明 `:138`）— 同上。
   - 私有成员（已在头声明，inline 函数体引用它们均合法）：`at()`（`:158-159`）、`read_ptr/write_ptr`（`:163-164`）、`alloc_slice`（`:173`）、静态 `kSliceSizes/kNextLevel`（`:155-156`）、`SliceWriter`、`Cursor::cur_/slice_end_/level_/budget_/pool_`（`:141-145`）。
 
-- `be/src/storage/index/snii/core/src/writer/compact_posting_pool.cpp`
+- `be/src/storage/index/snii/writer/compact_posting_pool.cpp`
   - 删除上述三函数的 out-of-line 定义（`:97-112`、`:120-127`、`:129-153`）。
   - **保留** out-of-line（冷路径，验证器明确建议保留在 `.cpp`）：`alloc_run`（`:39`）、`alloc_slice`（`:71`）、`read_ptr`（`:80`）、`write_ptr`（`:86`）、`start_chain`（`:90`）、`reset`、静态数组定义（`:14-17`）、`CompactPostingPool()`、`kSliceSize*_at`。
 
-调用方 `be/src/storage/index/snii/core/src/writer/spimi_term_buffer.cpp` **不改动**（`put_byte` `:128`、`DecodeChainVarint` `:298` 保持原样，仅因头内联而获益）。
+调用方 `be/src/storage/index/snii/writer/spimi_term_buffer.cpp` **不改动**（`put_byte` `:128`、`DecodeChainVarint` `:298` 保持原样，仅因头内联而获益）。
 
 ---
 
@@ -68,7 +68,7 @@ reader/writer-only，**零在盘变更**（非 T18）。理由见 §3 FORMAT-COM
 
 本任务是**行为保持的纯重构（代码搬移）**。按项目 §8「纯重构/解码任务断言改前后逐字节相等」执行；由于 `CompactPostingPool` 当前**零单测覆盖**（已 grep 确认 `be/test` 无任何 `CompactPostingPool`/`SpimiTermBuffer` 引用），RED→GREEN 同时为该 arena 落地首份回归网。
 
-新增测试文件 `be/test/storage/index/snii_compact_posting_pool_test.cpp`（GLOB 自动纳入 `doris_be_test`，无需改 CMake），`#include "snii/writer/compact_posting_pool.h"`（该 include 路径已被 `snii_query_test.cpp:48` 同目录头证明可用）。
+新增测试文件 `be/test/storage/index/snii_compact_posting_pool_test.cpp`（GLOB 自动纳入 `doris_be_test`，无需改 CMake），`#include "storage/index/snii/writer/compact_posting_pool.h"`（该 include 路径已被 `snii_query_test.cpp:48` 同目录头证明可用）。
 
 **RED（先建回归网 + 暴露当前未测边界）**
 1. 写 `SniiCompactPostingPoolTest` 套件下的全部用例（见 §6 表 / §功能验证表）：

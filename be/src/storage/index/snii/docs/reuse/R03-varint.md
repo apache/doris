@@ -45,21 +45,21 @@ Doris 有字节一致的等价物，但（a）缺 zigzag、（b）解码无 Stat
 ### RED -> GREEN -> REFACTOR
 
 1. 功能验证（round-trip）
-   - `EncodeDecodeRoundTrip64`：对边界集 V = {0, 1, 0x7F, 0x80, 0x3FFF, 0x4000, 0x1FFFFF, 0x200000, 0xFFFFFFFF, 0x100000000, (1ull<<63), UINT64_MAX} 调 `snii::encode_varint64` 后 `snii::decode_varint64`，断言值与消耗字节数相等。
+   - `EncodeDecodeRoundTrip64`：对边界集 V = {0, 1, 0x7F, 0x80, 0x3FFF, 0x4000, 0x1FFFFF, 0x200000, 0xFFFFFFFF, 0x100000000, (1ull<<63), UINT64_MAX} 调 `doris::snii::encode_varint64` 后 `doris::snii::decode_varint64`，断言值与消耗字节数相等。
    - `EncodeDecodeRoundTrip32` / `Varint32Overflow`：>0xFFFFFFFF 的 varint 经 `decode_varint32` 返回 `Status::Corruption`。
    - `ZigzagRoundTrip`：对 {0,-1,1,INT64_MIN,INT64_MAX,...} 验证 `zigzag_decode(zigzag_encode(x))==x`。
    - `DecodeTruncated` / `DecodeOverflow`：截断输入与 >10 字节连续位返回 Corruption（确定性断言错误码）。
 
 2. 等价性验证（新旧/双实现结果一致）
-   - `SniiEqualsDorisLength`：对 V 集断言 `snii::varint_len(v) == doris::varint_length(v)`。
-   - `SniiEqualsDorisEncode`：同一 v，`snii::encode_varint64(v,a)` 与 `doris::encode_varint64(b,v)` 产生的字节序列逐字节相等且长度相等。
+   - `SniiEqualsDorisLength`：对 V 集断言 `doris::snii::varint_len(v) == doris::varint_length(v)`。
+   - `SniiEqualsDorisEncode`：同一 v，`doris::snii::encode_varint64(v,a)` 与 `doris::encode_varint64(b,v)` 产生的字节序列逐字节相等且长度相等。
 
 3. on-disk 黄金测试（字节逐字节）
-   - `GoldenByteVectors`：硬编码 format v2 期望字节，例如 `0x80 -> {0x80,0x01}`、`0x4000 -> {0x80,0x80,0x01}`、`UINT64_MAX -> {0xFF*9,0x01}`、`zigzag_encode(-1)=1 -> {0x01}`，断言 `snii::encode_varint64` 输出与黄金数组 `memcmp==0`。这是红线要求的字节一致黄金锚点。
+   - `GoldenByteVectors`：硬编码 format v2 期望字节，例如 `0x80 -> {0x80,0x01}`、`0x4000 -> {0x80,0x80,0x01}`、`UINT64_MAX -> {0xFF*9,0x01}`、`zigzag_encode(-1)=1 -> {0x01}`，断言 `doris::snii::encode_varint64` 输出与黄金数组 `memcmp==0`。这是红线要求的字节一致黄金锚点。
 
 4. cross-decode（互解）
-   - `DorisDecodesSniiBytes`：`snii::encode_varint64` 写出的缓冲交给 `doris::decode_varint64_ptr` 解出原值，且返回指针位移等于写入长度。
-   - `SniiDecodesDorisBytes`：`doris::encode_varint64` 写出的缓冲交给 `snii::decode_varint64` 解出原值与 next 指针正确。
-   - `CrossDecode32`：同上覆盖 32 位路径（`doris::decode_varint32_ptr` 与 `snii::decode_varint32`）。
+   - `DorisDecodesSniiBytes`：`doris::snii::encode_varint64` 写出的缓冲交给 `doris::decode_varint64_ptr` 解出原值，且返回指针位移等于写入长度。
+   - `SniiDecodesDorisBytes`：`doris::encode_varint64` 写出的缓冲交给 `doris::snii::decode_varint64` 解出原值与 next 指针正确。
+   - `CrossDecode32`：同上覆盖 32 位路径（`doris::decode_varint32_ptr` 与 `doris::snii::decode_varint32`）。
 
 全部为确定性断言，无随机/时间依赖。若仅纯保留不加测试，本项可视为可选；但建议落地以防格式漂移。

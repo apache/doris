@@ -15,7 +15,7 @@
 
 ### 2. 影响的文件/函数
 
-文件：`be/src/storage/index/snii/core/src/format/prx_pod.cpp`，头 `be/src/snii/format/prx_pod.h`。
+文件：`be/src/storage/index/snii/format/prx_pod.cpp`，头 `be/src/storage/index/snii/format/prx_pod.h`。
 
 当前签名/函数（匿名命名空间内除签名外均为 static）：
 - `Status build_prx_window_flat(std::span<const uint32_t> positions_flat, std::span<const uint32_t> freqs, int zstd_level_or_negative_for_auto, ByteSink* sink)`（`:666`）—— 主要修改点（生产路径）。
@@ -63,7 +63,7 @@ const size_t plain_size = exact_plain_payload_size(freqs, deltas);
 if (plain_size >= kAutoZstdMinBytes) {
     ByteSink plain;
     encode_payload_from_deltas(freqs, deltas, &plain);     // 仅大窗物化
-    snii::format::testing::note_prx_raw_build();           // 测试计数 seam
+    doris::snii::format::testing::note_prx_raw_build();           // 测试计数 seam
     return write_auto_pfor_or_zstd(payload.view(), plain.view(), sink);
 }
 write_pfor(payload.view(), sink);
@@ -75,7 +75,7 @@ vector 版 `build_prx_window` auto 分支：先把 `per_doc_positions` 扁平成
 **测试计数 seam（shared_infra）**：在 `prx_pod.h` 末尾新增（遵循 §4 `dict_decode_counter()` 约定）：
 
 ```cpp
-namespace snii::format::testing {
+namespace doris::snii::format::testing {
 uint64_t prx_raw_build_count();   // 读取
 void reset_prx_raw_build_count(); // 测试间清零
 void note_prx_raw_build();        // 物化 raw 明文时 +1（实现用 std::atomic<uint64_t>）
@@ -95,7 +95,7 @@ void note_prx_raw_build();        // 物化 raw 明文时 +1（实现用 std::at
 ### 4. 依赖
 
 - `depends_on`：无。`varint32_size`（`:216`）已存在可直接复用；不依赖 T19 `resize_uninitialized`（本任务缓冲是 `push_back` 累积，不是 resize-then-overwrite）。
-- 本任务**提供** shared_infra：`snii::format::testing` 的 prx raw-build 计数 seam（后续 prx 相关任务可复用）。
+- 本任务**提供** shared_infra：`doris::snii::format::testing` 的 prx raw-build 计数 seam（后续 prx 相关任务可复用）。
 
 ### 5. TDD 步骤（RED → GREEN → REFACTOR）
 

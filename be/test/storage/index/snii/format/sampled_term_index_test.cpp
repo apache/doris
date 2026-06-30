@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "snii/format/sampled_term_index.h"
+#include "storage/index/snii/format/sampled_term_index.h"
 
 #include <gtest/gtest.h>
 
@@ -25,12 +25,12 @@
 #include <vector>
 
 #include "common/status.h"
-#include "snii/encoding/byte_sink.h"
-#include "snii/encoding/section_framer.h"
-#include "snii/format/format_constants.h"
+#include "storage/index/snii/encoding/byte_sink.h"
+#include "storage/index/snii/encoding/section_framer.h"
+#include "storage/index/snii/format/format_constants.h"
 
-using namespace snii;         // NOLINT
-using namespace snii::format; // NOLINT
+using namespace doris::snii;         // NOLINT
+using namespace doris::snii::format; // NOLINT
 using doris::Status;
 
 namespace {

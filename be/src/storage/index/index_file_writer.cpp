@@ -105,9 +105,9 @@ Result<std::shared_ptr<DorisFSDirectory>> IndexFileWriter::open(const TabletInde
 
 Status IndexFileWriter::add_snii_index(const TabletIndex* index_meta, uint32_t doc_count,
                                        std::vector<uint32_t> null_docids,
-                                       snii::writer::SpimiTermBuffer* const term_buffer,
-                                       snii::format::IndexConfig index_config,
-                                       snii::writer::MemoryReporter* const mem_reporter) {
+                                       doris::snii::writer::SpimiTermBuffer* const term_buffer,
+                                       doris::snii::format::IndexConfig index_config,
+                                       doris::snii::writer::MemoryReporter* const mem_reporter) {
     DCHECK(_storage_format == InvertedIndexStorageFormatPB::SNII);
     DCHECK(index_meta != nullptr);
     DCHECK(term_buffer != nullptr);
@@ -118,10 +118,10 @@ Status IndexFileWriter::add_snii_index(const TabletIndex* index_meta, uint32_t d
     if (_snii_file_writer == nullptr) {
         _snii_file_writer = std::make_unique<snii_doris::DorisSniiFileWriter>(_idx_v2_writer.get());
         _snii_compound_writer =
-                std::make_unique<snii::writer::SniiCompoundWriter>(_snii_file_writer.get());
+                std::make_unique<doris::snii::writer::SniiCompoundWriter>(_snii_file_writer.get());
     }
 
-    snii::writer::SniiIndexInput input;
+    doris::snii::writer::SniiIndexInput input;
     input.index_id = cast_set<uint64_t>(index_meta->index_id());
     input.index_suffix = index_meta->get_index_suffix();
     input.config = index_config;
@@ -135,7 +135,7 @@ Status IndexFileWriter::add_snii_index(const TabletIndex* index_meta, uint32_t d
 }
 
 void IndexFileWriter::retain_snii_memory_reporter(
-        std::unique_ptr<snii::writer::MemoryReporter> mem_reporter) {
+        std::unique_ptr<doris::snii::writer::MemoryReporter> mem_reporter) {
     DCHECK(mem_reporter != nullptr);
     _snii_memory_reporters.push_back(std::move(mem_reporter));
 }
@@ -250,7 +250,7 @@ Status IndexFileWriter::begin_close() {
             _snii_file_writer =
                     std::make_unique<snii_doris::DorisSniiFileWriter>(_idx_v2_writer.get());
             _snii_compound_writer =
-                    std::make_unique<snii::writer::SniiCompoundWriter>(_snii_file_writer.get());
+                    std::make_unique<doris::snii::writer::SniiCompoundWriter>(_snii_file_writer.get());
         }
         RETURN_IF_ERROR(_snii_compound_writer->finish());
         _total_file_size = _idx_v2_writer == nullptr ? 0 : _idx_v2_writer->bytes_appended();

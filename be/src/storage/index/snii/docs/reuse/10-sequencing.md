@@ -5,7 +5,7 @@
 ## 阶段 0 — 基础涟漪先行（Wide Ripples，尽早落地）
 
 1. **R01 Status（reuse-with-extension，1400 调用点，effort=L）** — 最先做。
-   - 子步骤：(a) 在 `status.h` 的 ErrorCode 增补 `INVERTED_INDEX_SNII_*` 码，使 kNotFound 的「序号/索引越界」语义与「文件未找到」分流；(b) 统一用零参工厂形态 `Status::Error<CODE,false>(msg)`（避免 `fmt::format` 解析含 `{` 的运行时消息而崩溃，并关闭热路径抓栈/LOG 刷屏）；(c) 按文件分批机械替换 `SNII_RETURN_IF_ERROR`(570)、工厂(811)、`::snii::Status` 类型(48)、转换点(28)；(d) 迁移期临时保留 `to_doris_status` 兜底，全部迁完再删，删除有损的 `to_snii_status`。
+   - 子步骤：(a) 在 `status.h` 的 ErrorCode 增补 `INVERTED_INDEX_SNII_*` 码，使 kNotFound 的「序号/索引越界」语义与「文件未找到」分流；(b) 统一用零参工厂形态 `Status::Error<CODE,false>(msg)`（避免 `fmt::format` 解析含 `{` 的运行时消息而崩溃，并关闭热路径抓栈/LOG 刷屏）；(c) 按文件分批机械替换 `SNII_RETURN_IF_ERROR`(570)、工厂(811)、`::doris::snii::Status` 类型(48)、转换点(28)；(d) 迁移期临时保留 `to_doris_status` 兜底，全部迁完再删，删除有损的 `to_snii_status`。
    - 之所以先行：1400 处涉及几乎所有 format/query/io 文件，先稳定错误传播层，后续每个组件迁移时不必反复改 Status。
    - **R02 Slice 本期不动**（keep）。虽是第二大涟漪（277 处），但判定保留，避免无收益的机械迁移污染 diff；其「未来标准化为 `std::span<const uint8_t>`」仅作记录，不在本期。
 
@@ -21,8 +21,8 @@
 
 4. **R05 crc32c（reuse-doris，byte-identical，28 点，S）** — 唯一采纳的在盘复用。
    - **前置闸门**：先提交 crc32c 黄金向量测试 + 既有 on-disk 校验回放，证明 `crc32c::Crc32c(data)` 与 SNII 实现逐字节一致，**测试变绿后**再切换。
-   - 落地：保留薄 inline wrapper `snii::crc32c(Slice)` 委托 `crc32c::Crc32c(...)`，28 处调用点零改动，净删 SNII 约 110 行 + slice8 表。
-   - 注意 R08 SectionFramer 经 `snii::crc32c` 委托校验——R05 维持字节一致即不影响 R08。
+   - 落地：保留薄 inline wrapper `doris::snii::crc32c(Slice)` 委托 `crc32c::Crc32c(...)`，28 处调用点零改动，净删 SNII 约 110 行 + slice8 表。
+   - 注意 R08 SectionFramer 经 `doris::snii::crc32c` 委托校验——R05 维持字节一致即不影响 R08。
    - 失败即回滚：恢复 `crc32c.cpp`，header API 不变。
 
 > 注：R03 varint、R06 byte-sink 虽 byte_compat=byte-identical，但判定为 **KEEP**（次优），不进入复用切换；仅需建立 cross-decode 黄金测试防漂移（见 risk-register）。R04 zstd、R07 pfor 为 incompatible，**禁止**复用切换。

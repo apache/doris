@@ -3,7 +3,7 @@
 ## R07-pfor 决策：KEEP（Doris 等价物次优 / 字节不兼容）
 
 ### 结论与依据
-- **Verdict: keep-snii-doris-suboptimal**。SNII 的 PFOR 编解码（`be/src/snii/encoding/pfor.h:18-20`，实现 `be/src/storage/index/snii/core/src/encoding/pfor.cpp`）触碰**在盘字节**（format v2），Doris 没有产生**字节一致**输出的等价物 → 触发红线，必须 KEEP。
+- **Verdict: keep-snii-doris-suboptimal**。SNII 的 PFOR 编解码（`be/src/storage/index/snii/encoding/pfor.h:18-20`，实现 `be/src/storage/index/snii/encoding/pfor.cpp`）触碰**在盘字节**（format v2），Doris 没有产生**字节一致**输出的等价物 → 触发红线，必须 KEEP。
 - SNII 已完全 CLucene-free（本组件 0 处 CLucene 引用），保留它**不违背**解耦原则；红线优先级高于「优先复用 Doris」。
 
 ### Doris 等价物
@@ -22,7 +22,7 @@
 **incompatible**。Doris FOR 的帧切分、footer、Min 减法、delta 存储格式与 SNII 的「width 头 + 位打包 + varint 异常表」布局根本不同，无法字节对齐。换用 = format change，出范围 → 拒绝复用。
 
 ### 迁移设计
-不迁移。保留 `be/src/snii/encoding/pfor.h` + `core/src/encoding/pfor.cpp` 原样。生产调用点 7 处（`format/frq_pod.cpp:38,47`；`format/prx_pod.cpp:106,115,406,444,448`）维持现状，签名 `pfor_encode/pfor_decode/pfor_skip` 不变。
+不迁移。保留 `be/src/storage/index/snii/encoding/pfor.h` + `core/src/encoding/pfor.cpp` 原样。生产调用点 7 处（`format/frq_pod.cpp:38,47`；`format/prx_pod.cpp:106,115,406,444,448`）维持现状，签名 `pfor_encode/pfor_decode/pfor_skip` 不变。
 
 ### 为何 Doris 次优 / 无等价
 Doris 既无「PFOR+异常表」算法，其 FOR 又与 SNII format v2 字节不兼容；`BitPacking` 仅能覆盖解包子集且不可承担编码与 skip。SNII 自带实现在算法选择、在盘紧凑度、热路径性能（专用宽度快路径、8 字节 LE load）三方面对其 use case 最优。

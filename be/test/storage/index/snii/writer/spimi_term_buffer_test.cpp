@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "snii/writer/spimi_term_buffer.h"
+#include "storage/index/snii/writer/spimi_term_buffer.h"
 
 #include <fcntl.h>
 #include <gtest/gtest.h>
@@ -29,8 +29,8 @@
 
 #include "common/status.h"
 
-using snii::writer::SpimiTermBuffer;
-using snii::writer::TermPostings;
+using doris::snii::writer::SpimiTermBuffer;
+using doris::snii::writer::TermPostings;
 using doris::Status;
 
 // Tokens accumulate into sorted terms with ascending docids and per-doc positions.

@@ -9,7 +9,7 @@
 ### 子组件 1：BatchRangeFetcher —— 保留（核心查询计划逻辑，无等价）
 - 形态：`add(offset,len)` 返回 handle，`fetch()` 按 offset 排序、按 `coalesce_gap_` 合并成物理 `Range` 段并发起单轮 `reader_->read_batch()`，`get(h)` 返回切回物理缓冲的 `Slice`（batch_range_fetcher.h:27-33、cpp:40-79）。
 - 使用面：SNII core 48 处（phrase_query / docid_conjunction / scoring_query / windowed_posting / boolean_query / docid_posting_reader / snii_stats_provider）。
-- 仅依赖 `snii::io::FileReader`（file_reader.h:22），CLucene-free。
+- 仅依赖 `doris::snii::io::FileReader`（file_reader.h:22），CLucene-free。
 - **Doris 等价物及为何次优**：`doris::io::MergeRangeFileReader`(be/src/io/fs/buffered_reader.h:220) 做 range 合并，但 (a) 强耦合 `RuntimeProfile*`(:283)；(b) 128MB box 缓冲重型模型(:274-278)；(c) 需预声明 `PrefetchRange`(:281)；(d) `release_last_box` 注释"ensure sequential read in range"(:257) 假设顺序消费——与 SNII"一轮计划、handle 随机取值"模式不符。物理层合并在 Doris 边界已由 `DorisSniiFileReader::read_batch`(snii_doris_adapter.cpp:243-280, gap=4096/读上限1MB) 完成；BatchRangeFetcher 位于 FileReader 接口之上、按查询计划聚合逻辑 range，两者职责互补而非重复。
 
 ### 子组件 2：IoMetrics —— 保留（core 的 Doris-free 计数抽象）
@@ -23,7 +23,7 @@
 - **建议（低优先级）**：长期可改为基于 Doris 真实 FileCache + FileCacheStatistics 写真实缓存命中/未命中测试，从而删除该模拟器；因非生产路径，本轮不动。
 
 ### 迁移设计
-- 本轮无生产代码改动。保持 `snii::io::FileReader` 抽象 + BatchRangeFetcher + IoMetrics 不变。
+- 本轮无生产代码改动。保持 `doris::snii::io::FileReader` 抽象 + BatchRangeFetcher + IoMetrics 不变。
 - 可选后续（独立小改）：将 MeteredFileReader 的缓存模拟测试替换为 Doris FileCache 真实路径断言；调用点仅在 perf harness，回滚即恢复模拟器。
 
 ### 风险/回滚

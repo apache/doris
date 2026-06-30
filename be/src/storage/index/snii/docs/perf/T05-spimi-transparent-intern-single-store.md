@@ -14,12 +14,12 @@
 
 仅一个生产文件 + 其头文件 + 一个新建测试文件：
 
-- `be/src/snii/writer/spimi_term_buffer.h`
+- `be/src/storage/index/snii/writer/spimi_term_buffer.h`
   - 成员声明 `:306` `std::unordered_map<std::string, uint32_t> intern_;`（将改类型）。
   - `:303-304` `vocab_` / `owned_vocab_`（保持不变：`owned_vocab_` 仍是 `std::vector<std::string>`，是 vocab 的唯一一份存储）。
   - `vocab() const` `:251` 返回 `const std::vector<std::string>&`（**保持签名不变**）。
-  - 新增 `namespace snii::writer::testing` 的计数器声明（测试 seam）。
-- `be/src/storage/index/snii/core/src/writer/spimi_term_buffer.cpp`
+  - 新增 `namespace doris::snii::writer::testing` 的计数器声明（测试 seam）。
+- `be/src/storage/index/snii/writer/spimi_term_buffer.cpp`
   - `add_token(std::string_view, uint32_t, uint32_t)` `:208-234`（lookup + 插入逻辑改写）。
   - owned-vocab 构造函数 `:62-70`（绑定 intern_ 的 functor 到 `&owned_vocab_`）。
   - 新增计数器定义 + 在 `owned_vocab_.emplace_back` 处自增。
@@ -104,7 +104,7 @@ borrowed 构造函数同样绑定（无害，借用模式下 `add_token(string_v
 ## 4. 依赖
 
 - **depends_on**：无。变更自包含于 writer 内部。
-- **提供的 shared infra**：`snii::writer::testing::vocab_string_materialization_count()` 与 `reset_vocab_string_materialization_count()` 计数 seam（模式对齐规范 §4 的 `dict_decode_counter()`），供本任务及后续 writer 任务做确定性分配断言。
+- **提供的 shared infra**：`doris::snii::writer::testing::vocab_string_materialization_count()` 与 `reset_vocab_string_materialization_count()` 计数 seam（模式对齐规范 §4 的 `dict_decode_counter()`），供本任务及后续 writer 任务做确定性分配断言。
 - 不依赖 T19 `resize_uninitialized`（本任务无 resize-then-overwrite 缓冲）。
 
 ## 5. TDD 步骤（RED → GREEN → REFACTOR）

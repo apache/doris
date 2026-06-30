@@ -2,7 +2,7 @@
 
 ### 1. 目标与背景
 
-**Finding 映射**: F14 [MEDIUM] (query-phrase)，证据见 `be/src/storage/index/snii/core/src/query/phrase_query.cpp:1180-1187`（n>=3 直落 per-term 路径）与 `:944-945`（`build_docid_only_conjunction` 仅按最小 df 收敛候选）。
+**Finding 映射**: F14 [MEDIUM] (query-phrase)，证据见 `be/src/storage/index/snii/query/phrase_query.cpp:1180-1187`（n>=3 直落 per-term 路径）与 `:944-945`（`build_docid_only_conjunction` 仅按最小 df 收敛候选）。
 
 **问题**: `phrase_query()` 仅对 `terms.size()==2` 走隐藏 bigram posting（`TryTwoTermPhraseBigram`，`phrase_query.cpp:1169-1173` 调用 `:137-166`）。对 n>=3，代码经 `BuildPhraseTermMapping`→`plan_terms(unique_terms)`（`:1180-1185`）→`ExecutePhrasePlans`（`:1187`）→`BuildPhraseExecutionState`→`internal::build_docid_only_conjunction`（`:944-945`）。该 per-term 交集只受最小词 df 约束，因此含常见词的短语（如 "the brown fox"）候选集 ≈ 含全部词的文档（≈ 较稀有词的 df），随后 `BuildPositionSourcesForCandidates`（`:947-948`）要为这一巨大候选集逐窗抓取/解码 PRX——在冷 S3 上每个多余位置窗口都是一次远程 round。
 
@@ -12,7 +12,7 @@
 
 ### 2. 影响的文件/函数
 
-仅改读侧实现文件 `be/src/storage/index/snii/core/src/query/phrase_query.cpp`：
+仅改读侧实现文件 `be/src/storage/index/snii/query/phrase_query.cpp`：
 
 - `phrase_query(const LogicalIndexReader&, const std::vector<std::string>&, std::vector<uint32_t>*)`（`:1154-1188`）— n>=3 分支增加 bigram 候选生成。
 - `BuildPhraseExecutionState(const LogicalIndexReader&, BatchRangeFetcher*, std::vector<TermPlan>*, PhraseExecutionState*)`（`:935-950`）— 增加可空 `const std::vector<uint32_t>* initial_candidates` 形参，在其存在时用 `filter_docids_by_conjunction` 取代 `build_docid_only_conjunction`。
@@ -21,7 +21,7 @@
   - `bool ShouldUsePhraseBigram(const LogicalIndexReader& idx, const std::vector<std::string>& terms, const std::vector<TermPlan>& plans, bool sentinel_enabled)` — 门控。
   - `Status BuildBigramPhraseCandidates(const LogicalIndexReader& idx, const std::vector<std::string>& terms, std::vector<uint32_t>* candidates, bool* usable)` — 解析 n-1 个相邻 bigram、批量读 docid、交集。
 
-复用现有：`internal::filter_docids_by_conjunction`（签名见 `docid_conjunction.h:77`，调用范式见 `phrase_query.cpp:1115`）、`internal::read_docid_postings_batched`（`docid_posting_reader.h:33`）、`internal::resolve_query_term`（`docid_conjunction.h:49`）、`internal::intersect_sorted`（`docid_set_ops.h`）、`phrase_bigram_enabled`（`phrase_query.cpp:131-135`）、`snii::format::make_phrase_bigram_term`/`is_phrase_bigram_indexable_term`（`phrase_bigram.h:22,50`）。
+复用现有：`internal::filter_docids_by_conjunction`（签名见 `docid_conjunction.h:77`，调用范式见 `phrase_query.cpp:1115`）、`internal::read_docid_postings_batched`（`docid_posting_reader.h:33`）、`internal::resolve_query_term`（`docid_conjunction.h:49`）、`internal::intersect_sorted`（`docid_set_ops.h`）、`phrase_bigram_enabled`（`phrase_query.cpp:131-135`）、`doris::snii::format::make_phrase_bigram_term`/`is_phrase_bigram_indexable_term`（`phrase_bigram.h:22,50`）。
 
 ### 3. 变更设计
 

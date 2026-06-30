@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "snii/encoding/pfor.h"
+#include "storage/index/snii/encoding/pfor.h"
 
 #include <gtest/gtest.h>
 
@@ -24,10 +24,10 @@
 #include <vector>
 
 #include "common/status.h"
-#include "snii/encoding/byte_sink.h"
-#include "snii/encoding/byte_source.h"
+#include "storage/index/snii/encoding/byte_sink.h"
+#include "storage/index/snii/encoding/byte_source.h"
 
-using namespace snii;
+using namespace doris::snii;
 
 static void roundtrip(const std::vector<uint32_t>& v) {
     ByteSink sink;

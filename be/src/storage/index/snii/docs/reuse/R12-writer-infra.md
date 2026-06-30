@@ -21,7 +21,7 @@
 
 3. **spillable_byte_buffer.h**（`SpillableByteBuffer`，2 文件引用）
    - Doris 等价：`SpillFileWriter`（spill_file_writer.h:56 `write_block(RuntimeState*, const Block&)`）；`faststring`（util/faststring.h:105）。
-   - 次优原因：SpillFileWriter 是 Block 粒度、带 part 轮转/footer/RuntimeProfile，granularity 完全错配原始字节 section；faststring 是单段几何倍增 vector，恰是 SpillableByteBuffer 的 chunk 链刻意规避的 slack/realloc 瞬时（spillable_byte_buffer.h:21-29，"resident cost 精确等于 appended bytes"）。SNII 复用 `snii::io::LocalFileWriter/Reader`（已 Doris/CLucene-free）做 spill IO。
+   - 次优原因：SpillFileWriter 是 Block 粒度、带 part 轮转/footer/RuntimeProfile，granularity 完全错配原始字节 section；faststring 是单段几何倍增 vector，恰是 SpillableByteBuffer 的 chunk 链刻意规避的 slack/realloc 瞬时（spillable_byte_buffer.h:21-29，"resident cost 精确等于 appended bytes"）。SNII 复用 `doris::snii::io::LocalFileWriter/Reader`（已 Doris/CLucene-free）做 spill IO。
 
 ### 迁移设计（具体改动 / 签名 / 调用点 / 风险回滚）
 - 改动 A（temp_dir 扩展，可选）：`resolve_temp_dir()` 末尾回退链追加 `config::spill_storage_root_path` 解析出的首个真实目录；签名不变。调用点：spillable_byte_buffer.h:129。

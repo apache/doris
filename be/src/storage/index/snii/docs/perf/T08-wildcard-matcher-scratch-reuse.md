@@ -7,7 +7,7 @@
 
 **finding 映射：F18 [MEDIUM]（query-scoring-expansion）。**
 
-`wildcard_match` 在每次调用时堆分配两个 `std::vector<uint8_t>(text.size()+1)`（`be/src/storage/index/snii/core/src/query/wildcard_query.cpp:27-28`，`prev`/`curr`），并运行一张 O(|pattern|×|term|) 的 DP 表。该函数被作为 matcher lambda 传入 `emit_expanded_docid_union`（`wildcard_query.cpp:73-76`），而后者在 `term_expansion.cpp:26` 对**每个被访问的词典 term**（匹配与不匹配都算，因为在 `push_back` 之前调用）执行一次 `matches(hit.term)`。
+`wildcard_match` 在每次调用时堆分配两个 `std::vector<uint8_t>(text.size()+1)`（`be/src/storage/index/snii/query/wildcard_query.cpp:27-28`，`prev`/`curr`），并运行一张 O(|pattern|×|term|) 的 DP 表。该函数被作为 matcher lambda 传入 `emit_expanded_docid_union`（`wildcard_query.cpp:73-76`），而后者在 `term_expansion.cpp:26` 对**每个被访问的词典 term**（匹配与不匹配都算，因为在 `push_back` 之前调用）执行一次 `matches(hit.term)`。
 
 对于**前导通配**（如 `*failed*order*`），`literal_prefix_for_wildcard`（`wildcard_query.cpp:15-24`）返回空串 `enum_prefix`（`wildcard_query.cpp:72`），导致 `visit_prefix_terms` 从 `start=0` 全词典逐 DICT block 扫描（验证器引 `logical_index_reader.cpp:299-337`），于是 `wildcard_match` 对**整部词典每个 term 各跑一次**，每次 2 次小堆分配 + 一张 DP 表。百万级词典即数百万对小堆分配。
 
@@ -19,11 +19,11 @@
 
 ## 2. 影响的文件/函数
 
-- `be/src/storage/index/snii/core/src/query/wildcard_query.cpp`
+- `be/src/storage/index/snii/query/wildcard_query.cpp`
   - `bool wildcard_match(std::string_view pattern, std::string_view text)`（匿名命名空间，`:26-46`）——当前每调用 2 次 `std::vector` 分配 + DP。**将被替换为复用 scratch 的功能体。**
   - `Status wildcard_query(..., DocIdSink* sink, int32_t max_expansions)`（`:67-77`）——当前构造 `[pattern](std::string_view term){ return wildcard_match(pattern, term); }`。**改为构造一个请求作用域的 stateful matcher 并按引用捕获。**
-- **新增** `be/src/snii/query/internal/wildcard_matcher.h`（与既有 `term_expansion.h` 等同目录，include 路径 `snii/query/internal/wildcard_matcher.h`）——header-only 的可测试 matcher。
-- `be/src/snii/query/internal/term_expansion.h`（`TermMatcher = std::function<bool(std::string_view)>`，`:13`）——**不改签名**；matcher 仍以 `std::function` 形态传入。
+- **新增** `be/src/storage/index/snii/query/internal/wildcard_matcher.h`（与既有 `term_expansion.h` 等同目录，include 路径 `snii/query/internal/wildcard_matcher.h`）——header-only 的可测试 matcher。
+- `be/src/storage/index/snii/query/internal/term_expansion.h`（`TermMatcher = std::function<bool(std::string_view)>`，`:13`）——**不改签名**；matcher 仍以 `std::function` 形态传入。
 - 测试：`be/test/storage/index/snii_query_test.cpp`（GLOB 经 `test/CMakeLists.txt:39 storage/*.cpp` 自动纳入 `doris_be_test`，**无需改 CMake**）。
 
 ---
@@ -35,8 +35,8 @@
 新增 header-only、可单测、按 allocator 模板化的 matcher 仿函数（模板化仅为让确定性 alloc 计数测试注入 `CountingAllocator`；生产用默认 `std::allocator`）：
 
 ```cpp
-// be/src/snii/query/internal/wildcard_matcher.h
-namespace snii::query::internal {
+// be/src/storage/index/snii/query/internal/wildcard_matcher.h
+namespace doris::snii::query::internal {
 
 // Glob matcher with reusable scratch. '*' = >=0 bytes, '?' = exactly one byte,
 // all other bytes literal; full (both-ends anchored) match. Semantics are
@@ -76,7 +76,7 @@ private:
     std::vector<uint8_t, Alloc> curr_;
 };
 
-} // namespace snii::query::internal
+} // namespace doris::snii::query::internal
 ```
 
 `wildcard_query.cpp` 改为：

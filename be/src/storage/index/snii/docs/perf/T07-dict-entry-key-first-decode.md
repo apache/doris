@@ -21,18 +21,18 @@
 
 ## 2. 影响的文件/函数（当前签名）
 
-- `be/src/snii/format/dict_entry.h` / `core/src/format/dict_entry.cpp`
+- `be/src/storage/index/snii/format/dict_entry.h` / `core/src/format/dict_entry.cpp`
   - `Status decode_dict_entry(ByteSource*, std::string_view prev, IndexTier, DictEntry*)`（`:258`，匿名 ns 的 `read_term_key`/`read_stats`/`read_locator`/`read_entry_len`）。
   - `Status skip_dict_entry(ByteSource*)`（`:285`）。
-- `be/src/snii/format/dict_block.h` / `core/src/format/dict_block.cpp`
+- `be/src/storage/index/snii/format/dict_block.h` / `core/src/format/dict_block.cpp`
   - `Status DictBlockReader::decode_all(std::vector<DictEntry>*) const`（`:222`）— 唯一调用方 visit_prefix_terms。
   - `Status DictBlockReader::scan_from_anchor(size_t, std::string_view, bool*, DictEntry*) const`（`:250`）。
   - `Status DictBlockReader::find_term(std::string_view, bool*, DictEntry*) const`（`:283`）。
   - `bool DictBlockReader::locate_anchor(std::string_view, size_t*) const`（`:204`）。
-- `be/src/snii/reader/logical_index_reader.h` / `core/src/reader/logical_index_reader.cpp`
+- `be/src/storage/index/snii/reader/logical_index_reader.h` / `core/src/reader/logical_index_reader.cpp`
   - `Status LogicalIndexReader::visit_prefix_terms(std::string_view, const PrefixHitVisitor&) const`（`:287`）。
   - `Status LogicalIndexReader::prefix_terms(std::string_view, std::vector<PrefixHit>*, int32_t) const`（`:341`）。
-- `be/src/snii/query/internal/term_expansion.h` / `.cpp`：`emit_expanded_docid_union`（`:12`），matcher 当前在 visitor 内（`:23/26`）。
+- `be/src/storage/index/snii/query/internal/term_expansion.h` / `.cpp`：`emit_expanded_docid_union`（`:12`），matcher 当前在 visitor 内（`:23/26`）。
 - 调用方（不改语义，仅受益）：`prefix_query.cpp:35`、`wildcard_query.cpp:72`、`regexp_query.cpp:84`、`phrase_query.cpp:1224`（phrase-prefix tail，经 `prefix_terms`）。
 
 ## 3. 变更设计
@@ -58,7 +58,7 @@ Status skip_dict_entry_body(ByteSource* src, size_t body_start, uint64_t entry_t
 
 测试 seam（确定性性能断言用，relaxed 原子，生产开销可忽略）：
 ```cpp
-namespace snii::format {
+namespace doris::snii::format {
 uint64_t dict_entry_body_decode_count();   // 累计 decode_dict_entry_rest 次数
 void reset_dict_entry_counters();
 }
@@ -166,7 +166,7 @@ reader/writer-only，零在盘变更（详见 §3 格式兼容结论）。`kDict
 
 ## 8. 性能验证（单体）— 确定性优先
 
-隔离手法统一：原语级用 `DictBlockBuilder`→`DictBlockReader::open`（纯内存，无 FileReader）；reader 级用 `build_reader`+`MemoryFile`。计数用新增 `snii::format::dict_entry_body_decode_count()`（测试间 `reset_dict_entry_counters()`）。
+隔离手法统一：原语级用 `DictBlockBuilder`→`DictBlockReader::open`（纯内存，无 FileReader）；reader 级用 `build_reader`+`MemoryFile`。计数用新增 `doris::snii::format::dict_entry_body_decode_count()`（测试间 `reset_dict_entry_counters()`）。
 
 | 指标 | 隔离手法 | 基线(改前) | 断言/阈值 | 确定性 | 测试文件/target |
 |---|---|---|---|---|---|

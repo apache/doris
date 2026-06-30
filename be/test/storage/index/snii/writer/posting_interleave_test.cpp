@@ -25,21 +25,21 @@
 #include <vector>
 
 #include "common/status.h"
-#include "snii/common/slice.h"
-#include "snii/format/dict_block.h"
-#include "snii/format/dict_block_directory.h"
-#include "snii/format/dict_entry.h"
-#include "snii/format/format_constants.h"
-#include "snii/format/per_index_meta.h"
-#include "snii/format/sampled_term_index.h"
-#include "snii/io/local_file.h"
-#include "snii/query/phrase_query.h"
-#include "snii/query/term_query.h"
-#include "snii/reader/logical_index_reader.h"
-#include "snii/reader/snii_segment_reader.h"
-#include "snii/reader/windowed_posting.h"
-#include "snii/writer/logical_index_writer.h"
-#include "snii/writer/snii_compound_writer.h"
+#include "storage/index/snii/common/slice.h"
+#include "storage/index/snii/format/dict_block.h"
+#include "storage/index/snii/format/dict_block_directory.h"
+#include "storage/index/snii/format/dict_entry.h"
+#include "storage/index/snii/format/format_constants.h"
+#include "storage/index/snii/format/per_index_meta.h"
+#include "storage/index/snii/format/sampled_term_index.h"
+#include "storage/index/snii/io/local_file.h"
+#include "storage/index/snii/query/phrase_query.h"
+#include "storage/index/snii/query/term_query.h"
+#include "storage/index/snii/reader/logical_index_reader.h"
+#include "storage/index/snii/reader/snii_segment_reader.h"
+#include "storage/index/snii/reader/windowed_posting.h"
+#include "storage/index/snii/writer/logical_index_writer.h"
+#include "storage/index/snii/writer/snii_compound_writer.h"
 
 // Interleaved posting-region read-back validation (docs/design/frqprx-interleave-
 // design.md section 10.2). The former separate .frq POD and .prx POD are merged
@@ -52,13 +52,13 @@
 // with-pod_ref tier-recovery regression guard.
 namespace {
 
-using namespace snii;         // NOLINT
-using namespace snii::format; // NOLINT
-using namespace snii::writer; // NOLINT
-using snii::reader::DecodedPosting;
-using snii::reader::LogicalIndexReader;
-using snii::reader::SniiSegmentReader;
-using snii::reader::read_windowed_posting;
+using namespace doris::snii;         // NOLINT
+using namespace doris::snii::format; // NOLINT
+using namespace doris::snii::writer; // NOLINT
+using doris::snii::reader::DecodedPosting;
+using doris::snii::reader::LogicalIndexReader;
+using doris::snii::reader::SniiSegmentReader;
+using doris::snii::reader::read_windowed_posting;
 
 std::string TempPath() {
     static int counter = 0;

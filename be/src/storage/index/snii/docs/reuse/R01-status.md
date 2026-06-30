@@ -1,9 +1,9 @@
-# R01-status — snii::Status 类型
+# R01-status — doris::snii::Status 类型
 
-## R01-status 迁移决策：snii::Status → doris::Status（reuse-with-extension）
+## R01-status 迁移决策：doris::snii::Status → doris::Status（reuse-with-extension）
 
 ### 结论与依据
-判定 **reuse-with-extension**：删除 snii::Status / SNII_RETURN_IF_ERROR / 双向转换层，全量改用 doris::Status + RETURN_IF_ERROR，并在 Doris ErrorCode 中增补少量 INVERTED_INDEX_SNII_* 码以保语义等价。
+判定 **reuse-with-extension**：删除 doris::snii::Status / SNII_RETURN_IF_ERROR / 双向转换层，全量改用 doris::Status + RETURN_IF_ERROR，并在 Doris ErrorCode 中增补少量 INVERTED_INDEX_SNII_* 码以保语义等价。
 
 依据：
 1. **不触碰磁盘字节**，纯内存错误传播，无格式红线（touches_on_disk=false）。
@@ -17,7 +17,7 @@
 - 错误码：ErrorCode 枚举（status.h:38），已含 INVERTED_INDEX_NOT_SUPPORTED/-FILE_NOT_FOUND/-FILE_CORRUPTED（status.h:290-301）
 
 ### 是否最优
-最优。当前 snii::Status 反而是次优解（多一层有损转换）。唯二需对齐的差异均可解决：
+最优。当前 doris::snii::Status 反而是次优解（多一层有损转换）。唯二需对齐的差异均可解决：
 - **语义保真**（需 extension）：snii `kNotFound` 在 core 实为"越界/逻辑索引缺失"（dict_block_directory.cpp:83、logical_index_directory.cpp:93、snii_segment_reader.cpp:106），映射到 FILE_NOT_FOUND 会误导。
 - **无栈轻量语义**：doris 对 IO_ERROR/CORRUPTION 默认抓栈并 LOG(WARNING)（status.h:440-444），用工厂模板 `stacktrace=false` 关闭即对齐 snii 的无栈语义，避免热路径越界检查抓栈。
 
@@ -39,13 +39,13 @@
 
 **改动步骤**：
 1. 在 be/src/common/status.h 增补 INVERTED_INDEX_SNII_NOT_FOUND（及可选码）。
-2. 删除 be/src/snii/common/status.h 与 core/src/common/status.cpp。
-3. 脚本化重写 core 与 integration：`#include "snii/common/status.h"` → `#include "common/status.h"`；`snii::Status`/`::snii::Status` → `doris::Status`（46 个 core 文件，48 处类型引用）；`SNII_RETURN_IF_ERROR` → `RETURN_IF_ERROR`（570 处）；811 处工厂按映射表重写（务必零参形态避免 fmt 注入，status.h:435 vs :438）。
+2. 删除 be/src/storage/index/snii/common/status.h 与 core/src/common/status.cpp。
+3. 脚本化重写 core 与 integration：`#include "storage/index/snii/common/status.h"` → `#include "common/status.h"`；`doris::snii::Status`/`::doris::snii::Status` → `doris::Status`（46 个 core 文件，48 处类型引用）；`SNII_RETURN_IF_ERROR` → `RETURN_IF_ERROR`（570 处）；811 处工厂按映射表重写（务必零参形态避免 fmt 注入，status.h:435 vs :438）。
 4. 删除 snii_doris_adapter.cpp:34/:59 的 to_doris_status/to_snii_status，及其 28 个调用点（DorisSniiFileWriter/Reader 内 `return to_snii_status(...)` 直接 `return ...`）。
-5. core 命名空间签名（reader/writer/format/query 等返回 `::snii::Status` 的接口）统一改 `doris::Status`。
+5. core 命名空间签名（reader/writer/format/query 等返回 `::doris::snii::Status` 的接口）统一改 `doris::Status`。
 
 **签名示例**：
-`::snii::Status DorisSniiFileReader::read_at(...)` → `Status DorisSniiFileReader::read_at(...)`，内部 `SNII_RETURN_IF_ERROR(_check_read_range(...))` → `RETURN_IF_ERROR(...)`，错误构造按映射表。
+`::doris::snii::Status DorisSniiFileReader::read_at(...)` → `Status DorisSniiFileReader::read_at(...)`，内部 `SNII_RETURN_IF_ERROR(_check_read_range(...))` → `RETURN_IF_ERROR(...)`，错误构造按映射表。
 
 **风险/回滚**：见 risk 字段。建议按目录分批（先 io/encoding，再 format/reader/writer/query，最后 integration），每批独立编译+跑 doris_be_test；迁移期可临时保留转换 shim 兜底跨批接口，全量完成后删除。注入风险务必用零参 Status::Error 形态。
 
@@ -58,7 +58,7 @@
 
 ## TDD 测试计划（R01-status 迁移）—— RED → GREEN → REFACTOR
 
-目标 gtest 目标：`doris_be_test`（be/test），新增 `be/test/storage/index/snii_status_mapping_test.cpp`；回归复用 `be/test/storage/index/snii_query_test.cpp` 与 `be/test/storage/segment/inverted_index_file_reader_test.cpp`（二者已引用 snii::Status，迁移后须随之更新）。
+目标 gtest 目标：`doris_be_test`（be/test），新增 `be/test/storage/index/snii_status_mapping_test.cpp`；回归复用 `be/test/storage/index/snii_query_test.cpp` 与 `be/test/storage/segment/inverted_index_file_reader_test.cpp`（二者已引用 doris::snii::Status，迁移后须随之更新）。
 
 ### 1) 等价性验证（核心，确定性断言）—— 旧码 → 期望 ErrorCode 一一对照
 RED：先写映射断言，迁移前用旧 `to_doris_status` 跑出基线，迁移后用新 throw 点跑：

@@ -26,22 +26,22 @@
 #include <vector>
 
 #include "common/status.h"
-#include "snii/io/file_reader.h"
-#include "snii/io/local_file.h"
-#include "snii/query/boolean_query.h"
-#include "snii/query/phrase_query.h"
-#include "snii/query/prefix_query.h"
-#include "snii/query/regexp_query.h"
-#include "snii/query/term_query.h"
-#include "snii/query/wildcard_query.h"
-#include "snii/reader/logical_index_reader.h"
-#include "snii/reader/snii_segment_reader.h"
-#include "snii/writer/snii_compound_writer.h"
-#include "snii/writer/spimi_term_buffer.h"
+#include "storage/index/snii/io/file_reader.h"
+#include "storage/index/snii/io/local_file.h"
+#include "storage/index/snii/query/boolean_query.h"
+#include "storage/index/snii/query/phrase_query.h"
+#include "storage/index/snii/query/prefix_query.h"
+#include "storage/index/snii/query/regexp_query.h"
+#include "storage/index/snii/query/term_query.h"
+#include "storage/index/snii/query/wildcard_query.h"
+#include "storage/index/snii/reader/logical_index_reader.h"
+#include "storage/index/snii/reader/snii_segment_reader.h"
+#include "storage/index/snii/writer/snii_compound_writer.h"
+#include "storage/index/snii/writer/spimi_term_buffer.h"
 
-using namespace snii;
-using namespace snii::reader;
-using namespace snii::writer;
+using namespace doris::snii;
+using namespace doris::snii::reader;
+using namespace doris::snii::writer;
 using doris::Status;
 
 namespace {
@@ -112,9 +112,9 @@ struct EnvGuard {
     }
 };
 
-void BuildIndexBytes(const Corpus& corpus, snii::format::IndexConfig config,
+void BuildIndexBytes(const Corpus& corpus, doris::snii::format::IndexConfig config,
                      std::vector<uint8_t>* bytes) {
-    SpimiTermBuffer buf(/*has_positions=*/config != snii::format::IndexConfig::kDocsOnly);
+    SpimiTermBuffer buf(/*has_positions=*/config != doris::snii::format::IndexConfig::kDocsOnly);
     for (uint32_t d = 0; d < corpus.docs.size(); ++d) {
         const std::vector<std::string>& terms = corpus.docs[d];
         for (uint32_t pos = 0; pos < terms.size(); ++pos) {
@@ -127,7 +127,7 @@ void BuildIndexBytes(const Corpus& corpus, snii::format::IndexConfig config,
     in.index_suffix = "body";
     in.config = config;
     in.doc_count = static_cast<uint32_t>(corpus.docs.size());
-    if (config == snii::format::IndexConfig::kDocsPositionsScoring) {
+    if (config == doris::snii::format::IndexConfig::kDocsPositionsScoring) {
         in.encoded_norms.assign(corpus.docs.size(), 1);
     }
     in.terms = buf.finalize_sorted();
@@ -187,7 +187,7 @@ TEST(SniiQueryOperatorBoundaries, RejectNullOutputPointers) {
 
 TEST(SniiQueryOperatorBoundaries, EmptyMissingAndSingleTermCasesAreWellDefined) {
     std::vector<uint8_t> bytes;
-    BuildIndexBytes(Corpus {}, snii::format::IndexConfig::kDocsPositionsScoring, &bytes);
+    BuildIndexBytes(Corpus {}, doris::snii::format::IndexConfig::kDocsPositionsScoring, &bytes);
     FaultInjectingReader file(std::move(bytes));
     SniiSegmentReader segment;
     LogicalIndexReader idx = OpenIndex(&file, &segment);
@@ -233,7 +233,7 @@ TEST(SniiQueryOperatorBoundaries, EmptyMissingAndSingleTermCasesAreWellDefined) 
 
 TEST(SniiQueryOperatorBoundaries, PositionQueriesRejectDocsOnlyIndex) {
     std::vector<uint8_t> bytes;
-    BuildIndexBytes(Corpus {}, snii::format::IndexConfig::kDocsOnly, &bytes);
+    BuildIndexBytes(Corpus {}, doris::snii::format::IndexConfig::kDocsOnly, &bytes);
     FaultInjectingReader file(std::move(bytes));
     SniiSegmentReader segment;
     LogicalIndexReader idx = OpenIndex(&file, &segment);
@@ -250,7 +250,7 @@ TEST(SniiQueryOperatorIoErrors, PropagateUnderlyingReadFailures) {
     ::setenv("SNII_DICT_RESIDENT_MAX", "0", 1);
 
     std::vector<uint8_t> bytes;
-    BuildIndexBytes(Corpus {}, snii::format::IndexConfig::kDocsPositionsScoring, &bytes);
+    BuildIndexBytes(Corpus {}, doris::snii::format::IndexConfig::kDocsPositionsScoring, &bytes);
     FaultInjectingReader file(std::move(bytes));
     SniiSegmentReader segment;
     LogicalIndexReader idx = OpenIndex(&file, &segment);

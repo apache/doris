@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "snii/encoding/crc32c.h"
+#include "storage/index/snii/encoding/crc32c.h"
 
 #include <gtest/gtest.h>
 
@@ -24,28 +24,28 @@
 #include "common/status.h"
 
 // Integrated crc32c.h pulls in the thirdparty `namespace crc32c`, so a blanket
-// `using namespace snii;` makes a bare crc32c() call ambiguous; pull in only the
-// Slice type and qualify the snii::crc32c free functions explicitly.
-using snii::Slice;
+// `using namespace doris::snii;` makes a bare crc32c() call ambiguous; pull in only the
+// Slice type and qualify the doris::snii::crc32c free functions explicitly.
+using doris::snii::Slice;
 
 // leveldb/RocksDB standard CRC32C(Castagnoli) test vectors.
 TEST(SniiCrc32c, KnownVectors) {
     std::vector<uint8_t> zeros(32, 0x00);
-    EXPECT_EQ(snii::crc32c(Slice(zeros)), 0x8a9136aaU);
+    EXPECT_EQ(doris::snii::crc32c(Slice(zeros)), 0x8a9136aaU);
     std::vector<uint8_t> ff(32, 0xff);
-    EXPECT_EQ(snii::crc32c(Slice(ff)), 0x62a8ab43U);
+    EXPECT_EQ(doris::snii::crc32c(Slice(ff)), 0x62a8ab43U);
     std::vector<uint8_t> ramp(32);
     for (int i = 0; i < 32; ++i) {
         ramp[i] = static_cast<uint8_t>(i);
     }
-    EXPECT_EQ(snii::crc32c(Slice(ramp)), 0x46dd794eU);
+    EXPECT_EQ(doris::snii::crc32c(Slice(ramp)), 0x46dd794eU);
 }
 
 TEST(SniiCrc32c, ExtendEqualsContiguous) {
     std::vector<uint8_t> v {1, 2, 3, 4, 5, 6, 7, 8};
-    uint32_t whole = snii::crc32c(Slice(v));
-    uint32_t part = snii::crc32c(Slice(v.data(), 4));
-    part = snii::crc32c_extend(part, Slice(v.data() + 4, 4));
+    uint32_t whole = doris::snii::crc32c(Slice(v));
+    uint32_t part = doris::snii::crc32c(Slice(v.data(), 4));
+    part = doris::snii::crc32c_extend(part, Slice(v.data() + 4, 4));
     EXPECT_EQ(whole, part);
 }
 
@@ -75,7 +75,7 @@ TEST(SniiCrc32c, MatchesScalarReferenceAllLengths) {
     data.reserve(2048);
     uint32_t x = 0x12345678U;
     for (size_t len = 0; len <= 2048; ++len) {
-        EXPECT_EQ(snii::crc32c(Slice(data)), crc32c_ref(data)) << "len=" << len;
+        EXPECT_EQ(doris::snii::crc32c(Slice(data)), crc32c_ref(data)) << "len=" << len;
         // Pseudo-random next byte (xorshift) so the stream is non-trivial.
         x ^= x << 13;
         x ^= x >> 17;
@@ -91,10 +91,10 @@ TEST(SniiCrc32c, ExtendAcrossArbitrarySplits) {
     for (size_t i = 0; i < data.size(); ++i) {
         data[i] = static_cast<uint8_t>(i * 7 + 1);
     }
-    const uint32_t whole = snii::crc32c(Slice(data));
+    const uint32_t whole = doris::snii::crc32c(Slice(data));
     for (size_t split : {0U, 1U, 7U, 8U, 9U, 16U, 100U, 299U, 300U}) {
-        uint32_t c = snii::crc32c(Slice(data.data(), split));
-        c = snii::crc32c_extend(c, Slice(data.data() + split, data.size() - split));
+        uint32_t c = doris::snii::crc32c(Slice(data.data(), split));
+        c = doris::snii::crc32c_extend(c, Slice(data.data() + split, data.size() - split));
         EXPECT_EQ(c, whole) << "split=" << split;
     }
 }

@@ -26,7 +26,7 @@
 
 - **风险**：唯一采纳的在盘复用。风险点是「校验值是否逐字节一致」。SNII 用 Castagnoli 多项式（0x1EDC6F41 / 位反射 0x82F63B78）+ 标准 `~crc` 预/后取反，与 Google crc32c 库（RocksDB/LevelDB 同源）规范值一致。次要：`crc32c_extend` 的链式语义——SNII 入口/出口取反，Google `Extend` 遵循相同约定；当前 SNII 全部调用点均为一次性 `crc32c(slice)=Extend(0,...)`（grep 未见非零 crc 的 extend），链式差异不触发。
 - **缓解黄金测试**：crc32c 黄金向量测试 + 既有 on-disk 校验回放，证明 `crc32c::Crc32c(data)` 与 SNII 实现对同一字节串结果完全一致。**测试绿后方可切换**。
-- **KEEP fallback**：若任一向量不一致即属格式变更，立即恢复 `crc32c.cpp`，header API（`snii::crc32c(Slice)` wrapper）不变，零成本回退。
+- **KEEP fallback**：若任一向量不一致即属格式变更，立即恢复 `crc32c.cpp`，header API（`doris::snii::crc32c(Slice)` wrapper）不变，零成本回退。
 
 ---
 
@@ -49,5 +49,5 @@
 ## R08 — SectionFramer 段封装 ｜ byte_compat = incompatible ｜ 判定 KEEP（无等价物）
 
 - **风险**：Doris **无等价的段封装工具**。SNII framing `[u8 type][varint64 len][payload][fixed32 crc32c(type+len+payload)]` 是 format v2 定义本身。最接近的 `PageIO` 用 protobuf `PageFooterPB` + `footer_length(uint32)` + checksum，字节布局、校验范围、类型分发机制全不同，无法承载 SNII 的 type 分发 + 跳过未知可选段。换用 = 格式变更。
-- **缓解黄金测试**：SectionFramer round-trip + 历史样本回放（验证 type/len/crc framing 字节不变）；并绑定 R05 crc32c 字节一致性（framer 经 `snii::crc32c(framed.view())` 委托校验）。
-- **KEEP fallback**：保留 `section_framer.{h,cpp}`。唯一外部依赖是 `snii::crc32c`（R05）——只要 R05 维持 KEEP 或做到字节一致替换，本组件不受影响。
+- **缓解黄金测试**：SectionFramer round-trip + 历史样本回放（验证 type/len/crc framing 字节不变）；并绑定 R05 crc32c 字节一致性（framer 经 `doris::snii::crc32c(framed.view())` 委托校验）。
+- **KEEP fallback**：保留 `section_framer.{h,cpp}`。唯一外部依赖是 `doris::snii::crc32c`（R05）——只要 R05 维持 KEEP 或做到字节一致替换，本组件不受影响。

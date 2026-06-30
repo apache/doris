@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "snii/query/internal/docid_set_ops.h"
+#include "storage/index/snii/query/internal/docid_set_ops.h"
 
 #include <gtest/gtest.h>
 
@@ -45,7 +45,7 @@ TEST(SniiDocIdSetOps, UnionSortedManyDeduplicatesHighOverlapLists) {
         lists.push_back(Range(i % 17, 10000, 17));
     }
 
-    const std::vector<uint32_t> got = snii::query::internal::union_sorted_many(lists);
+    const std::vector<uint32_t> got = doris::snii::query::internal::union_sorted_many(lists);
 
     EXPECT_EQ(got, Range(0, 10000));
     EXPECT_TRUE(std::ranges::is_sorted(got));
@@ -55,7 +55,7 @@ TEST(SniiDocIdSetOps, UnionSortedManyDeduplicatesHighOverlapLists) {
 TEST(SniiDocIdSetOps, UnionSortedManyMergesDisjointLists) {
     const std::vector<std::vector<uint32_t>> lists = {{0, 3, 6}, {1, 4, 7}, {}, {2, 5, 8}};
 
-    const std::vector<uint32_t> got = snii::query::internal::union_sorted_many(lists);
+    const std::vector<uint32_t> got = doris::snii::query::internal::union_sorted_many(lists);
 
     EXPECT_EQ(got, Range(0, 9));
 }

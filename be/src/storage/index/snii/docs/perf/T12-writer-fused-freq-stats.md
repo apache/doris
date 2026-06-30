@@ -4,7 +4,7 @@
 
 **问题（finding F48，LOW，redundant-decode）**：在索引构建编码路径上，每个 term 的 `freqs` 数组被全量扫描 3-4 次，其中 2-3 次产出 bit-identical 的相同 sum，纯属浪费内存带宽。
 
-证据（均在 `be/src/storage/index/snii/core/src/writer/logical_index_writer.cpp`，经本人复读确认）：
+证据（均在 `be/src/storage/index/snii/writer/logical_index_writer.cpp`，经本人复读确认）：
 - `SumOf` 定义 `:139-143`，`MaxOf` 定义 `:131-137`。
 - `validate_term` 在 `has_prx_` 时对 `tp.freqs` 求和：`:357-367`（循环体 `:358-359`）。
 - `process_term` 为 stats 再次求和：`:540` `stats_.sum_total_term_freq += SumOf(tp.freqs);`。
@@ -19,12 +19,12 @@
 
 仅 writer 侧两文件：
 
-**`be/src/snii/writer/logical_index_writer.h`**
+**`be/src/storage/index/snii/writer/logical_index_writer.h`**
 - `Status validate_term(const TermPostings& tp) const;`（`:165`）— 改签名接收预算 total_freq。
-- `Status build_entry(TermPostings& tp, uint64_t frq_base, uint64_t prx_base, snii::format::DictEntry* e);`（`:183`）— 改签名接收预算 freq 统计。
+- `Status build_entry(TermPostings& tp, uint64_t frq_base, uint64_t prx_base, doris::snii::format::DictEntry* e);`（`:183`）— 改签名接收预算 freq 统计。
 - 新增 test-only seam 声明（见 §3）。
 
-**`be/src/storage/index/snii/core/src/writer/logical_index_writer.cpp`**
+**`be/src/storage/index/snii/writer/logical_index_writer.cpp`**
 - 匿名命名空间 `SumOf`(`:139`)、`MaxOf`(`:131`)：保留（其它路径如 build_windowed_entry 仍可能用 MaxOf 于 docs/window；但 term 级路径不再调用它们）。新增融合 helper。
 - `validate_term`(`:353-374`)、`build_entry`(`:477-488`)、`process_term`(`:534-560`)：改动主体。
 
@@ -43,7 +43,7 @@ struct FreqStats {
     uint32_t max_freq = 0;
 };
 FreqStats fuse_freq_stats(const std::vector<uint32_t>& freqs) {
-    snii::writer::testing::note_term_freq_scan(); // op-count seam（见 3.4）
+    doris::snii::writer::testing::note_term_freq_scan(); // op-count seam（见 3.4）
     FreqStats fs;
     for (uint32_t f : freqs) {
         fs.total_freq += f;
@@ -59,7 +59,7 @@ FreqStats fuse_freq_stats(const std::vector<uint32_t>& freqs) {
 Status LogicalIndexWriter::process_term(TermPostings& tp, BlockState* st) {
     const FreqStats fs = fuse_freq_stats(tp.freqs);   // 唯一一次 term 级扫描
     SNII_RETURN_IF_ERROR(validate_term(tp, fs.total_freq));
-    term_hashes_.push_back(snii::format::bsbf_hash(tp.term));
+    term_hashes_.push_back(doris::snii::format::bsbf_hash(tp.term));
     ++term_count_;
     stats_.sum_total_term_freq += fs.total_freq;        // 复用，不再 SumOf
     ... // block open 逻辑不变
@@ -78,12 +78,12 @@ Status LogicalIndexWriter::process_term(TermPostings& tp, BlockState* st) {
   - `e->max_freq = fs.max_freq;`（替换 `:482`）
   - 其余分流 windowed/slim 不变。
 
-> `FreqStats` 定义需对 .h 可见（build_entry 签名引用）。方案：在 `logical_index_writer.h` 的 `snii::writer` 命名空间内定义轻量 `struct FreqStats { uint64_t total_freq=0; uint32_t max_freq=0; };`，.cpp 的 `fuse_freq_stats` 返回它。
+> `FreqStats` 定义需对 .h 可见（build_entry 签名引用）。方案：在 `logical_index_writer.h` 的 `doris::snii::writer` 命名空间内定义轻量 `struct FreqStats { uint64_t total_freq=0; uint32_t max_freq=0; };`，.cpp 的 `fuse_freq_stats` 返回它。
 
 ### 3.4 op-count 测试 seam
 仿 spec §4 的 `dict_decode_counter()` 模式，新增 task-local seam（声明于 .h，定义于 .cpp）：
 ```cpp
-namespace snii::writer::testing {
+namespace doris::snii::writer::testing {
 void   note_term_freq_scan();      // 每次 term 级 fused 扫描 +1
 uint64_t term_freq_scans();        // 自上次 reset 起的累计值
 void   reset_term_freq_scans();    // 测试间清零

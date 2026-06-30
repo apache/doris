@@ -12,12 +12,12 @@
 
 ### 2. 影响的文件/函数（现签名）
 
-- `be/src/storage/index/snii/core/src/format/frq_prelude.cpp`
+- `be/src/storage/index/snii/format/frq_prelude.cpp`
   - `encode_window_row(const WindowMeta& m, bool has_freq, bool has_prx, uint64_t prev_last, ByteSink* block)`（`:90`）——序列化端，去掉 3 个 off + 条件化 2 个 uncomp_len。
   - `decode_window_row(ByteSource* src, bool has_freq, bool has_prx, bool first_window, uint64_t* prev_last, WindowMeta* m)`（`:281`）——解码端，新增 running off 推导。
   - `decode_one_block(...)`（`:326`）、`decode_all_blocks(...)`（`:345`）——需把 running dd/freq/prx 累加器穿过（与现有 `prev_last` 同样跨块链接）。
   - `validate_region_layout(...)`（`:372`）——`m.dd_off==dd_expect` 检查变为恒真（推导得到），保留长度溢出检查 + `dd_block_len/freq_block_len` 汇总。
-- `be/src/snii/format/frq_prelude.h`——更新文件头的 on-disk layout 注释块（删除 `dd_off/freq_off/prx_off` 行，标注 `*_uncomp_len` 为条件字段）；`WindowMeta`/`FrqPreludeReader` 公开签名**不变**。
+- `be/src/storage/index/snii/format/frq_prelude.h`——更新文件头的 on-disk layout 注释块（删除 `dd_off/freq_off/prx_off` 行，标注 `*_uncomp_len` 为条件字段）；`WindowMeta`/`FrqPreludeReader` 公开签名**不变**。
 - 不改 writer 数据流：`LayoutWindowRegions`（`logical_index_writer.cpp:204`）仍填 `m->dd_off/freq_off`，`BuildWindowedPosting`（`:300`）仍填 `m->prx_off`——这些 in-memory 字段被读端继续暴露，只是不再被 `encode_window_row` 序列化。
 - **调用方零改动**：`scoring_query.cpp`、`docid_conjunction.cpp:817`、`reader/windowed_posting.cpp:106-118` 仅消费 `FrqPreludeReader` 公开 API（`window()`/`dd_block_len()`/`locate_window()`），返回的 `WindowMeta` 仍含 `dd_off/freq_off/prx_off`（现为推导值）。
 

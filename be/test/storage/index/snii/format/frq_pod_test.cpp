@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "snii/format/frq_pod.h"
+#include "storage/index/snii/format/frq_pod.h"
 
 #include <gtest/gtest.h>
 
@@ -23,18 +23,18 @@
 #include <vector>
 
 #include "common/status.h"
-#include "snii/common/slice.h"
-#include "snii/encoding/byte_sink.h"
-#include "snii/encoding/crc32c.h"
+#include "storage/index/snii/common/slice.h"
+#include "storage/index/snii/encoding/byte_sink.h"
+#include "storage/index/snii/encoding/crc32c.h"
 
-using snii::ByteSink;
-using snii::Slice;
+using doris::snii::ByteSink;
+using doris::snii::Slice;
 using doris::Status;
-using snii::format::build_dd_region;
-using snii::format::build_freq_region;
-using snii::format::decode_dd_region;
-using snii::format::decode_freq_region;
-using snii::format::FrqRegionMeta;
+using doris::snii::format::build_dd_region;
+using doris::snii::format::build_freq_region;
+using doris::snii::format::decode_dd_region;
+using doris::snii::format::decode_freq_region;
+using doris::snii::format::FrqRegionMeta;
 
 namespace {
 
@@ -326,7 +326,7 @@ TEST(SniiFrqPod, DdRegionTrailingBytesRejected) {
     // accepts the slice; only the payload-level eof() check can reject it.
     meta.disk_len = bytes.size();
     meta.uncomp_len = bytes.size();
-    meta.crc = snii::crc32c(Slice(bytes));
+    meta.crc = doris::snii::crc32c(Slice(bytes));
     U32Vec out_docs;
     Status s = decode_dd_region(Slice(bytes), meta, 0, &out_docs);
     EXPECT_TRUE(s.is<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>());
@@ -344,7 +344,7 @@ TEST(SniiFrqPod, FreqRegionTrailingBytesRejected) {
     bytes.push_back(0x00); // garbage trailing byte appended to the plaintext
     meta.disk_len = bytes.size();
     meta.uncomp_len = bytes.size();
-    meta.crc = snii::crc32c(Slice(bytes));
+    meta.crc = doris::snii::crc32c(Slice(bytes));
     U32Vec out_freqs;
     Status s = decode_freq_region(Slice(bytes), meta, freqs.size(), &out_freqs);
     EXPECT_TRUE(s.is<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>());

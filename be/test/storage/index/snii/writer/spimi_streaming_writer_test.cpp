@@ -24,15 +24,15 @@
 #include <vector>
 
 #include "common/status.h"
-#include "snii/format/format_constants.h"
-#include "snii/io/local_file.h"
-#include "snii/writer/logical_index_writer.h"
-#include "snii/writer/snii_compound_writer.h"
-#include "snii/writer/spimi_term_buffer.h"
+#include "storage/index/snii/format/format_constants.h"
+#include "storage/index/snii/io/local_file.h"
+#include "storage/index/snii/writer/logical_index_writer.h"
+#include "storage/index/snii/writer/snii_compound_writer.h"
+#include "storage/index/snii/writer/spimi_term_buffer.h"
 
-using namespace snii;
-using namespace snii::format;
-using namespace snii::writer;
+using namespace doris::snii;
+using namespace doris::snii::format;
+using namespace doris::snii::writer;
 
 namespace {
 

@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "snii/io/local_file.h"
+#include "storage/index/snii/io/local_file.h"
 
 #include <gtest/gtest.h>
 
@@ -25,9 +25,9 @@
 
 #include "common/status.h"
 
-using namespace snii;
-using snii::io::LocalFileReader;
-using snii::io::LocalFileWriter;
+using namespace doris::snii;
+using doris::snii::io::LocalFileReader;
+using doris::snii::io::LocalFileWriter;
 
 namespace {
 

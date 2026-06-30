@@ -5,9 +5,9 @@
 **Finding 映射：F02 [HIGH]（query-scoring-expansion）。**
 
 问题（证据均为本仓库实读 file:line）：
-- `be/src/storage/index/snii/core/src/query/regexp_query.cpp:77-79` 每次查询用 `std::regex re = std::regex(std::string(pattern))` 编译一个 libstdc++ `std::regex`；
+- `be/src/storage/index/snii/query/regexp_query.cpp:77-79` 每次查询用 `std::regex re = std::regex(std::string(pattern))` 编译一个 libstdc++ `std::regex`；
 - `regexp_query.cpp:87` 把 `[&re](std::string_view term){ return std::regex_match(term.begin(), term.end(), re); }` 作为 matcher 传入 `internal::emit_expanded_docid_union`；
-- `be/src/storage/index/snii/core/src/query/term_expansion.cpp:26` 在 `idx.visit_prefix_terms` 回调里对**每个被扫描的字典 term**调用一次 `matches(hit.term)`，即每 term 一次 `std::regex_match`。
+- `be/src/storage/index/snii/query/term_expansion.cpp:26` 在 `idx.visit_prefix_terms` 回调里对**每个被扫描的字典 term**调用一次 `matches(hit.term)`，即每 term 一次 `std::regex_match`。
 - 前缀收窄函数 `literal_prefix_for_regex`（`regexp_query.cpp:36-50`）在遇到第一个元字符（含 `.`）即停止，因此形如 `.*foo`、`^(order)` 的 pattern 返回**空前缀**，导致 `visit_prefix_terms` 退化为**全字典扫描**，对每个 term 都跑一次 std::regex_match。
 
 libstdc++ 的 `std::regex` 单次匹配开销远高于 RE2（业界普遍 10-50x，且固定开销高）。当 pattern 无字面前缀时，"高单次开销 × 全字典基数"正是 CPU 热点。
@@ -18,13 +18,13 @@ libstdc++ 的 `std::regex` 单次匹配开销远高于 RE2（业界普遍 10-50x
 
 ## 2. 影响的文件/函数
 
-**主改文件**：`be/src/storage/index/snii/core/src/query/regexp_query.cpp`
+**主改文件**：`be/src/storage/index/snii/query/regexp_query.cpp`
 - `Status regexp_query(const LogicalIndexReader& idx, std::string_view pattern, DocIdSink* sink, int32_t max_expansions)`（`:71-89`）——核心三参重载，所有重载最终汇聚于此（`:54-69` 的两个重载分别委托到 sink 版与加 `QueryProfileScope`）。
 - 匿名命名空间内 `is_regex_metachar`（`:14-34`）、`literal_prefix_for_regex`（`:36-50`）——保留为 fallback。
 
-**头文件**：`be/src/snii/query/regexp_query.h`（`:12-14` 注释需更新为 RE2 FullMatch 语义；签名不变）。
+**头文件**：`be/src/storage/index/snii/query/regexp_query.h`（`:12-14` 注释需更新为 RE2 FullMatch 语义；签名不变）。
 
-**不改**：`be/src/storage/index/snii/core/src/query/term_expansion.cpp` 与 `be/src/snii/query/internal/term_expansion.h`——`TermMatcher = std::function<bool(std::string_view)>`（`term_expansion.h:13`）保持不变，新 matcher 闭包仍符合该签名。
+**不改**：`be/src/storage/index/snii/query/term_expansion.cpp` 与 `be/src/storage/index/snii/query/internal/term_expansion.h`——`TermMatcher = std::function<bool(std::string_view)>`（`term_expansion.h:13`）保持不变，新 matcher 闭包仍符合该签名。
 
 **当前签名（保持对外不变）**：
 ```cpp
@@ -60,9 +60,9 @@ return internal::emit_expanded_docid_union(
 - 方言由 ECMAScript 切到 RE2(Google) 语法；这是与 Doris legacy/query_v2 **趋同**而非发散。非法/不支持的 pattern（backreference、lookaround）经 `re.ok()` 判定，返回 `Status::InvalidArgument`，**不抛异常**（遵守规范 §8："regexp 用 RE2，非法 pattern 经 re2.ok() 返回 InvalidArgument，不抛异常"）。
 
 ### 3.2 前缀收窄（确定性性能项，遵守 CAVEAT 3）
-新增可测的自由函数（放匿名命名空间外，便于单测；声明进 `be/src/snii/query/internal/regex_prefix.h`，实现留在 `regexp_query.cpp`）：
+新增可测的自由函数（放匿名命名空间外，便于单测；声明进 `be/src/storage/index/snii/query/internal/regex_prefix.h`，实现留在 `regexp_query.cpp`）：
 ```cpp
-namespace snii::query::internal {
+namespace doris::snii::query::internal {
 // 锚定(^)pattern 用 RE2 PossibleMatchRange 取 [min,max] 公共前缀；
 // 否则回退到保守的 literal_prefix_for_regex。返回的前缀只用于缩小
 // visit_prefix_terms 的枚举范围，最终匹配仍由 RE2::FullMatch 决定，故任何

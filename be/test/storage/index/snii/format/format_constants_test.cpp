@@ -15,13 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "snii/format/format_constants.h"
+#include "storage/index/snii/format/format_constants.h"
 
 #include <gtest/gtest.h>
 
 #include "common/status.h"
 
-using namespace snii::format;
+using namespace doris::snii::format;
 
 // Lock down on-disk contract values to prevent accidental changes from breaking
 // readability of already-written files.

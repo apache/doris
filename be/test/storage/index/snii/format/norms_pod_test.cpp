@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "snii/format/norms_pod.h"
+#include "storage/index/snii/format/norms_pod.h"
 
 #include <gtest/gtest.h>
 
@@ -23,15 +23,15 @@
 #include <vector>
 
 #include "common/status.h"
-#include "snii/common/slice.h"
-#include "snii/encoding/byte_sink.h"
-#include "snii/encoding/section_framer.h"
-#include "snii/format/format_constants.h"
+#include "storage/index/snii/common/slice.h"
+#include "storage/index/snii/encoding/byte_sink.h"
+#include "storage/index/snii/encoding/section_framer.h"
+#include "storage/index/snii/format/format_constants.h"
 
-using namespace snii;
+using namespace doris::snii;
 using doris::Status; // RETURN_IF_ERROR expands to bare Status
-using snii::format::NormsPodReader;
-using snii::format::NormsPodWriter;
+using doris::snii::format::NormsPodReader;
+using doris::snii::format::NormsPodWriter;
 
 namespace {
 
@@ -135,8 +135,9 @@ TEST(SniiNormsPod, DetectsLengthMismatch) {
 
     ByteSink sink;
     // Reuse the framer to ensure a self-consistent CRC, specifically to trigger the length-mismatch branch.
-    snii::SectionFramer::write(sink, static_cast<uint8_t>(snii::format::SectionType::kStatsBlock),
-                               payload.view());
+    doris::snii::SectionFramer::write(
+            sink, static_cast<uint8_t>(doris::snii::format::SectionType::kStatsBlock),
+            payload.view());
 
     NormsPodReader reader;
     Status s = NormsPodReader::open(sink.view(), &reader);

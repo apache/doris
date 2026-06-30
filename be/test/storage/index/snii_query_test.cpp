@@ -31,35 +31,35 @@
 #include <utility>
 #include <vector>
 
-#include "snii/common/slice.h"
-#include "snii/encoding/byte_sink.h"
-#include "snii/encoding/byte_source.h"
-#include "snii/encoding/pfor.h"
-#include "snii/format/format_constants.h"
-#include "snii/format/phrase_bigram.h"
-#include "snii/format/prx_pod.h"
-#include "snii/format/tail_pointer.h"
-#include "snii/io/file_reader.h"
-#include "snii/io/file_writer.h"
-#include "snii/query/docid_sink.h"
-#include "snii/query/internal/regex_prefix.h"
-#include "snii/query/internal/term_expansion.h"
-#include "snii/query/phrase_query.h"
-#include "snii/query/prefix_query.h"
-#include "snii/query/regexp_query.h"
-#include "snii/query/term_query.h"
-#include "snii/query/wildcard_query.h"
-#include "snii/reader/dict_block_cache.h"
-#include "snii/reader/logical_index_reader.h"
-#include "snii/reader/snii_segment_reader.h"
-#include "snii/writer/snii_compound_writer.h"
-#include "snii/writer/spimi_term_buffer.h"
+#include "storage/index/snii/common/slice.h"
+#include "storage/index/snii/encoding/byte_sink.h"
+#include "storage/index/snii/encoding/byte_source.h"
+#include "storage/index/snii/encoding/pfor.h"
+#include "storage/index/snii/format/format_constants.h"
+#include "storage/index/snii/format/phrase_bigram.h"
+#include "storage/index/snii/format/prx_pod.h"
+#include "storage/index/snii/format/tail_pointer.h"
+#include "storage/index/snii/io/file_reader.h"
+#include "storage/index/snii/io/file_writer.h"
+#include "storage/index/snii/query/docid_sink.h"
+#include "storage/index/snii/query/internal/regex_prefix.h"
+#include "storage/index/snii/query/internal/term_expansion.h"
+#include "storage/index/snii/query/phrase_query.h"
+#include "storage/index/snii/query/prefix_query.h"
+#include "storage/index/snii/query/regexp_query.h"
+#include "storage/index/snii/query/term_query.h"
+#include "storage/index/snii/query/wildcard_query.h"
+#include "storage/index/snii/reader/dict_block_cache.h"
+#include "storage/index/snii/reader/logical_index_reader.h"
+#include "storage/index/snii/reader/snii_segment_reader.h"
+#include "storage/index/snii/writer/snii_compound_writer.h"
+#include "storage/index/snii/writer/spimi_term_buffer.h"
 
-namespace snii::query {
+namespace doris::snii::query {
 using doris::Status; // RETURN_IF_ERROR expands to bare Status
 namespace {
 
-class MemoryFile final : public snii::io::FileReader, public snii::io::FileWriter {
+class MemoryFile final : public doris::snii::io::FileReader, public doris::snii::io::FileWriter {
 public:
     struct Read {
         uint64_t offset = 0;
@@ -297,14 +297,14 @@ Status build_reader(MemoryFile* file, reader::SniiSegmentReader* segment_reader,
 // fetch() barrier issues exactly one read_batch (== one batched/remote serial round),
 // so this isolates the number of I/O rounds a query plan emits. Single read_at() calls
 // (dict-block / BSBF loads) delegate straight through and are intentionally not counted.
-class BatchRoundCountingReader final : public snii::io::FileReader {
+class BatchRoundCountingReader final : public doris::snii::io::FileReader {
 public:
-    explicit BatchRoundCountingReader(snii::io::FileReader* inner) : inner_(inner) {}
+    explicit BatchRoundCountingReader(doris::snii::io::FileReader* inner) : inner_(inner) {}
 
     Status read_at(uint64_t offset, size_t len, std::vector<uint8_t>* out) override {
         return inner_->read_at(offset, len, out);
     }
-    Status read_batch(const std::vector<snii::io::Range>& ranges,
+    Status read_batch(const std::vector<doris::snii::io::Range>& ranges,
                       std::vector<std::vector<uint8_t>>* outs) override {
         ++batch_rounds_;
         return inner_->read_batch(ranges, outs);
@@ -315,7 +315,7 @@ public:
     void reset_rounds() { batch_rounds_ = 0; }
 
 private:
-    snii::io::FileReader* inner_;
+    doris::snii::io::FileReader* inner_;
     size_t batch_rounds_ = 0;
 };
 
@@ -341,7 +341,7 @@ std::vector<uint32_t> slim_pod_ref_docids() {
 // "paa pbb pcc" matches every shared doc. The index is opened through
 // `read_through` (e.g. a counting decorator wrapping `file`). `shared_docids`
 // returns the docid set, which equals the expected phrase result.
-Status build_slim_pod_ref_phrase_reader(MemoryFile* file, snii::io::FileReader* read_through,
+Status build_slim_pod_ref_phrase_reader(MemoryFile* file, doris::snii::io::FileReader* read_through,
                                         reader::SniiSegmentReader* segment_reader,
                                         reader::LogicalIndexReader* index_reader,
                                         std::vector<uint32_t>* shared_docids) {
@@ -1207,13 +1207,13 @@ TEST(SniiPrxPodTest, AutoCodecKeepsPforForTinyWindows) {
 TEST(SniiPforTest, LowBitWidthFastPathsRoundTrip) {
     auto assert_round_trip = [](const std::vector<uint32_t>& values, uint8_t expected_width) {
         ByteSink sink;
-        snii::pfor_encode(values.data(), values.size(), &sink);
+        doris::snii::pfor_encode(values.data(), values.size(), &sink);
         ASSERT_FALSE(sink.buffer().empty());
         EXPECT_EQ(sink.buffer().front(), expected_width);
 
         std::vector<uint32_t> decoded(values.size(), 0xFFFFFFFF);
         ByteSource source(sink.view());
-        assert_ok(snii::pfor_decode(&source, values.size(), decoded.data()));
+        assert_ok(doris::snii::pfor_decode(&source, values.size(), decoded.data()));
         EXPECT_TRUE(source.eof());
         EXPECT_EQ(decoded, values);
     };
@@ -1282,7 +1282,7 @@ std::string many_term_key(uint32_t i) {
 
 // Builds an index of `n_terms` tiny docs-only terms with a small target block
 // size so the dictionary spans several DICT blocks, opened through `read_through`.
-Status build_multi_block_reader(MemoryFile* file, snii::io::FileReader* read_through,
+Status build_multi_block_reader(MemoryFile* file, doris::snii::io::FileReader* read_through,
                                 reader::SniiSegmentReader* segment_reader,
                                 reader::LogicalIndexReader* index_reader, uint32_t n_terms) {
     writer::SniiIndexInput input = make_many_term_input(21, "Body", n_terms);
@@ -1302,9 +1302,9 @@ Status build_multi_block_reader(MemoryFile* file, snii::io::FileReader* read_thr
 // concurrency test without racing on its own bookkeeping. Test infra only -- the
 // production FileReader (Doris IO / S3) is itself concurrent-read safe; this lock
 // is NOT part of the reader under test and never wraps a decode.
-class LockedFileReader final : public snii::io::FileReader {
+class LockedFileReader final : public doris::snii::io::FileReader {
 public:
-    explicit LockedFileReader(snii::io::FileReader* inner) : inner_(inner) {}
+    explicit LockedFileReader(doris::snii::io::FileReader* inner) : inner_(inner) {}
     Status read_at(uint64_t offset, size_t len, std::vector<uint8_t>* out) override {
         std::lock_guard<std::mutex> guard(mu_);
         return inner_->read_at(offset, len, out);
@@ -1312,7 +1312,7 @@ public:
     uint64_t size() const override { return inner_->size(); }
 
 private:
-    snii::io::FileReader* inner_;
+    doris::snii::io::FileReader* inner_;
     std::mutex mu_;
 };
 
@@ -1398,13 +1398,13 @@ TEST(SniiLogicalReaderTest, OnDemandLookupDecompressesBlockOncePerUniqueBlock) {
     reader::LogicalIndexReader index_reader;
     assert_ok(build_reader(&file, &segment_reader, &index_reader));
 
-    snii::testing::reset_dict_decode_counter();
+    doris::snii::testing::reset_dict_decode_counter();
     reader::DictBlockCache cache;
     for (int i = 0; i < 5; ++i) {
         const t04::LookupResult r = t04::do_lookup(index_reader, "failed", &cache);
         EXPECT_TRUE(r.found);
     }
-    EXPECT_EQ(snii::testing::dict_decode_counter(), 1U);
+    EXPECT_EQ(doris::snii::testing::dict_decode_counter(), 1U);
 }
 
 // The headline gate: a multi-term query whose terms fall in the same DICT block
@@ -1420,19 +1420,19 @@ TEST(SniiLogicalReaderTest, SharedDictBlockDecodesOncePerQuery) {
     const std::vector<std::string_view> terms = {"failed", "order", "driver"};
 
     // With one request-scoped cache: the shared block decodes once.
-    snii::testing::reset_dict_decode_counter();
+    doris::snii::testing::reset_dict_decode_counter();
     reader::DictBlockCache cache;
     for (std::string_view t : terms) {
         EXPECT_TRUE(t04::do_lookup(index_reader, t, &cache).found);
     }
-    EXPECT_EQ(snii::testing::dict_decode_counter(), 1U); // == unique_blocks
+    EXPECT_EQ(doris::snii::testing::dict_decode_counter(), 1U); // == unique_blocks
 
     // Baseline (no cache): each term re-decodes the same block.
-    snii::testing::reset_dict_decode_counter();
+    doris::snii::testing::reset_dict_decode_counter();
     for (std::string_view t : terms) {
         EXPECT_TRUE(t04::do_lookup(index_reader, t, nullptr).found);
     }
-    EXPECT_EQ(snii::testing::dict_decode_counter(), terms.size());
+    EXPECT_EQ(doris::snii::testing::dict_decode_counter(), terms.size());
 }
 
 // New/old equivalence: the on-demand + cache path returns exactly what the
@@ -1505,16 +1505,16 @@ TEST(SniiLogicalReaderTest, PrefixEnumerationReusesCachedBlocks) {
     assert_ok(t04::build_multi_block_reader(&file, &file, &seg, &idx, kTerms));
 
     reader::DictBlockCache cache(/*max_entries=*/128);
-    snii::testing::reset_dict_decode_counter();
+    doris::snii::testing::reset_dict_decode_counter();
 
     std::vector<reader::LogicalIndexReader::PrefixHit> hits1;
     assert_ok(idx.prefix_terms("term_", &hits1, 0, &cache));
-    const uint64_t blocks = snii::testing::dict_decode_counter();
+    const uint64_t blocks = doris::snii::testing::dict_decode_counter();
     EXPECT_GE(blocks, 2U); // genuinely multi-block (else the reuse gate is vacuous)
 
     std::vector<reader::LogicalIndexReader::PrefixHit> hits2;
     assert_ok(idx.prefix_terms("term_", &hits2, 0, &cache));
-    EXPECT_EQ(snii::testing::dict_decode_counter(), blocks); // second pass: no re-decode
+    EXPECT_EQ(doris::snii::testing::dict_decode_counter(), blocks); // second pass: no re-decode
 
     std::vector<std::string> got1;
     std::vector<std::string> got2;
@@ -1582,13 +1582,13 @@ TEST(SniiLogicalReaderTest, SmallCacheReloadsEvictedBlockCorrectly) {
     const std::string last = t04::many_term_key(kTerms - 1); // largest  -> last block
 
     reader::DictBlockCache cache(/*max_entries=*/1);
-    snii::testing::reset_dict_decode_counter();
+    doris::snii::testing::reset_dict_decode_counter();
 
     const t04::LookupResult first_a = t04::do_lookup(idx, first, &cache);
-    const uint64_t after_first = snii::testing::dict_decode_counter();
+    const uint64_t after_first = doris::snii::testing::dict_decode_counter();
     EXPECT_TRUE(t04::do_lookup(idx, last, &cache).found);                 // evicts block 0
     const t04::LookupResult first_b = t04::do_lookup(idx, first, &cache); // reload block 0
-    const uint64_t after_reload = snii::testing::dict_decode_counter();
+    const uint64_t after_reload = doris::snii::testing::dict_decode_counter();
 
     EXPECT_TRUE(first_a.found);
     EXPECT_EQ(first_a, first_b);          // reload produced the identical entry
@@ -1614,7 +1614,7 @@ TEST(SniiLogicalReaderConcurrencyTest, ConcurrentQueriesUseIndependentRequestCac
     reader::LogicalIndexReader idx;
     assert_ok(seg.open_index(7, "Body", &idx));
 
-    snii::testing::reset_dict_decode_counter();
+    doris::snii::testing::reset_dict_decode_counter();
     constexpr int kThreads = 8;
     constexpr int kIters = 16;
     std::atomic<int> failures {0};
@@ -1643,8 +1643,8 @@ TEST(SniiLogicalReaderConcurrencyTest, ConcurrentQueriesUseIndependentRequestCac
 
     EXPECT_EQ(failures.load(), 0);
     // Each thread's cache decodes the shared block exactly once.
-    EXPECT_EQ(snii::testing::dict_decode_counter(), static_cast<uint64_t>(kThreads));
+    EXPECT_EQ(doris::snii::testing::dict_decode_counter(), static_cast<uint64_t>(kThreads));
 }
 
 } // namespace
-} // namespace snii::query
+} // namespace doris::snii::query

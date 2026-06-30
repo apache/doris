@@ -20,17 +20,17 @@ SNII 的词典分块读取路径存在两类冗余，均不改在盘格式：
 
 ## 2. 影响的文件/函数
 
-- `be/src/snii/reader/logical_index_reader.h`
+- `be/src/storage/index/snii/reader/logical_index_reader.h`
   - `struct OnDemandDictBlock { std::vector<uint8_t> bytes; DictBlockReader reader; }`（`:124-127`）→ 改造为可被 `shared_ptr` 持有的 `DecodedDictBlock`。
   - `Status dict_block_reader_for_ordinal(uint32_t ordinal, OnDemandDictBlock* on_demand, const DictBlockReader** out) const`（`:129-130`）→ 改签名为返回 pinned 句柄（见 §3），消除"返回裸指针指向可被淘汰内存"的悬垂风险（验证器 F20 caveat）。
   - 新增成员 `mutable DictBlockCache dict_block_cache_;`。
   - `size_t memory_usage() const`（`logical_index_reader.cpp:228-234`）→ 计入缓存 byte 上界。
-- `be/src/storage/index/snii/core/src/reader/logical_index_reader.cpp`
+- `be/src/storage/index/snii/reader/logical_index_reader.cpp`
   - `load_resident_dict_blocks()`（`:111-141`）→ 单次 `read_at(dict_region)` + 子切片构建（F10）。
   - `dict_block_reader_for_ordinal()`（`:143-161`）→ 经 `dict_block_cache_` 取/装载。
   - `lookup()`（`:271-273`）/`visit_prefix_terms()`（`:310-312`）→ 改用句柄、持 pin 至 `find_term`/`decode_all` 结束。
   - `read_dict_block_bytes()` zstd 分支（`:101`）→ 插入 `dict_decode_counter` 计数 seam。
-- 新增 `be/src/snii/reader/dict_block_cache.h`（shared infra，分片 MRU + single-flight；纯头或配 `.cpp`）。
+- 新增 `be/src/storage/index/snii/reader/dict_block_cache.h`（shared infra，分片 MRU + single-flight；纯头或配 `.cpp`）。
 - 测试：`be/test/storage/index/snii_query_test.cpp`（功能/确定性性能，复用既有 `MemoryFile`+`build_reader`+`ScopedEnv`，GLOB 入 `doris_be_test`，无需改 CMake）；并发用例可置同文件 `SniiLogicalReaderConcurrencyTest` 套件，TSAN 跑。
 
 当前相关签名（实读）：
@@ -56,7 +56,7 @@ SNII 的词典分块读取路径存在两类冗余，均不改在盘格式：
 ```cpp
 struct DecodedDictBlock {            // 堆分配，shared_ptr 持有
   std::vector<uint8_t> bytes;        // 解压后字节（稳定存储）
-  snii::format::DictBlockReader reader; // 其 Slice 指向上面的 bytes
+  doris::snii::format::DictBlockReader reader; // 其 Slice 指向上面的 bytes
 };
 class DictBlockCache {               // 分片 MRU + single-flight
  public:
@@ -82,7 +82,7 @@ class DictBlockCache {               // 分片 MRU + single-flight
 Status dict_block_reader_for_ordinal(
     uint32_t ordinal,
     std::shared_ptr<const DecodedDictBlock>* pin,  // on-demand: 持块；resident: 置空
-    const snii::format::DictBlockReader** out) const;
+    const doris::snii::format::DictBlockReader** out) const;
 ```
 - resident：`*pin=nullptr; *out=&resident_dict_blocks_[ord].reader;`（resident 随 reader 生命周期稳定，零开销）。
 - on-demand：`dict_block_cache_.get_or_load(ord, loader, pin)`；`loader` 内 `dbd_.get`+`open_dict_block` 装载入新 `DecodedDictBlock`；`*out=&(*pin)->reader`。
@@ -110,7 +110,7 @@ Status dict_block_reader_for_ordinal(
 - REFACTOR：抽出子范围校验小函数 `slice_dict_block_in_region`；保留 on-demand 回退。
 
 **批次2：dict_decode_counter seam + on-demand 缓存（自闭环）**
-- RED-1：加 `snii::reader::testing::dict_decode_counter()`/`reset_dict_decode_counter()`；写 `TEST(SniiLogicalReaderTest, OnDemandLookupDecompressesBlockOncePerUniqueBlock)` —— `ScopedEnv("SNII_DICT_RESIDENT_MAX","0")` 强制 on-demand，对同一词重复 `lookup` K 次，断言 `dict_decode_counter()==1`。当前每次解压 → counter==K → FAIL。
+- RED-1：加 `doris::snii::reader::testing::dict_decode_counter()`/`reset_dict_decode_counter()`；写 `TEST(SniiLogicalReaderTest, OnDemandLookupDecompressesBlockOncePerUniqueBlock)` —— `ScopedEnv("SNII_DICT_RESIDENT_MAX","0")` 强制 on-demand，对同一词重复 `lookup` K 次，断言 `dict_decode_counter()==1`。当前每次解压 → counter==K → FAIL。
 - GREEN：实现 `DictBlockCache.get_or_load`（先单线程正确：命中复用、miss 锁外装载），改 `dict_block_reader_for_ordinal` 返回 pin、`lookup`/`visit_prefix_terms` 持 pin。counter 仅在 loader 内 +1。
 - REFACTOR：抽 `DictBlockCache` 到 `dict_block_cache.h`；分片 + LRU byte-cap；`memory_usage()` 计入上界。
 
@@ -158,7 +158,7 @@ wall-clock 仅 report-only：跨查询真实命中率取决于工作负载（Zip
 - `[性能-确定性]` `memory_usage()` 增量 `<= capacity_bytes()`（有界）。
 - `[并发]` `ConcurrentLookupDecompressesEachBlockOnce`：N 线程下 `dict_decode_counter()==unique_blocks`，锁外解压不变量计数=0，TSAN 无告警。验证：`BUILD_TYPE_UT=TSAN ./run-be-ut.sh --run --filter='Snii*Concurrency*'`。
 - `[格式]` 无在盘字节变更：既有 reader/writer 回归（`SniiPhraseQueryTest.*`、`SniiSegmentReaderTest.*`）全绿。
-- `[规范]` `be-code-style` 通过；解码缓冲若 resize-then-overwrite 改用 `snii::resize_uninitialized`（T19）。
+- `[规范]` `be-code-style` 通过；解码缓冲若 resize-then-overwrite 改用 `doris::snii::resize_uninitialized`（T19）。
 
 ## 9. 风险与回滚
 

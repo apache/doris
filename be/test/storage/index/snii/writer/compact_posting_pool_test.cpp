@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "snii/writer/compact_posting_pool.h"
+#include "storage/index/snii/writer/compact_posting_pool.h"
 
 #include <gtest/gtest.h>
 
@@ -26,7 +26,7 @@
 
 #include "common/status.h"
 
-using snii::writer::CompactPostingPool;
+using doris::snii::writer::CompactPostingPool;
 
 namespace {
 

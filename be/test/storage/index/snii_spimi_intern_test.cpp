@@ -32,16 +32,16 @@
 #include <vector>
 
 #include "common/status.h"
-#include "snii/format/phrase_bigram.h"
-#include "snii/writer/spimi_term_buffer.h"
+#include "storage/index/snii/format/phrase_bigram.h"
+#include "storage/index/snii/writer/spimi_term_buffer.h"
 
-using snii::format::make_phrase_bigram_sentinel_term;
-using snii::format::make_phrase_bigram_term;
-using snii::writer::SpimiTermBuffer;
-using snii::writer::TermPostings;
+using doris::snii::format::make_phrase_bigram_sentinel_term;
+using doris::snii::format::make_phrase_bigram_term;
+using doris::snii::writer::SpimiTermBuffer;
+using doris::snii::writer::TermPostings;
 // Alias the writer's TEST-ONLY counter namespace so it never collides with gtest's
 // own ::testing namespace.
-namespace stb_testing = snii::writer::testing;
+namespace stb_testing = doris::snii::writer::testing;
 
 namespace {
 

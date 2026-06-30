@@ -28,23 +28,23 @@
 #include <vector>
 
 #include "common/status.h"
-#include "snii/format/dict_entry.h"
-#include "snii/format/format_constants.h"
-#include "snii/format/frq_prelude.h"
-#include "snii/io/batch_range_fetcher.h"
-#include "snii/io/local_file.h"
-#include "snii/io/metered_file_reader.h"
-#include "snii/query/bm25_scorer.h"
-#include "snii/query/internal/docid_posting_reader.h"
-#include "snii/query/phrase_query.h"
-#include "snii/query/scoring_query.h"
-#include "snii/query/term_query.h"
-#include "snii/reader/logical_index_reader.h"
-#include "snii/reader/snii_segment_reader.h"
-#include "snii/reader/windowed_posting.h"
-#include "snii/stats/snii_stats_provider.h"
-#include "snii/writer/snii_compound_writer.h"
-#include "snii/writer/spimi_term_buffer.h"
+#include "storage/index/snii/format/dict_entry.h"
+#include "storage/index/snii/format/format_constants.h"
+#include "storage/index/snii/format/frq_prelude.h"
+#include "storage/index/snii/io/batch_range_fetcher.h"
+#include "storage/index/snii/io/local_file.h"
+#include "storage/index/snii/io/metered_file_reader.h"
+#include "storage/index/snii/query/bm25_scorer.h"
+#include "storage/index/snii/query/internal/docid_posting_reader.h"
+#include "storage/index/snii/query/phrase_query.h"
+#include "storage/index/snii/query/scoring_query.h"
+#include "storage/index/snii/query/term_query.h"
+#include "storage/index/snii/reader/logical_index_reader.h"
+#include "storage/index/snii/reader/snii_segment_reader.h"
+#include "storage/index/snii/reader/windowed_posting.h"
+#include "storage/index/snii/stats/snii_stats_provider.h"
+#include "storage/index/snii/writer/snii_compound_writer.h"
+#include "storage/index/snii/writer/spimi_term_buffer.h"
 
 // PHASE D differential + contiguity test (design 1.6: posting-level dd/freq
 // grouping). The windowed .frq payload is laid out
@@ -62,13 +62,13 @@
 //       small, AND request_bytes is strictly LESS than fetching the full
 //       posting (the freq-block is skipped). All three (read_at, range_gets,
 //       request_bytes) drop vs the full-posting read, with identical docids.
-using namespace snii;
-using namespace snii::format;
-using namespace snii::reader;
-using namespace snii::writer;
-using snii::query::Bm25Params;
-using snii::query::ScoredDoc;
-using snii::stats::SniiStatsProvider;
+using namespace doris::snii;
+using namespace doris::snii::format;
+using namespace doris::snii::reader;
+using namespace doris::snii::writer;
+using doris::snii::query::Bm25Params;
+using doris::snii::query::ScoredDoc;
+using doris::snii::stats::SniiStatsProvider;
 
 namespace {
 
@@ -207,7 +207,7 @@ void WriteCorpus(const Corpus& c, const std::string& path) {
     in.target_dict_block_bytes = 256;
     in.encoded_norms.resize(c.doc_count);
     for (uint32_t d = 0; d < c.doc_count; ++d) {
-        in.encoded_norms[d] = snii::query::encode_norm(c.doc_len[d]);
+        in.encoded_norms[d] = doris::snii::query::encode_norm(c.doc_len[d]);
     }
 
     io::LocalFileWriter w;
@@ -271,7 +271,8 @@ std::vector<ScoredDoc> ReferenceRanking(const Corpus& c, const std::vector<std::
         const double idf =
                 std::log(1.0 + (static_cast<double>(c.doc_count) - df + 0.5) / (df + 0.5));
         for (const auto& [docid, freq] : plist) {
-            const double dl = snii::query::decode_norm(snii::query::encode_norm(c.doc_len[docid]));
+            const double dl = doris::snii::query::decode_norm(
+                    doris::snii::query::encode_norm(c.doc_len[docid]));
             const double denom = freq + params.k1 * (1.0 - params.b + params.b * dl / avgdl);
             scores[docid] += idf * (freq * (params.k1 + 1.0)) / denom;
         }
@@ -324,7 +325,7 @@ std::vector<uint32_t> DecodePerWindow(const LogicalIndexReader& idx, const DictE
         EXPECT_TRUE(prelude.window(w, &m).ok());
         // One read round per window (the un-grouped reader could not coalesce
         // across the interleaved freq regions of the old layout).
-        snii::io::BatchRangeFetcher fetcher(idx.reader(), /*coalesce_gap=*/0);
+        doris::snii::io::BatchRangeFetcher fetcher(idx.reader(), /*coalesce_gap=*/0);
         const size_t h = fetcher.add(r.dd_off, r.dd_len);
         EXPECT_TRUE(fetcher.fetch().ok());
         std::vector<uint32_t> wd, wf;

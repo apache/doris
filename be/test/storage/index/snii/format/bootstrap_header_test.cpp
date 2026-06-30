@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "snii/format/bootstrap_header.h"
+#include "storage/index/snii/format/bootstrap_header.h"
 
 #include <gtest/gtest.h>
 
@@ -23,12 +23,12 @@
 #include <vector>
 
 #include "common/status.h"
-#include "snii/common/slice.h"
-#include "snii/encoding/byte_sink.h"
-#include "snii/format/format_constants.h"
+#include "storage/index/snii/common/slice.h"
+#include "storage/index/snii/encoding/byte_sink.h"
+#include "storage/index/snii/format/format_constants.h"
 
-using namespace snii;
-using namespace snii::format;
+using namespace doris::snii;
+using namespace doris::snii::format;
 using doris::Status;
 
 namespace {

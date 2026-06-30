@@ -13,17 +13,17 @@ SNII 的 SPIMI build（flush/compaction）路径在「封帧」(framing) 与「r
 
 ## 2. 影响的文件/函数（当前签名）
 
-- `be/src/storage/index/snii/core/src/format/prx_pod.cpp`
+- `be/src/storage/index/snii/format/prx_pod.cpp`
   - `void write_pfor(Slice payload, ByteSink* sink)`（:207）
   - `void write_zstd_compressed(Slice plain, Slice compressed, ByteSink* sink)`（:235）
   - `void write_raw(Slice plain, ByteSink* sink)`（:592）
-- `be/src/storage/index/snii/core/src/format/frq_pod.cpp`
+- `be/src/storage/index/snii/format/frq_pod.cpp`
   - `Status emit_region(Slice plain, int level, ByteSink* out, FrqRegionMeta* meta)`（:76）
-- `be/src/storage/index/snii/core/src/encoding/section_framer.cpp`
+- `be/src/storage/index/snii/encoding/section_framer.cpp`
   - `void SectionFramer::write(ByteSink& sink, uint8_t section_type, Slice payload)`（:7）
-- `be/src/storage/index/snii/core/src/encoding/pfor.cpp`
+- `be/src/storage/index/snii/encoding/pfor.cpp`
   - `void bitpack(const uint32_t* v, size_t n, uint8_t w, ByteSink* out)`（:63）
-- `be/src/snii/encoding/byte_sink.h`：新增 `void reserve(size_t additional)`（共享基础设施，本任务提供）。
+- `be/src/storage/index/snii/encoding/byte_sink.h`：新增 `void reserve(size_t additional)`（共享基础设施，本任务提供）。
 
 辅助既有设施（无需改）：`Slice::subslice(off,n)`（`slice.h:29`）、`crc32c(Slice)`/`crc32c_extend`（`crc32c.h`）、`ByteSink::size()`/`view()`（`byte_sink.h:23,25`）。
 

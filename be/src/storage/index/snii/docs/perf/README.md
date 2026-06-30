@@ -83,16 +83,16 @@ T19 (resize_uninitialized 原语)
 
 | 基础设施 | 提供方 | 消费方 | 位置 |
 |---|---|---|---|
-| `snii::resize_uninitialized` / `default_init_allocator` / `uninitialized_vector` | T19 | T04, T23（软依赖） | `be/src/snii/common/uninitialized_buffer.h` |
-| `SingleFlight<Key,Value>` reader-open 去重原语 | T26 | T04（reader-open） | `be/src/snii/common/single_flight.h` |
-| `lock_witness` (NO-IO/NO-DECOMPRESS-UNDER-LOCK 见证 seam) | T26 | T04, T07 | `be/src/snii/common/lock_witness.h` |
-| `DictBlockCache`（分片 MRU + per-key single-flight + 锁外解压） | T04 | T07 及任何 per-reader 缓存 | `be/src/snii/reader/dict_block_cache.h` |
-| `dict_decode_counter()` zstd 解压计数 seam | T26 契约 / T04 | T04, T07 确定性断言 | `be/src/snii/format/dict_block.*` |
+| `doris::snii::resize_uninitialized` / `default_init_allocator` / `uninitialized_vector` | T19 | T04, T23（软依赖） | `be/src/storage/index/snii/common/uninitialized_buffer.h` |
+| `SingleFlight<Key,Value>` reader-open 去重原语 | T26 | T04（reader-open） | `be/src/storage/index/snii/common/single_flight.h` |
+| `lock_witness` (NO-IO/NO-DECOMPRESS-UNDER-LOCK 见证 seam) | T26 | T04, T07 | `be/src/storage/index/snii/common/lock_witness.h` |
+| `DictBlockCache`（分片 MRU + per-key single-flight + 锁外解压） | T04 | T07 及任何 per-reader 缓存 | `be/src/storage/index/snii/reader/dict_block_cache.h` |
+| `dict_decode_counter()` zstd 解压计数 seam | T26 契约 / T04 | T04, T07 确定性断言 | `be/src/storage/index/snii/format/dict_block.*` |
 | RE2 链接（已全局链接，无需新增） | 既有 `thirdparty.cmake:57` | T01 | `be/cmake/thirdparty.cmake` |
 | `CountingAllocator<T>`（alloc 计数测试工具） | T08 | 任何 alloc-count perf 测试 | `be/test/...`（header-only） |
 | `RecordingFileReader`（线程安全化） | T03 (Step 0) | T03/T26 并发用例 | `be/test/storage/index/snii_doris_adapter_test.cpp` |
 | `build_reader()` + `MemoryFile` (reads()/read_bytes()) fixture | 既有 | T01/02/04/06/07/09/18/20/21/24/25 等 | `be/test/storage/index/snii_query_test.cpp:53-279` |
-| `MeteredFileReader` / `IoMetrics`（serial_rounds 等） | 既有 | T02/03/18/24 | `be/src/snii/io/metered_file_reader.h` |
+| `MeteredFileReader` / `IoMetrics`（serial_rounds 等） | 既有 | T02/03/18/24 | `be/src/storage/index/snii/io/metered_file_reader.h` |
 | op-count seams：`pfor_width_evals`(T11)、`prx_raw_build_count`(T14)、`term_freq_scans`(T12)、vocab materialization counter(T05)、`query_test_counters`(T24)、`decoded_super_block_count`(T23)、`DocIdSink::dedups()`(T09) | 各任务自带 | 各任务确定性断言 | 见各计划 §4/§7 |
 
 ---

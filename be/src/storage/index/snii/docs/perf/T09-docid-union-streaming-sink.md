@@ -15,16 +15,16 @@
 
 ## 2. 影响的文件/函数
 
-- `be/src/snii/query/docid_sink.h`
+- `be/src/storage/index/snii/query/docid_sink.h`
   - `class DocIdSink`（:14-19）：新增 `virtual bool dedups() const { return false; }`。
   - `class VectorDocIdSink`（:21-50）：保持默认 false（不去重不全局排序）。
 - `be/src/storage/index/snii/snii_index_reader.cpp`
   - `class RoaringDocIdSink`（:55-77）：override `dedups()` 返回 true（Roaring addMany/addRange 天然去重）。
-- `be/src/snii/query/internal/docid_posting_reader.h` / `core/src/query/docid_posting_reader.cpp`
+- `be/src/storage/index/snii/query/internal/docid_posting_reader.h` / `core/src/query/docid_posting_reader.cpp`
   - 新增 `Status emit_docid_postings_streamed(const LogicalIndexReader&, const std::vector<ResolvedDocidPosting>&, DocIdSink*)`：复用 read_docid_postings_batched（:247-294）的同一规划 + 单 fetch round，但每个 posting 直接解码进 sink（windowed 走 `decode_window_prefix_plan(fetcher, plan, sink)` 的 DocIdSink 重载 :156-201；flat/inline 解码进一个复用 scratch 向量后 append_sorted）。
-- `be/src/snii/query/internal/docid_union.h` / `core/src/query/docid_union.cpp`
+- `be/src/storage/index/snii/query/internal/docid_union.h` / `core/src/query/docid_union.cpp`
   - `emit_docid_union`（:22-29）：按 `sink->dedups()` 分流 —— true 走流式，false 保持 build_docid_union+append_sorted。
-- `be/src/snii/query/internal/docid_set_ops.h` / `core/src/query/docid_set_ops.cpp`
+- `be/src/storage/index/snii/query/internal/docid_set_ops.h` / `core/src/query/docid_set_ops.cpp`
   - `union_sorted_many`（:25-103）：新增形参 `size_t reserve_cap = SIZE_MAX`；顶层循环累加 `total`；两处 reserve 改为 `out.reserve(std::min(total, reserve_cap))`。
 
 当前签名：

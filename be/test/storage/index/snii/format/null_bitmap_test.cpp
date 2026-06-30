@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "snii/format/null_bitmap.h"
+#include "storage/index/snii/format/null_bitmap.h"
 
 #include <gtest/gtest.h>
 
@@ -23,15 +23,15 @@
 #include <vector>
 
 #include "common/status.h"
-#include "snii/common/slice.h"
-#include "snii/encoding/byte_sink.h"
-#include "snii/encoding/section_framer.h"
+#include "storage/index/snii/common/slice.h"
+#include "storage/index/snii/encoding/byte_sink.h"
+#include "storage/index/snii/encoding/section_framer.h"
 
-using namespace snii;
+using namespace doris::snii;
 using doris::Status;
-using snii::format::NullBitmapReader;
-using snii::format::NullBitmapWriter;
-using snii::format::kNullBitmapSectionType;
+using doris::snii::format::NullBitmapReader;
+using doris::snii::format::NullBitmapWriter;
+using doris::snii::format::kNullBitmapSectionType;
 
 namespace {
 

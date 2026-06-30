@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "snii/format/bsbf.h"
+#include "storage/index/snii/format/bsbf.h"
 
 #include <gtest/gtest.h>
 #include <unistd.h>
@@ -27,10 +27,10 @@
 #include <vector>
 
 #include "common/status.h"
-#include "snii/encoding/byte_sink.h"
-#include "snii/io/local_file.h"
+#include "storage/index/snii/encoding/byte_sink.h"
+#include "storage/index/snii/io/local_file.h"
 
-namespace snii::format {
+namespace doris::snii::format {
 namespace {
 
 // Independent Parquet-canonical oracle (scalar): XXH64 seed 0 hash (via bsbf_hash),
@@ -208,4 +208,4 @@ TEST(SniiBsbf, FastrangeNotMaskVariant) {
 }
 
 } // namespace
-} // namespace snii::format
+} // namespace doris::snii::format

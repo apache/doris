@@ -22,7 +22,7 @@
 
 #include "common/cast_set.h"
 #include "common/config.h"
-#include "snii/format/per_index_meta.h"
+#include "storage/index/snii/format/per_index_meta.h"
 #include "storage/index/inverted/inverted_index_compound_reader.h"
 #include "storage/index/inverted/inverted_index_fs_directory.h"
 #include "storage/tablet/tablet_schema.h"
@@ -158,7 +158,7 @@ Status IndexFileReader::_init_snii(const io::IOContext* io_ctx) {
     io::FileReaderSPtr reader;
     RETURN_IF_ERROR(_fs->open_file(index_file_full_path, &reader, &opts));
     _snii_file_reader = std::make_shared<snii_doris::DorisSniiFileReader>(std::move(reader));
-    _snii_segment_reader = std::make_unique<snii::reader::SniiSegmentReader>();
+    _snii_segment_reader = std::make_unique<doris::snii::reader::SniiSegmentReader>();
     io::IOContext meta_io_ctx;
     if (io_ctx != nullptr) {
         meta_io_ctx = *io_ctx;
@@ -166,7 +166,7 @@ Status IndexFileReader::_init_snii(const io::IOContext* io_ctx) {
     meta_io_ctx.is_inverted_index = true;
     meta_io_ctx.is_index_data = true;
     snii_doris::DorisSniiFileReader::ScopedIOContext io_context_scope(&meta_io_ctx);
-    RETURN_IF_ERROR(snii::reader::SniiSegmentReader::open(_snii_file_reader.get(),
+    RETURN_IF_ERROR(doris::snii::reader::SniiSegmentReader::open(_snii_file_reader.get(),
                                                           _snii_segment_reader.get()));
     return Status::OK();
 }
@@ -273,7 +273,7 @@ Result<std::unique_ptr<DorisCompoundReader, DirectoryDeleter>> IndexFileReader::
     return compound_reader;
 }
 
-Result<std::unique_ptr<snii::reader::LogicalIndexReader>> IndexFileReader::open_snii_index(
+Result<std::unique_ptr<doris::snii::reader::LogicalIndexReader>> IndexFileReader::open_snii_index(
         const TabletIndex* index_meta, const io::IOContext* io_ctx) const {
     DCHECK(_storage_format == InvertedIndexStorageFormatPB::SNII);
     std::shared_lock<std::shared_mutex> lock(_mutex);
@@ -298,14 +298,14 @@ Result<std::unique_ptr<snii::reader::LogicalIndexReader>> IndexFileReader::open_
     if (!doris_status.ok()) {
         return ResultError(doris_status);
     }
-    snii::format::PerIndexMetaReader meta;
-    status = snii::format::PerIndexMetaReader::open(snii::Slice(meta_bytes), &meta);
+    doris::snii::format::PerIndexMetaReader meta;
+    status = doris::snii::format::PerIndexMetaReader::open(doris::snii::Slice(meta_bytes), &meta);
     doris_status = status;
     if (!doris_status.ok()) {
         return ResultError(doris_status);
     }
-    auto logical_reader = std::make_unique<snii::reader::LogicalIndexReader>();
-    status = _snii_segment_reader->open_index_from_meta(snii::Slice(meta_bytes),
+    auto logical_reader = std::make_unique<doris::snii::reader::LogicalIndexReader>();
+    status = _snii_segment_reader->open_index_from_meta(doris::snii::Slice(meta_bytes),
                                                         logical_reader.get());
     doris_status = status;
     if (!doris_status.ok()) {
@@ -394,8 +394,8 @@ Status IndexFileReader::has_null(const TabletIndex* index_meta, bool* res) const
                 _snii_segment_reader->read_index_meta(cast_set<uint64_t>(index_meta->index_id()),
                                                       index_meta->get_index_suffix(), &meta_bytes);
         RETURN_IF_ERROR(status);
-        snii::format::PerIndexMetaReader meta;
-        status = snii::format::PerIndexMetaReader::open(snii::Slice(meta_bytes), &meta);
+        doris::snii::format::PerIndexMetaReader meta;
+        status = doris::snii::format::PerIndexMetaReader::open(doris::snii::Slice(meta_bytes), &meta);
         RETURN_IF_ERROR(status);
         *res = meta.section_refs().null_bitmap.length > 0;
         return Status::OK();

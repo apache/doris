@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "snii/format/per_index_meta.h"
+#include "storage/index/snii/format/per_index_meta.h"
 
 #include <gtest/gtest.h>
 
@@ -25,17 +25,17 @@
 #include <vector>
 
 #include "common/status.h"
-#include "snii/common/slice.h"
-#include "snii/encoding/byte_sink.h"
-#include "snii/encoding/byte_source.h"
-#include "snii/encoding/section_framer.h"
-#include "snii/format/dict_block_directory.h"
-#include "snii/format/format_constants.h"
-#include "snii/format/sampled_term_index.h"
-#include "snii/format/stats_block.h"
+#include "storage/index/snii/common/slice.h"
+#include "storage/index/snii/encoding/byte_sink.h"
+#include "storage/index/snii/encoding/byte_source.h"
+#include "storage/index/snii/encoding/section_framer.h"
+#include "storage/index/snii/format/dict_block_directory.h"
+#include "storage/index/snii/format/format_constants.h"
+#include "storage/index/snii/format/sampled_term_index.h"
+#include "storage/index/snii/format/stats_block.h"
 
-using namespace snii;
-using namespace snii::format;
+using namespace doris::snii;
+using namespace doris::snii::format;
 
 namespace {
 

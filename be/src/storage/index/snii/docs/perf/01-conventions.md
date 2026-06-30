@@ -25,10 +25,10 @@
 
 ## 4. `性能验证（单体）`（强制）— 确定性优先
 **首选确定性断言（可进 CI 门禁），按相关性选用：**
-- **fetch/round 计数**：`MeteredFileReader::metrics()` 的 `serial_rounds`/`range_gets`（`be/src/snii/io/metered_file_reader.h`）；或 `MemoryFile::reads().size()`。例：T02 断言一次 phrase 查询 `serial_rounds == 1`。
+- **fetch/round 计数**：`MeteredFileReader::metrics()` 的 `serial_rounds`/`range_gets`（`be/src/storage/index/snii/io/metered_file_reader.h`）；或 `MemoryFile::reads().size()`。例：T02 断言一次 phrase 查询 `serial_rounds == 1`。
 - **物理读合并计数**：`RecordingFileReader::reads()`（断言合并后物理读次数与 offset/len，如 `snii_doris_adapter_test.cpp:158-160`）。
 - **open 计数（single-flight）**：N 并发 miss 同 key → 底层 `open`/meta 读次数 == 1。
-- **decompress 计数**：`snii::testing::dict_decode_counter()`（测试间 reset）断言解压次数 == 唯一块数。
+- **decompress 计数**：`doris::snii::testing::dict_decode_counter()`（测试间 reset）断言解压次数 == 唯一块数。
 - **realloc/alloc 计数**：优先 `vector::capacity()` 稳定性（reserve 一次后 capacity 不变）；需精确次数用 `CountingAllocator`。禁止全局 `new` override。
 - **操作计数**：在热点放可计数 seam（如 `choose_width` 比较次数）断言复杂度下降。
 - **位级黄金输出**：纯重构/解码任务断言 `ByteSink::buffer()`/解码结果改前后逐字节相等。
@@ -63,7 +63,7 @@
 
 ## 8. 编码与格式
 - C++ 注释/标识符英文；遵循 `.clang-format`（提交前 `be-code-style`）。
-- 解码缓冲 resize-then-overwrite 一律改用 `snii::resize_uninitialized`（T19 原语，`snii/common/uninitialized_buffer.h`）；仅限立即被全量覆写的缓冲。
+- 解码缓冲 resize-then-overwrite 一律改用 `doris::snii::resize_uninitialized`（T19 原语，`snii/common/uninitialized_buffer.h`）；仅限立即被全量覆写的缓冲。
 - regexp 用 `RE2`（`<re2/re2.h>`，已 thirdparty 链接），非法 pattern 经 `re2.ok()` 返回 `Status::InvalidArgument`，不抛异常。
 - 除 T18 外禁止改在盘字节；T18 须 pre-launch 折叠进 v1，或经 `frq_prelude` flag bit / bump `kMetaFormatVersion` 门控。
 

@@ -27,13 +27,13 @@
 
 - `be/src/storage/index/snii/snii_doris_adapter.h` / `.cpp`
   - `uint8_t DorisSniiFileReader::_classify_section(uint64_t offset, size_t len) const`（`.cpp:134-155`，持 `std::shared_lock lock(_section_ranges_mutex)`）。
-  - `::snii::Status DorisSniiFileReader::_read_at(...) const`（`.cpp:182-207`，真正 IO，**不**持锁）。
+  - `::doris::snii::Status DorisSniiFileReader::_read_at(...) const`（`.cpp:182-207`，真正 IO，**不**持锁）。
   - `read_at`（:166-180）、`read_batch`（:209-283）：调用序 `_classify_section`（持锁）→ 锁释放 → `_read_at`（IO）。
   - 成员 `mutable std::shared_mutex _section_ranges_mutex;`（`.h:98`）。
 - `be/src/storage/index/snii/snii_index_reader.cpp`
   - `Status SniiIndexReader::_get_logical_reader(context, searcher_cache_handle, uncached_reader, logical_reader)`（:299-352）——cache miss 分支 :329-351 无 single-flight。
 - `be/src/storage/index/inverted/inverted_index_cache.{h,cpp}`（只读确认语义，不改）：`lookup`/`insert`/`_insert`（:88-115）走 `ShardedLRUCache`。
-- 新增：`be/src/snii/common/single_flight.h`、`be/src/snii/common/lock_witness.h`。
+- 新增：`be/src/storage/index/snii/common/single_flight.h`、`be/src/storage/index/snii/common/lock_witness.h`。
 - 新增测试：`be/test/storage/index/snii_concurrency_test.cpp`（GLOB 自动纳入 `doris_be_test`，无需改 CMake）。
 
 # 3. 变更设计
@@ -41,9 +41,9 @@
 ## 3.1 NO-IO-UNDER-LOCK：把"锁内禁 IO"做成结构性、可单测的不变量
 当前代码已经"分类持锁 / IO 锁外"，本任务把它**固化为可机验的不变量**，而非靠人读码保证。
 
-新增 `be/src/snii/common/lock_witness.h`（header-only，零成本 thread_local 计数）：
+新增 `be/src/storage/index/snii/common/lock_witness.h`（header-only，零成本 thread_local 计数）：
 ```cpp
-namespace snii::testing {
+namespace doris::snii::testing {
 // 每个受护临界区一个 thread_local 深度计数；进入临界区 ++、退出 --。
 // 业务侧用 LockWitnessGuard 在持锁作用域内自增；测试侧在 IO/解压入口断言对应计数 == 0。
 int& classify_lock_depth();      // DorisSniiFileReader::_section_ranges_mutex
@@ -55,15 +55,15 @@ struct LockWitnessGuard {
 };
 }
 ```
-改 `_classify_section`：在 `std::shared_lock` 同作用域内放 `snii::testing::LockWitnessGuard w(snii::testing::classify_lock_depth());`（仅一次 thread_local 自增/自减，release 编译可忽略成本；不引入额外锁）。
-不变量测试：用扩展版 `RecordingFileReader`，在其 `read_at_impl` 回调里 `EXPECT_EQ(snii::testing::classify_lock_depth(), 0)`——证明物理 IO 发生时分类锁未被本线程持有（结构性证明，无需 race）。read_batch 同理。
+改 `_classify_section`：在 `std::shared_lock` 同作用域内放 `doris::snii::testing::LockWitnessGuard w(doris::snii::testing::classify_lock_depth());`（仅一次 thread_local 自增/自减，release 编译可忽略成本；不引入额外锁）。
+不变量测试：用扩展版 `RecordingFileReader`，在其 `read_at_impl` 回调里 `EXPECT_EQ(doris::snii::testing::classify_lock_depth(), 0)`——证明物理 IO 发生时分类锁未被本线程持有（结构性证明，无需 race）。read_batch 同理。
 
 > 说明：选 witness 计数而非"让 mock 去 try_lock 私有 mutex"，因为 `_section_ranges_mutex` 私有不可达；witness 是确定性、无竞态、可永久保留的护栏。
 
 ## 3.2 reader-open single-flight（修 H2）
-新增 header-only 原语 `be/src/snii/common/single_flight.h`：
+新增 header-only 原语 `be/src/storage/index/snii/common/single_flight.h`：
 ```cpp
-namespace snii {
+namespace doris::snii {
 // 同 key 并发只执行一次 loader；其余等待复用结果。loader 在 in-flight 占位之后、
 // 全局小锁之外执行；等待用 condition_variable。仅护一张 per-key 小 map，绝不在锁内做 IO。
 template <class Key, class Value>
@@ -87,7 +87,7 @@ private:
 
 在 `snii_index_reader.cpp` 引入进程级单例协调器（keyed by `searcher_cache_key.index_file_path` 字符串）：
 ```cpp
-SingleFlight<std::string, snii::reader::LogicalIndexReader>& snii_reader_open_coordinator();
+SingleFlight<std::string, doris::snii::reader::LogicalIndexReader>& snii_reader_open_coordinator();
 ```
 改写 `_get_logical_reader` cache-miss 分支（:329-351）为：
 - 先 `lookup`（命中直接返回，:314-327 不变）。
@@ -104,7 +104,7 @@ SingleFlight<std::string, snii::reader::LogicalIndexReader>& snii_reader_open_co
 ## 3.3 共享块缓存契约（H1，给 T04/T07 的硬约束 + 测试基建）
 本任务**不**实现 dict-block 缓存，但确立并提供：
 - 契约（落总设计文档与代码注释）：任何 per-reader 块缓存**必须二选一**——(A) request-scoped（每查询、无共享可变状态、无锁，默认推荐）；或 (B) 分片 lock-striped，**锁只护 map 查/插，zstd 解压/CRC 在锁外局部缓冲完成后再插入**。**红线：任何持锁期间禁止 FileReader IO / zstd 解压 / CRC。**
-- 测试基建：`dict_cache_lock_depth()` witness（同 3.1）+ `snii::format::dict_decode_counter()`（解压计数 seam，测试间 reset）。T04/T07 必须用它们断言：并发 lookup 下 `dict_decode_counter() == unique_blocks`（request-scoped）或 `≤ unique_blocks×分片冗余上界`（分片），且解压入口 `dict_cache_lock_depth()==0`。
+- 测试基建：`dict_cache_lock_depth()` witness（同 3.1）+ `doris::snii::format::dict_decode_counter()`（解压计数 seam，测试间 reset）。T04/T07 必须用它们断言：并发 lookup 下 `dict_decode_counter() == unique_blocks`（request-scoped）或 `≤ unique_blocks×分片冗余上界`（分片），且解压入口 `dict_cache_lock_depth()==0`。
 - 本任务提供一个 `DISABLED_` stub 测试 + TODO，挂接基建，待 T04 落地后启用（见 gaps）。
 
 # 4. 依赖

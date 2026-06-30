@@ -4,7 +4,7 @@
 
 本任务对 `MATCH_PHRASE_PREFIX`（≥2 个精确词 + 末尾前缀）的 reader 热路径做两处确定性 CPU 微优化，**零在盘格式变更、零共享可变状态**。涉及两个 finding：
 
-- **F39（allocation, LOW）**：`be/src/storage/index/snii/core/src/query/phrase_query.cpp:1106-1110`，`CollectTailMatchesAtExpectedPositions` 每次调用都从 `expected.docs` 重建 `expected_docids`（一次堆分配 + O(expected.docs) 拷贝）。该输入对所有尾词展开是不变量（只依赖 const `expected`，与 `tail` 无关），但被多尾循环 `phrase_query.cpp:1245-1251` 每个尾词 hit 调用一次，故重复重建最多 `tail_hits` 次。
+- **F39（allocation, LOW）**：`be/src/storage/index/snii/query/phrase_query.cpp:1106-1110`，`CollectTailMatchesAtExpectedPositions` 每次调用都从 `expected.docs` 重建 `expected_docids`（一次堆分配 + O(expected.docs) 拷贝）。该输入对所有尾词展开是不变量（只依赖 const `expected`，与 `tail` 无关），但被多尾循环 `phrase_query.cpp:1245-1251` 每个尾词 hit 调用一次，故重复重建最多 `tail_hits` 次。
   - 验证器纠正：收益受限——每次循环还伴随 `round1.fetch()`（可能远端读）、PFOR 解码等重活，单次 uint32 向量拷贝量级很小；且 finding 声称"顺带去掉 `filter_docids_by_conjunction` 内部的重复拷贝"**不成立**——`run_docid_only_conjunction_impl` 在 `docid_conjunction.cpp:737` 做 `*candidates = *initial_candidates` 是为可变工作集播种，属固有拷贝，不在本任务范围。故本任务**只做"提升一次、const-ref 传入"这一处安全清理**。
 
 - **F40（algorithmic, LOW）**：`phrase_query.cpp:999`（n 词版 `CollectExpectedTailPositions`，979-1024）外层枚举硬编码锚定 `span[0]`（**第一个**精确词的每文档位置表），对其余 n-1 词逐位置二分。若前导精确词在该文档高频（如 "the …"），`span[0]` 是最长位置表，最大化外层迭代数与二分次数。精确短语路径已用 `SelectPhraseVerificationPair`（670-683，用于 `EmitMultiTermPhraseStreaming:868`）选最小 df 锚对，前缀路径却没用同样策略。
@@ -16,11 +16,11 @@
 
 仅一个实现文件 + 新增一个测试计数 seam 头：
 
-- `be/src/storage/index/snii/core/src/query/phrase_query.cpp`
+- `be/src/storage/index/snii/query/phrase_query.cpp`
   - `Status CollectExpectedTailPositions(const std::vector<TermPlan>& plans, const std::vector<uint32_t>& position_offsets, std::vector<PosSource>& srcs, const std::vector<uint32_t>& candidates, ExpectedTailPositionSet* out)`（979-1024，F40 目标）
   - `Status CollectTailMatchesAtExpectedPositions(const LogicalIndexReader& idx, const ResolvedQueryTerm& tail, const ExpectedTailPositionSet& expected, std::vector<uint32_t>* out)`（1089-1149，F39 目标；签名将新增一个 `const std::vector<uint32_t>& expected_docids` 形参）
   - `Status phrase_prefix_query(const LogicalIndexReader& idx, const std::vector<std::string>& terms, std::vector<uint32_t>* docids, int32_t max_expansions)`（1195-1254，调用点 1238-1252，负责提升 `expected_docids`）
-- 新增 `be/src/snii/query/internal/query_test_counters.h`（测试专用计数 seam，宏 `SNII_QUERY_TEST_COUNTERS` 门控；RELEASE 默认关闭 → 生产路径零开销、无全局可变状态）
+- 新增 `be/src/storage/index/snii/query/internal/query_test_counters.h`（测试专用计数 seam，宏 `SNII_QUERY_TEST_COUNTERS` 门控；RELEASE 默认关闭 → 生产路径零开销、无全局可变状态）
 - `be/test/storage/index/snii_query_test.cpp`：扩展 `build_reader` 增加 F40 锚定场景词项；新增功能/性能用例。
 
 ## 3. 变更设计
@@ -105,12 +105,12 @@ if (expected_end != expected_begin) out->docs.push_back({d, expected_begin, expe
 
 ```cpp
 #pragma once
-namespace snii::query::internal {
+namespace doris::snii::query::internal {
 #ifdef SNII_QUERY_TEST_COUNTERS
 struct QueryTestCounters { uint64_t expected_docids_build = 0; uint64_t anchor_iterations = 0; };
 QueryTestCounters& query_test_counters();   // 进程内单例，测试间手动 reset
-#define SNII_QUERY_COUNT(field)   (++snii::query::internal::query_test_counters().field)
-#define SNII_QUERY_ADD(field, n)  (snii::query::internal::query_test_counters().field += (n))
+#define SNII_QUERY_COUNT(field)   (++doris::snii::query::internal::query_test_counters().field)
+#define SNII_QUERY_ADD(field, n)  (doris::snii::query::internal::query_test_counters().field += (n))
 #else
 #define SNII_QUERY_COUNT(field)   ((void)0)
 #define SNII_QUERY_ADD(field, n)  ((void)0)

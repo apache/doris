@@ -25,17 +25,17 @@
 #include <vector>
 
 #include "common/status.h"
-#include "snii/io/local_file.h"
-#include "snii/io/metered_file_reader.h"
-#include "snii/query/phrase_query.h"
-#include "snii/reader/logical_index_reader.h"
-#include "snii/reader/snii_segment_reader.h"
-#include "snii/writer/snii_compound_writer.h"
-#include "snii/writer/spimi_term_buffer.h"
+#include "storage/index/snii/io/local_file.h"
+#include "storage/index/snii/io/metered_file_reader.h"
+#include "storage/index/snii/query/phrase_query.h"
+#include "storage/index/snii/reader/logical_index_reader.h"
+#include "storage/index/snii/reader/snii_segment_reader.h"
+#include "storage/index/snii/writer/snii_compound_writer.h"
+#include "storage/index/snii/writer/spimi_term_buffer.h"
 
-using namespace snii;
-using namespace snii::reader;
-using namespace snii::writer;
+using namespace doris::snii;
+using namespace doris::snii::reader;
+using namespace doris::snii::writer;
 using doris::Status;
 
 namespace {
@@ -145,7 +145,7 @@ void WriteCorpus(const Corpus& c, const std::string& path) {
     SniiIndexInput in;
     in.index_id = 1;
     in.index_suffix = "body";
-    in.config = snii::format::IndexConfig::kDocsPositionsScoring;
+    in.config = doris::snii::format::IndexConfig::kDocsPositionsScoring;
     in.doc_count = static_cast<uint32_t>(c.docs.size());
     in.encoded_norms.assign(c.docs.size(), 1);
     in.terms = buf.finalize_sorted();

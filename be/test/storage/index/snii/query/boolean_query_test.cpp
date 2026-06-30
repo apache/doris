@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "snii/query/boolean_query.h"
+#include "storage/index/snii/query/boolean_query.h"
 
 #include <gtest/gtest.h>
 #include <unistd.h>
@@ -30,18 +30,18 @@
 #include <vector>
 
 #include "common/status.h"
-#include "snii/io/local_file.h"
-#include "snii/io/metered_file_reader.h"
-#include "snii/query/docid_sink.h"
-#include "snii/query/term_query.h"
-#include "snii/reader/logical_index_reader.h"
-#include "snii/reader/snii_segment_reader.h"
-#include "snii/writer/snii_compound_writer.h"
-#include "snii/writer/spimi_term_buffer.h"
+#include "storage/index/snii/io/local_file.h"
+#include "storage/index/snii/io/metered_file_reader.h"
+#include "storage/index/snii/query/docid_sink.h"
+#include "storage/index/snii/query/term_query.h"
+#include "storage/index/snii/reader/logical_index_reader.h"
+#include "storage/index/snii/reader/snii_segment_reader.h"
+#include "storage/index/snii/writer/snii_compound_writer.h"
+#include "storage/index/snii/writer/spimi_term_buffer.h"
 
-using namespace snii;
-using namespace snii::reader;
-using namespace snii::writer;
+using namespace doris::snii;
+using namespace doris::snii::reader;
+using namespace doris::snii::writer;
 using doris::Status;
 
 namespace {
@@ -132,7 +132,7 @@ void WriteCorpus(const Corpus& c, const std::string& path) {
     SniiIndexInput in;
     in.index_id = 1;
     in.index_suffix = "body";
-    in.config = snii::format::IndexConfig::kDocsOnly;
+    in.config = doris::snii::format::IndexConfig::kDocsOnly;
     in.doc_count = c.doc_count;
     in.terms = buf.finalize_sorted();
     in.target_dict_block_bytes = 256;
@@ -285,7 +285,7 @@ TEST(SniiBooleanOr, BatchesWindowedPostingReadsByStage) {
     const std::vector<std::string> terms = {"aa_hot", "aa_warm", "aa_loud"};
     for (const std::string& term : terms) {
         bool found = false;
-        snii::format::DictEntry entry;
+        doris::snii::format::DictEntry entry;
         uint64_t frq_base = 0;
         uint64_t prx_base = 0;
         ASSERT_TRUE(idx.lookup(term, &found, &entry, &frq_base, &prx_base).ok());

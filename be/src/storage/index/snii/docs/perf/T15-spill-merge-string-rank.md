@@ -15,7 +15,7 @@
 
 ### 2. 影响的文件/函数
 
-**A. `be/src/storage/index/snii/core/src/writer/spill_run_codec.cpp`**
+**A. `be/src/storage/index/snii/writer/spill_run_codec.cpp`**
 - `struct HeapGreater`（:348-356）：现持 `const std::vector<std::string>* vocab`，比较器做字符串比较。
 - `Status MergeRuns(const std::vector<std::string>& run_paths, const std::vector<std::string>& vocab, bool has_positions, const std::function<void(TermPostings&&)>& fn, bool allow_stream_positions = true)`（:428-595）：
   - 堆构造 `heap(HeapGreater{&vocab})`（:433）。
@@ -23,10 +23,10 @@
   - gather 循环条件 `vocab[heap.top().term_id] == merged.term`（:459）。
   - 两处 corruption 守卫 `r->current_id() >= vocab.size()`（:438、:587）保留不动。
 
-**B. `be/src/snii/writer/spill_run_codec.h`**
+**B. `be/src/storage/index/snii/writer/spill_run_codec.h`**
 - `MergeRuns` 声明（:177-179）与上方文档注释（:160-176，"orders runs by the term-id's VOCAB STRING"）。
 
-**C. `be/src/storage/index/snii/core/src/writer/spimi_term_buffer.cpp`**
+**C. `be/src/storage/index/snii/writer/spimi_term_buffer.cpp`**
 - 唯一调用方 `SpimiTermBuffer::merge_runs`（:508-538），调用点 `MergeRuns(run_paths_, vocab(), has_positions_, fn, allow_stream_positions)`（:530）。
 - `ensure_string_rank() const`（:402-413）与 `string_rank_`（`spimi_term_buffer.h:359`，mutable）已存在，直接复用。
 
@@ -102,7 +102,7 @@ Status s = MergeRuns(run_paths_, vocab(), string_rank_, has_positions_, fn, allo
 
 ### 5. TDD 步骤（RED → GREEN → REFACTOR）
 
-新增功能测试文件：`be/test/storage/index/snii_spill_merge_test.cpp`（GLOB 自动纳入 `doris_be_test`，无需改 CMake）。测试直接驱动 `snii::writer::RunWriter` 写若干临时 run + `snii::writer::MergeRuns` 归并收集结果。临时路径用 `::testing::TempDir()`，测试结束 `::unlink` 清理。
+新增功能测试文件：`be/test/storage/index/snii_spill_merge_test.cpp`（GLOB 自动纳入 `doris_be_test`，无需改 CMake）。测试直接驱动 `doris::snii::writer::RunWriter` 写若干临时 run + `doris::snii::writer::MergeRuns` 归并收集结果。临时路径用 `::testing::TempDir()`，测试结束 `::unlink` 清理。
 
 **Step 1 — RED（签名/排序键）**：写 `TEST(SniiSpillMergeTest, MergeRunsOrdersByStringRankInteger)`：
 - 构造 vocab `{"b","a","c"}`（即 id0="b", id1="a", id2="c"）。

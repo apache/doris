@@ -6,28 +6,28 @@
 
 `DictBlockBuilder::add_entry` 在 SPIMI 构建路径上对**每个唯一 term** 做两次可避免的拷贝：
 
-- `be/src/storage/index/snii/core/src/format/dict_block.cpp:52` `entries_.push_back(entry)` —— 按值拷贝整个 `DictEntry`，对 kInline 条目（slim，<=256B）意味着 `frq_bytes`/`prx_bytes` 两个 `std::vector<uint8_t>` 的新堆分配 + memcpy，外加 `term` 这个 `std::string` 的拷贝。
-- `be/src/storage/index/snii/core/src/format/dict_block.cpp:53` `prev_term_ = entry.term` —— 第二次 `std::string` 拷贝，且该成员是**死状态**：grep 全树（`be/src` + `be/test`）显示 `prev_term_` 仅在 `:53` 被写、从无读取；`finish()` 在 `dict_block.cpp:78/84/86` 用自己的局部 `std::string prev` 从 `entries_[i].term` 重建前缀编码基准（见 §2 证据）。
+- `be/src/storage/index/snii/format/dict_block.cpp:52` `entries_.push_back(entry)` —— 按值拷贝整个 `DictEntry`，对 kInline 条目（slim，<=256B）意味着 `frq_bytes`/`prx_bytes` 两个 `std::vector<uint8_t>` 的新堆分配 + memcpy，外加 `term` 这个 `std::string` 的拷贝。
+- `be/src/storage/index/snii/format/dict_block.cpp:53` `prev_term_ = entry.term` —— 第二次 `std::string` 拷贝，且该成员是**死状态**：grep 全树（`be/src` + `be/test`）显示 `prev_term_` 仅在 `:53` 被写、从无读取；`finish()` 在 `dict_block.cpp:78/84/86` 用自己的局部 `std::string prev` 从 `entries_[i].term` 重建前缀编码基准（见 §2 证据）。
 
-调用方 `be/src/storage/index/snii/core/src/writer/logical_index_writer.cpp:551-553` 每次循环用 `build_entry` 构造一个全新局部 `DictEntry e`，`add_entry(e)` 之后 `e` 即被丢弃，**源对象可安全移动**。
+调用方 `be/src/storage/index/snii/writer/logical_index_writer.cpp:551-553` 每次循环用 `build_entry` 构造一个全新局部 `DictEntry e`，`add_entry(e)` 之后 `e` 即被丢弃，**源对象可安全移动**。
 
 **预期收益**：每 unique term 省去 1 次完整 `DictEntry` 拷贝（inline 条目含 2 次 vector 堆分配）+ 1 次死 `std::string` 拷贝。提升构建吞吐（per-term 分配 churn 降低），**零查询代价、在盘字节完全不变**。验证器评估：收益真实但量级 modest（构建路径由 zstd 压缩 ~64KB dict 块、posting 区流式写、spill IO 主导），故 severity 为 LOW —— 本任务定位为低风险机械优化 + 死代码清理。
 
 ## 2. 影响的文件/函数
 
-**头文件** `be/src/snii/format/dict_block.h`
+**头文件** `be/src/storage/index/snii/format/dict_block.h`
 - L64 当前签名：`void add_entry(const DictEntry& entry);`
 - L88 死成员：`std::string prev_term_;  // term of the previous entry (front coding base)`（注释误导，实际未用）
 
-**实现** `be/src/storage/index/snii/core/src/format/dict_block.cpp`
+**实现** `be/src/storage/index/snii/format/dict_block.cpp`
 - L49-55 `DictBlockBuilder::add_entry(const DictEntry&)`：当前体为 `is_anchor` 计数 → `entries_est_ += estimate_entry_bytes(entry)` → `entries_.push_back(entry)` → `prev_term_ = entry.term` → `++n_entries_`。
 - L65-96 `finish(ByteSink*)`：**不读 `prev_term_`**，用局部 `std::string prev`（L78），逐条 `encode_dict_entry(entries_[i], prev_term, tier_, &body)`（L85），`prev = entries_[i].term`（L86）。是在盘字节的唯一来源，本任务不改其逻辑。
 - L19-35 `estimate_entry_bytes(const DictEntry&)`：在移动**之前**读 `entry`，移动顺序须置于其后（见验证器纠正）。
 
-**调用方** `be/src/storage/index/snii/core/src/writer/logical_index_writer.cpp`
+**调用方** `be/src/storage/index/snii/writer/logical_index_writer.cpp`
 - L551-553：`DictEntry e; build_entry(...,&e); st->block->add_entry(e);` —— 改为 `add_entry(std::move(e))`。
 
-**数据结构** `be/src/snii/format/dict_entry.h:59-94` `struct DictEntry`：`std::string term` + 2× `std::vector<uint8_t>`（frq_bytes/prx_bytes）+ PODs，聚合类型，隐式 move 构造/赋值均 noexcept。
+**数据结构** `be/src/storage/index/snii/format/dict_entry.h:59-94` `struct DictEntry`：`std::string term` + 2× `std::vector<uint8_t>`（frq_bytes/prx_bytes）+ PODs，聚合类型，隐式 move 构造/赋值均 noexcept。
 
 ## 3. 变更设计
 

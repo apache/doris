@@ -33,8 +33,8 @@
 #include "common/be_mock_util.h"
 #include "common/config.h"
 #include "io/fs/file_system.h"
-#include "snii/reader/logical_index_reader.h"
-#include "snii/reader/snii_segment_reader.h"
+#include "storage/index/snii/reader/logical_index_reader.h"
+#include "storage/index/snii/reader/snii_segment_reader.h"
 #include "storage/index/index_file_writer.h"
 #include "storage/index/inverted/inverted_index_desc.h"
 #include "storage/index/snii/snii_doris_adapter.h"
@@ -71,7 +71,7 @@ public:
                               const io::IOContext* io_ctx = nullptr);
     MOCK_FUNCTION Result<std::unique_ptr<DorisCompoundReader, DirectoryDeleter>> open(
             const TabletIndex* index_meta, const io::IOContext* io_ctx = nullptr) const;
-    Result<std::unique_ptr<snii::reader::LogicalIndexReader>> open_snii_index(
+    Result<std::unique_ptr<doris::snii::reader::LogicalIndexReader>> open_snii_index(
             const TabletIndex* index_meta, const io::IOContext* io_ctx = nullptr) const;
     void debug_file_entries();
     std::string get_index_file_cache_key(const TabletIndex* index_meta) const;
@@ -101,7 +101,7 @@ private:
     IndicesEntriesMap _indices_entries;
     std::unique_ptr<CL_NS(store)::IndexInput> _stream = nullptr;
     std::shared_ptr<snii_doris::DorisSniiFileReader> _snii_file_reader;
-    std::unique_ptr<snii::reader::SniiSegmentReader> _snii_segment_reader;
+    std::unique_ptr<doris::snii::reader::SniiSegmentReader> _snii_segment_reader;
     const io::FileSystemSPtr _fs;
     std::string _index_path_prefix;
     int32_t _read_buffer_size = -1;

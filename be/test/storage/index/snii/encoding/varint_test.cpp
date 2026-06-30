@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "snii/encoding/varint.h"
+#include "storage/index/snii/encoding/varint.h"
 
 #include <gtest/gtest.h>
 
@@ -23,7 +23,7 @@
 
 #include "common/status.h"
 
-using namespace snii;
+using namespace doris::snii;
 
 TEST(SniiVarint, RoundTrip32) {
     for (uint32_t v : {0U, 1U, 127U, 128U, 300U, 16384U, 0xFFFFFFFFU}) {

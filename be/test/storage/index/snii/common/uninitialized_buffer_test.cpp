@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "snii/common/uninitialized_buffer.h"
+#include "storage/index/snii/common/uninitialized_buffer.h"
 
 #include <gtest/gtest.h>
 
@@ -25,19 +25,19 @@
 #include <vector>
 
 #include "common/status.h"
-#include "snii/common/slice.h"
-#include "snii/encoding/byte_sink.h"
-#include "snii/encoding/byte_source.h"
-#include "snii/encoding/zstd_codec.h"
-#include "snii/format/prx_pod.h"
+#include "storage/index/snii/common/slice.h"
+#include "storage/index/snii/encoding/byte_sink.h"
+#include "storage/index/snii/encoding/byte_source.h"
+#include "storage/index/snii/encoding/zstd_codec.h"
+#include "storage/index/snii/format/prx_pod.h"
 
-using snii::ByteSink;
-using snii::ByteSource;
-using snii::Slice;
-using snii::zstd_compress;
-using snii::zstd_decompress;
-using snii::format::build_prx_window;
-using snii::format::read_prx_window_csr;
+using doris::snii::ByteSink;
+using doris::snii::ByteSource;
+using doris::snii::Slice;
+using doris::snii::zstd_compress;
+using doris::snii::zstd_decompress;
+using doris::snii::format::build_prx_window;
+using doris::snii::format::read_prx_window_csr;
 
 namespace {
 
@@ -48,14 +48,14 @@ using PerDoc = std::vector<std::vector<uint32_t>>;
 // representation still holds the sentinel bytes (proves no zero-fill pass).
 TEST(SniiUninitializedBuffer, UninitVectorGrowSkipsZeroFill) {
     constexpr size_t kN = 64;
-    snii::uninitialized_vector<uint32_t> v;
-    snii::resize_uninitialized(v, kN);
+    doris::snii::uninitialized_vector<uint32_t> v;
+    doris::snii::resize_uninitialized(v, kN);
     for (size_t i = 0; i < kN; ++i) {
         v[i] = 0xAAAAAAAAU;
     }
     const uint32_t* old_data = v.data();
     v.clear(); // trivial element destruction is a no-op; storage/capacity retained
-    snii::resize_uninitialized(v, kN);
+    doris::snii::resize_uninitialized(v, kN);
     ASSERT_EQ(v.data(), old_data) << "regrow within capacity must not reallocate";
     // Examining the object representation through unsigned char* is well-defined.
     const auto* bytes = reinterpret_cast<const unsigned char*>(v.data());
@@ -73,12 +73,12 @@ TEST(SniiUninitializedBuffer, UninitVectorGrowSkipsZeroFill) {
 TEST(SniiUninitializedBuffer, StdVectorGrowZeroFillsForContrast) {
     constexpr size_t kN = 64;
     std::vector<uint32_t> v;
-    snii::resize_uninitialized(v, kN); // std::vector overload == plain resize
+    doris::snii::resize_uninitialized(v, kN); // std::vector overload == plain resize
     for (size_t i = 0; i < kN; ++i) {
         v[i] = 0xAAAAAAAAU;
     }
     v.clear();
-    snii::resize_uninitialized(v, kN);
+    doris::snii::resize_uninitialized(v, kN);
     for (size_t i = 0; i < kN; ++i) {
         EXPECT_EQ(v[i], 0U) << "std::vector regrow value-initializes to 0";
     }
@@ -87,9 +87,9 @@ TEST(SniiUninitializedBuffer, StdVectorGrowZeroFillsForContrast) {
 // Shrinking a warm buffer must reuse storage (no realloc).
 TEST(SniiUninitializedBuffer, ResizeUninitializedShrinkKeepsCapacity) {
     std::vector<uint32_t> v;
-    snii::resize_uninitialized(v, 1000);
+    doris::snii::resize_uninitialized(v, 1000);
     const size_t cap = v.capacity();
-    snii::resize_uninitialized(v, 10);
+    doris::snii::resize_uninitialized(v, 10);
     EXPECT_EQ(v.capacity(), cap) << "shrink must not reallocate";
 }
 

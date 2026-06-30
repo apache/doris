@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "snii/format/frq_prelude.h"
+#include "storage/index/snii/format/frq_prelude.h"
 
 #include <gtest/gtest.h>
 
@@ -25,16 +25,16 @@
 #include <vector>
 
 #include "common/status.h"
-#include "snii/common/slice.h"
-#include "snii/encoding/byte_sink.h"
-#include "snii/encoding/crc32c.h"
+#include "storage/index/snii/common/slice.h"
+#include "storage/index/snii/encoding/byte_sink.h"
+#include "storage/index/snii/encoding/crc32c.h"
 
-using snii::ByteSink;
-using snii::Slice;
-using snii::format::build_frq_prelude;
-using snii::format::FrqPreludeColumns;
-using snii::format::FrqPreludeReader;
-using snii::format::WindowMeta;
+using doris::snii::ByteSink;
+using doris::snii::Slice;
+using doris::snii::format::build_frq_prelude;
+using doris::snii::format::FrqPreludeColumns;
+using doris::snii::format::FrqPreludeReader;
+using doris::snii::format::WindowMeta;
 using doris::Status;
 
 namespace {
@@ -99,7 +99,7 @@ ByteSink MakeSingleWindowPrelude(uint64_t last_docid_delta, uint64_t doc_count, 
     dir.put_varint64(block.size());
 
     ByteSink covered;
-    covered.put_u8(snii::format::frq_prelude_flags::kHasFreq);
+    covered.put_u8(doris::snii::format::frq_prelude_flags::kHasFreq);
     covered.put_varint64(1); // N
     covered.put_varint64(1); // G
     covered.put_varint64(1); // n_super
@@ -108,7 +108,7 @@ ByteSink MakeSingleWindowPrelude(uint64_t last_docid_delta, uint64_t doc_count, 
 
     ByteSink frame;
     frame.put_bytes(covered.view());
-    frame.put_fixed32(snii::crc32c(covered.view()));
+    frame.put_fixed32(doris::snii::crc32c(covered.view()));
     frame.put_bytes(block.view());
     return frame;
 }
@@ -408,14 +408,14 @@ TEST(SniiFrqPrelude, WindowOutOfRangeRejected) {
 // hand with a matching crc, so verify_crc passes but the count is rejected.
 TEST(SniiFrqPrelude, RejectsOversizedWindowCount) {
     ByteSink covered;
-    covered.put_u8(snii::format::frq_prelude_flags::kHasFreq);
+    covered.put_u8(doris::snii::format::frq_prelude_flags::kHasFreq);
     covered.put_varint64(0xFFFFFFFFULL); // N: absurd window count
     covered.put_varint64(64);            // G
     covered.put_varint64(1);             // n_super (bogus but small)
     covered.put_varint64(0);             // sbdir_len = 0
     ByteSink frame;
     frame.put_bytes(covered.view());
-    frame.put_fixed32(snii::crc32c(covered.view()));
+    frame.put_fixed32(doris::snii::crc32c(covered.view()));
     FrqPreludeReader reader;
     Status s = FrqPreludeReader::open(frame.view(), &reader);
     EXPECT_TRUE(s.is<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>());

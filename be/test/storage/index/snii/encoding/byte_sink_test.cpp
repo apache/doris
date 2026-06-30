@@ -15,16 +15,16 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "snii/encoding/byte_sink.h"
+#include "storage/index/snii/encoding/byte_sink.h"
 
 #include <gtest/gtest.h>
 
 #include <cstdint>
 
 #include "common/status.h"
-#include "snii/encoding/varint.h"
+#include "storage/index/snii/encoding/varint.h"
 
-using namespace snii;
+using namespace doris::snii;
 
 TEST(SniiByteSink, Fixed32LittleEndian) {
     ByteSink s;

@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "snii/io/batch_range_fetcher.h"
+#include "storage/index/snii/io/batch_range_fetcher.h"
 
 #include <gtest/gtest.h>
 
@@ -25,16 +25,16 @@
 #include <vector>
 
 #include "common/status.h"
-#include "snii/common/slice.h"
-#include "snii/io/local_file.h"
-#include "snii/io/metered_file_reader.h"
+#include "storage/index/snii/common/slice.h"
+#include "storage/index/snii/io/local_file.h"
+#include "storage/index/snii/io/metered_file_reader.h"
 
-using namespace snii;
+using namespace doris::snii;
 using doris::Status;
-using snii::io::BatchRangeFetcher;
-using snii::io::LocalFileReader;
-using snii::io::LocalFileWriter;
-using snii::io::MeteredFileReader;
+using doris::snii::io::BatchRangeFetcher;
+using doris::snii::io::LocalFileReader;
+using doris::snii::io::LocalFileWriter;
+using doris::snii::io::MeteredFileReader;
 
 namespace {
 

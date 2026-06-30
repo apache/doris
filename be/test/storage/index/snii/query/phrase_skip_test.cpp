@@ -29,19 +29,19 @@
 #include <vector>
 
 #include "common/status.h"
-#include "snii/format/dict_entry.h"
-#include "snii/format/format_constants.h"
-#include "snii/format/frq_prelude.h"
-#include "snii/io/local_file.h"
-#include "snii/io/metered_file_reader.h"
-#include "snii/query/boolean_query.h"
-#include "snii/query/phrase_query.h"
-#include "snii/query/term_query.h"
-#include "snii/reader/logical_index_reader.h"
-#include "snii/reader/snii_segment_reader.h"
-#include "snii/reader/windowed_posting.h"
-#include "snii/writer/snii_compound_writer.h"
-#include "snii/writer/spimi_term_buffer.h"
+#include "storage/index/snii/format/dict_entry.h"
+#include "storage/index/snii/format/format_constants.h"
+#include "storage/index/snii/format/frq_prelude.h"
+#include "storage/index/snii/io/local_file.h"
+#include "storage/index/snii/io/metered_file_reader.h"
+#include "storage/index/snii/query/boolean_query.h"
+#include "storage/index/snii/query/phrase_query.h"
+#include "storage/index/snii/query/term_query.h"
+#include "storage/index/snii/reader/logical_index_reader.h"
+#include "storage/index/snii/reader/snii_segment_reader.h"
+#include "storage/index/snii/reader/windowed_posting.h"
+#include "storage/index/snii/writer/snii_compound_writer.h"
+#include "storage/index/snii/writer/spimi_term_buffer.h"
 
 // Differential test for phrase_query WINDOW SKIPPING (design spec section 6.2).
 //
@@ -60,10 +60,10 @@
 // NOTE on term naming: all real terms use an "aa_" prefix and a "zz_NNN" filler
 // vocabulary fills the lexicographic tail, so every real term sorts within the
 // SampledTermIndex's candidate range (the index samples per-block first terms).
-using namespace snii;
-using namespace snii::format;
-using namespace snii::reader;
-using namespace snii::writer;
+using namespace doris::snii;
+using namespace doris::snii::format;
+using namespace doris::snii::reader;
+using namespace doris::snii::writer;
 using doris::Status;
 
 namespace {
@@ -412,7 +412,7 @@ TEST(SniiPrefixTerms, OrderedEnumerationMatchesFilterAndLookup) {
     }
     for (const auto& h : all) {
         bool found = false;
-        snii::format::DictEntry e;
+        doris::snii::format::DictEntry e;
         uint64_t fb = 0, pb = 0;
         ASSERT_TRUE(idx.lookup(h.term, &found, &e, &fb, &pb).ok());
         EXPECT_TRUE(found) << h.term;

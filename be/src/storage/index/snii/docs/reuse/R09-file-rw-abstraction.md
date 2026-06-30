@@ -6,8 +6,8 @@
 **Verdict: keep-snii-doris-suboptimal（保留 SNII 薄接口 + 保留 DorisSniiFileReader 桥接）。**
 
 SNII 核心定义了两个极薄的抽象接口：
-- `snii::io::FileReader`（`be/src/snii/io/file_reader.h:22-47`）：`read_at(offset,len,vector<uint8_t>*)` + `read_batch(ranges,outs)`（:33-40 带默认串行实现的 range 合并契约）+ `size()` + `io_metrics()`。
-- `snii::io::FileWriter`（`be/src/snii/io/file_writer.h:14-21`）：append-only `append(Slice)` / `finalize()` / `bytes_written()`。
+- `doris::snii::io::FileReader`（`be/src/storage/index/snii/io/file_reader.h:22-47`）：`read_at(offset,len,vector<uint8_t>*)` + `read_batch(ranges,outs)`（:33-40 带默认串行实现的 range 合并契约）+ `size()` + `io_metrics()`。
+- `doris::snii::io::FileWriter`（`be/src/storage/index/snii/io/file_writer.h:14-21`）：append-only `append(Slice)` / `finalize()` / `bytes_written()`。
 
 Doris **存在等价物**，且**已经被复用**：`DorisSniiFileWriter`/`DorisSniiFileReader`（`be/src/storage/index/snii/snii_doris_adapter.h:42-101`）把 `doris::io::FileWriter`/`doris::io::FileReader` 桥接到上述薄接口。也就是说生产路径的真实 IO 已经走 Doris，复用目标已达成；本组件的问题仅是「是否让 CLucene-free 核心**直接依赖** Doris io，删掉薄接口」。答案为否。
 

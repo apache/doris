@@ -19,7 +19,7 @@
 //
 // SpillableByteBuffer now spills to disk via Doris IO (io::global_local_filesystem()
 // create_file / appendv / close + read_at on read-back) instead of the standalone
-// snii::io::Local{File}Writer/Reader. These tests pin the externally observable contract:
+// doris::snii::io::Local{File}Writer/Reader. These tests pin the externally observable contract:
 // whatever lands on the spill scratch file, streamed back in append order, is byte-for-byte
 // identical to the concatenation of every append -- across the 0-byte branch, the
 // cap-crossing spill trigger, post-spill appends, and a >256 KiB chunk that also spans the
@@ -40,11 +40,11 @@
 #include <vector>
 
 #include "common/status.h"
-#include "snii/common/slice.h"
-#include "snii/io/file_writer.h"
-#include "snii/writer/spillable_byte_buffer.h"
+#include "storage/index/snii/common/slice.h"
+#include "storage/index/snii/io/file_writer.h"
+#include "storage/index/snii/writer/spillable_byte_buffer.h"
 
-namespace snii::writer {
+namespace doris::snii::writer {
 using doris::Status;
 namespace {
 
@@ -59,10 +59,10 @@ std::vector<uint8_t> make_bytes(uint32_t seed, size_t n) {
     return v;
 }
 
-// In-memory snii::io::FileWriter that records the exact bytes (and order) streamed into it.
-class CapturingSniiFileWriter final : public snii::io::FileWriter {
+// In-memory doris::snii::io::FileWriter that records the exact bytes (and order) streamed into it.
+class CapturingSniiFileWriter final : public doris::snii::io::FileWriter {
 public:
-    doris::Status append(snii::Slice data) override {
+    doris::Status append(doris::snii::Slice data) override {
         bytes_.insert(bytes_.end(), data.data(), data.data() + data.size());
         return doris::Status::OK();
     }
@@ -125,7 +125,7 @@ TEST_F(SniiSpillIoTest, SpillRoundTripPreservesBytesAndOrder) {
 
     std::vector<uint8_t> expected;
     for (const auto& c : chunks) {
-        ASSERT_TRUE(buf.append(snii::Slice(c)).ok());
+        ASSERT_TRUE(buf.append(doris::snii::Slice(c)).ok());
         expected.insert(expected.end(), c.begin(), c.end());
     }
 
@@ -155,7 +155,7 @@ TEST_F(SniiSpillIoTest, EmptyAndLargeChunk) {
 
     std::vector<uint8_t> expected;
     for (const auto& c : chunks) {
-        ASSERT_TRUE(buf.append(snii::Slice(c)).ok());
+        ASSERT_TRUE(buf.append(doris::snii::Slice(c)).ok());
         expected.insert(expected.end(), c.begin(), c.end());
     }
 
@@ -179,7 +179,7 @@ TEST_F(SniiSpillIoTest, RamOnlyRoundTripNoSpill) {
 
     std::vector<uint8_t> expected;
     for (const auto& c : chunks) {
-        ASSERT_TRUE(buf.append(snii::Slice(c)).ok());
+        ASSERT_TRUE(buf.append(doris::snii::Slice(c)).ok());
         expected.insert(expected.end(), c.begin(), c.end());
     }
 
@@ -223,4 +223,4 @@ TEST_F(SniiSpillIoTest, AppendMoveSpillRoundTrip) {
 }
 
 } // namespace
-} // namespace snii::writer
+} // namespace doris::snii::writer

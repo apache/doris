@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "snii/writer/memory_reporter.h"
+#include "storage/index/snii/writer/memory_reporter.h"
 
 #include <gtest/gtest.h>
 
@@ -24,7 +24,7 @@
 
 #include "common/status.h"
 
-using snii::writer::MemoryReporter;
+using doris::snii::writer::MemoryReporter;
 
 TEST(SniiMemoryReporter, StartsAtZero) {
     MemoryReporter reporter; // null callback

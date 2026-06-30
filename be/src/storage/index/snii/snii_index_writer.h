@@ -21,13 +21,13 @@
 #include <string>
 #include <vector>
 
-#include "snii/format/format_constants.h"
-#include "snii/writer/memory_reporter.h"
-#include "snii/writer/spimi_term_buffer.h"
 #include "storage/index/index_writer.h"
 #include "storage/index/inverted/inverted_index_parser.h"
 #include "storage/index/inverted/query/query_info.h"
 #include "storage/index/inverted/util/reader.h"
+#include "storage/index/snii/format/format_constants.h"
+#include "storage/index/snii/writer/memory_reporter.h"
+#include "storage/index/snii/writer/spimi_term_buffer.h"
 #include "util/slice.h"
 
 namespace lucene::analysis {
@@ -66,12 +66,12 @@ private:
     bool _has_positions = false;
     uint32_t _ignore_above = 0;
     uint32_t _rid = 0;
-    snii::format::IndexConfig _config = snii::format::IndexConfig::kDocsOnly;
+    ::doris::snii::format::IndexConfig _config = ::doris::snii::format::IndexConfig::kDocsOnly;
     InvertedIndexAnalyzerConfig _analyzer_config;
     inverted_index::ReaderPtr _char_string_reader;
     std::shared_ptr<lucene::analysis::Analyzer> _analyzer;
-    std::unique_ptr<snii::writer::MemoryReporter> _memory_reporter;
-    std::unique_ptr<snii::writer::SpimiTermBuffer> _term_buffer;
+    std::unique_ptr<::doris::snii::writer::MemoryReporter> _memory_reporter;
+    std::unique_ptr<::doris::snii::writer::SpimiTermBuffer> _term_buffer;
     std::vector<uint32_t> _null_docids;
 };
 

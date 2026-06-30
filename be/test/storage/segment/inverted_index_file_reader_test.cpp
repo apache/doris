@@ -26,8 +26,8 @@
 
 #include "io/fs/local_file_system.h"
 #include "runtime/exec_env.h"
-#include "snii/writer/snii_compound_writer.h"
-#include "snii/writer/spimi_term_buffer.h"
+#include "storage/index/snii/writer/snii_compound_writer.h"
+#include "storage/index/snii/writer/spimi_term_buffer.h"
 #include "storage/data_dir.h"
 #include "storage/index/index_file_reader.h"
 #include "storage/index/index_file_writer.h"
@@ -231,17 +231,17 @@ public:
         ASSERT_TRUE(st.ok()) << st;
 
         snii_doris::DorisSniiFileWriter snii_file_writer(file_writer.get());
-        snii::writer::SniiCompoundWriter writer(&snii_file_writer);
-        snii::writer::TermPostings term;
+        doris::snii::writer::SniiCompoundWriter writer(&snii_file_writer);
+        doris::snii::writer::TermPostings term;
         term.term = "apple";
         term.docids = {0};
         term.freqs = {1};
         term.positions_flat = {0};
 
-        snii::writer::SniiIndexInput input;
+        doris::snii::writer::SniiIndexInput input;
         input.index_id = index_id;
         input.index_suffix = index_suffix;
-        input.config = snii::format::IndexConfig::kDocsPositions;
+        input.config = doris::snii::format::IndexConfig::kDocsPositions;
         input.doc_count = 2;
         input.terms = {std::move(term)};
         if (has_null_bitmap) {

@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "snii/format/prx_pod.h"
+#include "storage/index/snii/format/prx_pod.h"
 
 #include <gtest/gtest.h>
 
@@ -24,28 +24,28 @@
 #include <vector>
 
 #include "common/status.h"
-#include "snii/common/slice.h"
-#include "snii/encoding/byte_sink.h"
-#include "snii/encoding/byte_source.h"
-#include "snii/encoding/crc32c.h"
-#include "snii/encoding/pfor.h"
-#include "snii/format/format_constants.h"
+#include "storage/index/snii/common/slice.h"
+#include "storage/index/snii/encoding/byte_sink.h"
+#include "storage/index/snii/encoding/byte_source.h"
+#include "storage/index/snii/encoding/crc32c.h"
+#include "storage/index/snii/encoding/pfor.h"
+#include "storage/index/snii/format/format_constants.h"
 
 using doris::Status; // RETURN_IF_ERROR expands to bare Status
-using snii::ByteSink;
-using snii::ByteSource;
-using snii::pfor_encode;
-using snii::Slice;
-using snii::format::build_prx_window;
-using snii::format::build_prx_window_flat;
-using snii::format::kFrqBaseUnit;
-using snii::format::PrxCodec;
-using snii::format::read_prx_window;
-using snii::format::read_prx_window_csr;
-using snii::format::read_prx_window_csr_selective;
+using doris::snii::ByteSink;
+using doris::snii::ByteSource;
+using doris::snii::pfor_encode;
+using doris::snii::Slice;
+using doris::snii::format::build_prx_window;
+using doris::snii::format::build_prx_window_flat;
+using doris::snii::format::kFrqBaseUnit;
+using doris::snii::format::PrxCodec;
+using doris::snii::format::read_prx_window;
+using doris::snii::format::read_prx_window_csr;
+using doris::snii::format::read_prx_window_csr_selective;
 
 // Integrated SNII reports corruption via doris ErrorCode::INVERTED_INDEX_FILE_CORRUPTED
-// (the standalone build used snii::StatusCode::kCorruption) and writer-side precondition
+// (the standalone build used doris::snii::StatusCode::kCorruption) and writer-side precondition
 // violations via ErrorCode::INVALID_ARGUMENT; the negative tests below assert those codes.
 
 namespace {
@@ -90,7 +90,7 @@ std::vector<uint8_t> MakePforWindow(uint32_t doc_count, uint32_t total_pos,
 
     ByteSink full;
     full.put_bytes(framed.view());
-    full.put_fixed32(snii::crc32c(framed.view()));
+    full.put_fixed32(doris::snii::crc32c(framed.view()));
     return full.buffer();
 }
 
@@ -177,7 +177,7 @@ TEST(SniiPrxPod, FlatBuilderMatchesPerDocLargePfor) {
     const Slice b = flat_sink.view();
     ASSERT_EQ(a.size(), b.size());
     EXPECT_EQ(0, std::memcmp(a.data(), b.data(), a.size()));
-    EXPECT_NE(a.data()[0], static_cast<uint8_t>(snii::format::PrxCodec::kRaw));
+    EXPECT_NE(a.data()[0], static_cast<uint8_t>(doris::snii::format::PrxCodec::kRaw));
     // Round-trips losslessly back to the per-doc lists.
     PerDoc out;
     ByteSource src(flat_sink.view());
@@ -314,7 +314,7 @@ TEST(SniiPrxPod, SmallWindowUsesPfor) {
     ByteSource src(sink.view());
     uint8_t codec = 0xFF;
     ASSERT_TRUE(src.get_u8(&codec).ok());
-    EXPECT_EQ(codec, static_cast<uint8_t>(snii::format::PrxCodec::kPfor));
+    EXPECT_EQ(codec, static_cast<uint8_t>(doris::snii::format::PrxCodec::kPfor));
 
     PerDoc out;
     ByteSource rt(sink.view());
@@ -344,14 +344,14 @@ TEST(SniiPrxPod, LargeWindowTriggersPforAndIsSmaller) {
     uint8_t codec = 0xFF;
     ASSERT_TRUE(probe.get_u8(&codec).ok());
     // Auto path compresses with the smaller of PFOR vs zstd; assert it is not raw.
-    EXPECT_NE(codec, static_cast<uint8_t>(snii::format::PrxCodec::kRaw));
+    EXPECT_NE(codec, static_cast<uint8_t>(doris::snii::format::PrxCodec::kRaw));
 
     ByteSink raw_sink;
     ASSERT_TRUE(build_prx_window(in, /*level=*/0, &raw_sink).ok());
     ByteSource raw_probe(raw_sink.view());
     uint8_t raw_codec = 0xFF;
     ASSERT_TRUE(raw_probe.get_u8(&raw_codec).ok());
-    EXPECT_EQ(raw_codec, static_cast<uint8_t>(snii::format::PrxCodec::kRaw));
+    EXPECT_EQ(raw_codec, static_cast<uint8_t>(doris::snii::format::PrxCodec::kRaw));
 
     EXPECT_LT(auto_sink.size(), raw_sink.size());
 
@@ -377,7 +377,7 @@ TEST(SniiPrxPod, PforRoundTripVariety) {
         ByteSource probe(sink.view());
         uint8_t codec = 0xFF;
         ASSERT_TRUE(probe.get_u8(&codec).ok());
-        EXPECT_EQ(codec, static_cast<uint8_t>(snii::format::PrxCodec::kPfor));
+        EXPECT_EQ(codec, static_cast<uint8_t>(doris::snii::format::PrxCodec::kPfor));
         PerDoc out;
         ByteSource src(sink.view());
         ASSERT_TRUE(read_prx_window(&src, &out).ok());
@@ -450,7 +450,7 @@ TEST(SniiPrxPod, TruncatedInputRejected) {
 // before allocation/decompression.
 TEST(SniiPrxPod, OversizedUncompLenRejected) {
     ByteSink sink;
-    sink.put_u8(static_cast<uint8_t>(snii::format::PrxCodec::kZstd));
+    sink.put_u8(static_cast<uint8_t>(doris::snii::format::PrxCodec::kZstd));
     sink.put_varint32(300U * 1024 * 1024); // > 256MiB window limit
     // No need to construct the subsequent comp_len/payload/crc — the cap check
     // triggers immediately after reading uncomp_len.
@@ -468,12 +468,12 @@ TEST(SniiPrxPod, OversizedDocCountRejected) {
     ByteSink payload;
     payload.put_varint32(0x02000000U); // doc_count = 33M, > kMaxWindowDocs (1<<24)
     ByteSink framed;
-    framed.put_u8(static_cast<uint8_t>(snii::format::PrxCodec::kRaw));
+    framed.put_u8(static_cast<uint8_t>(doris::snii::format::PrxCodec::kRaw));
     framed.put_varint32(static_cast<uint32_t>(payload.view().size())); // uncomp_len
     framed.put_bytes(payload.view());
     ByteSink full;
     full.put_bytes(framed.view());
-    full.put_fixed32(snii::crc32c(framed.view())); // valid crc over codec+uncomp_len+payload
+    full.put_fixed32(doris::snii::crc32c(framed.view())); // valid crc over codec+uncomp_len+payload
     ByteSource src(full.view());
     PerDoc out;
     Status s = read_prx_window(&src, &out);

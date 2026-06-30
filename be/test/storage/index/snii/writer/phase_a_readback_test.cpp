@@ -26,23 +26,23 @@
 #include <vector>
 
 #include "common/status.h"
-#include "snii/common/slice.h"
-#include "snii/encoding/byte_source.h"
-#include "snii/format/dict_entry.h"
-#include "snii/format/format_constants.h"
-#include "snii/format/frq_pod.h"
-#include "snii/format/frq_prelude.h"
-#include "snii/io/local_file.h"
-#include "snii/io/metered_file_reader.h"
-#include "snii/query/bm25_scorer.h"
-#include "snii/query/phrase_query.h"
-#include "snii/query/scoring_query.h"
-#include "snii/query/term_query.h"
-#include "snii/reader/logical_index_reader.h"
-#include "snii/reader/snii_segment_reader.h"
-#include "snii/stats/snii_stats_provider.h"
-#include "snii/writer/logical_index_writer.h"
-#include "snii/writer/snii_compound_writer.h"
+#include "storage/index/snii/common/slice.h"
+#include "storage/index/snii/encoding/byte_source.h"
+#include "storage/index/snii/format/dict_entry.h"
+#include "storage/index/snii/format/format_constants.h"
+#include "storage/index/snii/format/frq_pod.h"
+#include "storage/index/snii/format/frq_prelude.h"
+#include "storage/index/snii/io/local_file.h"
+#include "storage/index/snii/io/metered_file_reader.h"
+#include "storage/index/snii/query/bm25_scorer.h"
+#include "storage/index/snii/query/phrase_query.h"
+#include "storage/index/snii/query/scoring_query.h"
+#include "storage/index/snii/query/term_query.h"
+#include "storage/index/snii/reader/logical_index_reader.h"
+#include "storage/index/snii/reader/snii_segment_reader.h"
+#include "storage/index/snii/stats/snii_stats_provider.h"
+#include "storage/index/snii/writer/logical_index_writer.h"
+#include "storage/index/snii/writer/snii_compound_writer.h"
 
 // PHASE A read-back self-validation (design 2026-06-18-snii-read-byte-optimizations
 // sections 1 + 3 + 4). Builds a scoring index with a high-df term that spans
@@ -57,12 +57,12 @@
 //       oracle docids.
 namespace {
 
-using namespace snii;         // NOLINT
-using namespace snii::format; // NOLINT
-using namespace snii::writer; // NOLINT
-using snii::query::Bm25Params;
-using snii::query::ScoredDoc;
-using snii::stats::SniiStatsProvider;
+using namespace doris::snii;         // NOLINT
+using namespace doris::snii::format; // NOLINT
+using namespace doris::snii::writer; // NOLINT
+using doris::snii::query::Bm25Params;
+using doris::snii::query::ScoredDoc;
+using doris::snii::stats::SniiStatsProvider;
 
 std::string TempPath() {
     static int counter = 0;
@@ -121,7 +121,7 @@ SniiIndexInput MakeIndex(const Corpus& c) {
     in.target_dict_block_bytes = 1; // one block per term
     in.encoded_norms.resize(c.doc_count);
     for (uint32_t d = 0; d < c.doc_count; ++d) {
-        in.encoded_norms[d] = snii::query::encode_norm(c.doc_len[d]);
+        in.encoded_norms[d] = doris::snii::query::encode_norm(c.doc_len[d]);
     }
     // Lexicographically sorted: hot < rare < spark.
     in.terms.push_back(MakePosTerm("hot", c.hot_docs, /*pos=*/0));
@@ -146,7 +146,7 @@ TEST(SniiPhaseAReadBack, DocsPrefixTilesAndMaxNormTightAndQueriesAgree) {
     const Corpus c = MakeCorpus();
     std::vector<uint8_t> norms(c.doc_count);
     for (uint32_t d = 0; d < c.doc_count; ++d) {
-        norms[d] = snii::query::encode_norm(c.doc_len[d]);
+        norms[d] = doris::snii::query::encode_norm(c.doc_len[d]);
     }
 
     const std::string path = TempPath();
@@ -188,7 +188,7 @@ TEST(SniiPhaseAReadBack, DocsPrefixTilesAndMaxNormTightAndQueriesAgree) {
     // Most windows are the adaptive size (the last may be a remainder).
     WindowMeta w0;
     ASSERT_TRUE(prelude.window(0, &w0).ok());
-    EXPECT_EQ(w0.doc_count, snii::format::kAdaptiveWindowDocs);
+    EXPECT_EQ(w0.doc_count, doris::snii::format::kAdaptiveWindowDocs);
 
     // The grouped layout puts all dd regions in the dd-block right after the prelude.
     const uint64_t dd_block_start = prelude_abs + hot.prelude_len;
@@ -258,20 +258,20 @@ TEST(SniiPhaseAReadBack, DocsPrefixTilesAndMaxNormTightAndQueriesAgree) {
 
     // (d) term_query returns exactly the oracle docid set for each term.
     std::vector<uint32_t> hot_q;
-    ASSERT_TRUE(snii::query::term_query(idx, "hot", &hot_q).ok());
+    ASSERT_TRUE(doris::snii::query::term_query(idx, "hot", &hot_q).ok());
     EXPECT_EQ(hot_q, c.hot_docs);
 
     std::vector<uint32_t> rare_q;
-    ASSERT_TRUE(snii::query::term_query(idx, "rare", &rare_q).ok());
+    ASSERT_TRUE(doris::snii::query::term_query(idx, "rare", &rare_q).ok());
     EXPECT_EQ(rare_q, c.rare_docs);
 
     std::vector<uint32_t> spark_q;
-    ASSERT_TRUE(snii::query::term_query(idx, "spark", &spark_q).ok());
+    ASSERT_TRUE(doris::snii::query::term_query(idx, "spark", &spark_q).ok());
     EXPECT_EQ(spark_q, c.spark_docs);
 
     // (d) phrase_query "hot spark" returns exactly the consecutive-occurrence docs.
     std::vector<uint32_t> phrase_q;
-    ASSERT_TRUE(snii::query::phrase_query(idx, {"hot", "spark"}, &phrase_q).ok());
+    ASSERT_TRUE(doris::snii::query::phrase_query(idx, {"hot", "spark"}, &phrase_q).ok());
     EXPECT_EQ(phrase_q, c.phrase_oracle);
 
     // (d) scoring: WAND top-K == exhaustive top-K (uses the real per-window max_norm).
@@ -280,11 +280,12 @@ TEST(SniiPhaseAReadBack, DocsPrefixTilesAndMaxNormTightAndQueriesAgree) {
     const Bm25Params params;
     for (uint32_t k : {1U, 5U, 50U}) {
         std::vector<ScoredDoc> ex, wa;
+        ASSERT_TRUE(doris::snii::query::scoring_query_exhaustive(idx, stats, {"hot", "rare"}, k,
+                                                                 params, &ex)
+                            .ok());
         ASSERT_TRUE(
-                snii::query::scoring_query_exhaustive(idx, stats, {"hot", "rare"}, k, params, &ex)
+                doris::snii::query::scoring_query_wand(idx, stats, {"hot", "rare"}, k, params, &wa)
                         .ok());
-        ASSERT_TRUE(
-                snii::query::scoring_query_wand(idx, stats, {"hot", "rare"}, k, params, &wa).ok());
         ASSERT_EQ(wa.size(), ex.size()) << "k=" << k;
         for (size_t i = 0; i < ex.size(); ++i) {
             EXPECT_EQ(wa[i].docid, ex[i].docid) << "k=" << k << " i=" << i;

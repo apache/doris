@@ -32,19 +32,19 @@
 #include "common/config.h"
 #include "runtime/runtime_profile.h"
 #include "runtime/runtime_state.h"
-#include "snii/format/null_bitmap.h"
-#include "snii/query/boolean_query.h"
-#include "snii/query/docid_sink.h"
-#include "snii/query/phrase_query.h"
-#include "snii/query/prefix_query.h"
-#include "snii/query/regexp_query.h"
-#include "snii/query/term_query.h"
-#include "snii/query/wildcard_query.h"
-#include "snii/reader/logical_index_reader.h"
 #include "storage/index/index_file_reader.h"
 #include "storage/index/inverted/analyzer/analyzer.h"
 #include "storage/index/inverted/inverted_index_cache.h"
 #include "storage/index/inverted/inverted_index_iterator.h"
+#include "storage/index/snii/format/null_bitmap.h"
+#include "storage/index/snii/query/boolean_query.h"
+#include "storage/index/snii/query/docid_sink.h"
+#include "storage/index/snii/query/phrase_query.h"
+#include "storage/index/snii/query/prefix_query.h"
+#include "storage/index/snii/query/regexp_query.h"
+#include "storage/index/snii/query/term_query.h"
+#include "storage/index/snii/query/wildcard_query.h"
+#include "storage/index/snii/reader/logical_index_reader.h"
 #include "storage/index/snii/snii_doris_adapter.h"
 #include "util/time.h"
 
@@ -52,24 +52,24 @@ namespace doris::segment_v2 {
 
 namespace {
 
-class RoaringDocIdSink final : public snii::query::DocIdSink {
+class RoaringDocIdSink final : public ::doris::snii::query::DocIdSink {
 public:
     explicit RoaringDocIdSink(roaring::Roaring* bitmap) : _bitmap(bitmap) {
         DCHECK(_bitmap != nullptr);
     }
 
-    doris::Status append_sorted(std::span<const uint32_t> docids) override {
+    Status append_sorted(std::span<const uint32_t> docids) override {
         if (!docids.empty()) {
             _bitmap->addMany(docids.size(), docids.data());
         }
-        return doris::Status::OK();
+        return Status::OK();
     }
 
-    doris::Status append_range(uint32_t first, uint64_t last_exclusive) override {
+    Status append_range(uint32_t first, uint64_t last_exclusive) override {
         if (last_exclusive > first) {
             _bitmap->addRange(first, last_exclusive);
         }
-        return doris::Status::OK();
+        return Status::OK();
     }
 
 private:
@@ -157,7 +157,7 @@ std::shared_ptr<roaring::Roaring> docids_to_bitmap(const std::vector<uint32_t>& 
     return result;
 }
 
-Status execute_snii_query(const snii::reader::LogicalIndexReader& logical_reader,
+Status execute_snii_query(const ::doris::snii::reader::LogicalIndexReader& logical_reader,
                           InvertedIndexQueryType query_type,
                           const InvertedIndexQueryInfo& query_info, std::string_view search_str,
                           const std::vector<std::string>& terms, int32_t max_expansions,
@@ -166,20 +166,21 @@ Status execute_snii_query(const snii::reader::LogicalIndexReader& logical_reader
     RoaringDocIdSink sink(result->bitmap.get());
     std::vector<uint32_t> docids;
     bool emitted_to_sink = false;
-    doris::Status status;
+    Status status;
     switch (query_type) {
     case InvertedIndexQueryType::EQUAL_QUERY:
     case InvertedIndexQueryType::MATCH_ANY_QUERY:
-        status = terms.size() == 1 ? snii::query::term_query(logical_reader, terms.front(), &sink)
-                                   : snii::query::boolean_or(logical_reader, terms, &sink);
+        status = terms.size() == 1
+                         ? ::doris::snii::query::term_query(logical_reader, terms.front(), &sink)
+                         : ::doris::snii::query::boolean_or(logical_reader, terms, &sink);
         emitted_to_sink = true;
         break;
     case InvertedIndexQueryType::MATCH_ALL_QUERY:
         if (terms.size() == 1) {
-            status = snii::query::term_query(logical_reader, terms.front(), &sink);
+            status = ::doris::snii::query::term_query(logical_reader, terms.front(), &sink);
             emitted_to_sink = true;
         } else {
-            status = snii::query::boolean_and(logical_reader, terms, &docids);
+            status = ::doris::snii::query::boolean_and(logical_reader, terms, &docids);
         }
         break;
     case InvertedIndexQueryType::MATCH_PHRASE_QUERY:
@@ -188,28 +189,30 @@ Status execute_snii_query(const snii::reader::LogicalIndexReader& logical_reader
                     "SNII does not support sloppy phrase query yet");
         }
         if (terms.size() == 1) {
-            status = snii::query::term_query(logical_reader, terms.front(), &sink);
+            status = ::doris::snii::query::term_query(logical_reader, terms.front(), &sink);
             emitted_to_sink = true;
         } else {
-            status = snii::query::phrase_query(logical_reader, terms, &docids);
+            status = ::doris::snii::query::phrase_query(logical_reader, terms, &docids);
         }
         break;
     case InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY:
         if (terms.size() == 1) {
-            status =
-                    snii::query::prefix_query(logical_reader, terms.front(), &sink, max_expansions);
+            status = ::doris::snii::query::prefix_query(logical_reader, terms.front(), &sink,
+                                                        max_expansions);
             emitted_to_sink = true;
         } else {
-            status = snii::query::phrase_prefix_query(logical_reader, terms, &docids,
-                                                      max_expansions);
+            status = ::doris::snii::query::phrase_prefix_query(logical_reader, terms, &docids,
+                                                               max_expansions);
         }
         break;
     case InvertedIndexQueryType::MATCH_REGEXP_QUERY:
-        status = snii::query::regexp_query(logical_reader, search_str, &sink, max_expansions);
+        status = ::doris::snii::query::regexp_query(logical_reader, search_str, &sink,
+                                                    max_expansions);
         emitted_to_sink = true;
         break;
     case InvertedIndexQueryType::WILDCARD_QUERY:
-        status = snii::query::wildcard_query(logical_reader, search_str, &sink, max_expansions);
+        status = ::doris::snii::query::wildcard_query(logical_reader, search_str, &sink,
+                                                      max_expansions);
         emitted_to_sink = true;
         break;
     case InvertedIndexQueryType::LESS_THAN_QUERY:
@@ -298,8 +301,8 @@ Status SniiIndexReader::_parse_query_terms(const IndexQueryContextPtr& context,
 
 Status SniiIndexReader::_get_logical_reader(
         const IndexQueryContextPtr& context, InvertedIndexCacheHandle* searcher_cache_handle,
-        std::unique_ptr<snii::reader::LogicalIndexReader>* uncached_reader,
-        const snii::reader::LogicalIndexReader** logical_reader) {
+        std::unique_ptr<::doris::snii::reader::LogicalIndexReader>* uncached_reader,
+        const ::doris::snii::reader::LogicalIndexReader** logical_reader) {
     DCHECK(searcher_cache_handle != nullptr);
     DCHECK(uncached_reader != nullptr);
     DCHECK(logical_reader != nullptr);
@@ -402,8 +405,8 @@ Status SniiIndexReader::query(const IndexQueryContextPtr& context, const std::st
 
     snii_doris::DorisSniiFileReader::ScopedIOContext io_context_scope(context->io_ctx);
     InvertedIndexCacheHandle searcher_cache_handle;
-    std::unique_ptr<snii::reader::LogicalIndexReader> uncached_reader;
-    const snii::reader::LogicalIndexReader* logical_reader = nullptr;
+    std::unique_ptr<::doris::snii::reader::LogicalIndexReader> uncached_reader;
+    const ::doris::snii::reader::LogicalIndexReader* logical_reader = nullptr;
     RETURN_IF_ERROR(_get_logical_reader(context, &searcher_cache_handle, &uncached_reader,
                                         &logical_reader));
 
@@ -435,8 +438,8 @@ Status SniiIndexReader::read_null_bitmap(const IndexQueryContextPtr& context,
 
     snii_doris::DorisSniiFileReader::ScopedIOContext io_context_scope(context->io_ctx);
     InvertedIndexCacheHandle searcher_cache_handle;
-    std::unique_ptr<snii::reader::LogicalIndexReader> uncached_reader;
-    const snii::reader::LogicalIndexReader* logical_reader = nullptr;
+    std::unique_ptr<::doris::snii::reader::LogicalIndexReader> uncached_reader;
+    const ::doris::snii::reader::LogicalIndexReader* logical_reader = nullptr;
     RETURN_IF_ERROR(_get_logical_reader(context, &searcher_cache_handle, &uncached_reader,
                                         &logical_reader));
     auto null_bitmap = std::make_shared<roaring::Roaring>();
@@ -444,8 +447,9 @@ Status SniiIndexReader::read_null_bitmap(const IndexQueryContextPtr& context,
     if (ref.length > 0) {
         std::vector<uint8_t> bytes;
         RETURN_IF_ERROR(logical_reader->reader()->read_at(ref.offset, ref.length, &bytes));
-        snii::format::NullBitmapReader reader;
-        RETURN_IF_ERROR(snii::format::NullBitmapReader::open(snii::Slice(bytes), &reader));
+        ::doris::snii::format::NullBitmapReader reader;
+        RETURN_IF_ERROR(::doris::snii::format::NullBitmapReader::open(::doris::snii::Slice(bytes),
+                                                                      &reader));
         reader.copy_to(null_bitmap.get());
         null_bitmap->runOptimize();
     }

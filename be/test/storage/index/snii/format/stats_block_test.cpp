@@ -15,20 +15,20 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "snii/format/stats_block.h"
+#include "storage/index/snii/format/stats_block.h"
 
 #include <gtest/gtest.h>
 
 #include <cstdint>
 
 #include "common/status.h"
-#include "snii/encoding/byte_sink.h"
-#include "snii/encoding/byte_source.h"
-#include "snii/encoding/section_framer.h"
-#include "snii/format/format_constants.h"
+#include "storage/index/snii/encoding/byte_sink.h"
+#include "storage/index/snii/encoding/byte_source.h"
+#include "storage/index/snii/encoding/section_framer.h"
+#include "storage/index/snii/format/format_constants.h"
 
-using namespace snii;
-using namespace snii::format;
+using namespace doris::snii;
+using namespace doris::snii::format;
 using doris::Status;
 
 namespace {

@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "snii/format/dict_block.h"
+#include "storage/index/snii/format/dict_block.h"
 
 #include <gtest/gtest.h>
 
@@ -24,14 +24,14 @@
 #include <vector>
 
 #include "common/status.h"
-#include "snii/common/slice.h"
-#include "snii/encoding/byte_sink.h"
-#include "snii/encoding/crc32c.h"
-#include "snii/format/dict_entry.h"
-#include "snii/format/format_constants.h"
+#include "storage/index/snii/common/slice.h"
+#include "storage/index/snii/encoding/byte_sink.h"
+#include "storage/index/snii/encoding/crc32c.h"
+#include "storage/index/snii/format/dict_entry.h"
+#include "storage/index/snii/format/format_constants.h"
 
-using namespace snii;         // NOLINT
-using namespace snii::format; // NOLINT
+using namespace doris::snii;         // NOLINT
+using namespace doris::snii::format; // NOLINT
 using doris::Status;
 
 namespace {
@@ -327,7 +327,7 @@ TEST(SniiDictBlock, RejectsNonMonotonicAnchorOffsets) {
         bytes[off2 + k] = tmp;
     }
     // Re-stamp crc32c over the covered region [0, n-4) so corruption is structural.
-    uint32_t crc = snii::crc32c(Slice(bytes.data(), n - 4));
+    uint32_t crc = doris::snii::crc32c(Slice(bytes.data(), n - 4));
     for (int k = 0; k < 4; ++k) {
         bytes[n - 4 + k] = static_cast<uint8_t>(crc >> (8 * k));
     }

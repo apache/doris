@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "snii/query/scoring_query.h"
+#include "storage/index/snii/query/scoring_query.h"
 
 #include <gtest/gtest.h>
 #include <unistd.h>
@@ -30,23 +30,23 @@
 #include <vector>
 
 #include "common/status.h"
-#include "snii/format/format_constants.h"
-#include "snii/io/local_file.h"
-#include "snii/io/metered_file_reader.h"
-#include "snii/query/bm25_scorer.h"
-#include "snii/reader/logical_index_reader.h"
-#include "snii/reader/snii_segment_reader.h"
-#include "snii/stats/snii_stats_provider.h"
-#include "snii/writer/logical_index_writer.h"
-#include "snii/writer/snii_compound_writer.h"
-#include "snii/writer/spimi_term_buffer.h"
+#include "storage/index/snii/format/format_constants.h"
+#include "storage/index/snii/io/local_file.h"
+#include "storage/index/snii/io/metered_file_reader.h"
+#include "storage/index/snii/query/bm25_scorer.h"
+#include "storage/index/snii/reader/logical_index_reader.h"
+#include "storage/index/snii/reader/snii_segment_reader.h"
+#include "storage/index/snii/stats/snii_stats_provider.h"
+#include "storage/index/snii/writer/logical_index_writer.h"
+#include "storage/index/snii/writer/snii_compound_writer.h"
+#include "storage/index/snii/writer/spimi_term_buffer.h"
 
-using namespace snii;
-using namespace snii::format;
-using namespace snii::writer;
-using snii::query::Bm25Params;
-using snii::query::ScoredDoc;
-using snii::stats::SniiStatsProvider;
+using namespace doris::snii;
+using namespace doris::snii::format;
+using namespace doris::snii::writer;
+using doris::snii::query::Bm25Params;
+using doris::snii::query::ScoredDoc;
+using doris::snii::stats::SniiStatsProvider;
 
 namespace {
 
@@ -105,7 +105,7 @@ SniiIndexInput ToInput(const Corpus& c) {
 
     in.encoded_norms.resize(c.doc_count);
     for (uint32_t d = 0; d < c.doc_count; ++d) {
-        in.encoded_norms[d] = snii::query::encode_norm(c.doc_len[d]);
+        in.encoded_norms[d] = doris::snii::query::encode_norm(c.doc_len[d]);
     }
 
     for (const auto& [term, plist] : c.postings) {
@@ -143,7 +143,7 @@ std::vector<ScoredDoc> ReferenceRanking(const Corpus& c, const std::vector<uint8
         const double idf =
                 std::log(1.0 + (static_cast<double>(c.doc_count) - df + 0.5) / (df + 0.5));
         for (const auto& [docid, freq] : it->second) {
-            const double dl = snii::query::decode_norm(norms[docid]);
+            const double dl = doris::snii::query::decode_norm(norms[docid]);
             const double denom = freq + params.k1 * (1.0 - params.b + params.b * dl / avgdl);
             scores[docid] += idf * (freq * (params.k1 + 1.0)) / denom;
         }
@@ -173,7 +173,7 @@ namespace {
 std::vector<uint8_t> EncodeNorms(const Corpus& c) {
     std::vector<uint8_t> v(c.doc_count);
     for (uint32_t d = 0; d < c.doc_count; ++d) {
-        v[d] = snii::query::encode_norm(c.doc_len[d]);
+        v[d] = doris::snii::query::encode_norm(c.doc_len[d]);
     }
     return v;
 }
@@ -240,10 +240,12 @@ TEST(SniiScoringQuery, ReferenceOracleAndWandEqualsExhaustive) {
     auto run_and_check = [&](const std::vector<std::string>& terms) {
         std::vector<ScoredDoc> reference = ReferenceRanking(corpus, norms, terms, k, params);
         std::vector<ScoredDoc> exhaustive;
-        ASSERT_TRUE(snii::query::scoring_query_exhaustive(idx, stats, terms, k, params, &exhaustive)
+        ASSERT_TRUE(doris::snii::query::scoring_query_exhaustive(idx, stats, terms, k, params,
+                                                                 &exhaustive)
                             .ok());
         std::vector<ScoredDoc> wand;
-        ASSERT_TRUE(snii::query::scoring_query_wand(idx, stats, terms, k, params, &wand).ok());
+        ASSERT_TRUE(
+                doris::snii::query::scoring_query_wand(idx, stats, terms, k, params, &wand).ok());
 
         ASSERT_EQ(exhaustive.size(), reference.size());
         for (size_t i = 0; i < reference.size(); ++i) {

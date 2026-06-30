@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "snii/common/slice.h"
+#include "storage/index/snii/common/slice.h"
 
 #include <gtest/gtest.h>
 
@@ -23,7 +23,7 @@
 
 #include "common/status.h"
 
-using snii::Slice;
+using doris::snii::Slice;
 
 TEST(SniiSlice, BasicAccess) {
     const uint8_t buf[] = {1, 2, 3, 4};

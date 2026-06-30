@@ -4,13 +4,13 @@
 判定 **keep-snii-doris-suboptimal**：保留 SNII 自有 ByteSink/ByteSource。
 
 依据：
-1. 该组件已完全 CLucene-free（`be/src/snii/encoding/byte_sink.h`、`byte_source.h` 纯 `snii` 命名空间，0 CLucene 引用），解耦目标已达成，无需为解耦而迁移。
+1. 该组件已完全 CLucene-free（`be/src/storage/index/snii/encoding/byte_sink.h`、`byte_source.h` 纯 `snii` 命名空间，0 CLucene 引用），解耦目标已达成，无需为解耦而迁移。
 2. 写侧字节虽可与 Doris 对齐（见下「字节兼容性」），但读侧 ByteSource 在 Doris 中**无等价游标**：
    - `byte_source.h:25-30` 暴露 `position()/remaining()/eof()/slice_from(start,len)`，`section_framer` 依赖其绝对偏移与 `slice_from` 回退重算 CRC 覆盖区；
    - `byte_source.cpp:8/14/23/32/64` 以 `Status::Corruption(<逐字段消息>)` 报错；
    - Doris `coding.h:175-200` 的 `get_varint32/64` 返回 `bool` 且 `remove_prefix` 消费 `Slice`，无偏移游标、无 Status、无带界定长 LE 读取器。基于 Doris 原语重建 = 重写 ByteSource。
 3. 写侧 Doris 覆盖不完整：`coding.h` 仅有 `put_fixed32_le/64_le/128_le`，**缺 `put_fixed16_le`**；且无字节对齐 zigzag（zigzag 仅见于 `bit_stream_utils.h` 的位打包读写，paradigm 不符），而 SNII 需要 `put_fixed16`/`put_zigzag`(byte_sink.h:15,20)。
-4. 类型与迁移成本：`take()`→`std::vector<uint8_t>`、`view()`→`snii::Slice` 被 53 处直接消费；改用 `faststring::build()`→`doris::OwnedSlice` 将跨约 344 调用点改动返回/切片类型，收益仅边际。
+4. 类型与迁移成本：`take()`→`std::vector<uint8_t>`、`view()`→`doris::snii::Slice` 被 53 处直接消费；改用 `faststring::build()`→`doris::OwnedSlice` 将跨约 344 调用点改动返回/切片类型，收益仅边际。
 
 ## Doris 等价物
 - 后端缓冲：`doris::faststring`（`be/src/util/faststring.h`）——可替代 `std::vector<uint8_t> buf_`。
@@ -36,7 +36,7 @@
 - 风险/回滚：改动隔离在 sink 两文件；以 byte-identity 黄金测试 + cross-decode 把关，回滚即还原两文件。
 
 ## 若 KEEP 的明确理由
-ByteSource 在 Doris 无任何游标等价物（bool 语义、无 position/Status/slice_from）；ByteSink 在 Doris 缺 fixed16 与字节对齐 zigzag；且 take/view 的 vector/snii::Slice 类型贯穿 344 调用点。整体替换需重写 source、扩展 sink、并做全量类型迁移，换来的仅是边际分配收益与零字节收益——不划算，故保留。
+ByteSource 在 Doris 无任何游标等价物（bool 语义、无 position/Status/slice_from）；ByteSink 在 Doris 缺 fixed16 与字节对齐 zigzag；且 take/view 的 vector/doris::snii::Slice 类型贯穿 344 调用点。整体替换需重写 source、扩展 sink、并做全量类型迁移，换来的仅是边际分配收益与零字节收益——不划算，故保留。
 
 ---
 

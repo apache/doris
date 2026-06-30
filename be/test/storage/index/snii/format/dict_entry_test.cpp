@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "snii/format/dict_entry.h"
+#include "storage/index/snii/format/dict_entry.h"
 
 #include <gtest/gtest.h>
 
@@ -24,13 +24,13 @@
 #include <vector>
 
 #include "common/status.h"
-#include "snii/common/slice.h"
-#include "snii/encoding/byte_sink.h"
-#include "snii/encoding/byte_source.h"
-#include "snii/format/format_constants.h"
+#include "storage/index/snii/common/slice.h"
+#include "storage/index/snii/encoding/byte_sink.h"
+#include "storage/index/snii/encoding/byte_source.h"
+#include "storage/index/snii/format/format_constants.h"
 
-using namespace snii;         // NOLINT
-using namespace snii::format; // NOLINT
+using namespace doris::snii;         // NOLINT
+using namespace doris::snii::format; // NOLINT
 using doris::Status;
 
 namespace {

@@ -29,19 +29,19 @@
 #include <vector>
 
 #include "common/status.h"
-#include "snii/common/slice.h"
-#include "snii/io/file_writer.h"
-#include "snii/writer/memory_reporter.h"
-#include "snii/writer/spillable_byte_buffer.h"
-#include "snii/writer/spimi_term_buffer.h"
+#include "storage/index/snii/common/slice.h"
+#include "storage/index/snii/io/file_writer.h"
+#include "storage/index/snii/writer/memory_reporter.h"
+#include "storage/index/snii/writer/spillable_byte_buffer.h"
+#include "storage/index/snii/writer/spimi_term_buffer.h"
 
-namespace snii::writer {
+namespace doris::snii::writer {
 using doris::Status;
 namespace {
 
 // Discards appended bytes; only counts how many were written (SpillableByteBuffer
 // stream_into / spill targets need a sink, but these tests check the reporter).
-class NullWriter : public snii::io::FileWriter {
+class NullWriter : public doris::snii::io::FileWriter {
 public:
     Status append(Slice s) override {
         written_ += s.size();
@@ -240,4 +240,4 @@ TEST(SniiMemoryReporterWiring, SpimiDestructorBalancesOnAbort) {
 }
 
 } // namespace
-} // namespace snii::writer
+} // namespace doris::snii::writer

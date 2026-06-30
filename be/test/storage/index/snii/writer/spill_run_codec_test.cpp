@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "snii/writer/spill_run_codec.h"
+#include "storage/index/snii/writer/spill_run_codec.h"
 
 #include <gtest/gtest.h>
 #include <sys/stat.h>
@@ -30,19 +30,19 @@
 #include <vector>
 
 #include "common/status.h"
-#include "snii/encoding/varint.h"
-#include "snii/format/format_constants.h"
-#include "snii/writer/spimi_term_buffer.h"
+#include "storage/index/snii/encoding/varint.h"
+#include "storage/index/snii/format/format_constants.h"
+#include "storage/index/snii/writer/spimi_term_buffer.h"
 
-// snii::Status was deleted in the Doris integration (R01); the codec now returns
+// doris::snii::Status was deleted in the Doris integration (R01); the codec now returns
 // doris::Status. Corruption is surfaced via the INVERTED_INDEX_FILE_CORRUPTED
 // error code (verified against the integrated spill_run_codec.cpp), not a generic
 // CORRUPTION code, so the corruption assertions below check that code explicitly.
 using doris::Status;
-using snii::writer::MergeRuns;
-using snii::writer::RunReader;
-using snii::writer::RunWriter;
-using snii::writer::TermPostings;
+using doris::snii::writer::MergeRuns;
+using doris::snii::writer::RunReader;
+using doris::snii::writer::RunWriter;
+using doris::snii::writer::TermPostings;
 
 namespace {
 
@@ -123,8 +123,8 @@ TEST(SniiSpillRunCodec, CorruptDocCountIsCorruptionNotBadAlloc) {
         ASSERT_NE(f, nullptr);
         uint8_t buf[16];
         size_t n = 0;
-        n += snii::encode_varint64(0, buf + n);             // term_id = 0
-        n += snii::encode_varint64(0xFFFFFFFFULL, buf + n); // n_docs ~= 4e9, no data follows
+        n += doris::snii::encode_varint64(0, buf + n);             // term_id = 0
+        n += doris::snii::encode_varint64(0xFFFFFFFFULL, buf + n); // n_docs ~= 4e9, no data follows
         ASSERT_EQ(std::fwrite(buf, 1, n, f), n);
         std::fclose(f);
         // NOLINTEND(clang-analyzer-unix.Stream)
@@ -528,15 +528,15 @@ TEST(SniiSpillRunCodec, NPosExceedsFileIsCorruption) {
         ASSERT_NE(f, nullptr);
         uint8_t buf[40];
         size_t n = 0;
-        n += snii::encode_varint64(0, buf + n); // term_id = 0
-        n += snii::encode_varint64(1, buf + n); // n_docs = 1
+        n += doris::snii::encode_varint64(0, buf + n); // term_id = 0
+        n += doris::snii::encode_varint64(1, buf + n); // n_docs = 1
         // docid[0] = 0 and freq[0] = 1 as RAW LE u32 blocks (matching the writer).
         const uint32_t one_docid = 0, one_freq = 1;
         std::memcpy(buf + n, &one_docid, sizeof(uint32_t));
         n += sizeof(uint32_t);
         std::memcpy(buf + n, &one_freq, sizeof(uint32_t));
         n += sizeof(uint32_t);
-        n += snii::encode_varint64(0xFFFFFFFFULL, buf + n); // n_pos ~= 4e9, no data follows
+        n += doris::snii::encode_varint64(0xFFFFFFFFULL, buf + n); // n_pos ~= 4e9, no data follows
         ASSERT_EQ(std::fwrite(buf, 1, n, f), n);
         std::fclose(f);
         // NOLINTEND(clang-analyzer-unix.Stream)
@@ -561,7 +561,7 @@ TEST(SniiSpillRunCodec, NPosExceedsFileIsCorruption) {
 TEST(SniiSpillRunCodec, WideTermPumpZeroFillsTruncatedPositions) {
     const std::vector<std::string> vocab = {"wide"};
     const uint32_t kDocs = 600; // > kSlimDfThreshold (512) -> streamed path
-    static_assert(600U > snii::format::kSlimDfThreshold, "must exceed slim df");
+    static_assert(600U > doris::snii::format::kSlimDfThreshold, "must exceed slim df");
     TempRun run;
     {
         TermPostings tp;

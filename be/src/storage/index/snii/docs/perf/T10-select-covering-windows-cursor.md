@@ -2,7 +2,7 @@
 
 ## 1. 目标与背景
 
-`select_covering_windows`（`be/src/storage/index/snii/core/src/query/docid_conjunction.cpp:497-514`）对一个 windowed 高频词，要从 N 个窗口里挑出"覆盖当前候选集"的窗口子集。它**对每个升序候选 docid 调用一次** `prelude.locate_window(d)`（`:502/:505`）：
+`select_covering_windows`（`be/src/storage/index/snii/query/docid_conjunction.cpp:497-514`）对一个 windowed 高频词，要从 N 个窗口里挑出"覆盖当前候选集"的窗口子集。它**对每个升序候选 docid 调用一次** `prelude.locate_window(d)`（`:502/:505`）：
 
 ```cpp
 for (uint32_t d : candidates) {
@@ -13,7 +13,7 @@ for (uint32_t d : candidates) {
 }
 ```
 
-`locate_window`（`be/src/storage/index/snii/core/src/format/frq_prelude.cpp:445-468`）每次做：① 在 super-block 目录 `sb_last_docid_` 上 `std::lower_bound`（`:454`，~log n_super），② 从 `lo = sb*group_size`（`:458`，G 默认 64，`frq_prelude.h:124`）起**重新线性扫描**至多 G 个 `windows_[i].last_docid`（`:460-466`）。由于每次都从 super-block 块首重启扫描，映射到同一组的候选会反复重扫该组 → 整体 **O(C·(log n_super + G))**，且每次触碰 ~104–112B 的 `WindowMeta` 行（`last_docid` 在偏移 0）。候选与窗口**都已升序**，本质是一个被当成 C 次独立查找来执行的有序归并。
+`locate_window`（`be/src/storage/index/snii/format/frq_prelude.cpp:445-468`）每次做：① 在 super-block 目录 `sb_last_docid_` 上 `std::lower_bound`（`:454`，~log n_super），② 从 `lo = sb*group_size`（`:458`，G 默认 64，`frq_prelude.h:124`）起**重新线性扫描**至多 G 个 `windows_[i].last_docid`（`:460-466`）。由于每次都从 super-block 块首重启扫描，映射到同一组的候选会反复重扫该组 → 整体 **O(C·(log n_super + G))**，且每次触碰 ~104–112B 的 `WindowMeta` 行（`last_docid` 在偏移 0）。候选与窗口**都已升序**，本质是一个被当成 C 次独立查找来执行的有序归并。
 
 **Finding 映射 / 修订后严重度**：
 - **F05 [MEDIUM]**（cross-cutting-systems，`需改格式: False`，`needs-nuance`）：算法低效真实存在，但验证器把"每窗一次 cache-miss"的表述下调——一个 super-block 组 = 64×~104B ≈ 6.6KB，**L1 常驻**，重扫主要烧 CPU 比较而非 cache-miss。被验证器从 high/medium 下调为 **MEDIUM**。
@@ -29,17 +29,17 @@ packed `win_last_docid_` 的 cache-locality 收益**无法确定性证明**（ca
 
 ## 2. 影响的文件/函数
 
-**头文件** `be/src/snii/format/frq_prelude.h`
+**头文件** `be/src/storage/index/snii/format/frq_prelude.h`
 - 现有：`Status FrqPreludeReader::locate_window(uint32_t docid, bool* found, uint32_t* w) const;`（`:163`，返回"首个 `last_docid ≥ docid` 的窗口"；`docid > windows_.back().last_docid` 时 `*found=false`）。**保留**（公开 API + 等价性测试 oracle）。
 - 现有：`Status FrqPreludeReader::window(uint32_t w, WindowMeta* out) const;`（`:157`，整结构体拷贝；不动）。
 - 现有：`uint32_t n_windows() const`（`:144`）、`std::vector<uint64_t> sb_last_docid_;`（`:173`）、`std::vector<WindowMeta> windows_;`（`:175`，`open()` 后不可变）、`uint32_t group_size_`（`:168`）、`uint32_t n_super_`（`:169`）。
-- 新增（本任务）：packed `std::vector<uint32_t> win_last_docid_;`（private，in-memory only）；inline 访问器 `uint32_t window_last_docid(uint32_t) const`；const 成员 `void select_covering_windows(const std::vector<uint32_t>&, std::vector<uint32_t>*) const`；自由函数 `select_covering_windows_cursor(...)`（隔离可测核心）；`namespace snii::format::testing { uint64_t window_probe_count(); void reset_window_probe_count(); }`。
+- 新增（本任务）：packed `std::vector<uint32_t> win_last_docid_;`（private，in-memory only）；inline 访问器 `uint32_t window_last_docid(uint32_t) const`；const 成员 `void select_covering_windows(const std::vector<uint32_t>&, std::vector<uint32_t>*) const`；自由函数 `select_covering_windows_cursor(...)`（隔离可测核心）；`namespace doris::snii::format::testing { uint64_t window_probe_count(); void reset_window_probe_count(); }`。
 
-**实现** `be/src/storage/index/snii/core/src/format/frq_prelude.cpp`
+**实现** `be/src/storage/index/snii/format/frq_prelude.cpp`
 - `FrqPreludeReader::open`（`:404-434`）：在 `decode_all_blocks`（`:432`）填好 `windows_` 后，紧随 `sb_last_docid_` 的构建（`:429-431`）**并行构建 `win_last_docid_`**。
 - `FrqPreludeReader::locate_window`（`:445-468`）：仅在 level-2 扫描循环（`:460-466`）插入 `++g_window_probes` 计数 seam（行为不变，保留为 oracle）。
 
-**调用方** `be/src/storage/index/snii/core/src/query/docid_conjunction.cpp`
+**调用方** `be/src/storage/index/snii/query/docid_conjunction.cpp`
 - `Status select_covering_windows(const FrqPreludeReader& prelude, const std::vector<uint32_t>& candidates, std::vector<uint32_t>* windows)`（`:497-514`，匿名命名空间）：**删除**，逻辑迁入 `FrqPreludeReader`。
 - `collect_docids_only`（`:679`）在 `:691` 处的调用 `SNII_RETURN_IF_ERROR(select_covering_windows(p.prelude, *candidates, &windows));` 改为 `p.prelude.select_covering_windows(*candidates, &windows);`（成员纯内存、不可失败，去掉 `SNII_RETURN_IF_ERROR`）。
 - 下游 `collect_windowed_docids_only`（`:620-677`）消费 `windows`（`:629` 起以 `p.prelude.window(w,&meta)` 顺序遍历 + `find_candidate_range` 的单调 `candidate_search_begin`），**要求 windows 升序**——游标天然保证，契约不变。
@@ -147,7 +147,7 @@ void reset_window_probe_count() { g_window_probes = 0; }      // 测试间 reset
 - `depends_on`：**无硬依赖**。本任务自包含（`frq_prelude.{h,cpp}` + `docid_conjunction.cpp` 调用点改一行）。
 - **T20（FrqPreludeReader WindowMeta 零拷贝引用访问器 `window_at`）**：互补且独立。T20 给"读整 `WindowMeta`"的循环去拷贝；T10 给"窗口定位"加 4B 标量 packed 数组 + 游标。二者命名/职责不冲突，可任意先后合入；若 T20 已落，`collect_windowed_docids_only` 仍按各自访问器走，互不影响。
 - **T23（prelude 按 super-block 惰性解码）**：**软关系，非硬依赖**。T23 若让 `windows_` 惰性化，则 T10 在 `open()` 中**急切**构建全量 `win_last_docid_` 会与惰性目标相抵。集成顺序上二选一：(a) 合入 T23 后令 `win_last_docid_` 同样按 super-block 惰性填充；或 (b) 游标降级为读已（惰性）解码的 `windows_[w].last_docid`，放弃 packed polish。两任务分属不同 batch（T10∈b2，T23∈b5），当前无强耦合，集成时按上述策略消解即可。
-- **提供（shared-infra）**：`snii::format::testing::window_probe_count()` 作为"窗口定位算法"的确定性 op-count 样板；`select_covering_windows_cursor(...)` 作为可被其他归并式选择复用的纯函数核心。
+- **提供（shared-infra）**：`doris::snii::format::testing::window_probe_count()` 作为"窗口定位算法"的确定性 op-count 样板；`select_covering_windows_cursor(...)` 作为可被其他归并式选择复用的纯函数核心。
 
 ## 5. TDD 步骤（RED → GREEN → REFACTOR）
 

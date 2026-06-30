@@ -23,10 +23,10 @@
 
 #include "common/cast_set.h"
 #include "common/config.h"
-#include "snii/format/phrase_bigram.h"
 #include "storage/index/index_file_writer.h"
 #include "storage/index/inverted/analyzer/analyzer.h"
 #include "storage/index/inverted/query/query_info.h"
+#include "storage/index/snii/format/phrase_bigram.h"
 #include "storage/tablet/tablet_schema.h"
 
 namespace doris::segment_v2 {
@@ -40,16 +40,17 @@ Status SniiIndexColumnWriter::init() {
             inverted_index::InvertedIndexAnalyzer::should_analyzer(_index_meta->properties());
     _has_positions = get_parser_phrase_support_string_from_properties(_index_meta->properties()) ==
                      INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES;
-    _config = _has_positions ? snii::format::IndexConfig::kDocsPositions
-                             : snii::format::IndexConfig::kDocsOnly;
+    _config = _has_positions ? ::doris::snii::format::IndexConfig::kDocsPositions
+                             : ::doris::snii::format::IndexConfig::kDocsOnly;
     auto ignore_above_value =
             get_parser_ignore_above_value_from_properties(_index_meta->properties());
     _ignore_above = cast_set<uint32_t>(std::stoul(ignore_above_value));
     const auto spill_threshold =
             static_cast<size_t>(config::inverted_index_ram_buffer_size * 1024 * 1024);
-    _memory_reporter = std::make_unique<snii::writer::MemoryReporter>(nullptr, spill_threshold);
-    _term_buffer = std::make_unique<snii::writer::SpimiTermBuffer>(_has_positions, spill_threshold,
-                                                                   _memory_reporter.get());
+    _memory_reporter =
+            std::make_unique<::doris::snii::writer::MemoryReporter>(nullptr, spill_threshold);
+    _term_buffer = std::make_unique<::doris::snii::writer::SpimiTermBuffer>(
+            _has_positions, spill_threshold, _memory_reporter.get());
     _analyzer_config.analyzer_name = get_analyzer_name_from_properties(_index_meta->properties());
     _analyzer_config.parser_type = get_inverted_index_parser_type_from_string(
             get_parser_string_from_properties(_index_meta->properties()));
@@ -115,7 +116,7 @@ Status SniiIndexColumnWriter::_add_phrase_bigram_tokens(const std::vector<TermIn
     for (const auto& term_info : terms) {
         DCHECK(term_info.is_single_term());
         const std::string_view term = term_info.get_single_term();
-        if (!snii::format::is_phrase_bigram_indexable_term(term)) {
+        if (!::doris::snii::format::is_phrase_bigram_indexable_term(term)) {
             continue;
         }
         positioned.push_back({term, position_base + cast_set<uint32_t>(term_info.position)});
@@ -156,8 +157,8 @@ Status SniiIndexColumnWriter::_add_phrase_bigram_tokens(const std::vector<TermIn
 
         for (size_t l = left_begin; l < left_end; ++l) {
             for (size_t r = right_begin; r < right_end; ++r) {
-                _term_buffer->add_token(snii::format::make_phrase_bigram_term(positioned[l].term,
-                                                                              positioned[r].term),
+                _term_buffer->add_token(::doris::snii::format::make_phrase_bigram_term(
+                                                positioned[l].term, positioned[r].term),
                                         docid, positioned[l].position);
             }
         }
@@ -253,7 +254,7 @@ Status SniiIndexColumnWriter::add_array_nulls(const uint8_t* null_map, size_t nu
 Status SniiIndexColumnWriter::finish() {
     DCHECK(_term_buffer != nullptr);
     if (_has_positions && _rid > 0) {
-        _term_buffer->add_token(snii::format::make_phrase_bigram_sentinel_term(), 0, 0);
+        _term_buffer->add_token(::doris::snii::format::make_phrase_bigram_sentinel_term(), 0, 0);
     }
     auto status = _term_buffer->status();
     if (!status.ok()) {

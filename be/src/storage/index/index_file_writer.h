@@ -30,19 +30,19 @@
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
-#include "snii/format/format_constants.h"
-#include "snii/writer/snii_compound_writer.h"
+#include "storage/index/snii/format/format_constants.h"
+#include "storage/index/snii/writer/snii_compound_writer.h"
 #include "storage/index/index_storage_format.h"
 #include "storage/index/inverted/inverted_index_common.h"
 #include "storage/index/inverted/inverted_index_compound_reader.h"
 #include "storage/index/inverted/inverted_index_searcher.h"
 #include "storage/index/snii/snii_doris_adapter.h"
 
-namespace snii::writer {
+namespace doris::snii::writer {
 class MemoryReporter;
 class SpimiTermBuffer;
 class SniiCompoundWriter;
-} // namespace snii::writer
+} // namespace doris::snii::writer
 
 namespace doris {
 class TabletIndex;
@@ -70,10 +70,10 @@ public:
     MOCK_FUNCTION Result<std::shared_ptr<DorisFSDirectory>> open(const TabletIndex* index_meta);
     Status add_snii_index(const TabletIndex* index_meta, uint32_t doc_count,
                           std::vector<uint32_t> null_docids,
-                          snii::writer::SpimiTermBuffer* const term_buffer,
-                          snii::format::IndexConfig config,
-                          snii::writer::MemoryReporter* const mem_reporter);
-    void retain_snii_memory_reporter(std::unique_ptr<snii::writer::MemoryReporter> mem_reporter);
+                          doris::snii::writer::SpimiTermBuffer* const term_buffer,
+                          doris::snii::format::IndexConfig config,
+                          doris::snii::writer::MemoryReporter* const mem_reporter);
+    void retain_snii_memory_reporter(std::unique_ptr<doris::snii::writer::MemoryReporter> mem_reporter);
     Status delete_index(const TabletIndex* index_meta);
     Status initialize(InvertedIndexDirectoryMap& indices_dirs);
     Status add_into_searcher_cache();
@@ -133,8 +133,8 @@ private:
     IndexStorageFormatPtr _index_storage_format;
     int64_t _tablet_id = -1;
     std::unique_ptr<snii_doris::DorisSniiFileWriter> _snii_file_writer;
-    std::vector<std::unique_ptr<snii::writer::MemoryReporter>> _snii_memory_reporters;
-    std::unique_ptr<snii::writer::SniiCompoundWriter> _snii_compound_writer;
+    std::vector<std::unique_ptr<doris::snii::writer::MemoryReporter>> _snii_memory_reporters;
+    std::unique_ptr<doris::snii::writer::SniiCompoundWriter> _snii_compound_writer;
     size_t _snii_index_count = 0;
 
     friend class IndexStorageFormatV1;

@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "snii/query/internal/position_math.h"
+#include "storage/index/snii/query/internal/position_math.h"
 
 #include <gtest/gtest.h>
 
@@ -29,29 +29,29 @@ using doris::Status; // RETURN_IF_ERROR expands to bare Status  // NOLINT(misc-u
 
 TEST(SniiPositionMath, AddsOffsetWhenRepresentable) {
     uint32_t out = 0;
-    EXPECT_TRUE(snii::query::internal::add_position_offset(41, 1, &out));
+    EXPECT_TRUE(doris::snii::query::internal::add_position_offset(41, 1, &out));
     EXPECT_EQ(out, 42U);
-    EXPECT_TRUE(snii::query::internal::add_position_offset(std::numeric_limits<uint32_t>::max() - 2,
-                                                           2, &out));
+    EXPECT_TRUE(doris::snii::query::internal::add_position_offset(
+            std::numeric_limits<uint32_t>::max() - 2, 2, &out));
     EXPECT_EQ(out, std::numeric_limits<uint32_t>::max());
 }
 
 TEST(SniiPositionMath, RejectsWraparound) {
     uint32_t out = 7;
-    EXPECT_FALSE(snii::query::internal::add_position_offset(std::numeric_limits<uint32_t>::max(), 1,
-                                                            &out));
+    EXPECT_FALSE(doris::snii::query::internal::add_position_offset(
+            std::numeric_limits<uint32_t>::max(), 1, &out));
     EXPECT_EQ(out, 7U);
 }
 
 TEST(SniiPositionMath, BuildsDenseOffsets) {
     std::vector<uint32_t> offsets;
-    EXPECT_TRUE(snii::query::internal::build_position_offsets(4, &offsets));
+    EXPECT_TRUE(doris::snii::query::internal::build_position_offsets(4, &offsets));
     EXPECT_EQ(offsets, (std::vector<uint32_t> {0U, 1U, 2U, 3U}));
 }
 
 TEST(SniiPositionMath, RejectsUnrepresentableOffsetCount) {
     std::vector<uint32_t> offsets = {9};
-    EXPECT_FALSE(snii::query::internal::build_position_offsets(std::numeric_limits<size_t>::max(),
-                                                               &offsets));
+    EXPECT_FALSE(doris::snii::query::internal::build_position_offsets(
+            std::numeric_limits<size_t>::max(), &offsets));
     EXPECT_EQ(offsets, (std::vector<uint32_t> {9U}));
 }

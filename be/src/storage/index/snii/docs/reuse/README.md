@@ -6,7 +6,7 @@
 
 | 组件 | Doris 等价 | 判定 | 碰在盘字节 | 字节兼容 | 工作量 | 调用点 |
 |------|-----------|------|-----------|---------|-------|--------|
-| [R01-status](R01-status.md) — snii::Status | 是 (doris::Status) | reuse-with-extension | 否 | n/a | L | 1400 |
+| [R01-status](R01-status.md) — doris::snii::Status | 是 (doris::Status) | reuse-with-extension | 否 | n/a | L | 1400 |
 | [R02-slice](R02-slice.md) — Slice 只读视图 | 是 (doris::Slice) | keep-snii-doris-suboptimal | 否 | n/a | S | 277 |
 | [R03-varint](R03-varint.md) — varint LEB128 | 是 (util/coding.h) | keep-snii-doris-suboptimal | 是 | byte-identical | S | 17 |
 | [R04-zstd](R04-zstd.md) — zstd 编解码 | 是 (ZstdBlockCompression) | keep-snii-doris-suboptimal | 是 | incompatible | S | 9 |

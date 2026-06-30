@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "snii/format/tail_meta_region.h"
+#include "storage/index/snii/format/tail_meta_region.h"
 
 #include <gtest/gtest.h>
 
@@ -24,13 +24,13 @@
 #include <vector>
 
 #include "common/status.h"
-#include "snii/common/slice.h"
-#include "snii/encoding/byte_sink.h"
+#include "storage/index/snii/common/slice.h"
+#include "storage/index/snii/encoding/byte_sink.h"
 
-using namespace snii;
+using namespace doris::snii;
 using doris::Status;
-using snii::format::TailMetaRegionBuilder;
-using snii::format::TailMetaRegionReader;
+using doris::snii::format::TailMetaRegionBuilder;
+using doris::snii::format::TailMetaRegionReader;
 
 namespace {
 

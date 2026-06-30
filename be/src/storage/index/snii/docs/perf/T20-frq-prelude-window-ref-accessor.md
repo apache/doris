@@ -1,6 +1,6 @@
 ## 1. 目标与背景
 
-**Finding 映射：F25 [LOW] (cross-cutting-systems)** — `be/src/storage/index/snii/core/src/format/frq_prelude.cpp:441` 的 `*out = windows_[w];` 是一次对调用方栈对象的整结构体拷贝（`WindowMeta` 经验证为 112 字节）。`window()` 位于独立 TU（frq_prelude.cpp），在无 LTO 下每次调用是一次跨 TU 的非内联调用 + 边界检查 + 112 字节 memcpy。
+**Finding 映射：F25 [LOW] (cross-cutting-systems)** — `be/src/storage/index/snii/format/frq_prelude.cpp:441` 的 `*out = windows_[w];` 是一次对调用方栈对象的整结构体拷贝（`WindowMeta` 经验证为 112 字节）。`window()` 位于独立 TU（frq_prelude.cpp），在无 LTO 下每次调用是一次跨 TU 的非内联调用 + 边界检查 + 112 字节 memcpy。
 
 热点为四个 per-window 循环，对高 df（windowed，df>=512）词每查询调用 N 次（N≈doc_count/256，1M 文档词约 1000~4000 窗）：
 - `docid_conjunction.cpp:631`（`collect_windowed_docids_only`，**已接入 Doris**：term/match/all/any 的 docid 过滤）
@@ -12,11 +12,11 @@
 
 ## 2. 影响的文件/函数
 
-**头文件** `be/src/snii/format/frq_prelude.h`
+**头文件** `be/src/storage/index/snii/format/frq_prelude.h`
 - 现有：`Status FrqPreludeReader::window(uint32_t w, WindowMeta* out) const;`（:157，拷贝语义，返回 `InvalidArgument` 越界）
 - 现有：`std::vector<WindowMeta> windows_;`（:175，private，`open()` 后不可变）
 
-**实现** `be/src/storage/index/snii/core/src/format/frq_prelude.cpp`
+**实现** `be/src/storage/index/snii/format/frq_prelude.cpp`
 - `FrqPreludeReader::window`（:436-443，整结构体拷贝实现，保留不动）
 
 **调用点（迁移到新访问器）**

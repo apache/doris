@@ -31,8 +31,8 @@
 #include "io/fs/file_reader.h"
 #include "io/fs/path.h"
 #include "io/io_common.h"
-#include "snii/format/per_index_meta.h"
-#include "snii/io/file_reader.h"
+#include "storage/index/snii/format/per_index_meta.h"
+#include "storage/index/snii/io/file_reader.h"
 #include "util/slice.h"
 #include "util/threadpool.h"
 
@@ -190,7 +190,7 @@ TEST(DorisSniiFileReaderTest, ReadBatchRecordsLogicalAndCoalescedPhysicalIO) {
     std::vector<std::vector<uint8_t>> outs;
     {
         DorisSniiFileReader::ScopedIOContext scope(&io_ctx);
-        std::vector<::snii::io::Range> ranges {{0, 4}, {6, 3}, {20, 2}};
+        std::vector<::doris::snii::io::Range> ranges {{0, 4}, {6, 3}, {20, 2}};
         auto status = reader.read_batch(ranges, &outs);
         ASSERT_TRUE(status.ok()) << status.to_string();
     }
@@ -225,7 +225,7 @@ TEST(DorisSniiFileReaderTest, ReadBatchIssuesSingleSerialRoundForDisjointSegment
     std::vector<std::vector<uint8_t>> outs;
     {
         DorisSniiFileReader::ScopedIOContext scope(&io_ctx);
-        std::vector<::snii::io::Range> ranges {{0, 4}, {8192, 4}, {16384, 4}};
+        std::vector<::doris::snii::io::Range> ranges {{0, 4}, {8192, 4}, {16384, 4}};
         auto status = reader.read_batch(ranges, &outs);
         ASSERT_TRUE(status.ok()) << status.to_string();
     }
@@ -250,7 +250,7 @@ TEST(DorisSniiFileReaderTest, ReadBatchSingleSegmentReadsInPlace) {
     DorisSniiFileReader reader(recording_reader);
 
     std::vector<std::vector<uint8_t>> outs;
-    std::vector<::snii::io::Range> ranges {{100, 8}};
+    std::vector<::doris::snii::io::Range> ranges {{100, 8}};
     auto status = reader.read_batch(ranges, &outs);
     ASSERT_TRUE(status.ok()) << status.to_string();
 
@@ -269,7 +269,7 @@ TEST(DorisSniiFileReaderTest, ReadBatchMixedSingleAndCoalescedGroups) {
     DorisSniiFileReader reader(recording_reader);
 
     std::vector<std::vector<uint8_t>> outs;
-    std::vector<::snii::io::Range> ranges {{0, 4}, {4, 4}, {9000, 4}};
+    std::vector<::doris::snii::io::Range> ranges {{0, 4}, {4, 4}, {9000, 4}};
     auto status = reader.read_batch(ranges, &outs);
     ASSERT_TRUE(status.ok()) << status.to_string();
 
@@ -304,7 +304,7 @@ TEST(DorisSniiFileReaderTest, ReadBatchHandlesEmptyAndZeroLengthRanges) {
     EXPECT_EQ(recording_reader->reads().size(), 0);
 
     std::vector<std::vector<uint8_t>> outs;
-    std::vector<::snii::io::Range> ranges {{5, 0}};
+    std::vector<::doris::snii::io::Range> ranges {{5, 0}};
     auto status = reader.read_batch(ranges, &outs);
     ASSERT_TRUE(status.ok()) << status.to_string();
     ASSERT_EQ(outs.size(), 1);
@@ -318,7 +318,7 @@ TEST(DorisSniiFileReaderTest, ReadBatchReturnsErrorForOutOfRange) {
     DorisSniiFileReader reader(recording_reader);
 
     std::vector<std::vector<uint8_t>> outs;
-    std::vector<::snii::io::Range> ranges {{63, 100}};
+    std::vector<::doris::snii::io::Range> ranges {{63, 100}};
     auto status = reader.read_batch(ranges, &outs);
     EXPECT_FALSE(status.ok());
 }
@@ -331,7 +331,7 @@ TEST(DorisSniiFileReaderTest, ReadBatchPreservesOriginalOrderForUnsortedInput) {
     DorisSniiFileReader reader(recording_reader);
 
     std::vector<std::vector<uint8_t>> outs;
-    std::vector<::snii::io::Range> ranges {{16384, 2}, {0, 4}, {8192, 3}};
+    std::vector<::doris::snii::io::Range> ranges {{16384, 2}, {0, 4}, {8192, 3}};
     auto status = reader.read_batch(ranges, &outs);
     ASSERT_TRUE(status.ok()) << status.to_string();
 
@@ -360,7 +360,7 @@ TEST(DorisSniiFileReaderTest, ReadBatchPropagatesIOContextFlagsPerSegment) {
     std::vector<std::vector<uint8_t>> outs;
     {
         DorisSniiFileReader::ScopedIOContext scope(&io_ctx);
-        std::vector<::snii::io::Range> ranges {{0, 4}, {8192, 4}, {16384, 4}};
+        std::vector<::doris::snii::io::Range> ranges {{0, 4}, {8192, 4}, {16384, 4}};
         auto status = reader.read_batch(ranges, &outs);
         ASSERT_TRUE(status.ok()) << status.to_string();
     }
@@ -401,7 +401,7 @@ TEST(DorisSniiFileReaderConcurrencyTest, ParallelSegmentReadsAreThreadSafe) {
     io::IOContext io_ctx;
     io_ctx.file_cache_stats = &stats;
 
-    std::vector<::snii::io::Range> ranges;
+    std::vector<::doris::snii::io::Range> ranges;
     for (size_t i = 0; i < 8; ++i) {
         ranges.push_back({static_cast<uint64_t>(i) * 8192, 4});
     }
@@ -429,7 +429,7 @@ TEST(DorisSniiFileReaderConcurrencyTest, ParallelPathMatchesSerialPath) {
     auto recording_reader = std::make_shared<RecordingFileReader>(data);
     DorisSniiFileReader reader(recording_reader);
 
-    std::vector<::snii::io::Range> ranges;
+    std::vector<::doris::snii::io::Range> ranges;
     std::vector<std::vector<uint8_t>> expected;
     for (size_t i = 0; i < 8; ++i) {
         const uint64_t off = static_cast<uint64_t>(i) * 8192;

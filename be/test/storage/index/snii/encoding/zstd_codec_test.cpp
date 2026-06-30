@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "snii/encoding/zstd_codec.h"
+#include "storage/index/snii/encoding/zstd_codec.h"
 
 #include <gtest/gtest.h>
 
@@ -23,7 +23,7 @@
 
 #include "common/status.h"
 
-using namespace snii;
+using namespace doris::snii;
 
 TEST(SniiZstd, RoundTrip) {
     std::vector<uint8_t> in;

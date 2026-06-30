@@ -2,7 +2,7 @@
 
 ### 1. 目标与背景
 
-**问题（finding F31，LOW，encoding-codecs）**：`be/src/storage/index/snii/core/src/encoding/crc32c.cpp:69-84` 的 `crc32c_hw()` 用单个 `_mm_crc32_u64` 累加器每轮折叠 8 字节，且本轮结果喂给下一轮（`crc = _mm_crc32_u64(crc, v)`，`:73`），形成 loop-carried dependency。SSE4.2 的 `crc32` 指令延迟 ~3 cycle、吞吐 1/cycle，串行链使其实际只跑到 ~2.7 B/cycle（~8 GB/s），而非吞吐上限 ~8+ B/cycle。
+**问题（finding F31，LOW，encoding-codecs）**：`be/src/storage/index/snii/encoding/crc32c.cpp:69-84` 的 `crc32c_hw()` 用单个 `_mm_crc32_u64` 累加器每轮折叠 8 字节，且本轮结果喂给下一轮（`crc = _mm_crc32_u64(crc, v)`，`:73`），形成 loop-carried dependency。SSE4.2 的 `crc32` 指令延迟 ~3 cycle、吞吐 1/cycle，串行链使其实际只跑到 ~2.7 B/cycle（~8 GB/s），而非吞吐上限 ~8+ B/cycle。
 
 **该 CRC 在查询/打开路径被反复调用**（F31:11、验证器已逐处确认）：
 - `dict_block.cpp:113` `verify_crc` 对 ~64KB block（去掉 footer）做 `crc32c(*covered)`，block open 时执行。
@@ -16,12 +16,12 @@
 ### 2. 影响的文件/函数
 
 仅一个实现文件 + 一个头：
-- `be/src/storage/index/snii/core/src/encoding/crc32c.cpp`
+- `be/src/storage/index/snii/encoding/crc32c.cpp`
   - `crc32c_slice8(uint32_t, const uint8_t*, size_t)`（`:48`，软件路径，保留不动）
   - `crc32c_hw(uint32_t, const uint8_t*, size_t)`（`:69-84`，现串行硬件路径，保留为小缓冲/尾部路径，可改名 `crc32c_hw_serial`）
   - `detect_sse42()` / `kHasSse42`（`:86-92`，保留）
   - `crc32c_extend(uint32_t, Slice)`（`:97-109`，**dispatcher**，新增对大缓冲走 hw3）
-- `be/src/snii/encoding/crc32c.h`（`:10-14` 公开 `crc32c_extend`/`crc32c`，签名不变；新增 `snii::detail` 测试可见的子路径声明，见 §3）
+- `be/src/storage/index/snii/encoding/crc32c.h`（`:10-14` 公开 `crc32c_extend`/`crc32c`，签名不变；新增 `doris::snii::detail` 测试可见的子路径声明，见 §3）
 
 调用方（均不改签名，调用 `crc32c()`/`crc32c_extend()` 不变）：`dict_block.cpp:91/113`、`frq_pod.cpp:108`、`prx_pod.cpp:634`、`bsbf.cpp`、`tail_pointer.h`、`section_framer.cpp`、`bootstrap_header.cpp`、`per_index_meta.cpp` 等（grep 已确认全部经由 `crc32c.h` 的公开入口）。
 
@@ -57,7 +57,7 @@ return ~crc;
 
 **测试可见 seam（不污染热路径，无 thread_local 计数）**：在 `crc32c.h` 新增
 ```cpp
-namespace snii::detail {
+namespace doris::snii::detail {
   uint32_t crc32c_slice8_extend(uint32_t crc, Slice data);     // 强制软件路径
   uint32_t crc32c_hw_serial_extend(uint32_t crc, Slice data);  // 强制串行硬件（无 SSE4.2 时回落 slice8）
   uint32_t crc32c_hw3_extend(uint32_t crc, Slice data);        // 强制 3-way（无 SSE4.2 时回落 slice8）
@@ -83,7 +83,7 @@ namespace snii::detail {
 
 **RED-1（等价基线，先失败）**：写 `TEST(SniiCrc32cTest, Hw3MatchesSlice8AcrossSizes)`——对 size ∈ {0,1,7,8,9,15,16,255,256,1023,1024,1025,3072,4096,65536} 与多个起始 alignment 的伪随机缓冲，断言 `detail::crc32c_hw3_extend(0,s) == detail::crc32c_slice8_extend(0,s)` 且 `== crc32c(s)`。此时 `detail::*` 与 `crc32c_hw3` 尚不存在 → **编译失败（RED）**。
 
-**GREEN-1**：在 `crc32c.cpp` 实现 `crc32c_hw3` + `crc32c_shift` + GF(2) 基算子初始化，在 `crc32c.h` 加 `snii::detail` 封装；`crc32c_extend` dispatcher 接 hw3。跑测试转 **GREEN**。
+**GREEN-1**：在 `crc32c.cpp` 实现 `crc32c_hw3` + `crc32c_shift` + GF(2) 基算子初始化，在 `crc32c.h` 加 `doris::snii::detail` 封装；`crc32c_extend` dispatcher 接 hw3。跑测试转 **GREEN**。
 
 **RED-2（增量种子/拼接等价）**：写 `TEST(SniiCrc32cTest, Hw3ExtendEqualsConcatenation)`——验证 `crc32c_extend(crc32c(A), B) == crc32c(A||B)`（覆盖 seed 链 + combine 线性性），并对跨阈值长度（如 |A||B|=4097）断言。先因边界 off-by-one（如 `L` 未 8 对齐、tail 处理）可能 **FAIL**。
 
