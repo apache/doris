@@ -34,6 +34,7 @@ suite("test_hudi_rewrite_mtmv", "p2,external,hudi") {
 
     sql """set materialized_view_rewrite_enable_contain_external_table=true;"""
     String mvSql = "SELECT par,count(*) as num FROM ${catalogName}.`hudi_mtmv_regression_test`.hudi_table_1 group by par;";
+    String rewriteSql = mvSql.replaceFirst("(?i)^\\s*SELECT", "SELECT /*+use_mv(${mvName})*/")
 
     sql """drop catalog if exists ${catalogName}"""
     sql """
@@ -152,10 +153,10 @@ modify column _hoodie_commit_time set stats (
 
     sql """alter table ${mvName} modify column par set stats ('row_count'='1');"""
 
-    mv_rewrite_success(mvSql, mvName)
-    order_qt_refresh_one_partition_rewrite "${mvSql}"
+    mv_rewrite_success(rewriteSql, mvName)
+    order_qt_refresh_one_partition_rewrite "${rewriteSql}"
 
-    mv_rewrite_success("${mvSql}", "${mvName}")
+    mv_rewrite_success("${rewriteSql}", "${mvName}")
 
     // select p_b should not rewrite
     mv_not_part_in("SELECT par,count(*) as num FROM ${catalogName}.`hudi_mtmv_regression_test`.hudi_table_1 where par='b' group by par;", "${mvName}")
@@ -169,12 +170,11 @@ modify column _hoodie_commit_time set stats (
     sql """alter table ${mvName} modify column par set stats ('row_count'='2');"""
     order_qt_refresh_auto "SELECT par, num FROM ${mvName} "
 
-    mv_rewrite_success(mvSql, mvName)
-    order_qt_refresh_all_partition_rewrite "${mvSql}"
+    mv_rewrite_success(rewriteSql, mvName)
+    order_qt_refresh_all_partition_rewrite "${rewriteSql}"
 
-    mv_rewrite_success("${mvSql}", "${mvName}")
+    mv_rewrite_success("${rewriteSql}", "${mvName}")
 
     sql """drop materialized view if exists ${mvName};"""
     sql """drop catalog if exists ${catalogName}"""
 }
-
