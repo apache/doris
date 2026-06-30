@@ -83,6 +83,13 @@ public class IcebergScanRange implements ConnectorScanRange {
     // it back to SerializationUtil.deserializeFromBase64(...).asDataTask().rows()), ignoring every file-level
     // field. Mirrors legacy IcebergSplit.serializedSplit / IcebergScanNode.setIcebergParams isSystemTable.
     private final String serializedSplit;
+    // M-2 proportional BE scheduling weight (mirrors PaimonScanRange): the size-based weight numerator
+    // (legacy IcebergSplit.selfSplitWeight = task.length() + Σ delete file sizes) and the scan-level
+    // denominator (legacy IcebergScanNode.targetSplitSize). -1 = not provided (SPI sentinel) → the generic
+    // PluginDrivenSplit leaves the FileSplit weight unset → SplitWeight.standard() (uniform). Only normal
+    // data-file ranges set them; system-table / count-pushdown ranges keep -1 (legacy parity: standard()).
+    private final long selfSplitWeight;
+    private final long targetSplitSize;
 
     private IcebergScanRange(Builder builder) {
         this.path = builder.path;
@@ -106,6 +113,8 @@ public class IcebergScanRange implements ConnectorScanRange {
                 : Collections.emptyList();
         this.pushDownRowCount = builder.pushDownRowCount;
         this.serializedSplit = builder.serializedSplit;
+        this.selfSplitWeight = builder.selfSplitWeight;
+        this.targetSplitSize = builder.targetSplitSize;
     }
 
     @Override
@@ -131,6 +140,28 @@ public class IcebergScanRange implements ConnectorScanRange {
     @Override
     public long getFileSize() {
         return fileSize;
+    }
+
+    /**
+     * This split's size-based weight numerator for proportional BE assignment (legacy
+     * {@code IcebergSplit.selfSplitWeight}), or {@code -1} when unset (system-table / count-pushdown ranges).
+     * Paired with {@link #getTargetSplitSize()} by the generic {@code PluginDrivenSplit} to weight
+     * {@code FederationBackendPolicy} by bytes instead of split count (M-2). Mirrors {@code PaimonScanRange}.
+     */
+    @Override
+    public long getSelfSplitWeight() {
+        return selfSplitWeight;
+    }
+
+    /**
+     * The scan-level weight denominator (legacy {@code IcebergScanNode.targetSplitSize} =
+     * {@code determineTargetFileSplitSize}), or {@code -1} when unset. Proportional weighting applies only when
+     * this is positive AND {@link #getSelfSplitWeight()} is non-negative; otherwise the engine falls back to
+     * {@code SplitWeight.standard()}. Mirrors {@code PaimonScanRange}.
+     */
+    @Override
+    public long getTargetSplitSize() {
+        return targetSplitSize;
     }
 
     @Override
@@ -344,6 +375,10 @@ public class IcebergScanRange implements ConnectorScanRange {
         private List<DeleteFile> deleteFiles;
         private long pushDownRowCount = -1;
         private String serializedSplit;
+        // -1 = not provided (SPI sentinel) → PluginDrivenSplit keeps SplitWeight.standard(). Only the normal
+        // data-file path sets these (legacy IcebergSplit.selfSplitWeight / IcebergScanNode.targetSplitSize).
+        private long selfSplitWeight = -1;
+        private long targetSplitSize = -1;
 
         public Builder path(String path) {
             this.path = path;
@@ -420,6 +455,18 @@ public class IcebergScanRange implements ConnectorScanRange {
         /** The base64 serialized iceberg {@code FileScanTask} for a system-table (JNI) split; default null. */
         public Builder serializedSplit(String serializedSplit) {
             this.serializedSplit = serializedSplit;
+            return this;
+        }
+
+        /** The size-based weight numerator (legacy {@code IcebergSplit.selfSplitWeight}); default -1 (unset). */
+        public Builder selfSplitWeight(long selfSplitWeight) {
+            this.selfSplitWeight = selfSplitWeight;
+            return this;
+        }
+
+        /** The scan-level weight denominator (legacy {@code IcebergScanNode.targetSplitSize}); default -1. */
+        public Builder targetSplitSize(long targetSplitSize) {
+            this.targetSplitSize = targetSplitSize;
             return this;
         }
 

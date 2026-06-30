@@ -333,6 +333,89 @@ public class IcebergScanPlanProviderTest {
         Assertions.assertEquals(96 * mb, totalLength, "the split ranges must cover the whole file exactly");
     }
 
+    // ── M-2: size-proportional BE scheduling weight (selfSplitWeight / targetSplitSize) ──
+
+    @Test
+    public void planScanRangesCarrySizeProportionalWeight() {
+        // M-2: each data-file range must carry a size-based weight numerator (selfSplitWeight == the split byte
+        // length when there are no deletes) and a positive scan-level denominator (targetSplitSize ==
+        // determineTargetFileSplitSize) so FederationBackendPolicy schedules by bytes, not by split count. Two
+        // differently-sized files -> different weights, identical denominator -> proportional (NOT standard()).
+        // MUTATION: dropping .selfSplitWeight / .targetSplitSize in buildRange (range stays -1/-1) -> red.
+        long mb = 1024L * 1024L;
+        Table table = createTable("t1", SCHEMA, PartitionSpec.unpartitioned());
+        table.newAppend()
+                .appendFile(dataFile(table.spec(), "s3://b/db/t1/f1.parquet", 1024, null, null))
+                .appendFile(dataFile(table.spec(), "s3://b/db/t1/f2.parquet", 2048, null, null))
+                .commit();
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(Collections.emptyMap(), opsReturning(table));
+
+        List<ConnectorScanRange> ranges = provider.planScan(
+                null, new IcebergTableHandle("db1", "t1"), Collections.emptyList(), Optional.empty());
+
+        ranges.sort((a, b) -> a.getPath().get().compareTo(b.getPath().get()));
+        // selfSplitWeight == the whole-file byte length (small files are not sub-split, no deletes). The two
+        // differ -> the weight tracks bytes. MUTATION: dropping the += delete or the .selfSplitWeight set -> red.
+        Assertions.assertEquals(1024L, ranges.get(0).getSelfSplitWeight());
+        Assertions.assertEquals(2048L, ranges.get(1).getSelfSplitWeight());
+        // denominator == determineTargetFileSplitSize: a ~3KB table stays at the 32MB max_initial_file_split_size
+        // default, identical across ranges so the weights are comparable. A positive denominator is also what
+        // flips PluginDrivenSplit off SplitWeight.standard(). MUTATION: -1 (unset) -> red.
+        Assertions.assertEquals(32 * mb, ranges.get(0).getTargetSplitSize());
+        Assertions.assertEquals(32 * mb, ranges.get(1).getTargetSplitSize());
+    }
+
+    @Test
+    public void planScanSelfSplitWeightIncludesDeleteFileSizes() {
+        // M-2 parity: legacy IcebergSplit.setDeleteFileFilters adds each merge-on-read delete file's byte size to
+        // selfSplitWeight (a data file carrying deletes costs more to read). data 512 + one 128-byte position
+        // delete -> weight 640. MUTATION: selfSplitWeight = task.length() only (drop the += delete size) -> 512.
+        Table table = createTable("t1", SCHEMA, PartitionSpec.unpartitioned(),
+                Collections.singletonMap("format-version", "2"));
+        table.newAppend()
+                .appendFile(dataFile(table.spec(), "s3://b/db/t1/f1.parquet", 512, null, null))
+                .commit();
+        table.newRowDelta()
+                .addDeletes(positionDeleteFile("s3://b/db/t1/pos.parquet", FileFormat.PARQUET, null, null))
+                .commit();
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(Collections.emptyMap(), opsReturning(table));
+
+        List<ConnectorScanRange> ranges = provider.planScan(new FakeScanSession("UTC", Collections.emptyMap()),
+                new IcebergTableHandle("db1", "t1"), Collections.emptyList(), Optional.empty());
+
+        // The position delete attaches to f1's scan task (higher sequence number, same partition).
+        Assertions.assertEquals(1, ranges.size());
+        Assertions.assertEquals(640L, ranges.get(0).getSelfSplitWeight(),
+                "selfSplitWeight must be data-file length (512) + delete file size (128)");
+    }
+
+    @Test
+    public void planScanFileSplitSizeUsesFileSplitSizeAsWeightDenominator() {
+        // M-2: in the file_split_size>0 path the splits are sliced to that granularity, so file_split_size is the
+        // weight denominator. (Legacy left targetSplitSize=0 here -> divide-by-zero -> clamp 1.0; the generic
+        // PluginDrivenSplit guards target>0, and file_split_size gives correct proportional weighting.) Using
+        // 16MB != the 32MB heuristic default pins that the path does NOT fall back to determineTargetFileSplitSize.
+        // MUTATION: denominator -1 (unset) or determineTargetFileSplitSize (32MB) -> red.
+        long mb = 1024L * 1024L;
+        Table table = createTable("t1", SCHEMA, PartitionSpec.unpartitioned());
+        table.newAppend()
+                .appendFile(dataFile(table.spec(), "s3://b/db/t1/big.parquet", 96 * mb,
+                        Arrays.asList(0L, 32 * mb, 64 * mb), null))
+                .commit();
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(Collections.emptyMap(), opsReturning(table));
+        ConnectorSession session = new FakeScanSession("UTC",
+                Collections.singletonMap("file_split_size", Long.toString(16 * mb)));
+
+        List<ConnectorScanRange> ranges = provider.planScan(
+                session, new IcebergTableHandle("db1", "t1"), Collections.emptyList(), Optional.empty());
+
+        Assertions.assertFalse(ranges.isEmpty());
+        for (ConnectorScanRange r : ranges) {
+            Assertions.assertEquals(16 * mb, r.getTargetSplitSize(),
+                    "file_split_size path must use file_split_size as the weight denominator");
+        }
+    }
+
     @Test
     public void planScanPushesPredicateAndPrunesPartition() {
         PartitionSpec spec = PartitionSpec.builderFor(PART_SCHEMA).identity("p").build();

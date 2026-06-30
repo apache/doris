@@ -82,6 +82,34 @@ public class IcebergScanRangeTest {
         Assertions.assertTrue(range.getProperties().isEmpty());
     }
 
+    // ---- M-2: size-proportional BE scheduling weight (getSelfSplitWeight / getTargetSplitSize) ----
+
+    @Test
+    public void weightGettersReflectBuilder() {
+        // A normal data-file range carries the connector's size-based weight numerator + denominator so the
+        // generic PluginDrivenSplit forms a proportional FileSplit weight (legacy IcebergSplit.selfSplitWeight /
+        // IcebergScanNode.targetSplitSize). MUTATION: not overriding the getters (inherit -1) -> red.
+        IcebergScanRange range = new IcebergScanRange.Builder()
+                .path("s3://b/db/t/f.parquet")
+                .length(4096L)
+                .selfSplitWeight(640L)
+                .targetSplitSize(33554432L)
+                .build();
+        Assertions.assertEquals(640L, range.getSelfSplitWeight());
+        Assertions.assertEquals(33554432L, range.getTargetSplitSize());
+    }
+
+    @Test
+    public void weightGettersDefaultToUnsetSentinel() {
+        // A range that does not set the weight (system-table / count-pushdown ranges) keeps the SPI -1 "not
+        // provided" sentinel so PluginDrivenSplit falls back to SplitWeight.standard() (uniform) — the
+        // no-regression guarantee. MUTATION: defaulting the builder fields to 0 -> 0 is a real weight and the
+        // generic split would treat a sys split as weighted (0/-1 still standard, but the contract is -1) -> red.
+        IcebergScanRange range = new IcebergScanRange.Builder().path("/tmp/x").build();
+        Assertions.assertEquals(-1L, range.getSelfSplitWeight());
+        Assertions.assertEquals(-1L, range.getTargetSplitSize());
+    }
+
     // ---- T03: populateRangeParams -> TIcebergFileDesc (mirrors legacy IcebergScanNode.setIcebergParams) ----
 
     private static TFileRangeDesc populate(IcebergScanRange range, TFileRangeDesc rangeDesc) {

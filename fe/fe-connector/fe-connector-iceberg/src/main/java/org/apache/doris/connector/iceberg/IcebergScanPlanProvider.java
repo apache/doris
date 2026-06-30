@@ -70,6 +70,7 @@ import org.apache.iceberg.util.TableScanUtil;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.Closeable;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.time.ZoneId;
@@ -339,14 +340,16 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         Set<String> rewriteScope = iceHandle.getRewriteFileScope();
 
         List<ConnectorScanRange> ranges = new ArrayList<>();
-        try (CloseableIterable<FileScanTask> tasks = planFileScanTask(scan, session, table, filter)) {
-            for (FileScanTask task : tasks) {
+        try (SplitPlan plan = planFileScanTask(scan, session, table, filter)) {
+            for (FileScanTask task : plan.tasks) {
                 DataFile dataFile = task.file();
                 if (rewriteScope != null && !rewriteScope.contains(dataFile.path().toString())) {
                     continue;
                 }
+                // M-2: thread the scan-level weight denominator (plan.targetSplitSize) so each data-file range
+                // carries a size-proportional BE scheduling weight (selfSplitWeight computed inside buildRange).
                 IcebergScanRange range = buildRange(table, dataFile, task, formatVersion, partitioned,
-                        orderedPartitionKeys, zone, vendedToken, -1);
+                        orderedPartitionKeys, zone, vendedToken, -1, plan.targetSplitSize);
                 ranges.add(range);
                 if (stashRewritableDeletes) {
                     rewritableDeleteStash.accumulate(stashQueryId, range.getOriginalPath(),
@@ -466,8 +469,10 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             Map<String, String> vendedToken) {
         try (CloseableIterable<FileScanTask> tasks = scan.planFiles()) {
             for (FileScanTask task : tasks) {
+                // targetSplitSize = -1: the count-pushdown collapse emits a single range, so its scheduling
+                // weight is irrelevant → PluginDrivenSplit keeps SplitWeight.standard().
                 return Collections.singletonList(buildRange(table, task.file(), task, formatVersion,
-                        partitioned, orderedPartitionKeys, zone, vendedToken, realCount));
+                        partitioned, orderedPartitionKeys, zone, vendedToken, realCount, -1));
             }
         } catch (IOException e) {
             throw new RuntimeException("Failed to plan iceberg count-pushdown file, error message is:"
@@ -485,7 +490,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
      */
     private IcebergScanRange buildRange(Table table, DataFile dataFile, FileScanTask task, int formatVersion,
             boolean partitioned, List<String> orderedPartitionKeys, ZoneId zone,
-            Map<String, String> vendedToken, long pushDownRowCount) {
+            Map<String, String> vendedToken, long pushDownRowCount, long targetSplitSize) {
         Integer partitionSpecId = null;
         String partitionDataJson = null;
         Map<String, String> partitionValues = Collections.emptyMap();
@@ -526,6 +531,18 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                     dataFile.fileSequenceNumber() != null && dataFile.firstRowId() != null
                             ? dataFile.fileSequenceNumber() : -1L;
         }
+        // M-2 size-proportional weight numerator = this split's byte length + the byte size of every
+        // merge-on-read delete file applying to it, mirroring legacy IcebergSplit.selfSplitWeight (ctor sets
+        // = length; setDeleteFileFilters adds Σ delete fileSizeInBytes). task.deletes() is a cached list (no
+        // extra I/O; buildDeleteFiles reads the same one). The denominator (targetSplitSize) is passed in; for
+        // the single count-pushdown range it is -1 → PluginDrivenSplit keeps SplitWeight.standard() (one range,
+        // weight irrelevant), matching the normal-data-only weighting.
+        long selfSplitWeight = task.length();
+        if (task.deletes() != null) {
+            for (DeleteFile delete : task.deletes()) {
+                selfSplitWeight += delete.fileSizeInBytes();
+            }
+        }
         // The range path BE opens is scheme-normalized (legacy createIcebergSplit:852 normalizes via the
         // 2-arg LocationPath.of(path, storagePropertiesMap)); original_file_path stays raw so BE can match
         // position-delete entries against the raw iceberg path (legacy setOriginalFilePath:304).
@@ -545,6 +562,8 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                 .partitionValues(partitionValues)
                 .deleteFiles(buildDeleteFiles(task, vendedToken))
                 .pushDownRowCount(pushDownRowCount)
+                .selfSplitWeight(selfSplitWeight)
+                .targetSplitSize(targetSplitSize)
                 .build();
     }
 
@@ -874,16 +893,44 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
     }
 
     /**
+     * The byte-offset-split {@link FileScanTask}s of one scan plus the scan-level weight denominator (legacy
+     * {@code IcebergScanNode.targetSplitSize}). The denominator is threaded into each normal data-file range's
+     * {@link IcebergScanRange#getTargetSplitSize()} so {@code FederationBackendPolicy} schedules splits by byte
+     * size, not uniformly by count (M-2). Immutable holder (provider may be reused → no mutable field);
+     * {@link #close()} closes the underlying iterable so {@code planScanInternal}'s try-with-resources frees it.
+     */
+    private static final class SplitPlan implements Closeable {
+        private final CloseableIterable<FileScanTask> tasks;
+        private final long targetSplitSize;
+
+        SplitPlan(CloseableIterable<FileScanTask> tasks, long targetSplitSize) {
+            this.tasks = tasks;
+            this.targetSplitSize = targetSplitSize;
+        }
+
+        @Override
+        public void close() throws IOException {
+            tasks.close();
+        }
+    }
+
+    /**
      * Enumerate + byte-offset-split the data files of a built scan via the iceberg SDK
      * {@code TableScanUtil.splitFiles} (the legacy {@code IcebergScanNode.splitFiles} algorithm — NOT fe-core
      * {@code FileSplitter}). A positive {@code file_split_size} session var forces that granularity directly;
      * otherwise the tasks are materialized once and split at the {@link #determineTargetFileSplitSize}
-     * heuristic. Batch mode is deferred (paimon parity).
+     * heuristic. Batch mode is deferred (paimon parity). Returns the split tasks plus the weight denominator
+     * (M-2): the forced {@code file_split_size} (that path slices to it) or the heuristic {@code targetSplitSize}
+     * (legacy {@code IcebergScanNode.targetSplitSize}, the same value used to slice — legacy reuses it for both).
      */
-    private CloseableIterable<FileScanTask> splitFiles(TableScan scan, ConnectorSession session) {
+    private SplitPlan splitFiles(TableScan scan, ConnectorSession session) {
         long fileSplitSize = sessionLong(session, FILE_SPLIT_SIZE, 0L);
         if (fileSplitSize > 0) {
-            return TableScanUtil.splitFiles(scan.planFiles(), fileSplitSize);
+            // The split granularity IS fileSplitSize, so it is the correct weight denominator. (Legacy left its
+            // targetSplitSize field at 0 here → divide-by-zero → weight clamped to 1.0; the generic
+            // PluginDrivenSplit guards target>0, so reproducing that is impossible without un-guarding division
+            // for all connectors. Using fileSplitSize gives proper proportional weighting — strictly better.)
+            return new SplitPlan(TableScanUtil.splitFiles(scan.planFiles(), fileSplitSize), fileSplitSize);
         }
         List<FileScanTask> fileScanTasks = new ArrayList<>();
         try (CloseableIterable<FileScanTask> planned = scan.planFiles()) {
@@ -895,7 +942,9 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                     + e.getMessage(), e);
         }
         long targetSplitSize = determineTargetFileSplitSize(fileScanTasks, session);
-        return TableScanUtil.splitFiles(CloseableIterable.withNoopClose(fileScanTasks), targetSplitSize);
+        return new SplitPlan(
+                TableScanUtil.splitFiles(CloseableIterable.withNoopClose(fileScanTasks), targetSplitSize),
+                targetSplitSize);
     }
 
     /**
@@ -905,7 +954,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
      * re-plans at the manifest level so the per-manifest data/delete reads hit {@link IcebergManifestCache};
      * any failure falls back to {@code splitFiles} (legacy parity), so a cache bug can never break a query.
      */
-    private CloseableIterable<FileScanTask> planFileScanTask(TableScan scan, ConnectorSession session, Table table,
+    private SplitPlan planFileScanTask(TableScan scan, ConnectorSession session, Table table,
             Optional<ConnectorExpression> filter) {
         if (!isManifestCacheEnabled()) {
             return splitFiles(scan, session);
@@ -928,11 +977,11 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
      * {@link #splitFiles}, so the downstream {@code buildRange} (T03-T07) is unchanged. The predicate /
      * metrics / schema use the table's CURRENT schema (legacy parity).
      */
-    private CloseableIterable<FileScanTask> planFileScanTaskWithManifestCache(TableScan scan,
+    private SplitPlan planFileScanTaskWithManifestCache(TableScan scan,
             ConnectorSession session, Table table, Optional<ConnectorExpression> filter) throws IOException {
         Snapshot snapshot = scan.snapshot();
         if (snapshot == null) {
-            return CloseableIterable.withNoopClose(Collections.emptyList());
+            return new SplitPlan(CloseableIterable.withNoopClose(Collections.emptyList()), -1);
         }
         Expression filterExpr = combineFilter(filter, table, session);
         Map<Integer, PartitionSpec> specsById = table.specs();
@@ -999,7 +1048,8 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             }
         }
         long targetSplitSize = determineTargetFileSplitSize(tasks, session);
-        return TableScanUtil.splitFiles(CloseableIterable.withNoopClose(tasks), targetSplitSize);
+        return new SplitPlan(
+                TableScanUtil.splitFiles(CloseableIterable.withNoopClose(tasks), targetSplitSize), targetSplitSize);
     }
 
     /**
