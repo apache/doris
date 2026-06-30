@@ -148,11 +148,12 @@ bool CompactionSubmitRegistry::has_compaction_task(DataDir* dir, CompactionType 
 
 std::vector<TabletCompactionContext> CompactionSubmitRegistry::pick_topn_tablets_for_compaction(
         TabletManager* tablet_mgr, DataDir* data_dir, CompactionType compaction_type,
-        const CumuCompactionPolicyTable& cumu_compaction_policies, uint32_t* disk_max_score) {
+        const CumuCompactionPolicyTable& cumu_compaction_policies,
+        CompactionScoreStats* disk_score_stats) {
     // non-lock, used in snapshot
     return tablet_mgr->find_best_tablets_to_compaction(compaction_type, data_dir,
                                                        _get_tablet_set(data_dir, compaction_type),
-                                                       disk_max_score, cumu_compaction_policies);
+                                                       disk_score_stats, cumu_compaction_policies);
 }
 
 bool CompactionSubmitRegistry::insert(TabletSharedPtr tablet, CompactionType compaction_type) {
@@ -844,7 +845,7 @@ bool need_generate_compaction_tasks(int task_cnt_per_disk, int thread_per_disk,
     return true;
 }
 
-int get_concurrent_per_disk(int max_score, int thread_per_disk) {
+int get_concurrent_per_disk(int64_t max_score, int thread_per_disk) {
     if (!config::enable_compaction_priority_scheduling) {
         return thread_per_disk;
     }
@@ -886,12 +887,16 @@ bool has_free_compaction_slot(CompactionSubmitRegistry* registry, DataDir* dir,
 
 std::vector<TabletCompactionContext> StorageEngine::_generate_compaction_tasks(
         CompactionType compaction_type, std::vector<DataDir*>& data_dirs, bool check_score) {
+    DCHECK(compaction_type == CompactionType::BASE_COMPACTION ||
+           compaction_type == CompactionType::CUMULATIVE_COMPACTION ||
+           compaction_type == CompactionType::BINLOG_COMPACTION);
     TEST_SYNC_POINT_RETURN_WITH_VALUE("olap_server::_generate_compaction_tasks.return_empty",
                                       std::vector<TabletCompactionContext> {});
     _update_cumulative_compaction_policy();
     auto cumulative_compaction_policies = _snapshot_cumulative_compaction_policy();
     std::vector<TabletCompactionContext> tablet_compaction_contexts;
-    uint32_t max_compaction_score = 0;
+    CompactionScoreStats max_score_stats;
+    bool skipped_capacity_limited_dir = false;
 
     std::random_device rd;
     std::mt19937 g(rd());
@@ -915,38 +920,59 @@ std::vector<TabletCompactionContext> StorageEngine::_generate_compaction_tasks(
 
         // Even if need_pick_tablet is false, we still need to call find_best_tablet_to_compaction(),
         // So that we can update the max_compaction_score metric.
-        if (!data_dir->reach_capacity_limit(0)) {
-            uint32_t disk_max_score = 0;
-            auto tablet_contexts = compaction_registry_snapshot.pick_topn_tablets_for_compaction(
-                    _tablet_manager.get(), data_dir, compaction_type,
-                    cumulative_compaction_policies, &disk_max_score);
-            int concurrent_num = get_concurrent_per_disk(
-                    disk_max_score, disk_compaction_slot_num(*data_dir, compaction_type));
-            need_pick_tablet = need_generate_compaction_tasks(
-                    executing_task_num, concurrent_num, compaction_type,
-                    !compaction_registry_snapshot.has_compaction_task(
-                            data_dir, CompactionType::CUMULATIVE_COMPACTION));
-            for (const auto& context : tablet_contexts) {
-                if (context.tablet != nullptr) {
-                    if (need_pick_tablet) {
-                        tablet_compaction_contexts.emplace_back(context);
-                    }
-                    max_compaction_score = std::max(max_compaction_score, disk_max_score);
+        if (data_dir->reach_capacity_limit(0)) {
+            skipped_capacity_limited_dir = true;
+            continue;
+        }
+
+        CompactionScoreStats disk_score_stats;
+        auto tablet_contexts = compaction_registry_snapshot.pick_topn_tablets_for_compaction(
+                _tablet_manager.get(), data_dir, compaction_type, cumulative_compaction_policies,
+                &disk_score_stats);
+        max_score_stats.scanned = max_score_stats.scanned || disk_score_stats.scanned;
+        max_score_stats.max_score = std::max(max_score_stats.max_score, disk_score_stats.max_score);
+        max_score_stats.size_based_max_score = std::max(max_score_stats.size_based_max_score,
+                                                        disk_score_stats.size_based_max_score);
+        max_score_stats.time_series_max_score = std::max(max_score_stats.time_series_max_score,
+                                                         disk_score_stats.time_series_max_score);
+        int concurrent_num = get_concurrent_per_disk(
+                disk_score_stats.max_score, disk_compaction_slot_num(*data_dir, compaction_type));
+        need_pick_tablet = need_generate_compaction_tasks(
+                executing_task_num, concurrent_num, compaction_type,
+                !compaction_registry_snapshot.has_compaction_task(
+                        data_dir, CompactionType::CUMULATIVE_COMPACTION));
+        for (const auto& context : tablet_contexts) {
+            if (context.tablet != nullptr) {
+                if (need_pick_tablet) {
+                    tablet_compaction_contexts.emplace_back(context);
                 }
             }
         }
     }
 
-    if (max_compaction_score > 0) {
-        if (compaction_type == CompactionType::BASE_COMPACTION) {
+    if (max_score_stats.scanned) {
+        if (compaction_type == CompactionType::BASE_COMPACTION && max_score_stats.max_score > 0) {
             DorisMetrics::instance()->tablet_base_max_compaction_score->set_value(
-                    max_compaction_score);
+                    max_score_stats.max_score);
         } else if (compaction_type == CompactionType::CUMULATIVE_COMPACTION) {
-            DorisMetrics::instance()->tablet_cumulative_max_compaction_score->set_value(
-                    max_compaction_score);
-        } else if (compaction_type == CompactionType::BINLOG_COMPACTION) {
+            auto update_policy_score = [skipped_capacity_limited_dir, check_score](IntGauge* metric,
+                                                                                   int64_t score) {
+                if (skipped_capacity_limited_dir) {
+                    if (score > metric->value()) {
+                        metric->set_value(score);
+                    }
+                } else if (check_score || score > 0) {
+                    metric->set_value(score);
+                }
+            };
+            update_policy_score(DorisMetrics::instance()->tablet_cumulative_max_compaction_score,
+                                max_score_stats.size_based_max_score);
+            update_policy_score(DorisMetrics::instance()->tablet_time_series_max_compaction_score,
+                                max_score_stats.time_series_max_score);
+        } else if (compaction_type == CompactionType::BINLOG_COMPACTION &&
+                   max_score_stats.max_score > 0) {
             DorisMetrics::instance()->tablet_binlog_max_compaction_score->set_value(
-                    max_compaction_score);
+                    max_score_stats.max_score);
         }
     }
     return tablet_compaction_contexts;

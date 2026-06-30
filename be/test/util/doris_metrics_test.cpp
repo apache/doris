@@ -158,6 +158,12 @@ TEST_F(DorisMetricsTest, Normal) {
         EXPECT_STREQ("31", metric->to_string().c_str());
     }
     {
+        DorisMetrics::instance()->tablet_time_series_max_compaction_score->set_value(42);
+        auto metric = server_entity->get_metric("tablet_time_series_max_compaction_score");
+        EXPECT_TRUE(metric != nullptr);
+        EXPECT_STREQ("42", metric->to_string().c_str());
+    }
+    {
         DorisMetrics::instance()->base_compaction_bytes_total->increment(32);
         auto metric =
                 server_entity->get_metric("base_compaction_bytes_total", "compaction_bytes_total");

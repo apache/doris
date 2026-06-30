@@ -63,6 +63,13 @@ enum CompactionType {
     BINLOG_COMPACTION = 4
 };
 
+struct CompactionScoreStats {
+    int64_t max_score = 0;
+    int64_t size_based_max_score = 0;
+    int64_t time_series_max_score = 0;
+    bool scanned = false;
+};
+
 enum DataDirType {
     SPILL_DISK_DIR,
     OLAP_DATA_DIR,

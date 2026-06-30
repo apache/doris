@@ -232,7 +232,8 @@ public:
 
     std::vector<TabletCompactionContext> pick_topn_tablets_for_compaction(
             TabletManager* tablet_mgr, DataDir* data_dir, CompactionType compaction_type,
-            const CumuCompactionPolicyTable& cumu_compaction_policies, uint32_t* disk_max_score);
+            const CumuCompactionPolicyTable& cumu_compaction_policies,
+            CompactionScoreStats* disk_score_stats);
 
 private:
     TabletSet& _get_tablet_set(DataDir* dir, CompactionType compaction_type);
@@ -376,6 +377,23 @@ public:
     std::unordered_map<int64_t, std::unique_ptr<TaskWorkerPoolIf>>* workers;
 
     int64_t get_compaction_num_per_round() const { return _compaction_num_per_round; }
+
+#ifdef BE_TEST
+    std::vector<TabletSharedPtr> generate_compaction_tasks_for_test(
+            CompactionType compaction_type, std::vector<DataDir*>& data_dirs, bool check_score) {
+        auto tablet_contexts = _generate_compaction_tasks(compaction_type, data_dirs, check_score);
+        std::vector<TabletSharedPtr> tablets;
+        tablets.reserve(tablet_contexts.size());
+        for (auto& context : tablet_contexts) {
+            tablets.emplace_back(std::move(context.tablet));
+        }
+        return tablets;
+    }
+
+    CompactionSubmitRegistry& compaction_submit_registry_for_test() {
+        return _compaction_submit_registry;
+    }
+#endif
 
 private:
     // Instance should be inited from `static open()`

@@ -193,6 +193,11 @@ public:
     void set_startup_timepoint(const std::chrono::time_point<std::chrono::system_clock>& tp) {
         _startup_timepoint = tp;
     }
+
+    std::vector<CloudTabletSPtr> generate_cloud_compaction_tasks_for_test(
+            CompactionType compaction_type, bool check_score) {
+        return _generate_cloud_compaction_tasks(compaction_type, check_score);
+    }
 #endif
 
 private:
