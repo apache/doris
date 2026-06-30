@@ -262,6 +262,40 @@ public class IcebergSchemaUtilsTest {
                 props.getNestedField().getMapField().getValueField().getFieldPtr().getId());
     }
 
+    @Test
+    public void nestedStructChildNamesAreLowercased() {
+        // The crash repro (test_iceberg_struct_schema_evolution / DROP_AND_ADD): a struct child whose iceberg
+        // name has mixed case must be emitted LOWERCASED. The Doris slot's DataTypeStruct child names are
+        // force-lowercased (StructField ctor -> this.name = name.toLowerCase()), and BE's StructNode looks the
+        // child up by that lowercase name (children_column_exists/children.at). Keeping the iceberg case
+        // ("DROP_AND_ADD") makes BE's children.at("drop_and_add") throw std::out_of_range -> SIGABRT on the whole
+        // struct read (the DCHECK guard is compiled out in a Release BE). MUTATION (the bug): emit field.name()
+        // verbatim for struct children -> the lowercase key is absent / the iceberg-cased key leaks -> red.
+        Schema mixed = new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "a_struct", Types.StructType.of(
+                        Types.NestedField.optional(3, "keep", Types.LongType.get()),
+                        Types.NestedField.optional(4, "DROP_AND_ADD", Types.LongType.get()))));
+        Table table = createTable("mixed_nested", mixed);
+        // iceberg reassigns field ids on create, so read the expected id back from the table schema.
+        Types.StructType structType = (Types.StructType) table.schema().findField("a_struct").type();
+
+        TField aStruct = topFields(dict(table, "a_struct")).get("a_struct");
+        Map<String, Integer> childIds = new LinkedHashMap<>();
+        for (TFieldPtr ptr : aStruct.getNestedField().getStructField().getFields()) {
+            childIds.put(ptr.getFieldPtr().getName(), ptr.getFieldPtr().getId());
+        }
+
+        // the mixed-case child must be addressable by its LOWERCASE name (the BE StructNode lookup key) and still
+        // carry its (rename-safe) iceberg field id ...
+        Assertions.assertTrue(childIds.containsKey("drop_and_add"));
+        Assertions.assertEquals(structType.field("DROP_AND_ADD").fieldId(),
+                childIds.get("drop_and_add").intValue());
+        // ... and the iceberg-cased name must NOT leak through (that is exactly what aborts BE).
+        Assertions.assertFalse(childIds.containsKey("DROP_AND_ADD"));
+        Assertions.assertTrue(childIds.containsKey("keep"));
+    }
+
     // --- name mapping (BE's fallback for old files lacking embedded field ids) ---
 
     @Test

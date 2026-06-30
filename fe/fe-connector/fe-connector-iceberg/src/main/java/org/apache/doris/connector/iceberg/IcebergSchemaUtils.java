@@ -203,10 +203,15 @@ public final class IcebergSchemaUtils {
 
     /**
      * Recursively build a {@link TField} from an iceberg {@link Types.NestedField}. {@code nameOverride}
-     * replaces the field name at the top level (the lowercased Doris slot name); {@code null} keeps the
-     * iceberg field name (nested struct field names stay iceberg-cased, byte-matching {@code IcebergTypeMapping};
-     * array {@code element} / map {@code key}/{@code value} names are iceberg's canonical names — not load-bearing,
-     * BE matches collection nodes positionally). Carries the iceberg field id + name + nullability +
+     * replaces the field name at the top level (the lowercased Doris slot name); {@code null} (every nested
+     * field) falls back to the iceberg field name LOWERCASED. Lowercasing is load-bearing for nested struct
+     * children: the Doris slot's {@code DataTypeStruct} child names are force-lowercased ({@code StructField}
+     * ctor, via {@code ConnectorColumnConverter}), and BE's {@code StructNode} looks the child up by that
+     * lowercase name — keeping the iceberg case (e.g. {@code DROP_AND_ADD}) makes BE's
+     * {@code children.at("drop_and_add")} throw {@code std::out_of_range} and SIGABRT the whole struct read.
+     * For array {@code element} / map {@code key}/{@code value} the lowercasing is a no-op (iceberg's canonical
+     * names are already lowercase; BE matches collection nodes positionally anyway). Carries the iceberg field
+     * id + name + nullability +
      * name-mapping at EVERY level (legacy {@code ExternalUtil} parity), and a nested-vs-scalar {@code type.type}
      * (a {@code STRING} placeholder for scalars — BE uses it only as a discriminator).
      */
@@ -214,7 +219,7 @@ public final class IcebergSchemaUtils {
             Map<Integer, List<String>> nameMapping) {
         TField tField = new TField();
         tField.setId(field.fieldId());
-        tField.setName(nameOverride != null ? nameOverride : field.name());
+        tField.setName(nameOverride != null ? nameOverride : field.name().toLowerCase(Locale.ROOT));
         // is_optional is byte-matched to legacy: ExternalUtil sets it from the Doris column's isAllowNull(),
         // which IcebergConnectorMetadata.parseSchema forces to true for EVERY iceberg column (a required iceberg
         // field still surfaces nullable). BE does NOT read is_optional on the iceberg field-id path
