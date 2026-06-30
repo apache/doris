@@ -24,11 +24,14 @@ import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
+import org.apache.doris.nereids.trees.expressions.DefaultValueSlot;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -383,7 +386,7 @@ public class LogicalUnion extends LogicalSetOperation implements Union, OutputPr
         List<DataType> commonDataTypes = Lists.newArrayListWithCapacity(columnCount);
         List<NamedExpression> firstRow = constantExprsList.get(0);
         for (int columnId = 0; columnId < columnCount; columnId++) {
-            Expression constant = firstRow.get(columnId).child(0);
+            Expression constant = getConstantChild(firstRow.get(columnId));
             Pair<DataType, Boolean> commonDataTypeAndNullable
                     = computeCommonDataTypeAndNullable(constant, columnId, constantExprsList);
             commonDataTypes.add(commonDataTypeAndNullable.first);
@@ -398,7 +401,7 @@ public class LogicalUnion extends LogicalSetOperation implements Union, OutputPr
         boolean nullable = firstRowExpr.nullable();
         for (int rowId = 1; rowId < constantExprsList.size(); rowId++) {
             NamedExpression namedExpression = constantExprsList.get(rowId).get(columnId);
-            Expression otherConstant = namedExpression.child(0);
+            Expression otherConstant = getConstantChild(namedExpression);
             nullable |= otherConstant.nullable();
             DataType otherDataType = otherConstant.getDataType();
             commonDataType = getAssignmentCompatibleType(commonDataType, otherDataType);
@@ -421,8 +424,13 @@ public class LogicalUnion extends LogicalSetOperation implements Union, OutputPr
         boolean changed = false;
         for (int columnId = 0; columnId < row.size(); columnId++) {
             NamedExpression constantAlias = row.get(columnId);
-            Expression constant = constantAlias.child(0);
+            Expression constant = getConstantChild(constantAlias);
             DataType commonType = commonTypes.get(columnId);
+            if (constant instanceof DefaultValueSlot) {
+                changed = true;
+                castedRow.add((NamedExpression) constantAlias.withChildren(defaultPlaceholder(commonType)));
+                continue;
+            }
             if (commonType.equals(constant.getDataType())) {
                 castedRow.add(constantAlias);
             } else {
@@ -433,6 +441,32 @@ public class LogicalUnion extends LogicalSetOperation implements Union, OutputPr
             }
         }
         return changed ? castedRow.build() : row;
+    }
+
+    private static Expression getConstantChild(NamedExpression constantAlias) {
+        if (constantAlias instanceof DefaultValueSlot) {
+            return constantAlias;
+        }
+        return constantAlias.child(0);
+    }
+
+    private static Expression defaultPlaceholder(DataType dataType) {
+        if (dataType.isNullType() || dataType.isComplexType()) {
+            return new NullLiteral(dataType);
+        }
+        Literal literal;
+        if (dataType.isBooleanType()) {
+            literal = Literal.of(false);
+        } else if (dataType.isStringLikeType()) {
+            literal = Literal.of("");
+        } else if (dataType.isDateLikeType()) {
+            literal = new StringLiteral("1970-01-01 00:00:00");
+        } else if (dataType.isTimeType()) {
+            literal = new StringLiteral("00:00:00");
+        } else {
+            literal = Literal.of(0);
+        }
+        return literal.checkedCastTo(dataType);
     }
 
     public LogicalSetOperation withChildrenAndOutputs(List<Plan> children, List<NamedExpression> newOuptuts,

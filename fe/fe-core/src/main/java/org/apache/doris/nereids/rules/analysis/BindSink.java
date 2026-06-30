@@ -79,6 +79,7 @@ import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.algebra.InlineTable;
 import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalBlackholeSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalConnectorTableSink;
@@ -94,6 +95,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTVFTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTableSink;
+import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.logical.UnboundLogicalSink;
 import org.apache.doris.nereids.trees.plans.visitor.InferPlanOutputAlias;
 import org.apache.doris.nereids.types.DataType;
@@ -133,6 +135,32 @@ import java.util.stream.Collectors;
  */
 public class BindSink implements AnalysisRuleFactory {
     private static final Logger LOG = LogManager.getLogger(BindSink.class);
+
+    private enum ImplicitInsertColumnPolicy {
+        REJECT,
+        FILL_MISSING_BY_DEFAULT,
+        UNIQUE_FULL_ROW_INSERT,
+        UNIQUE_PARTIAL_UPDATE
+    }
+
+    private static class ImplicitInsertBindingResult {
+        private final ImplicitInsertColumnPolicy policy;
+        private final int inputColumnSize;
+        private final List<Column> omittedColumns;
+
+        private ImplicitInsertBindingResult(
+                ImplicitInsertColumnPolicy policy, int inputColumnSize, List<Column> omittedColumns) {
+            this.policy = policy;
+            this.inputColumnSize = inputColumnSize;
+            this.omittedColumns = omittedColumns;
+        }
+
+        private boolean shouldFillMissingColumnsByDefault() {
+            return !omittedColumns.isEmpty()
+                    && (policy == ImplicitInsertColumnPolicy.FILL_MISSING_BY_DEFAULT
+                    || policy == ImplicitInsertColumnPolicy.UNIQUE_FULL_ROW_INSERT);
+        }
+    }
 
     public boolean needTruncateStringWhenInsert;
 
@@ -197,6 +225,19 @@ public class BindSink implements AnalysisRuleFactory {
                         sink.getDMLCommandType() == DMLCommandType.GROUP_COMMIT);
         List<Column> bindColumns = bindColumnsResult.first;
         int extraColumnsNum = bindColumnsResult.second;
+        if (sink.getDMLCommandType() == DMLCommandType.INSERT
+                && isPartialUpdate
+                && sink.getColNames().isEmpty()
+                && child.getOutput().size() < bindColumns.size()) {
+            throw new AnalysisException("insert into cols should be corresponding to the query output");
+        }
+        ImplicitInsertBindingResult implicitInsertBindingResult = resolveImplicitInsertBindingPolicy(
+                table, sink, child, bindColumns, isPartialUpdate);
+        if (implicitInsertBindingResult.shouldFillMissingColumnsByDefault()) {
+            bindColumns = ImmutableList.copyOf(bindColumns.subList(0,
+                    implicitInsertBindingResult.inputColumnSize));
+        }
+        checkGeneratedColumnForInsertIntoSelect(table, sink, child, bindColumns);
 
         LogicalOlapTableSink<?> boundSink = new LogicalOlapTableSink<>(
                 database,
@@ -233,14 +274,9 @@ public class BindSink implements AnalysisRuleFactory {
                 boolean haveInputSeqCol = false;
                 Optional<Column> seqColInTable = Optional.empty();
                 if (table.getSequenceMapCol() != null) {
-                    if (!sink.getColNames().isEmpty()) {
-                        if (sink.getColNames().stream()
-                                .anyMatch(c -> c.equalsIgnoreCase(table.getSequenceMapCol()))) {
-                            haveInputSeqCol = true; // case1.a
-                        }
-                    } else {
-                        haveInputSeqCol = true; // case1.b
-                    }
+                    haveInputSeqCol = bindColumns.stream()
+                            .map(Column::getName)
+                            .anyMatch(c -> c.equalsIgnoreCase(table.getSequenceMapCol()));
                     seqColInTable = table.getFullSchema().stream()
                             .filter(col -> col.getName().equalsIgnoreCase(table.getSequenceMapCol()))
                             .findFirst();
@@ -306,6 +342,53 @@ public class BindSink implements AnalysisRuleFactory {
                 exprTranslator.createSyncMvWhereClause(), targetTableSlots);
     }
 
+    private void checkGeneratedColumnForInsertIntoSelect(
+            OlapTable table, UnboundTableSink<?> sink, LogicalPlan child, List<Column> bindColumns) {
+        if (sink.getDMLCommandType() != DMLCommandType.INSERT
+                || child instanceof InlineTable
+                || isConstantExprsOnlyLogicalUnion(child)) {
+            return;
+        }
+        int outputColumnSize = Math.min(child.getOutput().size(), bindColumns.size());
+        for (int i = 0; i < outputColumnSize; i++) {
+            Column col = bindColumns.get(i);
+            if (col.getGeneratedColumnInfo() != null
+                    && !isDefaultValueExpr(getOutputExpressionForGeneratedColumnCheck(child, i))) {
+                throw new AnalysisException("The value specified for generated column '"
+                        + col.getName()
+                        + "' in table '" + table.getName() + "' is not allowed.");
+            }
+        }
+    }
+
+    private static Expression getOutputExpressionForGeneratedColumnCheck(LogicalPlan child, int index) {
+        if (child instanceof LogicalOneRowRelation) {
+            return ((LogicalOneRowRelation) child).getProjects().get(index);
+        }
+        return child.getOutput().get(index);
+    }
+
+    private static boolean isConstantExprsOnlyLogicalUnion(LogicalPlan child) {
+        if (!(child instanceof LogicalUnion)) {
+            return false;
+        }
+        LogicalUnion union = (LogicalUnion) child;
+        return (!union.getConstantExprsList().isEmpty() || union.arity() > 0)
+                && union.children().stream().allMatch(BindSink::isConstantOneRowPlan);
+    }
+
+    private static boolean isConstantOneRowPlan(Plan plan) {
+        if (plan instanceof LogicalProject) {
+            return isConstantOneRowPlan(((LogicalProject<?>) plan).child());
+        }
+        return plan instanceof LogicalOneRowRelation || plan instanceof LogicalEmptyRelation;
+    }
+
+    private static boolean isDefaultValueExpr(Expression expr) {
+        return expr instanceof DefaultValueSlot
+                || (expr instanceof Alias && ((Alias) expr).child() instanceof DefaultValueSlot);
+    }
+
     private LogicalProject<?> getOutputProjectByCoercion(List<Column> tableSchema, LogicalPlan child,
                                                          Map<String, NamedExpression> columnToOutput) {
         List<NamedExpression> fullOutputExprs = Utils.fastToImmutableList(columnToOutput.values());
@@ -313,7 +396,7 @@ public class BindSink implements AnalysisRuleFactory {
             // remove default value slot in one row relation
             child = ((LogicalOneRowRelation) child).withProjects(((LogicalOneRowRelation) child)
                     .getProjects().stream()
-                    .filter(p -> !(p instanceof DefaultValueSlot))
+                    .filter(p -> !isDefaultValueExpr(p))
                     .collect(ImmutableList.toImmutableList()));
         }
         LogicalProject<?> fullOutputProject = new LogicalProject<>(fullOutputExprs, child);
@@ -401,7 +484,7 @@ public class BindSink implements AnalysisRuleFactory {
             if (columnToChildOutput.containsKey(column)
                     // do not process explicitly use DEFAULT value here:
                     // insert into table t values(DEFAULT)
-                    && !(columnToChildOutput.get(column) instanceof DefaultValueSlot)) {
+                    && !isDefaultValueExpr(columnToChildOutput.get(column))) {
                 Alias output = new Alias(TypeCoercionUtils.castIfNotSameType(
                         columnToChildOutput.get(column), DataType.fromCatalogType(column.getType())),
                         column.getName());
@@ -513,6 +596,7 @@ public class BindSink implements AnalysisRuleFactory {
                     boundExpression = boundExpression.accept(
                             new AddSessionVarGuardRewriter(column.getSessionVariables()), Boolean.FALSE);
                 }
+                boundExpression = normalizeOutputExpression(boundExpression, column);
                 Alias output = new Alias(boundExpression, column.getName());
                 columnToOutput.put(column.getName(), output);
                 columnToReplaced.put(column.getName(), output.toSlot());
@@ -544,8 +628,7 @@ public class BindSink implements AnalysisRuleFactory {
                     boundExpression = boundExpression.accept(
                             new AddSessionVarGuardRewriter(column.getSessionVariables()), Boolean.FALSE);
                 }
-                boundExpression = TypeCoercionUtils.castIfNotSameType(boundExpression,
-                        DataType.fromCatalogType(column.getType()));
+                boundExpression = normalizeOutputExpression(boundExpression, column);
                 Alias output = new Alias(boundExpression, column.getDefineExpr().accept(
                         ExprToSqlVisitor.INSTANCE, ToSqlParams.WITHOUT_TABLE));
                 columnToOutput.put(column.getName(), output);
@@ -563,6 +646,10 @@ public class BindSink implements AnalysisRuleFactory {
             }
         }
         return columnToOutput;
+    }
+
+    private static Expression normalizeOutputExpression(Expression expression, Column column) {
+        return TypeCoercionUtils.castIfNotSameType(expression, DataType.fromCatalogType(column.getType()));
     }
 
     private Plan bindBlackHoleSink(MatchingContext<UnboundBlackholeSink<Plan>> ctx) {
@@ -1128,6 +1215,35 @@ public class BindSink implements AnalysisRuleFactory {
                     }
                     return partition.getId();
                 }).collect(Collectors.toList());
+    }
+
+    private ImplicitInsertBindingResult resolveImplicitInsertBindingPolicy(
+            OlapTable table, UnboundTableSink<?> sink, LogicalPlan child, List<Column> bindColumns,
+            boolean isPartialUpdate) {
+        int inputColumnSize = child.getOutput().size();
+        if (!sink.getColNames().isEmpty()
+                || sink.getDMLCommandType() != DMLCommandType.INSERT
+                || inputColumnSize >= bindColumns.size()) {
+            return new ImplicitInsertBindingResult(ImplicitInsertColumnPolicy.REJECT,
+                    inputColumnSize, ImmutableList.of());
+        }
+
+        List<Column> omittedColumns = ImmutableList.copyOf(
+                bindColumns.subList(inputColumnSize, bindColumns.size()));
+        if (isPartialUpdate) {
+            return new ImplicitInsertBindingResult(ImplicitInsertColumnPolicy.UNIQUE_PARTIAL_UPDATE,
+                    inputColumnSize, omittedColumns);
+        }
+
+        if (table.getKeysType() == KeysType.UNIQUE_KEYS) {
+            return new ImplicitInsertBindingResult(ImplicitInsertColumnPolicy.UNIQUE_FULL_ROW_INSERT,
+                    inputColumnSize, omittedColumns);
+        }
+        if (table.getKeysType() == KeysType.DUP_KEYS || table.getKeysType() == KeysType.AGG_KEYS) {
+            return new ImplicitInsertBindingResult(ImplicitInsertColumnPolicy.FILL_MISSING_BY_DEFAULT,
+                    inputColumnSize, omittedColumns);
+        }
+        return new ImplicitInsertBindingResult(ImplicitInsertColumnPolicy.REJECT, inputColumnSize, omittedColumns);
     }
 
     // bindTargetColumns means bind sink node's target columns' names to target table's columns
