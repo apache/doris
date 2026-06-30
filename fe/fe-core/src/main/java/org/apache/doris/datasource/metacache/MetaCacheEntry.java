@@ -166,7 +166,7 @@ public class MetaCacheEntry<K, V> {
                 true,
                 null);
         // Build through a dedicated loader so refresh reload can check generation before publishing.
-        CacheLoader<K, V> cacheLoader = newCacheLoader(refreshExecutor);
+        CacheLoader<K, V> cacheLoader = newCacheLoader();
         if (syncRemovalListener) {
             this.loadingData = cacheFactory.buildCacheWithSyncRemovalListener(cacheLoader, removalListener);
         } else {
@@ -239,21 +239,22 @@ public class MetaCacheEntry<K, V> {
     }
 
     public void invalidateIf(Predicate<K> predicate) {
+        Objects.requireNonNull(predicate, "predicate can not be null");
+        // Cover in-flight manual loads whose keys are still outside the cache map.
         bumpAllGenerations();
-        data.asMap().keySet().removeIf(key -> {
+        for (K key : data.asMap().keySet()) {
             if (predicate.test(key)) {
-                invalidateCount.incrementAndGet();
-                return true;
+                invalidateKey(key);
             }
-            return false;
-        });
+        }
     }
 
     public void invalidateAll() {
+        // Cover in-flight manual loads whose keys are still outside the cache map.
         bumpAllGenerations();
-        long size = data.estimatedSize();
-        data.invalidateAll();
-        invalidateCount.addAndGet(size);
+        for (K key : data.asMap().keySet()) {
+            invalidateKey(key);
+        }
     }
 
     public void forEach(BiConsumer<K, V> consumer) {
@@ -346,7 +347,7 @@ public class MetaCacheEntry<K, V> {
         data.asMap().computeIfPresent(key, (ignored, currentValue) -> currentValue == loaded ? null : currentValue);
     }
 
-    private CacheLoader<K, V> newCacheLoader(ExecutorService refreshExecutor) {
+    private CacheLoader<K, V> newCacheLoader() {
         return new CacheLoader<K, V>() {
             @Override
             public V load(K key) {
@@ -355,26 +356,16 @@ public class MetaCacheEntry<K, V> {
 
             @Override
             public CompletableFuture<V> asyncReload(K key, V oldValue, Executor executor) {
-                long generation;
-                synchronized (publishLock(key)) {
-                    V current = data.getIfPresent(key);
-                    if (current != null && !Objects.equals(current, oldValue)) {
-                        CompletableFuture<V> cancelled = new CompletableFuture<>();
-                        cancelled.cancel(false);
-                        return cancelled;
-                    }
-                    generation = generationOf(key);
-                }
+                long generation = generationOf(key);
                 CompletableFuture<V> result = new CompletableFuture<>();
-                CompletableFuture.supplyAsync(() -> loadFromDefaultLoader(key), refreshExecutor)
+                CompletableFuture.supplyAsync(() -> loadFromDefaultLoader(key), executor)
                         .whenComplete((loaded, error) -> {
+                            if (error != null) {
+                                result.completeExceptionally(error);
+                                return;
+                            }
                             synchronized (publishLock(key)) {
-                                if (error != null) {
-                                    result.completeExceptionally(error);
-                                } else if (canPublishAsyncReload(key, oldValue, generation)) {
-                                    // Complete the future while holding the publish lock so Caffeine's
-                                    // refresh write-back cannot interleave with same-key invalidation.
-                                    beforeAsyncReloadCompleteForTest(key, loaded);
+                                if (generation == generationOf(key)) {
                                     result.complete(loaded);
                                 } else {
                                     result.cancel(false);
@@ -384,10 +375,6 @@ public class MetaCacheEntry<K, V> {
                 return result;
             }
         };
-    }
-
-    private boolean canPublishAsyncReload(K key, V oldValue, long generation) {
-        return generation == generationOf(key) && Objects.equals(data.getIfPresent(key), oldValue);
     }
 
     private int stripe(K key) {
@@ -435,9 +422,6 @@ public class MetaCacheEntry<K, V> {
     }
 
     void beforePublicMutationWriteForTest(K key) {
-    }
-
-    void beforeAsyncReloadCompleteForTest(K key, V loaded) {
     }
 
     private V loadFromDefaultLoader(K key) {

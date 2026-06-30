@@ -21,6 +21,7 @@ import org.apache.doris.common.Config;
 
 import com.github.benmanes.caffeine.cache.LoadingCache;
 import com.google.common.collect.Maps;
+import com.google.common.util.concurrent.MoreExecutors;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -32,6 +33,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.BooleanSupplier;
 import java.util.function.Supplier;
 
 public class MetaCacheEntryTest {
@@ -374,9 +376,10 @@ public class MetaCacheEntryTest {
 
             Future<Integer> first = queryExecutor.submit(() -> entry.get("k"));
             Assert.assertTrue(beforePutStarted.await(3L, TimeUnit.SECONDS));
-            // Queue invalidate behind the manual publish critical section so generation changes before write-back resumes.
+            // Run invalidateAll() while the hook is holding publishLock so bumpAllGenerations() lands
+            // before the post-put generation re-check and triggers self-removal in the manual path.
             Future<?> invalidateFuture = mutationExecutor.submit(() -> {
-                entry.invalidateKey("k");
+                entry.invalidateAll();
                 return null;
             });
             releaseBeforePut.countDown();
@@ -435,7 +438,7 @@ public class MetaCacheEntryTest {
                     refreshExecutor,
                     false);
 
-            // Verify disabled entries bypass cache entirely even when manual miss load is enabled by config.
+            // Verify disabled entries bypass cache entirely under the always-on manual miss load path.
             Assert.assertEquals(Integer.valueOf(1), entry.get("k"));
             Assert.assertNull(entry.getIfPresent("k"));
             Assert.assertEquals(Integer.valueOf(2), entry.get("k"));
@@ -472,17 +475,111 @@ public class MetaCacheEntryTest {
     }
 
     @Test
-    public void testRefreshResultIsDroppedAfterInvalidate() throws Exception {
+    public void testInvalidateAllDoesNotPutAfterInFlightManualMissLoad() throws Exception {
         ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
-        ExecutorService mutationExecutor = Executors.newSingleThreadExecutor();
+        ExecutorService queryExecutor = Executors.newSingleThreadExecutor();
         try {
             CacheSpec cacheSpec = CacheSpec.of(true, CacheSpec.CACHE_NO_TTL, 10L);
             CountDownLatch loaderStarted = new CountDownLatch(1);
             CountDownLatch releaseLoader = new CountDownLatch(1);
-            CountDownLatch beforeRefreshComplete = new CountDownLatch(1);
-            CountDownLatch releaseRefreshComplete = new CountDownLatch(1);
             AtomicInteger loadCounter = new AtomicInteger();
-            MetaCacheEntry<String, Integer> entry = new MetaCacheEntry<String, Integer>(
+            MetaCacheEntry<String, Integer> entry = new MetaCacheEntry<>(
+                    "test",
+                    key -> {
+                        loaderStarted.countDown();
+                        awaitLatch(releaseLoader);
+                        return loadCounter.incrementAndGet();
+                    },
+                    cacheSpec,
+                    refreshExecutor,
+                    false);
+
+            Future<Integer> first = queryExecutor.submit(() -> entry.get("k"));
+            Assert.assertTrue(loaderStarted.await(3L, TimeUnit.SECONDS));
+            entry.invalidateAll();
+            releaseLoader.countDown();
+
+            Assert.assertEquals(Integer.valueOf(1), first.get(3L, TimeUnit.SECONDS));
+            Assert.assertNull(entry.getIfPresent("k"));
+            Assert.assertEquals(Integer.valueOf(2), entry.get("k"));
+            Assert.assertEquals(2, loadCounter.get());
+        } finally {
+            queryExecutor.shutdownNow();
+            refreshExecutor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void testInvalidateIfDoesNotPutAfterInFlightManualMissLoad() throws Exception {
+        ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
+        ExecutorService queryExecutor = Executors.newSingleThreadExecutor();
+        try {
+            CacheSpec cacheSpec = CacheSpec.of(true, CacheSpec.CACHE_NO_TTL, 10L);
+            CountDownLatch loaderStarted = new CountDownLatch(1);
+            CountDownLatch releaseLoader = new CountDownLatch(1);
+            AtomicInteger loadCounter = new AtomicInteger();
+            MetaCacheEntry<String, Integer> entry = new MetaCacheEntry<>(
+                    "test",
+                    key -> {
+                        loaderStarted.countDown();
+                        awaitLatch(releaseLoader);
+                        return loadCounter.incrementAndGet();
+                    },
+                    cacheSpec,
+                    refreshExecutor,
+                    false);
+
+            Future<Integer> first = queryExecutor.submit(() -> entry.get("k"));
+            Assert.assertTrue(loaderStarted.await(3L, TimeUnit.SECONDS));
+            entry.invalidateIf("k"::equals);
+            releaseLoader.countDown();
+
+            Assert.assertEquals(Integer.valueOf(1), first.get(3L, TimeUnit.SECONDS));
+            Assert.assertNull(entry.getIfPresent("k"));
+            Assert.assertEquals(Integer.valueOf(2), entry.get("k"));
+            Assert.assertEquals(2, loadCounter.get());
+        } finally {
+            queryExecutor.shutdownNow();
+            refreshExecutor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void testInvalidateIfTracksActualRemovedKeys() {
+        ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
+        try {
+            CacheSpec cacheSpec = CacheSpec.of(true, CacheSpec.CACHE_NO_TTL, 10L);
+            MetaCacheEntry<String, Integer> entry = new MetaCacheEntry<>(
+                    "test",
+                    String::length,
+                    cacheSpec,
+                    refreshExecutor,
+                    false);
+
+            entry.put("a", 1);
+            entry.put("b", 2);
+            entry.invalidateIf("a"::equals);
+            Assert.assertNull(entry.getIfPresent("a"));
+            Assert.assertEquals(Integer.valueOf(2), entry.getIfPresent("b"));
+            Assert.assertEquals(1L, entry.stats().getInvalidateCount());
+
+            entry.invalidateAll();
+            Assert.assertNull(entry.getIfPresent("b"));
+            Assert.assertEquals(2L, entry.stats().getInvalidateCount());
+        } finally {
+            refreshExecutor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void testRefreshResultIsCancelledAfterInvalidate() throws Exception {
+        ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
+        try {
+            CacheSpec cacheSpec = CacheSpec.of(true, CacheSpec.CACHE_NO_TTL, 10L);
+            CountDownLatch loaderStarted = new CountDownLatch(1);
+            CountDownLatch releaseLoader = new CountDownLatch(1);
+            AtomicInteger loadCounter = new AtomicInteger();
+            MetaCacheEntry<String, Integer> entry = new MetaCacheEntry<>(
                     "test",
                     key -> {
                         int current = loadCounter.incrementAndGet();
@@ -493,30 +590,88 @@ public class MetaCacheEntryTest {
                         return current;
                     },
                     cacheSpec,
-                    refreshExecutor) {
-                @Override
-                void beforeAsyncReloadCompleteForTest(String key, Integer loaded) {
-                    beforeRefreshComplete.countDown();
-                    awaitLatch(releaseRefreshComplete);
-                }
-            };
+                    refreshExecutor);
 
             Assert.assertEquals(Integer.valueOf(1), entry.get("k"));
-            extractLoadingCache(entry).refresh("k");
+            LoadingCache<String, Integer> loadingCache = extractLoadingCache(entry);
+            long initialLoadFailureCount = loadingCache.stats().loadFailureCount();
+            loadingCache.refresh("k");
             Assert.assertTrue(loaderStarted.await(3L, TimeUnit.SECONDS));
+            entry.invalidateKey("k");
             releaseLoader.countDown();
-            Assert.assertTrue(beforeRefreshComplete.await(3L, TimeUnit.SECONDS));
-            // Force invalidate to queue behind the refresh completion critical section on the same publish lock.
-            Future<?> invalidateFuture = mutationExecutor.submit(() -> {
-                entry.invalidateKey("k");
-                return null;
-            });
-            releaseRefreshComplete.countDown();
-            invalidateFuture.get(3L, TimeUnit.SECONDS);
-
+            waitUntil(() -> loadingCache.stats().loadFailureCount() >= initialLoadFailureCount + 1);
             assertStableValue(() -> entry.getIfPresent("k"), null);
         } finally {
-            mutationExecutor.shutdownNow();
+            refreshExecutor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void testRefreshResultIsCancelledAfterInvalidateAll() throws Exception {
+        ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
+        try {
+            CacheSpec cacheSpec = CacheSpec.of(true, CacheSpec.CACHE_NO_TTL, 10L);
+            CountDownLatch loaderStarted = new CountDownLatch(1);
+            CountDownLatch releaseLoader = new CountDownLatch(1);
+            AtomicInteger loadCounter = new AtomicInteger();
+            MetaCacheEntry<String, Integer> entry = new MetaCacheEntry<>(
+                    "test",
+                    key -> {
+                        int current = loadCounter.incrementAndGet();
+                        if (current > 1) {
+                            loaderStarted.countDown();
+                            awaitLatch(releaseLoader);
+                        }
+                        return current;
+                    },
+                    cacheSpec,
+                    refreshExecutor);
+
+            Assert.assertEquals(Integer.valueOf(1), entry.get("k"));
+            LoadingCache<String, Integer> loadingCache = extractLoadingCache(entry);
+            long initialLoadFailureCount = loadingCache.stats().loadFailureCount();
+            loadingCache.refresh("k");
+            Assert.assertTrue(loaderStarted.await(3L, TimeUnit.SECONDS));
+            entry.invalidateAll();
+            releaseLoader.countDown();
+            waitUntil(() -> loadingCache.stats().loadFailureCount() >= initialLoadFailureCount + 1);
+            assertStableValue(() -> entry.getIfPresent("k"), null);
+        } finally {
+            refreshExecutor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void testRefreshResultIsCancelledAfterInvalidateIf() throws Exception {
+        ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
+        try {
+            CacheSpec cacheSpec = CacheSpec.of(true, CacheSpec.CACHE_NO_TTL, 10L);
+            CountDownLatch loaderStarted = new CountDownLatch(1);
+            CountDownLatch releaseLoader = new CountDownLatch(1);
+            AtomicInteger loadCounter = new AtomicInteger();
+            MetaCacheEntry<String, Integer> entry = new MetaCacheEntry<>(
+                    "test",
+                    key -> {
+                        int current = loadCounter.incrementAndGet();
+                        if (current > 1) {
+                            loaderStarted.countDown();
+                            awaitLatch(releaseLoader);
+                        }
+                        return current;
+                    },
+                    cacheSpec,
+                    refreshExecutor);
+
+            Assert.assertEquals(Integer.valueOf(1), entry.get("k"));
+            LoadingCache<String, Integer> loadingCache = extractLoadingCache(entry);
+            long initialLoadFailureCount = loadingCache.stats().loadFailureCount();
+            loadingCache.refresh("k");
+            Assert.assertTrue(loaderStarted.await(3L, TimeUnit.SECONDS));
+            entry.invalidateIf("k"::equals);
+            releaseLoader.countDown();
+            waitUntil(() -> loadingCache.stats().loadFailureCount() >= initialLoadFailureCount + 1);
+            assertStableValue(() -> entry.getIfPresent("k"), null);
+        } finally {
             refreshExecutor.shutdownNow();
         }
     }
@@ -633,17 +788,14 @@ public class MetaCacheEntryTest {
     }
 
     @Test
-    public void testRefreshResultIsDroppedAfterPut() throws Exception {
+    public void testRefreshDoesNotOverwriteConcurrentPut() throws Exception {
         ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
-        ExecutorService mutationExecutor = Executors.newSingleThreadExecutor();
         try {
             CacheSpec cacheSpec = CacheSpec.of(true, CacheSpec.CACHE_NO_TTL, 10L);
             CountDownLatch loaderStarted = new CountDownLatch(1);
             CountDownLatch releaseLoader = new CountDownLatch(1);
-            CountDownLatch beforeRefreshComplete = new CountDownLatch(1);
-            CountDownLatch releaseRefreshComplete = new CountDownLatch(1);
             AtomicInteger loadCounter = new AtomicInteger();
-            MetaCacheEntry<String, Integer> entry = new MetaCacheEntry<String, Integer>(
+            MetaCacheEntry<String, Integer> entry = new MetaCacheEntry<>(
                     "test",
                     key -> {
                         int current = loadCounter.incrementAndGet();
@@ -654,30 +806,180 @@ public class MetaCacheEntryTest {
                         return current;
                     },
                     cacheSpec,
-                    refreshExecutor) {
+                    refreshExecutor);
+
+            Assert.assertEquals(Integer.valueOf(1), entry.get("k"));
+            LoadingCache<String, Integer> loadingCache = extractLoadingCache(entry);
+            long initialLoadFailureCount = loadingCache.stats().loadFailureCount();
+            loadingCache.refresh("k");
+            Assert.assertTrue(loaderStarted.await(3L, TimeUnit.SECONDS));
+            entry.put("k", 100);
+            releaseLoader.countDown();
+            waitUntil(() -> loadingCache.stats().loadFailureCount() >= initialLoadFailureCount + 1);
+            assertStableValue(() -> entry.getIfPresent("k"), Integer.valueOf(100));
+        } finally {
+            refreshExecutor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void testInvalidateAllRemovesConcurrentPutResult() throws Exception {
+        ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
+        ExecutorService mutationExecutor = Executors.newSingleThreadExecutor();
+        ExecutorService invalidateExecutor = Executors.newSingleThreadExecutor();
+        try {
+            CacheSpec cacheSpec = CacheSpec.of(true, CacheSpec.CACHE_NO_TTL, 10L);
+            CountDownLatch beforePutStarted = new CountDownLatch(1);
+            CountDownLatch releaseBeforePut = new CountDownLatch(1);
+            CountDownLatch invalidateKeyStarted = new CountDownLatch(1);
+            AtomicInteger publicMutationCount = new AtomicInteger();
+            MetaCacheEntry<String, Integer> entry = new MetaCacheEntry<String, Integer>(
+                    "test",
+                    String::length,
+                    cacheSpec,
+                    refreshExecutor,
+                    false) {
                 @Override
-                void beforeAsyncReloadCompleteForTest(String key, Integer loaded) {
-                    beforeRefreshComplete.countDown();
-                    awaitLatch(releaseRefreshComplete);
+                void beforePublicMutationWriteForTest(String key) {
+                    if (publicMutationCount.incrementAndGet() > 1) {
+                        beforePutStarted.countDown();
+                        awaitLatch(releaseBeforePut);
+                    }
+                }
+
+                @Override
+                public void invalidateKey(String key) {
+                    invalidateKeyStarted.countDown();
+                    super.invalidateKey(key);
                 }
             };
 
-            Assert.assertEquals(Integer.valueOf(1), entry.get("k"));
-            extractLoadingCache(entry).refresh("k");
-            Assert.assertTrue(loaderStarted.await(3L, TimeUnit.SECONDS));
-            releaseLoader.countDown();
-            Assert.assertTrue(beforeRefreshComplete.await(3L, TimeUnit.SECONDS));
-            // Queue the public put behind refresh completion so any stale post-completion write-back would be visible.
+            entry.put("k", 1);
             Future<?> putFuture = mutationExecutor.submit(() -> {
                 entry.put("k", 100);
                 return null;
             });
-            releaseRefreshComplete.countDown();
+            Assert.assertTrue(beforePutStarted.await(3L, TimeUnit.SECONDS));
+            Future<?> invalidateFuture = invalidateExecutor.submit(() -> {
+                entry.invalidateAll();
+                return null;
+            });
+            Assert.assertTrue(invalidateKeyStarted.await(3L, TimeUnit.SECONDS));
+            releaseBeforePut.countDown();
             putFuture.get(3L, TimeUnit.SECONDS);
+            invalidateFuture.get(3L, TimeUnit.SECONDS);
 
-            assertStableValue(() -> entry.getIfPresent("k"), Integer.valueOf(100));
+            assertStableValue(() -> entry.getIfPresent("k"), null);
         } finally {
+            invalidateExecutor.shutdownNow();
             mutationExecutor.shutdownNow();
+            refreshExecutor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void testInvalidateIfRemovesConcurrentComputeResult() throws Exception {
+        ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
+        ExecutorService mutationExecutor = Executors.newSingleThreadExecutor();
+        ExecutorService invalidateExecutor = Executors.newSingleThreadExecutor();
+        try {
+            CacheSpec cacheSpec = CacheSpec.of(true, CacheSpec.CACHE_NO_TTL, 10L);
+            CountDownLatch beforeComputeStarted = new CountDownLatch(1);
+            CountDownLatch releaseBeforeCompute = new CountDownLatch(1);
+            CountDownLatch invalidateKeyStarted = new CountDownLatch(1);
+            AtomicInteger publicMutationCount = new AtomicInteger();
+            MetaCacheEntry<String, Integer> entry = new MetaCacheEntry<String, Integer>(
+                    "test",
+                    String::length,
+                    cacheSpec,
+                    refreshExecutor,
+                    false) {
+                @Override
+                void beforePublicMutationWriteForTest(String key) {
+                    if (publicMutationCount.incrementAndGet() > 1) {
+                        beforeComputeStarted.countDown();
+                        awaitLatch(releaseBeforeCompute);
+                    }
+                }
+
+                @Override
+                public void invalidateKey(String key) {
+                    invalidateKeyStarted.countDown();
+                    super.invalidateKey(key);
+                }
+            };
+
+            entry.put("k", 1);
+            Future<Integer> computeFuture = mutationExecutor.submit(() -> entry.compute("k", (key, value) -> 200));
+            Assert.assertTrue(beforeComputeStarted.await(3L, TimeUnit.SECONDS));
+            Future<?> invalidateFuture = invalidateExecutor.submit(() -> {
+                entry.invalidateIf("k"::equals);
+                return null;
+            });
+            Assert.assertTrue(invalidateKeyStarted.await(3L, TimeUnit.SECONDS));
+            releaseBeforeCompute.countDown();
+            Assert.assertEquals(Integer.valueOf(200), computeFuture.get(3L, TimeUnit.SECONDS));
+            invalidateFuture.get(3L, TimeUnit.SECONDS);
+
+            assertStableValue(() -> entry.getIfPresent("k"), null);
+        } finally {
+            invalidateExecutor.shutdownNow();
+            mutationExecutor.shutdownNow();
+            refreshExecutor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void testRefreshFailurePreservesOldValueAndUpdatesFailureStats() throws Exception {
+        ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
+        try {
+            CacheSpec cacheSpec = CacheSpec.of(true, CacheSpec.CACHE_NO_TTL, 10L);
+            AtomicInteger loadCounter = new AtomicInteger();
+            MetaCacheEntry<String, Integer> entry = new MetaCacheEntry<>(
+                    "test",
+                    key -> {
+                        int current = loadCounter.incrementAndGet();
+                        if (current > 1) {
+                            throw new IllegalStateException("mock refresh failure");
+                        }
+                        return current;
+                    },
+                    cacheSpec,
+                    refreshExecutor);
+
+            Assert.assertEquals(Integer.valueOf(1), entry.get("k"));
+            LoadingCache<String, Integer> loadingCache = extractLoadingCache(entry);
+            long initialLoadFailureCount = loadingCache.stats().loadFailureCount();
+            loadingCache.refresh("k");
+            waitUntil(() -> loadingCache.stats().loadFailureCount() >= initialLoadFailureCount + 1);
+
+            Assert.assertEquals(Integer.valueOf(1), entry.getIfPresent("k"));
+            Assert.assertTrue(entry.stats().getLastError().contains("mock refresh failure"));
+        } finally {
+            refreshExecutor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void testRefreshWorksWithDirectExecutor() throws Exception {
+        ExecutorService refreshExecutor = MoreExecutors.newDirectExecutorService();
+        try {
+            CacheSpec cacheSpec = CacheSpec.of(true, CacheSpec.CACHE_NO_TTL, 10L);
+            AtomicInteger loadCounter = new AtomicInteger();
+            MetaCacheEntry<String, Integer> entry = new MetaCacheEntry<>(
+                    "test",
+                    key -> loadCounter.incrementAndGet(),
+                    cacheSpec,
+                    refreshExecutor);
+
+            Assert.assertEquals(Integer.valueOf(1), entry.get("k"));
+            LoadingCache<String, Integer> loadingCache = extractLoadingCache(entry);
+            long initialLoadSuccessCount = loadingCache.stats().loadSuccessCount();
+            loadingCache.refresh("k");
+            waitUntil(() -> loadingCache.stats().loadSuccessCount() >= initialLoadSuccessCount + 1);
+
+            assertStableValue(() -> entry.getIfPresent("k"), Integer.valueOf(2));
+        } finally {
             refreshExecutor.shutdownNow();
         }
     }
@@ -699,6 +1001,14 @@ public class MetaCacheEntryTest {
             Assert.assertEquals(expectedValue, actualSupplier.get());
             Thread.sleep(20L);
         }
+    }
+
+    private void waitUntil(BooleanSupplier condition) throws Exception {
+        long deadlineMs = System.currentTimeMillis() + 3000L;
+        while (!condition.getAsBoolean() && System.currentTimeMillis() < deadlineMs) {
+            Thread.sleep(20L);
+        }
+        Assert.assertTrue(condition.getAsBoolean());
     }
 
     @SuppressWarnings("unchecked")
