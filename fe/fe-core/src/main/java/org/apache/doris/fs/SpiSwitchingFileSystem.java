@@ -114,69 +114,91 @@ public class SpiSwitchingFileSystem implements FileSystem {
 
     @Override
     public boolean exists(Location location) throws IOException {
-        return forLocation(location).exists(location);
+        Location normalizedLocation = normalizeLocation(location);
+        return forLocation(normalizedLocation).exists(normalizedLocation);
     }
 
     @Override
     public void mkdirs(Location location) throws IOException {
-        forLocation(location).mkdirs(location);
+        Location normalizedLocation = normalizeLocation(location);
+        forLocation(normalizedLocation).mkdirs(normalizedLocation);
     }
 
     @Override
     public void delete(Location location, boolean recursive) throws IOException {
-        forLocation(location).delete(location, recursive);
+        Location normalizedLocation = normalizeLocation(location);
+        forLocation(normalizedLocation).delete(normalizedLocation, recursive);
     }
 
     @Override
     public void rename(Location src, Location dst) throws IOException {
-        forLocation(src).rename(src, dst);
+        Location normalizedSrc = normalizeLocation(src);
+        Location normalizedDst = normalizeLocation(dst);
+        forLocation(normalizedSrc).rename(normalizedSrc, normalizedDst);
     }
 
     @Override
     public FileIterator list(Location location) throws IOException {
-        return forLocation(location).list(location);
+        Location normalizedLocation = normalizeLocation(location);
+        return forLocation(normalizedLocation).list(normalizedLocation);
     }
 
     @Override
     public List<FileEntry> listFiles(Location dir) throws IOException {
-        return forLocation(dir).listFiles(dir);
+        Location normalizedDir = normalizeLocation(dir);
+        return forLocation(normalizedDir).listFiles(normalizedDir);
     }
 
     @Override
     public List<FileEntry> listFilesRecursive(Location dir) throws IOException {
-        return forLocation(dir).listFilesRecursive(dir);
+        Location normalizedDir = normalizeLocation(dir);
+        return forLocation(normalizedDir).listFilesRecursive(normalizedDir);
     }
 
     @Override
     public Set<String> listDirectories(Location dir) throws IOException {
-        return forLocation(dir).listDirectories(dir);
+        Location normalizedDir = normalizeLocation(dir);
+        return forLocation(normalizedDir).listDirectories(normalizedDir);
     }
 
     @Override
     public void renameDirectory(Location src, Location dst, Runnable whenSrcNotExists)
             throws IOException {
-        forLocation(src).renameDirectory(src, dst, whenSrcNotExists);
+        Location normalizedSrc = normalizeLocation(src);
+        Location normalizedDst = normalizeLocation(dst);
+        forLocation(normalizedSrc).renameDirectory(normalizedSrc, normalizedDst, whenSrcNotExists);
     }
 
     @Override
     public DorisInputFile newInputFile(Location location) throws IOException {
-        return forLocation(location).newInputFile(location);
+        Location normalizedLocation = normalizeLocation(location);
+        return forLocation(normalizedLocation).newInputFile(normalizedLocation);
     }
 
     @Override
     public DorisInputFile newInputFile(Location location, long length) throws IOException {
-        return forLocation(location).newInputFile(location, length);
+        Location normalizedLocation = normalizeLocation(location);
+        return forLocation(normalizedLocation).newInputFile(normalizedLocation, length);
     }
 
     @Override
     public DorisOutputFile newOutputFile(Location location) throws IOException {
-        return forLocation(location).newOutputFile(location);
+        Location normalizedLocation = normalizeLocation(location);
+        return forLocation(normalizedLocation).newOutputFile(normalizedLocation);
     }
 
     @Override
     public GlobListing globListWithLimit(Location path, String startAfter, long maxBytes,
             long maxFiles) throws IOException {
-        return forLocation(path).globListWithLimit(path, startAfter, maxBytes, maxFiles);
+        Location normalizedPath = normalizeLocation(path);
+        return forLocation(normalizedPath).globListWithLimit(normalizedPath, startAfter, maxBytes, maxFiles);
+    }
+
+    private Location normalizeLocation(Location location) {
+        if (testDelegate != null || storagePropertiesMap == null) {
+            return location;
+        }
+        return Location.of(LocationPath.of(location.uri(), storagePropertiesMap).getNormalizedLocation());
     }
 
     @Override
