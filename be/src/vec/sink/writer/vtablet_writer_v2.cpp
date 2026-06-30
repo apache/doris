@@ -494,6 +494,7 @@ Status VTabletWriterV2::write(RuntimeState* state, Block& input_block) {
     // check out of limit
     RETURN_IF_ERROR(_send_new_partition_batch());
 
+    const bool is_replaying_batched_block = _row_distribution._deal_batched;
     auto input_rows = input_block.rows();
     auto input_bytes = input_block.bytes();
     if (UNLIKELY(input_rows == 0)) {
@@ -505,8 +506,10 @@ Status VTabletWriterV2::write(RuntimeState* state, Block& input_block) {
     // the real 'num_rows_load_total' will be set when sink being closed.
     _state->update_num_rows_load_total(input_rows);
     _state->update_num_bytes_load_total(input_bytes);
-    DorisMetrics::instance()->load_rows->increment(input_rows);
-    DorisMetrics::instance()->load_bytes->increment(input_bytes);
+    if (!is_replaying_batched_block) {
+        DorisMetrics::instance()->load_rows->increment(input_rows);
+        DorisMetrics::instance()->load_bytes->increment(input_bytes);
+    }
 
     SCOPED_RAW_TIMER(&_send_data_ns);
     // This is just for passing compilation.
@@ -575,7 +578,11 @@ Status VTabletWriterV2::_write_memtable(std::shared_ptr<vectorized::Block> block
                          << " not found in schema, load_id=" << print_id(_load_id);
             return std::unique_ptr<DeltaWriterV2>(nullptr);
         }
-        return DeltaWriterV2::create_unique(&req, streams, _state);
+        std::shared_ptr<WorkloadGroup> workload_group = nullptr;
+        if (_state->get_query_ctx()) {
+            workload_group = _state->workload_group();
+        }
+        return DeltaWriterV2::create_unique(&req, streams, workload_group);
     });
     if (delta_writer == nullptr) {
         LOG(WARNING) << "failed to open DeltaWriter for tablet " << tablet_id
@@ -591,7 +598,12 @@ Status VTabletWriterV2::_write_memtable(std::shared_ptr<vectorized::Block> block
         }
     }
     SCOPED_TIMER(_write_memtable_timer);
-    st = delta_writer->write(block.get(), rows.row_idxes);
+    st = delta_writer->write(block.get(), rows.row_idxes, [state = _state]() {
+        if (state->is_cancelled()) {
+            return state->cancel_reason();
+        }
+        return Status::OK();
+    });
     return st;
 }
 
@@ -674,7 +686,10 @@ Status VTabletWriterV2::close(Status exec_status) {
             std::unordered_map<int64_t, int32_t> segments_for_tablet;
             SCOPED_TIMER(_close_writer_timer);
             // close all delta writers if this is the last user
-            auto st = _delta_writer_for_tablet->close(segments_for_tablet, _operator_profile);
+            RuntimeProfile* delta_writer_profile =
+                    _state->enable_profile() && _state->profile_level() >= 2 ? _operator_profile
+                                                                             : nullptr;
+            auto st = _delta_writer_for_tablet->close(segments_for_tablet, delta_writer_profile);
             _delta_writer_for_tablet.reset();
             if (!st.ok()) {
                 _cancel(st);

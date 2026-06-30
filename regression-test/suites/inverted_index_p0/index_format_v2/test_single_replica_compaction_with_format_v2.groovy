@@ -183,7 +183,12 @@ suite("test_single_replica_compaction_with_format_v2", "inverted_index_format_v2
             backend_id = tablet.BackendId
             String ip = backendId_to_backendIP.get(backend_id)
             String port = backendId_to_backendHttpPort.get(backend_id)
-            check_nested_index_file(ip, port, tablet_id, 2, 3, "V2")
+            // The default inverted_index_storage_format changed from V2 to V3 (#57252), and the
+            // post-compaction rowset count varies per replica, so derive it dynamically and check
+            // against V3 (mirrors test_cumulative_compaction_with_format_v2 / test_mow_table_with_format_v2).
+            def (tablet_status_code, tablet_status_out, tablet_status_err) = be_show_tablet_status(ip, port, tablet_id)
+            int activeRowsetCount = parseJson(tablet_status_out.trim()).rowsets.size()
+            check_nested_index_file(ip, port, tablet_id, activeRowsetCount, 3, "V3")
         }
 
         int segmentsCount = 0

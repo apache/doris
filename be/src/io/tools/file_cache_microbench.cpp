@@ -60,6 +60,9 @@
 #include "rapidjson/writer.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/thread_context.h"
+#include "util/cpu_info.h"
+#include "util/disk_info.h"
+#include "util/mem_info.h"
 #ifdef __clang__
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wkeyword-macro"
@@ -1490,6 +1493,7 @@ private:
                     doris::io::FileReaderOptions reader_opts;
                     reader_opts.cache_type = doris::io::FileCachePolicy::FILE_BLOCK_CACHE;
                     reader_opts.is_doris_table = true;
+                    reader_opts.tablet_id = 1; // microbench placeholder
 
                     doris::io::FileDescription fd;
                     std::string obj_path = "s3://" + doris::config::test_s3_bucket + "/";

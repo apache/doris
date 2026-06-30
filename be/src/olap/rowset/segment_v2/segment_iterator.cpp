@@ -1110,9 +1110,14 @@ Status SegmentIterator::_apply_index_expr() {
     segment_v2::AnnIndexStats ann_index_stats;
     for (const auto& expr_ctx : _common_expr_ctxs_push_down) {
         size_t origin_rows = _row_bitmap.cardinality();
+        bool ann_range_search_executed = false;
         RETURN_IF_ERROR(expr_ctx->evaluate_ann_range_search(
                 _index_iterators, _schema->column_ids(), _column_iterators,
-                _common_expr_to_slotref_map, _row_bitmap, ann_index_stats));
+                _common_expr_to_slotref_map, _row_bitmap, ann_index_stats,
+                &ann_range_search_executed));
+        if (ann_range_search_executed) {
+            _opts.stats->ann_index_range_search_cnt++;
+        }
         _opts.stats->rows_ann_index_range_filtered += (origin_rows - _row_bitmap.cardinality());
         _opts.stats->ann_index_load_ns += ann_index_stats.load_index_costs_ns.value();
         _opts.stats->ann_index_range_search_ns += ann_index_stats.search_costs_ns.value();
@@ -1121,16 +1126,6 @@ Status SegmentIterator::_apply_index_expr() {
         _opts.stats->ann_range_engine_convert_ns += ann_index_stats.engine_convert_ns.value();
         _opts.stats->ann_range_pre_process_ns += ann_index_stats.engine_prepare_ns.value();
     }
-
-    for (auto it = _common_expr_ctxs_push_down.begin(); it != _common_expr_ctxs_push_down.end();) {
-        if ((*it)->root()->ann_range_search_executedd()) {
-            _opts.stats->ann_index_range_search_cnt++;
-            it = _common_expr_ctxs_push_down.erase(it);
-        } else {
-            ++it;
-        }
-    }
-    // TODO：Do we need to remove these expr root from _remaining_conjunct_roots?
 
     return Status::OK();
 }

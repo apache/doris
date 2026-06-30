@@ -15,6 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
+import java.util.concurrent.TimeUnit
+import org.awaitility.Awaitility
+
 suite("test_iceberg_runtime_filter_partition_pruning", "p0,external,doris,external_docker,external_docker_doris") {
 
     String enabled = context.config.otherConfigs.get("enableIcebergTest")
@@ -39,6 +42,32 @@ suite("test_iceberg_runtime_filter_partition_pruning", "p0,external,doris,extern
         "s3.endpoint" = "http://${externalEnvIp}:${minio_port}",
         "s3.region" = "us-east-1"
     );"""
+
+    // All tables in partition_db are pre-created by the docker preinstalled script (run18.sql)
+    // and are only read here. A freshly created Iceberg REST catalog can occasionally return an
+    // incomplete table list on its first metadata fetch (REST client cold start), which made this
+    // test flaky with "Table xxx does not exist in database [partition_db]". Wait until all
+    // expected tables are visible (refresh to drop any cached partial list) before querying.
+    def expectedTables = ["date_partitioned", "int_partitioned", "float_partitioned",
+                          "string_partitioned", "timestamp_partitioned", "timestamp_ntz_partitioned",
+                          "boolean_partitioned", "decimal_partitioned", "binary_partitioned",
+                          "null_str_partition_table"] as Set
+    Awaitility.await("wait for ${db_name} tables to be visible")
+            .atMost(60, TimeUnit.SECONDS).pollInterval(1, TimeUnit.SECONDS).until {
+        try {
+            sql """refresh catalog ${catalog_name}"""
+            def actualTables = sql("""show tables from `${catalog_name}`.`${db_name}`""")
+                    .collect { it[0] as String } as Set
+            if (!actualTables.containsAll(expectedTables)) {
+                logger.warn("${db_name} not ready yet, missing tables: ${expectedTables - actualTables}")
+                return false
+            }
+            return true
+        } catch (Exception e) {
+            logger.warn("waiting for ${db_name} tables to be visible: ${e.getMessage()}")
+            return false
+        }
+    }
 
     sql """switch ${catalog_name}"""
     sql """use ${db_name}"""

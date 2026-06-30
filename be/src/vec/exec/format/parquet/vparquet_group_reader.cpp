@@ -618,6 +618,7 @@ Status RowGroupReader::_do_lazy_read(Block* block, size_t batch_size, size_t* re
         DCHECK_EQ(pre_read_rows + _cached_filtered_rows, 0);
         *read_rows = 0;
         *batch_eof = true;
+        _convert_dict_cols_to_string_cols(block);
         return Status::OK();
     }
 

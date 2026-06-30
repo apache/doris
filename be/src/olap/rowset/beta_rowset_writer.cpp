@@ -29,6 +29,7 @@
 #include <memory>
 #include <mutex>
 #include <sstream>
+#include <string>
 #include <thread>
 #include <utility>
 #include <vector>
@@ -84,6 +85,43 @@ bool is_segment_overlapping(const std::vector<KeyBoundsPB>& segments_encoded_key
     return false;
 }
 
+bool copy_key_bounds_with_truncation(const KeyBoundsPB& src, KeyBoundsPB* dst) {
+    DCHECK(dst != nullptr);
+    if (config::random_segments_key_bounds_truncation) {
+        dst->CopyFrom(src);
+        return false;
+    }
+    const int32_t truncation_threshold = config::segments_key_bounds_truncation_threshold;
+    if (truncation_threshold <= 0) {
+        dst->CopyFrom(src);
+        return false;
+    }
+    const size_t truncation_size = cast_set<size_t>(truncation_threshold);
+
+    bool truncated = false;
+    auto copy_key = [&](const std::string& key, std::string* stored_key) {
+        if (key.size() > truncation_size) {
+            stored_key->assign(key.data(), truncation_size);
+            truncated = true;
+            return;
+        }
+        stored_key->assign(key.data(), key.size());
+    };
+    copy_key(src.min_key(), dst->mutable_min_key());
+    copy_key(src.max_key(), dst->mutable_max_key());
+    return truncated;
+}
+
+SegmentStatistics copy_segment_statistics_with_truncated_key_bounds(const SegmentStatistics& src,
+                                                                    bool& key_bounds_truncated) {
+    SegmentStatistics dst;
+    dst.row_num = src.row_num;
+    dst.data_size = src.data_size;
+    dst.index_size = src.index_size;
+    key_bounds_truncated = copy_key_bounds_with_truncation(src.key_bounds, &dst.key_bounds);
+    return dst;
+}
+
 void build_rowset_meta_with_spec_field(RowsetMeta& rowset_meta,
                                        const RowsetMeta& spec_rowset_meta) {
     rowset_meta.set_num_rows(spec_rowset_meta.num_rows());
@@ -100,7 +138,10 @@ void build_rowset_meta_with_spec_field(RowsetMeta& rowset_meta,
             spec_rowset_meta.is_segments_key_bounds_truncated());
     std::vector<KeyBoundsPB> segments_key_bounds;
     spec_rowset_meta.get_segments_key_bounds(&segments_key_bounds);
-    rowset_meta.set_segments_key_bounds(segments_key_bounds);
+    // Preserve source layout: if source was aggregated (size 1), re-aggregating
+    // the single entry is a no-op that also keeps the flag consistent.
+    rowset_meta.set_segments_key_bounds(segments_key_bounds,
+                                        spec_rowset_meta.is_segments_key_bounds_aggregated());
     std::vector<uint32_t> num_segment_rows;
     spec_rowset_meta.get_num_segment_rows(&num_segment_rows);
     rowset_meta.set_num_segment_rows(num_segment_rows);
@@ -455,6 +496,7 @@ Status BetaRowsetWriter::_load_noncompacted_segment(segment_v2::SegmentSharedPtr
                             : io::FileCachePolicy::NO_CACHE,
             .is_doris_table = true,
             .cache_base_path {},
+            .tablet_id = _rowset_meta->tablet_id(),
     };
     auto s = segment_v2::Segment::open(fs, path, _rowset_meta->tablet_id(), segment_id, rowset_id(),
                                        _context.tablet_schema, reader_options, &segment);
@@ -974,6 +1016,7 @@ Status BaseBetaRowsetWriter::_build_rowset_meta(RowsetMeta* rowset_meta, bool ch
     int64_t total_index_size = 0;
     std::vector<KeyBoundsPB> segments_encoded_key_bounds;
     std::vector<uint32_t> segment_rows;
+    std::optional<bool> segments_key_bounds_truncated;
     {
         std::lock_guard<std::mutex> lock(_segid_statistics_map_mutex);
         for (const auto& itr : _segid_statistics_map) {
@@ -984,6 +1027,7 @@ Status BaseBetaRowsetWriter::_build_rowset_meta(RowsetMeta* rowset_meta, bool ch
             // segcompaction don't modify _segment_num_rows, so we need to get segment rows from _segid_statistics_map for load
             segment_rows.push_back(cast_set<uint32_t>(itr.second.row_num));
         }
+        segments_key_bounds_truncated = _segments_key_bounds_truncated;
     }
     if (segment_rows.empty()) {
         // vertical compaction and linked schema change will not record segment statistics,
@@ -994,8 +1038,8 @@ Status BaseBetaRowsetWriter::_build_rowset_meta(RowsetMeta* rowset_meta, bool ch
     for (auto& key_bound : _segments_encoded_key_bounds) {
         segments_encoded_key_bounds.push_back(key_bound);
     }
-    if (_segments_key_bounds_truncated.has_value()) {
-        rowset_meta->set_segments_key_bounds_truncated(_segments_key_bounds_truncated.value());
+    if (segments_key_bounds_truncated.has_value()) {
+        rowset_meta->set_segments_key_bounds_truncated(segments_key_bounds_truncated.value());
     }
     rowset_meta->set_num_segment_rows(segment_rows);
     // segment key bounds are empty in old version(before version 1.2.x). So we should not modify
@@ -1033,7 +1077,9 @@ Status BaseBetaRowsetWriter::_build_rowset_meta(RowsetMeta* rowset_meta, bool ch
                                      _total_index_size);
     rowset_meta->set_data_disk_size(total_data_size + _total_data_size);
     rowset_meta->set_index_disk_size(total_index_size + _total_index_size);
-    rowset_meta->set_segments_key_bounds(segments_encoded_key_bounds);
+    bool aggregate_key_bounds = config::enable_aggregate_non_mow_key_bounds &&
+                                !_context.enable_unique_key_merge_on_write;
+    rowset_meta->set_segments_key_bounds(segments_encoded_key_bounds, aggregate_key_bounds);
     // TODO write zonemap to meta
     rowset_meta->set_empty((num_rows_written + _num_rows_written) == 0);
     rowset_meta->set_creation_time(time(nullptr));
@@ -1121,7 +1167,7 @@ Status BetaRowsetWriter::create_segment_writer_for_segcompaction(
         index_file_writer = std::make_unique<IndexFileWriter>(
                 _context.fs(), prefix, _context.rowset_id.to_string(), _num_segcompacted,
                 _context.tablet_schema->get_inverted_index_storage_format(),
-                std::move(idx_file_writer));
+                std::move(idx_file_writer), true /* can_use_ram_dir */, _context.tablet_id);
     }
 
     segment_v2::SegmentWriterOptions writer_options;
@@ -1180,14 +1226,20 @@ Status BetaRowsetWriter::_check_segment_number_limit(size_t segnum) {
 
 Status BaseBetaRowsetWriter::add_segment(uint32_t segment_id, const SegmentStatistics& segstat) {
     uint32_t segid_offset = segment_id - _segment_start_id;
+    bool key_bounds_truncated = false;
+    SegmentStatistics stored_segstat =
+            copy_segment_statistics_with_truncated_key_bounds(segstat, key_bounds_truncated);
     {
         std::lock_guard<std::mutex> lock(_segid_statistics_map_mutex);
         CHECK_EQ(_segid_statistics_map.find(segment_id) == _segid_statistics_map.end(), true);
-        _segid_statistics_map.emplace(segment_id, segstat);
+        _segid_statistics_map.emplace(segment_id, std::move(stored_segstat));
         if (segment_id >= _segment_num_rows.size()) {
             _segment_num_rows.resize(segment_id + 1);
         }
         _segment_num_rows[segid_offset] = cast_set<uint32_t>(segstat.row_num);
+        if (key_bounds_truncated) {
+            _segments_key_bounds_truncated = true;
+        }
     }
     VLOG_DEBUG << "_segid_statistics_map add new record. segment_id:" << segment_id
                << " row_num:" << segstat.row_num << " data_size:" << segstat.data_size
@@ -1231,11 +1283,14 @@ Status BetaRowsetWriter::flush_segment_writer_for_segcompaction(
     segstat.row_num = row_num;
     segstat.data_size = segment_size;
     segstat.index_size = inverted_index_file_size;
-    segstat.key_bounds = key_bounds;
+    bool key_bounds_truncated = copy_key_bounds_with_truncation(key_bounds, &segstat.key_bounds);
     {
         std::lock_guard<std::mutex> lock(_segid_statistics_map_mutex);
         CHECK_EQ(_segid_statistics_map.find(segid) == _segid_statistics_map.end(), true);
-        _segid_statistics_map.emplace(segid, segstat);
+        _segid_statistics_map.emplace(segid, std::move(segstat));
+        if (key_bounds_truncated) {
+            _segments_key_bounds_truncated = true;
+        }
     }
     VLOG_DEBUG << "_segid_statistics_map add new record. segid:" << segid << " row_num:" << row_num
                << " data_size:" << PrettyPrinter::print_bytes(segment_size)

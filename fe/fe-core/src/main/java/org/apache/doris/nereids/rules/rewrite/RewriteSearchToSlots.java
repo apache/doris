@@ -17,6 +17,10 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.analysis.IndexDef.IndexType;
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Index;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
@@ -127,17 +131,24 @@ public class RewriteSearchToSlots extends OneRewriteRuleFactory {
                                 "Field '%s' is not VARIANT type for subcolumn access: %s",
                                 parentFieldName, search.getDslString()));
                     }
+                    String normalizedParentFieldName = parentSlot.getName();
+
+                    // Check the parent variant column has at least one INVERTED index. The concrete
+                    // subcolumn binding is resolved per-segment in BE, so we only enforce the parent
+                    // level here. See function_search.cpp is_variant_sub branch.
+                    checkInvertedIndexExists(scan.getTable(), normalizedParentFieldName,
+                            search.getDslString(), true);
 
                     // Create ElementAt expression for variant subcolumn
                     // This will be converted to an extracted column slot by VariantSubPathPruning rule
                     // If the subcolumn doesn't exist, ElementAt will remain and BE will handle it gracefully
                     childExpr = new ElementAt(parentSlot, new StringLiteral(subcolumnPath));
-                    normalizedFieldName = originalFieldName; // Keep full path for field binding
+                    normalizedFieldName = normalizedParentFieldName + "." + subcolumnPath;
 
                     LOG.info(
                             "Created ElementAt expression for variant subcolumn: parent='{}', "
                                     + "subcolumn='{}', field_name='{}'",
-                            parentFieldName, subcolumnPath, normalizedFieldName);
+                            normalizedParentFieldName, subcolumnPath, normalizedFieldName);
                 } else {
                     // Normal field - find slot directly
                     Slot slot = findSlotByName(originalFieldName, scan);
@@ -146,6 +157,7 @@ public class RewriteSearchToSlots extends OneRewriteRuleFactory {
                                 "Field '%s' not found in table for search: %s",
                                 originalFieldName, search.getDslString()));
                     }
+                    checkInvertedIndexExists(scan.getTable(), slot.getName(), search.getDslString(), false);
                     childExpr = slot;
                     normalizedFieldName = slot.getName();
                 }
@@ -166,6 +178,53 @@ public class RewriteSearchToSlots extends OneRewriteRuleFactory {
         } catch (Exception e) {
             throw new AnalysisException("Failed to rewrite search expression: " + e.getMessage(), e);
         }
+    }
+
+    /**
+     * Ensure the column referenced by a Lucene-syntax SEARCH predicate has an inverted index.
+     * Without this check the BE path would silently fall back to an empty bitmap (i.e. all FALSE),
+     * which is indistinguishable from "no rows matched" to the user. Throw at planning time so the
+     * behavior is consistent with referencing a non-existent column.
+     *
+     * @param table         table backing the LogicalOlapScan
+     * @param columnName    column name (parent column name when isVariantParent)
+     * @param dsl           original DSL, used in the error message
+     * @param isVariantParent true when {@code columnName} is the parent of a variant subcolumn
+     *                        access (e.g. {@code msg.body}); for that case any INVERTED index on
+     *                        the parent column is accepted because the concrete subcolumn binding
+     *                        is resolved per-segment in BE.
+     */
+    private void checkInvertedIndexExists(OlapTable table, String columnName, String dsl,
+            boolean isVariantParent) {
+        Column column = table.getColumn(columnName);
+        if (column == null) {
+            // Field existence is already validated by findSlotByName; if we reach here the schema
+            // changed concurrently. Surface a clear error rather than fall through.
+            throw new AnalysisException(String.format(
+                    "Column '%s' not found in table '%s' for search: %s",
+                    columnName, table.getName(), dsl));
+        }
+
+        if (isVariantParent) {
+            for (Index index : table.getIndexes()) {
+                if (index.getIndexType() != IndexType.INVERTED) {
+                    continue;
+                }
+                List<String> columns = index.getColumns();
+                if (columns != null && !columns.isEmpty()
+                        && columnName.equalsIgnoreCase(columns.get(0))) {
+                    return;
+                }
+            }
+        } else if (table.getInvertedIndex(column, null) != null) {
+            return;
+        }
+
+        throw new AnalysisException(String.format(
+                "Field '%s' has no inverted index, cannot be used in search: %s. "
+                        + "Create an inverted index on the column first "
+                        + "(ALTER TABLE ... ADD INDEX ... USING INVERTED).",
+                columnName, dsl));
     }
 
     private Slot findSlotByName(String fieldName, LogicalOlapScan scan) {

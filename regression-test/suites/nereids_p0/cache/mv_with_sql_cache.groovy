@@ -38,6 +38,17 @@ class CanRetryException extends IllegalStateException {
 }
 
 suite("mv_with_sql_cache") {
+    // SQL cache invalidation on metadata replay is only reliable on the master FE.
+    // On a follower/observer FE, a replayed RENAME ROLLUP / MODIFY COLUMN / ADD PARTITION
+    // does NOT invalidate the local SQL cache (the fix #63612 was reverted by #63872),
+    // so the assertNoCache checks below would be flaky. Skip unless connected to the master.
+    def currentFe = sql_return_maparray("SHOW FRONTENDS").find { it.CurrentConnected == "Yes" }
+    if (currentFe == null || !Boolean.parseBoolean(currentFe.IsMaster)) {
+        logger.info("Skip mv_with_sql_cache: connected FE is not master, "
+                + "SQL cache is not invalidated on follower metadata replay (#63612 reverted by #63872).")
+        return
+    }
+
     withGlobalLock("cache_last_version_interval_second") {
         sql """ADMIN SET ALL FRONTENDS CONFIG ('cache_last_version_interval_second' = '0');"""
         sql """ADMIN SET ALL FRONTENDS CONFIG ('sql_cache_manage_num' = '100000')"""

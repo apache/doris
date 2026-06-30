@@ -236,6 +236,7 @@ StorageEngine::StorageEngine(const EngineOptions& options)
 }
 
 StorageEngine::~StorageEngine() {
+    DEREGISTER_HOOK_METRIC(unused_rowsets_count);
     stop();
 }
 

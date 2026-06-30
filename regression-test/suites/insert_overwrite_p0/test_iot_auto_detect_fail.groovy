@@ -152,16 +152,31 @@ PROPERTIES (
 );
     """
 
-    test {
-        sql "insert overwrite table fail_tag PARTITION(*) select qsrq,lsh,wth,khh,dt from fail_src where dt='20241128';"
-        exception "Cannot found origin partitions"
+    // The overwrite must FAIL because the source rows (dt='20241128') fall into a
+    // partition that does not exist in fail_tag and enable_auto_create_when_overwrite=false.
+    // With multiple parallel sink instances this single logical failure can surface as any
+    // of several equivalent messages (the semantic "Cannot found origin partitions" error and
+    // the collateral "no partition for this tuple" / strict-mode filtered-data error race to be
+    // reported). Accept all of them, same as insert_overwrite_auto_detect.groovy. The point is
+    // that the statement fails (not silently creating a partition / succeeding).
+    def checkOverwriteFail = { result, exception, startTime, endTime ->
+        assertTrue(exception != null && (
+                exception.getMessage().contains('Cannot found origin partitions')
+                || exception.getMessage().contains('no partition for this tuple')
+                || exception.getMessage().contains('Insert has filtered data in strict mode')),
+            "expect insert-overwrite auto-detect to fail (no matching origin partition), "
+                + "but got result=${result}, exception=${exception?.getMessage()}")
     }
     test {
         sql "insert overwrite table fail_tag PARTITION(*) select qsrq,lsh,wth,khh,dt from fail_src where dt='20241128';"
-        exception "Cannot found origin partitions"
+        check checkOverwriteFail
     }
     test {
         sql "insert overwrite table fail_tag PARTITION(*) select qsrq,lsh,wth,khh,dt from fail_src where dt='20241128';"
-        exception "Cannot found origin partitions"
+        check checkOverwriteFail
+    }
+    test {
+        sql "insert overwrite table fail_tag PARTITION(*) select qsrq,lsh,wth,khh,dt from fail_src where dt='20241128';"
+        check checkOverwriteFail
     }
 }

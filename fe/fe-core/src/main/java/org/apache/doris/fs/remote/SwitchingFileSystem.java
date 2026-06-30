@@ -48,77 +48,95 @@ public class SwitchingFileSystem implements FileSystem {
 
     @Override
     public Status exists(String remotePath) {
-        return fileSystem(remotePath).exists(remotePath);
+        String normalizedPath = normalizeLocation(remotePath);
+        return fileSystem(normalizedPath).exists(normalizedPath);
     }
 
     @Override
     public Status directoryExists(String dir) {
-        return fileSystem(dir).directoryExists(dir);
+        String normalizedPath = normalizeLocation(dir);
+        return fileSystem(normalizedPath).directoryExists(normalizedPath);
     }
 
     @Override
     public Status downloadWithFileSize(String remoteFilePath, String localFilePath, long fileSize) {
-        return fileSystem(remoteFilePath).downloadWithFileSize(remoteFilePath, localFilePath, fileSize);
+        String normalizedPath = normalizeLocation(remoteFilePath);
+        return fileSystem(normalizedPath).downloadWithFileSize(normalizedPath, localFilePath, fileSize);
     }
 
     @Override
     public Status upload(String localPath, String remotePath) {
-        return fileSystem(localPath).upload(localPath, remotePath);
+        String normalizedPath = normalizeLocation(remotePath);
+        return fileSystem(normalizedPath).upload(localPath, normalizedPath);
     }
 
     @Override
     public Status directUpload(String content, String remoteFile) {
-        return fileSystem(remoteFile).directUpload(content, remoteFile);
+        String normalizedPath = normalizeLocation(remoteFile);
+        return fileSystem(normalizedPath).directUpload(content, normalizedPath);
     }
 
     @Override
     public Status rename(String origFilePath, String destFilePath) {
-        return fileSystem(origFilePath).rename(origFilePath, destFilePath);
+        String normalizedOrigPath = normalizeLocation(origFilePath);
+        String normalizedDestPath = normalizeLocation(destFilePath);
+        return fileSystem(normalizedOrigPath).rename(normalizedOrigPath, normalizedDestPath);
     }
 
     @Override
     public Status renameDir(String origFilePath, String destFilePath) {
-        return fileSystem(origFilePath).renameDir(origFilePath, destFilePath);
+        String normalizedOrigPath = normalizeLocation(origFilePath);
+        String normalizedDestPath = normalizeLocation(destFilePath);
+        return fileSystem(normalizedOrigPath).renameDir(normalizedOrigPath, normalizedDestPath);
     }
 
     @Override
     public Status renameDir(String origFilePath, String destFilePath, Runnable runWhenPathNotExist) {
-        return fileSystem(origFilePath).renameDir(origFilePath, destFilePath, runWhenPathNotExist);
+        String normalizedOrigPath = normalizeLocation(origFilePath);
+        String normalizedDestPath = normalizeLocation(destFilePath);
+        return fileSystem(normalizedOrigPath).renameDir(normalizedOrigPath, normalizedDestPath, runWhenPathNotExist);
     }
 
     @Override
     public Status delete(String remotePath) {
-        return fileSystem(remotePath).delete(remotePath);
+        String normalizedPath = normalizeLocation(remotePath);
+        return fileSystem(normalizedPath).delete(normalizedPath);
     }
 
     @Override
     public Status deleteDirectory(String absolutePath) {
-        return fileSystem(absolutePath).deleteDirectory(absolutePath);
+        String normalizedPath = normalizeLocation(absolutePath);
+        return fileSystem(normalizedPath).deleteDirectory(normalizedPath);
     }
 
     @Override
     public Status makeDir(String remotePath) {
-        return fileSystem(remotePath).makeDir(remotePath);
+        String normalizedPath = normalizeLocation(remotePath);
+        return fileSystem(normalizedPath).makeDir(normalizedPath);
     }
 
     @Override
     public Status listFiles(String remotePath, boolean recursive, List<RemoteFile> result) {
-        return fileSystem(remotePath).listFiles(remotePath, recursive, result);
+        String normalizedPath = normalizeLocation(remotePath);
+        return fileSystem(normalizedPath).listFiles(normalizedPath, recursive, result);
     }
 
     @Override
     public Status globList(String remotePath, List<RemoteFile> result) {
-        return fileSystem(remotePath).globList(remotePath, result);
+        String normalizedPath = normalizeLocation(remotePath);
+        return fileSystem(normalizedPath).globList(normalizedPath, result);
     }
 
     @Override
     public Status globList(String remotePath, List<RemoteFile> result, boolean fileNameOnly) {
-        return fileSystem(remotePath).globList(remotePath, result, fileNameOnly);
+        String normalizedPath = normalizeLocation(remotePath);
+        return fileSystem(normalizedPath).globList(normalizedPath, result, fileNameOnly);
     }
 
     @Override
     public Status listDirectories(String remotePath, Set<String> result) {
-        return fileSystem(remotePath).listDirectories(remotePath, result);
+        String normalizedPath = normalizeLocation(remotePath);
+        return fileSystem(normalizedPath).listDirectories(normalizedPath, result);
     }
 
     public FileSystem fileSystem(String location) {
@@ -128,5 +146,11 @@ public class SwitchingFileSystem implements FileSystem {
         );
         return extMetaCacheMgr.getFsCache().getRemoteFileSystem(fileSystemCacheKey);
     }
-}
 
+    private String normalizeLocation(String location) {
+        if (storagePropertiesMap == null) {
+            return location;
+        }
+        return LocationPath.of(location, storagePropertiesMap).getNormalizedLocation();
+    }
+}

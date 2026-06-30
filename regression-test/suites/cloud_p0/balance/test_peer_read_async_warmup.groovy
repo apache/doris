@@ -45,6 +45,7 @@ suite('test_peer_read_async_warmup', 'docker') {
         'sys_log_verbose_modules=*',
         'enable_cache_read_from_peer=true',
         "enable_packed_file=${enablePackedFile}",
+        'skip_writing_empty_rowset_metadata=false',
     ]
     options.setFeNum(1)
     options.setBeNum(1)

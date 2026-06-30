@@ -1230,6 +1230,8 @@ DECLARE_mInt64(file_cache_remove_block_qps_limit);
 DECLARE_mInt64(file_cache_background_gc_interval_ms);
 DECLARE_mInt64(file_cache_background_block_lru_update_interval_ms);
 DECLARE_mInt64(file_cache_background_block_lru_update_qps_limit);
+DECLARE_mInt64(file_cache_background_block_lru_update_queue_max_size);
+DECLARE_mBool(enable_file_cache_async_touch_on_get_or_set);
 DECLARE_mBool(enable_reader_dryrun_when_download_file_cache);
 DECLARE_mInt64(file_cache_background_monitor_interval_ms);
 DECLARE_mInt64(file_cache_background_ttl_gc_interval_ms);
@@ -1241,6 +1243,7 @@ DECLARE_mInt64(file_cache_background_lru_dump_interval_ms);
 // dump queue only if the queue update specific times through several dump intervals
 DECLARE_mInt64(file_cache_background_lru_dump_update_cnt_threshold);
 DECLARE_mInt64(file_cache_background_lru_dump_tail_record_num);
+DECLARE_mInt64(file_cache_background_lru_log_queue_max_size);
 DECLARE_mInt64(file_cache_background_lru_log_replay_interval_ms);
 DECLARE_mBool(enable_evaluate_shadow_queue_diff);
 
@@ -1714,6 +1717,10 @@ DECLARE_mBool(enable_fetch_rowsets_from_peer_replicas);
 DECLARE_mInt32(segments_key_bounds_truncation_threshold);
 // ATTENTION: for test only, use random segments key bounds truncation threshold every time
 DECLARE_mBool(random_segments_key_bounds_truncation);
+
+// If true, non-MOW rowsets store a single aggregated [rowset_min, rowset_max]
+// key-bounds entry instead of per-segment bounds, to reduce meta size on cloud FDB.
+DECLARE_mBool(enable_aggregate_non_mow_key_bounds);
 
 DECLARE_mBool(enable_auto_clone_on_compaction_missing_version);
 

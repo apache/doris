@@ -418,6 +418,7 @@ Status CompactionMixin::do_compact_ordered_rowsets() {
     // link data to new rowset
     auto seg_id = 0;
     bool segments_key_bounds_truncated {false};
+    bool any_input_aggregated {false};
     std::vector<KeyBoundsPB> segment_key_bounds;
     std::vector<uint32_t> num_segment_rows;
     for (auto rowset : _input_rowsets) {
@@ -425,6 +426,7 @@ Status CompactionMixin::do_compact_ordered_rowsets() {
                                               _output_rs_writer->rowset_id(), seg_id));
         seg_id += rowset->num_segments();
         segments_key_bounds_truncated |= rowset->is_segments_key_bounds_truncated();
+        any_input_aggregated |= rowset->rowset_meta()->is_segments_key_bounds_aggregated();
         std::vector<KeyBoundsPB> key_bounds;
         RETURN_IF_ERROR(rowset->get_segments_key_bounds(&key_bounds));
         segment_key_bounds.insert(segment_key_bounds.end(), key_bounds.begin(), key_bounds.end());
@@ -444,7 +446,13 @@ Status CompactionMixin::do_compact_ordered_rowsets() {
     rowset_meta->set_segments_overlap(NONOVERLAPPING);
     rowset_meta->set_rowset_state(VISIBLE);
     rowset_meta->set_segments_key_bounds_truncated(segments_key_bounds_truncated);
-    rowset_meta->set_segments_key_bounds(segment_key_bounds);
+    // If any input was already aggregated we have no way to recover per-segment
+    // bounds, so force aggregation on the output to keep the layout consistent
+    // with `num_segments` / the aggregated flag, even if the config is off now.
+    bool aggregate_key_bounds =
+            any_input_aggregated || (config::enable_aggregate_non_mow_key_bounds &&
+                                     !_tablet->enable_unique_key_merge_on_write());
+    rowset_meta->set_segments_key_bounds(segment_key_bounds, aggregate_key_bounds);
     rowset_meta->set_num_segment_rows(num_segment_rows);
 
     _output_rowset = _output_rs_writer->manual_build(rowset_meta);
@@ -871,7 +879,7 @@ Status Compaction::do_inverted_index_compaction() {
                 fs,
                 std::string {InvertedIndexDescriptor::get_index_file_path_prefix(seg_path.value())},
                 _cur_tablet_schema->get_inverted_index_storage_format(),
-                rowset->rowset_meta()->inverted_index_file_info(seg_id));
+                rowset->rowset_meta()->inverted_index_file_info(seg_id), _tablet->tablet_id());
         auto st = index_file_reader->init(config::inverted_index_read_buffer_size);
         DBUG_EXECUTE_IF("Compaction::do_inverted_index_compaction_init_inverted_index_file_reader",
                         {
@@ -1125,7 +1133,8 @@ void Compaction::construct_index_compaction_columns(RowsetWriterContext& ctx) {
                                 std::string {InvertedIndexDescriptor::get_index_file_path_prefix(
                                         seg_path.value())},
                                 _cur_tablet_schema->get_inverted_index_storage_format(),
-                                rowset->rowset_meta()->inverted_index_file_info(i));
+                                rowset->rowset_meta()->inverted_index_file_info(i),
+                                _tablet->tablet_id());
                         auto st = index_file_reader->init(config::inverted_index_read_buffer_size);
                         index_file_path = index_file_reader->get_index_file_path(index_meta);
                         DBUG_EXECUTE_IF(
@@ -1613,7 +1622,8 @@ Status CloudCompactionMixin::execute_compact_impl(int64_t permits) {
     // Currently, updates are only made in the time_series.
     update_compaction_level();
 
-    RETURN_IF_ERROR(_engine.meta_mgr().commit_rowset(*_output_rowset->rowset_meta().get(), _uuid));
+    RETURN_IF_ERROR(_engine.meta_mgr().commit_rowset(*_output_rowset->rowset_meta().get(), _uuid,
+                                                     _tablet->table_id()));
 
     // 4. modify rowsets in memory
     RETURN_IF_ERROR(modify_rowsets());

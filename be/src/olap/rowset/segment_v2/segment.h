@@ -247,6 +247,9 @@ private:
 
     io::FileSystemSPtr _fs;
     io::FileReaderSPtr _file_reader;
+    // Relative path passed to `open`, used to derive the inverted index path (see
+    // _open_index_file_reader).
+    std::string _seg_path;
     uint32_t _segment_id;
     uint32_t _num_rows;
     AtomicStatus _healthy_status;
@@ -295,6 +298,7 @@ private:
     DorisCallOnce<Status> _index_file_reader_open;
 
     InvertedIndexFileInfo _idx_file_info;
+    int64_t _tablet_id = -1;
 
     int _be_exec_version = BeExecVersionManager::get_newest_version();
 };

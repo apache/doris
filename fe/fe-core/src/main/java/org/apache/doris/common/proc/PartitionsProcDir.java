@@ -104,6 +104,7 @@ import java.util.stream.Collectors;
  */
 public class PartitionsProcDir implements ProcDirInterface {
     private static final Logger LOG = LogManager.getLogger(PartitionsProcDir.class);
+    static final String CLOUD_STORAGE_MEDIUM_DISPLAY = "OBJECT_STORAGE";
 
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("PartitionId").add("PartitionName")
@@ -408,6 +409,14 @@ public class PartitionsProcDir implements ProcDirInterface {
         return partitionInfosInrernal.stream().map(pair -> pair.second).collect(Collectors.toList());
     }
 
+    public static String getStorageMediumDisplay(String storageMedium) {
+        return Config.isCloudMode() ? CLOUD_STORAGE_MEDIUM_DISPLAY : storageMedium;
+    }
+
+    public static String getReplicaAllocationDisplay(String replicaAllocation) {
+        return Config.isCloudMode() ? FeConstants.null_string : replicaAllocation;
+    }
+
     private List<Long> getPartitionVersions(OlapTable olapTable, List<Long> partitionIds)
             throws AnalysisException {
         List<Long> partitionVersions;
@@ -579,8 +588,9 @@ public class PartitionsProcDir implements ProcDirInterface {
                 trow.addToColumnValue(new TCell().setIntVal(totalReplicaNum));
 
                 DataProperty dataProperty = tblPartitionInfo.getDataProperty(partitionId);
-                partitionInfo.add(dataProperty.getStorageMedium().name());
-                trow.addToColumnValue(new TCell().setStringVal(dataProperty.getStorageMedium().name()));
+                String storageMedium = getStorageMediumDisplay(dataProperty.getStorageMedium().name());
+                partitionInfo.add(storageMedium);
+                trow.addToColumnValue(new TCell().setStringVal(storageMedium));
                 String cooldownTimeStr = TimeUtils.longToTimeString(dataProperty.getCooldownTimeMs());
                 partitionInfo.add(cooldownTimeStr);
                 trow.addToColumnValue(new TCell().setStringVal(cooldownTimeStr));
@@ -599,7 +609,8 @@ public class PartitionsProcDir implements ProcDirInterface {
                 partitionInfo.add(isInMemory);
                 trow.addToColumnValue(new TCell().setBoolVal(isInMemory));
                 // replica allocation
-                String replica = tblPartitionInfo.getReplicaAllocation(partitionId).toCreateStmt();
+                String replica = getReplicaAllocationDisplay(
+                        tblPartitionInfo.getReplicaAllocation(partitionId).toCreateStmt());
                 partitionInfo.add(replica);
                 trow.addToColumnValue(new TCell().setStringVal(replica));
 

@@ -102,7 +102,7 @@ Status CloudDeleteTask::execute(CloudStorageEngine& engine, const TPushReq& requ
         return st;
     }
 
-    st = engine.meta_mgr().commit_rowset(*rowset->rowset_meta(), "");
+    st = engine.meta_mgr().commit_rowset(*rowset->rowset_meta(), "", tablet->table_id());
 
     // Update tablet stats
     tablet->fetch_add_approximate_num_rowsets(1);
