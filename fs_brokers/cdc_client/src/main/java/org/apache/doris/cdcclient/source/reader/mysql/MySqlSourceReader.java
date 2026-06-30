@@ -957,20 +957,23 @@ public class MySqlSourceReader extends AbstractCdcSourceReader {
             if (MapUtils.isEmpty(offsetMap)) {
                 throw new RuntimeException("Incorrect offset " + startupMode);
             }
-            if (offsetMap.containsKey(BinlogOffset.BINLOG_FILENAME_OFFSET_KEY)
-                    && offsetMap.containsKey(BinlogOffset.BINLOG_POSITION_OFFSET_KEY)) {
-                BinlogOffset binlogOffset =
-                        BinlogOffset.builder()
-                                .setBinlogFilePosition(
-                                        offsetMap.get(BinlogOffset.BINLOG_FILENAME_OFFSET_KEY),
-                                        Long.parseLong(
-                                                offsetMap.get(
-                                                        BinlogOffset.BINLOG_POSITION_OFFSET_KEY)))
-                                .build();
-                configFactory.startupOptions(StartupOptions.specificOffset(binlogOffset));
+            boolean hasFilePosition =
+                    offsetMap.containsKey(BinlogOffset.BINLOG_FILENAME_OFFSET_KEY)
+                            && offsetMap.containsKey(BinlogOffset.BINLOG_POSITION_OFFSET_KEY);
+            boolean hasGtids = offsetMap.containsKey(BinlogOffset.GTID_SET_KEY);
+            BinlogOffset binlogOffset;
+            if (hasFilePosition) {
+                // Keep the full map so gtids and other fields survive; supplement kind.
+                offsetMap.putIfAbsent(
+                        BinlogOffset.OFFSET_KIND_KEY, BinlogOffsetKind.SPECIFIC.name());
+                binlogOffset = new BinlogOffset(offsetMap);
+            } else if (hasGtids) {
+                // ofGtidSet seeds placeholder file/pos and kind, like Flink CDC.
+                binlogOffset = BinlogOffset.ofGtidSet(offsetMap.get(BinlogOffset.GTID_SET_KEY));
             } else {
                 throw new RuntimeException("Incorrect offset " + startupMode);
             }
+            configFactory.startupOptions(StartupOptions.specificOffset(binlogOffset));
         } else if (is13Timestamp(startupMode)) {
             // start from timestamp
             Long ts = Long.parseLong(startupMode);

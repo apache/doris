@@ -144,11 +144,21 @@ public final class CdcClientReadHarness implements AutoCloseable {
     }
 
     /**
+     * Open the job's reader the way FE's CREATE JOB does via {@code /api/initReader}:
+     * createResources=true so the PG slot/publication are pre-created on first open. Idempotent —
+     * later opens reuse the cached reader. Must run before any coordinator read, whose numeric jobId
+     * would otherwise open the reader with createResources=false and never provision them.
+     */
+    private SourceReader openReader() {
+        return Env.getCurrentEnv().getReader(baseConfig(), true);
+    }
+
+    /**
      * Compute every snapshot chunk for one table by advancing the FE-style cursor (nextSplitStart /
      * nextSplitId) until the final chunk (the one whose splitEnd is null) is reached.
      */
     public List<SnapshotSplit> fetchAllSnapshotSplits(String table) {
-        SourceReader reader = Env.getCurrentEnv().getReader(baseConfig());
+        SourceReader reader = openReader();
         List<SnapshotSplit> all = new ArrayList<>();
         Object[] nextSplitStart = null;
         Integer nextSplitId = null;
@@ -263,6 +273,7 @@ public final class CdcClientReadHarness implements AutoCloseable {
         req.setMeta(meta);
         req.setTaskId(taskId);
 
+        openReader();
         StreamingResponseBody body = coordinator.fetchRecordStream(req);
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         body.writeTo(out);

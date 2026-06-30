@@ -18,24 +18,41 @@
 package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.functions.PropagateNullLiteral;
+import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
+import org.apache.doris.nereids.trees.expressions.functions.RewriteWhenAnalyze;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.types.ArrayType;
+import org.apache.doris.nereids.types.BooleanType;
+import org.apache.doris.nereids.types.coercion.AnyDataType;
+
+import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 
 /**
  * ScalarFunction 'array_last'.
  */
-public class ArrayLast extends ElementAt
-        implements HighOrderFunction {
+public class ArrayLast extends ScalarFunction
+        implements HighOrderFunction, PropagateNullLiteral, PropagateNullable, RewriteWhenAnalyze {
+
+    public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
+            FunctionSignature.retArgType(0).args(ArrayType.of(AnyDataType.INSTANCE_WITHOUT_INDEX),
+                    ArrayType.of(BooleanType.INSTANCE))
+    );
 
     /**
      * constructor with arguments.
-     * array_last(lambda, a1, ...) = element_at(array_filter(lambda, a1, ...), -1)
      */
     public ArrayLast(Expression arg) {
-        super(new ArrayFilter(arg), new BigIntLiteral(-1));
+        super("array_last", arg instanceof Lambda ? arg.child(1).child(0) : arg, new ArrayMap(arg));
+        if (!(arg instanceof Lambda)) {
+            throw new AnalysisException(
+                    String.format("The 1st arg of %s must be lambda but is %s", getName(), arg));
+        }
     }
 
     /** constructor for withChildren and reuse signature */
@@ -49,12 +66,18 @@ public class ArrayLast extends ElementAt
     }
 
     @Override
-    public ElementAt withChildren(List<Expression> children) {
+    public ArrayLast withChildren(List<Expression> children) {
         return new ArrayLast(getFunctionParams(children));
     }
 
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitArrayLast(this, context);
+    }
+
+    // array_last(lambda, a1, ...) = element_at(array_filter(lambda, a1, ...), -1)
+    @Override
+    public Expression rewriteWhenAnalyze() {
+        return new ElementAt(new ArrayFilter(getArgument(0), getArgument(1)), new BigIntLiteral(-1));
     }
 }

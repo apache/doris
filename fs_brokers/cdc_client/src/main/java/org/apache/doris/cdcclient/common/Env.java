@@ -85,12 +85,19 @@ public class Env {
     }
 
     public SourceReader getReader(JobBaseConfig jobConfig) {
+        return getReader(jobConfig, false);
+    }
+
+    // createResources=true only for CREATE (/api/initReader) and standalone TVF; rebuild paths pass
+    // false so a dropped slot is not silently recreated.
+    public SourceReader getReader(JobBaseConfig jobConfig, boolean createResources) {
         if (jobConfig.getFrontendAddress() != null && !jobConfig.getFrontendAddress().isEmpty()) {
             this.feMasterAddress = jobConfig.getFrontendAddress();
         }
         DataSource ds = resolveDataSource(jobConfig.getDataSource());
         Env manager = Env.getCurrentEnv();
-        return manager.getOrCreateReader(jobConfig.getJobId(), ds, jobConfig.getConfig());
+        return manager.getOrCreateReader(
+                jobConfig.getJobId(), ds, jobConfig.getConfig(), createResources);
     }
 
     /** Return the reader only if already created, else null (never creates one). */
@@ -220,7 +227,10 @@ public class Env {
     }
 
     private SourceReader getOrCreateReader(
-            String jobId, DataSource dataSource, Map<String, String> config) {
+            String jobId,
+            DataSource dataSource,
+            Map<String, String> config,
+            boolean createResources) {
         Objects.requireNonNull(jobId, "jobId is null");
         Objects.requireNonNull(dataSource, "dataSource is null");
         JobContext context = jobContexts.get(jobId);
@@ -240,6 +250,9 @@ public class Env {
             LOG.info("Creating new reader for job {}, dataSource {}", jobId, dataSource);
             context = new JobContext(jobId, dataSource, config);
             SourceReader reader = context.initializeReader();
+            if (createResources) {
+                reader.createSourceResources(jobId, dataSource, config);
+            }
             jobContexts.put(jobId, context);
             return reader;
         } finally {

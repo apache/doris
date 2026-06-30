@@ -80,6 +80,12 @@ Status VIcebergPartitionWriter::open(RuntimeState* state, RuntimeProfile* profil
             parquet_compression_type = TParquetCompressionType::ZSTD;
             break;
         }
+        case TFileCompressType::LZ4BLOCK: {
+            // Map Doris LZ4 to the Hadoop-framed Parquet LZ4 codec (not LZ4_RAW) so the file
+            // stays readable across Spark/Iceberg/Trino. See ParquetBuildHelper.
+            parquet_compression_type = TParquetCompressionType::LZ4_HADOOP;
+            break;
+        }
         default: {
             return Status::InternalError("Unsupported compress type {} with parquet",
                                          to_string(_compress_type));
@@ -118,7 +124,8 @@ Status VIcebergPartitionWriter::close(const Status& status) {
     }
     bool status_ok = result_status.ok() && status.ok();
     if (!status_ok && _fs != nullptr) {
-        auto path = fmt::format("{}/{}", _write_info.write_path, _file_name);
+        // delete the actual created file, otherwise an orphan file is left behind
+        auto path = fmt::format("{}/{}", _write_info.write_path, _get_target_file_name());
         Status st = _fs->delete_file(path);
         if (!st.ok()) {
             LOG(WARNING) << fmt::format("Delete file {} failed, reason: {}", path, st.to_string());
@@ -177,6 +184,10 @@ std::string VIcebergPartitionWriter::_get_file_extension(
     }
     case TFileCompressType::ZSTD: {
         compress_name = ".zstd";
+        break;
+    }
+    case TFileCompressType::LZ4BLOCK: {
+        compress_name = ".lz4";
         break;
     }
     default: {

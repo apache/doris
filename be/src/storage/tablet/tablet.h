@@ -214,7 +214,7 @@ public:
     Versions calc_missed_versions(int64_t spec_version, Versions existing_versions) const override;
 
     // meta lock
-    std::shared_mutex& get_header_lock() { return _meta_lock; }
+    BthreadSharedMutex& get_header_lock() { return _meta_lock; }
     std::mutex& get_rowset_update_lock() { return _rowset_update_lock; }
     std::mutex& get_push_lock() { return _ingest_lock; }
     std::mutex& get_base_compaction_lock() { return _base_compaction_lock; }
@@ -310,6 +310,10 @@ public:
     void check_tablet_path_exists();
 
     std::vector<RowsetSharedPtr> pick_candidate_rowsets_to_cumulative_compaction();
+    // MUST hold shared `_meta_lock`. Use this when the caller already holds the
+    // header lock (e.g. the time-series cumulative score path under
+    // suitable_for_compaction) to avoid recursive shared acquisition.
+    std::vector<RowsetSharedPtr> pick_candidate_rowsets_to_cumulative_compaction_unlocked();
     std::vector<RowsetSharedPtr> pick_candidate_rowsets_to_base_compaction();
     std::vector<RowsetSharedPtr> pick_candidate_rowsets_to_full_compaction();
     std::vector<RowsetSharedPtr> pick_candidate_rowsets_to_binlog_compaction();
@@ -577,6 +581,9 @@ private:
 
     std::vector<RowsetSharedPtr> _pick_visible_rowsets_to_compaction(int64_t min_start_version,
                                                                      int64_t max_start_version);
+    // MUST hold shared `_meta_lock`.
+    std::vector<RowsetSharedPtr> _pick_visible_rowsets_to_compaction_unlocked(
+            int64_t min_start_version, int64_t max_start_version);
 
     void _init_context_common_fields(RowsetWriterContext& context);
 

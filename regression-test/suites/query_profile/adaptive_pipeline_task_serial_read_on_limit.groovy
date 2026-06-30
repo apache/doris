@@ -21,8 +21,8 @@ import groovy.json.StringEscapeUtils
 import org.apache.doris.regression.action.ProfileAction
 
 def verifyProfileContent = { suiteContext, stmt, serialReadOnLimit ->
-    // Sleep 500ms to wait for the profile collection 
-    Thread.sleep(500)
+    // Sleep 1000ms to wait for the profile collection
+    Thread.sleep(1000)
     // Get profile list by using getProfileList
     def profileAction = new ProfileAction(suiteContext)
     List profileData = profileAction.getProfileList()
