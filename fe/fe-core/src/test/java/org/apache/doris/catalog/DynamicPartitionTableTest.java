@@ -63,6 +63,7 @@ import java.util.GregorianCalendar;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.TimeZone;
 import java.util.TreeMap;
 import java.util.UUID;
 
@@ -2237,18 +2238,23 @@ public class DynamicPartitionTableTest {
 
     @Test
     public void testAutoPartitionRetentionTimestampTzCutoffNormalized() throws Exception {
-        String originalTimeZone = connectContext.getSessionVariable().getTimeZone();
+        // The bug occurs on the scheduler thread where there is no ConnectContext:
+        // DateUtils.getTimeZone() falls back to JVM default (e.g. Asia/Shanghai)
+        // while TimestampTzLiteral.fromSessionTimeZone() falls back to UTC.
+        // This creates a mismatch where currentTimeStr is formatted in the JVM
+        // timezone but parsed as UTC, shifting the cutoff.
+        String originalSessionTz = connectContext.getSessionVariable().getTimeZone();
+        ConnectContext savedCtx = ConnectContext.get();
+        TimeZone originalJvmTz = TimeZone.getDefault();
         try {
-            // Session TZ Asia/Shanghai (UTC+8). Without normalization, the
-            // buggy cutoff would be ~8h ahead of UTC, misclassifying a
-            // partition whose upper bound is just ahead of UTC now as history.
+            // Create table and add partitions — use session TZ for table ops.
             connectContext.getSessionVariable().setTimeZone("Asia/Shanghai");
 
             String createSql = "CREATE TABLE test.`auto_retention_tstz` (\n"
-                    + "  `k1` TIMESTAMPTZ NULL\n"
+                    + "  `k1` TIMESTAMPTZ NOT NULL\n"
                     + ") ENGINE=OLAP\n"
                     + "DUPLICATE KEY(`k1`)\n"
-                    + "AUTO PARTITION BY RANGE (k1) ()\n"
+                    + "AUTO PARTITION BY RANGE (date_trunc(k1, 'day')) ()\n"
                     + "DISTRIBUTED BY HASH(`k1`) BUCKETS 1\n"
                     + "PROPERTIES (\n"
                     + "\"replication_num\" = \"1\",\n"
@@ -2267,28 +2273,34 @@ public class DynamicPartitionTableTest {
                     + "[('2020-01-01 00:00:00+00:00'), ('2020-01-02 00:00:00+00:00'))");
 
             // Recent partition: upper bound is 4h in the future (UTC).
-            // With the fix: cutoff is UTC-normalized → upper > cutoff → not history → kept.
-            // Without the fix: cutoff ≈ UTC now + 8h (Asia/Shanghai parsed as UTC)
-            // → upper < cutoff → incorrectly classified as history.
             DateTimeFormatter fmt = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
             ZonedDateTime utcNow = ZonedDateTime.now(ZoneOffset.UTC);
             String recentLower = utcNow.minusHours(1).format(fmt) + "+00:00";
             String recentUpper = utcNow.plusHours(4).format(fmt) + "+00:00";
-
             alterTable("ALTER TABLE test.auto_retention_tstz ADD PARTITION p_recent VALUES "
                     + "[('" + recentLower + "'), ('" + recentUpper + "'))");
-
             Assert.assertEquals(3, tbl.getPartitionNames().size());
 
-            // Run retention: retention_count=1 keeps the latest history partition
-            // plus any non-history partitions.
-            Env.getCurrentEnv().getDynamicPartitionScheduler()
-                    .executeDynamicPartitionFirstTime(db.getId(), tbl.getId());
+            // Simulate the scheduler thread: remove ConnectContext and set
+            // JVM default to a non-UTC zone. DateUtils.getTimeZone() now
+            // returns Asia/Shanghai while TimestampTzLiteral parsing defaults
+            // to UTC — the exact mismatch this fix protects against.
+            ConnectContext.remove();
+            TimeZone.setDefault(TimeZone.getTimeZone("Asia/Shanghai"));
+            try {
+                Env.getCurrentEnv().getDynamicPartitionScheduler()
+                        .executeDynamicPartitionFirstTime(db.getId(), tbl.getId());
+            } finally {
+                TimeZone.setDefault(originalJvmTz);
+                if (savedCtx != null) {
+                    savedCtx.setThreadLocalInfo();
+                }
+            }
 
-            // Expected outcome with the fix:
-            // - p_old (2000): is history, oldest → dropped
-            // - p_mid (2020): is history, but the latest one → kept (retention_count=1)
-            // - p_recent: upper bound ahead of UTC cutoff → not history → kept
+            // With the fix, cutoff is UTC-normalized: p_recent (upper bound
+            // ahead of UTC now) is not history → kept.
+            // p_old (2000, oldest history) → dropped by retention_count=1.
+            // p_mid (2020, latest history) → kept.
             // Total: 2 partitions survive.
             Assert.assertEquals("After retention, 2 partitions should remain", 2,
                     tbl.getPartitionNames().size());
@@ -2297,7 +2309,8 @@ public class DynamicPartitionTableTest {
             Assert.assertTrue("p_recent should survive (not history)",
                     tbl.getPartitionNames().contains("p_recent"));
         } finally {
-            connectContext.getSessionVariable().setTimeZone(originalTimeZone);
+            TimeZone.setDefault(originalJvmTz);
+            connectContext.getSessionVariable().setTimeZone(originalSessionTz);
         }
     }
 }

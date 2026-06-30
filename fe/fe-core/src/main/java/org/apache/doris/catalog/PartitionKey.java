@@ -189,6 +189,14 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
         for (int i = 0; i < values.size(); i++) {
             if (values.get(i).isNullPartition()) {
                 partitionKey.keys.add(NullLiteral.create(types.get(i)));
+            } else if (types.get(i).isTimeStampTz()) {
+                // Route TIMESTAMPTZ through the Nereids-aware parser (same as
+                // createPartitionKey) so that named/lowercase timezone values
+                // like "2024-01-15 20:00:00 Asia/Shanghai" are parsed correctly.
+                // The legacy DateLiteralUtils path only recognizes uppercase
+                // timezone names and a subset of offsets.
+                Literal dateTimeLiteral = getDateTimeLiteral(values.get(i).getStringValue(), types.get(i));
+                partitionKey.keys.add(dateTimeLiteral.toLegacyLiteral());
             } else {
                 partitionKey.keys.add(values.get(i).getValue(types.get(i)));
             }

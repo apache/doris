@@ -385,4 +385,64 @@ public class PartitionKeyTest {
             FeConstants.runningUnitTest = originalRunningUnitTest;
         }
     }
+
+    @Test
+    public void testListTimestampTzPartitionKeyAcceptsNamedTimezone() throws Exception {
+        // LIST path: createListPartitionKeyWithTypes must parse named timezones
+        // the same way createPartitionKey does, routing through TimestampTzLiteral.
+        PartitionKey key = PartitionKey.createListPartitionKeyWithTypes(
+                Arrays.asList(new PartitionValue("2024-01-15 20:00:00Asia/Shanghai")),
+                Arrays.asList((Type) ScalarType.createTimeStampTzType(6)),
+                false);
+
+        DateLiteral literal = (DateLiteral) key.getKeys().get(0);
+        // Asia/Shanghai (UTC+8) → 20:00 - 8h = 12:00 UTC
+        Assert.assertEquals(2024, literal.getYear());
+        Assert.assertEquals(1, literal.getMonth());
+        Assert.assertEquals(15, literal.getDay());
+        Assert.assertEquals(12, literal.getHour());
+        Assert.assertEquals(0, literal.getMinute());
+        Assert.assertEquals(0, literal.getSecond());
+        Assert.assertTrue(literal.getStringValue().startsWith("2024-01-15 12:00:00"));
+        Assert.assertTrue(literal.getStringValue().endsWith("+00:00"));
+    }
+
+    @Test
+    public void testListTimestampTzPartitionKeyAcceptsLowercaseTimezone() throws Exception {
+        // LIST path: lowercase timezone names like "uTc" must be recognized.
+        PartitionKey key = PartitionKey.createListPartitionKeyWithTypes(
+                Arrays.asList(new PartitionValue("2024-01-15 12:00:00 uTc")),
+                Arrays.asList((Type) ScalarType.createTimeStampTzType(6)),
+                false);
+
+        DateLiteral literal = (DateLiteral) key.getKeys().get(0);
+        // uTc = UTC → no offset change
+        Assert.assertEquals(2024, literal.getYear());
+        Assert.assertEquals(1, literal.getMonth());
+        Assert.assertEquals(15, literal.getDay());
+        Assert.assertEquals(12, literal.getHour());
+        Assert.assertEquals(0, literal.getMinute());
+        Assert.assertEquals(0, literal.getSecond());
+        Assert.assertTrue(literal.getStringValue().startsWith("2024-01-15 12:00:00"));
+        Assert.assertTrue(literal.getStringValue().endsWith("+00:00"));
+    }
+
+    @Test
+    public void testListTimestampTzPartitionKeyKeepsExplicitOffset() throws Exception {
+        // LIST path: explicit +00:00 offset must be preserved as UTC.
+        PartitionKey key = PartitionKey.createListPartitionKeyWithTypes(
+                Arrays.asList(new PartitionValue("2024-01-15 12:00:00+00:00")),
+                Arrays.asList((Type) ScalarType.createTimeStampTzType(6)),
+                false);
+
+        DateLiteral literal = (DateLiteral) key.getKeys().get(0);
+        Assert.assertEquals(2024, literal.getYear());
+        Assert.assertEquals(1, literal.getMonth());
+        Assert.assertEquals(15, literal.getDay());
+        Assert.assertEquals(12, literal.getHour());
+        Assert.assertEquals(0, literal.getMinute());
+        Assert.assertEquals(0, literal.getSecond());
+        Assert.assertTrue(literal.getStringValue().startsWith("2024-01-15 12:00:00"));
+        Assert.assertTrue(literal.getStringValue().endsWith("+00:00"));
+    }
 }
