@@ -66,6 +66,26 @@ suite("test_topn_lazy_mat_phase2_no_write_file_cache", "docker") {
             return new BigDecimal(matcher.group(1))
         }
 
+        def metricValues = { String profileText, String metricName ->
+            def matcher = profileText =~
+                    /(?m)^\s*-\s*${Pattern.quote(metricName)}:\s*(?:sum\s+)?([0-9]+(?:\.[0-9]+)?).*$/
+            def values = []
+            while (matcher.find()) {
+                values.add(new BigDecimal(matcher.group(1)))
+            }
+            assert !values.isEmpty() : "missing metric ${metricName} in profile:\n${profileText}"
+            return values
+        }
+
+        def numericValues = { String text ->
+            def matcher = text =~ /([0-9]+(?:\.[0-9]+)?)/
+            def values = []
+            while (matcher.find()) {
+                values.add(new BigDecimal(matcher.group(1)))
+            }
+            return values
+        }
+
         def metricLineValues = { String profileText, String metricName ->
             def matcher = profileText =~ /(?m)^\s*-\s*${Pattern.quote(metricName)}:\s*(.*)$/
             def values = []
@@ -84,7 +104,21 @@ suite("test_topn_lazy_mat_phase2_no_write_file_cache", "docker") {
             "TopNLazyMaterializationSecondPhaseWriteCacheBytes",
             "TopNLazyMaterializationSecondPhaseLocalIOTime",
             "TopNLazyMaterializationSecondPhaseRemoteIOTime",
-            "TopNLazyMaterializationSecondPhaseWriteCacheIOTime"
+            "TopNLazyMaterializationSecondPhaseWriteCacheIOTime",
+            "TopNLazyMaterializationSecondPhaseRowsRead",
+            "TopNLazyMaterializationSecondPhaseSegmentsRead",
+            "TopNLazyMaterializationSecondPhasePerBackend",
+            "TopNLazyMaterializationSecondPhasePerBackendRowsRead",
+            "TopNLazyMaterializationSecondPhasePerBackendSegmentsRead",
+            "TopNLazyMaterializationSecondPhasePerBackendLocalIOCount",
+            "TopNLazyMaterializationSecondPhasePerBackendLocalIOBytes",
+            "TopNLazyMaterializationSecondPhasePerBackendRemoteIOCount",
+            "TopNLazyMaterializationSecondPhasePerBackendRemoteIOBytes",
+            "TopNLazyMaterializationSecondPhasePerBackendSkipCacheIOCount",
+            "TopNLazyMaterializationSecondPhasePerBackendWriteCacheBytes",
+            "TopNLazyMaterializationSecondPhasePerBackendLocalIOTime",
+            "TopNLazyMaterializationSecondPhasePerBackendRemoteIOTime",
+            "TopNLazyMaterializationSecondPhasePerBackendWriteCacheIOTime"
         ]
 
         def logTopnSecondPhaseMetrics = { String name, String profileText ->
@@ -125,6 +159,20 @@ suite("test_topn_lazy_mat_phase2_no_write_file_cache", "docker") {
             assert metricValue(profileText, "TopNLazyMaterializationSecondPhaseSkipCacheIOCount") > 0
             assert metricValue(profileText, "TopNLazyMaterializationSecondPhaseWriteCacheBytes")
                     .compareTo(BigDecimal.ZERO) == 0
+        }
+
+        def assertPerBackendRowsMatchAggregate = { String profileText ->
+            def aggregateRows = metricValues(profileText,
+                    "TopNLazyMaterializationSecondPhaseRowsRead")
+                    .inject(BigDecimal.ZERO) { sum, value -> sum + value }
+            def perBackendRows = metricLineValues(profileText,
+                    "TopNLazyMaterializationSecondPhasePerBackendRowsRead")
+                    .collectMany { line -> numericValues(line) }
+            assert !perBackendRows.isEmpty() :
+                    "missing per-backend rows-read values:\n${profileText}"
+            def perBackendRowsSum = perBackendRows.inject(BigDecimal.ZERO) { sum, value -> sum + value }
+            assert aggregateRows.compareTo(perBackendRowsSum) == 0 :
+                    "per-backend rows-read sum ${perBackendRowsSum} should equal aggregate ${aggregateRows}:\n${profileText}"
         }
 
         def assertLocalFullHit = { String profileText ->
@@ -183,6 +231,19 @@ suite("test_topn_lazy_mat_phase2_no_write_file_cache", "docker") {
         sql "set enable_topn_lazy_mat_phase2_no_write_file_cache = true"
         runProfileQuery("topn_lazy_remote_only_no_row_store_local_full_hit",
                 noRowStoreQuery, assertLocalFullHit)
+
+        clearFileCache()
+        sql "set enable_topn_lazy_mat_phase2_no_write_file_cache = true"
+        sql "set batch_size = 1"
+        try {
+            runProfileQuery("topn_lazy_remote_only_no_row_store_multi_fetch_accumulate",
+                    noRowStoreQuery, { profileText ->
+                        assertRemoteOnlyMiss(profileText)
+                        assertPerBackendRowsMatchAggregate(profileText)
+                    })
+        } finally {
+            sql "set batch_size = 4062"
+        }
 
         sql "DROP TABLE IF EXISTS topn_lazy_remote_only_row_store"
         sql """

@@ -785,6 +785,10 @@ const std::string RowIdStorageReader::TopNLazyMaterializationSecondPhaseRemoteIO
         "TopNLazyMaterializationSecondPhaseRemoteIOTime";
 const std::string RowIdStorageReader::TopNLazyMaterializationSecondPhaseWriteCacheIOTime =
         "TopNLazyMaterializationSecondPhaseWriteCacheIOTime";
+const std::string RowIdStorageReader::TopNLazyMaterializationSecondPhaseRowsRead =
+        "TopNLazyMaterializationSecondPhaseRowsRead";
+const std::string RowIdStorageReader::TopNLazyMaterializationSecondPhaseSegmentsRead =
+        "TopNLazyMaterializationSecondPhaseSegmentsRead";
 
 Status RowIdStorageReader::read_external_row_from_file_mapping(
         size_t idx, const std::multimap<segment_v2::rowid_t, size_t>& row_ids,

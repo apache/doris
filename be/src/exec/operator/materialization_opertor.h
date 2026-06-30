@@ -19,6 +19,10 @@
 
 #include <stdint.h>
 
+#include <map>
+#include <string>
+#include <unordered_map>
+
 #include "common/status.h"
 #include "exec/operator/operator.h"
 
@@ -32,6 +36,7 @@ struct FetchRpcStruct {
     std::unique_ptr<brpc::Controller> cntl;
     PMultiGetRequestV2 request;
     PMultiGetResponseV2 response;
+    std::string backend_address;
 };
 
 struct MaterializationSharedState {
@@ -41,11 +46,27 @@ public:
     Status init_multi_requests(const TMaterializationNode& tnode, RuntimeState* state);
     Status create_muiltget_result(const Columns& columns, bool eos);
 
-    Status merge_multi_response(RuntimeProfile* profile = nullptr);
+    Status merge_multi_response(RuntimeProfile* profile);
     void get_block(Block* block);
 
 private:
     void _update_profile_info(int64_t backend_id, RuntimeProfile* response_profile);
+    void _update_topn_lazy_materialization_profile(RuntimeProfile* profile);
+
+    struct TopNLazyMaterializationBackendStats {
+        std::string backend;
+        int64_t rows_read = 0;
+        int64_t segments_read = 0;
+        int64_t local_io_count = 0;
+        int64_t local_io_bytes = 0;
+        int64_t remote_io_count = 0;
+        int64_t remote_io_bytes = 0;
+        int64_t skip_cache_io_count = 0;
+        int64_t write_cache_bytes = 0;
+        int64_t local_io_time = 0;
+        int64_t remote_io_time = 0;
+        int64_t write_cache_io_time = 0;
+    };
 
 public:
     bool rpc_struct_inited = false;
@@ -68,6 +89,10 @@ public:
     uint32_t _max_rows_per_backend = 0;
     // Store the number of rows processed by each backend
     std::unordered_map<int64_t, uint32_t> _backend_rows_count; // backend_id => rows_count
+
+private:
+    // backend id => accumulated TopN phase-2 profile stats.
+    std::map<int64_t, TopNLazyMaterializationBackendStats> _topn_lazy_materialization_backend_stats;
 };
 
 class MaterializationLocalState final : public PipelineXLocalState<FakeSharedState> {
