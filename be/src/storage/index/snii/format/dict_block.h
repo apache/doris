@@ -69,17 +69,23 @@ inline constexpr uint8_t kHasPositions = 1U << 0; // whether to write prx_base /
 } // namespace dict_block_flags
 
 // DICT block writer: entries are added in lexicographic order via add_entry;
-// internally maintains prev_term, determines anchors, accumulates size
-// estimates, and on finish serializes header + entries + anchor table + CRC in
-// one pass.
+// internally determines anchors and accumulates size estimates, and on finish
+// serializes header + entries + anchor table + CRC in one pass. The front-coding
+// base is rebuilt from a local prev inside finish(), so no prev_term is retained
+// as builder state.
 class DictBlockBuilder {
 public:
     DictBlockBuilder(IndexTier tier, bool has_positions, uint64_t frq_base, uint64_t prx_base,
                      uint32_t anchor_interval = 16);
 
     // Append one entry (caller must guarantee lexicographic term order).
-    // Internally decides whether it becomes an anchor.
+    // Internally decides whether it becomes an anchor. The copy overload is kept
+    // for callers that must retain their entry afterwards (materialized fallback,
+    // tests); the move overload avoids the per-term DictEntry copy -- which for an
+    // inline entry is two std::vector<uint8_t> heap allocations plus the term
+    // copy -- on the SPIMI build path.
     void add_entry(const DictEntry& entry);
+    void add_entry(DictEntry&& entry);
 
     // Upper-bound estimate of the serialized size of the current block (including
     // header + entries + anchor table + CRC footer), used by the upper layer to
@@ -103,7 +109,6 @@ private:
 
     uint32_t n_entries_ = 0;
     std::vector<DictEntry> entries_;
-    std::string prev_term_;  // term of the previous entry (front coding base)
     size_t entries_est_ = 0; // accumulated byte estimate for the entries section
     size_t n_anchors_ = 0;   // number of anchors
 };

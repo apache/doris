@@ -114,6 +114,17 @@ struct SniiIndexInput {
     MemoryReporter* mem_reporter = nullptr;
 };
 
+// Fused single-pass term-level frequency statistics for ONE term: total_freq is
+// sum(freqs) and max_freq is max(freqs), computed in a SINGLE scan (see
+// fuse_freq_stats) and reused for the has_prx position-count check
+// (validate_term), stats_.sum_total_term_freq, and the DictEntry
+// ttf_delta/max_freq. Byte-identical to the former separate sum/max scans (same
+// accumulation order; max initialized to 0 so a freq of 0 never pollutes it).
+struct FreqStats {
+    uint64_t total_freq = 0;
+    uint32_t max_freq = 0;
+};
+
 // Builds and holds the section bytes + meta sub-sections for one logical index.
 class LogicalIndexWriter {
 public:
@@ -177,7 +188,10 @@ private:
     };
 
     // Validates one term's shape (parallel lengths, strictly ascending docids).
-    Status validate_term(const TermPostings& tp) const;
+    // `total_freq` is the fused sum(freqs) the caller computes once via
+    // fuse_freq_stats; the has_prx position-count check compares against it
+    // instead of re-summing freqs internally.
+    Status validate_term(const TermPostings& tp, uint64_t total_freq) const;
     // Iterates terms (from the streaming source or the materialized vector),
     // splitting DICT blocks by target size and filling PODs + blocks_.
     Status build_blocks();
@@ -194,8 +208,10 @@ private:
     // writes to posting_out_ are this index's posting region, so the count is the
     // output offset advanced since the region began.
     uint64_t posting_size() const { return posting_out_->bytes_written() - posting_off0_; }
-    // Builds one DictEntry (inline or pod_ref), growing the posting region as needed.
-    Status build_entry(TermPostings& tp, uint64_t frq_base, uint64_t prx_base,
+    // Builds one DictEntry (inline or pod_ref), growing the posting region as
+    // needed. `fs` is the fused term-level freq stats (reused for ttf_delta /
+    // max_freq, so no second sum/max scan).
+    Status build_entry(TermPostings& tp, uint64_t frq_base, uint64_t prx_base, const FreqStats& fs,
                        format::DictEntry* e);
     // Builds a windowed (df >= kSlimDfThreshold) entry: multi-window + two-level
     // prelude. The term's [prx span][frq span] is appended to the posting region.
@@ -249,5 +265,22 @@ private:
     format::StatsBlock stats_;
     std::vector<uint8_t> bsbf_bytes_; // serialized block-split bloom XFilter section
 };
+
+// TEST-ONLY observability seam (mirrors the reader-side decode-counter and the
+// SPIMI vocab-materialization patterns). term_freq_scans() returns a
+// process-global count of term-level fused freqs scans -- fuse_freq_stats is
+// called EXACTLY ONCE per term, so a build of N terms yields N (it was 3N for a
+// docs-only build, or 4N with positions, across the former separate
+// validate-sum / stats-sum / ttf-sum / max scans). note_term_freq_scan() bumps
+// the counter (called only from fuse_freq_stats); reset_term_freq_scans() zeroes
+// it between tests; fuse_freq_stats_for_test() exposes the real fused helper so
+// pure boundary tests exercise production code. Process-global; reset between
+// tests. Not part of the production API.
+namespace testing {
+void note_term_freq_scan();
+uint64_t term_freq_scans();
+void reset_term_freq_scans();
+FreqStats fuse_freq_stats_for_test(const std::vector<uint32_t>& freqs);
+} // namespace testing
 
 } // namespace doris::snii::writer

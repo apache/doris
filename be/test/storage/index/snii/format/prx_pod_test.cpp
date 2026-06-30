@@ -29,6 +29,7 @@
 #include "storage/index/snii/encoding/byte_source.h"
 #include "storage/index/snii/encoding/crc32c.h"
 #include "storage/index/snii/encoding/pfor.h"
+#include "storage/index/snii/encoding/zstd_codec.h"
 #include "storage/index/snii/format/format_constants.h"
 
 using doris::Status; // RETURN_IF_ERROR expands to bare Status
@@ -556,4 +557,358 @@ TEST(SniiPrxPod, FlatBuilderExtraPositionsRejected) {
         EXPECT_TRUE(s.is<doris::ErrorCode::INVALID_ARGUMENT>())
                 << "level=" << level << " msg=" << s.to_string();
     }
+}
+
+// ---------------------------------------------------------------------------
+// T14: auto-mode (kAutoZstd) single-encode -- the auto builders derive per-doc
+// deltas once and only materialize the throwaway raw plaintext payload when it is
+// large enough (>= 512 B) to make a zstd attempt worthwhile. The tests below
+// cover the deterministic raw-build counter seam plus the byte/codec equivalence
+// guarantees that prove zero on-disk format change.
+// ---------------------------------------------------------------------------
+
+namespace {
+
+using doris::snii::format::testing::prx_raw_build_count;
+using doris::snii::format::testing::reset_prx_raw_build_count;
+
+// Byte length of put_varint32(v); mirrors the in-source varint32_size so the
+// brute-force codec recomputation below can size frames exactly.
+size_t VarintSize(uint32_t v) {
+    size_t n = 1;
+    while (v >= 128) {
+        v >>= 7;
+        ++n;
+    }
+    return n;
+}
+
+// Auto constants restated from prx_pod.cpp (anonymous there). The brute-force
+// codec check must use the SAME threshold/level write_auto_pfor_or_zstd uses.
+constexpr size_t kAutoZstdMinBytes = 512;
+constexpr int kDefaultZstdLevel = 3;
+
+// Per-doc -> flat delta stream (first position of each doc absolute, the rest
+// delta-within-doc): the exact sequence both .prx payload encoders serialize.
+std::vector<uint32_t> FlatDeltas(const std::vector<uint32_t>& flat,
+                                 const std::vector<uint32_t>& freqs) {
+    std::vector<uint32_t> deltas;
+    deltas.reserve(flat.size());
+    size_t off = 0;
+    for (uint32_t fc : freqs) {
+        uint32_t prev = 0;
+        for (uint32_t i = 0; i < fc; ++i) {
+            const uint32_t pos = flat[off + i];
+            deltas.push_back(i == 0 ? pos : pos - prev);
+            prev = pos;
+        }
+        off += fc;
+    }
+    return deltas;
+}
+
+// Independently recompute the codec byte the auto builder must emit, replicating
+// write_auto_pfor_or_zstd: try zstd only when the EXACT plaintext payload size
+// reaches the threshold, and choose zstd only when its frame is strictly smaller
+// than the PFOR frame.
+uint8_t BruteForceAutoCodec(const std::vector<uint32_t>& freqs,
+                            const std::vector<uint32_t>& deltas) {
+    ByteSink pfor_payload;
+    pfor_payload.put_varint32(static_cast<uint32_t>(freqs.size()));
+    pfor_payload.put_varint32(static_cast<uint32_t>(deltas.size()));
+    AppendPforRuns(freqs, &pfor_payload);
+    AppendPforRuns(deltas, &pfor_payload);
+    const size_t pfor_size = pfor_payload.view().size();
+
+    ByteSink plain;
+    plain.put_varint32(static_cast<uint32_t>(freqs.size()));
+    size_t off = 0;
+    for (uint32_t fc : freqs) {
+        plain.put_varint32(fc);
+        for (uint32_t i = 0; i < fc; ++i) {
+            plain.put_varint32(deltas[off + i]);
+        }
+        off += fc;
+    }
+    const size_t plain_size = plain.view().size();
+
+    const auto kPfor = static_cast<uint8_t>(PrxCodec::kPfor);
+    const auto kZstd = static_cast<uint8_t>(PrxCodec::kZstd);
+    if (plain_size >= kAutoZstdMinBytes) {
+        std::vector<uint8_t> comp;
+        EXPECT_TRUE(doris::snii::zstd_compress(plain.view(), kDefaultZstdLevel, &comp).ok());
+        const size_t zstd_frame = 1 + VarintSize(static_cast<uint32_t>(plain_size)) +
+                                  VarintSize(static_cast<uint32_t>(comp.size())) + comp.size() +
+                                  sizeof(uint32_t);
+        const size_t pfor_frame =
+                1 + VarintSize(static_cast<uint32_t>(pfor_size)) + pfor_size + sizeof(uint32_t);
+        if (zstd_frame < pfor_frame) {
+            return kZstd;
+        }
+    }
+    return kPfor;
+}
+
+// One doc whose raw plaintext payload is EXACTLY `target` bytes. Positions
+// {0,1,...,fc-1} make every delta a 1-byte varint (0 then 1s), so the plaintext
+// is varint32_size(doc_count=1) + varint32_size(fc) + fc. With fc in
+// [128, 16383] the fc varint is 2 bytes, so plaintext == 3 + fc => fc = target-3.
+std::vector<uint32_t> SingleDocWithPlaintextSize(size_t target) {
+    EXPECT_GE(target, 131U); // need fc >= 128 so the count varint is 2 bytes
+    const auto fc = static_cast<uint32_t>(target - 3);
+    std::vector<uint32_t> doc(fc);
+    for (uint32_t i = 0; i < fc; ++i) {
+        doc[i] = i;
+    }
+    return doc;
+}
+
+} // namespace
+
+// [perf-deterministic] A sub-threshold window (<512 B plaintext) must NOT
+// materialize the throwaway raw plaintext payload: the auto path emits PFOR
+// directly. On the pre-optimization code (which always materialized) this counter
+// would be 1 -> this is the RED guard for the single-encode change.
+TEST(SniiPrxPodCounterTest, SmallWindowSkipsRawPlaintextBuild) {
+    PerDoc in = {{1}, {3, 5}, {2}};
+    std::vector<uint32_t> flat, freqs;
+    Flatten(in, &flat, &freqs);
+
+    reset_prx_raw_build_count();
+    ByteSink sink;
+    ASSERT_TRUE(build_prx_window_flat(flat, freqs, -1, &sink).ok());
+    EXPECT_EQ(prx_raw_build_count(), 0U);
+
+    // codec is PFOR and the window still round-trips.
+    EXPECT_EQ(sink.view().data()[0], static_cast<uint8_t>(PrxCodec::kPfor));
+    PerDoc out;
+    ByteSource src(sink.view());
+    ASSERT_TRUE(read_prx_window(&src, &out).ok());
+    EXPECT_EQ(out, in);
+}
+
+// [perf-deterministic] A >=512 B window materializes the raw plaintext EXACTLY
+// once (needed for the zstd-vs-pfor comparison) -- not zero (would skip a viable
+// zstd) and not twice (the old double-encode).
+TEST(SniiPrxPodCounterTest, LargeWindowStillBuildsRawPlaintextOnce) {
+    PerDoc in = {SingleDocWithPlaintextSize(512)};
+    std::vector<uint32_t> flat, freqs;
+    Flatten(in, &flat, &freqs);
+
+    reset_prx_raw_build_count();
+    ByteSink sink;
+    ASSERT_TRUE(build_prx_window_flat(flat, freqs, -1, &sink).ok());
+    EXPECT_EQ(prx_raw_build_count(), 1U);
+}
+
+// [perf-deterministic] N consecutive small windows materialize ZERO raw
+// plaintext payloads in aggregate (the per-window throwaway ByteSink is the
+// allocation this task removes for the common Zipfian case).
+TEST(SniiPrxPodCounterTest, ManySmallWindowsBuildZeroRawPlaintext) {
+    reset_prx_raw_build_count();
+    for (uint32_t w = 0; w < 64; ++w) {
+        PerDoc in = {{w}, {w + 1U, w + 3U}, {w + 2U}};
+        std::vector<uint32_t> flat, freqs;
+        Flatten(in, &flat, &freqs);
+        ByteSink sink;
+        ASSERT_TRUE(build_prx_window_flat(flat, freqs, -1, &sink).ok());
+    }
+    EXPECT_EQ(prx_raw_build_count(), 0U);
+}
+
+// [perf-deterministic] The per-doc (vector) builder funnels through the SAME auto
+// path as the flat builder: small window materializes nothing, large window once.
+TEST(SniiPrxPodCounterTest, VectorBuilderSharesSingleEncodePath) {
+    reset_prx_raw_build_count();
+    PerDoc small = {{1, 2, 3}, {4, 5}};
+    ByteSink small_sink;
+    ASSERT_TRUE(build_prx_window(small, -1, &small_sink).ok());
+    EXPECT_EQ(prx_raw_build_count(), 0U);
+
+    reset_prx_raw_build_count();
+    PerDoc large = {SingleDocWithPlaintextSize(512)};
+    ByteSink large_sink;
+    ASSERT_TRUE(build_prx_window(large, -1, &large_sink).ok());
+    EXPECT_EQ(prx_raw_build_count(), 1U);
+}
+
+// [functional/perf] The flat and per-doc auto builders must produce BYTE-IDENTICAL
+// windows for the same logical positions, across sizes spanning the 512-byte zstd
+// threshold (empty, single, tiny, just-below, exactly-at, well-above). This is the
+// load-bearing proof that the single-encode refactor changed zero on-disk bytes.
+// NOLINTNEXTLINE(readability-function-cognitive-complexity)
+TEST(SniiPrxPodTest, FlatAutoProducesByteIdenticalOutputAcrossSizes) {
+    std::vector<PerDoc> cases;
+    cases.emplace_back();                               // empty window
+    cases.push_back({{7}});                             // single doc/pos
+    cases.push_back({{1}, {3, 5}, {2}});                // tiny (<512 plaintext)
+    cases.push_back({{}, {3}, {}, {}, {1, 2}});         // empty docs interleaved
+    cases.push_back({SingleDocWithPlaintextSize(511)}); // just below threshold
+    cases.push_back({SingleDocWithPlaintextSize(512)}); // exactly at threshold
+    {
+        PerDoc big; // well above threshold
+        for (uint32_t d = 0; d < 280; ++d) {
+            big.push_back({d, d + 1U, d + 2U});
+        }
+        cases.push_back(std::move(big));
+    }
+
+    for (const auto& in : cases) {
+        std::vector<uint32_t> flat, freqs;
+        Flatten(in, &flat, &freqs);
+        ByteSink per_doc_sink, flat_sink;
+        ASSERT_TRUE(build_prx_window(in, -1, &per_doc_sink).ok());
+        ASSERT_TRUE(build_prx_window_flat(flat, freqs, -1, &flat_sink).ok());
+        const Slice a = per_doc_sink.view();
+        const Slice b = flat_sink.view();
+        ASSERT_EQ(a.size(), b.size()) << "doc_count=" << in.size();
+        EXPECT_EQ(0, std::memcmp(a.data(), b.data(), a.size())) << "doc_count=" << in.size();
+        // Auto mode never emits the forced raw codec.
+        ASSERT_GT(a.size(), 0U);
+        EXPECT_NE(a.data()[0], static_cast<uint8_t>(PrxCodec::kRaw)) << "doc_count=" << in.size();
+        // The flat-built window round-trips back to the original per-doc lists.
+        PerDoc out;
+        ByteSource src(flat_sink.view());
+        ASSERT_TRUE(read_prx_window(&src, &out).ok());
+        EXPECT_EQ(out, in) << "doc_count=" << in.size();
+    }
+}
+
+// [functional/perf] At the EXACT 511- vs 512-byte plaintext boundary the codec
+// the builder emits must equal an independent brute-force frame-size comparison.
+// This guards the risk that an estimated (rather than exact) plaintext size flips
+// the codec choice near the threshold and silently changes the on-disk bytes.
+TEST(SniiPrxPodTest, AutoCodecChoiceMatchesBruteForceAtThreshold) {
+    for (size_t target : {size_t {511}, size_t {512}}) {
+        PerDoc in = {SingleDocWithPlaintextSize(target)};
+        std::vector<uint32_t> flat, freqs;
+        Flatten(in, &flat, &freqs);
+
+        // Confirm the construction lands on exactly the intended plaintext size.
+        const std::vector<uint32_t> deltas = FlatDeltas(flat, freqs);
+        size_t plain_size = VarintSize(static_cast<uint32_t>(freqs.size()));
+        for (uint32_t fc : freqs) {
+            plain_size += VarintSize(fc);
+        }
+        for (uint32_t d : deltas) {
+            plain_size += VarintSize(d);
+        }
+        ASSERT_EQ(plain_size, target);
+
+        ByteSink sink;
+        ASSERT_TRUE(build_prx_window_flat(flat, freqs, -1, &sink).ok());
+        const uint8_t emitted = sink.view().data()[0];
+        EXPECT_EQ(emitted, BruteForceAutoCodec(freqs, deltas)) << "target=" << target;
+        if (target < kAutoZstdMinBytes) {
+            // Below the threshold zstd is never attempted: must be plain PFOR.
+            EXPECT_EQ(emitted, static_cast<uint8_t>(PrxCodec::kPfor));
+        }
+        // Round-trips regardless of the chosen codec.
+        PerDoc out;
+        ByteSource src(sink.view());
+        ASSERT_TRUE(read_prx_window(&src, &out).ok());
+        EXPECT_EQ(out, in) << "target=" << target;
+    }
+}
+
+// [functional] F-RT-small: a small flat window round-trips through the CSR reader
+// (codec=pfor path) back to the original per-doc positions.
+TEST(SniiPrxPodTest, SmallFlatWindowRoundTripsViaCsr) {
+    PerDoc in = {{1}, {3, 5}, {2}};
+    std::vector<uint32_t> flat, freqs;
+    Flatten(in, &flat, &freqs);
+    ByteSink sink;
+    ASSERT_TRUE(build_prx_window_flat(flat, freqs, -1, &sink).ok());
+    EXPECT_EQ(sink.view().data()[0], static_cast<uint8_t>(PrxCodec::kPfor));
+
+    std::vector<uint32_t> pos_flat, pos_off;
+    ByteSource src(sink.view());
+    ASSERT_TRUE(read_prx_window_csr(&src, &pos_flat, &pos_off).ok());
+    ASSERT_EQ(pos_off.size(), in.size() + 1);
+    PerDoc out;
+    for (size_t d = 0; d < in.size(); ++d) {
+        out.emplace_back(pos_flat.begin() + pos_off[d], pos_flat.begin() + pos_off[d + 1]);
+    }
+    EXPECT_EQ(out, in);
+}
+
+// [functional] F-RT-large: a >=512 B flat window (exercising the zstd-vs-pfor
+// pick) round-trips losslessly through the per-doc reader.
+TEST(SniiPrxPodTest, LargeFlatWindowRoundTrips) {
+    PerDoc in;
+    for (uint32_t d = 0; d < 280; ++d) {
+        in.push_back({d, d + 4U, d + 9U});
+    }
+    std::vector<uint32_t> flat, freqs;
+    Flatten(in, &flat, &freqs);
+    ByteSink sink;
+    ASSERT_TRUE(build_prx_window_flat(flat, freqs, -1, &sink).ok());
+    EXPECT_NE(sink.view().data()[0], static_cast<uint8_t>(PrxCodec::kRaw));
+    PerDoc out;
+    ByteSource src(sink.view());
+    ASSERT_TRUE(read_prx_window(&src, &out).ok());
+    EXPECT_EQ(out, in);
+}
+
+// [functional/boundary] F-EMPTY: a 0-doc window builds OK, materializes no raw
+// plaintext, decodes to an empty result.
+TEST(SniiPrxPodTest, EmptyFlatWindowRoundTripsWithNoRawBuild) {
+    std::vector<uint32_t> flat, freqs; // 0 docs, 0 positions
+    reset_prx_raw_build_count();
+    ByteSink sink;
+    ASSERT_TRUE(build_prx_window_flat(flat, freqs, -1, &sink).ok());
+    EXPECT_EQ(prx_raw_build_count(), 0U);
+    EXPECT_EQ(sink.view().data()[0], static_cast<uint8_t>(PrxCodec::kPfor));
+    PerDoc out;
+    ByteSource src(sink.view());
+    ASSERT_TRUE(read_prx_window(&src, &out).ok());
+    EXPECT_TRUE(out.empty());
+}
+
+// [functional/boundary] F-SINGLE: a single doc with a single position round-trips.
+TEST(SniiPrxPodTest, SingleDocSinglePositionFlatRoundTrips) {
+    std::vector<uint32_t> flat = {42};
+    std::vector<uint32_t> freqs = {1};
+    ByteSink sink;
+    ASSERT_TRUE(build_prx_window_flat(flat, freqs, -1, &sink).ok());
+    PerDoc out;
+    ByteSource src(sink.view());
+    ASSERT_TRUE(read_prx_window(&src, &out).ok());
+    PerDoc expected = {{42}};
+    EXPECT_EQ(out, expected);
+}
+
+// [error] F-ERR-asc: descending positions within a doc are rejected by the
+// single delta walk -- the ascending check is not lost when the second encode is
+// skipped. Nothing is emitted.
+TEST(SniiPrxPodTest, NonAscendingPositionsRejected) {
+    std::vector<uint32_t> flat = {5, 3}; // within one doc, descending
+    std::vector<uint32_t> freqs = {2};
+    ByteSink sink;
+    Status s = build_prx_window_flat(flat, freqs, -1, &sink);
+    EXPECT_TRUE(s.is<doris::ErrorCode::INVALID_ARGUMENT>()) << s.to_string();
+    EXPECT_EQ(sink.size(), 0U);
+}
+
+// [error] F-ERR-part: a (flat, freqs) partition mismatch (sum(freqs) != size) is
+// rejected before any indexing -- the partition check is preserved.
+TEST(SniiPrxPodTest, PartitionMismatchRejected) {
+    std::vector<uint32_t> flat = {1, 2, 3};
+    std::vector<uint32_t> freqs = {2, 3}; // sum 5 != 3
+    ByteSink sink;
+    Status s = build_prx_window_flat(flat, freqs, -1, &sink);
+    EXPECT_TRUE(s.is<doris::ErrorCode::INVALID_ARGUMENT>()) << s.to_string();
+    EXPECT_EQ(sink.size(), 0U);
+}
+
+// [error] F-NULL: a null sink is rejected by both auto builders before any work.
+TEST(SniiPrxPodTest, NullSinkRejected) {
+    std::vector<uint32_t> flat = {1, 2};
+    std::vector<uint32_t> freqs = {2};
+    Status s = build_prx_window_flat(flat, freqs, -1, nullptr);
+    EXPECT_TRUE(s.is<doris::ErrorCode::INVALID_ARGUMENT>()) << s.to_string();
+
+    PerDoc per_doc = {{1, 2}};
+    Status s2 = build_prx_window(per_doc, -1, nullptr);
+    EXPECT_TRUE(s2.is<doris::ErrorCode::INVALID_ARGUMENT>()) << s2.to_string();
 }

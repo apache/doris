@@ -59,8 +59,9 @@ namespace doris::snii::writer {
 // merge keeps one heap slot per run (each holding only its current term-id +
 // that term's postings), so peak memory is bounded by the widest single term
 // summed across the runs that contain it -- not by total postings. The merge
-// orders runs by the term-id's VOCAB STRING (resolved via the shared vocabulary)
-// so the merged stream is lexicographic.
+// orders runs by a PRECOMPUTED integer string-rank (term-id -> its lexicographic
+// rank over the shared dense vocabulary): an integer compare that reproduces the
+// exact lexicographic order without touching a vocab string in the inner loops.
 
 // Writes a sorted sequence of terms (by id) to one run file. Term-ids must be
 // handed to write_term in vocab-string ascending order (the spill caller sorts
@@ -174,13 +175,19 @@ private:
     TermPostings current_;
 };
 
-// K-way merges the given run files into a single term stream ordered by the
-// term-id's VOCAB STRING (lexicographic), invoking `fn` once per distinct
-// term-id with its postings concatenated across all runs that contain it (in
-// run order -> docids stay ascending) and its `term` resolved from `vocab`.
-// Only one merged term is materialized at a time. Returns IoError/Corruption on
-// bad run data. has_positions must match how the runs were written. `vocab`
-// maps term-id -> string and is borrowed.
+// K-way merges the given run files into a single term stream ordered by a
+// PRECOMPUTED integer string-rank (string_rank[term_id] == the term-id's
+// lexicographic rank over the dense vocabulary), invoking `fn` once per distinct
+// term-id with its postings concatenated across all runs that contain it (in run
+// order -> docids stay ascending) and its `term` resolved from `vocab` once.
+// Because a dense vocab maps each id to a distinct string, the rank is a
+// lexicographic bijection: ordering by the dense 4 B rank array (an integer
+// compare) reproduces the EXACT order a vocab-string compare would -- but never
+// reads a vocab string in the inner heap/gather loops. Only one merged term is
+// materialized at a time. Returns IoError/Corruption on bad run data, or
+// InternalError when string_rank.size() != vocab.size(). has_positions must match
+// how the runs were written. `vocab` (term-id -> string) and `string_rank`
+// (term-id -> rank) are both borrowed and MUST be sized to the vocabulary.
 //
 // allow_stream_positions (peak-RSS optimization): when true (the streaming-writer
 // path), a WIDE merged term's positions are NOT materialized into positions_flat;
@@ -192,7 +199,7 @@ private:
 // term (e.g. finalize_sorted) MUST pass false, so positions are always fully
 // materialized. The produced bytes are identical either way.
 Status MergeRuns(const std::vector<std::string>& run_paths, const std::vector<std::string>& vocab,
-                 bool has_positions, const std::function<void(TermPostings&&)>& fn,
-                 bool allow_stream_positions = true);
+                 const std::vector<uint32_t>& string_rank, bool has_positions,
+                 const std::function<void(TermPostings&&)>& fn, bool allow_stream_positions = true);
 
 } // namespace doris::snii::writer

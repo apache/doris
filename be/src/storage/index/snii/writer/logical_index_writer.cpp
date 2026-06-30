@@ -18,6 +18,7 @@
 #include "storage/index/snii/writer/logical_index_writer.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cstdlib>
 #include <memory>
 #include <span>
@@ -149,10 +150,21 @@ uint32_t MaxOf(std::span<const uint32_t> v) {
     return m;
 }
 
-uint64_t SumOf(const std::vector<uint32_t>& v) {
-    uint64_t s = 0;
-    for (uint32_t x : v) s += x;
-    return s;
+// Fused single-pass term-level freq statistics: total_freq (running sum) and
+// max_freq (running max) in ONE scan, reused by validate_term (has_prx
+// position-count budget), stats_.sum_total_term_freq, and the DictEntry
+// ttf_delta/max_freq. Byte-identical to the former separate SumOf/MaxOf scans:
+// same left-to-right accumulation order and the same max init of 0, so a freq of
+// 0 never lowers the max. Bumps the test-only op-count seam exactly once per
+// term-level scan (one call per term from process_term).
+FreqStats fuse_freq_stats(const std::vector<uint32_t>& freqs) {
+    testing::note_term_freq_scan();
+    FreqStats fs;
+    for (uint32_t f : freqs) {
+        fs.total_freq += f;
+        fs.max_freq = std::max(f, fs.max_freq);
+    }
+    return fs;
 }
 
 // Computes a window's WAND max_norm: the encoded norm yielding the LARGEST BM25
@@ -343,6 +355,33 @@ Status BuildWindowedPosting(TermPostings& tp, bool has_freq, bool has_prx,
 
 } // namespace
 
+namespace testing {
+namespace {
+// Function-local-static op-count seam backing term_freq_scans(). One atomic,
+// relaxed: the writer build path is single-threaded, so only the COUNT matters,
+// not ordering (the atomic keeps it race-clean if a test ever parallelizes).
+std::atomic<uint64_t>& term_freq_scan_counter() {
+    static std::atomic<uint64_t> counter {0};
+    return counter;
+}
+} // namespace
+
+void note_term_freq_scan() {
+    term_freq_scan_counter().fetch_add(1, std::memory_order_relaxed);
+}
+uint64_t term_freq_scans() {
+    return term_freq_scan_counter().load(std::memory_order_relaxed);
+}
+void reset_term_freq_scans() {
+    term_freq_scan_counter().store(0, std::memory_order_relaxed);
+}
+// Forwards to the real fused helper so pure boundary tests exercise production
+// code (not a test-local re-implementation).
+FreqStats fuse_freq_stats_for_test(const std::vector<uint32_t>& freqs) {
+    return fuse_freq_stats(freqs);
+}
+} // namespace testing
+
 LogicalIndexWriter::LogicalIndexWriter(const SniiIndexInput& in)
         : index_id_(in.index_id),
           index_suffix_(in.index_suffix),
@@ -363,19 +402,18 @@ LogicalIndexWriter::LogicalIndexWriter(const SniiIndexInput& in)
           // per-buffer cap.
           dict_buf_(UINT64_MAX, "dict", in.mem_reporter) {}
 
-Status LogicalIndexWriter::validate_term(const TermPostings& tp) const {
+Status LogicalIndexWriter::validate_term(const TermPostings& tp, uint64_t total_freq) const {
     if (tp.freqs.size() != tp.docids.size()) {
         return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
                 "logical_index: freqs length must equal docids");
     }
     if (has_prx_) {
-        uint64_t total_pos = 0;
-        for (uint32_t f : tp.freqs) total_pos += f;
-        // Streamed positions (pos_pump set): validate against the declared
-        // pos_total (positions_flat is intentionally empty). Otherwise validate the
-        // flat buffer.
+        // total_freq is the fused sum(freqs) computed once by the caller (no
+        // internal re-sum). Streamed positions (pos_pump set): validate against the
+        // declared pos_total (positions_flat is intentionally empty). Otherwise
+        // validate the flat buffer.
         const uint64_t have = tp.pos_pump ? tp.pos_total : tp.positions_flat.size();
-        if (total_pos != have) {
+        if (total_freq != have) {
             return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
                     "logical_index: positions count must equal sum(freqs)");
         }
@@ -491,11 +529,11 @@ Status LogicalIndexWriter::build_slim_entry(TermPostings& tp, uint64_t frq_base,
 // and record off_delta relative to frq_base/prx_base (the posting-region size
 // captured when the block opened; both bases hold that same value).
 Status LogicalIndexWriter::build_entry(TermPostings& tp, uint64_t frq_base, uint64_t prx_base,
-                                       DictEntry* e) {
+                                       const FreqStats& fs, DictEntry* e) {
     e->term = tp.term;
     e->df = static_cast<uint32_t>(tp.docids.size());
-    e->ttf_delta = SumOf(tp.freqs); // simple: ttf stored directly as ttf_delta
-    e->max_freq = MaxOf(tp.freqs);
+    e->ttf_delta = fs.total_freq; // reused fused total (was SumOf(tp.freqs))
+    e->max_freq = fs.max_freq;    // reused fused max (was MaxOf(tp.freqs))
 
     if (e->df >= format::kSlimDfThreshold) {
         return build_windowed_entry(tp, frq_base, prx_base, e);
@@ -548,12 +586,17 @@ struct LogicalIndexWriter::BlockState {
 };
 
 Status LogicalIndexWriter::process_term(TermPostings& tp, BlockState* st) {
-    RETURN_IF_ERROR(validate_term(tp));
+    // ONE fused term-level scan of freqs: total + max in a single pass, reused by
+    // validate (has_prx position-count budget), stats, and the DictEntry
+    // ttf_delta/max_freq. Computed BEFORE validate_term so the validator receives
+    // the budget total instead of re-summing.
+    const FreqStats fs = fuse_freq_stats(tp.freqs);
+    RETURN_IF_ERROR(validate_term(tp, fs.total_freq));
     // Collect only the 8-byte filter key per term (no whole-vocabulary string
     // copy). BSBF key = XXH64 seed 0 (Parquet-canonical).
     term_hashes_.push_back(format::bsbf_hash(tp.term));
     ++term_count_;
-    stats_.sum_total_term_freq += SumOf(tp.freqs);
+    stats_.sum_total_term_freq += fs.total_freq; // reused fused total (was SumOf)
 
     if (!st->block) {
         // Both bases come from the SAME posting sink, snapshotted at block open.
@@ -565,8 +608,10 @@ Status LogicalIndexWriter::process_term(TermPostings& tp, BlockState* st) {
     }
 
     DictEntry e;
-    RETURN_IF_ERROR(build_entry(tp, st->frq_base, st->prx_base, &e));
-    st->block->add_entry(e);
+    RETURN_IF_ERROR(build_entry(tp, st->frq_base, st->prx_base, fs, &e));
+    // `e` is not used after this point, so move it into the block to avoid a
+    // per-term DictEntry copy (two vector heap allocations for inline entries).
+    st->block->add_entry(std::move(e));
 
     if (st->block->estimated_bytes() >= target_dict_block_bytes_) {
         RETURN_IF_ERROR(flush_block(st->block.get(), st->block_first_term));

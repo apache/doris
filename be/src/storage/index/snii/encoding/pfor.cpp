@@ -18,6 +18,7 @@
 #include "storage/index/snii/encoding/pfor.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cstdint>
 #include <cstring>
 #include <vector>
@@ -39,32 +40,57 @@ inline uint64_t load_u64_le(const uint8_t* p) {
     return v;
 }
 
-uint8_t bits_for(uint32_t v) {
-    uint8_t b = 0;
-    while (v) {
-        ++b;
-        v >>= 1;
-    }
-    return b;
+// TEST-ONLY seam backing doris::snii::testing::pfor_width_evals(). value_width()
+// is the SINGLE per-value bit-width evaluation point on the encode path, so this
+// counter equals the number of values processed per run -- the deterministic
+// signal that the histogram path scans each value exactly once (vs the former
+// O(maxw*n) re-scan). Compiled out entirely in non-test builds so production pays
+// nothing; a relaxed atomic under BE_TEST keeps it data-race-free under TSAN.
+#ifdef BE_TEST
+std::atomic<uint64_t> g_width_evals {0};
+#endif
+
+// Number of significant bits of v (its minimal bit_width); value_width(0) == 0 is
+// preserved (matching the former bits_for). clz(0) is undefined behaviour, so
+// v == 0 is mapped explicitly here -- never via clz(v | 1), which would mis-score
+// 0 as width 1 and corrupt the histogram.
+inline uint8_t value_width(uint32_t v) {
+#ifdef BE_TEST
+    g_width_evals.fetch_add(1, std::memory_order_relaxed);
+#endif
+    return v ? static_cast<uint8_t>(32 - __builtin_clz(v)) : 0;
 }
 
-// Choose the bit_width that minimizes total bytes (packed + exceptions).
-// Exception cost estimated at ~6 bytes each.
-uint8_t choose_width(const uint32_t* v, size_t n) {
+// Choose the bit_width that minimizes total bytes (packed + exceptions), with
+// exception cost estimated at ~6 bytes each. A single O(n) pass builds a bit-width
+// histogram (recording each value's width into widths[] for the encoder to reuse),
+// then an O(maxw) suffix-sum gives the exception count per candidate width --
+// replacing the former O(maxw*n) re-scan. The cost formula and the ascending-w
+// strict-'<' tie-break are kept identical, so the chosen width (and hence every
+// encoded byte) is unchanged.
+uint8_t choose_width(const uint32_t* v, size_t n, uint8_t* widths) {
+    // hist[b] = #values whose bit-width == b. n is capped at kFrqBaseUnit (256) on
+    // the production path; uint32_t buckets keep a direct caller with a larger run
+    // correct without affecting the chosen width.
+    uint32_t hist[33] = {0};
     uint8_t maxw = 0;
     for (size_t i = 0; i < n; ++i) {
-        maxw = std::max(maxw, bits_for(v[i]));
+        const uint8_t b = value_width(v[i]);
+        widths[i] = b;
+        ++hist[b];
+        maxw = std::max(b, maxw);
+    }
+    // suffix[k] = #values whose bit-width >= k, so the exceptions for candidate
+    // width w (values needing more than w bits) are exactly suffix[w + 1].
+    size_t suffix[34] = {0};
+    for (int k = 32; k >= 0; --k) {
+        suffix[k] = suffix[k + 1] + hist[k];
     }
     uint8_t best = maxw;
     size_t best_cost = SIZE_MAX;
     for (uint8_t w = 0; w <= maxw; ++w) {
-        size_t exc = 0;
-        for (size_t i = 0; i < n; ++i) {
-            if (bits_for(v[i]) > w) {
-                ++exc;
-            }
-        }
-        size_t cost = (static_cast<size_t>(w) * n + 7) / 8 + exc * 6;
+        const size_t exc = suffix[w + 1];
+        const size_t cost = (static_cast<size_t>(w) * n + 7) / 8 + exc * 6;
         if (cost < best_cost) {
             best_cost = cost;
             best = w;
@@ -77,14 +103,20 @@ uint32_t low_mask(uint8_t w) {
     return (w >= 32) ? 0xFFFFFFFFU : ((1U << w) - 1U);
 }
 
-void bitpack(const uint32_t* v, size_t n, uint8_t w, ByteSink* out) {
+// Bit-pack the low w bits of each value, writing 0 at exception positions
+// (widths[i] > w) instead of the value's low bits. This is byte-identical to
+// packing a copy in which those slots were pre-zeroed (the former `low[i] = 0`
+// placeholder), so the encoder no longer materializes that copy.
+void bitpack_masked(const uint32_t* v, const uint8_t* widths, size_t n, uint8_t w, ByteSink* out) {
     if (w == 0) {
         return;
     }
+    const uint32_t mask = low_mask(w);
     uint64_t acc = 0;
     int filled = 0;
     for (size_t i = 0; i < n; ++i) {
-        acc |= static_cast<uint64_t>(v[i] & low_mask(w)) << filled;
+        const uint32_t lo = (widths[i] > w) ? 0U : (v[i] & mask);
+        acc |= static_cast<uint64_t>(lo) << filled;
         filled += w;
         while (filled >= 8) {
             out->put_u8(static_cast<uint8_t>(acc));
@@ -310,25 +342,59 @@ Status bitunpack(ByteSource* src, size_t n, uint8_t w, uint32_t* out) {
 
 } // namespace
 
+namespace testing {
+// Test-only op-count seam; see pfor.h. Reports/resets the per-value bit-width
+// evaluation counter, and is a no-op in non-test builds where the counter is
+// compiled out.
+uint64_t pfor_width_evals() {
+#ifdef BE_TEST
+    return g_width_evals.load(std::memory_order_relaxed);
+#else
+    return 0;
+#endif
+}
+void reset_pfor_width_evals() {
+#ifdef BE_TEST
+    g_width_evals.store(0, std::memory_order_relaxed);
+#endif
+}
+} // namespace testing
+
 void pfor_encode(const uint32_t* values, size_t n, ByteSink* out) {
-    uint8_t w = choose_width(values, n);
-    std::vector<std::pair<uint32_t, uint32_t>> exc; // (index, full value)
-    std::vector<uint32_t> low(values, values + n);
-    for (size_t i = 0; i < n; ++i) {
-        if (bits_for(values[i]) > w) {
-            exc.emplace_back(static_cast<uint32_t>(i), values[i]);
-            low[i] = 0; // Write 0 as placeholder at exception position; true value
-                        // stored in exception table
-        }
+    // n is hard-capped at kFrqBaseUnit (256) by encode_pfor_runs, so the stack
+    // buffer is used on every production call; the heap fallback only guards a
+    // direct caller passing a larger run.
+    uint8_t widths_stack[256];
+    std::vector<uint8_t> widths_heap;
+    uint8_t* widths = widths_stack;
+    if (n > sizeof(widths_stack)) {
+        widths_heap.resize(n);
+        widths = widths_heap.data();
     }
+
+    const uint8_t w = choose_width(values, n, widths);
     out->put_u8(w);
-    out->put_varint32(static_cast<uint32_t>(exc.size()));
-    bitpack(low.data(), n, w, out);
+
+    // Count exceptions for the varint header by reusing the cached per-value
+    // widths -- no further bit-width evaluation.
+    uint32_t n_exc = 0;
+    for (size_t i = 0; i < n; ++i) {
+        n_exc += (widths[i] > w);
+    }
+    out->put_varint32(n_exc);
+
+    // Pack the low w bits, writing 0 at exception slots (byte-identical to the
+    // former zeroed-copy approach) so no separate `low` buffer is materialized.
+    bitpack_masked(values, widths, n, w, out);
+
+    // Exception table: (index_delta, full_value) in ascending index order.
     uint32_t prev = 0;
-    for (const auto& e : exc) {
-        out->put_varint32(e.first - prev);
-        out->put_varint32(e.second);
-        prev = e.first;
+    for (size_t i = 0; i < n; ++i) {
+        if (widths[i] > w) {
+            out->put_varint32(static_cast<uint32_t>(i) - prev);
+            out->put_varint32(values[i]);
+            prev = static_cast<uint32_t>(i);
+        }
     }
 }
 

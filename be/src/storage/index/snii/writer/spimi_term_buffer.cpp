@@ -140,6 +140,19 @@ void SpimiTermBuffer::report_arena_delta() {
     // Diff the REAL resident bytes (arena + slot index) against the last reported
     // total; emit the signed delta exactly once.
     const auto now = static_cast<int64_t>(resident_bytes());
+    // Per-token zero-delta debounce: skip the locked fetch_add when resident is
+    // unchanged (the common case -- arena_bytes() grows only ~every 32 KiB block and
+    // the borrowed-vocab slot index is fixed-capacity, so most tokens see delta==0). A
+    // delta==0 report() is a no-op (current_.fetch_add(0) plus a mirrored
+    // consume_release(0)) and leaves reported_resident_ == now, so current_bytes(),
+    // every over_cap() result, and the gate-2 spill timing stay bit-for-bit identical.
+    // This debounces report() ONLY: accumulate() still evaluates over_cap()
+    // UNCONDITIONALLY every token, because the writer-level UNIFIED total (shared with
+    // the dict buffer) can cross the cap while this buffer's local delta is 0 -- gating
+    // over_cap() on this delta would miss that spill.
+    if (now == reported_resident_) {
+        return;
+    }
     mem_reporter_->report(now - reported_resident_);
     reported_resident_ = now;
 }
@@ -633,7 +646,14 @@ Status SpimiTermBuffer::merge_runs(const std::function<void(TermPostings&&)>& fn
     // there); this swap frees slot_of_, so report the remaining negative now. After a
     // full spilled drain reported_resident_ returns to 0 (no leak).
     report_arena_delta();
-    Status s = MergeRuns(run_paths_, vocab(), has_positions_, fn, allow_stream_positions);
+    // The k-way merge keys its heap/gather on the term-id -> lexicographic rank array
+    // instead of comparing vocab strings. Build it explicitly here (idempotent -- every
+    // spill already builds it via sorted_ids(), and merge_runs is only reached after at
+    // least one spill, but the explicit call keeps the rank fresh and sized to the vocab
+    // even if a future caller path reaches the merge without a prior spill).
+    ensure_string_rank();
+    Status s = MergeRuns(run_paths_, vocab(), string_rank_, has_positions_, fn,
+                         allow_stream_positions);
     // The merge churns one large coalesced TermPostings per term (the widest term's
     // arrays are tens of MiB) plus per-run reader windows; on completion glibc
     // retains those freed chunks in its arenas. Trim again so the post-merge resident

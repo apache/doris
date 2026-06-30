@@ -70,7 +70,19 @@ void DictBlockBuilder::add_entry(const DictEntry& entry) {
     }
     entries_est_ += estimate_entry_bytes(entry);
     entries_.push_back(entry);
-    prev_term_ = entry.term;
+    ++n_entries_;
+}
+
+void DictBlockBuilder::add_entry(DictEntry&& entry) {
+    if (is_anchor(n_entries_)) {
+        ++n_anchors_;
+    }
+    // estimate_entry_bytes reads `entry`, so it MUST run before the move below:
+    // sizing a moved-from (empty) entry would undercount entries_est_ and split
+    // blocks incorrectly. finish() output is unaffected either way -- it depends
+    // only on the entries actually queued, not on how they were appended.
+    entries_est_ += estimate_entry_bytes(entry);
+    entries_.push_back(std::move(entry));
     ++n_entries_;
 }
 

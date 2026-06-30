@@ -370,21 +370,26 @@ Status RunReader::advance() {
 
 namespace {
 
-// Min-heap entry: orders by the run's current term-id's VOCAB STRING, tie-broken
-// by run index so equal terms are gathered run-order (keeping concatenated
-// docids ascending). The comparator resolves id -> string via the shared vocab,
-// so the merged stream is lexicographic (the dictionary order the writer needs).
+// Min-heap entry: orders by the run's current term-id's PRECOMPUTED integer
+// string-rank (rank[term_id] == its lexicographic rank over the dense vocabulary),
+// tie-broken by run index so equal terms are gathered run-order (keeping
+// concatenated docids ascending). The rank is a lexicographic bijection on a dense
+// vocab, so ordering by the dense 4 B rank array reproduces the exact dictionary
+// order a vocab-string compare would -- with an integer compare and zero random
+// vocab string access in the inner loop.
 struct HeapItem {
     uint32_t term_id;
     size_t run;
 };
 struct HeapGreater {
-    const std::vector<std::string>* vocab;
+    const std::vector<uint32_t>* rank;
     bool operator()(const HeapItem& a, const HeapItem& b) const {
-        const std::string& sa = (*vocab)[a.term_id];
-        const std::string& sb = (*vocab)[b.term_id];
-        if (sa != sb) return sa > sb;
-        return a.run > b.run;
+        const uint32_t ra = (*rank)[a.term_id];
+        const uint32_t rb = (*rank)[b.term_id];
+        if (ra != rb) {
+            return ra > rb;
+        }                     // smaller rank first (lexicographic min-heap)
+        return a.run > b.run; // same term across runs: run-order tie-break
     }
 };
 
@@ -459,11 +464,19 @@ bool ShouldStreamPositions(uint64_t total_docs, uint64_t total_pos, bool has_pos
 } // namespace
 
 Status MergeRuns(const std::vector<std::string>& run_paths, const std::vector<std::string>& vocab,
-                 bool has_positions, const std::function<void(TermPostings&&)>& fn,
-                 bool allow_stream_positions) {
+                 const std::vector<uint32_t>& string_rank, bool has_positions,
+                 const std::function<void(TermPostings&&)>& fn, bool allow_stream_positions) {
+    // The heap/gather key is string_rank[term_id]; require it sized to the vocab so
+    // every in-vocab-range term-id (enforced by the current_id() < vocab.size() guards
+    // below) also indexes string_rank in bounds. A mismatch is a caller wiring bug.
+    if (string_rank.size() != vocab.size()) {
+        return Status::Error<ErrorCode::INTERNAL_ERROR, false>(
+                "MergeRuns: string_rank/vocab size mismatch");
+    }
     std::vector<std::unique_ptr<RunReader>> readers;
     readers.reserve(run_paths.size());
-    std::priority_queue<HeapItem, std::vector<HeapItem>, HeapGreater> heap(HeapGreater {&vocab});
+    std::priority_queue<HeapItem, std::vector<HeapItem>, HeapGreater> heap(
+            HeapGreater {&string_rank});
     for (size_t i = 0; i < run_paths.size(); ++i) {
         auto r = std::make_unique<RunReader>();
         RETURN_IF_ERROR(r->open(run_paths[i], has_positions));
@@ -481,16 +494,16 @@ Status MergeRuns(const std::vector<std::string>& run_paths, const std::vector<st
     while (!heap.empty()) {
         const uint32_t id = heap.top().term_id;
         TermPostings merged;
-        merged.term = vocab[id]; // resolve the id -> dictionary string once
-        // Gather every run whose head id maps to the same string (the heap's run
-        // tie-break keeps them in run order, so concatenated docids stay ascending).
-        // Equal strings imply equal ids for a dense vocab; compare by string so a
-        // duplicate string still groups correctly. The matching runs' current slices
-        // are already loaded in their readers (they were read to seed the heap), so
-        // summing their sizes here costs nothing extra in RAM.
+        merged.term = vocab[id]; // resolve the id -> dictionary string once per term
+        // Gather every run whose head is THIS term-id (integer equality -- the heap's
+        // run tie-break keeps them in run order, so concatenated docids stay ascending).
+        // A dense vocab maps each id to a distinct string, so the same term across runs
+        // shares one id; comparing ids avoids any vocab string access in this loop. The
+        // matching runs' current slices are already loaded in their readers (they were
+        // read to seed the heap), so summing their sizes here costs nothing extra in RAM.
         matching.clear();
         uint64_t total_docs = 0, total_pos = 0;
-        while (!heap.empty() && vocab[heap.top().term_id] == merged.term) {
+        while (!heap.empty() && heap.top().term_id == id) {
             const size_t ri = heap.top().run;
             heap.pop();
             const RunReader* r = readers[ri].get();

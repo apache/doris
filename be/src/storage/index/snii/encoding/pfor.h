@@ -37,3 +37,17 @@ Status pfor_decode(ByteSource* src, size_t n, uint32_t* out);
 Status pfor_skip(ByteSource* src, size_t n);
 
 } // namespace doris::snii
+
+// Test-only instrumentation seam (mirrors the dict-block decode-counter pattern).
+// pfor_width_evals() returns a process-global count of per-value bit-width
+// evaluations performed by pfor_encode since the last reset -- one per
+// value_width() call, the single evaluation point on the encode path. Deterministic
+// perf tests assert it equals the number of encoded values per run, proving the
+// histogram path scans each value exactly once (vs the former O(maxw*n) re-scan).
+// Compiled to a no-op in non-test builds; reset between tests.
+namespace doris::snii::testing {
+
+uint64_t pfor_width_evals();
+void reset_pfor_width_evals();
+
+} // namespace doris::snii::testing

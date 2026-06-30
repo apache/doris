@@ -105,3 +105,20 @@ Status read_prx_window_csr_selective(ByteSource* source, std::span<const uint32_
                                      std::vector<uint32_t>* pos_off);
 
 } // namespace doris::snii::format
+
+// Test-only instrumentation seam. prx_raw_build_count() returns a process-global
+// count of raw plaintext payloads MATERIALIZED by the auto-mode (.prx) window
+// builders -- i.e. the throwaway ByteSink the writer fills ONLY when the exact
+// plaintext size reaches kAutoZstdMinBytes and a zstd attempt is therefore worth
+// making. In auto mode the small windows that dominate a Zipfian corpus skip that
+// materialization (and the second delta walk) entirely, so tests assert the count
+// is 0 for sub-threshold windows and exactly 1 per materialized large window.
+// Counters use relaxed atomics and are reset between tests; the writer's segment
+// build is single-threaded, so the atomic adds introduce no data race.
+namespace doris::snii::format::testing {
+
+uint64_t prx_raw_build_count();
+void reset_prx_raw_build_count();
+void note_prx_raw_build();
+
+} // namespace doris::snii::format::testing

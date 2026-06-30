@@ -29,6 +29,7 @@
 
 #include "common/status.h"
 
+using doris::snii::writer::MemoryReporter;
 using doris::snii::writer::SpimiTermBuffer;
 using doris::snii::writer::TermPostings;
 using doris::Status;
@@ -481,4 +482,193 @@ TEST(SniiSpimiTermBuffer, AscendingInputByteIdenticalAcrossDrains) {
     }
     EXPECT_TRUE(mat.status().ok());
     EXPECT_TRUE(strm.status().ok());
+}
+
+// ---------------------------------------------------------------------------
+// T17: MemoryReporter per-token zero-delta debounce.
+//
+// accumulate() reports its REAL resident-byte delta (posting arena + the
+// vocab-sized slot index) to the writer-level MemoryReporter once per token. The
+// arena grows only ~every 32 KiB block and the borrowed-vocab slot index is
+// fixed-capacity, so the vast majority of tokens see delta==0. report_arena_delta()
+// now SKIPS the locked fetch_add for those (debounce). These tests pin the
+// deterministic op-count (report() calls == arena-growth events, never per token),
+// the byte-level equivalence (current_bytes() unchanged), and the REDLINE: over_cap()
+// is still evaluated UNCONDITIONALLY every token (never gated on the local delta), so
+// a dict-side push over the unified cap still triggers a spill when this buffer's own
+// delta is 0. A MemoryReporter built with a counting consume_release lambda exposes
+// the exact per-token report() count / delta values as a deterministic seam.
+// ---------------------------------------------------------------------------
+
+// FV-1 (deterministic op-count + functional): feeding 100 same-doc tokens issues
+// exactly TWO report() calls -- one ctor delta (the resident slot index) and one for
+// the first token's 32 KiB arena block -- and NEVER a zero-delta report. Before the
+// debounce, tokens 2..100 each issued report(0): 101 calls, 99 of them zero.
+TEST(SniiSpimiTermBufferTest, AccumulateIssuesNoZeroDeltaReport) {
+    std::vector<int64_t> deltas;
+    MemoryReporter rep([&deltas](int64_t d) { deltas.push_back(d); }, /*cap_bytes=*/0);
+    const std::vector<std::string> vocab = {"a"};
+    SpimiTermBuffer buf(&vocab, /*has_positions=*/false, /*spill=*/0, &rep);
+
+    for (int i = 0; i < 100; ++i) {
+        buf.add_token(0, /*docid=*/1, /*pos=*/0); // same term, same doc
+    }
+
+    // 1 ctor report (slot index) + 1 first-token report (first 32 KiB arena block).
+    // The other 99 same-doc tokens leave resident unchanged -> debounced away.
+    ASSERT_EQ(deltas.size(), 2U);
+    EXPECT_GT(deltas[0], 0);     // slot index resident bytes (vocab-sized)
+    EXPECT_EQ(deltas[1], 32768); // exactly one CompactPostingPool block (1 << 15)
+    for (int64_t d : deltas) {
+        EXPECT_NE(d, 0) << "no zero-delta report() may be issued on the hot path";
+    }
+    EXPECT_TRUE(buf.status().ok());
+}
+
+// FV-2 (equivalence + count stability): the report() COUNT is independent of the
+// token count (100 vs 500 same-doc tokens both issue exactly 2 reports), and the
+// resulting unified total is byte-identical (resident = first arena block + slot
+// index, not a function of token count). The sum of issued deltas equals
+// current_bytes() -- the MemoryReporter self-balancing invariant the debounce
+// preserves. Snapshots are taken WHILE each buffer is live (before its dtor reports
+// the final balancing negative).
+TEST(SniiSpimiTermBufferTest, ReportedTotalMatchesResidentRegardlessOfTokenCount) {
+    const std::vector<std::string> vocab = {"a"};
+
+    std::vector<int64_t> d100;
+    std::vector<int64_t> d500;
+    int64_t cur100 = 0;
+    int64_t cur500 = 0;
+    size_t count100 = 0;
+    size_t count500 = 0;
+
+    {
+        MemoryReporter rep([&d100](int64_t d) { d100.push_back(d); }, /*cap_bytes=*/0);
+        SpimiTermBuffer buf(&vocab, /*has_positions=*/false, /*spill=*/0, &rep);
+        for (int i = 0; i < 100; ++i) {
+            buf.add_token(0, /*docid=*/1, /*pos=*/0);
+        }
+        count100 = d100.size(); // snapshot before the dtor's balancing report
+        cur100 = rep.current_bytes();
+    }
+    {
+        MemoryReporter rep([&d500](int64_t d) { d500.push_back(d); }, /*cap_bytes=*/0);
+        SpimiTermBuffer buf(&vocab, /*has_positions=*/false, /*spill=*/0, &rep);
+        for (int i = 0; i < 500; ++i) {
+            buf.add_token(0, /*docid=*/1, /*pos=*/0);
+        }
+        count500 = d500.size();
+        cur500 = rep.current_bytes();
+    }
+
+    // Count stability: neither buffer's report count scales with token count.
+    EXPECT_EQ(count100, 2U);
+    EXPECT_EQ(count500, 2U);
+    // Byte-level equivalence: identical unified total despite 5x the tokens.
+    EXPECT_EQ(cur100, cur500);
+    ASSERT_GE(d100.size(), 2U);
+    ASSERT_GE(d500.size(), 2U);
+    // Both: identical first 32 KiB arena block (the slot index cancels in this delta).
+    EXPECT_EQ(d100[1], 32768);
+    EXPECT_EQ(d500[1], 32768);
+    // Self-balancing: live current_bytes() == sum of every delta issued so far.
+    int64_t sum100 = 0;
+    for (size_t i = 0; i < count100; ++i) {
+        sum100 += d100[i];
+    }
+    EXPECT_EQ(cur100, sum100);
+    EXPECT_EQ(cur100, 32768 + d100[0]); // arena block + slot index resident
+}
+
+// FV-3 (REDLINE guard): the debounce skips report() ONLY -- it must NOT gate
+// over_cap(). over_cap() reads the writer-level UNIFIED total (shared with the dict
+// buffer), so a dict-side allocation can push the total over the cap while THIS
+// buffer's local arena delta is 0. accumulate() must still evaluate over_cap() every
+// token and spill. The dict-side growth is simulated with an external rep.report().
+TEST(SniiSpimiTermBufferTest, OverCapStillFiresWhenLocalArenaDeltaIsZero) {
+    // Cap just above one arena block + slot index, so token1 alone does NOT spill.
+    MemoryReporter rep(/*consume_release=*/nullptr, /*cap_bytes=*/32768 + 1000);
+    const std::vector<std::string> vocab = {"a"};
+    SpimiTermBuffer buf(&vocab, /*has_positions=*/false, /*spill=*/0, &rep);
+
+    // token1: arena grows to one 32 KiB block; unified total < cap -> no spill.
+    buf.add_token(0, /*docid=*/0, /*pos=*/0);
+    ASSERT_EQ(buf.run_count_for_test(), 0U);
+
+    // Simulate dict-side growth pushing the UNIFIED total over the cap. The buffer's
+    // own reported_resident_ is unchanged by this external report.
+    rep.report(2000);
+    ASSERT_TRUE(rep.over_cap());
+
+    // token2: same doc -> this buffer's local arena delta is 0 (report() debounced),
+    // but over_cap() is still evaluated unconditionally and is now true -> spill.
+    buf.add_token(0, /*docid=*/0, /*pos=*/0);
+    EXPECT_EQ(buf.run_count_for_test(), 1U)
+            << "over_cap() must NOT be gated on the local arena delta";
+    EXPECT_TRUE(buf.status().ok());
+}
+
+// FV-4 (boundary): an EMPTY borrowed vocab has a zero-capacity slot index, so the
+// ctor's resident delta is 0 and is debounced away -- no report() is issued and
+// construction does not crash. Before the debounce the ctor issued report(0).
+TEST(SniiSpimiTermBufferTest, EmptyVocabReportsNoDelta) {
+    std::vector<int64_t> deltas;
+    MemoryReporter rep([&deltas](int64_t d) { deltas.push_back(d); }, /*cap_bytes=*/0);
+    const std::vector<std::string> empty_vocab;
+    SpimiTermBuffer buf(&empty_vocab, /*has_positions=*/false, /*spill=*/0, &rep);
+
+    // Zero-capacity slot index + empty arena -> resident 0 -> ctor delta 0 -> skipped.
+    EXPECT_TRUE(deltas.empty());
+    EXPECT_EQ(buf.unique_terms(), 0U);
+    EXPECT_TRUE(buf.finalize_sorted().empty());
+    EXPECT_TRUE(buf.status().ok());
+}
+
+// FV-5 (no-reporter path unaffected): with a null reporter, report_arena_delta() is a
+// no-op and finalize_sorted() still produces the correct postings. Confirms the
+// debounce change did not perturb the off-Doris path.
+TEST(SniiSpimiTermBufferTest, NullReporterFinalizeIsCorrect) {
+    const std::vector<std::string> vocab = {"a"};
+    SpimiTermBuffer buf(&vocab, /*has_positions=*/false, /*spill=*/0, /*reporter=*/nullptr);
+
+    for (int i = 0; i < 100; ++i) {
+        buf.add_token(0, /*docid=*/1, /*pos=*/0); // same term, same doc
+    }
+
+    std::vector<TermPostings> terms = buf.finalize_sorted();
+    ASSERT_EQ(terms.size(), 1U);
+    EXPECT_EQ(terms[0].term, "a");
+    EXPECT_EQ(terms[0].docids, (std::vector<uint32_t> {1U}));
+    EXPECT_EQ(terms[0].freqs, (std::vector<uint32_t> {100U}));
+    EXPECT_TRUE(terms[0].positions_flat.empty());
+    EXPECT_TRUE(buf.status().ok());
+}
+
+// FV-6 (spill/drain negative path + self-balance): a forced spill emits NONZERO
+// negative deltas (arena reset, then slot-index free), never a zero. After a full
+// drain the reporter's unified total returns to 0 -- the debounce preserves the
+// self-balancing invariant (no leaked positive). The merged postings are correct.
+TEST(SniiSpimiTermBufferTest, SpillNegativeDeltasHaveNoZeroAndBalance) {
+    std::vector<int64_t> deltas;
+    // Cap below one arena block, so the first token's block forces a spill.
+    MemoryReporter rep([&deltas](int64_t d) { deltas.push_back(d); }, /*cap_bytes=*/1000);
+    const std::vector<std::string> vocab = {"a"};
+    SpimiTermBuffer buf(&vocab, /*has_positions=*/false, /*spill=*/0, &rep);
+
+    buf.add_token(0, /*docid=*/0, /*pos=*/0); // grows one block, then spills
+    ASSERT_EQ(buf.run_count_for_test(), 1U) << "the over-cap token must spill";
+
+    std::vector<TermPostings> terms = buf.finalize_sorted();
+    ASSERT_EQ(terms.size(), 1U);
+    EXPECT_EQ(terms[0].term, "a");
+    EXPECT_EQ(terms[0].docids, (std::vector<uint32_t> {0U}));
+    EXPECT_EQ(terms[0].freqs, (std::vector<uint32_t> {1U}));
+    EXPECT_TRUE(buf.status().ok());
+
+    // No zero-delta report on any path (grow, spill-negative, or merge-free).
+    for (int64_t d : deltas) {
+        EXPECT_NE(d, 0) << "spill/drain deltas must all be nonzero";
+    }
+    // Self-balancing: after a full drain every reported byte has been returned.
+    EXPECT_EQ(rep.current_bytes(), 0);
 }

@@ -194,4 +194,78 @@ private:
     uint64_t payload_bytes_ = 0;
 };
 
+// ---- Inlined per-byte hot paths --------------------------------------------
+// append_byte (one call per encoded payload byte during SPIMI ingest) and
+// Cursor::has_next/next (one call per arena byte during finalize drain/merge)
+// are the writer's two hottest per-byte loops. Their callers live in a DIFFERENT
+// translation unit (spimi_term_buffer.cpp), and the build has no LTO/IPO/unity
+// build, so an out-of-line .cpp definition forces a non-inlinable cross-TU call
+// (plus stack spill of cur_/slice_end_/budget_) on every single byte. Defining
+// the bodies inline HERE lets the caller's TU inline them, keeping the cursor
+// state in registers and eliminating the per-byte call/ret. They are placed
+// AFTER the class so every private member they touch (at, read_ptr, alloc_slice,
+// write_ptr, kSliceSizes, kNextLevel, payload_bytes_) is already declared and
+// visible; Cursor is a nested class, so it may use the enclosing pool's privates
+// (read_ptr/at) through pool_. The cold slice-overflow helpers (alloc_slice,
+// write_ptr) stay out-of-line in the .cpp -- only the per-byte work is inlined.
+// Pure code move from the .cpp: behavior and produced bytes are identical.
+
+inline void CompactPostingPool::append_byte(SliceWriter* w, uint8_t* level, uint8_t value) {
+    if (w->cur == w->slice_end) {
+        // Current slice payload region is full: grow the chain with a larger slice and
+        // record the link in the old slice's trailing pointer bytes.
+        const uint8_t next_level = kNextLevel[*level];
+        uint32_t new_end = 0;
+        const uint32_t new_head = alloc_slice(next_level, &new_end);
+        write_ptr(w->slice_end, new_head);
+        *level = next_level;
+        w->cur = new_head;
+        w->slice_end = new_end;
+    }
+    *at(w->cur) = value;
+    ++w->cur;
+    ++payload_bytes_;
+}
+
+inline bool CompactPostingPool::Cursor::has_next() const {
+    if (budget_ == 0) {
+        return false;
+    }
+    // At a slice boundary, the chain continues only if the forward pointer is non-zero;
+    // a zero pointer is the tail marker (offset 0 is never a valid next-slice head). Peek
+    // it so has_next() never reports a phantom byte that next() would have to fabricate.
+    if (cur_ == slice_end_) {
+        return pool_->read_ptr(slice_end_) != 0;
+    }
+    return true;
+}
+
+inline uint8_t CompactPostingPool::Cursor::next() {
+    // Budget guard: the caller's stated upper bound is spent -- yield nothing more.
+    if (budget_ == 0) {
+        return 0;
+    }
+    if (cur_ == slice_end_) {
+        // Reached this slice's payload boundary. Follow the forward pointer to the next
+        // slice -- UNLESS it is zero, which marks the CHAIN TAIL (offset 0 is always the
+        // pool's very first slice, never a valid *next*-slice head, so a zero pointer is
+        // unambiguously "no more slices"). Without this tail check, an over-reading caller
+        // would follow the zero pointer to offset 0 and alias block 0's bytes (or read an
+        // unallocated block) -- UB. Stopping here makes the cursor self-terminating and
+        // safe regardless of how large a budget the caller passed.
+        const uint32_t next_head = pool_->read_ptr(slice_end_);
+        if (next_head == 0) {
+            budget_ = 0; // chain exhausted: no further bytes exist
+            return 0;
+        }
+        level_ = CompactPostingPool::kNextLevel[level_];
+        cur_ = next_head;
+        slice_end_ = next_head + CompactPostingPool::kSliceSizes[level_];
+    }
+    const uint8_t v = *pool_->at(cur_);
+    ++cur_;
+    --budget_;
+    return v;
+}
+
 } // namespace doris::snii::writer

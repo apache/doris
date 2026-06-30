@@ -19,6 +19,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cstddef>
 #include <span>
 #include <vector>
@@ -140,25 +141,19 @@ Status decode_pfor_runs(ByteSource* src, size_t n, std::vector<uint32_t>* out) {
     return Status::OK();
 }
 
-// PFOR window payload (self-describing; no entropy coding):
-//   VInt doc_count
-//   VInt total_pos             # sum of all pos_counts
-//   PFOR_runs(pos_counts)      # doc_count values (bit-packed; mostly 1 -> ~1
-//   bit) PFOR_runs(position_deltas) # total_pos deltas, flat across docs (first
-//   per
-//                              #   doc absolute, rest delta-within-doc)
-// Bit-packing the per-doc pos_counts (vs one varint each) is the size win: in a
-// uniform corpus most docs have freq 1, so the count column packs to ~1
-// bit/doc. Builds the payload from a flat positions span partitioned per-doc by
-// `freqs`.
-Status encode_pfor_payload_flat(std::span<const uint32_t> flat, std::span<const uint32_t> freqs,
-                                ByteSink* out) {
+// Derive the per-doc position deltas ONCE into `deltas` (flat, in doc order: the
+// first position of each doc is absolute, the rest are deltas within the doc),
+// enforcing the writer-side preconditions BOTH payload encoders relied on: the
+// (flat, freqs) partition must be exact (check_flat_partition) and positions
+// within each doc must be ascending. The loop is identical to the delta
+// derivation the old encode_pfor_payload_flat ran inline, lifted out so the auto
+// path can feed BOTH the PFOR payload and (only when needed) the raw plaintext
+// payload from one buffer instead of walking `flat` twice.
+Status compute_flat_deltas(std::span<const uint32_t> flat, std::span<const uint32_t> freqs,
+                           std::vector<uint32_t>* deltas) {
     RETURN_IF_ERROR(check_flat_partition(flat, freqs));
-    out->put_varint32(static_cast<uint32_t>(freqs.size()));
-    out->put_varint32(static_cast<uint32_t>(flat.size()));
-    encode_pfor_runs(freqs, out);
-    std::vector<uint32_t> deltas;
-    deltas.reserve(flat.size());
+    deltas->clear();
+    deltas->reserve(flat.size());
     size_t off = 0;
     for (uint32_t fc : freqs) {
         uint32_t prev = 0;
@@ -168,24 +163,51 @@ Status encode_pfor_payload_flat(std::span<const uint32_t> flat, std::span<const 
                 return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
                         "prx: positions within a doc must be ascending");
             }
-            deltas.push_back(i == 0 ? pos : pos - prev);
+            deltas->push_back(i == 0 ? pos : pos - prev);
             prev = pos;
         }
         off += fc;
     }
-    encode_pfor_runs(deltas, out);
     return Status::OK();
 }
 
-// Builds the PFOR payload from per-doc lists (delegates through a flat view).
-Status encode_pfor_payload(std::span<const std::vector<uint32_t>> per_doc, ByteSink* out) {
-    std::vector<uint32_t> flat, freqs;
-    freqs.reserve(per_doc.size());
-    for (const auto& doc : per_doc) {
-        freqs.push_back(static_cast<uint32_t>(doc.size()));
-        flat.insert(flat.end(), doc.begin(), doc.end());
+// PFOR window payload (self-describing; no entropy coding):
+//   VInt doc_count
+//   VInt total_pos             # sum of all pos_counts
+//   PFOR_runs(pos_counts)      # doc_count values (bit-packed; mostly 1 -> ~1
+//   bit) PFOR_runs(position_deltas) # total_pos deltas, flat across docs (first
+//   per
+//                              #   doc absolute, rest delta-within-doc)
+// Bit-packing the per-doc pos_counts (vs one varint each) is the size win: in a
+// uniform corpus most docs have freq 1, so the count column packs to ~1 bit/doc.
+// Emits byte-for-byte the same payload the old encode_pfor_payload_flat produced
+// (doc_count == freqs.size(), total_pos == deltas.size() == sum(freqs)), but
+// reads the already-derived `deltas` instead of re-walking the positions.
+void encode_pfor_payload_from_deltas(std::span<const uint32_t> freqs,
+                                     std::span<const uint32_t> deltas, ByteSink* out) {
+    out->put_varint32(static_cast<uint32_t>(freqs.size()));
+    out->put_varint32(static_cast<uint32_t>(deltas.size()));
+    encode_pfor_runs(freqs, out);
+    encode_pfor_runs(deltas, out);
+}
+
+// Raw plaintext payload (self-describing per-doc boundaries):
+//   VInt doc_count
+//   per doc: VInt pos_count, then pos_count position deltas (VInt)
+// Emits byte-for-byte the same payload the old encode_payload_flat produced, but
+// reads the already-derived `deltas` instead of re-walking the positions and
+// re-running the partition/ascending checks.
+void encode_payload_from_deltas(std::span<const uint32_t> freqs, std::span<const uint32_t> deltas,
+                                ByteSink* out) {
+    out->put_varint32(static_cast<uint32_t>(freqs.size()));
+    size_t off = 0;
+    for (uint32_t fc : freqs) {
+        out->put_varint32(fc);
+        for (uint32_t i = 0; i < fc; ++i) {
+            out->put_varint32(deltas[off + i]);
+        }
+        off += fc;
     }
-    return encode_pfor_payload_flat(flat, freqs, out);
 }
 
 // Decode per-doc position lists from a PFOR payload.
@@ -251,6 +273,25 @@ size_t varint32_size(uint32_t value) {
     return bytes;
 }
 
+// Exact byte length of the raw plaintext payload encode_payload_from_deltas would
+// emit, computed WITHOUT materializing it. Mirrors that encoder field for field:
+// varint32_size(doc_count) + Sum varint32_size(pos_count) + Sum varint32_size(delta)
+// (order is irrelevant to the total). The auto path uses this to decide whether
+// the raw plaintext is large enough (>= kAutoZstdMinBytes) to be worth
+// materializing for the zstd-vs-pfor comparison, so it MUST equal
+// encode_payload_from_deltas's output size EXACTLY -- otherwise the codec choice
+// could drift across the 512 threshold and change the on-disk bytes.
+size_t exact_plain_payload_size(std::span<const uint32_t> freqs, std::span<const uint32_t> deltas) {
+    size_t bytes = varint32_size(static_cast<uint32_t>(freqs.size()));
+    for (uint32_t fc : freqs) {
+        bytes += varint32_size(fc);
+    }
+    for (uint32_t delta : deltas) {
+        bytes += varint32_size(delta);
+    }
+    return bytes;
+}
+
 size_t pfor_frame_size(size_t payload_size) {
     return 1 + varint32_size(static_cast<uint32_t>(payload_size)) + payload_size + sizeof(uint32_t);
 }
@@ -282,6 +323,33 @@ Status write_auto_pfor_or_zstd(Slice pfor_payload, Slice plain_payload, ByteSink
         }
     }
     write_pfor(pfor_payload, sink);
+    return Status::OK();
+}
+
+// Shared auto-mode (kAutoZstd) single-encode path for BOTH .prx builders. The
+// per-doc and flat builders both funnel through here on a flat (positions, freqs)
+// view so their windows stay byte-identical. Derives the per-doc deltas once,
+// encodes the PFOR payload from them, and only materializes the raw plaintext
+// payload (to try zstd) when its EXACT size reaches kAutoZstdMinBytes; smaller
+// windows -- the vast majority in a Zipfian corpus -- skip the throwaway
+// plaintext ByteSink and the second delta walk entirely and emit PFOR directly.
+// Byte-identical to the former "encode_pfor_payload(_flat) + encode_payload(_flat)
+// + write_auto_pfor_or_zstd" sequence: identical PFOR bytes, identical plaintext
+// bytes when materialized, and an exact (not estimated) size so the 512-threshold
+// codec choice never drifts.
+Status build_prx_window_auto_from_flat(std::span<const uint32_t> positions_flat,
+                                       std::span<const uint32_t> freqs, ByteSink* sink) {
+    std::vector<uint32_t> deltas;
+    RETURN_IF_ERROR(compute_flat_deltas(positions_flat, freqs, &deltas));
+    ByteSink payload;
+    encode_pfor_payload_from_deltas(freqs, deltas, &payload);
+    if (exact_plain_payload_size(freqs, deltas) >= kAutoZstdMinBytes) {
+        ByteSink plain;
+        encode_payload_from_deltas(freqs, deltas, &plain);
+        testing::note_prx_raw_build();
+        return write_auto_pfor_or_zstd(payload.view(), plain.view(), sink);
+    }
+    write_pfor(payload.view(), sink);
     return Status::OK();
 }
 
@@ -713,11 +781,16 @@ Status build_prx_window(std::span<const std::vector<uint32_t>> per_doc_positions
         }
         return write_zstd(plain_view, zstd_level_or_negative_for_auto, sink);
     }
-    ByteSink payload;
-    RETURN_IF_ERROR(encode_pfor_payload(per_doc_positions, &payload));
-    ByteSink plain;
-    RETURN_IF_ERROR(encode_payload(per_doc_positions, &plain));
-    return write_auto_pfor_or_zstd(payload.view(), plain.view(), sink);
+    // Auto mode: flatten the per-doc lists into (positions_flat, freqs) exactly as
+    // the former encode_pfor_payload did, then run the shared single-encode path so
+    // this builder stays byte-identical to build_prx_window_flat.
+    std::vector<uint32_t> flat, freqs;
+    freqs.reserve(per_doc_positions.size());
+    for (const auto& doc : per_doc_positions) {
+        freqs.push_back(static_cast<uint32_t>(doc.size()));
+        flat.insert(flat.end(), doc.begin(), doc.end());
+    }
+    return build_prx_window_auto_from_flat(flat, freqs, sink);
 }
 
 Status build_prx_window_flat(std::span<const uint32_t> positions_flat,
@@ -734,11 +807,10 @@ Status build_prx_window_flat(std::span<const uint32_t> positions_flat,
         }
         return write_zstd(plain_view, zstd_level_or_negative_for_auto, sink);
     }
-    ByteSink payload;
-    RETURN_IF_ERROR(encode_pfor_payload_flat(positions_flat, freqs, &payload));
-    ByteSink plain;
-    RETURN_IF_ERROR(encode_payload_flat(positions_flat, freqs, &plain));
-    return write_auto_pfor_or_zstd(payload.view(), plain.view(), sink);
+    // Auto mode: single-encode path (shared with build_prx_window) -- derive deltas
+    // once, emit PFOR, and only materialize the raw plaintext when it is large
+    // enough to attempt zstd. Byte-identical to the prior double-encode.
+    return build_prx_window_auto_from_flat(positions_flat, freqs, sink);
 }
 
 Status read_prx_window(ByteSource* source, std::vector<std::vector<uint32_t>>* per_doc_positions) {
@@ -802,3 +874,25 @@ Status read_prx_window_csr_selective(ByteSource* source, std::span<const uint32_
 }
 
 } // namespace doris::snii::format
+
+namespace doris::snii::format::testing {
+namespace {
+std::atomic<uint64_t>& prx_raw_build_atomic() {
+    static std::atomic<uint64_t> counter {0};
+    return counter;
+}
+} // namespace
+
+uint64_t prx_raw_build_count() {
+    return prx_raw_build_atomic().load(std::memory_order_relaxed);
+}
+
+void reset_prx_raw_build_count() {
+    prx_raw_build_atomic().store(0, std::memory_order_relaxed);
+}
+
+void note_prx_raw_build() {
+    prx_raw_build_atomic().fetch_add(1, std::memory_order_relaxed);
+}
+
+} // namespace doris::snii::format::testing
