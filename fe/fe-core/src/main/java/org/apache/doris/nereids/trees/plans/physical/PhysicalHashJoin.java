@@ -305,6 +305,8 @@ public class PhysicalHashJoin<
         }
         switch (joinType) {
             case INNER_JOIN:
+            case ASOF_LEFT_INNER_JOIN:
+            case ASOF_RIGHT_INNER_JOIN:
             case CROSS_JOIN:
                 builder.addUniformSlot(left().getLogicalProperties().getTrait());
                 builder.addUniformSlot(right().getLogicalProperties().getTrait());
@@ -319,10 +321,12 @@ public class PhysicalHashJoin<
                 builder.addUniformSlot(right().getLogicalProperties().getTrait());
                 break;
             case LEFT_OUTER_JOIN:
+            case ASOF_LEFT_OUTER_JOIN:
                 builder.addUniformSlot(left().getLogicalProperties().getTrait());
                 builder.addUniformSlotForOuterJoinNullableSide(right().getLogicalProperties().getTrait());
                 break;
             case RIGHT_OUTER_JOIN:
+            case ASOF_RIGHT_OUTER_JOIN:
                 builder.addUniformSlot(right().getLogicalProperties().getTrait());
                 builder.addUniformSlotForOuterJoinNullableSide(left().getLogicalProperties().getTrait());
                 break;

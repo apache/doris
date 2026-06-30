@@ -41,6 +41,7 @@ import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
+import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.cloud.catalog.CloudPartition;
@@ -82,6 +83,7 @@ import org.apache.commons.collections4.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -331,15 +333,20 @@ public class CloudInternalCatalog extends InternalCatalog {
                 break;
         }
 
-        // Enable external column meta layout when storage_format is V3 (Cloud mode).
+        // Persist the storage format directly on the schema so the BE doesn't have to
+        // derive it from the three legacy flags below on the way back from MS. The flags
+        // are still written for backward-compat with BEs that predate the storage_format
+        // schema field; both representations agree on every V3 tablet.
         switch (storageFormat) {
             case V3:
+                schemaBuilder.setStorageFormat(OlapFile.TabletStorageFormatPB.TABLET_STORAGE_FORMAT_V3);
                 schemaBuilder.setIsExternalSegmentColumnMetaUsed(true);
                 schemaBuilder.setIntegerTypeDefaultUsePlainEncoding(true);
                 schemaBuilder.setBinaryPlainEncodingDefaultImpl(
                         OlapFile.BinaryPlainEncodingTypePB.BINARY_PLAIN_ENCODING_V2);
                 break;
             default:
+                schemaBuilder.setStorageFormat(OlapFile.TabletStorageFormatPB.TABLET_STORAGE_FORMAT_V2);
                 break;
         }
 
@@ -448,11 +455,16 @@ public class CloudInternalCatalog extends InternalCatalog {
     private void createCloudTablets(MaterializedIndex index, ReplicaState replicaState,
             DistributionInfo distributionInfo, long version, ReplicaAllocation replicaAlloc,
             TabletMeta tabletMeta, Set<Long> tabletIdSet) throws DdlException {
+        // Collect bucket tablets locally and bulk-publish to the MaterializedIndex's
+        // tablets list in a single copy-on-write after the loop (see
+        // InternalCatalog.createTablets for rationale).
+        TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
+        List<Tablet> bucketTablets = new ArrayList<>(distributionInfo.getBucketNum());
         for (int i = 0; i < distributionInfo.getBucketNum(); ++i) {
             Tablet tablet = EnvFactory.getInstance().createTablet(Env.getCurrentEnv().getNextId());
 
-            // add tablet to inverted index first
-            index.addTablet(tablet, tabletMeta);
+            invertedIndex.addTablet(tablet.getId(), tabletMeta);
+            bucketTablets.add(tablet);
             tabletIdSet.add(tablet.getId());
 
             long replicaId = Env.getCurrentEnv().getNextId();
@@ -461,6 +473,7 @@ public class CloudInternalCatalog extends InternalCatalog {
                     tabletMeta.getPartitionId(), tabletMeta.getIndexId(), i);
             tablet.addReplica(replica);
         }
+        index.appendTablets(bucketTablets);
     }
 
     @Override

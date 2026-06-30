@@ -188,6 +188,10 @@ void BaseTablet::update_max_version_schema(const TabletSchemaSPtr& tablet_schema
 
 uint32_t BaseTablet::get_real_compaction_score() const {
     std::shared_lock l(_meta_lock);
+    return get_real_compaction_score_unlocked();
+}
+
+uint32_t BaseTablet::get_real_compaction_score_unlocked() const {
     const auto& rs_metas = _tablet_meta->all_rs_metas();
     return std::accumulate(rs_metas.begin(), rs_metas.end(), 0, [](uint32_t score, const auto& it) {
         return score + it.second->get_compaction_score();
@@ -240,6 +244,14 @@ RowsetSharedPtr BaseTablet::get_stale_rowset_by_version(const Version& version) 
     auto iter = _stale_rs_version_map.find(version);
     if (iter == _stale_rs_version_map.end()) {
         VLOG_NOTICE << "no rowset for version:" << version << ", tablet: " << tablet_id();
+        return nullptr;
+    }
+    return iter->second;
+}
+
+RowsetSharedPtr BaseTablet::get_row_binlog_rowset_by_version(const Version& version) const {
+    auto iter = _row_binlog_rs_version_map.find(version);
+    if (iter == _row_binlog_rs_version_map.end()) {
         return nullptr;
     }
     return iter->second;
@@ -876,17 +888,20 @@ Status BaseTablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
 }
 
 Status BaseTablet::sort_block(Block& in_block, Block& output_block) {
-    MutableBlock mutable_input_block = MutableBlock::build_mutable_block(&in_block);
-    MutableBlock mutable_output_block = MutableBlock::build_mutable_block(&output_block);
+    ScopedMutableBlock scoped_input_block(&in_block);
+    auto& mutable_input_block = scoped_input_block.mutable_block();
+    ScopedMutableBlock scoped_output_block(&output_block);
+    auto& mutable_output_block = scoped_output_block.mutable_block();
 
     std::shared_ptr<RowInBlockComparator> vec_row_comparator =
             std::make_shared<RowInBlockComparator>(_tablet_meta->tablet_schema());
     vec_row_comparator->set_block(&mutable_input_block);
 
     std::vector<std::unique_ptr<RowInBlock>> row_in_blocks;
-    DCHECK(in_block.rows() <= std::numeric_limits<int>::max());
-    row_in_blocks.reserve(in_block.rows());
-    for (size_t i = 0; i < in_block.rows(); ++i) {
+    const auto input_rows = mutable_input_block.rows();
+    DCHECK(input_rows <= std::numeric_limits<int>::max());
+    row_in_blocks.reserve(input_rows);
+    for (size_t i = 0; i < input_rows; ++i) {
         row_in_blocks.emplace_back(std::make_unique<RowInBlock>(i));
     }
     std::sort(row_in_blocks.begin(), row_in_blocks.end(),
@@ -898,12 +913,14 @@ Status BaseTablet::sort_block(Block& in_block, Block& output_block) {
                   return value < 0;
               });
     std::vector<uint32_t> row_pos_vec;
-    row_pos_vec.reserve(in_block.rows());
+    row_pos_vec.reserve(input_rows);
     for (auto& block : row_in_blocks) {
         row_pos_vec.emplace_back(block->_row_pos);
     }
-    return mutable_output_block.add_rows(&in_block, row_pos_vec.data(),
-                                         row_pos_vec.data() + in_block.rows());
+    scoped_input_block.restore();
+    RETURN_IF_ERROR(mutable_output_block.add_rows(&in_block, row_pos_vec.data(),
+                                                  row_pos_vec.data() + input_rows));
+    return Status::OK();
 }
 
 // fetch value by row column
@@ -988,7 +1005,8 @@ Status BaseTablet::generate_default_value_block(const TabletSchema& schema,
                                                 const std::vector<std::string>& default_values,
                                                 const Block& ref_block,
                                                 Block& default_value_block) {
-    auto mutable_default_value_columns = default_value_block.mutate_columns();
+    auto mutable_default_value_columns_guard = default_value_block.mutate_columns_scoped();
+    auto& mutable_default_value_columns = mutable_default_value_columns_guard.mutable_columns();
     for (auto i = 0; i < cids.size(); ++i) {
         const auto& column = schema.column(cids[i]);
         if (column.has_default_value()) {
@@ -998,7 +1016,6 @@ Status BaseTablet::generate_default_value_block(const TabletSchema& schema,
                     str, *mutable_default_value_columns[i]));
         }
     }
-    default_value_block.set_columns(std::move(mutable_default_value_columns));
     return Status::OK();
 }
 
@@ -1012,7 +1029,8 @@ Status BaseTablet::generate_new_block_for_partial_update(
     // 3. write a new segment and modify rowset meta
     // 4. mark current keys deleted
     CHECK(output_block);
-    auto full_mutable_columns = output_block->mutate_columns();
+    auto full_mutable_columns_guard = output_block->mutate_columns_scoped();
+    auto& full_mutable_columns = full_mutable_columns_guard.mutable_columns();
     const auto& missing_cids = partial_update_info->missing_cids;
     const auto& update_cids = partial_update_info->update_cids;
     auto old_block = rowset_schema->create_block_by_cids(missing_cids);
@@ -1115,7 +1133,7 @@ Status BaseTablet::generate_new_block_for_partial_update(
             }
         }
     }
-    output_block->set_columns(std::move(full_mutable_columns));
+    full_mutable_columns_guard.restore();
     VLOG_DEBUG << "full block when publish: " << output_block->dump_data();
     return Status::OK();
 }
@@ -1220,7 +1238,8 @@ Status BaseTablet::generate_new_block_for_flexible_partial_update(
                                                              old_block, default_value_block));
 
     // 4. build the final block
-    auto full_mutable_columns = output_block->mutate_columns();
+    auto full_mutable_columns_guard = output_block->mutate_columns_scoped();
+    auto& full_mutable_columns = full_mutable_columns_guard.mutable_columns();
     DCHECK(rowset_schema->has_skip_bitmap_col());
     auto skip_bitmap_col_idx = rowset_schema->skip_bitmap_col_idx();
     const std::vector<BitmapValue>* skip_bitmaps =
@@ -1273,7 +1292,7 @@ Status BaseTablet::generate_new_block_for_flexible_partial_update(
         DCHECK_EQ(full_mutable_columns[cid]->size(), update_rows);
     }
 
-    output_block->set_columns(std::move(full_mutable_columns));
+    full_mutable_columns_guard.restore();
     VLOG_DEBUG << "full block when publish: " << output_block->dump_data();
     return Status::OK();
 }

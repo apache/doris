@@ -19,15 +19,33 @@
 
 #include <gen_cpp/DataSinks_types.h>
 
+#include <chrono>
+#include <thread>
+
 #include "exec/sink/vtablet_block_convertor.h"
 #include "load/group_commit/group_commit_mgr.h"
+#include "util/debug_points.h"
 
 namespace doris {
 GroupCommitBlockSinkLocalState::~GroupCommitBlockSinkLocalState() {
     if (_load_block_queue) {
+        DBUG_EXECUTE_IF("GroupCommitBlockSink.delay_teardown_remove_load_id", {
+            int64_t waited_ms = 0;
+            while (_load_block_queue->group_commit_load_count.load() < 2 && waited_ms < 10000 &&
+                   DebugPoints::instance()->is_enable(
+                           "GroupCommitBlockSink.delay_teardown_remove_load_id")) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                waited_ms += 10;
+            }
+            LOG(INFO) << "debug delayed teardown remove_load_id, label=" << _load_block_queue->label
+                      << ", load_count=" << _load_block_queue->group_commit_load_count.load()
+                      << ", waited_ms=" << waited_ms;
+        });
         _remove_estimated_wal_bytes();
-        [[maybe_unused]] auto st = _load_block_queue->remove_load_id(
-                _parent->cast<GroupCommitBlockSinkOperatorX>()._load_id);
+        if (!_load_id_removed) {
+            [[maybe_unused]] auto st = _load_block_queue->remove_load_id(
+                    _parent->cast<GroupCommitBlockSinkOperatorX>()._load_id);
+        }
     } else {
         _state->exec_env()->group_commit_mgr()->remove_load_id(
                 _parent->cast<GroupCommitBlockSinkOperatorX>()._table_id,
@@ -223,6 +241,7 @@ Status GroupCommitBlockSinkLocalState::_add_blocks(RuntimeState* state,
             if (_load_block_queue) {
                 _remove_estimated_wal_bytes();
                 [[maybe_unused]] auto st = _load_block_queue->remove_load_id(p._load_id);
+                _load_id_removed = true;
             }
             if (ExecEnv::GetInstance()->group_commit_mgr()->debug_future.wait_for(
                         std ::chrono ::seconds(60)) == std ::future_status ::ready) {
@@ -280,7 +299,7 @@ Status GroupCommitBlockSinkOperatorX::prepare(RuntimeState* state) {
     return VExpr::open(_output_vexpr_ctxs, state);
 }
 
-Status GroupCommitBlockSinkOperatorX::sink(RuntimeState* state, Block* input_block, bool eos) {
+Status GroupCommitBlockSinkOperatorX::sink_impl(RuntimeState* state, Block* input_block, bool eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)input_block->rows());
@@ -312,6 +331,7 @@ Status GroupCommitBlockSinkOperatorX::sink(RuntimeState* state, Block* input_blo
             }
             local_state._remove_estimated_wal_bytes();
             [[maybe_unused]] auto st = local_state._load_block_queue->remove_load_id(_load_id);
+            local_state._load_id_removed = true;
         }
         return Status::OK();
     };
@@ -372,7 +392,7 @@ Status GroupCommitBlockSinkOperatorX::sink(RuntimeState* state, Block* input_blo
         if (local_state._block_convertor->num_filtered_rows() > 0 ||
             local_state._has_filtered_rows) {
             auto cloneBlock = block->clone_without_columns();
-            auto res_block = MutableBlock::build_mutable_block(&cloneBlock);
+            auto res_block = MutableBlock::build_mutable_block(std::move(cloneBlock));
             for (int i = 0; i < rows; ++i) {
                 if (local_state._block_convertor->filter_map()[i]) {
                     continue;

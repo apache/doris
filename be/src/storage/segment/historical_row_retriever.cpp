@@ -46,9 +46,7 @@
 #include "storage/tablet/tablet_meta.h"
 #include "storage/tablet/tablet_schema.h"
 
-namespace doris {
-
-namespace segment_v2 {
+namespace doris::segment_v2 {
 
 using namespace ErrorCode;
 
@@ -56,7 +54,7 @@ namespace {
 
 void insert_value_to_nullable_column(IColumn* dst_column, const IColumn& src_column, size_t pos) {
     auto* nullable_column = assert_cast<ColumnNullable*>(dst_column);
-    if (src_column.is_nullable()) {
+    if (is_column_nullable(src_column)) {
         nullable_column->insert_from(src_column, pos);
         return;
     }
@@ -198,29 +196,30 @@ Status PrimaryKeyModelRowRetriever::build_before_block(Block* before_block,
                                                        old_value_block, &read_index, false,
                                                        nullptr));
 
-    auto mutable_before_columns = before_block->mutate_columns();
-    // Fill each row in before_block.
-    for (uint32_t idx = 0; idx < num_rows; ++idx) {
-        auto it = read_index.find(idx);
-        if (it == read_index.end()) {
-            // No historical row, fill BEFORE with NULL.
-            for (size_t i = 0; i < value_cids.size(); ++i) {
-                auto* nullable_column =
-                        assert_cast<ColumnNullable*>(mutable_before_columns[i].get());
-                nullable_column->insert_many_defaults(1);
+    {
+        auto mutable_before_columns_guard = before_block->mutate_columns_scoped();
+        auto& mutable_before_columns = mutable_before_columns_guard.mutable_columns();
+        // Fill each row in before_block.
+        for (uint32_t idx = 0; idx < num_rows; ++idx) {
+            auto it = read_index.find(idx);
+            if (it == read_index.end()) {
+                // No historical row, fill BEFORE with NULL.
+                for (size_t i = 0; i < value_cids.size(); ++i) {
+                    auto* nullable_column =
+                            assert_cast<ColumnNullable*>(mutable_before_columns[i].get());
+                    nullable_column->insert_many_defaults(1);
+                }
+                continue;
             }
-            continue;
-        }
 
-        uint32_t pos_in_old_block = it->second;
-        for (size_t i = 0; i < value_cids.size(); ++i) {
-            insert_value_to_nullable_column(mutable_before_columns[i].get(),
-                                            *old_value_block.get_by_position(i).column,
-                                            pos_in_old_block);
+            uint32_t pos_in_old_block = it->second;
+            for (size_t i = 0; i < value_cids.size(); ++i) {
+                insert_value_to_nullable_column(mutable_before_columns[i].get(),
+                                                *old_value_block.get_by_position(i).column,
+                                                pos_in_old_block);
+            }
         }
     }
-
-    before_block->set_columns(std::move(mutable_before_columns));
     return Status::OK();
 }
 
@@ -280,9 +279,7 @@ void PrimaryKeyModelRowRetriever::_maybe_invalid_row_cache(const std::string& ke
         _context.tablet_schema->has_row_store_for_all_columns() &&
         _context.write_type == DataWriteType::TYPE_DIRECT) {
         // invalidate cache
-        RowCache::instance()->erase({static_cast<int64_t>(_context.tablet->tablet_id()), key});
+        RowCache::instance()->erase({_context.tablet->tablet_id(), key});
     }
 }
-
-} // namespace segment_v2
-} // namespace doris
+} // namespace doris::segment_v2

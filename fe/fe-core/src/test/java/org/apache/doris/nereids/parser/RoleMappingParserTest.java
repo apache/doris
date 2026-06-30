@@ -18,17 +18,37 @@
 package org.apache.doris.nereids.parser;
 
 import org.apache.doris.nereids.exceptions.ParseException;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.CreateRoleMappingCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropRoleMappingCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableSet;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+
+import java.util.List;
 
 public class RoleMappingParserTest {
 
     private final NereidsParser parser = new NereidsParser();
+
+    @BeforeEach
+    public void setUp() {
+        // parsing some statements (qualified column refs, INSERT target) reads session state
+        ConnectContext ctx = new ConnectContext();
+        ctx.setDatabase("test");
+        ctx.setThreadLocalInfo();
+    }
+
+    @AfterEach
+    public void tearDown() {
+        ConnectContext.remove();
+    }
 
     @Test
     public void testCreateRoleMappingParse() {
@@ -73,5 +93,52 @@ public class RoleMappingParserTest {
         Assertions.assertInstanceOf(DropRoleMappingCommand.class, plan2);
         DropRoleMappingCommand drop2 = (DropRoleMappingCommand) plan2;
         Assertions.assertTrue(drop2.isIfExists());
+    }
+
+    /**
+     * RULE/CEL/MAPPING are keywords introduced by the role-mapping DDL. They are non-reserved,
+     * so they must still be usable as ordinary identifiers (column names, etc.). Otherwise legacy
+     * SQL such as `INSERT INTO t(..., RULE, ...)` breaks with "mismatched input 'RULE'".
+     */
+    @Test
+    public void testRoleMappingKeywordsAsIdentifier() {
+        LogicalPlan plan = parser.parseSingle("SELECT rule, cel, mapping FROM t");
+        // the top plan is an UnboundResultSink wrapping the project; descend to the project
+        Plan node = plan;
+        while (!(node instanceof LogicalProject) && !node.children().isEmpty()) {
+            node = node.child(0);
+        }
+        Assertions.assertInstanceOf(LogicalProject.class, node);
+        List<String> names = ((LogicalProject<?>) node).getProjects().stream()
+                .map(p -> p.getName()).collect(java.util.stream.Collectors.toList());
+        Assertions.assertEquals(3, names.size());
+        Assertions.assertTrue(names.get(0).equalsIgnoreCase("rule"), names.toString());
+        Assertions.assertTrue(names.get(1).equalsIgnoreCase("cel"), names.toString());
+        Assertions.assertTrue(names.get(2).equalsIgnoreCase("mapping"), names.toString());
+
+        // the keywords must also work as a table name / alias
+        Assertions.assertDoesNotThrow(() ->
+                parser.parseSingle("SELECT rule.cel FROM mapping AS rule"));
+
+        // the original failing case: keywords appearing in an INSERT column list
+        Assertions.assertDoesNotThrow(() -> parser.parseSingle(
+                "INSERT INTO fnd_rnk_info(query_level, rule, mapping) "
+                        + "SELECT query_level, rule, mapping FROM t"));
+    }
+
+    /**
+     * Making RULE/MAPPING non-reserved must not regress the role-mapping DDL: the parser still
+     * has to route `CREATE/DROP ROLE MAPPING ...` to the role-mapping command rather than treating
+     * MAPPING as a role name.
+     */
+    @Test
+    public void testRoleMappingDdlNotAmbiguous() {
+        Assertions.assertInstanceOf(CreateRoleMappingCommand.class, parser.parseSingle(
+                "CREATE ROLE MAPPING corp_mapping ON AUTHENTICATION INTEGRATION corp_oidc "
+                        + "RULE ( USING CEL 'true' GRANT ROLE analyst )"));
+        Assertions.assertInstanceOf(DropRoleMappingCommand.class,
+                parser.parseSingle("DROP ROLE MAPPING corp_mapping"));
+        // bare `CREATE ROLE mapping` now creates a role literally named "mapping"
+        Assertions.assertFalse(parser.parseSingle("CREATE ROLE mapping") instanceof CreateRoleMappingCommand);
     }
 }

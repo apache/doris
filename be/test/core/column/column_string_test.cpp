@@ -1326,28 +1326,6 @@ TEST_F(ColumnStringTest, TestStringInsert) {
         }
     }
 }
-TEST_F(ColumnStringTest, shrink_padding_chars) {
-    ColumnString::MutablePtr col = ColumnString::create();
-    col->shrink_padding_chars();
-
-    col->insert_data("123\0   ", 7);
-    col->insert_data("456\0xx", 6);
-    col->insert_data("78", 2);
-    col->shrink_padding_chars();
-
-    EXPECT_EQ(col->size(), 3);
-    EXPECT_EQ(col->get_data_at(0), StringRef("123"));
-    EXPECT_EQ(col->get_data_at(0).size, 3);
-    EXPECT_EQ(col->get_data_at(1), StringRef("456"));
-    EXPECT_EQ(col->get_data_at(1).size, 3);
-    EXPECT_EQ(col->get_data_at(2), StringRef("78"));
-    EXPECT_EQ(col->get_data_at(2).size, 2);
-
-    col->insert_data("xyz", 2); // only xy
-
-    EXPECT_EQ(col->size(), 4);
-    EXPECT_EQ(col->get_data_at(3), StringRef("xy"));
-}
 TEST_F(ColumnStringTest, sort_column) {
     column_string_common_test(assert_sort_column_callback, false);
 }

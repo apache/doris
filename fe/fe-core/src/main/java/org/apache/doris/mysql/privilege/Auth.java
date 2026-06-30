@@ -44,6 +44,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.MysqlPassword;
 import org.apache.doris.mysql.authenticate.AuthenticateType;
 import org.apache.doris.mysql.authenticate.ldap.LdapManager;
@@ -223,6 +224,14 @@ public class Auth implements Writable {
         }
     }
 
+    public boolean requiresCertificateAuth(UserIdentity userIdentity) {
+        return userIdentity != null && userIdentity.hasSanRequirement();
+    }
+
+    public boolean shouldSkipPasswordVerificationAfterCertAuth(UserIdentity userIdentity) {
+        return requiresCertificateAuth(userIdentity) && Config.tls_cert_based_auth_ignore_password;
+    }
+
     public void checkPlainPassword(String remoteUser, String remoteHost, String remotePasswd,
             List<UserIdentity> currentUser) throws AuthenticationException {
         // Check the LDAP password when the user exists in the LDAP service.
@@ -238,6 +247,26 @@ public class Auth implements Writable {
             } finally {
                 readUnlock();
             }
+        }
+    }
+
+    public void checkPlainPasswordForUserIdentity(UserIdentity userIdentity, String remotePasswd,
+            List<UserIdentity> currentUser) throws AuthenticationException {
+        readLock();
+        try {
+            userManager.checkPlainPasswordForUserIdentity(userIdentity, remotePasswd, currentUser);
+        } finally {
+            readUnlock();
+        }
+    }
+
+    public void checkPasswordForUserIdentity(UserIdentity userIdentity, byte[] remotePasswd, byte[] randomString,
+            List<UserIdentity> currentUser) throws AuthenticationException {
+        readLock();
+        try {
+            userManager.checkPasswordForUserIdentity(userIdentity, remotePasswd, randomString, currentUser);
+        } finally {
+            readUnlock();
         }
     }
 
@@ -290,6 +319,10 @@ public class Auth implements Writable {
 
     public boolean doesUserExist(String remoteUser, String remoteHost) {
         return !userManager.getUserIdentityUncheckPasswd(remoteUser, remoteHost).isEmpty();
+    }
+
+    public List<UserIdentity> getCandidateUserIdentities(String remoteUser, String remoteHost) {
+        return userManager.getUserIdentityUncheckPasswd(remoteUser, remoteHost);
     }
 
     // ==== Global ====
@@ -554,6 +587,8 @@ public class Auth implements Writable {
             }
             // other user properties
             propertyMgr.addUserResource(userIdent.getQualifiedUser());
+            MetricRepo.updateUserConnectionMaxMetric(this, userIdent.getQualifiedUser(),
+                    propertyMgr.getMaxConn(userIdent.getQualifiedUser()));
 
             // 5. update password policy
             passwdPolicyManager.updatePolicy(userIdent, password, passwordOptions);
@@ -608,6 +643,7 @@ public class Auth implements Writable {
             userManager.removeUser(userIdent);
             if (CollectionUtils.isEmpty(userManager.getUserByName(userIdent.getQualifiedUser()))) {
                 propertyMgr.dropUser(userIdent);
+                MetricRepo.removeUserConnectionMaxMetric(this, userIdent.getQualifiedUser());
             }
 
             if (!isReplay) {
@@ -1161,6 +1197,7 @@ public class Auth implements Writable {
         writeLock();
         try {
             propertyMgr.updateUserProperty(user, properties, isReplay);
+            MetricRepo.updateUserConnectionMaxMetric(this, user, propertyMgr.getMaxConn(user));
             if (!isReplay) {
                 UserPropertyInfo propertyInfo = new UserPropertyInfo(user, properties);
                 Env.getCurrentEnv().getEditLog().logUpdateUserProperty(propertyInfo);
@@ -1181,6 +1218,15 @@ public class Auth implements Writable {
         readLock();
         try {
             return propertyMgr.getMaxConn(qualifiedUser);
+        } finally {
+            readUnlock();
+        }
+    }
+
+    public Map<String, Long> getMaxConnForAllUsers() {
+        readLock();
+        try {
+            return propertyMgr.getMaxConnForAllUsers();
         } finally {
             readUnlock();
         }
@@ -1357,9 +1403,9 @@ public class Auth implements Writable {
         List<String> userAuthInfo = Lists.newArrayList();
         // ================= UserIdentity =======================
         userAuthInfo.add(userIdent.toString());
-        String requireSan = Strings.isNullOrEmpty(userIdent.getSan())
+        String requireSan = Strings.isNullOrEmpty(userIdent.getSanRequirementSql())
                 ? FeConstants.null_string
-                : userIdent.getSan();
+                : userIdent.getSanRequirementSql();
         if (isLdapAuthEnabled() && ldapManager.doesUserExist(userIdent.getQualifiedUser())) {
             // ============== Comment ==============
             userAuthInfo.add(FeConstants.null_string);

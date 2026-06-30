@@ -58,13 +58,12 @@ Status DataTypeVarbinarySerDe::write_column_to_arrow(const IColumn& column, cons
         const auto& varbinary_column_data = assert_cast<const ColumnVarbinary&>(column).get_data();
         for (size_t i = start; i < end; ++i) {
             if (null_map && (*null_map)[i]) {
-                RETURN_IF_ERROR(checkArrowStatus(builder.AppendNull(), column.get_name(),
-                                                 builder.type()->name()));
+                RETURN_IF_ERROR(checkArrowStatus(builder.AppendNull(), column, builder));
                 continue;
             }
             const auto& string_view = varbinary_column_data[i];
             RETURN_IF_ERROR(checkArrowStatus(builder.Append(string_view.data(), string_view.size()),
-                                             column.get_name(), builder.type()->name()));
+                                             column, builder));
         }
         return Status::OK();
     };

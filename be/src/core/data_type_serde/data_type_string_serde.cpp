@@ -225,14 +225,13 @@ Status DataTypeStringSerDeBase<ColumnType>::write_column_to_arrow_impl(const ICo
     const auto& string_column = assert_cast<const ColumnType&>(column);
     for (size_t string_i = start; string_i < end; ++string_i) {
         if (null_map && (*null_map)[string_i]) {
-            RETURN_IF_ERROR(checkArrowStatus(builder.AppendNull(), column.get_name(),
-                                             builder.type()->name()));
+            RETURN_IF_ERROR(checkArrowStatus(builder.AppendNull(), column, builder));
             continue;
         }
         auto string_ref = string_column.get_data_at(string_i);
         RETURN_IF_ERROR(checkArrowStatus(
                 builder.Append(string_ref.data, cast_set<int, size_t, false>(string_ref.size)),
-                column.get_name(), builder.type()->name()));
+                column, builder));
     }
     return Status::OK();
 }
@@ -282,11 +281,10 @@ Status DataTypeStringSerDeBase<ColumnType>::read_column_from_arrow(
     } else if (arrow_array->type_id() == arrow::Type::FIXED_SIZE_BINARY) {
         const auto* concrete_array = dynamic_cast<const arrow::FixedSizeBinaryArray*>(arrow_array);
         uint32_t width = concrete_array->byte_width();
-        const auto* array_data = concrete_array->GetValue(start);
 
-        for (size_t offset_i = 0; offset_i < end - start; ++offset_i) {
+        for (auto offset_i = start; offset_i < end; ++offset_i) {
             if (!concrete_array->IsNull(offset_i)) {
-                const auto* raw_data = array_data + (offset_i * width);
+                const auto* raw_data = concrete_array->GetValue(offset_i);
                 assert_cast<ColumnType&>(column).insert_data((char*)raw_data, width);
             } else {
                 assert_cast<ColumnType&>(column).insert_default();
@@ -462,25 +460,16 @@ Status DataTypeStringSerDeBase<ColumnType>::from_string(StringRef& str, IColumn&
 
 // Deserializes a STRING/VARCHAR/CHAR value from its OLAP string representation
 // (e.g. from ZoneMap protobuf). This is the inverse of to_olap_string().
-//
-// For CHAR type: if the string is shorter than the declared column length (_len),
-// pads with '\0' bytes to reach _len. This preserves CHAR's fixed-length semantics.
-// For STRING/VARCHAR: stores the string as-is.
-//
-// Examples:
-//   CHAR(10), str="hello"  => field = "hello\0\0\0\0\0" (10 bytes)
-//   VARCHAR,  str="hello"  => field = "hello" (5 bytes)
 template <typename ColumnType>
 Status DataTypeStringSerDeBase<ColumnType>::from_olap_string(const std::string& str, Field& field,
                                                              const FormatOptions& options) const {
-    if (cast_set<int>(str.size()) < _len) {
-        DCHECK_EQ(_type, TYPE_CHAR);
-        std::string tmp(_len, '\0');
-        memcpy(tmp.data(), str.data(), str.size());
-        field = Field::create_field<TYPE_CHAR>(std::move(tmp));
-    } else {
-        field = Field::create_field<TYPE_STRING>(str);
-    }
+    // CHAR(N) writes through OlapColumnDataConvertorChar are zero-padded to
+    // the declared schema length, so the serialized OLAP string carries
+    // trailing '\0' bytes. strnlen() drops that padding to surface the
+    // logical character content in the Field. VARCHAR / STRING never write
+    // trailing '\0' through this path, so strnlen is a no-op for them.
+    size_t len = strnlen(str.data(), str.size());
+    field = Field::create_field<TYPE_STRING>(std::string(str.data(), len));
     return Status::OK();
 }
 

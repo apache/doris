@@ -53,7 +53,9 @@ public:
         return Status::OK();
     }
 
-    Status get_block(RuntimeState* state, Block* block, bool* eos) override { return Status::OK(); }
+    Status get_block_impl(RuntimeState* state, Block* block, bool* eos) override {
+        return Status::OK();
+    }
     Status setup_local_state(RuntimeState* state, LocalStateInfo& info) override {
         return Status::OK();
     }
@@ -145,8 +147,7 @@ public:
             auto* nullable_column = assert_cast<ColumnNullable*>(column.get());
             nullable_column->get_nested_column_ptr()->insert_range_from(*_detail.nested_col, pos,
                                                                         max_step);
-            auto* nullmap_column =
-                    assert_cast<ColumnUInt8*>(nullable_column->get_null_map_column_ptr().get());
+            auto* nullmap_column = nullable_column->get_null_map_column_ptr().get();
             const size_t old_size = nullmap_column->size();
             nullmap_column->resize(old_size + max_step);
             if (_detail.nested_nullmap_data != nullptr) {
@@ -1478,7 +1479,7 @@ TEST_F(UnnestTest, inner) {
         unnested_tag_column->insert_data((const char*)(ids.data()), 0);
         expected_output_block.insert(ColumnWithTypeAndName(
                 make_nullable(std::move(unnested_tag_column)), data_type_int_nullable, "tag"));
-        auto mutable_columns = expected_output_block.mutate_columns();
+        auto mutable_columns = std::move(expected_output_block).mutate_columns();
         mutable_columns[0]->insert_from(
                 *table_func_local_state->_child_block->get_by_position(0).column, 0);
         mutable_columns[0]->insert_from(
@@ -1587,7 +1588,7 @@ TEST_F(UnnestTest, outer) {
         unnested_tag_column->insert_data((const char*)(ids.data()), 0);
         expected_output_block.insert(ColumnWithTypeAndName(
                 make_nullable(std::move(unnested_tag_column)), data_type_int_nullable, "tag"));
-        auto mutable_columns = expected_output_block.mutate_columns();
+        auto mutable_columns = std::move(expected_output_block).mutate_columns();
         mutable_columns[0]->insert_from(
                 *table_func_local_state->_child_block->get_by_position(0).column, 0);
         mutable_columns[0]->insert_from(
@@ -1613,7 +1614,7 @@ TEST_F(UnnestTest, outer) {
 
         output_block.clear();
         expected_output_block.clear_column_data();
-        mutable_columns = expected_output_block.mutate_columns();
+        mutable_columns = std::move(expected_output_block).mutate_columns();
         mutable_columns[0]->insert_from(
                 *table_func_local_state->_child_block->get_by_position(0).column, 1);
         mutable_columns[1]->insert_default();

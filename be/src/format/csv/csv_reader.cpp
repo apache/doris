@@ -37,7 +37,10 @@
 #include "common/status.h"
 #include "core/block/block.h"
 #include "core/block/column_with_type_and_name.h"
+#include "core/column/column_nullable.h"
+#include "core/column/column_string.h"
 #include "core/data_type/data_type_factory.hpp"
+#include "core/data_type_serde/data_type_string_serde.h"
 #include "exec/scan/scanner.h"
 #include "format/file_reader/new_plain_binary_line_reader.h"
 #include "format/file_reader/new_plain_text_line_reader.h"
@@ -64,6 +67,19 @@ enum class FileCachePolicy : uint8_t;
 } // namespace doris
 
 namespace doris {
+
+namespace {
+
+size_t columns_byte_size(const std::vector<MutableColumnPtr>& columns) {
+    size_t bytes = 0;
+    for (const auto& column : columns) {
+        DCHECK(column.get() != nullptr);
+        bytes += column->byte_size();
+    }
+    return bytes;
+}
+
+} // namespace
 
 void EncloseCsvTextFieldSplitter::do_split(const Slice& line, std::vector<Slice>* splitted_values) {
     const char* data = line.data;
@@ -420,8 +436,10 @@ Status CsvReader::_do_get_next_block(Block* block, size_t* read_rows, bool* eof)
                 continue;
             }
             if (size == 0) {
-                if (!_line_reader_eof && _state->is_read_csv_empty_line_as_null()) {
-                    ++rows;
+                if (!_line_reader_eof) {
+                    if (_empty_line_as_record() || _state->is_read_csv_empty_line_as_null()) {
+                        ++rows;
+                    }
                 }
                 // Read empty line, continue
                 continue;
@@ -430,14 +448,17 @@ Status CsvReader::_do_get_next_block(Block* block, size_t* read_rows, bool* eof)
             RETURN_IF_ERROR(_validate_line(Slice(ptr, size), &success));
             ++rows;
         }
-        auto mutate_columns = block->mutate_columns();
+        auto mutable_columns_guard = block->mutate_columns_scoped();
+        auto& mutate_columns = mutable_columns_guard.mutable_columns();
         for (auto& col : mutate_columns) {
             col->resize(rows);
         }
-        block->set_columns(std::move(mutate_columns));
     } else {
-        auto columns = block->mutate_columns();
-        while (rows < batch_size && !_line_reader_eof && (block->bytes() < max_block_bytes)) {
+        auto columns_guard = block->mutate_columns_scoped();
+        auto& columns = columns_guard.mutable_columns();
+        _reserve_nullable_string_columns(columns, batch_size);
+        while (rows < batch_size && !_line_reader_eof &&
+               (columns_byte_size(columns) < max_block_bytes)) {
             const uint8_t* ptr = nullptr;
             size_t size = 0;
             RETURN_IF_ERROR(_line_reader->read_line(&ptr, &size, &_line_reader_eof, _io_ctx));
@@ -456,8 +477,16 @@ Status CsvReader::_do_get_next_block(Block* block, size_t* read_rows, bool* eof)
                 continue;
             }
             if (size == 0) {
-                if (!_line_reader_eof && _state->is_read_csv_empty_line_as_null()) {
-                    RETURN_IF_ERROR(_fill_empty_line(block, columns, &rows));
+                if (!_line_reader_eof) {
+                    if (_empty_line_as_record()) {
+                        Slice empty_line("", 0);
+                        RETURN_IF_ERROR(_validate_line(empty_line, &success));
+                        if (success) {
+                            RETURN_IF_ERROR(_fill_dest_columns(empty_line, columns, &rows));
+                        }
+                    } else if (_state->is_read_csv_empty_line_as_null()) {
+                        RETURN_IF_ERROR(_fill_empty_line(columns, &rows));
+                    }
                 }
                 // Read empty line, continue
                 continue;
@@ -467,9 +496,8 @@ Status CsvReader::_do_get_next_block(Block* block, size_t* read_rows, bool* eof)
             if (!success) {
                 continue;
             }
-            RETURN_IF_ERROR(_fill_dest_columns(Slice(ptr, size), block, columns, &rows));
+            RETURN_IF_ERROR(_fill_dest_columns(Slice(ptr, size), columns, &rows));
         }
-        block->set_columns(std::move(columns));
     }
 
     *eof = (rows == 0);
@@ -545,28 +573,31 @@ Status CsvReader::get_parsed_schema(std::vector<std::string>* col_names,
 }
 
 Status CsvReader::_deserialize_nullable_string(IColumn& column, Slice& slice) {
-    auto& null_column = assert_cast<ColumnNullable&>(column);
-    if (_empty_field_as_null) {
-        if (slice.size == 0) {
-            null_column.insert_data(nullptr, 0);
-            return Status::OK();
-        }
+    // This is the per-row per-column hot path of CSV load (load reads every column as
+    // nullable string). The column type was already verified by the checked assert_cast
+    // in _reserve_nullable_string_columns at the beginning of the batch, so the casts
+    // here can skip the release-build typeid check.
+    auto& null_column = assert_cast<ColumnNullable&, TypeCheckOnRelease::DISABLE>(column);
+    auto& string_column = assert_cast<ColumnString&, TypeCheckOnRelease::DISABLE>(
+            null_column.get_nested_column());
+    if (_empty_field_as_null && slice.size == 0) {
+        string_column.insert_default();
+        null_column.get_null_map_data().push_back(1);
+        return Status::OK();
     }
     if (_options.null_len > 0 && !(_options.converted_from_string && slice.trim_double_quotes())) {
         if (slice.compare(Slice(_options.null_format, _options.null_len)) == 0) {
-            null_column.insert_data(nullptr, 0);
+            string_column.insert_default();
+            null_column.get_null_map_data().push_back(1);
             return Status::OK();
         }
     }
-    static DataTypeStringSerDe stringSerDe(TYPE_STRING);
-    auto st = stringSerDe.deserialize_one_cell_from_csv(null_column.get_nested_column(), slice,
-                                                        _options);
-    if (!st.ok()) {
-        // fill null if fail
-        null_column.insert_data(nullptr, 0); // 0 is meaningless here
-        return Status::OK();
+    // Same as DataTypeStringSerDe::deserialize_one_cell_from_csv (which never fails),
+    // written out here to skip the SerDe layer and its per-cell assert_cast.
+    if (_options.escape_char != 0) {
+        escape_string_for_csv(slice.data, &slice.size, _options.escape_char, _options.quote_char);
     }
-    // fill not null if success
+    string_column.insert_data(slice.data, slice.size);
     null_column.get_null_map_data().push_back(0);
     return Status::OK();
 }
@@ -652,7 +683,8 @@ Status CsvReader::_create_file_reader(bool need_schema) {
                     io::DelegateReader::AccessMode::SEQUENTIAL, _io_ctx,
                     io::PrefetchRange(_range.start_offset, _range.start_offset + _range.size)));
         }
-        _file_reader = _io_ctx ? std::make_shared<io::TracingFileReader>(std::move(file_reader),
+        _file_reader = _io_ctx && _io_ctx->file_reader_stats
+                               ? std::make_shared<io::TracingFileReader>(std::move(file_reader),
                                                                          _io_ctx->file_reader_stats)
                                : file_reader;
     }
@@ -719,8 +751,8 @@ Status CsvReader::_deserialize_one_cell(DataTypeSerDeSPtr serde, IColumn& column
     return serde->deserialize_one_cell_from_csv(column, slice, _options);
 }
 
-Status CsvReader::_fill_dest_columns(const Slice& line, Block* block,
-                                     std::vector<MutableColumnPtr>& columns, size_t* rows) {
+Status CsvReader::_fill_dest_columns(const Slice& line, std::vector<MutableColumnPtr>& columns,
+                                     size_t* rows) {
     bool is_success = false;
 
     RETURN_IF_ERROR(_line_split_to_values(line, &is_success));
@@ -738,10 +770,7 @@ Status CsvReader::_fill_dest_columns(const Slice& line, Block* block,
 
         IColumn* col_ptr = columns[i].get();
         if (!_is_load) {
-            // block is a Block*, and get_by_position returns a ColumnPtr,
-            // which is a const pointer. Therefore, using const_cast is permissible.
-            col_ptr = const_cast<IColumn*>(
-                    block->get_by_position(_file_slot_idx_map[i]).column.get());
+            col_ptr = columns[_file_slot_idx_map[i]].get();
         }
 
         if (_use_nullable_string_opt[i]) {
@@ -758,15 +787,30 @@ Status CsvReader::_fill_dest_columns(const Slice& line, Block* block,
     return Status::OK();
 }
 
-Status CsvReader::_fill_empty_line(Block* block, std::vector<MutableColumnPtr>& columns,
-                                   size_t* rows) {
+void CsvReader::_reserve_nullable_string_columns(std::vector<MutableColumnPtr>& columns,
+                                                 size_t batch_size) {
+    for (int i = 0; i < _file_slot_descs.size(); ++i) {
+        if (!_use_nullable_string_opt[i]) {
+            continue;
+        }
+        IColumn* col_ptr = _is_load ? columns[i].get() : columns[_file_slot_idx_map[i]].get();
+        // The checked casts here (once per batch) guarantee the column types for the
+        // unchecked per-row casts in _deserialize_nullable_string.
+        auto& null_column = assert_cast<ColumnNullable&>(*col_ptr);
+        auto& string_column = assert_cast<ColumnString&>(null_column.get_nested_column());
+        // Reserve up front so the per-row loop does not pay for incremental growth.
+        // The string chars are not reserved because their total size is unpredictable.
+        string_column.get_offsets().reserve(string_column.size() + batch_size);
+        null_column.get_null_map_data().reserve(null_column.get_null_map_data().size() +
+                                                batch_size);
+    }
+}
+
+Status CsvReader::_fill_empty_line(std::vector<MutableColumnPtr>& columns, size_t* rows) {
     for (int i = 0; i < _file_slot_descs.size(); ++i) {
         IColumn* col_ptr = columns[i].get();
         if (!_is_load) {
-            // block is a Block*, and get_by_position returns a ColumnPtr,
-            // which is a const pointer. Therefore, using const_cast is permissible.
-            col_ptr = const_cast<IColumn*>(
-                    block->get_by_position(_file_slot_idx_map[i]).column.get());
+            col_ptr = columns[_file_slot_idx_map[i]].get();
         }
         auto& null_column = assert_cast<ColumnNullable&>(*col_ptr);
         null_column.insert_data(nullptr, 0);

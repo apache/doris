@@ -24,6 +24,7 @@
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/internal_service.pb.h>
 
+#include <algorithm>
 #include <cstdint>
 #include <mutex>
 #include <ranges>
@@ -57,6 +58,8 @@
 namespace doris {
 
 extern bvar::Adder<int64_t> g_sink_load_back_pressure_version_time_ms;
+
+static constexpr int64_t CLOSE_WAIT_EVENT_FALLBACK_MS = 1000;
 
 VTabletWriterV2::VTabletWriterV2(const TDataSink& t_sink, const VExprContextSPtrs& output_exprs,
                                  std::shared_ptr<Dependency> dep,
@@ -493,6 +496,7 @@ Status VTabletWriterV2::write(RuntimeState* state, Block& input_block) {
     // check out of limit
     RETURN_IF_ERROR(_send_new_partition_batch());
 
+    const bool is_replaying_batched_block = _row_distribution._deal_batched;
     auto input_rows = input_block.rows();
     auto input_bytes = input_block.bytes();
     if (UNLIKELY(input_rows == 0)) {
@@ -504,8 +508,10 @@ Status VTabletWriterV2::write(RuntimeState* state, Block& input_block) {
     // the real 'num_rows_load_total' will be set when sink being closed.
     _state->update_num_rows_load_total(input_rows);
     _state->update_num_bytes_load_total(input_bytes);
-    DorisMetrics::instance()->load_rows->increment(input_rows);
-    DorisMetrics::instance()->load_bytes->increment(input_bytes);
+    if (!is_replaying_batched_block) {
+        DorisMetrics::instance()->load_rows->increment(input_rows);
+        DorisMetrics::instance()->load_bytes->increment(input_bytes);
+    }
 
     SCOPED_RAW_TIMER(&_send_data_ns);
     // This is just for passing compilation.
@@ -574,7 +580,11 @@ Status VTabletWriterV2::_write_memtable(std::shared_ptr<Block> block, int64_t ta
                          << " not found in schema, load_id=" << print_id(_load_id);
             return std::unique_ptr<DeltaWriterV2>(nullptr);
         }
-        return DeltaWriterV2::create_unique(&req, streams, _state);
+        std::shared_ptr<WorkloadGroup> workload_group = nullptr;
+        if (_state->get_query_ctx()) {
+            workload_group = _state->workload_group();
+        }
+        return DeltaWriterV2::create_unique(&req, streams, workload_group);
     });
     if (delta_writer == nullptr) {
         LOG(WARNING) << "failed to open DeltaWriter for tablet " << tablet_id
@@ -590,7 +600,12 @@ Status VTabletWriterV2::_write_memtable(std::shared_ptr<Block> block, int64_t ta
         }
     }
     SCOPED_TIMER(_write_memtable_timer);
-    st = delta_writer->write(block.get(), rows.row_idxes);
+    st = delta_writer->write(block.get(), rows.row_idxes, [state = _state]() {
+        if (state->is_cancelled()) {
+            return state->cancel_reason();
+        }
+        return Status::OK();
+    });
     return st;
 }
 
@@ -620,10 +635,12 @@ Status VTabletWriterV2::_send_new_partition_batch() {
         //  2. deal batched block
         //  3. now reuse the column of lval block. cuz write doesn't real adjust it. it generate a new block from that.
         _row_distribution.clear_batching_stats();
+        Defer recover_batching_block([&]() {
+            _row_distribution._batching_block->set_mutable_columns(
+                    std::move(tmp_block).mutate_columns());
+            _row_distribution._batching_block->clear_column_data();
+        });
         RETURN_IF_ERROR(this->write(_state, tmp_block));
-        _row_distribution._batching_block->set_mutable_columns(
-                tmp_block.mutate_columns()); // Recovery back
-        _row_distribution._batching_block->clear_column_data();
         _row_distribution._deal_batched = false;
     }
     return Status::OK();
@@ -673,7 +690,10 @@ Status VTabletWriterV2::close(Status exec_status) {
             std::unordered_map<int64_t, int32_t> segments_for_tablet;
             SCOPED_TIMER(_close_writer_timer);
             // close all delta writers if this is the last user
-            auto st = _delta_writer_for_tablet->close(segments_for_tablet, _operator_profile);
+            RuntimeProfile* delta_writer_profile =
+                    (_state->enable_profile() && _state->profile_level() >= 2) ? _operator_profile
+                                                                               : nullptr;
+            auto st = _delta_writer_for_tablet->close(segments_for_tablet, delta_writer_profile);
             _delta_writer_for_tablet.reset();
             if (!st.ok()) {
                 _cancel(st);
@@ -804,6 +824,7 @@ Status VTabletWriterV2::_close_wait(
         }
     }
     while (true) {
+        int64_t close_wait_version = _load_stream_map->close_wait_version();
         RETURN_IF_ERROR(_check_timeout());
         RETURN_IF_ERROR(_check_streams_finish(unfinished_streams, status, streams_for_node));
         bool quorum_success = _quorum_success(unfinished_streams, need_finish_tablets);
@@ -813,7 +834,7 @@ Status VTabletWriterV2::_close_wait(
                       << ", txn_id: " << _txn_id << ", load_id: " << print_id(_load_id);
             break;
         }
-        bthread_usleep(1000 * 10);
+        _load_stream_map->wait_for_close_event(close_wait_version, CLOSE_WAIT_EVENT_FALLBACK_MS);
     }
 
     // 2. then wait for remaining streams as much as possible
@@ -821,6 +842,7 @@ Status VTabletWriterV2::_close_wait(
         int64_t arrival_quorum_success_time = UnixMillis();
         int64_t max_wait_time_ms = _calc_max_wait_time_ms(streams_for_node, unfinished_streams);
         while (true) {
+            int64_t close_wait_version = _load_stream_map->close_wait_version();
             RETURN_IF_ERROR(_check_timeout());
             RETURN_IF_ERROR(_check_streams_finish(unfinished_streams, status, streams_for_node));
             if (unfinished_streams.empty()) {
@@ -839,7 +861,9 @@ Status VTabletWriterV2::_close_wait(
                              << ", unfinished streams: " << unfinished_streams_str.str();
                 break;
             }
-            bthread_usleep(1000 * 10);
+            _load_stream_map->wait_for_close_event(
+                    close_wait_version,
+                    std::min(CLOSE_WAIT_EVENT_FALLBACK_MS, max_wait_time_ms - elapsed_ms));
         }
     }
 

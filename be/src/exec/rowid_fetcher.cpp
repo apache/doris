@@ -164,10 +164,12 @@ Status RowIDFetcher::_merge_rpc_results(const PMultiGetRequest& request,
                     default_values[i] = _fetch_option.desc->slots()[i]->col_default_value();
                 }
             }
+            auto output_columns_guard = output_block->mutate_columns_scoped();
+            MutableColumns& output_columns = output_columns_guard.mutable_columns();
             for (int i = 0; i < resp.binary_row_data_size(); ++i) {
-                RETURN_IF_ERROR(JsonbSerializeUtil::jsonb_to_block(
+                RETURN_IF_ERROR(JsonbSerializeUtil::jsonb_to_columns(
                         serdes, resp.binary_row_data(i).data(), resp.binary_row_data(i).size(),
-                        col_uid_to_idx, *output_block, default_values, {}));
+                        col_uid_to_idx, output_columns, default_values, {}));
             }
             return Status::OK();
         }
@@ -190,10 +192,10 @@ Status RowIDFetcher::_merge_rpc_results(const PMultiGetRequest& request,
                     partial_block.dump_types());
         } else {
             for (int i = 0; i < output_block->columns(); ++i) {
-                output_block->get_by_position(i).column->assume_mutable()->insert_range_from(
-                        *partial_block.get_by_position(i)
-                                 .column->convert_to_full_column_if_const()
-                                 .get(),
+                auto column_guard = output_block->mutate_column_scoped(i);
+                MutableColumnPtr& column = column_guard.mutable_column();
+                column->insert_range_from(
+                        *partial_block.get_by_position(i).column->convert_to_full_column_if_const(),
                         0, partial_block.rows());
             }
         }
@@ -204,30 +206,6 @@ Status RowIDFetcher::_merge_rpc_results(const PMultiGetRequest& request,
         RETURN_IF_ERROR(merge_function(resp));
     }
     return Status::OK();
-}
-
-bool _has_char_type(const DataTypePtr& type) {
-    switch (type->get_primitive_type()) {
-    case TYPE_CHAR: {
-        return true;
-    }
-    case TYPE_ARRAY: {
-        const auto* arr_type = assert_cast<const DataTypeArray*>(remove_nullable(type).get());
-        return _has_char_type(arr_type->get_nested_type());
-    }
-    case TYPE_MAP: {
-        const auto* map_type = assert_cast<const DataTypeMap*>(remove_nullable(type).get());
-        return _has_char_type(map_type->get_key_type()) ||
-               _has_char_type(map_type->get_value_type());
-    }
-    case TYPE_STRUCT: {
-        const auto* struct_type = assert_cast<const DataTypeStruct*>(remove_nullable(type).get());
-        return std::any_of(struct_type->get_elements().begin(), struct_type->get_elements().end(),
-                           [&](const DataTypePtr& dt) -> bool { return _has_char_type(dt); });
-    }
-    default:
-        return false;
-    }
 }
 
 Status RowIDFetcher::fetch(const ColumnPtr& column_row_ids, Block* res_block) {
@@ -279,16 +257,6 @@ Status RowIDFetcher::fetch(const ColumnPtr& column_row_ids, Block* res_block) {
     }
     // Check row consistency
     RETURN_IF_CATCH_EXCEPTION(res_block->check_number_of_rows());
-    // shrink for char type
-    std::vector<size_t> char_type_idx;
-    for (size_t i = 0; i < _fetch_option.desc->slots().size(); i++) {
-        const auto& column_desc = _fetch_option.desc->slots()[i];
-        const auto type = column_desc->type();
-        if (_has_char_type(type)) {
-            char_type_idx.push_back(i);
-        }
-    }
-    res_block->shrink_char_type_column_suffix_zero(char_type_idx);
     VLOG_DEBUG << "dump block:" << res_block->dump_data(0, 10);
     return Status::OK();
 }
@@ -350,6 +318,28 @@ struct IteratorItem {
     StorageReadOptions storage_read_options;
 };
 
+static void set_slot_access_paths(const SlotDescriptor& slot, const TabletSchema& schema,
+                                  StorageReadOptions& storage_read_options) {
+    int32_t unique_id = slot.col_unique_id();
+    const int field_index =
+            unique_id >= 0 ? schema.field_index(unique_id) : schema.field_index(slot.col_name());
+    if (field_index >= 0) {
+        const auto& column = schema.column(field_index);
+        unique_id = column.unique_id() >= 0 ? column.unique_id() : column.parent_unique_id();
+    }
+    if (unique_id < 0) {
+        return;
+    }
+
+    if (!slot.all_access_paths().empty()) {
+        storage_read_options.all_access_paths[unique_id] = slot.all_access_paths();
+    }
+
+    if (!slot.predicate_access_paths().empty()) {
+        storage_read_options.predicate_access_paths[unique_id] = slot.predicate_access_paths();
+    }
+}
+
 struct SegItem {
     BaseTabletSPtr tablet;
     BetaRowsetSharedPtr rowset;
@@ -368,9 +358,10 @@ struct DorisFormatReadBatch {
 
 static void scatter_scan_blocks_to_result_block(
         const std::vector<std::pair<size_t, size_t>>& row_id_block_idx,
-        std::vector<Block>& scan_blocks, Block& result_block) {
+        const std::vector<Block>& scan_blocks, Block& result_block) {
     for (size_t column_id = 0; column_id < result_block.columns(); ++column_id) {
-        auto dst_col = const_cast<IColumn*>(result_block.get_by_position(column_id).column.get());
+        auto dst_col_guard = result_block.mutate_column_scoped(column_id);
+        MutableColumnPtr& dst_col = dst_col_guard.mutable_column();
 
         std::vector<const IColumn*> scan_src_columns;
         scan_src_columns.reserve(row_id_block_idx.size());
@@ -492,7 +483,7 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequest& request,
         for (int x = 0; x < slots.size(); ++x) {
             std::vector<segment_v2::rowid_t> row_ids {
                     static_cast<segment_v2::rowid_t>(row_loc.ordinal_id())};
-            MutableColumnPtr column = result_block.get_by_position(x).column->assume_mutable();
+            MutableColumnPtr column = result_block.get_by_position(x).column->assert_mutable();
             IteratorKey iterator_key {.tablet_id = tablet->tablet_id(),
                                       .rowset_id = rowset_id,
                                       .segment_id = row_loc.segment_id(),
@@ -505,6 +496,7 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequest& request,
                 iterator_item.storage_read_options.io_ctx.reader_type = ReaderType::READER_QUERY;
             }
             segment = iterator_item.segment;
+            set_slot_access_paths(slots[x], full_read_schema, iterator_item.storage_read_options);
             RETURN_IF_ERROR(segment->seek_and_read_by_rowid(
                     full_read_schema, &slots[x], row_ids, column,
                     iterator_item.storage_read_options, iterator_item.iterator));
@@ -592,15 +584,6 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequestV2& request,
                 for (const auto& pslot : request_block_desc.slots()) {
                     slots.push_back(SlotDescriptor(pslot));
                 }
-                // prepare block char vector shrink for char type
-                std::vector<size_t> char_type_idx;
-                for (int j = 0; j < slots.size(); ++j) {
-                    auto slot = slots[j];
-                    if (_has_char_type(slot.type())) {
-                        char_type_idx.push_back(j);
-                    }
-                }
-
                 try {
                     if (first_file_mapping->type == FileMappingType::INTERNAL) {
                         RETURN_IF_ERROR(read_batch_doris_format_row(
@@ -618,9 +601,6 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequestV2& request,
                     return Status::Error<false>(e.code(), "Row id fetch failed because {}",
                                                 e.what());
                 }
-
-                // after read the block, shrink char type block
-                result_blocks[i].shrink_char_type_column_suffix_zero(char_type_idx);
             }
 
             [[maybe_unused]] size_t compressed_size = 0;
@@ -1122,6 +1102,8 @@ Status RowIdStorageReader::read_doris_format_row(
             return Status::InternalError("Tablet {} does not have row store for all columns",
                                          tablet->tablet_id());
         }
+        auto result_columns_guard = result_block.mutate_columns_scoped();
+        MutableColumns& result_columns = result_columns_guard.mutable_columns();
         for (auto row_id : row_ids) {
             RowLocation loc(rowset_id, segment->id(), cast_set<uint32_t>(row_id));
             row_store_read_struct.row_store_buffer.clear();
@@ -1132,15 +1114,16 @@ Status RowIdStorageReader::read_doris_format_row(
                     },
                     lookup_row_data_ms));
 
-            RETURN_IF_ERROR(JsonbSerializeUtil::jsonb_to_block(
+            RETURN_IF_ERROR(JsonbSerializeUtil::jsonb_to_columns(
                     row_store_read_struct.serdes, row_store_read_struct.row_store_buffer.data(),
                     row_store_read_struct.row_store_buffer.size(),
-                    row_store_read_struct.col_uid_to_idx, result_block,
+                    row_store_read_struct.col_uid_to_idx, result_columns,
                     row_store_read_struct.default_values, {}));
         }
     } else {
         for (int x = 0; x < slots.size(); ++x) {
-            MutableColumnPtr column = result_block.get_by_position(x).column->assume_mutable();
+            auto column_guard = result_block.mutate_column_scoped(x);
+            MutableColumnPtr& column = column_guard.mutable_column();
             IteratorKey iterator_key {.tablet_id = tablet_id,
                                       .rowset_id = rowset_id,
                                       .segment_id = segment_id,
@@ -1151,6 +1134,7 @@ Status RowIdStorageReader::read_doris_format_row(
                 iterator_item.storage_read_options.stats = &stats;
                 iterator_item.storage_read_options.io_ctx.reader_type = ReaderType::READER_QUERY;
             }
+            set_slot_access_paths(slots[x], full_read_schema, iterator_item.storage_read_options);
             RETURN_IF_ERROR(segment->seek_and_read_by_rowid(
                     full_read_schema, &slots[x], row_ids, column,
                     iterator_item.storage_read_options, iterator_item.iterator));

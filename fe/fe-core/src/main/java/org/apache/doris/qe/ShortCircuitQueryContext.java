@@ -38,6 +38,7 @@ import org.apache.thrift.TSerializer;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -56,6 +57,7 @@ public class ShortCircuitQueryContext {
 
     public final int schemaVersion;
     public final OlapTable tbl;
+    public final String tableName;
 
     public final OlapScanNode scanNode;
     public final Queriable analzyedQuery;
@@ -106,8 +108,15 @@ public class ShortCircuitQueryContext {
         this.cacheID = UUID.randomUUID();
         this.scanNode = olapScanNode;
         this.tbl = this.scanNode.getOlapTable();
+        this.tableName = this.scanNode.getTableNameInPlan();
         this.schemaVersion = this.tbl.getBaseSchemaVersion();
         this.analzyedQuery = analzyedQuery;
+    }
+
+    public boolean isReusable() {
+        return !this.tbl.isDropped
+                && this.tbl.getBaseSchemaVersion() == this.schemaVersion
+                && Objects.equals(this.tableName, this.tbl.getName());
     }
 
     public void sanitize() {
@@ -115,5 +124,6 @@ public class ShortCircuitQueryContext {
         Preconditions.checkNotNull(serializedOutputExpr);
         Preconditions.checkNotNull(cacheID);
         Preconditions.checkNotNull(tbl);
+        Preconditions.checkNotNull(tableName);
     }
 }

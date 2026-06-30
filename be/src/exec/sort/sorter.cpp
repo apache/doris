@@ -57,11 +57,11 @@ namespace doris {
 //
 
 void MergeSorterState::reset() {
-    std::vector<std::shared_ptr<MergeSortCursorImpl>> empty_cursors(0);
-    std::vector<std::shared_ptr<Block>> empty_blocks(0);
-    _sorted_blocks.swap(empty_blocks);
+    _sorted_blocks.clear();      // replaces swap-with-empty idiom
+    _queue = MergeSorterQueue(); // release stale cursors from prior flush cycle
     unsorted_block() = Block::create_unique(unsorted_block()->clone_empty());
     _in_mem_sorted_bocks_size = 0;
+    _num_rows = 0;
 }
 
 void MergeSorterState::add_sorted_block(std::shared_ptr<Block> block) {
@@ -114,7 +114,9 @@ void MergeSorterState::_merge_sort_read_impl(int batch_size, doris::Block* block
 
     size_t num_columns = unsorted_block()->columns();
 
-    MutableBlock m_block = VectorizedUtils::build_mutable_mem_reuse_block(block, *unsorted_block());
+    auto scoped_mutable_block =
+            VectorizedUtils::build_scoped_mutable_mem_reuse_block(block, *unsorted_block());
+    auto& m_block = scoped_mutable_block.mutable_block();
     MutableColumns& merged_columns = m_block.mutable_columns();
 
     /// Take rows from queue in right order and push to 'merged'.
@@ -143,7 +145,6 @@ void MergeSorterState::_merge_sort_read_impl(int batch_size, doris::Block* block
         }
     }
 
-    block->set_columns(std::move(merged_columns));
     *eos = merged_rows == 0;
 }
 
@@ -250,12 +251,12 @@ Status FullSorter::append_block(Block* block) {
                     << " type1: " << data[i].type->get_name()
                     << " type2: " << arrival_data[i].type->get_name() << " i: " << i;
             if (is_column_const(*arrival_data[i].column)) {
-                data[i].column->assume_mutable()->insert_many_from(
+                data[i].column->assert_mutable()->insert_many_from(
                         assert_cast<const ColumnConst*>(arrival_data[i].column.get())
                                 ->get_data_column(),
                         0, sz);
             } else {
-                data[i].column->assume_mutable()->insert_range_from(*arrival_data[i].column, 0, sz);
+                data[i].column->assert_mutable()->insert_range_from(*arrival_data[i].column, 0, sz);
             }
         }
         block->clear_column_data();

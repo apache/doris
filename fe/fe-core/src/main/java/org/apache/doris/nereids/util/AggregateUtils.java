@@ -90,6 +90,18 @@ public class AggregateUtils {
                 && param.aggPhase.isLocal();
     }
 
+    /** Whether the plan will run with one fragment instance on one BE. */
+    public static boolean isSingleExecutionInstance(ConnectContext connectContext) {
+        int beNumber = connectContext.getSessionVariable().getBeNumberForTest();
+        if (beNumber < 0) {
+            beNumber = connectContext.getEnv().getClusterInfo().getAllBackendByCurrentCluster(true).size();
+        }
+        beNumber = Math.max(1, beNumber);
+        String clusterName = connectContext.getSessionVariable().resolveCloudClusterName(connectContext);
+        int parallelInstance = Math.max(1, connectContext.getSessionVariable().getParallelExecInstanceNum(clusterName));
+        return beNumber == 1 && parallelInstance == 1;
+    }
+
     /**
      * Check whether any expression in the collection has unknown statistics.
      * Statistics are considered unknown if they are null, isUnKnown(), or cannot be estimated.

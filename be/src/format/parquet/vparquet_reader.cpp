@@ -297,6 +297,9 @@ Status ParquetReader::close() {
 
 void ParquetReader::_close_internal() {
     if (!_closed) {
+        _current_group_reader.reset();
+        _tracing_file_reader.reset();
+        _file_reader.reset();
         _closed = true;
     }
 }
@@ -312,10 +315,18 @@ Status ParquetReader::_open_file() {
                 _scan_range.__isset.modification_time ? _scan_range.modification_time : 0;
         io::FileReaderOptions reader_options =
                 FileFactory::get_reader_options(_state, _file_description);
-        _file_reader = DORIS_TRY(io::DelegateReader::create_file_reader(
-                _profile, _system_properties, _file_description, reader_options,
-                io::DelegateReader::AccessMode::RANDOM, _io_ctx));
-        _tracing_file_reader = _io_ctx ? std::make_shared<io::TracingFileReader>(
+        if (_io_ctx_holder) {
+            _file_reader = DORIS_TRY(io::DelegateReader::create_file_reader(
+                    _profile, _system_properties, _file_description, reader_options,
+                    io::DelegateReader::AccessMode::RANDOM,
+                    std::static_pointer_cast<const io::IOContext>(_io_ctx_holder)));
+        } else {
+            _file_reader = DORIS_TRY(io::DelegateReader::create_file_reader(
+                    _profile, _system_properties, _file_description, reader_options,
+                    io::DelegateReader::AccessMode::RANDOM, _io_ctx));
+        }
+        _tracing_file_reader = _io_ctx && _io_ctx->file_reader_stats
+                                       ? std::make_shared<io::TracingFileReader>(
                                                  _file_reader, _io_ctx->file_reader_stats)
                                        : _file_reader;
     }
@@ -405,9 +416,10 @@ void ParquetReader::_init_file_description() {
 Status ParquetReader::on_before_init_reader(ReaderInitContext* ctx) {
     _column_descs = ctx->column_descs;
     _fill_col_name_to_block_idx = ctx->col_name_to_block_idx;
-    RETURN_IF_ERROR(
-            _extract_partition_values(*ctx->range, ctx->tuple_descriptor, _fill_partition_values));
-    for (auto& desc : *ctx->column_descs) {
+    RETURN_IF_ERROR(_extract_partition_values(*ctx->range, ctx->tuple_descriptor,
+                                              _fill_partition_values,
+                                              &_fill_partition_value_is_null));
+    for (const auto& desc : *ctx->column_descs) {
         if (desc.category == ColumnCategory::REGULAR ||
             desc.category == ColumnCategory::GENERATED) {
             ctx->column_names.push_back(desc.name);
@@ -895,7 +907,7 @@ Status ParquetReader::_next_row_group_reader() {
         }
 
         _reader_statistics.read_rows += candidate_row_ranges.count();
-        if (_io_ctx) {
+        if (_io_ctx && _io_ctx->file_reader_stats) {
             _io_ctx->file_reader_stats->read_rows += candidate_row_ranges.count();
         }
 
@@ -945,7 +957,8 @@ Status ParquetReader::_next_row_group_reader() {
                         : _file_reader;
     }
     _current_group_reader.reset(new RowGroupReader(
-            _io_ctx ? std::make_shared<io::TracingFileReader>(group_file_reader,
+            _io_ctx && _io_ctx->file_reader_stats
+                    ? std::make_shared<io::TracingFileReader>(group_file_reader,
                                                               _io_ctx->file_reader_stats)
                     : group_file_reader,
             _read_table_columns, _current_row_group_index.row_group_id, row_group, _ctz, _io_ctx,

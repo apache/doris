@@ -18,9 +18,13 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.common.DdlException;
+import org.apache.doris.thrift.TRuntimeFilterType;
 
 import org.junit.Assert;
 import org.junit.Test;
+
+import java.util.HashMap;
+import java.util.Map;
 
 public class RuntimeFilterTypeHelperTest {
 
@@ -69,6 +73,50 @@ public class RuntimeFilterTypeHelperTest {
         Assert.fail("No exception throws");
     }
 
+    @Test
+    public void testDeprecatedBitmapNumericCompatibility() throws DdlException {
+        Assert.assertEquals(Long.valueOf(0L), RuntimeFilterTypeHelper.encode("16"));
+        Assert.assertEquals(Long.valueOf(8L), RuntimeFilterTypeHelper.encode("24"));
+        Assert.assertEquals(Long.valueOf(12L), RuntimeFilterTypeHelper.encode("28"));
+
+        Assert.assertEquals("", RuntimeFilterTypeHelper.decode(16L));
+        Assert.assertEquals("IN_OR_BLOOM_FILTER", RuntimeFilterTypeHelper.decode(24L));
+        Assert.assertEquals("IN_OR_BLOOM_FILTER,MIN_MAX", RuntimeFilterTypeHelper.decode(28L));
+    }
+
+    @Test
+    public void testDeprecatedBitmapIsNotAllowedForPlanning() {
+        Assert.assertFalse(RuntimeFilterTypeHelper.getSupportedRuntimeFilterTypes()
+                .contains(TRuntimeFilterType.BITMAP));
+        Assert.assertFalse(RuntimeFilterTypeHelper.allowedRuntimeFilterType(24L, TRuntimeFilterType.BITMAP));
+        Assert.assertTrue(RuntimeFilterTypeHelper.allowedRuntimeFilterType(24L, TRuntimeFilterType.IN_OR_BLOOM));
+    }
+
+    @Test
+    public void testDeprecatedBitmapSessionRestoreCompatibility() throws Exception {
+        SessionVariable restored = new SessionVariable();
+        restored.readFromJson("{\"runtime_filter_type\":24}");
+        Assert.assertEquals(TRuntimeFilterType.IN_OR_BLOOM.getValue(), restored.getRuntimeFilterType());
+        Assert.assertFalse(restored.allowedRuntimeFilterType(TRuntimeFilterType.BITMAP));
+
+        Map<String, String> sessionVarMap = new HashMap<>();
+        sessionVarMap.put(SessionVariable.RUNTIME_FILTER_TYPE, "28");
+        restored.readFromMap(sessionVarMap);
+        Assert.assertEquals(TRuntimeFilterType.IN_OR_BLOOM.getValue() | TRuntimeFilterType.MIN_MAX.getValue(),
+                restored.getRuntimeFilterType());
+        Assert.assertFalse(restored.allowedRuntimeFilterType(TRuntimeFilterType.BITMAP));
+
+        SessionVariable forwarded = new SessionVariable();
+        Map<String, String> forwardVariables = new HashMap<>();
+        forwardVariables.put(SessionVariable.RUNTIME_FILTER_TYPE, "24");
+        forwarded.setForwardedSessionVariables(forwardVariables);
+        Assert.assertEquals(TRuntimeFilterType.IN_OR_BLOOM.getValue(), forwarded.getRuntimeFilterType());
+        Assert.assertFalse(forwarded.allowedRuntimeFilterType(TRuntimeFilterType.BITMAP));
+
+        restored.setRuntimeFilterType(TRuntimeFilterType.BITMAP.getValue());
+        Assert.assertEquals(0, restored.getRuntimeFilterType());
+    }
+
     @Test(expected = DdlException.class)
     public void testInvalidSqlMode2() throws DdlException {
         RuntimeFilterTypeHelper.encode("BLOOM_FILTER,IN");
@@ -84,6 +132,12 @@ public class RuntimeFilterTypeHelperTest {
     @Test(expected = DdlException.class)
     public void testInvalidSqlMode4() throws DdlException {
         RuntimeFilterTypeHelper.encode("IN,IN_OR_BLOOM_FILTER");
+        Assert.fail("No exception throws");
+    }
+
+    @Test(expected = DdlException.class)
+    public void testInvalidBitmapSqlMode() throws DdlException {
+        RuntimeFilterTypeHelper.encode("BITMAP_FILTER");
         Assert.fail("No exception throws");
     }
 }

@@ -73,6 +73,7 @@ private:
 
     std::atomic<uint64_t> _cpu_time_nanos {0};
     std::atomic<uint64_t> _last_cpu_time_nanos {0};
+    std::atomic<uint64_t> _last_refresh_time_ms {0};
     std::atomic<uint64_t> _per_sec_cpu_time_nanos {0}; // used for system table
 
     std::atomic<uint64_t> _per_sec_local_scan_bytes {0};

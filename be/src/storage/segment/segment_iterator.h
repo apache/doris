@@ -204,11 +204,6 @@ private:
     bool _is_literal_node(const TExprNodeType::type& node_type);
 
     Status _vec_init_lazy_materialization();
-    // TODO: Fix Me
-    // CHAR type in storage layer padding the 0 in length. But query engine need ignore the padding 0.
-    // so segment iterator need to shrink char column before output it. only use in vec query engine.
-    void _vec_init_char_column_id(Block* block);
-    bool _has_char_type(const TabletColumn& column_desc);
 
     uint32_t segment_id() const { return _segment->id(); }
     uint32_t num_rows() const { return _segment->num_rows(); }
@@ -267,7 +262,7 @@ private:
                         &block->get_by_position(block_cid).column));
             } else {
                 MutableColumnPtr output_column =
-                        block->get_by_position(block_cid).column->assume_mutable();
+                        block->get_by_position(block_cid).column->assert_mutable();
                 RETURN_IF_ERROR(copy_column_data_by_selector(_current_return_columns[cid].get(),
                                                              output_column, sel_rowid_idx,
                                                              select_size, _opts.block_row_max));
@@ -327,7 +322,7 @@ private:
     bool _check_all_conditions_passed_inverted_index_for_column(ColumnId cid,
                                                                 bool default_return = false);
 
-    void _calculate_expr_in_remaining_conjunct_root();
+    void _calculate_common_expr_index_exec_status();
 
     Status _process_eof(Block* block);
 
@@ -420,8 +415,6 @@ private:
     // make a copy of `_opts.column_predicates` in order to make local changes
     std::vector<std::shared_ptr<ColumnPredicate>> _col_predicates;
     VExprContextSPtrs _common_expr_ctxs_push_down;
-    bool _enable_common_expr_pushdown = false;
-    std::vector<VExprSPtr> _remaining_conjunct_roots;
     std::set<ColumnId> _not_apply_index_pred;
 
     // row schema of the key to seek
@@ -432,10 +425,6 @@ private:
     MutableColumns _seek_block;
 
     io::FileReaderSPtr _file_reader;
-
-    // char_type or array<char> type columns cid
-    std::vector<size_t> _char_type_idx;
-    std::vector<bool> _is_char_type;
 
     // used for compaction, record selectd rowids of current batch
     uint16_t _selected_size;

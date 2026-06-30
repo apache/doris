@@ -2083,4 +2083,52 @@ TEST_F(OlapTypeTest, timestamptz_type) {
                 << "serde mismatch for TIMESTAMPTZ expected=" << tc.expected;
     }
 }
+
+// from_olap_string for string types (CHAR / VARCHAR / STRING) strnlens the
+// input so any trailing '\0' bytes that came from a fixed-width CHAR write
+// are dropped before the value lands in the Field. VARCHAR / STRING ZoneMap
+// values do not normally carry trailing '\0' (the writers store the natural
+// byte length), so strnlen is a no-op for them.
+TEST_F(OlapTypeTest, from_olap_string_strings) {
+    struct Case {
+        PrimitiveType type;
+        std::string input;
+        std::string expected;
+    };
+    std::vector<Case> cases = {
+            // CHAR(N) ZoneMap min/max from the convertor is padded with '\0'
+            // — strnlen recovers the logical content.
+            {TYPE_CHAR, std::string("abc", 3) + std::string(7, '\0'), "abc"},
+            {TYPE_CHAR, std::string(10, '\0'), ""},
+            {TYPE_CHAR, "alpha", "alpha"},
+            // VARCHAR / STRING never carry trailing '\0' in their ZoneMap
+            // representation, so the helper is a transparent pass-through
+            // for the typical case.
+            {TYPE_VARCHAR, "hello", "hello"},
+            {TYPE_STRING, "world\nline2", "world\nline2"},
+            {TYPE_STRING, "", ""},
+    };
+
+    for (const auto& tc : cases) {
+        auto data_type = DataTypeFactory::instance().create_data_type(
+                tc.type, /*is_nullable=*/false, /*precision=*/0, /*scale=*/0,
+                /*length=*/static_cast<int>(tc.input.size()));
+        expect_from_storage_string_paths(data_type, tc.input, [&](const Field& field) {
+            EXPECT_EQ(field.get<TYPE_STRING>(), tc.expected)
+                    << "type=" << static_cast<int>(tc.type) << " input.size=" << tc.input.size();
+        });
+    }
+}
+
+// VARCHAR / STRING values containing an embedded '\0' are truncated at the
+// first '\0' — the same strnlen behaviour applies to all string types. This
+// is acceptable in practice because Doris string columns do not store
+// embedded NULs in their ZoneMap representation; the test pins the contract.
+TEST_F(OlapTypeTest, from_olap_string_strings_embedded_null_truncates) {
+    auto data_type = DataTypeFactory::instance().create_data_type(
+            TYPE_VARCHAR, /*is_nullable=*/false, 0, 0, /*length=*/32);
+    expect_from_storage_string_paths(data_type, std::string("ab\0cd", 5), [](const Field& field) {
+        EXPECT_EQ(field.get<TYPE_STRING>(), "ab");
+    });
+}
 } // namespace doris

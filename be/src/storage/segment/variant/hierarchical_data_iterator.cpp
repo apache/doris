@@ -203,7 +203,7 @@ Status HierarchicalDataIterator::_process_sub_columns(
         ColumnVariant& container_variant, const PathsWithColumnAndType& non_nested_subcolumns) {
     for (const auto& entry : non_nested_subcolumns) {
         DCHECK(!entry.path.has_nested_part());
-        bool add = container_variant.add_sub_column(entry.path, entry.column->assume_mutable(),
+        bool add = container_variant.add_sub_column(entry.path, IColumn::mutate(entry.column),
                                                     entry.type);
         if (!add) {
             return Status::InternalError("Duplicated {}, type {}", entry.path.get_path(),
@@ -223,10 +223,8 @@ Status HierarchicalDataIterator::_process_nested_columns(
     for (const auto& entry : nested_subcolumns) {
         const auto* base_array =
                 assert_cast<const ColumnArray*>(remove_nullable(entry.second[0].column).get());
-        MutableColumnPtr nested_object =
-                ColumnVariant::create(0, false, base_array->get_data().size());
-        MutableColumnPtr offset = base_array->get_offsets_ptr()->assume_mutable();
-        auto* nested_object_ptr = assert_cast<ColumnVariant*>(nested_object.get());
+        auto nested_object_variant = ColumnVariant::create(0, false, base_array->get_data().size());
+        MutableColumnPtr offset = IColumn::mutate(base_array->get_offsets_ptr());
         // flatten nested arrays
         for (const auto& subcolumn : entry.second) {
             const auto& column = subcolumn.column;
@@ -246,23 +244,27 @@ Status HierarchicalDataIterator::_process_nested_columns(
                         subcolumn.path.get_path(), subcolumn.type->get_name());
             }
 #endif
-            MutableColumnPtr flattend_column = target_array->get_data_ptr()->assume_mutable();
+            MutableColumnPtr flattend_column = IColumn::mutate(target_array->get_data_ptr());
             DataTypePtr flattend_type =
                     check_and_get_data_type<DataTypeArray>(remove_nullable(type).get())
                             ->get_nested_type();
             // add sub path without parent prefix
-            nested_object_ptr->add_sub_column(
+            nested_object_variant->add_sub_column(
                     subcolumn.path.copy_pop_nfront(entry.first.get_parts().size()),
                     std::move(flattend_column), std::move(flattend_type));
         }
-        nested_object = make_nullable(nested_object->get_ptr())->assume_mutable();
-        auto array =
-                make_nullable(ColumnArray::create(std::move(nested_object), std::move(offset)));
+        const size_t nested_object_size = nested_object_variant->size();
+        MutableColumnPtr nested_object = ColumnNullable::create(
+                std::move(nested_object_variant), ColumnUInt8::create(nested_object_size, 0));
+        auto array = ColumnArray::create(std::move(nested_object), std::move(offset));
+        const size_t array_size = array->size();
+        auto nullable_array =
+                ColumnNullable::create(std::move(array), ColumnUInt8::create(array_size, 0));
         PathInDataBuilder builder;
         // add parent prefix
         builder.append(entry.first.get_parts(), false);
         PathInData parent_path = builder.build();
-        container_variant.add_sub_column(parent_path, array->assume_mutable(),
+        container_variant.add_sub_column(parent_path, std::move(nullable_array),
                                          container_variant.NESTED_TYPE);
     }
     return Status::OK();
@@ -283,14 +285,17 @@ Status HierarchicalDataIterator::_init_container(MutableColumnPtr& container, si
         // auto column = root_var.get_root();
         // auto type = root_var.get_root_type();
 
-        MutableColumnPtr column = _root_reader->column->get_ptr();
+        MutableColumnPtr column = IColumn::mutate(_root_reader->column->get_ptr());
         // container_variant.add_sub_column({}, std::move(column), _root_reader->type);
         DCHECK(column->size() == nrows);
-        auto nullable_column = make_nullable(column->get_ptr());
+        if (!column->is_nullable()) {
+            const size_t column_size = column->size();
+            column = ColumnNullable::create(std::move(column), ColumnUInt8::create(column_size, 0));
+        }
         auto type = make_nullable(_root_reader->type);
         // make sure the root type is nullable
         container = ColumnVariant::create(max_subcolumns_count, enable_doc_mode, type,
-                                          nullable_column->assume_mutable());
+                                          std::move(column));
     } else {
         DataTypePtr root_type = std::make_shared<DataTypeNothing>();
         auto column = ColumnNothing::create(nrows);
@@ -359,10 +364,10 @@ Status HierarchicalDataIterator::_process_binary_column(ColumnVariant& container
     if (_path.get_parts().empty()) {
         if (_read_type == ReadType::SUBCOLUMNS_AND_SPARSE) {
             container_variant.set_sparse_column(_binary_column_reader->column->get_ptr());
-            container_variant.get_doc_value_column()->assume_mutable()->resize(nrows);
+            container_variant.get_doc_value_column_mutable().resize(nrows);
         } else if (_read_type == ReadType::DOC_VALUE_COLUMN) {
             container_variant.set_doc_value_column(_binary_column_reader->column->get_ptr());
-            container_variant.get_sparse_column()->assume_mutable()->resize(nrows);
+            container_variant.get_sparse_column_mutable().resize(nrows);
         } else {
             return Status::InternalError("Invalid read type {}", _read_type);
         }
@@ -378,7 +383,7 @@ Status HierarchicalDataIterator::_process_binary_column(ColumnVariant& container
         const auto& src_values = assert_cast<const ColumnString&>(src_map.get_values());
 
         // Clear pre-initialized doc_value offsets (created by ColumnVariant ctor with num_rows)
-        container_variant.get_doc_value_column()->assume_mutable()->clear();
+        container_variant.get_doc_value_column_mutable().clear();
         auto [dst_paths, dst_values] = container_variant.get_doc_value_data_paths_and_values();
         auto& dst_offsets = container_variant.serialized_doc_value_column_offsets();
 
@@ -419,13 +424,13 @@ Status HierarchicalDataIterator::_process_binary_column(ColumnVariant& container
             }
             dst_offsets.push_back(dst_paths->size());
         }
-        container_variant.get_sparse_column()->assume_mutable()->resize(nrows);
+        container_variant.get_sparse_column_mutable().resize(nrows);
     } else {
         const auto& offsets =
                 assert_cast<const ColumnMap&>(*_binary_column_reader->column).get_offsets();
         /// Check if there is no data in shared data in current range.
         if (offsets.back() == offsets[-1]) {
-            container_variant.get_sparse_column()->assume_mutable()->resize(nrows);
+            container_variant.get_sparse_column_mutable().resize(nrows);
         } else {
             // Read for variant sparse column
             // Example path: a.b
@@ -444,8 +449,7 @@ Status HierarchicalDataIterator::_process_binary_column(ColumnVariant& container
                     assert_cast<const ColumnString&>(sparse_data_map.get_values());
 
             auto& sparse_data_offsets =
-                    assert_cast<ColumnMap&>(
-                            *container_variant.get_sparse_column()->assume_mutable())
+                    assert_cast<ColumnMap&>(container_variant.get_sparse_column_mutable())
                             .get_offsets();
             auto [sparse_data_paths, sparse_data_values] =
                     container_variant.get_sparse_data_paths_and_values();
@@ -544,7 +548,7 @@ Status HierarchicalDataIterator::_process_binary_column(ColumnVariant& container
                 }
             }
         }
-        container_variant.get_doc_value_column()->assume_mutable()->resize(nrows);
+        container_variant.get_doc_value_column_mutable().resize(nrows);
     }
     ENABLE_CHECK_CONSISTENCY(&container_variant);
     return Status::OK();
@@ -561,9 +565,9 @@ Status HierarchicalDataIterator::_init_null_map_and_clear_columns(MutableColumnP
     container->clear();
     _binary_column_reader->column->clear();
     if (_root_reader) {
-        if (_root_reader->column->is_nullable()) {
+        if (is_column_nullable(*_root_reader->column)) {
             // fill nullmap
-            DCHECK(dst->is_nullable());
+            DCHECK(is_column_nullable(*dst));
             ColumnUInt8& dst_null_map = assert_cast<ColumnNullable&>(*dst).get_null_map_column();
             ColumnUInt8& src_null_map =
                     assert_cast<ColumnNullable&>(*_root_reader->column).get_null_map_column();
@@ -571,7 +575,7 @@ Status HierarchicalDataIterator::_init_null_map_and_clear_columns(MutableColumnP
             // clear nullmap and inner data
             src_null_map.clear();
         } else {
-            if (dst->is_nullable()) {
+            if (is_column_nullable(*dst)) {
                 // No nullable info exist in hirearchical data, fill nullmap with all none null
                 ColumnUInt8& dst_null_map =
                         assert_cast<ColumnNullable&>(*dst).get_null_map_column();
@@ -581,7 +585,7 @@ Status HierarchicalDataIterator::_init_null_map_and_clear_columns(MutableColumnP
         }
         _root_reader->column->clear();
     } else {
-        if (dst->is_nullable()) {
+        if (is_column_nullable(*dst)) {
             // No nullable info exist in hirearchical data, fill nullmap with all none null
             ColumnUInt8& dst_null_map = assert_cast<ColumnNullable&>(*dst).get_null_map_column();
             auto fake_nullable_column = ColumnUInt8::create(nrows, 0);
@@ -591,7 +595,7 @@ Status HierarchicalDataIterator::_init_null_map_and_clear_columns(MutableColumnP
     // root column nullmap need to be reset, for example, the src_null_map is from the whole
     // variant column, but the root column rows should reset to null when empty
     ColumnVariant* variant = nullptr;
-    if (dst->is_nullable()) {
+    if (is_column_nullable(*dst)) {
         variant = &assert_cast<ColumnVariant&>(
                 assert_cast<ColumnNullable&>(*dst).get_nested_column());
     } else {

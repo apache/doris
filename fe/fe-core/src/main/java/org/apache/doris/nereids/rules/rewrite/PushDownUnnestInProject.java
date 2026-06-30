@@ -27,7 +27,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.functions.generator.Unnest;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.StructElement;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.plans.logical.LogicalGenerate;
 import org.apache.doris.nereids.types.DataType;
@@ -50,7 +50,7 @@ import java.util.Set;
  *
  * After:
  *
- *          project(struct_element($c$1, col1) as a, struct_element($c$1, co2) as b)
+ *          project(element_at($c$1, col1) as a, element_at($c$1, co2) as b)
  *             │
  *             ▼
  *          generate(unnest(x, y) as $c$1)
@@ -73,15 +73,15 @@ public class PushDownUnnestInProject extends OneRewriteRuleFactory {
             List<Alias> newProjects = new ArrayList<>(toBePushedDown.size());
             Map<Expression, NormalizeToSlot.NormalizeToSlotTriplet> slotTripletMap = context.getNormalizeToSlotMap();
             if (toBePushedDown.size() > 1) {
-                // struct_element(#expand_col#k, #k) as #k
-                // struct_element(#expand_col#v, #v) as #v
+                // element_at(#expand_col#k, #k) as #k
+                // element_at(#expand_col#v, #v) as #v
                 List<StructField> fields = ((StructType) outputSlot.getDataType()).getFields();
                 Preconditions.checkState(fields.size() == toBePushedDown.size(), String.format("push down"
                                 + "unnest function has error, function count is %d, pushed down count is %d",
                         toBePushedDown.size(), fields.size()));
                 for (int i = 0; i < fields.size(); ++i) {
                     Slot remainExpr = slotTripletMap.get(toBePushedDown.get(i)).remainExpr;
-                    newProjects.add(new Alias(remainExpr.getExprId(), new StructElement(
+                    newProjects.add(new Alias(remainExpr.getExprId(), new ElementAt(
                             outputSlot, new StringLiteral(fields.get(i).getName())), remainExpr.getName()));
                 }
             } else {

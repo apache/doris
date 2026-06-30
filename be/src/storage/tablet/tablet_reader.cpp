@@ -27,7 +27,9 @@
 #include <memory>
 #include <numeric>
 #include <ostream>
+#include <set>
 #include <shared_mutex>
+#include <unordered_map>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
@@ -37,17 +39,18 @@
 #include "core/arena.h"
 #include "core/block/block.h"
 #include "exec/common/variant_util.h"
-#include "exprs/bitmapfilter_predicate.h"
 #include "exprs/bloom_filter_func.h"
 #include "exprs/create_predicate_function.h"
 #include "exprs/hybrid_set.h"
 #include "runtime/query_context.h"
 #include "runtime/runtime_predicate.h"
 #include "runtime/runtime_state.h"
+#include "storage/delete/delete_handler.h"
 #include "storage/index/bloom_filter/bloom_filter.h"
 #include "storage/itoken_extractor.h"
 #include "storage/olap_common.h"
 #include "storage/olap_define.h"
+#include "storage/predicate/block_column_predicate.h"
 #include "storage/predicate/column_predicate.h"
 #include "storage/predicate/like_column_predicate.h"
 #include "storage/predicate/predicate_creator.h"
@@ -76,6 +79,21 @@ Status TabletReader::init(const ReaderParams& read_params) {
                      << ", version:" << read_params.version;
     }
     return res;
+}
+
+void TabletReader::remove_delete_columns_from_access_paths(
+        const DeleteHandler& delete_handler, const TabletSchema& tablet_schema,
+        std::map<int32_t, TColumnAccessPaths>& all_access_paths) {
+    auto delete_predicates = AndBlockColumnPredicate::create_shared();
+    std::unordered_map<int32_t, std::vector<std::shared_ptr<const ColumnPredicate>>>
+            del_predicates_for_zone_map;
+    delete_handler.get_delete_conditions_after_version(0, delete_predicates.get(),
+                                                       &del_predicates_for_zone_map);
+    std::set<ColumnId> delete_column_ids;
+    delete_predicates->get_all_column_ids(delete_column_ids);
+    for (auto cid : delete_column_ids) {
+        all_access_paths.erase(tablet_schema.column(cid).unique_id());
+    }
 }
 
 Status TabletReader::_capture_rs_readers(const ReaderParams& read_params) {
@@ -156,6 +174,11 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params) {
     _reader_context.topn_filter_source_node_ids = read_params.topn_filter_source_node_ids;
     _reader_context.topn_filter_target_node_id = read_params.topn_filter_target_node_id;
     _reader_context.read_orderby_key_reverse = read_params.read_orderby_key_reverse;
+    _reader_context.use_insert_order_when_same =
+            read_params.use_insert_order_when_same ||
+            read_params.reader_type == ReaderType::READER_BINLOG ||
+            read_params.reader_type == ReaderType::READER_BINLOG_COMPACTION;
+    _reader_context.force_key_ordered_read = read_params.force_key_ordered_read;
     _reader_context.read_orderby_key_limit = read_params.read_orderby_key_limit;
     _reader_context.return_columns = &_return_columns;
     _reader_context.read_orderby_key_columns =
@@ -179,7 +202,6 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params) {
     _reader_context.record_rowids = read_params.record_rowids;
     _reader_context.rowid_conversion = read_params.rowid_conversion;
     _reader_context.is_key_column_group = read_params.is_key_column_group;
-    _reader_context.remaining_conjunct_roots = read_params.remaining_conjunct_roots;
     _reader_context.common_expr_ctxs_push_down = read_params.common_expr_ctxs_push_down;
     _reader_context.output_columns = &read_params.output_columns;
     _reader_context.push_down_agg_type_opt = read_params.push_down_agg_type_opt;
@@ -195,6 +217,14 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params) {
     _reader_context.condition_cache_digest = read_params.condition_cache_digest;
     _reader_context.all_access_paths = read_params.all_access_paths;
     _reader_context.predicate_access_paths = read_params.predicate_access_paths;
+
+    // Force a full read of delete-condition columns: the FE can't see storage deletes and may
+    // mark them meta-only (OFFSET/NULL), whose content-less read makes the delete predicate
+    // match nothing and leak deleted rows.
+    if (!_delete_handler.empty() && !_reader_context.all_access_paths.empty()) {
+        remove_delete_columns_from_access_paths(_delete_handler, *_tablet_schema,
+                                                _reader_context.all_access_paths);
+    }
 
     // Propagate general read limit for DUP_KEYS and UNIQUE_KEYS with MOW
     _reader_context.general_read_limit = read_params.general_read_limit;
@@ -297,6 +327,7 @@ Status TabletReader::_init_return_columns(const ReaderParams& read_params) {
                 read_params.reader_type == ReaderType::READER_SEGMENT_COMPACTION ||
                 read_params.reader_type == ReaderType::READER_BASE_COMPACTION ||
                 read_params.reader_type == ReaderType::READER_FULL_COMPACTION ||
+                read_params.reader_type == ReaderType::READER_BINLOG_COMPACTION ||
                 read_params.reader_type == ReaderType::READER_COLD_DATA_COMPACTION ||
                 read_params.reader_type == ReaderType::READER_ALTER_TABLE) &&
                !read_params.return_columns.empty()) {
@@ -349,11 +380,6 @@ Status TabletReader::_init_keys_param(const ReaderParams& read_params) {
                 scan_key_size, _tablet_schema->num_columns());
     }
 
-    std::vector<uint32_t> columns(scan_key_size);
-    std::iota(columns.begin(), columns.end(), 0);
-
-    std::shared_ptr<Schema> schema = std::make_shared<Schema>(_tablet_schema->columns(), columns);
-
     for (size_t i = 0; i < start_key_size; ++i) {
         if (read_params.start_key[i].size() != scan_key_size) {
             return Status::Error<INVALID_ARGUMENT>(
@@ -361,8 +387,7 @@ Status TabletReader::_init_keys_param(const ReaderParams& read_params) {
                     read_params.start_key[i].size(), scan_key_size);
         }
 
-        Status res =
-                _keys_param.start_keys[i].init(_tablet_schema, read_params.start_key[i], schema);
+        Status res = _keys_param.start_keys[i].init(_tablet_schema, read_params.start_key[i]);
         if (!res.ok()) {
             LOG(WARNING) << "fail to init row cursor. res = " << res;
             return res;
@@ -379,7 +404,7 @@ Status TabletReader::_init_keys_param(const ReaderParams& read_params) {
                     read_params.end_key[i].size(), scan_key_size);
         }
 
-        Status res = _keys_param.end_keys[i].init(_tablet_schema, read_params.end_key[i], schema);
+        Status res = _keys_param.end_keys[i].init(_tablet_schema, read_params.end_key[i]);
         if (!res.ok()) {
             LOG(WARNING) << "fail to init row cursor. res = " << res;
             return res;
@@ -451,8 +476,7 @@ Status TabletReader::_init_conditions_param(const ReaderParams& read_params) {
               std::inserter(predicates, predicates.begin()));
     // Function filter push down to storage engine
     auto is_like_predicate = [](std::shared_ptr<ColumnPredicate> _pred) {
-        return dynamic_cast<LikeColumnPredicate<TYPE_CHAR>*>(_pred.get()) != nullptr ||
-               dynamic_cast<LikeColumnPredicate<TYPE_STRING>*>(_pred.get()) != nullptr;
+        return dynamic_cast<LikeColumnPredicate*>(_pred.get()) != nullptr;
     };
 
     for (const auto& filter : read_params.function_filters) {

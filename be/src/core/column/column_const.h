@@ -103,7 +103,7 @@ class ColumnConst final : public COWHelper<IColumn, ColumnConst> {
 private:
     friend class COWHelper<IColumn, ColumnConst>;
     using Self = ColumnConst;
-    WrappedPtr data;
+    IColumn::WrappedPtr data;
     size_t s;
 
     ColumnConst(const ColumnPtr& data, size_t s_, bool create_with_empty = false,
@@ -124,7 +124,8 @@ public:
     void resize(size_t new_size) override { s = new_size; }
 
     MutableColumnPtr clone_resized(size_t new_size) const override {
-        return ColumnConst::create(data, new_size, false, false);
+        auto cloned_data = data->clone_resized(data->size());
+        return ColumnConst::create(std::move(cloned_data), new_size, false, false);
     }
 
     size_t size() const override { return s; }
@@ -240,7 +241,8 @@ public:
     bool has_enough_capacity(const IColumn& src) const override { return true; }
 
     int compare_at(size_t, size_t, const IColumn& rhs, int nan_direction_hint) const override {
-        auto rhs_const_column = assert_cast<const ColumnConst&, TypeCheckOnRelease::DISABLE>(rhs);
+        const auto& rhs_const_column =
+                assert_cast<const ColumnConst&, TypeCheckOnRelease::DISABLE>(rhs);
 
         const auto* this_nullable = check_and_get_column<ColumnNullable>(data.get());
         const auto* rhs_nullable =
@@ -262,14 +264,13 @@ public:
     void for_each_subcolumn(ColumnCallback callback) override { callback(data); }
 
     bool structure_equals(const IColumn& rhs) const override {
-        if (const auto* rhs_concrete = typeid_cast<const ColumnConst*>(&rhs)) {
+        if (const auto* rhs_concrete = check_and_get_column<ColumnConst>(&rhs)) {
             return data->structure_equals(*rhs_concrete->data);
         }
         return false;
     }
 
-    // ColumnConst is not nullable, but may be concrete nullable.
-    bool is_concrete_nullable() const override { return is_column_nullable(*data); }
+    bool is_nullable() const override { return is_column_nullable(*data); }
     bool only_null() const override { return data->is_null_at(0); }
     StringRef get_raw_data() const override { return data->get_raw_data(); }
 
@@ -321,7 +322,11 @@ public:
 
     size_t deserialize_impl(const char* pos) override {
         ++s;
-        return data->deserialize_impl(pos);
+        ColumnPtr owned = std::move(static_cast<ColumnPtr&>(data));
+        auto mutable_data = IColumn::mutate(std::move(owned));
+        size_t ret = mutable_data->deserialize_impl(pos);
+        data = std::move(mutable_data);
+        return ret;
     }
 
     void replace_float_special_values() override;

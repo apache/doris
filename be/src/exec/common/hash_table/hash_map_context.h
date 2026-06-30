@@ -378,7 +378,7 @@ struct MethodStringNoCache : public MethodBase<TData> {
                                    DorisVector<StringRef>& stored_keys) {
         const IColumn& column = *key_columns[0];
         const auto& nested_column =
-                column.is_nullable()
+                is_column_nullable(column)
                         ? assert_cast<const ColumnNullable&>(column).get_nested_column()
                         : column;
         auto serialized_str = [](const auto& column_string, DorisVector<StringRef>& stored_keys) {
@@ -744,7 +744,7 @@ struct MethodOneNumber : public MethodBase<TData> {
     void init_serialized_keys(const ColumnRawPtrs& key_columns, uint32_t num_rows,
                               const uint8_t* null_map = nullptr, bool is_join = false,
                               bool is_build = false, uint32_t bucket_size = 0) override {
-        Base::keys = (FieldType*)(key_columns[0]->is_nullable()
+        Base::keys = (FieldType*)(is_column_nullable(*key_columns[0])
                                           ? assert_cast<const ColumnNullable*>(key_columns[0])
                                                     ->get_nested_column_ptr()
                                                     ->get_raw_data()
@@ -782,7 +782,7 @@ struct MethodOneNumberDirect : public MethodOneNumber<FieldType, TData> {
     void init_serialized_keys(const ColumnRawPtrs& key_columns, uint32_t num_rows,
                               const uint8_t* null_map = nullptr, bool is_join = false,
                               bool is_build = false, uint32_t bucket_size = 0) override {
-        Base::keys = (FieldType*)(key_columns[0]->is_nullable()
+        Base::keys = (FieldType*)(is_column_nullable(*key_columns[0])
                                           ? assert_cast<const ColumnNullable*>(key_columns[0])
                                                     ->get_nested_column_ptr()
                                                     ->get_raw_data()
@@ -955,7 +955,7 @@ struct MethodKeysFixed : public MethodBase<TData> {
                     const auto* nullmap =
                             assert_cast<const ColumnUInt8&>(*nullmap_columns[j]).get_data().data();
                     // make sure null cell is filled by 0x0
-                    key_columns[j]->assume_mutable()->replace_column_null_data(nullmap);
+                    const_cast<IColumn*>(key_columns[j])->replace_column_null_data(nullmap);
                 }
                 auto* __restrict current = result_data + offset;
                 for (size_t i = 0; i < row_numbers; ++i) {

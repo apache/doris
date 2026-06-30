@@ -399,6 +399,26 @@ suite("test_hive_ddl", "p0,external") {
                 throw new Exception("Invalid compression type: ${compression} for tbl_${file_format}_${compression}")
             }
 
+            if (compression.equals("lz4")) {
+                sql """ INSERT INTO tbl_${file_format}_${compression} VALUES ('doris_lz4') """
+                def q_lz4 = "order_qt_hive_${file_format}_${compression}_write"
+                "${q_lz4}" """ SELECT * FROM tbl_${file_format}_${compression} ORDER BY col """
+
+                if (file_format.equals("parquet")) {
+                    String hdfsPort = context.config.otherConfigs.get("hive2HdfsPort")
+                    String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
+                    order_qt_hive_parquet_lz4_footer_codec """
+                        SELECT DISTINCT compression
+                        FROM parquet_meta(
+                            "uri" = "hdfs://${externalEnvIp}:${hdfsPort}/user/hive/warehouse/test_hive_compress.db/tbl_parquet_lz4/*",
+                            "hadoop.username" = "doris",
+                            "mode" = "parquet_metadata"
+                        )
+                        ORDER BY compression
+                    """
+                }
+            }
+
             sql """DROP TABLE `tbl_${file_format}_${compression}`"""
             sql """ drop database if exists `test_hive_compress` """;
         }
@@ -734,7 +754,7 @@ suite("test_hive_ddl", "p0,external") {
             sql """set enable_fallback_to_original_planner=false;"""
             test_db(catalog_name)
             test_loc_db(externalEnvIp, hdfs_port, catalog_name)
-            def compressions = ["snappy", "zlib", "zstd"]
+            def compressions = ["snappy", "zlib", "zstd", "lz4"]
             for (String file_format in file_formats) {
                 logger.info("Process file format " + file_format)
                 test_loc_tbl(file_format, externalEnvIp, hdfs_port, catalog_name)

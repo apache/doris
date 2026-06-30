@@ -23,7 +23,7 @@
 
 #include "common/status.h"
 #include "core/column/column_nullable_test.h"
-#include "core/column/predicate_column.h"
+#include "core/column/column_vector.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/define_primitive_type.h"
@@ -49,7 +49,7 @@ TEST(ColumnNullableTest, NullTest) {
     dst_col->clear();
     EXPECT_FALSE(dst_col->has_null());
     dst_col->insert_range_from(
-            *ColumnNullable::create(std::move(source_col), ColumnUInt8::create(10, 0)), 5, 5);
+            *ColumnNullable::create(std::move(source_col), ColumnUInt8::create(100, 0)), 5, 5);
     EXPECT_FALSE(dst_col->has_null());
 
     dst_col->clear();
@@ -81,9 +81,17 @@ TEST(ColumnNullableTest, NullTest) {
     EXPECT_TRUE(dst_col->has_null());
 }
 
+TEST(ColumnNullableTest, CreateRejectsMismatchedNestedAndNullMapSizes) {
+    EXPECT_THROW(
+            {
+                auto nullable = ColumnNullable::create(create_nested_column<TYPE_BIGINT>(100),
+                                                       ColumnUInt8::create(10, 0));
+            },
+            doris::Exception);
+}
+
 TEST(ColumnNullableTest, PredicateTest) {
-    auto nullable_pred =
-            ColumnNullable::create(PredicateColumnType<TYPE_DATE>::create(), ColumnUInt8::create());
+    auto nullable_pred = ColumnNullable::create(ColumnDate::create(), ColumnUInt8::create());
     nullable_pred->insert_many_defaults(3);
     EXPECT_TRUE(nullable_pred->has_null());
     nullable_pred->insert_many_defaults(10);
@@ -101,6 +109,25 @@ TEST(ColumnNullableTest, PredicateTest) {
     EXPECT_EQ(nullable_pred->filter_by_selector(selector, 2, null_dst.get()), Status::OK());
     // filter_by_selector must announce to update has_null to make below right.
     EXPECT_TRUE(null_dst->has_null());
+}
+
+TEST(ColumnNullableTest, SharedCreatePreservesImmutableSubcolumns) {
+    auto nested_mut = ColumnInt64::create();
+    nested_mut->insert_value(10);
+    ColumnPtr nested = std::move(nested_mut);
+    ColumnPtr nested_alias = nested;
+
+    auto null_map_mut = ColumnUInt8::create();
+    null_map_mut->insert_value(0);
+    ColumnPtr null_map = std::move(null_map_mut);
+    ColumnPtr null_map_alias = null_map;
+
+    auto nullable = ColumnNullable::create(nested, null_map);
+    const auto& nullable_ref = *nullable;
+    EXPECT_EQ(nullable_ref.get_nested_column_ptr().get(), nested_alias.get());
+    EXPECT_EQ(nullable_ref.get_null_map_column_ptr().get(), null_map_alias.get());
+    EXPECT_EQ(nested_alias->size(), 1);
+    EXPECT_EQ(null_map_alias->size(), 1);
 }
 
 TEST(ColumnNullableTest, append_data_by_selector) {

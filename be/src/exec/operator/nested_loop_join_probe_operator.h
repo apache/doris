@@ -50,7 +50,7 @@ public:
     for (size_t i = 0; i < column_to_keep; ++i) {        \
         auto& column = block->get_by_position(i).column; \
         if (column->is_exclusive()) {                    \
-            column->assume_mutable()->clear();           \
+            column->assert_mutable()->clear();           \
         } else {                                         \
             column = column->clone_empty();              \
         }                                                \
@@ -277,9 +277,9 @@ public:
         if (_join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN ||
             _join_op == TJoinOp::RIGHT_OUTER_JOIN || _join_op == TJoinOp::RIGHT_ANTI_JOIN ||
             _join_op == TJoinOp::RIGHT_SEMI_JOIN || _join_op == TJoinOp::FULL_OUTER_JOIN) {
-            return {ExchangeType::NOOP};
+            return {TLocalPartitionType::NOOP};
         }
-        return {ExchangeType::ADAPTIVE_PASSTHROUGH};
+        return {TLocalPartitionType::ADAPTIVE_PASSTHROUGH};
     }
 
     const RowDescriptor& row_desc() const override {
@@ -294,7 +294,6 @@ public:
 
 private:
     friend class NestedLoopJoinProbeLocalState;
-    bool _is_output_probe_side_only;
     VExprContextSPtrs _join_conjuncts;
     VExprContextSPtrs _mark_join_conjuncts;
     size_t _num_probe_side_columns = 0;

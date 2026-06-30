@@ -31,9 +31,8 @@ suite("test_array_with_inverted_index_all_type"){
     def dataFile = """test_array_with_inverted_index_all_type.json"""
     def dataFileAgg = """test_array_with_inverted_index_all_type_agg.json"""
     sql """ set enable_profile = true;"""
-    // If we use common expr pass to inverted index , we should set enable_common_expr_pushdown = true
-    sql """ set enable_common_expr_pushdown = true; """
-    sql """ set enable_common_expr_pushdown_for_inverted_index = true; """
+    // Pin enable_segment_limit_pushdown to keep inverted-index pushdown stable under fuzzy testing
+    sql """ set enable_segment_limit_pushdown = true; """
 
     // duplicate key table with all type using standard parser for inverted index
     sql "DROP TABLE IF EXISTS ${indexTblNames[0]}"
@@ -75,14 +74,13 @@ suite("test_array_with_inverted_index_all_type"){
     "is_being_synced" = "false",
     "storage_format" = "V2",
     "light_schema_change" = "true",
-    "disable_auto_compaction" = "false",
-    "enable_single_replica_compaction" = "false"
+    "disable_auto_compaction" = "false"
     );
     """
-    
+
     // duplicate key table with all type using english parser for inverted index
     sql "DROP TABLE IF EXISTS ${indexTblNames[1]}"
-    sql """ 
+    sql """
             CREATE TABLE IF NOT EXISTS `${indexTblNames[1]}` (
                 k1 INT,
                 c_date ARRAY<DATE>,
@@ -101,8 +99,7 @@ suite("test_array_with_inverted_index_all_type"){
             "is_being_synced" = "false",
             "storage_format" = "V2",
             "light_schema_change" = "true",
-            "disable_auto_compaction" = "false",
-            "enable_single_replica_compaction" = "false"
+            "disable_auto_compaction" = "false"
             );
     """
 
@@ -145,11 +142,10 @@ suite("test_array_with_inverted_index_all_type"){
     "is_being_synced" = "false",
     "storage_format" = "V2",
     "light_schema_change" = "true",
-    "disable_auto_compaction" = "false",
-    "enable_single_replica_compaction" = "false"
+    "disable_auto_compaction" = "false"
     );
     """
-    
+
     // mor key table with all type using english parser for inverted index
     sql "DROP TABLE IF EXISTS ${indexTblNames[3]}"
     sql """
@@ -170,11 +166,10 @@ suite("test_array_with_inverted_index_all_type"){
     "is_being_synced" = "false",
     "storage_format" = "V2",
     "light_schema_change" = "true",
-    "disable_auto_compaction" = "false",
-    "enable_single_replica_compaction" = "false"
+    "disable_auto_compaction" = "false"
     );
     """
-    
+
     // mow key table with all type using standard parser for inverted index
     sql "DROP TABLE IF EXISTS ${indexTblNames[4]}"
     sql """
@@ -215,11 +210,10 @@ suite("test_array_with_inverted_index_all_type"){
     "storage_format" = "V2",
     "light_schema_change" = "true",
     "disable_auto_compaction" = "false",
-    "enable_single_replica_compaction" = "false",
     "enable_unique_key_merge_on_write" = "true"
     );
     """
-    
+
     // mow key table with all type using english parser for inverted index
     sql "DROP TABLE IF EXISTS ${indexTblNames[5]}"
     sql """
@@ -241,14 +235,13 @@ suite("test_array_with_inverted_index_all_type"){
     "storage_format" = "V2",
     "light_schema_change" = "true",
     "disable_auto_compaction" = "false",
-    "enable_single_replica_compaction" = "false",
     "enable_unique_key_merge_on_write" = "true"
     );
     """
-    
-          
-    
-    
+
+
+
+
     def StreamLoad = { tableName, agg ->
         streamLoad {
             table tableName
@@ -283,7 +276,7 @@ suite("test_array_with_inverted_index_all_type"){
     }
 
     // query test
-    sql """ set enable_common_expr_pushdown = true """
+    sql """ set enable_segment_limit_pushdown = true """
 
     for (int i = 0; i < 6; i+=1) {
         def indexTblName = indexTblNames[i]

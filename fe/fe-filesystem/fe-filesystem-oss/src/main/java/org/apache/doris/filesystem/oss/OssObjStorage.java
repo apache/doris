@@ -17,14 +17,41 @@
 
 package org.apache.doris.filesystem.oss;
 
-import org.apache.doris.filesystem.s3.S3ObjStorage;
+import org.apache.doris.filesystem.UploadPartResult;
+import org.apache.doris.filesystem.spi.ObjStorage;
+import org.apache.doris.filesystem.spi.ObjectListOptions;
+import org.apache.doris.filesystem.spi.ObjectStorageUri;
+import org.apache.doris.filesystem.spi.RemoteObject;
+import org.apache.doris.filesystem.spi.RemoteObjects;
+import org.apache.doris.filesystem.spi.RequestBody;
 import org.apache.doris.filesystem.spi.StsCredentials;
 
+import com.aliyun.oss.ClientBuilderConfiguration;
+import com.aliyun.oss.ClientException;
 import com.aliyun.oss.HttpMethod;
 import com.aliyun.oss.OSS;
 import com.aliyun.oss.OSSClientBuilder;
 import com.aliyun.oss.OSSException;
+import com.aliyun.oss.common.auth.Credentials;
+import com.aliyun.oss.common.auth.CredentialsProvider;
+import com.aliyun.oss.common.auth.DefaultCredentials;
+import com.aliyun.oss.common.utils.HttpHeaders;
+import com.aliyun.oss.internal.OSSHeaders;
+import com.aliyun.oss.model.AbortMultipartUploadRequest;
+import com.aliyun.oss.model.CompleteMultipartUploadRequest;
+import com.aliyun.oss.model.CopyObjectRequest;
+import com.aliyun.oss.model.DeleteObjectsRequest;
 import com.aliyun.oss.model.GeneratePresignedUrlRequest;
+import com.aliyun.oss.model.GetObjectRequest;
+import com.aliyun.oss.model.InitiateMultipartUploadRequest;
+import com.aliyun.oss.model.InitiateMultipartUploadResult;
+import com.aliyun.oss.model.ListObjectsRequest;
+import com.aliyun.oss.model.OSSObject;
+import com.aliyun.oss.model.OSSObjectSummary;
+import com.aliyun.oss.model.ObjectListing;
+import com.aliyun.oss.model.ObjectMetadata;
+import com.aliyun.oss.model.PartETag;
+import com.aliyun.oss.model.PutObjectRequest;
 import com.aliyuncs.DefaultAcsClient;
 import com.aliyuncs.auth.BasicCredentials;
 import com.aliyuncs.auth.StaticCredentialsProvider;
@@ -34,120 +61,320 @@ import com.aliyuncs.profile.DefaultProfile;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.io.InputStream;
 import java.net.URL;
+import java.util.Collections;
 import java.util.Date;
-import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
-import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.stream.Collectors;
 
 /**
- * Alibaba Cloud OSS implementation of {@link org.apache.doris.filesystem.spi.ObjStorage}.
+ * Alibaba Cloud OSS implementation backed by the native OSS SDK.
  *
- * <p>Extends {@link S3ObjStorage} so all core I/O operations (list, head, put, delete, copy,
- * multipart upload) delegate to the parent using S3-compatible APIs — matching the reference pattern
- * where {@code OssRemote extends DefaultRemote} (the S3-backed base class).
- *
- * <p>The two cloud-specific extension methods that <em>require</em> a native SDK are overridden:
- * <ul>
- *   <li>{@link #getPresignedUrl(String)} — uses Alibaba OSS SDK
- *       ({@code OSS.generatePresignedUrl}) to produce the correct OSS signature format.</li>
- *   <li>{@link #getStsToken()} — uses Alibaba RAM/STS SDK
- *       ({@code DefaultAcsClient}) to call {@code sts.aliyuncs.com}.</li>
- * </ul>
- *
- * <p>Recognized property keys (OSS-specific; AWS_* equivalents accepted as fallback):
- * <ul>
- *   <li>{@code OSS_ENDPOINT} / {@code AWS_ENDPOINT} — OSS endpoint URL</li>
- *   <li>{@code OSS_ACCESS_KEY} / {@code AWS_ACCESS_KEY} — access key ID</li>
- *   <li>{@code OSS_SECRET_KEY} / {@code AWS_SECRET_KEY} — secret access key</li>
- *   <li>{@code OSS_TOKEN} / {@code AWS_TOKEN} — STS session token (optional)</li>
- *   <li>{@code OSS_BUCKET} / {@code AWS_BUCKET} — bucket name (required for cloud extensions)</li>
- *   <li>{@code OSS_REGION} / {@code AWS_REGION} — region for STS calls</li>
- *   <li>{@code OSS_ROLE_ARN} / {@code AWS_ROLE_ARN} — role ARN for STS assumption</li>
- * </ul>
+ * <p>This class consumes typed OSS properties. Raw key aliases are resolved by
+ * {@link OssFileSystemProperties}; client construction and authentication do not
+ * translate through AWS-compatible keys.
  */
-public class OssObjStorage extends S3ObjStorage {
+public class OssObjStorage implements ObjStorage<OSS> {
 
     private static final Logger LOG = LogManager.getLogger(OssObjStorage.class);
 
-    /** Validity period for presigned URLs and STS tokens, in seconds. */
     private static final int SESSION_EXPIRE_SECONDS = 3600;
+    private static final int DELETE_BATCH_SIZE = 1000;
+    private static final Credentials ANONYMOUS_CREDENTIALS =
+            new DefaultCredentials("anonymous", "anonymous");
+    // A bucket name that can serve as a virtual-hosted subdomain: 3-63 chars, lowercase
+    // letters/digits/hyphens, must start and end with an alphanumeric.
+    private static final java.util.regex.Pattern VIRTUAL_HOST_BUCKET_NAME =
+            java.util.regex.Pattern.compile("[a-z0-9][a-z0-9-]{1,61}[a-z0-9]");
 
-    private final Map<String, String> ossProperties;
+    private final OssFileSystemProperties properties;
+    private final AtomicBoolean closed = new AtomicBoolean(false);
     private volatile OSS ossClient;
 
     public OssObjStorage(Map<String, String> properties) {
-        super(toS3Props(properties));
-        this.ossProperties = properties;
+        this(OssFileSystemProperties.of(properties));
     }
 
-    /**
-     * Translates OSS-specific property keys to the AWS keys expected by {@link S3ObjStorage}.
-     * If both forms are present, the AWS_* key takes precedence.
-     */
-    static Map<String, String> toS3Props(Map<String, String> ossProps) {
-        Map<String, String> s3Props = new HashMap<>(ossProps);
-        if (ossProps.containsKey("OSS_ENDPOINT") && !ossProps.containsKey("AWS_ENDPOINT")) {
-            s3Props.put("AWS_ENDPOINT", ossProps.get("OSS_ENDPOINT"));
-        }
-        if (ossProps.containsKey("OSS_ACCESS_KEY") && !ossProps.containsKey("AWS_ACCESS_KEY")) {
-            s3Props.put("AWS_ACCESS_KEY", ossProps.get("OSS_ACCESS_KEY"));
-        }
-        if (ossProps.containsKey("OSS_SECRET_KEY") && !ossProps.containsKey("AWS_SECRET_KEY")) {
-            s3Props.put("AWS_SECRET_KEY", ossProps.get("OSS_SECRET_KEY"));
-        }
-        if (ossProps.containsKey("OSS_TOKEN") && !ossProps.containsKey("AWS_TOKEN")) {
-            s3Props.put("AWS_TOKEN", ossProps.get("OSS_TOKEN"));
-        }
-        if (ossProps.containsKey("OSS_BUCKET") && !ossProps.containsKey("AWS_BUCKET")) {
-            s3Props.put("AWS_BUCKET", ossProps.get("OSS_BUCKET"));
-        }
-        if (ossProps.containsKey("OSS_REGION") && !ossProps.containsKey("AWS_REGION")) {
-            s3Props.put("AWS_REGION", ossProps.get("OSS_REGION"));
-        }
-        if (ossProps.containsKey("OSS_ROLE_ARN") && !ossProps.containsKey("AWS_ROLE_ARN")) {
-            s3Props.put("AWS_ROLE_ARN", ossProps.get("OSS_ROLE_ARN"));
-        }
-        s3Props.put("use_path_style", "false");
-        return s3Props;
+    public OssObjStorage(OssFileSystemProperties properties) {
+        this.properties = properties;
     }
 
-    // -----------------------------------------------------------------------
-    // Cloud-specific extension overrides
-    // -----------------------------------------------------------------------
+    /** Whether path-style (vs virtual-hosted-style) bucket access is explicitly configured. */
+    public boolean isUsePathStyle() {
+        return properties.isUsePathStyle();
+    }
 
-    /**
-     * Generates a pre-signed PUT URL using the Alibaba Cloud OSS native SDK.
-     *
-     * @param objectKey the bare object key (no scheme or bucket prefix)
-     */
     @Override
-    public String getPresignedUrl(String objectKey) throws IOException {
-        String bucket = resolveRequired("OSS_BUCKET", "AWS_BUCKET", "OSS bucket for presigned URL");
-        try {
-            OSS oss = getOssClient();
-            Date expiration = new Date(System.currentTimeMillis() + (long) SESSION_EXPIRE_SECONDS * 1000);
-            GeneratePresignedUrlRequest request = new GeneratePresignedUrlRequest(bucket, objectKey, HttpMethod.PUT);
-            request.setExpiration(expiration);
-            URL signedUrl = oss.generatePresignedUrl(request);
-            LOG.info("Generated OSS presigned URL for key={}", objectKey);
-            return signedUrl.toString();
-        } catch (OSSException e) {
-            LOG.warn("Failed to generate OSS presigned URL for key={}", objectKey, e);
-            throw new IOException("Failed to generate OSS presigned URL: " + e.getMessage(), e);
-        }
+    public OSS getClient() throws IOException {
+        return getClient(properties.getBucket());
     }
 
     /**
-     * Obtains temporary STS credentials using Alibaba RAM STS ({@code sts.aliyuncs.com}).
+     * Returns the lazily-built OSS client, choosing path-style vs virtual-hosted addressing
+     * based on {@code bucket} (see {@link #resolvePathStyle(String)}).
+     *
+     * <p>The addressing decision is made once, when the client is first built, from the first
+     * bucket accessed through this instance. An {@code OssObjStorage} is scoped to a single
+     * endpoint/bucket in practice (e.g. one backup repository), so this matches the per-bucket
+     * behavior the legacy AWS-SDK-based client relied on for that case.
      */
+    private OSS getClient(String bucket) throws IOException {
+        if (closed.get()) {
+            throw new IOException("OssObjStorage is already closed");
+        }
+        if (ossClient == null) {
+            synchronized (this) {
+                if (ossClient == null) {
+                    ossClient = buildOssClient(resolvePathStyle(bucket));
+                }
+            }
+        }
+        return ossClient;
+    }
+
+    /**
+     * Decides whether to use path-style (SLD) addressing for {@code bucket}.
+     *
+     * <p>Honors an explicit {@code use_path_style=true}, and otherwise falls back to path-style
+     * when the bucket name cannot be expressed as a virtual-hosted DNS label (for example it
+     * contains an underscore, which is illegal in a hostname). This mirrors the AWS SDK v2
+     * behavior the legacy S3-compatible client relied on, so buckets with non-DNS-safe names
+     * keep working instead of failing with a virtual-hosted {@code NoSuchBucket}. The native OSS
+     * SDK does no such fallback on its own.
+     *
+     * <p>Note: the OSS SDK's own {@code validateBucketName} is intentionally not used here — it
+     * accepts underscores (a legal object-storage name) even though such a name is not a legal
+     * DNS host label, which is precisely the case that must trigger path-style.
+     */
+    boolean resolvePathStyle(String bucket) {
+        if (properties.isUsePathStyle()) {
+            return true;
+        }
+        return hasText(bucket) && !isVirtualHostCompatible(bucket);
+    }
+
+    /**
+     * Returns true when {@code bucket} is a valid virtual-hosted DNS label: 3-63 characters of
+     * lowercase letters, digits and hyphens, starting and ending with an alphanumeric. Names
+     * with underscores, uppercase letters or dots cannot be safely used as a virtual-hosted
+     * subdomain and therefore require path-style addressing.
+     */
+    private static boolean isVirtualHostCompatible(String bucket) {
+        return VIRTUAL_HOST_BUCKET_NAME.matcher(bucket).matches();
+    }
+
+    protected OSS buildOssClient(boolean pathStyle) throws IOException {
+        String endpoint = properties.getEndpoint();
+        String accessKey = properties.getAccessKey();
+        String secretKey = properties.getSecretKey();
+        if (!hasText(accessKey)) {
+            return new OSSClientBuilder().build(endpoint, anonymousCredentialsProvider(),
+                    anonymousClientConfiguration(pathStyle));
+        }
+        ClientBuilderConfiguration config = clientConfiguration(pathStyle);
+        String token = properties.getSessionToken();
+        if (hasText(token)) {
+            return new OSSClientBuilder().build(endpoint, accessKey, secretKey, token, config);
+        }
+        return new OSSClientBuilder().build(endpoint, accessKey, secretKey, config);
+    }
+
+    @Override
+    public RemoteObjects listObjects(String remotePath, String continuationToken) throws IOException {
+        return listObjectsWithOptions(remotePath, ObjectListOptions.builder()
+                .continuationToken(continuationToken)
+                .build());
+    }
+
+    @Override
+    public RemoteObjects listObjectsWithOptions(String remotePath, ObjectListOptions options) throws IOException {
+        ObjectStorageUri uri = ObjectStorageUri.parse(remotePath, false);
+        ListObjectsRequest request = new ListObjectsRequest(uri.bucket());
+        request.setPrefix(uri.key());
+        if (options != null) {
+            String marker = hasText(options.continuationToken())
+                    ? options.continuationToken() : options.startAfter();
+            if (hasText(marker)) {
+                request.setMarker(marker);
+            }
+            if (options.maxKeys() > 0) {
+                request.setMaxKeys(options.maxKeys());
+            }
+            if (hasText(options.delimiter())) {
+                request.setDelimiter(options.delimiter());
+            }
+        }
+        try {
+            ObjectListing listing = getClient(uri.bucket()).listObjects(request);
+            List<RemoteObject> objects = listing.getObjectSummaries().stream()
+                    .map(obj -> toRemoteObject(uri.key(), obj))
+                    .collect(Collectors.toList());
+            return new RemoteObjects(objects, listing.isTruncated(),
+                    listing.isTruncated() ? listing.getNextMarker() : null);
+        } catch (OSSException e) {
+            // OSSException (server-side errors such as NoSuchBucket) is a sibling of
+            // ClientException, not a subclass, so it must be caught explicitly or it would
+            // propagate as an unwrapped runtime exception.
+            throw new IOException("Failed to list objects at " + remotePath + ": " + e.getMessage(), e);
+        } catch (ClientException e) {
+            throw new IOException("Failed to list objects at " + remotePath + ": " + e.getMessage(), e);
+        }
+    }
+
+    @Override
+    public RemoteObject headObject(String remotePath) throws IOException {
+        ObjectStorageUri uri = ObjectStorageUri.parse(remotePath, false);
+        try {
+            ObjectMetadata metadata = getClient(uri.bucket()).getObjectMetadata(uri.bucket(), uri.key());
+            return new RemoteObject(uri.key(), uri.key(), metadata.getETag(), metadata.getContentLength(),
+                    lastModifiedMs(metadata.getLastModified()));
+        } catch (OSSException e) {
+            if (isNotFound(e)) {
+                throw new FileNotFoundException("Object not found: " + remotePath);
+            }
+            throw new IOException("headObject failed for " + remotePath + ": " + e.getMessage(), e);
+        } catch (ClientException e) {
+            throw new IOException("headObject failed for " + remotePath + ": " + e.getMessage(), e);
+        }
+    }
+
+    @Override
+    public void putObject(String remotePath, RequestBody requestBody) throws IOException {
+        ObjectStorageUri uri = ObjectStorageUri.parse(remotePath, false);
+        ObjectMetadata metadata = new ObjectMetadata();
+        metadata.setContentLength(requestBody.contentLength());
+        try (InputStream content = requestBody.content()) {
+            getClient(uri.bucket()).putObject(new PutObjectRequest(uri.bucket(), uri.key(), content, metadata));
+        } catch (ClientException e) {
+            throw new IOException("putObject failed for " + remotePath + ": " + e.getMessage(), e);
+        }
+    }
+
+    @Override
+    public void deleteObject(String remotePath) throws IOException {
+        ObjectStorageUri uri = ObjectStorageUri.parse(remotePath, false);
+        try {
+            getClient(uri.bucket()).deleteObject(uri.bucket(), uri.key());
+        } catch (OSSException e) {
+            if (isNotFound(e)) {
+                return;
+            }
+            throw new IOException("deleteObject failed for " + remotePath + ": " + e.getMessage(), e);
+        } catch (ClientException e) {
+            throw new IOException("deleteObject failed for " + remotePath + ": " + e.getMessage(), e);
+        }
+    }
+
+    @Override
+    public void copyObject(String srcPath, String dstPath) throws IOException {
+        ObjectStorageUri src = ObjectStorageUri.parse(srcPath, false);
+        ObjectStorageUri dst = ObjectStorageUri.parse(dstPath, false);
+        try {
+            getClient(src.bucket()).copyObject(new CopyObjectRequest(
+                    src.bucket(), src.key(), dst.bucket(), dst.key()));
+        } catch (ClientException e) {
+            throw new IOException("copyObject from " + srcPath + " to " + dstPath
+                    + " failed: " + e.getMessage(), e);
+        }
+    }
+
+    @Override
+    public String initiateMultipartUpload(String remotePath) throws IOException {
+        ObjectStorageUri uri = ObjectStorageUri.parse(remotePath, false);
+        try {
+            InitiateMultipartUploadResult result = getClient(uri.bucket()).initiateMultipartUpload(
+                    new InitiateMultipartUploadRequest(uri.bucket(), uri.key()));
+            return result.getUploadId();
+        } catch (ClientException e) {
+            throw new IOException("initiateMultipartUpload failed for " + remotePath
+                    + ": " + e.getMessage(), e);
+        }
+    }
+
+    @Override
+    public UploadPartResult uploadPart(String remotePath, String uploadId, int partNum,
+            RequestBody body) throws IOException {
+        ObjectStorageUri uri = ObjectStorageUri.parse(remotePath, false);
+        try (InputStream content = body.content()) {
+            com.aliyun.oss.model.UploadPartRequest request = new com.aliyun.oss.model.UploadPartRequest();
+            request.setBucketName(uri.bucket());
+            request.setKey(uri.key());
+            request.setUploadId(uploadId);
+            request.setPartNumber(partNum);
+            request.setPartSize(body.contentLength());
+            request.setInputStream(content);
+            com.aliyun.oss.model.UploadPartResult result = getClient(uri.bucket()).uploadPart(request);
+            return new UploadPartResult(partNum, result.getETag());
+        } catch (ClientException e) {
+            throw new IOException("uploadPart " + partNum + " failed for " + remotePath
+                    + ": " + e.getMessage(), e);
+        }
+    }
+
+    @Override
+    public void completeMultipartUpload(String remotePath, String uploadId,
+            List<UploadPartResult> parts) throws IOException {
+        ObjectStorageUri uri = ObjectStorageUri.parse(remotePath, false);
+        List<PartETag> partEtags = parts.stream()
+                .map(part -> new PartETag(part.partNumber(), part.etag()))
+                .collect(Collectors.toList());
+        try {
+            getClient(uri.bucket()).completeMultipartUpload(new CompleteMultipartUploadRequest(
+                    uri.bucket(), uri.key(), uploadId, partEtags));
+        } catch (ClientException e) {
+            throw new IOException("completeMultipartUpload failed for " + remotePath
+                    + ": " + e.getMessage(), e);
+        }
+    }
+
+    @Override
+    public void abortMultipartUpload(String remotePath, String uploadId) throws IOException {
+        ObjectStorageUri uri = ObjectStorageUri.parse(remotePath, false);
+        try {
+            getClient(uri.bucket()).abortMultipartUpload(new AbortMultipartUploadRequest(
+                    uri.bucket(), uri.key(), uploadId));
+        } catch (ClientException e) {
+            throw new IOException("abortMultipartUpload failed for " + remotePath
+                    + " (uploadId=" + uploadId + "): " + e.getMessage(), e);
+        }
+    }
+
+    @Override
+    public InputStream openInputStreamAt(String remotePath, long fromByte) throws IOException {
+        ObjectStorageUri uri = ObjectStorageUri.parse(remotePath, false);
+        try {
+            GetObjectRequest request = new GetObjectRequest(uri.bucket(), uri.key());
+            if (fromByte > 0) {
+                request.setRange(fromByte, -1);
+            }
+            OSSObject object = getClient(uri.bucket()).getObject(request);
+            return object.getObjectContent();
+        } catch (OSSException e) {
+            if (isNotFound(e)) {
+                throw new FileNotFoundException("Object not found: " + remotePath);
+            }
+            throw new IOException("getObject failed for " + remotePath + ": " + e.getMessage(), e);
+        } catch (ClientException e) {
+            throw new IOException("getObject failed for " + remotePath + ": " + e.getMessage(), e);
+        }
+    }
+
+    @Override
+    public long headObjectLastModified(String remotePath) throws IOException {
+        return headObject(remotePath).getModificationTime();
+    }
+
     @Override
     public StsCredentials getStsToken() throws IOException {
-        String region = resolveRequired("OSS_REGION", "AWS_REGION", "OSS region for STS");
-        String accessKey = resolveRequired("OSS_ACCESS_KEY", "AWS_ACCESS_KEY", "OSS access key");
-        String secretKey = resolveRequired("OSS_SECRET_KEY", "AWS_SECRET_KEY", "OSS secret key");
-        String roleArn = resolveRequired("OSS_ROLE_ARN", "AWS_ROLE_ARN", "OSS role ARN");
+        String region = properties.getRegion();
+        String accessKey = requireProperty(properties.getAccessKey(), "OSS_ACCESS_KEY", "OSS access key");
+        String secretKey = requireProperty(properties.getSecretKey(), "OSS_SECRET_KEY", "OSS secret key");
+        String roleArn = requireProperty(properties.getRoleArn(), "OSS_ROLE_ARN", "OSS role ARN");
         try {
             DefaultProfile profile = DefaultProfile.getProfile(region);
             BasicCredentials basicCredentials = new BasicCredentials(accessKey, secretKey);
@@ -155,7 +382,7 @@ public class OssObjStorage extends S3ObjStorage {
                     new DefaultAcsClient(profile, new StaticCredentialsProvider(basicCredentials));
             AssumeRoleRequest request = new AssumeRoleRequest();
             request.setRoleArn(roleArn);
-            request.setRoleSessionName("doris_" + UUID.randomUUID().toString().replace("-", ""));
+            request.setRoleSessionName("doris_" + java.util.UUID.randomUUID().toString().replace("-", ""));
             request.setDurationSeconds((long) SESSION_EXPIRE_SECONDS);
             AssumeRoleResponse response = ramClient.getAcsResponse(request);
             AssumeRoleResponse.Credentials credentials = response.getCredentials();
@@ -164,64 +391,145 @@ public class OssObjStorage extends S3ObjStorage {
                     credentials.getAccessKeySecret(),
                     credentials.getSecurityToken());
         } catch (Exception e) {
-            LOG.warn("Failed to get OSS STS token, roleArn={}", resolveOpt("OSS_ROLE_ARN", "AWS_ROLE_ARN"), e);
+            LOG.warn("Failed to get OSS STS token, roleArn={}", properties.getRoleArn(), e);
             throw new IOException("Failed to get OSS STS token: " + e.getMessage(), e);
         }
     }
 
-    // -----------------------------------------------------------------------
-    // Native OSS client lifecycle
-    // -----------------------------------------------------------------------
-
-    private OSS getOssClient() throws IOException {
-        if (ossClient == null) {
-            synchronized (this) {
-                if (ossClient == null) {
-                    ossClient = buildOssClient();
-                }
-            }
-        }
-        return ossClient;
+    @Override
+    public RemoteObjects listObjectsWithPrefix(String prefix, String subPrefix,
+            String continuationToken) throws IOException {
+        String bucket = requireProperty(properties.getBucket(), "OSS_BUCKET", "OSS bucket");
+        String fullPrefix = normalizeAndCombinePrefix(prefix, subPrefix);
+        return listObjects("oss://" + bucket + "/" + fullPrefix, continuationToken);
     }
 
-    protected OSS buildOssClient() throws IOException {
-        String endpoint = resolveRequired("OSS_ENDPOINT", "AWS_ENDPOINT", "OSS endpoint");
-        String accessKey = resolveRequired("OSS_ACCESS_KEY", "AWS_ACCESS_KEY", "OSS access key");
-        String secretKey = resolveRequired("OSS_SECRET_KEY", "AWS_SECRET_KEY", "OSS secret key");
-        String token = resolveOpt("OSS_TOKEN", "AWS_TOKEN");
-        if (token != null && !token.isEmpty()) {
-            return new OSSClientBuilder().build(endpoint, accessKey, secretKey, token);
+    @Override
+    public RemoteObjects headObjectWithMeta(String prefix, String subKey) throws IOException {
+        String bucket = requireProperty(properties.getBucket(), "OSS_BUCKET", "OSS bucket");
+        String fullKey = normalizeAndCombinePrefix(prefix, subKey);
+        try {
+            RemoteObject object = headObject("oss://" + bucket + "/" + fullKey);
+            return new RemoteObjects(Collections.singletonList(new RemoteObject(
+                    object.getKey(), getRelativePathSafe(prefix, object.getKey()), object.getEtag(),
+                    object.getSize(), object.getModificationTime())), false, null);
+        } catch (FileNotFoundException e) {
+            return new RemoteObjects(Collections.emptyList(), false, null);
         }
-        return new OSSClientBuilder().build(endpoint, accessKey, secretKey);
+    }
+
+    @Override
+    public String getPresignedUrl(String objectKey) throws IOException {
+        String bucket = requireProperty(properties.getBucket(), "OSS_BUCKET", "OSS bucket for presigned URL");
+        try {
+            Date expiration = new Date(System.currentTimeMillis() + (long) SESSION_EXPIRE_SECONDS * 1000);
+            GeneratePresignedUrlRequest request = new GeneratePresignedUrlRequest(bucket, objectKey, HttpMethod.PUT);
+            request.setExpiration(expiration);
+            URL signedUrl = getClient(bucket).generatePresignedUrl(request);
+            LOG.info("Generated OSS presigned URL for key={}", objectKey);
+            return signedUrl.toString();
+        } catch (ClientException e) {
+            LOG.warn("Failed to generate OSS presigned URL for key={}", objectKey, e);
+            throw new IOException("Failed to generate OSS presigned URL: " + e.getMessage(), e);
+        }
+    }
+
+    @Override
+    public void deleteObjectsByKeys(String bucket, List<String> keys) throws IOException {
+        try {
+            for (int i = 0; i < keys.size(); i += DELETE_BATCH_SIZE) {
+                List<String> batch = keys.subList(i, Math.min(i + DELETE_BATCH_SIZE, keys.size()));
+                DeleteObjectsRequest request = new DeleteObjectsRequest(bucket);
+                request.setQuiet(true);
+                request.setKeys(batch);
+                getClient(bucket).deleteObjects(request);
+            }
+        } catch (ClientException e) {
+            throw new IOException("Failed to batch delete objects from bucket=" + bucket + ": " + e.getMessage(), e);
+        }
     }
 
     @Override
     public void close() throws IOException {
-        if (ossClient != null) {
+        if (closed.compareAndSet(false, true) && ossClient != null) {
             ossClient.shutdown();
             ossClient = null;
         }
-        super.close();
     }
 
-    // -----------------------------------------------------------------------
-    // Property helpers
-    // -----------------------------------------------------------------------
-
-    private String resolveOpt(String primaryKey, String fallbackKey) {
-        String value = ossProperties.get(primaryKey);
-        if (value != null && !value.isEmpty()) {
-            return value;
-        }
-        return ossProperties.get(fallbackKey);
+    private RemoteObject toRemoteObject(String prefix, OSSObjectSummary object) {
+        return new RemoteObject(
+                object.getKey(),
+                getRelativePathSafe(prefix, object.getKey()),
+                object.getETag(),
+                object.getSize(),
+                lastModifiedMs(object.getLastModified()));
     }
 
-    private String resolveRequired(String primaryKey, String fallbackKey, String description)
-            throws IOException {
-        String value = resolveOpt(primaryKey, fallbackKey);
-        if (value == null || value.isEmpty()) {
-            throw new IOException(description + " is required; set " + primaryKey + " in properties");
+    private static String requireProperty(String value, String key, String description) throws IOException {
+        if (!hasText(value)) {
+            throw new IOException(description + " is required; set " + key + " in properties");
         }
         return value;
+    }
+
+    private static boolean isNotFound(OSSException e) {
+        return "NoSuchKey".equals(e.getErrorCode())
+                || "NoSuchBucket".equals(e.getErrorCode());
+    }
+
+    private static long lastModifiedMs(Date lastModified) {
+        return lastModified == null ? 0L : lastModified.getTime();
+    }
+
+    private static String normalizeAndCombinePrefix(String prefix, String subPrefix) {
+        String normalized = (prefix == null || prefix.isEmpty()) ? ""
+                : (prefix.endsWith("/") ? prefix : prefix + "/");
+        if (subPrefix == null || subPrefix.isEmpty()) {
+            return normalized;
+        }
+        return normalized.isEmpty() ? subPrefix : normalized + subPrefix;
+    }
+
+    private static String getRelativePathSafe(String prefix, String key) {
+        String normalized = (prefix == null || prefix.isEmpty()) ? ""
+                : (prefix.endsWith("/") ? prefix : prefix + "/");
+        if (!key.startsWith(normalized)) {
+            return key;
+        }
+        return key.substring(normalized.length());
+    }
+
+    private static boolean hasText(String value) {
+        return value != null && !value.isEmpty();
+    }
+
+    private static CredentialsProvider anonymousCredentialsProvider() {
+        return new CredentialsProvider() {
+            @Override
+            public void setCredentials(Credentials credentials) {
+            }
+
+            @Override
+            public Credentials getCredentials() {
+                return ANONYMOUS_CREDENTIALS;
+            }
+        };
+    }
+
+    private static ClientBuilderConfiguration clientConfiguration(boolean pathStyle) {
+        ClientBuilderConfiguration config = new ClientBuilderConfiguration();
+        // SLD (second-level-domain) access is the OSS SDK's name for path-style addressing.
+        config.setSLDEnabled(pathStyle);
+        return config;
+    }
+
+    static ClientBuilderConfiguration anonymousClientConfiguration(boolean pathStyle) {
+        ClientBuilderConfiguration config = clientConfiguration(pathStyle);
+        config.setSignerHandlers(Collections.singletonList(request -> {
+            request.getHeaders().remove(HttpHeaders.AUTHORIZATION);
+            request.getHeaders().remove(OSSHeaders.OSS_SECURITY_TOKEN);
+        }));
+        return config;
     }
 }

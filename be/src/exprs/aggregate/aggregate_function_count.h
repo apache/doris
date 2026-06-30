@@ -37,6 +37,7 @@
 #include "core/data_type/data_type_number.h"
 #include "core/types.h"
 #include "exprs/aggregate/aggregate_function.h"
+#include "util/simd/bits.h"
 
 namespace doris {
 class Arena;
@@ -65,6 +66,11 @@ public:
 
     void add(AggregateDataPtr __restrict place, const IColumn**, ssize_t, Arena&) const override {
         ++data(place).count;
+    }
+
+    void add_batch_single_place(size_t batch_size, AggregateDataPtr place, const IColumn**,
+                                Arena&) const override {
+        data(place).count += batch_size;
     }
 
     void reset(AggregateDataPtr place) const override {
@@ -180,8 +186,7 @@ public:
     }
 };
 
-// TODO: Maybe AggregateFunctionCountNotNullUnary should be a subclass of AggregateFunctionCount
-// Simply count number of not-NULL values.
+// Used for unary count(nullable_expr). SQL count(expr) counts non-NULL values.
 class AggregateFunctionCountNotNullUnary final
         : public IAggregateFunctionDataHelper<AggregateFunctionCountData,
                                               AggregateFunctionCountNotNullUnary> {
@@ -202,6 +207,20 @@ public:
                          .is_null_at(row_num);
     }
 
+    void add_batch_single_place(size_t batch_size, AggregateDataPtr place, const IColumn** columns,
+                                Arena&) const override {
+        const auto& nullable_column =
+                assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(*columns[0]);
+        const auto& null_map = nullable_column.get_null_map_data();
+        DCHECK_LE(batch_size, null_map.size());
+        if (!nullable_column.has_null(0, batch_size)) {
+            data(place).count += batch_size;
+            return;
+        }
+        data(place).count +=
+                simd::count_zero_num(reinterpret_cast<const int8_t*>(null_map.data()), batch_size);
+    }
+
     void reset(AggregateDataPtr place) const override { data(place).count = 0; }
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
@@ -219,7 +238,7 @@ public:
     }
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
-        if (to.is_nullable()) {
+        if (is_column_nullable(to)) {
             auto& null_column = assert_cast<ColumnNullable&>(to);
             null_column.get_null_map_data().push_back(0);
             assert_cast<ColumnInt64&>(null_column.get_nested_column())

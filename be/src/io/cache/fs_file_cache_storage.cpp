@@ -85,6 +85,12 @@ struct BatchLoadArgs {
     bool is_tmp;
 };
 
+FSFileCacheStorage::FSFileCacheStorage() {
+    for (auto& shard : _writer_shards) {
+        shard = std::make_unique<WriterShard>();
+    }
+}
+
 FDCache* FDCache::instance() {
     return ExecEnv::GetInstance()->file_cache_open_fd_cache();
 }
@@ -188,9 +194,10 @@ Status FSFileCacheStorage::init(BlockFileCache* mgr) {
 Status FSFileCacheStorage::append(const FileCacheKey& key, const Slice& value) {
     FileWriter* writer = nullptr;
     {
-        std::lock_guard lock(_mtx);
         auto file_writer_map_key = std::make_pair(key.hash, key.offset);
-        if (auto iter = _key_to_writer.find(file_writer_map_key); iter != _key_to_writer.end()) {
+        auto& shard = shard_of(file_writer_map_key);
+        std::lock_guard lock(shard.mtx);
+        if (auto iter = shard.map.find(file_writer_map_key); iter != shard.map.end()) {
             writer = iter->second.get();
         } else {
             std::string dir = get_path_in_local_cache_v3(key.hash);
@@ -203,7 +210,7 @@ Status FSFileCacheStorage::append(const FileCacheKey& key, const Slice& value) {
             FileWriterOptions opts {.sync_file_data = false};
             RETURN_IF_ERROR(fs->create_file(tmp_file, &file_writer, &opts));
             writer = file_writer.get();
-            _key_to_writer.emplace(file_writer_map_key, std::move(file_writer));
+            shard.map.emplace(file_writer_map_key, std::move(file_writer));
         }
     }
     DCHECK_NE(writer, nullptr);
@@ -213,10 +220,11 @@ Status FSFileCacheStorage::append(const FileCacheKey& key, const Slice& value) {
 Status FSFileCacheStorage::finalize(const FileCacheKey& key, const size_t size) {
     FileWriterPtr file_writer;
     {
-        std::lock_guard lock(_mtx);
         auto file_writer_map_key = std::make_pair(key.hash, key.offset);
-        auto iter = _key_to_writer.find(file_writer_map_key);
-        if (iter == _key_to_writer.end()) {
+        auto& shard = shard_of(file_writer_map_key);
+        std::lock_guard lock(shard.mtx);
+        auto iter = shard.map.find(file_writer_map_key);
+        if (iter == shard.map.end()) {
             return Status::InternalError(
                     "file cache finalize missing writer, hash={}, offset={}, type={}, "
                     "expiration={}",
@@ -224,7 +232,7 @@ Status FSFileCacheStorage::finalize(const FileCacheKey& key, const size_t size) 
                     key.meta.expiration_time);
         }
         file_writer = std::move(iter->second);
-        _key_to_writer.erase(iter);
+        shard.map.erase(iter);
     }
     if (file_writer->state() != FileWriter::State::CLOSED) {
         RETURN_IF_ERROR(file_writer->close());
@@ -281,25 +289,43 @@ Status FSFileCacheStorage::read(const FileCacheKey& key, size_t value_offset, Sl
 }
 
 Status FSFileCacheStorage::remove(const FileCacheKey& key) {
-    std::string dir = get_path_in_local_cache_v3(key.hash);
-    std::string file = get_path_in_local_cache_v3(dir, key.offset);
+    // Large clear-cache tests only need to verify the synchronous remove handoff and in-memory
+    // index cleanup. They can return early here to avoid test-only disk churn.
+    TEST_SYNC_POINT_RETURN_WITH_VALUE("FSFileCacheStorage::remove", Status::OK(), &key);
+
+    const std::string v3_dir = get_path_in_local_cache_v3(key.hash);
+    const std::string v3_file = get_path_in_local_cache_v3(v3_dir, key.offset);
     FDCache::instance()->remove_file_reader(std::make_pair(key.hash, key.offset));
-    RETURN_IF_ERROR(fs->delete_file(file));
+    RETURN_IF_ERROR(fs->delete_file(v3_file));
     // return OK not means the file is deleted, it may be not exist
 
+    std::string v2_dir;
     { // try to detect the file with old v2 format
-        dir = get_path_in_local_cache_v2(key.hash, key.meta.expiration_time);
-        file = get_path_in_local_cache_v2(dir, key.offset, key.meta.type);
-        RETURN_IF_ERROR(fs->delete_file(file));
+        v2_dir = get_path_in_local_cache_v2(key.hash, key.meta.expiration_time);
+        const std::string v2_file = get_path_in_local_cache_v2(v2_dir, key.offset, key.meta.type);
+        RETURN_IF_ERROR(fs->delete_file(v2_file));
     }
 
     BlockMetaKey mkey(key.meta.tablet_id, UInt128Wrapper(key.hash), key.offset);
     _meta_store->delete_key(mkey);
     std::vector<FileInfo> files;
     bool exists {false};
-    RETURN_IF_ERROR(fs->list(dir, true, &files, &exists));
-    if (files.empty()) {
-        RETURN_IF_ERROR(fs->delete_directory(dir));
+    RETURN_IF_ERROR(fs->list(v2_dir, true, &files, &exists));
+    if (exists && files.empty()) {
+        auto st = fs->delete_empty_directory(v2_dir);
+        if (!st.ok()) {
+            LOG_WARNING("failed to remove cache directory {}", v2_dir).error(st);
+        }
+    }
+
+    files.clear();
+    exists = false;
+    RETURN_IF_ERROR(fs->list(v3_dir, true, &files, &exists));
+    if (exists && files.empty()) {
+        auto st = fs->delete_empty_directory(v3_dir);
+        if (!st.ok()) {
+            LOG_WARNING("failed to remove cache directory {}", v3_dir).error(st);
+        }
     }
     return Status::OK();
 }
@@ -891,7 +917,7 @@ void FSFileCacheStorage::load_cache_info_into_memory_from_db(BlockFileCache* mgr
         args.is_tmp = false;
 
         CacheContext ctx;
-        ctx.cache_type = static_cast<FileCacheType>(meta_value.type);
+        ctx.cache_type = meta_value.type;
         ctx.expiration_time = meta_value.ttl;
         ctx.tablet_id =
                 meta_key.tablet_id; //TODO(zhengyu): zero if loaded from v2, we can use this to decide whether the block is loaded from v2 or v3
@@ -1017,7 +1043,7 @@ void FSFileCacheStorage::load_blocks_directly_unlocked(BlockFileCache* mgr, cons
     CacheContext context_original;
     context_original.query_id = TUniqueId();
     context_original.expiration_time = block_meta->ttl;
-    context_original.cache_type = static_cast<FileCacheType>(block_meta->type);
+    context_original.cache_type = block_meta->type;
     context_original.tablet_id = key.meta.tablet_id;
 
     if (handle_already_loaded_block(mgr, key.hash, key.offset, block_meta->size, key.meta.tablet_id,

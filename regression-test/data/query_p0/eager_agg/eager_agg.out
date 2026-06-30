@@ -4,10 +4,12 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
 ------hashJoin[INNER_JOIN] hashCondition=((dt.d_date_sk = ss.ss_sold_date_sk)) otherCondition=()
---------hashAgg[GLOBAL]
-----------hashAgg[LOCAL]
-------------hashJoin[INNER_JOIN] hashCondition=((ss.ss_item_sk = ws.ws_item_sk)) otherCondition=()
+--------hashJoin[INNER_JOIN] hashCondition=((ss.ss_item_sk = ws.ws_item_sk)) otherCondition=()
+----------hashAgg[GLOBAL]
+------------hashAgg[LOCAL]
 --------------PhysicalOlapScan[store_sales(ss)]
+----------hashAgg[GLOBAL]
+------------hashAgg[LOCAL]
 --------------PhysicalOlapScan[web_sales(ws)]
 --------PhysicalOlapScan[date_dim(dt)]
 
@@ -46,10 +48,12 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
 ------hashJoin[INNER_JOIN] hashCondition=((dt.d_date_sk = ss.ss_sold_date_sk)) otherCondition=()
---------hashAgg[GLOBAL]
-----------hashAgg[LOCAL]
-------------hashJoin[INNER_JOIN] hashCondition=((ss.ss_item_sk = ws.ws_item_sk)) otherCondition=()
+--------hashJoin[INNER_JOIN] hashCondition=((ss.ss_item_sk = ws.ws_item_sk)) otherCondition=()
+----------hashAgg[GLOBAL]
+------------hashAgg[LOCAL]
 --------------PhysicalOlapScan[store_sales(ss)]
+----------hashAgg[GLOBAL]
+------------hashAgg[LOCAL]
 --------------PhysicalOlapScan[web_sales(ws)]
 --------PhysicalOlapScan[date_dim(dt)]
 
@@ -128,10 +132,12 @@ PhysicalResultSink
 --hashAgg[GLOBAL]
 ----hashAgg[LOCAL]
 ------hashJoin[INNER_JOIN] hashCondition=((dt.d_date_sk = ss.ss_sold_date_sk)) otherCondition=()
---------hashAgg[GLOBAL]
-----------hashAgg[LOCAL]
-------------hashJoin[INNER_JOIN] hashCondition=((ss.ss_item_sk = ws.ws_item_sk)) otherCondition=()
+--------hashJoin[INNER_JOIN] hashCondition=((ss.ss_item_sk = ws.ws_item_sk)) otherCondition=()
+----------hashAgg[GLOBAL]
+------------hashAgg[LOCAL]
 --------------PhysicalOlapScan[store_sales(ss)]
+----------hashAgg[GLOBAL]
+------------hashAgg[LOCAL]
 --------------PhysicalOlapScan[web_sales(ws)]
 --------PhysicalOlapScan[date_dim(dt)]
 
@@ -288,7 +294,9 @@ PhysicalResultSink
 ------hashJoin[INNER_JOIN] hashCondition=((ss.ss_item_sk = ws.ws_item_sk)) otherCondition=()
 --------hashJoin[INNER_JOIN] hashCondition=((dt.d_date_sk = ss.ss_sold_date_sk)) otherCondition=()
 ----------PhysicalOlapScan[store_sales(ss)]
-----------PhysicalOlapScan[date_dim(dt)]
+----------hashAgg[GLOBAL]
+------------hashAgg[LOCAL]
+--------------PhysicalOlapScan[date_dim(dt)]
 --------PhysicalOlapScan[web_sales(ws)]
 
 Hint log:

@@ -210,7 +210,8 @@ Status MergePartitioner::do_partitioning(RuntimeState* state, Block* block) cons
             block->replace_by_position_if_const(col_idx);
         }
 
-        MutableColumns mutable_columns = block->mutate_columns();
+        auto mutable_columns_guard = block->mutate_columns_scoped();
+        MutableColumns& mutable_columns = mutable_columns_guard.mutable_columns();
         MutableColumnPtr& op_mut = mutable_columns[op_idx];
         ColumnInt8* op_values_col = nullptr;
         if (auto* nullable_col = check_and_get_column<ColumnNullable>(op_mut.get())) {
@@ -220,7 +221,6 @@ Status MergePartitioner::do_partitioning(RuntimeState* state, Block* block) cons
             op_values_col = check_and_get_column<ColumnInt8>(op_mut.get());
         }
         if (op_values_col == nullptr) {
-            block->set_columns(std::move(mutable_columns));
             return Status::InternalError("Merge operation column must be tinyint");
         }
         auto& op_values = op_values_col->get_data();
@@ -252,7 +252,6 @@ Status MergePartitioner::do_partitioning(RuntimeState* state, Block* block) cons
                     _insert_random ? _next_rr_channel() : insert_hashes[row];
             _channel_ids.push_back(insert_channel);
         }
-        block->set_columns(std::move(mutable_columns));
     }
 
     return Status::OK();
