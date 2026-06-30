@@ -174,7 +174,7 @@ EOF
 detect_token_limit() {
     local log_file="$1"
     grep -Eiq \
-        'usage limit|rate limit|token limit|quota|too many requests|429|limit[[:space:]]+(reached|exceeded)|exceeded[[:space:]].*limit|try again later|reset[[:space:]]+(at|in)' \
+        'usage limit|rate limit|token limit|quota|too many requests|429|limit[[:space:]]+(reached|exceeded)|exceeded[[:space:]].*limit|exceeded[[:space:]].*budget|budget[[:space:]].*exceeded|usd budget|try again later|reset[[:space:]]+(at|in)' \
         "${log_file}"
 }
 
