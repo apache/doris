@@ -58,7 +58,7 @@ suite("load"){
                 log.info("Stream load result: ${result}".toString())
                     def json = parseJson(result)
                     assertEquals("success", json.Status.toLowerCase())
-                    // assertEquals(json.NumberTotalRows, json.NumberLoadedRows)
+                    assertEquals(json.NumberTotalRows, json.NumberLoadedRows)
                     assertTrue(json.NumberLoadedRows > 0 && json.LoadBytes > 0)
             }
         }

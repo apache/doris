@@ -17,10 +17,32 @@
 
 package org.apache.doris.datasource.hive;
 
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.ListPartitionItem;
+import org.apache.doris.catalog.PartitionItem;
+import org.apache.doris.catalog.PartitionKey;
+import org.apache.doris.catalog.Type;
+import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.datasource.ExternalMetaCacheMgr;
+import org.apache.doris.fs.FileSystemDirectoryLister;
+
+import com.google.common.collect.HashBiMap;
+import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Lists;
 import mockit.Injectable;
+import org.apache.hadoop.hive.metastore.api.SerDeInfo;
+import org.apache.hadoop.hive.metastore.api.StorageDescriptor;
+import org.apache.hadoop.hive.metastore.api.Table;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
+
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
 
 
 /**
@@ -86,6 +108,159 @@ public class HMSExternalTableTest {
         table.setViewOriginalText(TEST_VIEW_TEXT);
         table.setViewExpandedText("");
         Assertions.assertEquals(TEST_VIEW_TEXT, table.getViewText());
+    }
+
+    private Table buildRemoteTableWithInputFormat(String inputFormatName) {
+        SerDeInfo serDeInfo = new SerDeInfo();
+        serDeInfo.setSerializationLib("org.apache.hadoop.hive.serde2.lazy.LazySimpleSerDe");
+        StorageDescriptor sd = new StorageDescriptor();
+        sd.setInputFormat(inputFormatName);
+        sd.setSerdeInfo(serDeInfo);
+        Table remoteTable = new Table();
+        remoteTable.setSd(sd);
+        return remoteTable;
+    }
+
+    @Test
+    public void testFetchRowCountFillsMetaCacheOnlyWhenRequested() throws Exception {
+        String localDbName = "test_db";
+        String partitionValue = "2026-05-21";
+        String inputFormat = "org.apache.hadoop.mapred.TextInputFormat";
+        String partitionLocation = "file:///tmp/doris_hms_row_count_cache/dt=2026-05-21";
+
+        HMSExternalCatalog catalog = Mockito.mock(HMSExternalCatalog.class);
+        HMSExternalDatabase db = Mockito.mock(HMSExternalDatabase.class);
+        Mockito.when(catalog.getId()).thenReturn(100L);
+        Mockito.when(catalog.getName()).thenReturn("test_catalog");
+        Mockito.when(catalog.getProperties()).thenReturn(ImmutableMap.of());
+        Mockito.when(db.getFullName()).thenReturn(localDbName);
+
+        Table remoteTable = buildRemoteTableWithInputFormat(inputFormat);
+        remoteTable.setParameters(ImmutableMap.of());
+        TestHMSExternalTableForMetaCache table = new TestHMSExternalTableForMetaCache(
+                catalog, db, remoteTable, partitionValue);
+        Deencapsulation.setField(table, "dlaType", HMSExternalTable.DLAType.HIVE);
+
+        List<HivePartition> partitions = Collections.singletonList(new HivePartition(
+                table.getOrBuildNameMapping(), false, inputFormat, partitionLocation,
+                Collections.singletonList(partitionValue), Collections.emptyMap()));
+        HiveMetaStoreCache.FileCacheValue fileCacheValue = new HiveMetaStoreCache.FileCacheValue();
+        HiveMetaStoreCache.HiveFileStatus status = new HiveMetaStoreCache.HiveFileStatus();
+        status.setLength(128L);
+        fileCacheValue.getFiles().add(status);
+        List<HiveMetaStoreCache.FileCacheValue> files = Collections.singletonList(fileCacheValue);
+
+        HiveMetaStoreCache hiveCache = Mockito.mock(HiveMetaStoreCache.class);
+        Mockito.when(hiveCache.getAllPartitionsWithCache(Mockito.eq(table), Mockito.anyList()))
+                .thenReturn(partitions);
+        Mockito.when(hiveCache.getAllPartitionsWithoutCache(Mockito.eq(table), Mockito.anyList()))
+                .thenReturn(partitions);
+        Mockito.when(hiveCache.getFilesByPartitions(Mockito.eq(partitions), Mockito.eq(true), Mockito.eq(true),
+                        Mockito.any(FileSystemDirectoryLister.class), Mockito.isNull()))
+                .thenReturn(files);
+        Mockito.when(hiveCache.getFilesByPartitions(Mockito.eq(partitions), Mockito.eq(false), Mockito.eq(true),
+                        Mockito.any(FileSystemDirectoryLister.class), Mockito.isNull()))
+                .thenReturn(files);
+
+        Env env = Mockito.mock(Env.class);
+        ExternalMetaCacheMgr extMetaCacheMgr = Mockito.mock(ExternalMetaCacheMgr.class);
+        Mockito.when(env.getExtMetaCacheMgr()).thenReturn(extMetaCacheMgr);
+        Mockito.when(extMetaCacheMgr.getMetaStoreCache(catalog)).thenReturn(hiveCache);
+
+        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
+            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
+
+            Assertions.assertEquals(32L, table.fetchRowCountWithMetaCache(true));
+            Mockito.verify(hiveCache).getAllPartitionsWithCache(Mockito.eq(table), Mockito.anyList());
+            Mockito.verify(hiveCache, Mockito.never())
+                    .getAllPartitionsWithoutCache(Mockito.eq(table), Mockito.anyList());
+            Mockito.verify(hiveCache).getFilesByPartitions(Mockito.eq(partitions), Mockito.eq(true),
+                    Mockito.eq(true), Mockito.any(FileSystemDirectoryLister.class), Mockito.isNull());
+
+            Mockito.clearInvocations(hiveCache);
+
+            Assertions.assertEquals(32L, table.fetchRowCount());
+            Mockito.verify(hiveCache).getAllPartitionsWithoutCache(Mockito.eq(table), Mockito.anyList());
+            Mockito.verify(hiveCache, Mockito.never())
+                    .getAllPartitionsWithCache(Mockito.eq(table), Mockito.anyList());
+            Mockito.verify(hiveCache).getFilesByPartitions(Mockito.eq(partitions), Mockito.eq(false),
+                    Mockito.eq(true), Mockito.any(FileSystemDirectoryLister.class), Mockito.isNull());
+        }
+    }
+
+    private static class TestHMSExternalTableWithRemote extends HMSExternalTable {
+        private final Table remoteTable;
+
+        public TestHMSExternalTableWithRemote(HMSExternalCatalog catalog,
+                HMSExternalDatabase db, Table remoteTable) {
+            super(1L, "test_table", "test_table", catalog, db);
+            this.remoteTable = remoteTable;
+        }
+
+        @Override
+        public Table getRemoteTable() {
+            return remoteTable;
+        }
+
+        @Override
+        protected synchronized void makeSureInitialized() {
+            this.objectCreated = true;
+        }
+    }
+
+    private static class TestHMSExternalTableForMetaCache extends TestHMSExternalTableWithRemote {
+        private final Column dataColumn = new Column("c1", Type.INT);
+        private final Column partitionColumn = new Column("dt", Type.VARCHAR);
+        private final HiveMetaStoreCache.HivePartitionValues partitionValues;
+
+        public TestHMSExternalTableForMetaCache(HMSExternalCatalog catalog, HMSExternalDatabase db,
+                Table remoteTable, String partitionValue) throws Exception {
+            super(catalog, db, remoteTable);
+            PartitionKey partitionKey = PartitionKey.createListPartitionKeyWithTypes(
+                    Lists.newArrayList(new org.apache.doris.analysis.PartitionValue(partitionValue)),
+                    Lists.newArrayList(Type.VARCHAR),
+                    true);
+            PartitionItem partitionItem = new ListPartitionItem(Lists.newArrayList(partitionKey));
+            long partitionId = 1L;
+            Map<Long, PartitionItem> idToPartitionItem = ImmutableMap.of(partitionId, partitionItem);
+            this.partitionValues = new HiveMetaStoreCache.HivePartitionValues(
+                    idToPartitionItem,
+                    HashBiMap.create(ImmutableMap.of("dt=" + partitionValue, partitionId)),
+                    ImmutableMap.of(partitionId, Collections.singletonList(partitionValue)));
+        }
+
+        @Override
+        public List<Column> getFullSchema() {
+            return Lists.newArrayList(dataColumn, partitionColumn);
+        }
+
+        @Override
+        public boolean isView() {
+            return false;
+        }
+
+        @Override
+        public List<Type> getPartitionColumnTypes(java.util.Optional<org.apache.doris.datasource.mvcc.MvccSnapshot>
+                snapshot) {
+            return Collections.singletonList(Type.VARCHAR);
+        }
+
+        @Override
+        public List<Column> getPartitionColumns() {
+            return Collections.singletonList(partitionColumn);
+        }
+
+        @Override
+        public List<Column> getPartitionColumns(java.util.Optional<org.apache.doris.datasource.mvcc.MvccSnapshot>
+                snapshot) {
+            return Collections.singletonList(partitionColumn);
+        }
+
+        @Override
+        public HiveMetaStoreCache.HivePartitionValues getHivePartitionValues(
+                java.util.Optional<org.apache.doris.datasource.mvcc.MvccSnapshot> snapshot) {
+            return partitionValues;
+        }
     }
 
     /**

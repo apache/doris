@@ -141,7 +141,36 @@ public class IPv4Literal extends LiteralExpr {
 
     @Override
     public int compareLiteral(LiteralExpr expr) {
-        return 0;
+        if (expr instanceof PlaceHolderExpr) {
+            return this.compareLiteral(((PlaceHolderExpr) expr).getLiteral());
+        }
+        if (expr instanceof NullLiteral) {
+            return 1;
+        }
+        if (expr == MaxLiteral.MAX_VALUE) {
+            return -1;
+        }
+        if (expr instanceof IPv4Literal) {
+            return Long.compare(this.value, ((IPv4Literal) expr).value);
+        }
+        throw new RuntimeException("Cannot compare two values with different data types: "
+                + this + " (" + this.type + ") vs " + expr + " (" + expr.type + ")");
+    }
+
+    @Override
+    public boolean equals(Object obj) {
+        if (this == obj) {
+            return true;
+        }
+        if (!(obj instanceof IPv4Literal)) {
+            return false;
+        }
+        return this.value == ((IPv4Literal) obj).value;
+    }
+
+    @Override
+    public int hashCode() {
+        return 31 * super.hashCode() + Long.hashCode(value);
     }
 
     @Override

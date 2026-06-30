@@ -28,6 +28,7 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitors;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -309,10 +310,12 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
             if (!ctxForChild.isValid()) {
                 continue;
             }
-            if (ctx.rfContext.isRelationUseByPlan(leftNode, ctxForChild.finalTarget.first)) {
+            if (ctx.rfContext.isRelationUseByPlan(leftNode, ctxForChild.finalTarget.first)
+                    && canPushThroughJoinChild(join, true, ctxForChild)) {
                 pushed |= leftNode.accept(this, ctxForChild);
             }
-            if (ctx.rfContext.isRelationUseByPlan(rightNode, ctxForChild.finalTarget.first)) {
+            if (ctx.rfContext.isRelationUseByPlan(rightNode, ctxForChild.finalTarget.first)
+                    && canPushThroughJoinChild(join, false, ctxForChild)) {
                 pushed |= rightNode.accept(this, ctxForChild);
             }
         }
@@ -342,13 +345,54 @@ public class RuntimeFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownC
             }
         }
         boolean pushed = false;
-        if (ctx.rfContext.isRelationUseByPlan(join.left(), ctx.finalTarget.first)) {
+        if (ctx.rfContext.isRelationUseByPlan(join.left(), ctx.finalTarget.first)
+                && canPushThroughJoinChild(join, true, ctx)) {
             pushed |= join.left().accept(this, ctx);
         }
-        if (ctx.rfContext.isRelationUseByPlan(join.right(), ctx.finalTarget.first)) {
+        if (ctx.rfContext.isRelationUseByPlan(join.right(), ctx.finalTarget.first)
+                && canPushThroughJoinChild(join, false, ctx)) {
             pushed |= join.right().accept(this, ctx);
         }
         return pushed;
+    }
+
+    private boolean canPushThroughJoinChild(AbstractPhysicalJoin<? extends Plan, ? extends Plan> join,
+            boolean isLeftChild, PushDownContext ctx) {
+        if (join.equals(ctx.builderNode) || !isNullGeneratingChild(join.getJoinType(), isLeftChild)) {
+            return true;
+        }
+        // A runtime filter is still safe on the null-generating side if generated NULL rows
+        // cannot become non-NULL before the parent join condition is evaluated. For example,
+        // `b.pk = c.pk` rejects generated NULLs, while `coalesce(b.pk, 0) = c.pk` may match them.
+        return isNullPropagating(ctx.probeExpr);
+    }
+
+    private boolean isNullGeneratingChild(JoinType joinType, boolean isLeftChild) {
+        if (joinType.isFullOuterJoin()) {
+            return true;
+        }
+        if (isLeftChild) {
+            return joinType.isRightOuterJoin() || joinType.isAsofRightOuterJoin();
+        }
+        return joinType.isLeftOuterJoin() || joinType.isAsofLeftOuterJoin();
+    }
+
+    private boolean isNullPropagating(Expression expression) {
+        if (expression instanceof Slot) {
+            return true;
+        }
+        if (expression instanceof Cast) {
+            return isNullPropagating(((Cast) expression).child());
+        }
+        if (expression instanceof PropagateNullable) {
+            for (Expression child : expression.children()) {
+                if (!child.getInputSlots().isEmpty() && !isNullPropagating(child)) {
+                    return false;
+                }
+            }
+            return true;
+        }
+        return false;
     }
 
     @Override

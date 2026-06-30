@@ -578,7 +578,11 @@ Status VTabletWriterV2::_write_memtable(std::shared_ptr<vectorized::Block> block
                          << " not found in schema, load_id=" << print_id(_load_id);
             return std::unique_ptr<DeltaWriterV2>(nullptr);
         }
-        return DeltaWriterV2::create_unique(&req, streams, _state);
+        std::shared_ptr<WorkloadGroup> workload_group = nullptr;
+        if (_state->get_query_ctx()) {
+            workload_group = _state->workload_group();
+        }
+        return DeltaWriterV2::create_unique(&req, streams, workload_group);
     });
     if (delta_writer == nullptr) {
         LOG(WARNING) << "failed to open DeltaWriter for tablet " << tablet_id
@@ -594,7 +598,12 @@ Status VTabletWriterV2::_write_memtable(std::shared_ptr<vectorized::Block> block
         }
     }
     SCOPED_TIMER(_write_memtable_timer);
-    st = delta_writer->write(block.get(), rows.row_idxes);
+    st = delta_writer->write(block.get(), rows.row_idxes, [state = _state]() {
+        if (state->is_cancelled()) {
+            return state->cancel_reason();
+        }
+        return Status::OK();
+    });
     return st;
 }
 

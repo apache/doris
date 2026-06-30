@@ -464,6 +464,13 @@ public class Config extends ConfigBase {
             "The maximum HTTP POST size of Jetty, in bytes, the default value is 100MB."})
     public static int jetty_server_max_http_post_size = 100 * 1024 * 1024;
 
+    @ConfField(description = {
+            "Jetty 在应用未消费完请求体时，额外尝试读取剩余内容的最大次数。"
+                    + "-1 表示不限制，0 表示不额外读取，正数表示最大读取次数。",
+            "The maximum number of extra reads Jetty performs for unconsumed request content. "
+                    + "-1 means unlimited, 0 means disabled, and a positive value limits the read attempts."})
+    public static int jetty_server_max_unconsumed_request_content_reads = -1;
+
     @ConfField(description = {"Jetty 的最大 HTTP header 大小，单位是字节，默认值是 1MB。",
             "The maximum HTTP header size of Jetty, in bytes, the default value is 1MB."})
     public static int jetty_server_max_http_header_size = 1048576;
@@ -3464,6 +3471,26 @@ public class Config extends ConfigBase {
     public static String[] s3_load_endpoint_white_list = {};
 
     @ConfField(mutable = true, description = {
+            "对于确定性的 S3 路径（无通配符如 *, ?），使用 HEAD 请求代替 ListObjects 来避免需要 ListBucket 权限。"
+            + "花括号模式 {1,2,3} 和非否定方括号模式 [abc] 会展开为具体路径。"
+            + "这对于只有 GetObject 权限的场景很有用。如果遇到问题可以设置为 false 回退到原有行为。",
+            "For deterministic S3 paths (without wildcards like *, ?), use HEAD requests instead of "
+            + "ListObjects to avoid requiring ListBucket permission. Brace patterns {1,2,3} and "
+            + "non-negated bracket patterns [abc] are expanded to concrete paths. This is useful when only "
+            + "GetObject permission is granted. Set to false to fall back to the original listing behavior."
+    })
+    public static boolean s3_skip_list_for_deterministic_path = true;
+
+    @ConfField(mutable = true, description = {
+            "当使用 HEAD 请求代替 ListObjects 时，展开路径的最大数量。如果展开的路径数量超过此限制，"
+            + "将回退到使用 ListObjects。这可以防止类似 {1..100}/{1..100} 的模式触发过多的 HEAD 请求。",
+            "Maximum number of expanded paths when using HEAD requests instead of ListObjects. "
+            + "If the expanded path count exceeds this limit, falls back to ListObjects. "
+            + "This prevents patterns like {1..100}/{1..100} from triggering too many HEAD requests."
+    })
+    public static int s3_head_request_max_paths = 100;
+
+    @ConfField(mutable = true, description = {
             "指定 Azure endpoint 域名后缀白名单（包含 blob 与 dfs），多个值使用逗号分隔。"
                     + "默认值为 .blob.core.windows.net,.dfs.core.windows.net,"
                     + ".blob.core.chinacloudapi.cn,.dfs.core.chinacloudapi.cn,"
@@ -3511,6 +3538,21 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static long cloud_warm_up_job_max_bytes_per_batch = 21474836480L; // 20GB
 
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "zh-CN: 定期刷新 table-level warmup 任务匹配的 table ID 集合的时间间隔（毫秒）",
+            "en: Interval in milliseconds to refresh matched table IDs for table-level warmup jobs"})
+    public static long cloud_warm_up_table_filter_refresh_interval_ms = 60000; // 60 seconds
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "zh-CN: 定期从 BE 拉取主动增量预热 SyncStats 并缓存到 FE job 的时间间隔（毫秒）",
+            "en: Interval in milliseconds to collect event-driven warmup SyncStats from BEs and cache it in FE jobs"})
+    public static long cloud_warm_up_sync_stats_refresh_interval_ms = 15000; // 15 seconds
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "zh-CN: SHOW WARM UP JOB 和 FE 日志中 MatchedTables 最多展示的表数量",
+            "en: Maximum number of MatchedTables entries displayed in SHOW WARM UP JOB and FE logs"})
+    public static int cloud_warm_up_matched_tables_display_limit = 100;
+
     @ConfField(mutable = true, masterOnly = true)
     public static boolean cloud_warm_up_force_all_partitions = false;
 
@@ -3546,6 +3588,23 @@ public class Config extends ConfigBase {
             "streamload route policy, available options are "
             + "public-private/public/private/direct/random-be and empty string" })
     public static String streamload_redirect_policy = "";
+
+    @ConfField(mutable = true, description = {
+            "Stream Load redirect 场景下，FE 在返回 307 后额外丢弃请求体的最大字节数。"
+                    + "0 表示关闭该兼容逻辑，正数表示最大丢弃字节数。",
+            "The maximum number of request body bytes FE drains after returning 307 for Stream Load redirects. "
+                    + "0 disables the compatibility logic, and a positive value sets the byte limit."})
+    // Enable a generous bounded drain window by default to preserve FE redirect compatibility on Jetty 12.
+    public static long stream_load_redirect_bounded_drain_max_bytes = 1024L * 1024 * 1024;
+
+    @ConfField(mutable = true, description = {
+            "Stream Load redirect 场景下，FE 在检测到请求体暂时无可读数据后继续等待的最大空闲时长，单位毫秒。"
+                    + "0 表示不额外等待，用于给慢客户端或分段到达的数据保留一个有限的缓冲窗口。",
+            "The maximum idle wait time in milliseconds after FE detects no readable request body bytes "
+                    + "during Stream Load redirect drain. 0 disables the extra idle wait, while a positive value "
+                    + "keeps a bounded grace window for slow clients or delayed request body chunks."})
+    // Keep a small grace period for delayed body chunks after FE has already written the redirect.
+    public static int stream_load_redirect_bounded_drain_max_idle_time_ms = 1000;
 
     @ConfField(mutable = true, description = {
             "存算分离模式下是否启用 group commit 的 streamload BE 转发功能。"

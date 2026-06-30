@@ -149,6 +149,9 @@ public class LocationPath {
         String encodedLocation = encodedLocation(normalizedLocation);
         URI uri = URI.create(encodedLocation);
         String fsIdentifier = Strings.nullToEmpty(uri.getScheme()) + "://" + Strings.nullToEmpty(uri.getAuthority());
+        if (StringUtils.isBlank(schema)) {
+            schema = Strings.nullToEmpty(uri.getScheme());
+        }
 
         return new LocationPath(schema, normalizedLocation, fsIdentifier, storageProperties);
     }
@@ -193,6 +196,9 @@ public class LocationPath {
             URI uri = URI.create(encodedLocation);
             String fsIdentifier = Strings.nullToEmpty(uri.getScheme()) + "://"
                     + Strings.nullToEmpty(uri.getAuthority());
+            if (StringUtils.isBlank(schema)) {
+                schema = Strings.nullToEmpty(uri.getScheme());
+            }
             return new LocationPath(schema, normalizedLocation, fsIdentifier, storageProperties);
         } catch (UserException e) {
             throw new StoragePropertiesException("Failed to create LocationPath for location: " + location, e);
@@ -234,6 +240,7 @@ public class LocationPath {
             String normalizedLocation = storageProperties.validateAndNormalizeUri(location);
 
             String fsIdentifier;
+            String schema = cachedSchema;
             if (cachedFsIdPrefix != null && normalizedLocation.startsWith(cachedFsIdPrefix)) {
                 // Fast path: extract authority from normalized location without full URI parsing
                 int authorityStart = cachedFsIdPrefix.length();
@@ -246,6 +253,9 @@ public class LocationPath {
                     throw new StoragePropertiesException("Invalid location, missing authority: " + normalizedLocation);
                 }
                 fsIdentifier = cachedFsIdPrefix + authority;
+                if (StringUtils.isBlank(schema)) {
+                    schema = cachedFsIdPrefix.substring(0, cachedFsIdPrefix.length() - SCHEME_DELIM.length());
+                }
             } else {
                 // Fallback to full URI parsing
                 String encodedLocation = encodedLocation(normalizedLocation);
@@ -256,9 +266,11 @@ public class LocationPath {
                 }
                 fsIdentifier = Strings.nullToEmpty(uri.getScheme()) + "://"
                         + authority;
+                if (StringUtils.isBlank(schema)) {
+                    schema = Strings.nullToEmpty(uri.getScheme());
+                }
             }
 
-            String schema = cachedSchema != null ? cachedSchema : extractScheme(location);
             return new LocationPath(schema, normalizedLocation, fsIdentifier, storageProperties);
         } catch (UserException e) {
             throw new StoragePropertiesException("Failed to create LocationPath for location: " + location, e);

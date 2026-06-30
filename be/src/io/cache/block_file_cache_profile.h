@@ -52,9 +52,9 @@ public:
     }
 
     void update(FileCacheStatistics* stats);
+    std::shared_ptr<AtomicStatistics> report();
 
 private:
-    std::shared_ptr<AtomicStatistics> report();
     void register_entity();
     void update_metrics_callback();
 
@@ -63,6 +63,9 @@ private:
     // use shared_ptr for concurrent
     std::shared_ptr<AtomicStatistics> _statistics;
 };
+
+FileCacheStatistics diff_file_cache_statistics(const FileCacheStatistics& current,
+                                               const FileCacheStatistics& previous);
 
 struct FileCacheProfileReporter {
     RuntimeProfile::Counter* num_local_io_total = nullptr;
