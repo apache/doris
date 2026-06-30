@@ -7,11 +7,11 @@
 
 # 🎯 下一个 session 的任务 = **逐步处理 clean-room 对抗 review 的 Medium (M-*) 发现（翻闸 BLOCKED，先修后翻）**
 
-> **进度**：P0（B-1/B-2）+ 全部关键 P1（H-1..H-10）**已全 ✅**——逐条状态/commit 见**任务清单 §1–§2** + `git log`（HANDOFF 不再累积「H-xx 修完成」条目）。
+> **进度**：P0（B-1/B-2）+ 全部关键 P1（H-1..H-10）**已全 ✅**；Medium **M-1 ✅ `ead0ac39328`** 已落（hadoop warehouse 必填校验 + hdfs→fs.defaultFS 推导）——逐条状态/commit 见**任务清单 §1–§3** + `git log`（HANDOFF 不再累积「修完成」条目）。
 >
 > **⏭ 下一步（新 session 从这里起）= 逐步处理 review 的 Medium (M-*) 发现**：
-> - **入口**：任务清单 **§3（`M-1..M-11`，每条 ID/状态/位置/修法/备注/⚠️RECONCILE 在表内）** + review 报告 **§四**（证据源 file:line + vs master 差异）。**M-10 + H-11 ☑ 已并入 B-2 `ba80cfb0439`**；其余 **`M-1..M-9` / `M-11` 待办**（M-7/M-11 标 partial）。
-> - **概览（详见任务清单 §3，勿在此累积）**：M-1 Hadoop catalog warehouse 必填校验 + HDFS nameservice→fs.defaultFS 推导〔仓内已有设计 `designs/P6.6-FIX-M1-hadoop-warehouse-validation-defaultfs-*`〕 / M-2 split 调度权重恒 standard() / M-3 batch 流式 split 模式丢弃→大表 FE 全量物化 OOM / M-4 Top-N 懒物化用裁剪后 field-id 字典〔与已完成 H-10 字段编号链路相邻，可参照〕 / M-5 写 sink 对 FILE_BROKER(ofs/gfs) 不设 broker_addresses / M-6 嵌套复杂 MODIFY 到 iceberg 不可表示窄类型报错文案变（破绿 e2e） / M-7 DLF flavor 丢 CREATE TABLE NotSupported 守护 / M-8 SHOW CREATE DATABASE 无 location namespace 丢 LOCATION 子句 / M-9 DROP DATABASE on name-mapped catalog 用 LOCAL 名而非 REMOTE 名 / M-11 DROP DATABASE FORCE 不再容忍远端已删 namespace。
+> - **入口**：任务清单 **§3（`M-1..M-11`，每条 ID/状态/位置/修法/备注/⚠️RECONCILE 在表内）** + review 报告 **§四**（证据源 file:line + vs master 差异）。**M-1 ☑ `ead0ac39328`**、**M-10 + H-11 ☑ 已并入 B-2 `ba80cfb0439`**；其余 **`M-2..M-9` / `M-11` 待办**（M-7/M-11 标 partial）。
+> - **概览（详见任务清单 §3，勿在此累积；M-1 ✅ `ead0ac39328` 已落，不再列）**：**M-2 ◀ 下一** split 丢按大小比例调度权重（恒 standard()）〔镜像 paimon 已覆写 `getSelfSplitWeight`/`getTargetSplitSize`，文件倾斜表负载不均〕 / M-3 batch 流式 split 模式丢弃→大表 FE 全量物化 OOM / M-4 Top-N 懒物化用裁剪后 field-id 字典〔与已完成 H-10 字段编号链路相邻，可参照〕 / M-5 写 sink 对 FILE_BROKER(ofs/gfs) 不设 broker_addresses / M-6 嵌套复杂 MODIFY 到 iceberg 不可表示窄类型报错文案变（破绿 e2e） / M-7 DLF flavor 丢 CREATE TABLE NotSupported 守护 / M-8 SHOW CREATE DATABASE 无 location namespace 丢 LOCATION 子句 / M-9 DROP DATABASE on name-mapped catalog 用 LOCAL 名而非 REMOTE 名 / M-11 DROP DATABASE FORCE 不再容忍远端已删 namespace。
 > - **每条走 step-by-step-fix**（recon→design `designs/P6.6-FIX-M<n>-<slug>-design.md`→impl→test+mutation→clean-room→**独立 commit**→回填任务清单），逐条独立提交。**⚠️ 认领前先 recon+`git show master:` 重裁，HANDOFF/review 行号/不变式可能过时（信控制流不信注释）**；冲突项回代码重裁（Rule 7）。
 > - **处理顺序（用户已重排 = Medium 先于 ENG-1）**：**Medium `M-*` ◀ 下一** → **ENG-1 能力孪生审计** → P3(L-BATCH) → ENG-3 flip-gated e2e 全跑 → 用户二签翻闸。（⚠️ 任务清单 §8 仍把 ENG-1 列在 P2 之前 = 已过时，以本处用户重排为准。）
 
