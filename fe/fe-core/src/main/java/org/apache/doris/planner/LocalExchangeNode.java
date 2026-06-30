@@ -283,8 +283,15 @@ public class LocalExchangeNode extends PlanNode {
 
         @Override
         public LocalExchangeTypeRequire autoRequireHash() {
-            if (requireType == LocalExchangeType.GLOBAL_EXECUTION_HASH_SHUFFLE
-                    || requireType == LocalExchangeType.BUCKET_HASH_SHUFFLE) {
+            // Callers are pass-through operators (union / streaming agg / sort) that report
+            // resolveExchangeType(requireChild) upward while leaving row placement to their
+            // children. A specific hash require must therefore be forwarded as-is: degrading
+            // LOCAL_EXECUTION_HASH_SHUFFLE to the generic RequireHash lets a bucket-distributed
+            // child satisfy the requirement and keep its bucket placement, while the operator
+            // still claims LOCAL_EXECUTION_HASH_SHUFFLE to its parent — the parent (e.g. a
+            // bucket join upgraded to local hash) then skips its re-align local exchange and
+            // the mixed placements compute wrong results.
+            if (requireType.isHashShuffle()) {
                 return this;
             }
             return RequireHash.INSTANCE;

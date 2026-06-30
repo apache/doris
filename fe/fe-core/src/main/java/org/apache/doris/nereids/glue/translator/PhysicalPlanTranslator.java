@@ -2496,14 +2496,34 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             setOperationNode.setColocate(true);
         }
 
-        // TODO: open comment when support `enable_local_shuffle_planner`
-        // for (Plan child : setOperation.children()) {
-        //     PhysicalPlan childPhysicalPlan = (PhysicalPlan) child;
-        //     if (JoinUtils.isStorageBucketed(childPhysicalPlan.getPhysicalProperties())) {
-        //         setOperationNode.setDistributionMode(DistributionMode.BUCKET_SHUFFLE);
-        //         break;
-        //     }
-        // }
+        // Storage-bucketed children only appear when the FE local shuffle planner is active:
+        // ChildrenPropertiesRegulator and RequestPropertyDeriver both gate the bucket-shuffle
+        // alternative on enableLocalShufflePlanner. Gate the marker on the same flag so the
+        // dependency is explicit and a future planner change that produced a STORAGE_BUCKETED
+        // distribution outside the local-shuffle planner cannot silently mark BUCKET_SHUFFLE here.
+        //
+        // Within that gate a storage-bucketed child means the regulator chose the bucket shuffle
+        // alternative (it enforces the other children onto the basic child's buckets), so the marker
+        // simply follows that decision. It must not re-check the table id independently: the basic
+        // child selection in the regulator is the single place that vets the layout, and re-checking
+        // here could suppress a bucket shuffle the property model already committed to and desync a
+        // parent that aligned to the set operation output.
+        //
+        // Unlike hash join, BUCKET_SHUFFLE is not exclusive with isColocate above: for a set
+        // operation isColocate describes the bucket-aligned scheduling of the fragment (the
+        // basic child scans buckets directly), while BUCKET_SHUFFLE describes how the other
+        // children arrive (bucket-shuffle exchanges). Both routes converge to the same
+        // bucket-hash local exchange requirement in SetOperationNode.enforceAndDeriveLocalExchange.
+        if (context.getSessionVariable() != null
+                && context.getSessionVariable().isEnableLocalShufflePlanner()) {
+            for (Plan child : setOperation.children()) {
+                PhysicalPlan childPhysicalPlan = (PhysicalPlan) child;
+                if (JoinUtils.isStorageBucketed(childPhysicalPlan.getPhysicalProperties())) {
+                    setOperationNode.setDistributionMode(DistributionMode.BUCKET_SHUFFLE);
+                    break;
+                }
+            }
+        }
 
         return setOperationFragment;
     }
