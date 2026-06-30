@@ -96,6 +96,29 @@ public class PluginDrivenSysExternalTable extends PluginDrivenExternalTable {
     }
 
     /**
+     * A system/metadata table (e.g. {@code tbl$snapshots}) can NEVER take part in Top-N lazy materialization,
+     * regardless of what the connector declares. Lazy materialization reads the sort key plus the engine-wide
+     * row-id ({@code __DORIS_GLOBAL_ROWID_COL__}) first, then re-fetches the surviving rows' other columns by
+     * row-id — which requires a file+position row-id. A system table is served by the connector's JNI
+     * serialized-split metadata reader, which synthesizes rows from table metadata and produces no such row-id,
+     * so the injected row-id column comes back empty and BE aborts the scan
+     * ({@code __DORIS_GLOBAL_ROWID_COL__... return column size 0 not equal to expected size 1}).
+     *
+     * <p>This restores legacy parity: legacy sys tables ({@code IcebergSysExternalTable} /
+     * {@code PaimonSysExternalTable}) extend {@code ExternalTable} — NOT the base file-scan table class — so
+     * they are absent from {@code MaterializeProbeVisitor.SUPPORT_RELATION_TYPES} and were never lazy-
+     * materialized. The base {@link PluginDrivenExternalTable#supportsTopNLazyMaterialize()} keys off the
+     * connector capability alone and would otherwise (wrongly) admit a flipped sys table; this override is the
+     * sys-table opt-out. Nested-column prune is intentionally NOT overridden — legacy DOES prune nested columns
+     * on sys tables ({@code LogicalFileScan.supportPruneNestedColumn} lists {@code IcebergSysExternalTable}), so
+     * that capability stays inherited.
+     */
+    @Override
+    public boolean supportsTopNLazyMaterialize() {
+        return false;
+    }
+
+    /**
      * Compute the schema directly on this transient instance instead of going through the base
      * {@link ExternalTable#getSchemaCacheValue()}, which routes through {@code ExternalCatalog.getSchema()}
      * and re-resolves the table by name in the db map. A system table (e.g. {@code tbl$snapshots}) is never
