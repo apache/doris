@@ -17,7 +17,6 @@
 
 suite("rec_cte_parallel_targets", "rec_cte") {
     sql """set enable_local_shuffle=true"""
-    sql """set enable_local_shuffle_planner=true"""
     sql """set ignore_storage_data_distribution=true"""
     sql """set parallel_pipeline_task_num=4"""
 
