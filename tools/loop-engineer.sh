@@ -37,6 +37,7 @@ WORKDIR="$(pwd)"
 STATE_DIR=""
 MAX_ROUNDS=0
 TOKEN_RETRY_SECONDS="${LOOP_ENGINEER_TOKEN_RETRY_SECONDS:-600}"
+HEARTBEAT_SECONDS="${LOOP_ENGINEER_HEARTBEAT_SECONDS:-30}"
 CLAUDE_EXTRA_ARGS=()
 LOCK_DIR=""
 INTERACTIVE_DECISIONS="auto"
@@ -53,6 +54,7 @@ Options:
   --state-dir DIR            Directory for logs and state. Defaults to WORKDIR/.loop-engineer.
   --max-rounds N             Stop after N successful task rounds. 0 means unlimited.
   --token-retry-seconds N    Sleep interval after a token/rate limit. Defaults to ${TOKEN_RETRY_SECONDS}.
+  --heartbeat-seconds N      Print a progress line while Claude is running. Defaults to ${HEARTBEAT_SECONDS}.
   --interactive-decisions    Prompt in the terminal when Claude reports NEEDS_USER.
   --no-interactive-decisions Exit with code 3 when Claude reports NEEDS_USER.
   --commit-decisions         Commit HANDOFF.md after recording an interactive decision.
@@ -61,6 +63,7 @@ Options:
 
 Environment:
   LOOP_ENGINEER_TOKEN_RETRY_SECONDS   Default retry interval for token/rate limits.
+  LOOP_ENGINEER_HEARTBEAT_SECONDS     Default progress interval while Claude is running.
 
 Claude alias used by this script:
   alias claude='https_proxy=http://127.0.0.1:7890 http_proxy=http://127.0.0.1:7890 all_proxy=socks5://127.0.0.1:7890 claude --dangerously-skip-permissions --effort max'
@@ -114,6 +117,11 @@ parse_args() {
             TOKEN_RETRY_SECONDS="$2"
             shift 2
             ;;
+        --heartbeat-seconds)
+            [[ "$#" -ge 2 ]] || die "--heartbeat-seconds requires a value"
+            HEARTBEAT_SECONDS="$2"
+            shift 2
+            ;;
         --interactive-decisions)
             INTERACTIVE_DECISIONS=true
             shift
@@ -152,6 +160,7 @@ parse_args() {
     [[ -n "${HANDOFF_PATH}" ]] || die "HANDOFF.md path is required"
     [[ "${MAX_ROUNDS}" =~ ^[0-9]+$ ]] || die "--max-rounds must be a non-negative integer"
     [[ "${TOKEN_RETRY_SECONDS}" =~ ^[0-9]+$ ]] || die "--token-retry-seconds must be a non-negative integer"
+    [[ "${HEARTBEAT_SECONDS}" =~ ^[0-9]+$ ]] || die "--heartbeat-seconds must be a non-negative integer"
 }
 
 abspath_from() {
@@ -342,6 +351,14 @@ run_round() {
     local prompt_file="$2"
     local log_file="$3"
     local status_code=0
+    local claude_pid
+    local start_time
+    local elapsed
+    local before_head=""
+    local after_head=""
+
+    before_head="$(cd "${WORKDIR}" && git rev-parse --verify HEAD 2>/dev/null || true)"
+    printf '%s\n' "${before_head}" >"${STATE_DIR}/before-head"
 
     write_prompt "${prompt_file}"
     log "INFO" "round ${round}: starting fresh Claude Code session"
@@ -350,12 +367,38 @@ run_round() {
     (
         cd "${WORKDIR}"
         claude -p --no-session-persistence --output-format text "${CLAUDE_EXTRA_ARGS[@]}" "$(cat "${prompt_file}")"
-    ) >"${log_file}" 2>&1
+    ) >"${log_file}" 2>&1 &
+    claude_pid="$!"
+    start_time="${SECONDS}"
+
+    if [[ "${HEARTBEAT_SECONDS}" -gt 0 ]]; then
+        while kill -0 "${claude_pid}" 2>/dev/null; do
+            sleep "${HEARTBEAT_SECONDS}"
+            if kill -0 "${claude_pid}" 2>/dev/null; then
+                elapsed="$((SECONDS - start_time))"
+                log "INFO" "round ${round}: Claude still running after ${elapsed}s; log: ${log_file}"
+            fi
+        done
+    fi
+
+    wait "${claude_pid}"
     status_code="$?"
     set -e
 
+    after_head="$(cd "${WORKDIR}" && git rev-parse --verify HEAD 2>/dev/null || true)"
+    printf '%s\n' "${after_head}" >"${STATE_DIR}/after-head"
     printf '%s\n' "${status_code}" >"${STATE_DIR}/last-exit-code"
     return "${status_code}"
+}
+
+git_head_changed_in_last_round() {
+    local before_head=""
+    local after_head=""
+
+    [[ -f "${STATE_DIR}/before-head" && -f "${STATE_DIR}/after-head" ]] || return 1
+    before_head="$(<"${STATE_DIR}/before-head")"
+    after_head="$(<"${STATE_DIR}/after-head")"
+    [[ -n "${before_head}" && -n "${after_head}" && "${before_head}" != "${after_head}" ]]
 }
 
 main() {
@@ -409,6 +452,10 @@ main() {
 
         local loop_status
         loop_status="$(extract_status "${log_file}")"
+        if [[ -z "${loop_status}" ]] && git_head_changed_in_last_round; then
+            loop_status="CONTINUE"
+            log "WARN" "round ${round}: missing LOOP_ENGINEER_STATUS, but git HEAD changed; continuing so the next session can reconcile"
+        fi
         printf '%s\n' "${loop_status}" >"${STATE_DIR}/last-status"
 
         case "${loop_status}" in
