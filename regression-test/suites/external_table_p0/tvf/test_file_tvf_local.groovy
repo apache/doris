@@ -24,16 +24,8 @@ suite("test_file_tvf_local", "p0,tvf,external,external_docker") {
     def dataFilePath = context.config.dataPath + "/external_table_p0/tvf/compress"
 
     def outFilePath="/tmp/test_file_tvf_local_compress"
-
     for (List<Object> backend : backends) {
          def be_host = backend[1]
-         def cleanCmd = ["ssh", "-o", "StrictHostKeyChecking=no", "root@${be_host}", "rm -rf ${outFilePath}"]
-         def cleanProcess = cleanCmd.execute()
-         def cleanOut = new StringBuilder()
-         def cleanErr = new StringBuilder()
-         cleanProcess.waitForProcessOutput(cleanOut, cleanErr)
-         assertEquals("failed to clean ${outFilePath} on ${be_host}, stdout: ${cleanOut}, stderr: ${cleanErr}",
-                 0, cleanProcess.exitValue())
          scpFiles ("root", be_host, dataFilePath, outFilePath, false);
     }
 
