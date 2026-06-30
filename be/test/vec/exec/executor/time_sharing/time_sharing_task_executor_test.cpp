@@ -19,14 +19,22 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
+#include <cstdint>
 #include <functional>
 #include <future>
+#include <memory>
 #include <mutex>
+#include <optional>
 #include <random>
+#include <stdexcept>
+#include <string>
 #include <thread>
+#include <vector>
 
 #include "vec/exec/executor/ticker.h"
 #include "vec/exec/executor/time_sharing/time_sharing_task_handle.h"
