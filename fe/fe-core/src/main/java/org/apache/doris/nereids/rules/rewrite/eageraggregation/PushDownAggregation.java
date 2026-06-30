@@ -26,7 +26,6 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.NullToNonNullFunction;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
@@ -150,9 +149,8 @@ public class PushDownAggregation extends DefaultPlanRewriter<JobContext> impleme
                     // cannot see null-extended rows (they are produced by the join), so the push-down
                     // would lose those contributions — producing wrong results.
                     if (!containsNullToNonNull
-                            && aggFunction.anyMatch(e -> e instanceof NullToNonNullFunction
-                                    || (e instanceof AlwaysNotNullable
-                                            && !((Expression) e).getInputSlots().isEmpty()))) {
+                            && aggFunction.anyMatch(
+                                    e -> NullToNonNullFunction.canConvertNullToNonNull((Expression) e))) {
                         containsNullToNonNull = true;
                     }
                     if (aggFunction.arity() > 0 && aggFunction.child(0) instanceof If

@@ -47,6 +47,11 @@ public class PushDownAggContext {
     // When aggFunc contains expressions that can convert NULL to non-NULL
     // (e.g. COALESCE, NVL, IF, CASE WHEN), pushing down to the nullable side of
     // an outer join is blocked — null-extended rows would be wrongly counted.
+    //
+    // TODO: This is conservative — a per-function check (rather than a global flag)
+    // would allow pushing non-NullToNonNull aggregate functions (e.g. sum(a)) to
+    // the nullable side even when another agg function contains a NullToNonNull
+    // expression. Currently, one problematic agg function blocks all push-down.
     public final boolean containsNullToNonNull;
     private final List<AggregateFunction> aggFunctions;
     private final List<SlotReference> groupKeys;

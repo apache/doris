@@ -17,10 +17,12 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
+import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
+
 /**
  * Marker interface for expressions that can convert NULL input into a non-NULL output.
  *
- * For example: COALESCE(NULL, 2) → 2, NVL(NULL, 0) → 0, NULL_OR_EMPTY(NULL) → true.
+ * For example: Coalesce(NULL, 2) → 2, Nvl(NULL, 0) → 0, NullOrEmpty(NULL) → true.
  *
  * This is significant for outer-join push-down safety: when an aggregate function contains
  * a NullToNonNull expression wrapping a column from the nullable side of an outer join,
@@ -28,6 +30,27 @@ package org.apache.doris.nereids.trees.expressions;
  * unmatched rows) have NULL for all nullable-side columns. The NullToNonNull expression
  * would convert those NULLs to non-NULL values, and the pre-aggregation would miss those
  * contributions because null-extended rows do not exist in the base table.
+ *
+ * <p>Note: {@link AlwaysNotNullable} expressions with input slots (e.g. Array, JsonArray,
+ * JsonObject, CreateStruct, CreateMap) are also blocked from being pushed to the nullable
+ * side of outer joins via a separate check in {@link #canConvertNullToNonNull(Expression)}.
  */
 public interface NullToNonNullFunction {
+
+    /**
+     * Check whether an expression can convert NULL input to non-NULL output.
+     * This covers both {@link NullToNonNullFunction} (e.g. Coalesce, Nvl, NullOrEmpty)
+     * and {@link AlwaysNotNullable} expressions with input slots (e.g. Array, JsonArray,
+     * CreateStruct, CreateMap), which always produce non-NULL output regardless of NULL inputs.
+     *
+     * <p>In outer-join push-down safety checks, any expression matching this predicate
+     * must NOT be pushed to the nullable side, because null-extended rows (produced by the
+     * join for unmatched rows) would produce non-NULL values that get aggregated, but the
+     * pre-aggregation on the base table cannot see those rows — resulting in wrong results.
+     */
+    static boolean canConvertNullToNonNull(Expression e) {
+        return e instanceof NullToNonNullFunction
+                || (e instanceof AlwaysNotNullable
+                        && !e.getInputSlots().isEmpty());
+    }
 }
