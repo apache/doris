@@ -54,82 +54,20 @@
 #include "storage/index/snii/reader/snii_segment_reader.h"
 #include "storage/index/snii/writer/snii_compound_writer.h"
 #include "storage/index/snii/writer/spimi_term_buffer.h"
+#include "storage/index/snii_query_test_util.h"
 
 namespace doris::snii::query {
 using doris::Status; // RETURN_IF_ERROR expands to bare Status
 namespace {
 
-class MemoryFile final : public doris::snii::io::FileReader, public doris::snii::io::FileWriter {
-public:
-    struct Read {
-        uint64_t offset = 0;
-        size_t len = 0;
-    };
-
-    Status append(Slice data) override {
-        data_.insert(data_.end(), data.data(), data.data() + data.size());
-        return Status::OK();
-    }
-
-    Status finalize() override {
-        finalized_ = true;
-        return Status::OK();
-    }
-
-    uint64_t bytes_written() const override { return data_.size(); }
-
-    // NOLINTBEGIN(readability-non-const-parameter): FileReader interface writes into out.
-    Status read_at(uint64_t offset, size_t len, std::vector<uint8_t>* out) override {
-        if (offset > data_.size() || len > data_.size() - offset) {
-            return Status::Corruption("memory file read past eof");
-        }
-        reads_.push_back({offset, len});
-        read_bytes_ += len;
-        out->resize(len);
-        if (len != 0) {
-            std::memcpy(out->data(), data_.data() + offset, len);
-        }
-        return Status::OK();
-    }
-    // NOLINTEND(readability-non-const-parameter)
-
-    uint64_t size() const override { return data_.size(); }
-    bool finalized() const { return finalized_; }
-    const std::vector<Read>& reads() const { return reads_; }
-    size_t read_bytes() const { return read_bytes_; }
-    void clear_reads() {
-        reads_.clear();
-        read_bytes_ = 0;
-    }
-
-private:
-    std::vector<uint8_t> data_;
-    std::vector<Read> reads_;
-    size_t read_bytes_ = 0;
-    bool finalized_ = false;
-};
-
-class ScopedEnv {
-public:
-    ScopedEnv(const char* key, const char* value) : key_(key) {
-        if (const char* old = std::getenv(key); old != nullptr) {
-            old_value_ = old;
-        }
-        setenv(key, value, 1);
-    }
-
-    ~ScopedEnv() {
-        if (old_value_.has_value()) {
-            setenv(key_, old_value_->c_str(), 1);
-        } else {
-            unsetenv(key_);
-        }
-    }
-
-private:
-    const char* key_;
-    std::optional<std::string> old_value_;
-};
+// Shared reader/writer fixtures live in snii_query_test_util.h so other SNII test
+// files can reuse them; pull them into this suite's scope unqualified.
+using snii_test::assert_ok;
+using snii_test::build_reader;
+using snii_test::make_term;
+using snii_test::MemoryFile;
+using snii_test::PostingDoc;
+using snii_test::ScopedEnv;
 
 class RecordingDocIdSink final : public DocIdSink {
 public:
@@ -150,46 +88,10 @@ public:
     size_t range_calls = 0;
 };
 
-struct PostingDoc {
-    uint32_t docid = 0;
-    std::vector<uint32_t> positions;
-};
-
 struct PrxRange {
     uint64_t offset = 0;
     uint64_t len = 0;
 };
-
-writer::TermPostings make_term(std::string term, std::vector<PostingDoc> docs) {
-    std::ranges::sort(docs, [](const PostingDoc& lhs, const PostingDoc& rhs) {
-        return lhs.docid < rhs.docid;
-    });
-
-    writer::TermPostings posting;
-    posting.term = std::move(term);
-    posting.docids.reserve(docs.size());
-    posting.freqs.reserve(docs.size());
-    for (const PostingDoc& doc : docs) {
-        posting.docids.push_back(doc.docid);
-        posting.freqs.push_back(static_cast<uint32_t>(doc.positions.size()));
-        posting.positions_flat.insert(posting.positions_flat.end(), doc.positions.begin(),
-                                      doc.positions.end());
-    }
-    return posting;
-}
-
-std::vector<PostingDoc> docs_with_one_position(uint32_t begin, uint32_t end, uint32_t position) {
-    std::vector<PostingDoc> docs;
-    docs.reserve(end - begin);
-    for (uint32_t docid = begin; docid < end; ++docid) {
-        docs.push_back({docid, {position}});
-    }
-    return docs;
-}
-
-void assert_ok(const Status& status) {
-    ASSERT_TRUE(status.ok()) << status.to_string();
-}
 
 void assert_selective_prx_matches_constant_positions(Slice window,
                                                      const std::vector<uint32_t>& selected_docs,
@@ -207,90 +109,6 @@ void assert_selective_prx_matches_constant_positions(Slice window,
         EXPECT_EQ(selected_positions[i], expected_position);
     }
     EXPECT_EQ(selected_offsets.back(), selected_positions.size());
-}
-
-Status build_reader(MemoryFile* file, reader::SniiSegmentReader* segment_reader,
-                    reader::LogicalIndexReader* index_reader, bool include_phrase_bigrams = false) {
-    constexpr uint32_t kDocCount = 9000;
-    auto failed_docs = docs_with_one_position(0, kDocCount, 0);
-    auto order_docs = docs_with_one_position(0, kDocCount, 2);
-    auto ordinal_docs = docs_with_one_position(0, kDocCount, 2);
-    auto driver_docs = docs_with_one_position(0, 8000, 0);
-    auto almost_docs = docs_with_one_position(0, kDocCount, 1);
-    std::vector<PostingDoc> needle_docs {{.docid = 100, .positions = {0}},
-                                         {.docid = 101, .positions = {0}},
-                                         {.docid = 102, .positions = {0}},
-                                         {.docid = 6000, .positions = {0}}};
-    std::vector<PostingDoc> numeric_tail_docs {{.docid = 42, .positions = {1}}};
-    std::vector<PostingDoc> sparse_left_docs;
-    std::vector<PostingDoc> sparse_right_docs;
-    std::vector<PostingDoc> repeat_docs;
-    std::vector<PostingDoc> trace_docs {{.docid = 42, .positions = {0}}};
-    sparse_left_docs.reserve(kDocCount / 3 + 1);
-    sparse_right_docs.reserve(kDocCount);
-    repeat_docs.reserve(kDocCount);
-    for (uint32_t docid = 0; docid < kDocCount; ++docid) {
-        if (docid % 3 == 0) {
-            sparse_left_docs.push_back({docid, {0}});
-        }
-        if (docid % 4 != 1) {
-            sparse_right_docs.push_back({docid, {1}});
-        }
-        repeat_docs.push_back({docid, {0, 1, 2}});
-    }
-    almost_docs.erase(almost_docs.begin() + 4000);
-    failed_docs[8000].positions = {0, 4};
-    for (PostingDoc& doc : order_docs) {
-        if (doc.docid == 5000 || doc.docid == 7000) {
-            doc.positions = {1};
-        } else if (doc.docid == 8000) {
-            doc.positions = {5};
-        }
-    }
-    for (PostingDoc& doc : ordinal_docs) {
-        if (doc.docid == 6000) {
-            doc.positions = {1};
-        }
-    }
-
-    writer::SniiIndexInput input;
-    input.index_id = 7;
-    input.index_suffix = "Body";
-    input.config = format::IndexConfig::kDocsPositions;
-    input.doc_count = kDocCount;
-    input.terms = {make_term("almost", std::move(almost_docs)),
-                   make_term("123", std::move(numeric_tail_docs)),
-                   make_term("driver", std::move(driver_docs)),
-                   make_term("failed", std::move(failed_docs)),
-                   make_term("needle", std::move(needle_docs)),
-                   make_term("order", std::move(order_docs)),
-                   make_term("ordinal", std::move(ordinal_docs)),
-                   make_term("repeat", std::move(repeat_docs)),
-                   make_term("sparse_left", std::move(sparse_left_docs)),
-                   make_term("sparse_right", std::move(sparse_right_docs)),
-                   make_term("trace", std::move(trace_docs))};
-    if (include_phrase_bigrams) {
-        input.terms.push_back(make_term(format::make_phrase_bigram_sentinel_term(),
-                                        {{.docid = 0, .positions = {0}}}));
-        input.terms.push_back(make_term(format::make_phrase_bigram_term("failed", "order"),
-                                        {{.docid = 5000, .positions = {0}},
-                                         {.docid = 7000, .positions = {0}},
-                                         {.docid = 8000, .positions = {4}}}));
-        input.terms.push_back(make_term(format::make_phrase_bigram_term("failed", "ordinal"),
-                                        {{.docid = 6000, .positions = {0}}}));
-    }
-    std::ranges::sort(input.terms,
-                      [](const writer::TermPostings& lhs, const writer::TermPostings& rhs) {
-                          return lhs.term < rhs.term;
-                      });
-
-    writer::SniiCompoundWriter writer(file);
-    RETURN_IF_ERROR(writer.add_logical_index(input));
-    RETURN_IF_ERROR(writer.finish());
-    EXPECT_TRUE(file->finalized());
-
-    RETURN_IF_ERROR(reader::SniiSegmentReader::open(file, segment_reader));
-    return segment_reader->open_index(input.index_id, input.index_suffix, index_reader);
 }
 
 // A FileReader decorator that counts read_batch() invocations. Each BatchRangeFetcher

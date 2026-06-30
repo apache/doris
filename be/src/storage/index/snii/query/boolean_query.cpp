@@ -27,6 +27,7 @@
 #include "storage/index/snii/query/internal/docid_conjunction.h"
 #include "storage/index/snii/query/internal/docid_posting_reader.h"
 #include "storage/index/snii/query/internal/docid_union.h"
+#include "storage/index/snii/reader/dict_block_cache.h"
 
 namespace doris::snii::query {
 
@@ -45,12 +46,18 @@ Status resolve_or_postings(const reader::LogicalIndexReader& idx,
                            const std::vector<std::string>& terms,
                            std::vector<internal::ResolvedDocidPosting>* postings) {
     postings->clear();
+    // Request-scoped (stack-local, single-threaded) cache: OR terms that fall in the
+    // same on-demand DICT block read + zstd-decode + CRC-verify that block once
+    // instead of once per term. The resolved DictEntry is copied out, so the cache
+    // (and any pin it holds) can die when this returns. The shared reader stays const
+    // and lock-free -- no lock is ever held across the decode/IO.
+    reader::DictBlockCache dict_cache;
     for (std::string_view term : unique_terms(terms)) {
         bool found = false;
         format::DictEntry entry;
         uint64_t frq_base = 0;
         uint64_t prx_base = 0;
-        RETURN_IF_ERROR(idx.lookup(term, &found, &entry, &frq_base, &prx_base));
+        RETURN_IF_ERROR(idx.lookup(term, &found, &entry, &frq_base, &prx_base, &dict_cache));
         if (!found) continue;
 
         postings->push_back({std::move(entry), frq_base, prx_base});

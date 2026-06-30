@@ -179,6 +179,23 @@ public:
     // whose absolute last_docid >= docid).
     Status locate_window(uint32_t docid, bool* found, uint32_t* w) const;
 
+    // Selects, as a monotonic two-pointer cursor, the ascending de-duplicated set of
+    // windows covering the ascending `candidates` (each window covering its
+    // (win_base, last_docid] span). Writes them to *windows (cleared first). The
+    // result is element-for-element identical to calling locate_window per candidate
+    // and collapsing equal runs, but uses O(C + N) window last_docid comparisons
+    // (C = candidates, N = windows) instead of O(C * group_size). Pure in-memory over
+    // the decoded directory; never fails.
+    void select_covering_windows(const std::vector<uint32_t>& candidates,
+                                 std::vector<uint32_t>* windows) const;
+
+    // Packed absolute last_docid of window w (byte-identical to window(w).last_docid),
+    // exposed for the covering-window cursor's contiguous scan and equivalence tests.
+    uint32_t window_last_docid(uint32_t w) const {
+        DCHECK_LT(w, win_last_docid_.size());
+        return win_last_docid_[w];
+    }
+
 private:
     bool has_freq_ = false;
     bool has_prx_ = false;
@@ -190,6 +207,34 @@ private:
     std::vector<uint64_t> sb_last_docid_;
     // All windows decoded with absolute fields, in term order (size N).
     std::vector<WindowMeta> windows_;
+    // Packed copy of each window's absolute last_docid (size N; win_last_docid_[w] ==
+    // windows_[w].last_docid). Built in open() so the covering-window cursor scans a
+    // contiguous 4B/window array rather than the ~104B WindowMeta rows. In-memory only:
+    // never serialized; immutable after open() (same lifetime as windows_).
+    std::vector<uint32_t> win_last_docid_;
 };
+
+// Pure cursor core (no FrqPreludeReader / IO): selects into *windows the ascending,
+// de-duplicated indices of the windows covering the ascending `candidates`, given the
+// packed window last_docid array (size n_windows), the super-block last_docid directory
+// (size n_super) and group_size. A super-block cursor does boundary jumps while a window
+// cursor advances forward only => O(C + N) window comparisons, element-for-element equal
+// to per-candidate locate_window + run collapse. *windows is cleared first; n_windows == 0
+// yields an empty result. Exposed for isolated equivalence / complexity tests.
+void select_covering_windows_cursor(const uint32_t* win_last_docid, uint32_t n_windows,
+                                    const uint64_t* sb_last_docid, uint32_t n_super,
+                                    uint32_t group_size, const std::vector<uint32_t>& candidates,
+                                    std::vector<uint32_t>* windows);
+
+// TEST-ONLY observability seam (mirrors the format dict-block decode counter). Counts the
+// window last_docid comparisons performed by select_covering_windows_cursor and by
+// locate_window's level-2 scan, so tests can assert the cursor stays O(C + N) and bounded
+// by C + N regardless of group_size, while the legacy per-candidate scan grows with G. The
+// counter is thread-local: race-free under the shared const reader and free of atomic cost
+// in the production cursor loop; reset and read on the thread that ran the cursor.
+namespace testing {
+uint64_t window_probe_count();
+void reset_window_probe_count();
+} // namespace testing
 
 } // namespace doris::snii::format

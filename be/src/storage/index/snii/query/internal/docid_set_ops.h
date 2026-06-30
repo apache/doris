@@ -17,7 +17,9 @@
 
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <vector>
 
 namespace doris::snii::query::internal {
@@ -27,6 +29,11 @@ std::vector<uint32_t> intersect_sorted(const std::vector<uint32_t>& a,
 
 void union_sorted_into(std::vector<uint32_t>* acc, const std::vector<uint32_t>& next);
 
-std::vector<uint32_t> union_sorted_many(const std::vector<std::vector<uint32_t>>& lists);
+// Sorted-deduplicated union of many sorted lists. The output is reserved by the
+// summed input size (the union is at most the total of all inputs; for disjoint
+// inputs it is exactly that), capped by `reserve_cap` so heavily-overlapping
+// inputs (union << total) do not over-reserve. Default cap = no cap.
+std::vector<uint32_t> union_sorted_many(const std::vector<std::vector<uint32_t>>& lists,
+                                        size_t reserve_cap = std::numeric_limits<size_t>::max());
 
 } // namespace doris::snii::query::internal

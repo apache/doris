@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <string>
 #include <string_view>
@@ -125,5 +126,45 @@ Status decode_dict_entry(ByteSource* src, std::string_view prev_term, IndexTier 
 // Skips one entry using only entry_len (does not parse internal fields or
 // verify CRC).
 Status skip_dict_entry(ByteSource* src);
+
+// ---- Key-first decode primitives (T07) ----
+//
+// decode_dict_entry is split into a "key" stage and a "rest" (body) stage so a
+// caller scanning many entries can decide on the (front-coded) term key alone
+// whether the entry's body is worth materializing. decode_dict_entry below is
+// re-expressed as key + rest and stays byte-for-byte identical in output.
+
+// Reads only entry_len + the front-coded term key. On return src is positioned
+// at the start of the entry body (the flags byte). out is reset to defaults and
+// out->term is reconstructed from prev_term + suffix; no other field is touched.
+// *body_start receives the absolute src position of the body (right after the
+// entry_len varint) and *entry_total the body byte length (already bounds-checked
+// against src->remaining()). Used to drive key-first scans (find_term, prefix
+// streaming) that skip non-matching bodies.
+Status decode_dict_entry_key(ByteSource* src, std::string_view prev_term, DictEntry* out,
+                             size_t* body_start, uint64_t* entry_total);
+
+// Continues from the position decode_dict_entry_key left at: reads
+// flags/stats/locator into *out and verifies the body consumed exactly
+// entry_total bytes (body_start anchors the consumed count). Increments the
+// body-decode counter seam (see dict_entry_body_decode_count) at its top so
+// tests can assert how many entry bodies a scan actually materialized.
+Status decode_dict_entry_rest(ByteSource* src, IndexTier tier, size_t body_start,
+                              uint64_t entry_total, DictEntry* out);
+
+// Skips the remaining body bytes after decode_dict_entry_key, advancing src to
+// the next entry without parsing flags/stats/locator. advance = entry_total -
+// (src.position() - body_start); the term key already consumed by the key stage
+// is accounted for.
+Status skip_dict_entry_body(ByteSource* src, size_t body_start, uint64_t entry_total);
+
+// Test-only instrumentation seam: dict_entry_body_decode_count() returns a
+// process-global count of decode_dict_entry_rest calls -- i.e. how many entry
+// bodies (flags/stats/locator + any inline byte copies) a scan materialized.
+// Key-first find_term / prefix streaming drive this toward the number of
+// produced hits instead of the number of entries walked. Counters use relaxed
+// atomics; reset between tests.
+uint64_t dict_entry_body_decode_count();
+void reset_dict_entry_counters();
 
 } // namespace doris::snii::format

@@ -317,9 +317,17 @@ Status DictBlockReader::scan_from_anchor(size_t anchor_idx, std::string_view tar
     ByteSource src(block_.subslice(seg_begin, seg_end - seg_begin));
     std::string prev; // the first entry in the segment is an anchor, prev_term=""
     while (!src.eof()) {
+        // Key-first: decode only the (front-coded) term key, then decide whether
+        // the body is worth materializing. Non-matching entries skip their body
+        // entirely -- with anchor_interval=16 that turns ~16 body decodes per
+        // lookup into 1 (the matched entry) or 0 (a miss).
         DictEntry e;
-        RETURN_IF_ERROR(decode_dict_entry(&src, std::string_view(prev), tier_, &e));
+        size_t body_start = 0;
+        uint64_t entry_total = 0;
+        RETURN_IF_ERROR(
+                decode_dict_entry_key(&src, std::string_view(prev), &e, &body_start, &entry_total));
         if (e.term == target) {
+            RETURN_IF_ERROR(decode_dict_entry_rest(&src, tier_, body_start, entry_total, &e));
             *found = true;
             *out = std::move(e);
             return Status::OK();
@@ -328,6 +336,8 @@ Status DictBlockReader::scan_from_anchor(size_t anchor_idx, std::string_view tar
             *found = false; // already past target; entries are sorted so it does not exist
             return Status::OK();
         }
+        // Before target: skip the body but keep the key as the front-coding base.
+        RETURN_IF_ERROR(skip_dict_entry_body(&src, body_start, entry_total));
         prev = std::move(e.term);
     }
     *found = false;
@@ -344,6 +354,79 @@ Status DictBlockReader::find_term(std::string_view target, bool* found, DictEntr
         return Status::OK();
     }
     return scan_from_anchor(anchor_idx, target, found, out);
+}
+
+Status DictBlockReader::visit_prefix_range(std::string_view prefix,
+                                           const std::function<bool(std::string_view)>& accept_key,
+                                           const std::function<Status(DictEntry&&, bool*)>& on_hit,
+                                           bool* prefix_exhausted) const {
+    if (!on_hit || prefix_exhausted == nullptr) {
+        return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
+                "dict_block: null visit_prefix_range args");
+    }
+    *prefix_exhausted = false;
+    if (anchor_offsets_.empty()) {
+        return Status::OK(); // empty block: nothing to enumerate
+    }
+
+    // Anchor-jump: start at the anchor segment that may contain prefix. Earlier
+    // segments hold only terms < prefix (every term is < the next anchor term
+    // <= prefix), so they are skipped without any decode. An empty prefix or one
+    // sorting before the first anchor starts at anchor 0.
+    size_t anchor_idx = 0;
+    if (!prefix.empty()) {
+        locate_anchor(prefix, &anchor_idx); // false leaves anchor_idx at 0
+    }
+
+    // Scan from the chosen anchor to the end of the entries region: the prefix
+    // range may span several anchor segments. Anchor entries are encoded with
+    // prefix_len=0, so a single running `prev` reconstructs every term correctly
+    // even as the scan crosses segment boundaries.
+    const size_t seg_begin = anchor_offsets_[anchor_idx];
+    const size_t entries_end =
+            block_.size() - kNAnchorsBytes - anchor_offsets_.size() * kAnchorOffBytes;
+    if (entries_end < seg_begin || entries_end > block_.size()) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "dict_block: entries region range invalid");
+    }
+
+    ByteSource src(block_.subslice(seg_begin, entries_end - seg_begin));
+    std::string prev; // the chosen anchor segment starts at an anchor (prev="")
+    while (!src.eof()) {
+        DictEntry e;
+        size_t body_start = 0;
+        uint64_t entry_total = 0;
+        RETURN_IF_ERROR(
+                decode_dict_entry_key(&src, std::string_view(prev), &e, &body_start, &entry_total));
+        const std::string_view t(e.term);
+        if (t < prefix) {
+            // Still before the range (only reachable inside the anchor segment
+            // that straddles prefix): skip the body, keep the front-coding base.
+            RETURN_IF_ERROR(skip_dict_entry_body(&src, body_start, entry_total));
+            prev = std::move(e.term);
+            continue;
+        }
+        const bool has_prefix = t.size() >= prefix.size() && t.starts_with(prefix);
+        if (!has_prefix) {
+            *prefix_exhausted = true; // sorted: no further matches here or later
+            return Status::OK();
+        }
+        if (accept_key && !accept_key(t)) {
+            // Key-only rejection: never pay for this entry's body.
+            RETURN_IF_ERROR(skip_dict_entry_body(&src, body_start, entry_total));
+            prev = std::move(e.term);
+            continue;
+        }
+        // Accepted: materialize the body and hand the entry to the visitor.
+        RETURN_IF_ERROR(decode_dict_entry_rest(&src, tier_, body_start, entry_total, &e));
+        prev = e.term; // copy the key before the entry is moved into on_hit
+        bool stop = false;
+        RETURN_IF_ERROR(on_hit(std::move(e), &stop));
+        if (stop) {
+            return Status::OK();
+        }
+    }
+    return Status::OK();
 }
 
 } // namespace doris::snii::format

@@ -39,7 +39,8 @@ void union_sorted_into(std::vector<uint32_t>* acc, const std::vector<uint32_t>& 
     *acc = std::move(merged);
 }
 
-std::vector<uint32_t> union_sorted_many(const std::vector<std::vector<uint32_t>>& lists) {
+std::vector<uint32_t> union_sorted_many(const std::vector<std::vector<uint32_t>>& lists,
+                                        size_t reserve_cap) {
     constexpr size_t kLinearFanInMax = 8;
     struct Cursor {
         uint32_t docid = 0;
@@ -51,14 +52,18 @@ std::vector<uint32_t> union_sorted_many(const std::vector<std::vector<uint32_t>>
     };
 
     size_t non_empty = 0;
-    size_t largest = 0;
+    size_t total = 0;
     std::priority_queue<Cursor, std::vector<Cursor>, GreaterDocId> heap;
     for (size_t i = 0; i < lists.size(); ++i) {
         if (lists[i].empty()) continue;
         ++non_empty;
-        largest = std::max(largest, lists[i].size());
+        total += lists[i].size();
         heap.push(Cursor {lists[i][0], i, 0});
     }
+    // The union is at most `total` (exactly that for disjoint inputs); reserve to it
+    // so the output grows in a single allocation rather than O(log) geometric
+    // reallocations. Cap guards against over-reserving for heavily-overlapping inputs.
+    const size_t reserve_hint = std::min(total, reserve_cap);
     if (non_empty == 0) return {};
     if (non_empty == 1) {
         for (const std::vector<uint32_t>& docs : lists) {
@@ -69,7 +74,7 @@ std::vector<uint32_t> union_sorted_many(const std::vector<std::vector<uint32_t>>
     if (non_empty <= kLinearFanInMax) {
         std::vector<size_t> offsets(lists.size(), 0);
         std::vector<uint32_t> out;
-        out.reserve(largest);
+        out.reserve(reserve_hint);
         bool has_last = false;
         uint32_t last = 0;
         for (;;) {
@@ -99,7 +104,7 @@ std::vector<uint32_t> union_sorted_many(const std::vector<std::vector<uint32_t>>
     }
 
     std::vector<uint32_t> out;
-    out.reserve(largest);
+    out.reserve(reserve_hint);
     bool has_last = false;
     uint32_t last = 0;
     while (!heap.empty()) {

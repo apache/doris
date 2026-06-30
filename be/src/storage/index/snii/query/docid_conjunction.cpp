@@ -517,25 +517,6 @@ Status intersect_window_candidate_range_with_ordinals(CandidateIt begin, Candida
     return Status::OK();
 }
 
-Status select_covering_windows(const FrqPreludeReader& prelude,
-                               const std::vector<uint32_t>& candidates,
-                               std::vector<uint32_t>* windows) {
-    std::vector<uint32_t> sel;
-    uint32_t last = UINT32_MAX;
-    for (uint32_t d : candidates) {
-        bool found = false;
-        uint32_t w = 0;
-        RETURN_IF_ERROR(prelude.locate_window(d, &found, &w));
-        if (!found) continue;
-        if (w != last) {
-            sel.push_back(w);
-            last = w;
-        }
-    }
-    *windows = std::move(sel);
-    return Status::OK();
-}
-
 bool should_scan_all_windows(const LogicalIndexReader& idx, const TermPlan& p,
                              size_t candidate_count) {
     const size_t window_count = p.prelude.n_windows();
@@ -709,10 +690,11 @@ Status collect_docids_only(const LogicalIndexReader& idx, const io::BatchRangeFe
             windows = all_windows(p.prelude);
         } else if (should_scan_all_windows(idx, p, candidates->size())) {
             // Dense candidate sets cover most windows; for near-full terms this also
-            // avoids thousands-to-millions of locate_window probes with no byte win.
+            // avoids a thousands-to-millions probe covering-window cursor pass with no
+            // byte win.
             windows = all_windows(p.prelude);
         } else {
-            RETURN_IF_ERROR(select_covering_windows(p.prelude, *candidates, &windows));
+            p.prelude.select_covering_windows(*candidates, &windows);
         }
         return collect_windowed_docids_only(idx, p, windows, candidates, out, source);
     }

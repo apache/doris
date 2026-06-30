@@ -441,6 +441,17 @@ Status validate_region_layout(const Header& h, const std::vector<WindowMeta>& wi
 
 } // namespace
 
+namespace {
+// TEST-ONLY seam backing testing::window_probe_count(): one increment per window
+// last_docid comparison, in select_covering_windows_cursor and in locate_window's
+// level-2 scan. thread_local => race-free under the shared const reader and free of
+// atomic cost in the production cursor's hot loop; tests reset/read on their own thread.
+thread_local uint64_t g_window_probes = 0;
+inline void note_window_probe() {
+    ++g_window_probes;
+}
+} // namespace
+
 Status FrqPreludeReader::open(Slice prelude, FrqPreludeReader* out) {
     ByteSource src(prelude);
     Header h;
@@ -472,6 +483,13 @@ Status FrqPreludeReader::open(Slice prelude, FrqPreludeReader* out) {
     out->sb_last_docid_.reserve(rows.size());
     for (const SbDirRow& r : rows) out->sb_last_docid_.push_back(r.last_docid);
     RETURN_IF_ERROR(decode_all_blocks(window_region, h, rows, &out->windows_));
+    // Packed last_docid catalogue for the covering-window cursor (in-memory only;
+    // byte-identical to each windows_[w].last_docid, never serialized).
+    out->win_last_docid_.clear();
+    out->win_last_docid_.reserve(out->windows_.size());
+    for (const WindowMeta& m : out->windows_) {
+        out->win_last_docid_.push_back(m.last_docid);
+    }
     return validate_region_layout(h, out->windows_, &out->dd_block_len_, &out->freq_block_len_);
 }
 
@@ -502,6 +520,7 @@ Status FrqPreludeReader::locate_window(uint32_t docid, bool* found, uint32_t* w)
     const size_t lo = sb * group_size_;
     const size_t hi = std::min<size_t>(lo + group_size_, windows_.size());
     for (size_t i = lo; i < hi; ++i) {
+        note_window_probe();
         if (docid <= windows_[i].last_docid) {
             *found = true;
             *w = static_cast<uint32_t>(i);
@@ -511,4 +530,69 @@ Status FrqPreludeReader::locate_window(uint32_t docid, bool* found, uint32_t* w)
     return Status::OK(); // unreachable when invariants hold; defensive miss.
 }
 
+void select_covering_windows_cursor(const uint32_t* win_last_docid, uint32_t n_windows,
+                                    const uint64_t* sb_last_docid, uint32_t n_super,
+                                    uint32_t group_size, const std::vector<uint32_t>& candidates,
+                                    std::vector<uint32_t>* windows) {
+    windows->clear();
+    if (n_windows == 0) {
+        return; // empty-windows guard (mirrors locate_window's windows_.empty() early-out).
+    }
+    uint32_t sb = 0;                    // monotonic super-block cursor
+    uint32_t w = 0;                     // monotonic window cursor
+    uint32_t last_emitted = UINT32_MAX; // last window pushed (run-collapse dedup)
+    for (uint32_t d : candidates) {
+        const uint64_t target = d; // widen once; keeps the comparisons template-bracket free
+        // Level 1: first super-block whose absolute last docid >= d. sb only advances
+        // forward, so across the whole call it steps at most n_super times.
+        while (sb < n_super && sb_last_docid[sb] < target) {
+            ++sb;
+        }
+        if (sb == n_super) {
+            break; // d past the term's last docid -> this and every later candidate miss.
+        }
+        // Boundary jump: never scan windows below the current super-block's first window.
+        if (w < sb * group_size) {
+            w = sb * group_size;
+        }
+        // Level 2: first window whose absolute last docid >= d. w only advances forward,
+        // so across the whole call the comparisons below total at most n_windows misses
+        // plus one hit per candidate => probe_count <= candidates + n_windows.
+        while (w < n_windows) {
+            note_window_probe();
+            if (d <= win_last_docid[w]) {
+                break;
+            }
+            ++w;
+        }
+        if (w == n_windows) {
+            break; // defensive: invariants guarantee a hit once sb < n_super.
+        }
+        if (w != last_emitted) {
+            windows->push_back(w);
+            last_emitted = w;
+        }
+    }
+}
+
+void FrqPreludeReader::select_covering_windows(const std::vector<uint32_t>& candidates,
+                                               std::vector<uint32_t>* windows) const {
+    select_covering_windows_cursor(
+            win_last_docid_.data(), static_cast<uint32_t>(win_last_docid_.size()),
+            sb_last_docid_.data(), static_cast<uint32_t>(sb_last_docid_.size()), group_size_,
+            candidates, windows);
+}
+
 } // namespace doris::snii::format
+
+namespace doris::snii::format::testing {
+
+uint64_t window_probe_count() {
+    return g_window_probes;
+}
+
+void reset_window_probe_count() {
+    g_window_probes = 0;
+}
+
+} // namespace doris::snii::format::testing

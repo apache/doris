@@ -72,6 +72,10 @@ public:
         return Status::OK();
     }
 
+    // Roaring addMany/addRange deduplicate and order natively, so multi-term OR
+    // can stream each posting straight into the bitmap (no per-term vector + merge).
+    bool dedups() const override { return true; }
+
 private:
     roaring::Roaring* _bitmap;
 };

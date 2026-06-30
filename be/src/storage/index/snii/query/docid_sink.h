@@ -33,6 +33,15 @@ public:
     virtual ~DocIdSink() = default;
     virtual Status append_sorted(std::span<const uint32_t> docids) = 0;
     virtual Status append_range(uint32_t first, uint64_t last_exclusive) = 0;
+
+    // True iff the sink deduplicates and globally orders on its own (e.g. a Roaring
+    // bitmap via addMany/addRange). For such sinks a multi-term OR can stream each
+    // posting straight in -- skipping the per-term vector materialization plus the
+    // K-way merge accumulator. Sinks that hand back a single globally-sorted,
+    // deduplicated vector (VectorDocIdSink) keep the default false, so callers
+    // materialize + merge before appending. The gate must stay conservative:
+    // streaming several postings into a non-dedup sink would break that contract.
+    virtual bool dedups() const { return false; }
 };
 
 class VectorDocIdSink final : public DocIdSink {

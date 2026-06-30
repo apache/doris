@@ -18,12 +18,21 @@
 #include "storage/index/snii/format/dict_entry.h"
 
 #include <algorithm>
+#include <atomic>
 
 #include "storage/index/snii/common/slice.h"
 
 namespace doris::snii::format {
 
 namespace {
+
+// Body-decode counter seam (T07). Incremented once per decode_dict_entry_rest
+// call so tests can assert a key-first scan only materializes the bodies it
+// actually produces. Relaxed atomic: read by tests only, never a sync point.
+std::atomic<uint64_t>& body_decode_atomic() {
+    static std::atomic<uint64_t> counter {0};
+    return counter;
+}
 
 // Pure-function assembly / parsing of flags bits; avoids a long inline if-else
 // chain.
@@ -280,8 +289,8 @@ Status encode_dict_entry(const DictEntry& entry, std::string_view prev_term, Ind
     return Status::OK();
 }
 
-Status decode_dict_entry(ByteSource* src, std::string_view prev_term, IndexTier tier,
-                         DictEntry* out) {
+Status decode_dict_entry_key(ByteSource* src, std::string_view prev_term, DictEntry* out,
+                             size_t* body_start, uint64_t* entry_total) {
     if (src == nullptr || out == nullptr) {
         return Status::Error<ErrorCode::INVALID_ARGUMENT, false>("dict_entry: src / out is null");
     }
@@ -289,9 +298,20 @@ Status decode_dict_entry(ByteSource* src, std::string_view prev_term, IndexTier 
 
     uint64_t total = 0;
     RETURN_IF_ERROR(read_entry_len(src, &total));
-    const size_t body_start = src->position();
+    *body_start = src->position();
+    *entry_total = total;
 
-    RETURN_IF_ERROR(read_term_key(src, prev_term, out));
+    return read_term_key(src, prev_term, out);
+}
+
+Status decode_dict_entry_rest(ByteSource* src, IndexTier tier, size_t body_start,
+                              uint64_t entry_total, DictEntry* out) {
+    if (src == nullptr || out == nullptr) {
+        return Status::Error<ErrorCode::INVALID_ARGUMENT, false>("dict_entry: src / out is null");
+    }
+    // Body-decode seam: count exactly the entries whose body we materialize.
+    body_decode_atomic().fetch_add(1, std::memory_order_relaxed);
+
     uint8_t flags = 0;
     RETURN_IF_ERROR(src->get_u8(&flags));
     apply_flags(flags, out);
@@ -301,11 +321,33 @@ Status decode_dict_entry(ByteSource* src, std::string_view prev_term, IndexTier 
     // The body must consume exactly entry_len bytes; otherwise the structure is
     // inconsistent with the tier.
     const size_t consumed = src->position() - body_start;
-    if (consumed != static_cast<size_t>(total)) {
+    if (consumed != static_cast<size_t>(entry_total)) {
         return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
                 "dict_entry: body length does not match entry_len");
     }
     return Status::OK();
+}
+
+Status skip_dict_entry_body(ByteSource* src, size_t body_start, uint64_t entry_total) {
+    if (src == nullptr) {
+        return Status::Error<ErrorCode::INVALID_ARGUMENT, false>("dict_entry: src is null");
+    }
+    const size_t consumed = src->position() - body_start;
+    if (consumed > static_cast<size_t>(entry_total)) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "dict_entry: term key overruns entry body");
+    }
+    const size_t advance = static_cast<size_t>(entry_total) - consumed;
+    Slice unused;
+    return src->get_bytes(advance, &unused);
+}
+
+Status decode_dict_entry(ByteSource* src, std::string_view prev_term, IndexTier tier,
+                         DictEntry* out) {
+    size_t body_start = 0;
+    uint64_t entry_total = 0;
+    RETURN_IF_ERROR(decode_dict_entry_key(src, prev_term, out, &body_start, &entry_total));
+    return decode_dict_entry_rest(src, tier, body_start, entry_total, out);
 }
 
 Status skip_dict_entry(ByteSource* src) {
@@ -315,6 +357,14 @@ Status skip_dict_entry(ByteSource* src) {
     RETURN_IF_ERROR(read_entry_len(src, &total));
     Slice unused;
     return src->get_bytes(static_cast<size_t>(total), &unused);
+}
+
+uint64_t dict_entry_body_decode_count() {
+    return body_decode_atomic().load(std::memory_order_relaxed);
+}
+
+void reset_dict_entry_counters() {
+    body_decode_atomic().store(0, std::memory_order_relaxed);
 }
 
 } // namespace doris::snii::format

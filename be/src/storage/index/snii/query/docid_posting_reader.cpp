@@ -128,6 +128,30 @@ Status plan_window_prefix(const LogicalIndexReader& idx, WindowPlan* plan,
     return Status::OK();
 }
 
+// Records a non-inline (flat or windowed) posting into the per-encoding plan lists,
+// adding the windowed prefix range to the shared fetcher. Flat ranges are added in a
+// later pass (after all preludes are registered). Shared by the batched and streamed
+// docid readers so both fetch the whole OR in one round. `posting` must outlive the
+// plans (its address is captured); callers pass an element of a stable vector.
+Status plan_noninline_posting(const LogicalIndexReader& idx, const ResolvedDocidPosting& posting,
+                              size_t out_index, io::BatchRangeFetcher* fetcher,
+                              std::vector<FlatPlan>* flat_plans,
+                              std::vector<WindowPlan>* window_plans) {
+    if (posting.entry.enc == DictEntryEnc::kWindowed) {
+        WindowPlan plan;
+        plan.out_index = out_index;
+        plan.posting = &posting;
+        RETURN_IF_ERROR(plan_window_prefix(idx, &plan, fetcher));
+        window_plans->push_back(std::move(plan));
+        return Status::OK();
+    }
+    FlatPlan plan;
+    plan.out_index = out_index;
+    plan.entry = &posting.entry;
+    flat_plans->push_back(plan);
+    return Status::OK();
+}
+
 Status window_dd_slice(Slice dd_block, const WindowMeta& meta, Slice* out) {
     if (meta.dd_off > dd_block.size() || meta.dd_disk_len > dd_block.size() - meta.dd_off) {
         return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
@@ -290,18 +314,8 @@ Status read_docid_postings_batched(const LogicalIndexReader& idx,
             RETURN_IF_ERROR(decode_inline_docs(posting.entry, &(*docids)[i]));
             continue;
         }
-        if (posting.entry.enc == DictEntryEnc::kWindowed) {
-            WindowPlan plan;
-            plan.out_index = i;
-            plan.posting = &posting;
-            RETURN_IF_ERROR(plan_window_prefix(idx, &plan, &docs_fetcher));
-            window_plans.push_back(std::move(plan));
-            continue;
-        }
-        FlatPlan plan;
-        plan.out_index = i;
-        plan.entry = &posting.entry;
-        flat_plans.push_back(plan);
+        RETURN_IF_ERROR(
+                plan_noninline_posting(idx, posting, i, &docs_fetcher, &flat_plans, &window_plans));
     }
 
     for (FlatPlan& plan : flat_plans) {
@@ -315,6 +329,50 @@ Status read_docid_postings_batched(const LogicalIndexReader& idx,
     }
     for (const WindowPlan& plan : window_plans) {
         RETURN_IF_ERROR(decode_window_prefix_plan(docs_fetcher, plan, &(*docids)[plan.out_index]));
+    }
+    return Status::OK();
+}
+
+Status emit_docid_postings_streamed(const LogicalIndexReader& idx,
+                                    const std::vector<ResolvedDocidPosting>& postings,
+                                    DocIdSink* sink) {
+    if (sink == nullptr) {
+        return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
+                "docid_posting_reader: null streamed sink");
+    }
+
+    std::vector<FlatPlan> flat_plans;
+    std::vector<WindowPlan> window_plans;
+    io::BatchRangeFetcher docs_fetcher(idx.reader());
+    // One scratch buffer reused across flat/inline postings: clear() keeps capacity,
+    // so at most one growth total instead of a fresh vector per posting.
+    std::vector<uint32_t> scratch;
+
+    for (size_t i = 0; i < postings.size(); ++i) {
+        const ResolvedDocidPosting& posting = postings[i];
+        if (posting.entry.kind == DictEntryKind::kInline) {
+            scratch.clear();
+            RETURN_IF_ERROR(decode_inline_docs(posting.entry, &scratch));
+            RETURN_IF_ERROR(sink->append_sorted(scratch));
+            continue;
+        }
+        RETURN_IF_ERROR(
+                plan_noninline_posting(idx, posting, i, &docs_fetcher, &flat_plans, &window_plans));
+    }
+
+    for (FlatPlan& plan : flat_plans) {
+        const ResolvedDocidPosting& posting = postings[plan.out_index];
+        RETURN_IF_ERROR(plan_flat_docs(idx, posting, &docs_fetcher, &plan));
+    }
+    if (docs_fetcher.pending() > 0) RETURN_IF_ERROR(docs_fetcher.fetch());
+
+    for (const FlatPlan& plan : flat_plans) {
+        scratch.clear();
+        RETURN_IF_ERROR(decode_flat_plan(docs_fetcher, plan, &scratch));
+        RETURN_IF_ERROR(sink->append_sorted(scratch));
+    }
+    for (const WindowPlan& plan : window_plans) {
+        RETURN_IF_ERROR(decode_window_prefix_plan(docs_fetcher, plan, sink));
     }
     return Status::OK();
 }

@@ -422,28 +422,29 @@ Status LogicalIndexReader::visit_prefix_terms(std::string_view prefix,
         const DictBlockReader* br = nullptr;
         std::shared_ptr<const DecodedDictBlock> pin;
         RETURN_IF_ERROR(dict_block_reader_for_ordinal(ord, cache, &pin, &br));
-        std::vector<DictEntry> entries;
-        RETURN_IF_ERROR(br->decode_all(&entries));
 
-        for (DictEntry& e : entries) {
-            const std::string_view t(e.term);
-            if (t < prefix) {
-                continue; // not yet at the prefix range
-            }
-            const bool has_prefix = t.size() >= prefix.size() && t.starts_with(prefix);
-            if (!has_prefix) {
-                return Status::OK(); // past the prefix range; sorted -> done
-            }
-            PrefixHit hit;
-            hit.term = e.term;
-            hit.entry = std::move(e);
-            hit.frq_base = br->frq_base();
-            hit.prx_base = br->prx_base();
-            bool stop = false;
-            RETURN_IF_ERROR(visitor(std::move(hit), &stop));
-            if (stop) {
-                return Status::OK();
-            }
+        // Stream this block's prefix range: anchor-jump past pre-prefix segments,
+        // decode only the bodies we keep, and stop at the first term past the
+        // range (decode_all materialized every entry of every scanned block).
+        // The visitor still owns final term acceptance, so results are identical;
+        // `br`/`pin` stay alive across this synchronous call.
+        bool prefix_exhausted = false;
+        bool visitor_stopped = false;
+        RETURN_IF_ERROR(br->visit_prefix_range(
+                prefix, /*accept_key=*/ {},
+                [&](DictEntry&& e, bool* stop) -> Status {
+                    PrefixHit hit;
+                    hit.term = e.term;
+                    hit.entry = std::move(e);
+                    hit.frq_base = br->frq_base();
+                    hit.prx_base = br->prx_base();
+                    RETURN_IF_ERROR(visitor(std::move(hit), stop));
+                    visitor_stopped = *stop;
+                    return Status::OK();
+                },
+                &prefix_exhausted));
+        if (visitor_stopped || prefix_exhausted) {
+            return Status::OK();
         }
     }
     return Status::OK();

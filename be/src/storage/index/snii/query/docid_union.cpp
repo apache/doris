@@ -41,6 +41,14 @@ Status emit_docid_union(const reader::LogicalIndexReader& idx,
                         const std::vector<ResolvedDocidPosting>& postings, DocIdSink* sink) {
     if (sink == nullptr)
         return Status::Error<ErrorCode::INVALID_ARGUMENT, false>("docid_union: null sink");
+    if (postings.empty()) return Status::OK();
+    // A dedup-capable sink (Roaring) orders + dedups across postings itself, so stream
+    // each posting straight in over a single shared fetch round -- no per-term vector
+    // or K-way merge accumulator. A plain (non-dedup) sink keeps the materialize+merge
+    // path so its single-span contract (globally sorted, deduplicated) holds.
+    if (sink->dedups()) {
+        return emit_docid_postings_streamed(idx, postings, sink);
+    }
     std::vector<uint32_t> acc;
     RETURN_IF_ERROR(build_docid_union(idx, postings, &acc));
     if (acc.empty()) return Status::OK();
