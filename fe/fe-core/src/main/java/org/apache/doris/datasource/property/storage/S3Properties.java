@@ -18,7 +18,6 @@
 package org.apache.doris.datasource.property.storage;
 
 import org.apache.doris.cloud.proto.Cloud;
-import org.apache.doris.cloud.proto.Cloud.CredProviderTypePB;
 import org.apache.doris.cloud.proto.Cloud.ObjectStoreInfoPB.Provider;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
