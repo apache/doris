@@ -78,6 +78,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 /**
@@ -367,7 +368,10 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
                 if (detailLevel == TExplainLevel.VERBOSE) {
                     explainProps.put(VERBOSE_EXPLAIN_KEY, "true");
                 }
-                scanProvider.appendExplainInfo(output, prefix, explainProps);
+                onPluginClassLoader(scanProvider, () -> {
+                    scanProvider.appendExplainInfo(output, prefix, explainProps);
+                    return null;
+                });
             }
             // FIX-E (explain gap): the "pushdown agg=<op> (n)" line lives in the parent FileScanNode
             // but this override does not call super. Re-emit it for ALL plugin connectors (universally
@@ -460,12 +464,38 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         if (scanProvider == null) {
             return ConnectorColumnCategory.DEFAULT;
         }
-        return scanProvider.classifyColumn(columnName);
+        return onPluginClassLoader(scanProvider, () -> scanProvider.classifyColumn(columnName));
     }
 
     @Override
     protected TableIf getTargetTable() throws UserException {
         return desc.getTable();
+    }
+
+    /**
+     * Runs a connector scan-plan call with the thread-context classloader pinned to the connector
+     * plugin's own loader, restoring it afterward.
+     *
+     * <p>Plugin connectors run isolated under a child-first classloader, while fe-core ships some of
+     * the same third-party libraries (e.g. iceberg) on the parent 'app' loader. Such libraries resolve
+     * helper classes by name through the TCCL — iceberg-aws's {@code HttpClientProperties} loads
+     * {@code ApacheHttpClientConfigurations} via {@code DynMethods}, whose default loader IS the TCCL.
+     * Under the query thread's default ('app') TCCL that reflective load returns the parent copy and
+     * {@link ClassCastException}s against the child-loaded plugin copy. Pinning the TCCL to the
+     * provider's loader keeps every reflective load on the plugin side — the same split-brain guard
+     * {@code IcebergConnector.buildCatalogAuthenticated} applies on the catalog path. Keyed off the
+     * provider's own classloader, so it is connector-agnostic and a no-op for connectors that are not
+     * classloader-isolated. Must wrap the call on the thread that runs it: the streaming split paths
+     * execute on a pool thread that does not inherit the caller's TCCL.
+     */
+    private static <T> T onPluginClassLoader(ConnectorScanPlanProvider provider, Supplier<T> body) {
+        ClassLoader previous = Thread.currentThread().getContextClassLoader();
+        try {
+            Thread.currentThread().setContextClassLoader(provider.getClass().getClassLoader());
+            return body.get();
+        } finally {
+            Thread.currentThread().setContextClassLoader(previous);
+        }
     }
 
     /**
@@ -483,7 +513,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         if (scanProvider == null || rangeDesc == null || !rangeDesc.isSetTableFormatParams()) {
             return Collections.emptyList();
         }
-        return scanProvider.getDeleteFiles(rangeDesc.getTableFormatParams());
+        return onPluginClassLoader(scanProvider, () -> scanProvider.getDeleteFiles(rangeDesc.getTableFormatParams()));
     }
 
     @Override
@@ -835,7 +865,10 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
      */
     boolean sysTableSupportsTimeTravel() {
         ConnectorScanPlanProvider scanProvider = connector.getScanPlanProvider();
-        return scanProvider != null && scanProvider.supportsSystemTableTimeTravel();
+        if (scanProvider == null) {
+            return false;
+        }
+        return onPluginClassLoader(scanProvider, scanProvider::supportsSystemTableTimeTravel);
     }
 
     @Override
@@ -855,8 +888,10 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         // mirroring legacy MaxComputeScanNode.getSplits()'s empty-selection short-circuit — UNLESS the
         // connector is predicate-driven (ignorePartitionPruneShortCircuit), in which case a prune-to-zero
         // maps to scan-all and planScan re-plans from the pushed predicate (paimon `col IS NULL` parity).
+        boolean ignorePartitionPruneShortCircuit = onPluginClassLoader(
+                scanProvider, scanProvider::ignorePartitionPruneShortCircuit);
         List<String> requiredPartitions = resolveRequiredPartitions(
-                selectedPartitions, scanProvider.ignorePartitionPruneShortCircuit());
+                selectedPartitions, ignorePartitionPruneShortCircuit);
         // Surface the partition counts for EXPLAIN (partition=N/M) and SQL-block-rule enforcement,
         // mirroring legacy MaxComputeScanNode.getSplits():720-722. Set BEFORE the pruned-to-zero
         // short-circuit below so a 0-partition selection still reports partition=0/total (e.g. WHERE
@@ -896,9 +931,9 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         // materializes the full post-merge row set just to count. Connectors that do not override the
         // count-pushdown overload ignore the flag (default delegates to the 6-arg planScan).
         boolean countPushdown = getPushDownAggNoGroupingOp() == TPushAggOp.COUNT;
-        List<ConnectorScanRange> ranges = scanProvider.planScan(
+        List<ConnectorScanRange> ranges = onPluginClassLoader(scanProvider, () -> scanProvider.planScan(
                 connectorSession, currentHandle, columns, remainingFilter, sourceLimit,
-                requiredPartitions, countPushdown);
+                requiredPartitions, countPushdown));
 
         List<Split> splits = new ArrayList<>(ranges.size());
         for (ConnectorScanRange range : ranges) {
@@ -997,8 +1032,8 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         // connector implements at most one — Iceberg streams files, MaxCompute slices partitions.
         if (hasSlots) {
             boolean countPushdown = getPushDownAggNoGroupingOp() == TPushAggOp.COUNT;
-            long estimate = scanProvider.streamingSplitEstimate(
-                    connectorSession, currentHandle, buildRemainingFilter(), countPushdown);
+            long estimate = onPluginClassLoader(scanProvider, () -> scanProvider.streamingSplitEstimate(
+                    connectorSession, currentHandle, buildRemainingFilter(), countPushdown));
             if (estimate >= 0) {
                 streamingSplitEstimate = estimate;
                 streamingBatch = true;
@@ -1007,7 +1042,8 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         }
         // Partition-count batch flavor (legacy MaxCompute): its connector odpsTable.getFileNum()>0 check is
         // folded into supportsBatchScan; the partition threshold is evaluated generically.
-        boolean supportsBatchScan = scanProvider.supportsBatchScan(connectorSession, currentHandle);
+        boolean supportsBatchScan = onPluginClassLoader(scanProvider,
+                () -> scanProvider.supportsBatchScan(connectorSession, currentHandle));
         return shouldUseBatchMode(selectedPartitions, hasSlots,
                 supportsBatchScan, sessionVariable.getNumPartitionsInBatchMode());
     }
@@ -1137,8 +1173,9 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
                 try {
                     CompletableFuture.runAsync(() -> {
                         try {
-                            List<ConnectorScanRange> ranges = scanProvider.planScanForPartitionBatch(
-                                    connectorSession, handle, columns, remainingFilter, -1L, batch);
+                            List<ConnectorScanRange> ranges = onPluginClassLoader(scanProvider,
+                                    () -> scanProvider.planScanForPartitionBatch(
+                                            connectorSession, handle, columns, remainingFilter, -1L, batch));
                             List<Split> batchSplits = new ArrayList<>(ranges.size());
                             for (ConnectorScanRange range : ranges) {
                                 batchSplits.add(new PluginDrivenSplit(range));
@@ -1207,7 +1244,8 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         CompletableFuture.runAsync(() -> {
             ConnectorSplitSource source = null;
             try {
-                source = scanProvider.streamSplits(connectorSession, handle, columns, remainingFilter, -1L);
+                source = onPluginClassLoader(scanProvider,
+                        () -> scanProvider.streamSplits(connectorSession, handle, columns, remainingFilter, -1L));
                 // Pull ranges with backpressure (needMoreSplit) and pump them one at a time, exactly like
                 // legacy doStartSplit. The bounded SplitAssignment queue throttles the lazy source so FE
                 // heap stays bounded for million-file scans.
@@ -1257,7 +1295,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         ConnectorScanPlanProvider scanProvider = connector.getScanPlanProvider();
         if (scanProvider != null) {
             Map<String, String> props = getOrLoadScanNodeProperties();
-            String serialized = scanProvider.getSerializedTable(props);
+            String serialized = onPluginClassLoader(scanProvider, () -> scanProvider.getSerializedTable(props));
             if (serialized != null) {
                 return Optional.of(serialized);
             }
@@ -1272,7 +1310,10 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         ConnectorScanPlanProvider scanProvider = connector.getScanPlanProvider();
         if (scanProvider != null) {
             Map<String, String> props = getOrLoadScanNodeProperties();
-            scanProvider.populateScanLevelParams(params, props);
+            onPluginClassLoader(scanProvider, () -> {
+                scanProvider.populateScanLevelParams(params, props);
+                return null;
+            });
         }
         pruneConjunctsFromNodeProperties();
 
@@ -1371,8 +1412,9 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
                 // rebuilds it over the full schema (no-op for every non-lazy-mat read / every connector
                 // without a pruned dictionary).
                 pinTopnLazyMaterialize();
-                cachedPropertiesResult = scanProvider.getScanNodePropertiesResult(
-                        connectorSession, currentHandle, columns, filter);
+                cachedPropertiesResult = onPluginClassLoader(scanProvider,
+                        () -> scanProvider.getScanNodePropertiesResult(
+                                connectorSession, currentHandle, columns, filter));
             }
             if (cachedPropertiesResult == null) {
                 cachedPropertiesResult = new ScanNodePropertiesResult(Collections.emptyMap());
