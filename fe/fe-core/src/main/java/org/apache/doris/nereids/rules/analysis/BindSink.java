@@ -915,6 +915,22 @@ public class BindSink implements AnalysisRuleFactory {
             // positions; and (3) PhysicalConnectorTableSink.getRequirePhysicalProperties locates
             // partition columns by their full-schema position, so the child must be in full-schema order.
             Map<String, NamedExpression> columnToOutput = getColumnToOutput(ctx, table, false, false, boundSink, child);
+            if (table.materializeStaticPartitionValues() && !staticPartitionColNames.isEmpty()) {
+                // Connectors whose data files RETAIN partition columns (e.g. Iceberg) must write the static
+                // partition value INTO the data column: getColumnToOutput excluded it from the bound columns
+                // and NULL-filled it, so re-project the PARTITION-clause literal here (mirrors legacy
+                // bindIcebergTableSink). Connectors that STRIP partition columns and refill them from
+                // static_partition_values (e.g. MaxCompute) do NOT declare the capability and keep the NULL fill.
+                for (Map.Entry<String, Expression> entry : staticPartitions.entrySet()) {
+                    String colName = entry.getKey();
+                    Column column = table.getColumn(colName);
+                    if (column != null) {
+                        Expression castExpr = TypeCoercionUtils.castIfNotSameType(
+                                entry.getValue(), DataType.fromCatalogType(column.getType()));
+                        columnToOutput.put(colName, new Alias(castExpr, colName));
+                    }
+                }
+            }
             LogicalProject<?> fullOutputProject =
                     getOutputProjectByCoercion(table.getFullSchema(), child, columnToOutput);
             return boundSink.withChildAndUpdateOutput(fullOutputProject);

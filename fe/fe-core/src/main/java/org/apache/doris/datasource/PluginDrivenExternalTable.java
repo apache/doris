@@ -218,6 +218,23 @@ public class PluginDrivenExternalTable extends ExternalTable {
                 && connector.getCapabilities().contains(ConnectorCapability.SINK_REQUIRE_FULL_SCHEMA_ORDER);
     }
 
+    /**
+     * Returns whether the underlying connector's data files retain partition columns, so a static-partition
+     * write must materialize the PARTITION-clause literal into the data column instead of NULL-filling it
+     * (e.g. Iceberg). Connectors that strip partition columns and refill them from {@code
+     * static_partition_values} (e.g. MaxCompute) return false. Used by {@code BindSink.bindConnectorTableSink};
+     * defaults to false.
+     */
+    public boolean materializeStaticPartitionValues() {
+        if (!(catalog instanceof PluginDrivenExternalCatalog)) {
+            return false;
+        }
+        Connector connector = ((PluginDrivenExternalCatalog) catalog).getConnector();
+        return connector != null
+                && connector.getCapabilities().contains(
+                        ConnectorCapability.SINK_MATERIALIZE_STATIC_PARTITION_VALUES);
+    }
+
     @Override
     public boolean supportsExternalMetadataPreload() {
         if (!(catalog instanceof PluginDrivenExternalCatalog)) {

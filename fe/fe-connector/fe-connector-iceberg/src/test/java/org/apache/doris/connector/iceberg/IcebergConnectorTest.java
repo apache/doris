@@ -125,6 +125,21 @@ public class IcebergConnectorTest {
     }
 
     @Test
+    public void declaresStaticPartitionMaterializationCapability() {
+        // WHY: legacy bindIcebergTableSink re-projects each static PARTITION(col='v') literal into its data
+        // column (BindSink:783-795); the iceberg BE writer keeps partition columns in the data file (does NOT
+        // strip them). The generic bindConnectorTableSink reproduces that projection ONLY when the connector
+        // declares SINK_MATERIALIZE_STATIC_PARTITION_VALUES; otherwise the static-partition column is
+        // NULL-filled and iceberg's InclusiveMetricsEvaluator prunes the file on read-back (e.g.
+        // `INSERT OVERWRITE ... PARTITION(par='a') SELECT ...` then `WHERE par='a'` reads empty). MaxCompute
+        // must NOT declare it (it strips partition columns + refills from static_partition_values). MUTATION:
+        // omitting the capability -> static-partition overwrite writes par=NULL -> read-back empty -> red.
+        IcebergConnector connector = new IcebergConnector(Collections.emptyMap(), new RecordingConnectorContext());
+        Assertions.assertTrue(connector.getCapabilities()
+                .contains(ConnectorCapability.SINK_MATERIALIZE_STATIC_PARTITION_VALUES));
+    }
+
+    @Test
     public void declaresParallelWriteCapability() {
         // WHY (C3b ④b): legacy iceberg INSERT distributes via PhysicalIcebergTableSink, whose partition-hash
         // branch is DEAD (it reads getPartitionNames(), which IcebergExternalTable never overrides -> empty),

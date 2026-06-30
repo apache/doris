@@ -287,8 +287,15 @@ public class IcebergConnector implements Connector {
         // avoidance). Correct only because the connector also carries per-field ids down its column tree
         // (parseSchema withUniqueId + IcebergTypeMapping withChildrenFieldIds), which the BE field-id scan
         // path matches nested leaves by; without them a nested leaf reads NULL. Inert pre-cutover (P6.6).
+        // SINK_MATERIALIZE_STATIC_PARTITION_VALUES: legacy bindIcebergTableSink re-projects each static
+        // PARTITION(col='v') literal into its data column; the iceberg BE writer keeps partition columns in
+        // the data file (does NOT strip them), so without this the generic bindConnectorTableSink NULL-fills
+        // the static-partition column and InclusiveMetricsEvaluator drops the file on read-back. MaxCompute
+        // must NOT declare this (it strips + refills from static_partition_values). Inert pre-cutover (P6.6).
         return EnumSet.of(ConnectorCapability.SUPPORTS_MVCC_SNAPSHOT, ConnectorCapability.SUPPORTS_TIME_TRAVEL,
-                ConnectorCapability.SINK_REQUIRE_FULL_SCHEMA_ORDER, ConnectorCapability.SUPPORTS_PARALLEL_WRITE,
+                ConnectorCapability.SINK_REQUIRE_FULL_SCHEMA_ORDER,
+                ConnectorCapability.SINK_MATERIALIZE_STATIC_PARTITION_VALUES,
+                ConnectorCapability.SUPPORTS_PARALLEL_WRITE,
                 ConnectorCapability.SUPPORTS_COLUMN_AUTO_ANALYZE,
                 ConnectorCapability.SUPPORTS_TOPN_LAZY_MATERIALIZE,
                 ConnectorCapability.SUPPORTS_SHOW_CREATE_DDL,

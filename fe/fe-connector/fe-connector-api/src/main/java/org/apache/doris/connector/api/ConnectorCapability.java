@@ -81,6 +81,19 @@ public enum ConnectorCapability {
      */
     SINK_REQUIRE_FULL_SCHEMA_ORDER,
     /**
+     * Indicates the connector's data files PHYSICALLY RETAIN the partition columns, so a static-partition
+     * write (e.g. {@code INSERT OVERWRITE ... PARTITION(pt='x')}) must MATERIALIZE the PARTITION-clause
+     * literal into the data column rather than leave it NULL.
+     *
+     * <p>{@code BindSink.bindConnectorTableSink} excludes static-partition columns from the bound columns
+     * and {@code getColumnToOutput} NULL-fills them; a connector declaring this capability has the bind
+     * layer re-project the static literal into the column (mirrors legacy {@code bindIcebergTableSink}),
+     * because its writer persists the partition value FROM the data column (e.g. Iceberg). Connectors whose
+     * writer STRIPS partition columns from data files and refills them from the partition metadata /
+     * {@code static_partition_values} (e.g. MaxCompute) must NOT declare this and keep the NULL fill.</p>
+     */
+    SINK_MATERIALIZE_STATIC_PARTITION_VALUES,
+    /**
      * Indicates the connector supports passthrough query via the {@code query()} TVF.
      *
      * <p>Connectors declaring this capability must implement
