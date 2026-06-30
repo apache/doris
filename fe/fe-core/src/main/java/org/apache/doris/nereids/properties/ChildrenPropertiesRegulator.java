@@ -58,6 +58,8 @@ import org.apache.doris.statistics.util.StatisticsUtil;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -304,9 +306,10 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<List<List<PhysicalP
                 int bucketNum = candidate.getTable().getDefaultDistributionInfo().getBucketNum();
                 int totalBucketNum = prunedPartNum * bucketNum;
                 ConnectContext connectContext = ConnectContext.get();
-                // <= 0 disables the downgrade entirely, so a test or a tuning session can keep
-                // bucket shuffle (the anchored side needs no re-shuffle) regardless of how many
-                // instances the cluster has.
+                // <= 0 disables the downgrade entirely: with the FE local shuffle planner's
+                // bucket -> local-hash upgrade (local_shuffle_bucket_upgrade_ratio), few-bucket
+                // bucket shuffle no longer funnels, so keeping bucket shuffle (anchored side
+                // needs no re-shuffle) can beat downgrading to shuffle join.
                 double downgradeRatio = connectContext.getSessionVariable().getBucketShuffleDowngradeRatio();
                 if (downgradeRatio <= 0) {
                     return false;
