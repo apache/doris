@@ -83,6 +83,11 @@ Status VHivePartitionWriter::open(RuntimeState* state, RuntimeProfile* operator_
             parquet_compression_type = TParquetCompressionType::ZSTD;
             break;
         }
+        case TFileCompressType::LZ4BLOCK: {
+            // Hadoop-framed Parquet LZ4 (not LZ4_RAW) for cross-engine compatibility.
+            parquet_compression_type = TParquetCompressionType::LZ4_HADOOP;
+            break;
+        }
         default: {
             return Status::InternalError("Unsupported hive compress type {} with parquet",
                                          to_string(_hive_compress_type));

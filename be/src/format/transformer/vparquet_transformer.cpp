@@ -124,6 +124,17 @@ void ParquetBuildHelper::build_compression_type(
         builder.compression(arrow::Compression::LZ4);
         break;
     }
+    case TParquetCompressionType::LZ4_HADOOP: {
+        constexpr int64_t HADOOP_LZ4_DEFAULT_BUFFER_SIZE = 256 * 1024;
+        // Hadoop-framed LZ4 -> Parquet thrift codec "LZ4" (deprecated). This matches what
+        // Spark/Iceberg writes for `write.parquet.compression-codec=lz4`. Arrow 17 emits one
+        // Hadoop LZ4 block per Parquet page/dictionary page, while Hadoop JVM readers default to
+        // a 256 KiB LZ4 codec buffer, so keep page targets below that buffer size.
+        builder.compression(arrow::Compression::LZ4_HADOOP);
+        builder.data_pagesize(HADOOP_LZ4_DEFAULT_BUFFER_SIZE / 2);
+        builder.dictionary_pagesize_limit(HADOOP_LZ4_DEFAULT_BUFFER_SIZE / 2);
+        break;
+    }
     // arrow do not support lzo and bz2 compression type.
     // case TParquetCompressionType::LZO: {
     //     builder.compression(arrow::Compression::LZO);

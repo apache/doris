@@ -80,6 +80,12 @@ Status VIcebergPartitionWriter::open(RuntimeState* state, RuntimeProfile* profil
             parquet_compression_type = TParquetCompressionType::ZSTD;
             break;
         }
+        case TFileCompressType::LZ4BLOCK: {
+            // Map Doris LZ4 to the Hadoop-framed Parquet LZ4 codec (not LZ4_RAW) so the file
+            // stays readable across Spark/Iceberg/Trino. See ParquetBuildHelper.
+            parquet_compression_type = TParquetCompressionType::LZ4_HADOOP;
+            break;
+        }
         default: {
             return Status::InternalError("Unsupported compress type {} with parquet",
                                          to_string(_compress_type));
@@ -177,6 +183,10 @@ std::string VIcebergPartitionWriter::_get_file_extension(
     }
     case TFileCompressType::ZSTD: {
         compress_name = ".zstd";
+        break;
+    }
+    case TFileCompressType::LZ4BLOCK: {
+        compress_name = ".lz4";
         break;
     }
     default: {
