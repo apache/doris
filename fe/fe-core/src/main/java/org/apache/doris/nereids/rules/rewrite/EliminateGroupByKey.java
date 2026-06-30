@@ -170,13 +170,7 @@ public class EliminateGroupByKey extends DefaultPlanRewriter<Map<ExprId, ExprId>
     }
 
     /**
-     * Return expressions that can be removed from both group-by and output.
-     * Kept for backward compatibility with external callers (e.g. PushDownAggThroughJoinOnPkFk).
-     */
-    /**
      * Return expressions that can be completely removed from both group-by and output.
-     * IMPORTANT: Does NOT return wrapWithAnyValue expressions — those require ANY_VALUE
-     * wrapping in the output, which only the internal eliminateGroupByKeyWithMap handles.
      * Kept for backward compatibility with external callers (e.g. PushDownAggThroughJoinOnPkFk).
      */
     public static Set<Expression> findCanBeRemovedExpressions(LogicalAggregate<? extends Plan> agg,
