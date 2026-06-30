@@ -441,7 +441,7 @@ suite("agg_sync_mv") {
 
     qt_select_var_samp """select id, var_samp(kint) from agg_mv_test group by id order by id;"""
     sql """drop materialized view if exists mv_sync50 on agg_mv_test;"""
-    createMV("""create materialized view mv_sync50 as select id as s6, var_samp(kint) from agg_mv_test group by id order by id;""")
+    createMV("""create materialized view mv_sync50 as select id as s6, var_samp(kint) as s6v from agg_mv_test group by id order by id;""")
     mv_rewrite_any_success("select id, var_samp(kint) from agg_mv_test group by id order by id;", ["mv_sync49", "mv_sync50"])
     qt_select_var_samp_mv """select id, var_samp(kint) from agg_mv_test group by id order by id;"""
 
