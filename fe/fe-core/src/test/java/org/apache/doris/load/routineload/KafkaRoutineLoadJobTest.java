@@ -277,6 +277,7 @@ public class KafkaRoutineLoadJobTest {
         customProperties.put("ssl.keystore.password", "keystore_secret");
         customProperties.put("ssl.keystore.key", "keystore_key_secret");
         customProperties.put("ssl.key.pem", "key_pem_secret");
+        customProperties.put(KafkaConfiguration.AWS_ACCESS_KEY, "aws_access_key");
         customProperties.put("aws.secret_key", "aws_secret");
         customProperties.put("aws.session_key", "aws_session_secret");
         customProperties.put("password", "bare_password_secret");
@@ -296,6 +297,7 @@ public class KafkaRoutineLoadJobTest {
         Assert.assertFalse(customPropertiesJson.contains("keystore_secret"));
         Assert.assertFalse(customPropertiesJson.contains("keystore_key_secret"));
         Assert.assertFalse(customPropertiesJson.contains("key_pem_secret"));
+        Assert.assertFalse(customPropertiesJson.contains("aws_access_key"));
         Assert.assertFalse(customPropertiesJson.contains("aws_secret"));
         Assert.assertFalse(customPropertiesJson.contains("aws_session_secret"));
         Assert.assertFalse(customPropertiesJson.contains("bare_password_secret"));
@@ -312,6 +314,7 @@ public class KafkaRoutineLoadJobTest {
         Assert.assertTrue(customPropertiesJson.contains("\"ssl.keystore.password\":\"******\""));
         Assert.assertTrue(customPropertiesJson.contains("\"ssl.keystore.key\":\"******\""));
         Assert.assertTrue(customPropertiesJson.contains("\"ssl.key.pem\":\"******\""));
+        Assert.assertTrue(customPropertiesJson.contains("\"aws.access_key\":\"******\""));
         Assert.assertTrue(customPropertiesJson.contains("\"aws.secret_key\":\"******\""));
         Assert.assertTrue(customPropertiesJson.contains("\"aws.session_key\":\"******\""));
         Assert.assertTrue(customPropertiesJson.contains("\"password\":\"******\""));
@@ -329,6 +332,7 @@ public class KafkaRoutineLoadJobTest {
         Assert.assertEquals("******", showCreateCustomProperties.get("property.ssl.keystore.password"));
         Assert.assertEquals("******", showCreateCustomProperties.get("property.ssl.keystore.key"));
         Assert.assertEquals("******", showCreateCustomProperties.get("property.ssl.key.pem"));
+        Assert.assertEquals("******", showCreateCustomProperties.get("property.aws.access_key"));
         Assert.assertEquals("******", showCreateCustomProperties.get("property.aws.secret_key"));
         Assert.assertEquals("******", showCreateCustomProperties.get("property.aws.session_key"));
         Assert.assertEquals("******", showCreateCustomProperties.get("property.password"));

@@ -734,6 +734,7 @@ public class KafkaRoutineLoadJob extends RoutineLoadJob {
         customProperties.forEach((key, value) -> {
             String lowerKey = key.toLowerCase(Locale.ROOT);
             boolean sensitive = KafkaConfiguration.SASL_JAAS_CONFIG.equalsIgnoreCase(key)
+                    || KafkaConfiguration.AWS_ACCESS_KEY.equalsIgnoreCase(key)
                     || DatasourcePrintableMap.SENSITIVE_KEY.contains(key)
                     || lowerKey.endsWith(".password")
                     || lowerKey.endsWith(".secret")
