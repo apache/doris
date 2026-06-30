@@ -134,7 +134,7 @@ PhraseTermMapping BuildPhraseTermMapping(const std::vector<std::string>& terms) 
     PhraseTermMapping mapping;
     mapping.phrase_plan_index.reserve(terms.size());
     for (const std::string& term : terms) {
-        auto it = std::find(mapping.unique_terms.begin(), mapping.unique_terms.end(), term);
+        auto it = std::ranges::find(mapping.unique_terms, term);
         if (it == mapping.unique_terms.end()) {
             mapping.phrase_plan_index.push_back(mapping.unique_terms.size());
             mapping.unique_terms.push_back(term);
@@ -305,10 +305,30 @@ doris::Status SelectCandidateDocsForPrx(std::vector<uint32_t>* docids,
     return doris::Status::OK();
 }
 
-doris::Status BuildFlatPositionSource(
-        const LogicalIndexReader& idx, const snii::io::BatchRangeFetcher& round1,
-        DocidSource* doc_source, const TermPlan& p, const std::vector<uint32_t>& candidates,
-        std::vector<std::unique_ptr<snii::io::BatchRangeFetcher>>* owners, PosSource* src) {
+// PRX byte ranges for every candidate-bearing chunk across all phrase terms are
+// added to one shared BatchRangeFetcher and fetched in a single batched round
+// (T02). Pass 1 records, for each chunk that needs on-disk PRX bytes, where to
+// write the fetched slice back: which plan's PosSource, which chunk within it,
+// and the fetcher handle.
+struct PrxRangeAssignment {
+    size_t plan_index;
+    size_t chunk_index;
+    size_t handle;
+};
+
+void record_prx_assignment(std::vector<PrxRangeAssignment>* assignments, size_t plan_index,
+                           size_t chunk_index, size_t handle) {
+    assignments->push_back(PrxRangeAssignment {
+            .plan_index = plan_index, .chunk_index = chunk_index, .handle = handle});
+}
+
+doris::Status BuildFlatPositionSource(const LogicalIndexReader& idx,
+                                      const snii::io::BatchRangeFetcher& round1,
+                                      DocidSource* doc_source, const TermPlan& p,
+                                      const std::vector<uint32_t>& candidates, size_t plan_index,
+                                      snii::io::BatchRangeFetcher* prx_fetcher,
+                                      std::vector<PrxRangeAssignment>* assignments,
+                                      PosSource* src) {
     PosChunk chunk;
     std::vector<uint32_t> docids;
     std::vector<uint32_t> prx_doc_ordinals;
@@ -320,15 +340,19 @@ doris::Status BuildFlatPositionSource(
         prx_doc_ordinals = std::move(doc_chunk.prx_doc_ordinals);
         chunk.prx_doc_count = doc_chunk.prx_doc_count;
     }
+    // pod_ref PRX bytes are read from the shared fetcher (one batched round for the
+    // whole phrase); inline PRX bytes already live in the dict entry. The pod_ref
+    // range is added unconditionally to keep the bytes read identical to the prior
+    // per-term fetch(); the handle is only recorded as an assignment when the chunk
+    // is kept (an empty chunk reads the same bytes but needs no backfill).
+    bool has_prx_handle = false;
+    size_t prx_handle = 0;
     if (p.pod_ref) {
         uint64_t poff = 0;
         uint64_t plen = 0;
         RETURN_IF_ERROR(idx.resolve_prx_window(p.entry, p.prx_base, &poff, &plen));
-        auto fetcher = std::make_unique<snii::io::BatchRangeFetcher>(idx.reader());
-        const size_t prx_handle = fetcher->add(poff, plen);
-        RETURN_IF_ERROR(fetcher->fetch());
-        chunk.prx = fetcher->get(prx_handle);
-        owners->push_back(std::move(fetcher));
+        prx_handle = prx_fetcher->add(poff, plen);
+        has_prx_handle = true;
     } else {
         chunk.prx = Slice(p.entry.prx_bytes);
     }
@@ -350,34 +374,40 @@ doris::Status BuildFlatPositionSource(
     if (docids_are_final_candidates) {
         chunk.docids = std::move(docids);
         chunk.prx_doc_ordinals = std::move(prx_doc_ordinals);
-        if (!chunk.docids.empty()) src->chunks.push_back(std::move(chunk));
+        if (!chunk.docids.empty()) {
+            if (has_prx_handle) {
+                record_prx_assignment(assignments, plan_index, src->chunks.size(), prx_handle);
+            }
+            src->chunks.push_back(std::move(chunk));
+        }
         return doris::Status::OK();
     }
     RETURN_IF_ERROR(SelectCandidateDocsForPrx(&docids, &prx_doc_ordinals, chunk.prx_doc_count,
                                               candidates, &chunk));
-    if (!chunk.docids.empty()) src->chunks.push_back(std::move(chunk));
+    if (!chunk.docids.empty()) {
+        if (has_prx_handle) {
+            record_prx_assignment(assignments, plan_index, src->chunks.size(), prx_handle);
+        }
+        src->chunks.push_back(std::move(chunk));
+    }
     return doris::Status::OK();
 }
 
 bool ChunkMayContainCandidate(const DocidChunk& chunk, const std::vector<uint32_t>& candidates) {
-    if (chunk.docids.empty() || candidates.empty()) return false;
-    const auto it = std::lower_bound(candidates.begin(), candidates.end(), chunk.docids.front());
+    if (chunk.docids.empty() || candidates.empty()) {
+        return false;
+    }
+    const auto it = std::ranges::lower_bound(candidates, chunk.docids.front());
     return it != candidates.end() && *it <= chunk.docids.back();
 }
 
-doris::Status DecodeWindowedPositionSource(
-        const LogicalIndexReader& idx, const TermPlan& p, DocidSource* doc_source,
-        const std::vector<uint32_t>& candidates,
-        std::vector<std::unique_ptr<snii::io::BatchRangeFetcher>>* owners, PosSource* src) {
-    struct WindowFetch {
-        size_t chunk_index = 0;
-        size_t prx_handle = 0;
-    };
-
-    auto prx_fetcher = std::make_unique<snii::io::BatchRangeFetcher>(
-            idx.reader(), snii::reader::kSameTermCoalesceGap);
-    std::vector<WindowFetch> fetched;
-    fetched.reserve(doc_source->chunks.size());
+doris::Status DecodeWindowedPositionSource(const LogicalIndexReader& idx, const TermPlan& p,
+                                           DocidSource* doc_source,
+                                           const std::vector<uint32_t>& candidates,
+                                           size_t plan_index,
+                                           snii::io::BatchRangeFetcher* prx_fetcher,
+                                           std::vector<PrxRangeAssignment>* assignments,
+                                           PosSource* src) {
     for (size_t i = 0; i < doc_source->chunks.size(); ++i) {
         DocidChunk& doc_chunk = doc_source->chunks[i];
         if (!doc_source->docids_are_final_candidates &&
@@ -398,7 +428,9 @@ doris::Status DecodeWindowedPositionSource(
                                                       &doc_chunk.prx_doc_ordinals,
                                                       doc_chunk.prx_doc_count, candidates, &chunk));
         }
-        if (chunk.docids.empty()) continue;
+        if (chunk.docids.empty()) {
+            continue;
+        }
 
         snii::reader::WindowAbsRange range;
         RETURN_IF_ERROR(snii::reader::windowed_window_range(
@@ -406,18 +438,10 @@ doris::Status DecodeWindowedPositionSource(
                 /*want_positions=*/true, /*want_freq=*/false, &range));
         chunk.windowed = true;
         chunk.window = doc_chunk.window;
-        WindowFetch f;
-        f.chunk_index = src->chunks.size();
-        f.prx_handle = prx_fetcher->add(range.prx_off, range.prx_len);
-        fetched.push_back(f);
+        const size_t prx_handle = prx_fetcher->add(range.prx_off, range.prx_len);
+        record_prx_assignment(assignments, plan_index, src->chunks.size(), prx_handle);
         src->chunks.push_back(std::move(chunk));
     }
-    if (prx_fetcher->pending() > 0) RETURN_IF_ERROR(prx_fetcher->fetch());
-
-    for (const WindowFetch& f : fetched) {
-        src->chunks[f.chunk_index].prx = prx_fetcher->get(f.prx_handle);
-    }
-    if (!fetched.empty()) owners->push_back(std::move(prx_fetcher));
     return doris::Status::OK();
 }
 
@@ -428,15 +452,34 @@ doris::Status BuildPositionSourcesForCandidates(
         std::vector<std::unique_ptr<snii::io::BatchRangeFetcher>>* owners,
         std::vector<PosSource>* srcs) {
     srcs->assign(plans.size(), PosSource {});
+    // All phrase terms share one PRX fetcher: pass 1 adds every candidate-bearing
+    // chunk's PRX range and records a backfill assignment; a single fetch() then
+    // issues one batched read (one serial round on a remote reader); pass 2 fills
+    // in each chunk's PRX slice. This collapses the prior per-term fetch() -- O(n)
+    // serial remote rounds for an n-term phrase -- into one.
+    auto prx_fetcher = std::make_unique<snii::io::BatchRangeFetcher>(
+            idx.reader(), snii::reader::kSameTermCoalesceGap);
+    std::vector<PrxRangeAssignment> assignments;
     for (size_t i = 0; i < plans.size(); ++i) {
         const TermPlan& p = plans[i];
         if (p.windowed) {
-            RETURN_IF_ERROR(DecodeWindowedPositionSource(idx, p, &(*doc_sources)[i], candidates,
-                                                         owners, &(*srcs)[i]));
+            RETURN_IF_ERROR(DecodeWindowedPositionSource(idx, p, &(*doc_sources)[i], candidates, i,
+                                                         prx_fetcher.get(), &assignments,
+                                                         &(*srcs)[i]));
             continue;
         }
-        RETURN_IF_ERROR(BuildFlatPositionSource(idx, round1, &(*doc_sources)[i], p, candidates,
-                                                owners, &(*srcs)[i]));
+        RETURN_IF_ERROR(BuildFlatPositionSource(idx, round1, &(*doc_sources)[i], p, candidates, i,
+                                                prx_fetcher.get(), &assignments, &(*srcs)[i]));
+    }
+    if (prx_fetcher->pending() > 0) {
+        RETURN_IF_ERROR(prx_fetcher->fetch());
+    }
+    for (const PrxRangeAssignment& a : assignments) {
+        (*srcs)[a.plan_index].chunks[a.chunk_index].prx = prx_fetcher->get(a.handle);
+    }
+    // Keep the fetcher alive only when some chunk slice references its buffers.
+    if (!assignments.empty()) {
+        owners->push_back(std::move(prx_fetcher));
     }
     return doris::Status::OK();
 }
@@ -559,7 +602,9 @@ public:
                     "phrase_query: cursor exhausted before target docid");
         }
         const std::vector<uint32_t>& d = src_->chunks[ci_].docids;
-        while (li_ < d.size() && d[li_] < target) ++li_;
+        while (li_ < d.size() && d[li_] < target) {
+            ++li_;
+        }
         if (li_ >= d.size() || d[li_] != target) {
             return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
                     "phrase_query: candidate missing from posting chunk");
@@ -771,12 +816,10 @@ void EmitTwoTermPhraseChunkPair(const PosChunk& left, const PosChunk& right,
                                 const PosChunkDecoder& left_decoder,
                                 const PosChunkDecoder& right_decoder, uint32_t right_delta,
                                 std::vector<uint32_t>& docids) {
-    size_t li = static_cast<size_t>(
-            std::lower_bound(left.docids.begin(), left.docids.end(), right.docids.front()) -
-            left.docids.begin());
-    size_t ri = static_cast<size_t>(
-            std::lower_bound(right.docids.begin(), right.docids.end(), left.docids.front()) -
-            right.docids.begin());
+    size_t li = static_cast<size_t>(std::ranges::lower_bound(left.docids, right.docids.front()) -
+                                    left.docids.begin());
+    size_t ri = static_cast<size_t>(std::ranges::lower_bound(right.docids, left.docids.front()) -
+                                    right.docids.begin());
     while (li < left.docids.size() && ri < right.docids.size()) {
         const uint32_t left_docid = left.docids[li];
         const uint32_t right_docid = right.docids[ri];
@@ -813,8 +856,8 @@ doris::Status EmitTwoTermPhraseChunkMerge(const std::vector<size_t>& phrase_plan
 
     PosChunkDecoder left_decoder;
     PosChunkDecoder right_decoder;
-    size_t decoded_left_chunk = static_cast<size_t>(-1);
-    size_t decoded_right_chunk = static_cast<size_t>(-1);
+    auto decoded_left_chunk = static_cast<size_t>(-1);
+    auto decoded_right_chunk = static_cast<size_t>(-1);
     size_t left_chunk = 0;
     size_t right_chunk = 0;
     while (left_chunk < left_src.chunks.size() && right_chunk < right_src.chunks.size()) {
@@ -974,7 +1017,9 @@ doris::Status EmitPhraseStreaming(const std::vector<TermPlan>& plans,
 doris::Status BuildPhraseExecutionState(const LogicalIndexReader& idx,
                                         snii::io::BatchRangeFetcher* round1,
                                         std::vector<TermPlan>* plans, PhraseExecutionState* state) {
-    if (round1->pending() > 0) RETURN_IF_ERROR(round1->fetch());
+    if (round1->pending() > 0) {
+        RETURN_IF_ERROR(round1->fetch());
+    }
     RETURN_IF_ERROR(internal::open_preludes(*round1, plans,
                                             /*need_positions=*/true));
 
@@ -983,7 +1028,9 @@ doris::Status BuildPhraseExecutionState(const LogicalIndexReader& idx,
     std::vector<DocidSource> doc_sources;
     RETURN_IF_ERROR(internal::build_docid_only_conjunction(idx, *round1, *plans, &state->candidates,
                                                            &doc_sources));
-    if (state->candidates.empty()) return doris::Status::OK();
+    if (state->candidates.empty()) {
+        return doris::Status::OK();
+    }
     RETURN_IF_ERROR(BuildPositionSourcesForCandidates(
             idx, *round1, *plans, &doc_sources, state->candidates, &state->owners, &state->srcs));
     return doris::Status::OK();
@@ -995,7 +1042,9 @@ doris::Status ExecutePhrasePlans(const LogicalIndexReader& idx, snii::io::BatchR
                                  std::vector<uint32_t>* docids) {
     PhraseExecutionState state;
     RETURN_IF_ERROR(BuildPhraseExecutionState(idx, round1, plans, &state));
-    if (state.candidates.empty()) return doris::Status::OK();
+    if (state.candidates.empty()) {
+        return doris::Status::OK();
+    }
 
     std::vector<uint32_t> position_offsets;
     if (!internal::build_position_offsets(phrase_plan_index.size(), &position_offsets)) {
@@ -1025,14 +1074,20 @@ doris::Status CollectExpectedTailPositions(const std::vector<TermPlan>& plans,
                                            ExpectedTailPositionSet* out) {
     const size_t n = plans.size();
     std::vector<PostingCursor> cur(n);
-    for (size_t i = 0; i < n; ++i) cur[i].init(&srcs[i]);
+    for (size_t i = 0; i < n; ++i) {
+        cur[i].init(&srcs[i]);
+    }
 
     std::vector<PostingCursor*> ordered(n);
-    for (size_t i = 0; i < n; ++i) ordered[plans[i].order] = &cur[i];
+    for (size_t i = 0; i < n; ++i) {
+        ordered[plans[i].order] = &cur[i];
+    }
 
     std::vector<std::pair<const uint32_t*, const uint32_t*>> span(n);
     for (uint32_t d : candidates) {
-        for (size_t i = 0; i < n; ++i) RETURN_IF_ERROR(cur[i].seek(d));
+        for (size_t i = 0; i < n; ++i) {
+            RETURN_IF_ERROR(cur[i].seek(d));
+        }
         for (size_t pp = 0; pp < n; ++pp) {
             RETURN_IF_ERROR(ordered[pp]->positions(&span[pp]));
         }
@@ -1104,7 +1159,9 @@ doris::Status CollectExpectedTailPositions(const LogicalIndexReader& idx,
 
     PhraseExecutionState state;
     RETURN_IF_ERROR(BuildPhraseExecutionState(idx, &round1, &plans, &state));
-    if (state.candidates.empty()) return doris::Status::OK();
+    if (state.candidates.empty()) {
+        return doris::Status::OK();
+    }
     out->reserve_docs(state.candidates.size());
     std::vector<uint32_t> position_offsets;
     if (!internal::build_position_offsets(plans.size() + 1, &position_offsets)) {
@@ -1142,7 +1199,9 @@ doris::Status CollectTailMatchesAtExpectedPositions(const LogicalIndexReader& id
     RETURN_IF_ERROR(internal::plan_resolved_terms(idx, {tail}, &round1, &plans,
                                                   /*need_positions=*/false));
 
-    if (round1.pending() > 0) RETURN_IF_ERROR(round1.fetch());
+    if (round1.pending() > 0) {
+        RETURN_IF_ERROR(round1.fetch());
+    }
     RETURN_IF_ERROR(internal::open_preludes(round1, &plans,
                                             /*need_positions=*/true));
 
@@ -1156,7 +1215,9 @@ doris::Status CollectTailMatchesAtExpectedPositions(const LogicalIndexReader& id
     std::vector<DocidSource> doc_sources;
     RETURN_IF_ERROR(internal::filter_docids_by_conjunction(idx, round1, plans, expected_docids,
                                                            &tail_candidates, &doc_sources));
-    if (tail_candidates.empty()) return doris::Status::OK();
+    if (tail_candidates.empty()) {
+        return doris::Status::OK();
+    }
 
     std::vector<std::unique_ptr<snii::io::BatchRangeFetcher>> owners;
     std::vector<PosSource> srcs;
@@ -1164,7 +1225,7 @@ doris::Status CollectTailMatchesAtExpectedPositions(const LogicalIndexReader& id
                                                       tail_candidates, &owners, &srcs));
 
     PostingCursor cursor;
-    cursor.init(&srcs[0]);
+    cursor.init(srcs.data());
     size_t ei = 0;
     size_t ti = 0;
     while (ei < expected.docs.size() && ti < tail_candidates.size()) {
@@ -1226,7 +1287,9 @@ doris::Status phrase_query(const LogicalIndexReader& idx, const std::vector<std:
     bool all_present = false;
     RETURN_IF_ERROR(internal::plan_terms(idx, mapping.unique_terms, &round1, &plans, &all_present,
                                          /*need_positions=*/false));
-    if (!all_present) return doris::Status::OK();
+    if (!all_present) {
+        return doris::Status::OK();
+    }
     return ExecutePhrasePlans(idx, &round1, &plans, mapping.phrase_plan_index, docids);
 }
 
@@ -1276,9 +1339,9 @@ doris::Status phrase_prefix_query(const LogicalIndexReader& idx,
     }
     if (tail_hits.size() == 1) {
         std::vector<ResolvedQueryTerm> resolved_terms = exact_terms;
-        resolved_terms.push_back(ResolvedQueryTerm {std::move(tail_hits.front().entry),
-                                                    tail_hits.front().frq_base,
-                                                    tail_hits.front().prx_base});
+        resolved_terms.push_back(ResolvedQueryTerm {.entry = std::move(tail_hits.front().entry),
+                                                    .frq_base = tail_hits.front().frq_base,
+                                                    .prx_base = tail_hits.front().prx_base});
         return ExecuteResolvedPhraseTerms(idx, resolved_terms, docids);
     }
 
@@ -1290,7 +1353,8 @@ doris::Status phrase_prefix_query(const LogicalIndexReader& idx,
 
     std::vector<uint32_t> acc;
     for (LogicalIndexReader::PrefixHit& hit : tail_hits) {
-        ResolvedQueryTerm tail {std::move(hit.entry), hit.frq_base, hit.prx_base};
+        ResolvedQueryTerm tail {
+                .entry = std::move(hit.entry), .frq_base = hit.frq_base, .prx_base = hit.prx_base};
         std::vector<uint32_t> tail_docs;
         RETURN_IF_ERROR(CollectTailMatchesAtExpectedPositions(idx, tail, expected, &tail_docs));
         internal::union_sorted_into(&acc, tail_docs);

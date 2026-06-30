@@ -20,6 +20,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <memory>
 #include <string_view>
 #include <vector>
 
@@ -56,6 +57,13 @@
 // stable backing storage for the reader lifetime.
 namespace snii::reader {
 
+// Forward-declared: this widely-included header only names DictBlockCache* and
+// shared_ptr<const DecodedDictBlock>*; the full definitions are pulled into the
+// .cpp and into tests that construct a cache. Keeps the request-scoped cache
+// header out of the ~500 TUs that transitively include this one.
+struct DecodedDictBlock;
+class DictBlockCache;
+
 class LogicalIndexReader {
 public:
     LogicalIndexReader() = default;
@@ -68,8 +76,15 @@ public:
     // Resolves term to a DictEntry. *found=false when the term is absent (XFilter
     // rejection, out-of-range sample, or DICT-block miss). On a hit, *entry is
     // filled and *frq_base / *prx_base carry the candidate block's bases.
+    //
+    // `cache` is an optional REQUEST-SCOPED DictBlockCache: when a single query
+    // threads one cache through its per-term lookups, an on-demand DICT block hit
+    // by several terms is decoded once instead of once per term. nullptr keeps the
+    // pre-existing behavior (each lookup materializes its own block). The cache is
+    // caller-owned, single-threaded, and never mutates this (const) reader.
     doris::Status lookup(std::string_view term, bool* found, snii::format::DictEntry* entry,
-                         uint64_t* frq_base, uint64_t* prx_base) const;
+                         uint64_t* frq_base, uint64_t* prx_base,
+                         DictBlockCache* cache = nullptr) const;
 
     // One enumerated term whose key has the requested prefix, with its DictEntry
     // and the owning DICT block's frq/prx bases (for posting resolution).
@@ -89,10 +104,10 @@ public:
     // the term-anchor layout was built for (MATCH_PHRASE_PREFIX / prefix / range
     // queries). The visitor form avoids materializing all hits when callers only
     // need a bounded expansion.
-    doris::Status visit_prefix_terms(std::string_view prefix,
-                                     const PrefixHitVisitor& visitor) const;
+    doris::Status visit_prefix_terms(std::string_view prefix, const PrefixHitVisitor& visitor,
+                                     DictBlockCache* cache = nullptr) const;
     doris::Status prefix_terms(std::string_view prefix, std::vector<PrefixHit>* const out,
-                               int32_t max_terms = 0) const;
+                               int32_t max_terms = 0, DictBlockCache* cache = nullptr) const;
 
     // Resolves a pod_ref entry's absolute .frq / .prx window byte range,
     // validating the locator against the posting_region length (defends against
@@ -139,12 +154,15 @@ private:
         std::vector<uint8_t> bytes;
         snii::format::DictBlockReader reader;
     };
-    struct OnDemandDictBlock {
-        std::vector<uint8_t> bytes;
-        snii::format::DictBlockReader reader;
-    };
     doris::Status load_resident_dict_blocks();
-    doris::Status dict_block_reader_for_ordinal(uint32_t ordinal, OnDemandDictBlock* on_demand,
+    // Resolves the DictBlockReader for `ordinal`. Resident blocks return a pointer
+    // into the reader-owned resident set with *pin left null (stable for the reader
+    // lifetime). On-demand blocks are decoded (optionally via the request-scoped
+    // `cache`) into a heap-allocated DecodedDictBlock; *pin holds it alive so *out
+    // never dangles under a later cache eviction. Callers must keep *pin alive for
+    // as long as they use *out.
+    doris::Status dict_block_reader_for_ordinal(uint32_t ordinal, DictBlockCache* cache,
+                                                std::shared_ptr<const DecodedDictBlock>* pin,
                                                 const snii::format::DictBlockReader** out) const;
     std::vector<ResidentDictBlock> resident_dict_blocks_;
 };

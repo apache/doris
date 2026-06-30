@@ -18,6 +18,7 @@
 #include "snii/format/dict_block.h"
 
 #include <algorithm>
+#include <atomic>
 
 #include "snii/encoding/byte_source.h"
 #include "snii/encoding/crc32c.h"
@@ -65,7 +66,9 @@ DictBlockBuilder::DictBlockBuilder(IndexTier tier, bool has_positions, uint64_t 
           anchor_interval_(anchor_interval == 0 ? 1 : anchor_interval) {}
 
 void DictBlockBuilder::add_entry(const DictEntry& entry) {
-    if (is_anchor(n_entries_)) ++n_anchors_;
+    if (is_anchor(n_entries_)) {
+        ++n_anchors_;
+    }
     entries_est_ += estimate_entry_bytes(entry);
     entries_.push_back(entry);
     prev_term_ = entry.term;
@@ -75,7 +78,9 @@ void DictBlockBuilder::add_entry(const DictEntry& entry) {
 size_t DictBlockBuilder::estimated_bytes() const {
     size_t header = varint_len(static_cast<uint64_t>(n_entries_)) + 2; // +ver +flags
     header += varint_len(frq_base_);
-    if (has_positions_) header += varint_len(prx_base_);
+    if (has_positions_) {
+        header += varint_len(prx_base_);
+    }
     const size_t anchors = n_anchors_ * kAnchorOffBytes + kNAnchorsBytes;
     return header + entries_est_ + anchors + kFooterBytes;
 }
@@ -86,9 +91,11 @@ void DictBlockBuilder::finish(ByteSink* sink) const {
     // header.
     body.put_varint64(static_cast<uint64_t>(n_entries_));
     body.put_u8(kDictBlockFormatVer);
-    body.put_u8(has_positions_ ? dict_block_flags::kHasPositions : 0u);
+    body.put_u8(has_positions_ ? dict_block_flags::kHasPositions : 0U);
     body.put_varint64(frq_base_);
-    if (has_positions_) body.put_varint64(prx_base_);
+    if (has_positions_) {
+        body.put_varint64(prx_base_);
+    }
 
     // entries: anchor entries use prev_term="" and record their byte offset within the block.
     std::vector<uint32_t> anchor_offsets;
@@ -107,7 +114,9 @@ void DictBlockBuilder::finish(ByteSink* sink) const {
     }
 
     // anchor_offsets[] + n_anchors.
-    for (uint32_t off : anchor_offsets) body.put_fixed32(off);
+    for (uint32_t off : anchor_offsets) {
+        body.put_fixed32(off);
+    }
     body.put_fixed32(static_cast<uint32_t>(anchor_offsets.size()));
 
     // Write the entire block (including crc footer) to sink.
@@ -152,10 +161,16 @@ doris::Status check_flags(uint8_t flags, bool has_positions) {
 
 doris::Status DictBlockReader::open(Slice block, IndexTier tier, bool has_positions,
                                     DictBlockReader* out) {
-    if (out == nullptr)
+    if (out == nullptr) {
         return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>(
                 "dict_block: out is null");
+    }
     *out = DictBlockReader {};
+
+    // Decode instrumentation seam: one increment per block materialization (the
+    // CRC verify + anchor parse below, preceded by a zstd decompress for a
+    // compressed block). A dict-block cache eliminates repeats of exactly this.
+    snii::testing::note_dict_block_decode();
 
     Slice covered;
     RETURN_IF_ERROR(verify_crc(block, &covered));
@@ -177,7 +192,9 @@ doris::Status DictBlockReader::open(Slice block, IndexTier tier, bool has_positi
     }
     RETURN_IF_ERROR(check_flags(flags, has_positions));
     RETURN_IF_ERROR(src.get_varint64(&out->frq_base_));
-    if (has_positions) RETURN_IF_ERROR(src.get_varint64(&out->prx_base_));
+    if (has_positions) {
+        RETURN_IF_ERROR(src.get_varint64(&out->prx_base_));
+    }
 
     out->n_entries_ = static_cast<uint32_t>(n_entries);
     out->entries_begin_ = src.position();
@@ -232,8 +249,12 @@ doris::Status DictBlockReader::open(Slice block, IndexTier tier, bool has_positi
 }
 
 bool DictBlockReader::locate_anchor(std::string_view target, size_t* anchor_idx) const {
-    if (anchor_terms_.empty()) return false;
-    if (target < std::string_view(anchor_terms_.front())) return false;
+    if (anchor_terms_.empty()) {
+        return false;
+    }
+    if (target < std::string_view(anchor_terms_.front())) {
+        return false;
+    }
     // The last anchor_term <= target.
     size_t lo = 0;
     size_t hi = anchor_terms_.size(); // open interval
@@ -250,9 +271,10 @@ bool DictBlockReader::locate_anchor(std::string_view target, size_t* anchor_idx)
 }
 
 doris::Status DictBlockReader::decode_all(std::vector<DictEntry>* out) const {
-    if (out == nullptr)
+    if (out == nullptr) {
         return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>(
                 "dict_block: out is null");
+    }
     out->clear();
     out->reserve(n_entries_);
     for (size_t a = 0; a < anchor_offsets_.size(); ++a) {
@@ -323,8 +345,32 @@ doris::Status DictBlockReader::find_term(std::string_view target, bool* found,
     }
     *found = false;
     size_t anchor_idx = 0;
-    if (!locate_anchor(target, &anchor_idx)) return doris::Status::OK();
+    if (!locate_anchor(target, &anchor_idx)) {
+        return doris::Status::OK();
+    }
     return scan_from_anchor(anchor_idx, target, found, out);
 }
 
 } // namespace snii::format
+
+namespace snii::testing {
+namespace {
+std::atomic<uint64_t>& dict_decode_atomic() {
+    static std::atomic<uint64_t> counter {0};
+    return counter;
+}
+} // namespace
+
+uint64_t dict_decode_counter() {
+    return dict_decode_atomic().load(std::memory_order_relaxed);
+}
+
+void reset_dict_decode_counter() {
+    dict_decode_atomic().store(0, std::memory_order_relaxed);
+}
+
+void note_dict_block_decode() {
+    dict_decode_atomic().fetch_add(1, std::memory_order_relaxed);
+}
+
+} // namespace snii::testing

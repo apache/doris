@@ -23,6 +23,7 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "common/status.h"
@@ -73,13 +74,15 @@ struct TermPostings {
     // freqs). O(i) -- callers iterating all docs should track a running offset.
     size_t pos_offset(size_t doc_index) const {
         size_t off = 0;
-        for (size_t i = 0; i < doc_index; ++i) off += freqs[i];
+        for (size_t i = 0; i < doc_index; ++i) {
+            off += freqs[i];
+        }
         return off;
     }
     // Non-owning view of doc i's positions (length freqs[i]) into positions_flat.
     std::span<const uint32_t> doc_positions(size_t doc_index) const {
         const size_t off = pos_offset(doc_index);
-        return std::span<const uint32_t>(positions_flat.data() + off, freqs[doc_index]);
+        return {positions_flat.data() + off, freqs[doc_index]};
     }
 
     // Rebuilds the per-doc position lists (for callers/tests wanting per-doc access)
@@ -99,8 +102,9 @@ struct TermPostings {
     // to keep freqs[i] == per_doc[i].size() consistent (the writer validates this).
     void set_positions_per_doc(const std::vector<std::vector<uint32_t>>& per_doc) {
         positions_flat.clear();
-        for (const auto& d : per_doc)
+        for (const auto& d : per_doc) {
             positions_flat.insert(positions_flat.end(), d.begin(), d.end());
+        }
     }
 };
 
@@ -203,9 +207,11 @@ public:
     // into the internal vocabulary on first occurrence, then forwards by id. Called
     // on a BORROWED-vocab buffer it is REJECTED (latches InvalidArgument, token
     // ignored) -- interning would grow the owned vocab out of step with the borrowed
-    // one and corrupt the build. It also allocates a std::string per call, so the
-    // hot path is the id overload; prefer that and reserve this for tests / legacy
-    // string-fed callers.
+    // one and corrupt the build. Interning probes a heterogeneous (string_view-keyed)
+    // set, so a repeat token for an already-seen term allocates NOTHING; a std::string
+    // is materialized only on a term's FIRST occurrence (stored once in owned_vocab_).
+    // The id overload remains the hot path (no hashing at all); prefer that and
+    // reserve this for tests / legacy string-fed callers.
     void add_token(std::string_view term, uint32_t docid, uint32_t pos);
 
     // Number of DISTINCT terms accumulated so far (touched ids still resident).
@@ -249,7 +255,7 @@ private:
     // kNoChain marks a term that has not started its chain yet (so an all-empty term
     // costs no arena bytes). ntok / ndocs bound the decode loop and size reserves.
     // Total ~36 B per live term.
-    static constexpr uint32_t kNoChain = 0xFFFFFFFFu;
+    static constexpr uint32_t kNoChain = 0xFFFFFFFFU;
     struct Term {
         uint32_t head = kNoChain;          // chain read entry point
         CompactPostingPool::SliceWriter w; // append cursor for the chain (8 B)
@@ -321,8 +327,43 @@ private:
 
     const std::vector<std::string>* vocab_; // active vocab (borrowed or &owned_)
     std::vector<std::string> owned_vocab_;  // owned mode: interned term strings
-    // Owned mode only: term string -> term-id, for interning on first occurrence.
-    std::unordered_map<std::string, uint32_t> intern_;
+
+    // Heterogeneous (is_transparent) functors backing the owned-mode interning set.
+    // The set stores ONLY 4-byte term-ids; each id's string lives EXACTLY ONCE in
+    // owned_vocab_ (F03 single-store -- no second owned-string map key). Both functors
+    // hold a back-pointer to owned_vocab_ and dereference a stored id to
+    // owned_vocab_[id] for content hashing/equality. Hashing ALWAYS routes through
+    // std::string_view, so a stored id and a probe string_view of identical content
+    // hash identically -- the precondition for find(string_view) to locate an existing
+    // entry. BOTH functors MUST be transparent (P0919/P1690): a transparent hash alone
+    // does NOT enable heterogeneous find(string_view); the equal functor must be
+    // transparent too.
+    struct OwnedVocabHash {
+        using is_transparent = void;
+        const std::vector<std::string>* vocab = nullptr;
+        size_t operator()(std::string_view s) const noexcept {
+            return std::hash<std::string_view> {}(s);
+        }
+        size_t operator()(uint32_t id) const noexcept {
+            return std::hash<std::string_view> {}(std::string_view((*vocab)[id]));
+        }
+    };
+    struct OwnedVocabEq {
+        using is_transparent = void;
+        const std::vector<std::string>* vocab = nullptr;
+        bool operator()(uint32_t a, uint32_t b) const noexcept { return a == b; }
+        bool operator()(uint32_t a, std::string_view s) const noexcept {
+            return std::string_view((*vocab)[a]) == s;
+        }
+        bool operator()(std::string_view s, uint32_t a) const noexcept {
+            return std::string_view((*vocab)[a]) == s;
+        }
+    };
+    // Owned mode only: interns each distinct term to a term-id on first occurrence.
+    // Keyed by term-id (NOT std::string) so the vocab string is stored exactly once
+    // (in owned_vocab_); probed heterogeneously with a string_view so a repeat token
+    // costs no temporary std::string.
+    std::unordered_set<uint32_t, OwnedVocabHash, OwnedVocabEq> intern_;
 
     bool has_positions_;
     size_t spill_threshold_bytes_; // 0 => unlimited (no spilling)
@@ -377,5 +418,18 @@ private:
     // so the const sorted_ids() can fill it on demand.
     mutable std::vector<uint32_t> string_rank_;
 };
+
+// TEST-ONLY observability seam (mirrors the reader-side decode-counter pattern).
+// Counts how many times a vocabulary string is MATERIALIZED into owned_vocab_ during
+// owned-mode interning. With single-store interning this is bumped EXACTLY ONCE per
+// DISTINCT term (the owned_vocab_.emplace_back) and NEVER per token -- so feeding the
+// same term M times still materializes it once, and the per-token temporary probe
+// string is gone entirely. Writer tests use it for deterministic allocation
+// assertions (count == distinct terms). Process-global; reset between tests. Not part
+// of the production API.
+namespace testing {
+uint64_t vocab_string_materialization_count();
+void reset_vocab_string_materialization_count();
+} // namespace testing
 
 } // namespace snii::writer

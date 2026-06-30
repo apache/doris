@@ -63,7 +63,7 @@ inline constexpr uint8_t kDictBlockFormatVer = 2;
 
 // block_flags bit definitions.
 namespace dict_block_flags {
-inline constexpr uint8_t kHasPositions = 1u << 0; // whether to write prx_base / .prx fields
+inline constexpr uint8_t kHasPositions = 1U << 0; // whether to write prx_base / .prx fields
 // bit1-7 reserved
 } // namespace dict_block_flags
 
@@ -160,3 +160,18 @@ private:
 };
 
 } // namespace snii::format
+
+// Test-only instrumentation seam. dict_decode_counter() returns a process-global
+// count of DICT block decodes performed by DictBlockReader::open -- i.e. the
+// optional zstd decompress + CRC verify + anchor parse that turns on-disk block
+// bytes into a usable reader. This is precisely the unit a dict-block cache
+// eliminates on repeat, so tests assert dict_decode_counter() == unique_blocks.
+// In production DICT blocks are zstd-compressed, so this equals the zstd
+// decompress count. Counters use relaxed atomics; reset between tests.
+namespace snii::testing {
+
+uint64_t dict_decode_counter();
+void reset_dict_decode_counter();
+void note_dict_block_decode();
+
+} // namespace snii::testing

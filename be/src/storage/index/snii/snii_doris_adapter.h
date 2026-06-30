@@ -28,6 +28,10 @@
 #include "snii/io/file_writer.h"
 #include "util/slice.h"
 
+namespace doris {
+class ThreadPool;
+} // namespace doris
+
 namespace doris::segment_v2::snii_doris {
 
 class DorisSniiFileWriter final : public ::snii::io::FileWriter {
@@ -64,6 +68,11 @@ public:
                              std::vector<std::vector<uint8_t>>* outs) override;
     uint64_t size() const override;
 
+    // Test-only: inject (or clear with nullptr) the thread pool used to fan out
+    // batch segment reads. nullptr (default) routes to the BE buffered-reader
+    // prefetch pool when ExecEnv is ready, otherwise a serial fallback.
+    static void set_io_thread_pool_for_test(ThreadPool* pool);
+
 private:
     static io::IOContext _make_index_io_context(const io::IOContext* io_ctx);
     doris::Status _check_read_range(uint64_t offset, size_t len) const;
@@ -73,9 +82,26 @@ private:
     void _record_read_stats(int64_t request_bytes, int64_t read_bytes, int64_t range_read_count,
                             int64_t serial_read_rounds) const;
 
+    // Selects the executor for parallel batch segment reads: the test seam if
+    // set, else the BE prefetch pool when ExecEnv is ready, else nullptr (the
+    // caller then reads segments serially).
+    static ThreadPool* _select_io_pool();
+    // Number of dependent serial dispatch waves for `seg_count` physical
+    // segments given the per-call concurrency cap. This is the F19 metric:
+    // a coalesced batch of <= cap segments is a single concurrent round.
+    static size_t _compute_num_waves(size_t seg_count);
+    // Sums every counter of `src` into `dst`. Per-segment reads accumulate file
+    // cache statistics into private slots (so disjoint physical reads never race
+    // on the shared sink); this folds them back. MUST stay in sync with
+    // io::FileCacheStatistics (be/src/io/io_common.h) when fields are added.
+    static void _merge_file_cache_statistics(io::FileCacheStatistics* dst,
+                                             const io::FileCacheStatistics& src);
+
     io::FileReaderSPtr _reader;
     io::IOContext _default_io_ctx;
     static thread_local const io::IOContext* _scoped_io_ctx;
+    // Test seam for the batch-read executor; see set_io_thread_pool_for_test.
+    static ThreadPool* _io_pool_for_test;
 };
 
 } // namespace doris::segment_v2::snii_doris

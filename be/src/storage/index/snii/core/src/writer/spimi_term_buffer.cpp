@@ -26,6 +26,7 @@
 #include <memory>
 #include <numeric>
 #include <string>
+#include <type_traits>
 #include <utility>
 
 #include "snii/encoding/varint.h"
@@ -60,11 +61,37 @@ std::string MakeRunPath(const std::string& dir) {
     return dir + "/snii_spill_" + std::to_string(::getpid()) + "_" + std::to_string(n) + ".run";
 }
 
+// TEST-ONLY seam backing testing::vocab_string_materialization_count(). Bumped once
+// per DISTINCT interned term (owned_vocab_.emplace_back), never per token. Relaxed:
+// the build path is single-threaded, so only the COUNT matters, not ordering.
+std::atomic<uint64_t> g_vocab_materializations {0};
+
 } // namespace
+
+namespace testing {
+uint64_t vocab_string_materialization_count() {
+    return g_vocab_materializations.load(std::memory_order_relaxed);
+}
+void reset_vocab_string_materialization_count() {
+    g_vocab_materializations.store(0, std::memory_order_relaxed);
+}
+} // namespace testing
 
 SpimiTermBuffer::SpimiTermBuffer(const std::vector<std::string>* vocab, bool has_positions,
                                  size_t spill_threshold_bytes, MemoryReporter* reporter)
         : vocab_(vocab),
+          // Bind the interning set's heterogeneous functors to &owned_vocab_ even in
+          // borrowed mode: the back-pointer is harmless here because
+          // add_token(string_view) rejects before touching intern_ (the functors are
+          // never dereferenced), and binding unconditionally keeps both constructors
+          // symmetric. Initialized in the member-init list (NOT the body): the functors
+          // are NESTED types, whose default-constructibility is not yet established at
+          // the point unordered_set's defaulted default ctor would be needed for a
+          // body assignment, so default-constructing intern_ is ill-formed. The
+          // (bucket_count, hash, equal) constructor sidesteps that entirely.
+          // owned_vocab_ is constructed before intern_ (declaration order) and the
+          // buffer is non-movable, so &owned_vocab_ is stable for the buffer's life.
+          intern_(0, OwnedVocabHash {&owned_vocab_}, OwnedVocabEq {&owned_vocab_}),
           has_positions_(has_positions),
           spill_threshold_bytes_(spill_threshold_bytes),
           mem_reporter_(reporter) {
@@ -80,11 +107,20 @@ SpimiTermBuffer::SpimiTermBuffer(const std::vector<std::string>* vocab, bool has
 SpimiTermBuffer::SpimiTermBuffer(bool has_positions, size_t spill_threshold_bytes,
                                  MemoryReporter* reporter)
         : vocab_(&owned_vocab_),
+          // Owned-vocab mode: bind the interning set's heterogeneous functors to
+          // &owned_vocab_ so a stored term-id dereferences to its string for content
+          // hashing and equality. Initialized in the member-init list (NOT the body):
+          // the functors are NESTED types whose default-constructibility is not yet
+          // established where unordered_set's defaulted default ctor would be needed for
+          // a body assignment, so the (bucket_count, hash, equal) constructor is used
+          // instead. owned_vocab_ is constructed before intern_ (declaration order) and
+          // the buffer is non-movable, so &owned_vocab_ is stable for the buffer's life.
+          intern_(0, OwnedVocabHash {&owned_vocab_}, OwnedVocabEq {&owned_vocab_}),
           has_positions_(has_positions),
           spill_threshold_bytes_(spill_threshold_bytes),
           mem_reporter_(reporter) {
-    // Owned-vocab mode: the vocabulary grows as strings are interned; terms_ /
-    // present_ grow alongside it in add_token(string_view, ...).
+    // Owned-vocab mode: the vocabulary grows as strings are interned in
+    // add_token(string_view, ...).
 }
 
 SpimiTermBuffer::~SpimiTermBuffer() {
@@ -99,10 +135,12 @@ SpimiTermBuffer::~SpimiTermBuffer() {
 }
 
 void SpimiTermBuffer::report_arena_delta() {
-    if (mem_reporter_ == nullptr) return;
+    if (mem_reporter_ == nullptr) {
+        return;
+    }
     // Diff the REAL resident bytes (arena + slot index) against the last reported
     // total; emit the signed delta exactly once.
-    const int64_t now = static_cast<int64_t>(resident_bytes());
+    const auto now = static_cast<int64_t>(resident_bytes());
     mem_reporter_->report(now - reported_resident_);
     reported_resident_ = now;
 }
@@ -144,14 +182,18 @@ SpimiTermBuffer::Term& SpimiTermBuffer::term_slot(uint32_t term_id, bool* new_te
 
 // Appends one byte to a term's chain, starting the chain lazily on first use.
 void SpimiTermBuffer::put_byte(Term* t, uint8_t b) {
-    if (t->head == kNoChain) t->head = pool_.start_chain(&t->w, &t->level);
+    if (t->head == kNoChain) {
+        t->head = pool_.start_chain(&t->w, &t->level);
+    }
     pool_.append_byte(&t->w, &t->level, b);
 }
 
 void SpimiTermBuffer::put_varint(Term* t, uint64_t v) {
     uint8_t tmp[10];
     const size_t n = encode_varint64(v, tmp);
-    for (size_t i = 0; i < n; ++i) put_byte(t, tmp[i]);
+    for (size_t i = 0; i < n; ++i) {
+        put_byte(t, tmp[i]);
+    }
 }
 
 void SpimiTermBuffer::accumulate(uint32_t term_id, uint32_t docid, uint32_t pos) {
@@ -167,15 +209,17 @@ void SpimiTermBuffer::accumulate(uint32_t term_id, uint32_t docid, uint32_t pos)
     // disabled. The new_doc bit lets the decoder recover per-doc freqs by counting.
     // Widen to 64-bit so a full 32-bit position survives the << 1 without truncation.
     const uint64_t tagged = has_positions_
-                                    ? ((static_cast<uint64_t>(pos) << 1) | (new_doc ? 1u : 0u))
-                                    : (new_doc ? 1u : 0u);
+                                    ? ((static_cast<uint64_t>(pos) << 1) | (new_doc ? 1U : 0U))
+                                    : (new_doc ? 1U : 0U);
     put_varint(&t, tagged);
     if (new_doc) {
         // Out-of-order docids are tolerated (zigzag delta is signed) and reordered at
         // finalize; flag them so to_postings sorts. The delta base is the previous
         // distinct doc (cur_docid), which is 0 for the very first doc (started==false).
         const int64_t base = t.started ? static_cast<int64_t>(t.cur_docid) : 0;
-        if (t.started && docid < t.cur_docid) t.sorted = false;
+        if (t.started && docid < t.cur_docid) {
+            t.sorted = false;
+        }
         const int64_t delta = static_cast<int64_t>(docid) - base;
         put_varint(&t, zigzag_encode(delta));
         t.cur_docid = docid;
@@ -191,7 +235,7 @@ void SpimiTermBuffer::accumulate(uint32_t term_id, uint32_t docid, uint32_t pos)
     // when the arena nears the 4 GiB uint32-offset limit -- without it, a single
     // >4 GiB in-memory segment wraps alloc_run and silently corrupts data. A forced
     // spill + final k-way merge stays byte-identical regardless of when it fires.
-    constexpr uint64_t kArenaSpillCap = 0xE0000000ull; // 3.5 GiB, < UINT32_MAX margin
+    constexpr uint64_t kArenaSpillCap = 0xE0000000ULL; // 3.5 GiB, < UINT32_MAX margin
     // Report this token's REAL resident growth FIRST so the writer's unified total
     // (reporter_->current_bytes()) reflects it before the gate-2 check. Single-source
     // diff: cheap (subtraction + relaxed atomic add; arena_bytes() is two field reads).
@@ -239,15 +283,30 @@ void SpimiTermBuffer::add_token(std::string_view term, uint32_t docid, uint32_t 
         }
         return;
     }
-    auto it = intern_.find(std::string(term));
+    // F03 single-store invariant, fixed at compile time: the interning set keys on the
+    // 4-byte term-id, NEVER on a std::string, so each vocab string lives in exactly one
+    // place (owned_vocab_). A regression to a string key would reintroduce the
+    // double-store and fail this build.
+    static_assert(std::is_same_v<decltype(intern_)::key_type, uint32_t>,
+                  "intern_ must key on term-id (single-store); a string key reintroduces F03");
+
+    // Heterogeneous probe with the string_view directly: NO per-token temporary
+    // std::string (F21). The set element is the term-id; its content is resolved
+    // through owned_vocab_ by the transparent functors.
+    auto it = intern_.find(term);
     uint32_t term_id;
     if (it == intern_.end()) {
         term_id = static_cast<uint32_t>(owned_vocab_.size());
+        // The SOLE materialization of this term's string (F03 single-store). Push
+        // FIRST so owned_vocab_[term_id] is valid before insert(term_id) hashes it. The
+        // set stores only the id, so this emplace_back's possible reallocation never
+        // invalidates existing entries (their functors re-read owned_vocab_[id]).
         owned_vocab_.emplace_back(term);
-        intern_.emplace(owned_vocab_.back(), term_id);
+        g_vocab_materializations.fetch_add(1, std::memory_order_relaxed);
+        intern_.insert(term_id);
         slot_of_.push_back(0); // vocab grows: new id starts with no live slot
     } else {
-        term_id = it->second;
+        term_id = *it; // the set element IS the term-id
     }
     accumulate(term_id, docid, pos);
 }
@@ -272,8 +331,8 @@ void SortByDocid(std::vector<uint32_t>* docids, std::vector<uint32_t>* freqs,
     std::iota(order.begin(), order.end(), 0);
     // STABLE so equal docids keep arrival order: their positions then concatenate in
     // document order, the same order the merge path's run concatenation yields.
-    std::stable_sort(order.begin(), order.end(),
-                     [&](size_t a, size_t b) { return (*docids)[a] < (*docids)[b]; });
+    std::ranges::stable_sort(order,
+                             [&](size_t a, size_t b) { return (*docids)[a] < (*docids)[b]; });
 
     std::vector<uint32_t> pos_off;
     if (has_positions) {
@@ -287,7 +346,9 @@ void SortByDocid(std::vector<uint32_t>* docids, std::vector<uint32_t>* freqs,
     std::vector<uint32_t> nd, nf, np;
     nd.reserve(n);
     nf.reserve(n);
-    if (has_positions) np.reserve(positions_flat->size());
+    if (has_positions) {
+        np.reserve(positions_flat->size());
+    }
     for (size_t k : order) {
         // Coalesce a revisited docid into the previous entry (it sorts adjacent now):
         // sum freqs and append this group's positions right after the prior group's,
@@ -305,7 +366,9 @@ void SortByDocid(std::vector<uint32_t>* docids, std::vector<uint32_t>* freqs,
     }
     *docids = std::move(nd);
     *freqs = std::move(nf);
-    if (has_positions) *positions_flat = std::move(np);
+    if (has_positions) {
+        *positions_flat = std::move(np);
+    }
 }
 
 } // namespace
@@ -320,7 +383,9 @@ uint64_t DecodeChainVarint(CompactPostingPool::Cursor* c) {
     for (;;) {
         const uint8_t b = c->next();
         result |= static_cast<uint64_t>(b & 0x7F) << shift;
-        if ((b & 0x80) == 0) break;
+        if ((b & 0x80) == 0) {
+            break;
+        }
         shift += 7;
     }
     return result;
@@ -341,13 +406,15 @@ void SkipChainVarint(CompactPostingPool::Cursor* c) {
 // Stream positions for a sorted term whose token count exceeds this: such a term's
 // flat positions buffer (uint32 per token) would be the peak-RSS transient (tens of
 // MiB for the widest term). Below it, the flat buffer is cheap and simpler.
-static constexpr uint32_t kStreamPositionsTokenThreshold = 1u << 16; // 65536
+static constexpr uint32_t kStreamPositionsTokenThreshold = 1U << 16; // 65536
 
 TermPostings SpimiTermBuffer::to_postings(std::string term, Term&& t,
                                           bool allow_stream_positions) const {
     TermPostings tp;
     tp.term = std::move(term);
-    if (t.ntok == 0 || t.head == kNoChain) return tp;
+    if (t.ntok == 0 || t.head == kNoChain) {
+        return tp;
+    }
 
     // Reserve docids/freqs by ntok (an upper bound on the doc count: ntok >= ndocs).
     // The doc count is not stored separately to keep Term compact; since the corpus
@@ -361,13 +428,15 @@ TermPostings SpimiTermBuffer::to_postings(std::string term, Term&& t,
     // terms (rare, defensive) need a full sort, so they always use the flat path.
     const bool stream_pos = allow_stream_positions && has_positions_ && t.sorted &&
                             t.ntok >= kStreamPositionsTokenThreshold;
-    if (has_positions_ && !stream_pos) tp.positions_flat.reserve(t.ntok);
+    if (has_positions_ && !stream_pos) {
+        tp.positions_flat.reserve(t.ntok);
+    }
 
     CompactPostingPool::Cursor c = pool_.cursor(t.head, t.w.cur);
     int64_t prev = 0;
     for (uint32_t i = 0; i < t.ntok; ++i) {
         const uint64_t tagged = DecodeChainVarint(&c);
-        const bool new_doc = (tagged & 1u) != 0;
+        const bool new_doc = (tagged & 1U) != 0;
         if (new_doc) {
             prev += zigzag_decode(DecodeChainVarint(&c));
             tp.docids.push_back(static_cast<uint32_t>(prev));
@@ -400,7 +469,9 @@ TermPostings SpimiTermBuffer::to_postings(std::string term, Term&& t,
             // discarded so the cursor stays aligned with the encoding.
             for (size_t k = 0; k < count; ++k) {
                 const uint64_t tagged = DecodeChainVarint(cur.get());
-                if ((tagged & 1u) != 0) SkipChainVarint(cur.get());
+                if ((tagged & 1U) != 0) {
+                    SkipChainVarint(cur.get());
+                }
                 dst[k] = static_cast<uint32_t>(tagged >> 1);
             }
         };
@@ -411,7 +482,9 @@ TermPostings SpimiTermBuffer::to_postings(std::string term, Term&& t,
         CompactPostingPool::Cursor pc = pool_.cursor(t.head, t.w.cur);
         for (uint32_t i = 0; i < t.ntok; ++i) {
             const uint64_t tagged = DecodeChainVarint(&pc);
-            if ((tagged & 1u) != 0) SkipChainVarint(&pc);
+            if ((tagged & 1U) != 0) {
+                SkipChainVarint(&pc);
+            }
             tp.positions_flat.push_back(static_cast<uint32_t>(tagged >> 1));
         }
     } else if (!t.sorted) {
@@ -424,12 +497,14 @@ TermPostings SpimiTermBuffer::to_postings(std::string term, Term&& t,
 
 void SpimiTermBuffer::ensure_string_rank() const {
     const std::vector<std::string>& v = vocab();
-    if (string_rank_.size() == v.size()) return; // already built (or empty vocab)
+    if (string_rank_.size() == v.size()) {
+        return; // already built (or empty vocab)
+    }
     // One full lexicographic sort of the vocabulary, amortized over every spill.
     std::vector<uint32_t> order(v.size());
-    std::iota(order.begin(), order.end(), 0u);
-    std::sort(order.begin(), order.end(), [&](uint32_t a, uint32_t b) { return v[a] < v[b]; });
-    string_rank_.assign(v.size(), 0u);
+    std::iota(order.begin(), order.end(), 0U);
+    std::ranges::sort(order, [&](uint32_t a, uint32_t b) { return v[a] < v[b]; });
+    string_rank_.assign(v.size(), 0U);
     for (uint32_t rank = 0; rank < order.size(); ++rank) {
         string_rank_[order[rank]] = rank;
     }
@@ -442,13 +517,15 @@ std::vector<uint32_t> SpimiTermBuffer::sorted_ids() const {
     // Integer rank compare instead of full std::string compare: equal-string ids
     // cannot occur for a dense vocab, so a strict rank order matches the original
     // lexicographic order exactly.
-    std::sort(ids.begin(), ids.end(), [&](uint32_t a, uint32_t b) { return rank[a] < rank[b]; });
+    std::ranges::sort(ids, [&](uint32_t a, uint32_t b) { return rank[a] < rank[b]; });
     return ids;
 }
 
 void SpimiTermBuffer::release_term(uint32_t term_id) {
     const uint32_t enc = slot_of_[term_id];
-    if (enc == 0) return; // not live (defensive)
+    if (enc == 0) {
+        return; // not live (defensive)
+    }
     const uint32_t slot = enc - 1;
     slots_[slot] = Term(); // free this term's arrays; the empty Term slot is reusable
     free_slots_.push_back(slot);
@@ -460,7 +537,7 @@ doris::Status SpimiTermBuffer::drain_sorted(const std::function<void(TermPosting
                                             bool allow_stream_positions) {
     const std::vector<std::string>& v = vocab();
     for (uint32_t id : sorted_ids()) {
-        Term term = std::move(slots_[slot_of_[id] - 1]);
+        Term term = slots_[slot_of_[id] - 1];
         release_term(id); // release this term's slot before building the next
         // Allow streaming positions only when the caller consumes synchronously (the
         // arena chain stays resident for the whole drain, so the pump can read from it).
@@ -488,12 +565,14 @@ doris::Status SpimiTermBuffer::drain_to_writer(RunWriter* w) {
     // Spill writes by term-id (no string IO). Iterate touched ids in vocab-string
     // order so each run is sorted; the k-way merge re-orders runs by the same key.
     for (uint32_t id : sorted_ids()) {
-        Term term = std::move(slots_[slot_of_[id] - 1]);
+        Term term = slots_[slot_of_[id] - 1];
         release_term(id);
         // Spill path: the run codec serializes positions_flat directly, so positions
         // must be materialized (no streaming pump).
         TermPostings tp = to_postings(v[id], std::move(term), /*allow_stream=*/false);
-        if (st.ok()) st = w->write_term(id, tp);
+        if (st.ok()) {
+            st = w->write_term(id, tp);
+        }
     }
     touched_ids_.clear();
     pool_.reset(); // all chains decoded into the run; free the arena for the refill
@@ -535,9 +614,13 @@ doris::Status SpimiTermBuffer::merge_runs(const std::function<void(TermPostings&
     // sees a uniform set of run files (and never holds two term sources at once).
     if (!touched_ids_.empty()) {
         doris::Status s = spill_to_run();
-        if (!s.ok() && spill_status_.ok()) spill_status_ = s;
+        if (!s.ok() && spill_status_.ok()) {
+            spill_status_ = s;
+        }
     }
-    if (!spill_status_.ok()) return spill_status_; // a spill or add_token error; emit nothing
+    if (!spill_status_.ok()) {
+        return spill_status_; // a spill or add_token error; emit nothing
+    }
     // All terms are now spilled; the merge reads runs and never touches the
     // accumulators. Free the pool + the vocab-sized slot index so the merge phase
     // holds none of the input-side arrays resident -- keeps spill-mode peak RSS
@@ -601,19 +684,25 @@ std::vector<TermPostings> SpimiTermBuffer::finalize_sorted() {
     if (run_paths_.empty() && spill_status_.ok()) {
         doris::Status s = drain_sorted([&out](TermPostings&& tp) { out.push_back(std::move(tp)); },
                                        /*allow_stream_positions=*/false);
-        if (!s.ok() && spill_status_.ok()) spill_status_ = s;
+        if (!s.ok() && spill_status_.ok()) {
+            spill_status_ = s;
+        }
     } else {
         // RETAINS each TermPostings past the merge, so positions MUST be materialized
         // (a streamed pos_pump would reference run readers freed when the merge ends).
         doris::Status s = merge_runs([&out](TermPostings&& tp) { out.push_back(std::move(tp)); },
                                      /*allow_stream_positions=*/false);
-        if (!s.ok() && spill_status_.ok()) spill_status_ = s;
+        if (!s.ok() && spill_status_.ok()) {
+            spill_status_ = s;
+        }
     }
     return out;
 }
 
 void SpimiTermBuffer::cleanup_runs() {
-    for (const std::string& p : run_paths_) std::remove(p.c_str());
+    for (const std::string& p : run_paths_) {
+        std::remove(p.c_str());
+    }
     run_paths_.clear();
 }
 

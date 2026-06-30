@@ -19,6 +19,7 @@
 
 #include <cstdlib>
 #include <limits>
+#include <memory>
 #include <utility>
 #include <vector>
 
@@ -26,6 +27,7 @@
 #include "snii/encoding/zstd_codec.h"
 #include "snii/format/dict_block.h"
 #include "snii/format/dict_block_directory.h"
+#include "snii/reader/dict_block_cache.h"
 
 namespace snii::reader {
 using doris::Status; // RETURN_IF_ERROR expands to bare Status
@@ -95,6 +97,31 @@ doris::Status dict_block_memory_bytes(const BlockRef& ref, uint64_t* out) {
     return doris::Status::OK();
 }
 
+// Decompresses a zstd dict block from its on-disk bytes into *out. The decode
+// buffer in zstd_decompress is resize_uninitialized'd (T19) then fully written.
+doris::Status zstd_decompress_dict_block(Slice on_disk, const BlockRef& ref,
+                                         std::vector<uint8_t>* out) {
+    uint64_t memory_bytes = 0;
+    RETURN_IF_ERROR(dict_block_memory_bytes(ref, &memory_bytes));
+    size_t uncomp_len = 0;
+    RETURN_IF_ERROR(
+            checked_size(memory_bytes, "dict block: zstd length out of range", &uncomp_len));
+    return snii::zstd_decompress(on_disk, uncomp_len, out);
+}
+
+// Materializes the usable (uncompressed) bytes of a dict block from a view over
+// its on-disk bytes -- a raw block is copied, a zstd block is decompressed. Used
+// by the resident single-range path, where on_disk is a sub-slice of the shared
+// region buffer (so a raw block must be copied, not aliased).
+doris::Status decompress_dict_block_payload(Slice on_disk, const BlockRef& ref,
+                                            std::vector<uint8_t>* out) {
+    if ((ref.flags & snii::format::block_ref_flags::kZstd) == 0) {
+        out->assign(on_disk.data(), on_disk.data() + on_disk.size());
+        return doris::Status::OK();
+    }
+    return zstd_decompress_dict_block(on_disk, ref, out);
+}
+
 doris::Status read_dict_block_bytes(snii::io::FileReader* reader, const BlockRef& ref,
                                     std::vector<uint8_t>* out) {
     size_t read_len = 0;
@@ -107,17 +134,12 @@ doris::Status read_dict_block_bytes(snii::io::FileReader* reader, const BlockRef
                 "dict block: short read");
     }
 
+    // Raw on-demand block: move the freshly read buffer in (no copy).
     if ((ref.flags & snii::format::block_ref_flags::kZstd) == 0) {
         *out = std::move(block_bytes);
         return doris::Status::OK();
     }
-
-    uint64_t memory_bytes = 0;
-    RETURN_IF_ERROR(dict_block_memory_bytes(ref, &memory_bytes));
-    size_t uncomp_len = 0;
-    RETURN_IF_ERROR(
-            checked_size(memory_bytes, "dict block: zstd length out of range", &uncomp_len));
-    return snii::zstd_decompress(Slice(block_bytes), uncomp_len, out);
+    return zstd_decompress_dict_block(Slice(block_bytes), ref, out);
 }
 
 doris::Status open_dict_block(snii::io::FileReader* reader, const BlockRef& ref, IndexTier tier,
@@ -125,6 +147,30 @@ doris::Status open_dict_block(snii::io::FileReader* reader, const BlockRef& ref,
                               DictBlockReader* out) {
     RETURN_IF_ERROR(read_dict_block_bytes(reader, ref, bytes));
     return DictBlockReader::open(Slice(*bytes), tier, has_positions, out);
+}
+
+// Validates that block `ref` lies fully within dict_region and returns its byte
+// range relative to the start of the region. Defends the single-range resident
+// read against a corrupt directory ref (offset before the region, or a range
+// that runs past it) before it is used to index the region buffer.
+doris::Status slice_dict_block_in_region(const BlockRef& ref, const RegionRef& dict_region,
+                                         size_t region_len, size_t* rel_off, size_t* len) {
+    if (ref.offset < dict_region.offset) {
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "dict block: ref before dict region");
+    }
+    size_t rel = 0;
+    size_t block_len = 0;
+    RETURN_IF_ERROR(
+            checked_size(ref.offset - dict_region.offset, "dict block: ref offset OOR", &rel));
+    RETURN_IF_ERROR(checked_size(ref.length, "dict block: ref length OOR", &block_len));
+    if (rel > region_len || block_len > region_len - rel) {
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "dict block: ref past dict region");
+    }
+    *rel_off = rel;
+    *len = block_len;
+    return doris::Status::OK();
 }
 } // namespace
 
@@ -148,36 +194,75 @@ doris::Status LogicalIndexReader::load_resident_dict_blocks() {
         total_bytes += block_bytes;
     }
 
+    // The resident blocks are physically contiguous within dict_region, so read
+    // the whole region in a SINGLE range read (was one read_at per block -> up to
+    // ~4 serial S3 rounds on a cold open) and decode each block from a sub-slice.
+    // The region buffer is <= the resident byte cap (<=256KB) and freed on return;
+    // each ResidentDictBlock keeps its own decoded copy.
+    const RegionRef& dict_region = section_refs().dict_region;
+    size_t region_len = 0;
+    RETURN_IF_ERROR(
+            checked_size(dict_region.length, "dict region: length out of range", &region_len));
+    std::vector<uint8_t> region;
+    RETURN_IF_ERROR(reader_->read_at(dict_region.offset, region_len, &region));
+    if (region.size() != region_len) {
+        return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "dict region: short read");
+    }
+
     resident_dict_blocks_.reserve(dbd_.n_blocks());
     for (uint32_t ord = 0; ord < dbd_.n_blocks(); ++ord) {
         BlockRef ref {};
         RETURN_IF_ERROR(dbd_.get(ord, &ref));
-        ResidentDictBlock block;
+        size_t rel_off = 0;
+        size_t block_len = 0;
         RETURN_IF_ERROR(
-                open_dict_block(reader_, ref, tier_, has_positions_, &block.bytes, &block.reader));
+                slice_dict_block_in_region(ref, dict_region, region_len, &rel_off, &block_len));
+        const Slice on_disk(region.data() + rel_off, block_len);
+        ResidentDictBlock block;
+        RETURN_IF_ERROR(decompress_dict_block_payload(on_disk, ref, &block.bytes));
+        RETURN_IF_ERROR(
+                DictBlockReader::open(Slice(block.bytes), tier_, has_positions_, &block.reader));
         resident_dict_blocks_.push_back(std::move(block));
     }
     return doris::Status::OK();
 }
 
-doris::Status LogicalIndexReader::dict_block_reader_for_ordinal(uint32_t ordinal,
-                                                                OnDemandDictBlock* on_demand,
-                                                                const DictBlockReader** out) const {
+doris::Status LogicalIndexReader::dict_block_reader_for_ordinal(
+        uint32_t ordinal, DictBlockCache* cache, std::shared_ptr<const DecodedDictBlock>* pin,
+        const DictBlockReader** out) const {
+    pin->reset();
     if (!resident_dict_blocks_.empty()) {
         if (resident_dict_blocks_.size() != dbd_.n_blocks() ||
             ordinal >= resident_dict_blocks_.size()) {
             return doris::Status::Error<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
                     "logical_index: incomplete resident dict");
         }
+        // Resident blocks live for the reader lifetime: no pin needed.
         *out = &resident_dict_blocks_[ordinal].reader;
         return doris::Status::OK();
     }
 
-    BlockRef ref {};
-    RETURN_IF_ERROR(dbd_.get(ordinal, &ref));
-    RETURN_IF_ERROR(open_dict_block(reader_, ref, tier_, has_positions_, &on_demand->bytes,
-                                    &on_demand->reader));
-    *out = &on_demand->reader;
+    // On-demand: decode into a heap-allocated DecodedDictBlock held by *pin so the
+    // reader's Slice never dangles. The loader (file read + optional zstd + CRC +
+    // anchor parse) runs OUTSIDE any cache bookkeeping; on a cache hit it is not
+    // called, so a block shared by several terms of one query decodes only once.
+    DictBlockCache::Loader loader =
+            [&](std::shared_ptr<const DecodedDictBlock>* slot) -> doris::Status {
+        BlockRef ref {};
+        RETURN_IF_ERROR(dbd_.get(ordinal, &ref));
+        auto block = std::make_shared<DecodedDictBlock>();
+        RETURN_IF_ERROR(open_dict_block(reader_, ref, tier_, has_positions_, &block->bytes,
+                                        &block->reader));
+        *slot = std::move(block);
+        return doris::Status::OK();
+    };
+    if (cache != nullptr) {
+        RETURN_IF_ERROR(cache->get_or_load(ordinal, loader, pin));
+    } else {
+        RETURN_IF_ERROR(loader(pin));
+    }
+    *out = &(*pin)->reader;
     return doris::Status::OK();
 }
 
@@ -264,7 +349,8 @@ size_t LogicalIndexReader::memory_usage() const {
 }
 
 doris::Status LogicalIndexReader::lookup(std::string_view term, bool* found, DictEntry* entry,
-                                         uint64_t* frq_base, uint64_t* prx_base) const {
+                                         uint64_t* frq_base, uint64_t* prx_base,
+                                         DictBlockCache* cache) const {
     *found = false;
     if (reader_ == nullptr) {
         return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>(
@@ -299,9 +385,10 @@ doris::Status LogicalIndexReader::lookup(std::string_view term, bool* found, Dic
 
     // 3. Use a resident small-DICT block when present; otherwise read the DICT
     //    block on demand and parse it with the same validation path used at open.
+    //    `pin` keeps an on-demand block alive through find_term (resident: null).
     const DictBlockReader* br = nullptr;
-    OnDemandDictBlock on_demand;
-    RETURN_IF_ERROR(dict_block_reader_for_ordinal(ordinal, &on_demand, &br));
+    std::shared_ptr<const DecodedDictBlock> pin;
+    RETURN_IF_ERROR(dict_block_reader_for_ordinal(ordinal, cache, &pin, &br));
 
     bool hit = false;
     RETURN_IF_ERROR(br->find_term(term, &hit, entry));
@@ -316,7 +403,8 @@ doris::Status LogicalIndexReader::lookup(std::string_view term, bool* found, Dic
 }
 
 doris::Status LogicalIndexReader::visit_prefix_terms(std::string_view prefix,
-                                                     const PrefixHitVisitor& visitor) const {
+                                                     const PrefixHitVisitor& visitor,
+                                                     DictBlockCache* cache) const {
     if (!visitor) {
         return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>(
                 "logical_index: null prefix visitor");
@@ -341,8 +429,8 @@ doris::Status LogicalIndexReader::visit_prefix_terms(std::string_view prefix,
 
     for (uint32_t ord = start; ord < dbd_.n_blocks(); ++ord) {
         const DictBlockReader* br = nullptr;
-        OnDemandDictBlock on_demand;
-        RETURN_IF_ERROR(dict_block_reader_for_ordinal(ord, &on_demand, &br));
+        std::shared_ptr<const DecodedDictBlock> pin;
+        RETURN_IF_ERROR(dict_block_reader_for_ordinal(ord, cache, &pin, &br));
         std::vector<DictEntry> entries;
         RETURN_IF_ERROR(br->decode_all(&entries));
 
@@ -351,8 +439,7 @@ doris::Status LogicalIndexReader::visit_prefix_terms(std::string_view prefix,
             if (t < prefix) {
                 continue; // not yet at the prefix range
             }
-            const bool has_prefix =
-                    t.size() >= prefix.size() && t.compare(0, prefix.size(), prefix) == 0;
+            const bool has_prefix = t.size() >= prefix.size() && t.starts_with(prefix);
             if (!has_prefix) {
                 return doris::Status::OK(); // past the prefix range; sorted -> done
             }
@@ -372,18 +459,21 @@ doris::Status LogicalIndexReader::visit_prefix_terms(std::string_view prefix,
 }
 
 doris::Status LogicalIndexReader::prefix_terms(std::string_view prefix,
-                                               std::vector<PrefixHit>* const out,
-                                               int32_t max_terms) const {
+                                               std::vector<PrefixHit>* const out, int32_t max_terms,
+                                               DictBlockCache* cache) const {
     if (out == nullptr) {
         return doris::Status::Error<doris::ErrorCode::INVALID_ARGUMENT, false>(
                 "logical_index: null out");
     }
     out->clear();
-    return visit_prefix_terms(prefix, [&](PrefixHit&& hit, bool* stop) {
-        out->push_back(std::move(hit));
-        *stop = max_terms > 0 && out->size() >= static_cast<size_t>(max_terms);
-        return doris::Status::OK();
-    });
+    return visit_prefix_terms(
+            prefix,
+            [&](PrefixHit&& hit, bool* stop) {
+                out->push_back(std::move(hit));
+                *stop = max_terms > 0 && out->size() >= static_cast<size_t>(max_terms);
+                return doris::Status::OK();
+            },
+            cache);
 }
 
 namespace {

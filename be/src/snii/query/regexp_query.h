@@ -27,8 +27,10 @@
 #include "snii/reader/logical_index_reader.h"
 
 // regexp_query -- MATCH_REGEXP semantics over dictionary terms. The pattern is
-// evaluated with std::regex_match, so it must match the whole term. Matching
-// terms are executed as a sorted deduplicated docid union.
+// evaluated with RE2::FullMatch (anchored at both ends), so it must match the
+// whole term. Invalid/unsupported patterns (e.g. backreferences, lookaround)
+// return Status::InvalidArgument instead of throwing. Matching terms are executed
+// as a sorted deduplicated docid union.
 namespace snii::query {
 
 doris::Status regexp_query(const snii::reader::LogicalIndexReader& idx, std::string_view pattern,
