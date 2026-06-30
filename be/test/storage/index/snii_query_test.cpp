@@ -258,7 +258,10 @@ TEST(SniiSegmentReaderTest, IndexExistsUsesCachedTailDirectory) {
     EXPECT_EQ(file.read_bytes(), 0);
 }
 
-TEST(SniiSegmentReaderTest, NonResidentBsbfCachesHeaderAndProbesBodyBlock) {
+// P1 cold-read fix: a NON-resident bloom is skipped entirely. open() must not
+// read the 28B header (which the old L1 path cached) and lookup() must not issue a
+// 32B body probe; absent / present terms still resolve correctly via sti -> dict.
+TEST(SniiSegmentReaderTest, NonResidentBsbfIsSkippedNotProbed) {
     ScopedEnv disable_resident_bsbf("SNII_BSBF_RESIDENT_MAX", "0");
 
     MemoryFile file;
@@ -271,34 +274,36 @@ TEST(SniiSegmentReaderTest, NonResidentBsbfCachesHeaderAndProbesBodyBlock) {
     assert_ok(reader::SniiSegmentReader::open(&file, &segment_reader));
     format::SectionRefs refs;
     assert_ok(segment_reader.section_refs_for_index(input.index_id, input.index_suffix, &refs));
+    ASSERT_GT(refs.bsbf.length, format::kBsbfHeaderSize); // a real filter exists on disk
+    const uint64_t bsbf_end = refs.bsbf.offset + refs.bsbf.length;
+    auto touches_bsbf = [&](uint64_t offset, size_t len) {
+        return offset < bsbf_end && refs.bsbf.offset < offset + len;
+    };
 
+    // open() must NOT touch the bsbf section at all on the non-resident path.
     file.clear_reads();
     reader::LogicalIndexReader index_reader;
     assert_ok(segment_reader.open_index(input.index_id, input.index_suffix, &index_reader));
-    bool header_read = false;
     for (const auto& read : file.reads()) {
-        if (read.offset == refs.bsbf.offset && read.len == format::kBsbfHeaderSize) {
-            header_read = true;
-        }
+        EXPECT_FALSE(touches_bsbf(read.offset, read.len))
+                << "non-resident open must skip the bsbf header";
     }
-    EXPECT_TRUE(header_read);
 
+    // An absent term still resolves to empty via sti -> dict, and the lookup must
+    // NOT probe the bsbf section.
     file.clear_reads();
-
     std::vector<uint32_t> docids;
     assert_ok(term_query(index_reader, "absent_term", &docids));
     EXPECT_TRUE(docids.empty());
-    bool body_probe_read = false;
     for (const auto& read : file.reads()) {
-        const uint64_t read_end = read.offset + read.len;
-        const uint64_t bsbf_end = refs.bsbf.offset + refs.bsbf.length;
-        EXPECT_FALSE(read.offset == refs.bsbf.offset && read.len == format::kBsbfHeaderSize);
-        if (read.len == format::kBsbfBytesPerBlock &&
-            refs.bsbf.offset + format::kBsbfHeaderSize <= read.offset && read_end <= bsbf_end) {
-            body_probe_read = true;
-        }
+        EXPECT_FALSE(touches_bsbf(read.offset, read.len))
+                << "non-resident lookup must not probe the bsbf section";
     }
-    EXPECT_TRUE(body_probe_read);
+
+    // A present term is still found via sti -> dict (correctness with no bloom).
+    std::vector<uint32_t> present;
+    assert_ok(term_query(index_reader, "term_1000000", &present));
+    EXPECT_FALSE(present.empty());
 }
 
 TEST(SniiSegmentReaderTest, LogicalIndexOpenCachesResidentMetadataAndSmallHeaders) {

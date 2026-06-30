@@ -82,6 +82,47 @@ std::string WriteTemp(const std::vector<uint8_t>& bytes) {
     return p;
 }
 
+// A FileReader decorator that counts how many physical reads (single or batched)
+// touch a given byte window. Used to assert that the BSBF section is NOT read at
+// all on the non-resident (L1) path: with the P1 cold-read fix, open must not
+// read the 28B bloom header and lookup must not issue a 32B bloom probe.
+class WindowTouchCountingReader : public io::FileReader {
+public:
+    WindowTouchCountingReader(io::FileReader* inner, uint64_t win_off, uint64_t win_len)
+            : inner_(inner), win_off_(win_off), win_len_(win_len) {}
+
+    Status read_at(uint64_t offset, size_t len, std::vector<uint8_t>* out) override {
+        account(offset, len);
+        return inner_->read_at(offset, len, out);
+    }
+    Status read_batch(const std::vector<io::Range>& ranges,
+                      std::vector<std::vector<uint8_t>>* outs) override {
+        for (const auto& r : ranges) {
+            account(r.offset, r.len);
+        }
+        return inner_->read_batch(ranges, outs);
+    }
+    uint64_t size() const override { return inner_->size(); }
+
+    uint64_t window_touches() const { return window_touches_; }
+
+private:
+    void account(uint64_t offset, size_t len) {
+        if (win_len_ == 0 || len == 0) {
+            return;
+        }
+        const uint64_t end = offset + len;
+        const uint64_t win_end = win_off_ + win_len_;
+        if (offset < win_end && win_off_ < end) {
+            ++window_touches_;
+        }
+    }
+    io::FileReader* inner_;
+    uint64_t win_off_;
+    uint64_t win_len_;
+    uint64_t window_touches_ = 0;
+};
+
 // Builds a TermPostings with constant freq per doc and (optionally) positions.
 TermPostings MakeTerm(const std::string& term, const std::vector<uint32_t>& docids,
                       bool with_positions) {
@@ -445,33 +486,55 @@ TEST(SniiCompoundWriter, MultiSuperBlockReadBack) {
     EXPECT_TRUE(saw_resident_reject);
     metered.reset_metrics();
 
-    // L1 tiering: force on-demand by lowering the resident threshold to 0, then re-open
-    // the SAME index. It now keeps only the header, so an absent-term lookup must do a
-    // real on-demand block READ (>= 1 read_at) -- unlike L0's in-memory zero-read
-    // reject above -- and a present term is still found via the on-demand probe + dict.
+    // L1 tiering (P1 cold-read fix): force the bloom NON-resident by lowering the
+    // resident threshold to 0, then re-open the SAME index through a reader that
+    // counts every physical read touching the bsbf section. With the fix the bloom
+    // is skipped ENTIRELY -- open does NOT read the 28B header and lookup does NOT
+    // issue a 32B probe -- so ZERO reads touch the bsbf window, yet a present term
+    // is still found and absent terms are still not-found, all via sti -> dict.
+    const RegionRef bsbf_ref = idx.section_refs().bsbf;
+    ASSERT_GT(bsbf_ref.length, kBsbfHeaderSize); // a real (small) filter exists on disk
     ::setenv("SNII_BSBF_RESIDENT_MAX", "0", /*overwrite=*/1);
     {
+        io::LocalFileReader l1_local;
+        ASSERT_TRUE(l1_local.open(path).ok());
+        WindowTouchCountingReader counting(&l1_local, bsbf_ref.offset, bsbf_ref.length);
+        reader::SniiSegmentReader seg_l1;
+        ASSERT_TRUE(reader::SniiSegmentReader::open(&counting, &seg_l1).ok());
         reader::LogicalIndexReader idx_l1;
-        ASSERT_TRUE(seg.open_index(1, "body", &idx_l1).ok());
+        ASSERT_TRUE(seg_l1.open_index(1, "body", &idx_l1).ok());
+        // open() must not have read the bsbf header (28B) on the non-resident path.
+        EXPECT_EQ(counting.window_touches(), 0U) << "non-resident open must skip the bsbf header";
+
+        // Present term: still found via sti -> dict, with no bloom involved.
         bool pf = false;
         DictEntry pe;
         uint64_t pfb = 0, ppb = 0;
         ASSERT_TRUE(idx_l1.lookup("hot", &pf, &pe, &pfb, &ppb).ok());
-        EXPECT_TRUE(pf); // present term found via L1 probe + dict
-        bool saw_l1_read = false;
-        for (int i = 0; i < 8 && !saw_l1_read; ++i) {
-            metered.reset_metrics();
+        EXPECT_TRUE(pf);
+
+        // Absent terms: not found via dict. "absent-zzz-*" sorts before every
+        // sample (out-of-range sti reject); "rzz" sorts inside the term range so
+        // sti routes it to a real dict block that then misses -- both return absent
+        // and NEITHER probes the bloom.
+        for (int i = 0; i < 8; ++i) {
             bool af = true;
             DictEntry ad;
             uint64_t afb = 0, apb = 0;
             ASSERT_TRUE(
                     idx_l1.lookup("absent-zzz-" + std::to_string(i), &af, &ad, &afb, &apb).ok());
-            if (!af) {
-                EXPECT_GE(metered.metrics().read_at_calls, 1U); // on-demand block read
-                saw_l1_read = true;
-            }
+            EXPECT_FALSE(af) << "out-of-range absent i=" << i;
         }
-        EXPECT_TRUE(saw_l1_read);
+        bool rf = true;
+        DictEntry rd;
+        uint64_t rfb = 0, rpb = 0;
+        ASSERT_TRUE(idx_l1.lookup("rzz", &rf, &rd, &rfb, &rpb).ok());
+        EXPECT_FALSE(rf) << "in-range absent term must miss in the dict";
+
+        // No lookup may have probed the bsbf section: the bloom is skipped, not
+        // read on demand. This is the core of the P1 cold-read fix.
+        EXPECT_EQ(counting.window_touches(), 0U)
+                << "non-resident lookups must not probe the bsbf section";
     }
     ::unsetenv("SNII_BSBF_RESIDENT_MAX");
     metered.reset_metrics();

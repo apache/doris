@@ -33,7 +33,6 @@ namespace doris::snii::reader {
 
 using format::BlockRef;
 using format::bsbf_hash;
-using format::bsbf_probe;
 using format::DictBlockDirectoryReader;
 using format::DictBlockReader;
 using format::DictEntry;
@@ -289,24 +288,31 @@ Status LogicalIndexReader::open(io::FileReader* file_reader, IndexTier tier, boo
             DictBlockDirectoryReader::open(out->meta_.dict_block_directory_bytes(), &out->dbd_));
     RETURN_IF_ERROR(out->load_resident_dict_blocks());
 
-    // Block-split bloom XFilter. L0 reads the whole small filter so probes are
-    // in-memory. L1 reads only the small header at open; the header is kept in
-    // LogicalIndexReader and enters Doris searcher cache with the rest of the
-    // logical-index metadata.
+    // Block-split bloom XFilter -- gated on RESIDENCY (P1 cold-read fix, see
+    // docs/perf/P1-cold-read-amplification.md). The bloom is set up and used ONLY
+    // when the whole (small) filter fits under the resident cap: it is read in
+    // full, verified, and kept in memory so probes are in-memory and enter the
+    // Doris searcher cache with the rest of the logical-index metadata.
+    //
+    // When NON-resident (the common case for a real text column, where the filter
+    // is many MB) the bloom is skipped ENTIRELY: not even the 28B header is read,
+    // and has_bsbf_ stays false. Every term then falls through to sti -> dict,
+    // which yields the true found/absent. At 1 MiB cache-block granularity a
+    // non-resident bloom never saves a physical block (an absent term still costs
+    // one dict block either way), so its 28B header + per-term 32B probes were pure
+    // cold read amplification.
     const RegionRef& bsbf = out->meta_.section_refs().bsbf;
-    if (bsbf.length > 0) {
+    if (bsbf.length > 0 && bsbf.length <= bsbf_resident_max_bytes()) {
         if (bsbf.length <= kBsbfHeaderSize) {
             return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
                     "logical_index: bsbf section too small");
         }
         const uint64_t num_bytes = bsbf.length - kBsbfHeaderSize;
-        const bool resident = bsbf.length <= bsbf_resident_max_bytes();
         std::vector<uint8_t> head;
-        RETURN_IF_ERROR(
-                file_reader->read_at(bsbf.offset, resident ? bsbf.length : kBsbfHeaderSize, &head));
-        if (head.size() < kBsbfHeaderSize) {
+        RETURN_IF_ERROR(file_reader->read_at(bsbf.offset, bsbf.length, &head));
+        if (head.size() < bsbf.length) {
             return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
-                    "logical_index: short bsbf header read");
+                    "logical_index: short bsbf resident read");
         }
         RETURN_IF_ERROR(format::BsbfHeader::parse(Slice(head.data(), kBsbfHeaderSize), bsbf.offset,
                                                   &out->bsbf_header_));
@@ -315,20 +321,14 @@ Status LogicalIndexReader::open(io::FileReader* file_reader, IndexTier tier, boo
             return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
                     "logical_index: bsbf header/section size mismatch");
         }
-        out->has_bsbf_ = true;
-        if (resident) {
-            if (head.size() < bsbf.length) {
-                return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
-                        "logical_index: short bsbf resident read");
-            }
-            const Slice bitset(head.data() + kBsbfHeaderSize, out->bsbf_header_.num_bytes);
-            if (crc32c(bitset) != out->bsbf_header_.bitset_crc) {
-                return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
-                        "logical_index: bsbf bitset crc mismatch");
-            }
-            out->bsbf_resident_bitset_.assign(bitset.data(), bitset.data() + bitset.size());
-            out->bsbf_resident_ = true;
+        const Slice bitset(head.data() + kBsbfHeaderSize, out->bsbf_header_.num_bytes);
+        if (crc32c(bitset) != out->bsbf_header_.bitset_crc) {
+            return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                    "logical_index: bsbf bitset crc mismatch");
         }
+        out->bsbf_resident_bitset_.assign(bitset.data(), bitset.data() + bitset.size());
+        out->has_bsbf_ = true;
+        out->bsbf_resident_ = true;
     }
     return Status::OK();
 }
@@ -349,18 +349,19 @@ Status LogicalIndexReader::lookup(std::string_view term, bool* found, DictEntry*
         return Status::Error<ErrorCode::INVALID_ARGUMENT, false>("logical_index: not opened");
     }
 
-    // 1. XFilter fast rejection. DEFINITELY-ABSENT returns empty without the
-    // DICT read. L0 probes the resident bitset; L1 reads one 32-byte block.
+    // 1. XFilter fast rejection. A DEFINITELY-ABSENT term returns empty without the
+    // DICT read. The bloom is consulted ONLY when resident (loaded in memory at
+    // open) -- the in-memory bitset probe adds no disk read. A non-resident bloom is
+    // never set up (has_bsbf_ == false, P1 cold-read fix), so the lookup falls
+    // through to sti -> dict, which yields the true found/absent for every term.
     if (has_bsbf_) {
         const uint64_t h = bsbf_hash(term);
-        bool maybe = false;
+        bool maybe = true;
         if (bsbf_resident_) {
             const uint32_t blk = format::bsbf_block_index(h, bsbf_header_.num_blocks);
             maybe = format::bsbf_block_contains(
                     h,
                     bsbf_resident_bitset_.data() + static_cast<size_t>(blk) * kBsbfBytesPerBlock);
-        } else {
-            RETURN_IF_ERROR(bsbf_probe(reader_, bsbf_header_, h, &maybe));
         }
         if (!maybe) {
             return Status::OK();
