@@ -244,15 +244,16 @@ TEST(ColumnNullableTest, UpdateCrc32cBatchHashesNullAsNestedDefaultForWideType) 
     auto expected_nested = nested->clone_resized(nested->size());
     expected_nested->replace_column_null_data(
             assert_cast<const ColumnUInt8&>(*null_map).get_data().data());
-    std::vector<uint32_t> expected_hashes(nullable->size(), 0);
+    constexpr uint32_t seed = 0xDEADBEEF;
+    std::vector<uint32_t> expected_hashes(nullable->size(), seed);
     expected_nested->update_crc32c_batch(expected_hashes.data(), nullptr);
 
-    std::vector<uint32_t> hashes(nullable->size(), 0);
+    std::vector<uint32_t> hashes(nullable->size(), seed);
     nullable->update_crc32c_batch(hashes.data(), nullptr);
 
     EXPECT_EQ(hashes, expected_hashes);
-    EXPECT_NE(hashes[1], HashUtil::crc32c_null(0));
-    EXPECT_NE(hashes[3], HashUtil::crc32c_null(0));
+    EXPECT_NE(hashes[1], HashUtil::crc32c_null(seed));
+    EXPECT_NE(hashes[3], HashUtil::crc32c_null(seed));
 }
 
 TEST(ColumnNullableTest, UpdateCrc32cBatchHashesNullAsDecimalDefault) {
@@ -275,15 +276,16 @@ TEST(ColumnNullableTest, UpdateCrc32cBatchHashesNullAsDecimalDefault) {
     auto expected_nested = nested->clone_resized(nested->size());
     expected_nested->replace_column_null_data(
             assert_cast<const ColumnUInt8&>(*null_map).get_data().data());
-    std::vector<uint32_t> expected_hashes(nullable->size(), 0);
+    constexpr uint32_t seed = 0xDEADBEEF;
+    std::vector<uint32_t> expected_hashes(nullable->size(), seed);
     expected_nested->update_crc32c_batch(expected_hashes.data(), nullptr);
 
-    std::vector<uint32_t> hashes(nullable->size(), 0);
+    std::vector<uint32_t> hashes(nullable->size(), seed);
     nullable->update_crc32c_batch(hashes.data(), nullptr);
 
     EXPECT_EQ(hashes, expected_hashes);
-    EXPECT_NE(hashes[1], HashUtil::crc32c_null(0));
-    EXPECT_NE(hashes[3], HashUtil::crc32c_null(0));
+    EXPECT_NE(hashes[1], HashUtil::crc32c_null(seed));
+    EXPECT_NE(hashes[3], HashUtil::crc32c_null(seed));
 }
 
 TEST(ColumnNullableTest, ConcurrentUpdateCrc32cBatchAndInsertIndicesFrom) {
