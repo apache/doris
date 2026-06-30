@@ -17,8 +17,10 @@
 
 #pragma once
 
+#include <cstdint>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "storage/index/inverted/inverted_index_query_type.h"
@@ -61,6 +63,13 @@ private:
             const IndexQueryContextPtr& context, InvertedIndexCacheHandle* searcher_cache_handle,
             std::unique_ptr<::doris::snii::reader::LogicalIndexReader>* uncached_reader,
             const ::doris::snii::reader::LogicalIndexReader** logical_reader);
+    // Opens the segment index and runs the query, producing the result bitmap. Invoked as the
+    // single-flight "compute" step by query(); see SingleFlight for the concurrency rationale.
+    Status _compute_query_bitmap(const IndexQueryContextPtr& context,
+                                 InvertedIndexQueryType query_type,
+                                 const InvertedIndexQueryInfo& query_info,
+                                 std::string_view search_str, const std::vector<std::string>& terms,
+                                 int32_t max_expansions, std::shared_ptr<roaring::Roaring>* out);
 
     InvertedIndexReaderType _reader_type;
 };

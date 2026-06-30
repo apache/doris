@@ -36,6 +36,7 @@
 #include "storage/index/inverted/analyzer/analyzer.h"
 #include "storage/index/inverted/inverted_index_cache.h"
 #include "storage/index/inverted/inverted_index_iterator.h"
+#include "storage/index/snii/common/single_flight.h"
 #include "storage/index/snii/format/null_bitmap.h"
 #include "storage/index/snii/query/boolean_query.h"
 #include "storage/index/snii/query/docid_sink.h"
@@ -46,6 +47,7 @@
 #include "storage/index/snii/query/wildcard_query.h"
 #include "storage/index/snii/reader/logical_index_reader.h"
 #include "storage/index/snii/snii_doris_adapter.h"
+#include "util/defer_op.h"
 #include "util/time.h"
 
 namespace doris::segment_v2 {
@@ -159,6 +161,37 @@ std::shared_ptr<roaring::Roaring> docids_to_bitmap(const std::vector<uint32_t>& 
     }
     result->runOptimize();
     return result;
+}
+
+// Runs `compute` under single-flight keyed by `key`: concurrent identical queries collapse to a
+// single execution and the followers reuse the leader's bitmap. `compute(out)` fills *out and
+// returns its Status; on overall success *result receives the bitmap. See SingleFlight for why
+// this matters under a cold cache with parallel scanners hitting the same segment.
+template <typename Compute>
+Status run_query_single_flight(
+        ::doris::snii::SingleFlight<std::pair<Status, std::shared_ptr<roaring::Roaring>>>& flight,
+        const std::string& key, std::shared_ptr<roaring::Roaring>* result, Compute&& compute) {
+    auto follower = flight.join_or_lead(key);
+    if (follower.has_value()) {
+        auto [leader_status, leader_bitmap] = follower->get();
+        if (leader_status.ok() && leader_bitmap != nullptr) {
+            *result = std::move(leader_bitmap);
+            return Status::OK();
+        }
+        // Leader failed; fall through and compute independently (rare error path).
+    }
+    const bool is_leader = !follower.has_value();
+
+    Status status = Status::OK();
+    std::shared_ptr<roaring::Roaring> bitmap;
+    {
+        // Publish to any waiting followers on every exit path (including errors).
+        DEFER(if (is_leader) { flight.publish(key, std::make_pair(status, bitmap)); });
+        status = compute(&bitmap);
+    }
+    RETURN_IF_ERROR(status);
+    *result = std::move(bitmap);
+    return Status::OK();
 }
 
 Status execute_snii_query(const ::doris::snii::reader::LogicalIndexReader& logical_reader,
@@ -399,6 +432,17 @@ Status SniiIndexReader::query(const IndexQueryContextPtr& context, const std::st
         cache_value += " " + std::to_string(max_expansions);
     }
     auto index_file_key = _index_file_reader->get_index_file_cache_key(&_index_meta);
+    // Single-flight key: identifies this exact (segment file, column, query type, terms) so
+    // concurrent identical queries share one execution. Built before cache_value is moved
+    // into cache_key below; mirrors the query-cache key components.
+    std::string single_flight_key = index_file_key;
+    single_flight_key.push_back('\x01');
+    single_flight_key.append(column_name);
+    single_flight_key.push_back('\x01');
+    single_flight_key.append(std::to_string(static_cast<int>(query_type)));
+    single_flight_key.push_back('\x01');
+    single_flight_key.append(cache_value);
+
     InvertedIndexQueryCache::CacheKey cache_key {index_file_key, column_name, query_type,
                                                  std::move(cache_value)};
     auto* cache = InvertedIndexQueryCache::instance();
@@ -407,18 +451,40 @@ Status SniiIndexReader::query(const IndexQueryContextPtr& context, const std::st
         return Status::OK();
     }
 
+    // Under a cold cache, parallel scanners _lazy_init the same segment concurrently and each
+    // would otherwise miss the searcher/query caches and redundantly open + decode this segment's
+    // index. Collapse identical concurrent queries into one shared execution (see SingleFlight).
+    static ::doris::snii::SingleFlight<std::pair<Status, std::shared_ptr<roaring::Roaring>>>
+            query_single_flight;
+    std::shared_ptr<roaring::Roaring> result_bitmap;
+    RETURN_IF_ERROR(run_query_single_flight(query_single_flight, single_flight_key, &result_bitmap,
+                                            [&](std::shared_ptr<roaring::Roaring>* out) {
+                                                return _compute_query_bitmap(
+                                                        context, query_type, query_info, search_str,
+                                                        terms, max_expansions, out);
+                                            }));
+    bit_map = result_bitmap;
+    cache->insert(cache_key, bit_map, &cache_handler);
+    return Status::OK();
+}
+
+Status SniiIndexReader::_compute_query_bitmap(const IndexQueryContextPtr& context,
+                                              InvertedIndexQueryType query_type,
+                                              const InvertedIndexQueryInfo& query_info,
+                                              std::string_view search_str,
+                                              const std::vector<std::string>& terms,
+                                              int32_t max_expansions,
+                                              std::shared_ptr<roaring::Roaring>* out) {
     snii_doris::DorisSniiFileReader::ScopedIOContext io_context_scope(context->io_ctx);
     InvertedIndexCacheHandle searcher_cache_handle;
     std::unique_ptr<::doris::snii::reader::LogicalIndexReader> uncached_reader;
     const ::doris::snii::reader::LogicalIndexReader* logical_reader = nullptr;
     RETURN_IF_ERROR(_get_logical_reader(context, &searcher_cache_handle, &uncached_reader,
                                         &logical_reader));
-
     SniiQueryExecutionResult query_result;
     RETURN_IF_ERROR(execute_snii_query(*logical_reader, query_type, query_info, search_str, terms,
                                        max_expansions, &query_result));
-    bit_map = std::move(query_result.bitmap);
-    cache->insert(cache_key, bit_map, &cache_handler);
+    *out = std::move(query_result.bitmap);
     return Status::OK();
 }
 
