@@ -100,9 +100,10 @@ TEST_F(HiveV2ReaderTest, InitSupportsJsonFileFormat) {
     EXPECT_EQ(reader.mapping_mode(), TableColumnMappingMode::BY_NAME);
 }
 
-TEST_F(HiveV2ReaderTest, MappingModeUsesCurrentSplitFormat) {
+TEST_F(HiveV2ReaderTest, MappingModeUsesInitializedFormat) {
     query_options.hive_parquet_use_column_names = false;
     query_options.hive_orc_use_column_names = true;
+    state.set_query_options(query_options);
 
     TFileScanRangeParams params;
     params.__set_format_type(TFileFormatType::FORMAT_PARQUET);
@@ -111,17 +112,16 @@ TEST_F(HiveV2ReaderTest, MappingModeUsesCurrentSplitFormat) {
     ASSERT_TRUE(init_hive_reader(FileFormat::PARQUET, &params, &state, &profile, &reader).ok());
     EXPECT_EQ(reader.mapping_mode(), TableColumnMappingMode::BY_INDEX);
 
-    SplitReadOptions orc_split;
-    orc_split.current_range.__set_path("split.orc");
-    orc_split.current_split_format = FileFormat::ORC;
-    ASSERT_TRUE(reader.prepare_split(orc_split).ok());
-    EXPECT_EQ(reader.mapping_mode(), TableColumnMappingMode::BY_NAME);
-
     SplitReadOptions parquet_split;
     parquet_split.current_range.__set_path("split.parquet");
     parquet_split.current_split_format = FileFormat::PARQUET;
     ASSERT_TRUE(reader.prepare_split(parquet_split).ok());
     EXPECT_EQ(reader.mapping_mode(), TableColumnMappingMode::BY_INDEX);
+
+    SplitReadOptions orc_split;
+    orc_split.current_range.__set_path("split.orc");
+    orc_split.current_split_format = FileFormat::ORC;
+    EXPECT_FALSE(reader.prepare_split(orc_split).ok());
 }
 
 // Scenario: positional mapping is only for Hive Parquet/ORC sessions that disable name mapping.

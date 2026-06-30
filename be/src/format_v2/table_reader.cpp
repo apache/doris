@@ -149,10 +149,10 @@ bool external_field_matches_name(const schema::external::TField& field, const st
            });
 }
 
-DataTypePtr find_struct_child_type_by_name(const DataTypeStruct& struct_type,
-                                           const std::string& field_name) {
+DataTypePtr find_struct_child_type_by_external_field(const DataTypeStruct& struct_type,
+                                                     const schema::external::TField& field) {
     for (size_t field_idx = 0; field_idx < struct_type.get_elements().size(); ++field_idx) {
-        if (to_lower(struct_type.get_element_name(field_idx)) == to_lower(field_name)) {
+        if (external_field_matches_name(field, struct_type.get_element_name(field_idx))) {
             return struct_type.get_element(field_idx);
         }
     }
@@ -188,7 +188,7 @@ ColumnDefinition build_schema_column_from_external_field(const schema::external:
             if (child_field == nullptr || !child_field->__isset.name) {
                 continue;
             }
-            auto child_type = find_struct_child_type_by_name(struct_type, child_field->name);
+            auto child_type = find_struct_child_type_by_external_field(struct_type, *child_field);
             if (child_type == nullptr) {
                 continue;
             }
