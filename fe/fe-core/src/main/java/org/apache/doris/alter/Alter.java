@@ -94,6 +94,8 @@ import org.apache.doris.persist.ModifyPartitionInfo;
 import org.apache.doris.persist.ModifyTableEngineOperationLog;
 import org.apache.doris.persist.ModifyTablePropertyOperationLog;
 import org.apache.doris.persist.ReplaceTableOperationLog;
+import org.apache.doris.policy.Policy;
+import org.apache.doris.policy.PolicyTypeEnum;
 import org.apache.doris.policy.StoragePolicy;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectContextUtil;
@@ -647,9 +649,11 @@ public class Alter {
                 ModifyPartitionOp clause = ((ModifyPartitionOp) alterOp);
                 Map<String, String> properties = clause.getProperties();
                 List<String> partitionNames = clause.getPartitionNames();
+                OlapTable olapTable = (OlapTable) tableIf;
+                checkModifyPartitionStoragePolicyResource(
+                        olapTable, partitionNames, properties, clause.isTempPartition());
                 ((SchemaChangeHandler) schemaChangeHandler).updatePartitionsProperties(
                         db, tableName, partitionNames, properties);
-                OlapTable olapTable = (OlapTable) tableIf;
                 olapTable.writeLockOrDdlException();
                 try {
                     modifyPartitionsProperty(db, olapTable, partitionNames, properties, clause.isTempPartition());
@@ -913,6 +917,56 @@ public class Alter {
             } else {
                 Preconditions.checkState(false);
             }
+        }
+    }
+
+    private void checkModifyPartitionStoragePolicyResource(OlapTable olapTable, List<String> partitionNames,
+            Map<String, String> properties, boolean isTempPartition) throws AnalysisException {
+        if (!PropertyAnalyzer.hasStoragePolicy(properties)) {
+            return;
+        }
+
+        String newStoragePolicy = PropertyAnalyzer.analyzeStoragePolicy(properties);
+        if (Strings.isNullOrEmpty(newStoragePolicy)) {
+            return;
+        }
+
+        Optional<Policy> newPolicy = Env.getCurrentEnv().getPolicyMgr()
+                .findPolicy(newStoragePolicy, PolicyTypeEnum.STORAGE);
+        if (!newPolicy.isPresent() || !(newPolicy.get() instanceof StoragePolicy)) {
+            return;
+        }
+
+        olapTable.readLock();
+        try {
+            PartitionInfo partitionInfo = olapTable.getPartitionInfo();
+            for (String partitionName : partitionNames) {
+                Partition partition = olapTable.getPartition(partitionName, isTempPartition);
+                if (partition == null) {
+                    continue;
+                }
+
+                DataProperty dataProperty = partitionInfo.getDataProperty(partition.getId());
+                String oldStoragePolicy = dataProperty.getStoragePolicy();
+                if (Strings.isNullOrEmpty(oldStoragePolicy) || oldStoragePolicy.equals(newStoragePolicy)) {
+                    continue;
+                }
+
+                Optional<Policy> oldPolicy = Env.getCurrentEnv().getPolicyMgr()
+                        .findPolicy(oldStoragePolicy, PolicyTypeEnum.STORAGE);
+                if (!oldPolicy.isPresent() || !(oldPolicy.get() instanceof StoragePolicy)) {
+                    continue;
+                }
+
+                String newResource = ((StoragePolicy) newPolicy.get()).getStorageResource();
+                String oldResource = ((StoragePolicy) oldPolicy.get()).getStorageResource();
+                if (!newResource.equals(oldResource)) {
+                    throw new AnalysisException("currently do not support change origin "
+                            + "storage policy to another one with different resource: ");
+                }
+            }
+        } finally {
+            olapTable.readUnlock();
         }
     }
 

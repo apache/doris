@@ -112,6 +112,61 @@ suite("add_table_policy_by_modify_partition") {
         "cooldown_datetime" = "$cooldownTime"
         );
     """
+    sql """ALTER STORAGE POLICY tmp2 PROPERTIES("cooldown_datetime" = "$cooldownTime")"""
+
+    try_sql """
+        CREATE RESOURCE IF NOT EXISTS "test_modify_partition_table_use_resource_diff"
+        PROPERTIES(
+            "type"="s3",
+            "AWS_REGION" = "bj",
+            "AWS_ENDPOINT" = "bj.s3.comaaaa",
+            "AWS_ROOT_PATH" = "path/to/rootaaaa",
+            "AWS_SECRET_KEY" = "aaaa",
+            "AWS_ACCESS_KEY" = "bbba",
+            "AWS_BUCKET" = "test-bucket-diff",
+            "s3_validity_check" = "false"
+        );
+    """
+    try_sql """
+        CREATE STORAGE POLICY IF NOT EXISTS created_create_table_partition_alter_policy_diff
+        PROPERTIES(
+        "storage_resource" = "test_modify_partition_table_use_resource_diff",
+        "cooldown_datetime" = "$cooldownTime"
+        );
+    """
+    sql """ALTER STORAGE POLICY created_create_table_partition_alter_policy_diff PROPERTIES("cooldown_datetime" = "$cooldownTime")"""
+    assertEquals(storage_exist.call("created_create_table_partition_alter_policy_diff"), true)
+
+    def partitionsAfterSetPolicy = sql_return_maparray """
+    show partitions from create_table_partition
+    """
+    for (def par in partitionsAfterSetPolicy) {
+        assertTrue(par.RemoteStoragePolicy == "created_create_table_partition_alter_policy")
+    }
+
+    def alter_table_partition_diff_resource_result = try_sql """
+        ALTER TABLE create_table_partition MODIFY PARTITION (*) SET("storage_policy"="created_create_table_partition_alter_policy_diff");
+    """
+    assertEquals(alter_table_partition_diff_resource_result, null)
+
+    def partitionsAfterFailedAlter = sql_return_maparray """
+    show partitions from create_table_partition
+    """
+    for (def par in partitionsAfterFailedAlter) {
+        assertTrue(par.RemoteStoragePolicy == "created_create_table_partition_alter_policy")
+    }
+
+    def alter_table_partition_same_resource_result = try_sql """
+        ALTER TABLE create_table_partition MODIFY PARTITION (*) SET("storage_policy"="tmp2");
+    """
+    assertEquals(alter_table_partition_same_resource_result.size(), 1);
+
+    def partitionsAfterSameResourceAlter = sql_return_maparray """
+    show partitions from create_table_partition
+    """
+    for (def par in partitionsAfterSameResourceAlter) {
+        assertTrue(par.RemoteStoragePolicy == "tmp2")
+    }
 
     sql """
     CREATE TABLE create_table_partion_use_created_policy_test
@@ -148,9 +203,15 @@ suite("add_table_policy_by_modify_partition") {
     DROP STORAGE POLICY created_create_table_partition_alter_policy
     """
     sql """
+    DROP STORAGE POLICY created_create_table_partition_alter_policy_diff
+    """
+    sql """
     DROP STORAGE POLICY tmp2
     """
     sql """
     DROP RESOURCE test_modify_partition_table_use_resource
+    """
+    sql """
+    DROP RESOURCE test_modify_partition_table_use_resource_diff
     """
 }
