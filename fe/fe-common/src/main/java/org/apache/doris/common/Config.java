@@ -2146,6 +2146,10 @@ public class Config extends ConfigBase {
     @ConfField(description = {"Maximum cache number of database and table instances in external catalogs."})
     public static long max_meta_object_cache_num = 1000;
 
+    @ConfField(mutable = false, masterOnly = false, description = {
+            "Stripe count used by multi-key MetaCacheEntry instances such as external object caches."})
+    public static int external_meta_cache_object_entry_lock_stripes = 256;
+
     @ConfField(description = {"Maximum cache number of Hive partitioned tables."})
     public static long max_hive_partition_table_cache_num = 10000;
 

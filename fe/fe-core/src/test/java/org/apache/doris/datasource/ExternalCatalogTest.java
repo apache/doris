@@ -20,9 +20,11 @@ package org.apache.doris.datasource;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.DatasourcePrintableMap;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
+import org.apache.doris.datasource.metacache.MetaCacheEntry;
 import org.apache.doris.datasource.metacache.NameCacheValue;
 import org.apache.doris.datasource.test.TestExternalCatalog;
 import org.apache.doris.datasource.test.TestExternalDatabase;
@@ -40,6 +42,7 @@ import com.google.common.collect.Maps;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.lang.reflect.Field;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -443,6 +446,52 @@ public class ExternalCatalogTest extends TestWithFeService {
         Assertions.assertTrue(db.getTableForReplay("tbl_new").isEmpty());
     }
 
+    @Test
+    public void testMetaCacheEntryStripeCountByEntryType() throws Exception {
+        IncrementalUpdateCatalog catalog = new IncrementalUpdateCatalog();
+        catalog.setInitializedForTest(true);
+        IncrementalUpdateDatabase db = new IncrementalUpdateDatabase(catalog, 200L, "db1", "db1");
+        db.setInitializedForTest(true);
+
+        // Keep single-key names entries minimal and let object entries share the configured default stripe count.
+        Assertions.assertEquals(1, extractStripeCount(catalog.databaseNames));
+        Assertions.assertEquals(Config.external_meta_cache_object_entry_lock_stripes, extractStripeCount(catalog.databases));
+        Assertions.assertEquals(1, extractStripeCount(extractMetaCacheEntry(db, "tableNames")));
+        Assertions.assertEquals(Config.external_meta_cache_object_entry_lock_stripes,
+                extractStripeCount(extractMetaCacheEntry(db, "tables")));
+    }
+
+    @Test
+    public void testCaseInsensitiveIsTableExistUsesRemoteNameLookup() {
+        // Mode 2 should resolve the remote table name from the names snapshot before probing the catalog.
+        rootCtx.setThreadLocalInfo();
+        CaseInsensitiveCatalog catalog = new CaseInsensitiveCatalog();
+        catalog.setInitializedForTest(true);
+        TestExternalDatabase db = new TestExternalDatabase(catalog, 400L, "db_ci", "db_ci");
+        db.setInitializedForTest(true);
+
+        Assertions.assertTrue(db.getTableNamesWithLock().contains("Foo"));
+        Assertions.assertTrue(db.isTableExist("foo"));
+        Assertions.assertFalse(db.isTableExist("missing"));
+    }
+
+    @Test
+    public void testGetTableForReplayPrefersExactObjectCacheHit() {
+        CaseInsensitiveCatalog catalog = new CaseInsensitiveCatalog();
+        catalog.setInitializedForTest(true);
+        TestExternalDatabase db = new TestExternalDatabase(catalog, 401L, "db_ci", "db_ci");
+        db.setInitializedForTest(true);
+
+        // Warm and then invalidate only the names snapshot so replay must fall back to the object cache.
+        Assertions.assertTrue(db.getTableNamesWithLock().contains("Foo"));
+        TestExternalTable table = new TestExternalTable(402L, "Foo", "Foo", catalog, db);
+        db.addTableForTest(table);
+        db.resetMetaCacheNames();
+
+        Assertions.assertTrue(db.getTableForReplay("Foo").isPresent());
+        Assertions.assertEquals(table, db.getTableForReplay("Foo").orElse(null));
+    }
+
     public static class RefreshCatalogProvider implements TestExternalCatalog.TestCatalogProvider {
         public static final Map<String, Map<String, List<Column>>> MOCKED_META;
 
@@ -513,5 +562,54 @@ public class ExternalCatalogTest extends TestWithFeService {
         IncrementalUpdateDatabase(ExternalCatalog extCatalog, long id, String name, String remoteName) {
             super(extCatalog, id, name, remoteName);
         }
+    }
+
+    public static class CaseInsensitiveCatalogProvider implements TestExternalCatalog.TestCatalogProvider {
+        public static final Map<String, Map<String, List<Column>>> MOCKED_META;
+
+        static {
+            MOCKED_META = Maps.newHashMap();
+            Map<String, List<Column>> tableSchemaMap = Maps.newHashMap();
+            tableSchemaMap.put("Foo", Lists.newArrayList(new Column("k1", PrimitiveType.INT)));
+            MOCKED_META.put("db_ci", tableSchemaMap);
+        }
+
+        @Override
+        public Map<String, Map<String, List<Column>>> getMetadata() {
+            return MOCKED_META;
+        }
+    }
+
+    private static class CaseInsensitiveCatalog extends TestExternalCatalog {
+        CaseInsensitiveCatalog() {
+            super(2000L, "case_insensitive_test", "", buildCaseInsensitiveCatalogProps(), "");
+        }
+
+        private static Map<String, String> buildCaseInsensitiveCatalogProps() {
+            Map<String, String> props = Maps.newHashMap();
+            props.put("catalog_provider.class", CaseInsensitiveCatalogProvider.class.getName());
+            props.put(ExternalCatalog.LOWER_CASE_TABLE_NAMES, "2");
+            return props;
+        }
+    }
+
+    private int extractStripeCount(MetaCacheEntry<?, ?> entry) throws Exception {
+        Field stripeCountField = MetaCacheEntry.class.getDeclaredField("stripeCount");
+        stripeCountField.setAccessible(true);
+        return stripeCountField.getInt(entry);
+    }
+
+    private MetaCacheEntry<?, ?> extractMetaCacheEntry(Object owner, String fieldName) throws Exception {
+        Class<?> current = owner.getClass();
+        while (current != null) {
+            try {
+                Field field = current.getDeclaredField(fieldName);
+                field.setAccessible(true);
+                return (MetaCacheEntry<?, ?>) field.get(owner);
+            } catch (NoSuchFieldException ignored) {
+                current = current.getSuperclass();
+            }
+        }
+        throw new NoSuchFieldException(fieldName);
     }
 }

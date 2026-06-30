@@ -46,8 +46,7 @@ import javax.annotation.Nullable;
  * key/predicate/full invalidation, and lightweight runtime stats.
  */
 public class MetaCacheEntry<K, V> {
-    // Use more stripes so unrelated keys are less likely to share the same generation domain.
-    private static final int LOAD_LOCK_STRIPES = 4096;
+    private static final int SINGLE_KEY_STRIPES = 1;
 
     private final String name;
     @Nullable
@@ -55,13 +54,16 @@ public class MetaCacheEntry<K, V> {
     private final CacheSpec cacheSpec;
     private final boolean effectiveEnabled;
     private final boolean autoRefresh;
+    private final int stripeCount;
     private final LoadingCache<K, V> loadingData;
     // Use the plain cache view for manual miss load so slow I/O does not happen in Caffeine's sync load path.
     private final Cache<K, V> data;
     // Protect one stripe at a time to deduplicate concurrent miss loads with bounded lock count.
-    private final Object[] loadLocks = new Object[LOAD_LOCK_STRIPES];
+    private final Object[] loadLocks;
+    // Serialize short publication windows so public mutations cannot race with stale write-back.
+    private final Object[] publishLocks;
     // Track per-stripe invalidation generations so unrelated keys do not invalidate each other.
-    private final AtomicLongArray generations = new AtomicLongArray(LOAD_LOCK_STRIPES);
+    private final AtomicLongArray generations;
     private final AtomicLong invalidateCount = new AtomicLong(0);
     // Track load statistics outside Caffeine because manual miss loads bypass the built-in load counters.
     private final AtomicLong loadSuccessCount = new AtomicLong(0);
@@ -72,21 +74,39 @@ public class MetaCacheEntry<K, V> {
     private final AtomicReference<String> lastError = new AtomicReference<>("");
 
     public MetaCacheEntry(String name, Function<K, V> loader, CacheSpec cacheSpec, ExecutorService refreshExecutor) {
-        this(name, loader, cacheSpec, refreshExecutor, true, false, null, false);
+        this(name, loader, cacheSpec, refreshExecutor, true, false, defaultObjectStripeCount(), null, false);
     }
 
     public MetaCacheEntry(String name, Function<K, V> loader, CacheSpec cacheSpec, ExecutorService refreshExecutor,
             boolean autoRefresh) {
-        this(name, loader, cacheSpec, refreshExecutor, autoRefresh, false, null, false);
+        this(name, loader, cacheSpec, refreshExecutor, autoRefresh, false, defaultObjectStripeCount(), null, false);
     }
 
     public MetaCacheEntry(String name, @Nullable Function<K, V> loader, CacheSpec cacheSpec,
             ExecutorService refreshExecutor, boolean autoRefresh, boolean contextualOnly) {
-        this(name, loader, cacheSpec, refreshExecutor, autoRefresh, contextualOnly, null, false);
+        this(name, loader, cacheSpec, refreshExecutor, autoRefresh, contextualOnly,
+                defaultObjectStripeCount(), null, false);
+    }
+
+    public MetaCacheEntry(String name, Function<K, V> loader, CacheSpec cacheSpec, ExecutorService refreshExecutor,
+            boolean autoRefresh, int stripeCount) {
+        this(name, loader, cacheSpec, refreshExecutor, autoRefresh, false, stripeCount, null, false);
+    }
+
+    public MetaCacheEntry(String name, @Nullable Function<K, V> loader, CacheSpec cacheSpec,
+            ExecutorService refreshExecutor, boolean autoRefresh, boolean contextualOnly, int stripeCount) {
+        this(name, loader, cacheSpec, refreshExecutor, autoRefresh, contextualOnly, stripeCount, null, false);
     }
 
     public static <K, V> MetaCacheEntry<K, V> withSyncRemovalListener(String name, Function<K, V> loader,
             CacheSpec cacheSpec, ExecutorService refreshExecutor, RemovalListener<K, V> removalListener) {
+        return withSyncRemovalListener(name, loader, cacheSpec, refreshExecutor,
+                defaultObjectStripeCount(), removalListener);
+    }
+
+    public static <K, V> MetaCacheEntry<K, V> withSyncRemovalListener(String name, Function<K, V> loader,
+            CacheSpec cacheSpec, ExecutorService refreshExecutor, int stripeCount,
+            RemovalListener<K, V> removalListener) {
         return new MetaCacheEntry<>(
                 name,
                 loader,
@@ -94,13 +114,14 @@ public class MetaCacheEntry<K, V> {
                 refreshExecutor,
                 false,
                 false,
+                stripeCount,
                 Objects.requireNonNull(removalListener, "removalListener can not be null"),
                 true);
     }
 
     private MetaCacheEntry(String name, @Nullable Function<K, V> loader, CacheSpec cacheSpec,
             ExecutorService refreshExecutor, boolean autoRefresh, boolean contextualOnly,
-            @Nullable RemovalListener<K, V> removalListener, boolean syncRemovalListener) {
+            int stripeCount, @Nullable RemovalListener<K, V> removalListener, boolean syncRemovalListener) {
         this.name = Objects.requireNonNull(name, "name can not be null");
         if (contextualOnly) {
             if (loader != null) {
@@ -121,6 +142,13 @@ public class MetaCacheEntry<K, V> {
         this.loader = loader;
         this.cacheSpec = Objects.requireNonNull(cacheSpec, "cacheSpec can not be null");
         this.autoRefresh = autoRefresh;
+        if (stripeCount < 1) {
+            throw new IllegalArgumentException("stripeCount must be positive");
+        }
+        this.stripeCount = stripeCount;
+        this.loadLocks = new Object[stripeCount];
+        this.publishLocks = new Object[stripeCount];
+        this.generations = new AtomicLongArray(stripeCount);
         Objects.requireNonNull(refreshExecutor, "refreshExecutor can not be null");
         this.effectiveEnabled = CacheSpec.isCacheEnabled(
                 this.cacheSpec.isEnable(), this.cacheSpec.getTtlSecond(), this.cacheSpec.getCapacity());
@@ -148,6 +176,7 @@ public class MetaCacheEntry<K, V> {
         // Initialize striped locks eagerly to keep the hot path allocation-free.
         for (int i = 0; i < loadLocks.length; i++) {
             loadLocks[i] = new Object();
+            publishLocks[i] = new Object();
         }
     }
 
@@ -178,24 +207,34 @@ public class MetaCacheEntry<K, V> {
         if (!effectiveEnabled) {
             return;
         }
-        bumpGeneration(key);
-        data.put(key, value);
+        synchronized (publishLock(key)) {
+            bumpGeneration(key);
+            beforePublicMutationWriteForTest(key);
+            data.put(key, value);
+        }
     }
 
     public V compute(K key, BiFunction<K, V, V> remappingFunction) {
         // Public compute must also advance the stripe generation before mutating the cache state.
+        Objects.requireNonNull(key, "key can not be null");
         Objects.requireNonNull(remappingFunction, "remappingFunction can not be null");
         if (!effectiveEnabled) {
             return null;
         }
-        bumpGeneration(key);
-        return data.asMap().compute(key, remappingFunction);
+        synchronized (publishLock(key)) {
+            bumpGeneration(key);
+            beforePublicMutationWriteForTest(key);
+            return data.asMap().compute(key, remappingFunction);
+        }
     }
 
     public void invalidateKey(K key) {
-        bumpGeneration(key);
-        if (data.asMap().remove(key) != null) {
-            invalidateCount.incrementAndGet();
+        Objects.requireNonNull(key, "key can not be null");
+        synchronized (publishLock(key)) {
+            bumpGeneration(key);
+            if (data.asMap().remove(key) != null) {
+                invalidateCount.incrementAndGet();
+            }
         }
     }
 
@@ -267,20 +306,31 @@ public class MetaCacheEntry<K, V> {
                 return value;
             }
 
-            long generation = generationOf(key);
-            V loaded = loadAndTrack(key, loadFunction);
-            if (generation != generationOf(key)) {
-                return loaded;
+            long generation;
+            // Snapshot generation only after re-checking the cache under the publication lock so
+            // public mutations cannot slip between the miss observation and the captured version.
+            synchronized (publishLock(key)) {
+                value = data.asMap().get(key);
+                if (value != null) {
+                    return value;
+                }
+                generation = generationOf(key);
             }
+            V loaded = loadAndTrack(key, loadFunction);
             if (loaded == null) {
                 return null;
             }
 
-            // Leave a narrow hook for tests to pause exactly before the cache put race window.
-            beforeManualCachePutForTest(key, loaded);
-            putLoadedValueWithoutGenerationBump(key, loaded);
-            if (generation != generationOf(key)) {
-                removeLoadedValueWithoutGenerationBump(key, loaded);
+            synchronized (publishLock(key)) {
+                if (generation != generationOf(key)) {
+                    return loaded;
+                }
+                // Leave a narrow hook for tests to pause exactly before the cache put race window.
+                beforeManualCachePutForTest(key, loaded);
+                putLoadedValueWithoutGenerationBump(key, loaded);
+                if (generation != generationOf(key)) {
+                    removeLoadedValueWithoutGenerationBump(key, loaded);
+                }
             }
             return loaded;
         }
@@ -305,16 +355,30 @@ public class MetaCacheEntry<K, V> {
 
             @Override
             public CompletableFuture<V> asyncReload(K key, V oldValue, Executor executor) {
-                long generation = generationOf(key);
+                long generation;
+                synchronized (publishLock(key)) {
+                    V current = data.getIfPresent(key);
+                    if (current != null && !Objects.equals(current, oldValue)) {
+                        CompletableFuture<V> cancelled = new CompletableFuture<>();
+                        cancelled.cancel(false);
+                        return cancelled;
+                    }
+                    generation = generationOf(key);
+                }
                 CompletableFuture<V> result = new CompletableFuture<>();
                 CompletableFuture.supplyAsync(() -> loadFromDefaultLoader(key), refreshExecutor)
                         .whenComplete((loaded, error) -> {
-                            if (error != null) {
-                                result.completeExceptionally(error);
-                            } else if (generation == generationOf(key)) {
-                                result.complete(loaded);
-                            } else {
-                                result.cancel(false);
+                            synchronized (publishLock(key)) {
+                                if (error != null) {
+                                    result.completeExceptionally(error);
+                                } else if (canPublishAsyncReload(key, oldValue, generation)) {
+                                    // Complete the future while holding the publish lock so Caffeine's
+                                    // refresh write-back cannot interleave with same-key invalidation.
+                                    beforeAsyncReloadCompleteForTest(key, loaded);
+                                    result.complete(loaded);
+                                } else {
+                                    result.cancel(false);
+                                }
                             }
                         });
                 return result;
@@ -322,14 +386,22 @@ public class MetaCacheEntry<K, V> {
         };
     }
 
+    private boolean canPublishAsyncReload(K key, V oldValue, long generation) {
+        return generation == generationOf(key) && Objects.equals(data.getIfPresent(key), oldValue);
+    }
+
     private int stripe(K key) {
         int hash = key == null ? 0 : key.hashCode();
-        return (hash & Integer.MAX_VALUE) % LOAD_LOCK_STRIPES;
+        return (hash & Integer.MAX_VALUE) % stripeCount;
     }
 
     // Map keys to a fixed lock stripe set to bound memory usage while keeping same-key deduplication.
     private Object loadLock(K key) {
         return loadLocks[stripe(key)];
+    }
+
+    private Object publishLock(K key) {
+        return publishLocks[stripe(key)];
     }
 
     private long generationOf(K key) {
@@ -341,13 +413,31 @@ public class MetaCacheEntry<K, V> {
     }
 
     private void bumpAllGenerations() {
-        for (int i = 0; i < LOAD_LOCK_STRIPES; i++) {
+        for (int i = 0; i < stripeCount; i++) {
             generations.incrementAndGet(i);
         }
     }
 
+    public static int defaultObjectStripeCount() {
+        return Config.external_meta_cache_object_entry_lock_stripes;
+    }
+
+    public static int singleKeyStripeCount() {
+        return SINGLE_KEY_STRIPES;
+    }
+
+    int stripeCountForTest() {
+        return stripeCount;
+    }
+
     // Let tests pause between the first generation check and data.put without affecting production behavior.
     void beforeManualCachePutForTest(K key, V loaded) {
+    }
+
+    void beforePublicMutationWriteForTest(K key) {
+    }
+
+    void beforeAsyncReloadCompleteForTest(K key, V loaded) {
     }
 
     private V loadFromDefaultLoader(K key) {
