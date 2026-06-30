@@ -22,9 +22,9 @@
 
 #include "common/cast_set.h"
 #include "common/config.h"
-#include "storage/index/snii/format/per_index_meta.h"
 #include "storage/index/inverted/inverted_index_compound_reader.h"
 #include "storage/index/inverted/inverted_index_fs_directory.h"
+#include "storage/index/snii/format/per_index_meta.h"
 #include "storage/tablet/tablet_schema.h"
 #include "util/debug_points.h"
 
@@ -167,7 +167,7 @@ Status IndexFileReader::_init_snii(const io::IOContext* io_ctx) {
     meta_io_ctx.is_index_data = true;
     snii_doris::DorisSniiFileReader::ScopedIOContext io_context_scope(&meta_io_ctx);
     RETURN_IF_ERROR(doris::snii::reader::SniiSegmentReader::open(_snii_file_reader.get(),
-                                                          _snii_segment_reader.get()));
+                                                                 _snii_segment_reader.get()));
     return Status::OK();
 }
 
@@ -395,7 +395,8 @@ Status IndexFileReader::has_null(const TabletIndex* index_meta, bool* res) const
                                                       index_meta->get_index_suffix(), &meta_bytes);
         RETURN_IF_ERROR(status);
         doris::snii::format::PerIndexMetaReader meta;
-        status = doris::snii::format::PerIndexMetaReader::open(doris::snii::Slice(meta_bytes), &meta);
+        status = doris::snii::format::PerIndexMetaReader::open(doris::snii::Slice(meta_bytes),
+                                                               &meta);
         RETURN_IF_ERROR(status);
         *res = meta.section_refs().null_bitmap.length > 0;
         return Status::OK();

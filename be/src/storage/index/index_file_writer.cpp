@@ -249,8 +249,8 @@ Status IndexFileWriter::begin_close() {
             }
             _snii_file_writer =
                     std::make_unique<snii_doris::DorisSniiFileWriter>(_idx_v2_writer.get());
-            _snii_compound_writer =
-                    std::make_unique<doris::snii::writer::SniiCompoundWriter>(_snii_file_writer.get());
+            _snii_compound_writer = std::make_unique<doris::snii::writer::SniiCompoundWriter>(
+                    _snii_file_writer.get());
         }
         RETURN_IF_ERROR(_snii_compound_writer->finish());
         _total_file_size = _idx_v2_writer == nullptr ? 0 : _idx_v2_writer->bytes_appended();

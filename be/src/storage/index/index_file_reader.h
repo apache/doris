@@ -33,10 +33,10 @@
 #include "common/be_mock_util.h"
 #include "common/config.h"
 #include "io/fs/file_system.h"
-#include "storage/index/snii/reader/logical_index_reader.h"
-#include "storage/index/snii/reader/snii_segment_reader.h"
 #include "storage/index/index_file_writer.h"
 #include "storage/index/inverted/inverted_index_desc.h"
+#include "storage/index/snii/reader/logical_index_reader.h"
+#include "storage/index/snii/reader/snii_segment_reader.h"
 #include "storage/index/snii/snii_doris_adapter.h"
 
 namespace doris {

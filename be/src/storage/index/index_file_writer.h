@@ -30,13 +30,13 @@
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
-#include "storage/index/snii/format/format_constants.h"
-#include "storage/index/snii/writer/snii_compound_writer.h"
 #include "storage/index/index_storage_format.h"
 #include "storage/index/inverted/inverted_index_common.h"
 #include "storage/index/inverted/inverted_index_compound_reader.h"
 #include "storage/index/inverted/inverted_index_searcher.h"
+#include "storage/index/snii/format/format_constants.h"
 #include "storage/index/snii/snii_doris_adapter.h"
+#include "storage/index/snii/writer/snii_compound_writer.h"
 
 namespace doris::snii::writer {
 class MemoryReporter;
@@ -73,7 +73,8 @@ public:
                           doris::snii::writer::SpimiTermBuffer* const term_buffer,
                           doris::snii::format::IndexConfig config,
                           doris::snii::writer::MemoryReporter* const mem_reporter);
-    void retain_snii_memory_reporter(std::unique_ptr<doris::snii::writer::MemoryReporter> mem_reporter);
+    void retain_snii_memory_reporter(
+            std::unique_ptr<doris::snii::writer::MemoryReporter> mem_reporter);
     Status delete_index(const TabletIndex* index_meta);
     Status initialize(InvertedIndexDirectoryMap& indices_dirs);
     Status add_into_searcher_cache();
