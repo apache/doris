@@ -935,8 +935,11 @@ suite("test_s3_tvf", "p2") {
         try {
             sql """${sqlStr}"""
         } catch (Exception ex) {
-            assertTrue(attribute.expectFiled)
             logger.info("error: ", ex)
+            if (!attribute.expectFiled) {
+                logger.info("unexpected failed sql: ${sqlStr}")
+                throw ex
+            }
         }
         qt_select """ select count(*) from $attribute.tableName """
         ++i

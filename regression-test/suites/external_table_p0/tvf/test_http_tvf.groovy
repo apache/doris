@@ -24,6 +24,14 @@ import java.nio.file.Paths
 import java.net.InetSocketAddress
 
 suite("test_http_tvf", "p2") {
+    def backendId_to_backendIP = [:]
+    def backendId_to_backendHttpPort = [:]
+    getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort)
+    if (backendId_to_backendIP.size() > 1) {
+        logger.info("Skip test_http_tvf because BE node count is ${backendId_to_backendIP.size()}, only run with single BE")
+        return
+    }
+
     // csv
     qt_sql01 """
         SELECT *
@@ -245,4 +253,3 @@ suite("test_http_tvf", "p2") {
         ) order by text limit 1;
     """
 }
-

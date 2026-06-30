@@ -64,6 +64,7 @@ suite("load_four_step") {
                 def stateResult = sql "show load where Label = '${loadLabel}'"
                 def loadState = stateResult[stateResult.size() - 1][2].toString()
                 if ('CANCELLED'.equalsIgnoreCase(loadState)) {
+                    logger.info("load ${loadLabel} cancelled, stateResult: ${stateResult}")
                     throw new IllegalStateException("load ${loadLabel} failed.")
                 } else if ('FINISHED'.equalsIgnoreCase(loadState)) {
                     break
@@ -96,6 +97,7 @@ suite("load_four_step") {
             def stateResult = sql "show load where Label = '${loadLabel}'"
             def loadState = stateResult[stateResult.size() - 1][2].toString()
             if ('CANCELLED'.equalsIgnoreCase(loadState)) {
+                logger.info("load ${loadLabel} cancelled, stateResult: ${stateResult}")
                 throw new IllegalStateException("load ${loadLabel} failed.")
             } else if ('FINISHED'.equalsIgnoreCase(loadState)) {
                 break
