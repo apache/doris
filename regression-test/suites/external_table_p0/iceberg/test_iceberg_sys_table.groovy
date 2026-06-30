@@ -281,9 +281,12 @@ suite("test_iceberg_sys_table", "p0,external") {
         // TODO: these table will be supportted in future
         // test_systable_position_deletes(table)
 
+        // position_deletes is intentionally not exposed by the iceberg connector SPI
+        // (listSupportedSysTables omits it), so it takes the generic fe-core "Unknown sys
+        // table" not-found path rather than the legacy bespoke "not supported yet" message.
         test {
             sql """select * from ${table}\$position_deletes"""
-            exception "SysTable position_deletes is not supported yet"
+            exception "Unknown sys table '${table}\$position_deletes'"
         }
     }
 
