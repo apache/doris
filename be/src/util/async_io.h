@@ -21,6 +21,7 @@
 
 #include "io/fs/file_system.h"
 #include "olap/olap_define.h"
+#include "runtime/thread_context.h"
 #include "util/cpu_info.h"
 #include "work_thread_pool.hpp"
 
@@ -79,6 +80,12 @@ public:
         PriorityThreadPool::Task task;
         task.priority = nice;
         task.work_function = [&] {
+            // The AsyncIO worker is a plain infra pthread that is not bound to any task,
+            // so it has no ThreadContext. fn() (e.g. a FILESYSTEM_M dispatched upload/read)
+            // may touch thread_context() (memory tracking, LIMIT_*_SCAN_IO, ...), which would
+            // FatalError without a context. Initialize an (unattached) ThreadContext here,
+            // same pattern as StorageEngine background threads.
+            SCOPED_INIT_THREAD_CONTEXT();
             fn();
             std::unique_lock l(mutex);
             cv.notify_one();
