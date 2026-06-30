@@ -803,7 +803,19 @@ ColumnType::Ptr check_and_get_column_ptr(const ColumnPtr& column) {
     if (raw_type_ptr == nullptr) {
         return nullptr;
     }
-    return typename ColumnType::Ptr(raw_type_ptr);
+    return ColumnType::cast_to_column_ptr(raw_type_ptr);
+}
+
+template <typename ColumnType>
+ColumnType::Ptr cast_to_column(const ColumnPtr& column) {
+    const ColumnType* raw_type_ptr = assert_cast<const ColumnType*>(column.get());
+    return ColumnType::cast_to_column_ptr(raw_type_ptr);
+}
+
+template <typename ColumnType>
+ColumnType::MutablePtr cast_to_column(MutableColumnPtr column) {
+    ColumnType* raw_type_ptr = assert_cast<ColumnType*>(column.get());
+    return ColumnType::cast_to_column_mutptr(raw_type_ptr);
 }
 
 /// True if column's an ColumnConst instance. It's just a syntax sugar for type check.

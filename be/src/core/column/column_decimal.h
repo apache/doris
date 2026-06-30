@@ -205,7 +205,7 @@ public:
     MutableColumnPtr permute(const IColumn::Permutation& perm, size_t limit) const override;
 
     bool structure_equals(const IColumn& rhs) const override {
-        if (auto rhs_concrete = typeid_cast<const ColumnDecimal<T>*>(&rhs))
+        if (auto rhs_concrete = check_and_get_column<ColumnDecimal<T>>(&rhs))
             return scale == rhs_concrete->scale;
         return false;
     }

@@ -196,7 +196,7 @@ public:
             materialized_col1 = arg1.column->convert_to_full_column_if_const();
             arr1 = _extract_array_column(materialized_col1.get(), "First argument", get_name());
             float1 = _extract_float_data(arr1, "First argument", get_name());
-            offset1 = assert_cast<const ColumnArray::ColumnOffsets*>(arr1->get_offsets_ptr().get());
+            offset1 = arr1->get_offsets_ptr().get();
             offsets_data1 = &offset1->get_data();
             float_data1 = float1->get_data().data();
         }
@@ -205,7 +205,7 @@ public:
             materialized_col2 = arg2.column->convert_to_full_column_if_const();
             arr2 = _extract_array_column(materialized_col2.get(), "Second argument", get_name());
             float2 = _extract_float_data(arr2, "Second argument", get_name());
-            offset2 = assert_cast<const ColumnArray::ColumnOffsets*>(arr2->get_offsets_ptr().get());
+            offset2 = arr2->get_offsets_ptr().get();
             offsets_data2 = &offset2->get_data();
             float_data2 = float2->get_data().data();
         }

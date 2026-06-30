@@ -154,7 +154,11 @@ const char* DataTypeArray::deserialize(const char* buf, MutableColumnPtr* column
         // children
         auto nested_column = std::move(*data_column->get_data_ptr()).mutate();
         buf = get_nested_type()->deserialize(buf, &nested_column, be_exec_version);
-        data_column->get_offsets_ptr() = std::move(offsets_column);
+        auto typed_offsets_column = ColumnArray::ColumnOffsets::cast_to_column_mutptr(
+                assert_cast<ColumnArray::ColumnOffsets*, TypeCheckOnRelease::DISABLE>(
+                        offsets_column.get()));
+        offsets_column = nullptr;
+        data_column->get_offsets_ptr() = std::move(typed_offsets_column);
         data_column->get_data_ptr() = std::move(nested_column);
         return buf;
     } else {
@@ -172,7 +176,11 @@ const char* DataTypeArray::deserialize(const char* buf, MutableColumnPtr* column
         // children
         auto nested_column = std::move(*data_column->get_data_ptr()).mutate();
         buf = get_nested_type()->deserialize(buf, &nested_column, be_exec_version);
-        data_column->get_offsets_ptr() = std::move(offsets_column);
+        auto typed_offsets_column = ColumnArray::ColumnOffsets::cast_to_column_mutptr(
+                assert_cast<ColumnArray::ColumnOffsets*, TypeCheckOnRelease::DISABLE>(
+                        offsets_column.get()));
+        offsets_column = nullptr;
+        data_column->get_offsets_ptr() = std::move(typed_offsets_column);
         data_column->get_data_ptr() = std::move(nested_column);
         return buf;
     }
