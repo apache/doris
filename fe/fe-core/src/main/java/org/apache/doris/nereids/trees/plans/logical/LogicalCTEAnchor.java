@@ -18,13 +18,13 @@
 package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
-import org.apache.doris.nereids.trees.plans.PropagateFuncDeps;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
 
@@ -38,8 +38,7 @@ import java.util.Optional;
  * LogicalCTEAnchor
  */
 public class LogicalCTEAnchor<LEFT_CHILD_TYPE extends Plan,
-        RIGHT_CHILD_TYPE extends Plan> extends LogicalBinary<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> implements
-        PropagateFuncDeps {
+        RIGHT_CHILD_TYPE extends Plan> extends LogicalBinary<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
 
     private final CTEId cteId;
 
@@ -109,5 +108,34 @@ public class LogicalCTEAnchor<LEFT_CHILD_TYPE extends Plan,
     @Override
     public int hashCode() {
         return Objects.hash(cteId);
+    }
+
+    @Override
+    public DataTrait computeDataTrait() {
+        return right().getLogicalProperties().getTrait();
+    }
+
+    // This function is useless, actually.
+    @Override
+    public void computeUnique(DataTrait.Builder builder) {
+        builder.addUniqueSlot(right().getLogicalProperties().getTrait());
+    }
+
+    // This function is useless, actually.
+    @Override
+    public void computeUniform(DataTrait.Builder builder) {
+        builder.addUniformSlot(right().getLogicalProperties().getTrait());
+    }
+
+    // This function is useless, actually.
+    @Override
+    public void computeEqualSet(DataTrait.Builder builder) {
+        builder.addEqualSet(right().getLogicalProperties().getTrait());
+    }
+
+    // This function is useless, actually.
+    @Override
+    public void computeFd(DataTrait.Builder builder) {
+        builder.addFuncDepsDG(right().getLogicalProperties().getTrait());
     }
 }
