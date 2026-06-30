@@ -27,11 +27,6 @@ suite("test_paimon_spark_doris_consistency_demo", "p2,external,paimon") {
     String minioPort = context.config.otherConfigs.get("iceberg_minio_port")
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
 
-    def normalizeRows = { rows ->
-        rows.collect { row ->
-            row.collect { value -> value == null ? null : value.toString() }
-        }
-    }
     def expectedRows = [
         [1, "alice", 10],
         [2, "bob", 20],
@@ -92,7 +87,7 @@ suite("test_paimon_spark_doris_consistency_demo", "p2,external,paimon") {
     assertEquals(expectedRows, dorisRows)
 
     // Example 2: compare Doris and Spark query results.
-    assertEquals(normalizeRows(sparkRows), normalizeRows(dorisRows))
+    assertSparkDorisResultEquals(sparkRows, dorisRows)
 
     def sparkAggRows = spark_paimon """
         SELECT count(*), sum(score)
@@ -105,7 +100,5 @@ suite("test_paimon_spark_doris_consistency_demo", "p2,external,paimon") {
         SELECT count(*), sum(score)
         FROM ${dbName}.spark_written_paimon_demo
     """
-    // Doris and Spark JDBC may return the same aggregate value with different
-    // Java number classes, for example Long vs BigInteger, so normalize before comparing.
-    assertEquals(normalizeRows(sparkAggRows), normalizeRows(dorisAggRows))
+    assertSparkDorisResultEquals(sparkAggRows, dorisAggRows)
 }

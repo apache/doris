@@ -53,6 +53,7 @@ import org.apache.doris.regression.util.DataUtils
 import org.apache.doris.regression.util.JdbcUtils
 import org.apache.doris.regression.util.Hdfs
 import org.apache.doris.regression.util.Http
+import org.apache.doris.regression.util.ResultUtils
 import org.apache.doris.regression.util.SuiteUtils
 import org.apache.doris.regression.util.DebugPoint
 import org.apache.doris.regression.RunMode
@@ -1690,6 +1691,10 @@ class Suite implements GroovyInterceptable {
      */
     List spark_paimon_multi(Object sqlStatements, boolean isOrder = false) {
         return spark_sql_multi(sqlStatements, isOrder)
+    }
+
+    void assertSparkDorisResultEquals(List<List<Object>> sparkRows, List<List<Object>> dorisRows) {
+        ResultUtils.assertSparkDorisResultEquals(sparkRows, dorisRows)
     }
 
     List<List<Object>> db2_docker(String sqlStr, boolean isOrder = false) {
