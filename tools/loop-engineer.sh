@@ -39,6 +39,9 @@ MAX_ROUNDS=0
 TOKEN_RETRY_SECONDS="${LOOP_ENGINEER_TOKEN_RETRY_SECONDS:-600}"
 CLAUDE_EXTRA_ARGS=()
 LOCK_DIR=""
+INTERACTIVE_DECISIONS="auto"
+COMMIT_DECISIONS=false
+DECISION_COMMIT_MESSAGE="Record loop-engineer decision"
 
 usage() {
     cat <<EOF
@@ -50,6 +53,9 @@ Options:
   --state-dir DIR            Directory for logs and state. Defaults to WORKDIR/.loop-engineer.
   --max-rounds N             Stop after N successful task rounds. 0 means unlimited.
   --token-retry-seconds N    Sleep interval after a token/rate limit. Defaults to ${TOKEN_RETRY_SECONDS}.
+  --interactive-decisions    Prompt in the terminal when Claude reports NEEDS_USER.
+  --no-interactive-decisions Exit with code 3 when Claude reports NEEDS_USER.
+  --commit-decisions         Commit HANDOFF.md after recording an interactive decision.
   --claude-arg ARG           Extra argument passed to claude. May be repeated.
   -h, --help                 Show this help.
 
@@ -63,6 +69,10 @@ Claude must finish each successful round with exactly one status line:
   LOOP_ENGINEER_STATUS: CONTINUE
   LOOP_ENGINEER_STATUS: DONE
   LOOP_ENGINEER_STATUS: NEEDS_USER
+
+When it needs user input, Claude should also emit:
+  LOOP_ENGINEER_DECISION_QUESTION: <question>
+  LOOP_ENGINEER_DECISION_OPTION: <short option> :: <description>
 EOF
 }
 
@@ -103,6 +113,18 @@ parse_args() {
             [[ "$#" -ge 2 ]] || die "--token-retry-seconds requires a value"
             TOKEN_RETRY_SECONDS="$2"
             shift 2
+            ;;
+        --interactive-decisions)
+            INTERACTIVE_DECISIONS=true
+            shift
+            ;;
+        --no-interactive-decisions)
+            INTERACTIVE_DECISIONS=false
+            shift
+            ;;
+        --commit-decisions)
+            COMMIT_DECISIONS=true
+            shift
             ;;
         --claude-arg)
             [[ "$#" -ge 2 ]] || die "--claude-arg requires a value"
@@ -168,6 +190,11 @@ Final response contract:
 - Use CONTINUE only after completing one task and updating the HANDOFF document.
 - Use DONE only when the HANDOFF document has no remaining unfinished tasks.
 - Use NEEDS_USER when human judgment is required before progress can continue.
+- When using NEEDS_USER, include a concise machine-readable decision block before the status line:
+  LOOP_ENGINEER_DECISION_QUESTION: <the decision question>
+  LOOP_ENGINEER_DECISION_OPTION: <short answer> :: <one-sentence impact or tradeoff>
+- Include two to five LOOP_ENGINEER_DECISION_OPTION lines when the choices are known.
+- If the user may need to provide a custom answer, still include the most likely options.
 EOF
 }
 
@@ -181,6 +208,124 @@ detect_token_limit() {
 extract_status() {
     local log_file="$1"
     sed -n 's/.*LOOP_ENGINEER_STATUS:[[:space:]]*\(CONTINUE\|DONE\|NEEDS_USER\).*/\1/p' "${log_file}" | tail -1
+}
+
+extract_decision_question() {
+    local log_file="$1"
+    sed -n 's/^LOOP_ENGINEER_DECISION_QUESTION:[[:space:]]*//p' "${log_file}" | tail -1
+}
+
+extract_decision_options() {
+    local log_file="$1"
+    sed -n 's/^LOOP_ENGINEER_DECISION_OPTION:[[:space:]]*//p' "${log_file}"
+}
+
+should_prompt_for_decision() {
+    case "${INTERACTIVE_DECISIONS}" in
+    true)
+        return 0
+        ;;
+    false)
+        return 1
+        ;;
+    auto)
+        [[ -t 0 && -t 1 ]]
+        ;;
+    *)
+        return 1
+        ;;
+    esac
+}
+
+append_decision_to_handoff() {
+    local round="$1"
+    local log_file="$2"
+    local question="$3"
+    local answer="$4"
+
+    {
+        printf '\n'
+        printf '<!-- loop-engineer-decision-start -->\n'
+        printf '## Loop Engineer Decision - %s\n\n' "$(date '+%Y-%m-%d %H:%M:%S %z')"
+        printf '%s\n' "- Round: ${round}"
+        printf '%s\n' "- Log: ${log_file}"
+        printf '%s\n' "- Question: ${question}"
+        printf '%s\n' "- Selected answer: ${answer}"
+        printf '<!-- loop-engineer-decision-end -->\n'
+    } >>"${HANDOFF_PATH}"
+}
+
+commit_handoff_decision() {
+    (
+        cd "${WORKDIR}"
+        git add -- "${HANDOFF_PATH}"
+        if git diff --cached --quiet -- "${HANDOFF_PATH}"; then
+            log "WARN" "decision commit requested, but HANDOFF.md has no staged changes"
+            exit 0
+        fi
+        git commit -m "${DECISION_COMMIT_MESSAGE}"
+    )
+}
+
+prompt_for_user_decision() {
+    local round="$1"
+    local log_file="$2"
+    local question
+    local answer=""
+    local options=()
+    local option
+    local choice
+
+    question="$(extract_decision_question "${log_file}")"
+    if [[ -z "${question}" ]]; then
+        question="Claude requested human judgment. See ${log_file} for full context."
+    fi
+
+    while IFS= read -r option; do
+        [[ -n "${option}" ]] && options+=("${option}")
+    done < <(extract_decision_options "${log_file}")
+
+    printf '\n'
+    printf 'Claude needs your decision before the loop can continue.\n'
+    printf '\n'
+    printf 'Question: %s\n' "${question}"
+
+    if [[ "${#options[@]}" -gt 0 ]]; then
+        printf '\nOptions:\n'
+        local i=1
+        for option in "${options[@]}"; do
+            printf '  %d. %s\n' "${i}" "${option}"
+            i="$((i + 1))"
+        done
+        printf '  c. Custom answer\n'
+
+        while true; do
+            read -r -p "Select an option number, or c for custom: " choice
+            if [[ "${choice}" =~ ^[0-9]+$ && "${choice}" -ge 1 && "${choice}" -le "${#options[@]}" ]]; then
+                answer="${options[$((choice - 1))]}"
+                break
+            fi
+            if [[ "${choice}" == "c" || "${choice}" == "C" ]]; then
+                read -r -p "Enter your decision: " answer
+                [[ -n "${answer}" ]] && break
+            fi
+            printf 'Invalid selection.\n'
+        done
+    else
+        printf '\nRecent Claude output:\n'
+        tail -40 "${log_file}"
+        printf '\n'
+        while [[ -z "${answer}" ]]; do
+            read -r -p "Enter your decision: " answer
+        done
+    fi
+
+    append_decision_to_handoff "${round}" "${log_file}" "${question}" "${answer}"
+    log "INFO" "recorded decision in ${HANDOFF_PATH}"
+
+    if "${COMMIT_DECISIONS}"; then
+        commit_handoff_decision
+    fi
 }
 
 acquire_lock() {
@@ -277,6 +422,11 @@ main() {
             exit 0
             ;;
         NEEDS_USER)
+            if should_prompt_for_decision; then
+                prompt_for_user_decision "${round}" "${log_file}"
+                round="$((round + 1))"
+                continue
+            fi
             log "WARN" "round ${round}: human judgment required; inspect ${log_file}"
             exit 3
             ;;
