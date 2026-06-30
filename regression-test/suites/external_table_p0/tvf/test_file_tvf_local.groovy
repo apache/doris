@@ -23,10 +23,13 @@ suite("test_file_tvf_local", "p0,tvf,external,external_docker") {
     def be_id = backends[0][0]
     def dataFilePath = context.config.dataPath + "/external_table_p0/tvf/compress"
 
-    def outFilePath="/compress"
+    def outFilePath="/tmp/test_file_tvf_local_compress"
 
     for (List<Object> backend : backends) {
          def be_host = backend[1]
+         def cleanCmd = "ssh -o StrictHostKeyChecking=no root@${be_host} 'rm -rf ${outFilePath}'"
+         def cleanProcess = cleanCmd.execute()
+         assertEquals(0, cleanProcess.waitFor())
          scpFiles ("root", be_host, dataFilePath, outFilePath, false);
     }
 

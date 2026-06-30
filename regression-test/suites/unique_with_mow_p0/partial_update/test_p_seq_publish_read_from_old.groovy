@@ -38,6 +38,7 @@ suite("test_p_seq_publish_read_from_old") {
         "enable_unique_key_merge_on_write" = "true",
         "light_schema_change" = "true",
         "function_column.sequence_col" = "v1",
+        "disable_auto_compaction" = "true",
         "store_row_column" = "false"); """
     sql """insert into ${tableName} values(1,100,1,1,1,1),(2,100,2,2,2,2),(3,100,3,3,3,3),(4,100,4,4,4,4);"""
     qt_sql "select k,v1,v2,v3,v4,v5 from ${tableName} order by k;"
@@ -159,7 +160,7 @@ suite("test_p_seq_publish_read_from_old") {
     do_streamload_2pc_commit(txnId2)
     wait_for_publish(txnId2, 60)
     do_streamload_2pc_commit(txnId3)
-    wait_for_publish(txnId2, 60)
+    wait_for_publish(txnId3, 60)
 
     sql "sync;"
     qt_sql "select k,v1,v2,v3,v4,v5,__DORIS_SEQUENCE_COL__ from ${tableName} order by k,v1,v2,v3,v4,v5,__DORIS_SEQUENCE_COL__;"

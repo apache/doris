@@ -49,19 +49,30 @@ suite("mow_insert_with_partition_drop") {
                 j++
             } catch (Exception e) {
                 logger.info("exception=" + e.getMessage())
-                assertTrue(e.getMessage().contains("Insert has filtered data in strict mode. url:") ||
-                        (e.getMessage().contains("partition") && e.getMessage().contains("does not exist")))
+                def errMsg = e.getMessage()
+                def lowerErrMsg = errMsg.toLowerCase()
+                assertTrue((errMsg.contains("Insert has filtered data in strict mode") && errMsg.contains("url:")) ||
+                        (lowerErrMsg.contains("partition") &&
+                                (lowerErrMsg.contains("does not exist") || lowerErrMsg.contains("no partition"))))
             }
 
         }
     }
 
+    Throwable insertThrowable = null
     def t1 = Thread.startDaemon {
-        do_insert_into()
+        try {
+            do_insert_into()
+        } catch (Throwable t) {
+            insertThrowable = t
+        }
     }
     for (int i = 0; i < 30; i++) {
         sql """ ALTER TABLE ${table} DROP PARTITION p3 force; """
         sql """ ALTER TABLE ${table} ADD PARTITION p3 VALUES LESS THAN ('2023-01-01'); """
     }
     t1.join()
+    if (insertThrowable != null) {
+        throw insertThrowable
+    }
 }
