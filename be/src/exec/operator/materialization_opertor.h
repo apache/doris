@@ -41,7 +41,7 @@ public:
     Status init_multi_requests(const TMaterializationNode& tnode, RuntimeState* state);
     Status create_muiltget_result(const Columns& columns, bool eos);
 
-    Status merge_multi_response();
+    Status merge_multi_response(RuntimeProfile* profile = nullptr);
     void get_block(Block* block);
 
 private:

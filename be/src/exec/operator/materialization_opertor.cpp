@@ -23,6 +23,8 @@
 
 #include <utility>
 
+#include "cloud/config.h"
+#include "common/config.h"
 #include "common/status.h"
 #include "core/block/block.h"
 #include "core/column/column.h"
@@ -33,6 +35,40 @@
 #include "util/brpc_closure.h"
 
 namespace doris {
+
+namespace {
+
+void update_counter(RuntimeProfile* profile, const std::string& name, TUnit::type unit,
+                    int64_t value) {
+    COUNTER_UPDATE(ADD_COUNTER_WITH_LEVEL(profile, name, unit, 2), value);
+}
+
+void update_topn_lazy_materialization_profile(RuntimeProfile* profile,
+                                              const PTopNLazyMaterializationFileCacheStats& stats) {
+    if (profile == nullptr) {
+        return;
+    }
+    update_counter(profile, RowIdStorageReader::TopNLazyMaterializationSecondPhaseLocalIOCount,
+                   TUnit::UNIT, stats.local_io_count());
+    update_counter(profile, RowIdStorageReader::TopNLazyMaterializationSecondPhaseLocalIOBytes,
+                   TUnit::BYTES, stats.local_io_bytes());
+    update_counter(profile, RowIdStorageReader::TopNLazyMaterializationSecondPhaseRemoteIOCount,
+                   TUnit::UNIT, stats.remote_io_count());
+    update_counter(profile, RowIdStorageReader::TopNLazyMaterializationSecondPhaseRemoteIOBytes,
+                   TUnit::BYTES, stats.remote_io_bytes());
+    update_counter(profile, RowIdStorageReader::TopNLazyMaterializationSecondPhaseSkipCacheIOCount,
+                   TUnit::UNIT, stats.skip_cache_io_count());
+    update_counter(profile, RowIdStorageReader::TopNLazyMaterializationSecondPhaseWriteCacheBytes,
+                   TUnit::BYTES, stats.write_cache_bytes());
+    update_counter(profile, RowIdStorageReader::TopNLazyMaterializationSecondPhaseLocalIOTime,
+                   TUnit::TIME_NS, stats.local_io_time());
+    update_counter(profile, RowIdStorageReader::TopNLazyMaterializationSecondPhaseRemoteIOTime,
+                   TUnit::TIME_NS, stats.remote_io_time());
+    update_counter(profile, RowIdStorageReader::TopNLazyMaterializationSecondPhaseWriteCacheIOTime,
+                   TUnit::TIME_NS, stats.write_cache_io_time());
+}
+
+} // namespace
 
 void MaterializationSharedState::get_block(Block* block) {
     for (int i = 0, j = 0, rowid_to_block_loc = rowid_locs[j]; i < origin_block.columns(); i++) {
@@ -63,7 +99,14 @@ void MaterializationSharedState::get_block(Block* block) {
 //   rpc_struct_map[backend_id].response  (per-BE partial blocks, unordered across BEs)
 //       + block_order_results[i][j]      (maps each output row → its source backend_id)
 //       → response_blocks[i]             (final merged result in original TopN row order)
-Status MaterializationSharedState::merge_multi_response() {
+Status MaterializationSharedState::merge_multi_response(RuntimeProfile* profile) {
+    for (const auto& [_, rpc_struct] : rpc_struct_map) {
+        if (rpc_struct.response.has_topn_lazy_materialization_file_cache_stats()) {
+            update_topn_lazy_materialization_profile(
+                    profile, rpc_struct.response.topn_lazy_materialization_file_cache_stats());
+        }
+    }
+
     // Outer loop: iterate over each relation (i.e., each rowid column / table).
     // A query with lazy materialization on 2 tables would have block_order_results.size() == 2,
     // each with its own set of response_blocks and RPC request_block_descs.
@@ -265,6 +308,9 @@ Status MaterializationSharedState::init_multi_requests(
     // Initialize the base struct of PMultiGetRequestV2
     multi_get_request.set_be_exec_version(state->be_exec_version());
     multi_get_request.set_wg_id(state->get_query_ctx()->workload_group()->id());
+    multi_get_request.set_file_cache_remote_only_on_miss(
+            config::is_cloud_mode() &&
+            state->query_options().enable_topn_lazy_mat_phase2_no_write_file_cache);
     auto* query_id = multi_get_request.mutable_query_id();
     query_id->set_hi(state->query_id().hi);
     query_id->set_lo(state->query_id().lo);
@@ -427,7 +473,8 @@ Status MaterializationOperator::push(RuntimeState* state, Block* in_block, bool 
 
         if (local_state._materialization_state.need_merge_block) {
             SCOPED_TIMER(local_state._merge_response_timer);
-            RETURN_IF_ERROR(local_state._materialization_state.merge_multi_response());
+            RETURN_IF_ERROR(local_state._materialization_state.merge_multi_response(
+                    local_state.operator_profile()));
             local_state._max_rows_per_backend_counter->set(
                     (int64_t)local_state._materialization_state._max_rows_per_backend);
         }

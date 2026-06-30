@@ -38,6 +38,9 @@ namespace doris {
 class DorisNodesInfo;
 class RuntimeState;
 class TupleDescriptor;
+namespace io {
+enum class FileCacheMissPolicy : uint8_t;
+}
 
 struct FileMapping;
 struct SegKey;
@@ -97,6 +100,15 @@ public:
     static const std::string InitReaderAvgTimeProfile;
     static const std::string GetBlockAvgTimeProfile;
     static const std::string FileReadLinesProfile;
+    static const std::string TopNLazyMaterializationSecondPhaseLocalIOCount;
+    static const std::string TopNLazyMaterializationSecondPhaseLocalIOBytes;
+    static const std::string TopNLazyMaterializationSecondPhaseRemoteIOCount;
+    static const std::string TopNLazyMaterializationSecondPhaseRemoteIOBytes;
+    static const std::string TopNLazyMaterializationSecondPhaseSkipCacheIOCount;
+    static const std::string TopNLazyMaterializationSecondPhaseWriteCacheBytes;
+    static const std::string TopNLazyMaterializationSecondPhaseLocalIOTime;
+    static const std::string TopNLazyMaterializationSecondPhaseRemoteIOTime;
+    static const std::string TopNLazyMaterializationSecondPhaseWriteCacheIOTime;
 
     static Status read_by_rowids(const PMultiGetRequest& request, PMultiGetResponse* response);
     static Status read_by_rowids(const PMultiGetRequestV2& request, PMultiGetResponseV2* response);
@@ -112,13 +124,14 @@ private:
             int64_t* acquire_tablet_ms, int64_t* acquire_rowsets_ms, int64_t* acquire_segments_ms,
             int64_t* lookup_row_data_ms, std::unordered_map<SegKey, SegItem, HashOfSegKey>& seg_map,
             std::unordered_map<IteratorKey, IteratorItem, HashOfIteratorKey>& iterator_map,
-            Block& result_block);
+            io::FileCacheMissPolicy file_cache_miss_policy, Block& result_block);
 
     static Status read_batch_doris_format_row(
             const PRequestBlockDesc& request_block_desc, std::shared_ptr<IdFileMap> id_file_map,
             std::vector<SlotDescriptor>& slots, const TUniqueId& query_id, Block& result_block,
             OlapReaderStatistics& stats, int64_t* acquire_tablet_ms, int64_t* acquire_rowsets_ms,
-            int64_t* acquire_segments_ms, int64_t* lookup_row_data_ms);
+            int64_t* acquire_segments_ms, int64_t* lookup_row_data_ms,
+            io::FileCacheMissPolicy file_cache_miss_policy);
 
     static Status read_batch_external_row(
             const uint64_t workload_group_id, const PRequestBlockDesc& request_block_desc,

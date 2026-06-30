@@ -593,7 +593,8 @@ Status ColumnReader::get_row_ranges_by_bloom_filter(const AndBlockColumnPredicat
             _load_bloom_filter_index(_use_index_page_cache, _opts.kept_in_memory, iter_opts));
     RowRanges bf_row_ranges;
     std::unique_ptr<BloomFilterIndexIterator> bf_iter;
-    RETURN_IF_ERROR(_bloom_filter_index->new_iterator(&bf_iter, iter_opts.stats));
+    RETURN_IF_ERROR(
+            _bloom_filter_index->new_iterator(&bf_iter, iter_opts.stats, &iter_opts.io_ctx));
     size_t range_size = row_ranges->range_size();
     // get covered page ids
     std::set<uint32_t> page_ids;
@@ -625,13 +626,14 @@ Status ColumnReader::_load_ordinal_index(bool use_page_cache, bool kept_in_memor
     if (!_ordinal_index) {
         return Status::InternalError("ordinal_index not inited");
     }
-    return _ordinal_index->load(use_page_cache, kept_in_memory, iter_opts.stats);
+    return _ordinal_index->load(use_page_cache, kept_in_memory, iter_opts.stats, &iter_opts.io_ctx);
 }
 
 Status ColumnReader::_load_zone_map_index(bool use_page_cache, bool kept_in_memory,
                                           const ColumnIteratorOptions& iter_opts) {
     if (_zone_map_index != nullptr) {
-        return _zone_map_index->load(use_page_cache, kept_in_memory, iter_opts.stats);
+        return _zone_map_index->load(use_page_cache, kept_in_memory, iter_opts.stats,
+                                     &iter_opts.io_ctx);
     }
     return Status::OK();
 }
@@ -743,7 +745,8 @@ bool ColumnReader::has_bloom_filter_index(bool ngram) const {
 Status ColumnReader::_load_bloom_filter_index(bool use_page_cache, bool kept_in_memory,
                                               const ColumnIteratorOptions& iter_opts) {
     if (_bloom_filter_index != nullptr) {
-        return _bloom_filter_index->load(use_page_cache, kept_in_memory, iter_opts.stats);
+        return _bloom_filter_index->load(use_page_cache, kept_in_memory, iter_opts.stats,
+                                         &iter_opts.io_ctx);
     }
     return Status::OK();
 }

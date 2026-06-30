@@ -1117,13 +1117,14 @@ Status Segment::seek_and_read_by_rowid(const TabletSchema& schema, SlotDescripto
     DORIS_CHECK(std::adjacent_find(row_ids.begin(), row_ids.end()) == row_ids.end());
     // ColumnIterator::seek_and_read expects monotonically increasing row_ids without
     // duplicates for correct ordinal scanning. Enforce this contract at the entry point.
+    auto io_ctx = storage_read_options.io_ctx;
+    io_ctx.reader_type = ReaderType::READER_QUERY;
+    io_ctx.file_cache_stats = &storage_read_options.stats->file_cache_stats;
     segment_v2::ColumnIteratorOptions opt {
             .use_page_cache = !config::disable_storage_page_cache,
             .file_reader = file_reader().get(),
             .stats = storage_read_options.stats,
-            .io_ctx = io::IOContext {.reader_type = ReaderType::READER_QUERY,
-                                     .file_cache_stats =
-                                             &storage_read_options.stats->file_cache_stats},
+            .io_ctx = io_ctx,
     };
 
     if (!slot->column_paths().empty()) {
