@@ -1339,14 +1339,15 @@ public abstract class ExternalCatalog
         return remoteDbName;
     }
 
-    protected void updateDatabaseCache(long dbId, String remoteDbName, String localDbName,
+    protected final void updateDatabaseCache(String remoteDbName, String localDbName,
             ExternalDatabase<? extends ExternalTable> db) {
-        updateDatabaseCache(dbId, remoteDbName, localDbName, db, false);
+        updateDatabaseCache(remoteDbName, localDbName, db, false);
     }
 
-    private void updateDatabaseCache(long dbId, String remoteDbName, String localDbName,
+    private void updateDatabaseCache(String remoteDbName, String localDbName,
             ExternalDatabase<? extends ExternalTable> db, boolean forceUpdateCacheState) {
         buildMetaCache();
+        long dbId = db.getId();
         // Runtime incremental events only maintain cache entries that are already hot. This avoids preheating
         // cache state for database names or objects that the current FE has never consumed.
         if (forceUpdateCacheState) {

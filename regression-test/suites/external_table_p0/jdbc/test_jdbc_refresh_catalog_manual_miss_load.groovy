@@ -144,8 +144,8 @@ suite("test_jdbc_refresh_catalog_manual_miss_load", "p0,external") {
         return ((Number) statRows[0][0]).intValue()
     }
 
-    // Run the always-on manual miss load path once and assert refresh stays non-blocking.
-    def runRefreshRace = { long minRefreshMs, long maxRefreshMs ->
+    // Run the schema-entry manual miss load path once and assert refresh stays non-blocking.
+    def runSchemaRefreshRace = { long minRefreshMs, long maxRefreshMs ->
         try {
             GetDebugPoint().enableDebugPointForAllFEs(
                     "PluginDrivenExternalTable.initSchema.sleep",
@@ -191,6 +191,61 @@ suite("test_jdbc_refresh_catalog_manual_miss_load", "p0,external") {
         }
     }
 
+    // Run the migrated tableNames miss-load path once and assert refresh stays non-blocking.
+    def runTableNamesRefreshRace = { long minRefreshMs, long maxRefreshMs ->
+        try {
+            GetDebugPoint().enableDebugPointForAllFEs(
+                    "ExternalDatabase.listTableNames.sleep",
+                    ["sleepMs": String.valueOf(slowSleepMs)])
+
+            def showElapsedMs = -1L
+            def showFailure = null
+            def showThread = Thread.start {
+                try {
+                    long showStart = System.currentTimeMillis()
+                    connect(context.config.jdbcUser, context.config.jdbcPassword, context.config.jdbcUrl) {
+                        sql """SHOW TABLES FROM ${catalogName}.${remoteDbName}"""
+                    }
+                    showElapsedMs = System.currentTimeMillis() - showStart
+                } catch (Throwable t) {
+                    showFailure = t
+                }
+            }
+
+            // Delay the refresh long enough so SHOW TABLES enters the injected slow table-names load.
+            Thread.sleep(refreshDelayMs)
+
+            long refreshStart = System.currentTimeMillis()
+            sql """REFRESH CATALOG ${catalogName}"""
+            long refreshElapsedMs = System.currentTimeMillis() - refreshStart
+
+            showThread.join(slowSleepMs + 15000)
+            if (showThread.isAlive()) {
+                throw new IllegalStateException("show tables thread does not finish in time")
+            }
+            if (showFailure != null) {
+                throw new IllegalStateException("show tables thread failed", showFailure)
+            }
+
+            // Re-read while the debug point is still enabled so a stale write-back would surface as a fast cache hit.
+            long secondShowStart = System.currentTimeMillis()
+            def secondShowRows = sql """SHOW TABLES FROM ${catalogName}.${remoteDbName}"""
+            long secondShowElapsedMs = System.currentTimeMillis() - secondShowStart
+
+            logger.info("tableNames refreshElapsedMs=${refreshElapsedMs}, showElapsedMs=${showElapsedMs}, "
+                    + "secondShowElapsedMs=${secondShowElapsedMs}")
+            assertTrue(showElapsedMs >= slowSleepMs - 1000)
+            assertEquals(collisionTableCount + 1, secondShowRows.size())
+            assertTrue(refreshElapsedMs >= minRefreshMs)
+            assertTrue(refreshElapsedMs <= maxRefreshMs)
+            assertTrue(refreshElapsedMs < showElapsedMs)
+            assertTrue(secondShowElapsedMs >= slowSleepMs - 1000)
+            return [refreshElapsedMs, showElapsedMs, secondShowElapsedMs]
+        } finally {
+            GetDebugPoint().disableDebugPointForAllFEs("ExternalDatabase.listTableNames.sleep")
+        }
+    }
+
     try {
         executeOnRemoteMysql("""DROP DATABASE IF EXISTS ${remoteDbName}""")
         executeOnRemoteMysql("""CREATE DATABASE ${remoteDbName}""")
@@ -212,17 +267,25 @@ suite("test_jdbc_refresh_catalog_manual_miss_load", "p0,external") {
 
         recreateRemoteObjects(collisionTableNames)
         preheatSchemaCache(collisionTableNames)
-        def manualLoadResult = runRefreshRace(0L, 5000L)
+        runSchemaRefreshRace(0L, 5000L)
 
         // Verify the invalidated slow load did not write back the stale key into schema cache.
         assertEquals(0, getSchemaCacheSize())
         sql """DESC ${catalogName}.${remoteDbName}.${slowTableName}"""
         assertEquals(1, getSchemaCacheSize())
+
+        sql """REFRESH CATALOG ${catalogName}"""
+        runTableNamesRefreshRace(0L, 5000L)
     } finally {
         try {
             GetDebugPoint().disableDebugPointForAllFEs("PluginDrivenExternalTable.initSchema.sleep")
         } catch (Throwable t) {
             logger.warn("failed to disable debug point during cleanup", t)
+        }
+        try {
+            GetDebugPoint().disableDebugPointForAllFEs("ExternalDatabase.listTableNames.sleep")
+        } catch (Throwable t) {
+            logger.warn("failed to disable table names debug point during cleanup", t)
         }
         try_sql("""DROP CATALOG IF EXISTS ${catalogName}""")
         try {

@@ -20,7 +20,6 @@ package org.apache.doris.datasource.hive;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ThreadPoolManager;
-import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalDatabase;
@@ -212,7 +211,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
         ExternalDatabase<? extends ExternalTable> db = buildDbForInit(dbName, null, dbId, logType, false);
         if (isInitialized()) {
             // Keep names/object/id cache updates in one helper so HMS incremental sync follows the same ordering.
-            updateDatabaseCache(db.getId(), db.getRemoteName(), db.getFullName(), db);
+            updateDatabaseCache(db.getRemoteName(), db.getFullName(), db);
         }
     }
 

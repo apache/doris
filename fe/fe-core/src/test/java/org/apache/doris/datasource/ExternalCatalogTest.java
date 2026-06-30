@@ -426,6 +426,19 @@ public class ExternalCatalogTest extends TestWithFeService {
     }
 
     @Test
+    public void testIncrementalDatabaseRegisterUsesActualDatabaseIdForHotIdMap() {
+        IncrementalUpdateCatalog catalog = new IncrementalUpdateCatalog();
+        catalog.setInitializedForTest(true);
+
+        // Keep the id map hot first so the incremental helper updates the existing slot with db.getId().
+        catalog.seedDatabaseIdNameForTest(110L, "stale_db");
+        TestExternalDatabase db = new TestExternalDatabase(catalog, 110L, "db_hot", "db_hot");
+        catalog.simulateIncrementalRegisterDatabase(db);
+
+        Assertions.assertEquals("db_hot", catalog.getCachedDatabaseNameByIdForTest(110L));
+    }
+
+    @Test
     public void testIncrementalTableRegisterDoesNotPreheatColdCache() {
         IncrementalUpdateCatalog catalog = new IncrementalUpdateCatalog();
         catalog.setInitializedForTest(true);
@@ -536,7 +549,12 @@ public class ExternalCatalogTest extends TestWithFeService {
         }
 
         void simulateIncrementalRegisterDatabase(TestExternalDatabase db) {
-            updateDatabaseCache(db.getId(), db.getRemoteName(), db.getFullName(), db);
+            // Route database cache publication through the production helper so tests cover the same id source.
+            updateDatabaseCache(db.getRemoteName(), db.getFullName(), db);
+        }
+
+        void seedDatabaseIdNameForTest(long dbId, String localDbName) {
+            dbIdToName.put(dbId, localDbName);
         }
 
         NameCacheValue getCachedDatabaseNamesForTest() {
