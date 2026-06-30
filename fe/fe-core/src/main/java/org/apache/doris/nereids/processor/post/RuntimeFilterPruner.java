@@ -26,7 +26,6 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalBucketedHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
@@ -241,16 +240,9 @@ public class RuntimeFilterPruner extends PlanPostProcessor {
                                                             CascadesContext context) {
         return propagateEffectiveSrc(aggregate, context);
     }
-
-    @Override
-    public PhysicalBucketedHashAggregate visitPhysicalBucketedHashAggregate(
-            PhysicalBucketedHashAggregate<? extends Plan> aggregate, CascadesContext context) {
-        return propagateEffectiveSrc(aggregate, context);
-    }
-
     /**
      * Visit child and propagate effective source type if applicable.
-     * Shared by visitPhysicalHashAggregate and visitPhysicalBucketedHashAggregate.
+     * Shared by visitPhysicalHashAggregate.
      *
      * Note: agg is not regarded as an effective source itself. For example:
      * q1: A join (select x, sum(y) as z from B group by x) T on A.a = T.x
