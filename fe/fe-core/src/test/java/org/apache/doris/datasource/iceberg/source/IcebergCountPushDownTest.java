@@ -47,27 +47,32 @@ public class IcebergCountPushDownTest {
         // Snapshots written by compaction/replace (and some writers) may omit
         // total-* counters. The pushdown previously NPE'd on the missing key;
         // it must now fall back to a normal scan (return -1).
-        Assertions.assertEquals(-1L, IcebergScanNode.getCountFromSummary(summary(null, "0", "100"), false));
-        Assertions.assertEquals(-1L, IcebergScanNode.getCountFromSummary(summary("0", null, "100"), false));
-        Assertions.assertEquals(-1L, IcebergScanNode.getCountFromSummary(summary("0", "0", null), false));
-        Assertions.assertEquals(-1L, IcebergScanNode.getCountFromSummary(Collections.emptyMap(), false));
+        Assertions.assertEquals(-1L, IcebergUtils.getCountFromSummary(summary(null, "0", "100"), false));
+        Assertions.assertEquals(-1L, IcebergUtils.getCountFromSummary(summary("0", null, "100"), false));
+        Assertions.assertEquals(-1L, IcebergUtils.getCountFromSummary(summary("0", "0", null), false));
+        Assertions.assertEquals(-1L, IcebergUtils.getCountFromSummary(Collections.emptyMap(), false));
+    }
+
+    @Test
+    public void testUtilityMissingCounterReturnsUnknownCount() {
+        Assertions.assertEquals(-1L, IcebergUtils.getCountFromSummary(summary("0", null, "100"), true));
     }
 
     @Test
     public void testNoDeletesPushesDownTotalRecords() {
-        Assertions.assertEquals(100L, IcebergScanNode.getCountFromSummary(summary("0", "0", "100"), false));
+        Assertions.assertEquals(100L, IcebergUtils.getCountFromSummary(summary("0", "0", "100"), false));
     }
 
     @Test
     public void testEqualityDeletesCannotPushDown() {
-        Assertions.assertEquals(-1L, IcebergScanNode.getCountFromSummary(summary("3", "0", "100"), false));
+        Assertions.assertEquals(-1L, IcebergUtils.getCountFromSummary(summary("3", "0", "100"), false));
     }
 
     @Test
     public void testPositionDeletesRespectIgnoreDangling() {
         // ignoreDanglingDelete = true -> total-records minus position-deletes
-        Assertions.assertEquals(90L, IcebergScanNode.getCountFromSummary(summary("0", "10", "100"), true));
+        Assertions.assertEquals(90L, IcebergUtils.getCountFromSummary(summary("0", "10", "100"), true));
         // ignoreDanglingDelete = false -> cannot push down (fall back to scan)
-        Assertions.assertEquals(-1L, IcebergScanNode.getCountFromSummary(summary("0", "10", "100"), false));
+        Assertions.assertEquals(-1L, IcebergUtils.getCountFromSummary(summary("0", "10", "100"), false));
     }
 }
