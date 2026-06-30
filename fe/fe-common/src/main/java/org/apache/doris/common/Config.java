@@ -2150,6 +2150,12 @@ public class Config extends ConfigBase {
             "Stripe count used by multi-key MetaCacheEntry instances such as external object caches."})
     public static int external_meta_cache_object_entry_lock_stripes = 256;
 
+    @ConfField(mutable = true, masterOnly = false, description = {
+            "Whether to synchronously refresh external database/table names when a name lookup misses in an "
+                    + "existing cached snapshot. Enabling this option is not recommended because queries for "
+                    + "non-existent objects may repeatedly trigger expensive remote name enumeration."})
+    public static boolean enable_external_meta_cache_name_miss_refresh = false;
+
     @ConfField(description = {"Maximum cache number of Hive partitioned tables."})
     public static long max_hive_partition_table_cache_num = 10000;
 

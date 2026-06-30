@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.InfoSchemaDb;
 import org.apache.doris.catalog.MysqlDb;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.datasource.infoschema.ExternalInfoSchemaDatabase;
 import org.apache.doris.datasource.infoschema.ExternalMysqlDatabase;
@@ -148,6 +149,173 @@ public class ExternalDatabaseTest extends TestWithFeService {
         Assertions.assertEquals(new HashSet<>(ExternalMysqlDatabase.listTableNames()), mysqlDb.getTableNamesWithLock());
     }
 
+    @Test
+    public void testTableNameMissRefreshDisabledSkipsHotSnapshotReload() {
+        boolean original = Config.enable_external_meta_cache_name_miss_refresh;
+        Config.enable_external_meta_cache_name_miss_refresh = false;
+        NameMissTableCatalogProvider.reset();
+        try {
+            NameMissTableCatalogProvider.putTable("db1", "TblBase");
+            NameMissTableCatalog catalog = new NameMissTableCatalog();
+            NameMissDatabase db = new NameMissDatabase(catalog, 700L, "db1", "db1");
+            db.setInitializedForTest(true);
+
+            Assertions.assertNotNull(db.getTableNullable("tblbase"));
+            Assertions.assertEquals(1, catalog.getListTableNamesCount());
+
+            NameMissTableCatalogProvider.putTable("db1", "TblHot");
+            Assertions.assertFalse(db.isTableExist("tblhot"));
+            Assertions.assertEquals(1, catalog.getListTableNamesCount());
+        } finally {
+            NameMissTableCatalogProvider.reset();
+            Config.enable_external_meta_cache_name_miss_refresh = original;
+        }
+    }
+
+    @Test
+    public void testTableNameMissRefreshEnabledReloadsHotSnapshot() {
+        boolean original = Config.enable_external_meta_cache_name_miss_refresh;
+        Config.enable_external_meta_cache_name_miss_refresh = true;
+        NameMissTableCatalogProvider.reset();
+        try {
+            NameMissTableCatalogProvider.putTable("db1", "TblBase");
+            NameMissTableCatalog catalog = new NameMissTableCatalog();
+            NameMissDatabase db = new NameMissDatabase(catalog, 701L, "db1", "db1");
+            db.setInitializedForTest(true);
+
+            Assertions.assertNotNull(db.getTableNullable("tblbase"));
+            Assertions.assertEquals(1, catalog.getListTableNamesCount());
+
+            NameMissTableCatalogProvider.putTable("db1", "TblHot");
+            Assertions.assertTrue(db.isTableExist("tblhot"));
+            Assertions.assertEquals(2, catalog.getListTableNamesCount());
+        } finally {
+            NameMissTableCatalogProvider.reset();
+            Config.enable_external_meta_cache_name_miss_refresh = original;
+        }
+    }
+
+    @Test
+    public void testTableReplayMissSkipsNameRefresh() {
+        boolean original = Config.enable_external_meta_cache_name_miss_refresh;
+        Config.enable_external_meta_cache_name_miss_refresh = true;
+        NameMissTableCatalogProvider.reset();
+        try {
+            NameMissTableCatalogProvider.putTable("db1", "TblBase");
+            NameMissTableCatalog catalog = new NameMissTableCatalog();
+            NameMissDatabase db = new NameMissDatabase(catalog, 702L, "db1", "db1");
+            db.setInitializedForTest(true);
+
+            Assertions.assertTrue(db.getTableForReplay("missing").isEmpty());
+            Assertions.assertEquals(0, catalog.getListTableNamesCount());
+        } finally {
+            NameMissTableCatalogProvider.reset();
+            Config.enable_external_meta_cache_name_miss_refresh = original;
+        }
+    }
+
+    @Test
+    public void testColdTableMissLoadsNamesOnlyOnceWhenRefreshEnabled() {
+        boolean original = Config.enable_external_meta_cache_name_miss_refresh;
+        Config.enable_external_meta_cache_name_miss_refresh = true;
+        NameMissTableCatalogProvider.reset();
+        try {
+            NameMissTableCatalogProvider.putTable("db1", "TblBase");
+            NameMissTableCatalog catalog = new NameMissTableCatalog();
+            NameMissDatabase db = new NameMissDatabase(catalog, 703L, "db1", "db1");
+            db.setInitializedForTest(true);
+
+            Assertions.assertNull(db.getTableNullable("missing"));
+            Assertions.assertEquals(1, catalog.getListTableNamesCount());
+        } finally {
+            NameMissTableCatalogProvider.reset();
+            Config.enable_external_meta_cache_name_miss_refresh = original;
+        }
+    }
+
+    @Test
+    public void testBuildTableForInitColdMissLoadsNamesOnlyOnceForModeZeroAndOne() {
+        boolean original = Config.enable_external_meta_cache_name_miss_refresh;
+        Config.enable_external_meta_cache_name_miss_refresh = true;
+        try {
+            // Cover mode-0 and mode-1 object-loader existence checks on cold snapshot misses.
+            for (int mode : new int[] {0, 1}) {
+                NameMissTableCatalogProvider.reset();
+                try {
+                    NameMissTableCatalogProvider.putTable("db1", remoteBaseTableNameForMode(mode));
+                    NameMissTableCatalog catalog = new NameMissTableCatalog(mode);
+                    NameMissDatabase db = new NameMissDatabase(catalog, 704L + mode, "db1", "db1");
+                    db.setInitializedForTest(true);
+
+                    Assertions.assertNull(db.getTableNullable(missingTableLookupNameForMode(mode)));
+                    Assertions.assertEquals(1, catalog.getListTableNamesCount(), "mode=" + mode);
+                } finally {
+                    NameMissTableCatalogProvider.reset();
+                }
+            }
+        } finally {
+            Config.enable_external_meta_cache_name_miss_refresh = original;
+        }
+    }
+
+    @Test
+    public void testBuildTableForInitHotMissHonorsMutableRefreshConfigForModeZeroAndOne() {
+        boolean original = Config.enable_external_meta_cache_name_miss_refresh;
+        try {
+            // Use the same database instance to prove the mutable config takes effect after the snapshot is already hot.
+            for (int mode : new int[] {0, 1}) {
+                NameMissTableCatalogProvider.reset();
+                try {
+                    Config.enable_external_meta_cache_name_miss_refresh = false;
+                    NameMissTableCatalogProvider.putTable("db1", remoteBaseTableNameForMode(mode));
+                    NameMissTableCatalog catalog = new NameMissTableCatalog(mode);
+                    NameMissDatabase db = new NameMissDatabase(catalog, 710L + mode, "db1", "db1");
+                    db.setInitializedForTest(true);
+
+                    Assertions.assertNotNull(db.getTableNullable(baseTableLookupNameForMode(mode)));
+                    Assertions.assertEquals(1, catalog.getListTableNamesCount(), "mode=" + mode);
+
+                    NameMissTableCatalogProvider.putTable("db1", remoteHotTableNameForMode(mode));
+                    Assertions.assertNull(db.getTableNullable(hotTableLookupNameForMode(mode)));
+                    Assertions.assertEquals(1, catalog.getListTableNamesCount(), "mode=" + mode);
+
+                    Config.enable_external_meta_cache_name_miss_refresh = true;
+                    Assertions.assertNotNull(db.getTableNullable(hotTableLookupNameForMode(mode)));
+                    Assertions.assertEquals(2, catalog.getListTableNamesCount(), "mode=" + mode);
+                } finally {
+                    NameMissTableCatalogProvider.reset();
+                }
+            }
+        } finally {
+            Config.enable_external_meta_cache_name_miss_refresh = original;
+        }
+    }
+
+    @Test
+    public void testTableReplayHotSnapshotMissSkipsReloadAndKeepsSnapshot() {
+        boolean original = Config.enable_external_meta_cache_name_miss_refresh;
+        Config.enable_external_meta_cache_name_miss_refresh = true;
+        NameMissTableCatalogProvider.reset();
+        try {
+            NameMissTableCatalogProvider.putTable("db1", "TblBase");
+            NameMissTableCatalog catalog = new NameMissTableCatalog();
+            NameMissDatabase db = new NameMissDatabase(catalog, 720L, "db1", "db1");
+            db.setInitializedForTest(true);
+
+            // Warm the names snapshot first so replay hits the hot-snapshot negative-lookup branch.
+            Assertions.assertNotNull(db.getTableNullable("tblbase"));
+            NameCacheValue namesSnapshot = db.getCachedTableNamesForTest();
+
+            Assertions.assertNotNull(namesSnapshot);
+            Assertions.assertTrue(db.getTableForReplay("missing").isEmpty());
+            Assertions.assertEquals(1, catalog.getListTableNamesCount());
+            Assertions.assertSame(namesSnapshot, db.getCachedTableNamesForTest());
+        } finally {
+            NameMissTableCatalogProvider.reset();
+            Config.enable_external_meta_cache_name_miss_refresh = original;
+        }
+    }
+
     private MetaCacheEntry<String, TestExternalTable> extractTablesEntry(InspectableDatabase db) throws Exception {
         Field tablesField = ExternalDatabase.class.getDeclaredField("tables");
         tablesField.setAccessible(true);
@@ -170,6 +338,24 @@ public class ExternalDatabaseTest extends TestWithFeService {
         }
     }
 
+    public static class NameMissTableCatalogProvider implements TestExternalCatalog.TestCatalogProvider {
+        private static final Map<String, Map<String, List<Column>>> MOCKED_META = new HashMap<>();
+
+        static void reset() {
+            MOCKED_META.clear();
+        }
+
+        static void putTable(String remoteDbName, String remoteTableName) {
+            MOCKED_META.computeIfAbsent(remoteDbName, ignored -> Maps.newHashMap())
+                    .put(remoteTableName, Lists.newArrayList(new Column("k1", PrimitiveType.INT)));
+        }
+
+        @Override
+        public Map<String, Map<String, List<Column>>> getMetadata() {
+            return MOCKED_META;
+        }
+    }
+
     private static class InspectableCatalog extends TestExternalCatalog {
         InspectableCatalog() {
             super(1000L, "db_test_catalog", "", buildProps(), "");
@@ -178,6 +364,36 @@ public class ExternalDatabaseTest extends TestWithFeService {
         private static Map<String, String> buildProps() {
             Map<String, String> props = Maps.newHashMap();
             props.put("catalog_provider.class", DatabaseCatalogProvider.class.getName());
+            return props;
+        }
+    }
+
+    private static class NameMissTableCatalog extends TestExternalCatalog {
+        private final AtomicInteger listTableNamesCount = new AtomicInteger();
+
+        NameMissTableCatalog() {
+            this(2);
+        }
+
+        NameMissTableCatalog(int mode) {
+            super(1100L + mode, "table_name_miss_catalog_" + mode, "", buildProps(mode), "");
+        }
+
+        @Override
+        protected List<String> listTableNamesFromRemote(SessionContext ctx, String dbName) {
+            listTableNamesCount.incrementAndGet();
+            return Lists.newArrayList(NameMissTableCatalogProvider.MOCKED_META.getOrDefault(dbName, Maps.newHashMap())
+                    .keySet());
+        }
+
+        int getListTableNamesCount() {
+            return listTableNamesCount.get();
+        }
+
+        private static Map<String, String> buildProps(int mode) {
+            Map<String, String> props = Maps.newHashMap();
+            props.put("catalog_provider.class", NameMissTableCatalogProvider.class.getName());
+            props.put(ExternalCatalog.LOWER_CASE_TABLE_NAMES, String.valueOf(mode));
             return props;
         }
     }
@@ -204,5 +420,32 @@ public class ExternalDatabaseTest extends TestWithFeService {
         int getBuildTableCallCount() {
             return buildTableCallCount.get();
         }
+    }
+
+    private static class NameMissDatabase extends TestExternalDatabase {
+        NameMissDatabase(ExternalCatalog extCatalog, long id, String name, String remoteName) {
+            super(extCatalog, id, name, remoteName);
+        }
+    }
+
+    // Keep lookup strings explicit so mode-0 and mode-1 tests exercise the intended object-loader branch.
+    private String remoteBaseTableNameForMode(int mode) {
+        return mode == 0 ? "tbl_base" : "TblBase";
+    }
+
+    private String remoteHotTableNameForMode(int mode) {
+        return mode == 0 ? "tbl_hot" : "TblHot";
+    }
+
+    private String baseTableLookupNameForMode(int mode) {
+        return mode == 0 ? "tbl_base" : "tblbase";
+    }
+
+    private String hotTableLookupNameForMode(int mode) {
+        return mode == 0 ? "tbl_hot" : "tblhot";
+    }
+
+    private String missingTableLookupNameForMode(int mode) {
+        return mode == 0 ? "tbl_missing" : "tblmissing";
     }
 }
