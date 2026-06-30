@@ -314,4 +314,44 @@ public class IcebergTableHandleTest {
         Assertions.assertEquals(original.getRewriteFileScope(), restored.getRewriteFileScope());
         Assertions.assertEquals(original, restored);
     }
+
+    // ==================== M-4: Top-N lazy-materialization signal ====================
+
+    @Test
+    public void bareHandleIsNotTopnLazyMaterialize() {
+        IcebergTableHandle h = new IcebergTableHandle("db1", "t1");
+        // WHY: a normal read must NOT be flagged topn, or the scan provider would build the full-schema dict
+        // (losing the pruned-column optimization) for every query. MUTATION: defaulting topnLazyMaterialize
+        // to true -> isTopnLazyMaterialize() true -> red.
+        Assertions.assertFalse(h.isTopnLazyMaterialize());
+    }
+
+    @Test
+    public void withTopnLazyMaterializeSetsFlagAndIsPartOfIdentity() {
+        IcebergTableHandle bare = new IcebergTableHandle("db1", "t1");
+        IcebergTableHandle topn = bare.withTopnLazyMaterialize(true);
+        // WHY: the flag changes the BE-facing field-id dictionary (pruned vs full), so it is part of the
+        // handle identity (consistent with the snapshot pin / rewrite scope). MUTATION: withTopnLazyMaterialize
+        // not storing the flag -> isTopnLazyMaterialize false -> red; equals/hashCode ignoring it ->
+        // bare.equals(topn) -> red.
+        Assertions.assertTrue(topn.isTopnLazyMaterialize());
+        Assertions.assertNotEquals(bare, topn);
+        IcebergTableHandle sameTopn = new IcebergTableHandle("db1", "t1").withTopnLazyMaterialize(true);
+        Assertions.assertEquals(topn, sameTopn);
+        Assertions.assertEquals(topn.hashCode(), sameTopn.hashCode());
+    }
+
+    @Test
+    public void topnLazyMaterializeComposesWithPinAndScope() {
+        // WHY: a time-travel + rewrite + topn scan applies all three copy factories; none must drop another
+        // carrier, else the scan reads the wrong snapshot/files or loses the full-schema dict. MUTATION:
+        // withSnapshot or withRewriteFileScope rebuilding without topnLazyMaterialize -> flag lost -> red.
+        IcebergTableHandle h = new IcebergTableHandle("db1", "t1")
+                .withTopnLazyMaterialize(true)
+                .withSnapshot(42L, null, 3L)
+                .withRewriteFileScope(ImmutableSet.of("oss://b/db/t1/f1.parquet"));
+        Assertions.assertTrue(h.isTopnLazyMaterialize());
+        Assertions.assertEquals(42L, h.getSnapshotId());
+        Assertions.assertEquals(ImmutableSet.of("oss://b/db/t1/f1.parquet"), h.getRewriteFileScope());
+    }
 }

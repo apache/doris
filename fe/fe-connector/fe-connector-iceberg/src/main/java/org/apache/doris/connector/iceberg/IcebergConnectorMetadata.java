@@ -1539,6 +1539,20 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         return ((IcebergTableHandle) handle).withRewriteFileScope(rawDataFilePaths);
     }
 
+    /**
+     * Marks the handle as a Top-N lazy-materialization scan so {@code IcebergScanPlanProvider} builds the
+     * field-id schema dictionary over the FULL schema (BE re-fetches non-projected columns by row-id). The
+     * generic {@code PluginDrivenScanNode} calls this when the scan carries the synthesized
+     * {@code __DORIS_GLOBAL_ROWID_COL__} column — legacy {@code IcebergScanNode.createScanRangeLocations} →
+     * {@code initSchemaInfoForAllColumn} parity. Threads the flag onto an immutable handle copy, mirroring
+     * {@link #applySnapshot} / {@link #applyRewriteFileScope}.
+     */
+    @Override
+    public ConnectorTableHandle applyTopnLazyMaterialization(ConnectorSession session,
+            ConnectorTableHandle handle) {
+        return ((IcebergTableHandle) handle).withTopnLazyMaterialize(true);
+    }
+
     // ========== Internal helpers ==========
 
     /**

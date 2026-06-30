@@ -144,6 +144,28 @@ public interface ConnectorMetadata extends
         return handle;  // default: connectors without distributed rewrite ignore the scope
     }
 
+    /**
+     * Threads a Top-N lazy-materialization signal into the table handle BEFORE {@code planScan} /
+     * {@code getScanNodeProperties} (mirrors {@link #applySnapshot} / {@link #applyRewriteFileScope}
+     * handle-update pattern). The generic engine calls this when the scan carries the synthesized,
+     * engine-wide lazy-materialization row-id column ({@code __DORIS_GLOBAL_ROWID_COL__*}, injected by
+     * {@code LazyMaterializeTopN} for {@code ORDER BY ... LIMIT}): under lazy materialization BE reads the
+     * sort key first, then re-fetches the OTHER (non-projected) columns of the surviving rows by row-id.
+     *
+     * <p>Contract: a connector that builds column-pruned scan metadata keyed by the REQUESTED columns
+     * (e.g. a field-id schema dictionary) MUST, once this is applied, build that metadata over the FULL
+     * table schema instead — otherwise a lazily re-fetched column has no entry and the native read resolves
+     * it wrong (schema-evolved tables) or drops it. A connector whose scan metadata already spans all
+     * columns ignores this.</p>
+     *
+     * <p>The default returns {@code handle} unchanged: connectors without column-pruned scan metadata are
+     * unaffected by lazy materialization.</p>
+     */
+    default ConnectorTableHandle applyTopnLazyMaterialization(ConnectorSession session,
+            ConnectorTableHandle handle) {
+        return handle;  // default: connectors without column-pruned scan metadata ignore the signal
+    }
+
     @Override
     default void close() throws IOException {
     }

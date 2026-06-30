@@ -988,6 +988,14 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             if (iceHandle.hasSnapshotPin()) {
                 dict = IcebergSchemaUtils.encodeSchemaEvolutionProp(
                         table, pinnedSchema(table, iceHandle), Collections.emptyList());
+            } else if (iceHandle.isTopnLazyMaterialize()) {
+                // Top-N lazy materialization (M-4): BE re-fetches the non-projected columns of the surviving
+                // rows by the synthesized row-id, so the dict must span the FULL latest schema, not just the
+                // pruned slots — otherwise a lazily re-fetched column on a schema-evolved table has no
+                // field-id entry and the native read drops/mis-reads it. An empty requested list builds the
+                // dict over every top-level column (legacy initSchemaInfoForAllColumn parity).
+                dict = IcebergSchemaUtils.encodeSchemaEvolutionProp(
+                        table, table.schema(), Collections.emptyList());
             } else {
                 dict = IcebergSchemaUtils.encodeSchemaEvolutionProp(
                         table, table.schema(), requestedLowerNames(columns));

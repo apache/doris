@@ -348,6 +348,24 @@ public class IcebergConnectorMetadataMvccTest {
     }
 
     // ---------------------------------------------------------------------
+    // applyTopnLazyMaterialization (M-4)
+    // ---------------------------------------------------------------------
+
+    @Test
+    public void applyTopnLazyMaterializationMarksHandleAndPreservesCoordinates() {
+        Fixture f = fixture();
+        IcebergTableHandle marked = (IcebergTableHandle) metadataFor(f.table, new RecordingIcebergCatalogOps())
+                .applyTopnLazyMaterialization(null, handle());
+        // WHY: the generic node calls this when the scan carries the synthesized row-id, so the connector must
+        // flag the handle (driving IcebergScanPlanProvider to build the FULL-schema field-id dict) while
+        // keeping the table coordinates. MUTATION: returning the handle unchanged (the default no-op) ->
+        // isTopnLazyMaterialize false -> red.
+        Assertions.assertTrue(marked.isTopnLazyMaterialize());
+        Assertions.assertEquals("db1", marked.getDbName());
+        Assertions.assertEquals("t1", marked.getTableName());
+    }
+
+    // ---------------------------------------------------------------------
     // getTableSchema(@snapshot)
     // ---------------------------------------------------------------------
 

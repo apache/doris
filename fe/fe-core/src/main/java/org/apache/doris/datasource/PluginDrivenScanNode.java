@@ -728,6 +728,42 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
     }
 
     /**
+     * Threads a Top-N lazy-materialization signal onto {@link #currentHandle} (mutates exactly like
+     * {@link #pinRewriteFileScope}) when this scan carries the engine-wide synthesized row-id column
+     * ({@code __DORIS_GLOBAL_ROWID_COL__}, injected by {@code LazyMaterializeTopN} for {@code ORDER BY
+     * ... LIMIT}). Under lazy materialization BE reads the sort key first, then re-fetches the OTHER
+     * (non-projected) columns of the surviving rows by row-id, so a connector whose scan metadata is
+     * pruned to the requested columns must rebuild it over the full schema (legacy
+     * {@code IcebergScanNode.createScanRangeLocations} {@code haveTopnLazyMatCol} parity). A no-op for
+     * every non-lazy-mat scan and for every connector whose {@link ConnectorMetadata#applyTopnLazyMaterialization}
+     * is the default (handle unchanged), so it is byte-identical for normal reads.
+     */
+    private void pinTopnLazyMaterialize() {
+        if (!hasTopnLazyMaterializeSlot(desc.getSlots())) {
+            return;
+        }
+        ConnectorMetadata metadata = connector.getMetadata(connectorSession);
+        currentHandle = metadata.applyTopnLazyMaterialization(connectorSession, currentHandle);
+    }
+
+    /**
+     * Whether any scan slot is the engine-wide synthesized lazy-materialization row-id column
+     * ({@code Column.GLOBAL_ROWID_COL} prefix). Mirrors legacy {@code IcebergScanNode.createScanRangeLocations}'
+     * {@code haveTopnLazyMatCol} detection and the same prefix test already used by {@link #classifyColumn}.
+     * Static + package-private so the pure detection is unit-testable directly (mirrors
+     * {@link #applyMvccSnapshotPin} / {@link #applyRewriteFileScopePin}).
+     */
+    static boolean hasTopnLazyMaterializeSlot(List<SlotDescriptor> slots) {
+        for (SlotDescriptor slot : slots) {
+            Column col = slot.getColumn();
+            if (col != null && col.getName().startsWith(Column.GLOBAL_ROWID_COL)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
      * Resolves the time-travel pin for a {@link PluginDrivenSysExternalTable} query whose pin never
      * enters the {@link org.apache.doris.nereids.StatementContext} MVCC map (the sys table is not an
      * {@link MvccTable}; see {@link #pinMvccSnapshot}). Delegates to the SOURCE table's
@@ -1331,6 +1367,10 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
                 }
                 // Scope the scan to a distributed rewrite group's files (no-op for every non-rewrite read).
                 pinRewriteFileScope();
+                // Signal Top-N lazy materialization so a connector with a column-pruned scan dictionary
+                // rebuilds it over the full schema (no-op for every non-lazy-mat read / every connector
+                // without a pruned dictionary).
+                pinTopnLazyMaterialize();
                 cachedPropertiesResult = scanProvider.getScanNodePropertiesResult(
                         connectorSession, currentHandle, columns, filter);
             }

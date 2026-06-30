@@ -779,6 +779,57 @@ public class IcebergScanPlanProviderTest {
     }
 
     @Test
+    public void getScanNodePropertiesUnderTopnLazyMatEmitsFullLatestSchemaDict() throws Exception {
+        // M-4: under Top-N lazy materialization BE reads the sort key first, then re-fetches the OTHER
+        // (non-projected) columns of the surviving rows by the synthesized row-id. So the field-id dict must
+        // span the FULL latest schema, NOT the pruned `columns` — else a lazily re-fetched, schema-evolved
+        // column has no field-id entry and the native read drops/mis-reads it (legacy
+        // initSchemaInfoForAllColumn parity). SCHEMA = id+name; even with a PRUNED columns=[id], the topn dict
+        // must carry "name". MUTATION: dropping the isTopnLazyMaterialize() branch -> keyed off `columns` ->
+        // dict has only "id" -> red.
+        Table table = createTable("t1", SCHEMA, PartitionSpec.unpartitioned());
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(Collections.emptyMap(), opsReturning(table));
+
+        Map<String, String> props = provider.getScanNodeProperties(
+                null, new IcebergTableHandle("db1", "t1").withTopnLazyMaterialize(true),
+                Collections.singletonList(new IcebergColumnHandle("id", 1)), Optional.empty());
+
+        TFileScanRangeParams params = new TFileScanRangeParams();
+        provider.populateScanLevelParams(params, props);
+        Assertions.assertEquals(2, params.getHistorySchemaInfo().get(0).getRootField().getFieldsSize());
+        Assertions.assertEquals("id", params.getHistorySchemaInfo().get(0).getRootField()
+                .getFields().get(0).getFieldPtr().getName());
+        Assertions.assertEquals("name", params.getHistorySchemaInfo().get(0).getRootField()
+                .getFields().get(1).getFieldPtr().getName());
+    }
+
+    @Test
+    public void getScanNodePropertiesPinTakesPrecedenceOverTopnLazyMat() throws Exception {
+        // A time-travel pin + Top-N lazy mat must take the PIN branch (pinned schema, full columns), not the
+        // latest-schema topn branch: BE reads at the pinned snapshot, so lazily re-fetched columns resolve
+        // against the PINNED schema's field-ids. Pinned S1 = id+name; latest (after rename) = id+fullname.
+        // With pin+topn the dict must carry the PINNED "name", never the latest "fullname". MUTATION:
+        // ordering the topn branch before the pin branch -> "fullname" leaks -> red.
+        Table table = createTable("t1", SCHEMA, PartitionSpec.unpartitioned());
+        table.newAppend().appendFile(dataFile(table.spec(), "s3://b/db/t1/f1.parquet", 1024, null, null)).commit();
+        long s1 = table.currentSnapshot().snapshotId();
+        long schemaIdS1 = table.currentSnapshot().schemaId();
+        table.updateSchema().renameColumn("name", "fullname").commit();
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(Collections.emptyMap(), opsReturning(table));
+
+        Map<String, String> props = provider.getScanNodeProperties(
+                null, new IcebergTableHandle("db1", "t1").withSnapshot(s1, null, schemaIdS1)
+                        .withTopnLazyMaterialize(true),
+                Collections.singletonList(new IcebergColumnHandle("id", 1)), Optional.empty());
+
+        TFileScanRangeParams params = new TFileScanRangeParams();
+        provider.populateScanLevelParams(params, props);
+        Assertions.assertEquals(2, params.getHistorySchemaInfo().get(0).getRootField().getFieldsSize());
+        Assertions.assertEquals("name", params.getHistorySchemaInfo().get(0).getRootField()
+                .getFields().get(1).getFieldPtr().getName());
+    }
+
+    @Test
     public void planScanReadsRealFormatVersionAndEmitsV3RowLineage() {
         Map<String, String> v3 = new HashMap<>();
         v3.put("format-version", "3");

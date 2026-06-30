@@ -83,12 +83,25 @@ public class IcebergTableHandle implements ConnectorTableHandle {
      */
     private final Set<String> rewriteFileScope;
 
+    /**
+     * Whether this scan runs under Top-N lazy materialization: the engine-wide synthesized row-id column
+     * ({@code __DORIS_GLOBAL_ROWID_COL__}) is present, so BE re-fetches the non-projected columns of the
+     * surviving rows by row-id. Threaded in by {@code IcebergConnectorMetadata.applyTopnLazyMaterialization}
+     * (called by the generic {@code PluginDrivenScanNode} before {@code getScanNodeProperties}). It forces
+     * the field-id schema dictionary to span the FULL schema rather than the pruned scan slots, so a lazily
+     * re-fetched column still carries its field-id on a schema-evolved native read (legacy
+     * {@code IcebergScanNode.createScanRangeLocations} → {@code initSchemaInfoForAllColumn} parity). Part of
+     * the handle identity (it changes the BE-facing dictionary), so {@link #equals}/{@link #hashCode}/
+     * {@link #toString} include it.
+     */
+    private final boolean topnLazyMaterialize;
+
     public IcebergTableHandle(String dbName, String tableName) {
-        this(dbName, tableName, NO_PIN, null, NO_PIN, null, null);
+        this(dbName, tableName, NO_PIN, null, NO_PIN, null, null, false);
     }
 
     private IcebergTableHandle(String dbName, String tableName, long snapshotId, String ref, long schemaId,
-            String sysTableName, Set<String> rewriteFileScope) {
+            String sysTableName, Set<String> rewriteFileScope, boolean topnLazyMaterialize) {
         this.dbName = dbName;
         this.tableName = tableName;
         this.snapshotId = snapshotId;
@@ -96,6 +109,7 @@ public class IcebergTableHandle implements ConnectorTableHandle {
         this.schemaId = schemaId;
         this.sysTableName = sysTableName;
         this.rewriteFileScope = rewriteFileScope;
+        this.topnLazyMaterialize = topnLazyMaterialize;
     }
 
     /**
@@ -107,7 +121,7 @@ public class IcebergTableHandle implements ConnectorTableHandle {
      */
     public static IcebergTableHandle forSystemTable(String dbName, String tableName, String sysName,
             long snapshotId, String ref, long schemaId) {
-        return new IcebergTableHandle(dbName, tableName, snapshotId, ref, schemaId, sysName, null);
+        return new IcebergTableHandle(dbName, tableName, snapshotId, ref, schemaId, sysName, null, false);
     }
 
     public String getDbName() {
@@ -156,15 +170,21 @@ public class IcebergTableHandle implements ConnectorTableHandle {
         return rewriteFileScope;
     }
 
+    /** Whether this scan runs under Top-N lazy materialization (see {@link #topnLazyMaterialize}). */
+    public boolean isTopnLazyMaterialize() {
+        return topnLazyMaterialize;
+    }
+
     /**
      * Returns a copy of this handle carrying the resolved time-travel pin. Mirrors paimon's
      * {@code PaimonTableHandle.withScanOptions}/{@code withBranch} but with iceberg's typed carriers.
      */
     public IcebergTableHandle withSnapshot(long snapshotId, String ref, long schemaId) {
-        // sysTableName and rewriteFileScope are preserved: threading a resolved time-travel pin in must not
-        // degrade a sys handle (t$snapshots) into a normal data-table handle, nor drop a rewrite scope.
+        // sysTableName, rewriteFileScope and topnLazyMaterialize are preserved: threading a resolved
+        // time-travel pin in must not degrade a sys handle (t$snapshots) into a normal data-table handle,
+        // drop a rewrite scope, or drop the lazy-materialization signal.
         return new IcebergTableHandle(dbName, tableName, snapshotId, ref, schemaId, sysTableName,
-                rewriteFileScope);
+                rewriteFileScope, topnLazyMaterialize);
     }
 
     /**
@@ -177,7 +197,16 @@ public class IcebergTableHandle implements ConnectorTableHandle {
      */
     public IcebergTableHandle withRewriteFileScope(Set<String> rawDataFilePaths) {
         return new IcebergTableHandle(dbName, tableName, snapshotId, ref, schemaId, sysTableName,
-                ImmutableSet.copyOf(rawDataFilePaths));
+                ImmutableSet.copyOf(rawDataFilePaths), topnLazyMaterialize);
+    }
+
+    /**
+     * Returns a copy of this handle marked as a Top-N lazy-materialization scan (see
+     * {@link #topnLazyMaterialize}). The other carriers (snapshot/ref/schema/sys/rewriteScope) are preserved.
+     */
+    public IcebergTableHandle withTopnLazyMaterialize(boolean topnLazyMaterialize) {
+        return new IcebergTableHandle(dbName, tableName, snapshotId, ref, schemaId, sysTableName,
+                rewriteFileScope, topnLazyMaterialize);
     }
 
     @Override
@@ -191,6 +220,7 @@ public class IcebergTableHandle implements ConnectorTableHandle {
         IcebergTableHandle that = (IcebergTableHandle) o;
         return snapshotId == that.snapshotId
                 && schemaId == that.schemaId
+                && topnLazyMaterialize == that.topnLazyMaterialize
                 && Objects.equals(dbName, that.dbName)
                 && Objects.equals(tableName, that.tableName)
                 && Objects.equals(ref, that.ref)
@@ -200,7 +230,8 @@ public class IcebergTableHandle implements ConnectorTableHandle {
 
     @Override
     public int hashCode() {
-        return Objects.hash(dbName, tableName, snapshotId, ref, schemaId, sysTableName, rewriteFileScope);
+        return Objects.hash(dbName, tableName, snapshotId, ref, schemaId, sysTableName, rewriteFileScope,
+                topnLazyMaterialize);
     }
 
     @Override
@@ -215,6 +246,9 @@ public class IcebergTableHandle implements ConnectorTableHandle {
         }
         if (rewriteFileScope != null) {
             sb.append(", rewriteFileScope=").append(rewriteFileScope.size()).append(" files");
+        }
+        if (topnLazyMaterialize) {
+            sb.append(", topnLazyMaterialize=true");
         }
         return sb.append('}').toString();
     }
