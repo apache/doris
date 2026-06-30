@@ -44,7 +44,6 @@ import org.apache.doris.nereids.trees.plans.algebra.OlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalBucketedHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
@@ -361,23 +360,24 @@ class CostModel extends PlanVisitor<Cost, PlanContext> {
                     inputStatistics.getRowCount() / beNumber, 0);
         } else {
             int factor = aggregate.getGroupByExpressions().isEmpty() ? 1 : beNumber;
-            // global
-            return Cost.of(context.getSessionVariable(),
-                    exprCost / 100 + inputStatistics.getRowCount() / factor,
-                    inputStatistics.getRowCount() / factor, 0);
-        }
-    }
+            double rowCost = inputStatistics.getRowCount() / factor;
 
-    @Override
-    public Cost visitPhysicalBucketedHashAggregate(
-            PhysicalBucketedHashAggregate<? extends Plan> aggregate, PlanContext context) {
-        // Bucketed agg is similar to one-phase agg: all computation on a single BE,
-        // but avoids exchange overhead. Cost is comparable to one-phase agg.
-        Statistics inputStatistics = context.getChildStatistics(0);
-        double exprCost = expressionTreeCost(aggregate.getExpressions());
-        return Cost.of(context.getSessionVariable(),
-                exprCost / 100 + inputStatistics.getRowCount(),
-                inputStatistics.getRowCount(), 0);
+            // Bucketed fusion discount: when the one-phase GLOBAL INPUT_TO_RESULT
+            // aggregate is generated with a PhysicalDistribute child on single BE,
+            // the translator will fuse them into a BucketedAggregationNode.
+            // Apply a discount to make this path preferred over two-phase
+            // (local+global) aggregation which requires extra serialize/deserialize.
+            if (aggregate.getAggMode() == AggMode.INPUT_TO_RESULT
+                    && beNumber == 1
+                    && context.getSessionVariable().enableBucketedHashAgg
+                    && !aggregate.getGroupByExpressions().isEmpty()
+                    && inputStatistics.getRowCount()
+                        >= context.getSessionVariable().bucketedAggMinInputRows) {
+                rowCost *= 0.5;
+            }
+            return Cost.of(context.getSessionVariable(),
+                    exprCost / 100 + rowCost, rowCost, 0);
+        }
     }
 
     @Override

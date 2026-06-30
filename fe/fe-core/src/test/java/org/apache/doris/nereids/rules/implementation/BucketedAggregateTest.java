@@ -44,6 +44,13 @@ import org.junit.jupiter.api.TestInstance;
 import java.util.List;
 import java.util.Optional;
 
+/**
+ * Tests for bucketed hash aggregation. Since the bucketed fusion now happens
+ * at the translator level (PhysicalPlanTranslator fuses one-phase GLOBAL
+ * PhysicalHashAggregate + PhysicalDistribute into BucketedAggregationNode),
+ * these tests verify that the optimizer generates the correct one-phase
+ * candidates that the translator will later fuse.
+ */
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 public class BucketedAggregateTest implements MemoPatternMatchSupported {
     private Plan rStudent;
@@ -84,6 +91,9 @@ public class BucketedAggregateTest implements MemoPatternMatchSupported {
 
     @Test
     public void testBucketedAggDisabled() {
+        // When bucketed is disabled and beNumber=1, the one-phase GLOBAL candidate
+        // (which the translator would fuse) is still generated. The cost model
+        // decides whether to pick it or two-phase.
         Plan root = buildAggregateWithGroupBy();
         ConnectContext ctx = MemoTestUtils.createConnectContext();
         ctx.getSessionVariable().enableBucketedHashAgg = false;
@@ -91,11 +101,15 @@ public class BucketedAggregateTest implements MemoPatternMatchSupported {
 
         PlanChecker.from(ctx, root)
                 .applyImplementation(splitAggWithoutDistinctRule())
-                .nonMatch(physicalBucketedHashAggregate());
+                .matches(physicalHashAggregate()
+                        .when(agg -> agg.getAggPhase().equals(AggPhase.GLOBAL)));
     }
 
     @Test
     public void testBucketedAggMultiBE() {
+        // On multi-BE, two-phase aggregation should be generated (local+global).
+        // The cost model will prefer two-phase because the bucketed discount
+        // only applies when beNumber==1.
         Plan root = buildAggregateWithGroupBy();
         ConnectContext ctx = MemoTestUtils.createConnectContext();
         ctx.getSessionVariable().enableBucketedHashAgg = true;
@@ -103,11 +117,12 @@ public class BucketedAggregateTest implements MemoPatternMatchSupported {
 
         PlanChecker.from(ctx, root)
                 .applyImplementation(splitAggWithoutDistinctRule())
-                .nonMatch(physicalBucketedHashAggregate());
+                .matches(physicalHashAggregate());
     }
 
     @Test
     public void testBucketedAggNoGroupBy() {
+        // Without GROUP BY, scalar aggregation is generated, not grouped agg.
         Plan root = buildAggregateWithoutGroupBy();
         ConnectContext ctx = MemoTestUtils.createConnectContext();
         ctx.getSessionVariable().enableBucketedHashAgg = true;
@@ -115,11 +130,14 @@ public class BucketedAggregateTest implements MemoPatternMatchSupported {
 
         PlanChecker.from(ctx, root)
                 .applyImplementation(splitAggWithoutDistinctRule())
-                .nonMatch(physicalBucketedHashAggregate());
+                .matches(physicalHashAggregate());
     }
 
     @Test
     public void testBucketedAggEnabled() {
+        // With all bucketed conditions met, the one-phase GLOBAL candidate
+        // (with GLOBAL_RESULT aggregate expressions) should be generated.
+        // The translator fuses this with the distribute into BucketedAggregationNode.
         Plan root = buildAggregateWithGroupBy();
         ConnectContext ctx = MemoTestUtils.createConnectContext();
         ctx.getSessionVariable().enableBucketedHashAgg = true;
@@ -132,11 +150,14 @@ public class BucketedAggregateTest implements MemoPatternMatchSupported {
         PlanChecker.from(ctx, root)
                 .deriveStats()
                 .applyImplementation(splitAggWithoutDistinctRule())
-                .matches(physicalBucketedHashAggregate());
+                .matches(physicalHashAggregate()
+                        .when(agg -> agg.getAggPhase().equals(AggPhase.GLOBAL)));
     }
 
     @Test
     public void testSingleExecutionInstanceOnlyGeneratesOnePhaseAgg() {
+        // When parallelPipelineTaskNum=1, only one-phase GLOBAL is generated
+        // (no two-phase candidates because there's nowhere to distribute to).
         Plan root = buildAggregateWithGroupBy();
         ConnectContext ctx = MemoTestUtils.createConnectContext();
         ctx.getSessionVariable().enableBucketedHashAgg = true;
@@ -151,14 +172,13 @@ public class BucketedAggregateTest implements MemoPatternMatchSupported {
                 .applyImplementation(splitAggWithoutDistinctRule())
                 .matches(physicalHashAggregate()
                         .when(agg -> agg.getAggPhase().equals(AggPhase.GLOBAL)))
-                .nonMatch(physicalHashAggregate(physicalHashAggregate()))
-                .nonMatch(physicalBucketedHashAggregate());
+                .nonMatch(physicalHashAggregate(physicalHashAggregate()));
     }
 
     @Test
     public void testBucketedAggForcedAggPhase() {
-        // When user forces agg_phase = 2, bucketed agg should NOT be generated
-        // because it is only added in auto mode (aggPhase == 0).
+        // When user forces agg_phase = 2, only two-phase is generated.
+        // The one-phase GLOBAL candidate (which the translator would fuse) is not generated.
         Plan root = buildAggregateWithGroupBy();
         ConnectContext ctx = MemoTestUtils.createConnectContext();
         ctx.getSessionVariable().enableBucketedHashAgg = true;
@@ -171,6 +191,9 @@ public class BucketedAggregateTest implements MemoPatternMatchSupported {
         PlanChecker.from(ctx, root)
                 .deriveStats()
                 .applyImplementation(splitAggWithoutDistinctRule())
-                .nonMatch(physicalBucketedHashAggregate());
+                .matches(physicalHashAggregate(physicalHashAggregate()))
+                .nonMatch(physicalHashAggregate()
+                        .when(agg -> agg.getAggPhase().equals(AggPhase.GLOBAL)
+                                && agg.child(0) instanceof LogicalOlapScan));
     }
 }
