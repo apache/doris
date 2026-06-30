@@ -29,6 +29,7 @@ import org.apache.doris.connector.api.write.ConnectorSinkPlan;
 import org.apache.doris.connector.api.write.ConnectorWritePartitionField;
 import org.apache.doris.connector.api.write.ConnectorWritePartitionSpec;
 import org.apache.doris.connector.api.write.ConnectorWriteSortColumn;
+import org.apache.doris.connector.spi.ConnectorBrokerAddress;
 import org.apache.doris.thrift.TDataSinkType;
 import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileContent;
@@ -40,6 +41,7 @@ import org.apache.doris.thrift.TIcebergMergeSink;
 import org.apache.doris.thrift.TIcebergRewritableDeleteFileSet;
 import org.apache.doris.thrift.TIcebergTableSink;
 import org.apache.doris.thrift.TIcebergWriteType;
+import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TSortField;
 import org.apache.doris.thrift.TSortInfo;
 
@@ -133,6 +135,14 @@ public class IcebergWritePlanProviderTest {
         // fs.s3a.* hadoop form (s3_util.cpp convert_properties_to_s3_conf reads only AWS_*).
         ctx.backendStorageProperties = Collections.singletonMap("AWS_ACCESS_KEY", "AK123");
         ctx.backendFileType = TFileType.FILE_S3;
+        return ctx;
+    }
+
+    /** A context that resolves writes to a FILE_BROKER backend (ofs/gfs) with the given broker addresses. */
+    private static RecordingConnectorContext contextWithBroker(List<ConnectorBrokerAddress> brokers) {
+        RecordingConnectorContext ctx = contextWithStorage();
+        ctx.backendFileType = TFileType.FILE_BROKER;
+        ctx.brokerAddresses = brokers;
         return ctx;
     }
 
@@ -311,6 +321,63 @@ public class IcebergWritePlanProviderTest {
                 "hadoop config must carry BE-canonical static creds (legacy getBackendConfigProperties / AWS_*)");
         Assertions.assertNull(sink.getHadoopConfig().get("fs.s3a.access.key"),
                 "the sink must not ship the fs.s3a.* hadoop form (BE cannot read it)");
+    }
+
+    // ───────────────────────────── broker backend (ofs:// / gfs:// -> FILE_BROKER) ─────────────────────────────
+    //
+    // WHY: SchemaTypeMapper maps ofs/gfs to FILE_BROKER; the sink must then carry the catalog's broker
+    // addresses, or BE gets a broker sink with an empty broker list and the write fails. Legacy
+    // IcebergTableSink/DeleteSink/MergeSink each did `if (FILE_BROKER) setBrokerAddresses(...)`; the migration
+    // dropped it. The engine resolves the addresses (BrokerMgr); the connector maps the neutral host/port
+    // pairs to TNetworkAddress and fails loud when none. MUTATION: dropping a setBrokerAddresses -> red.
+
+    @Test
+    public void planWriteBrokerBackendSetsBrokerAddressesOnEverySink() {
+        List<ConnectorBrokerAddress> brokers = Arrays.asList(
+                new ConnectorBrokerAddress("broker-h1", 8000),
+                new ConnectorBrokerAddress("broker-h2", 8001));
+        List<TNetworkAddress> expected = Arrays.asList(
+                new TNetworkAddress("broker-h1", 8000),
+                new TNetworkAddress("broker-h2", 8001));
+        Table table = partitionedSortedTable(freshCatalog());
+
+        TIcebergTableSink insert = planSink(table, contextWithBroker(brokers),
+                new WriteHandle(new IcebergTableHandle("db1", "t1")));
+        Assertions.assertEquals(TFileType.FILE_BROKER, insert.getFileType());
+        Assertions.assertEquals(expected, insert.getBrokerAddresses(),
+                "INSERT sink must carry the catalog broker addresses for a FILE_BROKER target");
+
+        TIcebergDeleteSink delete = planDeleteSink(table, contextWithBroker(brokers),
+                new WriteHandle(new IcebergTableHandle("db1", "t1")).writeOperation(WriteOperation.DELETE));
+        Assertions.assertEquals(expected, delete.getBrokerAddresses(),
+                "DELETE sink must carry the catalog broker addresses for a FILE_BROKER target");
+
+        TIcebergMergeSink merge = planMergeSink(table, contextWithBroker(brokers),
+                new WriteHandle(new IcebergTableHandle("db1", "t1")).writeOperation(WriteOperation.UPDATE));
+        Assertions.assertEquals(expected, merge.getBrokerAddresses(),
+                "MERGE sink must carry the catalog broker addresses for a FILE_BROKER target");
+    }
+
+    @Test
+    public void planWriteBrokerBackendWithNoAliveBrokerFailsLoud() {
+        // FILE_BROKER but the engine resolves no broker -> fail loud with the legacy message, never ship an
+        // empty broker list to BE.
+        Table table = partitionedSortedTable(freshCatalog());
+        DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
+                () -> planSink(table, contextWithBroker(Collections.emptyList()),
+                        new WriteHandle(new IcebergTableHandle("db1", "t1"))));
+        Assertions.assertEquals("No alive broker.", ex.getMessage());
+    }
+
+    @Test
+    public void planWriteNonBrokerBackendLeavesBrokerAddressesUnset() {
+        // S3/HDFS/local must NOT set broker_addresses (legacy gates the setter on FILE_BROKER).
+        Table table = partitionedSortedTable(freshCatalog());
+        TIcebergTableSink sink = planSink(table, contextWithStorage(),
+                new WriteHandle(new IcebergTableHandle("db1", "t1")));
+        Assertions.assertEquals(TFileType.FILE_S3, sink.getFileType());
+        Assertions.assertFalse(sink.isSetBrokerAddresses(),
+                "a non-broker write must not set broker_addresses");
     }
 
     @Test

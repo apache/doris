@@ -17,6 +17,7 @@
 
 package org.apache.doris.connector.iceberg;
 
+import org.apache.doris.connector.spi.ConnectorBrokerAddress;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorMetaInvalidator;
 import org.apache.doris.filesystem.properties.StorageProperties;
@@ -75,6 +76,10 @@ final class RecordingConnectorContext implements ConnectorContext {
     /** The vended token the connector passed to the most recent {@link #getBackendFileType}. */
     Map<String, String> lastFileTypeVendedToken;
 
+    /** Broker addresses the fake returns from {@link #getBrokerAddresses()} (broker write sink). Default none,
+     * so a FILE_BROKER write fails loud ("No alive broker.") unless a test populates it. */
+    List<ConnectorBrokerAddress> brokerAddresses = Collections.emptyList();
+
     /** "db.table" keys the connector invalidated via {@link #getMetaInvalidator()} (P6.4 procedure dispatch). */
     final List<String> invalidatedTables = new ArrayList<>();
 
@@ -97,6 +102,11 @@ final class RecordingConnectorContext implements ConnectorContext {
     public String getBackendFileType(String rawUri, Map<String, String> vendedToken) {
         lastFileTypeVendedToken = vendedToken;
         return backendFileType.name();
+    }
+
+    @Override
+    public List<ConnectorBrokerAddress> getBrokerAddresses() {
+        return brokerAddresses;
     }
 
     @Override

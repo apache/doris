@@ -225,6 +225,28 @@ public interface ConnectorContext {
     }
 
     /**
+     * Resolves the broker backend addresses bound to this catalog (host + port), for a write whose
+     * {@link #getBackendFileType} resolved to {@code FILE_BROKER} (e.g. an {@code ofs://} / {@code gfs://}
+     * iceberg write). A write-side companion to {@link #getBackendFileType}: a connector that hands a
+     * broker-backed output location to a BE table sink must also tell BE which brokers to open it through,
+     * and the broker registry (alive instances) + the catalog's bound broker name live in the engine, which
+     * the connector must not import. Returns neutral {@link ConnectorBrokerAddress} host/port pairs so this
+     * SPI stays Thrift-free — the connector, which has the Thrift types, maps them to {@code TNetworkAddress},
+     * exactly like it maps the {@link #getBackendFileType} String back to {@code TFileType}.
+     *
+     * <p>The engine override resolves the catalog's bound broker (or any alive broker when none is bound) and
+     * shuffles for load-balance, mirroring legacy write planning ({@code BaseExternalTableDataSink}); the
+     * connector applies these only for a {@code FILE_BROKER} target and fails loud when the resolved set is
+     * empty. The default returns empty (no broker machinery), so every non-broker write — and every other
+     * connector — is unaffected.
+     *
+     * @return the catalog's broker backend addresses, or empty when none
+     */
+    default List<ConnectorBrokerAddress> getBrokerAddresses() {
+        return Collections.emptyList();
+    }
+
+    /**
      * Returns the catalog's static storage credentials/config normalized to BE-canonical scan
      * properties: object-store creds as {@code AWS_ACCESS_KEY} / {@code AWS_SECRET_KEY} /
      * {@code AWS_TOKEN} / {@code AWS_ENDPOINT} / {@code AWS_REGION}, and HDFS config as the resolved

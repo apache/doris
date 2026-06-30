@@ -17,14 +17,19 @@
 
 package org.apache.doris.connector;
 
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.cloud.security.SecurityChecker;
 import org.apache.doris.common.CatalogConfigFileUtils;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.EnvUtils;
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.connector.api.ConnectorHttpSecurityHook;
+import org.apache.doris.connector.spi.ConnectorBrokerAddress;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorMetaInvalidator;
+import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.credentials.CredentialUtils;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.filesystem.FileEntry;
@@ -275,6 +280,30 @@ public class DefaultConnectorContext implements ConnectorContext {
         Map<StorageProperties.Type, StorageProperties> effective =
                 vended != null ? vended : storagePropertiesSupplier.get();
         return LocationPath.of(rawUri, effective).getTFileTypeForBE().name();
+    }
+
+    @Override
+    public List<ConnectorBrokerAddress> getBrokerAddresses() {
+        // Engine-side resolution of the catalog's broker backend (the connector cannot reach BrokerMgr /
+        // bindBrokerName). Mirrors legacy BaseExternalTableDataSink.getBrokerAddresses: the catalog's bound
+        // broker name -> getBrokers(name) (or getAllBrokers() when unbound) -> host/port, shuffled for
+        // load-balance. Returns empty when none is alive; the connector turns that into a fail-loud
+        // "No alive broker." for a FILE_BROKER write (this hook is only consulted for that target).
+        CatalogIf<?> catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogId);
+        String bindBroker = catalog instanceof ExternalCatalog
+                ? ((ExternalCatalog) catalog).bindBrokerName() : null;
+        List<FsBroker> brokers = bindBroker != null
+                ? Env.getCurrentEnv().getBrokerMgr().getBrokers(bindBroker)
+                : Env.getCurrentEnv().getBrokerMgr().getAllBrokers();
+        if (brokers == null || brokers.isEmpty()) {
+            return Collections.emptyList();
+        }
+        Collections.shuffle(brokers);
+        List<ConnectorBrokerAddress> result = new ArrayList<>(brokers.size());
+        for (FsBroker broker : brokers) {
+            result.add(new ConnectorBrokerAddress(broker.host, broker.port));
+        }
+        return result;
     }
 
     @Override

@@ -30,6 +30,7 @@ import org.apache.doris.connector.api.write.ConnectorWritePartitionField;
 import org.apache.doris.connector.api.write.ConnectorWritePartitionSpec;
 import org.apache.doris.connector.api.write.ConnectorWritePlanProvider;
 import org.apache.doris.connector.api.write.ConnectorWriteSortColumn;
+import org.apache.doris.connector.spi.ConnectorBrokerAddress;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.thrift.TDataSink;
 import org.apache.doris.thrift.TDataSinkType;
@@ -43,6 +44,7 @@ import org.apache.doris.thrift.TIcebergMergeSink;
 import org.apache.doris.thrift.TIcebergRewritableDeleteFileSet;
 import org.apache.doris.thrift.TIcebergTableSink;
 import org.apache.doris.thrift.TIcebergWriteType;
+import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TSortField;
 
 import com.google.common.collect.Maps;
@@ -350,6 +352,9 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
         LocationFields location = resolveLocationFields(table);
         tSink.setOutputPath(location.outputPath);
         tSink.setFileType(location.fileType);
+        if (!location.brokerAddresses.isEmpty()) {
+            tSink.setBrokerAddresses(location.brokerAddresses);
+        }
         tSink.setOriginalOutputPath(location.rawLocation);
 
         // Overwrite + static partition values (INSERT OVERWRITE ... PARTITION).
@@ -407,6 +412,9 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
         tSink.setOutputPath(location.outputPath);
         tSink.setTableLocation(location.rawLocation);
         tSink.setFileType(location.fileType);
+        if (!location.brokerAddresses.isEmpty()) {
+            tSink.setBrokerAddresses(location.brokerAddresses);
+        }
 
         if (table.spec().isPartitioned()) {
             tSink.setPartitionSpecId(table.spec().specId());
@@ -466,6 +474,9 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
         tSink.setOriginalOutputPath(location.rawLocation);
         tSink.setTableLocation(location.rawLocation);
         tSink.setFileType(location.fileType);
+        if (!location.brokerAddresses.isEmpty()) {
+            tSink.setBrokerAddresses(location.brokerAddresses);
+        }
 
         // Delete side (position delete only).
         tSink.setDeleteType(TFileContent.POSITION_DELETES);
@@ -535,23 +546,52 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
         Map<String, String> vendedToken = IcebergScanPlanProvider.extractVendedToken(
                 table, IcebergScanPlanProvider.restVendedCredentialsEnabled(properties));
         if (context != null) {
+            TFileType fileType = TFileType.valueOf(context.getBackendFileType(rawLocation, vendedToken));
+            // A broker backend (ofs://, gfs:// -> FILE_BROKER) must also carry the broker addresses, or BE
+            // gets a broker sink with an empty broker list and the write fails. Mirrors legacy
+            // IcebergTableSink: resolve broker addresses only when fileType == FILE_BROKER (S3/HDFS/local
+            // never touch the broker registry).
+            List<TNetworkAddress> brokerAddresses = fileType == TFileType.FILE_BROKER
+                    ? resolveBrokerAddresses() : Collections.emptyList();
             return new LocationFields(rawLocation,
-                    context.normalizeStorageUri(rawLocation, vendedToken),
-                    TFileType.valueOf(context.getBackendFileType(rawLocation, vendedToken)));
+                    context.normalizeStorageUri(rawLocation, vendedToken), fileType, brokerAddresses);
         }
-        return new LocationFields(rawLocation, rawLocation, TFileType.FILE_S3);
+        return new LocationFields(rawLocation, rawLocation, TFileType.FILE_S3, Collections.emptyList());
     }
 
-    /** Immutable holder for the three location fields shared by the sink dialects. */
+    /**
+     * Resolves the broker backend addresses for a FILE_BROKER write through the neutral SPI (the engine owns
+     * the broker registry + the catalog's bound broker name; the connector maps the neutral host/port pairs
+     * to Thrift). Fails loud {@code "No alive broker."} when none is resolved — the same message legacy
+     * {@code BaseExternalTableDataSink.getBrokerAddresses} threw — so a broker-backed write never silently
+     * ships an empty broker list to BE.
+     */
+    private List<TNetworkAddress> resolveBrokerAddresses() {
+        List<ConnectorBrokerAddress> addresses = context.getBrokerAddresses();
+        if (addresses.isEmpty()) {
+            throw new DorisConnectorException("No alive broker.");
+        }
+        List<TNetworkAddress> result = new ArrayList<>(addresses.size());
+        for (ConnectorBrokerAddress address : addresses) {
+            result.add(new TNetworkAddress(address.getHost(), address.getPort()));
+        }
+        return result;
+    }
+
+    /** Immutable holder for the location fields shared by the sink dialects (broker addresses are populated
+     * only for a FILE_BROKER target — empty otherwise). */
     private static final class LocationFields {
         private final String rawLocation;
         private final String outputPath;
         private final TFileType fileType;
+        private final List<TNetworkAddress> brokerAddresses;
 
-        LocationFields(String rawLocation, String outputPath, TFileType fileType) {
+        LocationFields(String rawLocation, String outputPath, TFileType fileType,
+                List<TNetworkAddress> brokerAddresses) {
             this.rawLocation = rawLocation;
             this.outputPath = outputPath;
             this.fileType = fileType;
+            this.brokerAddresses = brokerAddresses;
         }
     }
 
