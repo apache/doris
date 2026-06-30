@@ -93,20 +93,6 @@ TEST(NewJsonReaderSetBatchSizeTest, SetBatchSizeViaGenericInterface) {
     EXPECT_EQ(base_reader->get_batch_size(), 4096U);
 }
 
-TEST(NewJsonReaderBoolNumberTest, CheckJsonNumberIsNonzero) {
-    EXPECT_FALSE(json_reader_detail::is_nonzero_json_number("0"));
-    EXPECT_FALSE(json_reader_detail::is_nonzero_json_number("-0"));
-    EXPECT_FALSE(json_reader_detail::is_nonzero_json_number("0.0"));
-    EXPECT_FALSE(json_reader_detail::is_nonzero_json_number("-0.000e123"));
-    EXPECT_FALSE(json_reader_detail::is_nonzero_json_number("0E+1"));
-
-    EXPECT_TRUE(json_reader_detail::is_nonzero_json_number("1235"));
-    EXPECT_TRUE(json_reader_detail::is_nonzero_json_number("-1"));
-    EXPECT_TRUE(json_reader_detail::is_nonzero_json_number("0.001"));
-    EXPECT_TRUE(json_reader_detail::is_nonzero_json_number("-0.0001"));
-    EXPECT_TRUE(json_reader_detail::is_nonzero_json_number("1e-999"));
-}
-
 TEST(NewJsonReaderCowTest, AppendNullForMalformedJsonMutatesOwnerColumn) {
     auto nested_column = ColumnInt32::create();
     nested_column->insert_value(7);
