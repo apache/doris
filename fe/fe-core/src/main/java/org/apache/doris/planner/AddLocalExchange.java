@@ -22,9 +22,18 @@ import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.trees.plans.distribute.DistributedPlan;
 import org.apache.doris.nereids.trees.plans.distribute.FragmentIdMapping;
 import org.apache.doris.nereids.trees.plans.distribute.PipelineDistributedPlan;
+import org.apache.doris.nereids.trees.plans.distribute.worker.job.AssignedJob;
+import org.apache.doris.nereids.trees.plans.distribute.worker.job.LocalShuffleBucketJoinAssignedJob;
 import org.apache.doris.planner.LocalExchangeNode.LocalExchangeType;
 import org.apache.doris.planner.LocalExchangeNode.LocalExchangeTypeRequire;
 import org.apache.doris.planner.LocalExchangeNode.RequireHash;
+import org.apache.doris.qe.ConnectContext;
+
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 /**
  * FE-side local exchange planner — inserts {@link LocalExchangeNode} into each fragment's
@@ -81,9 +90,105 @@ public class AddLocalExchange {
             if (maxPerBeInstances <= 1) {
                 continue;
             }
+            context.setCurrentFragmentBucketUpgradeEligible(
+                    isBucketUpgradeEligible(pipePlan, maxPerBeInstances, context));
             PlanFragment fragment = pipePlan.getFragmentJob().getFragment();
             addLocalExchangeForFragment(fragment, context);
         }
+    }
+
+    /**
+     * Bucket → local-hash parallelism upgrade eligibility .
+     *
+     * A pooled bucket-join fragment runs its bucket joins at bucket-count parallelism:
+     * each LocalShuffleBucketJoinAssignedJob owns a disjoint set of join buckets and only
+     * instances with buckets do join work (e.g. 8 buckets/BE but 16 instances/BE → 8 idle).
+     * When nothing above the join needs bucket alignment, HashJoinNode can re-distribute
+     * both sides with LOCAL_EXECUTION_HASH_SHUFFLE to use all instances — see
+     * {@link HashJoinNode#enforceAndDeriveLocalExchange}.
+     *
+     * This method computes the per-fragment numeric condition from the actual instance
+     * assignment: maxPerBeInstances > maxBucketsWithDataPerWorker × ratio.  The ratio comes
+     * from session variable {@code local_shuffle_bucket_upgrade_ratio}; values <= 1 disable
+     * the upgrade entirely (a required parallelism gain of at most 1x means no gain).
+     */
+    private boolean isBucketUpgradeEligible(PipelineDistributedPlan pipePlan,
+            long maxPerBeInstances, PlanTranslatorContext context) {
+        ConnectContext connectContext = context.getConnectContext();
+        if (connectContext == null || connectContext.getSessionVariable() == null) {
+            return false;
+        }
+        double ratio = connectContext.getSessionVariable().getLocalShuffleBucketUpgradeRatio();
+        List<AssignedJob> instanceJobs = pipePlan.getInstanceJobs();
+        if (instanceJobs.isEmpty()
+                || !instanceJobs.stream().allMatch(LocalShuffleBucketJoinAssignedJob.class::isInstance)) {
+            // Only pooled bucket-join fragments have the bucket-count parallelism cap.
+            return false;
+        }
+        Map<Long, Set<Integer>> bucketsPerWorker = new HashMap<>();
+        Map<Long, Integer> instancesPerWorker = new HashMap<>();
+        Map<Long, Integer> coresPerWorker = new HashMap<>();
+        for (AssignedJob job : instanceJobs) {
+            long workerId = job.getAssignedWorker().id();
+            bucketsPerWorker.computeIfAbsent(workerId, k -> new HashSet<>())
+                    .addAll(((LocalShuffleBucketJoinAssignedJob) job).getAssignedJoinBucketIndexes());
+            instancesPerWorker.merge(workerId, 1, Integer::sum);
+            coresPerWorker.computeIfAbsent(workerId, k -> resolveWorkerCores(job.getAssignedWorker()));
+        }
+        // Conservative: every worker that owns buckets must clear the gain bar. The gain is
+        // computed on EFFECTIVE parallelism (capped by the BE's executor threads): when the
+        // bucket count already saturates the cores, adding instances cannot speed the join
+        // up and the extra local exchange is a pure cost.
+        boolean anyBuckets = false;
+        for (Map.Entry<Long, Set<Integer>> entry : bucketsPerWorker.entrySet()) {
+            int buckets = entry.getValue().size();
+            if (buckets == 0) {
+                continue;
+            }
+            anyBuckets = true;
+            int instances = instancesPerWorker.getOrDefault(entry.getKey(), 0);
+            int cores = coresPerWorker.getOrDefault(entry.getKey(), Integer.MAX_VALUE);
+            if (!shouldUpgradeBucketParallelism(ratio,
+                    Math.min(instances, cores), Math.min(buckets, cores))) {
+                return false;
+            }
+        }
+        return anyBuckets;
+    }
+
+    /**
+     * Effective execution threads of the worker's backend (pipelineExecutorSize, falling
+     * back to cpuCores). Values <= 1 mean the heartbeat has not reported yet — treat the
+     * capacity as unknown/uncapped rather than blocking the upgrade.
+     */
+    private static int resolveWorkerCores(
+            org.apache.doris.nereids.trees.plans.distribute.worker.DistributedPlanWorker worker) {
+        if (worker instanceof org.apache.doris.nereids.trees.plans.distribute.worker.BackendWorker) {
+            org.apache.doris.system.Backend backend =
+                    ((org.apache.doris.nereids.trees.plans.distribute.worker.BackendWorker) worker).getBackend();
+            int size = backend.getPipelineExecutorSize();
+            if (size <= 1) {
+                size = backend.getCputCores();
+            }
+            if (size > 1) {
+                return size;
+            }
+        }
+        return Integer.MAX_VALUE;
+    }
+
+    /**
+     * Pure numeric gate for the bucket → local-hash upgrade.
+     * ratio <= 1 (including 0 and negatives) always disables; otherwise upgrade when the
+     * per-BE instance count exceeds buckets-with-data × ratio (i.e. the parallelism gain
+     * is at least the configured multiple).
+     */
+    static boolean shouldUpgradeBucketParallelism(double ratio, long maxPerBeInstances,
+            long maxBucketsPerWorker) {
+        if (ratio <= 1.0) {
+            return false;
+        }
+        return maxBucketsPerWorker > 0 && maxPerBeInstances > maxBucketsPerWorker * ratio;
     }
 
     private void addLocalExchangeForFragment(PlanFragment fragment, PlanTranslatorContext context) {

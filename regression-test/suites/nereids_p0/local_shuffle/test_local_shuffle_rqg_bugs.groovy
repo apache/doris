@@ -19,7 +19,7 @@
  * Regression tests for bugs discovered by RQG testing on the local-exchange2 branch.
  *
  * These queries triggered "must set shared state" errors or incorrect results
- * in RQG build 183992.  Common conditions:
+ * in RQG testing.  Common conditions:
  *   - use_serial_exchange=true  (makes ALL Exchanges serial, not just UNPARTITIONED)
  *   - enable_local_shuffle_planner=true (FE-planned local exchange)
  *   - parallel_pipeline_task_num > 1
@@ -65,7 +65,7 @@ suite("test_local_shuffle_rqg_bugs") {
         PROPERTIES ("replication_num" = "1")
     """
 
-    // Table for build 184181 GLOBAL_HASH_SHUFFLE bugs — needs varchar + bigint columns
+    // Table for RQG testing GLOBAL_HASH_SHUFFLE bugs — needs varchar + bigint columns
     sql """
         CREATE TABLE rqg_t3 (
             pk INT NOT NULL,
@@ -354,7 +354,7 @@ suite("test_local_shuffle_rqg_bugs") {
     //  local exchange on outer NLJ's build side because child was NLJ (not ScanNode).
     //  Fixed in NestedLoopJoinNode.enforceAndDeriveLocalExchange by using
     //  fragment.useSerialSource() instead of instanceof ScanNode check.
-    //  This was the root cause of 989 RQG test failures (build 183677).
+    //  This was the root cause of 989 RQG test failures (RQG testing).
     // ============================================================
 
     logger.info("=== Bug 6: CROSS_JOIN shared state - nested NLJ + pooling scan (FE planner) ===")
@@ -513,7 +513,7 @@ suite("test_local_shuffle_rqg_bugs") {
 
     // ============================================================
     //  Bug 10: GLOBAL_HASH_SHUFFLE Rows mismatched — self-join + NLJ
-    //  RQG case: 906784672 (build 184181)
+    //  RQG regression case
     //  Root cause: HashJoinNode used requireGlobalExecutionHash() → GLOBAL local exchange
     //  inserted when use_serial_exchange=true; shuffle_idx_to_instance_idx map has only
     //  4 entries (1/BE) but GLOBAL hash needs N*dop entries → most rows unrouted (0 actual rows).
@@ -522,7 +522,7 @@ suite("test_local_shuffle_rqg_bugs") {
     //       then NLJ (LEFT JOIN table1 table3 ON pk > col_bigint_undef_signed)
     // ============================================================
 
-    logger.info("=== Bug 10: GLOBAL_HASH_SHUFFLE Rows mismatched - self-join + NLJ (build 184181 case 906784672) ===")
+    logger.info("=== Bug 10: GLOBAL_HASH_SHUFFLE Rows mismatched - self-join + NLJ (RQG testing case 906784672) ===")
     def bug10_fe = sql """
         SELECT /*+SET_VAR(use_serial_exchange=true, parallel_pipeline_task_num=4,
                           enable_local_shuffle_planner=true,
@@ -564,12 +564,12 @@ suite("test_local_shuffle_rqg_bugs") {
 
     // ============================================================
     //  Bug 11: GLOBAL_HASH_SHUFFLE Rows mismatched — FULL OUTER JOIN + GROUP BY
-    //  RQG case: 11007681241 (build 184181)
+    //  RQG regression case
     //  Same root cause as Bug 10.
     //  SQL: FULL OUTER JOIN on col_bigint_undef_signed_not_null with WHERE + GROUP BY
     // ============================================================
 
-    logger.info("=== Bug 11: GLOBAL_HASH_SHUFFLE Rows mismatched - FULL OUTER JOIN + GROUP BY (build 184181 case 11007681241) ===")
+    logger.info("=== Bug 11: GLOBAL_HASH_SHUFFLE Rows mismatched - FULL OUTER JOIN + GROUP BY (RQG testing case 11007681241) ===")
     def bug11_fe = sql """
         SELECT /*+SET_VAR(use_serial_exchange=true, parallel_pipeline_task_num=4,
                           enable_local_shuffle_planner=true,
@@ -603,12 +603,12 @@ suite("test_local_shuffle_rqg_bugs") {
 
     // ============================================================
     //  Bug 12: GLOBAL_HASH_SHUFFLE Rows mismatched — LEFT JOIN + VARCHAR predicates + MIN()
-    //  RQG case: 906784662 (build 184181)
+    //  RQG regression case
     //  Same root cause as Bug 10/11.
     //  SQL: LEFT JOIN on pk with VARCHAR NOT IN / BETWEEN / IN predicates, MIN() aggregate
     // ============================================================
 
-    logger.info("=== Bug 12: GLOBAL_HASH_SHUFFLE Rows mismatched - LEFT JOIN + VARCHAR predicates (build 184181 case 906784662) ===")
+    logger.info("=== Bug 12: GLOBAL_HASH_SHUFFLE Rows mismatched - LEFT JOIN + VARCHAR predicates (RQG testing case 906784662) ===")
     def bug12_fe = sql """
         SELECT /*+SET_VAR(use_serial_exchange=true, parallel_pipeline_task_num=4,
                           enable_local_shuffle_planner=true,
@@ -646,7 +646,7 @@ suite("test_local_shuffle_rqg_bugs") {
 
     // ============================================================
     //  Bug 13: NLJ COREDUMP — serial NLJ + pooling scan + BROADCAST build side
-    //  RQG build 184430, query c0dafc1bed0f4910
+    //  RQG testing
     //  Root cause: serial NLJ (RIGHT_OUTER) with pooling scan inserted BROADCAST
     //  local exchange on build side, inflating build pipeline num_tasks to _num_instances
     //  while probe pipeline stayed at 1 task. Instance 1+ created build tasks without
@@ -696,7 +696,7 @@ suite("test_local_shuffle_rqg_bugs") {
 
     // ============================================================
     //  Bug 14: BUCKET_SHUFFLE join + serial build Exchange — must set shared state
-    //  RQG build 184563, cases 906784706/906784783/906784987/906785006
+    //  RQG testing
     //  Root cause: BUCKET_SHUFFLE join build side ExchangeNode marked serial in
     //  pooling scan fragment → build pipeline num_tasks reduced to 1 →
     //  instance 1+ have probe tasks without build tasks → shared state injection
@@ -925,7 +925,7 @@ suite("test_local_shuffle_rqg_bugs") {
     //
     //  Both triggered by: OVER() with no PARTITION BY + GROUPING SETS +
     //  pptn=0 (auto-parallel) + disable_streaming_preaggregations=true
-    //  RQG build 186195, query IDs: 7f3178a77c2c4b6b, 71887f7bf804c0c, 5dd9fcad234c4484
+    //  RQG testing
     // ============================================================
     sql "DROP TABLE IF EXISTS rqg_analytic_t1"
     sql """
@@ -1161,8 +1161,57 @@ suite("test_local_shuffle_rqg_bugs") {
     }
 
     // ============================================================
+    //  Bug 20b: count(distinct)+std + RIGHT JOIN returns inflated distinct count
+    //  when use_serial_exchange=true + enable_local_exchange_before_agg=false.
+    //  Root cause (BE-planned): AggSink early-return ignored that the serial exchange
+    //  child breaks the HASH(s) invariant via PASSTHROUGH fan-out; fixed upstream by
+    //  child_breaks_local_key_distribution (#63766). The FE planner fixes it
+    //  structurally: requires are semantic, a hash LE is inserted instead of
+    //  PASSTHROUGH. This case pins both paths.
+    // ============================================================
+    try {
+        logger.info("Bug 20b: count(distinct) under serial exchange")
+        sql "DROP TABLE IF EXISTS rqg_25413_t1"
+        sql "DROP TABLE IF EXISTS rqg_25413_t2"
+        sql """CREATE TABLE rqg_25413_t1 (pk INT NOT NULL, s VARCHAR(64) NOT NULL, d DECIMAL(10,2) NOT NULL)
+               ENGINE=OLAP DUPLICATE KEY(pk) DISTRIBUTED BY HASH(pk) BUCKETS 5
+               PROPERTIES ("replication_num"="1")"""
+        sql """CREATE TABLE rqg_25413_t2 (pk INT NOT NULL, dt DATETIME NOT NULL)
+               ENGINE=OLAP DUPLICATE KEY(pk) DISTRIBUTED BY HASH(pk) BUCKETS 5
+               PROPERTIES ("replication_num"="1")"""
+        sql """INSERT INTO rqg_25413_t1
+               SELECT CAST(number AS INT), concat('s', CAST(number % 29 AS INT)),
+                      CAST(number * 13 % 1000 AS DECIMAL(10,2))
+               FROM numbers("number"="200")"""
+        sql """INSERT INTO rqg_25413_t2
+               SELECT CAST(number AS INT),
+                      date_add('2000-01-01 00:00:00', INTERVAL CAST(number % 3000 AS INT) DAY)
+               FROM numbers("number"="200")"""
+
+        def q25413 = { vars -> """
+            SELECT /*+SET_VAR(${vars})*/
+                count(distinct t1.s) AS cnt_distinct, std(t1.d) AS std_val
+            FROM rqg_25413_t1 t1
+            RIGHT JOIN rqg_25413_t2 t2 ON t1.pk = t2.pk
+            WHERE t2.dt < '2005-01-01 00:00:00'
+        """ }
+        def base25413 = "enable_sql_cache=false, enable_local_exchange_before_agg=false, parallel_pipeline_task_num=4"
+        def expected25413 = sql q25413(base25413)
+        for (planner in ['false', 'true']) {
+            def actual = sql q25413(
+                "${base25413}, experimental_use_serial_exchange=true, enable_local_shuffle_planner=${planner}")
+            assertEquals(expected25413, actual,
+                "Bug 20b planner=${planner}: distinct count must not be inflated under serial exchange")
+        }
+        logger.info("Bug 20b: PASSED")
+    } catch (Throwable t) {
+        logger.error("Bug 20b FAILED: ${t.message}")
+        assertTrue(false, "Bug 20b: ${t.message}")
+    }
+
+    // ============================================================
     //  Bug 21: Multi-distinct COUNT on many-bucket table → COREDUMP
-    //  RQG build 186737/186929/186952: AggSinkOperatorX::sink → set_ready_to_read
+    //  AggSinkOperatorX::sink → set_ready_to_read
     //  with empty source_deps.
     //
     //  Root cause: AGG operators (streaming, distinct-streaming, serialize) requested

@@ -1689,6 +1689,12 @@ struct TRuntimeFilterDesc {
   16: optional bool sync_filter_size; // Deprecated
   
   17: optional bool build_bf_by_runtime_size;
+
+  // True when a local exchange sits between the filter builder (join) and a same-fragment
+  // target scan: per-instance partial filters are then NOT aligned with the scan's data
+  // slice and must be merged before being applied. Computed truthfully by FE after local
+  // exchange planning; replaces inferring this from the target scan's is_serial_operator.
+  21: optional bool force_local_merge;
 }
 
 
