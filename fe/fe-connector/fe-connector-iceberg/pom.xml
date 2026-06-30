@@ -131,6 +131,24 @@ under the License.
             <version>${hadoop.version}</version>
         </dependency>
 
+        <!-- hadoop-aws supplies org.apache.hadoop.fs.s3a.S3AFileSystem for the hadoop-catalog flavor over an
+             s3a:// warehouse (HadoopCatalog.initialize -> Util.getFs -> Path.getFileSystem -> FileSystem.get).
+             The base org.apache.hadoop.fs.FileSystem comes from hadoop-common above; the plugin runs child-first
+             (org.apache.hadoop is NOT in ChildFirstClassLoader's parent-first allowlist), so bundling
+             hadoop-common WITHOUT hadoop-aws left FileSystem in the child loader while S3AFileSystem resolved
+             from the parent 'app' loader (fe-core's own hadoop-aws) — FileSystem.createFileSystem's cast then
+             threw "S3AFileSystem cannot be cast to FileSystem" (the FIX-PAIMON-HADOOP-CLASSLOADER split;
+             fe-connector-paimon/trino bundle hadoop-aws for the same reason). The fs.s3a.impl lookup is pinned
+             to the plugin loader via conf.setClassLoader (IcebergCatalogFactory.buildHadoopConfiguration), so
+             co-locating S3AFileSystem in the child loader here makes the cast succeed. Version + the monolithic
+             software.amazon.awssdk:bundle exclusion are inherited from fe/pom.xml dependencyManagement; the AWS
+             SDK v2 modules S3A needs at runtime (s3 / sdk-core / apache-client / s3-transfer-manager) are
+             already bundled child-first below (the iceberg-aws closure). -->
+        <dependency>
+            <groupId>org.apache.hadoop</groupId>
+            <artifactId>hadoop-aws</artifactId>
+        </dependency>
+
         <!-- AWS SDK v2 (BOM-managed, ${awssdk.version}) for the glue + s3tables + dlf-AWS paths. Bundled
              into the plugin so the connector's GlueCatalog / S3TablesCatalog get their OWN sdk-core
              ExecutionAttribute static under the child-first plugin loader; a second copy colliding with
