@@ -64,9 +64,17 @@ std::string ExchangeSourceOperatorX::debug_string(int indentation_level) const {
 
 void ExchangeLocalState::create_stream_recvr(RuntimeState* state) {
     auto& p = _parent->cast<ExchangeSourceOperatorX>();
+    int num_senders = p.num_senders();
+    if (p.is_bucket_shuffle_orphan_instance(local_task_idx)) {
+        // Bucket-routed senders open one channel per destination entry (one per bucket),
+        // so an instance owning no bucket never gets a channel — and never gets EOS.
+        // Start its receiver with zero senders so it reports EOS immediately instead of
+        // blocking forever (K-of-N destination spread).
+        num_senders = 0;
+    }
     stream_recvr = state->exec_env()->vstream_mgr()->create_recvr(
-            state, _memory_used_counter, state->fragment_instance_id(), p.node_id(),
-            p.num_senders(), custom_profile(), p.is_merging(),
+            state, _memory_used_counter, state->fragment_instance_id(), p.node_id(), num_senders,
+            custom_profile(), p.is_merging(),
             std::max(20480, config::exchg_node_buffer_size_bytes /
                                     (p.is_merging() ? p.num_senders() : 1)));
 }
@@ -75,6 +83,7 @@ Status ExchangeLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_init_timer);
+    local_task_idx = info.task_idx;
     create_stream_recvr(state);
     const auto& queues = stream_recvr->sender_queues();
     deps.resize(queues.size());
