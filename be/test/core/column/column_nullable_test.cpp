@@ -106,7 +106,8 @@ TEST(ColumnNullableTest, PredicateTest) {
     EXPECT_FALSE(null_dst->has_null());
 
     uint16_t selector[] = {5, 8}; // both null
-    EXPECT_EQ(nullable_pred->filter_by_selector(selector, 2, null_dst.get()), Status::OK());
+    const IColumn& nullable_src = *nullable_pred;
+    EXPECT_EQ(nullable_src.filter_by_selector(selector, 2, null_dst.get()), Status::OK());
     // filter_by_selector must announce to update has_null to make below right.
     EXPECT_TRUE(null_dst->has_null());
 }

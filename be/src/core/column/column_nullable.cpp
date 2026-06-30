@@ -450,17 +450,15 @@ size_t ColumnNullable::filter(const Filter& filter) {
     return data_result_size;
 }
 
-Status ColumnNullable::filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) {
+Status ColumnNullable::filter_by_selector(const uint16_t* sel, size_t sel_size,
+                                          IColumn* col_ptr) const {
     auto* nullable_col_ptr = assert_cast<ColumnNullable*>(col_ptr);
-    // Access the nested column via const path to avoid assert_mutable_ref (which requires
-    // exclusive ownership). The output col_ptr was just created, so its nested column is exclusive.
-    auto nest_col_raw = const_cast<IColumn*>(
-            static_cast<const IColumn::WrappedPtr&>(nullable_col_ptr->_nested_column).get());
+    auto nested_column = nullable_col_ptr->get_nested_column_ptr();
 
     /// `get_null_map_data` will set `_need_update_has_null` to true
     auto& res_nullmap = nullable_col_ptr->get_null_map_data();
 
-    RETURN_IF_ERROR(get_nested_column().filter_by_selector(sel, sel_size, nest_col_raw));
+    RETURN_IF_ERROR(get_nested_column().filter_by_selector(sel, sel_size, nested_column.get()));
     DCHECK(res_nullmap.empty());
     res_nullmap.resize(sel_size);
     auto& cur_nullmap = get_null_map_column().get_data();
