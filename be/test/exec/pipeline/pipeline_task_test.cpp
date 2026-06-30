@@ -18,6 +18,10 @@
 #include <glog/logging.h>
 #include <gtest/gtest.h>
 
+#include <atomic>
+#include <chrono>
+#include <thread>
+
 #include "common/config.h"
 #include "common/status.h"
 #include "exec/operator/operator.h"
@@ -26,6 +30,7 @@
 #include "exec/pipeline/dummy_task_queue.h"
 #include "exec/pipeline/pipeline.h"
 #include "exec/pipeline/pipeline_fragment_context.h"
+#include "exec/pipeline/task_scheduler.h"
 #include "exec/pipeline/thrift_builder.h"
 #include "exec/spill/spill_file.h"
 #include "runtime/exec_env.h"
@@ -93,6 +98,24 @@ private:
 
 template class OperatorX<DummyOperatorLocalState>;
 template class DataSinkOperatorX<DummySinkLocalState>;
+
+class CountingBlockableSinkOperator final : public DataSinkOperatorX<DummySinkLocalState> {
+public:
+    CountingBlockableSinkOperator(int op_id, int node_id, int dest_id,
+                                  std::atomic<int>* blockable_checks)
+            : DataSinkOperatorX<DummySinkLocalState>(op_id, node_id, dest_id),
+              _blockable_checks(blockable_checks) {}
+
+    Status sink(RuntimeState* state, Block* in_block, bool eos) override { return Status::OK(); }
+
+    bool is_blockable(RuntimeState* state) const override {
+        _blockable_checks->fetch_add(1, std::memory_order_relaxed);
+        return DataSinkOperatorX<DummySinkLocalState>::is_blockable(state);
+    }
+
+private:
+    std::atomic<int>* _blockable_checks;
+};
 
 TEST_F(PipelineTaskTest, TEST_CONSTRUCTOR) {
     auto num_instances = 1;
@@ -517,6 +540,87 @@ TEST_F(PipelineTaskTest, TEST_STATE_TRANSITION) {
                       task->LEGAL_STATE_TRANSITION[i].contains((PipelineTask::State)j));
         }
     }
+}
+
+TEST_F(PipelineTaskTest, TEST_CLOSED_TASK_REJECTS_HYBRID_SUBMIT_BEFORE_FINALIZE) {
+    auto num_instances = 1;
+    auto pip_id = 0;
+    auto task_id = 0;
+    auto pip = std::make_shared<Pipeline>(pip_id, num_instances, num_instances);
+    OperatorPtr source_op;
+    source_op.reset(new DummyOperator());
+    EXPECT_TRUE(pip->add_operator(source_op, num_instances).ok());
+
+    int op_id = 1;
+    int node_id = 2;
+    int dest_id = 3;
+    std::atomic<int> blockable_checks = 0;
+    DataSinkOperatorPtr sink_op;
+    sink_op.reset(new CountingBlockableSinkOperator(op_id, node_id, dest_id, &blockable_checks));
+    EXPECT_TRUE(pip->set_sink(sink_op).ok());
+
+    auto profile = std::make_shared<RuntimeProfile>("Pipeline : " + std::to_string(pip_id));
+    std::map<int,
+             std::pair<std::shared_ptr<BasicSharedState>, std::vector<std::shared_ptr<Dependency>>>>
+            shared_state_map;
+    _runtime_state->resize_op_id_to_local_state(-1);
+    auto task = std::make_shared<PipelineTask>(pip, task_id, _runtime_state.get(), _context,
+                                               profile.get(), shared_state_map, task_id);
+    task->_exec_time_slice = 10'000'000'000ULL;
+
+    std::vector<TScanRangeParams> scan_range;
+    int sender_id = 0;
+    TDataSink tsink;
+    EXPECT_TRUE(task->prepare(scan_range, sender_id, tsink).ok());
+    EXPECT_TRUE(task->close(Status::OK()).ok());
+    EXPECT_EQ(task->_exec_state, PipelineTask::State::FINISHED);
+    EXPECT_NE(task->_sink, nullptr);
+    EXPECT_FALSE(task->_operators.empty());
+    EXPECT_FALSE(task->_accept_submit);
+
+    HybridTaskScheduler scheduler(1, 1, "test_hybrid_task_scheduler", nullptr);
+    EXPECT_TRUE(scheduler.submit(task).ok());
+    EXPECT_EQ(blockable_checks.load(std::memory_order_relaxed), 0);
+    scheduler.stop();
+    EXPECT_TRUE(task->finalize().ok());
+}
+
+TEST_F(PipelineTaskTest, TEST_FINALIZED_TASK_REJECTS_HYBRID_SUBMIT) {
+    auto num_instances = 1;
+    auto pip_id = 0;
+    auto task_id = 0;
+    auto pip = std::make_shared<Pipeline>(pip_id, num_instances, num_instances);
+    OperatorPtr source_op;
+    source_op.reset(new DummyOperator());
+    EXPECT_TRUE(pip->add_operator(source_op, num_instances).ok());
+
+    int op_id = 1;
+    int node_id = 2;
+    int dest_id = 3;
+    DataSinkOperatorPtr sink_op;
+    sink_op.reset(new DummySinkOperatorX(op_id, node_id, dest_id));
+    EXPECT_TRUE(pip->set_sink(sink_op).ok());
+
+    auto profile = std::make_shared<RuntimeProfile>("Pipeline : " + std::to_string(pip_id));
+    std::map<int,
+             std::pair<std::shared_ptr<BasicSharedState>, std::vector<std::shared_ptr<Dependency>>>>
+            shared_state_map;
+    _runtime_state->resize_op_id_to_local_state(-1);
+    auto task = std::make_shared<PipelineTask>(pip, task_id, _runtime_state.get(), _context,
+                                               profile.get(), shared_state_map, task_id);
+    task->_exec_time_slice = 10'000'000'000ULL;
+
+    std::vector<TScanRangeParams> scan_range;
+    int sender_id = 0;
+    TDataSink tsink;
+    EXPECT_TRUE(task->prepare(scan_range, sender_id, tsink).ok());
+    EXPECT_TRUE(task->close(Status::OK()).ok());
+    EXPECT_TRUE(task->finalize().ok());
+    EXPECT_EQ(task->_sink, nullptr);
+
+    HybridTaskScheduler scheduler(1, 1, "test_hybrid_task_scheduler", nullptr);
+    EXPECT_TRUE(scheduler.submit(task).ok());
+    scheduler.stop();
 }
 
 TEST_F(PipelineTaskTest, TEST_SINK_FINISHED) {

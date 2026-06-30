@@ -189,7 +189,15 @@ void TaskScheduler::stop() {
 }
 
 Status HybridTaskScheduler::submit(PipelineTaskSPtr task) {
-    if (task->is_blockable()) {
+    bool blockable = false;
+    {
+        std::unique_lock<std::mutex> blockable_check_lock(task->_blockable_check_lock);
+        if (!task->_accept_submit) {
+            return Status::OK();
+        }
+        blockable = task->is_blockable();
+    }
+    if (blockable) {
         return _blocking_scheduler.submit(task);
     } else {
         return _simple_scheduler.submit(task);
