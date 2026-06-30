@@ -30,10 +30,16 @@
 
 // SniiSegmentReader -- entry point for the SNII segment read path. It opens a
 // single .idx container through a (possibly metered) io::FileReader and exposes
-// its logical indexes. open() performs the minimal bootstrap reads:
-//   1. the fixed bootstrap header (front of the file),
-//   2. the fixed tail pointer (last tail_pointer_size() bytes), and
-//   3. the tail meta header + logical-index directory.
+// its logical indexes. open() reads only the file tail:
+//   1. the fixed tail pointer (last tail_pointer_size() bytes), which also gates
+//      the container format_version ('TAIL' magic + format_version exact-match +
+//      tail crc), and
+//   2. the tail meta header + logical-index directory.
+// The bootstrap header at offset 0 is still WRITTEN on disk (for inspect tooling)
+// but is intentionally NOT read at open: its only runtime role (the container
+// version gate) is already covered, more strictly, by the tail pointer, so
+// skipping it avoids a redundant offset-0 cache block / remote round-trip per
+// segment on cold queries.
 // Per-index meta blocks are read lazily by open_index() so opening one logical
 // index does not read every other logical index's metadata.
 //
@@ -45,7 +51,8 @@ class SniiSegmentReader {
 public:
     SniiSegmentReader() = default;
 
-    // Reads bootstrap header + tail pointer + tail meta region from reader.
+    // Reads the tail pointer + tail meta region from reader (the offset-0
+    // bootstrap header is not read; the tail pointer gates the container version).
     // reader must outlive the returned SniiSegmentReader and every
     // LogicalIndexReader opened from it. reader == nullptr / out == nullptr ->
     // InvalidArgument; structural problems -> Corruption / Unsupported.
