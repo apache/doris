@@ -702,10 +702,16 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
      */
     private void pinMvccSnapshot() throws UserException {
         ConnectorMetadata metadata = connector.getMetadata(connectorSession);
-        Optional<MvccSnapshot> snapshot = MvccUtil.getSnapshotFromContext(getTargetTable());
+        // Version-aware lookup: a statement mixing main and @branch/@tag (or FOR-TIME) of the SAME table
+        // pins one snapshot per reference; resolve THIS scan's reference by its own selector so it reads
+        // its own snapshot (not whichever reference loaded first). getQueryTableSnapshot()/getScanParams()
+        // are this scan's selectors, threaded from the relation by the translator.
+        Optional<MvccSnapshot> snapshot = MvccUtil.getSnapshotFromContext(getTargetTable(),
+                Optional.ofNullable(getQueryTableSnapshot()), Optional.ofNullable(getScanParams()));
         if (!snapshot.isPresent()) {
             // A normal MVCC table's snapshot is materialized into the StatementContext during analysis
-            // (StatementContext.loadSnapshots, keyed by the table); a plugin SYSTEM table's is NOT —
+            // (StatementContext.loadSnapshots, keyed by the table and the reference's version selector);
+            // a plugin SYSTEM table's is NOT —
             // the sys table is not an MvccTable and BindRelation short-circuits loadSnapshots for the
             // $-suffixed relation, so getSnapshotFromContext returns empty above. Resolve the sys-table
             // FOR TIME AS OF / @branch / @tag pin directly off the source table here so the sys handle
