@@ -51,6 +51,7 @@ suite("test_hudi_olap_rewrite_mtmv", "p2,external,hudi") {
 
     sql """set materialized_view_rewrite_enable_contain_external_table=true;"""
     String mvSql = "SELECT a.id, a.age, a.par, b.user_id, b.num FROM ${catalogName}.`hudi_mtmv_regression_test`.hudi_table_1 a left join ${tableName} b on a.id=b.user_id;";
+    String rewriteSql = mvSql.replaceFirst("(?i)^\\s*SELECT", "SELECT /*+use_mv(${mvName})*/")
 
     sql """drop catalog if exists ${catalogName}"""
     sql """
@@ -91,12 +92,12 @@ suite("test_hudi_olap_rewrite_mtmv", "p2,external,hudi") {
     waitingMTMVTaskFinishedByMvName(mvName)
     order_qt_refresh_one_partition "SELECT id, age, par, user_id, num FROM ${mvName} "
 
-    def explainOnePartition = sql """ explain  ${mvSql} """
+    def explainOnePartition = sql """ explain  ${rewriteSql} """
     logger.info("explainOnePartition: " + explainOnePartition.toString())
     assertTrue(explainOnePartition.toString().contains("VUNION"))
-    order_qt_refresh_one_partition_rewrite "${mvSql}"
+    order_qt_refresh_one_partition_rewrite "${rewriteSql}"
 
-    mv_rewrite_success("${mvSql}", "${mvName}")
+    mv_rewrite_success("${rewriteSql}", "${mvName}")
 
     // select p_b should not rewrite
     mv_not_part_in("SELECT a.id, a.age, a.par, b.user_id, b.num FROM ${catalogName}.`hudi_mtmv_regression_test`.hudi_table_1 a left join ${tableName} b on a.id=b.user_id where a.par='b';", "${mvName}")
@@ -108,14 +109,13 @@ suite("test_hudi_olap_rewrite_mtmv", "p2,external,hudi") {
     waitingMTMVTaskFinishedByMvName(mvName)
     order_qt_refresh_auto "SELECT id, age, par, user_id, num FROM ${mvName} "
 
-    def explainAllPartition = sql """ explain  ${mvSql}; """
+    def explainAllPartition = sql """ explain  ${rewriteSql}; """
     logger.info("explainAllPartition: " + explainAllPartition.toString())
     assertTrue(explainAllPartition.toString().contains("VOlapScanNode"))
-    order_qt_refresh_all_partition_rewrite "${mvSql}"
+    order_qt_refresh_all_partition_rewrite "${rewriteSql}"
 
-    mv_rewrite_success("${mvSql}", "${mvName}")
+    mv_rewrite_success("${rewriteSql}", "${mvName}")
 
     sql """drop materialized view if exists ${mvName};"""
     sql """drop catalog if exists ${catalogName}"""
 }
-
