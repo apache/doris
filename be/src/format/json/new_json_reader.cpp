@@ -178,52 +178,10 @@ void NewJsonReader::_init_file_description() {
     }
 }
 
-void NewJsonReader::_init_json_number_cast_to_bool_columns() {
-    _json_number_cast_to_bool_columns.clear();
-    if (!_is_load || _state == nullptr || !_params.__isset.src_tuple_id ||
-        !_params.__isset.dest_tuple_id || !_params.__isset.dest_sid_to_src_sid_without_trans) {
-        return;
-    }
-
-    auto* src_tuple_desc = _state->desc_tbl().get_tuple_descriptor(_params.src_tuple_id);
-    auto* dest_tuple_desc = _state->desc_tbl().get_tuple_descriptor(_params.dest_tuple_id);
-    if (src_tuple_desc == nullptr || dest_tuple_desc == nullptr) {
-        return;
-    }
-
-    std::unordered_map<SlotId, SlotDescriptor*> src_slots;
-    for (auto* slot_desc : src_tuple_desc->slots()) {
-        src_slots.emplace(slot_desc->id(), slot_desc);
-    }
-
-    std::unordered_map<SlotId, SlotDescriptor*> dest_slots;
-    for (auto* slot_desc : dest_tuple_desc->slots()) {
-        dest_slots.emplace(slot_desc->id(), slot_desc);
-    }
-
-    std::unordered_set<SlotId> file_slot_ids;
-    for (auto* slot_desc : _file_slot_descs) {
-        file_slot_ids.emplace(slot_desc->id());
-    }
-
-    for (const auto& [dest_slot_id, src_slot_id] : _params.dest_sid_to_src_sid_without_trans) {
-        auto src_it = src_slots.find(src_slot_id);
-        auto dest_it = dest_slots.find(dest_slot_id);
-        if (src_it == src_slots.end() || dest_it == dest_slots.end() ||
-            !file_slot_ids.contains(src_slot_id)) {
-            continue;
-        }
-        if (remove_nullable(dest_it->second->type())->get_primitive_type() == TYPE_BOOLEAN) {
-            _json_number_cast_to_bool_columns.emplace(to_lower(src_it->second->col_name()));
-        }
-    }
-}
-
 Status NewJsonReader::init_reader(
         const std::unordered_map<std::string, VExprContextSPtr>& col_default_value_ctx,
         bool is_load) {
     _is_load = is_load;
-    _init_json_number_cast_to_bool_columns();
 
     // generate _col_default_value_map
     RETURN_IF_ERROR(_get_column_default_value(_file_slot_descs, col_default_value_ctx));
@@ -252,7 +210,6 @@ Status NewJsonReader::_open_file_reader(ReaderInitContext* /*ctx*/) {
 Status NewJsonReader::_do_init_reader(ReaderInitContext* base_ctx) {
     auto* ctx = checked_context_cast<JsonInitContext>(base_ctx);
     _is_load = ctx->is_load;
-    _init_json_number_cast_to_bool_columns();
 
     RETURN_IF_ERROR(_get_column_default_value(_file_slot_descs, *ctx->col_default_value_ctx));
     for (auto* slot_desc : _file_slot_descs) {
@@ -1187,6 +1144,39 @@ Status NewJsonReader::_simdjson_write_data_to_column(simdjson::ondemand::value& 
     }
 
     auto primitive_type = remove_nullable(type_desc)->get_primitive_type();
+    bool cast_json_number_to_bool = primitive_type == TYPE_BOOLEAN;
+    if (!cast_json_number_to_bool && _is_load &&
+        value.type() == simdjson::ondemand::json_type::number && _state != nullptr &&
+        _params.__isset.dest_tuple_id && _params.__isset.dest_sid_to_src_sid_without_trans) {
+        auto* dest_tuple_desc = _state->desc_tbl().get_tuple_descriptor(_params.dest_tuple_id);
+        if (dest_tuple_desc != nullptr) {
+            SlotId src_slot_id = -1;
+            auto lower_column_name = to_lower(column_name);
+            for (auto* slot_desc : _file_slot_descs) {
+                if (to_lower(slot_desc->col_name()) == lower_column_name) {
+                    src_slot_id = slot_desc->id();
+                    break;
+                }
+            }
+            if (src_slot_id != -1) {
+                for (const auto& [dest_slot_id, mapped_src_slot_id] :
+                     _params.dest_sid_to_src_sid_without_trans) {
+                    if (mapped_src_slot_id != src_slot_id) {
+                        continue;
+                    }
+                    for (auto* slot_desc : dest_tuple_desc->slots()) {
+                        if (slot_desc->id() == dest_slot_id) {
+                            cast_json_number_to_bool =
+                                    remove_nullable(slot_desc->type())->get_primitive_type() ==
+                                    TYPE_BOOLEAN;
+                            break;
+                        }
+                    }
+                    break;
+                }
+            }
+        }
+    }
     if (_is_load || !is_complex_type(primitive_type)) {
         if (value.type() == simdjson::ondemand::json_type::string) {
             std::string_view value_string;
@@ -1207,9 +1197,7 @@ Status NewJsonReader::_simdjson_write_data_to_column(simdjson::ondemand::value& 
             RETURN_IF_ERROR(data_serde->deserialize_one_cell_from_json(*data_column_ptr, slice,
                                                                        _serde_options));
 
-        } else if ((primitive_type == TYPE_BOOLEAN ||
-                    (_is_load &&
-                     _json_number_cast_to_bool_columns.contains(to_lower(column_name)))) &&
+        } else if (cast_json_number_to_bool &&
                    value.type() == simdjson::ondemand::json_type::number) {
             bool is_nonzero = false;
             for (char c : value.raw_json_token()) {
