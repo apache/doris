@@ -679,6 +679,9 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
      */
     @Override
     public void createDatabase(ConnectorSession session, String dbName, Map<String, String> properties) {
+        if (isDlfCatalog()) {
+            throw new DorisConnectorException("iceberg catalog with dlf type not supports 'create database'");
+        }
         if (!properties.isEmpty() && !isHmsCatalog()) {
             throw new DorisConnectorException(
                     "Not supported: create database with properties for iceberg catalog type: " + catalogType());
@@ -706,6 +709,9 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
      */
     @Override
     public void dropDatabase(ConnectorSession session, String dbName, boolean ifExists, boolean force) {
+        if (isDlfCatalog()) {
+            throw new DorisConnectorException("iceberg catalog with dlf type not supports 'drop database'");
+        }
         Optional<String> namespaceLocation;
         try {
             namespaceLocation = context.executeAuthenticated(() -> {
@@ -744,6 +750,9 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
      */
     @Override
     public void createTable(ConnectorSession session, ConnectorCreateTableRequest request) {
+        if (isDlfCatalog()) {
+            throw new DorisConnectorException("iceberg catalog with dlf type not supports 'create table'");
+        }
         Schema schema = IcebergSchemaBuilder.buildSchema(request.getColumns());
         PartitionSpec partitionSpec = IcebergSchemaBuilder.buildPartitionSpec(request.getPartitionSpec(), schema);
         SortOrder sortOrder = IcebergSchemaBuilder.buildSortOrder(request.getSortOrder(), schema);
@@ -772,6 +781,9 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
      */
     @Override
     public void dropTable(ConnectorSession session, ConnectorTableHandle handle) {
+        if (isDlfCatalog()) {
+            throw new DorisConnectorException("iceberg catalog with dlf type not supports 'drop table'");
+        }
         IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
         Optional<String> tableLocation;
         try {
@@ -798,6 +810,9 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
      */
     @Override
     public void renameTable(ConnectorSession session, ConnectorTableHandle handle, String newName) {
+        if (isDlfCatalog()) {
+            throw new DorisConnectorException("iceberg catalog with dlf type not supports 'rename table'");
+        }
         IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
         try {
             context.executeAuthenticated(() -> {
@@ -1107,6 +1122,17 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
     /** Whether this is an HMS-backed iceberg catalog (case-insensitive, matching the read-path fork). */
     private boolean isHmsCatalog() {
         return IcebergConnectorProperties.TYPE_HMS.equalsIgnoreCase(catalogType());
+    }
+
+    /**
+     * Whether this is a DLF-backed iceberg catalog (case-insensitive). DLF rejects every DDL write: legacy
+     * {@code IcebergDLFExternalCatalog} threw {@code NotSupportedException} for create/drop db + create/drop/
+     * truncate table. The connector mirrors that with a fail-loud guard so above all CREATE TABLE never reaches
+     * the live DLF metastore (the migrated {@code DLFCatalog} does not override createTable, so without this it
+     * would actually create the table — DLF write is unvalidated).
+     */
+    private boolean isDlfCatalog() {
+        return IcebergConnectorProperties.TYPE_DLF.equalsIgnoreCase(catalogType());
     }
 
     // ========== E7: System Tables (P6.5) ==========

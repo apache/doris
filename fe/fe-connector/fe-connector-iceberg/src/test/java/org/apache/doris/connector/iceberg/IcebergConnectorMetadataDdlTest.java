@@ -38,6 +38,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
+import java.util.function.Consumer;
 
 /**
  * Behavior tests for the B1 DDL overrides on {@link IcebergConnectorMetadata} — driven entirely through the
@@ -300,6 +301,61 @@ public class IcebergConnectorMetadataDdlTest {
                 () -> metadata(ops, ctx, IcebergConnectorProperties.TYPE_REST)
                         .renameTable(null, new IcebergTableHandle("db1", "t1"), "t2"));
         Assertions.assertTrue(ops.log.isEmpty());
+    }
+
+    // ---------- DLF flavor: every DDL write fails loud BEFORE the seam (legacy IcebergDLFExternalCatalog parity) ----------
+
+    // WHY: a DLF (Aliyun Data Lake Formation) iceberg catalog rejected all DDL writes in master. After the flip
+    // the migrated DLFCatalog does NOT override createTable, so without a connector guard CREATE TABLE would
+    // actually create a table against the live DLF metastore (DLF write is unvalidated); the other ops degraded
+    // to a generic message. Each guard must throw the exact legacy message, before the auth scope and the seam.
+    // MUTATION: dropping any guard / weakening isDlfCatalog to non-DLF -> the matching test goes red.
+    private static void assertDlfRejects(Consumer<IcebergConnectorMetadata> op, String expectedMessage) {
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        RecordingConnectorContext ctx = new RecordingConnectorContext();
+        IcebergConnectorMetadata md = metadata(ops, ctx, IcebergConnectorProperties.TYPE_DLF);
+        DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class, () -> op.accept(md));
+        Assertions.assertEquals(expectedMessage, ex.getMessage());
+        Assertions.assertTrue(ops.log.isEmpty(), "DLF guard must fail before the seam: " + ops.log);
+        Assertions.assertEquals(0, ctx.authCount, "DLF guard must fail before the auth scope");
+    }
+
+    @Test
+    public void testDlfCreateDatabaseFailsLoud() {
+        assertDlfRejects(md -> md.createDatabase(null, "db1", Collections.emptyMap()),
+                "iceberg catalog with dlf type not supports 'create database'");
+    }
+
+    @Test
+    public void testDlfDropDatabaseFailsLoud() {
+        // force=true would otherwise cascade tables/views through the seam — the guard must pre-empt all of it.
+        assertDlfRejects(md -> md.dropDatabase(null, "db1", false, true),
+                "iceberg catalog with dlf type not supports 'drop database'");
+    }
+
+    @Test
+    public void testDlfCreateTableFailsLoudBeforeRemote() {
+        // a valid column type: the test must fail on the DLF guard, not on type building -> proves the real fix
+        // (createTable was the sole op that previously reached the live DLF metastore).
+        ConnectorCreateTableRequest request = ConnectorCreateTableRequest.builder()
+                .dbName("db1").tableName("t1")
+                .columns(Collections.singletonList(
+                        new ConnectorColumn("id", ConnectorType.of("BIGINT"), "", true, null, false)))
+                .build();
+        assertDlfRejects(md -> md.createTable(null, request),
+                "iceberg catalog with dlf type not supports 'create table'");
+    }
+
+    @Test
+    public void testDlfDropTableFailsLoud() {
+        assertDlfRejects(md -> md.dropTable(null, new IcebergTableHandle("db1", "t1")),
+                "iceberg catalog with dlf type not supports 'drop table'");
+    }
+
+    @Test
+    public void testDlfRenameTableFailsLoud() {
+        assertDlfRejects(md -> md.renameTable(null, new IcebergTableHandle("db1", "t1"), "t2"),
+                "iceberg catalog with dlf type not supports 'rename table'");
     }
 
     // ---------- Branch / tag (B4): route by handle, auth-wrap, wrap auth failures ----------
