@@ -5,14 +5,26 @@
 
 ---
 
-# 🎯 下一个 session 的任务 = **ENG-1 能力孪生审计（全部 Medium M-* 已 ✅；翻闸 BLOCKED，先修后翻）**
+# 🎯 下一个 session 的任务 = **flip-gated e2e 重跑（确认两 branch fix 绿）→ ENG-1 能力孪生审计**
+
+> **本 session（2026-07-01）已完成并各自独立 commit 两个产品 bug**（设计 + 完成记录见 `plan-doc/tasks/designs/iceberg-branch-mvcc-and-static-partition-overwrite-fixes.md` 末尾 Status）：
+> - **① complex_queries = 通用 MVCC 快照塌缩 → `de1af7a594e`**：`StatementContext.snapshots` 改按 (ctl,db,table,**版本**) 键化（`MvccTableInfo` 加 version；`loadSnapshots` versionKeyOf 键化；新增版本感知 `getSnapshot(TableIf,ts,sp)` + 版本盲智能回退 default→lone→empty；`MvccUtil` 重载；`PluginDrivenScanNode.pinMvccSnapshot` 改版本感知）。UT 5/5 + mutation 2/2 KILLED + checkstyle。**共享核心，已过 clean-room 3-agent 对抗审（key 稳定/无读者回归/未能 break，无 blocker）**。
+> - **② partition_operations = 写路径丢静态分区字面量 → `98e00a14c37`**：新增中立能力位 `ConnectorCapability.SINK_MATERIALIZE_STATIC_PARTITION_VALUES`（iceberg 声明、MaxCompute 不声明）；`PluginDrivenExternalTable.materializeStaticPartitionValues()`；`BindSink.bindConnectorTableSink` full-schema 分支门控投影静态分区字面量（逐行镜像 legacy `bindIcebergTableSink:783-795`）。IcebergConnectorTest 断言 + mutation KILLED + checkstyle。镜像臂 = 焦点验证（非多 agent）。
+> - **⚠️ e2e flip-gated 未跑**（本 session 无 live 集群/iceberg-docker）：**下个 session 起步 redeploy 后重跑 `iceberg_branch_complex_queries` + `iceberg_branch_partition_operations` 确认绿**（`tag_retention` 仍是 spark 容器环境，非代码）。
+> - **follow-up 已登记**（设计文档末）：[FU-mvcc-mixed-schema]（同语句同表 schema 分歧→版本盲 base schema 取 main，pre-existing 单 schema 限制；SPI 分区裁剪恒列 latest）、[FU-connector-staticpart-validate]（通用 sink 缺 legacy 静态分区校验，应落连接器侧 fail-loud）。
+>
+> **⚠️ 仍未 commit 的前序工作（勿丢、勿与新工作混提交）**：工作区 `IcebergConnector.java` 仍含**前序 session 的 worker 池 TCCL 修复**（`pinIcebergWorkerPoolToPluginClassLoader`+barrier，已 redeploy 实证）+ 新文件 `IcebergConnectorWorkerPoolPinTest.java`/`TcclPinningConnectorContext.java`+其测试 + `iceberg_branch_tag_edge_cases.groovy` 文案对齐。本 session commit 两 fix 时用 `git apply --cached` 单 hunk 隔离 `IcebergConnector.java`、**未触碰这些前序改动（仍 uncommitted）**。worker 池经验在 memory `catalog-spi-plugin-tccl-classloader-gotcha`（第三 locus）。
+>
+> **之后 = ENG-1 能力孪生审计**（全部 Medium M-1..M-11 已 ✅），详见下文：
+
+# 🎯 （之后）= **ENG-1 能力孪生审计（全部 Medium M-* 已 ✅；翻闸 BLOCKED，先修后翻）**
 
 > **进度**：P0（B-1/B-2）+ 全部关键 P1（H-1..H-10）+ **全部 Medium（M-1..M-11）已全 ✅**——本轮收尾 **M-9 `0d8c5669f9b`**（dropDb 改用 REMOTE 名，镜像 dropTable）/ **M-11 `177f84a7ac9`**（FORCE 删恢复容忍远端已删 namespace，方案 B 含 HMS loadNamespaceLocation 步）/ **M-8 决定=接受偏离不改码**（保留省略空 LOCATION 的 cleaner 输出，用户 2026-06-30 裁定）。逐条状态/commit 见**任务清单 §1–§3** + `git log`（HANDOFF 不再累积「修完成」条目）。
 >
-> **⏭ 下一步（新 session 从这里起）= ENG-1 能力孪生审计**（全部 Medium 已 ✅）：
+> **⏭ 之后（两个 branch fix 完成后）= ENG-1 能力孪生审计**（全部 Medium 已 ✅）：
 > - **入口**：任务清单 **§5 ENG-1** + review 报告 **§七**（残留旧逻辑 / 能力门控）。**全部 Medium M-1..M-11 ☑**（本轮收尾 M-9 `0d8c5669f9b` / M-11 `177f84a7ac9` / M-8 决定=接受偏离不改码；M-10+H-11 ☑ 已并入 B-2 `ba80cfb0439`）。
 > - **ENG-1 = 全量审计 legacy iceberg `instanceof Iceberg*` 臂的能力孪生覆盖**：翻闸后运行时类型 `PluginDriven*`，所有 `instanceof IcebergExternalTable/Catalog/Sys` 求值 false，正确性逐点依赖人工写的「能力孪生臂」；**H-10（嵌套裁剪）是已实证一次漏写=静默回归**。需逐个 legacy iceberg 臂核对是否有等价 PluginDriven 臂/能力门控——**防「逐点静默回归」的唯一保证**。
-> - **处理顺序**：**ENG-1 ◀ 下一** → P3(L-BATCH) → ENG-3 flip-gated e2e 全跑 → 用户二签翻闸。（⚠️ 任务清单 §8 顺序已过时，以此为准。）
+> - **处理顺序**：**iceberg branch_tag 两个 fix（complex_queries + partition_operations）◀ 下一（用户 07-01 指定）** → ENG-1 → P3(L-BATCH) → ENG-3 flip-gated e2e 全跑 → 用户二签翻闸。（⚠️ 任务清单 §8 顺序已过时，以此为准。）
 > - **每条走 step-by-step-fix**（recon→design→impl→test→clean-room→**独立 commit**→回填任务清单）。**⚠️ 认领前先 recon+`git show master:` 重裁，HANDOFF/review 行号/不变式可能过时（信控制流不信注释）**；冲突项回代码重裁（Rule 7）。
 > - **⚠️ M-3 引入新中立 SPI（`ConnectorSplitSource` + `streamingSplitEstimate`/`streamSplits`）= 流式 split 通道**：将来 Hive/Hudi 迁插件路径可复用（file-count 流式是它们共用老套路）。**v3 iceberg 暂闸出流式**（commit-bridge delete stash 写规划点读，流式懒填太晚→复活已删行）；放开 v3 需先设计 plan-time stash barrier（登记 follow-up）。
 
@@ -91,7 +103,7 @@ iceberg 逻辑落 `fe-connector` 经中立 SPI / ConnectorCapability。**legacy 
 
 # 📦 阶段状态
 - **工作分支 = `catalog-spi-10-iceberg`**（off `branch-catalog-spi` @ `e5959e1b53d`，PR base = `branch-catalog-spi`，squash）。
-- **进度**：P6.1–P6.5 ✅ / P6.6 C1–C3 ✅ / C4 R1–R7 ✅ / C5 DDL/ALTER B1–B5 ✅ / flip-readiness 只读退化 ✅ / 视图 B0–B3 ✅ / 路由翻闸 `18e1b297d7e` ✅ / GSON 迁移 `e68eb5c00c9` ✅ → **⛔ 现卡在 clean-room review 发现修复**：**P0（B-1/B-2）+ 关键 P1（H-1..H-10）全 ✅**（逐条 commit 见任务清单 §1–§2 + `git log`）→ **全部 Medium（M-1..M-11）✅**（收尾 M-9 `0d8c5669f9b` / M-11 `177f84a7ac9` / M-8 决定接受偏离不改码） → **ENG-1 能力孪生审计 ◀ 下一** → P3(L-BATCH) → ENG-3 flip-gated e2e → 二签翻闸。
+- **进度**：P6.1–P6.5 ✅ / P6.6 C1–C3 ✅ / C4 R1–R7 ✅ / C5 DDL/ALTER B1–B5 ✅ / flip-readiness 只读退化 ✅ / 视图 B0–B3 ✅ / 路由翻闸 `18e1b297d7e` ✅ / GSON 迁移 `e68eb5c00c9` ✅ → **⛔ 现卡在 clean-room review 发现修复**：**P0（B-1/B-2）+ 关键 P1（H-1..H-10）全 ✅**（逐条 commit 见任务清单 §1–§2 + `git log`）→ **全部 Medium（M-1..M-11）✅**（收尾 M-9 `0d8c5669f9b` / M-11 `177f84a7ac9` / M-8 决定接受偏离不改码） → **iceberg branch_tag 两个 fix（complex_queries MVCC + partition_operations 静态分区 overwrite）◀ 下一（用户 07-01 指定，见顶部 🎯 + 设计文档）** → ENG-1 能力孪生审计 → P3(L-BATCH) → ENG-3 flip-gated e2e → 二签翻闸。
 - **⚠️ 推送状态**：P6.4 T01–T06+arg-move 已推 `origin`；**其后全部未 push**（含路由翻闸 + GSON 迁移 + 视图 + C4/C5 + 全部 review fix）。**先修 review 发现，勿 push 半成品翻闸。** 留用户裁量。
 - **⚠️ 分支 2026-06-28 被 rebase**：commit 哈希全重写，本文档/旧 commit message 旧哈希以 `git log` 为准。
 
