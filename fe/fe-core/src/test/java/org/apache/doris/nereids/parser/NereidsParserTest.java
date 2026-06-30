@@ -30,7 +30,10 @@ import org.apache.doris.nereids.exceptions.ParseException;
 import org.apache.doris.nereids.exceptions.SyntaxParseException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.trees.expressions.Cast;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.IsNull;
+import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.OrderExpression;
 import org.apache.doris.nereids.trees.expressions.functions.generator.Unnest;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalLiteral;
@@ -1641,5 +1644,26 @@ public class NereidsParserTest extends ParserTestBase {
         sql = "UPDATE t SET c1 = 10 ORDER BY c2 ASC, c3 DESC NULLS LAST LIMIT 5";
         plan = nereidsParser.parseSingle(sql);
         Assertions.assertInstanceOf(UpdateCommand.class, plan);
+    }
+
+    @Test
+    public void testIsNullAndIsNotNullExpression() {
+        NereidsParser nereidsParser = new NereidsParser();
+        String sql = "ISNULL(X) = 1";
+        Expression expression = nereidsParser.parseExpression(sql);
+
+        Assertions.assertInstanceOf(EqualTo.class, expression);
+        Assertions.assertInstanceOf(IsNull.class, expression.child(0));
+
+        sql = "IS_NULL_PRED(X) = 1";
+        expression = nereidsParser.parseExpression(sql);
+        Assertions.assertInstanceOf(EqualTo.class, expression);
+        Assertions.assertInstanceOf(IsNull.class, expression.child(0));
+
+        sql = "IS_NOT_NULL_PRED(X) = 1";
+        expression = nereidsParser.parseExpression(sql);
+        Assertions.assertInstanceOf(EqualTo.class, expression);
+        Assertions.assertInstanceOf(Not.class, expression.child(0));
+        Assertions.assertInstanceOf(IsNull.class, expression.child(0).child(0));
     }
 }
