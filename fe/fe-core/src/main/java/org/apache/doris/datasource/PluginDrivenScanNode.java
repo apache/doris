@@ -42,6 +42,7 @@ import org.apache.doris.connector.api.pushdown.ProjectionApplicationResult;
 import org.apache.doris.connector.api.scan.ConnectorColumnCategory;
 import org.apache.doris.connector.api.scan.ConnectorScanPlanProvider;
 import org.apache.doris.connector.api.scan.ConnectorScanRange;
+import org.apache.doris.connector.api.scan.ConnectorSplitSource;
 import org.apache.doris.connector.api.scan.ScanNodePropertiesResult;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccTable;
@@ -140,6 +141,13 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
     // and explain (FileScanNode) paths and num_partitions_in_batch_mode is fuzzy, so cache it to
     // keep the decision stable across reads (mirrors IcebergScanNode).
     private Boolean isBatchModeCache;
+
+    // FIX-M3 (streaming splits): when a connector opts into file-count streaming split generation
+    // (ConnectorScanPlanProvider.streamingSplitEstimate >= 0), this caches that estimate and flags the
+    // streaming flavor of batch mode — distinct from the partition-count flavor in shouldUseBatchMode.
+    // -1 / false until computeBatchMode runs.
+    private long streamingSplitEstimate = -1;
+    private boolean streamingBatch;
 
     // FIX-E (explain gap): native (ORC/Parquet) vs total scan-range counts accumulated in getSplits()
     // from ConnectorScanRange.isNativeReadRange(), surfaced to the connector's appendExplainInfo for the
@@ -943,9 +951,28 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         // getScanPlanProvider() may be null for connectors without scan capability; mirror the
         // null-guard in getSplits() so isBatchMode (run on the dispatch + explain paths) never NPEs.
         ConnectorScanPlanProvider scanProvider = connector.getScanPlanProvider();
-        boolean supportsBatchScan = scanProvider != null
-                && scanProvider.supportsBatchScan(connectorSession, currentHandle);
-        return shouldUseBatchMode(selectedPartitions, !desc.getSlots().isEmpty(),
+        if (scanProvider == null) {
+            return false;
+        }
+        boolean hasSlots = !desc.getSlots().isEmpty();
+        // Streaming (file-count) batch flavor (FIX-M3): the connector owns the whole decision (e.g.
+        // Iceberg's matched-file count vs num_files_in_batch_mode); the engine only requires output slots
+        // (a scan with no slots needs no file ranges). Checked before the partition-count flavor because a
+        // connector implements at most one — Iceberg streams files, MaxCompute slices partitions.
+        if (hasSlots) {
+            boolean countPushdown = getPushDownAggNoGroupingOp() == TPushAggOp.COUNT;
+            long estimate = scanProvider.streamingSplitEstimate(
+                    connectorSession, currentHandle, buildRemainingFilter(), countPushdown);
+            if (estimate >= 0) {
+                streamingSplitEstimate = estimate;
+                streamingBatch = true;
+                return true;
+            }
+        }
+        // Partition-count batch flavor (legacy MaxCompute): its connector odpsTable.getFileNum()>0 check is
+        // folded into supportsBatchScan; the partition threshold is evaluated generically.
+        boolean supportsBatchScan = scanProvider.supportsBatchScan(connectorSession, currentHandle);
+        return shouldUseBatchMode(selectedPartitions, hasSlots,
                 supportsBatchScan, sessionVariable.getNumPartitionsInBatchMode());
     }
 
@@ -985,6 +1012,13 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
 
     @Override
     public int numApproximateSplits() {
+        if (streamingBatch) {
+            // Streaming batch (FIX-M3): the connector's matched-file estimate. Legacy IcebergScanNode batch
+            // returned ~partition count; the file estimate is a strictly better, always-non-negative BE
+            // concurrency hint. Cap at Integer.MAX_VALUE for pathologically large tables.
+            return streamingSplitEstimate > Integer.MAX_VALUE
+                    ? Integer.MAX_VALUE : (int) streamingSplitEstimate;
+        }
         // Number of pruned partitions; must be non-negative in batch mode (FileQueryScanNode rejects
         // negative). Under the isBatchMode gate this is >= num_partitions_in_batch_mode >= 1.
         return selectedPartitions == null ? -1 : selectedPartitions.selectedPartitions.size();
@@ -1003,6 +1037,12 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
      */
     @Override
     public void startSplit(int numBackends) {
+        if (streamingBatch) {
+            // File-count streaming flavor (FIX-M3): pump a connector-driven lazy source instead of
+            // slicing partitions. Mutually exclusive with the partition-slicing path below.
+            startStreamingSplit();
+            return;
+        }
         try {
             checkSysTableScanConstraints();
         } catch (UserException e) {
@@ -1086,6 +1126,73 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
                 }
                 if (batchException.get() != null) {
                     splitAssignment.setException(batchException.get());
+                }
+            }
+        }, scheduleExecutor);
+    }
+
+    /**
+     * Streams splits from a connector-driven lazy {@link ConnectorSplitSource} into
+     * {@link #splitAssignment} with backpressure, mirroring legacy {@code IcebergScanNode.doStartSplit}.
+     * Used by the file-count streaming batch flavor (see {@link #computeBatchMode}); the partition-count
+     * flavor stays on the {@link #startSplit} partition-slicing path. Deliberately does NOT push the limit
+     * (passes {@code -1}): the LIMIT-split optimization stays on the non-batch {@link #getSplits} path only.
+     */
+    private void startStreamingSplit() {
+        try {
+            checkSysTableScanConstraints();
+        } catch (UserException e) {
+            // startSplit cannot throw checked exceptions; surface the fail-loud guard through the
+            // SplitAssignment error channel so the query fails rather than silently ignoring the guard.
+            splitAssignment.setException(e);
+            return;
+        }
+        // Mirror getSplits()'s projection + filter pushdown (but NOT the limit) before going async.
+        // tryPushDownProjection mutates currentHandle, so capture the resolved handle afterwards.
+        final List<ConnectorColumnHandle> columns = buildColumnHandles();
+        tryPushDownProjection(columns);
+        final Optional<ConnectorExpression> remainingFilter = buildRemainingFilter();
+        // Pin the MVCC snapshot + rewrite scope onto currentHandle before capturing the resolved handle,
+        // so the lazy source plans at the PINNED snapshot (rows are always correct). The streamingSplitEstimate
+        // gate ran pre-pin (current snapshot), so it only affects the approximate batch decision + concurrency
+        // hint, never the rows. Narrow caveat: a time-travel query to a past snapshot much LARGER than current
+        // (table since compacted/expired) may under-count -> pick the eager path -> lose streaming's OOM
+        // protection for that scan. Acceptable (perf-only, rare); documented in the FIX-M3 design.
+        try {
+            pinMvccSnapshot();
+        } catch (UserException e) {
+            splitAssignment.setException(e);
+            return;
+        }
+        pinRewriteFileScope();
+        final ConnectorTableHandle handle = currentHandle;
+        final ConnectorScanPlanProvider scanProvider = connector.getScanPlanProvider();
+        Executor scheduleExecutor = Env.getCurrentEnv().getExtMetaCacheMgr().getScheduleExecutor();
+        CompletableFuture.runAsync(() -> {
+            ConnectorSplitSource source = null;
+            try {
+                source = scanProvider.streamSplits(connectorSession, handle, columns, remainingFilter, -1L);
+                // Pull ranges with backpressure (needMoreSplit) and pump them one at a time, exactly like
+                // legacy doStartSplit. The bounded SplitAssignment queue throttles the lazy source so FE
+                // heap stays bounded for million-file scans.
+                while (splitAssignment.needMoreSplit() && source.hasNext()) {
+                    List<Split> one = new ArrayList<>(1);
+                    one.add(new PluginDrivenSplit(source.next()));
+                    splitAssignment.addToQueue(one);
+                }
+                splitAssignment.finishSchedule();
+            } catch (Exception e) {
+                splitAssignment.setException(new UserException(e.getMessage(), e));
+            } finally {
+                // Close in a finally that SWALLOWS close errors (NOT try-with-resources, whose close runs
+                // before the catch): a close() failure must not fail a scan whose splits were already
+                // enumerated + finishSchedule()-d (legacy doStartSplit swallowed close errors identically).
+                if (source != null) {
+                    try {
+                        source.close();
+                    } catch (Exception ce) {
+                        LOG.warn("Failed to close streaming split source for {}", handle, ce);
+                    }
                 }
             }
         }, scheduleExecutor);

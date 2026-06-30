@@ -24,6 +24,7 @@ import org.apache.doris.connector.api.pushdown.ConnectorExpression;
 import org.apache.doris.connector.api.scan.ConnectorColumnCategory;
 import org.apache.doris.connector.api.scan.ConnectorScanPlanProvider;
 import org.apache.doris.connector.api.scan.ConnectorScanRange;
+import org.apache.doris.connector.api.scan.ConnectorSplitSource;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.filesystem.properties.StorageProperties;
 import org.apache.doris.thrift.TFileFormatType;
@@ -61,6 +62,7 @@ import org.apache.iceberg.expressions.ManifestEvaluator;
 import org.apache.iceberg.expressions.Projections;
 import org.apache.iceberg.expressions.ResidualEvaluator;
 import org.apache.iceberg.io.CloseableIterable;
+import org.apache.iceberg.io.CloseableIterator;
 import org.apache.iceberg.io.FileIO;
 import org.apache.iceberg.io.StorageCredential;
 import org.apache.iceberg.io.SupportsStorageCredentials;
@@ -81,6 +83,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.NoSuchElementException;
 import java.util.Optional;
 import java.util.Set;
 
@@ -115,6 +118,10 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
     private static final long DEFAULT_MAX_FILE_SPLIT_SIZE = 64L * 1024 * 1024;
     private static final long DEFAULT_MAX_INITIAL_FILE_SPLIT_NUM = 200L;
     private static final long DEFAULT_MAX_FILE_SPLIT_NUM = 100000L;
+    // FIX-M3 streaming (file-count) batch gate — keys byte-identical to fe-core SessionVariable.
+    private static final String ENABLE_EXTERNAL_TABLE_BATCH_MODE = "enable_external_table_batch_mode";
+    private static final String NUM_FILES_IN_BATCH_MODE = "num_files_in_batch_mode";
+    private static final long DEFAULT_NUM_FILES_IN_BATCH_MODE = 1024L;
 
     // COUNT(*) pushdown (T05). The snapshot-summary keys are the stable iceberg spec strings — byte-identical
     // to legacy IcebergUtils.TOTAL_* (themselves local constants, not org.apache.iceberg.SnapshotSummary.*).
@@ -272,6 +279,164 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         return planScanInternal(session, handle, columns, filter, countPushdown);
     }
 
+    /**
+     * Streaming-split decision + estimate (FIX-M3), a faithful port of legacy {@code IcebergScanNode.isBatchMode}:
+     * stream when the matched-manifest file count reaches {@code num_files_in_batch_mode} with
+     * {@code enable_external_table_batch_mode} on. Returns that file count (the BE concurrency hint) or -1 to stay
+     * on the synchronous {@link #planScan} path. Cheap: sums manifest metadata counts, never enumerates splits.
+     *
+     * <p>Excluded from streaming (return -1): system tables (JNI serialized-split path); batch mode disabled;
+     * empty table (no snapshot); a servable {@code COUNT(*)} pushdown (collapsed to one range); and
+     * format-version &ge; 3 — v3 carries the commit-bridge rewritable-delete stash that the write side reads at
+     * write-plan time, which streaming would fill too late (at BE-pull time), resurrecting deleted rows. See the
+     * design doc §5.</p>
+     */
+    @Override
+    public long streamingSplitEstimate(ConnectorSession session, ConnectorTableHandle handle,
+            Optional<ConnectorExpression> filter, boolean countPushdown) {
+        IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
+        if (iceHandle.isSystemTable() || !sessionBool(session, ENABLE_EXTERNAL_TABLE_BATCH_MODE, true)) {
+            return -1;
+        }
+        Table table = resolveTable(iceHandle);
+        TableScan scan = buildScan(table, iceHandle, filter, session);
+        Snapshot snapshot = scan.snapshot();
+        if (snapshot == null) {
+            return -1;
+        }
+        if (getFormatVersion(table) >= 3) {
+            return -1;
+        }
+        if (countPushdown && getCountFromSnapshot(scan, session) >= 0) {
+            return -1;
+        }
+        long threshold = sessionLong(session, NUM_FILES_IN_BATCH_MODE, DEFAULT_NUM_FILES_IN_BATCH_MODE);
+        long fileCount = 0;
+        try (CloseableIterable<ManifestFile> matching = getMatchingManifest(
+                snapshot.dataManifests(table.io()), table.specs(), scan.filter())) {
+            for (ManifestFile manifest : matching) {
+                // Manifest metadata counts (cheap — no per-file read). Null guard for ancient manifests that
+                // omit the counts (legacy summed them unguarded; 0 is the safe under-count, never over-streams).
+                Integer added = manifest.addedFilesCount();
+                Integer existing = manifest.existingFilesCount();
+                fileCount += (added == null ? 0 : added) + (existing == null ? 0 : existing);
+            }
+        } catch (IOException e) {
+            throw new RuntimeException("Failed to count iceberg manifest files for batch decision, error message is:"
+                    + e.getMessage(), e);
+        }
+        return fileCount >= threshold ? fileCount : -1;
+    }
+
+    /**
+     * Lazy streaming split source (FIX-M3), mirroring legacy {@code IcebergScanNode.doStartSplit}: slice files at
+     * a FIXED size ({@code file_split_size} if set, else {@code max_split_size} — NOT the per-table
+     * {@link #determineTargetFileSplitSize} heuristic, which would force materializing every task), so
+     * {@code planFiles()} streams without holding the full task list — the OOM protection. Bypasses the manifest
+     * cache (its planning materializes; legacy's lazy batch path only ran with the manifest cache off). Only
+     * called after {@link #streamingSplitEstimate} returned &ge; 0, so the snapshot/non-sys/v&lt;3 gates already hold.
+     */
+    @Override
+    public ConnectorSplitSource streamSplits(ConnectorSession session, ConnectorTableHandle handle,
+            List<ConnectorColumnHandle> columns, Optional<ConnectorExpression> filter, long limit) {
+        IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
+        Table table = resolveTable(iceHandle);
+        TableScan scan = buildScan(table, iceHandle, filter, session);
+        int formatVersion = getFormatVersion(table);
+        List<String> orderedPartitionKeys = IcebergPartitionUtils.getIdentityPartitionColumns(table);
+        ZoneId zone = resolveSessionZone(session);
+        boolean partitioned = table.spec().isPartitioned();
+        Map<String, String> vendedToken = context != null
+                ? extractVendedToken(table, restVendedCredentialsEnabled()) : Collections.emptyMap();
+        long fileSplitSize = sessionLong(session, FILE_SPLIT_SIZE, 0L);
+        long sliceSize = fileSplitSize > 0 ? fileSplitSize
+                : sessionLong(session, MAX_FILE_SPLIT_SIZE, DEFAULT_MAX_FILE_SPLIT_SIZE);
+        CloseableIterable<FileScanTask> tasks = TableScanUtil.splitFiles(scan.planFiles(), sliceSize);
+        return new IcebergStreamingSplitSource(tasks, table, formatVersion, partitioned,
+                orderedPartitionKeys, zone, vendedToken, sliceSize, iceHandle.getRewriteFileScope());
+    }
+
+    /**
+     * Lazy {@link ConnectorSplitSource} over an iceberg scan's byte-offset-split {@link FileScanTask}s: maps each
+     * task to an {@link IcebergScanRange} on demand (via {@link #buildRangeForTask}) so the engine can pump them
+     * into its split queue with backpressure, keeping FE heap bounded for million-file scans. v3 is gated off the
+     * streaming path, so the stash side-effect is inert here ({@code stashRewritableDeletes=false}). Single-pass,
+     * not thread-safe (the engine drives it from one background task).
+     */
+    private final class IcebergStreamingSplitSource implements ConnectorSplitSource {
+        private final CloseableIterable<FileScanTask> tasks;
+        private final Table table;
+        private final int formatVersion;
+        private final boolean partitioned;
+        private final List<String> orderedPartitionKeys;
+        private final ZoneId zone;
+        private final Map<String, String> vendedToken;
+        private final long sliceSize;
+        private final Set<String> rewriteScope;
+        // Lazily opened on first hasNext() so the ctor never throws — iceberg's ParallelIterable submits
+        // manifest readers in tasks.iterator(), which can fail; opening it eagerly here would throw out of
+        // streamSplits() BEFORE the source is returned, leaking the planFiles() iterable (the engine pump's
+        // close() never receives it). Lazy open instead routes any failure through hasNext()->the engine's
+        // setException + finally-close, with tasks still closed. null until first use.
+        private CloseableIterator<FileScanTask> iterator;
+        // Look-ahead buffer so hasNext() can skip data files filtered out by the rewrite scope.
+        private IcebergScanRange buffered;
+
+        IcebergStreamingSplitSource(CloseableIterable<FileScanTask> tasks, Table table, int formatVersion,
+                boolean partitioned, List<String> orderedPartitionKeys, ZoneId zone,
+                Map<String, String> vendedToken, long sliceSize, Set<String> rewriteScope) {
+            this.tasks = tasks;
+            this.table = table;
+            this.formatVersion = formatVersion;
+            this.partitioned = partitioned;
+            this.orderedPartitionKeys = orderedPartitionKeys;
+            this.zone = zone;
+            this.vendedToken = vendedToken;
+            this.sliceSize = sliceSize;
+            this.rewriteScope = rewriteScope;
+        }
+
+        @Override
+        public boolean hasNext() {
+            if (buffered != null) {
+                return true;
+            }
+            if (iterator == null) {
+                iterator = tasks.iterator();
+            }
+            while (iterator.hasNext()) {
+                IcebergScanRange range = buildRangeForTask(iterator.next(), table, formatVersion, partitioned,
+                        orderedPartitionKeys, zone, vendedToken, sliceSize, rewriteScope, false, null);
+                if (range != null) {
+                    buffered = range;
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        @Override
+        public ConnectorScanRange next() {
+            if (!hasNext()) {
+                throw new NoSuchElementException();
+            }
+            IcebergScanRange range = buffered;
+            buffered = null;
+            return range;
+        }
+
+        @Override
+        public void close() throws IOException {
+            try {
+                if (iterator != null) {
+                    iterator.close();
+                }
+            } finally {
+                tasks.close();
+            }
+        }
+    }
+
     private List<ConnectorScanRange> planScanInternal(
             ConnectorSession session,
             ConnectorTableHandle handle,
@@ -342,18 +507,13 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         List<ConnectorScanRange> ranges = new ArrayList<>();
         try (SplitPlan plan = planFileScanTask(scan, session, table, filter)) {
             for (FileScanTask task : plan.tasks) {
-                DataFile dataFile = task.file();
-                if (rewriteScope != null && !rewriteScope.contains(dataFile.path().toString())) {
-                    continue;
-                }
-                // M-2: thread the scan-level weight denominator (plan.targetSplitSize) so each data-file range
-                // carries a size-proportional BE scheduling weight (selfSplitWeight computed inside buildRange).
-                IcebergScanRange range = buildRange(table, dataFile, task, formatVersion, partitioned,
-                        orderedPartitionKeys, zone, vendedToken, -1, plan.targetSplitSize);
-                ranges.add(range);
-                if (stashRewritableDeletes) {
-                    rewritableDeleteStash.accumulate(stashQueryId, range.getOriginalPath(),
-                            range.rewritableDeleteDescs());
+                // Shared per-task mapping (rewrite-scope skip + M-2 weight denominator + v3 stash side-effect),
+                // identical to the streaming path's IcebergStreamingSplitSource so both produce the same ranges.
+                IcebergScanRange range = buildRangeForTask(task, table, formatVersion, partitioned,
+                        orderedPartitionKeys, zone, vendedToken, plan.targetSplitSize, rewriteScope,
+                        stashRewritableDeletes, stashQueryId);
+                if (range != null) {
+                    ranges.add(range);
                 }
             }
         } catch (IOException e) {
@@ -362,6 +522,33 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         }
         LOG.debug("Iceberg planScan produced {} ranges for table {}", ranges.size(), table.name());
         return ranges;
+    }
+
+    /**
+     * Map one {@link FileScanTask} to its BE-ready {@link IcebergScanRange}, applying the rewrite-scope filter
+     * (returns {@code null} to skip a data file outside the scope) and the v3 commit-bridge rewritable-delete
+     * stash side-effect. Shared by the synchronous {@link #planScanInternal} loop and the streaming
+     * {@code IcebergStreamingSplitSource} so both paths produce byte-identical ranges and never drop a
+     * side-effect. The streaming path passes {@code stashRewritableDeletes=false} (v3 is gated onto the eager
+     * path — see {@link #streamingSplitEstimate}), so the stash is inert there.
+     */
+    private IcebergScanRange buildRangeForTask(FileScanTask task, Table table, int formatVersion,
+            boolean partitioned, List<String> orderedPartitionKeys, ZoneId zone,
+            Map<String, String> vendedToken, long targetSplitSize, Set<String> rewriteScope,
+            boolean stashRewritableDeletes, String stashQueryId) {
+        DataFile dataFile = task.file();
+        if (rewriteScope != null && !rewriteScope.contains(dataFile.path().toString())) {
+            return null;
+        }
+        // targetSplitSize is the scan-level weight denominator (M-2): each data-file range carries a
+        // size-proportional BE scheduling weight (selfSplitWeight computed inside buildRange).
+        IcebergScanRange range = buildRange(table, dataFile, task, formatVersion, partitioned,
+                orderedPartitionKeys, zone, vendedToken, -1, targetSplitSize);
+        if (stashRewritableDeletes) {
+            rewritableDeleteStash.accumulate(stashQueryId, range.getOriginalPath(),
+                    range.rewritableDeleteDescs());
+        }
+        return range;
     }
 
     /**
@@ -1167,6 +1354,17 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         } catch (NumberFormatException e) {
             return defaultValue;
         }
+    }
+
+    private static boolean sessionBool(ConnectorSession session, String key, boolean defaultValue) {
+        if (session == null) {
+            return defaultValue;
+        }
+        String raw = session.getSessionProperties().get(key);
+        if (raw == null || raw.trim().isEmpty()) {
+            return defaultValue;
+        }
+        return Boolean.parseBoolean(raw.trim());
     }
 
     /**

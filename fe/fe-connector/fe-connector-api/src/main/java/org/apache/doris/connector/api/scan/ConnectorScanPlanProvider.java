@@ -262,6 +262,65 @@ public interface ConnectorScanPlanProvider {
     }
 
     /**
+     * Decides whether this scan should use streaming (lazy) split generation and, if so, estimates
+     * the number of splits it will produce. This is the file-count counterpart of the partition-count
+     * batch gate ({@link #supportsBatchScan}), and echoes Trino's lazy {@code ConnectorSplitSource}
+     * model: the connector owns the whole decision (e.g. Iceberg: matched-manifest file count &ge;
+     * {@code num_files_in_batch_mode} with {@code enable_external_table_batch_mode} on, a snapshot
+     * present, not a system table, count pushdown not servable). The engine additionally requires the
+     * scan to have output slots before entering streaming mode.
+     *
+     * <p>When this returns a non-negative value, the engine drives streaming split generation via
+     * {@link #streamSplits} (pulling ranges with backpressure) instead of the synchronous
+     * {@link #planScan}; the returned estimate doubles as the BE concurrency hint. A negative value
+     * keeps the scan on the synchronous {@code planScan} path (the default).</p>
+     *
+     * <p>The decision MUST be cheap (e.g. manifest metadata counts), NOT a full split enumeration —
+     * the heavy enumeration is deferred to {@link #streamSplits}.</p>
+     *
+     * @param session       the current session
+     * @param handle        the table handle (carries any pushed-down filter)
+     * @param filter        an optional remaining filter expression
+     * @param countPushdown whether a no-grouping {@code COUNT(*)} is pushed down for this scan
+     * @return the approximate streamed split count if streaming should be used, else a negative value
+     *         (default: -1)
+     */
+    default long streamingSplitEstimate(
+            ConnectorSession session,
+            ConnectorTableHandle handle,
+            Optional<ConnectorExpression> filter,
+            boolean countPushdown) {
+        return -1;
+    }
+
+    /**
+     * Builds a lazy {@link ConnectorSplitSource} for streaming split generation. Called once, on a
+     * background task, only when {@link #streamingSplitEstimate} returned a non-negative value. The
+     * engine pulls ranges from the source with backpressure and pumps them into the split queue
+     * (mirrors legacy {@code IcebergScanNode.doStartSplit}).
+     *
+     * <p>The source MUST defer the heavy planning (e.g. {@code TableScan.planFiles()}) until ranges
+     * are consumed, so FE heap usage stays bounded for very large scans. The default throws, so a
+     * connector that returns a non-negative {@link #streamingSplitEstimate} must override this.</p>
+     *
+     * @param session the current session
+     * @param handle  the table handle (snapshot/time-travel already pinned by the engine)
+     * @param columns the columns to read
+     * @param filter  an optional remaining filter expression
+     * @param limit   the maximum number of rows to return, or -1 for no limit
+     * @return a lazy, closeable source of scan ranges
+     */
+    default ConnectorSplitSource streamSplits(
+            ConnectorSession session,
+            ConnectorTableHandle handle,
+            List<ConnectorColumnHandle> columns,
+            Optional<ConnectorExpression> filter,
+            long limit) {
+        throw new UnsupportedOperationException(
+                "streamSplits requires streamingSplitEstimate(...) >= 0; connector did not implement it");
+    }
+
+    /**
      * Returns scan-node-level properties shared across all scan ranges.
      *
      * <p>Unlike per-range properties in {@link ConnectorScanRange#getProperties()},

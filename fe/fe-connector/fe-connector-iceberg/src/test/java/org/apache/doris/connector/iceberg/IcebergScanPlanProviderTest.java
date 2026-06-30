@@ -26,6 +26,7 @@ import org.apache.doris.connector.api.pushdown.ConnectorExpression;
 import org.apache.doris.connector.api.pushdown.ConnectorLiteral;
 import org.apache.doris.connector.api.scan.ConnectorScanRange;
 import org.apache.doris.connector.api.scan.ConnectorScanRangeType;
+import org.apache.doris.connector.api.scan.ConnectorSplitSource;
 import org.apache.doris.filesystem.FileSystemType;
 import org.apache.doris.filesystem.properties.BackendStorageKind;
 import org.apache.doris.filesystem.properties.BackendStorageProperties;
@@ -67,6 +68,7 @@ import org.apache.iceberg.util.SerializationUtil;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
@@ -77,6 +79,7 @@ import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.NoSuchElementException;
 import java.util.Optional;
 import java.util.Set;
 
@@ -888,6 +891,176 @@ public class IcebergScanPlanProviderTest {
                 null, new IcebergTableHandle("db1", "t1"), Collections.emptyList(), Optional.empty()));
         Assertions.assertTrue(ex.getMessage().contains("Unsupported format name: avro"),
                 "message should mirror legacy: " + ex.getMessage());
+    }
+
+    // --- FIX-M3 streaming (file-count) split generation ---------------------------------------------------
+
+    /** A session that sets the file-count batch gate vars (num_files_in_batch_mode / enable). */
+    private static ConnectorSession batchSession(long numFilesInBatchMode, boolean enableBatchMode) {
+        Map<String, String> props = new HashMap<>();
+        props.put("num_files_in_batch_mode", String.valueOf(numFilesInBatchMode));
+        props.put("enable_external_table_batch_mode", String.valueOf(enableBatchMode));
+        return new FakeScanSession("UTC", props);
+    }
+
+    private static Table threeFileTable(Map<String, String> tableProps) {
+        Table table = createTable("t1", SCHEMA, PartitionSpec.unpartitioned(), tableProps);
+        table.newAppend()
+                .appendFile(dataFile(table.spec(), "s3://b/db/t1/f1.parquet", 1024, null, null))
+                .appendFile(dataFile(table.spec(), "s3://b/db/t1/f2.parquet", 2048, null, null))
+                .appendFile(dataFile(table.spec(), "s3://b/db/t1/f3.parquet", 4096, null, null))
+                .commit();
+        return table;
+    }
+
+    private static Table threeFileTable() {
+        return threeFileTable(Collections.emptyMap());
+    }
+
+    private static IcebergScanPlanProvider providerOver(Table table) {
+        return new IcebergScanPlanProvider(Collections.emptyMap(), opsReturning(table));
+    }
+
+    private static ConnectorSession emptySession() {
+        return new FakeScanSession("UTC", Collections.emptyMap());
+    }
+
+    private static List<ConnectorScanRange> drain(ConnectorSplitSource source) throws IOException {
+        List<ConnectorScanRange> out = new ArrayList<>();
+        try (ConnectorSplitSource s = source) {
+            while (s.hasNext()) {
+                out.add(s.next());
+            }
+        }
+        return out;
+    }
+
+    @Test
+    public void streamingSplitEstimateBelowThresholdStaysSynchronous() {
+        // 3 matched files < threshold(5) -> stay on the synchronous planScan path (small scans need no streaming).
+        IcebergScanPlanProvider provider = providerOver(threeFileTable());
+        long estimate = provider.streamingSplitEstimate(batchSession(5, true),
+                new IcebergTableHandle("db1", "t1"), Optional.empty(), false);
+        Assertions.assertEquals(-1, estimate, "below threshold must not stream");
+    }
+
+    @Test
+    public void streamingSplitEstimateAtThresholdStreamsAndReturnsFileCount() {
+        // 3 matched files == threshold(3): the gate is INCLUSIVE (legacy >=), and the estimate is the file count
+        // (the BE concurrency hint). MUTATION: `>=` -> `>` drops the boundary -> -1 -> red.
+        IcebergScanPlanProvider provider = providerOver(threeFileTable());
+        long estimate = provider.streamingSplitEstimate(batchSession(3, true),
+                new IcebergTableHandle("db1", "t1"), Optional.empty(), false);
+        Assertions.assertEquals(3, estimate, "at threshold must stream and report the matched file count");
+    }
+
+    @Test
+    public void streamingSplitEstimateDisabledBySessionVarStaysSynchronous() {
+        // enable_external_table_batch_mode=false short-circuits even though 3 >= threshold(2). MUTATION: dropping
+        // the enable guard -> 3 -> red. This is the session var that was silently dead pre-fix.
+        IcebergScanPlanProvider provider = providerOver(threeFileTable());
+        long estimate = provider.streamingSplitEstimate(batchSession(2, false),
+                new IcebergTableHandle("db1", "t1"), Optional.empty(), false);
+        Assertions.assertEquals(-1, estimate, "batch mode disabled must not stream");
+    }
+
+    @Test
+    public void streamingSplitEstimateEmptyTableStaysSynchronous() {
+        // No snapshot (no append) -> nothing to stream. MUTATION: dropping the snapshot==null guard -> NPE/red.
+        Table table = createTable("t1", SCHEMA, PartitionSpec.unpartitioned());
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(Collections.emptyMap(), opsReturning(table));
+        long estimate = provider.streamingSplitEstimate(batchSession(0, true),
+                new IcebergTableHandle("db1", "t1"), Optional.empty(), false);
+        Assertions.assertEquals(-1, estimate, "empty table must not stream");
+    }
+
+    @Test
+    public void streamingSplitEstimateSystemTableStaysSynchronous() {
+        // System tables take the JNI serialized-split path, never streaming. MUTATION: dropping the isSystemTable
+        // guard -> attempts to count a metadata table -> wrong/red.
+        IcebergScanPlanProvider provider = providerOver(threeFileTable());
+        long estimate = provider.streamingSplitEstimate(batchSession(2, true),
+                IcebergTableHandle.forSystemTable("db1", "t1", "snapshots", -1, null, -1), Optional.empty(), false);
+        Assertions.assertEquals(-1, estimate, "system table must not stream");
+    }
+
+    @Test
+    public void streamingSplitEstimateV3StaysSynchronous() {
+        // Format-version >= 3 carries the commit-bridge rewritable-delete stash that the write side reads at
+        // write-plan time; streaming would fill it too late (BE-pull time) and resurrect deleted rows. So v3 is
+        // gated onto the eager path. MUTATION: `>= 3` -> `> 3` (or dropping the guard) -> 3 -> red (correctness).
+        Table table = threeFileTable(Collections.singletonMap("format-version", "3"));
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(Collections.emptyMap(), opsReturning(table));
+        long estimate = provider.streamingSplitEstimate(batchSession(2, true),
+                new IcebergTableHandle("db1", "t1"), Optional.empty(), false);
+        Assertions.assertEquals(-1, estimate, "v3 (deletion-vector) tables must not stream");
+    }
+
+    @Test
+    public void streamingSplitEstimateServableCountPushdownStaysSynchronous() {
+        // A servable COUNT(*) collapses to one range (never streamed). 3 files, no deletes -> count servable from
+        // the snapshot summary. MUTATION: dropping the countPushdown short-circuit -> 3 -> red.
+        IcebergScanPlanProvider provider = providerOver(threeFileTable());
+        long estimate = provider.streamingSplitEstimate(batchSession(2, true),
+                new IcebergTableHandle("db1", "t1"), Optional.empty(), true);
+        Assertions.assertEquals(-1, estimate, "servable count pushdown must not stream");
+    }
+
+    @Test
+    public void streamSplitsProducesOneLazyRangePerFile() throws IOException {
+        // The lazy source yields exactly one range per data file (3), with the raw paths preserved. This is the
+        // streamed counterpart of planScan's eager enumeration.
+        IcebergScanPlanProvider provider = providerOver(threeFileTable());
+        List<ConnectorScanRange> ranges = drain(provider.streamSplits(emptySession(),
+                new IcebergTableHandle("db1", "t1"), Collections.emptyList(), Optional.empty(), -1L));
+        Set<String> paths = ranges.stream()
+                .map(r -> ((IcebergScanRange) r).getOriginalPath()).collect(ImmutableSet.toImmutableSet());
+        Assertions.assertEquals(
+                ImmutableSet.of("s3://b/db/t1/f1.parquet", "s3://b/db/t1/f2.parquet", "s3://b/db/t1/f3.parquet"), paths,
+                "streaming must yield one range per file");
+    }
+
+    @Test
+    public void streamSplitsRewriteScopeSkipsUnscopedFilesViaLookahead() throws IOException {
+        // A rewrite scope keeps only f1 + f3; the source's look-ahead must skip f2 in hasNext(). MUTATION:
+        // dropping the rewrite-scope skip -> f2 leaks (3 ranges) -> red; a broken look-ahead (no skip) would
+        // surface a null -> red.
+        Table table = threeFileTable(Collections.emptyMap());
+        IcebergScanPlanProvider provider = new IcebergScanPlanProvider(Collections.emptyMap(), opsReturning(table));
+        IcebergTableHandle scoped = new IcebergTableHandle("db1", "t1").withRewriteFileScope(
+                ImmutableSet.of("s3://b/db/t1/f1.parquet", "s3://b/db/t1/f3.parquet"));
+        List<ConnectorScanRange> ranges = drain(provider.streamSplits(emptySession(),
+                scoped, Collections.emptyList(), Optional.empty(), -1L));
+        Set<String> paths = ranges.stream()
+                .map(r -> ((IcebergScanRange) r).getOriginalPath()).collect(ImmutableSet.toImmutableSet());
+        Assertions.assertEquals(
+                ImmutableSet.of("s3://b/db/t1/f1.parquet", "s3://b/db/t1/f3.parquet"), paths,
+                "rewrite scope must skip f2 in the streamed source");
+    }
+
+    @Test
+    public void streamSplitsNextThrowsWhenExhausted() throws IOException {
+        // next() past the end must throw (the engine pulls only while hasNext()). MUTATION: dropping the hasNext
+        // guard in next() -> NPE/wrong instead of NoSuchElementException -> red.
+        IcebergScanPlanProvider provider = providerOver(threeFileTable());
+        ConnectorSplitSource source = provider.streamSplits(new FakeScanSession("UTC", Collections.emptyMap()),
+                new IcebergTableHandle("db1", "t1"), Collections.emptyList(), Optional.empty(), -1L);
+        while (source.hasNext()) {
+            source.next();
+        }
+        Assertions.assertThrows(NoSuchElementException.class, source::next);
+        source.close();
+    }
+
+    @Test
+    public void streamSplitsCloseBeforeIterationDoesNotThrow() throws IOException {
+        // The engine may close the source without ever pulling (e.g. needMoreSplit() false from the start). With
+        // the lazy iterator the iterator is still null; close() must null-guard it and still release the
+        // underlying planFiles() iterable. MUTATION: dropping the `iterator != null` guard in close() -> NPE -> red.
+        IcebergScanPlanProvider provider = providerOver(threeFileTable());
+        ConnectorSplitSource source = provider.streamSplits(emptySession(),
+                new IcebergTableHandle("db1", "t1"), Collections.emptyList(), Optional.empty(), -1L);
+        Assertions.assertDoesNotThrow(source::close);
     }
 
     /** A minimal {@link ConnectorSession} exposing a time zone + session split-size properties (no Mockito). */
