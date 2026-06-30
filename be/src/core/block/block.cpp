@@ -1029,14 +1029,16 @@ Status Block::serialize(int be_exec_version, PBlock* pblock,
 
     // calc uncompressed size for allocation
     size_t content_uncompressed_size = 0;
-    for (const auto& c : *this) {
-        PColumnMeta* pcm = pblock->add_column_metas();
-        c.to_pb_column_meta(pcm);
-        DCHECK(pcm->type() != PGenericType::UNKNOWN) << " forget to set pb type";
-        // get serialized size
-        content_uncompressed_size +=
-                c.type->get_uncompressed_serialized_bytes(*(c.column), pblock->be_exec_version());
-    }
+    RETURN_IF_CATCH_EXCEPTION({
+        for (const auto& c : *this) {
+            PColumnMeta* pcm = pblock->add_column_metas();
+            c.to_pb_column_meta(pcm);
+            DCHECK(pcm->type() != PGenericType::UNKNOWN) << " forget to set pb type";
+            // get serialized size
+            content_uncompressed_size += c.type->get_uncompressed_serialized_bytes(
+                    *(c.column), pblock->be_exec_version());
+        }
+    });
 
     // serialize data values
     // when data type is HLL, content_uncompressed_size maybe larger than real size.
@@ -1052,9 +1054,11 @@ Status Block::serialize(int be_exec_version, PBlock* pblock,
     }
     char* buf = column_values.data();
 
-    for (const auto& c : *this) {
-        buf = c.type->serialize(*(c.column), buf, pblock->be_exec_version());
-    }
+    RETURN_IF_CATCH_EXCEPTION({
+        for (const auto& c : *this) {
+            buf = c.type->serialize(*(c.column), buf, pblock->be_exec_version());
+        }
+    });
     *uncompressed_bytes = content_uncompressed_size;
     const size_t serialize_bytes = buf - column_values.data() + STREAMVBYTE_PADDING;
     *compressed_bytes = serialize_bytes;
