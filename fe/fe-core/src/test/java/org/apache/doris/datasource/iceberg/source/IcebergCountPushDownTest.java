@@ -75,4 +75,12 @@ public class IcebergCountPushDownTest {
         // ignoreDanglingDelete = false -> cannot push down (fall back to scan)
         Assertions.assertEquals(-1L, IcebergUtils.getCountFromSummary(summary("0", "10", "100"), false));
     }
+
+    @Test
+    public void testZeroCountWithPositionDeletesIsPushedDown() {
+        // total-records == position-deletes -> count is 0. With ignore_iceberg_dangling_delete this
+        // is a valid pushed-down count; FE returns 0 and BE honors it via CountReader(0) (the BE
+        // table-level guard accepts table_level_row_count >= 0). It must NOT fall back to -1.
+        Assertions.assertEquals(0L, IcebergUtils.getCountFromSummary(summary("0", "100", "100"), true));
+    }
 }
