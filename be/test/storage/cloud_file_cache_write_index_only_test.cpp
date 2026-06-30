@@ -104,16 +104,24 @@ protected:
     void SetUp() override {
         _origin_index_only = config::enable_file_cache_write_index_file_only;
         _origin_enable_file_cache = config::enable_file_cache;
+        _origin_cloud_unique_id = config::cloud_unique_id;
     }
 
     void TearDown() override {
+        auto sp = SyncPoint::get_instance();
+        sp->disable_processing();
+        sp->clear_all_call_backs();
+        sp->clear_trace();
+
         config::enable_file_cache_write_index_file_only = _origin_index_only;
         config::enable_file_cache = _origin_enable_file_cache;
+        config::cloud_unique_id = _origin_cloud_unique_id;
     }
 
 private:
     bool _origin_index_only = false;
     bool _origin_enable_file_cache = false;
+    std::string _origin_cloud_unique_id;
 };
 
 class CloudFileCacheWriteIndexOnlyTest : public testing::Test {
@@ -561,12 +569,40 @@ TEST_F(CloudFileCacheWriteIndexOnlyConfigTest,
        SegmentIndexFileCacheLoaderSkipsEmptyRangeBeforeOpenFile) {
     config::enable_file_cache = true;
     config::enable_file_cache_write_index_file_only = true;
+    config::cloud_unique_id = "cloud_file_cache_empty_range_ut";
+
+    S3Conf s3_conf;
+    s3_conf.client_conf.ak = "fake_ak";
+    s3_conf.client_conf.sk = "fake_sk";
+    s3_conf.client_conf.endpoint = "fake_s3_endpoint";
+    s3_conf.client_conf.region = "fake_s3_region";
+    s3_conf.bucket = "fake_s3_bucket";
+    s3_conf.prefix = "cloud_file_cache_empty_range_ut";
+    auto fs = io::S3FileSystem::create(std::move(s3_conf), "cloud-file-cache-empty-range-ut-fs");
+    ASSERT_TRUE(fs.has_value()) << fs.error();
+
+    int open_file_count = 0;
+    SyncPoint::CallbackGuard s3_open_file_guard;
+    auto sp = SyncPoint::get_instance();
+    sp->clear_all_call_backs();
+    sp->enable_processing();
+    sp->set_call_back(
+            "S3FileSystem::open_file_internal",
+            [&open_file_count](auto&& /*args*/) {
+                ++open_file_count;
+                ADD_FAILURE() << "empty range should return before opening segment";
+            },
+            &s3_open_file_guard);
 
     segment_v2::SegmentIndexFileCacheLoadContext context;
+    context.fs = fs.value();
+    context.segment_path = "empty_range_should_not_open.dat";
+    context.tablet_id = kIndexOnlyTabletId;
     context.segment_file_size = 2;
 
     EXPECT_TRUE(segment_v2::SegmentIndexFileCacheLoader::load_segment_index_to_file_cache(context)
                         .ok());
+    EXPECT_EQ(open_file_count, 0);
 }
 
 TEST_F(CloudFileCacheWriteIndexOnlyTest,
