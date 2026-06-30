@@ -26,6 +26,7 @@
 
 #include "common/status.h"
 #include "core/block/block.h"
+#include "core/column/column_decimal.h"
 #include "core/column/column_nullable_test.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type.h"
@@ -229,6 +230,37 @@ TEST(ColumnNullableTest, UpdateCrc32cBatchHashesNullAsNestedDefaultForWideType) 
     nested_mut->insert_value(20);
     nested_mut->insert_value(30);
     nested_mut->insert_value(40);
+    ColumnPtr nested = std::move(nested_mut);
+
+    auto null_map_mut = ColumnUInt8::create();
+    null_map_mut->insert_value(0);
+    null_map_mut->insert_value(1);
+    null_map_mut->insert_value(0);
+    null_map_mut->insert_value(1);
+    ColumnPtr null_map = std::move(null_map_mut);
+
+    ColumnPtr nullable = ColumnNullable::create(nested, null_map);
+
+    auto expected_nested = nested->clone_resized(nested->size());
+    expected_nested->replace_column_null_data(
+            assert_cast<const ColumnUInt8&>(*null_map).get_data().data());
+    std::vector<uint32_t> expected_hashes(nullable->size(), 0);
+    expected_nested->update_crc32c_batch(expected_hashes.data(), nullptr);
+
+    std::vector<uint32_t> hashes(nullable->size(), 0);
+    nullable->update_crc32c_batch(hashes.data(), nullptr);
+
+    EXPECT_EQ(hashes, expected_hashes);
+    EXPECT_NE(hashes[1], HashUtil::crc32c_null(0));
+    EXPECT_NE(hashes[3], HashUtil::crc32c_null(0));
+}
+
+TEST(ColumnNullableTest, UpdateCrc32cBatchHashesNullAsDecimalDefault) {
+    auto nested_mut = ColumnDecimal64::create(0, 2);
+    nested_mut->insert_value(Decimal64(1010));
+    nested_mut->insert_value(Decimal64(2020));
+    nested_mut->insert_value(Decimal64(3030));
+    nested_mut->insert_value(Decimal64(4040));
     ColumnPtr nested = std::move(nested_mut);
 
     auto null_map_mut = ColumnUInt8::create();
