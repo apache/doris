@@ -17,3 +17,20 @@
 3	\N	\N	
 4	\N	\N	\N
 
+-- !rename_parquet_count --
+4
+
+-- !rename_parquet_nested --
+1	1	1	1
+2	4	\N	2
+3	\N	\N	3
+4	\N	\N	\N
+
+-- !rename_orc_count --
+4
+
+-- !rename_orc_nested --
+1	1	1	1
+2	4	\N	2
+3	\N	\N	3
+4	\N	\N	\N

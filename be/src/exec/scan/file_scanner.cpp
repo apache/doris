@@ -606,7 +606,7 @@ Status FileScanner::_get_block_wrapped(RuntimeState* state, Block* block, bool* 
 /**
  * Check whether there are complex types in parquet/orc reader in broker/stream load.
  * Broker/stream load usually casts file columns from string slots. Complex parquet/orc columns are
- * supported only when the matching input slot keeps a complex type.
+ * supported only when the input slot that reads the file column keeps a complex type.
  */
 Status FileScanner::_check_output_block_types() {
     // Only called from _init_src_block_for_load, so _is_load is always true.
@@ -635,6 +635,20 @@ Status FileScanner::_check_output_block_types() {
                                 slot->col_name(), input_slot->type()->get_name());
                     }
                 }
+            }
+        }
+        for (auto input_slot : _input_tuple_desc->slots()) {
+            if (!is_complex_type(input_slot->type()->get_primitive_type())) {
+                continue;
+            }
+            auto file_col_type =
+                    _slot_lower_name_to_col_type.find(input_slot->col_name_lower_case());
+            if (file_col_type != _slot_lower_name_to_col_type.end() &&
+                !is_complex_type(file_col_type->second->get_primitive_type())) {
+                return Status::InternalError(
+                        "Parquet/orc complex types in broker/stream load require complex "
+                        "file columns, but column '{}' is read as {}.",
+                        input_slot->col_name(), file_col_type->second->get_name());
             }
         }
     }
