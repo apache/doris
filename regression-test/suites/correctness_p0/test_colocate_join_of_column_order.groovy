@@ -68,6 +68,7 @@ suite("test_colocate_join_of_column_order") {
         sql("select * from test_colocate_join_of_column_order_t1 a join test_colocate_join_of_column_order_t2 b on a.k1=b.k2 and a.v=b.v;")
         notContains "COLOCATE"
     }
+    waitForColocateGroupStable("group_column_order")
     explain {
         sql("select * from test_colocate_join_of_column_order_t1 a join test_colocate_join_of_column_order_t2 b on a.k1=b.k2 and a.k2=b.k1;")
         contains "COLOCATE"
@@ -104,6 +105,7 @@ suite("test_colocate_join_of_column_order") {
     // fuzzed value (0 -> auto ~cores/2) the heuristic totalBucketNum(10) < backEndNum*paraNum*0.8 can
     // trip on a single-BE cloud cluster, turning ta's NATURAL distribution into EXECUTION_BUCKETED and
     // forbidding the downstream COLOCATE. Pinning paraNum=1 makes the condition always false.
+    waitForColocateGroupStable("group_column_order3")
     explain {
         sql("""select /*+ set_var(disable_join_reorder=true,parallel_pipeline_task_num=1) */ * from test_colocate_join_of_column_order_ta join [shuffle] (select cast((c2 + 1) as bigint) c2 from test_colocate_join_of_column_order_tb) test_colocate_join_of_column_order_tb  on test_colocate_join_of_column_order_ta.c1 = test_colocate_join_of_column_order_tb.c2 join [shuffle] test_colocate_join_of_column_order_tc on test_colocate_join_of_column_order_tb.c2 = test_colocate_join_of_column_order_tc.c1;""");
         contains "COLOCATE"
