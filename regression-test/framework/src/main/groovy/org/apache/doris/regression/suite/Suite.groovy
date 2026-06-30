@@ -1925,6 +1925,10 @@ class Suite implements GroovyInterceptable {
             return quickTest(name.substring("order_qt_".length()), (args as Object[])[0] as String, true)
         } else if (name.startsWith("qe_")) {
             return quickExecute(name.substring("qe_".length()), (args as Object[])[0] as PreparedStatement)
+        } else if (name == "assertSparkDorisResultEquals") {
+            ResultUtils.assertSparkDorisResultEquals((args as Object[])[0] as List<List<Object>>,
+                    (args as Object[])[1] as List<List<Object>>)
+            return null
         } else if (name.startsWith("assert") && name.length() > "assert".length()) {
             // delegate to junit Assertions dynamically
             return Assertions."$name"(*args) // *args: spread-dot
