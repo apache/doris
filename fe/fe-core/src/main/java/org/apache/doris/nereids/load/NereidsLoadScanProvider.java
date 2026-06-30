@@ -81,6 +81,16 @@ public class NereidsLoadScanProvider {
         this.partialUpdateInputColumns = partialUpdateInputColumns;
     }
 
+    private boolean shouldUseTargetTypeForFileSlot(TFileFormatType fileFormatType, Column tblColumn, Type targetType) {
+        return (fileFormatType == TFileFormatType.FORMAT_PARQUET || fileFormatType == TFileFormatType.FORMAT_ORC)
+                && tblColumn != null && targetType != null && targetType.isComplexType();
+    }
+
+    private boolean isParquetOrOrcComplexTargetColumn(TFileFormatType fileFormatType, Column tblColumn) {
+        return (fileFormatType == TFileFormatType.FORMAT_PARQUET || fileFormatType == TFileFormatType.FORMAT_ORC)
+                && tblColumn != null && tblColumn.getType().isComplexType();
+    }
+
     /**
      * creating a NereidsParamCreateContext contains column mapping expressions and scan slots
      */
@@ -362,17 +372,24 @@ public class NereidsLoadScanProvider {
             } else {
                 realColName = tblColumn.getName();
             }
+            TFileFormatType fileFormatType = fileGroup.getFileFormatProperties().getFileFormatType();
             if (importColumnDesc.getExpr() != null) {
+                if (isParquetOrOrcComplexTargetColumn(fileFormatType, tblColumn)) {
+                    throw new AnalysisException("Parquet/orc complex type load only supports direct column mapping. "
+                            + "column: " + realColName);
+                }
                 if (tblColumn.getGeneratedColumnInfo() == null && !context.exprMap.containsKey(realColName)) {
                     context.exprMap.put(realColName, importColumnDesc.getExpr());
                 }
             } else {
                 Column slotColumn;
-                TFileFormatType fileFormatType = fileGroup.getFileFormatProperties().getFileFormatType();
-                // Use real column type for arrow/native format, other formats read as varchar first
+                Type targetType = tblColumn == null ? colToType.get(realColName) : tblColumn.getType();
+                // Use real column type for arrow/native format. For parquet/orc complex table columns,
+                // keep the nested source slot type and let BE cast from the file schema to the target type.
                 if (fileFormatType == TFileFormatType.FORMAT_ARROW
-                        || fileFormatType == TFileFormatType.FORMAT_NATIVE) {
-                    slotColumn = new Column(realColName, colToType.get(realColName), true);
+                        || fileFormatType == TFileFormatType.FORMAT_NATIVE
+                        || shouldUseTargetTypeForFileSlot(fileFormatType, tblColumn, targetType)) {
+                    slotColumn = new Column(realColName, targetType, true);
                 } else {
                     if (fileGroupInfo.getUniqueKeyUpdateMode() == TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS
                             && hasSkipBitmapColumn) {

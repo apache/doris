@@ -605,8 +605,8 @@ Status FileScanner::_get_block_wrapped(RuntimeState* state, Block* block, bool* 
 
 /**
  * Check whether there are complex types in parquet/orc reader in broker/stream load.
- * Broker/stream load will cast any type as string type, and complex types will be casted wrong.
- * This is a temporary method, and will be replaced by tvf.
+ * Broker/stream load usually casts file columns from string slots. Complex parquet/orc columns are
+ * supported only when the matching input slot keeps a complex type.
  */
 Status FileScanner::_check_output_block_types() {
     // Only called from _init_src_block_for_load, so _is_load is always true.
@@ -615,9 +615,26 @@ Status FileScanner::_check_output_block_types() {
         format_type == TFileFormatType::FORMAT_ORC) {
         for (auto slot : _output_tuple_desc->slots()) {
             if (is_complex_type(slot->type()->get_primitive_type())) {
-                return Status::InternalError(
-                        "Parquet/orc doesn't support complex types in broker/stream load, "
-                        "please use tvf(table value function) to insert complex types.");
+                const auto& output_col_name = slot->col_name_lower_case();
+                for (auto input_slot : _input_tuple_desc->slots()) {
+                    if (input_slot->col_name_lower_case() != output_col_name) {
+                        continue;
+                    }
+                    auto file_col_type = _slot_lower_name_to_col_type.find(output_col_name);
+                    if (file_col_type != _slot_lower_name_to_col_type.end() &&
+                        !is_complex_type(file_col_type->second->get_primitive_type())) {
+                        return Status::InternalError(
+                                "Parquet/orc complex types in broker/stream load require complex "
+                                "file columns, but column '{}' is read as {}.",
+                                slot->col_name(), file_col_type->second->get_name());
+                    }
+                    if (!is_complex_type(input_slot->type()->get_primitive_type())) {
+                        return Status::InternalError(
+                                "Parquet/orc complex types in broker/stream load require complex "
+                                "input slots, but column '{}' is planned as {}.",
+                                slot->col_name(), input_slot->type()->get_name());
+                    }
+                }
             }
         }
     }
