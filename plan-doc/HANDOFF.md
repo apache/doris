@@ -7,13 +7,14 @@
 
 # 🎯 下一个 session 的任务 = **逐步处理 clean-room 对抗 review 的 Medium (M-*) 发现（翻闸 BLOCKED，先修后翻）**
 
-> **进度**：P0（B-1/B-2）+ 全部关键 P1（H-1..H-10）**已全 ✅**；Medium **M-1 ✅ `ead0ac39328`** + **M-2 ✅ `a942d0d4a87`**（split 按字节比例调度权重，镜像 paimon）已落——逐条状态/commit 见**任务清单 §1–§3** + `git log`（HANDOFF 不再累积「修完成」条目）。
+> **进度**：P0（B-1/B-2）+ 全部关键 P1（H-1..H-10）**已全 ✅**；Medium **M-1 ✅ `ead0ac39328`** + **M-2 ✅ `a942d0d4a87`** + **M-3 ✅ `a75f5ffed99`**（file-count 流式 split，中立 `ConnectorSplitSource` 连接器自驱动，向 Trino 对齐）已落——逐条状态/commit 见**任务清单 §1–§3** + `git log`（HANDOFF 不再累积「修完成」条目）。
 >
 > **⏭ 下一步（新 session 从这里起）= 逐步处理 review 的 Medium (M-*) 发现**：
-> - **入口**：任务清单 **§3（`M-1..M-11`，每条 ID/状态/位置/修法/备注/⚠️RECONCILE 在表内）** + review 报告 **§四**（证据源 file:line + vs master 差异）。**M-1 ☑ `ead0ac39328`**、**M-2 ☑ `a942d0d4a87`**、**M-10 + H-11 ☑ 已并入 B-2 `ba80cfb0439`**；其余 **`M-3..M-9` / `M-11` 待办**（M-7/M-11 标 partial）。
-> - **概览（详见任务清单 §3，勿在此累积；M-1/M-2 ✅ 已落，不再列）**：**M-3 ◀ 下一** batch（流式）split 模式丢弃→大表 FE 全量物化 OOM〔通用 batch 是 partition-count 基对 iceberg 不可达；`enable_external_table_batch_mode`/`num_files_in_batch_mode` 两会话变量对 iceberg 失效〕 / M-4 Top-N 懒物化用裁剪后 field-id 字典〔与已完成 H-10 字段编号链路相邻，可参照〕 / M-5 写 sink 对 FILE_BROKER(ofs/gfs) 不设 broker_addresses / M-6 嵌套复杂 MODIFY 到 iceberg 不可表示窄类型报错文案变（破绿 e2e） / M-7 DLF flavor 丢 CREATE TABLE NotSupported 守护 / M-8 SHOW CREATE DATABASE 无 location namespace 丢 LOCATION 子句 / M-9 DROP DATABASE on name-mapped catalog 用 LOCAL 名而非 REMOTE 名 / M-11 DROP DATABASE FORCE 不再容忍远端已删 namespace。
+> - **入口**：任务清单 **§3（`M-1..M-11`，每条 ID/状态/位置/修法/备注/⚠️RECONCILE 在表内）** + review 报告 **§四**（证据源 file:line + vs master 差异）。**M-1/M-2/M-3 ☑**、**M-10 + H-11 ☑ 已并入 B-2 `ba80cfb0439`**；其余 **`M-4..M-9` / `M-11` 待办**（M-7/M-11 标 partial）。
+> - **概览（详见任务清单 §3，勿在此累积；M-1/M-2/M-3 ✅ 已落，不再列）**：**M-4 ◀ 下一** Top-N 懒物化用裁剪后 field-id 字典而非全列字典〔schema 演进表上 BE field-id 可能不匹配→错误结果；未演进表 benign；与已完成 H-10 字段编号链路相邻，可参照〕 / M-5 写 sink 对 FILE_BROKER(ofs/gfs) 不设 broker_addresses / M-6 嵌套复杂 MODIFY 到 iceberg 不可表示窄类型报错文案变（破绿 e2e） / M-7 DLF flavor 丢 CREATE TABLE NotSupported 守护 / M-8 SHOW CREATE DATABASE 无 location namespace 丢 LOCATION 子句 / M-9 DROP DATABASE on name-mapped catalog 用 LOCAL 名而非 REMOTE 名 / M-11 DROP DATABASE FORCE 不再容忍远端已删 namespace。
 > - **每条走 step-by-step-fix**（recon→design `designs/P6.6-FIX-M<n>-<slug>-design.md`→impl→test+mutation→clean-room→**独立 commit**→回填任务清单），逐条独立提交。**⚠️ 认领前先 recon+`git show master:` 重裁，HANDOFF/review 行号/不变式可能过时（信控制流不信注释）**；冲突项回代码重裁（Rule 7）。
-> - **处理顺序（用户已重排 = Medium 先于 ENG-1）**：**Medium `M-*` ◀ 下一** → **ENG-1 能力孪生审计** → P3(L-BATCH) → ENG-3 flip-gated e2e 全跑 → 用户二签翻闸。（⚠️ 任务清单 §8 仍把 ENG-1 列在 P2 之前 = 已过时，以本处用户重排为准。）
+> - **处理顺序（用户已重排 = Medium 先于 ENG-1）**：**Medium `M-*` ◀ 下一（M-4）** → **ENG-1 能力孪生审计** → P3(L-BATCH) → ENG-3 flip-gated e2e 全跑 → 用户二签翻闸。（⚠️ 任务清单 §8 仍把 ENG-1 列在 P2 之前 = 已过时，以本处用户重排为准。）
+> - **⚠️ M-3 引入新中立 SPI（`ConnectorSplitSource` + `streamingSplitEstimate`/`streamSplits`）= 流式 split 通道**：将来 Hive/Hudi 迁插件路径可复用（file-count 流式是它们共用老套路）。**v3 iceberg 暂闸出流式**（commit-bridge delete stash 写规划点读，流式懒填太晚→复活已删行）；放开 v3 需先设计 plan-time stash barrier（登记 follow-up）。
 
 > **⚠️ 为何 BLOCKED（2026-06-28）**：一轮 clean-room 对抗 review 推翻了「翻闸代码基本完成」的旧结论——发现 **2 blocker + 11 high + 11 medium + 25 low + 18 info**，blocker/high 密集覆盖写入、MTMV、统计、time-travel、缓存一致性等核心路径。**翻闸代码侧写完了但不正确**：P0+关键 P1 现已逐条修完，但仍需关 Medium、跑 ENG-1 审计与 flip-gated e2e 才能二签翻闸。
 
@@ -89,7 +90,7 @@ iceberg 逻辑落 `fe-connector` 经中立 SPI / ConnectorCapability。**legacy 
 
 # 📦 阶段状态
 - **工作分支 = `catalog-spi-10-iceberg`**（off `branch-catalog-spi` @ `e5959e1b53d`，PR base = `branch-catalog-spi`，squash）。
-- **进度**：P6.1–P6.5 ✅ / P6.6 C1–C3 ✅ / C4 R1–R7 ✅ / C5 DDL/ALTER B1–B5 ✅ / flip-readiness 只读退化 ✅ / 视图 B0–B3 ✅ / 路由翻闸 `18e1b297d7e` ✅ / GSON 迁移 `e68eb5c00c9` ✅ → **⛔ 现卡在 clean-room review 发现修复**：**P0（B-1/B-2）+ 关键 P1（H-1..H-10）全 ✅**（逐条 commit 见任务清单 §1–§2 + `git log`）→ **Medium：M-1 ✅ `ead0ac39328`、M-2 ✅ `a942d0d4a87`；M-3 ◀ 下一** → ENG-1 能力孪生审计 → P3(L-BATCH) → ENG-3 flip-gated e2e → 二签翻闸。
+- **进度**：P6.1–P6.5 ✅ / P6.6 C1–C3 ✅ / C4 R1–R7 ✅ / C5 DDL/ALTER B1–B5 ✅ / flip-readiness 只读退化 ✅ / 视图 B0–B3 ✅ / 路由翻闸 `18e1b297d7e` ✅ / GSON 迁移 `e68eb5c00c9` ✅ → **⛔ 现卡在 clean-room review 发现修复**：**P0（B-1/B-2）+ 关键 P1（H-1..H-10）全 ✅**（逐条 commit 见任务清单 §1–§2 + `git log`）→ **Medium：M-1 ✅ `ead0ac39328`、M-2 ✅ `a942d0d4a87`、M-3 ✅ `a75f5ffed99`；M-4 ◀ 下一** → ENG-1 能力孪生审计 → P3(L-BATCH) → ENG-3 flip-gated e2e → 二签翻闸。
 - **⚠️ 推送状态**：P6.4 T01–T06+arg-move 已推 `origin`；**其后全部未 push**（含路由翻闸 + GSON 迁移 + 视图 + C4/C5 + 全部 review fix）。**先修 review 发现，勿 push 半成品翻闸。** 留用户裁量。
 - **⚠️ 分支 2026-06-28 被 rebase**：commit 哈希全重写，本文档/旧 commit message 旧哈希以 `git log` 为准。
 
