@@ -278,47 +278,38 @@ class SimplifyAggGroupByTest implements MemoPatternMatchSupported {
                 new Add(id, new DecimalLiteral(new BigDecimal("1.0")))));
     }
 
-    // ========== tests for isLosslessWidening ==========
+    // ========== tests for isInjectiveCastTo ==========
 
     @Test
     void testIntegerWidening() {
-        Assertions.assertTrue(SimplifyAggGroupBy.isLosslessWidening(
-                TinyIntType.INSTANCE, IntegerType.INSTANCE));
-        Assertions.assertTrue(SimplifyAggGroupBy.isLosslessWidening(
-                IntegerType.INSTANCE, BigIntType.INSTANCE));
-        Assertions.assertFalse(SimplifyAggGroupBy.isLosslessWidening(
-                IntegerType.INSTANCE, TinyIntType.INSTANCE));
-        Assertions.assertFalse(SimplifyAggGroupBy.isLosslessWidening(
-                BigIntType.INSTANCE, IntegerType.INSTANCE));
+        Assertions.assertTrue(TinyIntType.INSTANCE.isInjectiveCastTo(IntegerType.INSTANCE));
+        Assertions.assertTrue(IntegerType.INSTANCE.isInjectiveCastTo(BigIntType.INSTANCE));
+        Assertions.assertFalse(IntegerType.INSTANCE.isInjectiveCastTo(TinyIntType.INSTANCE));
+        Assertions.assertFalse(BigIntType.INSTANCE.isInjectiveCastTo(IntegerType.INSTANCE));
     }
 
     @Test
     void testDecimalWidening() {
-        Assertions.assertTrue(SimplifyAggGroupBy.isLosslessWidening(
-                DecimalV3Type.createDecimalV3Type(5, 2),
-                DecimalV3Type.createDecimalV3Type(10, 4)));
-        Assertions.assertFalse(SimplifyAggGroupBy.isLosslessWidening(
-                DecimalV3Type.createDecimalV3Type(10, 4),
-                DecimalV3Type.createDecimalV3Type(5, 2)));
+        Assertions.assertTrue(DecimalV3Type.createDecimalV3Type(5, 2)
+                .isInjectiveCastTo(DecimalV3Type.createDecimalV3Type(10, 4)));
+        Assertions.assertFalse(DecimalV3Type.createDecimalV3Type(10, 4)
+                .isInjectiveCastTo(DecimalV3Type.createDecimalV3Type(5, 2)));
     }
 
     @Test
     void testIntegralToDecimalWidening() {
-        Assertions.assertTrue(SimplifyAggGroupBy.isLosslessWidening(
-                TinyIntType.INSTANCE, DecimalV3Type.createDecimalV3Type(10, 0)));
+        Assertions.assertTrue(TinyIntType.INSTANCE
+                .isInjectiveCastTo(DecimalV3Type.createDecimalV3Type(10, 0)));
         // BigInt has 19 digits, DECIMAL(5,0) only has 5 integer digits
-        Assertions.assertFalse(SimplifyAggGroupBy.isLosslessWidening(
-                BigIntType.INSTANCE, DecimalV3Type.createDecimalV3Type(5, 0)));
+        Assertions.assertFalse(BigIntType.INSTANCE
+                .isInjectiveCastTo(DecimalV3Type.createDecimalV3Type(5, 0)));
     }
 
     @Test
     void testCrossFamilyRejected() {
-        Assertions.assertFalse(SimplifyAggGroupBy.isLosslessWidening(
-                IntegerType.INSTANCE, FloatType.INSTANCE));
-        Assertions.assertFalse(SimplifyAggGroupBy.isLosslessWidening(
-                FloatType.INSTANCE, IntegerType.INSTANCE));
-        Assertions.assertFalse(SimplifyAggGroupBy.isLosslessWidening(
-                IntegerType.INSTANCE, DoubleType.INSTANCE));
+        Assertions.assertFalse(IntegerType.INSTANCE.isInjectiveCastTo(FloatType.INSTANCE));
+        Assertions.assertFalse(FloatType.INSTANCE.isInjectiveCastTo(IntegerType.INSTANCE));
+        Assertions.assertFalse(IntegerType.INSTANCE.isInjectiveCastTo(DoubleType.INSTANCE));
     }
 
     // ========== tests for canExtractSlot ==========

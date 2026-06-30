@@ -28,9 +28,6 @@ import org.apache.doris.nereids.trees.expressions.Multiply;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.Subtract;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
-import org.apache.doris.nereids.types.DataType;
-import org.apache.doris.nereids.types.DecimalV3Type;
-import org.apache.doris.nereids.types.coercion.IntegralType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.Utils;
 
@@ -128,7 +125,7 @@ public class SimplifyAggGroupBy extends OneRewriteRuleFactory {
         while (expr instanceof Cast) {
             Cast cast = (Cast) expr;
             Expression inner = cast.child();
-            if (!isLosslessWidening(inner.getDataType(), cast.getDataType())) {
+            if (!inner.getDataType().isInjectiveCastTo(cast.getDataType())) {
                 return false;
             }
             expr = inner;
@@ -136,18 +133,4 @@ public class SimplifyAggGroupBy extends OneRewriteRuleFactory {
         return expr instanceof Slot;
     }
 
-    @VisibleForTesting
-    protected static boolean isLosslessWidening(DataType src, DataType tgt) {
-        if (src instanceof IntegralType && tgt instanceof IntegralType) {
-            return src.width() <= tgt.width();
-        }
-        if (src.isDecimalLikeType() && tgt.isDecimalLikeType()) {
-            return DecimalV3Type.forType(src).getRange() <= DecimalV3Type.forType(tgt).getRange()
-                    && DecimalV3Type.forType(src).getScale() <= DecimalV3Type.forType(tgt).getScale();
-        }
-        if (src instanceof IntegralType && tgt.isDecimalLikeType()) {
-            return ((IntegralType) src).range() <= DecimalV3Type.forType(tgt).getRange();
-        }
-        return false;
-    }
 }
