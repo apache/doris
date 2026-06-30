@@ -52,6 +52,21 @@ Status LoadBlockQueue::add_block(RuntimeState* runtime_state, std::shared_ptr<Bl
                                  bool write_wal, UniqueId& load_id) {
     DBUG_EXECUTE_IF("LoadBlockQueue.add_block.failed",
                     { return Status::InternalError("LoadBlockQueue.add_block.failed"); });
+    DBUG_EXECUTE_IF("LoadBlockQueue.add_block.block_reuse_second", {
+        int seq = _debug_add_block_seq.fetch_add(1);
+        if (seq >= 1) {
+            LOG(INFO) << "debug hold reuse 2nd+ add_block, label=" << label
+                      << ", load_id=" << load_id.to_string();
+            int64_t waited_ms = 0;
+            while (waited_ms < 10000 && DebugPoints::instance()->is_enable(
+                                                "LoadBlockQueue.add_block.block_reuse_second")) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                waited_ms += 10;
+            }
+            LOG(INFO) << "debug release reuse 2nd+ add_block, label=" << label
+                      << ", load_id=" << load_id.to_string() << ", waited_ms=" << waited_ms;
+        }
+    });
     std::unique_lock l(mutex);
     RETURN_IF_ERROR(status);
     if (UNLIKELY(runtime_state->is_cancelled())) {
