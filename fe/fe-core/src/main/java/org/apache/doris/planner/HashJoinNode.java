@@ -344,31 +344,65 @@ public class HashJoinNode extends JoinNodeBase {
             // For a non-serial probe without the flag: propagate the probe's distribution.
             outputType = probePassthrough ? LocalExchangeType.PASSTHROUGH : null;
         } else if (isColocate() || isBucketShuffle()) {
-            // Both probe and build sides require BUCKET_HASH_SHUFFLE: the bucket distribution
-            // must be preserved on both inputs. A serial child on either side is handled the
-            // same way (serial exchange returns NOOP → enforceRequire() inserts the LE).
-            probeSideRequire = LocalExchangeTypeRequire.requireBucketHash();
-            // For BUCKET_SHUFFLE with serial build child: use requireBucketHash() (not
-            // requirePassToOne()). Unlike BROADCAST joins, BUCKET_SHUFFLE has no shared
-            // hash table mechanism — PASS_TO_ONE routes all data to task 0 while tasks 1..N-1
-            // build empty hash tables, losing rows. BUCKET_HASH_SHUFFLE correctly distributes
-            // build data by bucket to match the probe side's bucket distribution.
-            // The serial exchange returns NOOP, so enforceRequire() will insert a
-            // BUCKET_HASH_SHUFFLE local exchange (with PASSTHROUGH fan-out for heavy-ops
-            // bottleneck avoidance).
-            buildSideRequire = LocalExchangeTypeRequire.requireBucketHash();
-            outputType = AddLocalExchange.resolveExchangeType(
-                    LocalExchangeTypeRequire.requireBucketHash());
+            if (canUpgradeBucketToLocalHash(translatorContext, parentRequire)) {
+                // Bucket → local-hash parallelism upgrade (bucket-to-hash upgrade): the fragment
+                // has noticeably more instances than buckets-with-data (see
+                // AddLocalExchange.isBucketUpgradeEligible) and nothing above this join needs
+                // bucket alignment — re-distribute both sides by their distribute keys with
+                // LOCAL_EXECUTION_HASH_SHUFFLE so the join runs at full instance parallelism
+                // instead of being capped at bucket count.  The LE keys come from
+                // childrenDistributeExprLists (pairwise-aligned per side, a subset of the
+                // equi-join keys), so both sides keep hashing the same values and the
+                // per-instance build/probe pairing stays correct.
+                //
+                // requireSpecific (not requireHash) on purpose: the children's
+                // BUCKET_HASH_SHUFFLE output must NOT satisfy this require, otherwise no LE
+                // is inserted and the join stays bucket-capped.
+                //
+                // Mark direct children so a stacked bucket join below keeps its BUCKET
+                // requires: if it also upgraded, its LOCAL hash output (keyed by ITS join
+                // keys) would type-satisfy our requireSpecific(LOCAL_EXECUTION_HASH) and
+                // suppress the LE that re-aligns data to OUR keys → wrong results.
+                translatorContext.setHasBucketUpgradedAncestor(children.get(0), true);
+                translatorContext.setHasBucketUpgradedAncestor(children.get(1), true);
+                probeSideRequire = LocalExchangeTypeRequire.requireSpecific(
+                        LocalExchangeType.LOCAL_EXECUTION_HASH_SHUFFLE);
+                buildSideRequire = LocalExchangeTypeRequire.requireSpecific(
+                        LocalExchangeType.LOCAL_EXECUTION_HASH_SHUFFLE);
+                // Whole-chain upgrade: a stacked bucket join below an upgraded one also
+                // upgrades (16-way instead of bucket-capped), but must NOT let its LOCAL
+                // hash claim type-satisfy the upper join's requireSpecific(LOCAL) — the
+                // keys may differ (each level hashes its own distribute exprs). Claim NOOP
+                // so the upper join always inserts its own re-align LE; that LE existed in
+                // the bucket world too (bucket claim never satisfied LOCAL require), so
+                // the chain upgrade is pure parallelism gain.
+                outputType = translatorContext.hasBucketUpgradedAncestor(this)
+                        ? LocalExchangeType.NOOP
+                        : null; // null: derived from probeResult.second below
+            } else {
+                probeSideRequire = LocalExchangeTypeRequire.requireBucketHash();
+                // For BUCKET_SHUFFLE with serial build child: use requireBucketHash() (not
+                // requirePassToOne()). Unlike BROADCAST joins, BUCKET_SHUFFLE has no shared
+                // hash table mechanism — PASS_TO_ONE routes all data to task 0 while tasks 1..N-1
+                // build empty hash tables, losing rows. BUCKET_HASH_SHUFFLE correctly distributes
+                // build data by bucket to match the probe side's bucket distribution.
+                // The serial exchange returns NOOP, so enforceRequire() will insert a
+                // BUCKET_HASH_SHUFFLE local exchange (with PASSTHROUGH fan-out for heavy-ops
+                // bottleneck avoidance).
+                buildSideRequire = LocalExchangeTypeRequire.requireBucketHash();
+                outputType = AddLocalExchange.resolveExchangeType(
+                        LocalExchangeTypeRequire.requireBucketHash());
+            }
         } else {
             // PARTITIONED (shuffle) join: both sides enter via global hash exchange.
             // Require GLOBAL specifically so that any inserted exchange uses the same
             // instance mapping as the cross-fragment exchange. LOCAL hash has a different
             // modulus (per-BE instance count vs total instance count) and would cause
-            // join mismatches (DORIS-26101).
+            // join mismatches (cross-fragment exchange key mismatch).
             //
             // Exception: serial source (use_serial_exchange=true + pooling). The serial
             // exchange sends to a single BE so shuffle_idx_to_instance_idx has only one
-            // entry — GLOBAL hash would route data to non-existent indices (DORIS-26120).
+            // entry — GLOBAL hash would route data to non-existent indices (serial source global hash fallback).
             // Fall back to generic requireHash() which resolves to LOCAL, matching BE's
             // _use_serial_source behavior.
             boolean serialSource = fragment != null
@@ -393,5 +427,33 @@ public class HashJoinNode extends JoinNodeBase {
     @Override
     protected boolean shouldResetSerialFlagForChild(int childIndex) {
         return childIndex == 1;
+    }
+
+    /**
+     * Whether this bucket-shuffle / colocate join may upgrade its children requires from
+     * BUCKET_HASH_SHUFFLE to LOCAL_EXECUTION_HASH_SHUFFLE for higher parallelism:
+     * <ul>
+     *   <li>the fragment passed the numeric gate (instances vs buckets-with-data × ratio),
+     *       computed once per fragment in {@code AddLocalExchange};</li>
+     *   <li>stacked bucket joins below an upgraded one also upgrade, but report NOOP
+     *       output so the upper join's re-align LE is always inserted — see the
+     *       whole-chain note in {@code enforceAndDeriveLocalExchange};</li>
+     *   <li>the parent does not require bucket distribution of our output (an upper
+     *       bucket join's probe/build require — upgrading here would break the bucket
+     *       alignment it depends on);</li>
+     *   <li>both sides have non-empty distribute exprs — they become the LOCAL hash LE
+     *       keys, an exprs-less hash exchange would be meaningless.</li>
+     * </ul>
+     */
+    private boolean canUpgradeBucketToLocalHash(PlanTranslatorContext translatorContext,
+            LocalExchangeTypeRequire parentRequire) {
+        if (!translatorContext.isCurrentFragmentBucketUpgradeEligible()
+                || parentRequire.preferType() == LocalExchangeType.BUCKET_HASH_SHUFFLE) {
+            return false;
+        }
+        List<Expr> probeExprs = getChildDistributeExprList(0);
+        List<Expr> buildExprs = getChildDistributeExprList(1);
+        return probeExprs != null && !probeExprs.isEmpty()
+                && buildExprs != null && !buildExprs.isEmpty();
     }
 }
