@@ -32,9 +32,12 @@
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
 #include "core/column/column_vector.h"
+#include "core/data_type/data_type_array.h"
+#include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
+#include "core/data_type/data_type_struct.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
 #include "format_v2/column_data.h"
@@ -103,6 +106,24 @@ std::vector<SlotDescriptor*> build_slots(ObjectPool* pool) {
 std::vector<SlotDescriptor*> build_slots_with_required_name(ObjectPool* pool) {
     return {make_test_slot(pool, 0, 0, make_nullable(std::make_shared<DataTypeInt32>()), "id"),
             make_test_slot(pool, 1, 1, std::make_shared<DataTypeString>(), "name")};
+}
+
+std::vector<SlotDescriptor*> build_complex_slots(ObjectPool* pool) {
+    auto varchar_type = make_nullable(std::make_shared<DataTypeString>(8, TYPE_VARCHAR));
+    auto array_type = make_nullable(
+            std::make_shared<DataTypeArray>(make_nullable(std::make_shared<DataTypeInt32>())));
+    auto map_type = make_nullable(std::make_shared<DataTypeMap>(
+            std::make_shared<DataTypeString>(4, TYPE_CHAR),
+            make_nullable(std::make_shared<DataTypeString>(16, TYPE_VARCHAR))));
+    auto struct_type = make_nullable(std::make_shared<DataTypeStruct>(
+            DataTypes {std::make_shared<DataTypeString>(8, TYPE_VARCHAR),
+                       make_nullable(std::make_shared<DataTypeArray>(
+                               make_nullable(std::make_shared<DataTypeInt32>())))},
+            Strings {"name", "scores"}));
+    return {make_test_slot(pool, 0, 0, varchar_type, "nickname"),
+            make_test_slot(pool, 1, 1, array_type, "tags"),
+            make_test_slot(pool, 2, 2, map_type, "props"),
+            make_test_slot(pool, 3, 3, struct_type, "profile")};
 }
 
 std::unique_ptr<io::FileDescription> file_description(const std::string& path) {
@@ -407,6 +428,91 @@ TEST(JsonReaderTest, ReadsPresentRequiredColumn) {
     ASSERT_EQ(result.rows, 1);
     EXPECT_EQ(nullable_int_at(*result.block.get_by_position(0).column, 0), 14);
     EXPECT_EQ(string_at(*result.block.get_by_position(1).column, 0), "mallory");
+}
+
+TEST(JsonReaderTest, SynthesizesComplexFileSchemaFromSlotTypes) {
+    ObjectPool pool;
+    auto slots = build_complex_slots(&pool);
+    const auto file_path = write_json_file("complex_schema.jsonl", "{}\n");
+    auto params = json_scan_params();
+    auto range = file_range(file_path);
+    auto system_properties = std::make_shared<io::FileSystemProperties>();
+    system_properties->system_type = TFileType::FILE_LOCAL;
+    auto desc = file_description(file_path.string());
+    RuntimeProfile profile("json_v2_reader_complex_schema_test");
+    MockRuntimeState state;
+    JsonReader reader(system_properties, desc, nullptr, &profile, &params, range, slots);
+
+    ASSERT_TRUE(reader.init(&state).ok());
+    std::vector<ColumnDefinition> schema;
+    ASSERT_TRUE(reader.get_schema(&schema).ok());
+    ASSERT_EQ(schema.size(), 4);
+
+    EXPECT_EQ(schema[0].name, "nickname");
+    EXPECT_EQ(remove_nullable(schema[0].type)->get_primitive_type(), TYPE_STRING);
+
+    ASSERT_EQ(schema[1].children.size(), 1);
+    EXPECT_EQ(schema[1].children[0].name, "element");
+    EXPECT_EQ(schema[1].children[0].local_id, 0);
+    EXPECT_EQ(remove_nullable(schema[1].children[0].type)->get_primitive_type(), TYPE_INT);
+
+    ASSERT_EQ(schema[2].children.size(), 2);
+    EXPECT_EQ(schema[2].children[0].name, "key");
+    EXPECT_EQ(schema[2].children[1].name, "value");
+    EXPECT_EQ(remove_nullable(schema[2].children[0].type)->get_primitive_type(), TYPE_STRING);
+    EXPECT_EQ(remove_nullable(schema[2].children[1].type)->get_primitive_type(), TYPE_STRING);
+
+    ASSERT_EQ(schema[3].children.size(), 2);
+    EXPECT_EQ(schema[3].children[0].name, "name");
+    EXPECT_EQ(schema[3].children[1].name, "scores");
+    EXPECT_EQ(remove_nullable(schema[3].children[0].type)->get_primitive_type(), TYPE_STRING);
+    ASSERT_EQ(schema[3].children[1].children.size(), 1);
+    EXPECT_EQ(schema[3].children[1].children[0].name, "element");
+    EXPECT_EQ(remove_nullable(schema[3].children[1].children[0].type)->get_primitive_type(),
+              TYPE_INT);
+}
+
+TEST(JsonReaderTest, RejectsInvalidFileScanRequestsBeforeOpeningFile) {
+    ObjectPool pool;
+    auto slots = build_slots(&pool);
+    const auto file_path = write_json_file("invalid_request.jsonl", "{}\n");
+    auto params = json_scan_params();
+    auto range = file_range(file_path);
+    auto system_properties = std::make_shared<io::FileSystemProperties>();
+    system_properties->system_type = TFileType::FILE_LOCAL;
+    auto desc = file_description(file_path.string());
+    RuntimeProfile profile("json_v2_reader_invalid_request_test");
+    MockRuntimeState state;
+    JsonReader reader(system_properties, desc, nullptr, &profile, &params, range, slots);
+    ASSERT_TRUE(reader.init(&state).ok());
+
+    auto unknown_column_request = std::make_shared<FileScanRequest>();
+    unknown_column_request->local_positions.emplace(LocalColumnId(9), LocalIndex(0));
+    auto status = reader.open(unknown_column_request);
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("unknown local column id 9"), std::string::npos);
+
+    auto invalid_position_request = std::make_shared<FileScanRequest>();
+    invalid_position_request->local_positions.emplace(LocalColumnId(0), LocalIndex(2));
+    status = reader.open(invalid_position_request);
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("invalid block position 2"), std::string::npos);
+
+    auto missing_position_request = std::make_shared<FileScanRequest>();
+    missing_position_request->local_positions.emplace(LocalColumnId(0), LocalIndex(1));
+    missing_position_request->local_positions.emplace(LocalColumnId(1), LocalIndex(1));
+    status = reader.open(missing_position_request);
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("misses block position 0"), std::string::npos);
+
+    std::vector<ColumnDefinition> schema;
+    ASSERT_TRUE(reader.get_schema(&schema).ok());
+    auto block = make_block(schema, {0});
+    size_t rows = 0;
+    bool eof = false;
+    status = reader.get_block(&block, &rows, &eof);
+    EXPECT_FALSE(status.ok());
+    EXPECT_NE(status.to_string().find("reader is not open"), std::string::npos);
 }
 
 TEST(JsonReaderTest, ReturnsErrorForMalformedJsonByDefault) {

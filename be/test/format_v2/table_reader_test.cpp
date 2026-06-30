@@ -54,6 +54,7 @@
 #include "exprs/vliteral.h"
 #include "exprs/vslot_ref.h"
 #include "gen_cpp/Exprs_types.h"
+#include "gen_cpp/ExternalTableSchema_types.h"
 #include "gen_cpp/PlanNodes_types.h"
 #include "io/io_common.h"
 #include "runtime/runtime_profile.h"
@@ -815,6 +816,65 @@ ColumnDefinition make_file_column(int32_t id, const std::string& name, const Dat
     return field;
 }
 
+schema::external::TFieldPtr external_schema_field(std::string name, int32_t id,
+                                                  std::vector<std::string> aliases = {}) {
+    auto field = std::make_shared<schema::external::TField>();
+    field->__set_name(std::move(name));
+    field->__set_id(id);
+    if (!aliases.empty()) {
+        field->__set_name_mapping(std::move(aliases));
+    }
+    schema::external::TFieldPtr field_ptr;
+    field_ptr.field_ptr = std::move(field);
+    field_ptr.__isset.field_ptr = true;
+    return field_ptr;
+}
+
+schema::external::TFieldPtr external_array_field(std::string name, int32_t id,
+                                                 schema::external::TFieldPtr item_field,
+                                                 std::vector<std::string> aliases = {}) {
+    auto field = external_schema_field(std::move(name), id, std::move(aliases));
+    schema::external::TArrayField array_field;
+    array_field.__set_item_field(std::move(item_field));
+    field.field_ptr->nestedField.__set_array_field(std::move(array_field));
+    field.field_ptr->__isset.nestedField = true;
+    return field;
+}
+
+schema::external::TFieldPtr external_map_field(std::string name, int32_t id,
+                                               schema::external::TFieldPtr key_field,
+                                               schema::external::TFieldPtr value_field,
+                                               std::vector<std::string> aliases = {}) {
+    auto field = external_schema_field(std::move(name), id, std::move(aliases));
+    schema::external::TMapField map_field;
+    map_field.__set_key_field(std::move(key_field));
+    map_field.__set_value_field(std::move(value_field));
+    field.field_ptr->nestedField.__set_map_field(std::move(map_field));
+    field.field_ptr->__isset.nestedField = true;
+    return field;
+}
+
+schema::external::TFieldPtr external_struct_field(std::string name, int32_t id,
+                                                  std::vector<schema::external::TFieldPtr> fields,
+                                                  std::vector<std::string> aliases = {}) {
+    auto field = external_schema_field(std::move(name), id, std::move(aliases));
+    schema::external::TStructField struct_field;
+    struct_field.__set_fields(std::move(fields));
+    field.field_ptr->nestedField.__set_struct_field(std::move(struct_field));
+    field.field_ptr->__isset.nestedField = true;
+    return field;
+}
+
+schema::external::TSchema external_schema(int64_t schema_id,
+                                          std::vector<schema::external::TFieldPtr> fields) {
+    schema::external::TStructField root_field;
+    root_field.__set_fields(std::move(fields));
+    schema::external::TSchema schema;
+    schema.__set_schema_id(schema_id);
+    schema.__set_root_field(std::move(root_field));
+    return schema;
+}
+
 ColumnDefinition make_nullable_column_definition(ColumnDefinition column) {
     column.type = make_table_test_type(column.type);
     for (auto& child : column.children) {
@@ -1146,6 +1206,163 @@ TEST(TableReaderTest, CanUseInjectedFileReaderForStandaloneUnitTest) {
     eos = false;
     ASSERT_TRUE(reader.get_block(&block, &eos).ok());
     EXPECT_TRUE(eos);
+}
+
+TEST(TableReaderTest, DebugStringCoversReaderStateAndEnumNames) {
+    std::vector<ColumnDefinition> file_schema;
+    file_schema.push_back(make_file_column(0, "id", std::make_shared<DataTypeInt32>()));
+    file_schema.push_back(make_file_column(1, "value", std::make_shared<DataTypeString>()));
+
+    std::vector<ColumnDefinition> projected_columns;
+    projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
+    projected_columns.push_back(make_table_column(1, "value", std::make_shared<DataTypeString>()));
+    projected_columns[0].name_mapping = {"legacy_id"};
+    set_name_identifiers(&projected_columns);
+
+    TableColumnPredicates column_predicates;
+    add_column_predicate(&column_predicates, GlobalIndex(0),
+                         create_comparison_predicate<PredicateType::GT>(
+                                 0, "id", make_nullable(std::make_shared<DataTypeInt32>()),
+                                 Field::create_field<TYPE_INT>(0), false));
+
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    auto fake_state = std::make_shared<FakeFileReaderState>();
+    fake_state->eof_with_first_batch = false;
+    FakeTableReader reader(file_schema, fake_state);
+    ASSERT_TRUE(reader.init({
+                                    .projected_columns = projected_columns,
+                                    .column_predicates = std::move(column_predicates),
+                                    .conjuncts = {prepared_conjunct(
+                                            &state, table_int32_greater_than_expr(0, 0, 0))},
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = nullptr,
+                                    .io_ctx = std::make_shared<io::IOContext>(),
+                                    .runtime_state = &state,
+                                    .scanner_profile = nullptr,
+                                    .push_down_agg_type = TPushAggOp::type::COUNT,
+                            })
+                        .ok());
+
+    SplitReadOptions split_options;
+    split_options.partition_values.emplace("dt", Field::create_field<TYPE_STRING>("2026-06-29"));
+    split_options.current_range.__set_path("fake-table-reader-input");
+    split_options.current_range.__set_file_size(64);
+    split_options.current_range.__set_start_offset(7);
+    split_options.current_range.__set_size(11);
+    split_options.current_range.__set_modification_time(13);
+    split_options.current_range.__set_fs_name("local-fs");
+    ASSERT_TRUE(reader.prepare_split(split_options).ok());
+
+    Block block = build_table_block(projected_columns);
+    bool eos = false;
+    ASSERT_TRUE(reader.get_block(&block, &eos).ok());
+    ASSERT_FALSE(eos);
+
+    const auto debug = reader.debug_string();
+    EXPECT_NE(debug.find("format=PARQUET"), std::string::npos);
+    EXPECT_NE(debug.find("push_down_agg_type=COUNT"), std::string::npos);
+    EXPECT_NE(debug.find("current_file=FileDescription{path=fake-table-reader-input"),
+              std::string::npos);
+    EXPECT_NE(debug.find("partition_values={dt}"), std::string::npos);
+    EXPECT_NE(debug.find("table_filters=[TableFilter{conjunct=VExprContext"), std::string::npos);
+    EXPECT_NE(debug.find("table_column_predicates={0:{predicate_count=1}}"), std::string::npos);
+    EXPECT_NE(debug.find("ColumnDefinition{name=id"), std::string::npos);
+    EXPECT_NE(debug.find("name_mapping=[legacy_id]"), std::string::npos);
+    EXPECT_NE(debug.find("ColumnMapping{global_index=0"), std::string::npos);
+    EXPECT_NE(debug.find("FileBlockColumn{file_column_id=0"), std::string::npos);
+    ASSERT_TRUE(reader.close().ok());
+
+    const std::vector<FileFormat> formats {FileFormat::ORC,  FileFormat::CSV, FileFormat::JSON,
+                                           FileFormat::TEXT, FileFormat::JNI, FileFormat::NATIVE,
+                                           FileFormat::ARROW};
+    const std::vector<std::string> format_names {"ORC", "CSV",    "JSON", "TEXT",
+                                                 "JNI", "NATIVE", "ARROW"};
+    for (size_t idx = 0; idx < formats.size(); ++idx) {
+        TableReader enum_reader;
+        ASSERT_TRUE(enum_reader
+                            .init({
+                                    .projected_columns = {},
+                                    .column_predicates = {},
+                                    .conjuncts = {},
+                                    .format = formats[idx],
+                                    .scan_params = nullptr,
+                                    .io_ctx = nullptr,
+                                    .runtime_state = &state,
+                                    .scanner_profile = nullptr,
+                            })
+                            .ok());
+        EXPECT_NE(enum_reader.debug_string().find("format=" + format_names[idx]),
+                  std::string::npos);
+    }
+
+    const std::vector<TPushAggOp::type> agg_ops {TPushAggOp::type::NONE, TPushAggOp::type::MINMAX,
+                                                 TPushAggOp::type::MIX,
+                                                 TPushAggOp::type::COUNT_ON_INDEX};
+    const std::vector<std::string> agg_names {"NONE", "MINMAX", "MIX", "COUNT_ON_INDEX"};
+    for (size_t idx = 0; idx < agg_ops.size(); ++idx) {
+        TableReader enum_reader;
+        ASSERT_TRUE(enum_reader
+                            .init({
+                                    .projected_columns = {},
+                                    .column_predicates = {},
+                                    .conjuncts = {},
+                                    .format = FileFormat::PARQUET,
+                                    .scan_params = nullptr,
+                                    .io_ctx = nullptr,
+                                    .runtime_state = &state,
+                                    .scanner_profile = nullptr,
+                                    .push_down_agg_type = agg_ops[idx],
+                            })
+                            .ok());
+        EXPECT_NE(enum_reader.debug_string().find("push_down_agg_type=" + agg_names[idx]),
+                  std::string::npos);
+    }
+}
+
+TEST(TableReaderTest, AnnotateProjectedColumnUsesCurrentHistorySchemaForNestedTypes) {
+    TFileScanRangeParams scan_params;
+    scan_params.__set_current_schema_id(200);
+
+    auto profile_field = external_struct_field(
+            "profile", 20,
+            {external_array_field("old_scores", 21, external_schema_field("old_score", 22),
+                                  {"scores"}),
+             external_map_field("old_props", 23, external_schema_field("old_key", 24),
+                                external_schema_field("old_value", 25), {"props"})},
+            {"user_profile"});
+    scan_params.__set_history_schema_info(
+            {external_schema(100, {external_schema_field("ignored_profile", 10)}),
+             external_schema(200, {profile_field})});
+
+    const auto int_type = std::make_shared<DataTypeInt32>();
+    const auto string_type = std::make_shared<DataTypeString>();
+    auto scores_type = std::make_shared<DataTypeArray>(int_type);
+    auto props_type = std::make_shared<DataTypeMap>(string_type, string_type);
+    auto profile_type = std::make_shared<DataTypeStruct>(DataTypes {scores_type, props_type},
+                                                         Strings {"scores", "props"});
+
+    ColumnDefinition profile_column = make_table_column(-1, "user_profile", profile_type);
+    ProjectedColumnBuildContext context;
+    context.scan_params = &scan_params;
+    TFileScanSlotInfo slot_info;
+    TableReader reader;
+    ASSERT_TRUE(reader.annotate_projected_column(slot_info, &context, &profile_column).ok());
+
+    EXPECT_EQ(profile_column.get_identifier_field_id(), 20);
+    EXPECT_EQ(profile_column.name_mapping, std::vector<std::string>({"user_profile"}));
+    ASSERT_TRUE(context.schema_column.has_value());
+    ASSERT_EQ(context.schema_column->children.size(), 2);
+    EXPECT_EQ(context.schema_column->children[0].name, "old_scores");
+    EXPECT_EQ(context.schema_column->children[0].get_identifier_field_id(), 21);
+    ASSERT_EQ(context.schema_column->children[0].children.size(), 1);
+    EXPECT_EQ(context.schema_column->children[0].children[0].name, "element");
+    EXPECT_EQ(context.schema_column->children[0].children[0].get_identifier_field_id(), 22);
+    ASSERT_EQ(context.schema_column->children[1].children.size(), 2);
+    EXPECT_EQ(context.schema_column->children[1].name, "old_props");
+    EXPECT_EQ(context.schema_column->children[1].children[0].name, "key");
+    EXPECT_EQ(context.schema_column->children[1].children[0].get_identifier_field_id(), 24);
+    EXPECT_EQ(context.schema_column->children[1].children[1].name, "value");
+    EXPECT_EQ(context.schema_column->children[1].children[1].get_identifier_field_id(), 25);
 }
 
 TEST(TableReaderTest, ComplexRematerializeCastsScalarChildToTableType) {

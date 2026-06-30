@@ -183,6 +183,80 @@ std::vector<std::string> target_names(const FileStructPredicateTarget* target) {
     return names;
 }
 
+TEST(ColumnMapperDebugTest, CoversDebugStringEnumAndNestedBranches) {
+    ColumnDefinition child = field_id_col("child", 2, str(), 3);
+    child.name_mapping = {"legacy_child"};
+
+    ColumnDefinition column = field_id_col(
+            "root", 1,
+            std::make_shared<DataTypeStruct>(DataTypes {child.type}, Strings {child.name}));
+    column.name_mapping = {"legacy_root"};
+    column.children = {child};
+    column.default_expr = VExprContext::create_shared(VLiteral::create_shared(
+            std::make_shared<DataTypeString>(), Field::create_field<TYPE_STRING>("fallback")));
+    column.is_partition_key = true;
+
+    const auto column_debug = column.debug_string();
+    EXPECT_NE(column_debug.find("ColumnDefinition{name=root"), std::string::npos);
+    EXPECT_NE(column_debug.find("name_mapping=[legacy_root]"), std::string::npos);
+    EXPECT_NE(column_debug.find("children=[ColumnDefinition{name=child"), std::string::npos);
+    EXPECT_NE(column_debug.find("has_default_expr=1"), std::string::npos);
+    EXPECT_NE(column_debug.find("is_partition_key=1"), std::string::npos);
+
+    LocalColumnIndex projection = LocalColumnIndex::partial_local(4);
+    projection.children.push_back(LocalColumnIndex::local(7));
+    EXPECT_NE(projection.debug_string().find("children=[LocalColumnIndex{index=7"),
+              std::string::npos);
+
+    const std::vector<TableColumnMappingMode> modes {TableColumnMappingMode::BY_FIELD_ID,
+                                                     TableColumnMappingMode::BY_NAME,
+                                                     TableColumnMappingMode::BY_INDEX};
+    const std::vector<std::string> mode_names {"BY_FIELD_ID", "BY_NAME", "BY_INDEX"};
+    for (size_t idx = 0; idx < modes.size(); ++idx) {
+        TableColumnMapperOptions options {.mode = modes[idx]};
+        EXPECT_NE(options.debug_string().find(mode_names[idx]), std::string::npos);
+    }
+
+    const std::vector<FilterConversionType> conversions {
+            FilterConversionType::COPY_DIRECTLY, FilterConversionType::CAST_FILTER,
+            FilterConversionType::READER_EXPRESSION, FilterConversionType::FINALIZE_ONLY,
+            FilterConversionType::CONSTANT};
+    const std::vector<std::string> conversion_names {
+            "COPY_DIRECTLY", "CAST_FILTER", "READER_EXPRESSION", "FINALIZE_ONLY", "CONSTANT"};
+    for (size_t idx = 0; idx < conversions.size(); ++idx) {
+        ColumnMapping mapping;
+        mapping.global_index = GlobalIndex(idx);
+        mapping.table_column_name = "table_col";
+        mapping.file_local_id = 8;
+        mapping.constant_index = ConstantIndex(9);
+        mapping.file_column_name = "file_col";
+        mapping.original_file_type = str();
+        mapping.original_file_children = {child};
+        mapping.file_type = str();
+        mapping.table_type = str();
+        mapping.is_trivial = idx % 2 == 0;
+        mapping.filter_conversion = conversions[idx];
+        mapping.virtual_column_type = static_cast<TableVirtualColumnType>(
+                idx % (TableVirtualColumnType::ICEBERG_ROWID + 1));
+        mapping.default_expr = column.default_expr;
+
+        ColumnMapping child_mapping;
+        child_mapping.global_index = GlobalIndex(10 + idx);
+        child_mapping.table_column_name = "child_col";
+        child_mapping.file_column_name = "child_file";
+        child_mapping.file_type = i32();
+        child_mapping.table_type = i32();
+        mapping.child_mappings.push_back(std::move(child_mapping));
+
+        const auto debug = mapping.debug_string();
+        EXPECT_NE(debug.find("file_local_id=8"), std::string::npos);
+        EXPECT_NE(debug.find("constant_index=9"), std::string::npos);
+        EXPECT_NE(debug.find(conversion_names[idx]), std::string::npos);
+        EXPECT_NE(debug.find("child_mappings=[ColumnMapping{global_index="), std::string::npos);
+        EXPECT_NE(debug.find("has_default_expr=1"), std::string::npos);
+    }
+}
+
 void expect_mapping(const ColumnMapping& mapping, size_t global_index,
                     const std::string& table_name, int32_t file_local_id,
                     const std::string& file_name, const DataTypePtr& file_type,
