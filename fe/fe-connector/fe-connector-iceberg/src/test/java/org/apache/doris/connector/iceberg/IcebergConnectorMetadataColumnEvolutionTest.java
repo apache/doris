@@ -22,7 +22,13 @@ import org.apache.doris.connector.api.ConnectorType;
 import org.apache.doris.connector.api.DorisConnectorException;
 import org.apache.doris.connector.api.ddl.ConnectorColumnPosition;
 
+import org.apache.iceberg.Schema;
+import org.apache.iceberg.Table;
+import org.apache.iceberg.catalog.Namespace;
+import org.apache.iceberg.catalog.TableIdentifier;
+import org.apache.iceberg.inmemory.InMemoryCatalog;
 import org.apache.iceberg.types.Type;
+import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -54,6 +60,28 @@ public class IcebergConnectorMetadataColumnEvolutionTest {
 
     private static ConnectorColumn col(String name, String type) {
         return new ConnectorColumn(name, ConnectorType.of(type), "c", true, null, false);
+    }
+
+    /** A real iceberg table {@code db1.t1} whose {@code arr} column is {@code ARRAY<INT>} (the seam load the
+     * nested-modify parity guard reads the current type from). */
+    private static Table tableWithArrayIntColumn() {
+        InMemoryCatalog catalog = new InMemoryCatalog();
+        catalog.initialize("test", Collections.emptyMap());
+        catalog.createNamespace(Namespace.of("db1"));
+        Schema schema = new Schema(
+                Types.NestedField.optional(1, "arr", Types.ListType.ofOptional(2, Types.IntegerType.get())));
+        return catalog.createTable(TableIdentifier.of("db1", "t1"), schema);
+    }
+
+    /** A real iceberg table {@code db1.t1} whose {@code s} column is {@code STRUCT<a:INT>}. */
+    private static Table tableWithStructIntColumn() {
+        InMemoryCatalog catalog = new InMemoryCatalog();
+        catalog.initialize("test", Collections.emptyMap());
+        catalog.createNamespace(Namespace.of("db1"));
+        Schema schema = new Schema(
+                Types.NestedField.optional(1, "s", Types.StructType.of(
+                        Types.NestedField.optional(2, "a", Types.IntegerType.get()))));
+        return catalog.createTable(TableIdentifier.of("db1", "t1"), schema);
     }
 
     // ---------- addColumn ----------
@@ -210,6 +238,54 @@ public class IcebergConnectorMetadataColumnEvolutionTest {
         Assertions.assertEquals(Type.TypeID.INTEGER,
                 ops.lastModifyColumn.getType().asListType().elementType().typeId());
         Assertions.assertEquals(1, ctx.authCount, "modifyColumn must run inside executeAuthenticated");
+    }
+
+    @Test
+    public void testModifyComplexColumnNarrowToUnrepresentableRestoresLegacyMessage() {
+        // ARRAY<INT> -> ARRAY<SMALLINT>: iceberg has no SMALLINT, so the eager type build throws the generic
+        // "Unsupported type for Iceberg: SMALLINT". The connector must instead restore the legacy
+        // "Cannot change int to smallint in nested types" (validated against the current type) so the green e2e
+        // test_iceberg_schema_change_complex_types assertion survives the flip. MUTATION: dropping the upgrade
+        // -> the message reverts and this goes red.
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        ops.table = tableWithArrayIntColumn();
+        RecordingConnectorContext ctx = new RecordingConnectorContext();
+        ConnectorColumn arr = new ConnectorColumn("arr",
+                ConnectorType.arrayOf(ConnectorType.of("SMALLINT")), "", true, null, false);
+        DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
+                () -> metadata(ops, ctx).modifyColumn(null, HANDLE, arr, null));
+        Assertions.assertEquals("Cannot change int to smallint in nested types", ex.getMessage());
+        // the remote modify never ran (the build failed first); only the current type was loaded for the message.
+        Assertions.assertFalse(ops.log.contains("modifyColumn:db1.t1:arr"),
+                "the seam modify must not run when the nested type is unrepresentable");
+    }
+
+    @Test
+    public void testModifyStructFieldNarrowToUnrepresentableRestoresLegacyMessage() {
+        // STRUCT<a:INT> -> STRUCT<a:SMALLINT>: the struct branch of the walk must reach the nested int->smallint
+        // leaf and restore the legacy message (covers the STRUCT path, not just LIST).
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        ops.table = tableWithStructIntColumn();
+        RecordingConnectorContext ctx = new RecordingConnectorContext();
+        ConnectorColumn struct = new ConnectorColumn("s",
+                ConnectorType.structOf(Collections.singletonList("a"),
+                        Collections.singletonList(ConnectorType.of("SMALLINT"))), "", true, null, false);
+        DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
+                () -> metadata(ops, ctx).modifyColumn(null, HANDLE, struct, null));
+        Assertions.assertEquals("Cannot change int to smallint in nested types", ex.getMessage());
+    }
+
+    @Test
+    public void testModifyScalarColumnToUnrepresentableKeepsBuildError() {
+        // A TOP-LEVEL (non-nested) modify to an iceberg-unrepresentable type keeps the generic build error: the
+        // nested-narrowing upgrade applies ONLY to complex types (legacy had no "in nested types" message for a
+        // scalar). Proves the isComplexType early-return in upgradeNestedModifyError and that no table is loaded.
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        RecordingConnectorContext ctx = new RecordingConnectorContext();
+        DorisConnectorException ex = Assertions.assertThrows(DorisConnectorException.class,
+                () -> metadata(ops, ctx).modifyColumn(null, HANDLE, col("c", "SMALLINT"), null));
+        Assertions.assertEquals("Unsupported type for Iceberg: SMALLINT", ex.getMessage());
+        Assertions.assertTrue(ops.log.isEmpty(), "a scalar build failure must not load the table");
     }
 
     @Test

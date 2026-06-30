@@ -920,7 +920,16 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         if (isComplexType(column.getType()) && column.getDefaultValue() != null) {
             throw new DorisConnectorException("Complex type default value only supports NULL: " + column.getName());
         }
-        Type icebergType = IcebergSchemaBuilder.buildColumnType(column.getType());
+        Type icebergType;
+        try {
+            icebergType = IcebergSchemaBuilder.buildColumnType(column.getType());
+        } catch (DorisConnectorException buildError) {
+            // A nested narrowing to an iceberg-unrepresentable type (e.g. ARRAY<INT> -> ARRAY<SMALLINT>) throws a
+            // generic "Unsupported type for Iceberg: SMALLINT" here. Restore the legacy parity message ("Cannot
+            // change int to smallint in nested types") by validating the requested nested type against the
+            // CURRENT type — legacy validated in Doris type space, where the narrow target still exists.
+            throw upgradeNestedModifyError(iceHandle, column, buildError);
+        }
         IcebergColumnChange change = new IcebergColumnChange(column.getName(), icebergType,
                 column.getComment(), null, column.isNullable());
         try {
@@ -933,6 +942,32 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
                     + " in Iceberg table " + iceHandle.getDbName() + "." + iceHandle.getTableName()
                     + ": " + e.getMessage(), e);
         }
+    }
+
+    /**
+     * Upgrades the generic "Unsupported type for Iceberg" error from a failed complex-type build into the legacy
+     * "Cannot change &lt;old&gt; to &lt;new&gt; in nested types" message, by walking the requested nested type
+     * against the CURRENT column type. Best-effort: a scalar modify, a load failure, or no offending nested leaf
+     * keeps the original build error — so no other modify path changes.
+     */
+    private DorisConnectorException upgradeNestedModifyError(IcebergTableHandle handle, ConnectorColumn column,
+            DorisConnectorException buildError) {
+        if (!isComplexType(column.getType())) {
+            return buildError;
+        }
+        try {
+            Types.NestedField current = context.executeAuthenticated(() ->
+                    catalogOps.loadTable(handle.getDbName(), handle.getTableName())
+                            .schema().findField(column.getName()));
+            if (current != null && !current.type().isPrimitiveType()) {
+                IcebergComplexTypeDiff.validateNestedModifyRepresentable(current.type(), column.getType());
+            }
+        } catch (DorisConnectorException parityError) {
+            return parityError;
+        } catch (Exception ignored) {
+            // load failed / column missing -> keep the original build error
+        }
+        return buildError;
     }
 
     /** Reorders columns, mirroring legacy {@code IcebergMetadataOps.reorderColumns}. */

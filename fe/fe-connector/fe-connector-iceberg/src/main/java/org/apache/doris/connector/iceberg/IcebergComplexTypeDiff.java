@@ -17,6 +17,7 @@
 
 package org.apache.doris.connector.iceberg;
 
+import org.apache.doris.connector.api.ConnectorType;
 import org.apache.doris.connector.api.DorisConnectorException;
 
 import org.apache.iceberg.UpdateSchema;
@@ -25,6 +26,7 @@ import org.apache.iceberg.types.Types;
 
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
 import java.util.Set;
 
@@ -76,6 +78,63 @@ public final class IcebergComplexTypeDiff {
                 break;
             default:
                 throw new DorisConnectorException("Unsupported complex type for modify: " + oldType);
+        }
+    }
+
+    /**
+     * Best-effort pre-build guard that restores the legacy {@code MODIFY COLUMN} message for a nested narrowing
+     * to an iceberg-unrepresentable type (e.g. {@code ARRAY<INT> -> ARRAY<SMALLINT>}). Walks the CURRENT iceberg
+     * {@code oldType} against the requested NEW neutral {@code newType} and, at the first nested primitive leaf
+     * the new type cannot map to iceberg, throws {@code "Cannot change <old> to <new> in nested types"} — the
+     * message legacy {@code ColumnType.checkSupportSchemaChangeForComplexType} produced in Doris type space
+     * (where the narrow target still exists) — instead of the generic {@code "Unsupported type for Iceberg:
+     * SMALLINT"} that {@link IcebergSchemaBuilder#buildColumnType} throws. If the structures do not align or
+     * every nested leaf is iceberg-representable it returns without throwing, and the caller keeps the original
+     * build error — so no other modify changes behavior.
+     */
+    public static void validateNestedModifyRepresentable(Type oldType, ConnectorType newType) {
+        String newName = newType.getTypeName().toUpperCase(Locale.ROOT);
+        switch (oldType.typeId()) {
+            case LIST:
+                if ("ARRAY".equals(newName) && newType.getChildren().size() == 1) {
+                    validateNestedModifyRepresentable(((Types.ListType) oldType).elementType(),
+                            newType.getChildren().get(0));
+                }
+                return;
+            case MAP:
+                if ("MAP".equals(newName) && newType.getChildren().size() == 2) {
+                    Types.MapType oldMap = (Types.MapType) oldType;
+                    validateNestedModifyRepresentable(oldMap.keyType(), newType.getChildren().get(0));
+                    validateNestedModifyRepresentable(oldMap.valueType(), newType.getChildren().get(1));
+                }
+                return;
+            case STRUCT:
+                if ("STRUCT".equals(newName)) {
+                    List<Types.NestedField> oldFields = oldType.asStructType().fields();
+                    List<ConnectorType> newChildren = newType.getChildren();
+                    int shared = Math.min(oldFields.size(), newChildren.size());
+                    for (int i = 0; i < shared; i++) {
+                        validateNestedModifyRepresentable(oldFields.get(i).type(), newChildren.get(i));
+                    }
+                }
+                return;
+            default:
+                // oldType is a primitive leaf: if the new leaf is a primitive iceberg cannot represent, this is
+                // a narrowing to an unrepresentable nested type -> restore the legacy message (lower-cased to
+                // match ColumnType.toSql()).
+                if (newType.getChildren().isEmpty() && !isIcebergRepresentable(newType)) {
+                    throw new DorisConnectorException("Cannot change " + oldType + " to "
+                            + newType.getTypeName().toLowerCase(Locale.ROOT) + " in nested types");
+                }
+        }
+    }
+
+    private static boolean isIcebergRepresentable(ConnectorType leaf) {
+        try {
+            IcebergTypeMapping.toIcebergPrimitive(leaf);
+            return true;
+        } catch (DorisConnectorException e) {
+            return false;
         }
     }
 
