@@ -46,6 +46,46 @@ public class NameCacheValueTest {
     }
 
     @Test
+    public void testSourcePairMutationDoesNotChangeSnapshot() {
+        Pair<String, String> pair = Pair.of("RemoteA", "LocalA");
+        NameCacheValue names = NameCacheValue.of(ImmutableList.of(pair));
+
+        // Mutating the original Pair must not affect the published snapshot or its lower-case index.
+        pair.first = "RemoteB";
+        pair.second = "LocalB";
+
+        Assert.assertEquals("RemoteA", names.remoteNameOfLocalName("LocalA"));
+        Assert.assertEquals("RemoteA", names.remoteNameForCaseInsensitiveLookup("remotea"));
+        Assert.assertNull(names.remoteNameOfLocalName("LocalB"));
+    }
+
+    @Test
+    public void testReturnedPairMutationDoesNotChangeSnapshot() {
+        NameCacheValue names = NameCacheValue.of(ImmutableList.of(Pair.of("RemoteA", "LocalA")));
+
+        // Return fresh Pair copies so readers cannot mutate the shared snapshot in place.
+        Pair<String, String> returned = names.names().get(0);
+        returned.first = "RemoteB";
+        returned.second = "LocalB";
+
+        Assert.assertEquals("RemoteA", names.remoteNameOfLocalName("LocalA"));
+        Assert.assertEquals("RemoteA", names.remoteNameForCaseInsensitiveLookup("remotea"));
+        Assert.assertNull(names.remoteNameOfLocalName("LocalB"));
+    }
+
+    @Test
+    public void testCaseSensitiveNamesCanShareLowerCaseKey() {
+        // Keep both exact-name mappings and let the lower-case index follow snapshot insertion order.
+        NameCacheValue names = NameCacheValue.of(ImmutableList.of(
+                Pair.of("Foo", "Foo"),
+                Pair.of("foo", "foo")));
+
+        Assert.assertEquals("Foo", names.remoteNameOfLocalName("Foo"));
+        Assert.assertEquals("foo", names.remoteNameOfLocalName("foo"));
+        Assert.assertEquals("foo", names.remoteNameForCaseInsensitiveLookup("FOO"));
+    }
+
+    @Test
     public void testWithNameRejectsRemoteNameConflict() {
         NameCacheValue names = NameCacheValue.of(ImmutableList.of(Pair.of("RemoteA", "LocalA")));
 

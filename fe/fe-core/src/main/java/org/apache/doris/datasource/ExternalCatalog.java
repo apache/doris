@@ -412,7 +412,8 @@ public abstract class ExternalCatalog
                 ignored -> NameCacheValue.of(getFilteredDatabaseNames()),
                 namesSpec,
                 Env.getCurrentEnv().getExtMetaCacheMgr().commonRefreshExecutor(),
-                true);
+                true,
+                MetaCacheEntry.singleKeyStripeCount());
 
         CacheSpec objectSpec = CacheSpec.of(
                 true,
@@ -424,6 +425,7 @@ public abstract class ExternalCatalog
                 localDbName -> buildDbForInit(null, localDbName, Util.genIdByName(name, localDbName), logType, true),
                 objectSpec,
                 Env.getCurrentEnv().getExtMetaCacheMgr().commonRefreshExecutor(),
+                MetaCacheEntry.defaultObjectStripeCount(),
                 (key, value, cause) -> value.resetMetaToUninitialized());
     }
 

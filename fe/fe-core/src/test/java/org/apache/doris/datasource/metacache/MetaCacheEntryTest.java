@@ -17,6 +17,8 @@
 
 package org.apache.doris.datasource.metacache;
 
+import org.apache.doris.common.Config;
+
 import com.github.benmanes.caffeine.cache.LoadingCache;
 import com.google.common.collect.Maps;
 import org.junit.Assert;
@@ -30,8 +32,72 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Supplier;
 
 public class MetaCacheEntryTest {
+
+    @Test
+    public void testDefaultConstructorsUseConfiguredObjectStripeCount() {
+        ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
+        int originalStripeCount = Config.external_meta_cache_object_entry_lock_stripes;
+        try {
+            Config.external_meta_cache_object_entry_lock_stripes = 8;
+            CacheSpec cacheSpec = CacheSpec.of(true, CacheSpec.CACHE_NO_TTL, 10L);
+
+            MetaCacheEntry<String, Integer> entry = new MetaCacheEntry<>(
+                    "test",
+                    key -> 1,
+                    cacheSpec,
+                    refreshExecutor,
+                    false);
+            MetaCacheEntry<String, Integer> syncRemovalEntry = MetaCacheEntry.withSyncRemovalListener(
+                    "test.sync",
+                    key -> 1,
+                    cacheSpec,
+                    refreshExecutor,
+                    (key, value, cause) -> {
+                    });
+
+            Assert.assertEquals(8, entry.stripeCountForTest());
+            Assert.assertEquals(8, syncRemovalEntry.stripeCountForTest());
+        } finally {
+            Config.external_meta_cache_object_entry_lock_stripes = originalStripeCount;
+            refreshExecutor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void testExplicitSingleKeyStripeCountIsSupported() {
+        ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
+        try {
+            CacheSpec cacheSpec = CacheSpec.of(true, CacheSpec.CACHE_NO_TTL, 10L);
+            MetaCacheEntry<String, Integer> entry = new MetaCacheEntry<>(
+                    "single-key",
+                    String::length,
+                    cacheSpec,
+                    refreshExecutor,
+                    false,
+                    MetaCacheEntry.singleKeyStripeCount());
+
+            Assert.assertEquals(1, entry.stripeCountForTest());
+            Assert.assertEquals(Integer.valueOf(1), entry.get("a"));
+        } finally {
+            refreshExecutor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void testInvalidStripeCountIsRejected() {
+        ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
+        try {
+            CacheSpec cacheSpec = CacheSpec.of(true, CacheSpec.CACHE_NO_TTL, 10L);
+            IllegalArgumentException exception = Assert.assertThrows(IllegalArgumentException.class,
+                    () -> new MetaCacheEntry<>("invalid", String::length, cacheSpec, refreshExecutor, false, 0));
+            Assert.assertTrue(exception.getMessage().contains("stripeCount"));
+        } finally {
+            refreshExecutor.shutdownNow();
+        }
+    }
 
     @Test
     public void testRefreshUsesConfiguredLoader() throws Exception {
@@ -287,6 +353,7 @@ public class MetaCacheEntryTest {
     public void testManualMissLoadRemovesValueWhenInvalidateHappensBeforePut() throws Exception {
         ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
         ExecutorService queryExecutor = Executors.newSingleThreadExecutor();
+        ExecutorService mutationExecutor = Executors.newSingleThreadExecutor();
         try {
             CacheSpec cacheSpec = CacheSpec.of(true, CacheSpec.CACHE_NO_TTL, 10L);
             CountDownLatch beforePutStarted = new CountDownLatch(1);
@@ -307,14 +374,20 @@ public class MetaCacheEntryTest {
 
             Future<Integer> first = queryExecutor.submit(() -> entry.get("k"));
             Assert.assertTrue(beforePutStarted.await(3L, TimeUnit.SECONDS));
-            entry.invalidateKey("k");
+            // Queue invalidate behind the manual publish critical section so generation changes before write-back resumes.
+            Future<?> invalidateFuture = mutationExecutor.submit(() -> {
+                entry.invalidateKey("k");
+                return null;
+            });
             releaseBeforePut.countDown();
+            invalidateFuture.get(3L, TimeUnit.SECONDS);
 
             Assert.assertEquals(Integer.valueOf(1), first.get(3L, TimeUnit.SECONDS));
             Assert.assertNull(entry.getIfPresent("k"));
             Assert.assertEquals(Integer.valueOf(2), entry.get("k"));
             Assert.assertEquals(2, loadCounter.get());
         } finally {
+            mutationExecutor.shutdownNow();
             queryExecutor.shutdownNow();
             refreshExecutor.shutdownNow();
         }
@@ -401,12 +474,15 @@ public class MetaCacheEntryTest {
     @Test
     public void testRefreshResultIsDroppedAfterInvalidate() throws Exception {
         ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
+        ExecutorService mutationExecutor = Executors.newSingleThreadExecutor();
         try {
             CacheSpec cacheSpec = CacheSpec.of(true, CacheSpec.CACHE_NO_TTL, 10L);
             CountDownLatch loaderStarted = new CountDownLatch(1);
             CountDownLatch releaseLoader = new CountDownLatch(1);
+            CountDownLatch beforeRefreshComplete = new CountDownLatch(1);
+            CountDownLatch releaseRefreshComplete = new CountDownLatch(1);
             AtomicInteger loadCounter = new AtomicInteger();
-            MetaCacheEntry<String, Integer> entry = new MetaCacheEntry<>(
+            MetaCacheEntry<String, Integer> entry = new MetaCacheEntry<String, Integer>(
                     "test",
                     key -> {
                         int current = loadCounter.incrementAndGet();
@@ -417,20 +493,30 @@ public class MetaCacheEntryTest {
                         return current;
                     },
                     cacheSpec,
-                    refreshExecutor);
+                    refreshExecutor) {
+                @Override
+                void beforeAsyncReloadCompleteForTest(String key, Integer loaded) {
+                    beforeRefreshComplete.countDown();
+                    awaitLatch(releaseRefreshComplete);
+                }
+            };
 
             Assert.assertEquals(Integer.valueOf(1), entry.get("k"));
             extractLoadingCache(entry).refresh("k");
             Assert.assertTrue(loaderStarted.await(3L, TimeUnit.SECONDS));
-            entry.invalidateKey("k");
             releaseLoader.countDown();
+            Assert.assertTrue(beforeRefreshComplete.await(3L, TimeUnit.SECONDS));
+            // Force invalidate to queue behind the refresh completion critical section on the same publish lock.
+            Future<?> invalidateFuture = mutationExecutor.submit(() -> {
+                entry.invalidateKey("k");
+                return null;
+            });
+            releaseRefreshComplete.countDown();
+            invalidateFuture.get(3L, TimeUnit.SECONDS);
 
-            long deadlineMs = System.currentTimeMillis() + 3000L;
-            while (loadCounter.get() < 2 && System.currentTimeMillis() < deadlineMs) {
-                Thread.sleep(20L);
-            }
-            Assert.assertNull(entry.getIfPresent("k"));
+            assertStableValue(() -> entry.getIfPresent("k"), null);
         } finally {
+            mutationExecutor.shutdownNow();
             refreshExecutor.shutdownNow();
         }
     }
@@ -467,6 +553,135 @@ public class MetaCacheEntryTest {
         }
     }
 
+    @Test
+    public void testPutPublishesBeforeConcurrentMissCanLoad() throws Exception {
+        ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
+        ExecutorService queryExecutor = Executors.newFixedThreadPool(2);
+        try {
+            CacheSpec cacheSpec = CacheSpec.of(true, CacheSpec.CACHE_NO_TTL, 10L);
+            CountDownLatch beforePutStarted = new CountDownLatch(1);
+            CountDownLatch releaseBeforePut = new CountDownLatch(1);
+            AtomicInteger loadCounter = new AtomicInteger();
+            // Hold the put inside the publish window and verify a concurrent miss observes the published value instead.
+            MetaCacheEntry<String, Integer> entry = new MetaCacheEntry<String, Integer>(
+                    "test",
+                    key -> loadCounter.incrementAndGet(),
+                    cacheSpec,
+                    refreshExecutor,
+                    false) {
+                @Override
+                void beforePublicMutationWriteForTest(String key) {
+                    beforePutStarted.countDown();
+                    awaitLatch(releaseBeforePut);
+                }
+            };
+
+            Future<?> putFuture = queryExecutor.submit(() -> {
+                entry.put("k", 100);
+                return null;
+            });
+            Assert.assertTrue(beforePutStarted.await(3L, TimeUnit.SECONDS));
+            Future<Integer> loaded = queryExecutor.submit(() -> entry.get("k"));
+            releaseBeforePut.countDown();
+
+            putFuture.get(3L, TimeUnit.SECONDS);
+            Assert.assertEquals(Integer.valueOf(100), loaded.get(3L, TimeUnit.SECONDS));
+            Assert.assertEquals(Integer.valueOf(100), entry.getIfPresent("k"));
+            Assert.assertEquals(0, loadCounter.get());
+        } finally {
+            queryExecutor.shutdownNow();
+            refreshExecutor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void testComputePublishesBeforeConcurrentMissCanLoad() throws Exception {
+        ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
+        ExecutorService queryExecutor = Executors.newFixedThreadPool(2);
+        try {
+            CacheSpec cacheSpec = CacheSpec.of(true, CacheSpec.CACHE_NO_TTL, 10L);
+            CountDownLatch beforeComputeStarted = new CountDownLatch(1);
+            CountDownLatch releaseBeforeCompute = new CountDownLatch(1);
+            AtomicInteger loadCounter = new AtomicInteger();
+            // Hold the compute inside the publish window and verify a concurrent miss does not trigger a stale load.
+            MetaCacheEntry<String, Integer> entry = new MetaCacheEntry<String, Integer>(
+                    "test",
+                    key -> loadCounter.incrementAndGet(),
+                    cacheSpec,
+                    refreshExecutor,
+                    false) {
+                @Override
+                void beforePublicMutationWriteForTest(String key) {
+                    beforeComputeStarted.countDown();
+                    awaitLatch(releaseBeforeCompute);
+                }
+            };
+
+            Future<Integer> computeFuture = queryExecutor.submit(() -> entry.compute("k", (key, value) -> 200));
+            Assert.assertTrue(beforeComputeStarted.await(3L, TimeUnit.SECONDS));
+            Future<Integer> loaded = queryExecutor.submit(() -> entry.get("k"));
+            releaseBeforeCompute.countDown();
+
+            Assert.assertEquals(Integer.valueOf(200), computeFuture.get(3L, TimeUnit.SECONDS));
+            Assert.assertEquals(Integer.valueOf(200), loaded.get(3L, TimeUnit.SECONDS));
+            Assert.assertEquals(Integer.valueOf(200), entry.getIfPresent("k"));
+            Assert.assertEquals(0, loadCounter.get());
+        } finally {
+            queryExecutor.shutdownNow();
+            refreshExecutor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void testRefreshResultIsDroppedAfterPut() throws Exception {
+        ExecutorService refreshExecutor = Executors.newSingleThreadExecutor();
+        ExecutorService mutationExecutor = Executors.newSingleThreadExecutor();
+        try {
+            CacheSpec cacheSpec = CacheSpec.of(true, CacheSpec.CACHE_NO_TTL, 10L);
+            CountDownLatch loaderStarted = new CountDownLatch(1);
+            CountDownLatch releaseLoader = new CountDownLatch(1);
+            CountDownLatch beforeRefreshComplete = new CountDownLatch(1);
+            CountDownLatch releaseRefreshComplete = new CountDownLatch(1);
+            AtomicInteger loadCounter = new AtomicInteger();
+            MetaCacheEntry<String, Integer> entry = new MetaCacheEntry<String, Integer>(
+                    "test",
+                    key -> {
+                        int current = loadCounter.incrementAndGet();
+                        if (current > 1) {
+                            loaderStarted.countDown();
+                            awaitLatch(releaseLoader);
+                        }
+                        return current;
+                    },
+                    cacheSpec,
+                    refreshExecutor) {
+                @Override
+                void beforeAsyncReloadCompleteForTest(String key, Integer loaded) {
+                    beforeRefreshComplete.countDown();
+                    awaitLatch(releaseRefreshComplete);
+                }
+            };
+
+            Assert.assertEquals(Integer.valueOf(1), entry.get("k"));
+            extractLoadingCache(entry).refresh("k");
+            Assert.assertTrue(loaderStarted.await(3L, TimeUnit.SECONDS));
+            releaseLoader.countDown();
+            Assert.assertTrue(beforeRefreshComplete.await(3L, TimeUnit.SECONDS));
+            // Queue the public put behind refresh completion so any stale post-completion write-back would be visible.
+            Future<?> putFuture = mutationExecutor.submit(() -> {
+                entry.put("k", 100);
+                return null;
+            });
+            releaseRefreshComplete.countDown();
+            putFuture.get(3L, TimeUnit.SECONDS);
+
+            assertStableValue(() -> entry.getIfPresent("k"), Integer.valueOf(100));
+        } finally {
+            mutationExecutor.shutdownNow();
+            refreshExecutor.shutdownNow();
+        }
+    }
+
     // Keep the loader blocking helper in one place so concurrent tests stay readable.
     private void awaitLatch(CountDownLatch latch) {
         try {
@@ -474,6 +689,15 @@ public class MetaCacheEntryTest {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new RuntimeException(e);
+        }
+    }
+
+    // Sample the cache repeatedly so late write-back races cannot slip past a one-shot assertion.
+    private <T> void assertStableValue(Supplier<T> actualSupplier, T expectedValue) throws Exception {
+        long deadlineMs = System.currentTimeMillis() + 500L;
+        while (System.currentTimeMillis() < deadlineMs) {
+            Assert.assertEquals(expectedValue, actualSupplier.get());
+            Thread.sleep(20L);
         }
     }
 

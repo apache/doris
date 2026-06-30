@@ -27,6 +27,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.stream.Collectors;
 
 /**
  * Immutable snapshot of remote/local names and the case-insensitive remote-name index.
@@ -36,12 +37,15 @@ public final class NameCacheValue {
     private final ImmutableMap<String, String> lowerCaseToRemoteName;
 
     private NameCacheValue(List<Pair<String, String>> names) {
-        this.names = ImmutableList.copyOf(names);
-        ImmutableMap.Builder<String, String> indexBuilder = ImmutableMap.builder();
-        for (Pair<String, String> pair : names) {
+        // Deep-copy each pair so callers cannot mutate the snapshot through reused Pair instances.
+        this.names = ImmutableList.copyOf(copyPairs(names));
+        // Build the lower-case index with last-write-wins semantics so the snapshot does not
+        // introduce case-conflict validation beyond what the catalog-aware loader already enforces.
+        Map<String, String> indexBuilder = new java.util.HashMap<>();
+        for (Pair<String, String> pair : this.names) {
             indexBuilder.put(pair.key().toLowerCase(Locale.ROOT), pair.key());
         }
-        lowerCaseToRemoteName = indexBuilder.build();
+        lowerCaseToRemoteName = ImmutableMap.copyOf(indexBuilder);
     }
 
     public static NameCacheValue of(List<Pair<String, String>> names) {
@@ -53,7 +57,8 @@ public final class NameCacheValue {
     }
 
     public List<Pair<String, String>> names() {
-        return names;
+        // Return fresh Pair objects so external callers cannot mutate the published snapshot in place.
+        return ImmutableList.copyOf(copyPairs(names));
     }
 
     public String remoteNameOfLocalName(String localName) {
@@ -97,5 +102,11 @@ public final class NameCacheValue {
         List<Pair<String, String>> copy = Lists.newArrayList(names);
         copy.removeIf(pair -> pair.value().equals(localName));
         return of(copy);
+    }
+
+    private static List<Pair<String, String>> copyPairs(List<Pair<String, String>> names) {
+        return names.stream()
+                .map(pair -> Pair.of(pair.key(), pair.value()))
+                .collect(Collectors.toList());
     }
 }
