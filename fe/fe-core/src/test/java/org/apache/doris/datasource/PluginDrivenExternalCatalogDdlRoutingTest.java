@@ -217,7 +217,9 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
 
     @Test
     public void testDropDbRoutesToConnectorAndUnregisters() throws Exception {
-        catalog.dbNullableResult = Mockito.mock(ExternalDatabase.class);
+        ExternalDatabase<? extends ExternalTable> db = mockExternalDatabase();
+        Mockito.when(db.getRemoteName()).thenReturn("db1"); // non-mapped: LOCAL == REMOTE
+        catalog.dbNullableResult = db;
 
         catalog.dropDb("db1", false, false);
 
@@ -259,7 +261,9 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
 
     @Test
     public void testDropDbForceForwardsForceTrueToConnector() throws Exception {
-        catalog.dbNullableResult = Mockito.mock(ExternalDatabase.class);
+        ExternalDatabase<? extends ExternalTable> db = mockExternalDatabase();
+        Mockito.when(db.getRemoteName()).thenReturn("db1"); // non-mapped: LOCAL == REMOTE
+        catalog.dbNullableResult = db;
 
         catalog.dropDb("db1", false, true);
 
@@ -272,13 +276,41 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
 
     @Test
     public void testDropDbNonForceForwardsForceFalseToConnector() throws Exception {
-        catalog.dbNullableResult = Mockito.mock(ExternalDatabase.class);
+        ExternalDatabase<? extends ExternalTable> db = mockExternalDatabase();
+        Mockito.when(db.getRemoteName()).thenReturn("db1"); // non-mapped: LOCAL == REMOTE
+        catalog.dbNullableResult = db;
 
         catalog.dropDb("db1", false, false);
 
         // WHY: guards that the fix does NOT over-correct into always-cascading -- a plain
         // (non-FORCE) DROP DB must forward force=false so the connector never deletes tables.
         Mockito.verify(metadata).dropDatabase(session, "db1", false, false);
+    }
+
+    @Test
+    public void testDropDbResolvesRemoteNameRoutesAndUnregisters() throws Exception {
+        // local "db1" maps to remote "REMOTE_DB1" (name mapping enabled).
+        ExternalDatabase<? extends ExternalTable> db = mockExternalDatabase();
+        Mockito.when(db.getRemoteName()).thenReturn("REMOTE_DB1");
+        catalog.dbNullableResult = db;
+
+        catalog.dropDb("db1", false, true);
+
+        // WHY (Rule 9): the connector must receive the REMOTE db name so name-mapped catalogs hit the
+        // real remote namespace -- the regression forwarded the bare LOCAL "db1", which on a mapped
+        // catalog drops/cascades the wrong (or nonexistent) namespace. A mutation reverting to the
+        // local dbName makes this verify red. Mirrors the dropTable remote-name resolution.
+        Mockito.verify(metadata).dropDatabase(session, "REMOTE_DB1", false, true);
+        // WHY: edit log + cache invalidation MUST keep the LOCAL name -- followers replay the persisted
+        // DropDbInfo and the on-FE cache is keyed by local name. A mutation persisting the remote name
+        // into DropDbInfo / unregisterDatabase must turn these red.
+        ArgumentCaptor<org.apache.doris.persist.DropDbInfo> dropDbInfo =
+                ArgumentCaptor.forClass(org.apache.doris.persist.DropDbInfo.class);
+        Mockito.verify(mockEditLog).logDropDb(dropDbInfo.capture());
+        Assertions.assertEquals("db1", dropDbInfo.getValue().getDbName(),
+                "edit-log DropDbInfo must carry the LOCAL db name for follower replay");
+        Assertions.assertEquals("db1", catalog.unregisteredDb,
+                "cache invalidation must use the LOCAL db name");
     }
 
     // ==================== DROP TABLE ====================

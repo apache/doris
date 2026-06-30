@@ -475,7 +475,12 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
     @Override
     public void dropDb(String dbName, boolean ifExists, boolean force) throws DdlException {
         makeSureInitialized();
-        if (getDbNullable(dbName) == null) {
+        // Resolve the local db name to its remote name before handing it to the connector, mirroring
+        // the sibling dropTable / legacy IcebergMetadataOps.performDropDb (dorisDb.getRemoteName()).
+        // Name-mapped catalogs (lower_case_meta_names / meta_names_mapping, where the local display
+        // name differs from the remote name) would otherwise address the wrong remote namespace.
+        ExternalDatabase<? extends ExternalTable> db = getDbNullable(dbName);
+        if (db == null) {
             if (ifExists) {
                 return;
             }
@@ -483,10 +488,12 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
         }
         ConnectorSession session = buildConnectorSession();
         try {
-            connector.getMetadata(session).dropDatabase(session, dbName, ifExists, force);
+            connector.getMetadata(session).dropDatabase(session, db.getRemoteName(), ifExists, force);
         } catch (DorisConnectorException e) {
             throw new DdlException(e.getMessage(), e);
         }
+        // Edit log + cache invalidation intentionally use the LOCAL name: followers replay the
+        // persisted DropDbInfo and the on-FE cache is keyed by local name (follower-replay parity).
         Env.getCurrentEnv().getEditLog().logDropDb(new DropDbInfo(getName(), dbName));
         unregisterDatabase(dbName);
         LOG.info("finished to drop database {}.{}", getName(), dbName);
