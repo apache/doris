@@ -72,6 +72,9 @@ DEFINE_Int32(brpc_port, "8060");
 
 DEFINE_Int32(arrow_flight_sql_port, "8050");
 
+// Validate Arrow input buffers in opted-in Arrow readers before converting them to Doris columns.
+DEFINE_Bool(enable_arrow_input_validation, "true");
+
 DEFINE_Int32(cdc_client_port, "9096");
 
 DEFINE_String(cdc_client_java_opts, "");
