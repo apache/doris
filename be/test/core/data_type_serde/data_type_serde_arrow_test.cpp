@@ -17,11 +17,14 @@
 
 #include <arrow/array/array_binary.h>
 #include <arrow/array/array_nested.h>
+#include <arrow/array/array_primitive.h>
 #include <arrow/array/builder_base.h>
 #include <arrow/array/builder_binary.h>
 #include <arrow/array/builder_decimal.h>
 #include <arrow/array/builder_nested.h>
 #include <arrow/array/builder_primitive.h>
+#include <arrow/io/memory.h>
+#include <arrow/ipc/reader.h>
 #include <arrow/record_batch.h>
 #include <arrow/status.h>
 #include <arrow/type.h>
@@ -442,6 +445,184 @@ void block_converter_test(std::vector<PrimitiveType> cols, int row_num, bool is_
     CommonDataTypeSerdeTest::compare_two_blocks(source_block, target_block);
 }
 
+std::shared_ptr<Block> create_array_smallint_block() {
+    auto block = std::make_shared<Block>();
+    DataTypePtr item_type = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt16>());
+    DataTypePtr array_type = std::make_shared<DataTypeArray>(item_type);
+
+    Array no_nulls;
+    no_nulls.push_back(Field::create_field<TYPE_SMALLINT>(Int16(1)));
+    no_nulls.push_back(Field::create_field<TYPE_SMALLINT>(Int16(2)));
+    no_nulls.push_back(Field::create_field<TYPE_SMALLINT>(Int16(3)));
+
+    Array with_nulls;
+    with_nulls.push_back(Field());
+    with_nulls.push_back(Field::create_field<TYPE_SMALLINT>(Int16(1)));
+    with_nulls.push_back(Field());
+
+    MutableColumnPtr array_column = array_type->create_column();
+    array_column->insert(Field::create_field<TYPE_ARRAY>(no_nulls));
+    array_column->insert(Field::create_field<TYPE_ARRAY>(with_nulls));
+    block->insert(ColumnWithTypeAndName(array_column->get_ptr(), array_type, "smallint_array"));
+    return block;
+}
+
+bool check_arrow_status(const arrow::Status& status) {
+    EXPECT_TRUE(status.ok()) << status.ToString();
+    return status.ok();
+}
+
+std::shared_ptr<arrow::RecordBatch> create_native_array_smallint_record_batch() {
+    auto list_type = arrow::list(arrow::field("item", arrow::int16(), true));
+    std::unique_ptr<arrow::ArrayBuilder> builder;
+    auto status = arrow::MakeBuilder(arrow::default_memory_pool(), list_type, &builder);
+    if (!check_arrow_status(status)) {
+        return nullptr;
+    }
+
+    auto* list_builder = dynamic_cast<arrow::ListBuilder*>(builder.get());
+    EXPECT_NE(list_builder, nullptr);
+    if (list_builder == nullptr) {
+        return nullptr;
+    }
+    auto* value_builder = dynamic_cast<arrow::Int16Builder*>(list_builder->value_builder());
+    EXPECT_NE(value_builder, nullptr);
+    if (value_builder == nullptr) {
+        return nullptr;
+    }
+
+    if (!check_arrow_status(list_builder->Append()) ||
+        !check_arrow_status(value_builder->Append(Int16(1))) ||
+        !check_arrow_status(value_builder->Append(Int16(2))) ||
+        !check_arrow_status(value_builder->Append(Int16(3))) ||
+        !check_arrow_status(list_builder->Append()) ||
+        !check_arrow_status(value_builder->AppendNull()) ||
+        !check_arrow_status(value_builder->Append(Int16(1))) ||
+        !check_arrow_status(value_builder->AppendNull())) {
+        return nullptr;
+    }
+
+    std::shared_ptr<arrow::Array> array;
+    status = builder->Finish(&array);
+    if (!check_arrow_status(status)) {
+        return nullptr;
+    }
+    auto schema = arrow::schema({arrow::field("smallint_array", list_type, true)});
+    return arrow::RecordBatch::Make(schema, 2, {array});
+}
+
+void assert_array_smallint_arrow_layout(const std::shared_ptr<arrow::RecordBatch>& record_batch) {
+    ASSERT_NE(record_batch, nullptr);
+    ASSERT_EQ(record_batch->num_columns(), 1);
+    ASSERT_EQ(record_batch->num_rows(), 2);
+
+    auto list_array = std::dynamic_pointer_cast<arrow::ListArray>(record_batch->column(0));
+    ASSERT_NE(list_array, nullptr);
+    ASSERT_EQ(list_array->length(), 2);
+    EXPECT_EQ(list_array->value_offset(0), 0);
+    EXPECT_EQ(list_array->value_offset(1), 3);
+    EXPECT_EQ(list_array->value_offset(2), 6);
+
+    auto values_array = std::dynamic_pointer_cast<arrow::Int16Array>(list_array->values());
+    ASSERT_NE(values_array, nullptr);
+    ASSERT_EQ(values_array->length(), 6);
+    EXPECT_EQ(values_array->null_count(), 2);
+    EXPECT_EQ(values_array->Value(0), 1);
+    EXPECT_EQ(values_array->Value(1), 2);
+    EXPECT_EQ(values_array->Value(2), 3);
+    EXPECT_TRUE(values_array->IsNull(3));
+    EXPECT_EQ(values_array->Value(4), 1);
+    EXPECT_TRUE(values_array->IsNull(5));
+
+    const auto& buffers = values_array->data()->buffers;
+    ASSERT_GE(buffers.size(), 2);
+    ASSERT_NE(buffers[0], nullptr);
+    ASSERT_NE(buffers[1], nullptr);
+    EXPECT_GT(buffers[0]->size(), 0);
+    EXPECT_GE(buffers[1]->size(), 6 * static_cast<int64_t>(sizeof(Int16)));
+}
+
+std::shared_ptr<arrow::Schema> get_arrow_schema_from_array_smallint_block(
+        const std::shared_ptr<Block>& block) {
+    EXPECT_NE(block, nullptr);
+    if (block == nullptr) {
+        return nullptr;
+    }
+    std::shared_ptr<arrow::Schema> schema;
+    auto status = get_arrow_schema_from_block(*block, &schema, TimezoneUtils::default_time_zone);
+    EXPECT_TRUE(status.ok()) << status.to_string();
+    return schema;
+}
+
+std::shared_ptr<arrow::RecordBatch> convert_array_smallint_block_to_arrow_batch(
+        const std::shared_ptr<Block>& block, const std::shared_ptr<arrow::Schema>& schema) {
+    EXPECT_NE(block, nullptr);
+    EXPECT_NE(schema, nullptr);
+    if (block == nullptr || schema == nullptr) {
+        return nullptr;
+    }
+    std::shared_ptr<arrow::RecordBatch> record_batch;
+    cctz::time_zone default_timezone;
+    auto status = convert_to_arrow_batch(*block, schema, arrow::default_memory_pool(),
+                                         &record_batch, default_timezone);
+    EXPECT_TRUE(status.ok()) << status.to_string();
+    return record_batch;
+}
+
+std::shared_ptr<arrow::RecordBatch> read_record_batch_from_ipc_stream(
+        const std::string& ipc_stream) {
+    auto input = arrow::io::BufferReader::FromString(ipc_stream);
+    auto reader_result = arrow::ipc::RecordBatchStreamReader::Open(
+            input.get(), arrow::ipc::IpcReadOptions::Defaults());
+    EXPECT_TRUE(reader_result.ok()) << reader_result.status().ToString();
+    if (!reader_result.ok()) {
+        return nullptr;
+    }
+    auto reader = reader_result.ValueOrDie();
+    std::shared_ptr<arrow::RecordBatch> record_batch;
+    auto arrow_status = reader->ReadNext(&record_batch);
+    EXPECT_TRUE(arrow_status.ok()) << arrow_status.ToString();
+    return record_batch;
+}
+
+std::shared_ptr<arrow::Schema> round_trip_schema_through_ipc(
+        std::shared_ptr<arrow::Schema> schema) {
+    EXPECT_NE(schema, nullptr);
+    if (schema == nullptr) {
+        return nullptr;
+    }
+    std::string schema_ipc_stream;
+    auto status = serialize_arrow_schema(&schema, &schema_ipc_stream);
+    EXPECT_TRUE(status.ok()) << status.to_string();
+    if (!status.ok()) {
+        return nullptr;
+    }
+    auto schema_batch = read_record_batch_from_ipc_stream(schema_ipc_stream);
+    EXPECT_NE(schema_batch, nullptr);
+    if (schema_batch == nullptr) {
+        return nullptr;
+    }
+    EXPECT_TRUE(schema->Equals(*schema_batch->schema(), true))
+            << "origin schema: " << schema->ToString(true)
+            << "\nroundtrip schema: " << schema_batch->schema()->ToString(true);
+    return schema_batch->schema();
+}
+
+std::shared_ptr<arrow::RecordBatch> round_trip_record_batch_through_ipc(
+        const std::shared_ptr<arrow::RecordBatch>& record_batch) {
+    EXPECT_NE(record_batch, nullptr);
+    if (record_batch == nullptr) {
+        return nullptr;
+    }
+    std::string data_ipc_stream;
+    auto status = serialize_record_batch(*record_batch, &data_ipc_stream);
+    EXPECT_TRUE(status.ok()) << status.to_string();
+    if (!status.ok()) {
+        return nullptr;
+    }
+    return read_record_batch_from_ipc_stream(data_ipc_stream);
+}
+
 TEST(DataTypeSerDeArrowTest, DataTypeScalaSerDeTest) {
     std::vector<PrimitiveType> cols = {
             TYPE_INT,       TYPE_INT,        TYPE_STRING, TYPE_DECIMAL128I, TYPE_BOOLEAN,
@@ -456,6 +637,63 @@ TEST(DataTypeSerDeArrowTest, DataTypeCollectionSerDeTest) {
     std::vector<PrimitiveType> cols = {TYPE_ARRAY, TYPE_MAP, TYPE_STRUCT};
     serialize_and_deserialize_arrow_test(cols, 7, true);
     serialize_and_deserialize_arrow_test(cols, 7, false);
+}
+
+TEST(DataTypeSerDeArrowTest, NativeArraySmallIntArrowIpcLayoutTest) {
+    auto record_batch = create_native_array_smallint_record_batch();
+    ASSERT_NE(record_batch, nullptr);
+    assert_array_smallint_arrow_layout(record_batch);
+
+    auto ipc_record_batch = round_trip_record_batch_through_ipc(record_batch);
+    ASSERT_NE(ipc_record_batch, nullptr);
+    assert_array_smallint_arrow_layout(ipc_record_batch);
+}
+
+TEST(DataTypeSerDeArrowTest, ArraySmallIntDorisBlockArrowLayoutTest) {
+    auto block = create_array_smallint_block();
+    auto schema = get_arrow_schema_from_array_smallint_block(block);
+    ASSERT_NE(schema, nullptr);
+    auto record_batch = convert_array_smallint_block_to_arrow_batch(block, schema);
+    ASSERT_NE(record_batch, nullptr);
+    assert_array_smallint_arrow_layout(record_batch);
+}
+
+TEST(DataTypeSerDeArrowTest, ArraySmallIntDorisBlockWithIpcSchemaArrowLayoutTest) {
+    auto block = create_array_smallint_block();
+    auto schema = get_arrow_schema_from_array_smallint_block(block);
+    ASSERT_NE(schema, nullptr);
+    auto ipc_schema = round_trip_schema_through_ipc(schema);
+    ASSERT_NE(ipc_schema, nullptr);
+
+    auto batch_from_ipc_schema = convert_array_smallint_block_to_arrow_batch(block, ipc_schema);
+    ASSERT_NE(batch_from_ipc_schema, nullptr);
+    assert_array_smallint_arrow_layout(batch_from_ipc_schema);
+}
+
+TEST(DataTypeSerDeArrowTest, ArraySmallIntDorisRecordBatchIpcLayoutTest) {
+    auto block = create_array_smallint_block();
+    auto schema = get_arrow_schema_from_array_smallint_block(block);
+    ASSERT_NE(schema, nullptr);
+    auto record_batch = convert_array_smallint_block_to_arrow_batch(block, schema);
+    ASSERT_NE(record_batch, nullptr);
+
+    auto ipc_record_batch = round_trip_record_batch_through_ipc(record_batch);
+    ASSERT_NE(ipc_record_batch, nullptr);
+    assert_array_smallint_arrow_layout(ipc_record_batch);
+}
+
+TEST(DataTypeSerDeArrowTest, ArraySmallIntDorisRecordBatchFromIpcSchemaIpcLayoutTest) {
+    auto block = create_array_smallint_block();
+    auto schema = get_arrow_schema_from_array_smallint_block(block);
+    ASSERT_NE(schema, nullptr);
+    auto ipc_schema = round_trip_schema_through_ipc(schema);
+    ASSERT_NE(ipc_schema, nullptr);
+    auto batch_from_ipc_schema = convert_array_smallint_block_to_arrow_batch(block, ipc_schema);
+    ASSERT_NE(batch_from_ipc_schema, nullptr);
+
+    auto ipc_record_batch = round_trip_record_batch_through_ipc(batch_from_ipc_schema);
+    ASSERT_NE(ipc_record_batch, nullptr);
+    assert_array_smallint_arrow_layout(ipc_record_batch);
 }
 
 TEST(DataTypeSerDeArrowTest, DataTypeMapNullKeySerDeTest) {
