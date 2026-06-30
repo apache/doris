@@ -1791,7 +1791,11 @@ void MetaServiceImpl::commit_txn_immediately(
                 int64_t table_id = i.first;
                 std::string ver_key = table_version_key({instance_id, db_id, table_id});
                 std::string ver_val;
-                err = txn->get(ver_key, &ver_val);
+                // snapshot read: the returned table version is only a hint for FE's version
+                // cache; the real increment is done by update_table_version() via atomic_add.
+                // A non-snapshot read would add ver_key to the read-conflict set and make
+                // concurrent commits on the same table conflict (KV_TXN_CONFLICT).
+                err = txn->get(ver_key, &ver_val, true);
                 int64_t table_version = 0;
                 if (err == TxnErrorCode::TXN_OK) {
                     if (!txn->decode_atomic_int(ver_val, &table_version)) {
@@ -2480,7 +2484,11 @@ void MetaServiceImpl::commit_txn_eventually(
                 int64_t table_id = i.first;
                 std::string ver_key = table_version_key({instance_id, db_id, table_id});
                 std::string ver_val;
-                err = txn->get(ver_key, &ver_val);
+                // snapshot read: the returned table version is only a hint for FE's version
+                // cache; the real increment is done by update_table_version() via atomic_add.
+                // A non-snapshot read would add ver_key to the read-conflict set and make
+                // concurrent commits on the same table conflict (KV_TXN_CONFLICT).
+                err = txn->get(ver_key, &ver_val, true);
                 int64_t table_version = 0;
                 if (err == TxnErrorCode::TXN_OK) {
                     if (!txn->decode_atomic_int(ver_val, &table_version)) {
@@ -2969,7 +2977,11 @@ void MetaServiceImpl::commit_txn_with_sub_txn(const CommitTxnRequest* request,
                 int64_t table_id = i.first;
                 std::string ver_key = table_version_key({instance_id, db_id, table_id});
                 std::string ver_val;
-                err = txn->get(ver_key, &ver_val);
+                // snapshot read: the returned table version is only a hint for FE's version
+                // cache; the real increment is done by update_table_version() via atomic_add.
+                // A non-snapshot read would add ver_key to the read-conflict set and make
+                // concurrent commits on the same table conflict (KV_TXN_CONFLICT).
+                err = txn->get(ver_key, &ver_val, true);
                 int64_t table_version = 0;
                 if (err == TxnErrorCode::TXN_OK) {
                     if (!txn->decode_atomic_int(ver_val, &table_version)) {
