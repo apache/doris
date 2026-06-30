@@ -17,7 +17,14 @@
 
 #pragma once
 
+#include <utility>
+#include <vector>
+
+#include "common/logging.h"
 #include "common/status.h"
+#include "core/field.h"
+#include "core/types.h"
+#include "exprs/expr_zonemap_filter.h"
 #include "exprs/hybrid_set.h"
 #include "exprs/vexpr.h"
 #include "exprs/vin_predicate.h"
@@ -31,8 +38,20 @@ class VDirectInPredicate final : public VExpr {
     ENABLE_FACTORY_CREATOR(VDirectInPredicate);
 
 public:
-    VDirectInPredicate(const TExprNode& node, const std::shared_ptr<HybridSetBase>& filter)
-            : VExpr(node), _filter(filter), _expr_name("direct_in_predicate") {}
+    // `hybrid_set_values_match_child_type` tells whether values in `filter` can be interpreted with
+    // the child expression type. Parquet/ORC dictionary-filter rewrites evaluate the original
+    // logical predicate against dictionary entries and then rewrite it to matched physical
+    // dictionary codes, for example `col IN ('a', 'b')` becomes `dict_code IN (0, 1)`. In that
+    // shape the HybridSet stores TYPE_INT dictionary codes while the child slot still has the
+    // original logical type such as STRING. Callers must pass false to disable zonemap
+    // materialization and slot-IN rewrite that would otherwise rebuild child-typed literals from
+    // dictionary codes.
+    VDirectInPredicate(const TExprNode& node, const std::shared_ptr<HybridSetBase>& filter,
+                       bool hybrid_set_values_match_child_type)
+            : VExpr(node),
+              _filter(filter),
+              _hybrid_set_values_match_child_type(hybrid_set_values_match_child_type),
+              _expr_name("direct_in_predicate") {}
     ~VDirectInPredicate() override = default;
 
 #ifdef BE_TEST
@@ -42,6 +61,7 @@ public:
     Status prepare(RuntimeState* state, const RowDescriptor& row_desc,
                    VExprContext* context) override {
         RETURN_IF_ERROR_OR_PREPARED(VExpr::prepare(state, row_desc, context));
+        RETURN_IF_ERROR(_materialize_for_zonemap_filter());
         _prepare_finished = true;
         return Status::OK();
     }
@@ -69,7 +89,20 @@ public:
 
     std::shared_ptr<HybridSetBase> get_set_func() const override { return _filter; }
 
+    ZoneMapFilterResult evaluate_zonemap_filter(const ZoneMapEvalContext& ctx) const override {
+        return expr_zonemap::eval_in_zonemap(ctx, get_child(0), false, _seg_filter_values,
+                                             _seg_filter_min, _seg_filter_max);
+    }
+
+    bool can_evaluate_zonemap_filter() const override {
+        return _zonemap_materialized &&
+               std::dynamic_pointer_cast<VSlotRef>(get_child(0)) != nullptr;
+    }
+
     bool get_slot_in_expr(VExprSPtr& new_root) const {
+        if (!_hybrid_set_values_match_child_type) {
+            return false;
+        }
         if (!get_child(0)->is_slot_ref()) {
             return false;
         }
@@ -97,9 +130,9 @@ public:
                 DCHECK(iter->get_value() != nullptr);
                 auto* value = const_cast<void*>(iter->get_value());
 
-                TExprNode node = create_texpr_node_from(value, slot_data_type->get_primitive_type(),
-                                                        slot_data_type->get_precision(),
-                                                        slot_data_type->get_scale());
+                TExprNode node = expr_zonemap::create_texpr_node_from_hybrid_set_value(
+                        value, slot_data_type->get_primitive_type(),
+                        slot_data_type->get_precision(), slot_data_type->get_scale());
                 new_root->add_child(VLiteral::create_shared(node));
                 iter->next();
             }
@@ -151,8 +184,34 @@ private:
         return Status::OK();
     }
 
+    Status _materialize_for_zonemap_filter() {
+        if (!_hybrid_set_values_match_child_type) {
+            _zonemap_materialized = false;
+            return Status::OK();
+        }
+        DORIS_CHECK(_filter != nullptr);
+        auto& filter = *_filter;
+        const auto& data_type = remove_nullable(get_child(0)->data_type());
+        expr_zonemap::InZonemapMaterializedSet materialized;
+        RETURN_IF_ERROR(expr_zonemap::materialize_hybrid_set_for_zonemap_filter(filter, data_type,
+                                                                                &materialized));
+        _seg_filter_values = std::move(materialized.values);
+        _seg_filter_min = std::move(materialized.min_value);
+        _seg_filter_max = std::move(materialized.max_value);
+        _zonemap_materialized = true;
+        return Status::OK();
+    }
+
     std::shared_ptr<HybridSetBase> _filter;
+    // Dictionary-filter rewrites may store physical dictionary codes in the HybridSet while the
+    // child slot keeps the original logical type. Such values must not be materialized as child-type
+    // literals for zonemap pruning or slot-IN rewrite.
+    bool _hybrid_set_values_match_child_type = true;
     std::string _expr_name;
+    bool _zonemap_materialized = false;
+    std::vector<Field> _seg_filter_values;
+    Field _seg_filter_min;
+    Field _seg_filter_max;
 };
 
 #include "common/compile_check_end.h"

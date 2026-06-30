@@ -30,9 +30,10 @@
 #include "core/block/column_numbers.h"
 #include "core/block/column_with_type_and_name.h"
 #include "core/block/columns_with_type_and_name.h"
+#include "exprs/expr_zonemap_filter.h"
+#include "exprs/function/in.h"
 #include "exprs/function/simple_function_factory.h"
 #include "exprs/vexpr_context.h"
-#include "exprs/vliteral.h"
 #include "exprs/vslot_ref.h"
 #include "runtime/runtime_state.h"
 
@@ -99,6 +100,10 @@ Status VInPredicate::open(RuntimeState* state, VExprContext* context,
 
     _is_args_all_constant = std::all_of(_children.begin() + 1, _children.end(),
                                         [](const VExprSPtr& expr) { return expr->is_constant(); });
+    if (scope == FunctionContext::FRAGMENT_LOCAL && _is_args_all_constant &&
+        !_zonemap_materialized) {
+        RETURN_IF_ERROR(_materialize_for_zonemap_filter(context));
+    }
     _open_finished = true;
     return Status::OK();
 }
@@ -111,6 +116,52 @@ void VInPredicate::close(VExprContext* context, FunctionContext::FunctionStateSc
 Status VInPredicate::evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows) {
     DCHECK_GE(get_num_children(), 2);
     return _evaluate_inverted_index(context, _function, segment_num_rows);
+}
+
+Status VInPredicate::_materialize_for_zonemap_filter(VExprContext* context) {
+    _seg_filter_values.clear();
+    _seg_filter_contains_null = false;
+    _zonemap_materialized = false;
+    if (_children.size() < 2 || !_children[0]->is_slot_ref()) {
+        return Status::OK();
+    }
+
+    const auto data_type = remove_nullable(_children[0]->data_type());
+    DORIS_CHECK(data_type != nullptr);
+    if (is_complex_type(data_type->get_primitive_type())) {
+        return Status::OK();
+    }
+
+    DORIS_CHECK(context != nullptr);
+    auto* fn_ctx = context->fn_context(_fn_context_index);
+    DORIS_CHECK(fn_ctx != nullptr);
+    auto* in_state =
+            reinterpret_cast<InState*>(fn_ctx->get_function_state(FunctionContext::FRAGMENT_LOCAL));
+    DORIS_CHECK(in_state != nullptr);
+    DORIS_CHECK(in_state->use_set);
+    DORIS_CHECK(in_state->hybrid_set != nullptr);
+
+    expr_zonemap::InZonemapMaterializedSet materialized;
+    RETURN_IF_ERROR(expr_zonemap::materialize_hybrid_set_for_zonemap_filter(
+            *in_state->hybrid_set, data_type, &materialized));
+    _seg_filter_contains_null = materialized.contains_null;
+    _seg_filter_values = std::move(materialized.values);
+    _seg_filter_min = std::move(materialized.min_value);
+    _seg_filter_max = std::move(materialized.max_value);
+    _zonemap_materialized = true;
+    return Status::OK();
+}
+
+ZoneMapFilterResult VInPredicate::evaluate_zonemap_filter(const ZoneMapEvalContext& ctx) const {
+    if (_is_not_in && _seg_filter_contains_null) {
+        return ZoneMapFilterResult::kNoMatch;
+    }
+    return expr_zonemap::eval_in_zonemap(ctx, get_child(0), _is_not_in, _seg_filter_values,
+                                         _seg_filter_min, _seg_filter_max);
+}
+
+bool VInPredicate::can_evaluate_zonemap_filter() const {
+    return _zonemap_materialized && std::dynamic_pointer_cast<VSlotRef>(get_child(0)) != nullptr;
 }
 
 Status VInPredicate::execute_column(VExprContext* context, const Block* block, Selector* selector,
