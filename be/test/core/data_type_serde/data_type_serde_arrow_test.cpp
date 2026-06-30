@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <arrow/array/array_nested.h>
+#include <arrow/array/array_primitive.h>
 #include <arrow/array/builder_base.h>
 #include <arrow/array/builder_binary.h>
 #include <arrow/array/builder_decimal.h>
@@ -452,6 +454,57 @@ TEST(DataTypeSerDeArrowTest, DataTypeCollectionSerDeTest) {
     std::vector<PrimitiveType> cols = {TYPE_ARRAY, TYPE_MAP, TYPE_STRUCT};
     serialize_and_deserialize_arrow_test(cols, 7, true);
     serialize_and_deserialize_arrow_test(cols, 7, false);
+}
+
+TEST(DataTypeSerDeArrowTest, ArrayNullableSmallIntArrowSerDeTest) {
+    auto block = std::make_shared<Block>();
+    DataTypePtr array_type = std::make_shared<DataTypeArray>(std::make_shared<DataTypeInt16>());
+    MutableColumnPtr array_column = array_type->create_column();
+
+    Array values;
+    values.push_back(Field());
+    values.push_back(Field::create_field<TYPE_SMALLINT>(1));
+    values.push_back(Field());
+    array_column->insert(Field::create_field<TYPE_ARRAY>(values));
+
+    block->insert(ColumnWithTypeAndName(array_column->get_ptr(), array_type, "0"));
+
+    std::shared_ptr<arrow::Schema> schema;
+    Status status = get_arrow_schema_from_block(*block, &schema, TimezoneUtils::default_time_zone);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    ASSERT_TRUE(schema);
+
+    const auto& value_field = assert_cast<const arrow::ListType&>(*schema->field(0)->type())
+                                      .value_field();
+    ASSERT_TRUE(value_field->nullable());
+
+    std::shared_ptr<arrow::RecordBatch> record_batch;
+    cctz::time_zone default_timezone;
+    status = convert_to_arrow_batch(*block, schema, arrow::default_memory_pool(), &record_batch,
+                                    default_timezone);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    ASSERT_TRUE(record_batch);
+
+    auto list_array = std::dynamic_pointer_cast<arrow::ListArray>(record_batch->column(0));
+    ASSERT_TRUE(list_array);
+    ASSERT_EQ(1, list_array->length());
+    ASSERT_EQ(0, list_array->value_offset(0));
+    ASSERT_EQ(3, list_array->value_offset(1));
+
+    auto values_array = std::dynamic_pointer_cast<arrow::Int16Array>(list_array->values());
+    ASSERT_TRUE(values_array);
+    ASSERT_EQ(3, values_array->length());
+    ASSERT_EQ(2, values_array->null_count());
+    EXPECT_TRUE(values_array->IsNull(0));
+    EXPECT_FALSE(values_array->IsNull(1));
+    EXPECT_EQ(1, values_array->Value(1));
+    EXPECT_TRUE(values_array->IsNull(2));
+
+    auto assert_block = std::make_shared<Block>(block->clone_empty());
+    status = convert_from_arrow_batch(record_batch, block->get_data_types(), assert_block.get(),
+                                      default_timezone);
+    ASSERT_TRUE(status.ok()) << status.to_string();
+    CommonDataTypeSerdeTest::compare_two_blocks(block, assert_block);
 }
 
 TEST(DataTypeSerDeArrowTest, DataTypeMapNullKeySerDeTest) {

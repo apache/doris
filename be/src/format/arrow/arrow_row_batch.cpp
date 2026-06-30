@@ -124,7 +124,9 @@ Status convert_to_arrow_type(const DataTypePtr& origin_type,
         const auto* type_arr = assert_cast<const DataTypeArray*>(remove_nullable(type).get());
         std::shared_ptr<arrow::DataType> item_type;
         RETURN_IF_ERROR(convert_to_arrow_type(type_arr->get_nested_type(), &item_type, timezone));
-        *result = std::make_shared<arrow::ListType>(item_type);
+        auto item_field =
+                arrow::field("item", item_type, type_arr->get_nested_type()->is_nullable());
+        *result = arrow::list(item_field);
         break;
     }
     case TYPE_MAP: {
