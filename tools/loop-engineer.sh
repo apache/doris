@@ -229,6 +229,12 @@ extract_decision_options() {
     sed -n 's/^LOOP_ENGINEER_DECISION_OPTION:[[:space:]]*//p' "${log_file}"
 }
 
+trim_input() {
+    local value="$1"
+    value="${value//$'\r'/}"
+    printf '%s' "${value}" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//'
+}
+
 should_prompt_for_decision() {
     case "${INTERACTIVE_DECISIONS}" in
     true)
@@ -310,12 +316,14 @@ prompt_for_user_decision() {
 
         while true; do
             read -r -p "Select an option number, or c for custom: " choice
+            choice="$(trim_input "${choice}")"
             if [[ "${choice}" =~ ^[0-9]+$ && "${choice}" -ge 1 && "${choice}" -le "${#options[@]}" ]]; then
                 answer="${options[$((choice - 1))]}"
                 break
             fi
             if [[ "${choice}" == "c" || "${choice}" == "C" ]]; then
                 read -r -p "Enter your decision: " answer
+                answer="$(trim_input "${answer}")"
                 [[ -n "${answer}" ]] && break
             fi
             printf 'Invalid selection.\n'
@@ -326,6 +334,7 @@ prompt_for_user_decision() {
         printf '\n'
         while [[ -z "${answer}" ]]; do
             read -r -p "Enter your decision: " answer
+            answer="$(trim_input "${answer}")"
         done
     fi
 
