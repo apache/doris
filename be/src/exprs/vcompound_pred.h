@@ -58,6 +58,11 @@ public:
 #endif
 
     const std::string& expr_name() const override { return _expr_name; }
+    Status clone_node(VExprSPtr* cloned_expr) const override {
+        DORIS_CHECK(cloned_expr != nullptr);
+        *cloned_expr = VCompoundPred::create_shared(clone_texpr_node());
+        return Status::OK();
+    }
 
     Status evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows) override {
         segment_v2::InvertedIndexResultBitmap res;
