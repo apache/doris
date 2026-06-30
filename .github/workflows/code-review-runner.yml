@@ -141,27 +141,37 @@ jobs:
           OSS_CODEX_AUTH_OBJECT: oss://doris-community-ci/codex/auth.json
 
       - name: Sync Codex memories from OSS
-        continue-on-error: true
         run: |
           install -m 700 -d "$CODEX_HOME/memories"
           archive="$RUNNER_TEMP/codex-memories.tar.gz"
+          listing="$RUNNER_TEMP/codex-memories.list"
 
           if ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" cp -f "$OSS_CODEX_MEMORIES_OBJECT" "$archive"; then
-            tar -tzf "$archive" | awk '
-              $0 != "memories" && $0 !~ /^memories\// { bad = 1 }
-              END { exit bad }
-            '
-            tar -xzf "$archive" -C "$CODEX_HOME"
-            install -m 700 -d "$CODEX_HOME/memories"
-            chmod -R go-rwx "$CODEX_HOME/memories" || true
+            if [ -s "$archive" ]; then
+              tar -tzf "$archive" > "$listing"
+              if [ -s "$listing" ]; then
+                awk '
+                  $0 != "memories" && $0 != "memories/" && $0 !~ /^memories\// { bad = 1 }
+                  END { exit bad }
+                ' "$listing"
+                tar -xzf "$archive" -C "$CODEX_HOME"
+              else
+                echo "Codex memories archive is empty; continuing with empty memories."
+              fi
+            else
+              echo "Codex memories archive is empty; continuing with empty memories."
+            fi
           else
             echo "No Codex memories archive could be downloaded; continuing with empty memories."
           fi
+          install -m 700 -d "$CODEX_HOME/memories"
+          touch "$CODEX_HOME/memories/memory_summary.md"
+          chmod -R go-rwx "$CODEX_HOME/memories" || true
         env:
           OSS_AK: ${{ secrets.OSS_AK }}
           OSS_SK: ${{ secrets.OSS_SK }}
           OSS_ENDPOINT: oss-cn-hongkong.aliyuncs.com
-          OSS_CODEX_MEMORIES_OBJECT: oss://doris-community-ci/codex/memories.tar.gz
+          OSS_CODEX_MEMORIES_OBJECT: oss://doris-community-ci/memories.tar.gz
 
       - name: Prepare review context directory
         run: |
@@ -557,23 +567,34 @@ jobs:
             --verify-sleep-seconds 5 \
             --verify
 
-      - name: Sync Codex memories back to OSS
+      - name: Sync Codex sessions back to OSS
         if: ${{ always() }}
         continue-on-error: true
         run: |
-          if [ ! -d "$CODEX_HOME/memories" ]; then
-            echo "No Codex memories directory found; skipping memories sync."
+          if [ ! -d "$CODEX_HOME/sessions" ]; then
+            echo "No Codex sessions directory found; skipping session sync."
             exit 0
           fi
 
-          archive="$RUNNER_TEMP/codex-memories.tar.gz"
-          tar -C "$CODEX_HOME" -czf "$archive" memories
-          ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" cp -f "$archive" "$OSS_CODEX_MEMORIES_OBJECT"
+          uploaded=0
+          skipped=0
+          while IFS= read -r -d '' session_file; do
+            rel="${session_file#"$CODEX_HOME/sessions/"}"
+            remote="${OSS_CODEX_SESSION_PREFIX%/}/$rel"
+            if ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" stat "$remote" >/dev/null 2>&1; then
+              skipped=$((skipped + 1))
+              continue
+            fi
+            ossutil -i "$OSS_AK" -k "$OSS_SK" -e "$OSS_ENDPOINT" cp -f "$session_file" "$remote"
+            uploaded=$((uploaded + 1))
+          done < <(find "$CODEX_HOME/sessions" -type f -name '*.jsonl' -print0)
+
+          echo "Uploaded $uploaded new Codex session file(s); skipped $skipped existing file(s)."
         env:
           OSS_AK: ${{ secrets.OSS_AK }}
           OSS_SK: ${{ secrets.OSS_SK }}
           OSS_ENDPOINT: oss-cn-hongkong.aliyuncs.com
-          OSS_CODEX_MEMORIES_OBJECT: oss://doris-community-ci/codex/memories.tar.gz
+          OSS_CODEX_SESSION_PREFIX: oss://doris-community-ci/session
 
       - name: Sync Codex auth back to OSS
         if: ${{ always() }}
