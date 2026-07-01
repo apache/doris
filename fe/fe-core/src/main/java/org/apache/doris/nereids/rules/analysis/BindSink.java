@@ -986,6 +986,16 @@ public class BindSink implements AnalysisRuleFactory {
                 throw new AnalysisException(String.format("column %s is not found in table %s",
                         cn, table.getName()));
             }
+            // Reject explicitly naming an engine-managed invisible column (e.g. iceberg v3 row-lineage
+            // _row_id / _last_updated_sequence_number) in an ordinary INSERT: the user never supplies
+            // its value. RETAINED for a rewrite (rewrite_data_files reads/rewrites full rows, preserving
+            // the engine-managed values), mirroring the isVisible/isRewrite split of the empty-colNames
+            // branch above. Uses only Column.isVisible(), so no source-specific code enters the generic
+            // SPI path (replaces the legacy source-specific bindIcebergTableSink row-lineage guard).
+            if (!isRewrite && !column.isVisible()) {
+                throw new AnalysisException(String.format(
+                        "Cannot specify invisible column '%s' in INSERT statement", cn));
+            }
             return column;
         }).collect(ImmutableList.toImmutableList());
     }
