@@ -299,7 +299,9 @@ jobs:
           Before reviewing any code, you MUST read and follow the code review skill in this repository. During review, you must strictly follow those instructions.
           The active review goal's progress tracking MUST include, and must stay current throughout the review:
           - Read the review prompt, code-review skill, required AGENTS.md files, existing review threads, user focus, changed-file list, and the shared subagent review ledger.
+          - Perform a main-agent initial whole-PR risk scan before spawning review subagents. This scan must inspect the PR file list and patch broadly, identify the most suspicious mechanisms or state that no special high-risk focus was found, and write the result under `## Main Initial Risk Scan` in the shared ledger.
           - Spawn the required focused subagents and assign each subagent a dedicated section in the shared ledger before it reviews.
+          - If the main initial risk scan identifies one or more suspicious mechanisms, spawn additional no-inherit risk-focused subagent(s), separate from the normal complete-review subagents, to investigate those specific mechanisms and their upstream/downstream interactions.
           - Require every subagent to append only to its assigned ledger section, while reading the whole ledger to avoid duplicate candidates.
           - Read the shared ledger after every subagent result, then independently verify, deduplicate, accept, or dismiss every candidate in the main merged section.
           - Run at least one final convergence round where every live subagent reviews the current ledger and proposed final comment set.
@@ -307,11 +309,14 @@ jobs:
           - Submit the final GitHub review and verify that all accepted comments landed before marking the goal complete.
           The active review goal MUST remain incomplete until every suspicious point found during review has a clear conclusion: submitted as an inline issue, dismissed as already covered by existing review context, or dismissed with concrete code evidence explaining why it is not a bug.
           You MUST use the available subagent or multi-agent spawn tool for this review; do not merely simulate subagent output in your own text. If tool discovery is needed, search for the subagent/multi-agent tool first. Spawn at least two subagents before final submission:
+          Before spawning those normal complete-review subagents, the main agent MUST first conduct a broad, whole-PR risk scan. This is a fast but real code-reading pass over the changed-file list, PR patch, and obvious related mechanism entry points. The scan must identify which parts of the change are most likely to hide correctness bugs and why. Examples include, but are not limited to: changed operator blockability requiring pipeline task scheduling review; new optimizer rules requiring interaction checks with adjacent rewrite/expression/type rules; new lifecycle or async behavior requiring caller/callback/thread-pool review; new type/cast predicates requiring BE runtime semantics, equality/hash, serialization, and set-operation semantics review; new config/session variables requiring all propagation paths and dynamic/static behavior review; new transaction, persistence, or cloud metadata paths requiring retry/idempotency/failover review; and new tests requiring proof that they actually exercise the intended path. If the scan finds no special high-risk focus beyond the normal full review, it must explicitly write that conclusion with evidence.
+          The main initial risk scan MUST be written under `## Main Initial Risk Scan` in the shared ledger before any subagent is spawned. For every risk focus item, include: ID, changed files/lines involved, related mechanisms to inspect, why it is suspicious, required upstream/downstream files or paths, and the exact question the risk-focused subagent must answer.
+          If `## Main Initial Risk Scan` contains any risk focus item, the main agent MUST spawn additional no-inherit risk-focused subagent(s) dedicated to those item(s), in addition to the normal complete-review subagents. Each risk-focused subagent prompt must include the whole ledger path, its assigned ledger section, the risk focus IDs it owns, and a requirement to inspect the related mechanisms listed by the main agent rather than only the changed lines. Risk-focused subagents must append evidence-backed conclusions or candidates only under their assigned section. They must not replace the normal complete-review subagents; the normal subagents must still perform the full skill-based review.
           The shared subagent review ledger is PLACEHOLDER_CONTEXT_DIR/subagent_review_findings.md. Before spawning any subagent, the main agent MUST read this ledger. Every subagent prompt MUST include this ledger path and the exact ledger section assigned to that subagent. Subagents must read the whole ledger before reviewing, avoid duplicating existing candidates, and append their findings only under their assigned subagent section. They must not rewrite the whole ledger, edit another subagent section, edit the main merged sections, edit repository source files, or submit GitHub comments.
           Each subagent must record candidate findings in its own ledger section with stable IDs, path/line, claim, evidence, duplicate relationship if any, and recommendation. If a candidate overlaps an existing ledger item, the subagent should add a duplicate note in its own section that references the existing candidate ID instead of modifying the existing candidate. This section-owned append-only rule is mandatory to avoid concurrent patch conflicts.
-          The main agent must read the shared ledger after each subagent result, merge duplicate candidates into the main merged section, update candidate statuses, and keep a proposed final comment set in the main-owned ledger sections. Statuses must distinguish at least: proposed_by_subagent, accepted_for_inline_comment, dismissed_with_evidence, duplicate_of_existing_thread, duplicate_of_candidate, and needs_more_evidence.
-          Before final submission, the main agent MUST send the current ledger and proposed final comment set to every live subagent and require a convergence response. A subagent may either append a new valuable candidate under its assigned section or reply exactly `NO_NEW_VALUABLE_FINDINGS` for the current ledger/comment set. The main agent MUST NOT complete the goal, final summary, or GitHub review until every live subagent has returned `NO_NEW_VALUABLE_FINDINGS` in the same convergence round after the last accepted or dismissed candidate update.
-          Subagents must only report candidate findings with evidence. The main agent must read their results and the shared ledger, independently verify or dismiss every candidate with concrete code evidence, deduplicate against existing review threads, and submit the final GitHub review itself. The final summary must include a short "Subagent conclusions" section describing which subagent candidates became inline comments, which were dismissed, which duplicates were merged, and which convergence round ended with all subagents reporting `NO_NEW_VALUABLE_FINDINGS`.
+          The main agent must read the shared ledger after each subagent result, merge duplicate candidates into the main merged section, update candidate statuses, and keep a proposed final comment set in the main-owned ledger sections. It must also update the status of every main risk focus item as covered_by_subagent, accepted_for_inline_comment, dismissed_with_evidence, duplicate_of_existing_thread, duplicate_of_candidate, or needs_more_evidence. Statuses must distinguish at least: proposed_by_subagent, accepted_for_inline_comment, dismissed_with_evidence, duplicate_of_existing_thread, duplicate_of_candidate, and needs_more_evidence.
+          Before final submission, the main agent MUST send the current ledger and proposed final comment set to every live subagent, including all risk-focused subagents, and require a convergence response. A subagent may either append a new valuable candidate under its assigned section or reply exactly `NO_NEW_VALUABLE_FINDINGS` for the current ledger/comment set. The main agent MUST NOT complete the goal, final summary, or GitHub review until every live subagent has returned `NO_NEW_VALUABLE_FINDINGS` in the same convergence round after the last accepted or dismissed candidate update.
+          Subagents must only report candidate findings with evidence. The main agent must read their results and the shared ledger, independently verify or dismiss every candidate with concrete code evidence, deduplicate against existing review threads, and submit the final GitHub review itself. The final summary must include a short "Initial risk scan and subagent conclusions" section describing the main risk focus items, which extra risk-focused subagents were spawned, which subagent candidates became inline comments, which were dismissed, which duplicates were merged, and which convergence round ended with all subagents reporting `NO_NEW_VALUABLE_FINDINGS`.
           If and only if the runtime exposes no subagent or multi-agent tool after explicit discovery, state that limitation in the final summary and continue the review manually.
           You MUST NOT stop after finding the first blocking issue. Keep reviewing changed files, related control flow, tests, and parallel/special-case paths until all plausible correctness, lifecycle, configuration, compatibility, performance, and coverage bugs have been investigated and every bug you can substantiate has been reported.
           Before submitting the final review, do one explicit final sweep over the changed-file list and your unresolved candidate list. Only finish when there are no unresolved suspicious points and all possible substantiated bugs have been pointed out in the GitHub review.
@@ -367,6 +372,19 @@ jobs:
           - The main agent owns final status, final deduplication, GitHub review submission, and GitHub API verification.
           - The goal is not complete until all live subagents have reviewed the current ledger and proposed final comment set in the same convergence round and replied `NO_NEW_VALUABLE_FINDINGS`.
 
+          ## Main Initial Risk Scan
+
+          Main-owned format:
+
+          - ID:
+            Status:
+            Changed files/lines:
+            Related mechanisms to inspect:
+            Why suspicious:
+            Required upstream/downstream files or paths:
+            Question for risk-focused subagent:
+            Final conclusion:
+
           Candidate statuses:
           - proposed_by_subagent
           - accepted_for_inline_comment
@@ -374,6 +392,7 @@ jobs:
           - duplicate_of_existing_thread
           - duplicate_of_candidate
           - needs_more_evidence
+          - covered_by_subagent
 
           Candidate format:
 
@@ -413,8 +432,9 @@ jobs:
           cat > "$REVIEW_CONTEXT_DIR/codex_goal_prompt.txt" <<EOF
           You are performing an automated code review inside a GitHub Actions runner.
           This invocation is already running in Codex goal mode. Before inspecting the PR diff or related code, read ${REVIEW_CONTEXT_REL}/review_prompt.txt verbatim and follow that file as the complete review instruction set.
+          This review must start with a main-agent whole-PR risk scan recorded in ${REVIEW_CONTEXT_REL}/subagent_review_findings.md under Main Initial Risk Scan. If that scan identifies suspicious high-risk mechanisms, spawn additional no-inherit risk-focused subagent(s) for those items, in addition to the normal full-review subagents.
           This review must use the available subagent or multi-agent spawn tool for focused review passes. All subagents and the main agent must maintain ${REVIEW_CONTEXT_REL}/subagent_review_findings.md as the shared source of truth. Each subagent may append only to its assigned ledger section; the main agent owns merged statuses, duplicate suppression, proposed final comments, GitHub review submission, and GitHub API verification.
-          The review goal's completion process must include shared-ledger review, subagent spawning with assigned ledger sections, candidate verification, duplicate merge, a final subagent convergence round, GitHub review submission, and GitHub API verification. Do not complete the goal unless every live subagent has replied NO_NEW_VALUABLE_FINDINGS for the same current ledger/comment set after the last candidate update.
+          The review goal's completion process must include the main initial risk scan, shared-ledger review, normal full-review subagent spawning, risk-focused subagent spawning when risk focus items exist, candidate verification, duplicate merge, a final subagent convergence round, GitHub review submission, and GitHub API verification. Do not complete the goal unless every live subagent, including risk-focused subagents, has replied NO_NEW_VALUABLE_FINDINGS for the same current ledger/comment set after the last candidate update.
           Keep reviewing until every suspicious point has a clear conclusion, every substantiated issue has been submitted as a GitHub inline review comment, and no new valuable review comment remains possible.
           EOF
         env:
