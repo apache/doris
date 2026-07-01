@@ -336,4 +336,54 @@ TEST_F(VfileScannerExceptionTest, process_late_arrival_conjuncts_retain) {
     WARN_IF_ERROR(scanner->close(&_runtime_state), "fail to close scanner");
 }
 
+TEST_F(VfileScannerExceptionTest, fallback_scan_bytes_follow_file_type) {
+    // Verify that fallback scan bytes use the local bucket for FILE_LOCAL readers.
+    _scan_range.params.file_type = TFileType::FILE_LOCAL;
+    std::shared_ptr<FileScanner> local_scanner = nullptr;
+    generate_scanner(local_scanner);
+    int64_t local_before = _runtime_state.get_query_ctx()
+                                   ->resource_ctx()
+                                   ->io_context()
+                                   ->scan_bytes_from_local_storage();
+    int64_t remote_before = _runtime_state.get_query_ctx()
+                                    ->resource_ctx()
+                                    ->io_context()
+                                    ->scan_bytes_from_remote_storage();
+    local_scanner->_file_reader_stats->read_bytes = 128;
+    local_scanner->update_realtime_counters();
+    EXPECT_EQ(local_before + 128, _runtime_state.get_query_ctx()
+                                          ->resource_ctx()
+                                          ->io_context()
+                                          ->scan_bytes_from_local_storage());
+    EXPECT_EQ(remote_before, _runtime_state.get_query_ctx()
+                                     ->resource_ctx()
+                                     ->io_context()
+                                     ->scan_bytes_from_remote_storage());
+    WARN_IF_ERROR(local_scanner->close(&_runtime_state), "fail to close scanner");
+
+    // Verify that non-local readers still use the remote bucket in the same fallback path.
+    _scan_range.params.file_type = TFileType::FILE_S3;
+    std::shared_ptr<FileScanner> remote_scanner = nullptr;
+    generate_scanner(remote_scanner);
+    local_before = _runtime_state.get_query_ctx()
+                           ->resource_ctx()
+                           ->io_context()
+                           ->scan_bytes_from_local_storage();
+    remote_before = _runtime_state.get_query_ctx()
+                            ->resource_ctx()
+                            ->io_context()
+                            ->scan_bytes_from_remote_storage();
+    remote_scanner->_file_reader_stats->read_bytes = 256;
+    remote_scanner->update_realtime_counters();
+    EXPECT_EQ(local_before, _runtime_state.get_query_ctx()
+                                    ->resource_ctx()
+                                    ->io_context()
+                                    ->scan_bytes_from_local_storage());
+    EXPECT_EQ(remote_before + 256, _runtime_state.get_query_ctx()
+                                           ->resource_ctx()
+                                           ->io_context()
+                                           ->scan_bytes_from_remote_storage());
+    WARN_IF_ERROR(remote_scanner->close(&_runtime_state), "fail to close scanner");
+}
+
 } // namespace doris

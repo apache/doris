@@ -101,6 +101,11 @@ class ShardedKVCache;
 namespace doris {
 using namespace ErrorCode;
 
+// Route fallback scan bytes to the correct storage bucket when file cache stats are unavailable.
+static bool should_count_fallback_scan_bytes_as_local(const TFileScanRangeParams* params) {
+    return params != nullptr && params->file_type == TFileType::FILE_LOCAL;
+}
+
 const std::string FileScanner::FileReadBytesProfile = "FileReadBytes";
 const std::string FileScanner::FileReadTimeProfile = "FileReadTime";
 
@@ -2048,12 +2053,23 @@ void FileScanner::update_realtime_counters() {
             _file_cache_statistics->bytes_read_from_remote - _last_bytes_read_from_remote;
     if (_file_cache_statistics->bytes_read_from_local == 0 &&
         _file_cache_statistics->bytes_read_from_remote == 0) {
-        _state->get_query_ctx()
-                ->resource_ctx()
-                ->io_context()
-                ->update_scan_bytes_from_remote_storage(_file_reader_stats->read_bytes);
-        DorisMetrics::instance()->query_scan_bytes_from_local->increment(
-                _file_reader_stats->read_bytes);
+        // FILE_LOCAL fallback reads must be recorded as local bytes when cache-layer counters
+        // are absent, while other file types keep using the remote bucket.
+        if (should_count_fallback_scan_bytes_as_local(_params)) {
+            _state->get_query_ctx()
+                    ->resource_ctx()
+                    ->io_context()
+                    ->update_scan_bytes_from_local_storage(_file_reader_stats->read_bytes);
+            DorisMetrics::instance()->query_scan_bytes_from_local->increment(
+                    _file_reader_stats->read_bytes);
+        } else {
+            _state->get_query_ctx()
+                    ->resource_ctx()
+                    ->io_context()
+                    ->update_scan_bytes_from_remote_storage(_file_reader_stats->read_bytes);
+            DorisMetrics::instance()->query_scan_bytes_from_remote->increment(
+                    _file_reader_stats->read_bytes);
+        }
     } else {
         _state->get_query_ctx()->resource_ctx()->io_context()->update_scan_bytes_from_local_storage(
                 delta_bytes_read_from_local);
