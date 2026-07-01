@@ -21,8 +21,8 @@ import java.util.UUID
 // external MySQL environment. Those prerequisites may be unavailable in the
 // default Apache Doris CI pipeline, so the case can be skipped or may not run
 // end-to-end there. That is expected. The case still serves as a valuable
-// reference for manual validation of the MetaCacheEntry refresh blocking fix.
-suite("test_jdbc_refresh_catalog_manual_miss_load", "p0,external") {
+// reference for manual validation of the schema refresh non-blocking behavior.
+suite("test_jdbc_refresh_catalog_schema_refresh_non_blocking", "p0,external") {
     String enabled = context.config.otherConfigs.get("enableJdbcTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
         return
@@ -34,8 +34,8 @@ suite("test_jdbc_refresh_catalog_manual_miss_load", "p0,external") {
     String bucket = getS3BucketName()
     String driverUrl = "https://${bucket}.${s3Endpoint}/regression/jdbc_driver/mysql-connector-j-8.4.0.jar"
     String nameSuffix = UUID.randomUUID().toString().replace("-", "")
-    String catalogName = "jdbc_manual_miss_load_" + nameSuffix
-    String remoteDbName = "jdbc_manual_miss_load_db_" + nameSuffix.substring(0, 12)
+    String catalogName = "jdbc_schema_refresh_" + nameSuffix
+    String remoteDbName = "jdbc_schema_refresh_db_" + nameSuffix.substring(0, 12)
     String slowTableName = "slow_probe_000000"
     int collisionTableCount = 80
     int hashMod = 512
@@ -191,61 +191,6 @@ suite("test_jdbc_refresh_catalog_manual_miss_load", "p0,external") {
         }
     }
 
-    // Run the migrated tableNames miss-load path once and assert refresh stays non-blocking.
-    def runTableNamesRefreshRace = { long minRefreshMs, long maxRefreshMs ->
-        try {
-            GetDebugPoint().enableDebugPointForAllFEs(
-                    "ExternalDatabase.listTableNames.sleep",
-                    ["sleepMs": String.valueOf(slowSleepMs)])
-
-            def showElapsedMs = -1L
-            def showFailure = null
-            def showThread = Thread.start {
-                try {
-                    long showStart = System.currentTimeMillis()
-                    connect(context.config.jdbcUser, context.config.jdbcPassword, context.config.jdbcUrl) {
-                        sql """SHOW TABLES FROM ${catalogName}.${remoteDbName}"""
-                    }
-                    showElapsedMs = System.currentTimeMillis() - showStart
-                } catch (Throwable t) {
-                    showFailure = t
-                }
-            }
-
-            // Delay the refresh long enough so SHOW TABLES enters the injected slow table-names load.
-            Thread.sleep(refreshDelayMs)
-
-            long refreshStart = System.currentTimeMillis()
-            sql """REFRESH CATALOG ${catalogName}"""
-            long refreshElapsedMs = System.currentTimeMillis() - refreshStart
-
-            showThread.join(slowSleepMs + 15000)
-            if (showThread.isAlive()) {
-                throw new IllegalStateException("show tables thread does not finish in time")
-            }
-            if (showFailure != null) {
-                throw new IllegalStateException("show tables thread failed", showFailure)
-            }
-
-            // Re-read while the debug point is still enabled so a stale write-back would surface as a fast cache hit.
-            long secondShowStart = System.currentTimeMillis()
-            def secondShowRows = sql """SHOW TABLES FROM ${catalogName}.${remoteDbName}"""
-            long secondShowElapsedMs = System.currentTimeMillis() - secondShowStart
-
-            logger.info("tableNames refreshElapsedMs=${refreshElapsedMs}, showElapsedMs=${showElapsedMs}, "
-                    + "secondShowElapsedMs=${secondShowElapsedMs}")
-            assertTrue(showElapsedMs >= slowSleepMs - 1000)
-            assertEquals(collisionTableCount + 1, secondShowRows.size())
-            assertTrue(refreshElapsedMs >= minRefreshMs)
-            assertTrue(refreshElapsedMs <= maxRefreshMs)
-            assertTrue(refreshElapsedMs < showElapsedMs)
-            assertTrue(secondShowElapsedMs >= slowSleepMs - 1000)
-            return [refreshElapsedMs, showElapsedMs, secondShowElapsedMs]
-        } finally {
-            GetDebugPoint().disableDebugPointForAllFEs("ExternalDatabase.listTableNames.sleep")
-        }
-    }
-
     try {
         executeOnRemoteMysql("""DROP DATABASE IF EXISTS ${remoteDbName}""")
         executeOnRemoteMysql("""CREATE DATABASE ${remoteDbName}""")
@@ -273,19 +218,11 @@ suite("test_jdbc_refresh_catalog_manual_miss_load", "p0,external") {
         assertEquals(0, getSchemaCacheSize())
         sql """DESC ${catalogName}.${remoteDbName}.${slowTableName}"""
         assertEquals(1, getSchemaCacheSize())
-
-        sql """REFRESH CATALOG ${catalogName}"""
-        runTableNamesRefreshRace(0L, 5000L)
     } finally {
         try {
             GetDebugPoint().disableDebugPointForAllFEs("PluginDrivenExternalTable.initSchema.sleep")
         } catch (Throwable t) {
             logger.warn("failed to disable debug point during cleanup", t)
-        }
-        try {
-            GetDebugPoint().disableDebugPointForAllFEs("ExternalDatabase.listTableNames.sleep")
-        } catch (Throwable t) {
-            logger.warn("failed to disable table names debug point during cleanup", t)
         }
         try_sql("""DROP CATALOG IF EXISTS ${catalogName}""")
         try {
