@@ -155,6 +155,14 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
     // instance state between the two SPI methods). Mirrors paimon's paimon.schema_evolution.
     private static final String SCHEMA_EVOLUTION_PROP = "iceberg.schema_evolution";
 
+    // FIX (explain gap): scan-level prop carrying the newline-joined iceberg Expression.toString() of each
+    // pushed-down conjunct. getScanNodeProperties serializes it (same IcebergPredicateConverter buildScan uses);
+    // appendExplainInfo renders it as the legacy IcebergScanNode `icebergPredicatePushdown=` EXPLAIN block.
+    // Transport via the props map for the same reason as SCHEMA_EVOLUTION_PROP above (the two SPI methods share
+    // no provider instance state). Mirrors paimon's paimon.predicate. Iceberg expression toStrings are
+    // single-line, so the newline is an unambiguous record separator.
+    private static final String PUSHDOWN_PREDICATES_PROP = "iceberg.pushdown_predicates";
+
     // T08 manifest cache gate (ported from fe-core IcebergExternalCatalog + IcebergUtils.isManifestCacheEnabled
     // + CacheSpec.isCacheEnabled). Default OFF: the default scan path stays the iceberg SDK planFiles()
     // (splitFiles). When enabled, planScan re-plans at the manifest level so the per-manifest data/delete-file
@@ -1002,6 +1010,26 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             }
             props.put(SCHEMA_EVOLUTION_PROP, dict);
         }
+        // Pushed-predicate EXPLAIN prop (explain gap): serialize the iceberg Expression form of each pushed
+        // conjunct so appendExplainInfo can re-emit the legacy `icebergPredicatePushdown=` block. Same converter
+        // as buildScan (current schema + session zone) → byte-identical strings. A system table has no
+        // base-spec pushdown path (its converter would key off the wrong schema), so skip it — mirroring the
+        // schema-dict gate above. Absent / no convertible conjunct → no prop → no EXPLAIN line (legacy parity:
+        // IcebergScanNode `if (!pushdownIcebergPredicates.isEmpty())`).
+        if (!systemTable && filter.isPresent()) {
+            List<Expression> pushed =
+                    new IcebergPredicateConverter(table.schema(), resolveSessionZone(session)).convert(filter.get());
+            if (!pushed.isEmpty()) {
+                StringBuilder sb = new StringBuilder();
+                for (Expression predicate : pushed) {
+                    if (sb.length() > 0) {
+                        sb.append('\n');
+                    }
+                    sb.append(predicate);
+                }
+                props.put(PUSHDOWN_PREDICATES_PROP, sb.toString());
+            }
+        }
         return props;
     }
 
@@ -1033,6 +1061,27 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
     @Override
     public void populateScanLevelParams(TFileScanRangeParams params, Map<String, String> nodeProperties) {
         IcebergSchemaUtils.applySchemaEvolution(params, nodeProperties.get(SCHEMA_EVOLUTION_PROP));
+    }
+
+    /**
+     * Re-emit the legacy {@code IcebergScanNode} {@code icebergPredicatePushdown=} EXPLAIN block from the
+     * {@link #PUSHDOWN_PREDICATES_PROP} prop (the pushed iceberg {@code Expression.toString()}s, newline-joined,
+     * serialized by {@link #getScanNodeProperties}). Connector-specific EXPLAIN delegated by the generic
+     * {@code PluginDrivenScanNode} (which owns the source-agnostic FileScanNode body). Byte-faithful to legacy
+     * {@code IcebergScanNode.getNodeExplainString}: each predicate double-prefix indented under the header; an
+     * absent prop (no pushed predicate, or another connector's props map) prints nothing.
+     */
+    @Override
+    public void appendExplainInfo(StringBuilder output, String prefix, Map<String, String> nodeProperties) {
+        String encoded = nodeProperties.get(PUSHDOWN_PREDICATES_PROP);
+        if (encoded == null || encoded.isEmpty()) {
+            return;
+        }
+        StringBuilder sb = new StringBuilder();
+        for (String predicate : encoded.split("\n")) {
+            sb.append(prefix).append(prefix).append(predicate).append("\n");
+        }
+        output.append(String.format("%sicebergPredicatePushdown=\n%s\n", prefix, sb));
     }
 
     /**
