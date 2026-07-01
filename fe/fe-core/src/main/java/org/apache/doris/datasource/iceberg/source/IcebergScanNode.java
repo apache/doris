@@ -1067,24 +1067,7 @@ public class IcebergScanNode extends FileQueryScanNode {
             return 0;
         }
 
-        Map<String, String> summary = snapshot.summary();
-        if (!summary.get(IcebergUtils.TOTAL_EQUALITY_DELETES).equals("0")) {
-            // has equality delete files, can not push down count
-            return -1;
-        }
-
-        long deleteCount = Long.parseLong(summary.get(IcebergUtils.TOTAL_POSITION_DELETES));
-        if (deleteCount == 0) {
-            // no delete files, can push down count directly
-            return Long.parseLong(summary.get(IcebergUtils.TOTAL_RECORDS));
-        }
-        if (sessionVariable.ignoreIcebergDanglingDelete) {
-            // has position delete files, if we ignore dangling delete, can push down count
-            return Long.parseLong(summary.get(IcebergUtils.TOTAL_RECORDS)) - deleteCount;
-        } else {
-            // otherwise, can not push down count
-            return -1;
-        }
+        return IcebergUtils.getCountFromSummary(snapshot.summary(), sessionVariable.ignoreIcebergDanglingDelete);
     }
 
     @Override
