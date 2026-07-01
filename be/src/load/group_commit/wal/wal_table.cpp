@@ -183,9 +183,14 @@ Status WalTable::_try_abort_txn(int64_t db_id, std::string& label) {
             [&request, &result](FrontendServiceConnection& client) {
                 client->loadTxnRollback(result, request);
             });
-    auto result_status = Status::create<false>(result.status);
-    LOG(INFO) << "abort label " << label << ", st:" << st << ", result_status:" << result_status;
-    return result_status;
+    if (st.ok()) {
+        auto result_status = Status::create<false>(result.status);
+        LOG(INFO) << "abort label " << label << ", result_status:" << result_status;
+        return result_status;
+    } else {
+        LOG(WARNING) << "abort label " << label << ", rpc error:" << st;
+        return st;
+    }
 }
 
 Status WalTable::_replay_wal_internal(const std::string& wal) {

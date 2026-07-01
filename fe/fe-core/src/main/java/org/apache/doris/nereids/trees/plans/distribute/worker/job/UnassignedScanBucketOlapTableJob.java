@@ -322,7 +322,7 @@ public class UnassignedScanBucketOlapTableJob extends AbstractUnassignedScanJob 
         Map<Integer, Map<ScanNode, ScanRanges>> serialScanRanges = Maps.newLinkedHashMap();
         Map<Integer, Map<ScanNode, ScanRanges>> nonSerialScanRanges = Maps.newLinkedHashMap();
         for (ScanNode scanNode : scanNodes) {
-            if (scanNode.isSerialOperator()) {
+            if (scanNode.isSerialNode()) {
                 collectScanRanges(totalScanSource, scanNode, serialScanRanges);
             } else {
                 collectScanRanges(totalScanSource, scanNode, nonSerialScanRanges);

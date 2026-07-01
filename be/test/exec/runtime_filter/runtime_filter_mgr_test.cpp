@@ -77,12 +77,12 @@ TEST_F(RuntimeFilterMgrTest, TestRuntimeFilterMgr) {
         // producer_filter should not be nullptr
         EXPECT_FALSE(
                 global_runtime_filter_mgr
-                        ->register_local_merger_producer_filter(ctx.get(), desc, producer_filter)
+                        ->register_local_merge_producer_filter(ctx.get(), desc, producer_filter)
                         .ok());
         // local merge filter should not be registered in local mgr
         EXPECT_FALSE(
                 local_runtime_filter_mgr
-                        ->register_local_merger_producer_filter(ctx.get(), desc, producer_filter)
+                        ->register_local_merge_producer_filter(ctx.get(), desc, producer_filter)
                         .ok());
         // producer should not registered in global mgr
         EXPECT_FALSE(global_runtime_filter_mgr
@@ -103,28 +103,29 @@ TEST_F(RuntimeFilterMgrTest, TestRuntimeFilterMgr) {
                              .ok());
         EXPECT_NE(producer_filter, nullptr);
 
-        LocalMergeContext* local_merge_filters = nullptr;
+        std::shared_ptr<LocalMergeContext> context;
         // filter_id not yet registered: global mgr returns OK with nullptr
         // (graceful skip for recursive CTE stage reset).
         EXPECT_TRUE(global_runtime_filter_mgr
-                            ->get_local_merge_producer_filters(filter_id, &local_merge_filters)
+                            ->get_local_merge_context(filter_id, producer_filter->stage(), &context)
                             .ok());
-        EXPECT_EQ(local_merge_filters, nullptr);
+        EXPECT_EQ(context, nullptr);
         // local mgr always returns error (not supported)
-        EXPECT_FALSE(local_runtime_filter_mgr
-                             ->get_local_merge_producer_filters(filter_id, &local_merge_filters)
-                             .ok());
-        // Register local merge filter
-        EXPECT_TRUE(
-                global_runtime_filter_mgr
-                        ->register_local_merger_producer_filter(ctx.get(), desc, producer_filter)
+        EXPECT_FALSE(
+                local_runtime_filter_mgr
+                        ->get_local_merge_context(filter_id, producer_filter->stage(), &context)
                         .ok());
+        // Register local merge filter
         EXPECT_TRUE(global_runtime_filter_mgr
-                            ->get_local_merge_producer_filters(filter_id, &local_merge_filters)
+                            ->register_local_merge_producer_filter(ctx.get(), desc, producer_filter)
                             .ok());
-        EXPECT_NE(local_merge_filters, nullptr);
-        EXPECT_EQ(local_merge_filters->producers.size(), 1);
-        local_merge_filters->producers.front()->_rf_state =
+        EXPECT_TRUE(global_runtime_filter_mgr
+                            ->get_local_merge_context(filter_id, producer_filter->stage(), &context)
+                            .ok());
+        EXPECT_NE(context, nullptr);
+        EXPECT_NE(context->merger, nullptr);
+        EXPECT_EQ(context->producers.size(), 1);
+        context->producers.front()->_rf_state =
                 RuntimeFilterProducer::State ::WAITING_FOR_SYNCED_SIZE;
     }
     {

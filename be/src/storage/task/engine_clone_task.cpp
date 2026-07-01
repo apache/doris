@@ -951,7 +951,7 @@ Status EngineCloneTask::_finish_clone(Tablet* tablet, const std::string& clone_d
     std::lock_guard build_inverted_index_lock(tablet->get_build_inverted_index_lock());
     std::lock_guard<std::mutex> push_lock(tablet->get_push_lock());
     std::lock_guard<std::mutex> rwlock(tablet->get_rowset_update_lock());
-    std::lock_guard<std::shared_mutex> wrlock(tablet->get_header_lock());
+    std::lock_guard wrlock(tablet->get_header_lock());
     SCOPED_SIMPLE_TRACE_IF_TIMEOUT(TRACE_TABLET_LOCK_THRESHOLD);
     if (is_incremental_clone) {
         status = _finish_incremental_clone(tablet, cloned_tablet_meta, version, copy_row_binlog);

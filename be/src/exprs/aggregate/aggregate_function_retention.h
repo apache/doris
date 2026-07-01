@@ -27,6 +27,8 @@
 #include <boost/iterator/iterator_facade.hpp>
 #include <memory>
 
+#include "common/exception.h"
+#include "common/status.h"
 #include "core/assert_cast.h"
 #include "core/column/column.h"
 #include "core/column/column_array.h"
@@ -112,7 +114,16 @@ class AggregateFunctionRetention final
 public:
     AggregateFunctionRetention(const DataTypes& argument_types_)
             : IAggregateFunctionDataHelper<RetentionState, AggregateFunctionRetention>(
-                      argument_types_) {}
+                      argument_types_) {
+        // RetentionState only has room for MAX_EVENTS(32) events (fixed-size events[] array,
+        // plus an int64 serialized bitmap). More params would overflow events[] in add()/
+        // insert_result_into() and corrupt the heap, so reject it at construction time.
+        if (argument_types_.size() > RetentionState::MAX_EVENTS) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT,
+                            "retention function can accept at most {} params, but got {}",
+                            RetentionState::MAX_EVENTS, argument_types_.size());
+        }
+    }
 
     String get_name() const override { return "retention"; }
 

@@ -204,12 +204,12 @@ TEST_F(CloudMetaMgrTest, test_fill_version_holes_no_holes) {
 
     // Add all rowsets to tablet
     {
-        std::unique_lock<std::shared_mutex> lock(tablet->get_header_lock());
+        std::unique_lock lock(tablet->get_header_lock());
         tablet->add_rowsets(std::move(rowsets), false, lock, false);
     }
 
     // Test fill_version_holes directly - should not add any rowsets since there are no holes
-    std::unique_lock<std::shared_mutex> wlock(tablet->get_header_lock());
+    std::unique_lock wlock(tablet->get_header_lock());
     Status status = meta_mgr.fill_version_holes(tablet.get(), 4, wlock);
     EXPECT_TRUE(status.ok());
 
@@ -256,7 +256,7 @@ TEST_F(CloudMetaMgrTest, test_fill_version_holes_with_holes) {
 
     // Add all rowsets to tablet
     {
-        std::unique_lock<std::shared_mutex> lock(tablet->get_header_lock());
+        std::unique_lock lock(tablet->get_header_lock());
         tablet->add_rowsets(std::move(rowsets), false, lock, false);
     }
 
@@ -264,7 +264,7 @@ TEST_F(CloudMetaMgrTest, test_fill_version_holes_with_holes) {
     EXPECT_EQ(tablet->tablet_meta()->all_rs_metas().size(), 3);
 
     // Test fill_version_holes directly to fill missing versions 1 and 3
-    std::unique_lock<std::shared_mutex> wlock(tablet->get_header_lock());
+    std::unique_lock wlock(tablet->get_header_lock());
     Status status = meta_mgr.fill_version_holes(tablet.get(), 4, wlock);
     EXPECT_TRUE(status.ok());
 
@@ -372,7 +372,7 @@ TEST_F(CloudMetaMgrTest, test_fill_version_holes_edge_cases) {
         auto tablet =
                 std::make_shared<CloudTablet>(engine, std::make_shared<TabletMeta>(*tablet_meta));
 
-        std::unique_lock<std::shared_mutex> wlock(tablet->get_header_lock());
+        std::unique_lock wlock(tablet->get_header_lock());
         Status status = meta_mgr.fill_version_holes(tablet.get(), 0, wlock);
         EXPECT_TRUE(status.ok());
 
@@ -390,7 +390,7 @@ TEST_F(CloudMetaMgrTest, test_fill_version_holes_edge_cases) {
         auto tablet =
                 std::make_shared<CloudTablet>(engine, std::make_shared<TabletMeta>(*tablet_meta));
 
-        std::unique_lock<std::shared_mutex> wlock(tablet->get_header_lock());
+        std::unique_lock wlock(tablet->get_header_lock());
         Status status = meta_mgr.fill_version_holes(tablet.get(), 5, wlock);
         EXPECT_TRUE(status.ok());
 
@@ -432,7 +432,7 @@ TEST_F(CloudMetaMgrTest, test_fill_version_holes_trailing_holes) {
 
     // Add all rowsets to tablet
     {
-        std::unique_lock<std::shared_mutex> lock(tablet->get_header_lock());
+        std::unique_lock lock(tablet->get_header_lock());
         tablet->add_rowsets(std::move(rowsets), false, lock, false);
     }
 
@@ -440,7 +440,7 @@ TEST_F(CloudMetaMgrTest, test_fill_version_holes_trailing_holes) {
     EXPECT_EQ(tablet->tablet_meta()->all_rs_metas().size(), 3);
 
     // Test fill_version_holes to fill trailing holes (versions 3, 4, 5)
-    std::unique_lock<std::shared_mutex> wlock(tablet->get_header_lock());
+    std::unique_lock wlock(tablet->get_header_lock());
     Status status = meta_mgr.fill_version_holes(tablet.get(), 5, wlock);
     EXPECT_TRUE(status.ok());
 
@@ -507,7 +507,7 @@ TEST_F(CloudMetaMgrTest, test_fill_version_holes_single_hole) {
 
     // Add all rowsets to tablet
     {
-        std::unique_lock<std::shared_mutex> lock(tablet->get_header_lock());
+        std::unique_lock lock(tablet->get_header_lock());
         tablet->add_rowsets(std::move(rowsets), false, lock, false);
     }
 
@@ -515,7 +515,7 @@ TEST_F(CloudMetaMgrTest, test_fill_version_holes_single_hole) {
     EXPECT_EQ(tablet->tablet_meta()->all_rs_metas().size(), 2);
 
     // Test fill_version_holes to fill single hole (version 1)
-    std::unique_lock<std::shared_mutex> wlock(tablet->get_header_lock());
+    std::unique_lock wlock(tablet->get_header_lock());
     Status status = meta_mgr.fill_version_holes(tablet.get(), 2, wlock);
     EXPECT_TRUE(status.ok());
 
@@ -580,7 +580,7 @@ TEST_F(CloudMetaMgrTest, test_fill_version_holes_multiple_consecutive_holes) {
 
     // Add all rowsets to tablet
     {
-        std::unique_lock<std::shared_mutex> lock(tablet->get_header_lock());
+        std::unique_lock lock(tablet->get_header_lock());
         tablet->add_rowsets(std::move(rowsets), false, lock, false);
     }
 
@@ -588,7 +588,7 @@ TEST_F(CloudMetaMgrTest, test_fill_version_holes_multiple_consecutive_holes) {
     EXPECT_EQ(tablet->tablet_meta()->all_rs_metas().size(), 2);
 
     // Test fill_version_holes to fill multiple consecutive holes (versions 1, 2, 3, 4)
-    std::unique_lock<std::shared_mutex> wlock(tablet->get_header_lock());
+    std::unique_lock wlock(tablet->get_header_lock());
     Status status = meta_mgr.fill_version_holes(tablet.get(), 5, wlock);
     EXPECT_TRUE(status.ok());
 
@@ -655,7 +655,7 @@ TEST_F(CloudMetaMgrTest, test_fill_version_holes_mixed_holes) {
 
     // Add all rowsets to tablet
     {
-        std::unique_lock<std::shared_mutex> lock(tablet->get_header_lock());
+        std::unique_lock lock(tablet->get_header_lock());
         tablet->add_rowsets(std::move(rowsets), false, lock, false);
     }
 
@@ -663,7 +663,7 @@ TEST_F(CloudMetaMgrTest, test_fill_version_holes_mixed_holes) {
     EXPECT_EQ(tablet->tablet_meta()->all_rs_metas().size(), 4);
 
     // Test fill_version_holes with max_version = 8 (should fill 1, 3, 4, 7, 8)
-    std::unique_lock<std::shared_mutex> wlock(tablet->get_header_lock());
+    std::unique_lock wlock(tablet->get_header_lock());
     Status status = meta_mgr.fill_version_holes(tablet.get(), 8, wlock);
     EXPECT_TRUE(status.ok());
 

@@ -200,10 +200,154 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
     }
 
     @Test
+    public void testDeeperOffsetPathCoversShallowerOffsetPath() throws Exception {
+        // cardinality(a) on ARRAY<ARRAY<INT>> generates [a, OFFSET]
+        // cardinality(element_at(a, 1)) generates [a, *, OFFSET]
+        // [a, *, OFFSET] traverses into the outer array's items, so it must read
+        // through the outer array structure. The shallower [a, OFFSET] is therefore
+        // redundant and should be stripped.
+        assertAllAccessPathsContain(
+                "select cardinality(a), cardinality(element_at(a, 1)) from nested_array_tbl",
+                ImmutableList.of(path("a", "*", "OFFSET")),
+                ImmutableList.of(path("a", "OFFSET")));
+    }
+
+    @Test
+    public void testOffsetPathCoversNullPathWithSamePrefix() throws Exception {
+        assertAllAccessPathsContain(
+                "select cardinality(a), a is null from nested_array_tbl",
+                ImmutableList.of(path("a", "OFFSET")),
+                ImmutableList.of(path("a", "NULL")));
+    }
+
+    @Test
+    public void testDeeperNullPathCoversShallowerNullPath() throws Exception {
+        // a IS NULL on ARRAY<ARRAY<INT>> generates [a, NULL]
+        // element_at(a, 1) IS NULL generates [a, *, NULL]
+        // [a, *, NULL] traverses into the outer array's items, which requires
+        // reading the outer array's null bitmap. Therefore [a, NULL] is redundant
+        // and should be stripped.
+        assertAllAccessPathsContain(
+                "select a is null, element_at(a, 1) is null from nested_array_tbl",
+                ImmutableList.of(path("a", "*", "NULL")),
+                ImmutableList.of(path("a", "NULL")));
+    }
+
+    @Test
+    public void testDeeperOffsetPathCoversShallowerNullPathForArray() throws Exception {
+        // cardinality(element_at(a, 1)) on ARRAY<ARRAY<INT>> generates [a, *, OFFSET]
+        // a IS NULL generates [a, NULL]
+        // [a, *, OFFSET] reads the offset of inner-array elements, which requires
+        // reading through the outer array's null bitmap. Therefore [a, NULL] is
+        // redundant and should be stripped.
+        assertAllAccessPathsContain(
+                "select cardinality(element_at(a, 1)), a is null from nested_array_tbl",
+                ImmutableList.of(path("a", "*", "OFFSET")),
+                ImmutableList.of(path("a", "NULL")));
+    }
+
+    @Test
     public void testCardinalityMapElementKeepsValueOffsetPath() throws Exception {
         assertColumn("select cardinality(map_arr_col['a']) from map_array_tbl",
                 "map<text,array<int>>",
                 ImmutableList.of(path("map_arr_col", "KEYS"), path("map_arr_col", "VALUES", "OFFSET")),
+                ImmutableList.of());
+    }
+
+    @Test
+    public void testDeeperNullCoversValueOffsetForMapArray() throws Exception {
+        // cardinality(map_arr_col['a']) -> normalized to KEYS + VALUES.OFFSET
+        // element_at(map_arr_col['a'], 1) IS NULL -> *.*.NULL
+        // *.*.NULL goes deeper into the value-side array, so VALUES.OFFSET
+        // at the map value level is redundant. Without type-aware comparison
+        // * is not lexically equal to VALUES, so VALUES.OFFSET would survive
+        // and cause BE to skip the item iterator.
+        assertAllAccessPathsContain(
+                "select cardinality(map_arr_col['a']), "
+                        + "element_at(map_arr_col['a'], 1) is null from map_array_tbl",
+                ImmutableList.of(path("map_arr_col", "KEYS"), path("map_arr_col", "VALUES", "*", "NULL")),
+                ImmutableList.of(path("map_arr_col", "VALUES", "OFFSET")));
+    }
+
+    @Test
+    public void testDataPathCoversNullPathWithMapAwareComparison() throws Exception {
+        // element_at(map_col, 'a')                       -> [map_col, KEYS] + [map_col, VALUES]
+        // element_at(map_values(map_col), 1) IS NULL     -> [map_col, VALUES, NULL]
+        // Level 1 strips [map_col, VALUES, NULL] because [map_col, VALUES] covers it.
+        //
+        // NOT: map_values(map_col) IS NULL — visitMapValues special-cases a lone NULL
+        // suffix as a parent-map null check (isFunctionNullCheckPath), producing
+        // [map_col, NULL] instead of [map_col, VALUES, NULL].
+        assertAllAccessPathsContain(
+                "select element_at(map_col, 'a') from str_tbl"
+                        + " where element_at(map_values(map_col), 1) is null",
+                ImmutableList.of(path("map_col", "KEYS"), path("map_col", "VALUES")),
+                ImmutableList.of(path("map_col", "VALUES", "NULL")));
+    }
+
+    @Test
+    public void testDataPathCoversOffsetPathWithMapAwareComparison() throws Exception {
+        // element_at(map_col, 'a')                           -> [map_col, KEYS] + [map_col, VALUES]
+        // length(element_at(map_values(map_col), 1)) > 0     -> [map_col, VALUES, OFFSET]
+        // Level 2 strips [map_col, VALUES, OFFSET] because [map_col, VALUES] covers it.
+        //
+        // NOT: cardinality(map_values(map_col)) — visitCardinality unwraps MapValues
+        // and produces [map_col, OFFSET] instead of [map_col, VALUES, OFFSET].
+        assertAllAccessPathsContain(
+                "select element_at(map_col, 'a') from str_tbl"
+                        + " where length(element_at(map_values(map_col), 1)) > 0",
+                ImmutableList.of(path("map_col", "KEYS"), path("map_col", "VALUES")),
+                ImmutableList.of(path("map_col", "VALUES", "OFFSET")));
+    }
+
+    @Test
+    public void testMapValuesCoversStarNullPreservesKeysPath() throws Exception {
+        // After map-* normalization:
+        //   element_at(map_col, 'a')          -> [map_col, KEYS] + [map_col, VALUES]
+        //   element_at(map_col, 'a') IS NULL  -> [map_col, VALUES, NULL] + [map_col, KEYS]
+        //   element_at(map_values(map_col), 1) -> [map_col, VALUES]
+        // Level 1 strips [map_col, VALUES, NULL] because [map_col, VALUES] covers it.
+        // The KEYS path is preserved for key lookup.
+        assertAllAccessPathsContain(
+                "select element_at(map_values(map_col), 1) from str_tbl"
+                        + " where element_at(map_col, 'a') is null",
+                ImmutableList.of(path("map_col", "KEYS"), path("map_col", "VALUES")),
+                ImmutableList.of(path("map_col", "VALUES", "NULL")));
+    }
+
+    @Test
+    public void testSupplementalKeyPathShouldStripExistingKeyNullPath() throws Exception {
+        // After map-* normalization:
+        //   projection: [map_arr_col, VALUES]
+        //   filter:     [map_arr_col, KEYS, NULL]
+        //            OR [map_arr_col, *, *, NULL] → [map_arr_col, VALUES, *, NULL]
+        //                                         + [map_arr_col, KEYS]
+        // Level 1 strips [map_arr_col, KEYS, NULL] because [map_arr_col, KEYS] now
+        // exists before the strip phase (produced by normalization, not supplemental).
+        // Level 2 strips [map_arr_col, VALUES, *, NULL] because [map_arr_col, VALUES]
+        // covers the value-side prefix.
+        assertAllAccessPathsContain(
+                "select element_at(map_values(map_arr_col), 1) from map_array_tbl"
+                        + " where element_at(map_keys(map_arr_col), 1) is null"
+                        + " or element_at(element_at(map_arr_col, 'a'), 1) is null",
+                ImmutableList.of(path("map_arr_col", "KEYS"), path("map_arr_col", "VALUES")),
+                ImmutableList.of(path("map_arr_col", "VALUES", "*", "NULL"),
+                        path("map_arr_col", "KEYS", "NULL")));
+    }
+
+    @Test
+    public void testNestedMapElementLengthKeepsValueOffsetPath() throws Exception {
+        assertColumn("select length(element_at(element_at(s, 'm'), 'a')) from nested_container_tbl",
+                "struct<m:map<text,text>>",
+                ImmutableList.of(path("s", "m", "KEYS"), path("s", "m", "VALUES", "OFFSET")),
+                ImmutableList.of());
+    }
+
+    @Test
+    public void testNestedMapElementIsNullKeepsValueIsNullPath() throws Exception {
+        assertColumn("select (element_at(element_at(s, 'm'), 'a')) is null from nested_container_tbl",
+                "struct<m:map<text,text>>",
+                ImmutableList.of(path("s", "m", "KEYS"), path("s", "m", "VALUES", "NULL")),
                 ImmutableList.of());
     }
 
@@ -227,12 +371,13 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
 
         assertColumn("select cardinality(map_arr_col['a']), map_arr_col['a'] from map_array_tbl",
                 "map<text,array<int>>",
-                ImmutableList.of(path("map_arr_col", "*")),
+                ImmutableList.of(path("map_arr_col", "KEYS"), path("map_arr_col", "VALUES")),
                 ImmutableList.of());
     }
 
     @Test
     public void testCardinalityMapElementOffsetCoveredByValueFieldAccess() throws Exception {
+        // [s, m, *, *, verified] strips [s, m, *, OFFSET] (pure string prefix).
         Pair<PhysicalPlan, List<SlotDescriptor>> result = collectComplexSlots(
                 "select element_at(element_at(element_at(element_at(s, 'm'), 'null'), 1), 'verified') "
                         + "from map_array_value_tbl "
@@ -243,13 +388,14 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
             allAccessPaths.addAll(slotDescriptor.getAllAccessPaths());
             predicateAccessPaths.addAll(slotDescriptor.getPredicateAccessPaths());
         }
-        Assertions.assertTrue(allAccessPaths.contains(path("s", "m", "*", "*", "verified")));
-        Assertions.assertFalse(allAccessPaths.contains(path("s", "m", "*", "OFFSET")));
-        Assertions.assertFalse(predicateAccessPaths.contains(path("s", "m", "*", "OFFSET")));
+        Assertions.assertTrue(allAccessPaths.contains(path("s", "m", "VALUES", "*", "verified")));
+        Assertions.assertFalse(allAccessPaths.contains(path("s", "m", "VALUES", "OFFSET")));
+        Assertions.assertFalse(predicateAccessPaths.contains(path("s", "m", "VALUES", "OFFSET")));
     }
 
     @Test
     public void testMapElementArrayNullPathCoveredByValueFieldAccess() throws Exception {
+        // [s, m, *, *, verified] strips [s, m, *, NULL] (pure string prefix).
         Pair<PhysicalPlan, List<SlotDescriptor>> result = collectComplexSlots(
                 "select element_at(element_at(element_at(element_at(s, 'm'), 'null'), 1), 'verified') "
                         + "from map_array_value_tbl "
@@ -260,9 +406,9 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
             allAccessPaths.addAll(slotDescriptor.getAllAccessPaths());
             predicateAccessPaths.addAll(slotDescriptor.getPredicateAccessPaths());
         }
-        Assertions.assertTrue(allAccessPaths.contains(path("s", "m", "*", "*", "verified")));
-        Assertions.assertFalse(allAccessPaths.contains(path("s", "m", "*", "NULL")));
-        Assertions.assertFalse(predicateAccessPaths.contains(path("s", "m", "*", "NULL")));
+        Assertions.assertTrue(allAccessPaths.contains(path("s", "m", "VALUES", "*", "verified")));
+        Assertions.assertFalse(allAccessPaths.contains(path("s", "m", "VALUES", "NULL")));
+        Assertions.assertFalse(predicateAccessPaths.contains(path("s", "m", "VALUES", "NULL")));
     }
 
     @Test
@@ -610,18 +756,18 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
         );
         assertColumn("select 100 from tbl where element_at(s, 'data')[1][1] is not null",
                 "struct<data:array<map<int,struct<a:int,b:double>>>>",
-                ImmutableList.of(path("s", "data", "*", "*", "NULL")),
-                ImmutableList.of(path("s", "data", "*", "*", "NULL"))
+                ImmutableList.of(path("s", "data", "*", "KEYS"), path("s", "data", "*", "VALUES", "NULL")),
+                ImmutableList.of(path("s", "data", "*", "KEYS"), path("s", "data", "*", "VALUES", "NULL"))
         );
         assertColumn("select 100 from tbl where element_at(element_at(s, 'data')[1][1], 'a') is not null",
                 "struct<data:array<map<int,struct<a:int>>>>",
-                ImmutableList.of(path("s", "data", "*", "*", "a", "NULL")),
-                ImmutableList.of(path("s", "data", "*", "*", "a", "NULL"))
+                ImmutableList.of(path("s", "data", "*", "KEYS"), path("s", "data", "*", "VALUES", "a", "NULL")),
+                ImmutableList.of(path("s", "data", "*", "KEYS"), path("s", "data", "*", "VALUES", "a", "NULL"))
         );
         assertColumn("select 100 from tbl where element_at(element_at(s, 'data')[1][1], 'b') is not null",
                 "struct<data:array<map<int,struct<b:double>>>>",
-                ImmutableList.of(path("s", "data", "*", "*", "b", "NULL")),
-                ImmutableList.of(path("s", "data", "*", "*", "b", "NULL"))
+                ImmutableList.of(path("s", "data", "*", "KEYS"), path("s", "data", "*", "VALUES", "b", "NULL")),
+                ImmutableList.of(path("s", "data", "*", "KEYS"), path("s", "data", "*", "VALUES", "b", "NULL"))
         );
     }
 
@@ -1264,10 +1410,12 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
             allAccessPaths.addAll(slotDescriptor.getAllAccessPaths());
         }
         for (ColumnAccessPath accessPath : expectContainAllAccessPaths) {
-            Assertions.assertTrue(allAccessPaths.contains(accessPath));
+            Assertions.assertTrue(allAccessPaths.contains(accessPath),
+                    "expected " + accessPath + " but allAccessPaths=" + allAccessPaths);
         }
         for (ColumnAccessPath accessPath : expectNotContainAllAccessPaths) {
-            Assertions.assertFalse(allAccessPaths.contains(accessPath));
+            Assertions.assertFalse(allAccessPaths.contains(accessPath),
+                    "expected NOT " + accessPath + " but allAccessPaths=" + allAccessPaths);
         }
     }
 
@@ -1466,6 +1614,8 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
                 new TreeSet<>(ImmutableList.of(path("str_col", "NULL"))),
                 new TreeSet<>(normalSlot.getPredicateAccessPaths().get()));
 
+        // MV fragment: IS NULL degrades to full column read via default visitor.
+        // [str_col] full-access path passes shouldSkipAccessInfo → no pruning.
         SlotReference fragmentSlot = rewriteAndFindScanSlot(
                 "select 1 from str_tbl where str_col is not null", "str_col", true);
         assertNoAccessPaths(fragmentSlot);
@@ -1479,14 +1629,16 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
                 new TreeSet<>(ImmutableList.of(path("s", "city", "NULL"))),
                 new TreeSet<>(nestedNormalSlot.getPredicateAccessPaths().get()));
 
-        // MV rewrite optimizes temporary fragments whose later consumers are not visible.
-        // If the fragment only needs nested null metadata, e.g. [s.city.NULL], pruning the
-        // scan slot to struct<city:...> can break the final rewritten MV plan when it still
-        // needs the full struct or another child. The fragment marker therefore suppresses
-        // nested null-only access info too, not just top-level [col.NULL].
+        // MV fragment: IS NULL degrades to element_at via default visitor,
+        // producing [s, city] data path. struct is NestedColumnPrunable so
+        // pruning to struct<city:text> is safe — no meta suffix remains.
         SlotReference nestedFragmentSlot = rewriteAndFindScanSlot(
                 "select 1 from tbl where element_at(s, 'city') is not null", "s", true);
-        assertNoAccessPaths(nestedFragmentSlot);
+        Assertions.assertEquals(
+                new TreeSet<>(ImmutableList.of(path("s", "city"))),
+                new TreeSet<>(nestedFragmentSlot.getAllAccessPaths().get()));
+        Assertions.assertTrue(!nestedFragmentSlot.getPredicateAccessPaths().isPresent()
+                || nestedFragmentSlot.getPredicateAccessPaths().get().isEmpty());
     }
 
     @Test
@@ -1514,10 +1666,16 @@ public class PruneNestedColumnTest extends TestWithFeService implements MemoPatt
                 new TreeSet<>(ImmutableList.of(path("c_struct", "f3", "OFFSET"))),
                 new TreeSet<>(nestedNormalSlot.getPredicateAccessPaths().get()));
 
+        // MV fragment: length() degrades to element_at via default visitor,
+        // producing [c_struct, f3] data path without OFFSET suffix.
         SlotReference nestedFragmentSlot = rewriteAndFindScanSlot(
                 "select 1 from str_tbl where length(element_at(c_struct, 'f3')) > 0",
                 "c_struct", true);
-        assertNoAccessPaths(nestedFragmentSlot);
+        Assertions.assertEquals(
+                new TreeSet<>(ImmutableList.of(path("c_struct", "f3"))),
+                new TreeSet<>(nestedFragmentSlot.getAllAccessPaths().get()));
+        Assertions.assertTrue(!nestedFragmentSlot.getPredicateAccessPaths().isPresent()
+                || nestedFragmentSlot.getPredicateAccessPaths().get().isEmpty());
     }
 
     /**

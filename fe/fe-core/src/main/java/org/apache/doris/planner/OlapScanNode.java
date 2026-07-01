@@ -72,6 +72,8 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.nereids.exceptions.ParseException;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.trees.plans.ScoreRangeInfo;
+import org.apache.doris.planner.LocalExchangeNode.LocalExchangeType;
+import org.apache.doris.planner.LocalExchangeNode.LocalExchangeTypeRequire;
 import org.apache.doris.planner.normalize.Normalizer;
 import org.apache.doris.planner.normalize.PartitionRangePredicateNormalizer;
 import org.apache.doris.qe.ConnectContext;
@@ -1153,6 +1155,9 @@ public class OlapScanNode extends ScanNode {
         if (isPointQuery()) {
             output.append(prefix).append("SHORT-CIRCUIT\n");
         }
+        if (fragment.useSerialSource(ConnectContext.get())) {
+            output.append(prefix).append("POOLING-SCAN\n");
+        }
 
         printNestedColumns(output, prefix, getTupleDesc());
 
@@ -1767,5 +1772,18 @@ public class OlapScanNode extends ScanNode {
             }
         }
         return scanType;
+    }
+
+    @Override
+    public Pair<PlanNode, LocalExchangeType> enforceAndDeriveLocalExchange(
+            PlanTranslatorContext translatorContext, PlanNode parent,
+            LocalExchangeTypeRequire parentRequire) {
+        boolean useSerialSource = fragment != null
+                && fragment.useSerialSource(translatorContext.getConnectContext());
+        if (useSerialSource) {
+            return Pair.of(this, LocalExchangeType.NOOP);
+        }
+        // Non-pooling OlapScan has bucket distribution — each instance scans specific buckets
+        return Pair.of(this, LocalExchangeType.BUCKET_HASH_SHUFFLE);
     }
 }

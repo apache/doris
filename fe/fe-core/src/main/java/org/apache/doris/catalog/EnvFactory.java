@@ -145,7 +145,7 @@ public class EnvFactory {
 
     public Coordinator createCoordinator(ConnectContext context, Planner planner,
                                          StatsErrorEstimator statsErrorEstimator) {
-        if (planner instanceof NereidsPlanner && SessionVariable.canUseNereidsDistributePlanner(context)) {
+        if (planner instanceof NereidsPlanner && hasNereidsDistributedPlans((NereidsPlanner) planner)) {
             return new NereidsCoordinator(context, (NereidsPlanner) planner, statsErrorEstimator);
         }
         return new Coordinator(context, planner, statsErrorEstimator);
@@ -153,10 +153,22 @@ public class EnvFactory {
 
     public Coordinator createCoordinator(ConnectContext context, Planner planner,
                                          StatsErrorEstimator statsErrorEstimator, long jobId) {
-        if (planner instanceof NereidsPlanner && SessionVariable.canUseNereidsDistributePlanner(context)) {
+        if (planner instanceof NereidsPlanner && hasNereidsDistributedPlans((NereidsPlanner) planner)) {
             return new NereidsCoordinator(context, (NereidsPlanner) planner, statsErrorEstimator, jobId);
         }
         return new Coordinator(context, planner, statsErrorEstimator, jobId);
+    }
+
+    // Dispatch decision must mirror what FE planning actually did. SessionVariable
+    // checks (parsedStatement state, session vars) can drift from plan-time reality —
+    // e.g. dict refresh runs distribute() unconditionally for PhysicalDictionarySink
+    // even though canUseNereidsDistributePlanner(context) returns false because
+    // parsedStatement is never set on that path, sending the query to legacy
+    // Coordinator and producing a hang. The distributedPlans field is the
+    // single source of truth: it is populated iff FE did distribute planning.
+    protected static boolean hasNereidsDistributedPlans(NereidsPlanner planner) {
+        FragmentIdMapping<DistributedPlan> distributedPlans = planner.getDistributedPlans();
+        return distributedPlans != null && !distributedPlans.isEmpty();
     }
 
     // Used for broker load task/export task/update coordinator
