@@ -32,6 +32,7 @@
 
 #include "common/compiler_util.h"
 #include "common/exception.h"
+#include "util/unaligned.h"
 
 namespace doris {
 namespace arrow_validation_detail {
@@ -208,6 +209,15 @@ inline void check_arrow_value_range(const arrow::Array& array, int64_t offset, i
 
 namespace arrow_validation_detail {
 
+// Offsets buffers may come from external Arrow producers through Buffer::Wrap or FFI and are not
+// guaranteed to be aligned to int32_t. Do not use Int32Array::Value() here because it performs a
+// typed raw_values()[i] load and can trigger UBSan on misaligned buffers. Keep this validation path
+// consistent with the array/map readers below, which load offsets through unaligned_load().
+inline int32_t read_int32_offset(const arrow::Int32Array& offsets, int64_t index) {
+    const auto* data = reinterpret_cast<const uint8_t*>(offsets.raw_values());
+    return unaligned_load<int32_t>(data + index * sizeof(int32_t));
+}
+
 inline int64_t check_arrow_offsets_range(const arrow::Int32Array& offsets, int64_t start,
                                          int64_t end) {
     check_arrow_array_range(offsets, 0, offsets.length());
@@ -218,13 +228,13 @@ inline int64_t check_arrow_offsets_range(const arrow::Int32Array& offsets, int64
                 start, end, offsets.length());
     }
 
-    int64_t previous_offset = offsets.Value(start);
+    int64_t previous_offset = read_int32_offset(offsets, start);
     if (UNLIKELY(previous_offset < 0)) {
         arrow_validation_detail::throw_invalid_arrow(
                 offsets, "offsets contain negative value: offset[{}]={}", start, previous_offset);
     }
     for (int64_t i = start + 1; i <= end; ++i) {
-        const int64_t current_offset = offsets.Value(i);
+        const int64_t current_offset = read_int32_offset(offsets, i);
         if (UNLIKELY(current_offset < previous_offset)) {
             arrow_validation_detail::throw_invalid_arrow(
                     offsets,
