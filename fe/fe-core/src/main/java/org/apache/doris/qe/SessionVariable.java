@@ -2945,10 +2945,10 @@ public class SessionVariable implements Serializable, Writable {
     public boolean hiveParquetUseColumnNames = true;
 
     @VarAttrDef.VarAttr(name = HIVE_ORC_USE_COLUMN_NAMES, affectQueryResultInExecution = true,
-            description = {"默认情况下按名称访问 Orc 列。将此属性设置为“false”可按 Hive 表定义中的序号位置访问列。",
-                    "Access Parquet columns by name by default. Set this property to `false` to access columns "
-                            + "by their ordinal position in the Hive table definition."})
-    public boolean hiveOrcUseColumnNames = true;
+            description = {"默认情况下按照 Hive 表定义中的序号位置访问列。将此属性设置为“true”可按名称访问 Orc 列 。",
+                    "By default, columns are accessed based on their ordinal position in the Hive table definition."
+                            + " Set this property to `true` to access ORC columns by name."})
+    public boolean hiveOrcUseColumnNames = false;
 
     @VarAttrDef.VarAttr(name = KEEP_CARRIAGE_RETURN,
             description = {"在同时处理\r和\r\n作为 CSV 的行分隔符时，是否保留\r",
