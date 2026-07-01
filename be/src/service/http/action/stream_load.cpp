@@ -678,6 +678,13 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
         }
         request.__set_skip_lines(skip_lines);
     }
+    if (!http_req->header(HTTP_ENABLE_TEXT_VALIDATE_UTF8).empty()) {
+        if (iequal(http_req->header(HTTP_ENABLE_TEXT_VALIDATE_UTF8), "true")) {
+            request.__set_enable_text_validate_utf8(true);
+        } else {
+            request.__set_enable_text_validate_utf8(false);
+        }
+    }
     if (!http_req->header(HTTP_ENABLE_PROFILE).empty()) {
         if (iequal(http_req->header(HTTP_ENABLE_PROFILE), "true")) {
             request.__set_enable_profile(true);

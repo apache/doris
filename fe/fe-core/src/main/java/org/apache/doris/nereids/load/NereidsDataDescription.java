@@ -425,6 +425,8 @@ public class NereidsDataDescription {
                 String.valueOf(taskInfo.getTrimDoubleQuotes()));
         putAnalysisMapIfNonNull(CsvFileFormatProperties.PROP_SKIP_LINES,
                 String.valueOf(taskInfo.getSkipLines()));
+        putAnalysisMapIfNonNull(CsvFileFormatProperties.PROP_ENABLE_TEXT_VALIDATE_UTF8,
+                String.valueOf(taskInfo.getEnableTextValidateUtf8()));
         putAnalysisMapIfNonNull(CsvFileFormatProperties.PROP_EMPTY_FIELD_AS_NULL,
                 String.valueOf(taskInfo.getEmptyFieldAsNull()));
 

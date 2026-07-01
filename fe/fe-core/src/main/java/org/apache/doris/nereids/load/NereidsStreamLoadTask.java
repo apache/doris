@@ -87,6 +87,7 @@ public class NereidsStreamLoadTask implements NereidsLoadTaskInfo {
     private TPartialUpdateNewRowPolicy partialUpdateNewKeyPolicy = TPartialUpdateNewRowPolicy.APPEND;
 
     private int skipLines = 0;
+    private Boolean enableTextValidateUtf8 = true;
     private boolean enableProfile = false;
 
     private boolean memtableOnSinkNode = false;
@@ -298,6 +299,11 @@ public class NereidsStreamLoadTask implements NereidsLoadTaskInfo {
     }
 
     @Override
+    public Boolean getEnableTextValidateUtf8() {
+        return enableTextValidateUtf8;
+    }
+
+    @Override
     public boolean getEnableProfile() {
         return enableProfile;
     }
@@ -490,6 +496,9 @@ public class NereidsStreamLoadTask implements NereidsLoadTaskInfo {
         }
         if (request.isSetSkipLines()) {
             skipLines = request.getSkipLines();
+        }
+        if (request.isSetEnableTextValidateUtf8()) {
+            enableTextValidateUtf8 = request.isEnableTextValidateUtf8();
         }
         if (request.isSetEnableProfile()) {
             enableProfile = request.isEnableProfile();
