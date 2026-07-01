@@ -144,10 +144,12 @@ suite("add_table_policy_by_modify_partition") {
         assertTrue(par.RemoteStoragePolicy == "created_create_table_partition_alter_policy")
     }
 
-    def alter_table_partition_diff_resource_result = try_sql """
+    test {
+        sql """
         ALTER TABLE create_table_partition MODIFY PARTITION (*) SET("storage_policy"="created_create_table_partition_alter_policy_diff");
-    """
-    assertEquals(alter_table_partition_diff_resource_result, null)
+        """
+        exception "currently do not support change origin storage policy to another one with different resource"
+    }
 
     def partitionsAfterFailedAlter = sql_return_maparray """
     show partitions from create_table_partition
