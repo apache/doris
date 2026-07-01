@@ -45,14 +45,30 @@ enum TPartitionType {
   // used for shuffle data by parititon and tablet
   OLAP_TABLE_SINK_HASH_PARTITIONED = 6,
 
-  // used for shuffle data by hive parititon
+  // Historical name for external table sink hash writer routing. It is not
+  // limited to Hive; Hive/Iceberg/MaxCompute/Paimon all share this partition
+  // type with different external_sink_hash_mode values.
   HIVE_TABLE_SINK_HASH_PARTITIONED = 7,
 
-  // used for hive unparititoned table
+  // Historical name for external table sink round-robin/random writer routing.
+  // It is not limited to Hive.
   HIVE_TABLE_SINK_UNPARTITIONED = 8,
 
   // used for merge partitioning: insert by partition columns, delete by row_id
   MERGE_PARTITIONED = 9
+}
+
+enum TExternalSinkHashMode {
+  // Keep existing external sink writer scaling/rebalancing behavior.
+  SCALE_WRITER = 0,
+
+  // Route the same hash key to the same exchange channel deterministically.
+  STRICT_HASH = 1
+}
+
+enum TPaimonBucketFunctionType {
+  DEFAULT = 0,
+  MOD = 1
 }
 
 enum TLocalPartitionType {
@@ -194,6 +210,12 @@ struct TMergePartitionInfo {
   6: optional i32 partition_spec_id
 }
 
+struct TPaimonRouteBucketInfo {
+  1: required i32 bucket_num
+  2: required TPaimonBucketFunctionType bucket_function_type
+  3: required list<Exprs.TExpr> bucket_key_exprs
+}
+
 // Specification of how a single logical data stream is partitioned.
 // This leaves out the parameters that determine the physical partition (for hash
 // partitions, the number of partitions; for range partitions, the partitions'
@@ -203,4 +225,6 @@ struct TDataPartition {
   2: optional list<Exprs.TExpr> partition_exprs
   3: optional list<TRangePartition> partition_infos
   4: optional TMergePartitionInfo merge_partition_info
+  5: optional TExternalSinkHashMode external_sink_hash_mode
+  6: optional TPaimonRouteBucketInfo paimon_route_bucket_info
 }

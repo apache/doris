@@ -35,6 +35,7 @@
 #include "exec/operator/exchange_sink_buffer.h"
 #include "exec/operator/operator.h"
 #include "exec/operator/sort_source_operator.h"
+#include "exec/partitioner/paimon_fixed_bucket_partitioner.h"
 #include "exec/pipeline/dependency.h"
 #include "exec/pipeline/pipeline_fragment_context.h"
 #include "exec/sink/scale_writer_partitioning_exchanger.hpp"
@@ -45,6 +46,19 @@
 #include "util/uid_util.h"
 
 namespace doris {
+
+namespace {
+
+bool is_external_sink_hash_partitioned(TPartitionType::type part_type) {
+    return part_type == TPartitionType::HIVE_TABLE_SINK_HASH_PARTITIONED;
+}
+
+bool is_external_sink_unpartitioned(TPartitionType::type part_type) {
+    return part_type == TPartitionType::HIVE_TABLE_SINK_UNPARTITIONED;
+}
+
+} // namespace
+
 bool ExchangeSinkLocalState::transfer_large_data_by_brpc() const {
     return _parent->cast<ExchangeSinkOperatorX>()._transfer_large_data_by_brpc;
 }
@@ -97,7 +111,7 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
     _part_type = p._part_type;
     // Shuffle the channels randomly
     if (_part_type == TPartitionType::UNPARTITIONED || _part_type == TPartitionType::RANDOM ||
-        _part_type == TPartitionType::HIVE_TABLE_SINK_UNPARTITIONED) {
+        is_external_sink_unpartitioned(_part_type)) {
         std::random_device rd;
         std::mt19937 g(rd());
         shuffle(channels.begin(), channels.end(), g);
@@ -152,28 +166,42 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
                 p._tablet_sink_partition, p._tablet_sink_location, p._tablet_sink_tuple_id, this);
         RETURN_IF_ERROR(_partitioner->init({}));
         RETURN_IF_ERROR(_partitioner->prepare(state, {}));
-    } else if (_part_type == TPartitionType::HIVE_TABLE_SINK_HASH_PARTITIONED) {
-        _partition_count =
-                channels.size() * config::table_sink_partition_write_max_partition_nums_per_writer;
-        _partitioner = std::make_unique<ScaleWriterPartitioner>(
-                channels.size(), _partition_count, channels.size(), 1,
-                config::table_sink_partition_write_min_partition_data_processed_rebalance_threshold /
-                                        state->task_num() ==
-                                0
-                        ? config::table_sink_partition_write_min_partition_data_processed_rebalance_threshold
-                        : config::table_sink_partition_write_min_partition_data_processed_rebalance_threshold /
-                                  state->task_num(),
-                config::table_sink_partition_write_min_data_processed_rebalance_threshold /
-                                        state->task_num() ==
-                                0
-                        ? config::table_sink_partition_write_min_data_processed_rebalance_threshold
-                        : config::table_sink_partition_write_min_data_processed_rebalance_threshold /
-                                  state->task_num());
+    } else if (is_external_sink_hash_partitioned(_part_type)) {
+        if (p._external_sink_hash_mode == TExternalSinkHashMode::STRICT_HASH) {
+            _partition_count = channels.size();
+            if (p._has_paimon_route_bucket_info) {
+                _partitioner = std::make_unique<PaimonFixedBucketPartitioner>(
+                        channels.size(), p._paimon_route_bucket_info);
+            } else {
+                _partitioner =
+                        std::make_unique<Crc32HashPartitioner<ShuffleChannelIds>>(channels.size());
+            }
+            custom_profile()->add_info_string(
+                    "Partitioner",
+                    fmt::format("StrictExternalSinkHashPartitioner({})", _partition_count));
+        } else {
+            _partition_count = channels.size() *
+                               config::table_sink_partition_write_max_partition_nums_per_writer;
+            _partitioner = std::make_unique<ScaleWriterPartitioner>(
+                    channels.size(), _partition_count, channels.size(), 1,
+                    config::table_sink_partition_write_min_partition_data_processed_rebalance_threshold /
+                                            state->task_num() ==
+                                    0
+                            ? config::table_sink_partition_write_min_partition_data_processed_rebalance_threshold
+                            : config::table_sink_partition_write_min_partition_data_processed_rebalance_threshold /
+                                      state->task_num(),
+                    config::table_sink_partition_write_min_data_processed_rebalance_threshold /
+                                            state->task_num() ==
+                                    0
+                            ? config::table_sink_partition_write_min_data_processed_rebalance_threshold
+                            : config::table_sink_partition_write_min_data_processed_rebalance_threshold /
+                                      state->task_num());
+            custom_profile()->add_info_string(
+                    "Partitioner", fmt::format("ScaleWriterPartitioner({})", _partition_count));
+        }
 
         RETURN_IF_ERROR(_partitioner->init(p._texprs));
         RETURN_IF_ERROR(_partitioner->prepare(state, p._row_desc));
-        custom_profile()->add_info_string(
-                "Partitioner", fmt::format("ScaleWriterPartitioner({})", _partition_count));
     } else if (_part_type == TPartitionType::MERGE_PARTITIONED) {
         if (!p._has_merge_partition_info) {
             return Status::InternalError("Merge partition info is missing");
@@ -270,7 +298,7 @@ Status ExchangeSinkLocalState::open(RuntimeState* state) {
 
     if (_part_type == TPartitionType::HASH_PARTITIONED ||
         _part_type == TPartitionType::BUCKET_SHFFULE_HASH_PARTITIONED ||
-        _part_type == TPartitionType::HIVE_TABLE_SINK_HASH_PARTITIONED ||
+        is_external_sink_hash_partitioned(_part_type) ||
         _part_type == TPartitionType::OLAP_TABLE_SINK_HASH_PARTITIONED ||
         _part_type == TPartitionType::MERGE_PARTITIONED) {
         RETURN_IF_ERROR(_partitioner->open(state));
@@ -300,6 +328,11 @@ ExchangeSinkOperatorX::ExchangeSinkOperatorX(
           _texprs(sink.output_partition.partition_exprs),
           _row_desc(row_desc),
           _part_type(sink.output_partition.type),
+          _external_sink_hash_mode(sink.output_partition.__isset.external_sink_hash_mode
+                                           ? sink.output_partition.external_sink_hash_mode
+                                           : TExternalSinkHashMode::SCALE_WRITER),
+          _has_paimon_route_bucket_info(sink.output_partition.__isset.paimon_route_bucket_info),
+          _paimon_route_bucket_info(sink.output_partition.paimon_route_bucket_info),
           _dests(destinations),
           _dest_node_id(sink.dest_node_id),
           _transfer_large_data_by_brpc(config::transfer_large_data_by_brpc),
@@ -532,10 +565,10 @@ Status ExchangeSinkOperatorX::sink_impl(RuntimeState* state, Block* block, bool 
     } else if (_part_type == TPartitionType::HASH_PARTITIONED ||
                _part_type == TPartitionType::BUCKET_SHFFULE_HASH_PARTITIONED ||
                _part_type == TPartitionType::OLAP_TABLE_SINK_HASH_PARTITIONED ||
-               _part_type == TPartitionType::HIVE_TABLE_SINK_HASH_PARTITIONED ||
+               is_external_sink_hash_partitioned(_part_type) ||
                _part_type == TPartitionType::MERGE_PARTITIONED) {
         RETURN_IF_ERROR(local_state._writer->write(state, block, eos));
-    } else if (_part_type == TPartitionType::HIVE_TABLE_SINK_UNPARTITIONED) {
+    } else if (is_external_sink_unpartitioned(_part_type)) {
         // Control the number of channels according to the flow, thereby controlling the number of table sink writers.
         RETURN_IF_ERROR(send_to_current_channel());
         _data_processed += block->bytes();

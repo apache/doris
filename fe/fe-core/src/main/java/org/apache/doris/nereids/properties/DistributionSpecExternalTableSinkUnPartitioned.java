@@ -17,20 +17,28 @@
 
 package org.apache.doris.nereids.properties;
 
-/**
- * use for Round Robin by data sink.
- */
-public class DistributionSpecHiveTableSinkUnPartitioned extends DistributionSpec {
+/** Distribution spec for external table sink round-robin/random writer routing. */
+public class DistributionSpecExternalTableSinkUnPartitioned extends DistributionSpec {
 
-    public static final DistributionSpecHiveTableSinkUnPartitioned INSTANCE =
-            new DistributionSpecHiveTableSinkUnPartitioned();
+    public static final DistributionSpecExternalTableSinkUnPartitioned INSTANCE =
+            new DistributionSpecExternalTableSinkUnPartitioned();
 
-    private DistributionSpecHiveTableSinkUnPartitioned() {
+    protected DistributionSpecExternalTableSinkUnPartitioned() {
         super();
     }
 
     @Override
     public boolean satisfy(DistributionSpec other) {
-        return other instanceof DistributionSpecHiveTableSinkUnPartitioned;
+        return other instanceof DistributionSpecExternalTableSinkUnPartitioned;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        return o instanceof DistributionSpecExternalTableSinkUnPartitioned;
+    }
+
+    @Override
+    public int hashCode() {
+        return DistributionSpecExternalTableSinkUnPartitioned.class.hashCode();
     }
 }

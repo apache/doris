@@ -31,8 +31,8 @@ import org.apache.doris.datasource.TableMetadata;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.parser.NereidsParser;
-import org.apache.doris.nereids.properties.DistributionSpecHiveTableSinkHashPartitioned;
-import org.apache.doris.nereids.properties.DistributionSpecHiveTableSinkUnPartitioned;
+import org.apache.doris.nereids.properties.DistributionSpecExternalTableSinkHashPartitioned;
+import org.apache.doris.nereids.properties.DistributionSpecExternalTableSinkUnPartitioned;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -564,12 +564,12 @@ public class HiveDDLAndDMLPlanTest extends TestWithFeService {
 
         String insertSql2 = "INSERT INTO " + partTargetTable + " values(1, 'v1', 'v2', '2020-03-13')";
         PhysicalPlan physicalSink2 = getPhysicalPlan(insertSql2,
-                new PhysicalProperties(new DistributionSpecHiveTableSinkHashPartitioned()), false);
+                new PhysicalProperties(new DistributionSpecExternalTableSinkHashPartitioned()), false);
         checkPartTableSinkPlan(schema, partTargetTable, physicalSink2);
 
         String insertOverwrite2 = "INSERT OVERWRITE TABLE " + partTargetTable + " values(1, 'v1', 'v2', '2020-03-13')";
         PhysicalPlan physicalOverwriteSink2 = getPhysicalPlan(insertOverwrite2,
-                new PhysicalProperties(new DistributionSpecHiveTableSinkHashPartitioned()), true);
+                new PhysicalProperties(new DistributionSpecExternalTableSinkHashPartitioned()), true);
         checkPartTableSinkPlan(schema, partTargetTable, physicalOverwriteSink2);
     }
 
@@ -577,7 +577,8 @@ public class HiveDDLAndDMLPlanTest extends TestWithFeService {
         Assertions.assertSame(physicalSink.getType(), PlanType.PHYSICAL_DISTRIBUTE);
         // check exchange
         PhysicalDistribute<?> distribute = (PhysicalDistribute<?>) physicalSink;
-        Assertions.assertTrue(distribute.getDistributionSpec() instanceof DistributionSpecHiveTableSinkUnPartitioned);
+        Assertions.assertTrue(distribute.getDistributionSpec()
+                instanceof DistributionSpecExternalTableSinkUnPartitioned);
         Assertions.assertSame(distribute.child(0).getType(), PlanType.PHYSICAL_HIVE_TABLE_SINK);
         // check sink
         PhysicalHiveTableSink<?> physicalHiveSink = (PhysicalHiveTableSink<?>) physicalSink.child(0);
@@ -589,7 +590,8 @@ public class HiveDDLAndDMLPlanTest extends TestWithFeService {
         Assertions.assertSame(physicalSink.getType(), PlanType.PHYSICAL_DISTRIBUTE);
         // check exchange
         PhysicalDistribute<?> distribute2 = (PhysicalDistribute<?>) physicalSink;
-        Assertions.assertTrue(distribute2.getDistributionSpec() instanceof DistributionSpecHiveTableSinkHashPartitioned);
+        Assertions.assertTrue(distribute2.getDistributionSpec()
+                instanceof DistributionSpecExternalTableSinkHashPartitioned);
         Assertions.assertSame(distribute2.child(0).getType(), PlanType.PHYSICAL_HIVE_TABLE_SINK);
         // check sink
         PhysicalHiveTableSink<?> physicalHiveSink2 = (PhysicalHiveTableSink<?>) physicalSink.child(0);

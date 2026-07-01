@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <gen_cpp/Partitions_types.h>
 #include <stdint.h>
 
 #include <algorithm>
@@ -175,6 +176,9 @@ private:
 
     RuntimeProfile::Counter* _add_partition_request_timer = nullptr;
     TPartitionType::type _part_type;
+    TExternalSinkHashMode::type _external_sink_hash_mode = TExternalSinkHashMode::SCALE_WRITER;
+    bool _has_paimon_route_bucket_info = false;
+    TPaimonRouteBucketInfo _paimon_route_bucket_info;
 
     std::atomic<bool> _reach_limit = false;
     int _last_local_channel_idx = -1;

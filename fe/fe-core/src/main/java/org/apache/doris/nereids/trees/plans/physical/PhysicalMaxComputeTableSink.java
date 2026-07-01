@@ -21,7 +21,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalDatabase;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalTable;
 import org.apache.doris.nereids.memo.GroupExpression;
-import org.apache.doris.nereids.properties.DistributionSpecHiveTableSinkHashPartitioned;
+import org.apache.doris.nereids.properties.DistributionSpecExternalTableSinkHashPartitioned;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.MustLocalSortOrderSpec;
 import org.apache.doris.nereids.properties.OrderKey;
@@ -138,8 +138,8 @@ public class PhysicalMaxComputeTableSink<CHILD_TYPE extends Plan> extends Physic
             List<ExprId> exprIds = columnIdx.stream()
                     .map(idx -> child().getOutput().get(idx).getExprId())
                     .collect(Collectors.toList());
-            DistributionSpecHiveTableSinkHashPartitioned shuffleInfo
-                    = new DistributionSpecHiveTableSinkHashPartitioned();
+            DistributionSpecExternalTableSinkHashPartitioned shuffleInfo
+                    = new DistributionSpecExternalTableSinkHashPartitioned();
             shuffleInfo.setOutputColExprIds(exprIds);
             // Require local sort by partition columns so that rows for the same partition
             // are grouped together. MaxCompute Storage API streams dynamic partition data

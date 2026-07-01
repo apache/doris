@@ -26,8 +26,11 @@ import org.apache.doris.analysis.ExprToThriftVisitor;
 import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.thrift.TDataPartition;
 import org.apache.doris.thrift.TExplainLevel;
+import org.apache.doris.thrift.TExternalSinkHashMode;
 import org.apache.doris.thrift.TIcebergPartitionField;
 import org.apache.doris.thrift.TMergePartitionInfo;
+import org.apache.doris.thrift.TPaimonBucketFunctionType;
+import org.apache.doris.thrift.TPaimonRouteBucketInfo;
 import org.apache.doris.thrift.TPartitionType;
 
 import com.google.common.base.Joiner;
@@ -55,6 +58,8 @@ public class DataPartition {
     // for hash partition: exprs used to compute hash value
     private ImmutableList<Expr> partitionExprs;
     private MergePartitionInfo mergePartitionInfo;
+    private TExternalSinkHashMode externalSinkHashMode;
+    private PaimonRouteBucketInfo paimonRouteBucketInfo;
 
     public DataPartition(TPartitionType type, List<Expr> exprs) {
         Preconditions.checkNotNull(exprs);
@@ -65,6 +70,17 @@ public class DataPartition {
                 || type == TPartitionType.BUCKET_SHFFULE_HASH_PARTITIONED);
         this.type = type;
         this.partitionExprs = ImmutableList.copyOf(exprs);
+    }
+
+    public DataPartition(TPartitionType type, List<Expr> exprs, TExternalSinkHashMode externalSinkHashMode,
+            PaimonRouteBucketInfo paimonRouteBucketInfo) {
+        Preconditions.checkNotNull(exprs);
+        Preconditions.checkState(type == TPartitionType.HIVE_TABLE_SINK_HASH_PARTITIONED);
+        Preconditions.checkState(!exprs.isEmpty() || paimonRouteBucketInfo != null);
+        this.type = type;
+        this.partitionExprs = ImmutableList.copyOf(exprs);
+        this.externalSinkHashMode = Preconditions.checkNotNull(externalSinkHashMode);
+        this.paimonRouteBucketInfo = paimonRouteBucketInfo;
     }
 
     public DataPartition(TPartitionType type) {
@@ -110,6 +126,12 @@ public class DataPartition {
         if (mergePartitionInfo != null) {
             result.setMergePartitionInfo(mergePartitionInfo.toThrift());
         }
+        if (externalSinkHashMode != null) {
+            result.setExternalSinkHashMode(externalSinkHashMode);
+        }
+        if (paimonRouteBucketInfo != null) {
+            result.setPaimonRouteBucketInfo(paimonRouteBucketInfo.toThrift());
+        }
         return result;
     }
 
@@ -150,9 +172,37 @@ public class DataPartition {
                 strings.add(expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
             }
             str.append(": ").append(Joiner.on(", ").join(strings));
+            if (externalSinkHashMode != null) {
+                str.append(", external_sink_hash_mode=").append(externalSinkHashMode);
+            }
+            if (paimonRouteBucketInfo != null) {
+                str.append(", paimon_bucket_num=").append(paimonRouteBucketInfo.bucketNum);
+            }
         }
         str.append("\n");
         return str.toString();
+    }
+
+    public static class PaimonRouteBucketInfo {
+        private final int bucketNum;
+        private final TPaimonBucketFunctionType bucketFunctionType;
+        private final ImmutableList<Expr> bucketKeyExprs;
+
+        public PaimonRouteBucketInfo(int bucketNum, TPaimonBucketFunctionType bucketFunctionType,
+                List<Expr> bucketKeyExprs) {
+            this.bucketNum = bucketNum;
+            this.bucketFunctionType = Preconditions.checkNotNull(bucketFunctionType);
+            this.bucketKeyExprs = ImmutableList.copyOf(
+                    Preconditions.checkNotNull(bucketKeyExprs, "bucketKeyExprs should not be null"));
+        }
+
+        public TPaimonRouteBucketInfo toThrift() {
+            TPaimonRouteBucketInfo info = new TPaimonRouteBucketInfo();
+            info.setBucketNum(bucketNum);
+            info.setBucketFunctionType(bucketFunctionType);
+            info.setBucketKeyExprs(ExprToThriftVisitor.treesToThrift(bucketKeyExprs));
+            return info;
+        }
     }
 
     public static class IcebergPartitionField {

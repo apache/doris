@@ -21,7 +21,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.datasource.iceberg.IcebergExternalDatabase;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.nereids.memo.GroupExpression;
-import org.apache.doris.nereids.properties.DistributionSpecHiveTableSinkHashPartitioned;
+import org.apache.doris.nereids.properties.DistributionSpecExternalTableSinkHashPartitioned;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.ExprId;
@@ -135,8 +135,8 @@ public class PhysicalIcebergTableSink<CHILD_TYPE extends Plan> extends PhysicalB
             List<ExprId> exprIds = columnIdx.stream()
                     .map(idx -> child().getOutput().get(idx).getExprId())
                     .collect(Collectors.toList());
-            DistributionSpecHiveTableSinkHashPartitioned shuffleInfo
-                    = new DistributionSpecHiveTableSinkHashPartitioned();
+            DistributionSpecExternalTableSinkHashPartitioned shuffleInfo
+                    = new DistributionSpecExternalTableSinkHashPartitioned();
             shuffleInfo.setOutputColExprIds(exprIds);
             return new PhysicalProperties(shuffleInfo);
         }

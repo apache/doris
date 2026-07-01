@@ -23,23 +23,28 @@ import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.datasource.paimon.PaimonExternalDatabase;
 import org.apache.doris.datasource.paimon.PaimonExternalTable;
 import org.apache.doris.nereids.memo.GroupExpression;
-import org.apache.doris.nereids.properties.DistributionSpecHiveTableSinkHashPartitioned;
+import org.apache.doris.nereids.properties.DistributionSpecExternalTableSinkHashPartitioned;
+import org.apache.doris.nereids.properties.DistributionSpecExternalTableSinkHashPartitioned.PaimonFixedBucketRouteInfo;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.statistics.Statistics;
 
+import org.apache.paimon.CoreOptions;
 import org.apache.paimon.schema.TableSchema;
 import org.apache.paimon.table.BucketMode;
 import org.apache.paimon.table.FileStoreTable;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.TreeMap;
@@ -47,6 +52,7 @@ import java.util.stream.Collectors;
 
 /** physical paimon sink */
 public class PhysicalPaimonTableSink<CHILD_TYPE extends Plan> extends PhysicalBaseExternalTableSink<CHILD_TYPE> {
+
     /**
      * constructor
      */
@@ -118,53 +124,104 @@ public class PhysicalPaimonTableSink<CHILD_TYPE extends Plan> extends PhysicalBa
         Optional<MvccSnapshot> snapshot = MvccUtil.getSnapshotFromContext(targetTable);
         org.apache.paimon.table.Table paimonTable = paimonExternalTable.getPaimonTable(snapshot);
         BucketMode bucketMode = null;
-        List<String> bucketKeys = new ArrayList<>();
         if (paimonTable instanceof FileStoreTable) {
             FileStoreTable fileStoreTable = (FileStoreTable) paimonTable;
             bucketMode = fileStoreTable.bucketMode();
             if (bucketMode == BucketMode.HASH_DYNAMIC
                     || bucketMode == BucketMode.KEY_DYNAMIC
-                    || bucketMode == BucketMode.POSTPONE_MODE) {
+                        || bucketMode == BucketMode.POSTPONE_MODE) {
                 throw new UnsupportedOperationException("Unsupported Paimon bucket mode for write: " + bucketMode);
-            }
-            if (bucketMode == BucketMode.HASH_FIXED) {
-                TableSchema schema = fileStoreTable.schema();
-                bucketKeys.addAll(schema.bucketKeys());
             }
         }
 
         List<Column> partitionColumns = paimonExternalTable.getPartitionColumns(snapshot);
-        List<String> distributionColumns = new ArrayList<>();
+        List<String> partitionColumnNames = new ArrayList<>();
         for (Column partitionColumn : partitionColumns) {
-            distributionColumns.add(partitionColumn.getName());
-        }
-        distributionColumns.addAll(bucketKeys);
-        if (distributionColumns.isEmpty()) {
-            return PhysicalProperties.SINK_RANDOM_PARTITIONED;
+            partitionColumnNames.add(partitionColumn.getName());
         }
 
         Map<String, ExprId> columnExprIdMap = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+        Map<String, DataType> columnDataTypeMap = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
         int outputSize = child().getOutput().size();
         for (int i = 0; i < cols.size() && i < outputSize; i++) {
-            columnExprIdMap.put(cols.get(i).getName(), child().getOutput().get(i).getExprId());
+            Slot slot = child().getOutput().get(i);
+            columnExprIdMap.put(cols.get(i).getName(), slot.getExprId());
+            columnDataTypeMap.put(cols.get(i).getName(), slot.getDataType());
         }
 
-        List<ExprId> exprIds = new ArrayList<>();
-        for (String distributionColumn : distributionColumns) {
-            ExprId exprId = columnExprIdMap.get(distributionColumn);
+        List<ExprId> partitionExprIds = new ArrayList<>();
+        for (String partitionColumn : partitionColumnNames) {
+            ExprId exprId = columnExprIdMap.get(partitionColumn);
             if (exprId == null) {
-                if (bucketMode == BucketMode.HASH_FIXED) {
-                    throw new UnsupportedOperationException(
-                            "Paimon fixed bucket write requires distribution column in sink output: "
-                                    + distributionColumn);
-                }
                 return PhysicalProperties.SINK_RANDOM_PARTITIONED;
             }
-            exprIds.add(exprId);
+            partitionExprIds.add(exprId);
         }
-        DistributionSpecHiveTableSinkHashPartitioned shuffleInfo =
-                new DistributionSpecHiveTableSinkHashPartitioned();
-        shuffleInfo.setOutputColExprIds(exprIds.stream().distinct().collect(Collectors.toList()));
+
+        PaimonFixedBucketRouteInfo paimonRouteInfo = null;
+        if (bucketMode == BucketMode.HASH_FIXED) {
+            paimonRouteInfo = buildPaimonFixedBucketRouteInfo(
+                    (FileStoreTable) paimonTable, columnExprIdMap, columnDataTypeMap);
+        } else if (partitionExprIds.isEmpty()) {
+            return PhysicalProperties.SINK_RANDOM_PARTITIONED;
+        }
+
+        DistributionSpecExternalTableSinkHashPartitioned shuffleInfo =
+                new DistributionSpecExternalTableSinkHashPartitioned();
+        shuffleInfo.setOutputColExprIds(partitionExprIds.stream().distinct().collect(Collectors.toList()));
+        if (bucketMode == BucketMode.HASH_FIXED) {
+            shuffleInfo.setExternalSinkHashMode(
+                    DistributionSpecExternalTableSinkHashPartitioned.ExternalSinkHashMode.STRICT_HASH);
+            shuffleInfo.setPaimonFixedBucketRouteInfo(paimonRouteInfo);
+        }
         return new PhysicalProperties(shuffleInfo);
+    }
+
+    private PaimonFixedBucketRouteInfo buildPaimonFixedBucketRouteInfo(FileStoreTable fileStoreTable,
+            Map<String, ExprId> columnExprIdMap, Map<String, DataType> columnDataTypeMap) {
+        TableSchema schema = fileStoreTable.schema();
+        List<String> bucketKeys = schema.bucketKeys();
+        if (bucketKeys.isEmpty()) {
+            throw new UnsupportedOperationException("Paimon fixed bucket write requires bucket keys");
+        }
+
+        List<ExprId> bucketKeyExprIds = new ArrayList<>();
+        List<DataType> bucketKeyTypes = new ArrayList<>();
+        for (String bucketKey : bucketKeys) {
+            ExprId exprId = columnExprIdMap.get(bucketKey);
+            if (exprId == null) {
+                throw new UnsupportedOperationException(
+                        "Paimon fixed bucket write requires bucket key in sink output: " + bucketKey);
+            }
+            bucketKeyExprIds.add(exprId);
+            bucketKeyTypes.add(columnDataTypeMap.get(bucketKey));
+        }
+
+        CoreOptions.BucketFunctionType bucketFunctionType =
+                new CoreOptions(schema.options()).bucketFunctionType();
+        if (bucketFunctionType == CoreOptions.BucketFunctionType.MOD) {
+            if (bucketKeyTypes.size() != 1
+                    || !(bucketKeyTypes.get(0).isIntegerType() || bucketKeyTypes.get(0).isBigIntType())) {
+                throw new UnsupportedOperationException(
+                        "Paimon mod bucket write requires exactly one INT or BIGINT bucket key");
+            }
+            return new PaimonFixedBucketRouteInfo(schema.numBuckets(),
+                    PaimonFixedBucketRouteInfo.BucketFunctionType.MOD, bucketKeyExprIds);
+        } else if (bucketFunctionType == CoreOptions.BucketFunctionType.DEFAULT) {
+            for (DataType bucketKeyType : bucketKeyTypes) {
+                if (!supportDefaultBucketKeyType(bucketKeyType)) {
+                    throw new UnsupportedOperationException(String.format(Locale.ROOT,
+                            "Unsupported Paimon default bucket key type for write routing: %s", bucketKeyType));
+                }
+            }
+            return new PaimonFixedBucketRouteInfo(schema.numBuckets(),
+                    PaimonFixedBucketRouteInfo.BucketFunctionType.DEFAULT, bucketKeyExprIds);
+        }
+        throw new UnsupportedOperationException(
+                "Unsupported Paimon bucket function for write routing: " + bucketFunctionType);
+    }
+
+    private boolean supportDefaultBucketKeyType(DataType dataType) {
+        return dataType.isIntegerLikeType();
     }
 }

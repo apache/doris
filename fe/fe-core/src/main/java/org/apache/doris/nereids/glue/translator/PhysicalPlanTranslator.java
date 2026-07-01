@@ -83,10 +83,11 @@ import org.apache.doris.nereids.properties.DistributionSpec;
 import org.apache.doris.nereids.properties.DistributionSpecAllSingleton;
 import org.apache.doris.nereids.properties.DistributionSpecAny;
 import org.apache.doris.nereids.properties.DistributionSpecExecutionAny;
+import org.apache.doris.nereids.properties.DistributionSpecExternalTableSinkHashPartitioned;
+import org.apache.doris.nereids.properties.DistributionSpecExternalTableSinkHashPartitioned.PaimonFixedBucketRouteInfo;
+import org.apache.doris.nereids.properties.DistributionSpecExternalTableSinkUnPartitioned;
 import org.apache.doris.nereids.properties.DistributionSpecGather;
 import org.apache.doris.nereids.properties.DistributionSpecHash;
-import org.apache.doris.nereids.properties.DistributionSpecHiveTableSinkHashPartitioned;
-import org.apache.doris.nereids.properties.DistributionSpecHiveTableSinkUnPartitioned;
 import org.apache.doris.nereids.properties.DistributionSpecMerge;
 import org.apache.doris.nereids.properties.DistributionSpecOlapTableSinkHashPartitioned;
 import org.apache.doris.nereids.properties.DistributionSpecReplicated;
@@ -240,6 +241,8 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.statistics.StatisticConstants;
 import org.apache.doris.tablefunction.TableValuedFunctionIf;
+import org.apache.doris.thrift.TExternalSinkHashMode;
+import org.apache.doris.thrift.TPaimonBucketFunctionType;
 import org.apache.doris.thrift.TPartitionType;
 import org.apache.doris.thrift.TPushAggOp;
 import org.apache.doris.thrift.TResultSinkType;
@@ -3286,18 +3289,42 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             return new DataPartition(partitionType, partitionExprs);
         } else if (distributionSpec instanceof DistributionSpecOlapTableSinkHashPartitioned) {
             return DataPartition.TABLET_ID;
-        } else if (distributionSpec instanceof DistributionSpecHiveTableSinkHashPartitioned) {
-            DistributionSpecHiveTableSinkHashPartitioned partitionSpecHash =
-                    (DistributionSpecHiveTableSinkHashPartitioned) distributionSpec;
+        } else if (distributionSpec instanceof DistributionSpecExternalTableSinkHashPartitioned) {
+            DistributionSpecExternalTableSinkHashPartitioned partitionSpecHash =
+                    (DistributionSpecExternalTableSinkHashPartitioned) distributionSpec;
             List<Expr> partitionExprs = Lists.newArrayList();
             List<ExprId> partitionExprIds = partitionSpecHash.getOutputColExprIds();
-            for (ExprId partitionExprId : partitionExprIds) {
-                if (childOutputIds.contains(partitionExprId)) {
-                    partitionExprs.add(context.findSlotRef(partitionExprId));
+            if (partitionExprIds != null) {
+                for (ExprId partitionExprId : partitionExprIds) {
+                    if (childOutputIds.contains(partitionExprId)) {
+                        partitionExprs.add(context.findSlotRef(partitionExprId));
+                    }
                 }
             }
-            return new DataPartition(TPartitionType.HIVE_TABLE_SINK_HASH_PARTITIONED, partitionExprs);
-        } else if (distributionSpec instanceof DistributionSpecHiveTableSinkUnPartitioned) {
+            TExternalSinkHashMode externalSinkHashMode = partitionSpecHash.getExternalSinkHashMode()
+                    == DistributionSpecExternalTableSinkHashPartitioned.ExternalSinkHashMode.STRICT_HASH
+                    ? TExternalSinkHashMode.STRICT_HASH : TExternalSinkHashMode.SCALE_WRITER;
+            DataPartition.PaimonRouteBucketInfo paimonRouteBucketInfo = null;
+            PaimonFixedBucketRouteInfo routeInfo = partitionSpecHash.getPaimonFixedBucketRouteInfo();
+            if (routeInfo != null) {
+                List<Expr> bucketKeyExprs = Lists.newArrayList();
+                for (ExprId bucketKeyExprId : routeInfo.getBucketKeyExprIds()) {
+                    if (!childOutputIds.contains(bucketKeyExprId)) {
+                        throw new RuntimeException("Cannot translate Paimon bucket route expr to DataPartition,"
+                                + " DistributionSpec: " + distributionSpec
+                                + ", child output: " + childOutputIds);
+                    }
+                    bucketKeyExprs.add(context.findSlotRef(bucketKeyExprId));
+                }
+                TPaimonBucketFunctionType bucketFunctionType =
+                        routeInfo.getBucketFunctionType() == PaimonFixedBucketRouteInfo.BucketFunctionType.MOD
+                                ? TPaimonBucketFunctionType.MOD : TPaimonBucketFunctionType.DEFAULT;
+                paimonRouteBucketInfo = new DataPartition.PaimonRouteBucketInfo(
+                        routeInfo.getBucketNum(), bucketFunctionType, bucketKeyExprs);
+            }
+            return new DataPartition(TPartitionType.HIVE_TABLE_SINK_HASH_PARTITIONED, partitionExprs,
+                    externalSinkHashMode, paimonRouteBucketInfo);
+        } else if (distributionSpec instanceof DistributionSpecExternalTableSinkUnPartitioned) {
             return new DataPartition(TPartitionType.HIVE_TABLE_SINK_UNPARTITIONED);
         } else if (distributionSpec instanceof DistributionSpecMerge) {
             DistributionSpecMerge mergeSpec = (DistributionSpecMerge) distributionSpec;

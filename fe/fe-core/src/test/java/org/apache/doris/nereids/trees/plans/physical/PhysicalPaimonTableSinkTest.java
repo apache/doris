@@ -22,7 +22,8 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.datasource.paimon.PaimonExternalDatabase;
 import org.apache.doris.datasource.paimon.PaimonExternalTable;
 import org.apache.doris.nereids.properties.DataTrait;
-import org.apache.doris.nereids.properties.DistributionSpecHiveTableSinkHashPartitioned;
+import org.apache.doris.nereids.properties.DistributionSpecExternalTableSinkHashPartitioned;
+import org.apache.doris.nereids.properties.DistributionSpecExternalTableSinkHashPartitioned.PaimonFixedBucketRouteInfo;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -62,7 +63,7 @@ public class PhysicalPaimonTableSinkTest {
     }
 
     @Test
-    public void testFixedBucketUsesPartitionAndBucketKeyExprIds() {
+    public void testFixedBucketUsesPartitionAndRouteBucketExprIds() {
         SlotReference partitionSlot = new SlotReference("pt", IntegerType.INSTANCE);
         SlotReference bucketSlot = new SlotReference("bucket_key", IntegerType.INSTANCE);
         SlotReference valueSlot = new SlotReference("v", StringType.INSTANCE);
@@ -79,15 +80,21 @@ public class PhysicalPaimonTableSinkTest {
         PhysicalProperties properties = sink.getRequirePhysicalProperties();
 
         Assert.assertTrue(properties.getDistributionSpec()
-                instanceof DistributionSpecHiveTableSinkHashPartitioned);
-        DistributionSpecHiveTableSinkHashPartitioned distribution =
-                (DistributionSpecHiveTableSinkHashPartitioned) properties.getDistributionSpec();
-        Assert.assertEquals(Arrays.asList(partitionSlot.getExprId(), bucketSlot.getExprId()),
-                distribution.getOutputColExprIds());
+                instanceof DistributionSpecExternalTableSinkHashPartitioned);
+        DistributionSpecExternalTableSinkHashPartitioned distribution =
+                (DistributionSpecExternalTableSinkHashPartitioned) properties.getDistributionSpec();
+        Assert.assertEquals(Collections.singletonList(partitionSlot.getExprId()), distribution.getOutputColExprIds());
+        Assert.assertEquals(DistributionSpecExternalTableSinkHashPartitioned.ExternalSinkHashMode.STRICT_HASH,
+                distribution.getExternalSinkHashMode());
+        PaimonFixedBucketRouteInfo routeInfo = distribution.getPaimonFixedBucketRouteInfo();
+        Assert.assertEquals(8, routeInfo.getBucketNum());
+        Assert.assertEquals(PaimonFixedBucketRouteInfo.BucketFunctionType.DEFAULT,
+                routeInfo.getBucketFunctionType());
+        Assert.assertEquals(Collections.singletonList(bucketSlot.getExprId()), routeInfo.getBucketKeyExprIds());
     }
 
     @Test
-    public void testFixedBucketRequiresBucketKeyInSinkOutput() {
+    public void testFixedBucketRequiresBucketKeyInSinkChildOutput() {
         SlotReference partitionSlot = new SlotReference("pt", IntegerType.INSTANCE);
         SlotReference valueSlot = new SlotReference("v", StringType.INSTANCE);
         PhysicalPaimonTableSink<Plan> sink = newSink(
@@ -100,7 +107,8 @@ public class PhysicalPaimonTableSinkTest {
         UnsupportedOperationException exception = Assert.assertThrows(UnsupportedOperationException.class,
                 sink::getRequirePhysicalProperties);
 
-        Assert.assertTrue(exception.getMessage().contains("requires distribution column"));
+        Assert.assertTrue(exception.getMessage().contains("requires bucket key in sink output"));
+        Assert.assertTrue(exception.getMessage().contains("bucket_key"));
     }
 
     @Test
@@ -129,6 +137,8 @@ public class PhysicalPaimonTableSinkTest {
         Mockito.when(fileStoreTable.bucketMode()).thenReturn(bucketMode);
         Mockito.when(fileStoreTable.schema()).thenReturn(schema);
         Mockito.when(schema.bucketKeys()).thenReturn(bucketKeys);
+        Mockito.when(schema.numBuckets()).thenReturn(8);
+        Mockito.when(schema.options()).thenReturn(Collections.emptyMap());
 
         Plan child = Mockito.mock(Plan.class);
         Mockito.when(child.getAllChildrenTypes()).thenReturn(new BitSet());
