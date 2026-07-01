@@ -24,8 +24,7 @@ suite("test_hive_warmup_select", "p0,external") {
 
     def test_basic_warmup = {
         // Enable file cache for warm up functionality
-        sql "set enable_file_cache=true"
-        sql "set disable_file_cache=false"
+        sql "set enable_file_cache_for_external_table=true"
         
         sql "WARM UP SELECT * FROM lineitem"
 
@@ -36,8 +35,7 @@ suite("test_hive_warmup_select", "p0,external") {
 
     def test_warmup_negative_cases = {
         // Enable file cache for warm up functionality
-        sql "set enable_file_cache=true"
-        sql "set disable_file_cache=false"
+        sql "set enable_file_cache_for_external_table=true"
         
         // These should fail as warm up select doesn't support these operations
         try {
@@ -90,8 +88,7 @@ suite("test_hive_warmup_select", "p0,external") {
 
             // Test: user with only SELECT privilege should be able to run WARM UP SELECT
             connect(user1, "${pwd}", url) {
-                sql "set enable_file_cache=true"
-                sql "set disable_file_cache=false"
+                sql "set enable_file_cache_for_external_table=true"
 
                 // This should succeed - only SELECT privilege is needed
                 sql "WARM UP SELECT * FROM ${catalog_name}.tpch1_parquet.lineitem"
@@ -107,8 +104,7 @@ suite("test_hive_warmup_select", "p0,external") {
             sql """REVOKE SELECT_PRIV ON ${catalog_name}.tpch1_parquet.lineitem FROM ${user1}"""
             
             connect(user1, "${pwd}", url) {
-                sql "set enable_file_cache=true"
-                sql "set disable_file_cache=false"
+                sql "set enable_file_cache_for_external_table=true"
                 test {
                     sql "WARM UP SELECT * FROM ${catalog_name}.tpch1_parquet.lineitem"
                     exception "denied"
@@ -119,8 +115,7 @@ suite("test_hive_warmup_select", "p0,external") {
             sql """GRANT LOAD_PRIV ON ${catalog_name}.tpch1_parquet.lineitem TO ${user1}"""
             
             connect(user1, "${pwd}", url) {
-                sql "set enable_file_cache=true"
-                sql "set disable_file_cache=false"
+                sql "set enable_file_cache_for_external_table=true"
                 test {
                     sql "WARM UP SELECT * FROM ${catalog_name}.tpch1_parquet.lineitem"
                     exception "denied"

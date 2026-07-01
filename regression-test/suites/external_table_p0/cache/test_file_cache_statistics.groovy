@@ -73,7 +73,7 @@ suite("test_file_cache_statistics", "p0,external") {
     String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
     String hdfs_port = context.config.otherConfigs.get(hivePrefix + "HdfsPort")
 
-    sql """set global enable_file_cache=true"""
+    sql """set global enable_file_cache_for_external_table=true"""
     sql """drop catalog if exists ${catalog_name} """
 
     sql """CREATE CATALOG ${catalog_name} PROPERTIES (
@@ -253,7 +253,7 @@ suite("test_file_cache_statistics", "p0,external") {
         assertTrue(false, TOTAL_READ_COUNTS_DID_NOT_INCREASE_MSG)
     }
     // ===== End Hit and Read Counts Metrics Check =====
-    sql """set global enable_file_cache=false"""
+    sql """set global enable_file_cache_for_external_table=false"""
     return true
 }
 
