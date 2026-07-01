@@ -206,6 +206,86 @@ public class IcebergRestPropertiesTest {
     }
 
     @Test
+    public void testGoogleSecurityType() {
+        Map<String, String> props = new HashMap<>();
+        props.put("iceberg.rest.uri", "http://localhost:8080");
+        props.put("iceberg.rest.security.type", "google");
+
+        IcebergRestProperties restProps = new IcebergRestProperties(props);
+        restProps.initNormalizeAndCheckProps();
+
+        Map<String, String> catalogProps = restProps.getIcebergRestCatalogProperties();
+        Assertions.assertEquals("org.apache.iceberg.gcp.auth.GoogleAuthManager",
+                catalogProps.get("rest.auth.type"));
+        Assertions.assertFalse(catalogProps.containsKey(OAuth2Properties.CREDENTIAL));
+        Assertions.assertFalse(catalogProps.containsKey(OAuth2Properties.TOKEN));
+    }
+
+    @Test
+    public void testGoogleWithIoImpl() {
+        Map<String, String> props = new HashMap<>();
+        props.put("iceberg.rest.uri", "http://localhost:8080");
+        props.put("iceberg.rest.security.type", "google");
+        props.put("iceberg.rest.io-impl", "org.apache.iceberg.gcp.gcs.GCSFileIO");
+
+        IcebergRestProperties restProps = new IcebergRestProperties(props);
+        restProps.initNormalizeAndCheckProps();
+
+        Map<String, String> catalogProps = restProps.getIcebergRestCatalogProperties();
+        Assertions.assertEquals("org.apache.iceberg.gcp.auth.GoogleAuthManager",
+                catalogProps.get("rest.auth.type"));
+        Assertions.assertEquals("org.apache.iceberg.gcp.gcs.GCSFileIO",
+                catalogProps.get("io-impl"));
+    }
+
+    @Test
+    public void testGoogleWithUserProject() {
+        Map<String, String> props = new HashMap<>();
+        props.put("iceberg.rest.uri", "http://localhost:8080");
+        props.put("iceberg.rest.security.type", "google");
+        props.put("iceberg.rest.google.user-project", "my-billing-project");
+
+        IcebergRestProperties restProps = new IcebergRestProperties(props);
+        restProps.initNormalizeAndCheckProps();
+
+        Map<String, String> catalogProps = restProps.getIcebergRestCatalogProperties();
+        Assertions.assertEquals("org.apache.iceberg.gcp.auth.GoogleAuthManager",
+                catalogProps.get("rest.auth.type"));
+        Assertions.assertEquals("my-billing-project",
+                catalogProps.get("header.x-goog-user-project"));
+    }
+
+    @Test
+    public void testGoogleWithGcsToken() {
+        Map<String, String> props = new HashMap<>();
+        props.put("iceberg.rest.uri", "http://localhost:8080");
+        props.put("iceberg.rest.security.type", "google");
+        props.put("iceberg.gcs.oauth2.token", "my-gcs-token");
+
+        IcebergRestProperties restProps = new IcebergRestProperties(props);
+        restProps.initNormalizeAndCheckProps();
+
+        Map<String, String> catalogProps = restProps.getIcebergRestCatalogProperties();
+        Assertions.assertEquals("org.apache.iceberg.gcp.auth.GoogleAuthManager",
+                catalogProps.get("rest.auth.type"));
+        Assertions.assertEquals("my-gcs-token", catalogProps.get("gcs.oauth2.token"));
+    }
+
+    @Test
+    public void testGoogleSecurityTypeCaseInsensitive() {
+        Map<String, String> props = new HashMap<>();
+        props.put("iceberg.rest.uri", "http://localhost:8080");
+        props.put("iceberg.rest.security.type", "GOOGLE");
+
+        IcebergRestProperties restProps = new IcebergRestProperties(props);
+        Assertions.assertDoesNotThrow(restProps::initNormalizeAndCheckProps);
+
+        Map<String, String> catalogProps = restProps.getIcebergRestCatalogProperties();
+        Assertions.assertEquals("org.apache.iceberg.gcp.auth.GoogleAuthManager",
+                catalogProps.get("rest.auth.type"));
+    }
+
+    @Test
     public void testUriAliases() {
         // Test different URI property names
         Map<String, String> props1 = new HashMap<>();

@@ -63,7 +63,7 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
     @ConnectorProperty(names = {"iceberg.rest.security.type"},
             required = false,
             description = "The security type of the iceberg rest catalog service,"
-                    + "optional: (none, oauth2), default: none.")
+                    + "optional: (none, oauth2, google), default: none.")
     private String icebergRestSecurityType = "none";
 
     @ConnectorProperty(names = {"iceberg.rest.session"},
@@ -187,6 +187,22 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
             description = "Socket timeout in milliseconds for the REST catalog HTTP client. Default: 60000 (60s).")
     private String icebergRestSocketTimeoutMs = "60000";
 
+    @ConnectorProperty(names = {"iceberg.rest.io-impl"},
+            required = false,
+            description = "The FileIO implementation for the iceberg rest catalog service.")
+    private String icebergRestIoImpl;
+
+    @ConnectorProperty(names = {"iceberg.rest.google.user-project"},
+            required = false,
+            description = "The Google project to be billed for using the iceberg rest catalog service.")
+    private String icebergRestGoogleUserProject;
+
+    @ConnectorProperty(names = {"iceberg.gcs.oauth2.token"},
+            required = false,
+            sensitive = true,
+            description = "The OAuth2 token for GCS storage access when using GCS FileIO.")
+    private String icebergGcsOauth2Token;
+
     protected IcebergRestProperties(Map<String, String> props) {
         super(props);
     }
@@ -228,7 +244,7 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
             Security.valueOf(icebergRestSecurityType.toUpperCase());
         } catch (IllegalArgumentException e) {
             throw new IllegalArgumentException("Invalid security type: " + icebergRestSecurityType
-                    + ". Supported values are: none, oauth2");
+                    + ". Supported values are: none, oauth2, google");
         }
     }
 
@@ -315,12 +331,26 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
         if (Strings.isNotBlank(icebergRestSocketTimeoutMs)) {
             icebergRestCatalogProperties.put("rest.client.socket-timeout-ms", icebergRestSocketTimeoutMs);
         }
+
+        if (Strings.isNotBlank(icebergRestIoImpl)) {
+            icebergRestCatalogProperties.put("io-impl", icebergRestIoImpl);
+        }
+
+        if (Strings.isNotBlank(icebergRestGoogleUserProject)) {
+            icebergRestCatalogProperties.put("header.x-goog-user-project", icebergRestGoogleUserProject);
+        }
+
+        if (Strings.isNotBlank(icebergGcsOauth2Token)) {
+            icebergRestCatalogProperties.put("gcs.oauth2.token", icebergGcsOauth2Token);
+        }
     }
 
     private void addAuthenticationProperties() {
         Security security = Security.valueOf(icebergRestSecurityType.toUpperCase());
         if (security == Security.OAUTH2) {
             addOAuth2Properties();
+        } else if (security == Security.GOOGLE) {
+            addGoogleProperties();
         }
     }
 
@@ -340,6 +370,11 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
             // Pre-configured Token Flow
             icebergRestCatalogProperties.put(OAuth2Properties.TOKEN, icebergRestOauth2Token);
         }
+    }
+
+    private void addGoogleProperties() {
+        icebergRestCatalogProperties.put("rest.auth.type",
+                "org.apache.iceberg.gcp.auth.GoogleAuthManager");
     }
 
     private void addGlueRestCatalogProperties() {
@@ -384,5 +419,6 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
     public enum Security {
         NONE,
         OAUTH2,
+        GOOGLE,
     }
 }
