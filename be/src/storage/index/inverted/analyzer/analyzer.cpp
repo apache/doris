@@ -117,8 +117,8 @@ AnalyzerPtr InvertedIndexAnalyzer::create_builtin_analyzer(InvertedIndexParserTy
                             "be.conf (or via the BE config HTTP API) to enable it.");
         }
         auto kuromoji_analyzer = std::make_shared<KuromojiAnalyzer>();
-        kuromoji_analyzer->initDict(config::inverted_index_dict_path + "/kuromoji");
         kuromoji_analyzer->setMode(kuromoji_mode_from_string(parser_mode));
+        kuromoji_analyzer->initDict(config::inverted_index_dict_path + "/kuromoji");
         analyzer = std::move(kuromoji_analyzer);
     } else {
         // default

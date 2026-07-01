@@ -27,25 +27,13 @@ using namespace lucene::analysis;
 
 namespace doris::segment_v2 {
 
-static std::vector<std::string> tokenize(const std::string& s) {
-    KuromojiTokenizer tk(KuromojiMode::Search, true, false);
+// The kuromoji tokenizer requires a dictionary.
+TEST(KuromojiTokenizerTest, RequiresDictionary) {
+    KuromojiTokenizer tk(KuromojiMode::Search, true, false); // no dictionary
+    std::string s = "東京都";
     lucene::util::SStringReader<char> reader;
     reader.init(s.data(), s.size(), false);
-    tk.reset(&reader);
-    std::vector<std::string> out;
-    Token t;
-    while (tk.next(&t)) {
-        out.emplace_back(t.termBuffer<char>(), t.termLength<char>());
-    }
-    return out;
-}
-
-TEST(KuromojiTokenizerStubTest, CjkUnigram) {
-    EXPECT_EQ(tokenize("東京都"), (std::vector<std::string> {"東", "京", "都"}));
-}
-
-TEST(KuromojiTokenizerStubTest, SkipsAsciiSpaces) {
-    EXPECT_EQ(tokenize("a b"), (std::vector<std::string> {"a", "b"}));
+    EXPECT_ANY_THROW(tk.reset(&reader));
 }
 
 } // namespace doris::segment_v2

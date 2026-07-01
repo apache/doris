@@ -91,7 +91,8 @@ public class InvertedIndexProperties {
         }
         return mode != null ? mode :
             INVERTED_INDEX_PARSER_IK.equals(parser) ? INVERTED_INDEX_PARSER_SMART :
-                INVERTED_INDEX_PARSER_COARSE_GRANULARITY;
+                INVERTED_INDEX_PARSER_KUROMOJI.equals(parser) ? INVERTED_INDEX_PARSER_KUROMOJI_SEARCH :
+                    INVERTED_INDEX_PARSER_COARSE_GRANULARITY;
     }
 
     public static String getInvertedIndexFieldPattern(Map<String, String> properties) {

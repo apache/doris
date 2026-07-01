@@ -20,6 +20,7 @@
 #include <memory>
 #include <string>
 
+#include "common/exception.h"
 #include "common/logging.h"
 #include "storage/index/inverted/analyzer/kuromoji/KuromojiTokenizer.h"
 #include "storage/index/inverted/analyzer/kuromoji/dict/kuromoji_dictionary.h"
@@ -36,14 +37,15 @@ public:
 
     bool isSDocOpt() override { return true; }
 
-    // Loads (once, process-wide) the IPADIC dictionary from `dictPath`. If it is
-    // unavailable the tokenizer degrades to a per-codepoint split (logged), rather
-    // than failing index/query.
+    // Loads (once, process-wide) the IPADIC dictionary from `dictPath`. 
     void initDict(const std::string& dictPath) override {
         dict_ = inverted_index::kuromoji::KuromojiDictionary::get_or_load(dictPath);
         if (dict_ == nullptr) {
-            LOG(WARNING) << "kuromoji: dictionary unavailable at " << dictPath
-                         << "; falling back to per-codepoint tokenization";
+            throw doris::Exception(
+                    doris::ErrorCode::INVERTED_INDEX_ANALYZER_ERROR,
+                    "kuromoji dictionary could not be loaded from {}; ensure system.bin, "
+                    "matrix.bin, chardef.bin and unkdict.bin are present in the BE package",
+                    dictPath);
         }
     }
 

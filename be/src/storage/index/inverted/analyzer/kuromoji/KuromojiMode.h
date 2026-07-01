@@ -19,6 +19,8 @@
 
 #include <string>
 
+#include "common/exception.h"
+
 namespace doris::segment_v2 {
 
 // Segmentation mode, mirroring Lucene's JapaneseTokenizer.Mode. Normal returns
@@ -29,13 +31,18 @@ namespace doris::segment_v2 {
 enum class KuromojiMode { Normal, Search, Extended };
 
 inline KuromojiMode kuromoji_mode_from_string(const std::string& mode) {
+    if (mode.empty() || mode == "search") {
+        return KuromojiMode::Search;
+    }
     if (mode == "normal") {
         return KuromojiMode::Normal;
     }
     if (mode == "extended") {
         return KuromojiMode::Extended;
     }
-    return KuromojiMode::Search; // default (matches OpenSearch/Lucene)
+    throw doris::Exception(doris::ErrorCode::INVERTED_INDEX_ANALYZER_ERROR,
+                           "Invalid kuromoji parser_mode: '{}', must be search, normal or extended",
+                           mode);
 }
 
 } // namespace doris::segment_v2
