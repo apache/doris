@@ -82,6 +82,7 @@ suite("test_paimon_jdbc_catalog", "p0,external") {
                 if (mustSuc) {
                     assertTrue(false, "Execute failed: ${cmd}\nstdout:\n${output}\nstderr:\n${error}")
                 }
+                return ""
             }
             return output
         } catch (IOException e) {
