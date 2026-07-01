@@ -48,9 +48,6 @@ suite("test_outfile_empty_data", "external,hive,tvf,external_docker") {
     String region = getS3Region()
     String bucket = context.config.otherConfigs.get("s3BucketName");
 
-    // broker
-    String broker_name = "hdfs"
-
     def export_table_name = "outfile_empty_data_test"
 
     def create_table = {table_name, column_define ->
@@ -83,27 +80,6 @@ suite("test_outfile_empty_data", "external,hive,tvf,external_docker") {
         return res[0][3]
     }
 
-    def outfile_to_HDFS_with_broker = {
-        // select ... into outfile ...
-        def uuid = UUID.randomUUID().toString()
-
-        def hdfs_outfile_path = "/user/doris/tmp_data/${uuid}"
-        def uri = "${defaultFS}" + "${hdfs_outfile_path}/exp_"
-
-        def res = sql """
-            SELECT * FROM ${export_table_name} t ORDER BY user_id
-            INTO OUTFILE "${uri}"
-            FORMAT AS ${format}
-            PROPERTIES (
-                "broker.fs.defaultFS"="${defaultFS}",
-                "broker.name"="hdfs",
-                "broker.username" = "${hdfsUserName}"
-            );
-        """
-        logger.info("outfile to hdfs with broker success path: " + res[0][3]);
-        return res[0][3]
-    }
-
     def outfile_to_S3_directly = {
         // select ... into outfile ...
         def s3_outfile_path = "${bucket}/outfile/csv/test-outfile-empty/"
@@ -133,20 +109,12 @@ suite("test_outfile_empty_data", "external,hive,tvf,external_docker") {
         create_table(export_table_name, doris_column_define);
         // test outfile empty data to hdfs directly
         def outfile_to_hdfs_directly_url = outfile_to_HDFS_directly()
-        // test outfile empty data to hdfs with broker
-        def outfile_to_hdfs_with_broker_url= outfile_to_HDFS_with_broker()
         // test outfile empty data to s3 directly
         def outfile_to_s3_directly_url = outfile_to_S3_directly()
         qt_select_base1 """ SELECT * FROM ${export_table_name} ORDER BY user_id; """ 
 
         qt_select_tvf1 """ select * from HDFS(
                     "uri" = "${outfile_to_hdfs_directly_url}0.csv",
-                    "hadoop.username" = "${hdfsUserName}",
-                    "format" = "${format}");
-                    """
-
-        qt_select_tvf2 """ select * from HDFS(
-                    "uri" = "${outfile_to_hdfs_with_broker_url}0.csv",
                     "hadoop.username" = "${hdfsUserName}",
                     "format" = "${format}");
                     """

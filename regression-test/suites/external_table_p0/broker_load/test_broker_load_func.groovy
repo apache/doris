@@ -15,19 +15,18 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_broker_load_func", "p0,external") {
+suite("test_broker_load_func", "p0") {
 
-    String enabled = context.config.otherConfigs.get("enableHiveTest")
-    if (enabled != null && enabled.equalsIgnoreCase("true")) {
+    if (enableHdfs()) {
         try {
-            String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
-            String hdfsPort = context.config.otherConfigs.get("hive2HdfsPort")
-
             String database_name = "test_broker_load_func"
-            String broker_name = "hdfs"
+            String broker_name = getBrokerName()
+            String hdfsUser = getHdfsUser()
+            String hdfsPasswd = getHdfsPasswd()
             def uuid = UUID.randomUUID().toString().replaceAll("-", "")
             def test_load_label="label_test_broker_load_func_${uuid}"
             String table_name="simple"
+            def hdfs_csv_file_path = uploadToHdfs "external_table_p0/broker_load/test_broker_load_func.csv"
 
             sql """drop database if exists ${database_name}; """
             sql """create database if not exists ${database_name};"""
@@ -47,14 +46,14 @@ suite("test_broker_load_func", "p0,external") {
             sql """
                 LOAD LABEL ${database_name}.${test_load_label}
                 (
-                    DATA INFILE("hdfs://${externalEnvIp}:${hdfsPort}/user/doris/preinstalled_data/csv/csv_all_types/csv_all_types")
+                    DATA INFILE("${hdfs_csv_file_path}")
                     INTO TABLE ${table_name}
                     COLUMNS TERMINATED BY ","
                 )
-                WITH BROKER ${broker_name}
+                WITH BROKER "${broker_name}"
                 (
-                     "username"="",
-                     "password"=""
+                     "username"="${hdfsUser}",
+                     "password"="${hdfsPasswd}"
                 );
             """
 

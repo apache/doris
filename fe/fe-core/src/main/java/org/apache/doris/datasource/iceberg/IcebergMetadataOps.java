@@ -178,10 +178,8 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
                     && ((IcebergRestProperties) metaProps).isIcebergRestNestedNamespaceEnabled()) {
                 return nsCatalog.listNamespaces(parentNs)
                         .stream()
-                        .flatMap(childNs -> Stream.concat(
-                                Stream.of(childNs.toString()),
-                                listNestedNamespaces(childNs).stream()
-                        )).collect(Collectors.toList());
+                        .flatMap(this::listNestedNamespacesUnderChild)
+                        .collect(Collectors.toList());
             }
         }
 
@@ -189,6 +187,16 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
                 .stream()
                 .map(n -> n.level(n.length() - 1))
                 .collect(Collectors.toList());
+    }
+
+    private Stream<String> listNestedNamespacesUnderChild(Namespace childNs) {
+        try {
+            return Stream.concat(Stream.of(childNs.toString()), listNestedNamespaces(childNs).stream());
+        } catch (NoSuchNamespaceException e) {
+            LOG.info("Skip namespace {} in catalog {} because it was dropped during namespace listing.",
+                    childNs, dorisCatalog.getName());
+            return Stream.empty();
+        }
     }
 
     @Override
