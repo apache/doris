@@ -26,6 +26,9 @@
 #include "storage/index/snii/common/slice.h"
 #include "storage/index/snii/encoding/byte_sink.h"
 #include "storage/index/snii/encoding/crc32c.h"
+#include "storage/index/snii/encoding/pfor.h"
+#include "storage/index/snii/encoding/zstd_codec.h"
+#include "storage/index/snii/format/format_constants.h"
 
 using doris::snii::ByteSink;
 using doris::snii::Slice;
@@ -366,4 +369,159 @@ TEST(SniiFrqPod, UncompLenCapRejected) {
     U32Vec out_docs;
     Status s = decode_dd_region(Slice(bytes), meta, 0, &out_docs);
     EXPECT_TRUE(s.is<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>());
+}
+
+// ===========================================================================
+// T22 -- emit_region single-copy (raw branch writes the plaintext view straight
+// to `out` with no temp `disk` vector). The raw region's on-disk bytes must equal
+// the plaintext EXACTLY (regions carry no header / no trailing crc), and the meta
+// (disk_len / crc / zstd / uncomp_len) must be unchanged. The zstd branch keeps
+// its own buffer and stays byte-identical. All bytes MUST match the pre-refactor
+// output.
+// ===========================================================================
+
+namespace {
+
+// PFOR_runs(values) wire form: fixed runs of kFrqBaseUnit, run count derived from
+// n (mirrors the in-source encode_pfor_runs so a test can rebuild region bytes).
+void AppendPforRuns(const U32Vec& values, ByteSink* out) {
+    const size_t n = values.size();
+    const size_t unit = doris::snii::format::kFrqBaseUnit;
+    for (size_t off = 0; off < n; off += unit) {
+        const size_t run = (n - off < unit) ? (n - off) : unit;
+        doris::snii::pfor_encode(values.data() + off, run, out);
+    }
+}
+
+// dd_region plaintext (VInt n ++ PFOR_runs(doc_delta)) -- the exact bytes
+// emit_region writes for a raw dd region.
+ByteSink DdPlaintext(const U32Vec& docs, uint64_t win_base) {
+    U32Vec dd(docs.size());
+    uint64_t prev = win_base;
+    for (size_t i = 0; i < docs.size(); ++i) {
+        dd[i] = static_cast<uint32_t>(static_cast<uint64_t>(docs[i]) - prev);
+        prev = docs[i];
+    }
+    ByteSink plain;
+    plain.put_varint32(static_cast<uint32_t>(docs.size()));
+    AppendPforRuns(dd, &plain);
+    return plain;
+}
+
+} // namespace
+
+// [perf-deterministic] FRQ-BYTE-DD: a raw (level=0) dd region's on-disk bytes
+// equal the plaintext exactly, and the meta invariants hold: disk_len ==
+// plain.size(), uncomp_len == plain.size(), crc == crc32c(plain), zstd == false.
+TEST(SniiFrqPodTest, DdRegionRawProducesByteIdenticalOutputAndMeta) {
+    U32Vec docs = {0, 3, 5, 10, 11, 50, 200};
+    const uint64_t win_base = 0;
+    ByteSink out;
+    FrqRegionMeta meta;
+    ASSERT_TRUE(build_dd_region(docs, win_base, /*level=*/0, &out, &meta).ok());
+    ASSERT_FALSE(meta.zstd);
+
+    const ByteSink plain = DdPlaintext(docs, win_base);
+    EXPECT_EQ(out.buffer(), plain.buffer()); // raw region == plaintext, byte-for-byte
+    EXPECT_EQ(meta.disk_len, plain.view().size());
+    EXPECT_EQ(meta.uncomp_len, plain.view().size());
+    EXPECT_EQ(meta.crc, doris::snii::crc32c(plain.view()));
+    EXPECT_EQ(meta.crc, doris::snii::crc32c(Slice(out.buffer())));
+
+    U32Vec got;
+    ASSERT_TRUE(decode_dd_region(Slice(out.buffer()), meta, win_base, &got).ok());
+    EXPECT_EQ(got, docs);
+}
+
+// [perf-deterministic] FRQ-BYTE-FREQ: a raw (level=0) freq region's on-disk bytes
+// equal PFOR_runs(freqs) exactly (no count prefix), with matching meta.
+TEST(SniiFrqPodTest, FreqRegionRawProducesByteIdenticalOutputAndMeta) {
+    U32Vec freqs = {1, 2, 1, 7, 3, 1, 9};
+    ByteSink out;
+    FrqRegionMeta meta;
+    ASSERT_TRUE(build_freq_region(freqs, /*level=*/0, &out, &meta).ok());
+    ASSERT_FALSE(meta.zstd);
+
+    ByteSink plain; // freq_region plaintext == PFOR_runs(freqs)
+    AppendPforRuns(freqs, &plain);
+    EXPECT_EQ(out.buffer(), plain.buffer());
+    EXPECT_EQ(meta.disk_len, plain.view().size());
+    EXPECT_EQ(meta.uncomp_len, plain.view().size());
+    EXPECT_EQ(meta.crc, doris::snii::crc32c(plain.view()));
+
+    U32Vec got;
+    ASSERT_TRUE(decode_freq_region(Slice(out.buffer()), meta, freqs.size(), &got).ok());
+    EXPECT_EQ(got, freqs);
+}
+
+// [perf-deterministic] FRQ-ZSTD-PATH: the zstd branch (level>0) is preserved
+// byte-identical -- the on-disk bytes equal an independent zstd(plaintext) at the
+// same level, with meta.zstd == true, disk_len == comp.size(), uncomp_len ==
+// plaintext size, and a lossless round-trip.
+TEST(SniiFrqPodTest, DdRegionZstdBranchPreservedByteIdentical) {
+    U32Vec docs;
+    uint32_t cur = 0;
+    for (uint32_t i = 0; i < 2048; ++i) {
+        cur += 1 + (i % 4);
+        docs.push_back(cur);
+    }
+    const uint64_t win_base = 0;
+    ByteSink out;
+    FrqRegionMeta meta;
+    ASSERT_TRUE(build_dd_region(docs, win_base, /*level=*/5, &out, &meta).ok());
+    ASSERT_TRUE(meta.zstd);
+
+    const ByteSink plain = DdPlaintext(docs, win_base);
+    std::vector<uint8_t> comp;
+    ASSERT_TRUE(doris::snii::zstd_compress(plain.view(), /*level=*/5, &comp).ok());
+    EXPECT_EQ(out.buffer(), comp);
+    EXPECT_EQ(meta.disk_len, comp.size());
+    EXPECT_EQ(meta.uncomp_len, plain.view().size());
+    EXPECT_EQ(meta.crc, doris::snii::crc32c(Slice(comp)));
+
+    U32Vec got;
+    ASSERT_TRUE(decode_dd_region(Slice(out.buffer()), meta, win_base, &got).ok());
+    EXPECT_EQ(got, docs);
+}
+
+// [functional] FRQ-RT: a raw dd + freq round-trip with the meta raw invariant
+// (disk_len == uncomp_len) checked on both regions -- the single-copy raw path
+// must keep uncomp_len == disk_len so open_region accepts the region.
+TEST(SniiFrqPodTest, RawRegionRoundTripKeepsDiskEqualsUncomp) {
+    U32Vec docs = {100, 103, 104, 200, 201};
+    U32Vec freqs = {1, 4, 2, 1, 9};
+    const uint64_t win_base = 100;
+    ByteSink dd_sink, freq_sink;
+    FrqRegionMeta dd_meta, freq_meta;
+    ASSERT_TRUE(build_dd_region(docs, win_base, /*level=*/0, &dd_sink, &dd_meta).ok());
+    ASSERT_TRUE(build_freq_region(freqs, /*level=*/0, &freq_sink, &freq_meta).ok());
+    EXPECT_FALSE(dd_meta.zstd);
+    EXPECT_FALSE(freq_meta.zstd);
+    EXPECT_EQ(dd_meta.disk_len, dd_meta.uncomp_len);
+    EXPECT_EQ(freq_meta.disk_len, freq_meta.uncomp_len);
+
+    U32Vec out_docs, out_freqs;
+    ASSERT_TRUE(decode_dd_region(Slice(dd_sink.buffer()), dd_meta, win_base, &out_docs).ok());
+    ASSERT_TRUE(
+            decode_freq_region(Slice(freq_sink.buffer()), freq_meta, out_docs.size(), &out_freqs)
+                    .ok());
+    EXPECT_EQ(out_docs, docs);
+    EXPECT_EQ(out_freqs, freqs);
+}
+
+// [functional/boundary] FRQ-DOCCOUNT0: an empty freq region (0 freqs) yields a
+// zero-length region with zero-valued meta and decodes to an empty vector.
+TEST(SniiFrqPodTest, FreqRegionZeroDocCountDecodesEmpty) {
+    U32Vec freqs; // empty term
+    ByteSink out;
+    FrqRegionMeta meta;
+    ASSERT_TRUE(build_freq_region(freqs, /*level=*/0, &out, &meta).ok());
+    EXPECT_EQ(meta.uncomp_len, 0U);
+    EXPECT_EQ(meta.disk_len, 0U);
+    EXPECT_FALSE(meta.zstd);
+    EXPECT_TRUE(out.buffer().empty());
+
+    U32Vec got = {123U}; // sentinel proves decode clears it
+    ASSERT_TRUE(decode_freq_region(Slice(out.buffer()), meta, /*doc_count=*/0, &got).ok());
+    EXPECT_TRUE(got.empty());
 }

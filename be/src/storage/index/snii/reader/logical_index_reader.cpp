@@ -334,9 +334,18 @@ Status LogicalIndexReader::open(io::FileReader* file_reader, IndexTier tier, boo
 }
 
 size_t LogicalIndexReader::memory_usage() const {
+    // meta_block_ retains the raw per-index meta bytes that sti_/dbd_ were decoded
+    // from, so it ALREADY (conservatively) double-counts their ENCODED size. The
+    // sti_/dbd_ heap_bytes() added below charge the DECODED resident copies -- an
+    // over-count, never an under-count. Do NOT drop meta_block_ to "de-dup" this:
+    // the charge feeds InvertedIndexSearcherCache and must not under-report RSS
+    // (which was the pre-fix bug: the derived sti_/dbd_/anchor heap was omitted, so
+    // the cache under-charged and over-committed).
     size_t bytes = sizeof(*this) + meta_block_.capacity() + bsbf_resident_bitset_.capacity();
+    bytes += sti_.heap_bytes();
+    bytes += dbd_.heap_bytes();
     for (const auto& block : resident_dict_blocks_) {
-        bytes += sizeof(block) + block.bytes.capacity();
+        bytes += sizeof(block) + block.bytes.capacity() + block.reader.heap_bytes();
     }
     return bytes;
 }

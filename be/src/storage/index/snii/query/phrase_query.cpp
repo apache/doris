@@ -38,6 +38,7 @@
 #include "storage/index/snii/query/internal/docid_posting_reader.h"
 #include "storage/index/snii/query/internal/docid_set_ops.h"
 #include "storage/index/snii/query/internal/position_math.h"
+#include "storage/index/snii/query/internal/query_test_counters.h"
 #include "storage/index/snii/query/prefix_query.h"
 #include "storage/index/snii/query/term_query.h"
 #include "storage/index/snii/reader/windowed_posting.h"
@@ -1078,11 +1079,42 @@ Status CollectExpectedTailPositions(const std::vector<TermPlan>& plans,
             RETURN_IF_ERROR(ordered[pp]->positions(&span[pp]));
         }
 
+        // Anchor the outer enumeration on the SPARSEST exact term (smallest
+        // per-doc position span), not the hardcoded phrase-position-0 term. The
+        // set of valid phrase starts is anchor-independent -- each valid start
+        // maps 1:1 to exactly one anchor position (anchor_pos = start +
+        // offset[anchor]) -- so enumerating the shortest span and binary-searching
+        // the others yields the identical result set with the fewest outer
+        // iterations. A leading high-frequency exact term no longer forces
+        // O(|span[0]|) work per candidate doc.
+        size_t anchor = 0;
+        auto best = static_cast<size_t>(span[0].second - span[0].first);
+        for (size_t t = 1; t < n; ++t) {
+            const auto sz = static_cast<size_t>(span[t].second - span[t].first);
+            if (sz < best) {
+                best = sz;
+                anchor = t;
+            }
+        }
+        const uint32_t anchor_off = position_offsets[anchor];
+        SNII_QUERY_ADD(anchor_iterations, best);
+
         const size_t expected_begin = out->positions.size();
-        for (const uint32_t* p = span[0].first; p != span[0].second; ++p) {
-            const uint32_t start = *p;
+        for (const uint32_t* p = span[anchor].first; p != span[anchor].second; ++p) {
+            const uint32_t anchor_pos = *p;
+            // Underflow guard: a general anchor (offset > 0) can sit at a position
+            // smaller than its offset, which would wrap `start`. Such a position
+            // admits no valid phrase start and is skipped. (The old span[0] anchor
+            // had offset 0 and could never underflow.)
+            if (anchor_pos < anchor_off) {
+                continue;
+            }
+            const uint32_t start = anchor_pos - anchor_off;
             bool ok = true;
-            for (size_t t = 1; t < n; ++t) {
+            for (size_t t = 0; t < n; ++t) {
+                if (t == anchor) {
+                    continue; // the anchor term's position is satisfied by construction
+                }
                 uint32_t want = 0;
                 if (!internal::add_position_offset(start, position_offsets[t], &want)) {
                     ok = false;
@@ -1171,9 +1203,14 @@ bool contains_any_position(const ExpectedTailPositionSet& expected,
     return false;
 }
 
+// `expected_docids` is the ascending docid projection of `expected.docs`. It is
+// invariant across every tail expansion (it depends only on the const `expected`
+// set, never on `tail`), so the caller builds it ONCE and passes it in by
+// const-ref rather than rebuilding it per tail hit inside this function.
 Status CollectTailMatchesAtExpectedPositions(const LogicalIndexReader& idx,
                                              const ResolvedQueryTerm& tail,
                                              const ExpectedTailPositionSet& expected,
+                                             const std::vector<uint32_t>& expected_docids,
                                              std::vector<uint32_t>* out) {
     if (expected.docs.empty()) {
         return Status::OK();
@@ -1189,12 +1226,6 @@ Status CollectTailMatchesAtExpectedPositions(const LogicalIndexReader& idx,
     }
     RETURN_IF_ERROR(internal::open_preludes(round1, &plans,
                                             /*need_positions=*/true));
-
-    std::vector<uint32_t> expected_docids;
-    expected_docids.reserve(expected.docs.size());
-    for (const ExpectedTailPositions& doc : expected.docs) {
-        expected_docids.push_back(doc.docid);
-    }
 
     std::vector<uint32_t> tail_candidates;
     std::vector<DocidSource> doc_sources;
@@ -1333,12 +1364,24 @@ Status phrase_prefix_query(const LogicalIndexReader& idx, const std::vector<std:
         return Status::OK();
     }
 
+    // Hoist the expected-docid projection out of the per-tail loop: it depends only
+    // on the (const) expected set, is byte-identical for every tail expansion, and
+    // is ascending because expected.docs derives from ascending candidates -- which
+    // satisfies filter_docids_by_conjunction's sorted-input contract.
+    std::vector<uint32_t> expected_docids;
+    expected_docids.reserve(expected.docs.size());
+    for (const ExpectedTailPositions& doc : expected.docs) {
+        expected_docids.push_back(doc.docid);
+    }
+    SNII_QUERY_COUNT(expected_docids_build);
+
     std::vector<uint32_t> acc;
     for (LogicalIndexReader::PrefixHit& hit : tail_hits) {
         ResolvedQueryTerm tail {
                 .entry = std::move(hit.entry), .frq_base = hit.frq_base, .prx_base = hit.prx_base};
         std::vector<uint32_t> tail_docs;
-        RETURN_IF_ERROR(CollectTailMatchesAtExpectedPositions(idx, tail, expected, &tail_docs));
+        RETURN_IF_ERROR(CollectTailMatchesAtExpectedPositions(idx, tail, expected, expected_docids,
+                                                              &tail_docs));
         internal::union_sorted_into(&acc, tail_docs);
     }
     *docids = std::move(acc);

@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <string>
 #include <string_view>
@@ -48,6 +49,17 @@
 // the same prefix/suffix primitives as DictEntry; do not reimplement.
 namespace doris::snii::format {
 
+// SSO-aware heap-byte accounting for a std::string. libstdc++ keeps up to 15
+// chars inline (SSO), so only capacity() > 15 implies a separate heap buffer of
+// capacity()+1 bytes (the +1 is the NUL terminator); an SSO string owns no heap
+// and contributes 0. Shared by the resident format readers' heap_bytes() charge
+// helpers, which back LogicalIndexReader::memory_usage() (the searcher-cache
+// charge). NOTE: the threshold 15 is libstdc++-specific; a different standard
+// library needs a different SSO bound here.
+inline size_t std_string_heap_bytes(const std::string& s) {
+    return s.capacity() > 15 ? s.capacity() + 1 : 0;
+}
+
 // Builder: appends the first_term of each DICT block in block ordinal order (must be strictly ascending),
 // and serializes the entire set into a single kSampledTermIndex framed section on finish.
 class SampledTermIndexBuilder {
@@ -77,6 +89,12 @@ public:
     Status locate(std::string_view target, bool* maybe_present, uint32_t* block_ordinal) const;
 
     uint32_t n_blocks() const { return static_cast<uint32_t>(sample_terms_.size()); }
+
+    // Resident heap held beyond sizeof(*this): the sample_terms_ vector buffer
+    // plus each non-SSO term's heap allocation. Summed into
+    // LogicalIndexReader::memory_usage() so the searcher-cache charge reflects the
+    // decoded sampled index (previously omitted -> under-charge -> over-commit).
+    size_t heap_bytes() const;
 
 private:
     std::vector<std::string> sample_terms_;

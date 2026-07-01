@@ -26,6 +26,7 @@
 #include "storage/index/inverted/query/query_info.h"
 #include "storage/index/inverted/util/reader.h"
 #include "storage/index/snii/format/format_constants.h"
+#include "storage/index/snii/snii_phrase_bigram_build.h"
 #include "storage/index/snii/writer/memory_reporter.h"
 #include "storage/index/snii/writer/spimi_term_buffer.h"
 #include "util/slice.h"
@@ -73,6 +74,11 @@ private:
     std::unique_ptr<::doris::snii::writer::MemoryReporter> _memory_reporter;
     std::unique_ptr<::doris::snii::writer::SpimiTermBuffer> _term_buffer;
     std::vector<uint32_t> _null_docids;
+    // Reused across every _add_phrase_bigram_tokens call: clear() keeps the
+    // backing capacity so the per-row phrase-bigram build stops re-allocating a
+    // fresh positioned-term vector on each text row/array element. Single-threaded
+    // per-column build state (see _add_phrase_bigram_tokens).
+    std::vector<PhrasePositionedTerm> _bigram_positioned;
 };
 
 } // namespace doris::segment_v2

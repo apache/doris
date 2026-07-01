@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <vector>
 
@@ -78,6 +79,11 @@ public:
     static Status open(Slice section, DictBlockDirectoryReader* out);
 
     uint32_t n_blocks() const { return static_cast<uint32_t>(refs_.size()); }
+
+    // Resident heap held beyond sizeof(*this): the refs_ vector buffer. BlockRef
+    // is trivially copyable (no per-element heap), so the vector buffer is the
+    // whole charge. Summed into LogicalIndexReader::memory_usage().
+    size_t heap_bytes() const { return refs_.capacity() * sizeof(BlockRef); }
 
     // Returns the ordinal-th block_ref; ordinal >= n_blocks → kNotFound.
     Status get(uint32_t ordinal, BlockRef* out) const;

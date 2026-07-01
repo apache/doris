@@ -111,6 +111,13 @@ void bitpack_masked(const uint32_t* v, const uint8_t* widths, size_t n, uint8_t 
     if (w == 0) {
         return;
     }
+    // Pre-size for the exact packed byte count (ceil(w*n/8)) so the per-byte put_u8
+    // loop below never reallocates mid-pack. ByteSink::reserve is RELATIVE to out's
+    // current size, and `out` is reused across the PFOR runs of one region, so this
+    // accumulates run-to-run instead of no-op'ing. Capacity-only: the packed bytes
+    // and their values are byte-identical to the un-reserved path.
+    const size_t packed = (static_cast<size_t>(w) * n + 7) / 8;
+    out->reserve(packed);
     const uint32_t mask = low_mask(w);
     uint64_t acc = 0;
     int filled = 0;

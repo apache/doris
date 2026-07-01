@@ -106,64 +106,34 @@ Status SniiIndexColumnWriter::_add_phrase_bigram_tokens(const std::vector<TermIn
         return Status::OK();
     }
 
-    struct PositionedTerm {
-        std::string_view term;
-        uint32_t position = 0;
-    };
-
-    std::vector<PositionedTerm> positioned;
-    positioned.reserve(terms.size());
+    // clear() keeps the backing capacity across rows so this per-row build stops
+    // allocating a fresh positioned-term vector every text value / array element.
+    _bigram_positioned.clear();
     for (const auto& term_info : terms) {
         DCHECK(term_info.is_single_term());
         const std::string_view term = term_info.get_single_term();
         if (!::doris::snii::format::is_phrase_bigram_indexable_term(term)) {
             continue;
         }
-        positioned.push_back({term, position_base + cast_set<uint32_t>(term_info.position)});
+        _bigram_positioned.push_back(
+                {term, position_base + cast_set<uint32_t>(term_info.position)});
     }
-    if (positioned.size() < 2) {
+    if (_bigram_positioned.size() < 2) {
         return Status::OK();
     }
-    std::ranges::sort(positioned, [](const PositionedTerm& lhs, const PositionedTerm& rhs) {
-        if (lhs.position != rhs.position) {
-            return lhs.position < rhs.position;
-        }
-        return lhs.term < rhs.term;
-    });
 
-    size_t left_begin = 0;
-    while (left_begin < positioned.size()) {
-        size_t left_end = left_begin + 1;
-        while (left_end < positioned.size() &&
-               positioned[left_end].position == positioned[left_begin].position) {
-            ++left_end;
-        }
-
-        size_t right_begin = left_end;
-        while (right_begin < positioned.size() &&
-               positioned[right_begin].position <= positioned[left_begin].position) {
-            ++right_begin;
-        }
-        if (right_begin == positioned.size() ||
-            positioned[right_begin].position != positioned[left_begin].position + 1) {
-            left_begin = left_end;
-            continue;
-        }
-        size_t right_end = right_begin + 1;
-        while (right_end < positioned.size() &&
-               positioned[right_end].position == positioned[right_begin].position) {
-            ++right_end;
-        }
-
-        for (size_t l = left_begin; l < left_end; ++l) {
-            for (size_t r = right_begin; r < right_end; ++r) {
-                _term_buffer->add_token(::doris::snii::format::make_phrase_bigram_term(
-                                                positioned[l].term, positioned[r].term),
-                                        docid, positioned[l].position);
-            }
-        }
-        left_begin = left_end;
-    }
+    const bool did_sort = emit_adjacent_phrase_bigrams(
+            _bigram_positioned,
+            [&](std::string_view left, std::string_view right, uint32_t position) {
+                _term_buffer->add_token(::doris::snii::format::make_phrase_bigram_term(left, right),
+                                        docid, position);
+            });
+    // Analyzer token positions are monotonic non-decreasing, so the filtered
+    // positioned terms are already position-ordered and the guard never sorts.
+    // The emitted pair SET (and thus the posting bytes after SpimiTermBuffer
+    // re-sorts on finish) is identical to the pre-refactor primary+secondary-key
+    // sort.
+    DCHECK(!did_sort);
     return Status::OK();
 }
 

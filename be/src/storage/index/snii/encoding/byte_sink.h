@@ -41,6 +41,16 @@ public:
     const std::vector<uint8_t>& buffer() const { return buf_; }
     Slice view() const { return Slice(buf_); }
 
+    // Reserves capacity for `additional` MORE bytes on top of the current size(),
+    // so a caller about to append a known-length run pays at most one reallocation
+    // instead of the geometric-growth reallocs a byte-at-a-time put_u8 loop would
+    // trigger. The argument is RELATIVE (absolute target = size() + additional): a
+    // sink REUSED across encodes (e.g. the shared PFOR-run `out`) keeps accumulating
+    // correctly rather than no-op'ing on a repeated per-run reserve of the same
+    // value. Affects only the backing buffer's capacity -- the emitted bytes are
+    // unchanged.
+    void reserve(size_t additional) { buf_.reserve(buf_.size() + additional); }
+
     // Resets the cursor to empty while RETAINING the backing capacity, so a sink can
     // be reused across many small encodes (e.g. per-window region/prx scratch in the
     // windowed posting builder) without re-allocating each time -- this avoids the

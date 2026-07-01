@@ -29,6 +29,7 @@
 #include "storage/index/snii/encoding/byte_source.h"
 #include "storage/index/snii/encoding/crc32c.h"
 #include "storage/index/snii/encoding/pfor.h"
+#include "storage/index/snii/encoding/section_framer.h"
 #include "storage/index/snii/encoding/zstd_codec.h"
 #include "storage/index/snii/format/format_constants.h"
 
@@ -911,4 +912,296 @@ TEST(SniiPrxPodTest, NullSinkRejected) {
     PerDoc per_doc = {{1, 2}};
     Status s2 = build_prx_window(per_doc, -1, nullptr);
     EXPECT_TRUE(s2.is<doris::ErrorCode::INVALID_ARGUMENT>()) << s2.to_string();
+}
+
+// ===========================================================================
+// T22 -- single-copy framing (write_pfor / write_raw / write_zstd_compressed +
+// SectionFramer::write) and the bitpack capacity reserve. The framing refactor
+// writes [codec/type][len][payload] DIRECTLY into the caller's sink and crc's
+// that span in place (no temp ByteSink), so these tests pin the on-disk bytes to
+// an INDEPENDENT hand-assembly of the wire frame. A wrong crc range, a view()
+// taken at the wrong time, or a wrong start offset shows up as a byte or Status
+// mismatch. All bytes MUST stay identical to the pre-refactor output.
+// ===========================================================================
+
+namespace {
+
+using doris::snii::FramedSection;
+using doris::snii::pfor_decode;
+using doris::snii::SectionFramer;
+
+// Appends the 4-byte crc32c(prefix) tail to `prefix`, returning the full on-disk
+// frame. Mirrors the reader's crc coverage: the crc is over
+// [codec/type][len][payload] ONLY (the bytes already in prefix), never itself.
+std::vector<uint8_t> WithCrc(const ByteSink& prefix) {
+    ByteSink full;
+    full.put_bytes(prefix.view());
+    full.put_fixed32(doris::snii::crc32c(prefix.view()));
+    return full.buffer();
+}
+
+// The RAW/ZSTD plaintext payload (encode_payload_flat wire form): VInt doc_count,
+// then per doc VInt pos_count followed by that doc's position deltas (VInt).
+ByteSink RawPlaintext(const std::vector<uint32_t>& flat, const std::vector<uint32_t>& freqs) {
+    const std::vector<uint32_t> deltas = FlatDeltas(flat, freqs);
+    ByteSink plain;
+    plain.put_varint32(static_cast<uint32_t>(freqs.size()));
+    size_t off = 0;
+    for (uint32_t fc : freqs) {
+        plain.put_varint32(fc);
+        for (uint32_t i = 0; i < fc; ++i) {
+            plain.put_varint32(deltas[off + i]);
+        }
+        off += fc;
+    }
+    return plain;
+}
+
+// Deterministic pseudo-random uint32 run whose values fit in `w` bits, with a
+// couple of exact-`w`-bit values forced so choose_width sees width w. Round-trip
+// must be lossless regardless of the width PFOR actually picks.
+std::vector<uint32_t> MakeWidthRun(uint8_t w, size_t n) {
+    std::vector<uint32_t> run(n, 0U);
+    uint32_t mask = 0;
+    if (w >= 32) {
+        mask = 0xFFFFFFFFU;
+    } else if (w != 0) {
+        mask = (1U << w) - 1U;
+    }
+    uint32_t state = 0x12345678U ^ (static_cast<uint32_t>(w) << 24) ^ static_cast<uint32_t>(n);
+    for (size_t i = 0; i < n; ++i) {
+        state = state * 1664525U + 1013904223U; // LCG
+        run[i] = state & mask;
+    }
+    if (n > 0 && w > 0) {
+        run[0] = mask;     // force a full-width value
+        run[n / 2] = mask; // and one mid-run (exercises exceptions if a smaller w is picked)
+    }
+    return run;
+}
+
+} // namespace
+
+// [perf-deterministic] PRX-BYTE-PFOR: an auto (<512 B) window emits PFOR and its
+// on-disk bytes equal an independent [kPfor][len][payload][crc] hand-assembly,
+// proving write_pfor's single-copy framing is byte-identical.
+TEST(SniiPrxPodTest, PforFramingProducesByteIdenticalOutput) {
+    std::vector<uint32_t> flat = {1, 2, 3, 4, 5};
+    std::vector<uint32_t> freqs = {3, 2};
+    ByteSink sink;
+    ASSERT_TRUE(build_prx_window_flat(flat, freqs, -1, &sink).ok());
+    ASSERT_EQ(sink.view().data()[0], static_cast<uint8_t>(PrxCodec::kPfor));
+
+    const std::vector<uint32_t> deltas = FlatDeltas(flat, freqs);
+    ByteSink payload;
+    payload.put_varint32(static_cast<uint32_t>(freqs.size()));
+    payload.put_varint32(static_cast<uint32_t>(deltas.size()));
+    AppendPforRuns(freqs, &payload);
+    AppendPforRuns(deltas, &payload);
+    ByteSink framed;
+    framed.put_u8(static_cast<uint8_t>(PrxCodec::kPfor));
+    framed.put_varint32(static_cast<uint32_t>(payload.view().size()));
+    framed.put_bytes(payload.view());
+
+    EXPECT_EQ(sink.buffer(), WithCrc(framed));
+}
+
+// [perf-deterministic] PRX-BYTE-RAW: level=0 forces raw; the bytes equal an
+// independent [kRaw][len][plaintext][crc] assembly (write_raw single-copy).
+TEST(SniiPrxPodTest, RawFramingProducesByteIdenticalOutput) {
+    std::vector<uint32_t> flat = {10, 20, 30, 40};
+    std::vector<uint32_t> freqs = {3, 1};
+    ByteSink sink;
+    ASSERT_TRUE(build_prx_window_flat(flat, freqs, /*level=*/0, &sink).ok());
+    ASSERT_EQ(sink.view().data()[0], static_cast<uint8_t>(PrxCodec::kRaw));
+
+    ByteSink plain = RawPlaintext(flat, freqs);
+    ByteSink framed;
+    framed.put_u8(static_cast<uint8_t>(PrxCodec::kRaw));
+    framed.put_varint32(static_cast<uint32_t>(plain.view().size()));
+    framed.put_bytes(plain.view());
+
+    EXPECT_EQ(sink.buffer(), WithCrc(framed));
+}
+
+// [perf-deterministic] PRX-BYTE-ZSTD: level>0 forces zstd; the bytes equal an
+// independent [kZstd][uncomp_len][comp_len][zstd(plaintext)][crc] assembly
+// (write_zstd_compressed single-copy). zstd is deterministic at a fixed level.
+TEST(SniiPrxPodTest, ZstdFramingProducesByteIdenticalOutput) {
+    std::vector<uint32_t> flat, freqs;
+    for (uint32_t d = 0; d < 200; ++d) {
+        flat.push_back(d);
+        freqs.push_back(1);
+    }
+    ByteSink sink;
+    ASSERT_TRUE(build_prx_window_flat(flat, freqs, /*level=*/3, &sink).ok());
+    ASSERT_EQ(sink.view().data()[0], static_cast<uint8_t>(PrxCodec::kZstd));
+
+    ByteSink plain = RawPlaintext(flat, freqs);
+    std::vector<uint8_t> comp;
+    ASSERT_TRUE(doris::snii::zstd_compress(plain.view(), /*level=*/3, &comp).ok());
+    ByteSink framed;
+    framed.put_u8(static_cast<uint8_t>(PrxCodec::kZstd));
+    framed.put_varint32(static_cast<uint32_t>(plain.view().size()));
+    framed.put_varint32(static_cast<uint32_t>(comp.size()));
+    framed.put_bytes(Slice(comp));
+
+    EXPECT_EQ(sink.buffer(), WithCrc(framed));
+
+    // Round-trips losslessly back to the original per-doc positions.
+    PerDoc out;
+    ByteSource src(sink.view());
+    ASSERT_TRUE(read_prx_window(&src, &out).ok());
+    ASSERT_EQ(out.size(), flat.size());
+    for (uint32_t d = 0; d < flat.size(); ++d) {
+        ASSERT_EQ(out[d].size(), 1U);
+        EXPECT_EQ(out[d][0], flat[d]);
+    }
+}
+
+// [perf-deterministic] Two windows appended to ONE sink: the second window's crc
+// must cover only its own [codec][len][payload] (start offset != 0), and each
+// window's bytes must be identical to building it standalone. This is the guard
+// that write_raw / write_pfor use `start = sink->size()` (not absolute 0).
+TEST(SniiPrxPodTest, MultipleWindowsInOneSinkAreFramedByteIdentical) {
+    std::vector<uint32_t> flat_a = {1, 2, 3}, freqs_a = {2, 1}; // -> raw
+    std::vector<uint32_t> flat_b = {5, 6}, freqs_b = {1, 1};    // -> pfor
+    ByteSink combined;
+    ASSERT_TRUE(build_prx_window_flat(flat_a, freqs_a, /*level=*/0, &combined).ok());
+    const size_t boundary = combined.size();
+    ASSERT_TRUE(build_prx_window_flat(flat_b, freqs_b, -1, &combined).ok());
+
+    ByteSink only_a, only_b;
+    ASSERT_TRUE(build_prx_window_flat(flat_a, freqs_a, /*level=*/0, &only_a).ok());
+    ASSERT_TRUE(build_prx_window_flat(flat_b, freqs_b, -1, &only_b).ok());
+    ASSERT_EQ(boundary, only_a.size());
+    ASSERT_EQ(combined.size(), only_a.size() + only_b.size());
+    const std::vector<uint8_t>& c = combined.buffer();
+    EXPECT_EQ(0, std::memcmp(c.data(), only_a.buffer().data(), only_a.size()));
+    EXPECT_EQ(0, std::memcmp(c.data() + boundary, only_b.buffer().data(), only_b.size()));
+
+    // Both windows read back sequentially (crc verified per window).
+    ByteSource src(combined.view());
+    PerDoc a, b;
+    ASSERT_TRUE(read_prx_window(&src, &a).ok());
+    ASSERT_TRUE(read_prx_window(&src, &b).ok());
+    EXPECT_TRUE(src.eof());
+    PerDoc want_a = {{1, 2}, {3}};
+    PerDoc want_b = {{5}, {6}};
+    EXPECT_EQ(a, want_a);
+    EXPECT_EQ(b, want_b);
+}
+
+// [functional/error] PRX-CRC-CORRUPT: flipping a byte inside the raw payload (the
+// crc-covered [codec][len][payload] span) is detected as Corruption -- confirms
+// write_raw's crc range is exactly [codec][len][payload].
+TEST(SniiPrxPodTest, RawFrameCrcCorruptionDetected) {
+    std::vector<uint32_t> flat = {10, 20, 30, 40};
+    std::vector<uint32_t> freqs = {3, 1};
+    ByteSink sink;
+    ASSERT_TRUE(build_prx_window_flat(flat, freqs, /*level=*/0, &sink).ok());
+    ASSERT_EQ(sink.view().data()[0], static_cast<uint8_t>(PrxCodec::kRaw));
+
+    std::vector<uint8_t> bytes = sink.buffer();
+    ASSERT_GT(bytes.size(), 5U);
+    bytes[bytes.size() - 5] ^= 0xFF; // last payload byte, just before the 4-byte crc
+    ByteSource src((Slice(bytes)));
+    PerDoc out;
+    Status s = read_prx_window(&src, &out);
+    EXPECT_TRUE(s.is<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>()) << s.to_string();
+}
+
+// [perf-deterministic] SF-BYTE: SectionFramer::write bytes equal an independent
+// [type][varint64 len][payload][crc] hand-assembly (single-copy framing).
+TEST(SniiPrxPodTest, SectionFramerProducesByteIdenticalOutput) {
+    const std::vector<uint8_t> payload_bytes = {0xDE, 0xAD, 0xBE, 0xEF, 0x00, 0x11, 0x22};
+    const uint8_t type = 7;
+    ByteSink sink;
+    SectionFramer::write(sink, type, Slice(payload_bytes));
+
+    ByteSink framed;
+    framed.put_u8(type);
+    framed.put_varint64(payload_bytes.size());
+    framed.put_bytes(Slice(payload_bytes));
+    EXPECT_EQ(sink.buffer(), WithCrc(framed));
+}
+
+// [perf-deterministic] SectionFramer::write into a NON-empty sink frames ONLY its
+// own region: the crc covers [type][len][payload] starting at `start`, not the
+// pre-existing prefix. Guards the start-offset in the single-copy rewrite.
+TEST(SniiPrxPodTest, SectionFramerFramesOnlyItsOwnRegionInNonEmptySink) {
+    const std::vector<uint8_t> prefix = {0xAA, 0xBB};
+    const std::vector<uint8_t> payload_bytes = {0x01, 0x02, 0x03, 0x04};
+    ByteSink sink;
+    sink.put_bytes(Slice(prefix));
+    SectionFramer::write(sink, /*type=*/5, Slice(payload_bytes));
+
+    ByteSink framed;
+    framed.put_u8(5);
+    framed.put_varint64(payload_bytes.size());
+    framed.put_bytes(Slice(payload_bytes));
+    const std::vector<uint8_t> expected_region = WithCrc(framed);
+
+    const std::vector<uint8_t>& got = sink.buffer();
+    ASSERT_EQ(got.size(), prefix.size() + expected_region.size());
+    EXPECT_EQ(0, std::memcmp(got.data(), prefix.data(), prefix.size()));
+    EXPECT_EQ(0, std::memcmp(got.data() + prefix.size(), expected_region.data(),
+                             expected_region.size()));
+}
+
+// [functional] SF-RT: two sections written into one sink (second at start != 0)
+// both read back with the correct type + payload and the crc verifies.
+TEST(SniiPrxPodTest, SectionFramerWriteReadRoundTripAcrossSections) {
+    const std::vector<uint8_t> p0 = {1, 2, 3};
+    const std::vector<uint8_t> p1 = {9, 8, 7, 6, 5};
+    ByteSink sink;
+    SectionFramer::write(sink, /*type=*/3, Slice(p0));
+    SectionFramer::write(sink, /*type=*/9, Slice(p1));
+
+    ByteSource src(sink.view());
+    FramedSection s0, s1;
+    ASSERT_TRUE(SectionFramer::read(src, &s0).ok());
+    ASSERT_TRUE(SectionFramer::read(src, &s1).ok());
+    EXPECT_TRUE(src.eof());
+    EXPECT_EQ(s0.type, 3);
+    EXPECT_EQ(s1.type, 9);
+    ASSERT_EQ(s0.payload.size(), p0.size());
+    ASSERT_EQ(s1.payload.size(), p1.size());
+    EXPECT_EQ(0, std::memcmp(s0.payload.data(), p0.data(), p0.size()));
+    EXPECT_EQ(0, std::memcmp(s1.payload.data(), p1.data(), p1.size()));
+}
+
+// [functional/error] A corrupted SectionFramer payload byte is caught by the
+// section crc on read (crc range == [type][len][payload]).
+TEST(SniiPrxPodTest, SectionFramerCrcCorruptionDetected) {
+    const std::vector<uint8_t> payload_bytes = {0x10, 0x20, 0x30, 0x40, 0x50};
+    ByteSink sink;
+    SectionFramer::write(sink, /*type=*/4, Slice(payload_bytes));
+    std::vector<uint8_t> bytes = sink.buffer();
+    ASSERT_GT(bytes.size(), 5U);
+    bytes[bytes.size() - 5] ^= 0xFF; // last payload byte, before the crc
+    ByteSource src((Slice(bytes)));
+    FramedSection out;
+    Status s = SectionFramer::read(src, &out);
+    EXPECT_TRUE(s.is<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>()) << s.to_string();
+}
+
+// [functional/boundary] BITPACK-RT: pfor_encode -> pfor_decode round-trips for
+// every value width w in [0,32] at run lengths n = 1, 255, 256 (the kFrqBaseUnit
+// boundary). Proves the bitpack reserve (capacity-only) leaves the packed bytes
+// bit-exact and the decode path recovers every value.
+TEST(SniiPrxPodTest, PforBitpackRoundTripAcrossWidths) {
+    for (uint8_t w = 0; w <= 32; ++w) {
+        for (size_t n : {size_t {1}, size_t {255}, size_t {256}}) {
+            const std::vector<uint32_t> run = MakeWidthRun(w, n);
+            ByteSink sink;
+            pfor_encode(run.data(), n, &sink);
+            std::vector<uint32_t> decoded(n, 0xFFFFFFFFU);
+            ByteSource src(sink.view());
+            ASSERT_TRUE(pfor_decode(&src, n, decoded.data()).ok())
+                    << "w=" << static_cast<int>(w) << " n=" << n;
+            EXPECT_TRUE(src.eof()) << "w=" << static_cast<int>(w) << " n=" << n;
+            EXPECT_EQ(decoded, run) << "w=" << static_cast<int>(w) << " n=" << n;
+        }
+    }
 }

@@ -143,6 +143,14 @@ Status SampledTermIndexReader::open(Slice section, SampledTermIndexReader* out) 
     return parse_payload(sec.payload, &out->sample_terms_);
 }
 
+size_t SampledTermIndexReader::heap_bytes() const {
+    size_t bytes = sample_terms_.capacity() * sizeof(std::string);
+    for (const auto& term : sample_terms_) {
+        bytes += std_string_heap_bytes(term);
+    }
+    return bytes;
+}
+
 Status SampledTermIndexReader::locate(std::string_view target, bool* maybe_present,
                                       uint32_t* block_ordinal) const {
     if (maybe_present == nullptr || block_ordinal == nullptr) {

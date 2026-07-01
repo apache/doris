@@ -49,6 +49,11 @@
 #include "storage/index/snii/query/regexp_query.h"
 #include "storage/index/snii/query/term_query.h"
 #include "storage/index/snii/query/wildcard_query.h"
+// T24 query op-count seam. Define the gate before the include so QueryTestCounters
+// is visible in this TU; it is also auto-enabled library-wide by BE_TEST, so the
+// phrase_query.cpp increments and the reads below share the same singleton.
+#define SNII_QUERY_TEST_COUNTERS
+#include "storage/index/snii/query/internal/query_test_counters.h"
 #include "storage/index/snii/reader/dict_block_cache.h"
 #include "storage/index/snii/reader/logical_index_reader.h"
 #include "storage/index/snii/reader/snii_segment_reader.h"
@@ -256,6 +261,41 @@ TEST(SniiSegmentReaderTest, IndexExistsUsesCachedTailDirectory) {
     assert_ok(segment_reader.index_exists(input.index_id + 1, input.index_suffix, &exists));
     EXPECT_FALSE(exists);
     EXPECT_EQ(file.read_bytes(), 0);
+}
+
+// F35: memory_usage() feeds the InvertedIndexSearcherCache charge and must now
+// account for the resident sampled term index + DICT block directory (previously
+// omitted -> under-charge -> over-commit). Exact per-field equality would need
+// the reader's private members; the observable public properties asserted here
+// are a charge floor (>= sizeof) and monotonic growth with the vocabulary (more
+// DICT blocks -> larger sti_/dbd_ heap). The exact heap_bytes() formula the fix
+// sums is pinned deterministically by the SampledTermIndex / DictBlockDirectory /
+// DictBlock unit tests in snii_writer_test.cpp.
+TEST(SniiSegmentReaderTest, MemoryUsageGrowsWithVocabulary) {
+    auto open_many_term_reader = [](uint32_t n_terms, MemoryFile* file,
+                                    reader::SniiSegmentReader* segment_reader,
+                                    reader::LogicalIndexReader* index_reader) {
+        writer::SniiCompoundWriter writer(file);
+        // target_dict_block_bytes == 128 (make_many_term_input) -> many small DICT
+        // blocks, so a larger vocabulary yields more sampled terms + block refs.
+        assert_ok(writer.add_logical_index(make_many_term_input(7, "Body", n_terms)));
+        assert_ok(writer.finish());
+        assert_ok(reader::SniiSegmentReader::open(file, segment_reader));
+        assert_ok(segment_reader->open_index(7, "Body", index_reader));
+    };
+
+    MemoryFile small_file;
+    reader::SniiSegmentReader small_segment;
+    reader::LogicalIndexReader small_reader;
+    open_many_term_reader(64, &small_file, &small_segment, &small_reader);
+
+    MemoryFile large_file;
+    reader::SniiSegmentReader large_segment;
+    reader::LogicalIndexReader large_reader;
+    open_many_term_reader(4096, &large_file, &large_segment, &large_reader);
+
+    EXPECT_GE(small_reader.memory_usage(), sizeof(reader::LogicalIndexReader));
+    EXPECT_GT(large_reader.memory_usage(), small_reader.memory_usage());
 }
 
 // P1 cold-read fix: a NON-resident bloom is skipped entirely. open() must not
@@ -804,6 +844,292 @@ TEST(SniiPhraseQueryTest, MultiTailPhrasePrefixFiltersTailPrxByExpectedDocs) {
         });
         EXPECT_FALSE(full_tail_prx_read);
     }
+}
+
+// ---------------------------------------------------------------------------
+// T24: phrase-prefix micro-opt (sparsest anchor + expected_docids hoist).
+//
+// build_reader is shared across many SNII suites, so instead of mutating it we
+// build small, self-contained kDocsPositions indexes here. Each scenario uses a
+// distinct tail prefix so prefix_terms() expansion stays isolated per test, and
+// the deterministic op-counters in query_test_counters.h are read directly.
+// ---------------------------------------------------------------------------
+Status build_positions_reader(MemoryFile* file, reader::SniiSegmentReader* segment_reader,
+                              reader::LogicalIndexReader* index_reader,
+                              std::vector<writer::TermPostings> terms, uint32_t doc_count) {
+    writer::SniiIndexInput input;
+    input.index_id = 21;
+    input.index_suffix = "Body";
+    input.config = format::IndexConfig::kDocsPositions;
+    input.doc_count = doc_count;
+    input.terms = std::move(terms);
+    std::ranges::sort(input.terms,
+                      [](const writer::TermPostings& lhs, const writer::TermPostings& rhs) {
+                          return lhs.term < rhs.term;
+                      });
+
+    writer::SniiCompoundWriter writer(file);
+    RETURN_IF_ERROR(writer.add_logical_index(input));
+    RETURN_IF_ERROR(writer.finish());
+    EXPECT_TRUE(file->finalized());
+
+    RETURN_IF_ERROR(reader::SniiSegmentReader::open(file, segment_reader));
+    return segment_reader->open_index(input.index_id, input.index_suffix, index_reader);
+}
+
+// "lead mid axt*": the leading exact term is high-frequency (5 positions/doc) while
+// the middle exact term is a single position/doc -> "mid" is the sparsest exact
+// term and becomes the anchor. doc400 is a valid "lead mid" candidate (expected
+// tail@8) with NO tail term, so it must be filtered out of the final result.
+// NOLINTBEGIN(modernize-use-designated-initializers): positional aggregate init of test posting data
+std::vector<writer::TermPostings> anchor_scenario_terms() {
+    return {make_term("lead", {{100, {0, 3, 6, 9, 12}},
+                               {200, {0, 3, 6, 9, 12}},
+                               {300, {0, 3, 6, 9, 12}},
+                               {400, {0, 3, 6, 9, 12}}}),
+            make_term("mid", {{100, {1}}, {200, {7}}, {300, {7}}, {400, {7}}}),
+            make_term("axta", {{100, {2}}}),  // doc100: lead@0, mid@1 -> tail@2
+            make_term("axtb", {{200, {8}}}),  // doc200: lead@6, mid@7 -> tail@8
+            make_term("axtc", {{300, {8}}})}; // doc300: lead@6, mid@7 -> tail@8
+}
+
+// "dlead dmid dxt*": dlead is a single position/doc (sparsest), dmid is
+// high-frequency. The anchor therefore stays at phrase position 0 (dlead), which
+// is exactly the old span[0] behavior -- the degenerate no-change case.
+std::vector<writer::TermPostings> leading_sparse_scenario_terms() {
+    return {make_term("dlead", {{500, {3}}, {600, {3}}}),
+            make_term("dmid", {{500, {0, 2, 4, 6, 8}}, {600, {0, 2, 4, 6, 8}}}),
+            make_term("dxta", {{500, {5}}}), // dlead@3, dmid@4 -> tail@5
+            make_term("dxtb", {{600, {5}}})};
+}
+
+// "ulead umid uxt*": umid (single position) is the anchor. In doc800 umid sits at
+// position 0, which is < its phrase offset (1), so a general anchor would underflow
+// `start`; the underflow guard skips it and doc800 is correctly excluded.
+std::vector<writer::TermPostings> anchor_underflow_scenario_terms() {
+    return {make_term("ulead", {{800, {5, 9}}, {810, {5, 9}}, {820, {5, 9}}}),
+            make_term("umid", {{800, {0}}, {810, {6}}, {820, {6}}}),
+            make_term("uxta", {{810, {7}}}), // ulead@5, umid@6 -> tail@7
+            make_term("uxtb", {{820, {7}}})};
+}
+// NOLINTEND(modernize-use-designated-initializers)
+
+// FUNC-1: the new sparsest-anchor path produces the correct result set. The anchor
+// (mid) is not phrase-position 0, exercising the general anchor formula + underflow
+// guard; doc400 (candidate, no tail term) is filtered out.
+TEST(SniiPhraseQueryTest, MultiTermPhrasePrefixAnchorsOnSparsestTerm) {
+    MemoryFile file;
+    reader::SniiSegmentReader segment_reader;
+    reader::LogicalIndexReader index_reader;
+    assert_ok(build_positions_reader(&file, &segment_reader, &index_reader, anchor_scenario_terms(),
+                                     /*doc_count=*/500));
+
+    std::vector<uint32_t> docids;
+    assert_ok(phrase_prefix_query(index_reader, {"lead", "mid", "axt"}, &docids, 10));
+
+    const std::vector<uint32_t> expected {100, 200, 300};
+    EXPECT_EQ(docids, expected);
+}
+
+// Perf (deterministic): the outer anchor enumeration size == docs x min_span. With
+// mid as the anchor (1 position/doc) over 4 candidate docs the count is 4, strictly
+// below the old span[0] baseline of Sum|lead| == 4 x 5 == 20.
+TEST(SniiPhraseQueryTest, MultiTermPhrasePrefixAnchorIterationsMinimal) {
+    MemoryFile file;
+    reader::SniiSegmentReader segment_reader;
+    reader::LogicalIndexReader index_reader;
+    assert_ok(build_positions_reader(&file, &segment_reader, &index_reader, anchor_scenario_terms(),
+                                     /*doc_count=*/500));
+
+    internal::query_test_counters() = internal::QueryTestCounters {};
+    std::vector<uint32_t> docids;
+    assert_ok(phrase_prefix_query(index_reader, {"lead", "mid", "axt"}, &docids, 10));
+
+    constexpr uint64_t kCandidateDocs = 4;                     // {100,200,300,400}
+    constexpr uint64_t kMinSpan = 1;                           // mid has one position per doc
+    constexpr uint64_t kOldLeadSpanTotal = kCandidateDocs * 5; // Sum|span[0]| (lead@5pos)
+    EXPECT_EQ(internal::query_test_counters().anchor_iterations, kCandidateDocs * kMinSpan);
+    EXPECT_LT(internal::query_test_counters().anchor_iterations, kOldLeadSpanTotal);
+}
+
+// FUNC-3: when the leading exact term is already the sparsest, the anchor stays at
+// phrase-position 0, so anchor_iterations == Sum|span[0]| exactly (no regression /
+// no change vs. the old hardcoded anchor). Result is still correct.
+TEST(SniiPhraseQueryTest, MultiTermPhrasePrefixLeadingTermSparsestIsDegenerate) {
+    MemoryFile file;
+    reader::SniiSegmentReader segment_reader;
+    reader::LogicalIndexReader index_reader;
+    assert_ok(build_positions_reader(&file, &segment_reader, &index_reader,
+                                     leading_sparse_scenario_terms(), /*doc_count=*/700));
+
+    internal::query_test_counters() = internal::QueryTestCounters {};
+    std::vector<uint32_t> docids;
+    assert_ok(phrase_prefix_query(index_reader, {"dlead", "dmid", "dxt"}, &docids, 10));
+
+    const std::vector<uint32_t> expected {500, 600};
+    EXPECT_EQ(docids, expected);
+    // dlead has one position/doc over 2 docs -> Sum|span[0]| == 2, unchanged.
+    EXPECT_EQ(internal::query_test_counters().anchor_iterations, 2U);
+}
+
+// FUNC-4: a doc whose anchor position is smaller than the anchor's phrase offset
+// (umid@0, offset 1) is skipped by the underflow guard and never false-matches; the
+// two well-formed docs still match via distinct tails.
+TEST(SniiPhraseQueryTest, MultiTermPhrasePrefixSkipsAnchorUnderflowDoc) {
+    MemoryFile file;
+    reader::SniiSegmentReader segment_reader;
+    reader::LogicalIndexReader index_reader;
+    assert_ok(build_positions_reader(&file, &segment_reader, &index_reader,
+                                     anchor_underflow_scenario_terms(), /*doc_count=*/900));
+
+    internal::query_test_counters() = internal::QueryTestCounters {};
+    std::vector<uint32_t> docids;
+    assert_ok(phrase_prefix_query(index_reader, {"ulead", "umid", "uxt"}, &docids, 10));
+
+    const std::vector<uint32_t> expected {810, 820}; // doc800 excluded (underflow)
+    EXPECT_EQ(docids, expected);
+    // 3 candidates {800,810,820}, umid is the single-position anchor -> 3 x 1.
+    EXPECT_EQ(internal::query_test_counters().anchor_iterations, 3U);
+}
+
+// Perf (deterministic): the multi-tail branch materializes expected_docids exactly
+// once per query (hoisted out of the per-tail loop). Here prefix "axt" expands to 3
+// tails; the old per-tail rebuild would have counted 3.
+TEST(SniiPhraseQueryTest, MultiTailPhrasePrefixBuildsExpectedDocidsOnce) {
+    MemoryFile file;
+    reader::SniiSegmentReader segment_reader;
+    reader::LogicalIndexReader index_reader;
+    assert_ok(build_positions_reader(&file, &segment_reader, &index_reader, anchor_scenario_terms(),
+                                     /*doc_count=*/500));
+
+    std::vector<reader::LogicalIndexReader::PrefixHit> tail_hits;
+    assert_ok(index_reader.prefix_terms("axt", &tail_hits, 10));
+    ASSERT_EQ(tail_hits.size(), 3); // axta, axtb, axtc -> multi-tail branch
+
+    internal::query_test_counters() = internal::QueryTestCounters {};
+    std::vector<uint32_t> docids;
+    assert_ok(phrase_prefix_query(index_reader, {"lead", "mid", "axt"}, &docids, 10));
+
+    const std::vector<uint32_t> expected {100, 200, 300};
+    EXPECT_EQ(docids, expected);
+    EXPECT_EQ(internal::query_test_counters().expected_docids_build, 1U);
+}
+
+// FUNC-6: a single tail expansion takes the streaming ExecuteResolvedPhraseTerms
+// path, never the multi-tail branch, so expected_docids_build stays 0. Result is
+// unchanged from SingleTailPhrasePrefixUsesStreamingPhrasePath.
+TEST(SniiPhraseQueryTest, SingleTailPhrasePrefixDoesNotBuildExpectedDocids) {
+    MemoryFile file;
+    reader::SniiSegmentReader segment_reader;
+    reader::LogicalIndexReader index_reader;
+    assert_ok(build_reader(&file, &segment_reader, &index_reader));
+
+    internal::query_test_counters() = internal::QueryTestCounters {};
+    std::vector<uint32_t> docids;
+    assert_ok(phrase_prefix_query(index_reader, {"failed", "orde"}, &docids, 10));
+
+    const std::vector<uint32_t> expected {5000, 7000, 8000};
+    EXPECT_EQ(docids, expected);
+    EXPECT_EQ(internal::query_test_counters().expected_docids_build, 0U);
+}
+
+// FUNC-5: an empty tail expansion returns OK with an empty result before the
+// multi-tail branch, so no expected_docids vector is built.
+TEST(SniiPhraseQueryTest, MultiTermPhrasePrefixEmptyTailExpansionReturnsEmpty) {
+    MemoryFile file;
+    reader::SniiSegmentReader segment_reader;
+    reader::LogicalIndexReader index_reader;
+    assert_ok(build_positions_reader(&file, &segment_reader, &index_reader, anchor_scenario_terms(),
+                                     /*doc_count=*/500));
+
+    internal::query_test_counters() = internal::QueryTestCounters {};
+    std::vector<uint32_t> docids;
+    assert_ok(phrase_prefix_query(index_reader, {"lead", "mid", "zzz"}, &docids, 10));
+
+    EXPECT_TRUE(docids.empty());
+    EXPECT_EQ(internal::query_test_counters().expected_docids_build, 0U);
+}
+
+// FUNC-7: a null output pointer returns InvalidArgument (no crash, no throw).
+TEST(SniiPhraseQueryTest, PhrasePrefixQueryNullOutReturnsInvalidArgument) {
+    MemoryFile file;
+    reader::SniiSegmentReader segment_reader;
+    reader::LogicalIndexReader index_reader;
+    assert_ok(build_positions_reader(&file, &segment_reader, &index_reader, anchor_scenario_terms(),
+                                     /*doc_count=*/500));
+
+    std::vector<uint32_t>* const null_docids = nullptr;
+    EXPECT_TRUE(phrase_prefix_query(index_reader, {"lead", "mid", "axt"}, null_docids, 10)
+                        .is<doris::ErrorCode::INVALID_ARGUMENT>());
+}
+
+// FUNC-8: hidden phrase-bigram terms never leak through the multi-tail prefix path;
+// result matches the non-bigram layout.
+TEST(SniiPhraseQueryTest, MultiTailPhrasePrefixWithHiddenBigramsDoesNotLeak) {
+    MemoryFile file;
+    reader::SniiSegmentReader segment_reader;
+    reader::LogicalIndexReader index_reader;
+    assert_ok(build_reader(&file, &segment_reader, &index_reader, /*include_phrase_bigrams=*/true));
+
+    std::vector<uint32_t> docids;
+    assert_ok(phrase_prefix_query(index_reader, {"failed", "ord"}, &docids, 10));
+
+    const std::vector<uint32_t> expected {5000, 6000, 7000, 8000};
+    EXPECT_EQ(docids, expected);
+}
+
+// FUNC-2: byte-for-byte result equivalence on the existing fixture across the three
+// canonical phrase-prefix shapes (multi-tail single-exact, single-tail, multi-tail
+// single-doc). Locks the sparsest-anchor + hoist changes as pure optimizations.
+TEST(SniiPhraseQueryTest, MultiTailPhrasePrefixEquivalenceRegression) {
+    MemoryFile file;
+    reader::SniiSegmentReader segment_reader;
+    reader::LogicalIndexReader index_reader;
+    assert_ok(build_reader(&file, &segment_reader, &index_reader));
+
+    std::vector<uint32_t> failed_ord;
+    assert_ok(phrase_prefix_query(index_reader, {"failed", "ord"}, &failed_ord, 10));
+    EXPECT_EQ(failed_ord, (std::vector<uint32_t> {5000, 6000, 7000, 8000}));
+
+    std::vector<uint32_t> failed_orde;
+    assert_ok(phrase_prefix_query(index_reader, {"failed", "orde"}, &failed_orde, 10));
+    EXPECT_EQ(failed_orde, (std::vector<uint32_t> {5000, 7000, 8000}));
+
+    std::vector<uint32_t> needle_ord;
+    assert_ok(phrase_prefix_query(index_reader, {"needle", "ord"}, &needle_ord, 10));
+    EXPECT_EQ(needle_ord, (std::vector<uint32_t> {6000}));
+}
+
+// Perf (deterministic, corroborating): the CPU-only anchor reorder + expected_docids
+// hoist do not change which bytes are fetched (spans/candidates are materialized
+// before anchor selection). Two independently-built identical readers therefore
+// issue an identical, non-zero number of physical reads for the same query.
+TEST(SniiPhraseQueryTest, MultiTermPhrasePrefixDoesNotRegressReadCount) {
+    MemoryFile file_a;
+    reader::SniiSegmentReader segment_a;
+    reader::LogicalIndexReader index_a;
+    assert_ok(build_positions_reader(&file_a, &segment_a, &index_a, anchor_scenario_terms(),
+                                     /*doc_count=*/500));
+    file_a.clear_reads();
+    std::vector<uint32_t> docids_a;
+    assert_ok(phrase_prefix_query(index_a, {"lead", "mid", "axt"}, &docids_a, 10));
+    const size_t reads_a = file_a.reads().size();
+
+    MemoryFile file_b;
+    reader::SniiSegmentReader segment_b;
+    reader::LogicalIndexReader index_b;
+    assert_ok(build_positions_reader(&file_b, &segment_b, &index_b, anchor_scenario_terms(),
+                                     /*doc_count=*/500));
+    file_b.clear_reads();
+    std::vector<uint32_t> docids_b;
+    assert_ok(phrase_prefix_query(index_b, {"lead", "mid", "axt"}, &docids_b, 10));
+    const size_t reads_b = file_b.reads().size();
+
+    EXPECT_EQ(docids_a, docids_b);
+    // T24 is a CPU-only change (sparsest-term anchor + expected_docids hoist), so the
+    // query's physical IO must be unchanged. The small anchor-scenario index is fully
+    // resident, so the read count is a deterministic constant across identical readers.
+    EXPECT_EQ(reads_a, reads_b);
 }
 
 TEST(SniiPhraseQueryTest, MultiTermPhraseUsesPairPrefilter) {

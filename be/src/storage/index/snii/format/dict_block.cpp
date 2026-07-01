@@ -23,6 +23,7 @@
 #include "storage/index/snii/encoding/byte_source.h"
 #include "storage/index/snii/encoding/crc32c.h"
 #include "storage/index/snii/encoding/varint.h"
+#include "storage/index/snii/format/sampled_term_index.h" // std_string_heap_bytes
 
 namespace doris::snii::format {
 
@@ -256,6 +257,15 @@ Status DictBlockReader::open(Slice block, IndexTier tier, bool has_positions,
         out->anchor_terms_[i] = std::move(probe.term);
     }
     return Status::OK();
+}
+
+size_t DictBlockReader::heap_bytes() const {
+    size_t bytes = anchor_offsets_.capacity() * sizeof(uint32_t) +
+                   anchor_terms_.capacity() * sizeof(std::string);
+    for (const auto& term : anchor_terms_) {
+        bytes += std_string_heap_bytes(term);
+    }
+    return bytes;
 }
 
 bool DictBlockReader::locate_anchor(std::string_view target, size_t* anchor_idx) const {

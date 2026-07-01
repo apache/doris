@@ -22,13 +22,17 @@
 namespace doris::snii {
 
 void SectionFramer::write(ByteSink& sink, uint8_t section_type, Slice payload) {
-    // Assemble type+len+payload in a temporary sink, compute crc over the whole thing, then write it all out.
-    ByteSink framed;
-    framed.put_u8(section_type);
-    framed.put_varint64(payload.size());
-    framed.put_bytes(payload);
-    uint32_t crc = crc32c(framed.view());
-    sink.put_bytes(framed.view());
+    // Single-copy framing: write [type][varint64 len][payload] straight into the
+    // target sink, then crc exactly those bytes. view() is taken AFTER the payload
+    // and BEFORE the crc, so subslice([start, framed_len)) is over a settled,
+    // contiguous buffer with no pending realloc/aliasing. Byte-identical to the
+    // former temp-ByteSink assembly, minus one heap alloc + one payload copy.
+    const size_t start = sink.size();
+    sink.put_u8(section_type);
+    sink.put_varint64(payload.size());
+    sink.put_bytes(payload);
+    const size_t framed_len = sink.size() - start;
+    const uint32_t crc = crc32c(sink.view().subslice(start, framed_len));
     sink.put_fixed32(crc);
 }
 

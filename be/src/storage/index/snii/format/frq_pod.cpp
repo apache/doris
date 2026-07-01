@@ -98,17 +98,26 @@ Status emit_region(Slice plain, int level, ByteSink* out, FrqRegionMeta* meta) {
         return Status::Error<ErrorCode::INVALID_ARGUMENT, false>("frq: null region out");
     }
     meta->uncomp_len = plain.size();
-    std::vector<uint8_t> disk;
     if (should_compress(level, plain.size())) {
+        // zstd needs its own buffer: the compressed bytes differ from `plain`.
+        std::vector<uint8_t> disk;
         meta->zstd = true;
         RETURN_IF_ERROR(zstd_compress(plain, level > 0 ? level : kDefaultZstdLevel, &disk));
-    } else {
-        meta->zstd = false;
-        disk.assign(plain.data(), plain.data() + plain.size());
+        meta->disk_len = static_cast<uint64_t>(disk.size());
+        meta->crc = crc32c(Slice(disk));
+        out->put_bytes(Slice(disk));
+        return Status::OK();
     }
-    meta->disk_len = static_cast<uint64_t>(disk.size());
-    meta->crc = crc32c(Slice(disk));
-    out->put_bytes(Slice(disk));
+    // Raw: the on-disk bytes ARE `plain` (a view over the caller's contiguous
+    // ByteSink), so crc and emit straight from it -- no temp `disk` alloc/copy.
+    // disk_len MUST stay == plain.size(): open_region enforces uncomp_len ==
+    // disk_len for raw regions. Byte-identical to the former disk.assign() path
+    // (disk == plain, so crc32c(disk) == crc32c(plain), put_bytes(disk) == same
+    // bytes).
+    meta->zstd = false;
+    meta->disk_len = static_cast<uint64_t>(plain.size());
+    meta->crc = crc32c(plain);
+    out->put_bytes(plain);
     return Status::OK();
 }
 

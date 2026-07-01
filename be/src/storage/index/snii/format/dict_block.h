@@ -162,6 +162,14 @@ public:
     uint64_t prx_base() const { return prx_base_; }
     uint32_t n_entries() const { return n_entries_; }
 
+    // Resident heap held beyond sizeof(*this): the anchor_offsets_ / anchor_terms_
+    // vector buffers plus each non-SSO anchor term's heap allocation. block_ is a
+    // NON-owning view and is deliberately NOT counted here -- its owning buffer is
+    // charged by the caller (the resident block's `bytes` vector, or a
+    // request-scoped decoded block). Summed into
+    // LogicalIndexReader::memory_usage() per resident block.
+    size_t heap_bytes() const;
+
 private:
     // Sequentially scan from anchor anchor_idx to the end of that anchor segment,
     // searching for target.

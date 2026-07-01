@@ -256,12 +256,18 @@ Status decode_pfor_payload(Slice plain, std::vector<std::vector<uint32_t>>* out)
 
 // Writes a PFOR window: codec=pfor, payload, crc(header+payload).
 void write_pfor(Slice payload, ByteSink* sink) {
-    ByteSink framed;
-    framed.put_u8(static_cast<uint8_t>(PrxCodec::kPfor));
-    framed.put_varint32(static_cast<uint32_t>(payload.size()));
-    framed.put_bytes(payload);
-    sink->put_bytes(framed.view());
-    sink->put_fixed32(crc32c(framed.view()));
+    // Single-copy framing: write [codec][varint len][payload] straight into the
+    // caller's sink, then crc exactly those bytes. view() is taken AFTER the
+    // payload and BEFORE the crc, so subslice([start, framed_len)) is over a
+    // settled, contiguous buffer with no pending realloc/aliasing. Byte-identical
+    // to the former temp-ByteSink assembly, minus one heap alloc + one payload copy.
+    const size_t start = sink->size();
+    sink->put_u8(static_cast<uint8_t>(PrxCodec::kPfor));
+    sink->put_varint32(static_cast<uint32_t>(payload.size()));
+    sink->put_bytes(payload);
+    const size_t framed_len = sink->size() - start;
+    const uint32_t crc = crc32c(sink->view().subslice(start, framed_len));
+    sink->put_fixed32(crc);
 }
 
 size_t varint32_size(uint32_t value) {
@@ -303,13 +309,16 @@ size_t zstd_frame_size(size_t plain_size, size_t compressed_size) {
 }
 
 void write_zstd_compressed(Slice plain, Slice compressed, ByteSink* sink) {
-    ByteSink framed;
-    framed.put_u8(static_cast<uint8_t>(PrxCodec::kZstd));
-    framed.put_varint32(static_cast<uint32_t>(plain.size()));
-    framed.put_varint32(static_cast<uint32_t>(compressed.size()));
-    framed.put_bytes(compressed);
-    sink->put_bytes(framed.view());
-    sink->put_fixed32(crc32c(framed.view()));
+    // Single-copy framing (see write_pfor): assemble [codec][uncomp_len][comp_len]
+    // [compressed] in the caller's sink and crc that span before appending the crc.
+    const size_t start = sink->size();
+    sink->put_u8(static_cast<uint8_t>(PrxCodec::kZstd));
+    sink->put_varint32(static_cast<uint32_t>(plain.size()));
+    sink->put_varint32(static_cast<uint32_t>(compressed.size()));
+    sink->put_bytes(compressed);
+    const size_t framed_len = sink->size() - start;
+    const uint32_t crc = crc32c(sink->view().subslice(start, framed_len));
+    sink->put_fixed32(crc);
 }
 
 Status write_auto_pfor_or_zstd(Slice pfor_payload, Slice plain_payload, ByteSink* sink) {
@@ -713,12 +722,15 @@ bool should_compress(int level, size_t plain_len) {
 
 // Write a raw window: codec=raw, uncomp_len, crc(header+payload), payload.
 void write_raw(Slice plain, ByteSink* sink) {
-    ByteSink framed;
-    framed.put_u8(static_cast<uint8_t>(PrxCodec::kRaw));
-    framed.put_varint32(static_cast<uint32_t>(plain.size()));
-    framed.put_bytes(plain);
-    sink->put_bytes(framed.view());
-    sink->put_fixed32(crc32c(framed.view()));
+    // Single-copy framing (see write_pfor): assemble [codec][uncomp_len][payload]
+    // in the caller's sink and crc that span before appending the crc.
+    const size_t start = sink->size();
+    sink->put_u8(static_cast<uint8_t>(PrxCodec::kRaw));
+    sink->put_varint32(static_cast<uint32_t>(plain.size()));
+    sink->put_bytes(plain);
+    const size_t framed_len = sink->size() - start;
+    const uint32_t crc = crc32c(sink->view().subslice(start, framed_len));
+    sink->put_fixed32(crc);
 }
 
 // Write a zstd window: codec=zstd, uncomp_len, comp_len, crc(header+payload),

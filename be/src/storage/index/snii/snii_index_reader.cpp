@@ -297,11 +297,27 @@ Status SniiIndexReader::_parse_query_terms(const IndexQueryContextPtr& context,
     }
     if (query_type == InvertedIndexQueryType::MATCH_PHRASE_QUERY ||
         query_type == InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY) {
+        // parse_phrase_slop MUST run first: it strips a trailing ~N slop suffix off
+        // search_str and records it in query_info before tokenization.
         parse_phrase_slop(&search_str, query_info);
         SCOPED_RAW_TIMER(&context->stats->inverted_index_analyzer_timer);
         try {
-            query_info->term_infos = inverted_index::InvertedIndexAnalyzer::get_analyse_result(
-                    search_str, _index_meta.properties());
+            // Mirror the non-phrase branch below: reuse the per-query-expr
+            // analyzer_ctx (built once and shared across segments) instead of
+            // rebuilding a CLucene analyzer per segment from properties. Falls back
+            // to the properties path when analyzer_ctx is absent (internal callers).
+            if (analyzer_ctx != nullptr && !analyzer_ctx->should_tokenize()) {
+                query_info->term_infos.emplace_back(search_str);
+            } else if (analyzer_ctx != nullptr && analyzer_ctx->analyzer != nullptr) {
+                auto reader = inverted_index::InvertedIndexAnalyzer::create_reader(
+                        analyzer_ctx->char_filter_map);
+                reader->init(search_str.data(), static_cast<int32_t>(search_str.size()), true);
+                query_info->term_infos = inverted_index::InvertedIndexAnalyzer::get_analyse_result(
+                        reader, analyzer_ctx->analyzer.get());
+            } else {
+                query_info->term_infos = inverted_index::InvertedIndexAnalyzer::get_analyse_result(
+                        search_str, _index_meta.properties());
+            }
         } catch (const CLuceneError& e) {
             return Status::Error<ErrorCode::INVERTED_INDEX_ANALYZER_ERROR>(
                     "SNII analyze query failed: {}", e.what());
