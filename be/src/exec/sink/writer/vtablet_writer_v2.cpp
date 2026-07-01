@@ -813,9 +813,8 @@ Status VTabletWriterV2::_close_wait(
     Status status;
     auto streams_for_node = _load_stream_map->get_streams_for_node();
     auto streams_to_collect_profile = unfinished_streams;
-    Defer collect_load_stream_profiles {[&]() {
-        _collect_load_stream_profiles(streams_for_node, streams_to_collect_profile);
-    }};
+    Defer collect_load_stream_profiles {
+            [&]() { _collect_load_stream_profiles(streams_for_node, streams_to_collect_profile); }};
     // 1. first wait for quorum success
     std::unordered_set<int64_t> need_finish_tablets;
     auto partition_ids = _tablet_finder->partition_ids();

@@ -59,7 +59,8 @@ const int64_t src_id = 1000;
 static TRuntimeProfileTree create_remote_load_stream_profile(int64_t counter_value) {
     RuntimeProfile remote_profile("LoadStream");
     auto* index_stream_profile = remote_profile.create_child("IndexStream 10", true, true);
-    auto* tablet_stream_profile = index_stream_profile->create_child("TabletStream 10001", true, true);
+    auto* tablet_stream_profile =
+            index_stream_profile->create_child("TabletStream 10001", true, true);
     auto* rowset_builder_profile =
             tablet_stream_profile->create_child("RowsetBuilder 10001", true, true);
     COUNTER_SET(ADD_TIMER(rowset_builder_profile, "BuildRowsetTime"), counter_value);
@@ -235,8 +236,9 @@ TEST_F(TestVTabletWriterV2, load_stream_profiles_from_backends_should_not_merge_
     MockRuntimeState state;
     auto writer = create_vtablet_writer();
     writer->_state = &state;
-    writer->_collect_load_stream_profiles(load_stream_map->get_streams_for_node(),
-                                          {backend1_stream, backend1_second_stream, backend2_stream});
+    writer->_collect_load_stream_profiles(
+            load_stream_map->get_streams_for_node(),
+            {backend1_stream, backend1_second_stream, backend2_stream});
 
     auto* load_stream_from_backend1 =
             state.load_channel_profile()->get_child("LoadStream dst_id=101 stream_idx=0");
@@ -249,7 +251,8 @@ TEST_F(TestVTabletWriterV2, load_stream_profiles_from_backends_should_not_merge_
     ASSERT_NE(nullptr, load_stream_from_backend2);
 
     auto* backend1_index_stream = load_stream_from_backend1->get_child("IndexStream 10");
-    auto* backend1_second_index_stream = second_load_stream_from_backend1->get_child("IndexStream 10");
+    auto* backend1_second_index_stream =
+            second_load_stream_from_backend1->get_child("IndexStream 10");
     auto* backend2_index_stream = load_stream_from_backend2->get_child("IndexStream 10");
     ASSERT_NE(nullptr, backend1_index_stream);
     ASSERT_NE(nullptr, backend1_second_index_stream);
