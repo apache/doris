@@ -47,6 +47,17 @@ under the License.
             <version>${project.version}</version>
         </dependency>
 
+        <!-- Shared HMS module: supplies Doris's version-aware org.apache.hadoop.hive.metastore.HiveMetaStoreClient
+             (bundled in fe-connector-hms-*.jar, which sorts before hive-catalog-shade-*.jar in the plugin lib so
+             it shadows the shaded, unpatched client). Required for the hms flavor: without it, iceberg's
+             HiveCatalog uses the Hive-3 "@cat#" db-name marker that a Hive-1/2 metastore rejects, so list/get
+             database return empty (see HiveMetaStoreClient header). Same module fe-connector-hive reuses. -->
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-connector-hms</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
         <!-- Shared low-level utilities: the NamedArguments / ArgumentParsers argument framework used by the
              ALTER TABLE EXECUTE procedure bodies (the engine validates against the same fe-foundation code).
              fe-foundation has zero fe-core dependencies and a non-gated package (org.apache.doris.foundation),
