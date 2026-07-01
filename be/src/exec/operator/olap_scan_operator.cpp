@@ -229,6 +229,16 @@ Status OlapScanLocalState::_init_profile() {
     _stats_filtered_counter = ADD_COUNTER(_segment_profile, "RowsStatsFiltered", TUnit::UNIT);
     _stats_rp_filtered_counter =
             ADD_COUNTER(_segment_profile, "RowsZoneMapRuntimePredicateFiltered", TUnit::UNIT);
+    _expr_zonemap_filtered_segment_counter =
+            ADD_COUNTER(_segment_profile, "ExprZoneMapFilteredSegments", TUnit::UNIT);
+    _expr_zonemap_filtered_page_counter =
+            ADD_COUNTER(_segment_profile, "ExprZoneMapFilteredPages", TUnit::UNIT);
+    _expr_zonemap_unusable_counter =
+            ADD_COUNTER(_segment_profile, "ExprZoneMapUnusableEvals", TUnit::UNIT);
+    _in_zonemap_point_check_counter =
+            ADD_COUNTER(_segment_profile, "InZoneMapPointCheckCount", TUnit::UNIT);
+    _in_zonemap_range_only_counter =
+            ADD_COUNTER(_segment_profile, "InZoneMapRangeOnlyCount", TUnit::UNIT);
     _bf_filtered_counter = ADD_COUNTER(_segment_profile, "RowsBloomFilterFiltered", TUnit::UNIT);
     _dict_filtered_counter = ADD_COUNTER(_segment_profile, "SegmentDictFiltered", TUnit::UNIT);
     _del_filtered_counter = ADD_COUNTER(_scanner_profile, "RowsDelFiltered", TUnit::UNIT);

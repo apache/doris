@@ -61,6 +61,7 @@
 #include "storage/index/ann/ann_index_iterator.h"
 #include "storage/index/ann/ann_search_params.h"
 #include "storage/index/index_reader.h"
+#include "storage/index/zone_map/zonemap_eval_context.h"
 #include "storage/segment/column_reader.h"
 #include "storage/segment/virtual_column_iterator.h"
 
@@ -206,6 +207,15 @@ Status VectorizedFnCall::evaluate_inverted_index(VExprContext* context, uint32_t
         return Status::OK();
     }
     return _evaluate_inverted_index(context, _function, segment_num_rows);
+}
+
+ZoneMapFilterResult VectorizedFnCall::evaluate_zonemap_filter(const ZoneMapEvalContext& ctx) const {
+    return _function->evaluate_zonemap_filter(ctx, _children);
+}
+
+bool VectorizedFnCall::can_evaluate_zonemap_filter() const {
+    return _function != nullptr && !_function->is_blockable() &&
+           _function->can_evaluate_zonemap_filter(_children);
 }
 
 Status VectorizedFnCall::_do_execute(VExprContext* context, const Block* block,
