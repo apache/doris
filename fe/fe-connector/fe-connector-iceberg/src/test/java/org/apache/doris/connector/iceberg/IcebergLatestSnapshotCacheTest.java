@@ -22,11 +22,13 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * Unit tests for {@link IcebergLatestSnapshotCache} (T08, mirrors PaimonLatestSnapshotCacheTest).
- * Uses an injectable nano-clock so TTL expiry is deterministic without sleeping.
+ * Unit tests for {@link IcebergLatestSnapshotCache} (mirrors PaimonLatestSnapshotCacheTest). The cache is now
+ * backed by the shared {@link org.apache.doris.connector.cache.MetaCacheEntry} framework; these tests cover the
+ * adapter's contract — within-TTL stability, the {@code ttl <= 0} disable, and invalidation. Timed-expiry
+ * mechanics (Caffeine {@code expireAfterAccess}) are the framework's responsibility and are covered by
+ * {@code MetaCacheEntryTest}, so they are not re-proven here (no injectable clock).
  */
 public class IcebergLatestSnapshotCacheTest {
 
@@ -37,8 +39,7 @@ public class IcebergLatestSnapshotCacheTest {
     @Test
     public void cachesWithinTtlAndServesStaleSnapshot() {
         AtomicInteger loads = new AtomicInteger();
-        AtomicLong now = new AtomicLong(0);
-        IcebergLatestSnapshotCache c = new IcebergLatestSnapshotCache(100, 1000, now::get);
+        IcebergLatestSnapshotCache c = new IcebergLatestSnapshotCache(100, 1000);
 
         IcebergLatestSnapshotCache.CachedSnapshot first = c.getOrLoad(id(), () -> {
             loads.incrementAndGet();
@@ -83,10 +84,30 @@ public class IcebergLatestSnapshotCacheTest {
     }
 
     @Test
+    public void negativeTtlDisablesCachingAlwaysLive() {
+        // ttl-second=-1 (or any negative) is still the no-cache catalog. This guards the CacheSpec trap where
+        // ttl == -1 means "no expiration (enabled)": the adapter must translate "<= 0" to disabled, NOT pass
+        // -1 through. MUTATION: passing ttlSeconds straight into CacheSpec -> -1 becomes a never-expiring cache
+        // -> loads==1 / second==1 -> red.
+        AtomicInteger loads = new AtomicInteger();
+        IcebergLatestSnapshotCache c = new IcebergLatestSnapshotCache(-1, 1000);
+        c.getOrLoad(id(), () -> {
+            loads.incrementAndGet();
+            return new IcebergLatestSnapshotCache.CachedSnapshot(1L, 11L);
+        });
+        IcebergLatestSnapshotCache.CachedSnapshot second = c.getOrLoad(id(), () -> {
+            loads.incrementAndGet();
+            return new IcebergLatestSnapshotCache.CachedSnapshot(2L, 22L);
+        });
+        Assertions.assertEquals(2L, second.snapshotId, "ttl-second=-1 must always read the live snapshot");
+        Assertions.assertEquals(2, loads.get());
+        Assertions.assertFalse(c.isEnabled());
+    }
+
+    @Test
     public void invalidateForcesReload() {
         AtomicInteger loads = new AtomicInteger();
-        AtomicLong now = new AtomicLong(0);
-        IcebergLatestSnapshotCache c = new IcebergLatestSnapshotCache(100, 1000, now::get);
+        IcebergLatestSnapshotCache c = new IcebergLatestSnapshotCache(100, 1000);
         c.getOrLoad(id(), () -> {
             loads.incrementAndGet();
             return new IcebergLatestSnapshotCache.CachedSnapshot(1L, 11L);
@@ -103,29 +124,8 @@ public class IcebergLatestSnapshotCacheTest {
     }
 
     @Test
-    public void expiresAfterTtlNanos() {
-        AtomicInteger loads = new AtomicInteger();
-        AtomicLong now = new AtomicLong(0);
-        // ttl = 1 second -> 1e9 ns.
-        IcebergLatestSnapshotCache c = new IcebergLatestSnapshotCache(1, 1000, now::get);
-        c.getOrLoad(id(), () -> {
-            loads.incrementAndGet();
-            return new IcebergLatestSnapshotCache.CachedSnapshot(1L, 11L);
-        });
-        now.set(2_000_000_000L); // 2s later, past the 1s TTL
-        IcebergLatestSnapshotCache.CachedSnapshot after = c.getOrLoad(id(), () -> {
-            loads.incrementAndGet();
-            return new IcebergLatestSnapshotCache.CachedSnapshot(2L, 22L);
-        });
-        // MUTATION: never expiring -> returns 1 / loads==1 -> red.
-        Assertions.assertEquals(2L, after.snapshotId, "an entry past its TTL must be reloaded");
-        Assertions.assertEquals(2, loads.get());
-    }
-
-    @Test
     public void invalidateAllClearsEverything() {
-        AtomicLong now = new AtomicLong(0);
-        IcebergLatestSnapshotCache c = new IcebergLatestSnapshotCache(100, 1000, now::get);
+        IcebergLatestSnapshotCache c = new IcebergLatestSnapshotCache(100, 1000);
         c.getOrLoad(TableIdentifier.of("db", "t1"),
                 () -> new IcebergLatestSnapshotCache.CachedSnapshot(1L, 11L));
         c.getOrLoad(TableIdentifier.of("db", "t2"),

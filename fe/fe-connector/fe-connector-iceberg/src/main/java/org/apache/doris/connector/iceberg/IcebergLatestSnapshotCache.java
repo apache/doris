@@ -17,12 +17,12 @@
 
 package org.apache.doris.connector.iceberg;
 
+import org.apache.doris.connector.cache.CacheSpec;
+import org.apache.doris.connector.cache.MetaCacheEntry;
+
 import org.apache.iceberg.catalog.TableIdentifier;
 
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.TimeUnit;
-import java.util.function.LongSupplier;
+import java.util.concurrent.ForkJoinPool;
 import java.util.function.Supplier;
 
 /**
@@ -42,9 +42,12 @@ import java.util.function.Supplier;
  * within one pin could observe a snapshotId/schemaId skew. The value type therefore ports legacy
  * {@code IcebergSnapshot}'s {@code (snapshotId, schemaId)} shape.
  *
- * <p>TTL is {@code meta.cache.iceberg.table.ttl-second}: {@code <= 0} disables caching (every read goes live,
- * matching the legacy "no-cache" catalog). Expiry is access-based. A best-effort size bound flushes wholesale
- * on overflow (re-reads are harmless — the value is the live latest snapshot). Lives on the long-lived
+ * <p>Backed by the shared {@link MetaCacheEntry} framework (independent-copy meta-cache migration): a
+ * contextual, access-TTL entry whose per-query loader is supplied at {@link #getOrLoad}. TTL is
+ * {@code meta.cache.iceberg.table.ttl-second}: {@code <= 0} disables caching (every read goes live, matching
+ * the legacy "no-cache" catalog); a positive value is Caffeine {@code expireAfterAccess} with a
+ * {@code maxSize} capacity (real LRU eviction, replacing the former clear-on-overflow). Manual miss-load is
+ * on so the loader runs OUTSIDE Caffeine's compute lock (single-flight per key). Lives on the long-lived
  * per-catalog {@link IcebergConnector}; a REFRESH CATALOG rebuilds the connector and thus the cache.
  */
 final class IcebergLatestSnapshotCache {
@@ -60,74 +63,50 @@ final class IcebergLatestSnapshotCache {
         }
     }
 
-    private static final class Entry {
-        final CachedSnapshot value;
-        volatile long expireAtNanos;
-
-        Entry(CachedSnapshot value, long expireAtNanos) {
-            this.value = value;
-            this.expireAtNanos = expireAtNanos;
-        }
-    }
-
-    private final Map<TableIdentifier, Entry> cache = new ConcurrentHashMap<>();
-    private final long ttlNanos;
-    private final int maxSize;
-    private final LongSupplier nanoClock;
+    private final MetaCacheEntry<TableIdentifier, CachedSnapshot> entry;
 
     IcebergLatestSnapshotCache(long ttlSeconds, int maxSize) {
-        this(ttlSeconds, maxSize, System::nanoTime);
-    }
-
-    /** Visible for testing: injectable clock so TTL expiry is deterministic without sleeping. */
-    IcebergLatestSnapshotCache(long ttlSeconds, int maxSize, LongSupplier nanoClock) {
-        this.ttlNanos = ttlSeconds <= 0 ? 0L : TimeUnit.SECONDS.toNanos(ttlSeconds);
-        this.maxSize = Math.max(1, maxSize);
-        this.nanoClock = nanoClock;
+        // ttl-second <= 0 disables caching (always read live); a positive ttl is access-based expiry with the
+        // given capacity. CacheSpec treats ttl == -1 as "no expiration (enabled)" and ttl == 0 as "disabled",
+        // so translate the connector's "<= 0 disables" contract to ttl == 0 rather than passing a negative
+        // value straight through (which would otherwise flip -1 into a never-expiring cache).
+        CacheSpec spec = ttlSeconds > 0
+                ? CacheSpec.of(true, ttlSeconds, maxSize)
+                : CacheSpec.of(true, CacheSpec.CACHE_TTL_DISABLE_CACHE, maxSize);
+        this.entry = new MetaCacheEntry<>("iceberg-latest-snapshot", null, spec,
+                ForkJoinPool.commonPool(), false, true, 0L, true);
     }
 
     /** Caching is on only when the TTL is positive; ttl-second &lt;= 0 means "always read live". */
     boolean isEnabled() {
-        return ttlNanos > 0;
+        return entry.stats().isEffectiveEnabled();
     }
 
     /**
      * Returns the cached latest snapshot for {@code identifier} if present and unexpired, else runs
      * {@code loader} (the live {@code currentSnapshot()} + latest-schema read), caches and returns it. When
      * caching is disabled ({@link #isEnabled()} is false) {@code loader} runs every call and nothing is cached.
-     * A hit refreshes the entry's expiry (access-based). The loader runs OUTSIDE any lock; a concurrent
-     * same-key miss may load twice (harmless — the value is the current live snapshot).
+     * A hit refreshes the entry's expiry (access-based). The loader runs OUTSIDE Caffeine's compute lock
+     * (single-flight per key); a disabled entry bypasses the cache entirely and always loads.
      */
     CachedSnapshot getOrLoad(TableIdentifier identifier, Supplier<CachedSnapshot> loader) {
-        if (ttlNanos <= 0) {
-            return loader.get();
-        }
-        long now = nanoClock.getAsLong();
-        Entry hit = cache.get(identifier);
-        if (hit != null && now - hit.expireAtNanos < 0) {
-            hit.expireAtNanos = now + ttlNanos;
-            return hit.value;
-        }
-        CachedSnapshot loaded = loader.get();
-        if (cache.size() >= maxSize) {
-            cache.clear();
-        }
-        cache.put(identifier, new Entry(loaded, now + ttlNanos));
-        return loaded;
+        return entry.get(identifier, ignored -> loader.get());
     }
 
     /** Drops the cached entry for one table so the next read goes live (REFRESH TABLE). */
     void invalidate(TableIdentifier identifier) {
-        cache.remove(identifier);
+        entry.invalidateKey(identifier);
     }
 
     /** Drops all cached entries. */
     void invalidateAll() {
-        cache.clear();
+        entry.invalidateAll();
     }
 
-    /** Test-only: current number of cached entries. */
+    /** Test-only: current number of cached entries (accurate map membership, not Caffeine's estimate). */
     int size() {
-        return cache.size();
+        int[] count = {0};
+        entry.forEach((key, value) -> count[0]++);
+        return count[0];
     }
 }
