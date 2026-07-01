@@ -1,6 +1,7 @@
 # Design — Porting the connector hand-rolled caches onto the copied cache framework
 
-Status: **In progress (2026-07-01)** · Branch: `catalog-spi-10-iceberg`
+Status: **DONE — all three caches ported, unit + full-module verified; flip-gated e2e pending (2026-07-01)** ·
+Branch: `catalog-spi-10-iceberg`
 Parent design: [metacache-framework-unification-design.md](./metacache-framework-unification-design.md) (§5 P3–P5)
 Scope this round (user, 2026-07-01): **iceberg + paimon together** — all three hand-rolled caches.
 
@@ -95,22 +96,36 @@ adapter must NOT pass a `<= 0` ttl straight through. Mapping:
 
 ---
 
-## 4. Implementation plan (independent commits)
+## 4. Implementation plan (independent commits) — ALL DONE
 
-- **C1 — packaging prerequisite (DONE, verified):** `fe-connector-cache` Caffeine `3.2.3 → 2.9.3` (`provided`).
-  Rationale = child-first per-plugin linkage against iceberg's 2.9.3. Build + 20 framework tests green.
-- **C2 — iceberg latest-snapshot adapter:** rewrite `IcebergLatestSnapshotCache` internals to hold a
-  `MetaCacheEntry<TableIdentifier, CachedSnapshot>`; keep `CachedSnapshot`, `getOrLoad`, `invalidate`,
-  `invalidateAll`. Update its unit test (drop the injectable-clock timing test; test enable/disable/delegate/
-  invalidate behaviorally). Call sites unchanged.
-- **C3 — iceberg manifest adapter:** rewrite `IcebergManifestCache` internals to hold a
-  `MetaCacheEntry<IcebergManifestEntryKey, ManifestCacheValue>`; keep `getManifestCacheValue`,
-  `invalidateAll`, and the static `loadManifestCacheValue` I/O (now the per-call miss loader). Update its test.
-- **C4 — paimon:** add Caffeine 2.9.3 to the paimon plugin pom; rewrite `PaimonLatestSnapshotCache` internals
-  to hold a `MetaCacheEntry<Identifier, Long>` (or a boxed-long value). Update its test.
+- **C1 — packaging prerequisite (`24e4c830aeb`):** `fe-connector-cache` Caffeine `3.2.3 → 2.9.3` (`provided`).
+  Child-first per-plugin linkage against iceberg's 2.9.3. Build + 20 framework tests green.
+- **C2 — iceberg latest-snapshot adapter (`0be2679a7ac`):** `IcebergLatestSnapshotCache` now holds a
+  `MetaCacheEntry<TableIdentifier, CachedSnapshot>`; `CachedSnapshot`/`getOrLoad`/`invalidate`/`invalidateAll`
+  unchanged. Test: dropped injectable-clock timing test, added a `-1` disable-trap guard. 5/5 + connector 6/6.
+- **C3 — iceberg manifest adapter (`bc27505eace`):** `IcebergManifestCache` now holds a
+  `MetaCacheEntry<IcebergManifestEntryKey, ManifestCacheValue>`; static `loadManifestCacheValue` I/O kept as
+  the per-call miss loader. 4/4 + scan-provider 88/88.
+- **C4 — paimon (`47c4bcc6fd9`):** added Caffeine 2.9.3 to the paimon plugin pom; `PaimonLatestSnapshotCache`
+  now holds a `MetaCacheEntry<Identifier, Long>`. Plugin zip verified to bundle exactly `caffeine-2.9.3.jar`
+  (no conflict). 5/5 + connector 4/4.
+- **Doc-fix (`808c0cb0f0c`):** corrected stale "single Class identity" comments in `CacheSpec.java` javadoc +
+  iceberg pom + the two adapter-test javadocs (from the review's one confirmed, doc-only finding).
 
-Each commit builds its module(s) green + connector import gate clean (my files); iceberg/paimon full-module
-tests green.
+**Chosen framework flags (all three adapters):** `contextualOnly=true`, `loader=null` (per-call missLoader via
+`get(key, missLoader)`), `autoRefresh=false`, `manualMissLoadEnabled=true` (loader runs OUTSIDE Caffeine's
+compute lock, single-flight; AND makes the disabled path a definitive bypass — not reliant on async
+`maximumSize(0)` eviction), `refreshAfterWriteSeconds=0`, `executor=ForkJoinPool.commonPool()`. `size()` via
+`forEach` count (accurate map membership); `isEnabled()` via `stats().isEffectiveEnabled()`.
+
+**Verification:** full iceberg + full paimon module suites green (0 failures); checkstyle 0 × 3 modules;
+import gate clean on my files. **Clean-room adversarial review (3 lenses + adversarial verify):** 1 confirmed
+(doc-only, fixed in `808c0cb0f0c`); all behavior/packaging/framework-API findings refuted (capacity==0 disable
+= unreachable, callers hardcode 1000; timed-expiry-coverage = deliberate/covered at framework layer).
+
+**Still flip-gated (NOT run — no cluster this session):** `test_iceberg_table_meta_cache` /
+`test_paimon_table_meta_cache` + a redeploy classloader smoke check (the one thing that end-to-end proves the
+plugin-bundled `MetaCacheEntry` links the plugin's Caffeine correctly).
 
 ---
 
