@@ -339,9 +339,6 @@ private:
     std::vector<TabletReadSource> _read_sources;
 
     std::map<SlotId, VExprContextSPtr> _slot_id_to_virtual_column_expr;
-    std::map<SlotId, size_t> _slot_id_to_index_in_block;
-    // this map is needed for scanner opening.
-    std::map<SlotId, DataTypePtr> _slot_id_to_col_type;
 
     // ---- Runtime-filter partition pruning ----
     // Attaches this per-instance pruner to the shared parse result owned by
