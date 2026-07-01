@@ -273,29 +273,38 @@ public abstract class Resource implements Writable, GsonPostProcessable {
         return GsonUtils.GSON.fromJson(json, Resource.class);
     }
 
-    private static String addLegacyClazzIfMissing(String json) {
+    // Compatibility for legacy Resource JSON written without RuntimeTypeAdapterFactory's "clazz"
+    // discriminator. This can be removed after such old metadata no longer needs to be supported.
+    static String addLegacyClazzIfMissing(String json) {
         JsonElement jsonElement = JsonParser.parseString(json);
         if (!jsonElement.isJsonObject()) {
             return json;
         }
 
         JsonObject jsonObject = jsonElement.getAsJsonObject();
+        if (addLegacyClazzIfMissing(jsonObject)) {
+            return jsonObject.toString();
+        }
+        return json;
+    }
+
+    static boolean addLegacyClazzIfMissing(JsonObject jsonObject) {
         if (jsonObject.has("clazz") || !jsonObject.has("type")) {
-            return json;
+            return false;
         }
 
         JsonElement typeElement = jsonObject.get("type");
         if (!typeElement.isJsonPrimitive()) {
-            return json;
+            return false;
         }
 
         ResourceType resourceType = ResourceType.fromString(typeElement.getAsString());
         String clazz = getLegacyClazz(resourceType);
         if (clazz == null) {
-            return json;
+            return false;
         }
         jsonObject.addProperty("clazz", clazz);
-        return jsonObject.toString();
+        return true;
     }
 
     private static String getLegacyClazz(ResourceType resourceType) {

@@ -19,6 +19,7 @@ package org.apache.doris.persist;
 
 import org.apache.doris.catalog.AzureResource;
 import org.apache.doris.catalog.Resource;
+import org.apache.doris.catalog.ResourceMgr;
 import org.apache.doris.catalog.S3Resource;
 import org.apache.doris.common.io.Text;
 
@@ -67,6 +68,20 @@ public class ResourcePersistTest {
         readResource.readUnlock();
     }
 
+    @Test
+    public void testReadLegacyAzureResourceMgrWithoutClazz() throws IOException {
+        String json = "{\"nameToResource\":{\"legacy_azure_resource\":{\"name\":\"legacy_azure_resource\","
+                + "\"type\":\"AZURE\",\"references\":{},\"id\":123,\"version\":0}}}";
+
+        ResourceMgr resourceMgr = readResourceMgrFromJson(json);
+        Resource readResource = resourceMgr.getResource("legacy_azure_resource");
+        Assert.assertTrue(readResource instanceof AzureResource);
+        Assert.assertEquals("legacy_azure_resource", readResource.getName());
+        Assert.assertEquals(Resource.ResourceType.AZURE, readResource.getType());
+        readResource.readLock();
+        readResource.readUnlock();
+    }
+
     private Resource readWrittenResource(Resource resource) throws IOException {
         ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
         DataOutputStream dos = new DataOutputStream(byteArrayOutputStream);
@@ -91,5 +106,18 @@ public class ResourcePersistTest {
         Resource readResource = Resource.read(dis);
         dis.close();
         return readResource;
+    }
+
+    private ResourceMgr readResourceMgrFromJson(String json) throws IOException {
+        ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream();
+        DataOutputStream dos = new DataOutputStream(byteArrayOutputStream);
+        Text.writeString(dos, json);
+        dos.flush();
+        dos.close();
+
+        DataInputStream dis = new DataInputStream(new ByteArrayInputStream(byteArrayOutputStream.toByteArray()));
+        ResourceMgr resourceMgr = ResourceMgr.read(dis);
+        dis.close();
+        return resourceMgr;
     }
 }
