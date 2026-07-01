@@ -37,24 +37,13 @@ protected:
     void TearDown() override { config::enable_kuromoji_analyzer = _saved; }
 };
 
-TEST_F(KuromojiAnalyzerTest, BuiltinDispatchTokenizes) {
+TEST_F(KuromojiAnalyzerTest, DictMissingThrows) {
     config::enable_kuromoji_analyzer = true;
-    auto analyzer = InvertedIndexAnalyzer::create_builtin_analyzer(
-            InvertedIndexParserType::PARSER_KUROMOJI, INVERTED_INDEX_PARSER_KUROMOJI_SEARCH, "true",
-            "none");
-    ASSERT_NE(analyzer, nullptr);
-
-    std::string s = "東京都";
-    lucene::util::SStringReader<char> reader;
-    reader.init(s.data(), s.size(), false);
-
-    std::unique_ptr<TokenStream> ts((TokenStream*)analyzer->tokenStream(L"", &reader));
-    std::vector<std::string> out;
-    Token t;
-    while (ts->next(&t)) {
-        out.emplace_back(t.termBuffer<char>(), t.termLength<char>());
-    }
-    EXPECT_EQ(out, (std::vector<std::string> {"東", "京", "都"}));
+    EXPECT_ANY_THROW({
+        (void)InvertedIndexAnalyzer::create_builtin_analyzer(
+                InvertedIndexParserType::PARSER_KUROMOJI, INVERTED_INDEX_PARSER_KUROMOJI_SEARCH,
+                "true", "none");
+    });
 }
 
 TEST_F(KuromojiAnalyzerTest, DisabledByConfigThrows) {
@@ -63,6 +52,14 @@ TEST_F(KuromojiAnalyzerTest, DisabledByConfigThrows) {
         (void)InvertedIndexAnalyzer::create_builtin_analyzer(
                 InvertedIndexParserType::PARSER_KUROMOJI, INVERTED_INDEX_PARSER_KUROMOJI_SEARCH,
                 "true", "none");
+    });
+}
+
+TEST_F(KuromojiAnalyzerTest, RejectsUnknownParserMode) {
+    config::enable_kuromoji_analyzer = true;
+    EXPECT_ANY_THROW({
+        (void)InvertedIndexAnalyzer::create_builtin_analyzer(
+                InvertedIndexParserType::PARSER_KUROMOJI, "bogus", "true", "none");
     });
 }
 

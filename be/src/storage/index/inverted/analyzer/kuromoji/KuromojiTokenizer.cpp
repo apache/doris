@@ -20,32 +20,12 @@
 #include <algorithm>
 #include <string_view>
 
+#include "common/exception.h"
 #include "storage/index/inverted/analyzer/kuromoji/kuromoji_normalize.h"
 
 namespace doris::segment_v2 {
 
 namespace {
-// Number of bytes in the UTF-8 sequence whose lead byte is `c`.
-inline int utf8_len(unsigned char c) {
-    if (c < 0x80) {
-        return 1;
-    }
-    if ((c >> 5) == 0x6) {
-        return 2;
-    }
-    if ((c >> 4) == 0xE) {
-        return 3;
-    }
-    if ((c >> 3) == 0x1E) {
-        return 4;
-    }
-    return 1; // invalid lead byte: treat as a single byte
-}
-
-inline bool is_ascii_space(unsigned char c) {
-    return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\f' || c == '\v';
-}
-
 // Returns the idx-th comma-separated field of an IPADIC feature string
 // (0=POS1 ... 6=base form, 7=reading, 8=pronunciation), or empty.
 std::string_view feature_field(std::string_view feat, int idx) {
@@ -104,45 +84,35 @@ void KuromojiTokenizer::reset(lucene::util::Reader* reader) {
         text.append(buf, n);
     }
 
-    if (dict_ != nullptr) {
-        // Viterbi morphological segmentation, then OpenSearch-default-style filtering:
-        // drop stop part-of-speech (particles/auxiliaries/...), emit the dictionary
-        // base form for conjugated words, and lowercase embedded ASCII.
-        inverted_index::kuromoji::KuromojiViterbi viterbi(*dict_, mode_);
-        std::vector<inverted_index::kuromoji::KuromojiMorpheme> morphemes;
-        viterbi.segment(text, &morphemes);
-        tokens_text_.reserve(morphemes.size());
-        for (const auto& m : morphemes) {
-            const std::string_view feat =
-                    m.known ? dict_->feature(dict_->word(m.word_id))
-                            : dict_->unknown_feature(dict_->unknown_word(m.word_id));
-            if (is_stop_pos(feature_field(feat, 0))) {
-                continue; // part-of-speech stop filtering
-            }
-            const std::string_view base = feature_field(feat, 6);
-            std::string term = (base.empty() || base == "*") ? text.substr(m.byte_start, m.byte_len)
-                                                             : std::string(base);
-            term = inverted_index::kuromoji::cjk_width_normalize(
-                    term); // full-width ASCII -> ASCII before lowercase
-            if (this->lowercase) {
-                ascii_lower(term);
-            }
-            if (!term.empty()) {
-                tokens_text_.push_back(std::move(term));
-            }
+    if (dict_ == nullptr) {
+        throw doris::Exception(doris::ErrorCode::INVERTED_INDEX_ANALYZER_ERROR,
+                               "kuromoji tokenizer requires a loaded dictionary");
+    }
+
+    // Viterbi morphological segmentation, then OpenSearch-default-style filtering:
+    // drop stop part-of-speech (particles/auxiliaries/...), emit the dictionary
+    // base form for conjugated words, and lowercase embedded ASCII.
+    inverted_index::kuromoji::KuromojiViterbi viterbi(*dict_, mode_);
+    std::vector<inverted_index::kuromoji::KuromojiMorpheme> morphemes;
+    viterbi.segment(text, &morphemes);
+    tokens_text_.reserve(morphemes.size());
+    for (const auto& m : morphemes) {
+        const std::string_view feat =
+                m.known ? dict_->feature(dict_->word(m.word_id))
+                        : dict_->unknown_feature(dict_->unknown_word(m.word_id));
+        if (is_stop_pos(feature_field(feat, 0))) {
+            continue; // part-of-speech stop filtering
         }
-    } else {
-        // Fallback (no dictionary wired in yet): CJK per-codepoint unigram split,
-        // skipping ASCII whitespace.
-        for (size_t i = 0; i < text.size();) {
-            int len = utf8_len(static_cast<unsigned char>(text[i]));
-            if (i + static_cast<size_t>(len) > text.size()) {
-                len = 1; // truncated tail: emit a single byte
-            }
-            if (!(len == 1 && is_ascii_space(static_cast<unsigned char>(text[i])))) {
-                tokens_text_.emplace_back(text.substr(i, len));
-            }
-            i += len;
+        const std::string_view base = feature_field(feat, 6);
+        std::string term = (base.empty() || base == "*") ? text.substr(m.byte_start, m.byte_len)
+                                                         : std::string(base);
+        term = inverted_index::kuromoji::cjk_width_normalize(
+                term); // full-width ASCII -> ASCII before lowercase
+        if (this->lowercase) {
+            ascii_lower(term);
+        }
+        if (!term.empty()) {
+            tokens_text_.push_back(std::move(term));
         }
     }
     data_length_ = static_cast<int32_t>(tokens_text_.size());
