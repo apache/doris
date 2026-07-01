@@ -888,7 +888,8 @@ public class BindSink implements AnalysisRuleFactory {
                 ? staticPartitions.keySet()
                 : Sets.newHashSet();
 
-        List<Column> bindColumns = selectConnectorSinkBindColumns(table, sink.getColNames(), staticPartitionColNames);
+        List<Column> bindColumns = selectConnectorSinkBindColumns(
+                table, sink.getColNames(), staticPartitionColNames, sink.isRewrite());
         LogicalConnectorTableSink<?> boundSink = new LogicalConnectorTableSink<>(
                 database,
                 table,
@@ -931,8 +932,21 @@ public class BindSink implements AnalysisRuleFactory {
                     }
                 }
             }
+            // The BE writer validates its incoming data columns against the connector's write schema-json,
+            // which for an ORDINARY write is the DATA (visible) schema only; a rewrite (rewrite_data_files)
+            // additionally carries the engine-managed invisible columns (iceberg v3 row-lineage) that its
+            // rewrite schema-json declares. Projecting the full schema unconditionally would emit invisible
+            // columns an ordinary write's BE schema does not declare ("data columns N do not match schema
+            // columns M"), so drop them unless this is a rewrite — mirroring the legacy bindIcebergTableSink
+            // insertSchema visible filter. Connectors with no invisible columns (e.g. MaxCompute) are
+            // unaffected: the filter is a no-op there.
+            List<Column> writeSchema = sink.isRewrite()
+                    ? table.getFullSchema()
+                    : table.getFullSchema().stream()
+                            .filter(Column::isVisible)
+                            .collect(ImmutableList.toImmutableList());
             LogicalProject<?> fullOutputProject =
-                    getOutputProjectByCoercion(table.getFullSchema(), child, columnToOutput);
+                    getOutputProjectByCoercion(writeSchema, child, columnToOutput);
             return boundSink.withChildAndUpdateOutput(fullOutputProject);
         }
         // Name-mapped connector tables (JDBC / ES): keep columns in user-specified order because the
@@ -945,16 +959,25 @@ public class BindSink implements AnalysisRuleFactory {
 
     /**
      * Selects the bound columns for a connector table sink. With an explicit column list, binds those
-     * columns in user order. Without one, binds the full base schema minus any static partition columns
+     * columns in user order. Without one, binds the base schema minus any static partition columns
      * (their value comes from the static partition spec, not the query output, so they must not be
      * matched against the query columns) — mirrors legacy {@code bindMaxComputeTableSink}.
+     *
+     * <p>Invisible columns (e.g. iceberg v3 row-lineage {@code _row_id} /
+     * {@code _last_updated_sequence_number}) are excluded from an ordinary write's default target — the
+     * user never supplies their values, so counting them would break the "insert cols == query output"
+     * check. They are RETAINED for a {@code rewrite} (a distributed {@code rewrite_data_files} reads and
+     * rewrites full rows, preserving the engine-managed lineage values), mirroring the legacy
+     * {@code bindIcebergTableSink} rewrite branch. The {@code isVisible} / {@code isRewrite} split is
+     * connector-agnostic, so no source-specific code enters the generic SPI path.
      */
     @VisibleForTesting
     static List<Column> selectConnectorSinkBindColumns(PluginDrivenExternalTable table,
-            List<String> colNames, Set<String> staticPartitionColNames) {
+            List<String> colNames, Set<String> staticPartitionColNames, boolean isRewrite) {
         if (colNames.isEmpty()) {
             return table.getBaseSchema(true).stream()
                     .filter(col -> !staticPartitionColNames.contains(col.getName()))
+                    .filter(col -> isRewrite || col.isVisible())
                     .collect(ImmutableList.toImmutableList());
         }
         return colNames.stream().map(cn -> {
