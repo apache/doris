@@ -361,6 +361,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_LOCAL_SHUFFLE_PLANNER = "enable_local_shuffle_planner";
 
+    public static final String LOCAL_SHUFFLE_BUCKET_UPGRADE_RATIO = "local_shuffle_bucket_upgrade_ratio";
+
+    public static final String BUCKET_SHUFFLE_DOWNGRADE_RATIO = "bucket_shuffle_downgrade_ratio";
+
     public static final String FORCE_TO_LOCAL_SHUFFLE = "force_to_local_shuffle";
 
     public static final String ENABLE_LOCAL_MERGE_SORT = "enable_local_merge_sort";
@@ -581,6 +585,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_PARQUET_FILTER_BY_BLOOM_FILTER = "enable_parquet_filter_by_bloom_filter";
 
     public static final String ENABLE_ORC_FILTER_BY_MIN_MAX = "enable_orc_filter_by_min_max";
+
+    public static final String ENABLE_EXPR_ZONEMAP_FILTER = "enable_expr_zonemap_filter";
 
     public static final String CHECK_ORC_INIT_SARGS_SUCCESS = "check_orc_init_sargs_success";
 
@@ -1639,6 +1645,27 @@ public class SessionVariable implements Serializable, Writable {
                         "Whether to force to local shuffle on pipelineX engine."})
     private boolean forceToLocalShuffle = false;
 
+    @VarAttrDef.VarAttr(
+            name = LOCAL_SHUFFLE_BUCKET_UPGRADE_RATIO, fuzzy = false, varType = VariableAnnotation.EXPERIMENTAL,
+            description = {"FE规划Local Shuffle时, 当池化bucket join所在fragment的每BE实例数大于"
+                    + "每BE有数据分桶数的该倍数时, 将join两侧的桶分布本地重分发为hash分布以突破桶数并发上限。"
+                    + "必须大于1才生效; 小于等于1(含0和负数)时关闭该优化",
+                    "When FE plans local shuffle and a pooled bucket join fragment has more instances"
+                    + " per BE than (buckets-with-data per BE) * this ratio, re-distribute both join"
+                    + " sides with local hash instead of bucket hash so join parallelism is no longer"
+                    + " capped at bucket count. Only takes effect when > 1; values <= 1 (including 0"
+                    + " and negatives) disable the upgrade."}, needForward = true)
+    private double localShuffleBucketUpgradeRatio = 1.5;
+
+    @VarAttrDef.VarAttr(
+            name = BUCKET_SHUFFLE_DOWNGRADE_RATIO, fuzzy = false, varType = VariableAnnotation.EXPERIMENTAL,
+            description = {"当一侧基表总桶数小于总实例数的该倍数时, 放弃bucket shuffle join降级为shuffle join。"
+                    + "小于等于0时永不降级。默认0.8保持原有行为",
+                    "Downgrade bucket shuffle join to shuffle join when the base table side's total"
+                    + " bucket count is less than total instance count times this ratio. Values <= 0"
+                    + " never downgrade. Default 0.8 keeps the original behavior."}, needForward = true)
+    private double bucketShuffleDowngradeRatio = 0.8;
+
     @VarAttrDef.VarAttr(name = ENABLE_LOCAL_MERGE_SORT)
     private boolean enableLocalMergeSort = true;
 
@@ -2592,6 +2619,15 @@ public class SessionVariable implements Serializable, Writable {
                             + "The default value is true."},
             needForward = true)
     public boolean enableOrcFilterByMinMax = true;
+
+    @VarAttrDef.VarAttr(
+            name = ENABLE_EXPR_ZONEMAP_FILTER,
+            fuzzy = true,
+            description = {"控制 scanner 是否启用表达式 ZoneMap 过滤。默认为 true。",
+                    "Controls whether to enable expression ZoneMap filtering in scanners. "
+                            + "The default value is true."},
+            needForward = true)
+    public boolean enableExprZonemapFilter = true;
 
     @VarAttrDef.VarAttr(
             name = CHECK_ORC_INIT_SARGS_SUCCESS,
@@ -4768,6 +4804,22 @@ public class SessionVariable implements Serializable, Writable {
         this.enableLocalShufflePlanner = enableLocalShufflePlanner;
     }
 
+    public double getLocalShuffleBucketUpgradeRatio() {
+        return localShuffleBucketUpgradeRatio;
+    }
+
+    public void setLocalShuffleBucketUpgradeRatio(double localShuffleBucketUpgradeRatio) {
+        this.localShuffleBucketUpgradeRatio = localShuffleBucketUpgradeRatio;
+    }
+
+    public double getBucketShuffleDowngradeRatio() {
+        return bucketShuffleDowngradeRatio;
+    }
+
+    public void setBucketShuffleDowngradeRatio(double bucketShuffleDowngradeRatio) {
+        this.bucketShuffleDowngradeRatio = bucketShuffleDowngradeRatio;
+    }
+
     public boolean enablePushDownNoGroupAgg() {
         return enablePushDownNoGroupAgg;
     }
@@ -4870,6 +4922,14 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setEnableOrcFilterByMinMax(boolean enableOrcFilterByMinMax) {
         this.enableOrcFilterByMinMax = enableOrcFilterByMinMax;
+    }
+
+    public boolean isEnableExprZonemapFilter() {
+        return enableExprZonemapFilter;
+    }
+
+    public void setEnableExprZonemapFilter(boolean enableExprZonemapFilter) {
+        this.enableExprZonemapFilter = enableExprZonemapFilter;
     }
 
     public boolean isCheckOrcInitSargsSuccess() {
@@ -5583,6 +5643,7 @@ public class SessionVariable implements Serializable, Writable {
 
         tResult.setEnableParquetFilePageCache(enableParquetFilePageCache);
         tResult.setEnableOrcFilterByMinMax(enableOrcFilterByMinMax);
+        tResult.setEnableExprZonemapFilter(enableExprZonemapFilter);
         tResult.setEnablePaimonCppReader(enablePaimonCppReader);
         tResult.setFilePresignedUrlTtlSeconds(filePresignedUrlTtlSeconds);
         tResult.setEmbedMaxBatchSize(embedMaxBatchSize);

@@ -58,6 +58,8 @@ public:
                                   const uint8_t* __restrict filter, size_t count,
                                   ColumnPtr& result_column, ColumnPtr* arg_column) const override;
     Status evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows) override;
+    ZoneMapFilterResult evaluate_zonemap_filter(const ZoneMapEvalContext& ctx) const override;
+    bool can_evaluate_zonemap_filter() const override;
     Status prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) override;
     Status open(RuntimeState* state, VExprContext* context,
                 FunctionContext::FunctionStateScope scope) override;

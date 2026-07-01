@@ -189,6 +189,33 @@ public class IcebergUtils {
 
     private static final Pattern SNAPSHOT_ID = Pattern.compile("\\d+");
 
+    public static boolean hasIcebergCatalogFormatVersion(Map<String, String> catalogProperties) {
+        return catalogProperties.containsKey(CatalogProperties.TABLE_OVERRIDE_PREFIX + TableProperties.FORMAT_VERSION)
+                || catalogProperties.containsKey(CatalogProperties.TABLE_DEFAULT_PREFIX
+                        + TableProperties.FORMAT_VERSION);
+    }
+
+    public static int getEffectiveIcebergFormatVersion(Map<String, String> tableProperties,
+            Map<String, String> catalogProperties) {
+        String formatVersion = catalogProperties.get(CatalogProperties.TABLE_OVERRIDE_PREFIX
+                + TableProperties.FORMAT_VERSION);
+        if (formatVersion == null) {
+            formatVersion = tableProperties.get(TableProperties.FORMAT_VERSION);
+            if (formatVersion == null) {
+                formatVersion = catalogProperties.get(CatalogProperties.TABLE_DEFAULT_PREFIX
+                        + TableProperties.FORMAT_VERSION);
+            }
+        }
+        if (formatVersion == null) {
+            return 2;
+        }
+        try {
+            return Integer.parseInt(formatVersion);
+        } catch (NumberFormatException ignored) {
+            return 2;
+        }
+    }
+
     public static Expression convertToIcebergExpr(Expr expr, Schema schema) {
         if (expr == null) {
             return null;
