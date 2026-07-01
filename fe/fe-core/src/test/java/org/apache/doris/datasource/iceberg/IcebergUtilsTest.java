@@ -205,6 +205,18 @@ public class IcebergUtilsTest {
     }
 
     @Test
+    public void testParseSchemaPreservesNonLowercaseColumnNames() {
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "mIxEd_COL", Types.IntegerType.get()),
+                Types.NestedField.required(2, "PART", Types.StringType.get()));
+
+        List<Column> columns = IcebergUtils.parseSchema(schema, false, false);
+
+        Assert.assertEquals("mIxEd_COL", columns.get(0).getName());
+        Assert.assertEquals("PART", columns.get(1).getName());
+    }
+
+    @Test
     public void testGetPartitionInfoMapSkipBinaryIdentityPartition() {
         Schema schema = new Schema(
                 Types.NestedField.required(1, "id", Types.IntegerType.get()),
@@ -222,11 +234,11 @@ public class IcebergUtilsTest {
     public void testGetIdentityPartitionColumnsIgnoresTransformPartitions() {
         Schema schema = new Schema(
                 Types.NestedField.required(1, "id", Types.IntegerType.get()),
-                Types.NestedField.required(2, "dt", Types.StringType.get()),
+                Types.NestedField.required(2, "Dt", Types.StringType.get()),
                 Types.NestedField.required(3, "ts", Types.TimestampType.withoutZone()));
         PartitionSpec specWithTransform = PartitionSpec.builderFor(schema)
                 .withSpecId(1)
-                .identity("dt")
+                .identity("Dt")
                 .day("ts")
                 .build();
         PartitionSpec identityOnlySpec = PartitionSpec.builderFor(schema)
@@ -241,16 +253,16 @@ public class IcebergUtilsTest {
         Mockito.when(table.schema()).thenReturn(schema);
         Mockito.when(table.specs()).thenReturn(specs);
 
-        Assert.assertEquals(Arrays.asList("dt", "id"), IcebergUtils.getIdentityPartitionColumns(table));
+        Assert.assertEquals(Arrays.asList("Dt", "id"), IcebergUtils.getIdentityPartitionColumns(table));
     }
 
     @Test
     public void testGetIdentityPartitionInfoMapReturnsIdentityColumnsOnly() {
         Schema schema = new Schema(
-                Types.NestedField.required(1, "dt", Types.StringType.get()),
+                Types.NestedField.required(1, "Dt", Types.StringType.get()),
                 Types.NestedField.required(2, "ts", Types.TimestampType.withoutZone()));
         PartitionSpec partitionSpec = PartitionSpec.builderFor(schema)
-                .identity("dt")
+                .identity("Dt")
                 .day("ts")
                 .build();
         PartitionData partitionData = new PartitionData(partitionSpec.partitionType());
@@ -262,7 +274,7 @@ public class IcebergUtilsTest {
 
         Map<String, String> partitionInfoMap = IcebergUtils.getIdentityPartitionInfoMap(
                 partitionData, partitionSpec, table, "UTC");
-        Assert.assertEquals(Collections.singletonMap("dt", "2025-01-01"), partitionInfoMap);
+        Assert.assertEquals(Collections.singletonMap("Dt", "2025-01-01"), partitionInfoMap);
     }
 
     @Test

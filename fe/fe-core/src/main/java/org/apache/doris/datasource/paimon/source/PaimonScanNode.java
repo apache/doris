@@ -71,7 +71,6 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
@@ -238,9 +237,7 @@ public class PaimonScanNode extends FileQueryScanNode {
                 && !((PaimonSysExternalTable) externalTable).isDataTable()) {
             return Collections.emptyList();
         }
-        return source.getPaimonTable().partitionKeys().stream()
-                .map(key -> key.toLowerCase(Locale.ROOT))
-                .collect(Collectors.toList());
+        return source.getPaimonTable().partitionKeys();
     }
 
     private void putHistorySchemaInfo(Long schemaId) {

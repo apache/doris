@@ -214,6 +214,28 @@ public class CreateIcebergTableTest {
         Assert.assertEquals("b", table.properties().get("a"));
     }
 
+    @Test
+    public void testPartitionPreservesNonLowercaseColumnNames() throws UserException {
+        TableIdentifier tb = TableIdentifier.of(dbName, getTableName());
+        String sql = "create table " + tb + " ("
+                + "data int, "
+                + "`PART` int, "
+                + "`mIxEd_COL` int"
+                + ") engine = iceberg "
+                + "partition by (`PART`, bucket(2, `mIxEd_COL`)) ()";
+        createTable(sql);
+        Table table = ops.getCatalog().loadTable(tb);
+        Schema schema = table.schema();
+
+        Assert.assertEquals("PART", schema.columns().get(1).name());
+        Assert.assertEquals("mIxEd_COL", schema.columns().get(2).name());
+        PartitionSpec spec = PartitionSpec.builderFor(schema)
+                .identity("PART")
+                .bucket("mIxEd_COL", 2)
+                .build();
+        Assert.assertEquals(spec, table.spec());
+    }
+
     public void createTable(String sql) throws UserException {
         LogicalPlan plan = new NereidsParser().parseSingle(sql);
         Assertions.assertTrue(plan instanceof CreateTableCommand);
