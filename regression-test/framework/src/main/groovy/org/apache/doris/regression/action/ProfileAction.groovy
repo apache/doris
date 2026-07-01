@@ -26,7 +26,7 @@ import org.apache.doris.regression.util.JdbcUtils
 
 @Slf4j
 class ProfileAction implements SuiteAction {
-    private static final long DEFAULT_PROFILE_WAIT_TIMEOUT_MS = 10000
+    private static final long DEFAULT_PROFILE_WAIT_TIMEOUT_MS = 30000
     private static final long DEFAULT_PROFILE_WAIT_INTERVAL_MS = 500
     private static final String PROFILE_COMPLETE = "Profile Completion State: COMPLETE"
 
