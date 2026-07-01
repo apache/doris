@@ -1708,14 +1708,13 @@ Status BaseTablet::update_delete_bitmap(const BaseTabletSPtr& self, TabletTxnInf
                << " flush binlog<row> (old segment num: " << old_segments
                << ", new segment num: " << new_segments << ")";
 
-            SegmentLoader::instance()->erase_segments(row_binlog_rowset->rowset_id(),
-                                                      row_binlog_rowset->num_segments());
+            SegmentLoader::instance()->erase_segments(*row_binlog_rowset->rowset_meta());
         }
 
         // update the shared_ptr to new bitmap, which is consistent with current rowset.
         txn_info->delete_bitmap = delete_bitmap;
         // erase segment cache cause we will add a segment to rowset
-        SegmentLoader::instance()->erase_segments(rowset->rowset_id(), rowset->num_segments());
+        SegmentLoader::instance()->erase_segments(*rowset->rowset_meta());
     }
 
     size_t total_rows = std::accumulate(
@@ -1749,7 +1748,8 @@ void BaseTablet::calc_compaction_output_rowset_delete_bitmap(
     RowLocation dst;
     for (auto& rowset : input_rowsets) {
         src.rowset_id = rowset->rowset_id();
-        for (uint32_t seg_id = 0; seg_id < rowset->num_segments(); ++seg_id) {
+        for (auto seg : rowset->segments()) {
+            auto seg_id = cast_set<uint32_t>(seg.id());
             src.segment_id = seg_id;
             DeleteBitmap subset_map(tablet_id());
             input_delete_bitmap.subset({rowset->rowset_id(), seg_id, start_version},
@@ -1949,7 +1949,8 @@ void BaseTablet::agg_delete_bitmap_for_stale_rowsets(
     // do agg for pre rowsets
     DeleteBitmapPtr new_delete_bitmap = std::make_shared<DeleteBitmap>(tablet_id());
     for (auto& rowset : pre_rowsets) {
-        for (uint32_t seg_id = 0; seg_id < rowset->num_segments(); ++seg_id) {
+        for (auto seg : rowset->segments()) {
+            auto seg_id = cast_set<uint32_t>(seg.id());
             auto d = tablet_meta()->delete_bitmap().get_agg_without_cache(
                     {rowset->rowset_id(), seg_id, end_version}, start_version);
             if (d->isEmpty()) {
@@ -2262,8 +2263,9 @@ int32_t BaseTablet::max_version_config() {
 }
 
 void BaseTablet::prefill_dbm_agg_cache(const RowsetSharedPtr& rowset, int64_t version) {
-    for (std::size_t i = 0; i < rowset->num_segments(); i++) {
-        tablet_meta()->delete_bitmap().get_agg({rowset->rowset_id(), i, version});
+    for (auto seg : rowset->segments()) {
+        tablet_meta()->delete_bitmap().get_agg(
+                {rowset->rowset_id(), cast_set<uint32_t>(seg.id()), version});
     }
 }
 

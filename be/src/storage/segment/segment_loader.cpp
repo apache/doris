@@ -23,6 +23,7 @@
 #include "common/status.h"
 #include "storage/olap_define.h"
 #include "storage/rowset/beta_rowset.h"
+#include "storage/rowset/rowset_meta.h"
 #include "util/stopwatch.hpp"
 
 namespace doris {
@@ -56,8 +57,18 @@ Status SegmentLoader::load_segment(const BetaRowsetSharedPtr& rowset, int64_t se
                                    SegmentCacheHandle* cache_handle, bool use_cache,
                                    bool need_load_pk_index_and_bf,
                                    OlapReaderStatistics* index_load_stats) {
+    const auto& rowset_meta = rowset->rowset_meta();
+    auto seg = rowset_meta->segment_ref(rowset_meta->position_of(segment_id));
+    return load_segment(rowset, seg, cache_handle, use_cache, need_load_pk_index_and_bf,
+                        index_load_stats);
+}
+
+Status SegmentLoader::load_segment(const BetaRowsetSharedPtr& rowset, RowsetSegmentRef seg,
+                                   SegmentCacheHandle* cache_handle,
+                                   bool use_cache, bool need_load_pk_index_and_bf,
+                                   OlapReaderStatistics* index_load_stats) {
     auto start = MonotonicMicros();
-    SegmentCache::CacheKey cache_key(rowset->rowset_id(), segment_id);
+    SegmentCache::CacheKey cache_key(rowset->rowset_id(), seg.id);
     if (_segment_cache->lookup(cache_key, cache_handle)) {
         // Has to check the segment status here, because the segment in cache may has something wrong during
         // load index or create column reader.
@@ -72,7 +83,7 @@ Status SegmentLoader::load_segment(const BetaRowsetSharedPtr& rowset, int64_t se
     }
     // If the segment is not healthy, then will create a new segment and will replace the unhealthy one in SegmentCache.
     segment_v2::SegmentSharedPtr segment;
-    RETURN_IF_ERROR(rowset->load_segment(segment_id, index_load_stats, &segment));
+    RETURN_IF_ERROR(rowset->load_segment(seg, index_load_stats, &segment));
     if (need_load_pk_index_and_bf) {
         RETURN_IF_ERROR(segment->load_pk_index_and_bf(index_load_stats));
     }
@@ -99,9 +110,9 @@ Status SegmentLoader::load_segments(const BetaRowsetSharedPtr& rowset,
     if (cache_handle->is_inited()) {
         return Status::OK();
     }
-    for (int64_t i = 0; i < rowset->num_segments(); i++) {
-        RETURN_IF_ERROR(load_segment(rowset, i, cache_handle, use_cache, need_load_pk_index_and_bf,
-                                     index_load_stats));
+    for (auto seg : rowset->segments()) {
+        RETURN_IF_ERROR(load_segment(rowset, seg.ref(), cache_handle, use_cache,
+                                     need_load_pk_index_and_bf, index_load_stats));
     }
     cache_handle->set_inited();
     return Status::OK();
@@ -111,9 +122,9 @@ void SegmentLoader::erase_segment(const SegmentCache::CacheKey& key) {
     _segment_cache->erase(key);
 }
 
-void SegmentLoader::erase_segments(const RowsetId& rowset_id, int64_t num_segments) {
-    for (int64_t i = 0; i < num_segments; i++) {
-        erase_segment(SegmentCache::CacheKey(rowset_id, i));
+void SegmentLoader::erase_segments(const RowsetMeta& rowset_meta) {
+    for (auto seg : rowset_meta.segments()) {
+        erase_segment(SegmentCache::CacheKey(rowset_meta.rowset_id(), seg.id()));
     }
 }
 

@@ -923,6 +923,7 @@ message RecycleCacheMeta {
     optional string rowset_id = 2;
     optional int64 num_segments = 3;
     repeated string index_file_names = 4;
+    repeated int32 segment_ids = 5;
 }
 
 message PRecycleCacheRequest {

@@ -175,7 +175,8 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
         {
             SCOPED_RAW_TIMER(&_stats->delete_bitmap_get_agg_ns);
             RowsetId rowset_id = rowset()->rowset_id();
-            for (uint32_t seg_id = 0; seg_id < rowset()->num_segments(); ++seg_id) {
+            for (auto seg : rowset()->segments()) {
+                uint32_t seg_id = cast_set<uint32_t>(seg.id());
                 auto d = _read_context->delete_bitmap->get_agg(
                         {rowset_id, seg_id, _read_context->version.second});
                 if (d->isEmpty()) {
@@ -272,11 +273,18 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
         // init segment rowid map for rowid conversion
         std::vector<uint32_t> segment_rows;
         RETURN_IF_ERROR(_rowset->get_segment_num_rows(&segment_rows, should_use_cache, _stats));
-        RETURN_IF_ERROR(_read_context->rowid_conversion->init_segment_map(rowset()->rowset_id(),
-                                                                          segment_rows));
+        std::vector<uint32_t> segment_ids;
+        segment_ids.reserve(segment_rows.size());
+        for (auto seg : rowset()->segments()) {
+            segment_ids.push_back(cast_set<uint32_t>(seg.id()));
+        }
+        RETURN_IF_ERROR(_read_context->rowid_conversion->init_segment_map(
+                rowset()->rowset_id(), segment_ids, segment_rows));
     }
 
     for (int64_t i = seg_start; i < seg_end; i++) {
+        const auto pos = cast_set<size_t>(i);
+        const auto seg = _rowset->segment(pos).ref();
         SCOPED_RAW_TIMER(&_stats->rowset_reader_create_iterators_timer_ns);
         std::unique_ptr<RowwiseIterator> iter;
 
@@ -286,7 +294,7 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
         /// and prevents excessive memory consumption, especially for wide tables.
         if (_segment_row_ranges.empty()) {
             _read_options.row_ranges.clear();
-            iter = std::make_unique<LazyInitSegmentIterator>(_rowset, i, should_use_cache,
+            iter = std::make_unique<LazyInitSegmentIterator>(_rowset, seg, should_use_cache,
                                                              _input_schema, _read_options);
         } else {
             DCHECK_EQ(seg_end - seg_start, _segment_row_ranges.size());
@@ -296,7 +304,7 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
                 local_options.condition_cache_digest =
                         local_options.row_ranges.get_digest(local_options.condition_cache_digest);
             }
-            iter = std::make_unique<LazyInitSegmentIterator>(_rowset, i, should_use_cache,
+            iter = std::make_unique<LazyInitSegmentIterator>(_rowset, seg, should_use_cache,
                                                              _input_schema, local_options);
         }
 

@@ -51,9 +51,11 @@
 #include "cloud/delete_bitmap_file_reader.h"
 #include "cloud/delete_bitmap_file_writer.h"
 #include "cloud/pb_convert.h"
+#include "common/cast_set.h"
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
+#include "storage/rowset/rowset_segment_id.h"
 #include "cpp/sync_point.h"
 #include "io/fs/obj_storage_client.h"
 #include "load/stream_load/stream_load_context.h"
@@ -1242,20 +1244,25 @@ Status CloudMetaMgr::_check_delete_bitmap_v2_correctness(CloudTablet* tablet, Ge
     }
     int64_t tablet_id = tablet->tablet_id();
     int64_t new_max_version = std::max(old_max_version, resp.rowset_meta().rbegin()->end_version());
-    // rowset_id, num_segments
-    std::vector<std::pair<RowsetId, int64_t>> all_rowsets;
+    // rowset_id, segment_ids
+    std::vector<std::pair<RowsetId, std::vector<int64_t>>> all_rowsets;
     std::map<std::string, std::string> rowset_to_resource;
     for (const auto& rs_meta : resp.rowset_meta()) {
         RowsetId rowset_id;
         rowset_id.init(rs_meta.rowset_id_v2());
-        all_rowsets.emplace_back(std::make_pair(rowset_id, rs_meta.num_segments()));
+        all_rowsets.emplace_back(rowset_id, rowset_segment_ids(rs_meta));
         rowset_to_resource[rs_meta.rowset_id_v2()] = rs_meta.resource_id();
     }
     if (old_max_version > 0) {
         RowsetIdUnorderedSet all_rs_ids;
         RETURN_IF_ERROR(tablet->get_all_rs_id(old_max_version, &all_rs_ids));
         for (auto& rowset : tablet->get_rowset_by_ids(&all_rs_ids)) {
-            all_rowsets.emplace_back(std::make_pair(rowset->rowset_id(), rowset->num_segments()));
+            std::vector<int64_t> segment_ids;
+            segment_ids.reserve(rowset->num_segments());
+            for (auto seg : rowset->segments()) {
+                segment_ids.push_back(seg.id());
+            }
+            all_rowsets.emplace_back(std::make_pair(rowset->rowset_id(), std::move(segment_ids)));
             rowset_to_resource[rowset->rowset_id().to_string()] =
                     rowset->rowset_meta()->resource_id();
         }
@@ -1263,8 +1270,8 @@ Status CloudMetaMgr::_check_delete_bitmap_v2_correctness(CloudTablet* tablet, Ge
 
     auto compare_delete_bitmap = [&](DeleteBitmap* delete_bitmap, int version) {
         bool success = true;
-        for (auto& [rs_id, num_segments] : all_rowsets) {
-            for (int seg_id = 0; seg_id < num_segments; ++seg_id) {
+        for (auto& [rs_id, segment_ids] : all_rowsets) {
+            for (auto seg_id : segment_ids) {
                 DeleteBitmap::BitmapKey key = {rs_id, seg_id, new_max_version};
                 auto dm1 = tablet->tablet_meta()->delete_bitmap().get_agg(key);
                 auto dm2 = delete_bitmap->get_agg_without_cache(key);
@@ -2280,9 +2287,9 @@ int64_t CloudMetaMgr::get_segment_file_size(RowsetMeta& rs_meta) {
     if (!fs) {
         LOG(WARNING) << "get fs failed, resource_id={}" << rs_meta.resource_id();
     }
-    for (int64_t seg_id = 0; seg_id < rs_meta.num_segments(); seg_id++) {
+    for (auto seg : rs_meta.segments()) {
         std::string segment_path = StorageResource().remote_segment_path(
-                rs_meta.tablet_id(), rs_meta.rowset_id().to_string(), seg_id);
+                rs_meta.tablet_id(), rs_meta.rowset_id().to_string(), seg.id());
         int64_t segment_file_size = 0;
         auto st = fs->file_size(segment_path, &segment_file_size);
         if (!st.ok()) {
@@ -2311,9 +2318,9 @@ int64_t CloudMetaMgr::get_inverted_index_file_size(RowsetMeta& rs_meta) {
         InvertedIndexStorageFormatPB::V1) {
         const auto& indices = rs_meta.tablet_schema()->inverted_indexes();
         for (auto& index : indices) {
-            for (int seg_id = 0; seg_id < rs_meta.num_segments(); ++seg_id) {
+            for (auto seg : rs_meta.segments()) {
                 std::string segment_path = StorageResource().remote_segment_path(
-                        rs_meta.tablet_id(), rs_meta.rowset_id().to_string(), seg_id);
+                        rs_meta.tablet_id(), rs_meta.rowset_id().to_string(), seg.id());
                 int64_t file_size = 0;
 
                 std::string inverted_index_file_path =
@@ -2339,10 +2346,10 @@ int64_t CloudMetaMgr::get_inverted_index_file_size(RowsetMeta& rs_meta) {
             }
         }
     } else {
-        for (int seg_id = 0; seg_id < rs_meta.num_segments(); ++seg_id) {
+        for (auto seg : rs_meta.segments()) {
             int64_t file_size = 0;
             std::string segment_path = StorageResource().remote_segment_path(
-                    rs_meta.tablet_id(), rs_meta.rowset_id().to_string(), seg_id);
+                    rs_meta.tablet_id(), rs_meta.rowset_id().to_string(), seg.id());
 
             std::string inverted_index_file_path = InvertedIndexDescriptor::get_index_file_path_v2(
                     InvertedIndexDescriptor::get_index_file_path_prefix(segment_path));

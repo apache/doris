@@ -38,12 +38,14 @@
 #include "cloud/cloud_warm_up_manager.h"
 #include "cloud/cloud_warmup_metrics.h"
 #include "cloud/config.h"
+#include "common/cast_set.h"
 #include "io/cache/block_file_cache.h"
 #include "io/cache/block_file_cache_downloader.h"
 #include "io/cache/block_file_cache_factory.h"
 #include "io/fs/path.h"
 #include "runtime/thread_context.h"
 #include "runtime/workload_management/io_throttle.h"
+#include "storage/rowset/rowset_segment_id.h"
 #include "storage/storage_policy.h"
 #include "util/async_io.h"
 #include "util/bvar_windowed_adder.h"
@@ -165,22 +167,22 @@ static std::optional<int64_t> warm_up_rowset_cross_host_latency_us(int64_t start
 
 static void add_file_cache_block_meta_to_response(
         PGetFileCacheMetaResponse* resp, int64_t tablet_id, const std::string& rowset_id,
-        int32_t segment_id, const std::string& file_name,
+        RowsetSegmentView seg, const std::string& file_name,
         const std::tuple<int64_t, int64_t, io::FileCacheType, int64_t>& tuple,
-        const RowsetSharedPtr& rowset, bool is_index) {
+        bool is_index) {
     FileCacheBlockMeta* meta = resp->add_file_cache_block_metas();
     meta->set_tablet_id(tablet_id);
     meta->set_rowset_id(rowset_id);
-    meta->set_segment_id(segment_id);
+    meta->set_segment_id(cast_set<int32_t>(seg.id()));
     meta->set_file_name(file_name);
 
     if (!is_index) {
         // .dat
-        meta->set_file_size(rowset->rowset_meta()->segment_file_size(segment_id));
+        meta->set_file_size(seg.file_size());
         meta->set_file_type(doris::FileType::SEGMENT_FILE);
     } else {
         // .idx
-        const auto& idx_file_info = rowset->rowset_meta()->inverted_index_file_info(segment_id);
+        auto idx_file_info = seg.inverted_index_file_info();
         meta->set_file_size(idx_file_info.has_index_size() ? idx_file_info.index_size() : -1);
         meta->set_file_type(doris::FileType::INVERTED_INDEX_FILE);
     }
@@ -192,18 +194,17 @@ static void add_file_cache_block_meta_to_response(
 }
 
 static void process_segment_file_cache_meta(PGetFileCacheMetaResponse* resp,
-                                            const RowsetSharedPtr& rowset, int64_t tablet_id,
-                                            const std::string& rowset_id, int32_t segment_id,
-                                            bool is_index) {
+                                            int64_t tablet_id, const std::string& rowset_id,
+                                            RowsetSegmentView seg, bool is_index) {
     const char* extension = is_index ? ".idx" : ".dat";
-    std::string file_name = fmt::format("{}_{}{}", rowset_id, segment_id, extension);
+    std::string file_name = fmt::format("{}_{}{}", rowset_id, seg.id(), extension);
     auto cache_key = io::BlockFileCache::hash(file_name);
     auto* cache = io::FileCacheFactory::instance()->get_by_path(cache_key);
     if (!cache) return;
     auto segments_meta = cache->get_hot_blocks_meta(cache_key);
     for (const auto& tuple : segments_meta) {
-        add_file_cache_block_meta_to_response(resp, tablet_id, rowset_id, segment_id, file_name,
-                                              tuple, rowset, is_index);
+        add_file_cache_block_meta_to_response(resp, tablet_id, rowset_id, seg, file_name, tuple,
+                                              is_index);
     }
 }
 
@@ -248,11 +249,9 @@ void CloudInternalServiceImpl::get_file_cache_meta_by_tablet_id(
 
         for (const RowsetSharedPtr& rowset : rowsets) {
             std::string rowset_id = rowset->rowset_id().to_string();
-            for (int32_t segment_id = 0; segment_id < rowset->num_segments(); ++segment_id) {
-                process_segment_file_cache_meta(response, rowset, tablet_id, rowset_id, segment_id,
-                                                false);
-                process_segment_file_cache_meta(response, rowset, tablet_id, rowset_id, segment_id,
-                                                true);
+            for (auto seg : rowset->segments()) {
+                process_segment_file_cache_meta(response, tablet_id, rowset_id, seg, false);
+                process_segment_file_cache_meta(response, tablet_id, rowset_id, seg, true);
             }
         }
     }
@@ -985,20 +984,20 @@ void record_warmup_ed_skipped_rowset_as_finished(RowsetMeta& rs_meta,
     auto schema_ptr = rs_meta.tablet_schema();
     bool has_inverted_index = schema_ptr->has_inverted_index() || schema_ptr->has_ann_index();
     auto idx_version = schema_ptr->get_inverted_index_storage_format();
-    for (int64_t segment_id = 0; segment_id < rs_meta.num_segments(); segment_id++) {
-        record_warmup_ed_finish_segment(job_id_str, rs_meta.segment_file_size(segment_id));
+    for (auto seg : rs_meta.segments()) {
+        record_warmup_ed_finish_segment(job_id_str, seg.file_size());
 
         if (!has_inverted_index) {
             continue;
         }
-        auto&& inverted_index_info = rs_meta.inverted_index_file_info(segment_id);
+        auto inverted_index_info = seg.inverted_index_file_info();
         if (idx_version == InvertedIndexStorageFormatPB::V1) {
             std::unordered_map<int64_t, int64_t> index_size_map;
             for (const auto& info : inverted_index_info.index_info()) {
                 if (info.index_file_size() != -1) {
                     index_size_map[info.index_id()] = info.index_file_size();
                 } else {
-                    VLOG_DEBUG << "Invalid index_file_size for segment_id " << segment_id
+                    VLOG_DEBUG << "Invalid index_file_size for segment_id " << seg.id()
                                << ", index_id " << info.index_id();
                 }
             }
@@ -1010,7 +1009,7 @@ void record_warmup_ed_skipped_rowset_as_finished(RowsetMeta& rs_meta,
             if (inverted_index_info.has_index_size()) {
                 idx_size = inverted_index_info.index_size();
             } else {
-                VLOG_DEBUG << "index_size is not set for segment " << segment_id;
+                VLOG_DEBUG << "index_size is not set for segment " << seg.id();
             }
             record_warmup_ed_finish_index(job_id_str, idx_size);
         }
@@ -1214,9 +1213,10 @@ void CloudInternalServiceImpl::warm_up_rowset(google::protobuf::RpcController* c
                                                                      upstream_trigger_ts_ms);
         }
 
-        for (int64_t segment_id = 0; segment_id < rs_meta.num_segments(); segment_id++) {
+        for (auto seg : rs_meta.segments()) {
+            auto segment_id = seg.id();
             if (!config::file_cache_enable_only_warm_up_idx) {
-                auto segment_size = rs_meta.segment_file_size(segment_id);
+                auto segment_size = seg.file_size();
 
                 // Use rs_meta.fs() instead of storage_resource.value()->fs to support packed files.
                 // PackedFileSystem wrapper in rs_meta.fs() handles the index_map lookup and
@@ -1289,7 +1289,7 @@ void CloudInternalServiceImpl::warm_up_rowset(google::protobuf::RpcController* c
 
             if (schema_ptr->has_inverted_index() || schema_ptr->has_ann_index()) {
                 if (idx_version == InvertedIndexStorageFormatPB::V1) {
-                    auto&& inverted_index_info = rs_meta.inverted_index_file_info(segment_id);
+                    auto inverted_index_info = seg.inverted_index_file_info();
                     std::unordered_map<int64_t, int64_t> index_size_map;
                     for (const auto& info : inverted_index_info.index_info()) {
                         if (info.index_file_size() != -1) {
@@ -1305,7 +1305,7 @@ void CloudInternalServiceImpl::warm_up_rowset(google::protobuf::RpcController* c
                         download_inverted_index(idx_path, index_size_map[index->index_id()]);
                     }
                 } else { // InvertedIndexStorageFormatPB::V2
-                    auto&& inverted_index_info = rs_meta.inverted_index_file_info(segment_id);
+                    auto inverted_index_info = seg.inverted_index_file_info();
                     int64_t idx_size = 0;
                     if (inverted_index_info.has_index_size()) {
                         idx_size = inverted_index_info.index_size();
@@ -1342,8 +1342,10 @@ void CloudInternalServiceImpl::recycle_cache(google::protobuf::RpcController* co
         return;
     }
     for (const auto& meta : request->cache_metas()) {
-        for (int64_t segment_id = 0; segment_id < meta.num_segments(); segment_id++) {
-            auto file_key = Segment::file_cache_key(meta.rowset_id(), segment_id);
+        for (int64_t pos = 0; pos < meta.num_segments(); pos++) {
+            auto segment_id = rowset_segment_id(meta, pos);
+            auto file_key =
+                    Segment::file_cache_key(meta.rowset_id(), cast_set<uint32_t>(segment_id));
             auto* file_cache = io::FileCacheFactory::instance()->get_by_path(file_key);
             file_cache->remove_if_cached_async(file_key);
             g_file_cache_recycle_cache_finished_segment_num << 1;

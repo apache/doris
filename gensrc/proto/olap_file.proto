@@ -115,7 +115,7 @@ message RowsetMetaPB {
     // For alpha rowset, it's the same as PDelta.creation_time
     optional int64 creation_time = 20;
     optional PUniqueId tablet_uid = 21;
-    // total number of segments
+    // total number of segments. If segment_ids is set, this is segment_ids.size().
     optional int64 num_segments = 22;
     // rowset id definition, it will replace required rowset id 
     optional string rowset_id_v2 = 23;
@@ -126,6 +126,7 @@ message RowsetMetaPB {
     // latest write time
     optional int64 newest_write_timestamp = 26 [default = -1];
     // the encoded segment min/max key of segments in this rowset,
+    // If segment_ids is set, the i-th entry belongs to segment_ids[i].
     // ATTN: segments_key_bounds may be truncated! please refer to field `segments_key_bounds_truncated`
     // to check if these are truncated segments key bounds
     repeated KeyBoundsPB segments_key_bounds = 27;
@@ -142,7 +143,7 @@ message RowsetMetaPB {
     // indicate that whether the segments key bounds is truncated
     optional bool segments_key_bounds_truncated = 55;
 
-    // rows count for each segment
+    // rows count for each segment. If segment_ids is set, the i-th entry belongs to segment_ids[i].
     repeated int64 num_segment_rows = 56;
 
     // If true, `segments_key_bounds` contains a single aggregated
@@ -152,10 +153,16 @@ message RowsetMetaPB {
 
     optional bool is_row_binlog = 58 [default = false];
 
+    // Real segment ids in rowset position order. Empty means legacy continuous ids [0, num_segments).
+    repeated int32 segment_ids = 59;
+
+    // Next real segment id to allocate when appending segments to this rowset.
+    optional int64 next_segment_id = 61;
+
     // For cloud
     // for data recycling
     optional int64 txn_expiration = 1000;
-    // the field is a vector, rename it
+    // The field is a vector; if segment_ids is set, the i-th entry belongs to segment_ids[i].
     repeated int64 segments_file_size = 1001;
     // index_id, schema_version -> schema
     optional int64 index_id = 1002;
@@ -230,7 +237,7 @@ message RowsetMetaCloudPB {
     // For alpha rowset, it's the same as PDelta.creation_time
     optional int64 creation_time = 20;
     optional PUniqueId tablet_uid = 21;
-    // total number of segments
+    // total number of segments. If segment_ids is set, this is segment_ids.size().
     optional int64 num_segments = 22;
     // rowset id definition, it will replace required rowset id
     optional string rowset_id_v2 = 23;
@@ -241,6 +248,7 @@ message RowsetMetaCloudPB {
     // latest write time
     optional int64 newest_write_timestamp = 26 [default = -1];
     // the encoded segment min/max key of segments in this rowset,
+    // If segment_ids is set, the i-th entry belongs to segment_ids[i].
     // ATTN: segments_key_bounds may be truncated! please refer to field `segments_key_bounds_truncated`
     // to check if these are truncated segments key bounds
     repeated KeyBoundsPB segments_key_bounds = 27;
@@ -259,7 +267,7 @@ message RowsetMetaCloudPB {
     // indicate that whether the segments key bounds is truncated
     optional bool segments_key_bounds_truncated = 55;
 
-    // rows count for each segment
+    // rows count for each segment. If segment_ids is set, the i-th entry belongs to segment_ids[i].
     repeated int64 num_segment_rows = 56;
 
     // If true, `segments_key_bounds` contains a single aggregated
@@ -269,8 +277,14 @@ message RowsetMetaCloudPB {
 
     optional bool is_row_binlog = 58 [default = false];
 
+    // Real segment ids in rowset position order. Empty means legacy continuous ids [0, num_segments).
+    repeated int32 segment_ids = 59;
+
+    // Next real segment id to allocate when appending segments to this rowset.
+    optional int64 next_segment_id = 61;
+
     // cloud
-    // the field is a vector, rename it
+    // The field is a vector; if segment_ids is set, the i-th entry belongs to segment_ids[i].
     repeated int64 segments_file_size = 100;
     // index_id, schema_version -> schema
     optional int64 index_id = 101;
@@ -315,6 +329,7 @@ message RemoteRowsetGcPB {
     required string resource_id = 1;
     required int64 tablet_id = 2;
     required int64 num_segments = 3;
+    repeated int32 segment_ids = 4;
 }
 
 // kv value for reclaiming all remote rowsets of tablet
@@ -794,6 +809,7 @@ message BinlogMetaEntryPB {
     optional int64 num_segments = 4;
     optional int64 creation_time = 5;
     optional string rowset_id_v2 = 6;
+    repeated int32 segment_ids = 7;
 }
 
 message PendingPublishInfoPB {

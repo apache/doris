@@ -18,6 +18,7 @@
 #pragma once
 
 #include "core/block/block.h"
+#include "storage/rowset/rowset_meta.h"
 #include "storage/segment/common.h"
 #include "storage/segment/segment.h"
 #include "storage/segment/segment_iterator.h"
@@ -30,8 +31,9 @@ namespace doris::segment_v2 {
 
 class LazyInitSegmentIterator : public RowwiseIterator {
 public:
-    LazyInitSegmentIterator(BetaRowsetSharedPtr rowset, int64_t segment_id, bool should_use_cache,
-                            SchemaSPtr schema, const StorageReadOptions& opts);
+    LazyInitSegmentIterator(BetaRowsetSharedPtr rowset, RowsetSegmentRef segment,
+                            bool should_use_cache, SchemaSPtr schema,
+                            const StorageReadOptions& opts);
 
     ~LazyInitSegmentIterator() override = default;
 
@@ -61,7 +63,7 @@ public:
 private:
     bool _need_lazy_init {true};
     BetaRowsetSharedPtr _rowset;
-    int64_t _segment_id {-1};
+    RowsetSegmentRef _segment {0, -1};
     bool _should_use_cache {false};
     SchemaSPtr _schema = nullptr;
     StorageReadOptions _read_options;

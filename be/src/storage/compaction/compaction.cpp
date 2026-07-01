@@ -414,9 +414,7 @@ CompactionMixin::CompactionMixin(StorageEngine& engine, TabletSharedPtr tablet,
 CompactionMixin::~CompactionMixin() {
     if (_state != CompactionState::SUCCESS && _output_rowset != nullptr) {
         if (!_output_rowset->is_local()) {
-            tablet()->record_unused_remote_rowset(_output_rowset->rowset_id(),
-                                                  _output_rowset->rowset_meta()->resource_id(),
-                                                  _output_rowset->num_segments());
+            tablet()->record_unused_remote_rowset(*_output_rowset->rowset_meta());
             return;
         }
         _engine.add_unused_rowset(_output_rowset);
@@ -929,6 +927,8 @@ Status Compaction::do_inverted_index_compaction() {
         }
 
         auto* rowset = find_it->second;
+        auto seg_pos = rowset->rowset_meta()->position_of(seg_id);
+        auto seg = rowset->segment(seg_pos);
         auto fs = rowset->rowset_meta()->fs();
         DBUG_EXECUTE_IF("Compaction::do_inverted_index_compaction_get_fs_error", { fs = nullptr; })
         if (!fs) {
@@ -939,7 +939,7 @@ Status Compaction::do_inverted_index_compaction() {
                     "get fs failed, resource_id={}", rowset->rowset_meta()->resource_id());
         }
 
-        auto seg_path = rowset->segment_path(seg_id);
+        auto seg_path = seg.path();
         DBUG_EXECUTE_IF("Compaction::do_inverted_index_compaction_seg_path_nullptr", {
             seg_path = ResultError(Status::Error<ErrorCode::INTERNAL_ERROR>(
                     "do_inverted_index_compaction_seg_path_nullptr"));
@@ -957,7 +957,7 @@ Status Compaction::do_inverted_index_compaction() {
                 fs,
                 std::string {InvertedIndexDescriptor::get_index_file_path_prefix(seg_path.value())},
                 _cur_tablet_schema->get_inverted_index_storage_format(),
-                rowset->rowset_meta()->inverted_index_file_info(seg_id), _tablet->tablet_id());
+                seg.inverted_index_file_info(), _tablet->tablet_id());
         auto st = index_file_reader->init(config::inverted_index_read_buffer_size);
         DBUG_EXECUTE_IF("Compaction::do_inverted_index_compaction_init_inverted_index_file_reader",
                         {
@@ -1139,9 +1139,9 @@ static bool check_rowset_has_inverted_index(const RowsetSharedPtr& src_rs, int32
         return false;
     }
     for (const auto& index_meta : index_metas) {
-        for (auto i = 0; i < rowset->num_segments(); i++) {
+        for (auto seg : rowset->segments()) {
             // TODO: inverted_index_path
-            auto seg_path = rowset->segment_path(i);
+            auto seg_path = seg.path();
             DBUG_EXECUTE_IF("Compaction::construct_skip_inverted_index_seg_path_nullptr", {
                 seg_path = ResultError(Status::Error<ErrorCode::INTERNAL_ERROR>(
                         "construct_skip_inverted_index_seg_path_nullptr"));
@@ -1158,7 +1158,7 @@ static bool check_rowset_has_inverted_index(const RowsetSharedPtr& src_rs, int32
                         std::string {InvertedIndexDescriptor::get_index_file_path_prefix(
                                 seg_path.value())},
                         cur_tablet_schema->get_inverted_index_storage_format(),
-                        rowset->rowset_meta()->inverted_index_file_info(i), tablet->tablet_id());
+                        seg.inverted_index_file_info(), tablet->tablet_id());
                 auto st = index_file_reader->init(config::inverted_index_read_buffer_size);
                 index_file_path = index_file_reader->get_index_file_path(index_meta);
                 DBUG_EXECUTE_IF(

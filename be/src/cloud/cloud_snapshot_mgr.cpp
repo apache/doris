@@ -40,6 +40,7 @@
 #include "storage/rowset/rowset.h"
 #include "storage/rowset/rowset_factory.h"
 #include "storage/rowset/rowset_meta.h"
+#include "storage/rowset/rowset_segment_id.h"
 #include "storage/rowset/rowset_writer.h"
 #include "storage/rowset/rowset_writer_context.h"
 #include "storage/storage_policy.h"
@@ -234,8 +235,9 @@ Status CloudSnapshotMgr::_create_rowset_meta(
     rowset_id_mapping[src_rs_id] = dst_rs_id;
 
     for (int i = 0; i < source_meta_pb.num_segments(); ++i) {
-        std::string src_segment_file = fmt::format("{}_{}.dat", src_rs_id.to_string(), i);
-        std::string dst_segment_file = fmt::format("{}_{}.dat", dst_rs_id.to_string(), i);
+        auto segment_id = rowset_segment_id(source_meta_pb, i);
+        std::string src_segment_file = fmt::format("{}_{}.dat", src_rs_id.to_string(), segment_id);
+        std::string dst_segment_file = fmt::format("{}_{}.dat", dst_rs_id.to_string(), segment_id);
         file_mapping[src_segment_file] = dst_segment_file;
         if (context.tablet_schema->get_inverted_index_storage_format() ==
             InvertedIndexStorageFormatPB::V1) {
@@ -269,6 +271,10 @@ Status CloudSnapshotMgr::_create_rowset_meta(
     new_rowset_meta_pb->set_empty(source_meta_pb.num_rows() == 0);
     new_rowset_meta_pb->set_creation_time(time(nullptr));
     new_rowset_meta_pb->set_num_segments(source_meta_pb.num_segments());
+    new_rowset_meta_pb->mutable_segment_ids()->CopyFrom(source_meta_pb.segment_ids());
+    if (source_meta_pb.has_next_segment_id()) {
+        new_rowset_meta_pb->set_next_segment_id(source_meta_pb.next_segment_id());
+    }
     new_rowset_meta_pb->set_rowset_state(source_meta_pb.rowset_state());
 
     new_rowset_meta_pb->clear_segments_key_bounds();

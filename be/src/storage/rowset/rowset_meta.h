@@ -23,12 +23,16 @@
 
 #include <atomic>
 #include <chrono>
+#include <cstddef>
 #include <cstdint>
+#include <iterator>
 #include <memory>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "common/cast_set.h"
+#include "common/check.h"
 #include "common/config.h"
 #include "common/status.h"
 #include "io/fs/encrypted_fs_factory.h"
@@ -38,11 +42,15 @@
 #include "storage/metadata_adder.h"
 #include "storage/olap_common.h"
 #include "storage/rowset/rowset_fwd.h"
+#include "storage/rowset/rowset_segment_id.h"
 #include "storage/storage_policy.h"
 #include "storage/tablet/tablet_fwd.h"
 #include "util/once.h"
 
 namespace doris {
+
+class RowsetSegmentMetaView;
+class RowsetSegmentMetaRange;
 
 class RowsetMeta : public MetadataAdder<RowsetMeta> {
 public:
@@ -260,9 +268,42 @@ public:
         return _rowset_meta_pb.set_partition_id(partition_id);
     }
 
-    int64_t num_segments() const { return _rowset_meta_pb.num_segments(); }
+    int64_t num_segments() const {
+        DCHECK(_rowset_meta_pb.segment_ids_size() == 0 ||
+               _rowset_meta_pb.segment_ids_size() == _rowset_meta_pb.num_segments());
+        return _rowset_meta_pb.segment_ids_size() > 0 ? _rowset_meta_pb.segment_ids_size()
+                                                      : _rowset_meta_pb.num_segments();
+    }
 
     void set_num_segments(int64_t num_segments) { _rowset_meta_pb.set_num_segments(num_segments); }
+
+    bool has_segment_ids() const { return _rowset_meta_pb.segment_ids_size() > 0; }
+
+    const auto& segment_ids() const { return _rowset_meta_pb.segment_ids(); }
+
+    void set_segment_ids(const std::vector<int32_t>& segment_ids);
+
+    void append_segment_ids(const google::protobuf::RepeatedField<int32_t>& segment_ids);
+
+    int64_t segment_id(size_t pos) const {
+        DORIS_CHECK_LT(pos, cast_set<size_t>(num_segments()));
+        return has_segment_ids() ? _rowset_meta_pb.segment_ids(cast_set<int>(pos))
+                                 : cast_set<int64_t>(pos);
+    }
+
+    RowsetSegmentRef segment_ref(size_t pos) const { return {pos, segment_id(pos)}; }
+
+    RowsetSegmentMetaView segment(size_t pos) const;
+
+    RowsetSegmentMetaRange segments() const;
+
+    size_t position_of(int64_t seg_id) const;
+
+    int64_t next_segment_id() const;
+
+    void set_next_segment_id(int64_t next_segment_id) {
+        _rowset_meta_pb.set_next_segment_id(next_segment_id);
+    }
 
     // Convert to RowsetMetaPB, skip_schema is only used by cloud to separate schema from rowset meta.
     void to_rowset_pb(RowsetMetaPB* rs_meta_pb, bool skip_schema = false) const;
@@ -447,18 +488,18 @@ public:
 
     int64_t compaction_level() { return _rowset_meta_pb.compaction_level(); }
 
-    // `seg_file_size` MUST ordered by segment id
+    // `seg_file_size` MUST be ordered by rowset segment position.
     void add_segments_file_size(const std::vector<size_t>& seg_file_size);
 
     // Return -1 if segment file size is unknown
-    int64_t segment_file_size(int seg_id) const;
+    int64_t segment_file_size_by_pos(size_t pos) const;
 
     const auto& segments_file_size() const { return _rowset_meta_pb.segments_file_size(); }
 
     // Used for partial update, when publish, partial update may add a new rowset and we should update rowset meta
     void merge_rowset_meta(const RowsetMeta& other);
 
-    InvertedIndexFileInfo inverted_index_file_info(int seg_id);
+    InvertedIndexFileInfo inverted_index_file_info_by_pos(size_t pos) const;
 
     const auto& inverted_index_file_info() const {
         return _rowset_meta_pb.inverted_index_file_info();
@@ -527,6 +568,8 @@ private:
 
     void _init();
 
+    void _validate_segment_ids() const;
+
     friend bool operator==(const RowsetMeta& a, const RowsetMeta& b);
 
     friend bool operator!=(const RowsetMeta& a, const RowsetMeta& b) { return !(a == b); }
@@ -541,6 +584,90 @@ private:
     DorisCallOnce<Result<EncryptionAlgorithmPB>> _determine_encryption_once;
     std::atomic<int64_t> _stale_at_s {0};
 };
+
+class RowsetSegmentMetaView {
+public:
+    RowsetSegmentMetaView(const RowsetMeta* meta, size_t pos)
+            : _meta(meta), _ref(meta->segment_ref(pos)) {}
+
+    size_t pos() const { return _ref.pos; }
+    int64_t id() const { return _ref.id; }
+    RowsetSegmentRef ref() const { return _ref; }
+
+    int64_t file_size() const { return _meta->segment_file_size_by_pos(pos()); }
+
+    InvertedIndexFileInfo inverted_index_file_info() const {
+        return _meta->inverted_index_file_info_by_pos(pos());
+    }
+
+    bool has_num_rows() const {
+        return cast_set<size_t>(_meta->get_num_segment_rows().size()) > pos();
+    }
+
+    int64_t num_rows() const {
+        DORIS_CHECK(has_num_rows());
+        return _meta->get_num_segment_rows().Get(cast_set<int>(pos()));
+    }
+
+    bool has_position_key_bounds() const {
+        return !_meta->is_segments_key_bounds_aggregated() &&
+               cast_set<size_t>(_meta->get_segments_key_bounds().size()) > pos();
+    }
+
+    const KeyBoundsPB& key_bounds() const {
+        DORIS_CHECK(has_position_key_bounds());
+        return _meta->get_segments_key_bounds().Get(cast_set<int>(pos()));
+    }
+
+private:
+    const RowsetMeta* _meta;
+    RowsetSegmentRef _ref;
+};
+
+class RowsetSegmentMetaRange {
+public:
+    class Iterator {
+    public:
+        using iterator_category = std::forward_iterator_tag;
+        using value_type = RowsetSegmentMetaView;
+        using difference_type = std::ptrdiff_t;
+
+        Iterator(const RowsetMeta* meta, size_t pos) : _meta(meta), _pos(pos) {}
+
+        RowsetSegmentMetaView operator*() const { return {_meta, _pos}; }
+
+        Iterator& operator++() {
+            ++_pos;
+            return *this;
+        }
+
+        bool operator==(const Iterator& other) const {
+            return _meta == other._meta && _pos == other._pos;
+        }
+
+        bool operator!=(const Iterator& other) const { return !(*this == other); }
+
+    private:
+        const RowsetMeta* _meta;
+        size_t _pos;
+    };
+
+    explicit RowsetSegmentMetaRange(const RowsetMeta* meta) : _meta(meta) {}
+
+    Iterator begin() const { return {_meta, 0}; }
+    Iterator end() const { return {_meta, cast_set<size_t>(_meta->num_segments())}; }
+
+private:
+    const RowsetMeta* _meta;
+};
+
+inline RowsetSegmentMetaView RowsetMeta::segment(size_t pos) const {
+    return {this, pos};
+}
+
+inline RowsetSegmentMetaRange RowsetMeta::segments() const {
+    return RowsetSegmentMetaRange(this);
+}
 
 using RowsetMetaMapContainer = std::unordered_map<Version, RowsetMetaSharedPtr, HashOfVersion>;
 

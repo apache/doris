@@ -453,8 +453,14 @@ public:
 
     Status remove_all_remote_rowsets();
 
+    // Records a GC entry assuming contiguous segment ids [0, num_segments). Only use this for
+    // remote rowsets whose files are named by contiguous position (e.g. the cooldown `upload_to`
+    // path renumbers segments by position). For a rowset that may carry a non-contiguous
+    // segment_ids (seg_list), use the RowsetMeta overload below, which persists segment_ids so the
+    // recycler deletes the correct object paths.
     void record_unused_remote_rowset(const RowsetId& rowset_id, const std::string& resource,
                                      int64_t num_segments);
+    void record_unused_remote_rowset(const RowsetMeta& rowset_meta);
 
     uint32_t calc_cold_data_compaction_score() const;
 

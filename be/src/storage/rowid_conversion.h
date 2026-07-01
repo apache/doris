@@ -18,9 +18,9 @@
 #pragma once
 
 #include <map>
+#include <numeric>
 #include <vector>
 
-#include "common/cast_set.h"
 #include "runtime/thread_context.h"
 #include "storage/olap_common.h"
 #include "storage/utils.h"
@@ -37,8 +37,9 @@ public:
     RowIdConversion() = default;
     ~RowIdConversion() { RELEASE_THREAD_MEM_TRACKER(_seg_rowid_map_mem_used); }
 
-    // resize segment rowid map to its rows num
-    Status init_segment_map(const RowsetId& src_rowset_id, const std::vector<uint32_t>& num_rows) {
+    Status init_segment_map(const RowsetId& src_rowset_id, const std::vector<uint32_t>& segment_ids,
+                            const std::vector<uint32_t>& num_rows) {
+        DCHECK_EQ(segment_ids.size(), num_rows.size());
         for (size_t i = 0; i < num_rows.size(); i++) {
             constexpr size_t RESERVED_MEMORY = 10 * 1024 * 1024; // 10M
             if (doris::GlobalMemoryArbitrator::is_exceed_hard_mem_limit(RESERVED_MEMORY)) {
@@ -60,8 +61,10 @@ public:
             }
 
             uint32_t id = static_cast<uint32_t>(_segments_rowid_map.size());
-            _segment_to_id_map.emplace(std::pair<RowsetId, uint32_t> {src_rowset_id, i}, id);
-            _id_to_segment_map.emplace_back(src_rowset_id, i);
+            auto segment_id = segment_ids[i];
+            _segment_to_id_map.emplace(
+                    std::pair<RowsetId, uint32_t> {src_rowset_id, segment_id}, id);
+            _id_to_segment_map.emplace_back(src_rowset_id, segment_id);
             std::vector<std::pair<uint32_t, uint32_t>> vec(
                     num_rows[i], std::pair<uint32_t, uint32_t>(UINT32_MAX, UINT32_MAX));
 
@@ -72,6 +75,12 @@ public:
             _segments_rowid_map.emplace_back(std::move(vec));
         }
         return Status::OK();
+    }
+
+    Status init_segment_map(const RowsetId& src_rowset_id, const std::vector<uint32_t>& num_rows) {
+        std::vector<uint32_t> segment_ids(num_rows.size());
+        std::iota(segment_ids.begin(), segment_ids.end(), 0);
+        return init_segment_map(src_rowset_id, segment_ids, num_rows);
     }
 
     // set dst rowset id

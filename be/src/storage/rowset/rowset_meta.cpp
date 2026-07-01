@@ -20,6 +20,8 @@
 #include <gen_cpp/olap_file.pb.h>
 #include <glog/logging.h>
 
+#include <algorithm>
+#include <iterator>
 #include <memory>
 #include <random>
 
@@ -268,7 +270,60 @@ void RowsetMeta::_init() {
     } else {
         _rowset_id.init(_rowset_meta_pb.rowset_id_v2());
     }
+    _validate_segment_ids();
     update_metadata_size();
+}
+
+void RowsetMeta::_validate_segment_ids() const {
+    if (!has_segment_ids()) {
+        return;
+    }
+    DORIS_CHECK_EQ(_rowset_meta_pb.segment_ids_size(), _rowset_meta_pb.num_segments());
+    int32_t prev_segment_id = -1;
+    for (const auto segment_id : _rowset_meta_pb.segment_ids()) {
+        DORIS_CHECK_GE(segment_id, 0);
+        DORIS_CHECK_GT(segment_id, prev_segment_id);
+        prev_segment_id = segment_id;
+    }
+}
+
+void RowsetMeta::set_segment_ids(const std::vector<int32_t>& segment_ids) {
+    _rowset_meta_pb.mutable_segment_ids()->Assign(segment_ids.begin(), segment_ids.end());
+    set_num_segments(cast_set<int64_t>(segment_ids.size()));
+    _validate_segment_ids();
+}
+
+void RowsetMeta::append_segment_ids(const google::protobuf::RepeatedField<int32_t>& segment_ids) {
+    _rowset_meta_pb.mutable_segment_ids()->Add(segment_ids.begin(), segment_ids.end());
+    set_num_segments(_rowset_meta_pb.segment_ids_size());
+    _validate_segment_ids();
+}
+
+size_t RowsetMeta::position_of(int64_t seg_id) const {
+    DORIS_CHECK_GE(seg_id, 0);
+    if (!has_segment_ids()) {
+        DORIS_CHECK_LT(seg_id, num_segments());
+        return cast_set<size_t>(seg_id);
+    }
+    const auto& segment_ids = _rowset_meta_pb.segment_ids();
+    auto it = std::lower_bound(segment_ids.begin(), segment_ids.end(), seg_id);
+    DORIS_CHECK(it != segment_ids.end());
+    DORIS_CHECK_EQ(*it, seg_id);
+    return cast_set<size_t>(std::distance(segment_ids.begin(), it));
+}
+
+int64_t RowsetMeta::next_segment_id() const {
+    if (_rowset_meta_pb.has_next_segment_id()) {
+        return _rowset_meta_pb.next_segment_id();
+    }
+    if (!has_segment_ids()) {
+        return num_segments();
+    }
+    int64_t next_id = 0;
+    for (const auto segment_id : _rowset_meta_pb.segment_ids()) {
+        next_id = std::max<int64_t>(next_id, segment_id + 1);
+    }
+    return next_id;
 }
 
 void RowsetMeta::add_segments_file_size(const std::vector<size_t>& seg_file_size) {
@@ -278,13 +333,13 @@ void RowsetMeta::add_segments_file_size(const std::vector<size_t>& seg_file_size
     }
 }
 
-int64_t RowsetMeta::segment_file_size(int seg_id) const {
+int64_t RowsetMeta::segment_file_size_by_pos(size_t pos) const {
     DCHECK(_rowset_meta_pb.segments_file_size().empty() ||
-           _rowset_meta_pb.segments_file_size_size() > seg_id)
-            << _rowset_meta_pb.segments_file_size_size() << ' ' << seg_id;
+           _rowset_meta_pb.segments_file_size_size() > cast_set<int>(pos))
+            << _rowset_meta_pb.segments_file_size_size() << ' ' << pos;
     return _rowset_meta_pb.enable_segments_file_size()
-                   ? (_rowset_meta_pb.segments_file_size_size() > seg_id
-                              ? _rowset_meta_pb.segments_file_size(seg_id)
+                   ? (_rowset_meta_pb.segments_file_size_size() > cast_set<int>(pos)
+                              ? _rowset_meta_pb.segments_file_size(cast_set<int>(pos))
                               : -1)
                    : -1;
 }
@@ -338,7 +393,47 @@ void RowsetMeta::set_segments_key_bounds(const std::vector<KeyBoundsPB>& segment
 }
 
 void RowsetMeta::merge_rowset_meta(const RowsetMeta& other) {
-    set_num_segments(num_segments() + other.num_segments());
+    const auto old_num_segments = num_segments();
+    set_num_segments(old_num_segments + other.num_segments());
+    if (has_segment_ids() || other.has_segment_ids()) {
+        // `other` is a transient rowset appended to this rowset during partial-update publish.
+        // Its segments are allocated contiguously starting from this rowset's next_segment_id()
+        // (see Tablet/CloudTablet::create_transient_rowset_writer). Capture that start id before
+        // mutating segment_ids so we can reconstruct the appended real ids when `other` did not
+        // persist its own segment_ids -- e.g. enable_segment_list was off while writing `other`
+        // even though this rowset already carries a non-contiguous segment_ids. Reconstructing as
+        // iota from 0 (the previous behavior) would mis-map positions to real ids and collide with
+        // the actual segment files, which are named by the real ids.
+        const int64_t current_next = next_segment_id();
+        const int64_t appended_start = current_next;
+        if (!has_segment_ids()) {
+            for (int64_t pos = 0; pos < old_num_segments; ++pos) {
+                _rowset_meta_pb.add_segment_ids(cast_set<int32_t>(pos));
+            }
+        }
+        if (other.has_segment_ids()) {
+            _rowset_meta_pb.mutable_segment_ids()->Add(other.segment_ids().begin(),
+                                                       other.segment_ids().end());
+        } else {
+            for (int64_t k = 0; k < other.num_segments(); ++k) {
+                _rowset_meta_pb.add_segment_ids(cast_set<int32_t>(appended_start + k));
+            }
+        }
+        set_num_segments(_rowset_meta_pb.segment_ids_size());
+        // next_segment_id must stay strictly greater than every real id now held, so that any
+        // subsequent append never reuses an id. Treat the persisted counters as lower bounds only:
+        // a legacy transient rowset without segment_ids reports other.next_segment_id() as
+        // other.num_segments(), which does not include appended_start.
+        const int64_t persisted_next_lower_bound = std::max(current_next, other.next_segment_id());
+        int64_t merged_next = persisted_next_lower_bound;
+        for (const auto seg_id : _rowset_meta_pb.segment_ids()) {
+            merged_next = std::max<int64_t>(merged_next, seg_id + 1);
+        }
+        set_next_segment_id(merged_next);
+        // _validate_segment_ids() DORIS_CHECKs that merged segment_ids stay strictly increasing,
+        // which guards against accidental id collisions or non-monotonic appends.
+        _validate_segment_ids();
+    }
     set_num_rows(num_rows() + other.num_rows());
     set_data_disk_size(data_disk_size() + other.data_disk_size());
     set_total_disk_size(total_disk_size() + other.total_disk_size());
@@ -404,10 +499,10 @@ int64_t RowsetMeta::get_metadata_size() const {
     return sizeof(RowsetMeta) + _rowset_meta_pb.ByteSizeLong();
 }
 
-InvertedIndexFileInfo RowsetMeta::inverted_index_file_info(int seg_id) {
+InvertedIndexFileInfo RowsetMeta::inverted_index_file_info_by_pos(size_t pos) const {
     return _rowset_meta_pb.enable_inverted_index_file_info()
-                   ? (_rowset_meta_pb.inverted_index_file_info_size() > seg_id
-                              ? _rowset_meta_pb.inverted_index_file_info(seg_id)
+                   ? (_rowset_meta_pb.inverted_index_file_info_size() > cast_set<int>(pos)
+                              ? _rowset_meta_pb.inverted_index_file_info(cast_set<int>(pos))
                               : InvertedIndexFileInfo())
                    : InvertedIndexFileInfo();
 }

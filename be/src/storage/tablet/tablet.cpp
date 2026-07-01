@@ -2278,7 +2278,7 @@ Result<std::unique_ptr<RowsetWriter>> Tablet::create_transient_rowset_writer(
 
     return create_transient_rowset_writer(context, rowset.rowset_id())
             .transform([&](auto&& writer) {
-                writer->set_segment_start_id(cast_set<int32_t>(rowset.num_segments()));
+                writer->set_segment_start_id(cast_set<int32_t>(rowset.rowset_meta()->next_segment_id()));
                 return writer;
             });
 }
@@ -2405,7 +2405,10 @@ Status Tablet::_cooldown_data(RowsetSharedPtr rowset) {
     Status st;
     Defer defer {[&] {
         if (!st.ok()) {
-            // reclaim the incomplete rowset data in remote storage
+            // reclaim the incomplete rowset data in remote storage.
+            // `upload_to` writes the remote segments named by contiguous position, so the new
+            // remote rowset is contiguous regardless of `old_rowset`'s layout; the count-based
+            // overload (iota GC) is correct here.
             record_unused_remote_rowset(new_rowset_id, storage_resource.fs->id(),
                                         old_rowset->num_segments());
         }
@@ -2865,6 +2868,22 @@ void Tablet::update_max_version_schema(const TabletSchemaSPtr& tablet_schema) {
     }
 }
 
+void Tablet::record_unused_remote_rowset(const RowsetMeta& rowset_meta) {
+    auto gc_key = REMOTE_ROWSET_GC_PREFIX + rowset_meta.rowset_id().to_string();
+    RemoteRowsetGcPB gc_pb;
+    gc_pb.set_resource_id(rowset_meta.resource_id());
+    gc_pb.set_tablet_id(tablet_id());
+    gc_pb.set_num_segments(rowset_meta.num_segments());
+    gc_pb.mutable_segment_ids()->CopyFrom(rowset_meta.segment_ids());
+    auto st =
+            _data_dir->get_meta()->put(META_COLUMN_FAMILY_INDEX, gc_key, gc_pb.SerializeAsString());
+    if (!st.ok()) {
+        LOG(WARNING) << "failed to record unused remote rowset. tablet_id=" << tablet_id()
+                     << " rowset_id=" << rowset_meta.rowset_id()
+                     << " resource_id=" << rowset_meta.resource_id();
+    }
+}
+
 CalcDeleteBitmapExecutor* Tablet::calc_delete_bitmap_executor() {
     return _engine.calc_delete_bitmap_executor();
 }
@@ -3176,8 +3195,8 @@ int64_t Tablet::get_segment_file_size(const RowsetMetaSharedPtr& rs_meta) {
         LOG(WARNING) << "get fs failed, resource_id={}" << rs_meta->resource_id();
     }
     int64_t total_segment_size = 0;
-    for (int64_t seg_id = 0; seg_id < rs_meta->num_segments(); seg_id++) {
-        std::string segment_path = get_segment_path(rs_meta, seg_id);
+    for (auto seg : rs_meta->segments()) {
+        std::string segment_path = get_segment_path(rs_meta, seg.id());
         int64_t segment_file_size = 0;
         auto st = fs->file_size(segment_path, &segment_file_size);
         if (!st.ok()) {
@@ -3201,8 +3220,8 @@ int64_t Tablet::get_inverted_index_file_size(const RowsetMetaSharedPtr& rs_meta)
         InvertedIndexStorageFormatPB::V1) {
         const auto& indices = rs_meta->tablet_schema()->inverted_indexes();
         for (auto& index : indices) {
-            for (int seg_id = 0; seg_id < rs_meta->num_segments(); ++seg_id) {
-                std::string segment_path = get_segment_path(rs_meta, seg_id);
+            for (auto seg : rs_meta->segments()) {
+                std::string segment_path = get_segment_path(rs_meta, seg.id());
                 int64_t file_size = 0;
 
                 std::string inverted_index_file_path =
@@ -3223,9 +3242,9 @@ int64_t Tablet::get_inverted_index_file_size(const RowsetMetaSharedPtr& rs_meta)
             }
         }
     } else {
-        for (int seg_id = 0; seg_id < rs_meta->num_segments(); ++seg_id) {
+        for (auto seg : rs_meta->segments()) {
             int64_t file_size = 0;
-            std::string segment_path = get_segment_path(rs_meta, seg_id);
+            std::string segment_path = get_segment_path(rs_meta, seg.id());
             std::string inverted_index_file_path = InvertedIndexDescriptor::get_index_file_path_v2(
                     InvertedIndexDescriptor::get_index_file_path_prefix(segment_path));
             auto st = fs->file_size(inverted_index_file_path, &file_size);
