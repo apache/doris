@@ -192,7 +192,63 @@ class ProfileAction implements SuiteAction {
                 exception = t
             }
 
-            this.check(getProfileBySql(tag), exception)
+            def httpCli = new HttpCliAction(context)
+            def addr = context.getFeHttpAddress()
+            httpCli.endpoint("${addr.hostString}:${addr.port}")
+            httpCli.uri("/rest/v1/query_profile")
+            httpCli.op("get")
+            httpCli.printResponse(false)
+
+            if (context.config.isCloudMode()) {
+                httpCli.basicAuthorization(context.config.feCloudHttpUser, context.config.feCloudHttpPassword)
+            } else {
+                httpCli.basicAuthorization(context.config.feHttpUser, context.config.feHttpPassword)
+            }
+            httpCli.check { code, body ->
+                if (code != 200) {
+                    throw new IllegalStateException("Get profile list failed, code: ${code}, body:\n${body}")
+                }
+
+                def jsonSlurper = new JsonSlurper()
+                List profileData = jsonSlurper.parseText(body).data.rows
+                def canFindProfile = false;
+                for (final def profileItem in profileData) {
+                    if (profileItem["Sql Statement"].toString().contains(tag)) {
+                        canFindProfile = true
+                        def profileId = profileItem["Profile ID"].toString()
+
+                        def profileCli = new HttpCliAction(context)
+                        profileCli.endpoint("${addr.hostString}:${addr.port}")
+                        profileCli.uri("/rest/v1/query_profile/${profileId}")
+                        profileCli.op("get")
+                        profileCli.printResponse(false)
+
+                        if (context.config.isCloudMode()) {
+                            profileCli.basicAuthorization(context.config.feCloudHttpUser, context.config.feCloudHttpPassword)
+                        } else {
+                            profileCli.basicAuthorization(context.config.feHttpUser, context.config.feHttpPassword)
+                        }
+                        profileCli.check { profileCode, profileResp ->
+                            if (profileCode != 200) {
+                                throw new IllegalStateException("Get profile failed, url: ${"/rest/v1/query_profile/${profileId}"}, code: ${profileCode}, body:\n${profileResp}")
+                            }
+
+                            def jsonSlurper2 = new JsonSlurper()
+                            def profileText = jsonSlurper2.parseText(profileResp).data
+                            profileText = profileText.replace("&nbsp;", " ")
+                            profileText = profileText.replace("</br>", "\n")
+                            this.check(profileText, exception)
+                        }
+                        profileCli.run()
+
+                        break
+                    }
+                }
+                if (!canFindProfile) {
+                    throw new IllegalStateException("Missing profile with tag: " + tag)
+                }
+            }
+            httpCli.run()
         } finally {
             JdbcUtils.executeToList(conn, "set enable_profile=false")
         }
