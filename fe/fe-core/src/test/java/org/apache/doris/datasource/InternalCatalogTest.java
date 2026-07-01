@@ -62,6 +62,7 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
+import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -95,6 +96,11 @@ public class InternalCatalogTest {
         FakeEnv.setSystemInfo(createSystemInfoService());
         db = createRangePartitionDb();
         catalog = new FailingCommitInternalCatalog();
+    }
+
+    @After
+    public void tearDown() {
+        fakeEnv.close();
     }
 
     @Test
