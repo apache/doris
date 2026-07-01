@@ -102,8 +102,8 @@ class MySqlCaseSensitiveITCase {
                         jobId,
                         MYSQL.getHost(),
                         MYSQL.getMappedPort(MySQLContainer.MYSQL_PORT),
-                        USER,
-                        PASSWORD,
+                        ROOT_USER,
+                        ROOT_PASSWORD,
                         database,
                         "T_Users",
                         "initial")) {
