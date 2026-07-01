@@ -31,6 +31,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.nio.channels.SocketChannel;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
 public class ConnectSchedulerTest {
@@ -104,5 +105,40 @@ public class ConnectSchedulerTest {
         ConnectScheduler scheduler = new ConnectScheduler(0);
         ConnectContext context = new ConnectContext();
         Assert.assertTrue(scheduler.submit(context));
+    }
+
+    @Test
+    public void testTimeoutCheckerContinuesAfterContextException() {
+        ConnectPoolMgr connectPoolMgr = new ConnectPoolMgr(10);
+        ThrowingConnectContext throwingContext = new ThrowingConnectContext();
+        CountingConnectContext countingContext = new CountingConnectContext();
+        throwingContext.setConnectionId(1);
+        countingContext.setConnectionId(2);
+        connectPoolMgr.getConnectionMap().put(throwingContext.getConnectionId(), throwingContext);
+        connectPoolMgr.getConnectionMap().put(countingContext.getConnectionId(), countingContext);
+
+        connectPoolMgr.timeoutChecker(System.currentTimeMillis());
+
+        Assert.assertEquals(1, throwingContext.checkCount.get());
+        Assert.assertEquals(1, countingContext.checkCount.get());
+    }
+
+    private static class ThrowingConnectContext extends ConnectContext {
+        private final AtomicInteger checkCount = new AtomicInteger(0);
+
+        @Override
+        public void checkTimeout(long now) {
+            checkCount.incrementAndGet();
+            throw new RuntimeException("mock check timeout exception");
+        }
+    }
+
+    private static class CountingConnectContext extends ConnectContext {
+        private final AtomicInteger checkCount = new AtomicInteger(0);
+
+        @Override
+        public void checkTimeout(long now) {
+            checkCount.incrementAndGet();
+        }
     }
 }
