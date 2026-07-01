@@ -165,6 +165,45 @@ public class IcebergSchemaUtilsTest {
         Assertions.assertEquals(2, fields.get("name").getId());
     }
 
+    // --- iceberg v3 row-lineage columns must be in the dict root (else BE ParquetReader SIGABRTs) ---
+
+    @Test
+    public void appendRowLineageAddsMetadataColumnsToDictRoot() throws Exception {
+        // WHY: _row_id / _last_updated_sequence_number are GENERATED BE scan slots (they reach BE column_names)
+        // but are NOT in schema.columns(), so a dict keyed off the requested columns omits them. BE's ParquetReader
+        // iterates column_names and calls StructNode.children_column_exists(name) -> children.at(name), which
+        // std::out_of_range-SIGABRTs the whole BE on a missing key (the exact crash on
+        // "select _row_id from a v2->v3 upgraded table"). With appendRowLineage=true both columns must appear in
+        // the dict root carrying their RESERVED iceberg field ids (BE matches them against the FILE field ids and
+        // registers them not-in-file for a "null after upgrade" file). MUTATION: skip appendRowLineageFields ->
+        // _row_id absent -> red.
+        Table table = createTable("v3", SCHEMA);
+        String encoded = IcebergSchemaUtils.encodeSchemaEvolutionProp(
+                table, table.schema(), Arrays.asList("id", "name"), true);
+        Map<String, TField> fields = topFields(decode(encoded).getHistorySchemaInfo().get(0));
+
+        Assertions.assertTrue(fields.containsKey("_row_id"));
+        Assertions.assertTrue(fields.containsKey("_last_updated_sequence_number"));
+        Assertions.assertEquals(2147483540, fields.get("_row_id").getId());
+        Assertions.assertEquals(2147483539, fields.get("_last_updated_sequence_number").getId());
+        // the requested data columns are still carried (row-lineage is APPENDED, not a replacement)
+        Assertions.assertTrue(fields.containsKey("id"));
+        Assertions.assertTrue(fields.containsKey("name"));
+    }
+
+    @Test
+    public void withoutAppendRowLineageDictStaysPruned() throws Exception {
+        // The format-version < 3 path (appendRowLineage=false, the 2-arg overload) must NOT inject row-lineage —
+        // the pruned dict stays exactly the requested slots. MUTATION: always append -> _row_id present -> red.
+        Table table = createTable("v2", SCHEMA);
+        String encoded = IcebergSchemaUtils.encodeSchemaEvolutionProp(table, Arrays.asList("id", "name"));
+        Map<String, TField> fields = topFields(decode(encoded).getHistorySchemaInfo().get(0));
+
+        Assertions.assertFalse(fields.containsKey("_row_id"));
+        Assertions.assertFalse(fields.containsKey("_last_updated_sequence_number"));
+        Assertions.assertEquals(2, fields.size());
+    }
+
     @Test
     public void renamePreservesFieldIdAcrossEvolution() {
         // The crux of "one entry suffices": iceberg field ids are permanent. Rename name(id=2) -> full_name; the

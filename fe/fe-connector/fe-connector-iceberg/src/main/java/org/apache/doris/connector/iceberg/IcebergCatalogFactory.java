@@ -18,11 +18,11 @@
 package org.apache.doris.connector.iceberg;
 
 import org.apache.doris.connector.api.DorisConnectorException;
+import org.apache.doris.connector.api.cache.CacheSpec;
 import org.apache.doris.filesystem.properties.S3CompatibleFileSystemProperties;
 import org.apache.doris.filesystem.properties.StorageProperties;
 
 import org.apache.commons.lang3.StringUtils;
-import org.apache.commons.lang3.math.NumberUtils;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.iceberg.CatalogProperties;
@@ -111,13 +111,11 @@ public final class IcebergCatalogFactory {
         copyIfPresent(props, opts, CatalogProperties.IO_MANIFEST_CACHE_MAX_TOTAL_BYTES);
         copyIfPresent(props, opts, CatalogProperties.IO_MANIFEST_CACHE_MAX_CONTENT_LENGTH);
         if (!hasExplicitEnabled) {
-            boolean enable = getBoolean(props, IcebergConnectorProperties.MANIFEST_CACHE_ENABLE,
-                    DEFAULT_MANIFEST_CACHE_ENABLE);
-            long ttl = getLong(props, IcebergConnectorProperties.MANIFEST_CACHE_TTL,
-                    DEFAULT_MANIFEST_CACHE_TTL_SECOND);
-            long capacity = getLong(props, IcebergConnectorProperties.MANIFEST_CACHE_CAPACITY,
-                    DEFAULT_MANIFEST_CACHE_CAPACITY);
-            if (enable && ttl != 0 && capacity != 0) {
+            CacheSpec spec = CacheSpec.fromProperties(props,
+                    IcebergConnectorProperties.MANIFEST_CACHE_ENABLE, DEFAULT_MANIFEST_CACHE_ENABLE,
+                    IcebergConnectorProperties.MANIFEST_CACHE_TTL, DEFAULT_MANIFEST_CACHE_TTL_SECOND,
+                    IcebergConnectorProperties.MANIFEST_CACHE_CAPACITY, DEFAULT_MANIFEST_CACHE_CAPACITY);
+            if (CacheSpec.isCacheEnabled(spec.isEnable(), spec.getTtlSecond(), spec.getCapacity())) {
                 opts.put(CatalogProperties.IO_MANIFEST_CACHE_ENABLED, "true");
             }
         }
@@ -228,16 +226,6 @@ public final class IcebergCatalogFactory {
         if (StringUtils.isNotBlank(value)) {
             opts.put(key, value);
         }
-    }
-
-    private static boolean getBoolean(Map<String, String> props, String key, boolean defaultValue) {
-        String value = props.get(key);
-        return value == null ? defaultValue : Boolean.parseBoolean(value);
-    }
-
-    private static long getLong(Map<String, String> props, String key, long defaultValue) {
-        String value = props.get(key);
-        return value == null ? defaultValue : NumberUtils.toLong(value, defaultValue);
     }
 
     /** Resolves the lower-cased flavor from {@code iceberg.catalog.type}; null/blank stays null. */

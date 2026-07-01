@@ -18,6 +18,7 @@
 package org.apache.doris.connector.iceberg;
 
 import org.apache.doris.connector.api.ConnectorSession;
+import org.apache.doris.connector.api.cache.CacheSpec;
 import org.apache.doris.connector.api.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.api.pushdown.ConnectorExpression;
@@ -991,11 +992,18 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         // the dict from the FULL pinned schema (a guaranteed superset of the BE slots — iceberg projection is
         // BE-tuple-driven, so `columns` only feeds the dict). See P6-T07 design §6. Without a pin, keep T06's
         // pruned-by-requested-columns dict (CI #969249).
+        //
+        // Row-lineage (format-version >= 3): _row_id / _last_updated_sequence_number are GENERATED BE scan slots
+        // (they reach BE column_names) but are NOT in schema.columns(), so requestedLowerNames — keyed off the
+        // iceberg column handles — never carries them. encodeSchemaEvolutionProp(appendRowLineage=true) appends
+        // them to the dict root so BE's StructNode children map contains them; else the ParquetReader's
+        // unconditional children.at("_row_id") std::out_of_range-SIGABRTs the whole BE.
         if (!systemTable) {
             String dict;
+            boolean appendRowLineage = getFormatVersion(table) >= 3;
             if (iceHandle.hasSnapshotPin()) {
                 dict = IcebergSchemaUtils.encodeSchemaEvolutionProp(
-                        table, pinnedSchema(table, iceHandle), Collections.emptyList());
+                        table, pinnedSchema(table, iceHandle), Collections.emptyList(), appendRowLineage);
             } else if (iceHandle.isTopnLazyMaterialize()) {
                 // Top-N lazy materialization (M-4): BE re-fetches the non-projected columns of the surviving
                 // rows by the synthesized row-id, so the dict must span the FULL latest schema, not just the
@@ -1003,10 +1011,10 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                 // field-id entry and the native read drops/mis-reads it. An empty requested list builds the
                 // dict over every top-level column (legacy initSchemaInfoForAllColumn parity).
                 dict = IcebergSchemaUtils.encodeSchemaEvolutionProp(
-                        table, table.schema(), Collections.emptyList());
+                        table, table.schema(), Collections.emptyList(), appendRowLineage);
             } else {
                 dict = IcebergSchemaUtils.encodeSchemaEvolutionProp(
-                        table, table.schema(), requestedLowerNames(columns));
+                        table, table.schema(), requestedLowerNames(columns), appendRowLineage);
             }
             props.put(SCHEMA_EVOLUTION_PROP, dict);
         }
@@ -1338,33 +1346,21 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
     }
 
     /**
-     * Port of legacy {@code IcebergUtils.isManifestCacheEnabled} + {@code CacheSpec.isCacheEnabled}: the
-     * manifest-level path is used iff the manifest cache is wired AND
-     * {@code enable && ttl-second != 0 && capacity != 0}. The {@code .ttl-second}/{@code .capacity} properties
-     * feed ONLY this formula (legacy quirk); the cache itself is fixed no-TTL / capacity 100000. A blank or
-     * unparseable numeric value falls back to its default rather than failing the scan.
+     * Port of legacy {@code IcebergUtils.isManifestCacheEnabled}: the manifest-level path is used iff the
+     * manifest cache is wired AND the spec is enabled ({@code enable && ttl-second != 0 && capacity != 0}).
+     * The {@code .ttl-second}/{@code .capacity} properties feed ONLY this formula (legacy quirk); the cache
+     * itself is fixed no-TTL / capacity 100000. Parsing is best-effort (blank/unparseable falls back to the
+     * default) via the shared {@link CacheSpec}, matching the legacy fe-core behavior.
      */
     private boolean isManifestCacheEnabled() {
         if (manifestCache == null) {
             return false;
         }
-        boolean enable = Boolean.parseBoolean(
-                properties.getOrDefault(MANIFEST_CACHE_ENABLE, String.valueOf(DEFAULT_MANIFEST_CACHE_ENABLE)));
-        long ttl = propLong(MANIFEST_CACHE_TTL_SECOND, DEFAULT_MANIFEST_CACHE_TTL_SECOND);
-        long capacity = propLong(MANIFEST_CACHE_CAPACITY, DEFAULT_MANIFEST_CACHE_CAPACITY);
-        return enable && ttl != 0 && capacity != 0;
-    }
-
-    private long propLong(String key, long defaultValue) {
-        String raw = properties == null ? null : properties.get(key);
-        if (raw == null || raw.trim().isEmpty()) {
-            return defaultValue;
-        }
-        try {
-            return Long.parseLong(raw.trim());
-        } catch (NumberFormatException e) {
-            return defaultValue;
-        }
+        CacheSpec spec = CacheSpec.fromProperties(properties,
+                MANIFEST_CACHE_ENABLE, DEFAULT_MANIFEST_CACHE_ENABLE,
+                MANIFEST_CACHE_TTL_SECOND, DEFAULT_MANIFEST_CACHE_TTL_SECOND,
+                MANIFEST_CACHE_CAPACITY, DEFAULT_MANIFEST_CACHE_CAPACITY);
+        return CacheSpec.isCacheEnabled(spec.isEnable(), spec.getTtlSecond(), spec.getCapacity());
     }
 
     /**

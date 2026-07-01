@@ -85,6 +85,18 @@ public final class IcebergSchemaUtils {
     // pushed into history_schema_info under this id (IcebergScanNode.createScanRangeLocations -> -1L).
     static final long CURRENT_SCHEMA_ID = -1L;
 
+    // Iceberg v3 row-lineage metadata columns (_row_id / _last_updated_sequence_number). Names + reserved field
+    // ids MIRROR IcebergConnectorMetadata's constants (a fe-core contract test pins those to
+    // IcebergUtils.ICEBERG_ROW_ID_COL / ICEBERG_LAST_UPDATED_SEQUENCE_NUMBER_COL + the reserved ids). They are
+    // never in schema.columns(), yet are projected as GENERATED BE scan slots -> they must be appended to the
+    // dict for a format-version >= 3 table so BE's StructNode children map carries them (else the ParquetReader,
+    // which iterates column_names unconditionally, does children.at("_row_id") -> std::out_of_range and SIGABRTs
+    // the whole BE). See appendRowLineageFields.
+    static final String ICEBERG_ROW_ID_COL = "_row_id";
+    static final String ICEBERG_LAST_UPDATED_SEQUENCE_NUMBER_COL = "_last_updated_sequence_number";
+    static final int ICEBERG_ROW_ID_FIELD_ID = 2147483540;
+    static final int ICEBERG_LAST_UPDATED_SEQUENCE_NUMBER_FIELD_ID = 2147483539;
+
     private static final Base64.Encoder BASE64_ENCODER = Base64.getEncoder();
 
     private IcebergSchemaUtils() {
@@ -97,7 +109,7 @@ public final class IcebergSchemaUtils {
      * (count-only scan / no column handles) falls back to all top-level schema columns.
      */
     static String encodeSchemaEvolutionProp(Table table, List<String> requestedLowerNames) {
-        return encodeSchemaEvolutionProp(table, table.schema(), requestedLowerNames);
+        return encodeSchemaEvolutionProp(table, table.schema(), requestedLowerNames, false);
     }
 
     /**
@@ -105,10 +117,21 @@ public final class IcebergSchemaUtils {
      * {@code dictSchema} (the latest schema for a normal read, or a historical schema for a time-travel read —
      * T07 Option A passes the PINNED schema with an empty {@code requestedLowerNames} so the dict covers every
      * BE scan slot). The name mapping is still read from {@code table} (it is table-level, not schema-versioned).
+     *
+     * <p>{@code appendRowLineage} (set by the caller when the table format-version &gt;= 3) appends the iceberg
+     * v3 row-lineage columns ({@code _row_id} / {@code _last_updated_sequence_number}) to the dict root. They are
+     * GENERATED BE scan slots (so they reach BE {@code column_names}) but are NOT in {@code schema.columns()}, so
+     * without this the BE {@code StructNode} children map misses them and the ParquetReader's unconditional
+     * {@code children.at("_row_id")} {@code std::out_of_range}-SIGABRTs the whole BE. See
+     * {@link #appendRowLineageFields}.</p>
      */
-    static String encodeSchemaEvolutionProp(Table table, Schema dictSchema, List<String> requestedLowerNames) {
+    static String encodeSchemaEvolutionProp(Table table, Schema dictSchema, List<String> requestedLowerNames,
+            boolean appendRowLineage) {
         Map<Integer, List<String>> nameMapping = extractNameMapping(table);
         TSchema current = buildCurrentSchema(dictSchema, requestedLowerNames, nameMapping);
+        if (appendRowLineage) {
+            appendRowLineageFields(current.getRootField());
+        }
         return encode(CURRENT_SCHEMA_ID, Collections.singletonList(current));
     }
 
@@ -285,6 +308,43 @@ public final class IcebergSchemaUtils {
 
     private static void addField(TStructField structField, TField child) {
         structField.addToFields(fieldPtr(child));
+    }
+
+    /**
+     * Append the iceberg v3 row-lineage scalar fields ({@code _row_id} / {@code _last_updated_sequence_number})
+     * to the dict root so BE's {@code StructNode} children map contains them. Idempotent (skips a name already
+     * present — defensive against a data column literally named {@code _row_id}). Each field carries its reserved
+     * iceberg field id: BE matches it against the FILE field ids ({@code by_parquet_field_id_with_name_mapping}),
+     * registering it not-in-file for a v2 "null after upgrade" file (then backfilled by the iceberg
+     * generated-column handler) or reading it when a v3 file materialized it — exactly the legacy slot-driven
+     * behavior. A superset root (row-lineage appended even when a query does not project it) is harmless: BE only
+     * looks up its own {@code column_names}, mirroring the full-schema dict the snapshot-pin / top-N branches
+     * already emit.
+     */
+    private static void appendRowLineageFields(TStructField root) {
+        appendScalarFieldIfAbsent(root, ICEBERG_ROW_ID_FIELD_ID, ICEBERG_ROW_ID_COL);
+        appendScalarFieldIfAbsent(root, ICEBERG_LAST_UPDATED_SEQUENCE_NUMBER_FIELD_ID,
+                ICEBERG_LAST_UPDATED_SEQUENCE_NUMBER_COL);
+    }
+
+    private static void appendScalarFieldIfAbsent(TStructField root, int id, String lowerName) {
+        if (root.isSetFields()) {
+            for (TFieldPtr existing : root.getFields()) {
+                if (existing.isSetFieldPtr() && lowerName.equals(existing.getFieldPtr().getName())) {
+                    return;
+                }
+            }
+        }
+        TField tField = new TField();
+        tField.setId(id);
+        tField.setName(lowerName);
+        // Byte-match buildField's scalar leaf: is_optional true (inert on BE's field-id path) + a STRING
+        // placeholder type tag (BE reads type.type only as a nested-vs-scalar discriminator).
+        tField.setIsOptional(true);
+        TColumnType columnType = new TColumnType();
+        columnType.setType(TPrimitiveType.STRING);
+        tField.setType(columnType);
+        addField(root, tField);
     }
 
     private static TFieldPtr fieldPtr(TField field) {

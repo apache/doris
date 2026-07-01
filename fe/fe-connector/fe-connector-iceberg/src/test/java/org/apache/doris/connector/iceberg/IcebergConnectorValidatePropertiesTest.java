@@ -111,4 +111,32 @@ public class IcebergConnectorValidatePropertiesTest {
         Assertions.assertThrows(IllegalArgumentException.class,
                 () -> PROVIDER.validateProperties(props("warehouse", "s3://b/wh")));
     }
+
+    @Test
+    public void metaCacheKnobsRejectedThroughProvider() {
+        // Restored legacy IcebergExternalCatalog.checkProperties parity: table/manifest ttl-second min -1,
+        // capacity min 0, enable boolean. Each bad knob is paired with an otherwise-valid HMS catalog (which
+        // hmsAcceptedWithoutWarehouse proves passes), so the knob is the only variable — the cache check runs
+        // before flavor/metastore validation. MUTATION: drop checkMetaCacheProperties -> these go green->red.
+        Assertions.assertEquals(
+                "The parameter meta.cache.iceberg.table.ttl-second is wrong, value is -2",
+                rejectMessage(props("iceberg.catalog.type", "hms", "hive.metastore.uris", "thrift://h",
+                        "meta.cache.iceberg.table.ttl-second", "-2")));
+        Assertions.assertTrue(rejectMessage(props("iceberg.catalog.type", "hms", "hive.metastore.uris", "thrift://h",
+                "meta.cache.iceberg.manifest.capacity", "-1")).contains("is wrong"));
+        Assertions.assertTrue(rejectMessage(props("iceberg.catalog.type", "hms", "hive.metastore.uris", "thrift://h",
+                "meta.cache.iceberg.table.enable", "maybe")).contains("is wrong"));
+    }
+
+    @Test
+    public void validMetaCacheKnobsAcceptedThroughProvider() {
+        // ttl-second=-1 (no-expiration sentinel, min is -1), 0 (disable), capacity=0, boolean enable all pass.
+        PROVIDER.validateProperties(props("iceberg.catalog.type", "hms", "hive.metastore.uris", "thrift://h",
+                "meta.cache.iceberg.table.enable", "false",
+                "meta.cache.iceberg.table.ttl-second", "-1",
+                "meta.cache.iceberg.table.capacity", "0",
+                "meta.cache.iceberg.manifest.enable", "false",
+                "meta.cache.iceberg.manifest.ttl-second", "0",
+                "meta.cache.iceberg.manifest.capacity", "1024"));
+    }
 }

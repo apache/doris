@@ -109,6 +109,13 @@ under the License.
             <artifactId>fe-connector-spi</artifactId>
             <version>${project.version}</version>
         </dependency>
+        <!-- fe-connector-cache: shared external meta-cache framework (CacheSpec/MetaCacheEntry/CacheFactory).
+             Parent-first (org.apache.doris.connector.*) so fe-core and the plugins share one Class identity. -->
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-connector-cache</artifactId>
+            <version>${project.version}</version>
+        </dependency>
         <!-- fe-filesystem impl modules: runtime dependencies removed in Phase 4 P4.1.
              Providers are now loaded from plugins/filesystem/ directory at startup
              via FileSystemPluginManager + DirectoryPluginRuntimeManager. -->

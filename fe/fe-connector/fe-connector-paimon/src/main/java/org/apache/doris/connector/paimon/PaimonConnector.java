@@ -88,6 +88,10 @@ public class PaimonConnector implements Connector {
     // is restored here: it sizes the latest-snapshot cache below (data) AND, via schemaCacheTtlSecondOverride(),
     // the generic schema cache (schema). enable/capacity remain best-effort (capacity uses the legacy default).
     static final String TABLE_CACHE_TTL_SECOND = "meta.cache.paimon.table.ttl-second";
+    // enable/capacity are not wired on the plugin path (see PaimonConnectorProvider), but their values are
+    // still validated at CREATE/ALTER for legacy parity (reject non-boolean / out-of-range garbage).
+    static final String TABLE_CACHE_ENABLE = "meta.cache.paimon.table.enable";
+    static final String TABLE_CACHE_CAPACITY = "meta.cache.paimon.table.capacity";
     // Legacy default = Config.external_cache_expire_time_seconds_after_access (24h); the connector is isolated
     // from fe-core Config, so the legacy default is mirrored here (an explicit ttl-second always overrides it).
     static final long DEFAULT_TABLE_CACHE_TTL_SECOND = 86400L;

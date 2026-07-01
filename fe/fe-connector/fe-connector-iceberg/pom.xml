@@ -142,6 +142,34 @@ under the License.
             <version>${hadoop.version}</version>
         </dependency>
 
+        <!-- hadoop-hdfs-client supplies org.apache.hadoop.hdfs.DistributedFileSystem AND its
+             META-INF/services/org.apache.hadoop.fs.FileSystem 'hdfs' registration — the Hadoop FileSystem impl
+             needed whenever iceberg's HadoopFileIO touches an hdfs:// path (an hms-catalog CREATE TABLE writes
+             metadata/00000-*.metadata.json via FileSystem.get(hdfs://…)). hadoop-common above carries only the
+             base FileSystem + file/har/ftp providers (no hdfs); the plugin runs child-first (org.apache.hadoop is
+             NOT in ChildFirstClassLoader's parent-first allowlist), so the parent 'app' loader's hdfs provider is
+             a DIFFERENT FileSystem subtype and ServiceLoader rejects it — FileSystem.getFileSystemClass("hdfs")
+             then threw 'No FileSystem for scheme "hdfs"' (surfaced by Iceberg as RuntimeIOException 'Failed to
+             get file system for path'). SAME self-contained child-first reasoning as hadoop-aws below (and as
+             fe-connector-paimon, which bundles hadoop-hdfs-client for the identical reason): co-locate the FS impl
+             with the plugin's own hadoop-common FileSystem so the SPI cast succeeds. runtime scope
+             (DistributedFileSystem is loaded reflectively via the Hadoop FileSystem SPI, not referenced at compile
+             time). NOT in fe/pom.xml dependencyManagement, so the version is pinned explicitly to
+             ${hadoop.version}. hadoop-common is excluded so the plugin keeps a SINGLE FileSystem/Configuration
+             copy (the direct hadoop-common above) — no cross-loader split. -->
+        <dependency>
+            <groupId>org.apache.hadoop</groupId>
+            <artifactId>hadoop-hdfs-client</artifactId>
+            <version>${hadoop.version}</version>
+            <scope>runtime</scope>
+            <exclusions>
+                <exclusion>
+                    <groupId>org.apache.hadoop</groupId>
+                    <artifactId>hadoop-common</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+
         <!-- hadoop-aws supplies org.apache.hadoop.fs.s3a.S3AFileSystem for the hadoop-catalog flavor over an
              s3a:// warehouse (HadoopCatalog.initialize -> Util.getFs -> Path.getFileSystem -> FileSystem.get).
              The base org.apache.hadoop.fs.FileSystem comes from hadoop-common above; the plugin runs child-first
