@@ -195,6 +195,9 @@ public:
 
         const cctz::time_zone* timezone = nullptr;
 
+        // Only used when writing row-store JSONB bytes.
+        bool enable_row_store_compact_jsonb = false;
+
         /**
          * Controls how the `scale` parameter is passed to decimal parsing in from_olap_string().
          *
