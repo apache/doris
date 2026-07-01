@@ -64,6 +64,7 @@ class MySqlCaseSensitiveITCase {
     static final MySQLContainer<?> MYSQL =
             new MySQLContainer<>(DockerImageName.parse("mysql:8.0"))
                     .withConfigurationOverride("docker/server-with-binlog")
+                    .withDatabaseName("cdc_test")
                     .withUsername(USER)
                     .withPassword(PASSWORD)
                     .withEnv("MYSQL_ROOT_PASSWORD", ROOT_PASSWORD);
