@@ -30,8 +30,10 @@ import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.InPredicate;
 import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.LiteralExpr;
+import org.apache.doris.analysis.LiteralExprUtils;
 import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.PartitionDesc;
+import org.apache.doris.analysis.PartitionExprUtil;
 import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StringLiteral;
@@ -43,6 +45,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionKey;
+import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.RangePartitionItem;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.StructField;
@@ -1597,8 +1600,12 @@ public class IcebergUtils {
             throws AnalysisException {
         // For NULL value, create a minimum partition for it.
         if (value == null) {
+            Type columnType = partitionColumns.get(0).getType();
+            String literalString = PartitionExprUtil.normalizePartitionValueString("0000-01-01", columnType);
             PartitionKey nullLowKey = PartitionKey.createPartitionKey(
-                    Lists.newArrayList(new PartitionValue("0000-01-01")), partitionColumns);
+                    Lists.newArrayList(new PartitionValue(
+                            LiteralExprUtils.createLiteral(literalString, columnType))),
+                    partitionColumns);
             PartitionKey nullUpKey = nullLowKey.successor();
             return Range.closedOpen(nullLowKey, nullUpKey);
         }
@@ -1638,8 +1645,12 @@ public class IcebergUtils {
         if (c.getType().isDate() || c.getType().isDateV2()) {
             formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd");
         }
-        PartitionValue lowerValue = new PartitionValue(lower.format(formatter));
-        PartitionValue upperValue = new PartitionValue(upper.format(formatter));
+        String lowerLiteral = PartitionExprUtil.normalizePartitionValueString(lower.format(formatter), c.getType());
+        String upperLiteral = PartitionExprUtil.normalizePartitionValueString(upper.format(formatter), c.getType());
+        PartitionValue lowerValue = new PartitionValue(
+                LiteralExprUtils.createLiteral(lowerLiteral, c.getType()));
+        PartitionValue upperValue = new PartitionValue(
+                LiteralExprUtils.createLiteral(upperLiteral, c.getType()));
         PartitionKey lowKey = PartitionKey.createPartitionKey(Lists.newArrayList(lowerValue), partitionColumns);
         PartitionKey upperKey =  PartitionKey.createPartitionKey(Lists.newArrayList(upperValue), partitionColumns);
         return Range.closedOpen(lowKey, upperKey);
@@ -1804,6 +1815,13 @@ public class IcebergUtils {
             Types.NestedField col = icebergTable.schema().findField(field.sourceId());
             for (Column c : schema) {
                 if (c.getName().equalsIgnoreCase(col.name())) {
+                    // For partition column, if it is string type, change it to varchar(65533)
+                    // to be same as doris managed table.
+                    // This is to avoid some unexpected behavior such as different partition pruning result
+                    // between doris managed table and external table.
+                    if (c.getType().getPrimitiveType() == PrimitiveType.STRING) {
+                        c.setType(ScalarType.createVarcharType(ScalarType.MAX_VARCHAR_LENGTH));
+                    }
                     tmpColumns.add(c);
                     break;
                 }

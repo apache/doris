@@ -115,7 +115,7 @@ suite("test_iceberg_mtmv", "p0,external,iceberg,external_docker,external_docker_
         qt_test_ts_refresh2 """select * from ${mvName1} order by value"""
 
         sql """insert into ${catalog_name}.${icebergDb}.${icebergTable1} values ('2024-10-26 01:22:03', 5), ('2024-10-27 01:12:03', 6);"""
-        sql """REFRESH MATERIALIZED VIEW ${mvName1} partitions(p_20241026000000_20241027000000);"""
+        sql """REFRESH MATERIALIZED VIEW ${mvName1} partitions(p_20241026000000000000_20241027000000000000);"""
         waitingMTMVTaskFinishedByMvName(mvName1, dbName)
         qt_test_ts_refresh3 """select * from ${mvName1} order by value"""
 
@@ -124,7 +124,7 @@ suite("test_iceberg_mtmv", "p0,external,iceberg,external_docker,external_docker_
         qt_test_ts_refresh4 """select * from ${mvName1} order by value"""
 
         sql """insert into ${catalog_name}.${icebergDb}.${icebergTable1} values ('2024-10-28 01:22:03', 7);"""
-        sql """REFRESH MATERIALIZED VIEW ${mvName1} partitions(p_20241026000000_20241027000000);"""
+        sql """REFRESH MATERIALIZED VIEW ${mvName1} partitions(p_20241026000000000000_20241027000000000000);"""
         waitingMTMVTaskFinishedByMvName(mvName1, dbName)
         qt_test_ts_refresh5 """select * from ${mvName1} order by value"""
 
@@ -141,9 +141,9 @@ suite("test_iceberg_mtmv", "p0,external,iceberg,external_docker,external_docker_
 
         def showPartitionsResult = sql """show partitions from ${mvName1}"""
         logger.info("showPartitionsResult: " + showPartitionsResult.toString())
-        assertTrue(showPartitionsResult.toString().contains("p_20241026000000_20241027000000"))
-        assertTrue(showPartitionsResult.toString().contains("p_20241027000000_20241028000000"))
-        assertTrue(showPartitionsResult.toString().contains("p_20241028000000_20241029000000"))
+        assertTrue(showPartitionsResult.toString().contains("p_20241026000000000000_20241027000000000000"))
+        assertTrue(showPartitionsResult.toString().contains("p_20241027000000000000_20241028000000000000"))
+        assertTrue(showPartitionsResult.toString().contains("p_20241028000000000000_20241029000000000000"))
 
         sql """drop materialized view if exists ${mvName1};"""
 
@@ -238,11 +238,11 @@ suite("test_iceberg_mtmv", "p0,external,iceberg,external_docker,external_docker_
 
         def showPartitions = sql """show partitions from ${mvName}"""
         logger.info("showPartitions: " + showPartitions.toString())
-        assertTrue(showPartitions.toString().contains("p_20240101000000_20240102000000"))
-        assertTrue(showPartitions.toString().contains("p_20240102000000_20240103000000"))
+        assertTrue(showPartitions.toString().contains("p_20240101000000000000_20240102000000000000"))
+        assertTrue(showPartitions.toString().contains("p_20240102000000000000_20240103000000000000"))
 
         // refresh one partition
-        sql """REFRESH MATERIALIZED VIEW ${mvName} partitions(p_20240101000000_20240102000000);"""
+        sql """REFRESH MATERIALIZED VIEW ${mvName} partitions(p_20240101000000000000_20240102000000000000);"""
         waitingMTMVTaskFinishedByMvName(mvName, dbName)
         order_qt_refresh_one_partition "SELECT * FROM ${mvName} "
         def explainOnePartition = sql """ explain  ${mvSql} """

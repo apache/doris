@@ -23,6 +23,8 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionType;
+import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.datasource.CacheException;
@@ -356,10 +358,17 @@ public class PaimonExternalTable extends ExternalTable implements MTMVRelatedTab
                 if (field.type().getTypeRoot() == DataTypeRoot.TIMESTAMP_WITH_LOCAL_TIME_ZONE) {
                     column.setWithTZExtraInfo();
                 }
-                dorisColumns.add(column);
                 if (partitionColumnNames.contains(field.name())) {
+                    // For partition column, if it is string type, change it to varchar(65533)
+                    // to be same as doris managed table.
+                    // This is to avoid some unexpected behavior such as different partition pruning result
+                    // between doris managed table and external table.
+                    if (column.getType().getPrimitiveType() == PrimitiveType.STRING) {
+                        column.setType(ScalarType.createVarcharType(ScalarType.MAX_VARCHAR_LENGTH));
+                    }
                     partitionColumns.add(column);
                 }
+                dorisColumns.add(column);
             }
             return Optional.of(new PaimonSchemaCacheValue(dorisColumns, partitionColumns, tableSchema));
         } catch (Exception e) {

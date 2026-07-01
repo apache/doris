@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.analysis.LiteralExprUtils;
 import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.ListPartitionItem;
@@ -65,6 +66,10 @@ public class PartitionPrunerTest extends TestWithFeService {
     private final SlotReference slotB = new SlotReference("b", IntegerType.INSTANCE);
     private final SlotReference slotC = new SlotReference("c", IntegerType.INSTANCE);
 
+    private PartitionValue partitionValue(String value, Column column) throws AnalysisException {
+        return new PartitionValue(LiteralExprUtils.createLiteral(value, column.getType()));
+    }
+
     @Override
     protected void runBeforeAll() throws Exception {
         Class<?> clazz = PartitionPruner.class;
@@ -79,14 +84,16 @@ public class PartitionPrunerTest extends TestWithFeService {
     @Test
     public void testEqualPredicate()
             throws AnalysisException, InvocationTargetException, IllegalAccessException {
-        PartitionValue partitionValue = new PartitionValue("1");
-        PartitionKey partitionKey = PartitionKey.createPartitionKey(ImmutableList.of(partitionValue), ImmutableList.of(partitionColumn));
+        PartitionValue partitionValue = partitionValue("1", partitionColumn);
+        PartitionKey partitionKey = PartitionKey.createPartitionKey(ImmutableList.of(partitionValue),
+                ImmutableList.of(partitionColumn));
         List<PartitionKey> partitionKeys = ImmutableList.of(partitionKey);
         ListPartitionItem partitionItem = new ListPartitionItem(partitionKeys);
         OneListPartitionEvaluator<String> partitionEvaluator = new OneListPartitionEvaluator<>(
                 "p1", ImmutableList.of(slotA), partitionItem, cascadesContext);
         Expression predicate = new EqualTo(slotA, Literal.of(1));
-        Pair<Boolean, Boolean> result = (Pair<Boolean, Boolean>) canBePrunedOutMethod.invoke(null, predicate, partitionEvaluator);
+        Pair<Boolean, Boolean> result = (Pair<Boolean, Boolean>) canBePrunedOutMethod.invoke(null, predicate,
+                partitionEvaluator);
         Assertions.assertFalse(result.first);
         Assertions.assertTrue(result.second);
     }
@@ -96,8 +103,8 @@ public class PartitionPrunerTest extends TestWithFeService {
     @Test
     public void testEqualPredicate2()
             throws AnalysisException, InvocationTargetException, IllegalAccessException {
-        PartitionValue partitionValue1 = new PartitionValue("1");
-        PartitionValue partitionValue2 = new PartitionValue("2");
+        PartitionValue partitionValue1 = partitionValue("1", partitionColumn);
+        PartitionValue partitionValue2 = partitionValue("2", partitionColumn);
         PartitionKey partitionKey1 = PartitionKey.createPartitionKey(ImmutableList.of(partitionValue1),
                 ImmutableList.of(partitionColumn));
         PartitionKey partitionKey2 = PartitionKey.createPartitionKey(ImmutableList.of(partitionValue2),
@@ -107,7 +114,8 @@ public class PartitionPrunerTest extends TestWithFeService {
         OneListPartitionEvaluator<String> partitionEvaluator = new OneListPartitionEvaluator<>(
                 "p1", ImmutableList.of(slotA), partitionItem, cascadesContext);
         Expression predicate = new EqualTo(slotA, Literal.of(1));
-        Pair<Boolean, Boolean> result = (Pair<Boolean, Boolean>) canBePrunedOutMethod.invoke(null, predicate, partitionEvaluator);
+        Pair<Boolean, Boolean> result = (Pair<Boolean, Boolean>) canBePrunedOutMethod.invoke(null, predicate,
+                partitionEvaluator);
         Assertions.assertFalse(result.first);
         Assertions.assertFalse(result.second);
     }
@@ -117,14 +125,16 @@ public class PartitionPrunerTest extends TestWithFeService {
     @Test
     public void testEqualPredicate3()
             throws AnalysisException, InvocationTargetException, IllegalAccessException {
-        PartitionValue partitionValue = new PartitionValue("1");
-        PartitionKey partitionKey = PartitionKey.createPartitionKey(ImmutableList.of(partitionValue), ImmutableList.of(partitionColumn));
+        PartitionValue partitionValue = partitionValue("1", partitionColumn);
+        PartitionKey partitionKey = PartitionKey.createPartitionKey(ImmutableList.of(partitionValue),
+                ImmutableList.of(partitionColumn));
         List<PartitionKey> partitionKeys = ImmutableList.of(partitionKey);
         ListPartitionItem partitionItem = new ListPartitionItem(partitionKeys);
         OneListPartitionEvaluator<String> partitionEvaluator = new OneListPartitionEvaluator<>(
                 "p1", ImmutableList.of(slotA), partitionItem, cascadesContext);
         Expression predicate = new EqualTo(slotA, Literal.of(2));
-        Pair<Boolean, Boolean> result = (Pair<Boolean, Boolean>) canBePrunedOutMethod.invoke(null, predicate, partitionEvaluator);
+        Pair<Boolean, Boolean> result = (Pair<Boolean, Boolean>) canBePrunedOutMethod.invoke(null, predicate,
+                partitionEvaluator);
         Assertions.assertTrue(result.first);
         Assertions.assertFalse(result.second);
     }
@@ -134,15 +144,17 @@ public class PartitionPrunerTest extends TestWithFeService {
     @Test
     public void testNullPredicate()
             throws AnalysisException, InvocationTargetException, IllegalAccessException {
-        PartitionValue partitionValue = new PartitionValue("1");
-        PartitionKey partitionKey = PartitionKey.createPartitionKey(ImmutableList.of(partitionValue), ImmutableList.of(partitionColumn));
+        PartitionValue partitionValue = partitionValue("1", partitionColumn);
+        PartitionKey partitionKey = PartitionKey.createPartitionKey(ImmutableList.of(partitionValue),
+                ImmutableList.of(partitionColumn));
         List<PartitionKey> partitionKeys = ImmutableList.of(partitionKey);
         ListPartitionItem partitionItem = new ListPartitionItem(partitionKeys);
         OneListPartitionEvaluator<String> partitionEvaluator = new OneListPartitionEvaluator<>(
                 "p1", ImmutableList.of(slotA), partitionItem, cascadesContext);
 
         Expression predicate = new EqualTo(slotA, NullLiteral.INSTANCE);
-        Pair<Boolean, Boolean> result = (Pair<Boolean, Boolean>) canBePrunedOutMethod.invoke(null, predicate, partitionEvaluator);
+        Pair<Boolean, Boolean> result = (Pair<Boolean, Boolean>) canBePrunedOutMethod.invoke(null, predicate,
+                partitionEvaluator);
         Assertions.assertTrue(result.first);
         Assertions.assertFalse(result.second);
     }
@@ -152,19 +164,23 @@ public class PartitionPrunerTest extends TestWithFeService {
     @Test
     public void testInPredicate()
             throws AnalysisException, InvocationTargetException, IllegalAccessException {
-        PartitionValue partitionValue1 = new PartitionValue("1");
-        PartitionValue partitionValue2 = new PartitionValue("2");
-        PartitionValue partitionValue3 = new PartitionValue("3");
-        PartitionKey partitionKey1 = PartitionKey.createPartitionKey(ImmutableList.of(partitionValue1), ImmutableList.of(partitionColumn));
-        PartitionKey partitionKey2 = PartitionKey.createPartitionKey(ImmutableList.of(partitionValue2), ImmutableList.of(partitionColumn));
-        PartitionKey partitionKey3 = PartitionKey.createPartitionKey(ImmutableList.of(partitionValue3), ImmutableList.of(partitionColumn));
+        PartitionValue partitionValue1 = partitionValue("1", partitionColumn);
+        PartitionValue partitionValue2 = partitionValue("2", partitionColumn);
+        PartitionValue partitionValue3 = partitionValue("3", partitionColumn);
+        PartitionKey partitionKey1 = PartitionKey.createPartitionKey(ImmutableList.of(partitionValue1),
+                ImmutableList.of(partitionColumn));
+        PartitionKey partitionKey2 = PartitionKey.createPartitionKey(ImmutableList.of(partitionValue2),
+                ImmutableList.of(partitionColumn));
+        PartitionKey partitionKey3 = PartitionKey.createPartitionKey(ImmutableList.of(partitionValue3),
+                ImmutableList.of(partitionColumn));
         List<PartitionKey> partitionKeys = ImmutableList.of(partitionKey1, partitionKey2, partitionKey3);
         ListPartitionItem partitionItem = new ListPartitionItem(partitionKeys);
         OneListPartitionEvaluator<String> partitionEvaluator = new OneListPartitionEvaluator<>(
                 "p1", ImmutableList.of(slotA), partitionItem, cascadesContext);
 
         Expression predicate = new InPredicate(slotA, ImmutableList.of(Literal.of(1), Literal.of(2)));
-        Pair<Boolean, Boolean> result = (Pair<Boolean, Boolean>) canBePrunedOutMethod.invoke(null, predicate, partitionEvaluator);
+        Pair<Boolean, Boolean> result = (Pair<Boolean, Boolean>) canBePrunedOutMethod.invoke(null, predicate,
+                partitionEvaluator);
         Assertions.assertFalse(result.first);
         Assertions.assertFalse(result.second);
     }
@@ -174,21 +190,23 @@ public class PartitionPrunerTest extends TestWithFeService {
     @Test
     public void testInPredicateExactMatch()
             throws AnalysisException, InvocationTargetException, IllegalAccessException {
-        PartitionValue partitionValue1 = new PartitionValue("1");
-        PartitionValue partitionValue2 = new PartitionValue("2");
-        PartitionKey partitionKey1 = PartitionKey.createPartitionKey(ImmutableList.of(partitionValue1), ImmutableList.of(partitionColumn));
-        PartitionKey partitionKey2 = PartitionKey.createPartitionKey(ImmutableList.of(partitionValue2), ImmutableList.of(partitionColumn));
+        PartitionValue partitionValue1 = partitionValue("1", partitionColumn);
+        PartitionValue partitionValue2 = partitionValue("2", partitionColumn);
+        PartitionKey partitionKey1 = PartitionKey.createPartitionKey(ImmutableList.of(partitionValue1),
+                ImmutableList.of(partitionColumn));
+        PartitionKey partitionKey2 = PartitionKey.createPartitionKey(ImmutableList.of(partitionValue2),
+                ImmutableList.of(partitionColumn));
         List<PartitionKey> partitionKeys = ImmutableList.of(partitionKey1, partitionKey2);
         ListPartitionItem partitionItem = new ListPartitionItem(partitionKeys);
         OneListPartitionEvaluator<String> partitionEvaluator = new OneListPartitionEvaluator<>(
                 "p1", ImmutableList.of(slotA), partitionItem, cascadesContext);
 
         Expression predicate = new InPredicate(slotA, ImmutableList.of(Literal.of(1), Literal.of(2)));
-        Pair<Boolean, Boolean> result = (Pair<Boolean, Boolean>) canBePrunedOutMethod.invoke(null, predicate, partitionEvaluator);
+        Pair<Boolean, Boolean> result = (Pair<Boolean, Boolean>) canBePrunedOutMethod.invoke(null, predicate,
+                partitionEvaluator);
         Assertions.assertFalse(result.first);
         Assertions.assertTrue(result.second);
     }
-
 
     // list partition p1, partition value (1, "a"), (2, "b")
     // predicate: a = 1 AND b = "a"
@@ -198,10 +216,10 @@ public class PartitionPrunerTest extends TestWithFeService {
         Column partitionColumn2 = new Column("b", PrimitiveType.VARCHAR);
         SlotReference slot2 = new SlotReference("b", VarcharType.createVarcharType(10));
 
-        PartitionValue partitionValue1a = new PartitionValue("1");
-        PartitionValue partitionValue1b = new PartitionValue("a");
-        PartitionValue partitionValue2a = new PartitionValue("2");
-        PartitionValue partitionValue2b = new PartitionValue("b");
+        PartitionValue partitionValue1a = partitionValue("1", partitionColumn);
+        PartitionValue partitionValue1b = partitionValue("a", partitionColumn2);
+        PartitionValue partitionValue2a = partitionValue("2", partitionColumn);
+        PartitionValue partitionValue2b = partitionValue("b", partitionColumn2);
 
         PartitionKey partitionKey1 = PartitionKey.createPartitionKey(
                 ImmutableList.of(partitionValue1a, partitionValue1b),
@@ -218,9 +236,9 @@ public class PartitionPrunerTest extends TestWithFeService {
 
         Expression predicate = new And(
                 new EqualTo(slotA, Literal.of(1)),
-                new EqualTo(slot2, Literal.of("a"))
-        );
-        Pair<Boolean, Boolean> result = (Pair<Boolean, Boolean>) canBePrunedOutMethod.invoke(null, predicate, partitionEvaluator);
+                new EqualTo(slot2, Literal.of("a")));
+        Pair<Boolean, Boolean> result = (Pair<Boolean, Boolean>) canBePrunedOutMethod.invoke(null, predicate,
+                partitionEvaluator);
         Assertions.assertFalse(result.first);
         Assertions.assertFalse(result.second);
     }
@@ -230,10 +248,12 @@ public class PartitionPrunerTest extends TestWithFeService {
     @Test
     public void testOrPredicate()
             throws AnalysisException, InvocationTargetException, IllegalAccessException {
-        PartitionValue partitionValue1 = new PartitionValue("1");
-        PartitionValue partitionValue2 = new PartitionValue("2");
-        PartitionKey partitionKey1 = PartitionKey.createPartitionKey(ImmutableList.of(partitionValue1), ImmutableList.of(partitionColumn));
-        PartitionKey partitionKey2 = PartitionKey.createPartitionKey(ImmutableList.of(partitionValue2), ImmutableList.of(partitionColumn));
+        PartitionValue partitionValue1 = partitionValue("1", partitionColumn);
+        PartitionValue partitionValue2 = partitionValue("2", partitionColumn);
+        PartitionKey partitionKey1 = PartitionKey.createPartitionKey(ImmutableList.of(partitionValue1),
+                ImmutableList.of(partitionColumn));
+        PartitionKey partitionKey2 = PartitionKey.createPartitionKey(ImmutableList.of(partitionValue2),
+                ImmutableList.of(partitionColumn));
         List<PartitionKey> partitionKeys = ImmutableList.of(partitionKey1, partitionKey2);
         ListPartitionItem partitionItem = new ListPartitionItem(partitionKeys);
         OneListPartitionEvaluator<String> partitionEvaluator = new OneListPartitionEvaluator<>(
@@ -241,9 +261,9 @@ public class PartitionPrunerTest extends TestWithFeService {
 
         Expression predicate = new Or(
                 new EqualTo(slotA, Literal.of(1)),
-                new EqualTo(slotA, Literal.of(3))
-        );
-        Pair<Boolean, Boolean> result = (Pair<Boolean, Boolean>) canBePrunedOutMethod.invoke(null, predicate, partitionEvaluator);
+                new EqualTo(slotA, Literal.of(3)));
+        Pair<Boolean, Boolean> result = (Pair<Boolean, Boolean>) canBePrunedOutMethod.invoke(null, predicate,
+                partitionEvaluator);
         Assertions.assertFalse(result.first);
         Assertions.assertFalse(result.second);
     }
@@ -253,15 +273,17 @@ public class PartitionPrunerTest extends TestWithFeService {
     @Test
     public void testNotPredicate()
             throws AnalysisException, InvocationTargetException, IllegalAccessException {
-        PartitionValue partitionValue = new PartitionValue("1");
-        PartitionKey partitionKey = PartitionKey.createPartitionKey(ImmutableList.of(partitionValue), ImmutableList.of(partitionColumn));
+        PartitionValue partitionValue = partitionValue("1", partitionColumn);
+        PartitionKey partitionKey = PartitionKey.createPartitionKey(ImmutableList.of(partitionValue),
+                ImmutableList.of(partitionColumn));
         List<PartitionKey> partitionKeys = ImmutableList.of(partitionKey);
         ListPartitionItem partitionItem = new ListPartitionItem(partitionKeys);
         OneListPartitionEvaluator<String> partitionEvaluator = new OneListPartitionEvaluator<>(
                 "p1", ImmutableList.of(slotA), partitionItem, cascadesContext);
 
         Expression predicate = new Not(new EqualTo(slotA, Literal.of(1)));
-        Pair<Boolean, Boolean> result = (Pair<Boolean, Boolean>) canBePrunedOutMethod.invoke(null, predicate, partitionEvaluator);
+        Pair<Boolean, Boolean> result = (Pair<Boolean, Boolean>) canBePrunedOutMethod.invoke(null, predicate,
+                partitionEvaluator);
         Assertions.assertTrue(result.first);
         Assertions.assertFalse(result.second);
     }
@@ -271,19 +293,23 @@ public class PartitionPrunerTest extends TestWithFeService {
     @Test
     public void testGreaterThanPredicate()
             throws AnalysisException, InvocationTargetException, IllegalAccessException {
-        PartitionValue partitionValue1 = new PartitionValue("1");
-        PartitionValue partitionValue2 = new PartitionValue("2");
-        PartitionValue partitionValue3 = new PartitionValue("3");
-        PartitionKey partitionKey1 = PartitionKey.createPartitionKey(ImmutableList.of(partitionValue1), ImmutableList.of(partitionColumn));
-        PartitionKey partitionKey2 = PartitionKey.createPartitionKey(ImmutableList.of(partitionValue2), ImmutableList.of(partitionColumn));
-        PartitionKey partitionKey3 = PartitionKey.createPartitionKey(ImmutableList.of(partitionValue3), ImmutableList.of(partitionColumn));
+        PartitionValue partitionValue1 = partitionValue("1", partitionColumn);
+        PartitionValue partitionValue2 = partitionValue("2", partitionColumn);
+        PartitionValue partitionValue3 = partitionValue("3", partitionColumn);
+        PartitionKey partitionKey1 = PartitionKey.createPartitionKey(ImmutableList.of(partitionValue1),
+                ImmutableList.of(partitionColumn));
+        PartitionKey partitionKey2 = PartitionKey.createPartitionKey(ImmutableList.of(partitionValue2),
+                ImmutableList.of(partitionColumn));
+        PartitionKey partitionKey3 = PartitionKey.createPartitionKey(ImmutableList.of(partitionValue3),
+                ImmutableList.of(partitionColumn));
         List<PartitionKey> partitionKeys = ImmutableList.of(partitionKey1, partitionKey2, partitionKey3);
         ListPartitionItem partitionItem = new ListPartitionItem(partitionKeys);
         OneListPartitionEvaluator<String> partitionEvaluator = new OneListPartitionEvaluator<>(
                 "p1", ImmutableList.of(slotA), partitionItem, cascadesContext);
 
         Expression predicate = new GreaterThan(slotA, Literal.of(2));
-        Pair<Boolean, Boolean> result = (Pair<Boolean, Boolean>) canBePrunedOutMethod.invoke(null, predicate, partitionEvaluator);
+        Pair<Boolean, Boolean> result = (Pair<Boolean, Boolean>) canBePrunedOutMethod.invoke(null, predicate,
+                partitionEvaluator);
         Assertions.assertFalse(result.first);
         Assertions.assertFalse(result.second);
     }
@@ -293,12 +319,15 @@ public class PartitionPrunerTest extends TestWithFeService {
     @Test
     public void testComplexNestedPredicate()
             throws AnalysisException, InvocationTargetException, IllegalAccessException {
-        PartitionValue partitionValue1 = new PartitionValue("1");
-        PartitionValue partitionValue2 = new PartitionValue("2");
-        PartitionValue partitionValue3 = new PartitionValue("3");
-        PartitionKey partitionKey1 = PartitionKey.createPartitionKey(ImmutableList.of(partitionValue1), ImmutableList.of(partitionColumn));
-        PartitionKey partitionKey2 = PartitionKey.createPartitionKey(ImmutableList.of(partitionValue2), ImmutableList.of(partitionColumn));
-        PartitionKey partitionKey3 = PartitionKey.createPartitionKey(ImmutableList.of(partitionValue3), ImmutableList.of(partitionColumn));
+        PartitionValue partitionValue1 = partitionValue("1", partitionColumn);
+        PartitionValue partitionValue2 = partitionValue("2", partitionColumn);
+        PartitionValue partitionValue3 = partitionValue("3", partitionColumn);
+        PartitionKey partitionKey1 = PartitionKey.createPartitionKey(ImmutableList.of(partitionValue1),
+                ImmutableList.of(partitionColumn));
+        PartitionKey partitionKey2 = PartitionKey.createPartitionKey(ImmutableList.of(partitionValue2),
+                ImmutableList.of(partitionColumn));
+        PartitionKey partitionKey3 = PartitionKey.createPartitionKey(ImmutableList.of(partitionValue3),
+                ImmutableList.of(partitionColumn));
         List<PartitionKey> partitionKeys = ImmutableList.of(partitionKey1, partitionKey2, partitionKey3);
         ListPartitionItem partitionItem = new ListPartitionItem(partitionKeys);
         OneListPartitionEvaluator<String> partitionEvaluator = new OneListPartitionEvaluator<>(
@@ -307,11 +336,10 @@ public class PartitionPrunerTest extends TestWithFeService {
         Expression predicate = new And(
                 new Or(
                         new EqualTo(slotA, Literal.of(1)),
-                        new EqualTo(slotA, Literal.of(2))
-                ),
-                new GreaterThan(slotA, Literal.of(0))
-        );
-        Pair<Boolean, Boolean> result = (Pair<Boolean, Boolean>) canBePrunedOutMethod.invoke(null, predicate, partitionEvaluator);
+                        new EqualTo(slotA, Literal.of(2))),
+                new GreaterThan(slotA, Literal.of(0)));
+        Pair<Boolean, Boolean> result = (Pair<Boolean, Boolean>) canBePrunedOutMethod.invoke(null, predicate,
+                partitionEvaluator);
         Assertions.assertFalse(result.first);
         Assertions.assertFalse(result.second);
     }
@@ -347,7 +375,7 @@ public class PartitionPrunerTest extends TestWithFeService {
     private ListPartitionItem createListPartitionItem(String... values) throws AnalysisException {
         ImmutableList.Builder<PartitionKey> partitionKeys = ImmutableList.builder();
         for (String value : values) {
-            PartitionValue partitionValue = new PartitionValue(value);
+            PartitionValue partitionValue = partitionValue(value, partitionColumn);
             partitionKeys.add(PartitionKey.createPartitionKey(
                     ImmutableList.of(partitionValue), ImmutableList.of(partitionColumn)));
         }

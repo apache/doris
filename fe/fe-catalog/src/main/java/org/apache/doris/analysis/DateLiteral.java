@@ -394,7 +394,7 @@ public class DateLiteral extends LiteralExpr {
         if (expr == MaxLiteral.MAX_VALUE) {
             return -1;
         }
-        if (expr instanceof DateLiteral) {
+        if (expr instanceof DateLiteral && type.equals(expr.type)) {
             DateLiteral other = (DateLiteral) expr;
             long yearMonthDay = year * 10000 + month * 100 + day;
             long otherYearMonthDay = other.year * 10000 + other.month * 100 + other.day;
@@ -422,8 +422,7 @@ public class DateLiteral extends LiteralExpr {
             long diff = getMicroPartWithinScale() - other.getMicroPartWithinScale();
             return diff < 0 ? -1 : (diff == 0 ? 0 : 1);
         }
-        // date time will not overflow when doing addition and subtraction
-        return Integer.signum(getStringValue().compareTo(expr.getStringValue()));
+        return -1;
     }
 
     @Override

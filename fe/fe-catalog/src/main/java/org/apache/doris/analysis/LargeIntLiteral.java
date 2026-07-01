@@ -142,12 +142,10 @@ public class LargeIntLiteral extends NumericLiteralExpr {
         if (expr == MaxLiteral.MAX_VALUE) {
             return -1;
         }
-        if (expr.type.equals(Type.LARGEINT)) {
+        if (expr.type.equals(Type.LARGEINT) && type.equals(expr.type)) {
             return value.compareTo(((LargeIntLiteral) expr).value);
-        } else {
-            BigInteger intValue = new BigInteger(((IntLiteral) expr).getStringValue());
-            return value.compareTo(intValue);
         }
+        return -1;
     }
 
     @Override

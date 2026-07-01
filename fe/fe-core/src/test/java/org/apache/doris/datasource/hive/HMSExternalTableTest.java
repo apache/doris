@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.hive;
 
+import org.apache.doris.analysis.LiteralExprUtils;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ListPartitionItem;
@@ -293,7 +294,8 @@ public class HMSExternalTableTest {
                 Table remoteTable, String partitionValue) throws Exception {
             super(catalog, db, remoteTable);
             PartitionKey partitionKey = PartitionKey.createListPartitionKeyWithTypes(
-                    Lists.newArrayList(new org.apache.doris.analysis.PartitionValue(partitionValue)),
+                    Lists.newArrayList(new org.apache.doris.analysis.PartitionValue(
+                            LiteralExprUtils.createLiteral(partitionValue, Type.VARCHAR))),
                     Lists.newArrayList(Type.VARCHAR),
                     true);
             PartitionItem partitionItem = new ListPartitionItem(Lists.newArrayList(partitionKey));

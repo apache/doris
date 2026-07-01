@@ -17,10 +17,13 @@
 
 package org.apache.doris.mtmv;
 
+import org.apache.doris.analysis.LiteralExprUtils;
+import org.apache.doris.analysis.PartitionExprUtil;
 import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PartitionType;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
@@ -86,31 +89,37 @@ public class MTMVRelatedPartitionDescRollUpGenerator implements MTMVRelatedParti
             MTMVPartitionInfo mvPartitionInfo, Map<String, String> mvProperties) throws AnalysisException {
         Map<String, Set<String>> identityToValues = Maps.newHashMap();
         Map<String, Set<String>> identityToPartitionNames = Maps.newHashMap();
+        Map<String, Type> identityToTypes = Maps.newHashMap();
         MTMVPartitionExprService exprSerice = MTMVPartitionExprFactory.getExprService(mvPartitionInfo.getExpr());
 
         for (Entry<PartitionKeyDesc, Set<String>> entry : relatedPartitionDescs.entrySet()) {
             String rollUpIdentity = exprSerice.getRollUpIdentity(entry.getKey(), mvProperties);
             Preconditions.checkNotNull(rollUpIdentity);
+            Type partitionType = entry.getKey().getInValues().get(0).get(0).getValue().getType();
             if (identityToValues.containsKey(rollUpIdentity)) {
                 identityToValues.get(rollUpIdentity).addAll(getStringValues(entry.getKey()));
                 identityToPartitionNames.get(rollUpIdentity).addAll(entry.getValue());
             } else {
                 identityToValues.put(rollUpIdentity, getStringValues(entry.getKey()));
                 identityToPartitionNames.put(rollUpIdentity, entry.getValue());
+                identityToTypes.put(rollUpIdentity, partitionType);
             }
         }
         Map<PartitionKeyDesc, Set<String>> result = Maps.newHashMap();
         for (Entry<String, Set<String>> entry : identityToValues.entrySet()) {
-            result.put(PartitionKeyDesc.createIn(getPartitionValues(entry.getValue())),
+            result.put(
+                    PartitionKeyDesc
+                            .createIn(getPartitionValues(entry.getValue(), identityToTypes.get(entry.getKey()))),
                     identityToPartitionNames.get(entry.getKey()));
         }
         return result;
     }
 
-    private List<List<PartitionValue>> getPartitionValues(Set<String> strings) {
+    private List<List<PartitionValue>> getPartitionValues(Set<String> strings, Type type) throws AnalysisException {
         List<List<PartitionValue>> inValues = Lists.newArrayList();
         for (String value : strings) {
-            inValues.add(Lists.newArrayList(new PartitionValue(value)));
+            value = PartitionExprUtil.normalizePartitionValueString(value, type);
+            inValues.add(Lists.newArrayList(new PartitionValue(LiteralExprUtils.createLiteral(value, type))));
         }
         return inValues;
     }

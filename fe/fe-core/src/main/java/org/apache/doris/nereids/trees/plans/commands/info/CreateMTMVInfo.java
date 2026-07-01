@@ -288,9 +288,8 @@ public class CreateMTMVInfo extends CreateTableInfo {
         this.setSortOrderFields(Lists.newArrayList());
         this.setIndexes(Lists.newArrayList());
 
+        this.validatePartitionInfo(ctx);
         this.analyzeEngine();
-
-        validatePartitionInfo(ctx);
     }
 
     private void validatePartitionInfo(ConnectContext ctx) {
@@ -306,6 +305,7 @@ public class CreateMTMVInfo extends CreateTableInfo {
             }
         });
 
+        getPartitionTableInfo().extractPartitionColumns();
         getPartitionTableInfo().validatePartitionInfo(
                 getEngineName(),
                 columns,

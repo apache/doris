@@ -17,6 +17,7 @@
 
 package org.apache.doris.statistics;
 
+import org.apache.doris.analysis.LiteralExprUtils;
 import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.analysis.TableSample;
 import org.apache.doris.catalog.Column;
@@ -495,25 +496,25 @@ public class OlapAnalysisTaskTest {
         PartitionInfo partitionInfo = new PartitionInfo(PartitionType.RANGE, columns);
 
         List<PartitionValue> lowKey = Lists.newArrayList();
-        lowKey.add(new PartitionValue("2025-01-01"));
+        lowKey.add(partitionValue("2025-01-01", col1.getType()));
         List<PartitionValue> highKey = Lists.newArrayList();
-        highKey.add(new PartitionValue("2025-01-02"));
+        highKey.add(partitionValue("2025-01-02", col1.getType()));
         Range<PartitionKey> range1 = Range.closedOpen(PartitionKey.createPartitionKey(lowKey, columns),
                     PartitionKey.createPartitionKey(highKey, columns));
         RangePartitionItem item1 = new RangePartitionItem(range1);
 
         lowKey.clear();
-        lowKey.add(new PartitionValue("2024-11-01"));
+        lowKey.add(partitionValue("2024-11-01", col1.getType()));
         highKey.clear();
-        highKey.add(new PartitionValue("2024-11-02"));
+        highKey.add(partitionValue("2024-11-02", col1.getType()));
         Range<PartitionKey> range2 = Range.closedOpen(PartitionKey.createPartitionKey(lowKey, columns),
                 PartitionKey.createPartitionKey(highKey, columns));
         RangePartitionItem item2 = new RangePartitionItem(range2);
 
         lowKey.clear();
-        lowKey.add(new PartitionValue("2025-02-13"));
+        lowKey.add(partitionValue("2025-02-13", col1.getType()));
         highKey.clear();
-        highKey.add(new PartitionValue("2025-02-14"));
+        highKey.add(partitionValue("2025-02-14", col1.getType()));
         Range<PartitionKey> range3 = Range.closedOpen(PartitionKey.createPartitionKey(lowKey, columns),
                 PartitionKey.createPartitionKey(highKey, columns));
         RangePartitionItem item3 = new RangePartitionItem(range3);
@@ -538,14 +539,14 @@ public class OlapAnalysisTaskTest {
             partitions.add(new Partition(5, "p5", new MaterializedIndex(), new RandomDistributionInfo()));
             mockedStatisticsUtil.when(StatisticsUtil::getPartitionSampleCount).thenReturn(5);
             highKey.clear();
-            highKey.add(new PartitionValue("2024-01-01"));
+            highKey.add(partitionValue("2024-01-01", col1.getType()));
             Range<PartitionKey> range4 = Range.lessThan(PartitionKey.createPartitionKey(highKey, columns));
             RangePartitionItem item4 = new RangePartitionItem(range4);
             partitionInfo.addPartition(4, false, item4, new DataProperty(TStorageMedium.HDD), null, false, false);
             lowKey.clear();
-            lowKey.add(new PartitionValue("2024-03-13"));
+            lowKey.add(partitionValue("2024-03-13", col1.getType()));
             highKey.clear();
-            highKey.add(new PartitionValue("2024-03-14"));
+            highKey.add(partitionValue("2024-03-14", col1.getType()));
             Range<PartitionKey> range5 = Range.closedOpen(PartitionKey.createPartitionKey(lowKey, columns),
                     PartitionKey.createPartitionKey(highKey, columns));
             RangePartitionItem item5 = new RangePartitionItem(range5);
@@ -553,6 +554,10 @@ public class OlapAnalysisTaskTest {
             skipPartitionId = task.getSkipPartitionId(partitions);
             Assertions.assertEquals(4, skipPartitionId);
         }
+    }
+
+    private PartitionValue partitionValue(String value, Type type) throws AnalysisException {
+        return new PartitionValue(LiteralExprUtils.createLiteral(value, type), false, value);
     }
 
     @Test

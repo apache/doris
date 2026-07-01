@@ -100,11 +100,10 @@ public class IPv6Literal extends LiteralExpr {
         if (expr == MaxLiteral.MAX_VALUE) {
             return -1;
         }
-        if (expr instanceof IPv6Literal) {
+        if (expr instanceof IPv6Literal && type.equals(expr.type)) {
             return parseAddress(this.value).compareTo(parseAddress(((IPv6Literal) expr).value));
         }
-        throw new RuntimeException("Cannot compare two values with different data types: "
-                + this + " (" + this.type + ") vs " + expr + " (" + expr.type + ")");
+        return -1;
     }
 
     @Override

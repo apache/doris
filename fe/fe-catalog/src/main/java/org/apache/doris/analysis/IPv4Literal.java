@@ -131,11 +131,10 @@ public class IPv4Literal extends LiteralExpr {
         if (expr == MaxLiteral.MAX_VALUE) {
             return -1;
         }
-        if (expr instanceof IPv4Literal) {
+        if (expr instanceof IPv4Literal && type.equals(expr.type)) {
             return Long.compare(this.value, ((IPv4Literal) expr).value);
         }
-        throw new RuntimeException("Cannot compare two values with different data types: "
-                + this + " (" + this.type + ") vs " + expr + " (" + expr.type + ")");
+        return -1;
     }
 
     @Override

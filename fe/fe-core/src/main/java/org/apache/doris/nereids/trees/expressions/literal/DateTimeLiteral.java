@@ -30,13 +30,13 @@ import org.apache.doris.nereids.types.TimeStampTzType;
 import org.apache.doris.nereids.types.TimeV2Type;
 import org.apache.doris.nereids.types.coercion.DateLikeType;
 import org.apache.doris.nereids.util.DateUtils;
-import org.apache.doris.nereids.util.StandardDateFormat;
 
 import com.google.common.base.Preconditions;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.math.BigInteger;
+import java.time.DateTimeException;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
@@ -203,15 +203,33 @@ public class DateTimeLiteral extends DateLiteral {
         this.microSecond = Math.round(this.microSecond / factor) * (int) factor;
 
         if (this.microSecond >= 1000000) {
-            LocalDateTime localDateTime = DateUtils.getTime(StandardDateFormat.DATE_TIME_FORMATTER_TO_MICRO_SECOND,
-                    getStringValue()).plusSeconds(1);
-            this.year = localDateTime.getYear();
-            this.month = localDateTime.getMonthValue();
-            this.day = localDateTime.getDayOfMonth();
-            this.hour = localDateTime.getHour();
-            this.minute = localDateTime.getMinute();
-            this.second = localDateTime.getSecond();
-            this.microSecond -= 1000000;
+            try {
+                LocalDateTime localDateTime = LocalDateTime.of(
+                        (int) this.year,
+                        (int) this.month,
+                        (int) this.day,
+                        (int) this.hour,
+                        (int) this.minute,
+                        (int) this.second).plusSeconds(1);
+                this.year = localDateTime.getYear();
+                this.month = localDateTime.getMonthValue();
+                this.day = localDateTime.getDayOfMonth();
+                this.hour = localDateTime.getHour();
+                this.minute = localDateTime.getMinute();
+                this.second = localDateTime.getSecond();
+                this.microSecond -= 1000000;
+            } catch (DateTimeException e) {
+                // Rounding overflow beyond the maximum supported datetime
+                // (e.g. 9999-12-31 23:59:59.999999 rounds up and overflows).
+                // Clamp to the maximum supported datetime.
+                this.year = MAX_DATETIME.getYear();
+                this.month = MAX_DATETIME.getMonth();
+                this.day = MAX_DATETIME.getDay();
+                this.hour = MAX_DATETIME.getHour();
+                this.minute = MAX_DATETIME.getMinute();
+                this.second = MAX_DATETIME.getSecond();
+                this.microSecond = MAX_MICROSECOND;
+            }
         }
         if (checkRange() || checkDate(year, month, day)) {
             // may fallback to legacy planner. make sure the behaviour of rounding is same.

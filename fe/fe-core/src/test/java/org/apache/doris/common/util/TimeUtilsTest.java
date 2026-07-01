@@ -32,8 +32,12 @@ import org.junit.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
+import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
+import java.time.temporal.ChronoField;
+import java.time.temporal.TemporalAccessor;
 import java.util.Calendar;
 import java.util.Date;
 import java.util.LinkedList;
@@ -235,7 +239,7 @@ public class TimeUtilsTest {
         result = TimeUtils.convertStringToDateTimeV2("1899-12-31 23:59:59.000", 3);
         Assert.assertEquals(133687385164611584L, result);
         result = TimeUtils.convertStringToDateTimeV2("9999-12-31 23:59:59.123456", 6);
-        Assert.assertEquals(703674213003812984L, result);
+        Assert.assertEquals(703674213003813440L, result);
 
         ExceptionChecker.expectThrows(DateTimeParseException.class,
                 () -> TimeUtils.convertStringToDateTimeV2("2021-1-1", 0));
@@ -253,5 +257,140 @@ public class TimeUtilsTest {
                 () -> TimeUtils.convertStringToDateTimeV2("2024:12:31", 0));
         ExceptionChecker.expectThrows(DateTimeParseException.class,
                 () -> TimeUtils.convertStringToDateTimeV2("2024-10-10 11:11:11", 6));
+    }
+
+    // ---- formatDateTimeAndFullZero: microsecond precision ----
+    // After the fix, formatDateTimeAndFullZero reads NANO_OF_SECOND instead of
+    // MILLI_OF_SECOND, preserving full sub-second precision for DATETIMEV2(6)
+    // and TIMESTAMPTZ(6) step/multi partition boundaries.
+
+    @Test
+    public void testFormatDateTimeAndFullZero_NoFractionalSeconds() {
+        DateTimeFormatter fmt = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+        LocalDateTime result = TimeUtils.formatDateTimeAndFullZero("2024-01-15 13:30:45", fmt);
+        Assert.assertEquals(2024, result.getYear());
+        Assert.assertEquals(1, result.getMonthValue());
+        Assert.assertEquals(15, result.getDayOfMonth());
+        Assert.assertEquals(13, result.getHour());
+        Assert.assertEquals(30, result.getMinute());
+        Assert.assertEquals(45, result.getSecond());
+        Assert.assertEquals(0, result.getNano());
+    }
+
+    @Test
+    public void testFormatDateTimeAndFullZero_MillisecondPrecision() {
+        // 3 fractional digits (SSS) should be preserved correctly.
+        DateTimeFormatter fmt = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS");
+        LocalDateTime result = TimeUtils.formatDateTimeAndFullZero("2024-01-15 13:30:45.123", fmt);
+        Assert.assertEquals(2024, result.getYear());
+        Assert.assertEquals(1, result.getMonthValue());
+        Assert.assertEquals(15, result.getDayOfMonth());
+        Assert.assertEquals(13, result.getHour());
+        Assert.assertEquals(30, result.getMinute());
+        Assert.assertEquals(45, result.getSecond());
+        // 123 milliseconds = 123,000,000 nanoseconds
+        Assert.assertEquals(123000000, result.getNano());
+    }
+
+    @Test
+    public void testFormatDateTimeAndFullZero_MicrosecondPrecision6() {
+        // 6 fractional digits (SSSSSS) must be preserved — this is the core fix.
+        DateTimeFormatter fmt = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSSSSS");
+        LocalDateTime result = TimeUtils.formatDateTimeAndFullZero("2024-01-15 13:30:45.123456", fmt);
+        Assert.assertEquals(2024, result.getYear());
+        Assert.assertEquals(1, result.getMonthValue());
+        Assert.assertEquals(15, result.getDayOfMonth());
+        Assert.assertEquals(13, result.getHour());
+        Assert.assertEquals(30, result.getMinute());
+        Assert.assertEquals(45, result.getSecond());
+        // 123456 microseconds = 123,456,000 nanoseconds
+        Assert.assertEquals(123456000, result.getNano());
+    }
+
+    @Test
+    public void testFormatDateTimeAndFullZero_MicrosecondPrecision1To5() {
+        // 1–5 fractional digits should also be preserved.
+        DateTimeFormatter fmt1 = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.S");
+        LocalDateTime r1 = TimeUtils.formatDateTimeAndFullZero("2024-01-15 13:30:45.1", fmt1);
+        Assert.assertEquals(100000000, r1.getNano()); // 100 ms
+
+        DateTimeFormatter fmt2 = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SS");
+        LocalDateTime r2 = TimeUtils.formatDateTimeAndFullZero("2024-01-15 13:30:45.12", fmt2);
+        Assert.assertEquals(120000000, r2.getNano()); // 120 ms
+
+        DateTimeFormatter fmt3 = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS");
+        LocalDateTime r3 = TimeUtils.formatDateTimeAndFullZero("2024-01-15 13:30:45.123", fmt3);
+        Assert.assertEquals(123000000, r3.getNano()); // 123 ms
+
+        DateTimeFormatter fmt4 = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSSS");
+        LocalDateTime r4 = TimeUtils.formatDateTimeAndFullZero("2024-01-15 13:30:45.1234", fmt4);
+        Assert.assertEquals(123400000, r4.getNano());
+
+        DateTimeFormatter fmt5 = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSSSS");
+        LocalDateTime r5 = TimeUtils.formatDateTimeAndFullZero("2024-01-15 13:30:45.12345", fmt5);
+        Assert.assertEquals(123450000, r5.getNano());
+    }
+
+    @Test
+    public void testFormatDateTimeAndFullZero_MidnightBoundary() {
+        // Midnight with microsecond precision.
+        DateTimeFormatter fmt = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSSSSS");
+        LocalDateTime result = TimeUtils.formatDateTimeAndFullZero("2024-12-31 00:00:00.000001", fmt);
+        Assert.assertEquals(2024, result.getYear());
+        Assert.assertEquals(12, result.getMonthValue());
+        Assert.assertEquals(31, result.getDayOfMonth());
+        Assert.assertEquals(0, result.getHour());
+        Assert.assertEquals(0, result.getMinute());
+        Assert.assertEquals(0, result.getSecond());
+        Assert.assertEquals(1000, result.getNano()); // 1 microsecond = 1000 nanoseconds
+    }
+
+    @Test
+    public void testFormatDateTimeAndFullZero_MaxMicrosecond() {
+        // Max representable microseconds (999999).
+        DateTimeFormatter fmt = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSSSSS");
+        LocalDateTime result = TimeUtils.formatDateTimeAndFullZero("2024-01-15 23:59:59.999999", fmt);
+        Assert.assertEquals(23, result.getHour());
+        Assert.assertEquals(59, result.getMinute());
+        Assert.assertEquals(59, result.getSecond());
+        Assert.assertEquals(999999000, result.getNano());
+    }
+
+    @Test
+    public void testFormatDateTimeAndFullZero_FallbackToMillisWhenNanoNotSupported() {
+        // Verify the safety net: when a TemporalAccessor does not expose
+        // NANO_OF_SECOND but does expose MILLI_OF_SECOND, the method
+        // falls back to millisecond precision (multiplied by 1,000,000).
+        TemporalAccessor mockTemporal = Mockito.mock(TemporalAccessor.class);
+        Mockito.when(mockTemporal.isSupported(ChronoField.YEAR)).thenReturn(true);
+        Mockito.when(mockTemporal.get(ChronoField.YEAR)).thenReturn(2024);
+        Mockito.when(mockTemporal.isSupported(ChronoField.MONTH_OF_YEAR)).thenReturn(true);
+        Mockito.when(mockTemporal.get(ChronoField.MONTH_OF_YEAR)).thenReturn(7);
+        Mockito.when(mockTemporal.isSupported(ChronoField.DAY_OF_MONTH)).thenReturn(true);
+        Mockito.when(mockTemporal.get(ChronoField.DAY_OF_MONTH)).thenReturn(20);
+        Mockito.when(mockTemporal.isSupported(ChronoField.HOUR_OF_DAY)).thenReturn(true);
+        Mockito.when(mockTemporal.get(ChronoField.HOUR_OF_DAY)).thenReturn(15);
+        Mockito.when(mockTemporal.isSupported(ChronoField.MINUTE_OF_HOUR)).thenReturn(true);
+        Mockito.when(mockTemporal.get(ChronoField.MINUTE_OF_HOUR)).thenReturn(45);
+        Mockito.when(mockTemporal.isSupported(ChronoField.SECOND_OF_MINUTE)).thenReturn(true);
+        Mockito.when(mockTemporal.get(ChronoField.SECOND_OF_MINUTE)).thenReturn(30);
+        // NANO_OF_SECOND NOT supported → fallback path
+        Mockito.when(mockTemporal.isSupported(ChronoField.NANO_OF_SECOND)).thenReturn(false);
+        // MILLI_OF_SECOND IS supported → used as fallback
+        Mockito.when(mockTemporal.isSupported(ChronoField.MILLI_OF_SECOND)).thenReturn(true);
+        Mockito.when(mockTemporal.get(ChronoField.MILLI_OF_SECOND)).thenReturn(500);
+
+        DateTimeFormatter mockFormatter = Mockito.mock(DateTimeFormatter.class);
+        Mockito.when(mockFormatter.parse(Mockito.anyString())).thenReturn(mockTemporal);
+
+        LocalDateTime result = TimeUtils.formatDateTimeAndFullZero("irrelevant", mockFormatter);
+        Assert.assertEquals(2024, result.getYear());
+        Assert.assertEquals(7, result.getMonthValue());
+        Assert.assertEquals(20, result.getDayOfMonth());
+        Assert.assertEquals(15, result.getHour());
+        Assert.assertEquals(45, result.getMinute());
+        Assert.assertEquals(30, result.getSecond());
+        // 500 milliseconds * 1,000,000 = 500,000,000 nanoseconds
+        Assert.assertEquals(500000000, result.getNano());
     }
 }

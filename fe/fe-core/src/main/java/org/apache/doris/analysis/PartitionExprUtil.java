@@ -28,7 +28,14 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.AutoBucketCalculator;
 import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
+import org.apache.doris.nereids.trees.expressions.literal.TimestampTzLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.format.DateTimeChecker;
 import org.apache.doris.nereids.trees.plans.commands.info.AddPartitionOp;
+import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.TimeStampTzType;
+import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.thrift.TNullableStringLiteral;
 
 import com.google.common.base.Objects;
@@ -170,11 +177,13 @@ public class PartitionExprUtil {
             } else if (partitionType == PartitionType.LIST) {
                 List<List<PartitionValue>> listValues = new ArrayList<>();
                 List<PartitionValue> inValues = new ArrayList<>();
-                for (String value : curPartitionValues) {
+                for (int i = 0; i < curPartitionValues.size(); i++) {
+                    String value = curPartitionValues.get(i);
                     if (value == null) {
-                        inValues.add(new PartitionValue("", true));
+                        inValues.add(new PartitionValue(NullLiteral.create(partitionColumn.get(i).getType()), true));
                     } else {
-                        inValues.add(new PartitionValue(value));
+                        inValues.add(new PartitionValue(
+                                LiteralExprUtils.createLiteral(value, partitionColumn.get(i).getType())));
                     }
                 }
                 listValues.add(inValues);
@@ -266,7 +275,7 @@ public class PartitionExprUtil {
                     "not support range partition with column type : " + partitionColumnType.toString());
         }
 
-        return new PartitionValue(timeString);
+        return new PartitionValue(LiteralExprUtils.createLiteral(timeString, partitionColumnType));
     }
 
     private static String getFormatPartitionValue(String value) {
@@ -286,6 +295,47 @@ public class PartitionExprUtil {
             }
         }
         return sb.toString();
+    }
+
+    public static String normalizePartitionValueString(String value, Type type) throws AnalysisException {
+        DataType dataType = DataType.fromCatalogType(type);
+        if (dataType.isDateTimeType()) {
+            return new DateTimeLiteral(value).checkedCastTo(dataType).toString();
+        } else if (dataType.isDateTimeV2Type()) {
+            return new DateTimeV2Literal(value).checkedCastTo(dataType).toString();
+        } else if (dataType.isTimeStampTzType()) {
+            return TimestampTzLiteral.fromSessionTimeZone((TimeStampTzType) dataType, value).checkedCastTo(dataType)
+                    .toString();
+        } else if (dataType.isCharType() || dataType.isVarcharType()) {
+            CharacterType characterType = (CharacterType) dataType;
+            if (characterType.isLengthSet() && value.length() > characterType.getLen()) {
+                throw new AnalysisException(String.format(
+                        "Partition value %s's length exceeds type length: %d > %d for %s",
+                        value, value.length(), characterType.getLen(), dataType));
+            }
+        }
+        return value;
+    }
+
+    /**
+     * Normalize a partition value string with an explicit time zone for TIMESTAMPTZ types.
+     * <p>
+     * When the caller generates a timezone-less local-datetime string in a known time zone
+     * (e.g., the dynamic-partition scheduler produces bounds in the configured
+     * {@code dynamic_partition.time_zone}), this overload ensures the TIMESTAMPTZ literal is
+     * interpreted in that zone rather than falling back to the session or UTC default.
+     * For all other types this delegates to {@link #normalizePartitionValueString(String, Type)}.
+     */
+    public static String normalizePartitionValueString(String value, Type type, String timeZone)
+            throws AnalysisException {
+        DataType dataType = DataType.fromCatalogType(type);
+        if (dataType.isTimeStampTzType() && timeZone != null && !timeZone.isEmpty()
+                && !DateTimeChecker.hasTimeZone(value)) {
+            // Append the explicit time zone so that TimestampTzLiteral parses the
+            // timezone-less local datetime in the intended zone (see fromSessionTimeZone).
+            return normalizePartitionValueString(value + " " + timeZone, type);
+        }
+        return normalizePartitionValueString(value, type);
     }
 
     public class FunctionIntervalInfo {

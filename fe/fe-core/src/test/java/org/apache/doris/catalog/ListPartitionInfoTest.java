@@ -18,6 +18,8 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.LiteralExprUtils;
+import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.analysis.SinglePartitionDesc;
@@ -41,6 +43,22 @@ public class ListPartitionInfoTest {
 
     private List<SinglePartitionDesc> singlePartitionDescs;
 
+    private PartitionValue partitionValue(String value, Column column) throws AnalysisException {
+        return new PartitionValue(LiteralExprUtils.createLiteral(value, column.getType()));
+    }
+
+    private List<PartitionValue> partitionValues(List<Column> columns, String... values) throws AnalysisException {
+        List<PartitionValue> partitionValues = new ArrayList<>();
+        for (int i = 0; i < values.length; i++) {
+            partitionValues.add(partitionValue(values[i], columns.get(i)));
+        }
+        return partitionValues;
+    }
+
+    private PartitionValue nullPartitionValue(Type type, String stringValue) {
+        return new PartitionValue(NullLiteral.create(type), true, stringValue);
+    }
+
     @Before
     public void setUp() {
         partitionColumns = new LinkedList<>();
@@ -53,7 +71,7 @@ public class ListPartitionInfoTest {
         partitionColumns.add(k1);
 
         List<List<PartitionValue>> inValues = new ArrayList<>();
-        inValues.add(Lists.newArrayList(new PartitionValue("-128")));
+        inValues.add(partitionValues(Lists.newArrayList(k1), "-128"));
         singlePartitionDescs.add(new SinglePartitionDesc(false, "p1",
                 PartitionKeyDesc.createIn(inValues), null));
 
@@ -73,7 +91,7 @@ public class ListPartitionInfoTest {
         partitionColumns.add(k1);
 
         List<List<PartitionValue>> inValues = new ArrayList<>();
-        inValues.add(Lists.newArrayList(new PartitionValue("-32768")));
+        inValues.add(partitionValues(Lists.newArrayList(k1), "-32768"));
         singlePartitionDescs.add(new SinglePartitionDesc(false, "p1",
                 PartitionKeyDesc.createIn(inValues), null));
 
@@ -92,7 +110,7 @@ public class ListPartitionInfoTest {
         partitionColumns.add(k1);
 
         List<List<PartitionValue>> inValues = new ArrayList<>();
-        inValues.add(Lists.newArrayList(new PartitionValue("-2147483648")));
+        inValues.add(partitionValues(Lists.newArrayList(k1), "-2147483648"));
         singlePartitionDescs.add(new SinglePartitionDesc(false, "p1",
                 PartitionKeyDesc.createIn(inValues), null));
 
@@ -111,7 +129,7 @@ public class ListPartitionInfoTest {
         partitionColumns.add(k1);
 
         List<List<PartitionValue>> inValues = new ArrayList<>();
-        inValues.add(Lists.newArrayList(new PartitionValue("-9223372036854775808")));
+        inValues.add(partitionValues(Lists.newArrayList(k1), "-9223372036854775808"));
         singlePartitionDescs.add(new SinglePartitionDesc(false, "p1",
                 PartitionKeyDesc.createIn(inValues), null));
 
@@ -130,7 +148,7 @@ public class ListPartitionInfoTest {
         partitionColumns.add(k1);
 
         List<List<PartitionValue>> inValues = new ArrayList<>();
-        inValues.add(Lists.newArrayList(new PartitionValue("-170141183460469231731687303715884105728")));
+        inValues.add(partitionValues(Lists.newArrayList(k1), "-170141183460469231731687303715884105728"));
         singlePartitionDescs.add(new SinglePartitionDesc(false, "p1",
                 PartitionKeyDesc.createIn(inValues), null));
 
@@ -149,8 +167,8 @@ public class ListPartitionInfoTest {
         partitionColumns.add(k1);
 
         List<List<PartitionValue>> inValues = new ArrayList<>();
-        inValues.add(Lists.newArrayList(new PartitionValue("Beijing")));
-        inValues.add(Lists.newArrayList(new PartitionValue("Shanghai")));
+        inValues.add(partitionValues(Lists.newArrayList(k1), "Beijing"));
+        inValues.add(partitionValues(Lists.newArrayList(k1), "Shanghai"));
         singlePartitionDescs.add(new SinglePartitionDesc(false, "p1",
                 PartitionKeyDesc.createIn(inValues), null));
 
@@ -170,7 +188,7 @@ public class ListPartitionInfoTest {
         partitionColumns.add(k1);
 
         List<List<PartitionValue>> inValues = new ArrayList<>();
-        inValues.add(Lists.newArrayList(new PartitionValue("true")));
+        inValues.add(partitionValues(Lists.newArrayList(k1), "true"));
         singlePartitionDescs.add(new SinglePartitionDesc(false, "p1",
                 PartitionKeyDesc.createIn(inValues), null));
 
@@ -189,7 +207,7 @@ public class ListPartitionInfoTest {
         partitionColumns.add(k1);
 
         List<List<PartitionValue>> inValues = new ArrayList<>();
-        inValues.add(Lists.newArrayList(new PartitionValue("beijing")));
+        inValues.add(partitionValues(Lists.newArrayList(k1), "beijing"));
         singlePartitionDescs.add(new SinglePartitionDesc(false, "p1",
                 PartitionKeyDesc.createIn(inValues), null));
         singlePartitionDescs.add(new SinglePartitionDesc(false, "p2",
@@ -211,7 +229,7 @@ public class ListPartitionInfoTest {
         partitionColumns.add(k2);
 
         List<List<PartitionValue>> inValues = new ArrayList<>();
-        inValues.add(Lists.newArrayList(new PartitionValue("beijing"), new PartitionValue("100")));
+        inValues.add(partitionValues(partitionColumns, "beijing", "100"));
         singlePartitionDescs.add(new SinglePartitionDesc(false, "p1",
                 PartitionKeyDesc.createIn(inValues), null));
 
@@ -259,7 +277,7 @@ public class ListPartitionInfoTest {
         partitionInfo = new ListPartitionInfo(partitionColumns);
 
         List<List<PartitionValue>> inValues = new ArrayList<>();
-        inValues.add(Lists.newArrayList(new PartitionValue("", true), PartitionValue.MAX_VALUE));
+        inValues.add(Lists.newArrayList(nullPartitionValue(k1.getType(), ""), PartitionValue.MAX_VALUE));
         SinglePartitionDesc singlePartitionDesc = new SinglePartitionDesc(false, "p1",
                 PartitionKeyDesc.createIn(inValues), null);
         singlePartitionDesc.analyze(2, null);
@@ -268,7 +286,7 @@ public class ListPartitionInfoTest {
         Assert.assertEquals("((NULL, MAXVALUE))", ((ListPartitionItem) partitionItem).toSql());
 
         inValues = new ArrayList<>();
-        inValues.add(Lists.newArrayList(new PartitionValue("", true), new PartitionValue("", true)));
+        inValues.add(Lists.newArrayList(nullPartitionValue(k1.getType(), ""), nullPartitionValue(k2.getType(), "")));
         singlePartitionDesc = new SinglePartitionDesc(false, "p2",
         PartitionKeyDesc.createIn(inValues), null);
         singlePartitionDesc.analyze(2, null);
@@ -277,7 +295,7 @@ public class ListPartitionInfoTest {
         Assert.assertEquals("((NULL, NULL))", ((ListPartitionItem) partitionItem).toSql());
 
         inValues = new ArrayList<>();
-        inValues.add(Lists.newArrayList(PartitionValue.MAX_VALUE, new PartitionValue("", true)));
+        inValues.add(Lists.newArrayList(PartitionValue.MAX_VALUE, nullPartitionValue(k2.getType(), "")));
         singlePartitionDesc = new SinglePartitionDesc(false, "p3",
         PartitionKeyDesc.createIn(inValues), null);
         singlePartitionDesc.analyze(2, null);
@@ -295,9 +313,9 @@ public class ListPartitionInfoTest {
         Assert.assertEquals("((MAXVALUE, MAXVALUE))", ((ListPartitionItem) partitionItem).toSql());
 
         inValues = new ArrayList<>();
-        inValues.add(Lists.newArrayList(new PartitionValue("", true), new PartitionValue("", true)));
-        inValues.add(Lists.newArrayList(PartitionValue.MAX_VALUE, new PartitionValue("", true)));
-        inValues.add(Lists.newArrayList(new PartitionValue("", true), PartitionValue.MAX_VALUE));
+        inValues.add(Lists.newArrayList(nullPartitionValue(k1.getType(), ""), nullPartitionValue(k2.getType(), "")));
+        inValues.add(Lists.newArrayList(PartitionValue.MAX_VALUE, nullPartitionValue(k2.getType(), "")));
+        inValues.add(Lists.newArrayList(nullPartitionValue(k1.getType(), ""), PartitionValue.MAX_VALUE));
         singlePartitionDesc = new SinglePartitionDesc(false, "p5",
         PartitionKeyDesc.createIn(inValues), null);
         singlePartitionDesc.analyze(2, null);

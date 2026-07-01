@@ -17,6 +17,7 @@
 
 package org.apache.doris.backup;
 
+import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
@@ -286,17 +287,17 @@ public class CatalogMocker {
         PartitionKey rangeP1Lower =
                 PartitionKey.createInfinityPartitionKey(Lists.newArrayList(TEST_TBL_BASE_SCHEMA.get(0)), false);
         PartitionKey rangeP1Upper =
-                PartitionKey.createPartitionKey(Lists.newArrayList(new PartitionValue("10")),
+                PartitionKey.createPartitionKey(Lists.newArrayList(new PartitionValue(new IntLiteral(10L), false, "10")),
                                                 Lists.newArrayList(TEST_TBL_BASE_SCHEMA.get(0)));
         Range<PartitionKey> rangeP1 = Range.closedOpen(rangeP1Lower, rangeP1Upper);
         PartitionItem item1 = new RangePartitionItem(rangeP1);
         rangePartitionInfo.setItem(TEST_PARTITION1_ID, false, item1);
 
         PartitionKey rangeP2Lower =
-                PartitionKey.createPartitionKey(Lists.newArrayList(new PartitionValue("10")),
+                PartitionKey.createPartitionKey(Lists.newArrayList(new PartitionValue(new IntLiteral(10L), false, "10")),
                         Lists.newArrayList(TEST_TBL_BASE_SCHEMA.get(0)));
         PartitionKey rangeP2Upper =
-                PartitionKey.createPartitionKey(Lists.newArrayList(new PartitionValue("20")),
+                PartitionKey.createPartitionKey(Lists.newArrayList(new PartitionValue(new IntLiteral(20L), false, "20")),
                         Lists.newArrayList(TEST_TBL_BASE_SCHEMA.get(0)));
         Range<PartitionKey> rangeP2 = Range.closedOpen(rangeP2Lower, rangeP2Upper);
         PartitionItem item2 = new RangePartitionItem(rangeP2);

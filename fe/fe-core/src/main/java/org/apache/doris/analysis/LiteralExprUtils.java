@@ -17,10 +17,16 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.nereids.trees.expressions.literal.TimestampTzLiteral;
+import org.apache.doris.nereids.types.TimeStampTzType;
 
 import com.google.common.base.Preconditions;
+
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 
 public class LiteralExprUtils {
 
@@ -45,14 +51,14 @@ public class LiteralExprUtils {
                 break;
             case FLOAT:
             case DOUBLE:
-                literalExpr = new FloatLiteral(value);
+                literalExpr = createFloatingPointLiteral(value, type);
                 break;
             case DECIMALV2:
             case DECIMAL32:
             case DECIMAL64:
             case DECIMAL128:
             case DECIMAL256:
-                literalExpr = DecimalLiteralUtils.create(value);
+                literalExpr = createDecimalLiteral(value, type);
                 break;
             case CHAR:
             case VARCHAR:
@@ -68,8 +74,10 @@ public class LiteralExprUtils {
             case DATETIME:
             case DATEV2:
             case DATETIMEV2:
-            case TIMESTAMPTZ:
                 literalExpr = DateLiteralUtils.createDateLiteral(value, type);
+                break;
+            case TIMESTAMPTZ:
+                literalExpr = createTimestampTzLiteral(value, type);
                 break;
             case IPV4:
                 literalExpr = new IPv4Literal(value);
@@ -83,6 +91,51 @@ public class LiteralExprUtils {
 
         Preconditions.checkNotNull(literalExpr);
         return literalExpr;
+    }
+
+    private static LiteralExpr createFloatingPointLiteral(String value, Type type) throws AnalysisException {
+        try {
+            return new FloatLiteral(Double.parseDouble(value), type);
+        } catch (NumberFormatException e) {
+            throw new AnalysisException("Invalid floating-point literal: " + value, e);
+        }
+    }
+
+    private static LiteralExpr createDecimalLiteral(String value, Type type) throws AnalysisException {
+        Preconditions.checkArgument(type instanceof ScalarType,
+                String.format("%s's type %s is not ScalarType", value, type));
+        ScalarType scalarType = (ScalarType) type;
+        BigDecimal decimalValue;
+        try {
+            decimalValue = new BigDecimal(value);
+        } catch (NumberFormatException e) {
+            throw new AnalysisException("Invalid decimal literal: " + value, e);
+        }
+        // Reject partition values that cannot be exactly represented at the column's
+        // scale. Trailing zeros (e.g. '10.000' for DECIMAL(10,2)) are exact and pass;
+        // non-zero digits beyond the target scale (e.g. '10.005' for DECIMAL(10,2))
+        // would be silently rounded by the old code and now throw an AnalysisException.
+        try {
+            decimalValue = decimalValue.setScale(scalarType.getScalarScale(), RoundingMode.UNNECESSARY);
+        } catch (ArithmeticException e) {
+            throw new AnalysisException(String.format(
+                    "Partition value %s has scale %d which exceeds column scale %d for type %s",
+                    value, decimalValue.scale(), scalarType.getScalarScale(), type));
+        }
+        DecimalLiteral literalExpr = new DecimalLiteral(decimalValue, type);
+        literalExpr.checkPrecisionAndScale(scalarType.getScalarPrecision(), scalarType.getScalarScale());
+        return literalExpr;
+    }
+
+    private static LiteralExpr createTimestampTzLiteral(String value, Type type) throws AnalysisException {
+        Preconditions.checkArgument(type instanceof ScalarType && type.isTimeStampTz(),
+                String.format("%s's type %s is not TimeStampTz type", value, type));
+        try {
+            int scale = ((ScalarType) type).getScalarScale();
+            return TimestampTzLiteral.fromSessionTimeZone(TimeStampTzType.of(scale), value).toLegacyLiteral();
+        } catch (RuntimeException e) {
+            throw new AnalysisException("Invalid TIMESTAMPTZ literal: " + value, e);
+        }
     }
 
     public static LiteralExpr createInfinity(Type type, boolean isMax) throws AnalysisException {

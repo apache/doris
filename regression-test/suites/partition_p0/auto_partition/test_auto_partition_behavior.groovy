@@ -137,7 +137,7 @@ suite("test_auto_partition_behavior") {
         sql """ alter table agg_dt6 add partition padd values [("2013-05-05"), ("2014-05-05")) """
         fail()
     } catch (Exception e) {
-        assertTrue(e.getMessage().contains("is intersected with range: [types: [DATETIMEV2]; keys: [2013-01-01 00:00:00]; ..types: [DATETIMEV2]; keys: [2014-01-01 00:00:00];"))
+        assertTrue(e.getMessage().contains("is intersected with range: [types: [DATETIMEV2]; keys: [2013-01-01 00:00:00.000000]; ..types: [DATETIMEV2]; keys: [2014-01-01 00:00:00.000000];"))
     }
     // modify partition
     sql """ alter table agg_dt6 drop partition p2010 """

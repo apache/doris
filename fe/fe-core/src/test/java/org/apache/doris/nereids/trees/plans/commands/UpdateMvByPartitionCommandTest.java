@@ -17,6 +17,8 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.analysis.IntLiteral;
+import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.ListPartitionItem;
@@ -39,7 +41,8 @@ class UpdateMvByPartitionCommandTest {
     @Test
     void testFirstPartWithoutLowerBound() throws AnalysisException {
         Column column = new Column("a", PrimitiveType.INT);
-        PartitionKey upper = PartitionKey.createPartitionKey(ImmutableList.of(new PartitionValue(1L)),
+        PartitionKey upper = PartitionKey.createPartitionKey(
+                ImmutableList.of(new PartitionValue(new IntLiteral(1L), false, "1")),
                 ImmutableList.of(column));
         Range<PartitionKey> range1 = Range.lessThan(upper);
         RangePartitionItem item1 = new RangePartitionItem(range1);
@@ -54,7 +57,8 @@ class UpdateMvByPartitionCommandTest {
         Column column = new Column("a", PrimitiveType.INT);
         PartitionKey upper = PartitionKey.createPartitionKey(ImmutableList.of(PartitionValue.MAX_VALUE),
                 ImmutableList.of(column));
-        PartitionKey lower = PartitionKey.createPartitionKey(ImmutableList.of(new PartitionValue(1L)),
+        PartitionKey lower = PartitionKey.createPartitionKey(
+                ImmutableList.of(new PartitionValue(new IntLiteral(1L), false, "1")),
                 ImmutableList.of(column));
         Range<PartitionKey> range = Range.closedOpen(lower, upper);
         RangePartitionItem rangePartitionItem = new RangePartitionItem(range);
@@ -69,15 +73,18 @@ class UpdateMvByPartitionCommandTest {
     void testNull() throws AnalysisException {
         Column column = new Column("a", PrimitiveType.INT);
         PartitionKey v = PartitionKey.createListPartitionKeyWithTypes(
-                ImmutableList.of(new PartitionValue("NULL", true)), ImmutableList.of(column.getType()), false);
+                                ImmutableList.of(new PartitionValue(NullLiteral.create(column.getType()), true, "NULL")),
+                ImmutableList.of(column.getType()), false);
         ListPartitionItem listPartitionItem = new ListPartitionItem(ImmutableList.of(v));
         Expression expr = UpdateMvByPartitionCommand.constructPredicates(Sets.newHashSet(listPartitionItem), "s")
                 .iterator().next();
         Assertions.assertTrue(expr instanceof IsNull);
 
         PartitionKey v1 = PartitionKey.createListPartitionKeyWithTypes(
-                ImmutableList.of(new PartitionValue("NULL", true)), ImmutableList.of(column.getType()), false);
-        PartitionKey v2 = PartitionKey.createListPartitionKeyWithTypes(ImmutableList.of(new PartitionValue("1", false)),
+                ImmutableList.of(new PartitionValue(NullLiteral.create(column.getType()), true, "NULL")),
+                ImmutableList.of(column.getType()), false);
+        PartitionKey v2 = PartitionKey.createListPartitionKeyWithTypes(
+                ImmutableList.of(new PartitionValue(new IntLiteral(1L), false, "1")),
                 ImmutableList.of(column.getType()), false);
         listPartitionItem = new ListPartitionItem(ImmutableList.of(v1, v2));
         expr = UpdateMvByPartitionCommand.constructPredicates(Sets.newHashSet(listPartitionItem), "s").iterator()

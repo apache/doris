@@ -19,6 +19,7 @@ package org.apache.doris.mtmv;
 
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FunctionCallExpr;
+import org.apache.doris.analysis.LiteralExprUtils;
 import org.apache.doris.analysis.PartitionExprUtil;
 import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.analysis.PartitionValue;
@@ -104,7 +105,7 @@ public class MTMVPartitionExprDateTrunc implements MTMVPartitionExprService {
             if (partitionValue.isNullPartition()) {
                 throw new AnalysisException("date trunc not support null partition value");
             }
-            String identity = dateTrunc(partitionValue.getStringValue(), dateFormat, false).toString();
+            String identity = dateTrunc(partitionValue.getValue().getStringValue(), dateFormat, false).toString();
             if (i == 0) {
                 res = identity;
             } else {
@@ -135,10 +136,12 @@ public class MTMVPartitionExprDateTrunc implements MTMVPartitionExprService {
         Preconditions.checkState(partitionKeyDesc.getLowerValues().size() == 1,
                 "only support one partition column");
         DateTimeV2Literal beginTime = dateTrunc(
-                partitionKeyDesc.getLowerValues().get(0).getStringValue(),
+                partitionKeyDesc.getLowerValues().get(0).getValue().getStringValue(),
                 Optional.empty(), false);
-
-        PartitionValue lowerValue = new PartitionValue(dateTimeToStr(beginTime, partitionColumnType));
+        String literalValue = PartitionExprUtil
+                .normalizePartitionValueString(dateTimeToStr(beginTime, partitionColumnType), partitionColumnType);
+        PartitionValue lowerValue = new PartitionValue(
+                LiteralExprUtils.createLiteral(literalValue, partitionColumnType));
         PartitionValue upperValue = getUpperValue(partitionKeyDesc.getUpperValues().get(0), beginTime,
                 partitionColumnType);
         return PartitionKeyDesc.createFixed(
@@ -152,14 +155,17 @@ public class MTMVPartitionExprDateTrunc implements MTMVPartitionExprService {
             throw new AnalysisException("date trunc not support MAXVALUE partition");
         }
         // begin time and end time dateTrunc should has same result
-        DateTimeV2Literal endTruncTime = dateTrunc(upperValue.getStringValue(), Optional.empty(), true);
+        DateTimeV2Literal endTruncTime = dateTrunc(upperValue.getValue().getStringValue(), Optional.empty(), true);
         if (!Objects.equals(beginTruncTime, endTruncTime)) {
             throw new AnalysisException(
                     String.format("partition values not equal, beginTruncTime: %s, endTruncTime: %s", beginTruncTime,
                             endTruncTime));
         }
         DateTimeV2Literal endTime = dateIncrement(beginTruncTime);
-        return new PartitionValue(dateTimeToStr(endTime, partitionColumnType));
+        String literalValue = PartitionExprUtil
+                .normalizePartitionValueString(dateTimeToStr(endTime, partitionColumnType), partitionColumnType);
+        return new PartitionValue(
+            LiteralExprUtils.createLiteral(literalValue, partitionColumnType));
     }
 
     private DateTimeV2Literal dateTrunc(String value,

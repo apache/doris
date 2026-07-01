@@ -262,8 +262,8 @@ public class SinglePartitionDesc implements AllPartitionDesc {
                                 } else if (partitionValue.isMax()) {
                                     return PartitionDefinition.MaxValue.INSTANCE;
                                 } else {
-                                    String stringValue = partitionValue.getStringValue();
-                                    return Literal.of(stringValue);
+                                    return Literal.fromLegacyLiteral(
+                                            partitionValue.getValue(), partitionValue.getValue().getType());
                                 }
                             })
                             .map(literal -> (Expression) literal)
@@ -280,8 +280,8 @@ public class SinglePartitionDesc implements AllPartitionDesc {
                             } else if (partitionValue.isMax()) {
                                 return PartitionDefinition.MaxValue.INSTANCE;
                             } else {
-                                String stringValue = partitionValue.getStringValue();
-                                return Literal.of(stringValue);
+                                return Literal.fromLegacyLiteral(
+                                        partitionValue.getValue(), partitionValue.getValue().getType());
                             }
                         })
                         .map(literal -> (Expression) literal)
@@ -297,8 +297,8 @@ public class SinglePartitionDesc implements AllPartitionDesc {
                             } else if (partitionValue.isMax()) {
                                 return PartitionDefinition.MaxValue.INSTANCE;
                             } else {
-                                String stringValue = partitionValue.getStringValue();
-                                return Literal.of(stringValue);
+                                return Literal.fromLegacyLiteral(
+                                        partitionValue.getValue(), partitionValue.getValue().getType());
                             }
                         })
                         .map(literal -> (Expression) literal)
@@ -311,8 +311,8 @@ public class SinglePartitionDesc implements AllPartitionDesc {
                             } else if (partitionValue.isMax()) {
                                 return PartitionDefinition.MaxValue.INSTANCE;
                             } else {
-                                String stringValue = partitionValue.getStringValue();
-                                return Literal.of(stringValue);
+                                return Literal.fromLegacyLiteral(
+                                        partitionValue.getValue(), partitionValue.getValue().getType());
                             }
                         })
                         .map(literal -> (Expression) literal)

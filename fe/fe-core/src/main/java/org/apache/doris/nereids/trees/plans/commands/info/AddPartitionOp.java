@@ -91,6 +91,18 @@ public class AddPartitionOp extends AlterTableOp {
         return singlePartitionDesc;
     }
 
+    /** initialize partition types from target table before validate/translate. */
+    public void initPartitionTypes(OlapTable olapTable) {
+        if (partitionDefinition == null || partitionDefinition.partitionTypes != null) {
+            return;
+        }
+        List<DataType> partitionTypes = new ArrayList<>(olapTable.getPartitionColumns().size());
+        for (Column col : olapTable.getPartitionColumns()) {
+            partitionTypes.add(DataType.fromCatalogType(col.getType()));
+        }
+        partitionDefinition.setPartitionTypes(partitionTypes);
+    }
+
     public DistributionDesc getDistributionDesc() {
         return distributionDesc != null ? distributionDesc.translateToCatalogStyle() : null;
     }
@@ -108,12 +120,7 @@ public class AddPartitionOp extends AlterTableOp {
                 .getDbOrDdlException(dbName);
         TableIf tableIf = dbIf.getTableOrDdlException(tbName);
         if (tableIf instanceof OlapTable) {
-            OlapTable olapTable = (OlapTable) tableIf;
-            List<DataType> partitionTypes = new ArrayList<>(olapTable.getPartitionColumns().size());
-            for (Column col : olapTable.getPartitionColumns()) {
-                partitionTypes.add(DataType.fromCatalogType(col.getType()));
-            }
-            partitionDefinition.setPartitionTypes(partitionTypes);
+            initPartitionTypes((OlapTable) tableIf);
         }
         partitionDefinition.validate(properties);
     }

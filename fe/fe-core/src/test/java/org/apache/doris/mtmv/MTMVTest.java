@@ -17,6 +17,7 @@
 
 package org.apache.doris.mtmv;
 
+import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.catalog.Column;
@@ -125,9 +126,11 @@ public class MTMVTest {
     private Map<PartitionKeyDesc, Set<String>> mockRelatedPartitionDescs() throws AnalysisException {
         Map<PartitionKeyDesc, Set<String>> res = Maps.newHashMap();
         Column k1 = new Column("k1", ScalarType.createType(PrimitiveType.TINYINT), true, null, "", "key1");
-        PartitionKey rangeP1Lower = PartitionKey.createPartitionKey(Lists.newArrayList(new PartitionValue("1")),
+        PartitionKey rangeP1Lower = PartitionKey.createPartitionKey(
+                Lists.newArrayList(new PartitionValue(new IntLiteral(1L), false, "1")),
                 Lists.newArrayList(k1));
-        PartitionKey rangeP1Upper = PartitionKey.createPartitionKey(Lists.newArrayList(new PartitionValue("10")),
+        PartitionKey rangeP1Upper = PartitionKey.createPartitionKey(
+                Lists.newArrayList(new PartitionValue(new IntLiteral(10L), false, "10")),
                 Lists.newArrayList(k1));
         Range<PartitionKey> rangeP1 = Range.closedOpen(rangeP1Lower, rangeP1Upper);
         PartitionItem item1 = new RangePartitionItem(rangeP1);
@@ -138,9 +141,11 @@ public class MTMVTest {
     private Map<String, PartitionItem> mockMvPartitionItems() throws AnalysisException {
         Map<String, PartitionItem> res = Maps.newHashMap();
         Column k1 = new Column("k1", ScalarType.createType(PrimitiveType.TINYINT), true, null, "", "key1");
-        PartitionKey rangeP1Lower = PartitionKey.createPartitionKey(Lists.newArrayList(new PartitionValue("1")),
+        PartitionKey rangeP1Lower = PartitionKey.createPartitionKey(
+                Lists.newArrayList(new PartitionValue(new IntLiteral(1L), false, "1")),
                 Lists.newArrayList(k1));
-        PartitionKey rangeP1Upper = PartitionKey.createPartitionKey(Lists.newArrayList(new PartitionValue("10")),
+        PartitionKey rangeP1Upper = PartitionKey.createPartitionKey(
+                Lists.newArrayList(new PartitionValue(new IntLiteral(10L), false, "10")),
                 Lists.newArrayList(k1));
         Range<PartitionKey> rangeP1 = Range.closedOpen(rangeP1Lower, rangeP1Upper);
         PartitionItem item1 = new RangePartitionItem(rangeP1);

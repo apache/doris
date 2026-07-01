@@ -18,6 +18,7 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.analysis.AccessTestUtil;
+import org.apache.doris.analysis.LiteralExprUtils;
 import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.TupleDescriptor;
@@ -266,12 +267,12 @@ public class OlapQueryCacheTest {
     private void setPartitionItem(PartitionInfo partInfo, Partition partition, Column column, String rangeKeyLower,
             String rangeKeyUpper) {
         try {
-            PartitionKey rangeP1Lower =
-                    PartitionKey.createPartitionKey(Lists.newArrayList(new PartitionValue(rangeKeyLower)),
-                            Lists.newArrayList(column));
-            PartitionKey rangeP1Upper =
-                    PartitionKey.createPartitionKey(Lists.newArrayList(new PartitionValue(rangeKeyUpper)),
-                            Lists.newArrayList(column));
+            PartitionKey rangeP1Lower = PartitionKey.createPartitionKey(Lists.newArrayList(
+                    new PartitionValue(LiteralExprUtils.createLiteral(rangeKeyLower, column.getType()))),
+                    Lists.newArrayList(column));
+            PartitionKey rangeP1Upper = PartitionKey.createPartitionKey(Lists.newArrayList(
+                    new PartitionValue(LiteralExprUtils.createLiteral(rangeKeyUpper, column.getType()))),
+                    Lists.newArrayList(column));
             Range<PartitionKey> rangeP1 = Range.closedOpen(rangeP1Lower, rangeP1Upper);
             partInfo.setItem(partition.getId(), false, new RangePartitionItem(rangeP1));
         } catch (AnalysisException e) {

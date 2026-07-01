@@ -19,6 +19,8 @@ package org.apache.doris.clone;
 
 import org.apache.doris.analysis.DistributionDesc;
 import org.apache.doris.analysis.HashDistributionDesc;
+import org.apache.doris.analysis.LiteralExprUtils;
+import org.apache.doris.analysis.PartitionExprUtil;
 import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.analysis.RandomDistributionDesc;
@@ -298,25 +300,56 @@ public class DynamicPartitionScheduler extends MasterDaemon {
                 nowPartitionPrevBorder, dynamicPartitionProperty.getTimeUnit());
 
         for (; idx <= dynamicPartitionProperty.getEnd(); idx++) {
-            String prevBorder = DynamicPartitionUtil.getPartitionRangeString(
-                    dynamicPartitionProperty, now, idx, partitionFormat);
-            String nextBorder = DynamicPartitionUtil.getPartitionRangeString(
-                    dynamicPartitionProperty, now, idx + 1, partitionFormat);
-            PartitionValue lowerValue = new PartitionValue(prevBorder);
-            PartitionValue upperValue = new PartitionValue(nextBorder);
-
             boolean isPartitionExists = false;
             Range<PartitionKey> addPartitionKeyRange;
+            PartitionValue lowerValue;
+            PartitionValue upperValue;
+            String prevBorder;
+            String prevBorderLocal;
+            String nextBorder;
+            try {
+                prevBorder = DynamicPartitionUtil.getPartitionRangeString(
+                        dynamicPartitionProperty, now, idx, partitionFormat);
+                // Keep the local-time string for partition naming before
+                // normalization converts it to UTC (TIMESTAMPTZ columns).
+                // getFormattedPartitionName() strips separators and truncates
+                // to the date portion; it does not convert back to the
+                // configured timezone, so feeding it a UTC string would
+                // produce a wrong partition name (e.g. p20260617 instead of
+                // p20260618 for Asia/Shanghai).
+                prevBorderLocal = prevBorder;
+                prevBorder = PartitionExprUtil.normalizePartitionValueString(prevBorder, partitionColumn.getType(),
+                        dynamicPartitionProperty.getTimeZone().getID());
+                nextBorder = DynamicPartitionUtil.getPartitionRangeString(
+                        dynamicPartitionProperty, now, idx + 1, partitionFormat);
+                nextBorder = PartitionExprUtil.normalizePartitionValueString(nextBorder, partitionColumn.getType(),
+                        dynamicPartitionProperty.getTimeZone().getID());
+                lowerValue = new PartitionValue(
+                    LiteralExprUtils.createLiteral(prevBorder, partitionColumn.getType()));
+                upperValue = new PartitionValue(
+                    LiteralExprUtils.createLiteral(nextBorder, partitionColumn.getType()));
+            } catch (AnalysisException e) {
+                // Normalization or literal creation error: should not happen for
+                // valid dynamic partition configurations.
+                LOG.warn("Error normalizing partition values. db: {}, table: {}, partition idx: {}",
+                        db.getFullName(), olapTable.getName(), idx, e);
+                if (executeFirstTime) {
+                    throw new DdlException("error normalizing partition values, error: "
+                        + e.getMessage());
+                }
+                continue;
+            }
+
             try {
                 PartitionKey lowerBound = PartitionKey.createPartitionKey(Collections.singletonList(lowerValue),
                         Collections.singletonList(partitionColumn));
                 PartitionKey upperBound = PartitionKey.createPartitionKey(Collections.singletonList(upperValue),
                         Collections.singletonList(partitionColumn));
                 addPartitionKeyRange = Range.closedOpen(lowerBound, upperBound);
-            } catch (Exception e) {
-                // AnalysisException: keys.size is always equal to column.size, cannot reach this exception
-                // IllegalArgumentException: lb is greater than ub
-                LOG.warn("Error in gen addPartitionKeyRange. db: {}, table: {}, partition idx: {}",
+            } catch (AnalysisException | IllegalArgumentException e) {
+                // Range.closedOpen: lb is greater than ub for this partition index;
+                // skip it gracefully.
+                LOG.warn("Error in gen addPartitionKeyRange (range bounds). db: {}, table: {}, partition idx: {}",
                         db.getFullName(), olapTable.getName(), idx, e);
                 if (executeFirstTime) {
                     throw new DdlException("maybe dynamic_partition.start is too small, error: "
@@ -370,7 +403,7 @@ public class DynamicPartitionScheduler extends MasterDaemon {
 
             String partitionName = dynamicPartitionProperty.getPrefix()
                     + DynamicPartitionUtil.getFormattedPartitionName(dynamicPartitionProperty.getTimeZone(),
-                    prevBorder, dynamicPartitionProperty.getTimeUnit());
+                    prevBorderLocal, dynamicPartitionProperty.getTimeUnit());
             SinglePartitionDesc rangePartitionDesc = new SinglePartitionDesc(true, partitionName,
                     partitionKeyDesc, partitionProperties);
 
@@ -484,11 +517,20 @@ public class DynamicPartitionScheduler extends MasterDaemon {
     }
 
     private Range<PartitionKey> getClosedRange(Database db, OlapTable olapTable, Column partitionColumn,
-            String partitionFormat, String lowerBorderOfReservedHistory, String upperBorderOfReservedHistory) {
+            String partitionFormat, String lowerBorderOfReservedHistory, String upperBorderOfReservedHistory,
+            String timeZone) {
         Range<PartitionKey> reservedHistoryPartitionKeyRange = null;
-        PartitionValue lowerBorderPartitionValue = new PartitionValue(lowerBorderOfReservedHistory);
-        PartitionValue upperBorderPartitionValue = new PartitionValue(upperBorderOfReservedHistory);
         try {
+            lowerBorderOfReservedHistory = PartitionExprUtil.normalizePartitionValueString(
+                    lowerBorderOfReservedHistory,
+                    partitionColumn.getType(), timeZone);
+            upperBorderOfReservedHistory = PartitionExprUtil.normalizePartitionValueString(
+                    upperBorderOfReservedHistory,
+                    partitionColumn.getType(), timeZone);
+            PartitionValue lowerBorderPartitionValue = new PartitionValue(
+                    LiteralExprUtils.createLiteral(lowerBorderOfReservedHistory, partitionColumn.getType()));
+            PartitionValue upperBorderPartitionValue = new PartitionValue(
+                    LiteralExprUtils.createLiteral(upperBorderOfReservedHistory, partitionColumn.getType()));
             PartitionKey lowerBorderBound = PartitionKey.createPartitionKey(
                     Collections.singletonList(lowerBorderPartitionValue), Collections.singletonList(partitionColumn));
             PartitionKey upperBorderBound = PartitionKey.createPartitionKey(
@@ -526,11 +568,17 @@ public class DynamicPartitionScheduler extends MasterDaemon {
                 now, realStart, partitionFormat);
         String limitBorder = DynamicPartitionUtil.getPartitionRangeString(dynamicPartitionProperty,
                 now, 0, partitionFormat);
-        PartitionValue lowerPartitionValue = new PartitionValue(lowerBorder);
-        PartitionValue limitPartitionValue = new PartitionValue(limitBorder);
         List<Range<PartitionKey>> reservedHistoryPartitionKeyRangeList = new ArrayList<Range<PartitionKey>>();
         Range<PartitionKey> reservePartitionKeyRange;
         try {
+            lowerBorder = PartitionExprUtil.normalizePartitionValueString(lowerBorder,
+                    partitionColumn.getType(), dynamicPartitionProperty.getTimeZone().getID());
+            limitBorder = PartitionExprUtil.normalizePartitionValueString(limitBorder,
+                    partitionColumn.getType(), dynamicPartitionProperty.getTimeZone().getID());
+            PartitionValue lowerPartitionValue = new PartitionValue(
+                    LiteralExprUtils.createLiteral(lowerBorder, partitionColumn.getType()));
+            PartitionValue limitPartitionValue = new PartitionValue(
+                    LiteralExprUtils.createLiteral(limitBorder, partitionColumn.getType()));
             PartitionKey lowerBound = PartitionKey.createPartitionKey(Collections.singletonList(lowerPartitionValue),
                     Collections.singletonList(partitionColumn));
             PartitionKey limitBound = PartitionKey.createPartitionKey(Collections.singletonList(limitPartitionValue),
@@ -566,7 +614,8 @@ public class DynamicPartitionScheduler extends MasterDaemon {
                             dynamicPartitionProperty, range.upperEndpoint().toString(), partitionFormat);
                     Range<PartitionKey> reservedHistoryPartitionKeyRange = getClosedRange(db, olapTable,
                             partitionColumn, partitionFormat,
-                            lowerBorderOfReservedHistory, upperBorderOfReservedHistory);
+                            lowerBorderOfReservedHistory, upperBorderOfReservedHistory,
+                            dynamicPartitionProperty.getTimeZone().getID());
                     reservedHistoryPartitionKeyRangeList.add(reservedHistoryPartitionKeyRange);
                 } catch (IllegalArgumentException e) {
                     return dropPartitionOps;
@@ -625,9 +674,12 @@ public class DynamicPartitionScheduler extends MasterDaemon {
         String partitionFormat = DynamicPartitionUtil.getPartitionFormat(partitionColumn);
         String currentTimeStr = DateTimeFormatter.ofPattern(partitionFormat).format(now);
 
-        PartitionValue currentTimeValue = new PartitionValue(currentTimeStr);
         PartitionKey currentTimeKey;
         try {
+            currentTimeStr = PartitionExprUtil.normalizePartitionValueString(currentTimeStr,
+                    partitionColumn.getType(), DateUtils.getTimeZone().getId());
+            PartitionValue currentTimeValue = new PartitionValue(
+                    LiteralExprUtils.createLiteral(currentTimeStr, partitionColumn.getType()));
             currentTimeKey = PartitionKey.createPartitionKey(
                     Collections.singletonList(currentTimeValue),
                     Collections.singletonList(partitionColumn));

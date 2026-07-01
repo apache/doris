@@ -72,8 +72,7 @@ suite("test_partition_table_err_msg", "p0") {
               PARTITION partition_d VALUES LESS THAN ("10000-01-01 00:00:00") ) 
             DISTRIBUTED BY HASH(k1) BUCKETS 13
         """
-        // exception "date/datetime literal [10000-01-01 00:00:00] is invalid"
-        exception "Invalid range value format"
+        exception "date/datetime literal [10000-01-01 00:00:00] is invalid"
     }
     test {
         sql """
@@ -92,8 +91,7 @@ suite("test_partition_table_err_msg", "p0") {
               PARTITION partition_d VALUES LESS THAN ("9999-12-31 24:00:00") ) 
             DISTRIBUTED BY HASH(k1) BUCKETS 13
         """
-        // exception "date/datetime literal [9999-12-31 24:00:00] is invalid"
-        exception "Invalid range value format"
+        exception "date/datetime literal [9999-12-31 24:00:00] is invalid"
     }
     test {
         sql """
@@ -131,7 +129,7 @@ suite("test_partition_table_err_msg", "p0") {
               PARTITION partition_d VALUES LESS THAN ("3000") ) 
             DISTRIBUTED BY HASH(k1) BUCKETS 13
         """
-        exception "Invalid range value format： errCode = 2, detailMessage = Number out of range[3000]. type: tinyint"
+        exception "Number out of range[3000]. type: tinyint"
     }
     test {
         sql """
@@ -150,7 +148,7 @@ suite("test_partition_table_err_msg", "p0") {
               PARTITION partition_d VALUES LESS THAN ("101") ) 
             DISTRIBUTED BY HASH(k1) BUCKETS 13
         """
-        exception "Invalid range value format： errCode = 2, detailMessage = Invalid number format: -50.1"
+        exception "Invalid number format: -50.1"
     }
     // aggregate table value column can't be partition key
     test {

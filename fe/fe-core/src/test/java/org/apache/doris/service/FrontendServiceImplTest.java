@@ -240,6 +240,43 @@ public class FrontendServiceImplTest {
     }
 
     @Test
+    public void testCreatePartitionListWithSeedPartition() throws Exception {
+        String createOlapTblStmt = new String("CREATE TABLE test.partition_list_seeded_unique(\n"
+                + "    str VARCHAR NOT NULL,\n"
+                + "    dummy INT\n"
+                + ")\n"
+                + "ENGINE=OLAP\n"
+                + "UNIQUE KEY(str)\n"
+                + "AUTO PARTITION BY LIST (str) (\n"
+                + "    PARTITION partition_origin VALUES IN ((\"Xxx\"), (\"Yyy\"))\n"
+                + ")\n"
+                + "DISTRIBUTED BY HASH(str) BUCKETS 2\n"
+                + "PROPERTIES(\"replication_num\" = \"1\");");
+
+        createTable(createOlapTblStmt);
+        Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException("test");
+        OlapTable table = (OlapTable) db.getTableOrAnalysisException("partition_list_seeded_unique");
+
+        List<List<TNullableStringLiteral>> partitionValues = new ArrayList<>();
+        List<TNullableStringLiteral> values = new ArrayList<>();
+
+        TNullableStringLiteral newValue = new TNullableStringLiteral();
+        newValue.setValue("xxX");
+        values.add(newValue);
+        partitionValues.add(values);
+
+        FrontendServiceImpl impl = new FrontendServiceImpl(exeEnv);
+        TCreatePartitionRequest request = new TCreatePartitionRequest();
+        request.setDbId(db.getId());
+        request.setTableId(table.getId());
+        request.setPartitionValues(partitionValues);
+        TCreatePartitionResult partition = impl.createPartition(request);
+
+        Assert.assertEquals(TStatusCode.OK, partition.getStatus().getStatusCode());
+        Assert.assertEquals(2, table.getAllPartitions().size());
+    }
+
+    @Test
     public void testGetDBNames() throws Exception {
         // create database
         String createDbStmtStr = "create database `test_`;";

@@ -17,9 +17,13 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.analysis.DateLiteral;
+import org.apache.doris.analysis.LiteralExprUtils;
 import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.qe.ConnectContext;
 
 import org.junit.Assert;
 import org.junit.BeforeClass;
@@ -45,6 +49,7 @@ public class PartitionKeyTest {
     private static Column largeInt;
     private static Column date;
     private static Column datetime;
+    private static Column timestampTz;
     private static Column charString;
     private static Column varchar;
     private static Column bool;
@@ -63,11 +68,20 @@ public class PartitionKeyTest {
         largeInt = new Column("largeint", PrimitiveType.LARGEINT);
         date = new Column("date", PrimitiveType.DATE);
         datetime = new Column("datetime", PrimitiveType.DATETIME);
+        timestampTz = new Column("timestamptz", ScalarType.createTimeStampTzType(6), true, null, "", "");
         charString = new Column("char", PrimitiveType.CHAR);
         varchar = new Column("varchar", PrimitiveType.VARCHAR);
         bool = new Column("bool", PrimitiveType.BOOLEAN);
 
         allColumns = Arrays.asList(tinyInt, smallInt, int32, bigInt, largeInt, date, datetime);
+    }
+
+    private static PartitionValue partitionValue(String value, Column column) throws AnalysisException {
+        return partitionValue(value, column.getType());
+    }
+
+    private static PartitionValue partitionValue(String value, Type type) throws AnalysisException {
+        return new PartitionValue(LiteralExprUtils.createLiteral(value, type));
     }
 
     @Test
@@ -76,141 +90,172 @@ public class PartitionKeyTest {
         PartitionKey pk2;
 
         // case1
-        pk1 = PartitionKey.createPartitionKey(Arrays.asList(new PartitionValue("127"), new PartitionValue("32767")),
+        pk1 = PartitionKey.createPartitionKey(Arrays.asList(partitionValue("127", tinyInt), partitionValue("32767", smallInt)),
                                               Arrays.asList(tinyInt, smallInt));
         pk2 = PartitionKey.createInfinityPartitionKey(Arrays.asList(tinyInt, smallInt), true);
         Assert.assertTrue(pk1.hashCode() != pk2.hashCode());
         Assert.assertTrue(!pk1.equals(pk2) && pk1.compareTo(pk2) == -1);
 
         // case2
-        pk1 = PartitionKey.createPartitionKey(Arrays.asList(new PartitionValue("127")),
+        pk1 = PartitionKey.createPartitionKey(Arrays.asList(partitionValue("127", tinyInt)),
                                               Arrays.asList(tinyInt, smallInt));
-        pk2 = PartitionKey.createPartitionKey(Arrays.asList(new PartitionValue("127"), new PartitionValue("-32768")),
+        pk2 = PartitionKey.createPartitionKey(Arrays.asList(partitionValue("127", tinyInt), partitionValue("-32768", smallInt)),
                                               Arrays.asList(tinyInt, smallInt));
         Assert.assertTrue(pk1.hashCode() == pk2.hashCode());
         Assert.assertTrue(pk1.equals(pk2) && pk1.compareTo(pk2) == 0);
 
         // case3
-        pk1 = PartitionKey.createPartitionKey(Arrays.asList(new PartitionValue("127")),
+        pk1 = PartitionKey.createPartitionKey(Arrays.asList(partitionValue("127", int32)),
                                               Arrays.asList(int32, bigInt));
-        pk2 = PartitionKey.createPartitionKey(Arrays.asList(new PartitionValue("128"), new PartitionValue("-32768")),
+        pk2 = PartitionKey.createPartitionKey(Arrays.asList(partitionValue("128", int32), partitionValue("-32768", bigInt)),
                                               Arrays.asList(int32, bigInt));
         Assert.assertTrue(pk1.hashCode() != pk2.hashCode());
         Assert.assertTrue(!pk1.equals(pk2) && pk1.compareTo(pk2) == -1);
 
         // case4
-        pk1 = PartitionKey.createPartitionKey(Arrays.asList(new PartitionValue("127"), new PartitionValue("12345")),
+        pk1 = PartitionKey.createPartitionKey(Arrays.asList(partitionValue("127", largeInt), partitionValue("12345", bigInt)),
                                               Arrays.asList(largeInt, bigInt));
-        pk2 = PartitionKey.createPartitionKey(Arrays.asList(new PartitionValue("127"), new PartitionValue("12346")),
+        pk2 = PartitionKey.createPartitionKey(Arrays.asList(partitionValue("127", largeInt), partitionValue("12346", bigInt)),
                                               Arrays.asList(largeInt, bigInt));
         Assert.assertTrue(pk1.hashCode() != pk2.hashCode());
         Assert.assertTrue(!pk1.equals(pk2) && pk1.compareTo(pk2) == -1);
 
         // case5
-        pk1 = PartitionKey.createPartitionKey(Arrays.asList(new PartitionValue("2014-12-12"), new PartitionValue("2014-12-12 10:00:00")),
+        pk1 = PartitionKey.createPartitionKey(Arrays.asList(partitionValue("2014-12-12", date), partitionValue("2014-12-12 10:00:00", datetime)),
                                               Arrays.asList(date, datetime));
-        pk2 = PartitionKey.createPartitionKey(Arrays.asList(new PartitionValue("2014-12-12"), new PartitionValue("2014-12-12 10:00:01")),
+        pk2 = PartitionKey.createPartitionKey(Arrays.asList(partitionValue("2014-12-12", date), partitionValue("2014-12-12 10:00:01", datetime)),
                                               Arrays.asList(date, datetime));
         Assert.assertTrue(pk1.hashCode() != pk2.hashCode());
         Assert.assertTrue(!pk1.equals(pk2) && pk1.compareTo(pk2) == -1);
 
         // case6
-        pk1 = PartitionKey.createPartitionKey(Arrays.asList(new PartitionValue("-128")),
+        pk1 = PartitionKey.createPartitionKey(Arrays.asList(partitionValue("-128", tinyInt)),
                                               Arrays.asList(tinyInt, smallInt));
         pk2 = PartitionKey.createInfinityPartitionKey(Arrays.asList(tinyInt, smallInt), false);
         Assert.assertTrue(pk1.hashCode() == pk2.hashCode());
         Assert.assertTrue(pk1.equals(pk2) && pk1.compareTo(pk2) == 0);
 
         // case7
-        pk1 = PartitionKey.createPartitionKey(Arrays.asList(new PartitionValue("127")),
+        pk1 = PartitionKey.createPartitionKey(Arrays.asList(partitionValue("127", tinyInt)),
                                               Arrays.asList(tinyInt, smallInt));
         pk2 = PartitionKey.createInfinityPartitionKey(Arrays.asList(tinyInt, smallInt), true);
         Assert.assertTrue(pk1.hashCode() != pk2.hashCode());
         Assert.assertTrue(!pk1.equals(pk2) && pk1.compareTo(pk2) == -1);
 
         // case7
-        pk1 = PartitionKey.createPartitionKey(Arrays.asList(new PartitionValue("127"), new PartitionValue("32767")),
+        pk1 = PartitionKey.createPartitionKey(Arrays.asList(partitionValue("127", tinyInt), partitionValue("32767", smallInt)),
                                               Arrays.asList(tinyInt, smallInt));
         pk2 = PartitionKey.createInfinityPartitionKey(Arrays.asList(tinyInt, smallInt), true);
         Assert.assertTrue(pk1.hashCode() != pk2.hashCode());
         Assert.assertTrue(!pk1.equals(pk2) && pk1.compareTo(pk2) == -1);
 
         // case8
-        pk1 = PartitionKey.createPartitionKey(Arrays.asList(new PartitionValue("127"), new PartitionValue("32767"),
-                new PartitionValue("2147483647"), new PartitionValue("9223372036854775807"),
-                new PartitionValue("170141183460469231731687303715884105727"),
-                new PartitionValue("9999-12-31"), new PartitionValue("9999-12-31 23:59:59")),
+        pk1 = PartitionKey.createPartitionKey(Arrays.asList(partitionValue("127", tinyInt), partitionValue("32767", smallInt),
+                partitionValue("2147483647", int32), partitionValue("9223372036854775807", bigInt),
+                partitionValue("170141183460469231731687303715884105727", largeInt),
+                partitionValue("9999-12-31", date), partitionValue("9999-12-31 23:59:59", datetime)),
                 allColumns);
         pk2 = PartitionKey.createInfinityPartitionKey(allColumns, true);
         Assert.assertTrue(pk1.hashCode() != pk2.hashCode());
         Assert.assertTrue(!pk1.equals(pk2) && pk1.compareTo(pk2) == -1);
 
         // case9
-        pk1 = PartitionKey.createPartitionKey(Arrays.asList(new PartitionValue("-128"), new PartitionValue("-32768"),
-                new PartitionValue("-2147483648"), new PartitionValue("-9223372036854775808"),
-                new PartitionValue("-170141183460469231731687303715884105728"),
-                new PartitionValue("0000-01-01"), new PartitionValue("0000-01-01 00:00:00")),
+        pk1 = PartitionKey.createPartitionKey(Arrays.asList(partitionValue("-128", tinyInt), partitionValue("-32768", smallInt),
+                partitionValue("-2147483648", int32), partitionValue("-9223372036854775808", bigInt),
+                partitionValue("-170141183460469231731687303715884105728", largeInt),
+                partitionValue("0000-01-01", date), partitionValue("0000-01-01 00:00:00", datetime)),
                 allColumns);
         pk2 = PartitionKey.createInfinityPartitionKey(allColumns, false);
         Assert.assertTrue(pk1.hashCode() == pk2.hashCode());
         Assert.assertTrue(pk1.equals(pk2) && pk1.compareTo(pk2) == 0);
 
         // case10
-        pk1 = PartitionKey.createPartitionKey(Arrays.asList(new PartitionValue("-128"), new PartitionValue("-32768"),
-                new PartitionValue("0"), new PartitionValue("-9223372036854775808"),
-                new PartitionValue("0"), new PartitionValue("1970-01-01"), new PartitionValue("1970-01-01 00:00:00")),
+        pk1 = PartitionKey.createPartitionKey(Arrays.asList(partitionValue("-128", tinyInt), partitionValue("-32768", smallInt),
+                partitionValue("0", int32), partitionValue("-9223372036854775808", bigInt),
+                partitionValue("0", largeInt), partitionValue("1970-01-01", date), partitionValue("1970-01-01 00:00:00", datetime)),
                 allColumns);
         pk2 = PartitionKey.createInfinityPartitionKey(allColumns, false);
         Assert.assertTrue(pk1.hashCode() != pk2.hashCode());
         Assert.assertTrue(!pk1.equals(pk2) && pk1.compareTo(pk2) == 1);
 
         // case11
-        pk1 = PartitionKey.createPartitionKey(Arrays.asList(new PartitionValue("beijing"), new PartitionValue("shanghai")),
+        pk1 = PartitionKey.createPartitionKey(Arrays.asList(partitionValue("beijing", charString), partitionValue("shanghai", varchar)),
                 Arrays.asList(charString, varchar));
-        pk2 = PartitionKey.createPartitionKey(Arrays.asList(new PartitionValue("beijing"), new PartitionValue("shanghai")),
+        pk2 = PartitionKey.createPartitionKey(Arrays.asList(partitionValue("beijing", charString), partitionValue("shanghai", varchar)),
                 Arrays.asList(charString, varchar));
         Assert.assertTrue(pk1.hashCode() == pk2.hashCode());
         Assert.assertTrue(pk1.equals(pk2) && pk1.compareTo(pk2) == 0);
 
         // case12
-        pk1 = PartitionKey.createPartitionKey(Arrays.asList(new PartitionValue("beijing"), new PartitionValue("shanghai")),
+        pk1 = PartitionKey.createPartitionKey(Arrays.asList(partitionValue("beijing", charString), partitionValue("shanghai", varchar)),
                 Arrays.asList(charString, varchar));
-        pk2 = PartitionKey.createPartitionKey(Arrays.asList(new PartitionValue("shijiazhuang"), new PartitionValue("tianjin")),
+        pk2 = PartitionKey.createPartitionKey(Arrays.asList(partitionValue("shijiazhuang", charString), partitionValue("tianjin", varchar)),
                 Arrays.asList(charString, varchar));
         Assert.assertTrue(pk1.hashCode() != pk2.hashCode());
         Assert.assertTrue(!pk1.equals(pk2) && pk1.compareTo(pk2) == -1);
 
         // case13
-        pk1 = PartitionKey.createPartitionKey(Arrays.asList(new PartitionValue("beijing"), new PartitionValue("shanghai")),
+        pk1 = PartitionKey.createPartitionKey(Arrays.asList(partitionValue("beijing", charString), partitionValue("shanghai", varchar)),
                 Arrays.asList(charString, varchar));
-        pk2 = PartitionKey.createPartitionKey(Arrays.asList(new PartitionValue("beijing"), new PartitionValue("tianjin")),
+        pk2 = PartitionKey.createPartitionKey(Arrays.asList(partitionValue("beijing", charString), partitionValue("tianjin", varchar)),
                 Arrays.asList(charString, varchar));
         Assert.assertTrue(pk1.hashCode() != pk2.hashCode());
         Assert.assertTrue(!pk1.equals(pk2) && pk1.compareTo(pk2) == -1);
 
         // case14
-        pk1 = PartitionKey.createPartitionKey(Arrays.asList(new PartitionValue("true")),
+        pk1 = PartitionKey.createPartitionKey(Arrays.asList(partitionValue("true", bool)),
                 Arrays.asList(bool));
-        pk2 = PartitionKey.createPartitionKey(Arrays.asList(new PartitionValue("false")),
+        pk2 = PartitionKey.createPartitionKey(Arrays.asList(partitionValue("false", bool)),
                 Arrays.asList(bool));
         Assert.assertTrue(pk1.hashCode() != pk2.hashCode());
         Assert.assertTrue(!pk1.equals(pk2) && pk1.compareTo(pk2) == 1);
 
         // case15
-        pk1 = PartitionKey.createPartitionKey(Arrays.asList(new PartitionValue("true")),
+        pk1 = PartitionKey.createPartitionKey(Arrays.asList(partitionValue("true", bool)),
                 Arrays.asList(bool));
-        pk2 = PartitionKey.createPartitionKey(Arrays.asList(new PartitionValue("true")),
+        pk2 = PartitionKey.createPartitionKey(Arrays.asList(partitionValue("true", bool)),
                 Arrays.asList(bool));
         Assert.assertTrue(pk1.hashCode() == pk2.hashCode());
         Assert.assertTrue(pk1.equals(pk2) && pk1.compareTo(pk2) == 0);
 
         // case16
-        pk1 = PartitionKey.createPartitionKey(Arrays.asList(new PartitionValue("false")),
+        pk1 = PartitionKey.createPartitionKey(Arrays.asList(partitionValue("false", bool)),
                 Arrays.asList(bool));
-        pk2 = PartitionKey.createPartitionKey(Arrays.asList(new PartitionValue("false")),
+        pk2 = PartitionKey.createPartitionKey(Arrays.asList(partitionValue("false", bool)),
                 Arrays.asList(bool));
         Assert.assertTrue(pk1.hashCode() == pk2.hashCode());
         Assert.assertTrue(pk1.equals(pk2) && pk1.compareTo(pk2) == 0);
+    }
+
+    @Test
+    public void testCompareDoublePartitionKeysWithDifferentLiteralTypes() throws AnalysisException {
+        Column doubleColumn = new Column("double_col", PrimitiveType.DOUBLE);
+
+        PartitionKey small = PartitionKey.createPartitionKey(
+                Arrays.asList(partitionValue("1", doubleColumn)),
+                Arrays.asList(doubleColumn));
+        PartitionKey big = PartitionKey.createPartitionKey(
+                Arrays.asList(partitionValue("1.2345678901234567", doubleColumn)),
+                Arrays.asList(doubleColumn));
+
+        Assert.assertTrue(small.compareTo(big) < 0);
+        Assert.assertTrue(big.compareTo(small) > 0);
+    }
+
+    @Test
+    public void testCompareDecimalPartitionKeysWithDifferentLiteralTypes() throws AnalysisException {
+        Column decimalColumn = new Column("decimal_col", ScalarType.createDecimalV3Type(10, 2), true,
+                null, "", "");
+
+        PartitionKey small = PartitionKey.createPartitionKey(
+                Arrays.asList(partitionValue("1", decimalColumn)),
+                Arrays.asList(decimalColumn));
+        PartitionKey big = PartitionKey.createPartitionKey(
+                Arrays.asList(partitionValue("10.00", decimalColumn)),
+                Arrays.asList(decimalColumn));
+
+        Assert.assertTrue(small.compareTo(big) < 0);
+        Assert.assertTrue(big.compareTo(small) > 0);
     }
 
     @Test
@@ -229,25 +274,25 @@ public class PartitionKeyTest {
 
         List<PartitionValue> keys = new ArrayList<PartitionValue>();
         List<Column> columns = new ArrayList<Column>();
-        keys.add(new PartitionValue("100"));
+        keys.add(partitionValue("100", ScalarType.createType(PrimitiveType.TINYINT)));
         columns.add(new Column("column2", ScalarType.createType(PrimitiveType.TINYINT), true, null, "", ""));
-        keys.add(new PartitionValue("101"));
+        keys.add(partitionValue("101", ScalarType.createType(PrimitiveType.SMALLINT)));
         columns.add(new Column("column3", ScalarType.createType(PrimitiveType.SMALLINT), true, null, "", ""));
-        keys.add(new PartitionValue("102"));
+        keys.add(partitionValue("102", ScalarType.createType(PrimitiveType.INT)));
         columns.add(new Column("column4", ScalarType.createType(PrimitiveType.INT), true, null, "", ""));
-        keys.add(new PartitionValue("103"));
+        keys.add(partitionValue("103", ScalarType.createType(PrimitiveType.BIGINT)));
         columns.add(new Column("column5", ScalarType.createType(PrimitiveType.BIGINT), true, null, "", ""));
-        keys.add(new PartitionValue("2014-12-26"));
+        keys.add(partitionValue("2014-12-26", ScalarType.createType(PrimitiveType.DATE)));
         columns.add(new Column("column10", ScalarType.createType(PrimitiveType.DATE), true, null, "", ""));
-        keys.add(new PartitionValue("2014-12-27 11:12:13"));
+        keys.add(partitionValue("2014-12-27 11:12:13", ScalarType.createType(PrimitiveType.DATETIME)));
         columns.add(new Column("column11", ScalarType.createType(PrimitiveType.DATETIME), true, null, "", ""));
-        keys.add(new PartitionValue("beijing"));
+        keys.add(partitionValue("beijing", ScalarType.createType(PrimitiveType.VARCHAR)));
         columns.add(new Column("column12", ScalarType.createType(PrimitiveType.VARCHAR), true, null, "", ""));
-        keys.add(new PartitionValue("shanghai"));
+        keys.add(partitionValue("shanghai", ScalarType.createType(PrimitiveType.CHAR)));
         columns.add(new Column("column13", ScalarType.createType(PrimitiveType.CHAR), true, null, "", ""));
-        keys.add(new PartitionValue("true"));
+        keys.add(partitionValue("true", ScalarType.createType(PrimitiveType.BOOLEAN)));
         columns.add(new Column("column14", ScalarType.createType(PrimitiveType.BOOLEAN), true, null, "", ""));
-        keys.add(new PartitionValue("false"));
+        keys.add(partitionValue("false", ScalarType.createType(PrimitiveType.BOOLEAN)));
         columns.add(new Column("column15", ScalarType.createType(PrimitiveType.BOOLEAN), true, null, "", ""));
 
         PartitionKey key = PartitionKey.createPartitionKey(keys, columns);
@@ -286,5 +331,166 @@ public class PartitionKeyTest {
     public void testMaxValueToSql() throws Exception {
         PartitionKey key = PartitionKey.createInfinityPartitionKey(allColumns, true);
         Assert.assertEquals("(MAXVALUE, MAXVALUE, MAXVALUE, MAXVALUE, MAXVALUE, MAXVALUE, MAXVALUE)", key.toSql());
+    }
+
+    @Test
+    public void testTimestampTzPartitionKeyKeepsExplicitOffset() throws Exception {
+        boolean originalRunningUnitTest = FeConstants.runningUnitTest;
+        FeConstants.runningUnitTest = true;
+        ConnectContext context = new ConnectContext();
+        context.setThreadLocalInfo();
+        try {
+            context.getSessionVariable().setTimeZone("America/New_York");
+
+            PartitionKey key = PartitionKey.createPartitionKey(
+                    Arrays.asList(partitionValue("2024-01-15 12:00:00 +00:00", timestampTz)),
+                    Arrays.asList(timestampTz));
+
+            DateLiteral literal = (DateLiteral) key.getKeys().get(0);
+            Assert.assertEquals(2024, literal.getYear());
+            Assert.assertEquals(1, literal.getMonth());
+            Assert.assertEquals(15, literal.getDay());
+            Assert.assertEquals(12, literal.getHour());
+            Assert.assertEquals(0, literal.getMinute());
+            Assert.assertEquals(0, literal.getSecond());
+            Assert.assertEquals(0, literal.getMicrosecond());
+            Assert.assertTrue(literal.getStringValue().startsWith("2024-01-15 12:00:00"));
+            Assert.assertTrue(literal.getStringValue().endsWith("+00:00"));
+        } finally {
+            ConnectContext.remove();
+            FeConstants.runningUnitTest = originalRunningUnitTest;
+        }
+    }
+
+    @Test
+    public void testTimestampTzPartitionKeyAcceptsNamedTimezone() throws Exception {
+        PartitionKey key = PartitionKey.createPartitionKey(
+                                Arrays.asList(partitionValue("2024-01-15 20:00:00Asia/Shanghai", timestampTz)),
+                Arrays.asList(timestampTz));
+
+        DateLiteral literal = (DateLiteral) key.getKeys().get(0);
+        Assert.assertEquals(2024, literal.getYear());
+        Assert.assertEquals(1, literal.getMonth());
+        Assert.assertEquals(15, literal.getDay());
+        Assert.assertEquals(12, literal.getHour());
+        Assert.assertEquals(0, literal.getMinute());
+        Assert.assertEquals(0, literal.getSecond());
+        Assert.assertEquals(0, literal.getMicrosecond());
+        Assert.assertTrue(literal.getStringValue().startsWith("2024-01-15 12:00:00"));
+        Assert.assertTrue(literal.getStringValue().endsWith("+00:00"));
+    }
+
+    @Test
+    public void testTimestampTzPartitionKeyAcceptsLowercaseTimezone() throws Exception {
+        PartitionKey key = PartitionKey.createPartitionKey(
+                                Arrays.asList(partitionValue("2024-01-15 12:00:00    uTc", timestampTz)),
+                Arrays.asList(timestampTz));
+
+        DateLiteral literal = (DateLiteral) key.getKeys().get(0);
+        Assert.assertEquals(2024, literal.getYear());
+        Assert.assertEquals(1, literal.getMonth());
+        Assert.assertEquals(15, literal.getDay());
+        Assert.assertEquals(12, literal.getHour());
+        Assert.assertEquals(0, literal.getMinute());
+        Assert.assertEquals(0, literal.getSecond());
+        Assert.assertEquals(0, literal.getMicrosecond());
+        Assert.assertTrue(literal.getStringValue().startsWith("2024-01-15 12:00:00"));
+        Assert.assertTrue(literal.getStringValue().endsWith("+00:00"));
+    }
+
+    @Test
+    public void testTimestampTzPartitionKeyUsesSessionTimezoneWithoutExplicitOffset() throws Exception {
+        boolean originalRunningUnitTest = FeConstants.runningUnitTest;
+        FeConstants.runningUnitTest = true;
+        ConnectContext context = new ConnectContext();
+        context.setThreadLocalInfo();
+        try {
+            context.getSessionVariable().setTimeZone("America/New_York");
+
+            PartitionKey key = PartitionKey.createPartitionKey(
+                    Arrays.asList(partitionValue("2024-01-15 12:00:00", timestampTz)),
+                    Arrays.asList(timestampTz));
+
+            DateLiteral literal = (DateLiteral) key.getKeys().get(0);
+            Assert.assertEquals(2024, literal.getYear());
+            Assert.assertEquals(1, literal.getMonth());
+            Assert.assertEquals(15, literal.getDay());
+            Assert.assertEquals(17, literal.getHour());
+            Assert.assertEquals(0, literal.getMinute());
+            Assert.assertEquals(0, literal.getSecond());
+            Assert.assertEquals(0, literal.getMicrosecond());
+            Assert.assertTrue(literal.getStringValue().startsWith("2024-01-15 17:00:00"));
+            Assert.assertTrue(literal.getStringValue().endsWith("+00:00"));
+        } finally {
+            ConnectContext.remove();
+            FeConstants.runningUnitTest = originalRunningUnitTest;
+        }
+    }
+
+    private static void assertPartitionKeyRoundTrip(List<Type> types,
+            List<PartitionValue> values) throws AnalysisException {
+        PartitionKey original = PartitionKey.createListPartitionKeyWithTypes(values, types, false);
+        String json = GsonUtils.GSON.toJson(original);
+        PartitionKey restored = GsonUtils.GSON.fromJson(json, PartitionKey.class);
+        Assert.assertEquals("Round-trip PartitionKey should be equal", original, restored);
+        Assert.assertEquals("Round-trip PartitionKey hash should match",
+                original.hashCode(), restored.hashCode());
+        // Compare individual literal types after round-trip
+        for (int i = 0; i < original.getKeys().size(); i++) {
+            Assert.assertEquals("Literal type should be preserved",
+                    original.getKeys().get(i).getType(),
+                    restored.getKeys().get(i).getType());
+        }
+    }
+
+    @Test
+    public void testSerializeRoundTripDecimalKey() throws AnalysisException {
+        Type decType = ScalarType.createDecimalV3Type(10, 2);
+        PartitionValue pv = new PartitionValue(
+                LiteralExprUtils.createLiteral("123.45", decType));
+        assertPartitionKeyRoundTrip(Arrays.asList(decType), Arrays.asList(pv));
+    }
+
+    @Test
+    public void testSerializeRoundTripVarcharKey() throws AnalysisException {
+        Type varcharType = ScalarType.createVarcharType(100);
+        PartitionValue pv = new PartitionValue(
+                LiteralExprUtils.createLiteral("hello", varcharType));
+        assertPartitionKeyRoundTrip(Arrays.asList(varcharType), Arrays.asList(pv));
+    }
+
+    @Test
+    public void testSerializeRoundTripCharKey() throws AnalysisException {
+        Type charType = ScalarType.createCharType(10);
+        PartitionValue pv = new PartitionValue(
+                LiteralExprUtils.createLiteral("abc", charType));
+        assertPartitionKeyRoundTrip(Arrays.asList(charType), Arrays.asList(pv));
+    }
+
+    @Test
+    public void testSerializeRoundTripDatetimeV2Key() throws AnalysisException {
+        Type dtType = ScalarType.createDatetimeV2Type(3);
+        PartitionValue pv = new PartitionValue(
+                LiteralExprUtils.createLiteral("2024-01-15 12:00:00.123", dtType));
+        // DATETIMEV2 is explicitly excluded from setType; round-trip should still
+        // preserve scale=3.
+        PartitionKey original = PartitionKey.createListPartitionKeyWithTypes(
+                Arrays.asList(pv), Arrays.asList(dtType), false);
+        String json = GsonUtils.GSON.toJson(original);
+        PartitionKey restored = GsonUtils.GSON.fromJson(json, PartitionKey.class);
+        Assert.assertEquals(original, restored);
+        Assert.assertEquals(original.hashCode(), restored.hashCode());
+    }
+
+    @Test
+    public void testSerializeRoundTripMultiplePartitionCols() throws AnalysisException {
+        Type decType = ScalarType.createDecimalV3Type(8, 0);
+        Type varcharType = ScalarType.createVarcharType(50);
+        PartitionValue decPv = new PartitionValue(
+                LiteralExprUtils.createLiteral("100", decType));
+        PartitionValue strPv = new PartitionValue(
+                LiteralExprUtils.createLiteral("test", varcharType));
+        assertPartitionKeyRoundTrip(Arrays.asList(decType, varcharType),
+                Arrays.asList(decPv, strPv));
     }
 }

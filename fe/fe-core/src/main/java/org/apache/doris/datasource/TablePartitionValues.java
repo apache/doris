@@ -17,6 +17,9 @@
 
 package org.apache.doris.datasource;
 
+import org.apache.doris.analysis.LiteralExprUtils;
+import org.apache.doris.analysis.NullLiteral;
+import org.apache.doris.analysis.PartitionExprUtil;
 import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.catalog.ListPartitionItem;
 import org.apache.doris.catalog.PartitionItem;
@@ -40,7 +43,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.locks.Lock;
-import java.util.stream.Collectors;
 
 @Data
 public class TablePartitionValues {
@@ -158,9 +160,23 @@ public class TablePartitionValues {
     private ListPartitionItem toListPartitionItem(List<String> partitionValues, List<Type> types) {
         Preconditions.checkState(partitionValues.size() == types.size());
         try {
+            List<PartitionValue> values = new ArrayList<>();
+            for (int i = 0; i < partitionValues.size(); i++) {
+                String partitionValue = partitionValues.get(i);
+                if (HIVE_DEFAULT_PARTITION.equals(partitionValue)) {
+                    values.add(new PartitionValue(NullLiteral.create(types.get(i)), true, partitionValue));
+                    continue;
+                }
+                try {
+                    partitionValue = PartitionExprUtil.normalizePartitionValueString(partitionValue, types.get(i));
+                    values.add(new PartitionValue(LiteralExprUtils.createLiteral(partitionValue, types.get(i))));
+                } catch (AnalysisException e) {
+                    throw new CacheException("failed to convert partition %s to list partition",
+                            e, partitionValues);
+                }
+            }
             PartitionKey key = PartitionKey.createListPartitionKeyWithTypes(
-                    partitionValues.stream().map(p -> new PartitionValue(p, HIVE_DEFAULT_PARTITION.equals(p)))
-                            .collect(Collectors.toList()), types, false);
+                    values, types, false);
             return new ListPartitionItem(Lists.newArrayList(key));
         } catch (AnalysisException e) {
             throw new CacheException("failed to convert partition %s to list partition",

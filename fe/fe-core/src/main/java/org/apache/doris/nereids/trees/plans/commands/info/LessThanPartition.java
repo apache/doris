@@ -26,7 +26,6 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 
 import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
 
 /**
  * represent less than partition
@@ -47,6 +46,10 @@ public class LessThanPartition extends PartitionDefinition {
         } catch (Exception e) {
             throw new AnalysisException(e.getMessage(), e.getCause());
         }
+        validateValueCount();
+        for (int i = 0; i < values.size(); ++i) {
+            typedPartitionExpression(values.get(i), i);
+        }
     }
 
     public String getPartitionName() {
@@ -63,12 +66,22 @@ public class LessThanPartition extends PartitionDefinition {
                     partitionDataProperty, isInMemory, tabletType, versionInfo, storagePolicy,
                     isMutable);
         }
-        List<PartitionValue> partitionValues =
-                values.stream().map(this::toLegacyPartitionValueStmt).collect(Collectors.toList());
+        validateValueCount();
+        List<PartitionValue> partitionValues = new java.util.ArrayList<>();
+        for (int i = 0; i < values.size(); i++) {
+            Expression typedValue = typedPartitionExpression(values.get(i), i);
+            partitionValues.add(toLegacyPartitionValueStmt(typedValue));
+        }
         return new SinglePartitionDesc(ifNotExists, partitionName,
                 PartitionKeyDesc.createLessThan(partitionValues), replicaAllocation, properties,
                 partitionDataProperty, isInMemory, tabletType, versionInfo, storagePolicy,
                 isMutable);
+    }
+
+    private void validateValueCount() {
+        if (values.size() > partitionTypes.size()) {
+            throw new AnalysisException("Partition values number is more than partition column number");
+        }
     }
 
     public List<Expression> getValues() {

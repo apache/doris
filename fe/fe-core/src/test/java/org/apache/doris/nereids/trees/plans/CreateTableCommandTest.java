@@ -361,7 +361,7 @@ public class CreateTableCommandTest extends TestWithFeService {
                         + "properties('replication_num' = '1');"));
 
         // multi partition columns with single key
-        checkThrow(IllegalArgumentException.class,
+        checkThrow(AnalysisException.class,
                 "partition key desc list size[1] is not equal to partition column size[2]",
                 () -> createTable("create table test.tbl11\n"
                         + "(k1 int not null, k2 varchar(128) not null, k3 int, v1 int, v2 int)\n"
@@ -459,7 +459,7 @@ public class CreateTableCommandTest extends TestWithFeService {
                         + "PROPERTIES(\"replication_num\" = \"1\");"));
 
         // range: partition content != partition key type
-        checkThrow(org.apache.doris.common.DdlException.class, "Invalid number format: beijing",
+        checkThrow(AnalysisException.class, "Invalid number format: beijing",
                 () -> createTable("CREATE TABLE test.tbl17 (\n"
                         + "    k1 int, k2 varchar(128), k3 int, v1 int, v2 int\n"
                         + ")\n"
@@ -472,7 +472,7 @@ public class CreateTableCommandTest extends TestWithFeService {
                         + "PROPERTIES(\"replication_num\" = \"1\");"));
 
         // list: partition content != partition key type
-        checkThrow(org.apache.doris.common.DdlException.class, "Invalid number format: beijing",
+        checkThrow(AnalysisException.class, "Invalid number format: beijing",
                 () -> createTable("CREATE TABLE test.tbl18 (\n"
                         + "    k1 int not null, k2 varchar(128), k3 int, v1 int, v2 int\n"
                         + ")\n"
@@ -1028,6 +1028,48 @@ public class CreateTableCommandTest extends TestWithFeService {
         check(inPartitionTable, mv);
     }
 
+    @Test
+    public void testMultiPctUnionListPartitionedMtmvAnalyze() throws Exception {
+        createTable("CREATE TABLE test_multi_pct_union_list_mtmv_table1 (\n"
+                + "    k1 INT NOT NULL,\n"
+                + "    v1 INT\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(k1)\n"
+                + "PARTITION BY LIST(k1) (\n"
+                + "    PARTITION p1 VALUES IN ((1)),\n"
+                + "    PARTITION p2 VALUES IN ((2))\n"
+                + ")\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "PROPERTIES('replication_num' = '1');");
+
+        createTable("CREATE TABLE test_multi_pct_union_list_mtmv_table2 (\n"
+                + "    k1 INT NOT NULL,\n"
+                + "    v1 INT\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(k1)\n"
+                + "PARTITION BY LIST(k1) (\n"
+                + "    PARTITION p3 VALUES IN ((3)),\n"
+                + "    PARTITION p4 VALUES IN ((4))\n"
+                + ")\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "PROPERTIES('replication_num' = '1');");
+
+        String mv = "CREATE MATERIALIZED VIEW test_multi_pct_union_list_mtmv_mv\n"
+                + "BUILD DEFERRED REFRESH AUTO ON MANUAL\n"
+                + "partition by(k1)\n"
+                + "DISTRIBUTED BY RANDOM BUCKETS 2\n"
+                + "PROPERTIES (\n"
+                + "    'replication_num' = '1'\n"
+                + ")\n"
+                + "AS\n"
+                + "SELECT * from test_multi_pct_union_list_mtmv_table1 union all "
+                + "SELECT * from test_multi_pct_union_list_mtmv_table2;";
+
+        CreateMTMVInfo createMTMVInfo = getPartitionTableInfo(mv);
+        Assertions.assertNotNull(createMTMVInfo.getPartitionDesc());
+        Assertions.assertFalse(createMTMVInfo.getPartitionTableInfo().getPartitionDefs().isEmpty());
+    }
+
     private void check(String sql, String mv) throws Exception {
         createTable(sql);
 
@@ -1072,6 +1114,7 @@ public class CreateTableCommandTest extends TestWithFeService {
     }
 
     private CreateMTMVInfo getPartitionTableInfo(String sql) throws Exception {
+        connectContext.getStatementContext().getIndexInSqlToString().clear();
         NereidsParser nereidsParser = new NereidsParser();
         LogicalPlan logicalPlan = nereidsParser.parseSingle(sql);
         Assertions.assertTrue(logicalPlan instanceof CreateMTMVCommand);

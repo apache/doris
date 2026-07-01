@@ -17,6 +17,7 @@
 
 package org.apache.doris.planner;
 
+import org.apache.doris.analysis.LiteralExprUtils;
 import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ListPartitionItem;
@@ -47,12 +48,16 @@ import java.util.Map;
 import java.util.concurrent.ThreadPoolExecutor;
 
 public class ListPartitionPrunerV2Test {
+    private PartitionValue partitionValue(String value, Type type) throws AnalysisException {
+        return new PartitionValue(LiteralExprUtils.createLiteral(value, type), false, value);
+    }
+
     @Test
     public void testPartitionValuesMap() throws AnalysisException {
         List<PartitionValue> partitionValues = new ArrayList<>();
-        partitionValues.add(new PartitionValue("1.123000"));
         ArrayList<Type> types = new ArrayList<>();
         types.add(ScalarType.DOUBLE);
+        partitionValues.add(partitionValue("1.123000", types.get(0)));
 
         // for hive table
         PartitionKey key = PartitionKey.createListPartitionKeyWithTypes(partitionValues, types, true);

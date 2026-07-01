@@ -22,10 +22,12 @@ package org.apache.doris.planner;
 
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.CompoundPredicate;
+import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.InPredicate;
 import org.apache.doris.analysis.IsNullPredicate;
 import org.apache.doris.analysis.LiteralExpr;
+import org.apache.doris.analysis.LiteralExprUtils;
 import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.PlaceHolderExpr;
 import org.apache.doris.analysis.PredicateUtils;
@@ -39,8 +41,11 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PartitionInfo;
+import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.cloud.catalog.CloudPartition;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
@@ -60,6 +65,7 @@ import org.apache.doris.thrift.TScanRange;
 import org.apache.doris.thrift.TScanRangeLocation;
 import org.apache.doris.thrift.TScanRangeLocations;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.MoreObjects;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -301,6 +307,14 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
             }
 
             LiteralExpr value = (LiteralExpr) slotBinding;
+            // Normalize the literal type to the partition column type so that
+            // compareLiteral works correctly for compatible type families
+            // (e.g. INT vs BIGINT, DATE vs DATETIME, STRING vs VARCHAR).
+            // A predicate such as CAST(k AS BIGINT) = 1 on an INT column
+            // produces a BIGINT-typed literal; without retyping,
+            // ColumnBound.compareTo() fails because the typed compareLiteral
+            // rejects cross-type comparisons.
+            value = normalizePartitionFilterLiteral(value, desc.getColumn().getType());
             switch (binPred.getOp()) {
                 case EQ:
                     ColumnBound bound = ColumnBound.of(value);
@@ -339,7 +353,9 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
             }
 
             for (int i = 1; i < inPredicate.getChildren().size(); ++i) {
-                ColumnBound bound = ColumnBound.of((LiteralExpr) inPredicate.getChild(i));
+                LiteralExpr inValue = normalizePartitionFilterLiteral(
+                        (LiteralExpr) inPredicate.getChild(i), desc.getColumn().getType());
+                ColumnBound bound = ColumnBound.of(inValue);
                 result.add(Range.closed(bound, bound));
             }
         } else if (expr instanceof CompoundPredicate) {
@@ -371,6 +387,100 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
         }
     }
 
+    /**
+     * Re-type a literal value to the partition column's type when the two
+     * primitive types belong to the same family (fixed-point, date, string, etc.)
+     * but differ in detail (e.g. INT vs BIGINT, DATE vs DATETIMEV2, STRING vs
+     * VARCHAR).  This is necessary because {@link ColumnBound} delegates to
+     * {@link PartitionKey#compareLiteralExpr} which rejects cross-type
+     * comparisons.  For example, a predicate {@code CAST(k AS BIGINT) = 1} on an
+     * INT partition column produces a BIGINT-typed literal that would fail to
+     * compare against INT partition bounds.
+     *
+     * <p>The re-parse is a best-effort: if {@code value} already has the exact
+     * column type, or the types are in different families, it is returned
+     * unchanged.
+     */
+    @VisibleForTesting
+    static LiteralExpr normalizePartitionFilterLiteral(LiteralExpr value, Type columnType) {
+        Type valueType = value.getType();
+        if (valueType.equals(columnType)) {
+            return value;
+        }
+        if (!valueType.isFixedPointType() && !valueType.isDateType()
+                && !valueType.isStringType() && !valueType.isDecimalV3()) {
+            return value;
+        }
+        // Only re-type within the same family.
+        if (!isSamePrimitiveFamily(valueType, columnType)) {
+            return value;
+        }
+        try {
+            return LiteralExprUtils.createLiteral(value.getStringValue(), columnType);
+        } catch (AnalysisException e) {
+            // String-based re-parsing failed (e.g. a date-only literal for
+            // a DATETIME column, or a DATETIME literal for a DATE column).
+            // For date-like types, construct a target-typed literal directly
+            // from the source literal's fields — but ONLY for up-converts:
+            // adding midnight time/zero micros is safe because midnight is
+            // the earliest instant on any given day.  We never down-convert
+            // (DATETIME → DATE) because stripping time information would
+            // produce an incorrect partition bound for range predicates
+            // (e.g. CAST(k AS DATETIME) < '2024-01-01 12:00:00' on a DATE
+            // column would incorrectly exclude the partition starting at
+            // midnight 2024-01-01).
+            if (value instanceof DateLiteral && columnType.isDateType()) {
+                DateLiteral dateLit = (DateLiteral) value;
+                Type srcType = value.getType();
+                // Only up-convert: DATE / DATEV2 → DATETIME / DATETIMEV2 / TIMESTAMPTZ
+                if (srcType.isDate() || srcType.isDateV2()) {
+                    if (columnType.isDatetime() || columnType.isDatetimeV2()) {
+                        return new DateLiteral(dateLit.getYear(), dateLit.getMonth(),
+                                dateLit.getDay(), 0, 0, 0, columnType);
+                    }
+                    if (columnType.isTimeStampTz()) {
+                        return new DateLiteral(dateLit.getYear(), dateLit.getMonth(),
+                                dateLit.getDay(), 0, 0, 0, 0, columnType);
+                    }
+                }
+                // Down-converts (DATETIME → DATE) are intentionally skipped:
+                // the original literal is returned unchanged and the
+                // subsequent cross-type comparison will fail (CONVERT_FAILURE
+                // in ColumnRanges), which is safer than incorrect pruning.
+            }
+            // For other type families, return the original value as a
+            // best-effort fallback. If the types still differ, the caller
+            // will skip this predicate (cross-type comparisons are rejected
+            // by PartitionKey.compareLiteralExpr).
+            LOG.debug("Failed to normalize partition filter literal from {} to {},"
+                    + " pruning may be incomplete", value.getStringValue(), columnType);
+            return value;
+        }
+    }
+
+    /** True when both types share the same primitive broad category. */
+    @VisibleForTesting
+    static boolean isSamePrimitiveFamily(Type a, Type b) {
+        PrimitiveType pa = a.getPrimitiveType();
+        PrimitiveType pb = b.getPrimitiveType();
+        if (pa == pb) {
+            return true;
+        }
+        if (pa.isFixedPointType() && pb.isFixedPointType()) {
+            return true;
+        }
+        if (pa.isDateLikeType() && pb.isDateLikeType()) {
+            return true;
+        }
+        if (pa.isStringType() && pb.isStringType()) {
+            return true;
+        }
+        if (pa.isDecimalV3Type() && pb.isDecimalV3Type()) {
+            return true;
+        }
+        return false;
+    }
+
     protected static PartitionColumnFilter createPartitionFilter(SlotDescriptor desc, List<Expr> conjuncts,
             PartitionInfo partitionsInfo) {
         PartitionColumnFilter partitionColumnFilter = null;
@@ -396,6 +506,8 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
                 }
                 LiteralExpr literal = slotBinding instanceof PlaceHolderExpr
                         ? ((PlaceHolderExpr) slotBinding).getLiteral() : (LiteralExpr) slotBinding;
+                // Normalize to partition column type (see normalizePartitionFilterLiteral).
+                literal = normalizePartitionFilterLiteral(literal, desc.getColumn().getType());
                 BinaryPredicate.Operator op = binPredicate.getOp();
                 if (!binPredicate.slotIsLeft()) {
                     op = op.commutative();

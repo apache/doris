@@ -17,6 +17,7 @@
 
 package org.apache.doris.common.util;
 
+import org.apache.doris.analysis.LiteralExprUtils;
 import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.ListPartitionItem;
@@ -51,9 +52,9 @@ public class ListUtilTest {
         Column charString = new Column("char", PrimitiveType.CHAR);
         Column varchar = new Column("varchar", PrimitiveType.VARCHAR);
 
-        pk1 = PartitionKey.createPartitionKey(Arrays.asList(new PartitionValue("beijing")), Arrays.asList(charString));
-        pk2 = PartitionKey.createPartitionKey(Arrays.asList(new PartitionValue("shanghai")), Arrays.asList(varchar));
-        pk3 = PartitionKey.createPartitionKey(Arrays.asList(new PartitionValue("tianjin")), Arrays.asList(varchar));
+        pk1 = PartitionKey.createPartitionKey(Arrays.asList(partitionValue("beijing", charString)), Arrays.asList(charString));
+        pk2 = PartitionKey.createPartitionKey(Arrays.asList(partitionValue("shanghai", varchar)), Arrays.asList(varchar));
+        pk3 = PartitionKey.createPartitionKey(Arrays.asList(partitionValue("tianjin", varchar)), Arrays.asList(varchar));
 
         listA.add(pk1);
 
@@ -113,6 +114,10 @@ public class ListUtilTest {
         List<List<Integer>> splitLists = ListUtil.splitBySize(lists, expectSize);
 
         Assert.assertEquals(splitLists.size(), lists.size());
+    }
+
+    private static PartitionValue partitionValue(String value, Column column) throws AnalysisException {
+        return new PartitionValue(LiteralExprUtils.createLiteral(value, column.getType()), false, value);
     }
 
     @Test

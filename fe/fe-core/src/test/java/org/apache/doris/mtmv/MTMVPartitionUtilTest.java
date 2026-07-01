@@ -17,8 +17,10 @@
 
 package org.apache.doris.mtmv;
 
+import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.analysis.PartitionValue;
+import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.OlapTable;
@@ -191,15 +193,19 @@ public class MTMVPartitionUtilTest {
     @Test
     public void testGeneratePartitionName() {
         List<List<PartitionValue>> inValues = Lists.newArrayList();
-        inValues.add(Lists.newArrayList(new PartitionValue("20201010 01:01:01"), new PartitionValue("value12")));
-        inValues.add(Lists.newArrayList(new PartitionValue("value21"), new PartitionValue("value22")));
+        inValues.add(Lists.newArrayList(
+                new PartitionValue(new StringLiteral("20201010 01:01:01"), false, "20201010 01:01:01"),
+                new PartitionValue(new StringLiteral("value12"), false, "value12")));
+        inValues.add(Lists.newArrayList(
+                new PartitionValue(new StringLiteral("value21"), false, "value21"),
+                new PartitionValue(new StringLiteral("value22"), false, "value22")));
         PartitionKeyDesc inDesc = PartitionKeyDesc.createIn(inValues);
         String inName = MTMVPartitionUtil.generatePartitionName(inDesc);
         Assert.assertEquals("p_20201010010101_value12_value21_value22", inName);
 
         PartitionKeyDesc rangeDesc = PartitionKeyDesc.createFixed(
-                Lists.newArrayList(new PartitionValue(1L)),
-                Lists.newArrayList(new PartitionValue(2L))
+                Lists.newArrayList(new PartitionValue(new IntLiteral(1L), false, "1")),
+                Lists.newArrayList(new PartitionValue(new IntLiteral(2L), false, "2"))
         );
         String rangeName = MTMVPartitionUtil.generatePartitionName(rangeDesc);
         Assert.assertEquals("p_1_2", rangeName);

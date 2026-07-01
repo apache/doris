@@ -18,6 +18,7 @@
 package org.apache.doris.mtmv;
 
 import org.apache.doris.analysis.FunctionCallExpr;
+import org.apache.doris.analysis.LiteralExprUtils;
 import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.analysis.SlotRef;
@@ -55,14 +56,14 @@ public class MTMVRelatedPartitionDescRollUpGeneratorTest {
             MTMVRelatedPartitionDescRollUpGenerator generator = new MTMVRelatedPartitionDescRollUpGenerator();
             Map<PartitionKeyDesc, Set<String>> relatedPartitionDescs = Maps.newHashMap();
             PartitionKeyDesc desc20200101 = PartitionKeyDesc.createFixed(
-                    Lists.newArrayList(new PartitionValue("2020-01-01")),
-                    Lists.newArrayList(new PartitionValue("2020-01-02")));
+                    Lists.newArrayList(partitionValue("2020-01-01")),
+                    Lists.newArrayList(partitionValue("2020-01-02")));
             PartitionKeyDesc desc20200102 = PartitionKeyDesc.createFixed(
-                    Lists.newArrayList(new PartitionValue("2020-01-02")),
-                    Lists.newArrayList(new PartitionValue("2020-01-03")));
+                    Lists.newArrayList(partitionValue("2020-01-02")),
+                    Lists.newArrayList(partitionValue("2020-01-03")));
             PartitionKeyDesc desc20200201 = PartitionKeyDesc.createFixed(
-                    Lists.newArrayList(new PartitionValue("2020-02-01")),
-                    Lists.newArrayList(new PartitionValue("2020-02-02")));
+                    Lists.newArrayList(partitionValue("2020-02-01")),
+                    Lists.newArrayList(partitionValue("2020-02-02")));
             relatedPartitionDescs.put(desc20200101, Sets.newHashSet("name1"));
             relatedPartitionDescs.put(desc20200102, Sets.newHashSet("name2"));
             relatedPartitionDescs.put(desc20200201, Sets.newHashSet("name3"));
@@ -70,11 +71,11 @@ public class MTMVRelatedPartitionDescRollUpGeneratorTest {
                     mtmvPartitionInfo, null);
 
             PartitionKeyDesc expectDesc202001 = PartitionKeyDesc.createFixed(
-                    Lists.newArrayList(new PartitionValue("2020-01-01")),
-                    Lists.newArrayList(new PartitionValue("2020-02-01")));
+                    Lists.newArrayList(partitionValue("2020-01-01")),
+                    Lists.newArrayList(partitionValue("2020-02-01")));
             PartitionKeyDesc expectDesc202002 = PartitionKeyDesc.createFixed(
-                    Lists.newArrayList(new PartitionValue("2020-02-01")),
-                    Lists.newArrayList(new PartitionValue("2020-03-01")));
+                    Lists.newArrayList(partitionValue("2020-02-01")),
+                    Lists.newArrayList(partitionValue("2020-03-01")));
             Assert.assertEquals(2, res.size());
             Assert.assertEquals(Sets.newHashSet("name1", "name2"), res.get(expectDesc202001));
             Assert.assertEquals(Sets.newHashSet("name3"), res.get(expectDesc202002));
@@ -108,12 +109,16 @@ public class MTMVRelatedPartitionDescRollUpGeneratorTest {
         }
     }
 
-    private PartitionKeyDesc generateInDesc(String... values) {
+    private PartitionKeyDesc generateInDesc(String... values) throws AnalysisException {
         List<List<PartitionValue>> partitionValues = Lists.newArrayList();
         for (String value : values) {
-            List<PartitionValue> partitionValue = Lists.newArrayList(new PartitionValue(value));
+            List<PartitionValue> partitionValue = Lists.newArrayList(partitionValue(value));
             partitionValues.add(partitionValue);
         }
         return PartitionKeyDesc.createIn(partitionValues);
+    }
+
+    private PartitionValue partitionValue(String value) throws AnalysisException {
+        return new PartitionValue(LiteralExprUtils.createLiteral(value, Type.DATE), false, value);
     }
 }

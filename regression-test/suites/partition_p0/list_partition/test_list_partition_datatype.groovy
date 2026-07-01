@@ -245,7 +245,7 @@ suite("test_list_partition_datatype", "p0") {
               PARTITION p4 VALUES IN ("-100","0") ) 
             DISTRIBUTED BY HASH(k1) BUCKETS 5
             PROPERTIES ("replication_allocation" = "tag.location.default: 1")"""
-        exception "Invalid list value format: errCode = 2, detailMessage = Invalid number format: NULL"
+        exception "Invalid number format: NULL"
     }
     test {
         sql """
@@ -264,7 +264,7 @@ suite("test_list_partition_datatype", "p0") {
         DISTRIBUTED BY HASH(k1) BUCKETS 5
         PROPERTIES ("replication_allocation" = "tag.location.default: 1")
         """
-        exception "Invalid list value format: errCode = 2, detailMessage = Number out of range[2147483648]. type: int"
+        exception "Number out of range[2147483648]. type: int"
     }
     test {
         sql """
@@ -283,7 +283,7 @@ suite("test_list_partition_datatype", "p0") {
             DISTRIBUTED BY HASH(k1) BUCKETS 5
             PROPERTIES ("replication_allocation" = "tag.location.default: 1")
             """
-        exception "Invalid list value format: errCode = 2, detailMessage = Invalid number format: -10.01"
+        exception "Invalid number format: -10.01"
     }
     // date/datetime list partition errors like: conflict, invalid format
     test {
@@ -300,7 +300,7 @@ suite("test_list_partition_datatype", "p0") {
         DISTRIBUTED BY HASH(k1) BUCKETS 5
         PROPERTIES ("replication_allocation" = "tag.location.default: 1")
         """
-        exception "Invalid list value format: errCode = 2, detailMessage = The partition key[('2000-01-01')] " +
+        exception "The partition key[('2000-01-01')] " +
                 "in partition item[('2000-01-01')] is conflict with current partitionKeys[(('1990-01-01'),('2000-01-01'))]"
     }
     test {
@@ -317,26 +317,9 @@ suite("test_list_partition_datatype", "p0") {
         DISTRIBUTED BY HASH(k1) BUCKETS 5
         PROPERTIES ("replication_allocation" = "tag.location.default: 1")
         """
-        exception "Invalid list value format: errCode = 2, detailMessage = date literal [2000-01-02 08:00:00] " +
-                "is invalid: errCode = 2, detailMessage = Invalid date value: 2000-01-02 08:00:00"
+        exception "Invalid date value: 2000-01-02 08:00:00"
     }
-    test {
-        sql """
-        CREATE TABLE test_list_partition_err_tbl_9 ( 
-          k1 DATETIME NOT NULL, 
-          v1 DATETIME REPLACE NOT NULL, 
-          v2 DATETIME MAX NOT NULL, 
-          v3 DATETIME MIN NOT NULL ) 
-        AGGREGATE KEY(k1) 
-        PARTITION BY LIST(k1) ( 
-          PARTITION p1 VALUES IN ("1990-01-01","2000-01-01"), 
-          PARTITION p2 VALUES IN ("2000-01-02 08:00:00") ) 
-        DISTRIBUTED BY HASH(k1) BUCKETS 5
-        PROPERTIES ("replication_allocation" = "tag.location.default: 1")
-        """
-        exception "Invalid list value format: errCode = 2, detailMessage = date literal [1990-01-01] is invalid: " +
-                "errCode = 2, detailMessage = Invalid datetime value: 1990-01-01"
-    }
+
     // date boundary value & format test
     sql "DROP TABLE IF EXISTS test_list_partition_ddl_tbl_1"
     sql "DROP TABLE IF EXISTS test_list_partition_ddl_tbl_2"
@@ -375,7 +358,7 @@ suite("test_list_partition_datatype", "p0") {
         DISTRIBUTED BY HASH(k1) BUCKETS 5
         PROPERTIES ("replication_allocation" = "tag.location.default: 1")
         """
-        exception "Invalid list value format: errCode = 2, detailMessage = date literal [2000-01-41] is invalid: " +
+        exception "date literal [2000-01-41] is invalid: " +
                 "Text '2000-01-41' could not be parsed"
     }
     test {
@@ -392,7 +375,7 @@ suite("test_list_partition_datatype", "p0") {
         DISTRIBUTED BY HASH(k1) BUCKETS 5
         PROPERTIES ("replication_allocation" = "tag.location.default: 1")
         """
-        exception "Invalid list value format: errCode = 2, detailMessage = date literal [10000-01-01] is invalid: " +
+        exception "date literal [10000-01-01] is invalid: " +
                 "errCode = 2, detailMessage = Datetime value is out of range"
     }
     test {
@@ -409,8 +392,7 @@ suite("test_list_partition_datatype", "p0") {
         DISTRIBUTED BY HASH(k1) BUCKETS 5
         PROPERTIES ("replication_allocation" = "tag.location.default: 1")
         """
-        exception "Invalid list value format: errCode = 2, detailMessage = The partition key[('2000-01-01')] " +
-                "in partition item[('00-01-01')] is conflict with current partitionKeys[(('1990-01-01'),('2000-01-01'))]"
+        exception "The partition key[('2000-01-01')] in partition item[('2000-01-01')] is conflict with current partitionKeys[(('1990-01-01'),('2000-01-01'))]"
     }
     test {
         sql """
@@ -426,8 +408,7 @@ suite("test_list_partition_datatype", "p0") {
         DISTRIBUTED BY HASH(k1) BUCKETS 5
         PROPERTIES ("replication_allocation" = "tag.location.default: 1")
         """
-        exception "The partition key[('2000-01-01')] in partition item[('2000-1-1')] is conflict with current " +
-                "partitionKeys[(('1990-01-01'),('2000-01-01'))]"
+        exception "The partition key[('2000-01-01')] in partition item[('2000-01-01')] is conflict with current partitionKeys[(('1990-01-01'),('2000-01-01'))]"
     }
     // 分区列的值溢出，string，前缀匹配，empty等
     // string list partition errors like: duplicate key, conflict, invalid format
@@ -494,12 +475,12 @@ suite("test_list_partition_datatype", "p0") {
         PARTITION BY LIST(k1) ( PARTITION p1 VALUES IN ("a","b"), PARTITION p2 VALUES IN ("c"," ","?","ddd") ) 
         DISTRIBUTED BY HASH(k1) BUCKETS 5 PROPERTIES ("replication_allocation" = "tag.location.default: 1")
         """
-    // todo: char(1) add partition value "aaa","bbb", should failed?
-    sql """alter table test_list_partition_tb3_char add partition partition_add_1 values in ("aaa","bbb")"""
-    ret = sql "show partitions from test_list_partition_tb3_char where PartitionName='partition_add_1'"
-    assertTrue(ret.size() == 1)
+    test {
+        sql """alter table test_list_partition_tb3_char add partition partition_add_1 values in ("aaa","bbb")"""
+        exception "length exceeds type length: 3 > 1 for CHAR(1)"
+    }
     try_sql "DROP TABLE IF EXISTS test_list_partition_ddl_tbl_1"
     try_sql "DROP TABLE IF EXISTS test_list_partition_empty_tb"
     try_sql "DROP TABLE IF EXISTS test_list_partition_tb2_char"
-    // try_sql "DROP TABLE IF EXISTS test_list_partition_tb3_char"
+    try_sql "DROP TABLE IF EXISTS test_list_partition_tb3_char"
 }

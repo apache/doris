@@ -76,7 +76,7 @@ public class VarBinaryLiteral extends LiteralExpr {
 
     @Override
     public int compareLiteral(LiteralExpr other) {
-        if (other instanceof VarBinaryLiteral) {
+        if (other instanceof VarBinaryLiteral && type.equals(other.type)) {
             byte[] thisBytes = this.value;
             byte[] otherBytes = ((VarBinaryLiteral) other).value;
 
@@ -111,8 +111,7 @@ public class VarBinaryLiteral extends LiteralExpr {
         if (other instanceof MaxLiteral) {
             return -1;
         }
-        throw new RuntimeException("Cannot compare two values with different data types: "
-                + this + " (" + this.type + ") vs " + other + " (" + ((LiteralExpr) other).type + ")");
+        return -1;
     }
 
     @Override

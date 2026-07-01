@@ -17,6 +17,8 @@
 
 package org.apache.doris.datasource.paimon;
 
+import org.apache.doris.analysis.LiteralExprUtils;
+import org.apache.doris.analysis.PartitionExprUtil;
 import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.catalog.Column;
@@ -161,10 +163,10 @@ public class PaimonUtil {
         Map<String, Partition> nameToPartition = Maps.newHashMap();
         PaimonPartitionInfo partitionInfo = new PaimonPartitionInfo(nameToPartitionItem, nameToPartition);
         List<Type> types = partitionColumns.stream()
-                .map(Column::getType)
+                .map(column -> column.getType())
                 .collect(Collectors.toList());
         Map<String, Type> columnNameToType = partitionColumns.stream()
-                .collect(Collectors.toMap(Column::getName, Column::getType));
+                .collect(Collectors.toMap(column -> column.getName(), column -> column.getType()));
 
         for (Partition partition : paimonPartitions) {
             Map<String, String> spec = partition.spec();
@@ -205,15 +207,17 @@ public class PaimonUtil {
         List<String> partitionValues = HiveUtil.toPartitionValues(partitionName);
         Preconditions.checkState(partitionValues.size() == types.size(), partitionName + " vs. " + types);
         List<PartitionValue> values = Lists.newArrayListWithExpectedSize(types.size());
-        for (String partitionValue : partitionValues) {
+        for (int i = 0; i < partitionValues.size(); i++) {
+            String partitionValue = partitionValues.get(i);
             // null  will in partition 'null'
             // "null" will in partition 'null'
             // NULL  will in partition 'null'
             // "NULL" will in partition 'NULL'
             // values.add(new PartitionValue(partitionValue, "null".equals(partitionValue)));
-            values.add(new PartitionValue(partitionValue, false));
+            partitionValue = PartitionExprUtil.normalizePartitionValueString(partitionValue, types.get(i));
+            values.add(new PartitionValue(LiteralExprUtils.createLiteral(partitionValue, types.get(i))));
         }
-        PartitionKey key = PartitionKey.createListPartitionKeyWithTypes(values, types, true);
+        PartitionKey key = PartitionKey.createListPartitionKeyWithTypes(values, types, true, partitionValues);
         ListPartitionItem listPartitionItem = new ListPartitionItem(Lists.newArrayList(key));
         return listPartitionItem;
     }

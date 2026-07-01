@@ -17,8 +17,8 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.MaxLiteral;
 import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.PartitionDesc;
@@ -396,12 +396,10 @@ public class PartitionInfo {
         return partitionKey.getKeys().stream().map(expr -> {
             if (expr == MaxLiteral.MAX_VALUE) {
                 return PartitionValue.MAX_VALUE;
-            } else if (expr instanceof DateLiteral) {
-                return new PartitionValue(expr.getStringValue());
             } else if (expr instanceof NullLiteral) {
-                return new PartitionValue("NULL", true);
+                return new PartitionValue((LiteralExpr) expr.clone(), true);
             } else {
-                return new PartitionValue(expr.getRealValue().toString());
+                return new PartitionValue((LiteralExpr) expr.clone());
             }
         }).collect(Collectors.toList());
     }

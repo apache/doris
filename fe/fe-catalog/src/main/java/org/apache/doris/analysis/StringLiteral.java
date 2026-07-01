@@ -65,6 +65,9 @@ public class StringLiteral extends LiteralExpr {
         if (expr == MaxLiteral.MAX_VALUE) {
             return -1;
         }
+        if (!(expr instanceof StringLiteral) || !type.equals(expr.type)) {
+            return -1;
+        }
         // compare string with utf-8 byte array, same with DM,BE,StorageEngine
         byte[] thisBytes = null;
         byte[] otherBytes = null;
