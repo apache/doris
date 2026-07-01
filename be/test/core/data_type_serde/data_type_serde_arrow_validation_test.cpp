@@ -153,6 +153,23 @@ TEST(DataTypeSerDeArrowValidationTest, RejectsShortFixedWidthDataBuffer) {
             "short int64 data buffer should be rejected");
 }
 
+TEST(DataTypeSerDeArrowValidationTest, RejectsSlicedArrowArray) {
+    ScopedArrowInputValidation validation(true);
+
+    std::vector<int64_t> values = {1, 2, 3};
+    auto original = std::make_shared<arrow::Int64Array>(3, arrow::Buffer::Wrap(values));
+    auto sliced = original->Slice(1, 2);
+    auto column = ColumnInt64::create();
+    DataTypeNumberSerDe<TYPE_BIGINT> serde;
+
+    expect_invalid_arrow(
+            [&] {
+                static_cast<void>(serde.read_column_from_arrow(*column, sliced.get(), 0, 2,
+                                                               cctz::utc_time_zone()));
+            },
+            "sliced Arrow array should be rejected");
+}
+
 TEST(DataTypeSerDeArrowValidationTest, RejectsShortBooleanDataBitmap) {
     ScopedArrowInputValidation validation(true);
 

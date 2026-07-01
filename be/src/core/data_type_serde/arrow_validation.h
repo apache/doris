@@ -68,6 +68,14 @@ inline void check_arrow_length_and_offset(const arrow::Array& array) {
     }
 }
 
+inline void check_arrow_no_offset(const arrow::Array& array) {
+    check_arrow_length_and_offset(array);
+    if (UNLIKELY(array.offset() != 0)) {
+        throw_invalid_arrow(array, "non-zero array offset is not supported: offset={}",
+                            array.offset());
+    }
+}
+
 inline void check_add_overflow(size_t left, size_t right, const arrow::Array& array,
                                std::string_view item) {
     if (UNLIKELY(left > std::numeric_limits<size_t>::max() - right)) {
@@ -86,10 +94,14 @@ inline std::shared_ptr<arrow::Int32Array> get_int32_offsets_array(const arrow::A
 
 } // namespace arrow_validation_detail
 
+inline void check_arrow_no_offset(const arrow::Array& array) {
+    arrow_validation_detail::check_arrow_no_offset(array);
+}
+
 // Validate the caller's requested read range before any Arrow buffer access.
 // This rejects negative or out-of-array start/end values up front.
 inline void check_arrow_array_range(const arrow::Array& array, int64_t start, int64_t end) {
-    arrow_validation_detail::check_arrow_length_and_offset(array);
+    arrow_validation_detail::check_arrow_no_offset(array);
     if (UNLIKELY(start < 0 || end < start || end > array.length())) {
         arrow_validation_detail::throw_invalid_arrow(
                 array, "read range is invalid: start={}, end={}, length={}", start, end,
