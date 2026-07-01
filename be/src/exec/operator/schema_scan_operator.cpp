@@ -209,7 +209,7 @@ Status SchemaScanOperatorX::prepare(RuntimeState* state) {
     return Status::OK();
 }
 
-Status SchemaScanOperatorX::get_block(RuntimeState* state, Block* block, bool* eos) {
+Status SchemaScanOperatorX::get_block_impl(RuntimeState* state, Block* block, bool* eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     RETURN_IF_CANCELLED(state);

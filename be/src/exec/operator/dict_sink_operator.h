@@ -50,7 +50,7 @@ public:
                       const std::vector<TExpr>& dict_input_expr, const TDictionarySink& dict_sink);
     Status prepare(RuntimeState* state) override;
 
-    Status sink(RuntimeState* state, Block* in_block, bool eos) override;
+    Status sink_impl(RuntimeState* state, Block* in_block, bool eos) override;
 
 private:
     friend class DictSinkLocalState;

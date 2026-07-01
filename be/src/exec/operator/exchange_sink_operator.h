@@ -198,7 +198,7 @@ public:
     // TaskExecutionContext.
     Status prepare(RuntimeState* state) override;
 
-    Status sink(RuntimeState* state, Block* in_block, bool eos) override;
+    Status sink_impl(RuntimeState* state, Block* in_block, bool eos) override;
 
     bool is_serial_operator() const override { return true; }
     void set_low_memory_mode(RuntimeState* state) override {

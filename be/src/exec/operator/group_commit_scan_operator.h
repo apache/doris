@@ -55,7 +55,7 @@ public:
     GroupCommitOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
                          const DescriptorTbl& descs, int parallel_tasks);
 
-    Status get_block(RuntimeState* state, Block* block, bool* eos) override;
+    Status get_block_impl(RuntimeState* state, Block* block, bool* eos) override;
 
 protected:
     friend class GroupCommitLocalState;

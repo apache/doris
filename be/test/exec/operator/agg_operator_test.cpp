@@ -92,6 +92,23 @@ struct MockAggSourceOperator : public AggSourceOperatorX {
     std::unique_ptr<RowDescriptor> mock_row_descriptor;
 };
 
+class MockDistributionOperator final : public OperatorX<MockLocalState> {
+public:
+    MockDistributionOperator(ExchangeType exchange_type) : _exchange_type(exchange_type) {}
+
+    Status get_block_impl(RuntimeState* /*state*/, Block* /*block*/, bool* eos) override {
+        *eos = true;
+        return Status::OK();
+    }
+
+    DataDistribution required_data_distribution(RuntimeState* /*state*/) const override {
+        return {_exchange_type};
+    }
+
+private:
+    ExchangeType _exchange_type;
+};
+
 std::shared_ptr<AggSinkOperatorX> create_agg_sink_op(OperatorContext& ctx, bool is_merge,
                                                      bool without_key) {
     auto op = std::make_shared<MockAggsinkOperator>();

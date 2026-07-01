@@ -144,7 +144,7 @@ size_t SpillSortSinkOperatorX::revocable_mem_size(RuntimeState* state) const {
     return mem_size > state->spill_min_revocable_mem() ? mem_size : 0;
 }
 
-Status SpillSortSinkOperatorX::sink(doris::RuntimeState* state, Block* in_block, bool eos) {
+Status SpillSortSinkOperatorX::sink_impl(doris::RuntimeState* state, Block* in_block, bool eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());

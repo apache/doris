@@ -20,7 +20,6 @@
 
 #pragma once
 
-#include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
 #include "core/assert_cast.h"
 #include "core/column/column.h"
@@ -100,9 +99,7 @@ public:
     std::string get_name() const override { return "Nullable(" + _nested_column->get_name() + ")"; }
     MutableColumnPtr clone_resized(size_t size) const override;
     size_t size() const override { return get_null_map_column().size(); }
-    PURE bool is_null_at(size_t n) const override {
-        return get_null_map_column().get_data()[n] != 0;
-    }
+    bool is_null_at(size_t n) const override { return get_null_map_column().get_data()[n] != 0; }
     Field operator[](size_t n) const override;
     void get(size_t n, Field& res) const override;
     bool get_bool(size_t n) const override {

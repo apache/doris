@@ -18,6 +18,8 @@
 #include <benchmark/benchmark.h>
 
 #include "benchmark_bit_pack.hpp"
+#include "benchmark_column_array_view.hpp"
+#include "benchmark_column_array_view_distance.hpp"
 #include "benchmark_fastunion.hpp"
 #include "benchmark_fmod.hpp"
 #include "benchmark_hll_merge.hpp"
