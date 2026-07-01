@@ -335,17 +335,23 @@ The ownership fork (Q1) and Caffeine-on-classpath (Q2) are **settled by choosing
   adds zero forbidden imports. (Dropped a `org.jetbrains:annotations` dep — unmanaged version; re-add with a
   pinned version when `CacheFactory`/`MetaCacheEntry` land, which use `@NotNull`/`@Nullable`.)
 
-### ⚠️ Blocker exposed (pre-existing, NOT this task) — must resolve to build P1 via the reactor
+### ⚠️ Gate FALSE POSITIVE exposed (pre-existing, NOT this task; NOT a real violation) — user-confirmed 2026-07-01
 Adding the new module invalidated the maven-build-cache entry for the `fe-connector` aggregator, which
-**re-ran the `check-connector-imports` gate and it FAILS** — the Phase-1/2 builds had only passed because the
-gate result was cached. The **sole** violation is pre-existing, from commit `4acb5f91e1a`:
+**re-ran the `check-connector-imports` gate and it exits 1** — the Phase-1/2 builds had only passed because
+the gate result was cached. The **sole** flag is a **FALSE POSITIVE**, not a rule violation:
 `fe-connector-hms/.../org/apache/hadoop/hive/metastore/HiveMetaStoreClient.java:21-22` imports
-`org.apache.doris.datasource.hive.HiveVersionUtil{,.HiveVersion}` (the Doris-patched HMS client genuinely
-needs it). This blocks any `fe-connector` aggregator reactor build (so the eventual full P1 build too), and
-would fail the branch's CI. **Options:** (a) allowlist that one patched client in
-`tools/check-connector-imports.sh`; (b) expose `HiveVersionUtil` via a connector-visible package. Needs a
-decision (out of this task's scope, but it gates it). Workaround for now: build single modules directly
-(`-pl <module>` without `-am`).
+`org.apache.doris.datasource.hive.HiveVersionUtil{,.HiveVersion}`, but that resolves to a **verbatim copy
+vendored INSIDE fe-connector-hms** (`fe-connector-hms/.../org/apache/doris/datasource/hive/HiveVersionUtil.java`
+— same package name as fe-core's, but a self-contained file: imports only guava `Strings` + log4j). The
+patched client and the vendored util are in the **same module**; `fe-connector-hms` has **zero** fe-core
+dependency, so the import resolves locally — the connector does **not** depend on fe-core. The gate is a naive
+package-prefix grep (`org\.apache\.doris\.(catalog|common|datasource|…)`, `check-connector-imports.sh:48-54`)
+that can't tell a same-module vendored `datasource.*` class from fe-core's, hence the false positive.
+**Do NOT re-architect / re-expose `HiveVersionUtil`** — the vendored copy IS the connector-visible mechanism,
+nothing is broken. It only matters as a build nuisance: the exit-1 fails a **cache-clean** `fe-connector`
+reactor build (and would fail CI). Workaround: `-Dexec.skip=true` steps past the gate exec (`-pl <module>`
+without `-am` does NOT work for the leaf connectors — they hit `${revision}`). If ever worth silencing for
+real, refine the gate to skip same-module vendored classes — a tooling tweak, not a code change.
 
 ### P1① — DONE (2026-07-01): `CacheSpec` as an INDEPENDENT copy (per the revised copy strategy)
 The CacheSpec step landed as a **copy**, not a move (see the revised-decision callout at the top of this doc):

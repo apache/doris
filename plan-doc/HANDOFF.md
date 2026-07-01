@@ -28,7 +28,7 @@
 > （**只在 copy 里**把 `Config` 两旋钮改 ctor 注入、连接器传值；`CacheFactory` 保持框架内部；**fe-core 的 `MetaCacheEntry`/`CacheFactory` 不动**——无 `newMetaCacheEntry`/`ExternalRowCountCache`/`FileSystemCache` 改动，那些是搬移专属步）→
 > ④ ~~plugin-zip 排除~~ **copy 下取消**（随插件打包，child-loaded；Caffeine 3.2.3 已 child-first 捆进各插件）→ ⑤ 各连接器构建。之后 P2–P5（三个手抄 cache 上框架）见 §5。
 > **⚠️ 安全红线不变**：`CacheFactory`/Caffeine 类型不得越界给连接器（连接器只碰无 Caffeine 的 `MetaCacheEntry` API）；copy 下 fe-core 与连接器**永不共享** cache 对象 → split-brain 天然规避（memory `catalog-spi-plugin-tccl-classloader-gotcha`）。
-> **⚠️ 预存在 HMS gate blocker（非本任务引入，挡 `fe-connector` 全 reactor 构建 + CI）**：`fe-connector-hms/.../HiveMetaStoreClient.java` import `datasource.hive.HiveVersionUtil`（补丁版 HMS client，commit `4acb5f91e1a`）触发 `check-connector-imports` FAIL。临时绕过：`-Dexec.skip=true`（跳 gate exec）或单模块 `-pl <m>`（不带 -am）。**需用户裁量**：给该补丁 client 加 allowlist / 换连接器可见的暴露方式。
+> **⚠️ HMS import-gate 命中 = 误报，非违规（用户 2026-07-01 确认，非本任务）**：`fe-connector-hms/.../HiveMetaStoreClient.java` import `datasource.hive.HiveVersionUtil`（补丁版 HMS client）解析到的是 **fe-connector-hms 内 vendored 的同名自包含副本**（非 fe-core，该模块零 fe-core 依赖）→ **未破规则**；`check-connector-imports` 只是按包前缀 grep 误伤。**勿改连接器代码/重新暴露**——vendored 副本本身就是连接器可见的暴露方式。仅是 cache-clean reactor 构建/CI 的门禁噪音：`-Dexec.skip=true` 跳过 gate exec（`-pl <m>` 不带 -am 对叶子连接器不行——撞 `${revision}`）。详见 memory `catalog-spi-hms-hiveversionutil-gate-false-positive`。
 
 ---
 
