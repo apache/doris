@@ -30,19 +30,17 @@
 #include "runtime/cluster_info.h"
 #include "runtime/descriptors.h"
 #include "runtime/memory/mem_tracker.h"
-#include "runtime/query_context.h"
 #include "runtime/runtime_state.h"
 #include "runtime/user_function_cache.h"
+#include "testutil/mock/mock_query_context.h"
 
 namespace doris {
 
 namespace {
 
-// Build a real query context so FileScanner can update ResourceContext-backed metrics in UT.
+// Reuse Doris test query context to provide a ready-to-use ResourceContext in UT.
 std::shared_ptr<QueryContext> create_ut_query_context() {
-    TNetworkAddress fe_address;
-    return QueryContext::create(TUniqueId(), ExecEnv::GetInstance(), TQueryOptions(), fe_address,
-                                true, fe_address, QuerySource::INTERNAL_FRONTEND);
+    return MockQueryContext::create();
 }
 
 } // namespace
