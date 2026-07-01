@@ -17,6 +17,9 @@
 
 package org.apache.doris.connector.iceberg;
 
+import org.apache.doris.connector.cache.CacheSpec;
+import org.apache.doris.connector.cache.MetaCacheEntry;
+
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DeleteFile;
 import org.apache.iceberg.ManifestContent;
@@ -28,62 +31,56 @@ import org.apache.iceberg.Table;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ForkJoinPool;
 
 /**
  * Per-catalog cache of an iceberg manifest's parsed files, keyed by {@link IcebergManifestEntryKey}
  * (manifest path + content). Ported from the legacy fe-core {@code IcebergExternalMetaCache} manifest entry +
- * {@code IcebergManifestCacheLoader} (the connector cannot import fe-core, so this is a PORT, not a reuse).
+ * {@code IcebergManifestCacheLoader}, now backed by the shared {@link MetaCacheEntry} framework
+ * (independent-copy meta-cache migration).
  *
  * <p>Consumed by {@link IcebergScanPlanProvider}'s manifest-level planning path (gated by
  * {@code meta.cache.iceberg.manifest.enable}, default off — the default scan path is the iceberg SDK
- * {@code planFiles()}). Within one catalog the same manifest file is parsed once and shared across queries
- * (and across tables that reference it).
+ * {@code planFiles()}). The external enable-gate lives in the scan provider (which decides whether to take the
+ * manifest-planning path at all); this cache is unconditionally on when consulted. Within one catalog the same
+ * manifest file is parsed once and shared across queries (and across tables that reference it).
  *
  * <p><b>No TTL; capacity-bounded; cleared on REFRESH CATALOG.</b> This mirrors the legacy entry's
- * registered {@code CacheSpec.of(false, CACHE_NO_TTL, 100_000)}: a manifest's content is immutable for a given
- * path, so entries never go stale and need no TTL; a table-level invalidation (REFRESH TABLE) intentionally
- * keeps them ({@code IcebergConnector.invalidateTable} does not touch this cache, legacy
- * {@code testInvalidateTableKeepsManifestCache} parity). It is cleared by {@link #invalidateAll()} on a
- * REFRESH CATALOG (via {@link IcebergConnector#invalidateAll()}, mirroring legacy catalog-wide
- * {@code group.invalidateAll()}) and dropped wholesale when the {@link IcebergConnector} is rebuilt
- * (ADD/MODIFY CATALOG). A best-effort size bound flushes on overflow (re-reads are harmless — the value is
- * immutable).
+ * {@code contextualOnly(CacheSpec.of(false, CACHE_NO_TTL, 100_000))} default spec: a manifest's content is
+ * immutable for a given path, so entries never go stale and need no TTL; a table-level invalidation (REFRESH
+ * TABLE) intentionally keeps them ({@code IcebergConnector.invalidateTable} does not touch this cache, legacy
+ * parity). It is cleared by {@link #invalidateAll()} on a REFRESH CATALOG (via
+ * {@link IcebergConnector#invalidateAll()}, mirroring legacy catalog-wide {@code group.invalidateAll()}) and
+ * dropped wholesale when the {@link IcebergConnector} is rebuilt (ADD/MODIFY CATALOG). Overflow is bounded by
+ * Caffeine {@code maximumSize} eviction (re-reads are harmless — the value is immutable). The parse loader runs
+ * OUTSIDE Caffeine's compute lock (manual miss-load, single-flight per key).
  */
 final class IcebergManifestCache {
 
     /** Legacy effective capacity (fe-core {@code DEFAULT_MANIFEST_CACHE_CAPACITY}, asserted in its stats tests). */
     static final int DEFAULT_MANIFEST_CACHE_CAPACITY = 100_000;
 
-    private final Map<IcebergManifestEntryKey, ManifestCacheValue> cache = new ConcurrentHashMap<>();
-    private final int maxSize;
+    private final MetaCacheEntry<IcebergManifestEntryKey, ManifestCacheValue> entry;
 
     IcebergManifestCache() {
         this(DEFAULT_MANIFEST_CACHE_CAPACITY);
     }
 
     IcebergManifestCache(int maxSize) {
-        this.maxSize = Math.max(1, maxSize);
+        // Always enabled, no expiry, capacity-bounded (CACHE_NO_TTL == -1 means "no expiration", enabled).
+        CacheSpec spec = CacheSpec.of(true, CacheSpec.CACHE_NO_TTL, Math.max(1, maxSize));
+        this.entry = new MetaCacheEntry<>("iceberg-manifest", null, spec,
+                ForkJoinPool.commonPool(), false, true, 0L, true);
     }
 
     /**
      * Returns the parsed files for {@code manifest}, loading (and reading from storage) only on a miss. The
-     * loader runs OUTSIDE any lock (no manifest I/O under a lock; not {@code computeIfAbsent}); a concurrent
-     * same-key miss may parse twice — harmless because the value is immutable and identical.
+     * loader runs OUTSIDE Caffeine's compute lock (manual miss-load; single-flight per key), so a same-key
+     * miss parses at most once.
      */
     ManifestCacheValue getManifestCacheValue(ManifestFile manifest, Table table) {
         IcebergManifestEntryKey key = IcebergManifestEntryKey.of(manifest);
-        ManifestCacheValue hit = cache.get(key);
-        if (hit != null) {
-            return hit;
-        }
-        ManifestCacheValue loaded = loadManifestCacheValue(manifest, table, key.getContent());
-        if (cache.size() >= maxSize) {
-            cache.clear();
-        }
-        ManifestCacheValue prev = cache.putIfAbsent(key, loaded);
-        return prev != null ? prev : loaded;
+        return entry.get(key, k -> loadManifestCacheValue(manifest, table, k.getContent()));
     }
 
     private static ManifestCacheValue loadManifestCacheValue(ManifestFile manifest, Table table,
@@ -125,11 +122,13 @@ final class IcebergManifestCache {
      * (catalog-wide invalidation); table-level invalidation (REFRESH TABLE) intentionally does not.
      */
     void invalidateAll() {
-        cache.clear();
+        entry.invalidateAll();
     }
 
-    /** Test-only: current number of cached entries. */
+    /** Test-only: current number of cached entries (accurate map membership, not Caffeine's estimate). */
     int size() {
-        return cache.size();
+        int[] count = {0};
+        entry.forEach((key, value) -> count[0]++);
+        return count[0];
     }
 }
