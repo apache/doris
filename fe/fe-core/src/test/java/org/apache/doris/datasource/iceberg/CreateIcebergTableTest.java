@@ -236,6 +236,23 @@ public class CreateIcebergTableTest {
         Assert.assertEquals(spec, table.spec());
     }
 
+    @Test
+    public void testSortOrderResolvesNonLowercaseColumnNamesCaseInsensitively() throws UserException {
+        TableIdentifier tb = TableIdentifier.of(dbName, getTableName());
+        String sql = "create table " + tb + " ("
+                + "data int, "
+                + "`mIxEd_COL` int"
+                + ") engine = iceberg "
+                + "order by (`mixed_col` asc)";
+        createTable(sql);
+        Table table = ops.getCatalog().loadTable(tb);
+        Schema schema = table.schema();
+
+        Assert.assertEquals("mIxEd_COL", schema.columns().get(1).name());
+        Assert.assertEquals(1, table.sortOrder().fields().size());
+        Assert.assertEquals(schema.findField("mIxEd_COL").fieldId(), table.sortOrder().fields().get(0).sourceId());
+    }
+
     public void createTable(String sql) throws UserException {
         LogicalPlan plan = new NereidsParser().parseSingle(sql);
         Assertions.assertTrue(plan instanceof CreateTableCommand);

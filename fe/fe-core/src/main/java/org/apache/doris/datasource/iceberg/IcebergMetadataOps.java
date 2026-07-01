@@ -1348,7 +1348,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
 
         org.apache.iceberg.SortOrder.Builder builder = org.apache.iceberg.SortOrder.builderFor(schema);
         for (SortFieldInfo sortField : sortFields) {
-            String columnName = sortField.getColumnName();
+            String columnName = getIcebergColumnName(schema, sortField.getColumnName());
             if (sortField.isAscending()) {
                 if (sortField.isNullFirst()) {
                     builder.asc(columnName, org.apache.iceberg.NullOrder.NULLS_FIRST);
@@ -1364,5 +1364,10 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
             }
         }
         return builder.build();
+    }
+
+    private static String getIcebergColumnName(Schema schema, String columnName) {
+        NestedField field = schema.caseInsensitiveFindField(columnName);
+        return field == null ? columnName : field.name();
     }
 }
