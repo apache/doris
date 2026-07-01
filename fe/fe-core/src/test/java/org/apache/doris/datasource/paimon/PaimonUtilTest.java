@@ -17,13 +17,24 @@
 
 package org.apache.doris.datasource.paimon;
 
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Type;
 
+import org.apache.paimon.data.BinaryRow;
+import org.apache.paimon.data.BinaryString;
+import org.apache.paimon.table.Table;
 import org.apache.paimon.types.CharType;
 import org.apache.paimon.types.DataField;
+import org.apache.paimon.types.DataTypes;
+import org.apache.paimon.types.RowType;
 import org.apache.paimon.types.VarCharType;
 import org.junit.Assert;
 import org.junit.Test;
+import org.mockito.Mockito;
+
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
 
 public class PaimonUtilTest {
     @Test
@@ -35,5 +46,34 @@ public class PaimonUtilTest {
         Assert.assertTrue(type1.isVarchar());
         Assert.assertEquals(32, type1.getLength());
         Assert.assertEquals(14, type2.getLength());
+    }
+
+    @Test
+    public void testParseSchemaPreservesNonLowercaseColumnNames() {
+        RowType rowType = DataTypes.ROW(
+                DataTypes.FIELD(0, "mIxEd_COL", DataTypes.INT()),
+                DataTypes.FIELD(1, "PART", DataTypes.STRING()));
+
+        List<Column> columns = PaimonUtil.parseSchema(rowType, Collections.singletonList("PART"), false, false);
+
+        Assert.assertEquals("mIxEd_COL", columns.get(0).getName());
+        Assert.assertEquals("PART", columns.get(1).getName());
+        Assert.assertTrue(columns.get(1).isKey());
+    }
+
+    @Test
+    public void testGetPartitionInfoMapPreservesNonLowercaseKeys() {
+        DataField mixedCasePartition = DataTypes.FIELD(0, "Dt", DataTypes.STRING());
+        Table table = Mockito.mock(Table.class);
+        Mockito.when(table.name()).thenReturn("mock_table");
+        Mockito.when(table.partitionKeys()).thenReturn(Collections.singletonList("Dt"));
+        Mockito.when(table.rowType()).thenReturn(DataTypes.ROW(mixedCasePartition));
+
+        BinaryRow partitionValues = BinaryRow.singleColumn(BinaryString.fromString("2026-05-26"));
+
+        Map<String, String> partitionInfoMap = PaimonUtil.getPartitionInfoMap(table, partitionValues, "UTC");
+
+        Assert.assertFalse(partitionInfoMap.containsKey("dt"));
+        Assert.assertEquals("2026-05-26", partitionInfoMap.get("Dt"));
     }
 }

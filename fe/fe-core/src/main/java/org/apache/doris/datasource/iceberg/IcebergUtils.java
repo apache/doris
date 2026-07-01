@@ -133,7 +133,6 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -520,34 +519,38 @@ public class IcebergUtils {
         PartitionSpec.Builder builder = PartitionSpec.builderFor(schema);
         for (Expr expr : partitionExprs) {
             if (expr instanceof SlotRef) {
-                builder.identity(((SlotRef) expr).getColumnName());
+                builder.identity(getIcebergColumnName(schema, ((SlotRef) expr).getColumnName()));
             } else if (expr instanceof FunctionCallExpr) {
                 String exprName = expr.getExprName();
                 List<Expr> params = ((FunctionCallExpr) expr).getParams().exprs();
                 switch (exprName.toLowerCase()) {
                     case "bucket":
-                        builder.bucket(params.get(1).getExprName(), Integer.parseInt(params.get(0).getStringValue()));
+                        builder.bucket(
+                                getIcebergColumnName(schema, params.get(1).getExprName()),
+                                Integer.parseInt(params.get(0).getStringValue()));
                         break;
                     case "year":
                     case "years":
-                        builder.year(params.get(0).getExprName());
+                        builder.year(getIcebergColumnName(schema, params.get(0).getExprName()));
                         break;
                     case "month":
                     case "months":
-                        builder.month(params.get(0).getExprName());
+                        builder.month(getIcebergColumnName(schema, params.get(0).getExprName()));
                         break;
                     case "date":
                     case "day":
                     case "days":
-                        builder.day(params.get(0).getExprName());
+                        builder.day(getIcebergColumnName(schema, params.get(0).getExprName()));
                         break;
                     case "date_hour":
                     case "hour":
                     case "hours":
-                        builder.hour(params.get(0).getExprName());
+                        builder.hour(getIcebergColumnName(schema, params.get(0).getExprName()));
                         break;
                     case "truncate":
-                        builder.truncate(params.get(1).getExprName(), Integer.parseInt(params.get(0).getStringValue()));
+                        builder.truncate(
+                                getIcebergColumnName(schema, params.get(1).getExprName()),
+                                Integer.parseInt(params.get(0).getStringValue()));
                         break;
                     default:
                         throw new UserException("unsupported partition for " + exprName);
@@ -555,6 +558,11 @@ public class IcebergUtils {
             }
         }
         return builder.build();
+    }
+
+    private static String getIcebergColumnName(Schema schema, String columnName) {
+        Types.NestedField field = schema.caseInsensitiveFindField(columnName);
+        return field == null ? columnName : field.name();
     }
 
     private static Type icebergPrimitiveTypeToDorisType(org.apache.iceberg.types.Type.PrimitiveType primitive,
@@ -974,7 +982,7 @@ public class IcebergUtils {
         List<Types.NestedField> columns = schema.columns();
         List<Column> resSchema = Lists.newArrayListWithCapacity(columns.size());
         for (Types.NestedField field : columns) {
-            Column column = new Column(field.name().toLowerCase(Locale.ROOT),
+            Column column = new Column(field.name(),
                     IcebergUtils.icebergTypeToDorisType(field.type(), enableMappingVarbinary, enableMappingTimestampTz),
                     true, null,
                     true, field.doc(), true, -1);

@@ -430,7 +430,7 @@ public class PaimonUtil {
             boolean enableTimestampTzMapping) {
         List<Column> resSchema = Lists.newArrayListWithCapacity(rowType.getFields().size());
         rowType.getFields().forEach(field -> {
-            resSchema.add(new Column(field.name().toLowerCase(),
+            resSchema.add(new Column(field.name(),
                     PaimonUtil.paimonTypeToDorisType(field.type(), enableVarbinaryMapping, enableTimestampTzMapping),
                     primaryKeys.contains(field.name()),
                     null,
