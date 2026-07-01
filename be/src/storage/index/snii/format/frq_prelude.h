@@ -55,24 +55,31 @@
 //                              #   measured from the start of the window_dir region
 //     VInt sb_block_len        # byte length of this super-block's window block
 //   window_dir: n_super self-contained blocks, each holding <=G window rows.
-//     per window row:
+//     per window row (T18 slim layout -- dd_off/freq_off/prx_off are NOT stored;
+//     the reader derives them as running prefix sums of the disk/prx lengths):
 //       VInt last_docid_delta  # cumulative WITHIN the block => absolute last docid
 //                              #   (previous window's absolute last docid = win_base;
 //                              #    first window of first block: win_base = 0)
 //       VInt doc_count         # number of docs in the window (frq_pod needs it)
 //       u8   win_mode          # bit0 dd_zstd, bit1 freq_zstd
-//       VInt dd_off            # dd_region byte offset within the dd-block
 //       VInt dd_disk_len       # dd_region on-disk byte length
-//       VInt dd_uncomp_len     # dd_region plaintext byte length
+//      [VInt dd_uncomp_len]    # dd_region plaintext length; present ONLY when
+//                              #   win_mode & kDdZstd. A raw region's uncomp_len
+//                              #   == dd_disk_len (derived, not stored).
 //       u32  crc_dd            # crc32c of the dd_region on-disk bytes
-//       VInt freq_off          # freq_region offset within the freq-block (has_freq)
 //       VInt freq_disk_len     # freq_region on-disk byte length (has_freq)
-//       VInt freq_uncomp_len   # freq_region plaintext byte length (has_freq)
+//      [VInt freq_uncomp_len]  # freq_region plaintext length; present ONLY when
+//                              #   has_freq && win_mode & kFreqZstd (raw: derived
+//                              #   == freq_disk_len).
 //       u32  crc_freq          # crc32c of the freq_region on-disk bytes (has_freq)
-//       VInt prx_off           # .prx payload byte offset (present iff has_prx)
 //       VInt prx_len           # .prx payload byte length (present iff has_prx)
 //       VInt max_freq          # window max term frequency (WAND block-max)
 //       u8   max_norm          # window score-max norm (WAND); 0 acceptable
+//
+// The reader reconstructs each window's dd_off / freq_off (byte offset within the
+// dd-block / freq-block) and prx_off (offset within the entry's .prx span) as the
+// running prefix sums of dd_disk_len / freq_disk_len / prx_len over all windows,
+// chained across super-blocks; WindowMeta still exposes those offsets, now derived.
 //
 // Reconstructing win_base / absolute last_docid (READER CONTRACT) is unchanged:
 // the writer chains absolute last docids across windows; each row stores the delta
@@ -87,6 +94,12 @@ namespace doris::snii::format {
 namespace frq_prelude_flags {
 inline constexpr uint8_t kHasFreq = 1u << 0;
 inline constexpr uint8_t kHasPrx = 1u << 1;
+// Reserved extension point (T18): kSlimRows = 1u << 2 would gate the trimmed
+// window-row layout (no stored dd_off/freq_off/prx_off, conditional uncomp_len)
+// as a distinct on-disk path. It is NOT emitted today: the trim folds into the
+// single pre-launch v1 encoding (writer/reader symmetric, no dual decode path).
+// If a `lifecycle: launched` index appears before this lands, set this bit on the
+// slim writer and branch the reader on it instead of unconditionally decoding slim.
 } // namespace frq_prelude_flags
 
 // Per-window codec mode bits (win_mode byte).
@@ -98,7 +111,10 @@ inline constexpr uint8_t kKnownBits = kDdZstd | kFreqZstd;
 
 // Absolute, decoded metadata for one window (as the reader exposes it). The dd /
 // freq region locators are offsets WITHIN the dd-block / freq-block respectively
-// (both blocks follow the prelude). The reader derives the dd-block length from
+// (both blocks follow the prelude). dd_off/freq_off/prx_off are DERIVED by the
+// reader as running prefix sums of the disk/prx lengths (they are no longer stored
+// per row; see the header layout note) -- these public members are unchanged and
+// still populated, just by derivation. The reader derives the dd-block length from
 // the last window's dd_off + dd_disk_len.
 struct WindowMeta {
     uint32_t last_docid = 0; // absolute last docid in the window
@@ -107,19 +123,19 @@ struct WindowMeta {
 
     // dd_region locator (within the dd-block).
     bool dd_zstd = false;
-    uint64_t dd_off = 0;
+    uint64_t dd_off = 0; // DERIVED: running sum of prior windows' dd_disk_len
     uint64_t dd_disk_len = 0;
-    uint64_t dd_uncomp_len = 0;
+    uint64_t dd_uncomp_len = 0; // DERIVED == dd_disk_len for raw; stored only when dd_zstd
     uint32_t crc_dd = 0;
 
     // freq_region locator (within the freq-block); valid only when has_freq.
     bool freq_zstd = false;
-    uint64_t freq_off = 0;
+    uint64_t freq_off = 0; // DERIVED: running sum of prior windows' freq_disk_len
     uint64_t freq_disk_len = 0;
-    uint64_t freq_uncomp_len = 0;
+    uint64_t freq_uncomp_len = 0; // DERIVED == freq_disk_len for raw; stored only when freq_zstd
     uint32_t crc_freq = 0;
 
-    uint64_t prx_off = 0; // valid only when has_prx
+    uint64_t prx_off = 0; // valid only when has_prx; DERIVED: running sum of prior prx_len
     uint64_t prx_len = 0; // valid only when has_prx
     uint32_t max_freq = 0;
     uint8_t max_norm = 0;

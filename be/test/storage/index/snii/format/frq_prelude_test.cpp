@@ -56,13 +56,16 @@ FrqPreludeColumns MakeColumns(uint32_t n, uint32_t group_size, uint32_t stride, 
         m.dd_zstd = (w % 2) == 0;
         m.dd_off = dd_running;
         m.dd_disk_len = 8 + w;
-        m.dd_uncomp_len = m.dd_disk_len + 2; // arbitrary >= disk_len for zstd rows
+        // T18: a raw region's uncomp_len == disk_len (the row stores uncomp_len only
+        // for zstd regions; the reader derives it otherwise). Keep the test columns
+        // on that invariant so the round-trip's derived uncomp_len matches.
+        m.dd_uncomp_len = m.dd_zstd ? m.dd_disk_len + 2 : m.dd_disk_len;
         m.crc_dd = 0xDD000000U + w;
         dd_running += m.dd_disk_len;
         m.freq_zstd = (w % 3) == 0;
         m.freq_off = freq_running;
         m.freq_disk_len = 5 + (w % 4);
-        m.freq_uncomp_len = m.freq_disk_len + 1;
+        m.freq_uncomp_len = m.freq_zstd ? m.freq_disk_len + 1 : m.freq_disk_len;
         m.crc_freq = 0xEE000000U + w;
         freq_running += m.freq_disk_len;
         if (has_prx) {
@@ -81,15 +84,11 @@ ByteSink MakeSingleWindowPrelude(uint64_t last_docid_delta, uint64_t doc_count, 
     ByteSink block;
     block.put_varint64(last_docid_delta);
     block.put_varint64(doc_count);
-    block.put_u8(0);       // raw dd/freq regions
-    block.put_varint64(0); // dd_off
-    block.put_varint64(4); // dd_disk_len
-    block.put_varint64(4); // dd_uncomp_len
-    block.put_fixed32(0xDDU);
-    block.put_varint64(0); // freq_off
-    block.put_varint64(0); // freq_disk_len
-    block.put_varint64(0); // freq_uncomp_len
-    block.put_fixed32(0xEEU);
+    block.put_u8(0);          // win_mode: raw dd/freq (no zstd bit => no uncomp_len fields)
+    block.put_varint64(4);    // dd_disk_len (dd_uncomp_len omitted: raw region)
+    block.put_fixed32(0xDDU); // crc_dd
+    block.put_varint64(0);    // freq_disk_len (freq_uncomp_len omitted: raw region)
+    block.put_fixed32(0xEEU); // crc_freq
     block.put_varint64(max_freq);
     block.put_u8(0); // max_norm
 
@@ -309,16 +308,23 @@ TEST(SniiFrqPrelude, BuildNonMonotonicRejected) {
     EXPECT_TRUE(build_frq_prelude(cols, &sink).is<doris::ErrorCode::INVALID_ARGUMENT>());
 }
 
-// A non-contiguous dd region offset is rejected on open (anti-DoS: the grouped
-// dd-block requires each region to start where the previous ended).
-TEST(SniiFrqPrelude, NonContiguousDdRegionRejected) {
+// T18: dd_off is DERIVED (running prefix sum), not serialized. Tampering a
+// column's dd_off no longer changes the on-disk bytes, and the reader
+// reconstructs the contiguous offset regardless -- so the offset is always
+// contiguous by construction (pre-T18 this stored + cross-checked an explicit
+// dd_off, and a gap was rejected on open).
+TEST(SniiFrqPrelude, DdOffsetIsDerivedNotStored) {
     FrqPreludeColumns cols = MakeColumns(/*n=*/5, /*group_size=*/4, /*stride=*/256, false);
-    cols.windows[2].dd_off += 100; // gap before window 2's dd region
+    const uint64_t expect_dd_off_2 =
+            cols.windows[0].dd_disk_len + cols.windows[1].dd_disk_len; // running sum
+    cols.windows[2].dd_off += 100; // in-memory tamper has no on-disk effect now
     ByteSink sink;
-    ASSERT_TRUE(build_frq_prelude(cols, &sink).ok()); // builder does not validate
+    ASSERT_TRUE(build_frq_prelude(cols, &sink).ok());
     FrqPreludeReader reader;
-    Status s = FrqPreludeReader::open(sink.view(), &reader);
-    EXPECT_TRUE(s.is<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>());
+    ASSERT_TRUE(FrqPreludeReader::open(sink.view(), &reader).ok());
+    WindowMeta m;
+    ASSERT_TRUE(reader.window(2, &m).ok());
+    EXPECT_EQ(m.dd_off, expect_dd_off_2); // derived, not the tampered column value
 }
 
 TEST(SniiFrqPrelude, RejectsDocCountBeyondWindowWidth) {

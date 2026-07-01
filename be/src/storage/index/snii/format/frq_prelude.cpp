@@ -110,23 +110,32 @@ Status validate_input(const FrqPreludeColumns& cols, ByteSink* out) {
 
 // Encodes one window row into a per-block sink. last_docid_delta is the row's
 // absolute last_docid minus prev_last (the previous window's absolute last).
+//
+// dd_off/freq_off/prx_off are NOT serialized: each was a pure running prefix sum
+// of the per-window disk/prx lengths, which the reader reconstructs (see
+// decode_window_row / RunningOffsets). dd_uncomp_len/freq_uncomp_len are written
+// ONLY when the region's zstd win_mode bit is set; a raw region's uncomp_len is
+// defined to equal its disk_len (open_region enforces uncomp_len == disk_len on
+// raw region bytes), so the reader derives it without a stored field.
 void encode_window_row(const WindowMeta& m, bool has_freq, bool has_prx, uint64_t prev_last,
                        ByteSink* block) {
+    const uint8_t win_mode = make_win_mode(m, has_freq);
     block->put_varint64(static_cast<uint64_t>(m.last_docid) - prev_last);
     block->put_varint64(m.doc_count);
-    block->put_u8(make_win_mode(m, has_freq));
-    block->put_varint64(m.dd_off);
+    block->put_u8(win_mode);
     block->put_varint64(m.dd_disk_len);
-    block->put_varint64(m.dd_uncomp_len);
+    if ((win_mode & frq_win_mode::kDdZstd) != 0) {
+        block->put_varint64(m.dd_uncomp_len);
+    }
     block->put_fixed32(m.crc_dd);
     if (has_freq) {
-        block->put_varint64(m.freq_off);
         block->put_varint64(m.freq_disk_len);
-        block->put_varint64(m.freq_uncomp_len);
+        if ((win_mode & frq_win_mode::kFreqZstd) != 0) {
+            block->put_varint64(m.freq_uncomp_len);
+        }
         block->put_fixed32(m.crc_freq);
     }
     if (has_prx) {
-        block->put_varint64(m.prx_off);
         block->put_varint64(m.prx_len);
     }
     block->put_varint64(m.max_freq);
@@ -309,9 +318,22 @@ Status check_win_mode(uint8_t mode, bool has_freq) {
     return Status::OK();
 }
 
-// Decodes one window row, advancing prev_last to this window's absolute last.
+// Running per-block byte offsets, chained across windows AND across super-blocks
+// with the same lifetime as prev_last: dd/freq are prefix sums of the per-window
+// on-disk region lengths, prx the prefix sum of prx lengths. They replace the
+// three offset columns the row used to serialize (each was exactly this sum), so
+// the reader reproduces dd_off/freq_off/prx_off bit-identically to the old
+// explicit fields.
+struct RunningOffsets {
+    uint64_t dd = 0;
+    uint64_t freq = 0;
+    uint64_t prx = 0;
+};
+
+// Decodes one window row, advancing prev_last to this window's absolute last and
+// the running offsets past this window's dd/freq/prx regions.
 Status decode_window_row(ByteSource* src, bool has_freq, bool has_prx, bool first_window,
-                         uint64_t* prev_last, WindowMeta* m) {
+                         uint64_t* prev_last, RunningOffsets* run, WindowMeta* m) {
     uint64_t ldd = 0, doc_count = 0;
     RETURN_IF_ERROR(src->get_varint64(&ldd));
     RETURN_IF_ERROR(src->get_varint64(&doc_count));
@@ -320,19 +342,37 @@ Status decode_window_row(ByteSource* src, bool has_freq, bool has_prx, bool firs
     RETURN_IF_ERROR(check_win_mode(mode, has_freq));
     m->dd_zstd = (mode & frq_win_mode::kDdZstd) != 0;
     m->freq_zstd = has_freq && (mode & frq_win_mode::kFreqZstd) != 0;
-    RETURN_IF_ERROR(src->get_varint64(&m->dd_off));
+
+    // dd region: read disk_len, derive dd_off from the running dd-block offset,
+    // then advance it (overflow-guarded). uncomp_len is stored only for a zstd
+    // region; a raw region's uncomp_len == disk_len by contract.
     RETURN_IF_ERROR(src->get_varint64(&m->dd_disk_len));
-    RETURN_IF_ERROR(src->get_varint64(&m->dd_uncomp_len));
+    m->dd_off = run->dd;
+    RETURN_IF_ERROR(checked_add_u64(run->dd, m->dd_disk_len,
+                                    "frq_prelude: dd-block offset overflow", &run->dd));
+    if (m->dd_zstd) {
+        RETURN_IF_ERROR(src->get_varint64(&m->dd_uncomp_len));
+    } else {
+        m->dd_uncomp_len = m->dd_disk_len;
+    }
     RETURN_IF_ERROR(src->get_fixed32(&m->crc_dd));
     if (has_freq) {
-        RETURN_IF_ERROR(src->get_varint64(&m->freq_off));
         RETURN_IF_ERROR(src->get_varint64(&m->freq_disk_len));
-        RETURN_IF_ERROR(src->get_varint64(&m->freq_uncomp_len));
+        m->freq_off = run->freq;
+        RETURN_IF_ERROR(checked_add_u64(run->freq, m->freq_disk_len,
+                                        "frq_prelude: freq-block offset overflow", &run->freq));
+        if (m->freq_zstd) {
+            RETURN_IF_ERROR(src->get_varint64(&m->freq_uncomp_len));
+        } else {
+            m->freq_uncomp_len = m->freq_disk_len;
+        }
         RETURN_IF_ERROR(src->get_fixed32(&m->crc_freq));
     }
     if (has_prx) {
-        RETURN_IF_ERROR(src->get_varint64(&m->prx_off));
         RETURN_IF_ERROR(src->get_varint64(&m->prx_len));
+        m->prx_off = run->prx;
+        RETURN_IF_ERROR(checked_add_u64(run->prx, m->prx_len, "frq_prelude: prx offset overflow",
+                                        &run->prx));
     }
     uint64_t max_freq = 0;
     RETURN_IF_ERROR(src->get_varint64(&max_freq));
@@ -355,12 +395,13 @@ Status decode_window_row(ByteSource* src, bool has_freq, bool has_prx, bool firs
 // Decodes one super-block's window block (<=G rows) into the global window list,
 // seeding win_base from prev_last and re-checking the recorded sb last docid.
 Status decode_one_block(Slice block, const Header& h, uint64_t sb_last_docid, size_t row_count,
-                        uint64_t* prev_last, std::vector<WindowMeta>* windows) {
+                        uint64_t* prev_last, RunningOffsets* run,
+                        std::vector<WindowMeta>* windows) {
     ByteSource src(block);
     for (size_t i = 0; i < row_count; ++i) {
         WindowMeta m;
-        RETURN_IF_ERROR(
-                decode_window_row(&src, h.has_freq, h.has_prx, windows->empty(), prev_last, &m));
+        RETURN_IF_ERROR(decode_window_row(&src, h.has_freq, h.has_prx, windows->empty(), prev_last,
+                                          run, &m));
         windows->push_back(m);
     }
     if (!src.eof()) {
@@ -380,6 +421,10 @@ Status decode_all_blocks(Slice window_region, const Header& h, const std::vector
     windows->clear();
     windows->reserve(static_cast<size_t>(h.n));
     uint64_t prev_last = 0;
+    // dd/freq/prx running offsets chain across ALL super-blocks (not reset per
+    // block), the same lifetime as prev_last, so the derived per-window offsets are
+    // continuous over the whole dd-block / freq-block / prx span.
+    RunningOffsets run;
     for (size_t s = 0; s < dir.size(); ++s) {
         const SbDirRow& r = dir[s];
         if (r.block_off + r.block_len > window_region.size() ||
@@ -392,7 +437,7 @@ Status decode_all_blocks(Slice window_region, const Header& h, const std::vector
         Slice block = window_region.subslice(static_cast<size_t>(r.block_off),
                                              static_cast<size_t>(r.block_len));
         RETURN_IF_ERROR(decode_one_block(block, h, r.last_docid, static_cast<size_t>(rows),
-                                         &prev_last, windows));
+                                         &prev_last, &run, windows));
     }
     if (windows->size() != h.n) {
         return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
@@ -401,18 +446,21 @@ Status decode_all_blocks(Slice window_region, const Header& h, const std::vector
     return Status::OK();
 }
 
-// Validates the dd/freq region locators tile the dd-block / freq-block contiguously
-// (each region starts where the previous one ended) and returns the block lengths.
-// Contiguity makes the docs-only prefix one solid run and bounds the read range.
+// Sums the per-window dd/freq on-disk lengths into the dd-block / freq-block
+// lengths, guarding each running sum against u64 overflow. The dd_off/freq_off
+// contiguity cross-checks the old prelude ran here are now tautological -- the
+// reader DERIVES dd_off/freq_off as these very prefix sums (decode_window_row),
+// so `m.dd_off == running-sum` holds by construction and is dropped. The
+// length-overflow guards and the returned block lengths are retained: they still
+// bound the dd-block/freq-block range the callers' InBounds checks fetch against,
+// and mirror the same checked_add_u64 the offset derivation uses.
 Status validate_region_layout(const Header& h, const std::vector<WindowMeta>& windows,
                               uint64_t* dd_block_len, uint64_t* freq_block_len) {
     uint64_t dd_expect = 0;
     uint64_t freq_expect = 0;
     for (const WindowMeta& m : windows) {
-        if (m.dd_off != dd_expect) {
-            return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
-                    "frq_prelude: dd region not contiguous");
-        }
+        // Raw regions carry uncomp_len == disk_len (derived, not stored); this
+        // guard stays as defensive documentation of that invariant.
         if (m.dd_disk_len > m.dd_uncomp_len && !m.dd_zstd) {
             return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
                     "frq_prelude: raw dd region length inconsistent");
@@ -423,10 +471,6 @@ Status validate_region_layout(const Header& h, const std::vector<WindowMeta>& wi
         }
         dd_expect += m.dd_disk_len;
         if (h.has_freq) {
-            if (m.freq_off != freq_expect) {
-                return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
-                        "frq_prelude: freq region not contiguous");
-            }
             if (freq_expect + m.freq_disk_len < freq_expect) {
                 return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
                         "frq_prelude: freq block length overflow");
