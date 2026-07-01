@@ -113,6 +113,11 @@ Status VDataStreamRecvr::SenderQueue::get_batch(Block* block, bool* eos) {
     return Status::OK();
 }
 
+bool VDataStreamRecvr::SenderQueue::has_data_or_finished() {
+    std::lock_guard<std::mutex> l(_lock);
+    return _is_cancelled || !_block_queue.empty() || _num_remaining_senders == 0;
+}
+
 void VDataStreamRecvr::SenderQueue::set_source_ready(std::lock_guard<std::mutex>&) {
     // Here, it is necessary to check if _source_dependency is not nullptr.
     // This is because the queue might be closed before setting the source dependency.
@@ -431,16 +436,21 @@ Status VDataStreamRecvr::create_merger(const VExprContextSPtrs& ordering_expr,
     DCHECK(_is_merging);
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
     std::vector<BlockSupplier> child_block_suppliers;
+    std::vector<BlockSupplierReadyChecker> child_block_supplier_ready_checkers;
     // Create the merger that will a single stream of sorted rows.
     _merger.reset(new VSortedRunMerger(ordering_expr, is_asc_order, nulls_first, batch_size, limit,
                                        offset, _profile));
 
+    child_block_suppliers.reserve(_sender_queues.size());
+    child_block_supplier_ready_checkers.reserve(_sender_queues.size());
     for (int i = 0; i < _sender_queues.size(); ++i) {
         child_block_suppliers.emplace_back(std::bind(std::mem_fn(&SenderQueue::get_batch),
                                                      _sender_queues[i], std::placeholders::_1,
                                                      std::placeholders::_2));
+        child_block_supplier_ready_checkers.emplace_back(
+                std::bind(std::mem_fn(&SenderQueue::has_data_or_finished), _sender_queues[i]));
     }
-    RETURN_IF_ERROR(_merger->prepare(child_block_suppliers));
+    RETURN_IF_ERROR(_merger->prepare(child_block_suppliers, child_block_supplier_ready_checkers));
     return Status::OK();
 }
 
