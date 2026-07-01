@@ -378,24 +378,39 @@ The CacheSpec step landed as a **copy**, not a move (see the revised-decision ca
   -Dexec.skip=true` (paimon needs `package` for HiveConf; `exec.skip` steps past the pre-existing HMS gate) →
   **BUILD SUCCESS** — iceberg + paimon (+ `fe-connector-cache`) all compile/package against the repoint.
 
-### P1 — remaining, under the copy strategy (COPY, do NOT move; fe-core stays untouched)
-For each class below, **copy** it into `org.apache.doris.connector.cache` as an independent duplicate; leave
-the fe-core original in `datasource.metacache` completely alone (no fe-core edits, no importer repointing).
-Only connectors consume the copy. **When copying, mechanically rewrite the two fe-core couplings** the classes
-carry: fe-core `Config` static reads and (for `MetaCacheEntryInvalidation`) `datasource.NameMapping`.
-2. Copy `MetaCacheEntryStats`, `CatalogEntryGroup`, `ExternalMetaCacheRegistry`, `MetaCacheEntryDef`,
-   `MetaCacheEntryInvalidation` (drop the `NameMapping`-coupled `forNameMapping` in the copy — §6 Q3).
-3. Copy `CacheFactory` (+ pinned `org.jetbrains:annotations`) and `MetaCacheEntry`. In the COPY only, make
-   `MetaCacheEntry` take `refreshAfterWriteSeconds` + `manualMissLoadEnabled` as ctor params (it can't read
-   fe-core `Config`); the connector supplies them. Keep `CacheFactory` framework-internal (its API returns
-   Caffeine `LoadingCache`). **fe-core's `MetaCacheEntry`/`CacheFactory` are NOT touched** (no
-   `newMetaCacheEntry`/`ExternalRowCountCache`/`FileSystemCache` edits — those were move-only steps).
-4. ~~Add `fe-connector-cache` exclusions to plugin-zips~~ **DROPPED under copy** — do NOT exclude it; it
-   bundles per-plugin (child-loaded). Objects never cross the fe-core↔connector boundary, so no split-brain.
-   Caffeine is `provided` in `fe-connector-cache` and already bundled 3.2.3 child-first in each plugin zip.
-5. Build each connector (`-am … -Dexec.skip=true`; `package` for paimon). fe-core is untouched → its cache
-   tests are unaffected by construction (no need to rerun them for these copies).
-Then P2–P5 (port the connector caches onto the copied `MetaCacheEntry`) per §5.
-- **Load-bearing but not yet re-verified** (confirm before P2+): exact `getOrLoad` loader bodies in
-  `Iceberg/PaimonConnectorMetadata.beginQuerySnapshot`; whether metadata/sys-table queries against a
-  PluginDriven iceberg catalog secretly depend on the (dead-for-native) `IcebergExternalMetaCache` path.
+### P1② — DONE (2026-07-01): framework core (`MetaCacheEntry`/`CacheFactory`/`MetaCacheEntryStats`) as an INDEPENDENT copy
+Copied the **3 classes a connector actually needs to own+use a cache** into `org.apache.doris.connector.cache`;
+fe-core's `datasource.metacache` originals are **untouched** (0 fe-core edits this step).
+- **`MetaCacheEntryStats`** — byte-identical copy (pure JDK data holder), package change only.
+- **`CacheFactory`** — faithful copy; only change vs fe-core = package + **dropped the cosmetic `@NotNull`**
+  (no jetbrains-annotations dep on this module, so `org.jetbrains:annotations` was NOT added — simpler than the
+  earlier plan). Framework-internal: its public methods return Caffeine types, must not cross to connectors.
+- **`MetaCacheEntry`** — faithful copy; the **two fe-core `Config` static reads are now ctor-injected**:
+  `refreshAfterWriteSeconds` (already in seconds — fe-core's `Config.*_minutes * 60` is done at the call site)
+  and `manualMissLoadEnabled`. `@Nullable` dropped (no jsr305). Added a 4-arg convenience ctor for the common
+  connector case (autoRefresh=false, contextualOnly=false, no-refresh, no-manual) + the full 8-arg ctor. Public
+  API is **Caffeine-free** → safe for connectors (child-first) to hold.
+- **Scope narrowed vs the original plan (Rule 2):** `MetaCacheEntry` does **not** reference `MetaCacheEntryDef`,
+  `MetaCacheEntryInvalidation`, `CatalogEntryGroup`, or `ExternalMetaCacheRegistry` — those are the
+  Env-coupled **registry/declaration** machinery (`AbstractExternalMetaCache` territory). A connector owns a
+  single `MetaCacheEntry` instance directly (not via the Env registry), so **none of them are copied**. Copy
+  them later only if a concrete connector cache turns out to need them (P3/P4).
+- **Tests:** new `MetaCacheEntryTest` (JUnit 5; the fe-core test's `Config` toggle becomes a ctor arg) covers
+  loader get/hit-miss/lastError, disabled short-circuit + manual-path reload-every-time, capacity eviction
+  (reflective `cleanUp()` → `evictionCount`), contextual-only reject-default-get, key/predicate/all
+  invalidation, manual-miss-load concurrent dedup. `mvn -pl fe-connector/fe-connector-cache install` →
+  **BUILD SUCCESS**, MetaCacheEntry **6/6** + CacheSpec **14/14**, checkstyle 0 violations.
+- ~~plugin-zip exclusions~~ still **DROPPED** (copy bundles per-plugin, Caffeine `provided` → uses the plugin's
+  bundled Caffeine); fe-core still does not depend on this module.
+
+### P1 — remaining / next
+The framework core is now copied and independently usable. Next is **P2–P5 (port the three hand-rolled
+connector caches onto the copied `MetaCacheEntry`)** per §5:
+`IcebergLatestSnapshotCache` / `PaimonLatestSnapshotCache` → a loader-backed `MetaCacheEntry`
+(access-TTL, cap 1000); `IcebergManifestCache` → a `contextualOnly` `MetaCacheEntry`
+(`CacheSpec.of(false, CACHE_NO_TTL, 100_000)`, `get(key, missLoader)`). Then delete the `ConcurrentHashMap`
+cache classes.
+- **Load-bearing but not yet re-verified** (confirm before porting): exact `getOrLoad` loader bodies in
+  `Iceberg/PaimonConnectorMetadata.beginQuerySnapshot`; the connectors' current
+  `invalidateTable`/`invalidateAll` wiring; whether any connector cache needs predicate invalidation (would
+  need `MetaCacheEntry.invalidateIf`, already present) or a shared vs per-connector refresh `ExecutorService`.

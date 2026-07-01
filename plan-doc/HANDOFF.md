@@ -5,7 +5,7 @@
 
 ---
 
-# 🎯 下一个 session 的任务 = **继续 meta-cache 框架统一迁移（独立复制策略 / P1 剩余类）**
+# 🎯 下一个 session 的任务 = **继续 meta-cache 框架统一迁移（独立复制策略 / P1 完成，下一步 P2–P5 连接器 cache 上框架）**
 
 > **START HERE**：读设计文档 **`plan-doc/tasks/designs/metacache-framework-unification-design.md`**
 > （**顶部「DECISION REVISED」callout** + §8「P1① DONE」/「remaining under copy」）。
@@ -22,11 +22,13 @@
 > - **删掉 `fe-core/pom.xml` 对 `fe-connector-cache` 的依赖**（skeleton 为「搬移」加的；copy 下 fe-core 不用它→保持解耦）；`fe-connector-cache` **不**从任何 plugin-zip 排除 → 随各插件打包（child-loaded），对 JDK-only 且**不越界**的 CacheSpec 安全（只有它抛的 `IllegalArgumentException`〔JDK 类型〕越界）；
 > - **构建实证全绿**：`fe-connector-cache install` SUCCESS(14/14)；`iceberg,paimon -am package -DskipTests -Dexec.skip=true` **BUILD SUCCESS**；`:fe-core -am compile`（4643 文件）**BUILD SUCCESS**（证删依赖不破 fe-core）；import gate 仅剩预存在 HMS 违规、我的文件净。
 >
-> **P1 剩余（下一步，见设计文档 §8「remaining under copy」）= 按「复制」把类搬进 `connector.cache`（fe-core 全程不动）**：
-> ② 复制 leaf 类（`MetaCacheEntryStats`/`CatalogEntryGroup`/`ExternalMetaCacheRegistry`/`MetaCacheEntryDef`/
-> `MetaCacheEntryInvalidation`——copy 里去掉 `NameMapping` 耦合的 `forNameMapping`）→ ③ 复制 `CacheFactory`+`MetaCacheEntry`
-> （**只在 copy 里**把 `Config` 两旋钮改 ctor 注入、连接器传值；`CacheFactory` 保持框架内部；**fe-core 的 `MetaCacheEntry`/`CacheFactory` 不动**——无 `newMetaCacheEntry`/`ExternalRowCountCache`/`FileSystemCache` 改动，那些是搬移专属步）→
-> ④ ~~plugin-zip 排除~~ **copy 下取消**（随插件打包，child-loaded；Caffeine 3.2.3 已 child-first 捆进各插件）→ ⑤ 各连接器构建。之后 P2–P5（三个手抄 cache 上框架）见 §5。
+> **✅ P1② 已完成（框架核心 3 类，本 session；代码 `bcb7cc61184`）**：把连接器「自持+使用」缓存所需的 3 个核心类复制进 `connector.cache`，fe-core 老框架仍零改动：
+> - `MetaCacheEntryStats` 逐字节复制（纯 JDK 数据 holder，仅改包）；`CacheFactory` 忠实复制（仅改包 + 去装饰性 `@NotNull`，**未加 jetbrains 依赖**——比原计划简）；`MetaCacheEntry` 忠实复制，**两处 fe-core `Config` 静态读改 ctor 注入**（`refreshAfterWriteSeconds`〔已是秒〕+ `manualMissLoadEnabled`），去 `@Nullable`，加 4 参便捷 ctor + 8 参完整 ctor，公有 API 无 Caffeine → 连接器可安全持有。
+> - **范围收窄（Rule 2）**：`MetaCacheEntry` 不引用 `MetaCacheEntryDef`/`MetaCacheEntryInvalidation`/`CatalogEntryGroup`/`ExternalMetaCacheRegistry`（那些是 Env 耦合的注册/声明机制，连接器自持单实例不需要）→ **本轮不复制它们**；将来某连接器 cache 真需要再补。
+> - 测试：新增 `MetaCacheEntryTest`（JUnit 5，Config 开关改 ctor 参）；`fe-connector-cache install` **BUILD SUCCESS**，MetaCacheEntry **6/6** + CacheSpec **14/14**，checkstyle 0。
+>
+> **下一步 = P2–P5：把三个手抄 cache 上框架（见设计文档 §5 / §8「remaining/next」）**，fe-core 全程不动：
+> `IcebergLatestSnapshotCache`/`PaimonLatestSnapshotCache` → loader-backed `MetaCacheEntry`（access-TTL，cap 1000）；`IcebergManifestCache` → `contextualOnly` `MetaCacheEntry`（`CacheSpec.of(false, CACHE_NO_TTL, 100_000)`，`get(key, missLoader)`）；然后删掉 `ConcurrentHashMap` cache 类。**认领前先 recon**：`Iceberg/PaimonConnectorMetadata.beginQuerySnapshot` 的 loader 体、连接器现有 `invalidateTable`/`invalidateAll` 接线、是否需谓词失效（`MetaCacheEntry.invalidateIf` 已具备）、refresh executor 共享 vs 每连接器一份。
 > **⚠️ 安全红线不变**：`CacheFactory`/Caffeine 类型不得越界给连接器（连接器只碰无 Caffeine 的 `MetaCacheEntry` API）；copy 下 fe-core 与连接器**永不共享** cache 对象 → split-brain 天然规避（memory `catalog-spi-plugin-tccl-classloader-gotcha`）。
 > **⚠️ HMS import-gate 命中 = 误报，非违规（用户 2026-07-01 确认，非本任务）**：`fe-connector-hms/.../HiveMetaStoreClient.java` import `datasource.hive.HiveVersionUtil`（补丁版 HMS client）解析到的是 **fe-connector-hms 内 vendored 的同名自包含副本**（非 fe-core，该模块零 fe-core 依赖）→ **未破规则**；`check-connector-imports` 只是按包前缀 grep 误伤。**勿改连接器代码/重新暴露**——vendored 副本本身就是连接器可见的暴露方式。仅是 cache-clean reactor 构建/CI 的门禁噪音：`-Dexec.skip=true` 跳过 gate exec（`-pl <m>` 不带 -am 对叶子连接器不行——撞 `${revision}`）。详见 memory `catalog-spi-hms-hiveversionutil-gate-false-positive`。
 
