@@ -21,6 +21,7 @@ import org.apache.doris.analysis.SetType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.nereids.trees.expressions.functions.udf.AliasUdf;
 import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdaf;
 import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdf;
@@ -136,6 +137,13 @@ public class FunctionUtil {
         return true;
     }
 
+    public static boolean removeFunctionImpl(Function function,
+            ConcurrentMap<String, ImmutableList<Function>> name2Function) throws UserException {
+        FunctionSearchDesc functionSearchDesc = new FunctionSearchDesc(function.getFunctionName(), function.getArgs(),
+                function.hasVarArgs());
+        return dropFunctionImpl(functionSearchDesc, false, name2Function);
+    }
+
     public static Function getFunction(FunctionSearchDesc function,
             ConcurrentMap<String, ImmutableList<Function>> name2Function) throws AnalysisException {
         String functionName = function.getName().getFunction();
@@ -179,6 +187,9 @@ public class FunctionUtil {
     }
 
     public static boolean translateToNereidsThrows(String dbName, Function function) {
+        if (DebugPointUtil.isEnable("FunctionUtil.translateToNereidsThrows.exception")) {
+            throw new RuntimeException("debug point FunctionUtil.translateToNereidsThrows.exception");
+        }
         try {
             translateToNereidsImpl(dbName, function);
         } catch (Exception e) {

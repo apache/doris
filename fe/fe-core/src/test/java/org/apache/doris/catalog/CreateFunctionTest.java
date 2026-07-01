@@ -20,14 +20,17 @@ package org.apache.doris.catalog;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.StringLiteral;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.common.util.URI;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateFunctionCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.persist.EditLog;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.Planner;
 import org.apache.doris.planner.UnionNode;
@@ -41,6 +44,8 @@ import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.io.File;
 import java.util.List;
@@ -171,6 +176,75 @@ public class CreateFunctionTest {
     }
 
     @Test
+    public void testCreateFunctionRollbackOnlyFailedOverload() throws Exception {
+        ConnectContext ctx = UtFrameUtils.createDefaultCtx();
+        createDatabase(ctx, "create database rollback_function_db;");
+        Database db = Env.getCurrentInternalCatalog().getDbNullable("rollback_function_db");
+        Assert.assertNotNull(db);
+
+        EditLog editLog = Env.getCurrentEnv().getEditLog();
+        EditLog spyEditLog = Mockito.spy(editLog);
+        Mockito.doNothing().when(spyEditLog).logAddFunction(Mockito.any(Function.class));
+        Env.getCurrentEnv().setEditLog(spyEditLog);
+        try (MockedStatic<FunctionUtil> mockedFunctionUtil = Mockito.mockStatic(FunctionUtil.class,
+                Mockito.CALLS_REAL_METHODS)) {
+            Function existingFunction = createJavaUdf("rollback_function_db", "rollback_fn", Type.INT);
+            db.addFunction(existingFunction, false);
+            Assert.assertSame(existingFunction, db.getFunction(searchDesc(existingFunction)));
+
+            Mockito.clearInvocations(spyEditLog);
+            Function failedFunction = createJavaUdf("rollback_function_db", "rollback_fn", Type.BIGINT);
+            mockedFunctionUtil.when(() -> FunctionUtil.translateToNereidsThrows(
+                    "rollback_function_db", failedFunction)).thenThrow(new RuntimeException("translate failed"));
+
+            RuntimeException exception = Assert.assertThrows(RuntimeException.class,
+                    () -> db.addFunction(failedFunction, false));
+            Assert.assertEquals("translate failed", exception.getMessage());
+            Mockito.verify(spyEditLog, Mockito.never()).logAddFunction(Mockito.any(Function.class));
+            Assert.assertSame(existingFunction, db.getFunction(searchDesc(existingFunction)));
+            Assert.assertThrows(AnalysisException.class, () -> db.getFunction(searchDesc(failedFunction)));
+        } finally {
+            Env.getCurrentEnv().setEditLog(editLog);
+        }
+    }
+
+    @Test
+    public void testCreateGlobalFunctionRollbackOnlyFailedOverload() throws Exception {
+        GlobalFunctionMgr globalFunctionMgr = Env.getCurrentEnv().getGlobalFunctionMgr();
+        FunctionSearchDesc existingFunctionDesc = searchDesc(null, "rollback_global_fn", Type.INT);
+        FunctionSearchDesc failedFunctionDesc = searchDesc(null, "rollback_global_fn", Type.BIGINT);
+        globalFunctionMgr.dropFunction(existingFunctionDesc, true);
+        globalFunctionMgr.dropFunction(failedFunctionDesc, true);
+
+        EditLog editLog = Env.getCurrentEnv().getEditLog();
+        EditLog spyEditLog = Mockito.spy(editLog);
+        Mockito.doNothing().when(spyEditLog).logAddGlobalFunction(Mockito.any(Function.class));
+        Env.getCurrentEnv().setEditLog(spyEditLog);
+        try (MockedStatic<FunctionUtil> mockedFunctionUtil = Mockito.mockStatic(FunctionUtil.class,
+                Mockito.CALLS_REAL_METHODS)) {
+            Function existingFunction = createJavaUdf(null, "rollback_global_fn", Type.INT);
+            globalFunctionMgr.addFunction(existingFunction, false);
+            Assert.assertSame(existingFunction, globalFunctionMgr.getFunction(existingFunctionDesc));
+
+            Mockito.clearInvocations(spyEditLog);
+            Function failedFunction = createJavaUdf(null, "rollback_global_fn", Type.BIGINT);
+            mockedFunctionUtil.when(() -> FunctionUtil.translateToNereidsThrows(
+                    null, failedFunction)).thenThrow(new RuntimeException("global translate failed"));
+
+            RuntimeException exception = Assert.assertThrows(RuntimeException.class,
+                    () -> globalFunctionMgr.addFunction(failedFunction, false));
+            Assert.assertEquals("global translate failed", exception.getMessage());
+            Mockito.verify(spyEditLog, Mockito.never()).logAddGlobalFunction(Mockito.any(Function.class));
+            Assert.assertSame(existingFunction, globalFunctionMgr.getFunction(existingFunctionDesc));
+            Assert.assertThrows(AnalysisException.class, () -> globalFunctionMgr.getFunction(failedFunctionDesc));
+        } finally {
+            Env.getCurrentEnv().setEditLog(editLog);
+            globalFunctionMgr.dropFunction(existingFunctionDesc, true);
+            globalFunctionMgr.dropFunction(failedFunctionDesc, true);
+        }
+    }
+
+    @Test
     public void testCreateGlobalFunction() throws Exception {
         ConnectContext ctx = UtFrameUtils.createDefaultCtx();
         ctx.getSessionVariable().setEnableFoldConstantByBe(false);
@@ -272,5 +346,18 @@ public class CreateFunctionTest {
             }
         }
         throw new AssertionError("function not found: " + functionName);
+    }
+
+    private Function createJavaUdf(String dbName, String functionName, Type... argTypes) throws AnalysisException {
+        return ScalarFunction.createUdf(Function.BinaryType.JAVA_UDF, new FunctionName(dbName, functionName), argTypes,
+                Type.INT, false, URI.create("file:///tmp/" + functionName + ".jar"), "evaluate", null, null);
+    }
+
+    private FunctionSearchDesc searchDesc(Function function) {
+        return new FunctionSearchDesc(function.getFunctionName(), function.getArgs(), function.hasVarArgs());
+    }
+
+    private FunctionSearchDesc searchDesc(String dbName, String functionName, Type... argTypes) {
+        return new FunctionSearchDesc(new FunctionName(dbName, functionName), argTypes, false);
     }
 }
