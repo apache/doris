@@ -47,10 +47,13 @@ under the License.
             <version>${project.version}</version>
         </dependency>
 
-        <!-- fe-connector-cache: the shared external meta-cache framework (single source of truth for
-             CacheSpec's CREATE/ALTER meta-cache property validation; MetaCacheEntry/CacheFactory land here
-             in later phases). Parent-first org.apache.doris.connector.* prefix → single app-loader Class
-             identity; carries no third-party dep on the compile classpath (Caffeine is provided). -->
+        <!-- fe-connector-cache: the shared external meta-cache framework (CacheSpec property validation +
+             MetaCacheEntry/CacheFactory). fe-core does NOT depend on it, so under the parent-first
+             org.apache.doris.connector.* prefix these classes resolve parent→miss→CHILD, i.e. they load from
+             this plugin's own bundled jar and link against THIS plugin's Caffeine. The iceberg plugin already
+             carries Caffeine 2.9.3 transitively (iceberg-core; vendored DeleteFileIndex pins it), which is the
+             version fe-connector-cache is compiled against — so no extra Caffeine dependency is needed here.
+             IcebergLatestSnapshotCache / IcebergManifestCache are backed by MetaCacheEntry. -->
         <dependency>
             <groupId>${project.groupId}</groupId>
             <artifactId>fe-connector-cache</artifactId>
