@@ -27,9 +27,15 @@ import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.TimeStampTzType;
+import org.apache.doris.nereids.types.coercion.CharacterType;
+import org.apache.doris.nereids.util.DateUtils;
 import org.apache.doris.qe.ConnectContext;
 
 import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.ZoneOffset;
+import java.time.ZonedDateTime;
+import java.util.Locale;
 import java.util.Objects;
 
 /**
@@ -168,6 +174,8 @@ public class TimestampTzLiteral extends DateTimeLiteral {
         if (targetType.isTimeStampTzType()) {
             return new TimestampTzLiteral((TimeStampTzType) targetType,
                     year, month, day, hour, minute, second, microSecond);
+        } else if (targetType.isStringLikeType()) {
+            return uncheckedCastToString((CharacterType) targetType);
         } else if (targetType.isDateTimeV2Type()) {
             DateTimeV2Literal dtV2Lit = new DateTimeV2Literal((DateTimeV2Type) targetType,
                     year, month, day, hour, minute, second, microSecond);
@@ -178,6 +186,37 @@ public class TimestampTzLiteral extends DateTimeLiteral {
             return dtV2Lit;
         }
         throw new AnalysisException(String.format("Cast from %s to %s not supported", this, targetType));
+    }
+
+    @Override
+    protected String castValueToString() {
+        ZoneId sessionZone = DateUtils.getTimeZone();
+        ZonedDateTime localDateTime = toJavaDateType().atZone(ZoneId.of("UTC")).withZoneSameInstant(sessionZone);
+        return formatDateTime(localDateTime.toLocalDateTime()) + formatOffset(localDateTime.getOffset());
+    }
+
+    private static String formatOffset(ZoneOffset offset) {
+        // Keep FE constant folding aligned with BE TimestampTzValue::to_string()
+        // in be/src/core/value/timestamptz_value.cpp. BE renders the numeric offset
+        // from seconds as sign + HH:MM, instead of using library ids such as "Z".
+        int totalSeconds = offset.getTotalSeconds();
+        int absSeconds = Math.abs(totalSeconds);
+        int hours = absSeconds / 3600;
+        int minutes = (absSeconds % 3600) / 60;
+        return String.format(Locale.ROOT, "%s%02d:%02d", totalSeconds < 0 ? "-" : "+", hours, minutes);
+    }
+
+    private String formatDateTime(LocalDateTime dateTime) {
+        String base = String.format(Locale.ROOT, "%04d-%02d-%02d %02d:%02d:%02d", dateTime.getYear(),
+                dateTime.getMonthValue(), dateTime.getDayOfMonth(), dateTime.getHour(),
+                dateTime.getMinute(), dateTime.getSecond());
+        int scale = getDataType().getScale();
+        if (scale <= 0) {
+            return base;
+        }
+        long scaledMicroSecond = (dateTime.getNano() / 1000)
+                / (int) Math.pow(10, TimeStampTzType.MAX_SCALE - scale);
+        return base + "." + String.format(Locale.ROOT, "%0" + scale + "d", scaledMicroSecond);
     }
 
     public Expression plusDays(long days) {
