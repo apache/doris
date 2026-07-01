@@ -22,11 +22,13 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * Unit tests for {@link PaimonLatestSnapshotCache} (FIX-4 data-snapshot caching, CI 973411).
- * Uses an injectable nano-clock so TTL expiry is deterministic without sleeping.
+ * Unit tests for {@link PaimonLatestSnapshotCache} (data-snapshot caching, CI 973411). The cache is now backed
+ * by the shared {@link org.apache.doris.connector.cache.MetaCacheEntry} framework; these tests cover the
+ * adapter's contract — within-TTL stability, the {@code ttl <= 0} disable, and invalidation. Timed-expiry
+ * mechanics (Caffeine {@code expireAfterAccess}) are the framework's responsibility and are covered by
+ * {@code MetaCacheEntryTest}, so they are not re-proven here (no injectable clock).
  */
 public class PaimonLatestSnapshotCacheTest {
 
@@ -37,8 +39,7 @@ public class PaimonLatestSnapshotCacheTest {
     @Test
     public void cachesWithinTtlAndServesStaleId() {
         AtomicInteger loads = new AtomicInteger();
-        AtomicLong now = new AtomicLong(0);
-        PaimonLatestSnapshotCache c = new PaimonLatestSnapshotCache(100, 1000, now::get);
+        PaimonLatestSnapshotCache c = new PaimonLatestSnapshotCache(100, 1000);
 
         long first = c.getOrLoad(id(), () -> {
             loads.incrementAndGet();
@@ -78,10 +79,30 @@ public class PaimonLatestSnapshotCacheTest {
     }
 
     @Test
+    public void negativeTtlDisablesCachingAlwaysLive() {
+        // ttl-second=-1 (or any negative) is still the no-cache catalog. Guards the CacheSpec trap where
+        // ttl == -1 means "no expiration (enabled)": the adapter must translate "<= 0" to disabled, NOT pass
+        // -1 through. MUTATION: passing ttlSeconds straight into CacheSpec -> -1 becomes a never-expiring cache
+        // -> loads==1 / second==1 -> red.
+        AtomicInteger loads = new AtomicInteger();
+        PaimonLatestSnapshotCache c = new PaimonLatestSnapshotCache(-1, 1000);
+        c.getOrLoad(id(), () -> {
+            loads.incrementAndGet();
+            return 1L;
+        });
+        long second = c.getOrLoad(id(), () -> {
+            loads.incrementAndGet();
+            return 2L;
+        });
+        Assertions.assertEquals(2L, second, "ttl-second=-1 must always read the live id");
+        Assertions.assertEquals(2, loads.get());
+        Assertions.assertFalse(c.isEnabled());
+    }
+
+    @Test
     public void invalidateForcesReload() {
         AtomicInteger loads = new AtomicInteger();
-        AtomicLong now = new AtomicLong(0);
-        PaimonLatestSnapshotCache c = new PaimonLatestSnapshotCache(100, 1000, now::get);
+        PaimonLatestSnapshotCache c = new PaimonLatestSnapshotCache(100, 1000);
         c.getOrLoad(id(), () -> {
             loads.incrementAndGet();
             return 1L;
@@ -98,29 +119,8 @@ public class PaimonLatestSnapshotCacheTest {
     }
 
     @Test
-    public void expiresAfterTtlNanos() {
-        AtomicInteger loads = new AtomicInteger();
-        AtomicLong now = new AtomicLong(0);
-        // ttl = 1 second -> 1e9 ns.
-        PaimonLatestSnapshotCache c = new PaimonLatestSnapshotCache(1, 1000, now::get);
-        c.getOrLoad(id(), () -> {
-            loads.incrementAndGet();
-            return 1L;
-        });
-        now.set(2_000_000_000L); // 2s later, past the 1s TTL
-        long after = c.getOrLoad(id(), () -> {
-            loads.incrementAndGet();
-            return 2L;
-        });
-        // MUTATION: never expiring -> returns 1 / loads==1 -> red.
-        Assertions.assertEquals(2L, after, "an entry past its TTL must be reloaded");
-        Assertions.assertEquals(2, loads.get());
-    }
-
-    @Test
     public void invalidateAllClearsEverything() {
-        AtomicLong now = new AtomicLong(0);
-        PaimonLatestSnapshotCache c = new PaimonLatestSnapshotCache(100, 1000, now::get);
+        PaimonLatestSnapshotCache c = new PaimonLatestSnapshotCache(100, 1000);
         c.getOrLoad(Identifier.create("db", "t1"), () -> 1L);
         c.getOrLoad(Identifier.create("db", "t2"), () -> 2L);
         Assertions.assertEquals(2, c.size());
