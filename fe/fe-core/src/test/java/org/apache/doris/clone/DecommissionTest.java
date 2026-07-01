@@ -151,7 +151,7 @@ public class DecommissionTest {
                 + "    \"replication_num\" = \"1\"\n"
                 + ")";
         ExceptionChecker.expectThrowsNoException(() -> createTable(createStr));
-        int totalReplicaNum = 1 * 64;
+        int totalReplicaNum = 1 * 2400;
         checkBalance(1, totalReplicaNum, 4);
 
         Backend backend = Env.getCurrentSystemInfo().getAllBackendsByAllCluster().values().asList().get(0);

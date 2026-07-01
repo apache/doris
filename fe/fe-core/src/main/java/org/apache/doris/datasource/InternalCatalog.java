@@ -1833,8 +1833,16 @@ public class InternalCatalog implements CatalogIf<Database> {
                 }
 
                 if (!isCreateTable) {
-                    afterCreatePartitions(db.getId(), olapTable.getId(), partitionIds, indexIds, isCreateTable,
-                            false /* isBatchCommit */, olapTable);
+                    try {
+                        afterCreatePartitions(db.getId(), olapTable.getId(), partitionIds, indexIds, isCreateTable,
+                                false /* isBatchCommit */, olapTable);
+                    } catch (Throwable t) {
+                        if (rollbackPartitionInfoWithTableLock(db, tableName, partitionId, partitionInfoUpdated,
+                                editLogWritten, partitionPublished, olapTable)) {
+                            partitionInfoUpdated = false;
+                        }
+                        throw t;
+                    }
                 }
                 if (writeEditLog) {
                     Env.getCurrentEnv().getEditLog().logAddPartition(info);
@@ -1906,6 +1914,25 @@ public class InternalCatalog implements CatalogIf<Database> {
         } catch (Throwable t) {
             LOG.warn("failed to rollback partition info after failed partition creation, db={}, table={}, "
                     + "partition_id={}", db.getFullName(), tableName, partitionId, t);
+        }
+    }
+
+    private boolean rollbackPartitionInfoWithTableLock(Database db, String tableName, long partitionId,
+            boolean partitionInfoUpdated, boolean editLogWritten, boolean partitionPublished, OlapTable olapTable) {
+        if (!partitionInfoUpdated || partitionId < 0 || editLogWritten || partitionPublished) {
+            return false;
+        }
+
+        try {
+            PartitionInfo partitionInfo = olapTable.getPartitionInfo();
+            partitionInfo.dropPartition(partitionId);
+            LOG.info("rollback partition info after failed partition creation, db={}, table={}, partition_id={}",
+                    db.getFullName(), tableName, partitionId);
+            return true;
+        } catch (Throwable t) {
+            LOG.warn("failed to rollback partition info after failed partition creation, db={}, table={}, "
+                    + "partition_id={}", db.getFullName(), tableName, partitionId, t);
+            return false;
         }
     }
 
