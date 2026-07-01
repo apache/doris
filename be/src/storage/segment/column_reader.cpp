@@ -29,6 +29,7 @@
 #include <utility>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/demangle.h"
 #include "common/status.h"
 #include "core/assert_cast.h"
 #include "core/binary_cast.hpp"
@@ -36,6 +37,7 @@
 #include "core/column/column_array.h"
 #include "core/column/column_map.h"
 #include "core/column/column_nullable.h"
+#include "core/column/column_string.h"
 #include "core/column/column_struct.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_agg_state.h"
@@ -60,6 +62,7 @@
 #include "storage/olap_common.h"
 #include "storage/predicate/block_column_predicate.h"
 #include "storage/predicate/column_predicate.h"
+#include "storage/schema.h"
 #include "storage/segment/binary_dict_page.h" // for BinaryDictPageDecoder
 #include "storage/segment/binary_plain_page.h"
 #include "storage/segment/column_meta_accessor.h"
@@ -2639,6 +2642,124 @@ Status RowIdColumnIteratorV2::read_by_rowids(const rowid_t* rowids, const size_t
         GlobalRowLoacationV2 location(_version, _backend_id, _file_id, row_id);
         string_column->insert_data(reinterpret_cast<const char*>(&location),
                                    sizeof(GlobalRowLoacationV2));
+    }
+    return Status::OK();
+}
+
+// Helper: unwrap ColumnNullable if present, return the inner column.
+static const IColumn& unwrap_nullable(const IColumn& col) {
+    if (const auto* nullable = check_and_get_column<ColumnNullable>(col)) {
+        return nullable->get_nested_column();
+    }
+    return col;
+}
+
+Status FileColumnIterator::check_column_type(const IColumn& dst) const {
+    const auto& inner = unwrap_nullable(dst);
+
+    // Compare against the canonical runtime column implementation produced from
+    // the storage type. This validates dst's actual column class, not the meta
+    // itself, and catches FE/storage mismatches before read hot paths use it.
+    auto expected_vec_col = _reader->get_vec_data_type()->create_column();
+    const auto& expected_vec_inner = unwrap_nullable(*expected_vec_col);
+    if (typeid(inner) == typeid(expected_vec_inner)) {
+        return Status::OK();
+    }
+
+    // Check 2: ColumnDictI32 (valid only for string-like storage types)
+    if (inner.is_column_dictionary()) {
+        FieldType mt = _reader->get_meta_type();
+        if (mt == FieldType::OLAP_FIELD_TYPE_CHAR || mt == FieldType::OLAP_FIELD_TYPE_VARCHAR ||
+            mt == FieldType::OLAP_FIELD_TYPE_STRING || mt == FieldType::OLAP_FIELD_TYPE_JSONB) {
+            return Status::OK();
+        }
+    }
+
+    // Check 3: PredicateColumnType matching the storage type.
+    // Use READER_ALTER_TABLE to bypass ColumnDictI32 optimization and always get
+    // PredicateColumnType, then compare typeid against the actual dst column.
+    try {
+        auto pred_col = Schema::get_predicate_column_ptr(_reader->get_meta_type(), false,
+                                                         ReaderType::READER_ALTER_TABLE);
+        const auto& pred_inner = unwrap_nullable(*pred_col);
+        if (typeid(inner) == typeid(pred_inner)) {
+            return Status::OK();
+        }
+    } catch (const Exception&) {
+        // Storage type doesn't support PredicateColumnType (e.g., HLL, BITMAP)
+    }
+
+    return Status::InternalError(
+            "Column type mismatch in FileColumnIterator for column '{}': "
+            "storage type is '{}' but got column type '{}'",
+            _column_name, _reader->get_vec_data_type()->get_name(), demangle(typeid(inner).name()));
+}
+
+Status MapFileColumnIterator::check_column_type(const IColumn& dst) const {
+    const auto& inner = unwrap_nullable(dst);
+    const auto* map_col = check_and_get_column<ColumnMap>(inner);
+    if (!map_col) {
+        return Status::InternalError(
+                "Column type mismatch in MapFileColumnIterator for column '{}': "
+                "expected ColumnMap but got {}",
+                _column_name, demangle(typeid(inner).name()));
+    }
+    // Recursively check key and value sub-columns
+    if (_key_iterator) {
+        RETURN_IF_ERROR(_key_iterator->check_column_type(map_col->get_keys()));
+    }
+    if (_val_iterator) {
+        RETURN_IF_ERROR(_val_iterator->check_column_type(map_col->get_values()));
+    }
+    return Status::OK();
+}
+
+Status StructFileColumnIterator::check_column_type(const IColumn& dst) const {
+    const auto& inner = unwrap_nullable(dst);
+    const auto* struct_col = check_and_get_column<ColumnStruct>(inner);
+    if (!struct_col) {
+        return Status::InternalError(
+                "Column type mismatch in StructFileColumnIterator for column '{}': "
+                "expected ColumnStruct but got {}",
+                _column_name, demangle(typeid(inner).name()));
+    }
+    // Enforce exact arity — mismatched tuple size would cause out-of-bounds
+    // access in next_batch which iterates over tuple_size().
+    if (_sub_column_iterators.size() != struct_col->tuple_size()) {
+        return Status::InternalError(
+                "Struct arity mismatch in StructFileColumnIterator for column '{}': "
+                "iterator has {} sub-columns but destination ColumnStruct has {}",
+                _column_name, _sub_column_iterators.size(), struct_col->tuple_size());
+    }
+    // Recursively check each sub-column
+    for (size_t i = 0; i < _sub_column_iterators.size(); ++i) {
+        RETURN_IF_ERROR(_sub_column_iterators[i]->check_column_type(struct_col->get_column(i)));
+    }
+    return Status::OK();
+}
+
+Status ArrayFileColumnIterator::check_column_type(const IColumn& dst) const {
+    const auto& inner = unwrap_nullable(dst);
+    const auto* array_col = check_and_get_column<ColumnArray>(inner);
+    if (!array_col) {
+        return Status::InternalError(
+                "Column type mismatch in ArrayFileColumnIterator for column '{}': "
+                "expected ColumnArray but got {}",
+                _column_name, demangle(typeid(inner).name()));
+    }
+    // Recursively check item sub-column
+    if (_item_iterator) {
+        RETURN_IF_ERROR(_item_iterator->check_column_type(array_col->get_data()));
+    }
+    return Status::OK();
+}
+
+Status RowIdColumnIteratorV2::check_column_type(const IColumn& dst) const {
+    if (!check_and_get_column<ColumnString>(dst)) {
+        return Status::InternalError(
+                "Column type mismatch in RowIdColumnIteratorV2: "
+                "expected ColumnString but got {}",
+                demangle(typeid(dst).name()));
     }
     return Status::OK();
 }

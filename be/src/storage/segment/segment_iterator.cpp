@@ -2253,6 +2253,7 @@ Status SegmentIterator::_read_columns(const std::vector<ColumnId>& column_ids,
         if (_prune_column(cid, column, true, rows_read)) {
             continue;
         }
+        RETURN_IF_ERROR(_column_iterators[cid]->check_column_type(*column));
         RETURN_IF_ERROR(_column_iterators[cid]->next_batch(&rows_read, column));
         if (nrows != rows_read) {
             return Status::Error<ErrorCode::INTERNAL_ERROR>("nrows({}) != rows_read({})", nrows,
@@ -2427,6 +2428,8 @@ Status SegmentIterator::_read_columns_by_index(uint32_t nrows_read_limit, uint16
                 }
             })
         }
+
+        RETURN_IF_ERROR(_column_iterators[cid]->check_column_type(*column));
 
         if (is_continuous) {
             size_t rows_read = nrows_read;
@@ -2811,6 +2814,7 @@ Status SegmentIterator::_read_columns_by_rowids(std::vector<ColumnId>& read_colu
                     "SegmentIterator meet invalid column, return columns size {}, cid {}",
                     _current_return_columns.size(), cid);
         }
+        RETURN_IF_ERROR(_column_iterators[cid]->check_column_type(*_current_return_columns[cid]));
         RETURN_IF_ERROR(_column_iterators[cid]->read_by_rowids(rowids.data(), select_size,
                                                                _current_return_columns[cid]));
     }
