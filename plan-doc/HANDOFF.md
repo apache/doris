@@ -5,7 +5,32 @@
 
 ---
 
-# 🎯 下一个 session 的任务 = **flip-gated e2e 重跑（确认两 branch fix 绿）→ ENG-1 能力孪生审计**
+# 🎯 下一个 session 的任务 = **继续 meta-cache 框架统一迁移（Option A / P1 搬类）**
+
+> **START HERE（2026-07-01 下半 session 用户指定）**：读设计文档
+> **`plan-doc/tasks/designs/metacache-framework-unification-design.md`（尤其 §8 实现进度 + 剩余步骤）**。
+> 用户已定 **Option A**：把 `org.apache.doris.datasource.metacache` 整套框架 + `common.CacheFactory` 搬到**新模块
+> `fe-connector-cache`**（包 `org.apache.doris.connector.cache`，parent-first 单 app-loader 身份），连接器自持 cache，
+> 三个手抄 cache（`IcebergManifestCache`/`IcebergLatestSnapshotCache`/`PaimonLatestSnapshotCache`）改为框架 entry。
+> **P1 skeleton 已完成并 commit**（新模块 pom：caffeine **provided 3.2.3**；注册进 aggregator；fe-core 加依赖；
+> package-info；`-pl fe-connector/fe-connector-cache install` 单独构建 SUCCESS）。
+> **P1 剩余（下一步就干这个，见设计文档 §8）**：① `CacheSpec` 三份合一到 `connector.cache`（校验抛
+> `IllegalArgumentException`，删 `connector.api.cache` 副本、repoint iceberg/paimon provider 的 import）→
+> ② 搬 leaf 类（`MetaCacheEntryStats`/`CatalogEntryGroup`/`ExternalMetaCacheRegistry`/`MetaCacheEntryDef`/
+> `MetaCacheEntryInvalidation`）→ ③ 搬 `CacheFactory`+`MetaCacheEntry`（`Config` 两旋钮改 ctor 注入，改
+> `AbstractExternalMetaCache.newMetaCacheEntry` 传值；`CacheFactory` 保持框架内部不越界）→ ④ 8 个 plugin-zip 加
+> `fe-connector-cache` 排除 → ⑤ 全量构建 + 现有 cache 测试不变。之后 P2–P5（连接器 cache 上框架）见 §5。
+> **⚠️ 安全红线**：`CacheFactory` 公有 API 返回 Caffeine `LoadingCache`——**只能框架内部用，连接器只碰无 Caffeine 的
+> `MetaCacheEntry` API**，否则 Caffeine 对象越界被 child-first 重解析 → ClassCast（memory `plugin-tccl-classloader-gotcha`）。
+> **⚠️ gate false-positive（已澄清，非 blocker）**：`fe-connector-hms/HiveMetaStoreClient.java` import 的
+> `datasource.hive.HiveVersionUtil` 是 **fe-connector-hms 自带的 vendored 同名副本**（非 fe-core），
+> `check-connector-imports.sh` 按包前缀误报；构建单模块 `-pl <m>`（不带 `-am`）可绕过 aggregator gate。
+> **⚠️ 前置校验修复已 commit**（见下一段 meta-cache 属性校验）——`CacheSpec` 现有两份（fe-core `datasource.metacache`
+> + `connector.api.cache`），P1 第①步就是把它们连同新框架合并到 `connector.cache` 一份。
+
+---
+
+# 🎯 （之后）下一个任务 = **flip-gated e2e 重跑（确认两 branch fix 绿）→ ENG-1 能力孪生审计**
 
 > **本 session（2026-07-01）已完成并各自独立 commit 两个产品 bug**（设计 + 完成记录见 `plan-doc/tasks/designs/iceberg-branch-mvcc-and-static-partition-overwrite-fixes.md` 末尾 Status）：
 > - **① complex_queries = 通用 MVCC 快照塌缩 → `de1af7a594e`**：`StatementContext.snapshots` 改按 (ctl,db,table,**版本**) 键化（`MvccTableInfo` 加 version；`loadSnapshots` versionKeyOf 键化；新增版本感知 `getSnapshot(TableIf,ts,sp)` + 版本盲智能回退 default→lone→empty；`MvccUtil` 重载；`PluginDrivenScanNode.pinMvccSnapshot` 改版本感知）。UT 5/5 + mutation 2/2 KILLED + checkstyle。**共享核心，已过 clean-room 3-agent 对抗审（key 稳定/无读者回归/未能 break，无 blocker）**。
@@ -14,6 +39,11 @@
 > - **follow-up 已登记**（设计文档末）：[FU-mvcc-mixed-schema]（同语句同表 schema 分歧→版本盲 base schema 取 main，pre-existing 单 schema 限制；SPI 分区裁剪恒列 latest）、[FU-connector-staticpart-validate]（通用 sink 缺 legacy 静态分区校验，应落连接器侧 fail-loud）。
 >
 > **⚠️ 仍未 commit 的前序工作（勿丢、勿与新工作混提交）**：工作区 `IcebergConnector.java` 仍含**前序 session 的 worker 池 TCCL 修复**（`pinIcebergWorkerPoolToPluginClassLoader`+barrier，已 redeploy 实证）+ 新文件 `IcebergConnectorWorkerPoolPinTest.java`/`TcclPinningConnectorContext.java`+其测试 + `iceberg_branch_tag_edge_cases.groovy` 文案对齐。本 session commit 两 fix 时用 `git apply --cached` 单 hunk 隔离 `IcebergConnector.java`、**未触碰这些前序改动（仍 uncommitted）**。worker 池经验在 memory `catalog-spi-plugin-tccl-classloader-gotcha`（第三 locus）。
+>
+> **⚠️ 本 session（2026-07-01 后半）另做了一个 meta-cache 属性校验修复（未 commit，待用户裁量）**：`test_iceberg_table_meta_cache` 失败——SPI 切换丢了 `ttl-second=-2` 校验（`CacheSpec.checkLongProperty`），新连接器只保留 best-effort 解析。修复=把 `CacheSpec` 表达模式落一份到 **fe-connector-api**（`org.apache.doris.connector.api.cache.CacheSpec`，校验改抛 `IllegalArgumentException`→fe-core `checkProperties` 原样包成 DdlException），iceberg（6 knob）+ paimon（3 knob）的 `validateProperties` 接回校验（字节对齐 legacy `IcebergExternalCatalog`/已删 `PaimonExternalCatalog` 的 checkProperties）；Phase 2 把 iceberg manifest 的手写 `isCacheEnabled`/`propLong`/`getLong` 改用共享 CacheSpec。设计+完成记录 = `plan-doc/tasks/designs/metacache-connector-cachespec-design.md`。**已 unit 全绿（api CacheSpecTest 9/9、Iceberg/Paimon ValidatePropertiesTest 11/15、iceberg 全模块 892/0-fail），checkstyle 净，import gate 我的文件净；docker 两个 meta_cache 回归未跑（无集群）**。**⚠️ staging 坑**：`IcebergScanPlanProvider.java` 有前序未提交 hunk（~L991/L1003，非本任务），我的 Phase 2 改动同文件——独立提交需 `git apply --cached` 单 hunk 隔离。paimon 单测 `deadTableCacheKeyIsAcceptedNotRejected`（断言 dead knob 不校验）已按恢复指令翻成 `rejectsMalformedMetaCacheKnob`。
+>
+> **⚠️ 上述校验修复之后，用户把范围扩大为「整套 metacache 框架统一」**（设计文档 `plan-doc/tasks/designs/metacache-framework-unification-design.md`）：三个连接器手抄 cache（`IcebergManifestCache`/`IcebergLatestSnapshotCache`/`PaimonLatestSnapshotCache`）都是 fe-core 框架 entry 的移植；native iceberg/paimon 的 fe-core `IcebergExternalMetaCache`（含 manifestEntry）**已死**（只 HMS-iceberg 还活），paimon 连 fe-core cache 都没有。**用户已定：Option A**（框架搬到新模块 `fe-connector-cache`，连接器自持 cache）+ 新建 `fe-connector-cache` 模块。关键：`org.apache.doris.connector.*` 是 **parent-first**（`ConnectorPluginManager:64`），框架搬那儿=单 app-loader 身份；`MetaCacheEntry` 对外 API 无 Caffeine 类型 → split-brain 可规避（安全红线：`CacheFactory`/Caffeine 类型不得越界给连接器）。**P1 已完成 skeleton**：建 `fe-connector-cache`（pom caffeine **provided 3.2.3**、注册进 aggregator、fe-core 加依赖、package-info），`-pl fe-connector/fe-connector-cache install` 直接构建 **SUCCESS**。**P1 剩余搬类步骤见设计文档 §8**（CacheSpec 三份合一→其余 leaf→CacheFactory+MetaCacheEntry 改 Config 为 ctor 注入→8 个 plugin-zip 加排除）。
+> **⚠️⚠️ 新暴露的预存在 gate blocker（非本任务引入，但挡住 P1 reactor 构建 + 会挂 CI）**：加新模块使 aggregator 的 build-cache 失效→`check-connector-imports` gate 重跑并 **FAIL**（Phase1/2 只是命中了缓存的 pass）。唯一违规是 commit `4acb5f91e1a` 的 `fe-connector-hms/.../HiveMetaStoreClient.java:21-22` import `datasource.hive.HiveVersionUtil`（补丁版 HMS client）。**需决定**：给该补丁 client 加 gate allowlist，或把 HiveVersionUtil 换个连接器可见的暴露方式。临时绕过：`-pl <module>` 不带 `-am` 单模块构建。
 >
 > **之后 = ENG-1 能力孪生审计**（全部 Medium M-1..M-11 已 ✅），详见下文：
 
