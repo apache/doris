@@ -921,7 +921,7 @@ public class Alter {
     }
 
     private void checkModifyPartitionStoragePolicyResource(OlapTable olapTable, List<String> partitionNames,
-            Map<String, String> properties, boolean isTempPartition) throws AnalysisException {
+            Map<String, String> properties, boolean isTempPartition) throws DdlException, AnalysisException {
         if (!PropertyAnalyzer.hasStoragePolicy(properties)) {
             return;
         }
@@ -930,6 +930,7 @@ public class Alter {
         if (Strings.isNullOrEmpty(newStoragePolicy)) {
             return;
         }
+        Env.getCurrentEnv().getPolicyMgr().checkStoragePolicyExist(newStoragePolicy);
 
         Optional<Policy> newPolicy = Env.getCurrentEnv().getPolicyMgr()
                 .findPolicy(newStoragePolicy, PolicyTypeEnum.STORAGE);
