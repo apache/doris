@@ -46,6 +46,7 @@ import org.mockito.junit.MockitoJUnitRunner;
 
 import java.lang.reflect.Method;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -440,6 +441,14 @@ public class PaimonScanNodeTest {
         Assert.assertEquals(3, backendOptions.size());
     }
 
+    @Test
+    public void testGetFieldIndexMatchesMixedCaseColumns() {
+        List<String> fieldNames = Arrays.asList("data", "mIxEd_COL", "PART");
+
+        Assert.assertEquals(1, PaimonScanNode.getFieldIndex(fieldNames, "mixed_col"));
+        Assert.assertEquals(2, PaimonScanNode.getFieldIndex(fieldNames, "part"));
+        Assert.assertEquals(-1, PaimonScanNode.getFieldIndex(fieldNames, "missing_col"));
+    }
     private void mockJniReader(PaimonScanNode spyNode) {
         Mockito.doReturn(false).when(spyNode).supportNativeReader(ArgumentMatchers.any(Optional.class));
     }

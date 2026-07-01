@@ -520,30 +520,43 @@ public class PaimonScanNode extends FileQueryScanNode {
 
     @VisibleForTesting
     public List<org.apache.paimon.table.source.Split> getPaimonSplitFromAPI() throws UserException {
-        Table paimonTable = getProcessedTable();
-        int[] projected = desc.getSlots().stream().mapToInt(
-                slot -> paimonTable.rowType()
-                        .getFieldNames()
-                        .stream()
-                        .map(String::toLowerCase)
-                        .collect(Collectors.toList())
-                        .indexOf(slot.getColumn().getName()))
-                .filter(i -> i >= 0)
-                .toArray();
-        ReadBuilder readBuilder = paimonTable.newReadBuilder();
-        TableScan scan = readBuilder.withFilter(predicates)
-                .withProjection(projected)
-                .newScan();
-        PaimonMetricRegistry registry = new PaimonMetricRegistry();
-        if (scan instanceof InnerTableScan) {
-            scan = ((InnerTableScan) scan).withMetricsRegistry(registry);
+        long startTime = System.currentTimeMillis();
+        try {
+            Table paimonTable = getProcessedTable();
+            List<String> fieldNames = paimonTable.rowType().getFieldNames();
+            int[] projected = desc.getSlots().stream().mapToInt(
+                    slot -> getFieldIndex(fieldNames, slot.getColumn().getName()))
+                    .filter(i -> i >= 0)
+                    .toArray();
+            ReadBuilder readBuilder = paimonTable.newReadBuilder();
+            TableScan scan = readBuilder.withFilter(predicates)
+                    .withProjection(projected)
+                    .newScan();
+            PaimonMetricRegistry registry = new PaimonMetricRegistry();
+            if (scan instanceof InnerTableScan) {
+                scan = ((InnerTableScan) scan).withMetricsRegistry(registry);
+            }
+            List<org.apache.paimon.table.source.Split> splits = scan.plan().splits();
+            PaimonScanMetricsReporter.report(source.getTargetTable(), paimonTable.name(), registry);
+            if (!registry.getAllGroups().isEmpty()) {
+                registry.clear();
+            }
+            return splits;
+        } finally {
+            if (getSummaryProfile() != null) {
+                getSummaryProfile().addExternalTableGetFileScanTasksTime(System.currentTimeMillis() - startTime);
+            }
         }
-        List<org.apache.paimon.table.source.Split> splits = scan.plan().splits();
-        PaimonScanMetricsReporter.report(source.getTargetTable(), paimonTable.name(), registry);
-        if (!registry.getAllGroups().isEmpty()) {
-            registry.clear();
+    }
+
+    @VisibleForTesting
+    static int getFieldIndex(List<String> fieldNames, String columnName) {
+        for (int i = 0; i < fieldNames.size(); i++) {
+            if (fieldNames.get(i).equalsIgnoreCase(columnName)) {
+                return i;
+            }
         }
-        return splits;
+        return -1;
     }
 
     private String getFileFormat(String path) {

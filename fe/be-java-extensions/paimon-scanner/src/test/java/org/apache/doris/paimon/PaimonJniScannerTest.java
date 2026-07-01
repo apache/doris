@@ -31,6 +31,7 @@ import org.junit.rules.TemporaryFolder;
 import java.io.File;
 import java.lang.reflect.Field;
 import java.lang.reflect.Proxy;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
@@ -224,5 +225,15 @@ public class PaimonJniScannerTest {
         @Override
         public void close() {
         }
+    }
+
+    @Test
+    public void testGetFieldIndexMatchesMixedCaseColumns() {
+        Assert.assertEquals(1, PaimonJniScanner.getFieldIndex(Arrays.asList("data", "mIxEd_COL", "PART"),
+                "mixed_col"));
+        Assert.assertEquals(2, PaimonJniScanner.getFieldIndex(Arrays.asList("data", "mIxEd_COL", "PART"),
+                "part"));
+        Assert.assertEquals(-1, PaimonJniScanner.getFieldIndex(Arrays.asList("data", "mIxEd_COL", "PART"),
+                "missing_col"));
     }
 }
