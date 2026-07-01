@@ -50,8 +50,9 @@ public class SkewJoin extends OneRewriteRuleFactory {
     public Rule build() {
         return logicalJoin()
                 .when(join -> join.getJoinType().isOneSideOuterJoin()
-                        || join.getJoinType().isInnerJoin() || join.getJoinType().isAsofJoin())
+                        || join.getJoinType().isInnerJoin())
                 .when(join -> join.getDistributeHint().distributeType == DistributeType.NONE)
+                .whenNot(join -> join.getJoinReorderContext().isSaltJoinGenerated())
                 .whenNot(LogicalJoin::isMarkJoin)
                 .thenApply(SkewJoin::transform).toRule(RuleType.SALT_JOIN);
     }
@@ -81,15 +82,14 @@ public class SkewJoin extends OneRewriteRuleFactory {
         if (join.left().getOutputSet().contains(equal.right())) {
             equal = equal.commute();
         }
-        if (join.getJoinType().isInnerJoin() || join.getJoinType().isLeftOuterJoin()
-                || join.getJoinType().isAsofInnerJoin() || join.getJoinType().isAsofLeftOuterJoin()) {
+        if (join.getJoinType().isInnerJoin() || join.getJoinType().isLeftOuterJoin()) {
             Expression leftEqHand = equal.child(0);
             if (left.getStats().findColumnStatistics(leftEqHand) != null
                     && left.getStats().findColumnStatistics(leftEqHand).getHotValues() != null) {
                 skewExpr = leftEqHand;
                 hotValues.addAll(left.getStats().findColumnStatistics(leftEqHand).getHotValues().keySet());
             }
-        } else if (join.getJoinType().isRightOuterJoin() || join.getJoinType().isAsofRightOuterJoin()) {
+        } else if (join.getJoinType().isRightOuterJoin()) {
             Expression rightEqHand = equal.child(1);
             if (right.getStats().findColumnStatistics(rightEqHand) != null
                     && right.getStats().findColumnStatistics(rightEqHand).getHotValues() != null) {
