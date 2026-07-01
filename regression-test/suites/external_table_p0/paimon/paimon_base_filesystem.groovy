@@ -106,17 +106,20 @@ suite("paimon_base_filesystem", "p0,external") {
         sql """SELECT * FROM all_table\$snapshots;"""
 
         sql """ switch ${catalog_obs} """
-        sql """ show databases """
-        sql """ use ${catalog_obs}.db1 """
-        // sql """ show tables """
-        // batch incremental
-        sql """SELECT * FROM all_table @incr('startTimestamp'='876488912')"""
-        // time travel
-        sql """SELECT * FROM all_table FOR VERSION AS OF 1;"""
-        // branch/tag
-        // TODO(zgx): add branch/tag
-        // system table
-        sql """SELECT * FROM all_table\$snapshots;"""
+        // OBS cross-region (HK -> Beijing cn-north-4) network may be unstable, retry data access
+        retry(5, 3000) {
+            sql """ show databases """
+            sql """ use ${catalog_obs}.db1 """
+            // sql """ show tables """
+            // batch incremental
+            sql """SELECT * FROM all_table @incr('startTimestamp'='876488912')"""
+            // time travel
+            sql """SELECT * FROM all_table FOR VERSION AS OF 1;"""
+            // branch/tag
+            // TODO(zgx): add branch/tag
+            // system table
+            sql """SELECT * FROM all_table\$snapshots;"""
+        }
 
         sql """ switch ${catalog_cos} """
         sql """ show databases """
@@ -147,13 +150,13 @@ suite("paimon_base_filesystem", "p0,external") {
 
         sql """set force_jni_scanner=false"""
         qt_oss oss
-        qt_obs obs
+        retry(5, 3000) { qt_obs obs }
         qt_cos cos
         qt_cosn cosn
 
         sql """set force_jni_scanner=true"""
         qt_oss oss
-        qt_obs obs
+        retry(5, 3000) { qt_obs obs }
         qt_cos cos
         qt_cosn cosn
 
