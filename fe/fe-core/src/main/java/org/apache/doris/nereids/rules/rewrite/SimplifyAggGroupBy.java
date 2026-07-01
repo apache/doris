@@ -104,11 +104,11 @@ public class SimplifyAggGroupBy extends OneRewriteRuleFactory {
             return false;
         }
 
-        return checkLiteral(expr, literal);
+        return checkLiteral((BinaryArithmetic) expr, literal);
     }
 
     @VisibleForTesting
-    protected static boolean checkLiteral(Expression expr, Literal literal) {
+    protected static boolean checkLiteral(BinaryArithmetic expr, Literal literal) {
         if (literal.isNullLiteral()) {
             return false;
         }
