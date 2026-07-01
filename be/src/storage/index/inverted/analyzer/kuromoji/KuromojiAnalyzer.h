@@ -37,7 +37,7 @@ public:
 
     bool isSDocOpt() override { return true; }
 
-    // Loads (once, process-wide) the IPADIC dictionary from `dictPath`. 
+    // Loads (once, process-wide) the IPADIC dictionary from `dictPath`.
     void initDict(const std::string& dictPath) override {
         dict_ = inverted_index::kuromoji::KuromojiDictionary::get_or_load(dictPath);
         if (dict_ == nullptr) {
