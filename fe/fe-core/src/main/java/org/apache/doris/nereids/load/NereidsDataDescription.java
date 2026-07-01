@@ -990,9 +990,11 @@ public class NereidsDataDescription {
         }
     }
 
-    // Change all the columns name to lower case, because Doris column is case-insensitive.
+    // Change text-format column names to lower case, because Doris column is case-insensitive.
     private void columnsNameToLowerCase(List<String> columns) {
-        if (columns == null || columns.isEmpty() || "json".equals(analysisMap.get(FileFormatProperties.PROP_FORMAT))) {
+        String format = analysisMap.get(FileFormatProperties.PROP_FORMAT);
+        if (columns == null || columns.isEmpty()
+                || "json".equalsIgnoreCase(format) || "arrow".equalsIgnoreCase(format)) {
             return;
         }
         for (int i = 0; i < columns.size(); i++) {

@@ -204,7 +204,8 @@ public class NereidsLoadScanProvider {
                     continue;
                 }
                 NereidsImportColumnDesc columnDesc;
-                if (fileGroup.getFileFormatProperties().getFileFormatType() == TFileFormatType.FORMAT_JSON) {
+                TFileFormatType fileFormatType = fileGroup.getFileFormatProperties().getFileFormatType();
+                if (shouldPreserveSourceColumnName(fileFormatType)) {
                     columnDesc = new NereidsImportColumnDesc(column.getName());
                 } else {
                     columnDesc = new NereidsImportColumnDesc(column.getName().toLowerCase());
@@ -370,8 +371,14 @@ public class NereidsLoadScanProvider {
                 Column slotColumn;
                 TFileFormatType fileFormatType = fileGroup.getFileFormatProperties().getFileFormatType();
                 // Use real column type for arrow/native format, other formats read as varchar first
-                if (fileFormatType == TFileFormatType.FORMAT_ARROW
-                        || fileFormatType == TFileFormatType.FORMAT_NATIVE) {
+                if (fileFormatType == TFileFormatType.FORMAT_ARROW) {
+                    Type slotType = tblColumn == null ? colToType.get(realColName) : tblColumn.getType();
+                    if (slotType == null) {
+                        throw new AnalysisException("Unknown column " + realColName + " in table " + tbl.getName()
+                                + " for " + fileFormatType + " load");
+                    }
+                    slotColumn = new Column(realColName, slotType, true);
+                } else if (fileFormatType == TFileFormatType.FORMAT_NATIVE) {
                     slotColumn = new Column(realColName, colToType.get(realColName), true);
                 } else {
                     if (fileGroupInfo.getUniqueKeyUpdateMode() == TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS
@@ -417,6 +424,11 @@ public class NereidsLoadScanProvider {
             }
             context.exprMap.put(column.getName(), new NullLiteral(DataType.fromCatalogType(column.getType())));
         }
+    }
+
+    private boolean shouldPreserveSourceColumnName(TFileFormatType fileFormatType) {
+        return fileFormatType == TFileFormatType.FORMAT_JSON
+                || fileFormatType == TFileFormatType.FORMAT_ARROW;
     }
 
     /**
