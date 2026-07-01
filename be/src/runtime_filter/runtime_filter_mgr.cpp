@@ -67,13 +67,17 @@ Status RuntimeFilterMgr::register_consumer_filter(
     SCOPED_CONSUME_MEM_TRACKER(_tracker.get());
     int32_t key = desc.filter_id;
 
-    std::lock_guard<std::mutex> l(_lock);
-    RETURN_IF_ERROR(RuntimeFilterConsumer::create(query_ctx, &desc, node_id, consumer));
-    _consumer_map[key].push_back(*consumer);
+    std::shared_ptr<RuntimeFilterConsumer> new_consumer;
+    RETURN_IF_ERROR(RuntimeFilterConsumer::create(query_ctx, &desc, node_id, &new_consumer));
+    {
+        std::lock_guard<std::mutex> l(_lock);
+        _consumer_map[key].push_back(new_consumer);
+    }
+    *consumer = new_consumer;
     return Status::OK();
 }
 
-Status RuntimeFilterMgr::register_local_merger_producer_filter(
+Status RuntimeFilterMgr::register_local_merge_producer_filter(
         const QueryContext* query_ctx, const TRuntimeFilterDesc& desc,
         std::shared_ptr<RuntimeFilterProducer> producer) {
     if (!_is_global) [[unlikely]] {
@@ -89,44 +93,49 @@ Status RuntimeFilterMgr::register_local_merger_producer_filter(
     SCOPED_CONSUME_MEM_TRACKER(_tracker.get());
     int32_t key = desc.filter_id;
 
-    LocalMergeContext* context;
+    std::shared_ptr<LocalMergeContext> context;
+    std::shared_ptr<RuntimeFilterMerger> merger;
+    int expected_producer_num = 0;
     {
         std::lock_guard<std::mutex> l(_lock);
-        context = &_local_merge_map[key]; // may inplace construct default object
+        auto iter = _local_merge_map.find(key);
+        if (iter == _local_merge_map.end()) {
+            auto new_context = std::make_shared<LocalMergeContext>();
+            RETURN_IF_ERROR(RuntimeFilterMerger::create(query_ctx, &desc, &new_context->merger));
+            _local_merge_map.emplace(key, new_context);
+            context = new_context;
+        } else {
+            DORIS_CHECK(iter->second);
+            context = iter->second;
+        }
+
+        context->producers.emplace_back(producer);
+        merger = context->merger;
+        expected_producer_num = cast_set<int>(context->producers.size());
     }
 
-    RETURN_IF_ERROR(context->register_producer(query_ctx, &desc, producer));
+    merger->increase_expected_producer_num(expected_producer_num);
     return Status::OK();
 }
 
-Status LocalMergeContext::register_producer(const QueryContext* query_ctx,
-                                            const TRuntimeFilterDesc* desc,
-                                            std::shared_ptr<RuntimeFilterProducer> producer) {
-    std::lock_guard<std::mutex> l(mtx);
-    if (!merger) {
-        RETURN_IF_ERROR(RuntimeFilterMerger::create(query_ctx, desc, &merger));
-    }
-    producers.emplace_back(producer);
-    merger->set_expected_producer_num(cast_set<int>(producers.size()));
-    return Status::OK();
-}
-
-Status RuntimeFilterMgr::get_local_merge_producer_filters(int filter_id,
-                                                          LocalMergeContext** local_merge_filters) {
+Status RuntimeFilterMgr::get_local_merge_context(int filter_id,
+                                                 std::shared_ptr<LocalMergeContext>* context) {
     if (!_is_global) [[unlikely]] {
         return Status::InternalError(
                 "A local merge filter can not be registered in Local RuntimeFilterMgr");
     }
+    context->reset();
     std::lock_guard<std::mutex> l(_lock);
     auto iter = _local_merge_map.find(filter_id);
     if (iter == _local_merge_map.end()) {
         return Status::InternalError(
-                "get_local_merge_producer_filters meet unknown filter: {}, role: "
+                "get_local_merge_context meet unknown filter: {}, role: "
                 "LOCAL_MERGE_PRODUCER.",
                 filter_id);
     }
-    *local_merge_filters = &iter->second;
-    DCHECK(iter->second.merger);
+    DORIS_CHECK(iter->second);
+    DORIS_CHECK(iter->second->merger);
+    *context = iter->second;
     return Status::OK();
 }
 
@@ -140,12 +149,22 @@ Status RuntimeFilterMgr::register_producer_filter(
     SCOPED_CONSUME_MEM_TRACKER(_tracker.get());
     int32_t key = desc.filter_id;
 
-    std::lock_guard<std::mutex> l(_lock);
-    if (_producer_id_set.contains(key)) {
-        return Status::InvalidArgument("filter {} has been registered", key);
+    {
+        std::lock_guard<std::mutex> l(_lock);
+        if (_producer_id_set.contains(key)) {
+            return Status::InvalidArgument("filter {} has been registered", key);
+        }
     }
-    RETURN_IF_ERROR(RuntimeFilterProducer::create(query_ctx, &desc, producer));
-    _producer_id_set.insert(key);
+    std::shared_ptr<RuntimeFilterProducer> new_producer;
+    RETURN_IF_ERROR(RuntimeFilterProducer::create(query_ctx, &desc, &new_producer));
+    {
+        std::lock_guard<std::mutex> l(_lock);
+        if (_producer_id_set.contains(key)) {
+            return Status::InvalidArgument("filter {} has been registered", key);
+        }
+        _producer_id_set.insert(key);
+    }
+    *producer = new_producer;
     return Status::OK();
 }
 
@@ -184,7 +203,7 @@ Status RuntimeFilterMergeControllerEntity::_init_with_desc(
     cnt_val->targetv2_info = targetv2_info;
     RETURN_IF_ERROR(
             RuntimeFilterMerger::create(query_ctx.get(), runtime_filter_desc, &cnt_val->merger));
-    cnt_val->merger->set_expected_producer_num(producer_size);
+    cnt_val->merger->increase_expected_producer_num(producer_size);
 
     return Status::OK();
 }
@@ -276,9 +295,9 @@ Status RuntimeFilterMergeControllerEntity::send_filter_size(std::shared_ptr<Quer
 }
 
 Status RuntimeFilterMgr::sync_filter_size(const PSyncFilterSizeRequest* request) {
-    LocalMergeContext* local_merge_filters = nullptr;
-    RETURN_IF_ERROR(get_local_merge_producer_filters(request->filter_id(), &local_merge_filters));
-    for (auto producer : local_merge_filters->producers) {
+    std::shared_ptr<LocalMergeContext> context;
+    RETURN_IF_ERROR(get_local_merge_context(request->filter_id(), &context));
+    for (const auto& producer : context->producers) {
         producer->set_synced_size(request->filter_size());
     }
     return Status::OK();
@@ -286,18 +305,32 @@ Status RuntimeFilterMgr::sync_filter_size(const PSyncFilterSizeRequest* request)
 
 std::string RuntimeFilterMgr::debug_string() {
     std::string result = "Local Merger Info:\n";
-    std::lock_guard l(_lock);
-    for (const auto& [filter_id, ctx] : _local_merge_map) {
+    struct LocalMergeContextSnapshot {
+        std::shared_ptr<RuntimeFilterMerger> merger;
+        std::vector<std::shared_ptr<RuntimeFilterProducer>> producers;
+    };
+    std::vector<LocalMergeContextSnapshot> local_merge_contexts;
+    std::vector<std::shared_ptr<RuntimeFilterConsumer>> consumers;
+    {
+        std::lock_guard l(_lock);
+        for (const auto& [filter_id, ctx] : _local_merge_map) {
+            DORIS_CHECK(ctx);
+            DORIS_CHECK(ctx->merger);
+            local_merge_contexts.push_back({ctx->merger, ctx->producers});
+        }
+        for (const auto& [filter_id, filter_consumers] : _consumer_map) {
+            consumers.insert(consumers.end(), filter_consumers.begin(), filter_consumers.end());
+        }
+    }
+    for (const auto& ctx : local_merge_contexts) {
         result += fmt::format("{}\n", ctx.merger->debug_string());
         for (const auto& producer : ctx.producers) {
             result += fmt::format("{}\n", producer->debug_string());
         }
     }
     result += "Consumer Info:\n";
-    for (const auto& [filter_id, consumers] : _consumer_map) {
-        for (const auto& consumer : consumers) {
-            result += fmt::format("{}\n", consumer->debug_string());
-        }
+    for (const auto& consumer : consumers) {
+        result += fmt::format("{}\n", consumer->debug_string());
     }
     return result;
 }
@@ -333,10 +366,9 @@ Status RuntimeFilterMergeControllerEntity::merge(std::shared_ptr<QueryContext> q
 
         RETURN_IF_ERROR(tmp_filter->assign(*request, attach_data));
 
-        RETURN_IF_ERROR(cnt_val.merger->merge_from(tmp_filter.get()));
+        RETURN_IF_ERROR(cnt_val.merger->merge_from(tmp_filter.get(), &is_ready));
 
         cnt_val.arrive_id.insert(UniqueId(request->fragment_instance_id()));
-        is_ready = cnt_val.merger->ready(); // update is_ready in locked scope
     }
 
     if (is_ready) {
