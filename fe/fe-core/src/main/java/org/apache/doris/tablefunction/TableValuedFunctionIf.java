@@ -59,6 +59,8 @@ public abstract class TableValuedFunctionIf {
                 return new LocalTableValuedFunction(params);
             case HudiTableValuedFunction.NAME:
                 return new HudiTableValuedFunction(params);
+            case IcebergTableValuedFunction.NAME:
+                return new IcebergTableValuedFunction(params);
             case BackendsTableValuedFunction.NAME:
                 return new BackendsTableValuedFunction(params);
             case FrontendsTableValuedFunction.NAME:
