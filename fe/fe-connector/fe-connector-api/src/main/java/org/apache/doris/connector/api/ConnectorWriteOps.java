@@ -21,6 +21,8 @@ import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.api.handle.ConnectorTransaction;
 import org.apache.doris.connector.api.handle.WriteOperation;
 
+import java.util.List;
+
 /**
  * Write (DML) operations that a connector may support.
  *
@@ -89,6 +91,24 @@ public interface ConnectorWriteOps {
      */
     default void validateRowLevelDmlMode(ConnectorSession session, ConnectorTableHandle handle, WriteOperation op) {
         // default: no per-table mode constraint
+    }
+
+    /**
+     * Validates that every column named in a static-partition spec ({@code INSERT [OVERWRITE] ... PARTITION
+     * (col=val)}) is a legal static-partition target on {@code handle}, throwing a {@link DorisConnectorException}
+     * with a connector-authored message otherwise. Called at analysis time, before synthesizing the write plan,
+     * so the engine rejects an unknown / non-identity / unpartitioned static-partition column up front (fail
+     * loud) rather than letting it slip through to physical planning.
+     *
+     * <p>The default accepts everything: connectors with no static-partition concept (e.g. name-mapped JDBC)
+     * need not override. A connector that supports {@code PARTITION(...)} writes and can reject a column (e.g.
+     * iceberg, where only identity partition fields may be targeted statically) MUST override this and throw, so
+     * the rejection — and its message — stay in the connector rather than being drafted by the engine. {@code
+     * staticPartitionColumnNames} is the set of column names from the PARTITION clause.</p>
+     */
+    default void validateStaticPartitionColumns(ConnectorSession session, ConnectorTableHandle handle,
+            List<String> staticPartitionColumnNames) {
+        // default: no static-partition constraint
     }
 
     // ──────────────────── TRANSACTION ────────────────────

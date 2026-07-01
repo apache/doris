@@ -33,7 +33,12 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
+import org.apache.doris.connector.api.ConnectorMetadata;
+import org.apache.doris.connector.api.ConnectorSession;
+import org.apache.doris.connector.api.DorisConnectorException;
+import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.datasource.ExternalDatabase;
+import org.apache.doris.datasource.PluginDrivenExternalCatalog;
 import org.apache.doris.datasource.PluginDrivenExternalTable;
 import org.apache.doris.datasource.doris.RemoteDorisExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalDatabase;
@@ -873,6 +878,46 @@ public class BindSink implements AnalysisRuleFactory {
         }
     }
 
+    /**
+     * Connector analogue of {@link #validateStaticPartition}: validates a flipped-connector table's
+     * static-partition spec through the neutral {@code ConnectorMetadata#validateStaticPartitionColumns} SPI, so
+     * the partition-spec knowledge (unknown column / non-identity transform / unpartitioned) and its messages
+     * stay in the connector (iceberg). A connector {@link DorisConnectorException} is surfaced as the
+     * analysis-time {@link AnalysisException} the legacy native path threw, preserving the user-facing message
+     * and the exception type. The literal-value check is connector-agnostic and stays here, where the Nereids
+     * expression is available. Plumbing mirrors {@code IcebergRowLevelDmlTransform.checkPluginMode}.
+     */
+    private void checkConnectorStaticPartitions(PluginDrivenExternalTable table,
+            Map<String, Expression> staticPartitions, Set<String> staticPartitionColNames) {
+        if (staticPartitions == null || staticPartitions.isEmpty()) {
+            return;
+        }
+        if (!(table.getCatalog() instanceof PluginDrivenExternalCatalog)) {
+            return;
+        }
+        PluginDrivenExternalCatalog catalog = (PluginDrivenExternalCatalog) table.getCatalog();
+        ConnectorSession session = catalog.buildConnectorSession();
+        ConnectorMetadata metadata = catalog.getConnector().getMetadata(session);
+        ConnectorTableHandle handle = metadata.getTableHandle(
+                        session, table.getRemoteDbName(), table.getRemoteName())
+                .orElseThrow(() -> new AnalysisException("Table not found: "
+                        + table.getRemoteDbName() + "." + table.getRemoteName()
+                        + " in catalog " + catalog.getName()));
+        try {
+            metadata.validateStaticPartitionColumns(session, handle, new ArrayList<>(staticPartitionColNames));
+        } catch (DorisConnectorException e) {
+            throw new AnalysisException(e.getMessage(), e);
+        }
+        // Partition values must be literals (mirrors legacy validateStaticPartition check #3; connector-agnostic).
+        for (Map.Entry<String, Expression> entry : staticPartitions.entrySet()) {
+            if (!(entry.getValue() instanceof Literal)) {
+                throw new AnalysisException(String.format(
+                        "Partition value for column '%s' must be a literal, but got: %s",
+                        entry.getKey(), entry.getValue()));
+            }
+        }
+    }
+
     private Plan bindConnectorTableSink(MatchingContext<UnboundConnectorTableSink<Plan>> ctx) {
         UnboundConnectorTableSink<?> sink = ctx.root;
         Pair<ExternalDatabase, PluginDrivenExternalTable> pair = bind(ctx.cascadesContext, sink);
@@ -887,6 +932,13 @@ public class BindSink implements AnalysisRuleFactory {
         Set<String> staticPartitionColNames = staticPartitions != null
                 ? staticPartitions.keySet()
                 : Sets.newHashSet();
+
+        // Validate the static-partition spec against the connector's partition metadata (unknown column /
+        // non-identity transform / unpartitioned table) via the neutral SPI, so the iceberg PartitionSpec
+        // knowledge and its messages stay in the connector — the legacy validateStaticPartition is dead on this
+        // path. Fail loud at analysis time, before the write plan is synthesized (otherwise an unknown column is
+        // silently swallowed by the materialize block below and surfaces as an unrelated planning error).
+        checkConnectorStaticPartitions(table, staticPartitions, staticPartitionColNames);
 
         List<Column> bindColumns = selectConnectorSinkBindColumns(
                 table, sink.getColNames(), staticPartitionColNames, sink.isRewrite());
@@ -903,7 +955,10 @@ public class BindSink implements AnalysisRuleFactory {
                 Optional.empty(),
                 child);
         if (boundSink.getCols().size() != child.getOutput().size()) {
-            throw new AnalysisException("insert into cols should be corresponding to the query output");
+            // Carry the "Expected N columns but got M" detail that legacy (and the sibling count-check in this
+            // file) emit; the terser form dropped it on the connector path.
+            throw new AnalysisException("insert into cols should be corresponding to the query output. "
+                    + "Expected " + boundSink.getCols().size() + " columns but got " + child.getOutput().size());
         }
         if (table.requiresFullSchemaWriteOrder()) {
             // Positional-write connector (e.g. MaxCompute): its BE writer maps data columns positionally

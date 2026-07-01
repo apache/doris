@@ -1350,6 +1350,47 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
     }
 
     /**
+     * Rejects an illegal static-partition column on {@code INSERT [OVERWRITE] ... PARTITION (col=val)}: the
+     * column must be an <em>identity</em> partition field of this (partitioned) table. Mirrors the legacy
+     * fe-resident {@code BindSink.validateStaticPartition} (now dead on the connector-driven path), but the
+     * iceberg {@link PartitionSpec} knowledge and the messages live in the connector. The lookup is keyed by
+     * partition <em>field</em> name (e.g. {@code category_bucket} for {@code bucket(4, category)}), matching
+     * legacy — so a source-column name that is not itself an identity field reads as "Unknown partition column".
+     */
+    @Override
+    public void validateStaticPartitionColumns(ConnectorSession session, ConnectorTableHandle handle,
+            List<String> staticPartitionColumnNames) {
+        if (staticPartitionColumnNames == null || staticPartitionColumnNames.isEmpty()) {
+            return;
+        }
+        IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
+        Table table = loadTable(iceHandle);
+        PartitionSpec spec = table.spec();
+        String tableName = iceHandle.getTableName();
+        if (!spec.isPartitioned()) {
+            throw new DorisConnectorException(String.format(
+                    "Table %s is not partitioned, cannot use static partition syntax", tableName));
+        }
+        Map<String, PartitionField> partitionFieldMap = new HashMap<>();
+        for (PartitionField field : spec.fields()) {
+            partitionFieldMap.put(field.name(), field);
+        }
+        for (String colName : staticPartitionColumnNames) {
+            PartitionField field = partitionFieldMap.get(colName);
+            if (field == null) {
+                throw new DorisConnectorException(String.format(
+                        "Unknown partition column '%s' in table '%s'. Available partition columns: %s",
+                        colName, tableName, partitionFieldMap.keySet()));
+            }
+            if (!field.transform().isIdentity()) {
+                throw new DorisConnectorException(String.format(
+                        "Cannot use static partition syntax for non-identity partition field '%s'"
+                                + " (transform: %s).", colName, field.transform().toString()));
+            }
+        }
+    }
+
+    /**
      * Iceberg supports INSERT OVERWRITE: the overwrite flag rides the write handle into
      * {@code IcebergWritePlanProvider.planWrite} (promoting INSERT&rarr;OVERWRITE) and the commit-time
      * {@code IcebergConnectorTransaction} maps it to the SDK overwrite ops (dynamic

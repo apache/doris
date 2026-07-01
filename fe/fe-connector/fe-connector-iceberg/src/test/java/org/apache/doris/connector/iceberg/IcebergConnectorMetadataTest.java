@@ -227,6 +227,84 @@ public class IcebergConnectorMetadataTest {
                 md.validateRowLevelDmlMode(null, new IcebergTableHandle("db1", "t1"), WriteOperation.OVERWRITE));
     }
 
+    /** A metadata over a single table {@code db1.t1} with the given schema + partition spec. */
+    private static IcebergConnectorMetadata metadataWithSpec(Schema schema, PartitionSpec spec) {
+        RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();
+        ops.table = new FakeIcebergTable("t1", schema, spec, "s3://bucket/db1/t1", Collections.emptyMap());
+        return metadataWith(ops);
+    }
+
+    @Test
+    public void validateStaticPartitionColumnsAcceptsIdentityColumn() {
+        // WHY: static-partition overwrite (INSERT OVERWRITE ... PARTITION(col=val)) is legal only on an IDENTITY
+        // partition field. With the iceberg router flipped this validation moved out of the (now dead) fe-resident
+        // BindSink.validateStaticPartition into the connector; an identity field must be accepted so valid static
+        // overwrites plan. MUTATION: throwing unconditionally -> every static overwrite rejected -> red.
+        Schema schema = idNameSchema();
+        IcebergConnectorMetadata md = metadataWithSpec(schema,
+                PartitionSpec.builderFor(schema).identity("name").bucket("id", 8).build());
+        Assertions.assertDoesNotThrow(() -> md.validateStaticPartitionColumns(
+                null, new IcebergTableHandle("db1", "t1"), Collections.singletonList("name")));
+    }
+
+    @Test
+    public void validateStaticPartitionColumnsRejectsUnknownColumn() {
+        // WHY: a PARTITION(col=..) naming a column that is not a partition FIELD must fail loud at analysis time
+        // (byte-identical to legacy validateStaticPartition), else the unknown column is silently swallowed by the
+        // sink's materialize block and surfaces as an unrelated planning error ("Cannot find snapshot"). The lookup
+        // is keyed by partition FIELD name, so "id" (the bucket's SOURCE column, not a field) is also "unknown" —
+        // mirroring regression test_iceberg_static_partition_overwrite TC29 PARTITION(category) over bucket(category).
+        // MUTATION: dropping the containsKey/null check -> unknown column admitted -> red.
+        Schema schema = idNameSchema();
+        IcebergConnectorMetadata md = metadataWithSpec(schema,
+                PartitionSpec.builderFor(schema).identity("name").bucket("id", 8).build());
+        for (String bad : new String[] {"invalid_col", "id"}) {
+            DorisConnectorException e = Assertions.assertThrows(DorisConnectorException.class,
+                    () -> md.validateStaticPartitionColumns(
+                            null, new IcebergTableHandle("db1", "t1"), Collections.singletonList(bad)));
+            Assertions.assertTrue(e.getMessage().contains("Unknown partition column"), e.getMessage());
+        }
+    }
+
+    @Test
+    public void validateStaticPartitionColumnsRejectsNonIdentityField() {
+        // WHY: a bucket/truncate/temporal partition FIELD exists in the spec, but static overwrite of a
+        // non-identity transform is unsupported and must be rejected with the connector-authored message. The
+        // bucket field is named "id_bucket" (iceberg default). MUTATION: dropping the isIdentity check -> a
+        // non-identity static overwrite silently admitted -> red.
+        Schema schema = idNameSchema();
+        IcebergConnectorMetadata md = metadataWithSpec(schema,
+                PartitionSpec.builderFor(schema).identity("name").bucket("id", 8).build());
+        DorisConnectorException e = Assertions.assertThrows(DorisConnectorException.class,
+                () -> md.validateStaticPartitionColumns(
+                        null, new IcebergTableHandle("db1", "t1"), Collections.singletonList("id_bucket")));
+        Assertions.assertTrue(
+                e.getMessage().contains("Cannot use static partition syntax for non-identity partition field"),
+                e.getMessage());
+    }
+
+    @Test
+    public void validateStaticPartitionColumnsRejectsUnpartitionedTable() {
+        // WHY: static partition syntax is meaningless on an unpartitioned table; legacy rejected it up front with
+        // a dedicated message. MUTATION: dropping the isPartitioned guard -> an empty partitionFieldMap makes every
+        // column read as "Unknown partition column" (wrong message) -> red.
+        IcebergConnectorMetadata md = metadataWithSpec(idNameSchema(), PartitionSpec.unpartitioned());
+        DorisConnectorException e = Assertions.assertThrows(DorisConnectorException.class,
+                () -> md.validateStaticPartitionColumns(
+                        null, new IcebergTableHandle("db1", "t1"), Collections.singletonList("name")));
+        Assertions.assertTrue(e.getMessage().contains("is not partitioned"), e.getMessage());
+    }
+
+    @Test
+    public void validateStaticPartitionColumnsEmptyIsNoOp() {
+        // An absent PARTITION clause is a plain (non-static) write: validate must early-return without even loading
+        // the table, so an unpartitioned table is NOT rejected. MUTATION: removing the empty early return ->
+        // unpartitioned plain writes wrongly rejected -> red.
+        IcebergConnectorMetadata md = metadataWithSpec(idNameSchema(), PartitionSpec.unpartitioned());
+        Assertions.assertDoesNotThrow(() -> md.validateStaticPartitionColumns(
+                null, new IcebergTableHandle("db1", "t1"), Collections.emptyList()));
+    }
+
     @Test
     public void declaresInsertOverwriteCapability() {
         // WHY: iceberg's write path fully implements OVERWRITE (the overwrite flag rides the write handle
