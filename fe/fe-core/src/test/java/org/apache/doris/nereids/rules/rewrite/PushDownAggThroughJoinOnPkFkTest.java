@@ -157,6 +157,20 @@ class PushDownAggThroughJoinOnPkFkTest extends TestWithFeService implements Memo
     }
 
     @Test
+    void testCountStar() {
+        // Regression: COUNT(*) has no children, and calling child(0) on it
+        // would throw ArrayIndexOutOfBoundsException if not guarded by arity() > 0
+        String sql = "select count(*), pri.name from pri inner join foreign_not_null\n"
+                + "on pri.id1 = foreign_not_null.id2\n"
+                + "group by pri.id1, pri.name, foreign_not_null.id2";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .matches(logicalJoin(logicalAggregate(), any()))
+                .printlnTree();
+    }
+
+    @Test
     void testMissSlot() {
         String sql = "select count(pri.name) from pri inner join foreign_not_null on pri.name = foreign_not_null.name";
         PlanChecker.from(connectContext)
