@@ -31,9 +31,11 @@
 #include "common/exception.h"
 #include "common/logging.h"
 #include "common/status.h"
+#include "cpp/sync_point.h"
 #include "io/fs/file_writer.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/beta_rowset_writer.h" // SegmentStatistics
+#include "olap/rowset/segment_v2/segment_index_file_cache_loader.h"
 #include "olap/rowset/segment_v2/segment_writer.h"
 #include "olap/rowset/segment_v2/vertical_segment_writer.h"
 #include "olap/tablet_schema.h"
@@ -114,8 +116,25 @@ Status SegmentFlusher::_internal_parse_variant_columns(vectorized::Block& block)
 
 Status SegmentFlusher::close() {
     RETURN_IF_ERROR(_seg_files.close());
+    RETURN_IF_ERROR(_preload_segment_indexes_to_file_cache());
     RETURN_IF_ERROR(_idx_files.finish_close());
     return Status::OK();
+}
+
+void SegmentFlusher::_record_segment_index_file_cache_preload(
+        uint32_t segment_id, const segment_v2::SegmentIndexFileCacheInfo& info) {
+    std::lock_guard lock(_segment_index_file_cache_preloads_lock);
+    _segment_index_file_cache_preloads.push_back({segment_id, info});
+}
+
+Status SegmentFlusher::_preload_segment_indexes_to_file_cache() {
+    std::vector<segment_v2::SegmentIndexFileCachePreloadTask> tasks;
+    {
+        std::lock_guard lock(_segment_index_file_cache_preloads_lock);
+        tasks.swap(_segment_index_file_cache_preloads);
+    }
+    return segment_v2::SegmentIndexFileCacheLoader::preload_segment_indexes_to_file_cache(_context,
+                                                                                          tasks);
 }
 
 Status SegmentFlusher::_add_rows(std::unique_ptr<segment_v2::SegmentWriter>& segment_writer,
@@ -230,7 +249,8 @@ Status SegmentFlusher::_flush_segment_writer(
     finalize_timer.start();
     uint64_t segment_file_size;
     uint64_t common_index_size;
-    Status s = writer->finalize(&segment_file_size, &common_index_size);
+    segment_v2::SegmentIndexFileCacheInfo index_file_cache_info;
+    Status s = writer->finalize(&segment_file_size, &common_index_size, &index_file_cache_info);
     finalize_timer.stop();
 
     if (!s.ok()) {
@@ -258,6 +278,7 @@ Status SegmentFlusher::_flush_segment_writer(
     key_bounds.set_max_key(max_key.to_string());
 
     uint32_t segment_id = writer->segment_id();
+    TEST_SYNC_POINT_CALLBACK("SegmentFlusher::flush_vertical_segment_writer", &segment_id);
     SegmentStatistics segstat;
     segstat.row_num = row_num;
     segstat.data_size = segment_file_size;
@@ -265,6 +286,7 @@ Status SegmentFlusher::_flush_segment_writer(
     segstat.key_bounds = key_bounds;
 
     writer.reset();
+    _record_segment_index_file_cache_preload(segment_id, index_file_cache_info);
 
     MonotonicStopWatch collector_timer;
     collector_timer.start();
@@ -308,7 +330,8 @@ Status SegmentFlusher::_flush_segment_writer(std::unique_ptr<segment_v2::Segment
     finalize_timer.start();
     uint64_t segment_file_size;
     uint64_t common_index_size;
-    Status s = writer->finalize(&segment_file_size, &common_index_size);
+    segment_v2::SegmentIndexFileCacheInfo index_file_cache_info;
+    Status s = writer->finalize(&segment_file_size, &common_index_size, &index_file_cache_info);
     finalize_timer.stop();
 
     if (!s.ok()) {
@@ -343,6 +366,7 @@ Status SegmentFlusher::_flush_segment_writer(std::unique_ptr<segment_v2::Segment
     segstat.key_bounds = key_bounds;
 
     writer.reset();
+    _record_segment_index_file_cache_preload(segment_id, index_file_cache_info);
 
     MonotonicStopWatch collector_timer;
     collector_timer.start();
