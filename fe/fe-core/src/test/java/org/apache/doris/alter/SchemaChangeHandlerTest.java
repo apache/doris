@@ -24,6 +24,7 @@ import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.info.ColumnPosition;
 import org.apache.doris.catalog.info.IndexType;
@@ -37,6 +38,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.utframe.TestWithFeService;
 
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
@@ -46,8 +48,11 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
+import java.lang.reflect.Method;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.IntSupplier;
 import java.util.stream.Collectors;
 
 public class SchemaChangeHandlerTest extends TestWithFeService {
@@ -882,6 +887,42 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
             System.out.println(e.getMessage());
         }
 
+    }
+
+    @Test
+    public void testRowBinlogSchemaChangeKeepsHiddenKeyColumn() throws Exception {
+        SchemaChangeHandler schemaChangeHandler = new SchemaChangeHandler();
+        List<Column> rowBinlogSchema = Lists.newArrayList();
+        Column key = new Column("k1", PrimitiveType.INT);
+        key.setIsKey(true);
+        rowBinlogSchema.add(Column.generateRowBinlogKeyColumn(key));
+        rowBinlogSchema.add(new Column(Column.BINLOG_LSN_COL, PrimitiveType.LARGEINT));
+        rowBinlogSchema.add(new Column(Column.BINLOG_OPERATION_COL, PrimitiveType.BIGINT));
+        rowBinlogSchema.add(new Column(Column.BINLOG_TIMESTAMP_COL, PrimitiveType.BIGINT));
+
+        Column hiddenKey = new Column("__DORIS_TEST_HIDDEN_KEY__", PrimitiveType.BIGINT);
+        hiddenKey.setIsKey(true);
+        hiddenKey.setIsVisible(false);
+        AtomicInteger uniqueId = new AtomicInteger(10);
+        IntSupplier uniqueIdSupplier = uniqueId::getAndIncrement;
+        Method addColumnRowBinlog = SchemaChangeHandler.class.getDeclaredMethod(
+                "addColumnRowBinlog", List.class, Column.class, ColumnPosition.class,
+                java.util.Set.class, boolean.class, IntSupplier.class);
+        addColumnRowBinlog.setAccessible(true);
+        addColumnRowBinlog.invoke(schemaChangeHandler, rowBinlogSchema, hiddenKey, null,
+                Sets.newHashSet(hiddenKey.getName()), false, uniqueIdSupplier);
+
+        List<String> columnNames = rowBinlogSchema.stream().map(Column::getName).collect(Collectors.toList());
+        Assertions.assertEquals(1, columnNames.indexOf("__DORIS_TEST_HIDDEN_KEY__"));
+        Assertions.assertEquals(2, columnNames.indexOf(Column.BINLOG_LSN_COL));
+
+        Column hiddenValue = new Column("__DORIS_TEST_HIDDEN_VALUE__", PrimitiveType.INT);
+        hiddenValue.setIsKey(false);
+        hiddenValue.setIsVisible(false);
+        addColumnRowBinlog.invoke(schemaChangeHandler, rowBinlogSchema, hiddenValue, null,
+                Sets.newHashSet(hiddenValue.getName()), false, uniqueIdSupplier);
+        columnNames = rowBinlogSchema.stream().map(Column::getName).collect(Collectors.toList());
+        Assertions.assertFalse(columnNames.contains("__DORIS_TEST_HIDDEN_VALUE__"));
     }
 
     @Test

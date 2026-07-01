@@ -44,8 +44,6 @@ public:
 
     void clear();
 
-    IOlapColumnDataAccessor* get_converted_column(uint32_t cid) { return _converted_columns[cid]; }
-
     bool need_before() const { return _opt.write_before; }
 
     const std::vector<IOlapColumnDataAccessor*>& source_key_columns() const { return _key_columns; }
@@ -53,16 +51,12 @@ public:
 
     std::unique_ptr<OlapBlockDataConvertor>& olap_data_convertor() { return _olap_data_convertor; }
 
-    void filter_source_ids(std::vector<uint32_t>& full_cids, std::vector<uint32_t>& res_cids) {
-        res_cids.reserve(full_cids.size());
-        std::set_intersection(_normal_column_ids.begin(), _normal_column_ids.end(),
-                              full_cids.begin(), full_cids.end(), std::back_inserter(res_cids));
-    }
+    size_t normal_column_count() const { return _normal_column_count; }
 
 private:
     const SegmentWriteBinlogOptions& _opt;
     std::unique_ptr<OlapBlockDataConvertor> _olap_data_convertor;
-    std::vector<uint32_t> _normal_column_ids;
+    size_t _normal_column_count = 0;
     std::vector<IOlapColumnDataAccessor*> _converted_columns;
     size_t _num_rows = 0;
 

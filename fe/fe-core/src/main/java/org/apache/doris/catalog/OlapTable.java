@@ -2431,7 +2431,15 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         boolean needHistoricalValue = getBinlogConfig().getNeedHistoricalValue();
         List<Column> beforeColumns = new ArrayList<>();
 
-        for (Column column : getBaseSchema(false)) {
+        boolean seenHiddenNonKeyColumn = false;
+        for (Column column : getBaseSchema(true)) {
+            if (!column.isVisible() && !column.isKey()) {
+                seenHiddenNonKeyColumn = true;
+                continue;
+            }
+            Preconditions.checkState(!seenHiddenNonKeyColumn,
+                    "binlog<Row> does not support visible/key column after hidden non-key column: "
+                            + column.getName());
             Preconditions.checkState(!column.getType().isVariantType(),
                     "binlog<Row> does not support VARIANT column: " + column.getName());
             Preconditions.checkState(!column.isAutoInc(),
