@@ -51,24 +51,28 @@ suite("test_japanese_analyzer", "p0") {
         sql """ INSERT INTO ${tableName} VALUES (3, "Apache Doris は高速です"); """
         sql "sync"
 
-        // The kuromoji dictionary is not shipped in the p0 package, so the
-        // analyzer falls back to CJK unigram.
-        def tokyo = sql """ SELECT id FROM ${tableName} WHERE content MATCH '東' ORDER BY id; """
+        // The kuromoji IPADIC dictionary ships with the package (built by the
+        // kuromoji_dict target), so this exercises real morphological analysis --
+        // The assertions below cover the real.
+        // Search mode decomposes the compound 東京都 into 東京 + 都, so a 東京 query
+        // matches row 1 (a single-character 東 query would NOT, unlike a unigram split).
+        def tokyo = sql """ SELECT id FROM ${tableName} WHERE content MATCH '東京' ORDER BY id; """
         assertEquals(1, tokyo.size())
         assertTrue(tokyo[0][0] == 1)
 
-        def sushi = sql """ SELECT id FROM ${tableName} WHERE content MATCH '寿' ORDER BY id; """
+        // 寿司 is segmented as its own morpheme in 私は寿司が好きです.
+        def sushi = sql """ SELECT id FROM ${tableName} WHERE content MATCH '寿司' ORDER BY id; """
         assertEquals(1, sushi.size())
         assertTrue(sushi[0][0] == 2)
 
-        // Verify the TOKENIZE function dispatches to the kuromoji parser.
-        // Quoting follows the literal-string form proven in test_tokenize.groovy:97 —
-        // property string uses double-quoted keys/values inside a single-quoted outer string.
-        def tokens = sql """SELECT TOKENIZE('東京都', '"parser"="kuromoji"');"""
+        // Base-form normalization: the conjugated 住ん(でいます) is indexed under its
+        // dictionary base form 住む, so a 住む query matches row 1.
+        def live = sql """ SELECT id FROM ${tableName} WHERE content MATCH '住む' ORDER BY id; """
+        assertEquals(1, live.size())
+        assertTrue(live[0][0] == 1)
+        def tokens = sql """SELECT TOKENIZE('東京都', '"parser"="kuromoji","parser_mode"="search"');"""
         def tokenStr = tokens[0][0].toString()
-        assertTrue(tokenStr.contains('"token": "東"'))
-        assertTrue(tokenStr.contains('"token": "京"'))
-        assertTrue(tokenStr.contains('"token": "都"'))
+        assertTrue(tokenStr.contains('"token": "東京"'))
     } finally {
         sql "DROP TABLE IF EXISTS ${tableName}"
         set_be_config("enable_kuromoji_analyzer", "false")

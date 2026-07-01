@@ -30,9 +30,7 @@ using namespace lucene::analysis;
 
 namespace doris::segment_v2 {
 
-// Japanese tokenizer. With a dictionary it does Viterbi morphological
-// segmentation (inverted_index::kuromoji::KuromojiViterbi); without one it falls back to a
-// per-codepoint CJK split.
+// Japanese tokenizer. Performs Viterbi morphological segmentation using the dictionary.
 class KuromojiTokenizer : public Tokenizer {
 public:
     explicit KuromojiTokenizer(KuromojiMode mode = KuromojiMode::Search, bool lowercase = true,
@@ -48,7 +46,7 @@ private:
     const inverted_index::kuromoji::KuromojiDictionary* dict_ {nullptr};
     int32_t buffer_index_ {0};
     int32_t data_length_ {0};
-    // Backing storage for emitted terms; must outlive tokens (setNoCopy contract).
+    // Backing storage for emitted terms; must outlive tokens.
     std::vector<std::string> tokens_text_;
 };
 

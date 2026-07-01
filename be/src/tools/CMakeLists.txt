@@ -156,4 +156,5 @@ add_custom_command(
     DEPENDS kuromoji_build_dict
     COMMENT "Generating kuromoji IPADIC dictionary from ${KUROMOJI_IPADIC_SRC}"
     VERBATIM)
-add_custom_target(kuromoji_dict DEPENDS "${KUROMOJI_DICT_OUT}/system.bin")
+# Built as part of ALL so a normal build/package always contains the runtime dictionary.
+add_custom_target(kuromoji_dict ALL DEPENDS "${KUROMOJI_DICT_OUT}/system.bin")

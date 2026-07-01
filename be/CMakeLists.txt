@@ -298,11 +298,21 @@ install(DIRECTORY
     ${BASE_DIR}/dict/pinyin
     DESTINATION ${OUTPUT_DIR}/dict)
 
-# Japanese kuromoji dictionary
+# Japanese kuromoji dictionary.
+install(CODE "
+    foreach(_kmj_f
+            \"${BASE_DIR}/dict/kuromoji/system.bin\"
+            \"${BASE_DIR}/dict/kuromoji/matrix.bin\"
+            \"${BASE_DIR}/dict/kuromoji/chardef.bin\"
+            \"${BASE_DIR}/dict/kuromoji/unkdict.bin\")
+        if(NOT EXISTS \"\${_kmj_f}\")
+            message(FATAL_ERROR \"kuromoji dictionary file \${_kmj_f} is missing; build the 'kuromoji_dict' target (after staging mecab-ipadic via thirdparty) before packaging.\")
+        endif()
+    endforeach()
+")
 install(DIRECTORY
     ${BASE_DIR}/dict/kuromoji
-    DESTINATION ${OUTPUT_DIR}/dict
-    OPTIONAL)
+    DESTINATION ${OUTPUT_DIR}/dict)
 
 # Check if functions are supported in this platform. All flags will generated
 # in gensrc/build/common/env_config.h.

@@ -69,7 +69,9 @@ public:
                               std::vector<PrefixMatch>* out) const;
 
     // System dictionary.
-    WordIdRun run_for_value(uint32_t trie_value) const { return _runs[trie_value]; }
+    WordIdRun run_for_value(uint32_t trie_value) const {
+        return trie_value < _runs_count ? _runs[trie_value] : WordIdRun {0, 0};
+    }
     const WordEntry& word(uint32_t word_id) const { return _entries[word_id]; }
     std::string_view feature(const WordEntry& e) const {
         return feature_at(_features, _features_bytes, e.feature_offset);
@@ -89,7 +91,9 @@ public:
     bool is_group(char32_t cp) const { return _defs[char_category(cp)].group != 0; }
 
     // Unknown-word dictionary.
-    WordIdRun unknown_run(uint8_t category) const { return _unk_runs[category]; }
+    WordIdRun unknown_run(uint8_t category) const {
+        return category < _unk_runs_count ? _unk_runs[category] : WordIdRun {0, 0};
+    }
     const WordEntry& unknown_word(uint32_t word_id) const { return _unk_entries[word_id]; }
     std::string_view unknown_feature(const WordEntry& e) const {
         return feature_at(_unk_features, _unk_features_bytes, e.feature_offset);
@@ -102,6 +106,7 @@ private:
     Status map_matrix(const std::string& path);
     Status map_chardef(const std::string& path);
     Status map_unkdict(const std::string& path);
+    Status validate_ranges() const;
 
     MappedFile _system_map;
     MappedFile _matrix_map;
@@ -111,18 +116,23 @@ private:
     // system
     Darts::DoubleArray _trie;
     const WordIdRun* _runs = nullptr;
+    uint64_t _runs_count = 0;
     const WordEntry* _entries = nullptr;
+    uint64_t _entries_count = 0;
     const uint8_t* _features = nullptr;
     uint64_t _features_bytes = 0;
     // matrix
     const int16_t* _cells = nullptr;
     uint32_t _forward_size = 0;
+    uint32_t _backward_size = 0;
     // chardef
     const uint8_t* _catmap = nullptr;
     const CategoryDef* _defs = nullptr;
     // unk
     const WordIdRun* _unk_runs = nullptr;
+    uint64_t _unk_runs_count = 0;
     const WordEntry* _unk_entries = nullptr;
+    uint64_t _unk_entries_count = 0;
     const uint8_t* _unk_features = nullptr;
     uint64_t _unk_features_bytes = 0;
 };

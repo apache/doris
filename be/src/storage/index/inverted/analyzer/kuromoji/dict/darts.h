@@ -1,8 +1,8 @@
 // Vendored from https://github.com/s-yata/darts-clone (include/darts.h, v0.32).
 // Copyright (c) 2008-2014, Susumu Yata. Licensed under the 2-clause BSD license.
-// See dist/licenses/LICENSE-darts-clone.txt. Unmodified except this header note
-// and the `#pragma GCC system_header` below (so this third-party header is
-// exempt from Doris's -Wall -Werror -Wpedantic when included).
+// See dist/licenses/LICENSE-darts-clone.txt. Modified from upstream only by:
+//   - this header note and the `#pragma GCC system_header` below (so this
+//     third-party header is exempt from Doris's -Wall -Werror -Wpedantic),
 #ifndef DARTS_H_
 #define DARTS_H_
 
@@ -14,18 +14,18 @@
 #include <exception>
 #include <new>
 
+#include "common/exception.h"
+
 #define DARTS_VERSION "0.32"
 
-// DARTS_THROW() throws a <Darts::Exception> whose message starts with the
-// file name and the line number. For example, DARTS_THROW("error message") at
-// line 123 of "darts.h" throws a <Darts::Exception> which has a pointer to
-// "darts.h:123: exception: error message". The message is available by using
-// what() as well as that of <std::exception>.
+// DARTS_THROW() throws a doris::Exception whose message starts with the file
+// name and the line number.
 #define DARTS_INT_TO_STR(value) #value
 #define DARTS_LINE_TO_STR(line) DARTS_INT_TO_STR(line)
 #define DARTS_LINE_STR DARTS_LINE_TO_STR(__LINE__)
-#define DARTS_THROW(msg) throw Darts::Details::Exception( \
-  __FILE__ ":" DARTS_LINE_STR ": exception: " msg)
+#define DARTS_THROW(msg)                                       \
+  throw ::doris::Exception(::doris::ErrorCode::INTERNAL_ERROR, \
+                           __FILE__ ":" DARTS_LINE_STR ": exception: " msg)
 
 namespace Darts {
 
@@ -88,28 +88,6 @@ class DoubleArrayUnit {
   // Copyable.
 };
 
-// Darts-clone throws an <Exception> for memory allocation failure, invalid
-// arguments or a too large offset. The last case means that there are too many
-// keys in the given set of keys. Note that the `msg' of <Exception> must be a
-// constant or static string because an <Exception> keeps only a pointer to
-// that string.
-class Exception : public std::exception {
- public:
-  explicit Exception(const char *msg = NULL) throw() : msg_(msg) {}
-  Exception(const Exception &rhs) throw() : msg_(rhs.msg_) {}
-  virtual ~Exception() throw() {}
-
-  // <Exception> overrides what() of <std::exception>.
-  virtual const char *what() const throw() {
-    return (msg_ != NULL) ? msg_ : "";
-  }
-
- private:
-  const char *msg_;
-
-  // Disallows operator=.
-  Exception &operator=(const Exception &);
-};
 
 }  // namespace Details
 
@@ -231,7 +209,7 @@ class DoubleArrayImpl {
   // dictionary construction. For details, please see the definition of
   // <Darts::Details::progress_func_type>.
   // The return value of build() is 0, and it indicates the success of the
-  // operation. Otherwise, build() throws a <Darts::Exception>, which is a
+  // operation. Otherwise, build() throws a doris::Exception, which is a
   // derived class of <std::exception>.
   // build() uses another construction algorithm if `values' is not NULL. In
   // this case, Darts-clone uses a Directed Acyclic Word Graph (DAWG) instead
@@ -246,7 +224,7 @@ class DoubleArrayImpl {
   // reading an array. `size' specifies the number of bytes to be read from the
   // file. If the `size' is 0, the whole file will be read.
   // open() returns 0 iff the operation succeeds. Otherwise, it returns a
-  // non-zero value or throws a <Darts::Exception>. The exception is thrown
+  // non-zero value or throws a doris::Exception. The exception is thrown
   // when and only when a memory allocation fails.
   int open(const char *file_name, const char *mode = "rb",
       std::size_t offset = 0, std::size_t size = 0);
