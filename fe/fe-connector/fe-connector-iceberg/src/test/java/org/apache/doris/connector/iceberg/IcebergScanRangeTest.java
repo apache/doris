@@ -351,16 +351,20 @@ public class IcebergScanRangeTest {
     }
 
     @Test
-    public void isPartitionBearingTracksPartitionSpecId() {
-        // A file with a partition spec id is partition-bearing (metadata-sourced partitions) -> the engine must
-        // NOT path-parse an empty partition map (which throws for iceberg's non-key=value layout). An
-        // unpartitioned file (no spec id) is not partition-bearing -> keeps the legacy empty->null collapse.
-        // MUTATION: returning the SPI default false for a partitioned file -> empty-map path-parse throw -> red.
+    public void isPartitionBearingIsAlwaysTrueSoIcebergNeverPathParses() {
+        // Iceberg partition values always come from metadata, never a Hive key=value path, so EVERY iceberg
+        // range must report partition-bearing == true: the engine then routes an empty partition map through
+        // normalizeColumnsFromPath (non-null empty list) instead of path-parsing it (which throws for
+        // iceberg's non-key=value layout). This MUST hold even for a file with no partition spec id -- a
+        // partition-spec-evolution table now on an unpartitioned spec still exposes path_partition_keys from
+        // its spec history (e.g. [sku]), and its physically-unpartitioned files have no sku= path segment, so
+        // reporting false there reintroduces the "Fail to parse columnsFromPath, expected: [sku]" throw.
+        // MUTATION: returning partitionSpecId != null -> unpartitioned/spec-evolved file path-parse throw -> red.
         IcebergScanRange partitioned = new IcebergScanRange.Builder()
                 .path("x").partitionSpecId(0).partitionValues(Collections.emptyMap()).build();
         Assertions.assertTrue(partitioned.isPartitionBearing());
         IcebergScanRange unpartitioned = new IcebergScanRange.Builder().path("x").build();
-        Assertions.assertFalse(unpartitioned.isPartitionBearing());
+        Assertions.assertTrue(unpartitioned.isPartitionBearing());
     }
 
     @Test

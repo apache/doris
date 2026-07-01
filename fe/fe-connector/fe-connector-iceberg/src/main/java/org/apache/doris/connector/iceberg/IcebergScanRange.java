@@ -190,16 +190,22 @@ public class IcebergScanRange implements ConnectorScanRange {
     }
 
     /**
-     * A file with a partition spec id belongs to a partitioned table, so its (possibly empty) identity
-     * partition values come from iceberg metadata — not the file path. Returning {@code true} stops the engine
-     * from falling back to Hive-style path parsing when {@link #getPartitionValues()} is empty (which would
-     * throw for iceberg's non-{@code key=value}-directory layout, e.g. a partition-spec-evolution file whose
-     * historical spec had no identity fields). Mirrors legacy {@code IcebergScanNode} always supplying a
-     * non-null empty partition list.
+     * Iceberg partition values always come from table/file metadata, never from a Hive-style
+     * {@code key=value} directory layout, so the engine must NEVER fall back to path parsing for an iceberg
+     * range. Returning {@code true} unconditionally makes {@code PluginDrivenSplit} map an empty identity map
+     * to a non-null empty list (routed through {@code normalizeColumnsFromPath}) instead of {@code null} —
+     * which {@code FileQueryScanNode} reads as "parse partition values from the file path" and throws for
+     * iceberg's non-{@code key=value} layout. The narrow {@code partitionSpecId != null} was wrong for a
+     * partition-spec-evolution table now on an unpartitioned spec: {@code buildRange} sees the current spec
+     * (unpartitioned) so it sets no spec id on ANY file, yet {@code path_partition_keys} is still the union of
+     * all specs (e.g. {@code [sku]}), so the physically-unpartitioned files (no {@code sku=} segment) hit the
+     * path-parse throw. Mirrors legacy {@code IcebergScanNode.createIcebergSplit}, which always supplies a
+     * non-null empty partition list regardless of partitioning. The authoritative columns-from-path is then
+     * (re)written by {@link #populateRangeParams} from the identity map (empty map → none emitted).
      */
     @Override
     public boolean isPartitionBearing() {
-        return partitionSpecId != null;
+        return true;
     }
 
     /**
