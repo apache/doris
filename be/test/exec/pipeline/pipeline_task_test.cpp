@@ -113,7 +113,9 @@ public:
             : DataSinkOperatorX<DummySinkLocalState>(op_id, node_id, dest_id),
               _blockable_checks(blockable_checks) {}
 
-    Status sink(RuntimeState* state, Block* in_block, bool eos) override { return Status::OK(); }
+    Status sink_impl(RuntimeState* state, Block* in_block, bool eos) override {
+        return Status::OK();
+    }
 
     bool is_blockable(RuntimeState* state) const override {
         _blockable_checks->fetch_add(1, std::memory_order_relaxed);
