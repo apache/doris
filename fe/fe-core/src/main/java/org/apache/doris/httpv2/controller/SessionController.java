@@ -118,7 +118,7 @@ public class SessionController extends RestBaseController {
                                                           Frontend frontend) throws IOException {
         Map<String, String> header = Maps.newHashMap();
         header.put(NodeAction.AUTHORIZATION, request.getHeader(NodeAction.AUTHORIZATION));
-        String res = HttpUtils.doGet(String.format("http://%s:%s/rest/v1/session",
+        String res = HttpUtils.doInternalGet(String.format("http://%s:%s/rest/v1/session",
                 frontend.getHost(), Env.getCurrentEnv().getMasterHttpPort()), header);
         ObjectMapper objectMapper = new ObjectMapper();
         Map<String, Object> jsonMap = objectMapper.readValue(res,

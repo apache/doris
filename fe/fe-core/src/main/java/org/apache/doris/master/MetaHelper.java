@@ -150,7 +150,7 @@ public class MetaHelper {
     public static <T> ResponseBody doGet(String url, int timeout, Class<T> clazz) throws IOException {
         Map<String, String> headers = HttpURLUtil.getNodeIdentHeaders();
         LOG.info("meta helper, url: {}, timeout{}, headers: {}", url, timeout, headers);
-        String response = HttpUtils.doGet(url, headers, timeout);
+        String response = HttpUtils.doInternalGet(url, headers, timeout);
         return parseResponse(response, clazz);
     }
 
@@ -161,7 +161,7 @@ public class MetaHelper {
         checkFile(file);
         OutputStream out = new FileOutputStream(file);
         try {
-            conn = HttpURLUtil.getConnectionWithNodeIdent(urlStr);
+            conn = HttpURLUtil.getInternalConnectionWithNodeIdent(urlStr);
             conn.setConnectTimeout(timeout);
             conn.setReadTimeout(timeout);
 

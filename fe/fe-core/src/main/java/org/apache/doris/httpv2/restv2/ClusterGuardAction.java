@@ -124,7 +124,7 @@ public class ClusterGuardAction extends RestBaseController {
             String nodeKey = ipPort.first + ":" + ipPort.second;
             String url = HttpUtils.concatUrl(ipPort, httpPath, arguments);
             try {
-                String resp = HttpUtils.doPost(url, header, null);
+                String resp = HttpUtils.doInternalPost(url, header, null);
                 JsonObject jsonObj = JsonParser.parseString(resp).getAsJsonObject();
                 int code = jsonObj.get("code").getAsInt();
                 if (code == HttpUtils.REQUEST_SUCCESS_CODE) {

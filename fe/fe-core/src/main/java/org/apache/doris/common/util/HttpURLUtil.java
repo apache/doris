@@ -19,27 +19,59 @@ package org.apache.doris.common.util;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cloud.security.SecurityChecker;
+import org.apache.doris.common.Config;
 import org.apache.doris.system.SystemInfoService.HostInfo;
 
 import com.google.common.collect.Maps;
+import org.apache.http.conn.ssl.NoopHostnameVerifier;
 
 import java.io.IOException;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.util.Map;
+import javax.net.ssl.HttpsURLConnection;
 
 public class HttpURLUtil {
 
     public static HttpURLConnection getConnectionWithNodeIdent(String request) throws IOException {
+        return getConnectionWithNodeIdent(request, false);
+    }
+
+    public static HttpURLConnection getInternalConnectionWithNodeIdent(String request) throws IOException {
+        return getConnectionWithNodeIdent(request, true);
+    }
+
+    private static HttpURLConnection getConnectionWithNodeIdent(String request, boolean internal) throws IOException {
+        HttpURLConnection conn = getConnection(request, internal);
+        // Must use Env.getServingEnv() instead of getCurrentEnv(),
+        // because here we need to obtain selfNode through the official service catalog.
+        HostInfo selfNode = Env.getServingEnv().getSelfNode();
+        conn.setRequestProperty(Env.CLIENT_NODE_HOST_KEY, selfNode.getHost());
+        conn.setRequestProperty(Env.CLIENT_NODE_PORT_KEY, selfNode.getPort() + "");
+        return conn;
+    }
+
+    public static HttpURLConnection getConnection(String request) throws IOException {
+        return getConnection(request, false);
+    }
+
+    public static HttpURLConnection getInternalConnection(String request) throws IOException {
+        return getConnection(request, true);
+    }
+
+    private static HttpURLConnection getConnection(String request, boolean internal) throws IOException {
+        if (internal && Config.enable_https && request.startsWith("http://")) {
+            request = "https://" + request.substring(7);
+        }
         try {
             SecurityChecker.getInstance().startSSRFChecking(request);
             URL url = new URL(request);
             HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-            // Must use Env.getServingEnv() instead of getCurrentEnv(),
-            // because here we need to obtain selfNode through the official service catalog.
-            HostInfo selfNode = Env.getServingEnv().getSelfNode();
-            conn.setRequestProperty(Env.CLIENT_NODE_HOST_KEY, selfNode.getHost());
-            conn.setRequestProperty(Env.CLIENT_NODE_PORT_KEY, selfNode.getPort() + "");
+            if (internal && conn instanceof HttpsURLConnection && Config.enable_https) {
+                HttpsURLConnection httpsConn = (HttpsURLConnection) conn;
+                httpsConn.setSSLSocketFactory(InternalHttpsUtils.getSslContext().getSocketFactory());
+                httpsConn.setHostnameVerifier(NoopHostnameVerifier.INSTANCE);
+            }
             return conn;
         } catch (Exception e) {
             throw new IOException(e);

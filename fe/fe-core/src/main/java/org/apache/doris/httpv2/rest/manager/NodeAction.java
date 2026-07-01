@@ -204,7 +204,7 @@ public class NodeAction extends RestBaseController {
                 Backend be = Env.getCurrentSystemInfo().getBackend(beIds.get(0));
                 String url = "http://" + NetUtils.getHostPortInAccessibleFormat(be.getHost(), be.getHttpPort())
                         + "/api/show_config";
-                String questResult = HttpUtils.doGet(url, null);
+                String questResult = HttpUtils.doInternalGet(url, null);
                 List<List<String>> configs = GsonUtils.GSON.fromJson(questResult, new TypeToken<List<List<String>>>() {
                 }.getType());
                 for (List<String> config : configs) {
@@ -439,7 +439,7 @@ public class NodeAction extends RestBaseController {
         public void run() {
             String configInfo;
             try {
-                configInfo = HttpUtils.doGet(url,
+                configInfo = HttpUtils.doInternalGet(url,
                         ImmutableMap.<String, String>builder().put(AUTHORIZATION, authorization).build());
                 List<List<String>> configs = GsonUtils.GSON.fromJson(configInfo, new TypeToken<List<List<String>>>() {
                 }.getType());
@@ -507,7 +507,7 @@ public class NodeAction extends RestBaseController {
             if (!nodeConfigs.getConfigs(true).isEmpty()) {
                 String url = concatFeSetConfigUrl(nodeConfigs, true);
                 try {
-                    String responsePersist = HttpUtils.doGet(url, header);
+                    String responsePersist = HttpUtils.doInternalGet(url, header);
                     parseFeSetConfigResponse(responsePersist, nodeConfigs.getHostPort(), failedTotal);
                 } catch (Exception e) {
                     addSetConfigErrNode(nodeConfigs.getConfigs(true), nodeConfigs.getHostPort(), e.getMessage(),
@@ -517,7 +517,7 @@ public class NodeAction extends RestBaseController {
             if (!nodeConfigs.getConfigs(false).isEmpty()) {
                 String url = concatFeSetConfigUrl(nodeConfigs, false);
                 try {
-                    String responseTemp = HttpUtils.doGet(url, header);
+                    String responseTemp = HttpUtils.doInternalGet(url, header);
                     parseFeSetConfigResponse(responseTemp, nodeConfigs.getHostPort(), failedTotal);
                 } catch (Exception e) {
                     addSetConfigErrNode(nodeConfigs.getConfigs(false), nodeConfigs.getHostPort(), e.getMessage(),
@@ -913,7 +913,7 @@ public class NodeAction extends RestBaseController {
         @Override
         public void run() {
             try {
-                String response = HttpUtils.doPost(url,
+                String response = HttpUtils.doInternalPost(url,
                         ImmutableMap.<String, String>builder().put(AUTHORIZATION, authorization).build(), null);
                 JsonObject jsonObject = JsonParser.parseString(response).getAsJsonObject();
                 String status = jsonObject.get("status").getAsString();

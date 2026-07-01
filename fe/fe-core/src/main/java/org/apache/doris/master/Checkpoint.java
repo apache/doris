@@ -297,7 +297,7 @@ public class Checkpoint extends MasterDaemon {
                              * this lagging node can never get the deleted journal.
                              */
                             idURL = "http://" + NetUtils.getHostPortInAccessibleFormat(host, port) + "/journal_id";
-                            conn = HttpURLUtil.getConnectionWithNodeIdent(idURL);
+                            conn = HttpURLUtil.getInternalConnectionWithNodeIdent(idURL);
                             conn.setConnectTimeout(CONNECT_TIMEOUT_SECOND * 1000);
                             conn.setReadTimeout(READ_TIMEOUT_SECOND * 1000);
                             String idString = conn.getHeaderField("id");

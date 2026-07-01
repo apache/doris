@@ -134,9 +134,9 @@ public class QueryProfileAction extends RestBaseController {
             try {
                 String data = null;
                 if (method == HttpMethod.GET) {
-                    data = HttpUtils.parseResponse(HttpUtils.doGet(url, header));
+                    data = HttpUtils.parseResponse(HttpUtils.doInternalGet(url, header));
                 } else if (method == HttpMethod.POST) {
-                    data = HttpUtils.parseResponse(HttpUtils.doPost(url, header, null));
+                    data = HttpUtils.parseResponse(HttpUtils.doInternalPost(url, header, null));
                 }
                 if (!Strings.isNullOrEmpty(data) && !data.equals("{}")) {
                     dataList.add(data);
@@ -349,7 +349,7 @@ public class QueryProfileAction extends RestBaseController {
                     continue;
                 }
                 String url = HttpUtils.concatUrl(ipPort, httpPath, arguments);
-                String responseJson = HttpUtils.doGet(url, header);
+                String responseJson = HttpUtils.doInternalGet(url, header);
                 JsonObject jObj = JsonParser.parseString(responseJson).getAsJsonObject();
                 int code = jObj.get("code").getAsInt();
                 if (code == HttpUtils.REQUEST_SUCCESS_CODE) {

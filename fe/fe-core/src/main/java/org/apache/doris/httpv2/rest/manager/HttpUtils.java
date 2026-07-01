@@ -20,6 +20,7 @@ package org.apache.doris.httpv2.rest.manager;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.util.InternalHttpsUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.httpv2.entity.ResponseBody;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -89,9 +90,25 @@ public class HttpUtils {
     }
 
     public static String doGet(String url, Map<String, String> headers, int timeoutMs) throws IOException {
+        return doGet(url, headers, timeoutMs, false);
+    }
+
+    public static String doInternalGet(String url, Map<String, String> headers, int timeoutMs) throws IOException {
+        return doGet(url, headers, timeoutMs, true);
+    }
+
+    public static String doInternalGet(String url, Map<String, String> headers) throws IOException {
+        return doInternalGet(url, headers, DEFAULT_TIME_OUT_MS);
+    }
+
+    private static String doGet(String url, Map<String, String> headers, int timeoutMs, boolean internal)
+            throws IOException {
+        if (internal && Config.enable_https && isFeHttpUrl(url)) {
+            url = "https://" + url.substring(7);
+        }
         HttpGet httpGet = new HttpGet(url);
         setRequestConfig(httpGet, headers, timeoutMs);
-        return executeRequest(httpGet);
+        return executeRequest(httpGet, internal);
     }
 
     public static String doGet(String url, Map<String, String> headers) throws IOException {
@@ -99,6 +116,18 @@ public class HttpUtils {
     }
 
     public static String doPost(String url, Map<String, String> headers, Object body) throws IOException {
+        return doPost(url, headers, body, false);
+    }
+
+    public static String doInternalPost(String url, Map<String, String> headers, Object body) throws IOException {
+        return doPost(url, headers, body, true);
+    }
+
+    private static String doPost(String url, Map<String, String> headers, Object body, boolean internal)
+            throws IOException {
+        if (internal && Config.enable_https && isFeHttpUrl(url)) {
+            url = "https://" + url.substring(7);
+        }
         HttpPost httpPost = new HttpPost(url);
         if (Objects.nonNull(body)) {
             String jsonString = GsonUtils.GSON.toJson(body);
@@ -107,7 +136,7 @@ public class HttpUtils {
         }
 
         setRequestConfig(httpPost, headers, DEFAULT_TIME_OUT_MS);
-        return executeRequest(httpPost);
+        return executeRequest(httpPost, internal);
     }
 
     private static void setRequestConfig(HttpRequestBase request, Map<String, String> headers, int timeoutMs) {
@@ -126,12 +155,39 @@ public class HttpUtils {
     }
 
     public static CloseableHttpClient getHttpClient() {
+        return getHttpClient(false);
+    }
+
+    public static CloseableHttpClient getInternalHttpClient() {
+        return getHttpClient(true);
+    }
+
+    private static CloseableHttpClient getHttpClient(boolean internal) {
+        if (internal && Config.enable_https) {
+            return InternalHttpsUtils.createValidatedHttpClient();
+        }
         return HttpClientBuilder.create().build();
     }
 
     private static String executeRequest(HttpRequestBase request) throws IOException {
-        CloseableHttpClient client = getHttpClient();
+        return executeRequest(request, false);
+    }
+
+    private static String executeRequest(HttpRequestBase request, boolean internal) throws IOException {
+        boolean useInternalHttpsClient = internal && "https".equalsIgnoreCase(request.getURI().getScheme());
+        CloseableHttpClient client = getHttpClient(useInternalHttpsClient);
         return client.execute(request, httpResponse -> EntityUtils.toString(httpResponse.getEntity()));
+    }
+
+    private static boolean isFeHttpUrl(String url) {
+        try {
+            URL parsedUrl = new URL(url);
+            int port = parsedUrl.getPort();
+            return url.startsWith("http://")
+                    && (port == Config.http_port || (port == -1 && Config.http_port == 80));
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     static String parseResponse(String response) {
