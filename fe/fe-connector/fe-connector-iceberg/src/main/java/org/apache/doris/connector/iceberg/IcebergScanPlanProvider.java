@@ -164,6 +164,15 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
     // single-line, so the newline is an unambiguous record separator.
     private static final String PUSHDOWN_PREDICATES_PROP = "iceberg.pushdown_predicates";
 
+    // FE-only EXPLAIN prop carrying the statement's queryId, emitted by getScanNodeProperties ONLY when the
+    // manifest cache is enabled. appendExplainInfo uses it to drain THIS scan's manifest-cache
+    // hits/misses/failures from the shared per-catalog IcebergManifestCache and render the legacy
+    // IcebergScanNode `manifest cache:` VERBOSE line. Same transport rationale as PUSHDOWN_PREDICATES_PROP (the
+    // planning + EXPLAIN SPI methods share no provider instance); like it, this key is never consumed by
+    // populateScanLevelParams, so it never reaches BE. Its presence also gates the line (absent when the cache
+    // is disabled -> no line, matching legacy notContains).
+    private static final String MANIFEST_CACHE_QUERYID_PROP = "iceberg.manifest_cache_query_id";
+
     // T08 manifest cache gate (ported from fe-core IcebergExternalCatalog + IcebergUtils.isManifestCacheEnabled
     // + CacheSpec.isCacheEnabled). Default OFF: the default scan path stays the iceberg SDK planFiles()
     // (splitFiles). When enabled, planScan re-plans at the manifest level so the per-manifest data/delete-file
@@ -1038,6 +1047,12 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                 props.put(PUSHDOWN_PREDICATES_PROP, sb.toString());
             }
         }
+        // Carry the queryId for the per-scan `manifest cache:` VERBOSE line ONLY when the cache is enabled
+        // (omitted otherwise -> appendExplainInfo prints no line, legacy notContains parity). Skip system tables:
+        // they have no manifest-level planning path. FE-only, like PUSHDOWN_PREDICATES_PROP.
+        if (!systemTable && isManifestCacheEnabled()) {
+            props.put(MANIFEST_CACHE_QUERYID_PROP, session.getQueryId());
+        }
         return props;
     }
 
@@ -1081,6 +1096,18 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
      */
     @Override
     public void appendExplainInfo(StringBuilder output, String prefix, Map<String, String> nodeProperties) {
+        // Per-scan manifest cache stats (VERBOSE only — the generic node calls this at VERBOSE). Emitted iff the
+        // FE-only queryId prop is present (i.e. the cache is enabled), draining THIS scan's tally from the shared
+        // per-catalog cache. Rendered BEFORE the pushdown block AND its early-return below, so a cache-enabled
+        // scan with no pushed predicate still prints the line — legacy IcebergScanNode emitted it independently
+        // of the `icebergPredicatePushdown=` block.
+        String manifestCacheQueryId = nodeProperties.get(MANIFEST_CACHE_QUERYID_PROP);
+        if (manifestCacheQueryId != null && manifestCache != null) {
+            long[] stats = manifestCache.takeStats(manifestCacheQueryId);
+            output.append(prefix).append("manifest cache: hits=").append(stats[0])
+                    .append(", misses=").append(stats[1])
+                    .append(", failures=").append(stats[2]).append("\n");
+        }
         String encoded = nodeProperties.get(PUSHDOWN_PREDICATES_PROP);
         if (encoded == null || encoded.isEmpty()) {
             return;
@@ -1215,6 +1242,8 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             return planFileScanTaskWithManifestCache(scan, session, table, filter);
         } catch (Exception e) {
             LOG.warn("Iceberg plan with manifest cache failed, falling back to SDK scan: {}", e.getMessage(), e);
+            // Mirror the legacy manifestCacheFailures bump so VERBOSE EXPLAIN can report the fallback.
+            manifestCache.recordFailure(session.getQueryId());
             return splitFiles(scan, session);
         }
     }
@@ -1235,6 +1264,9 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         if (snapshot == null) {
             return new SplitPlan(CloseableIterable.withNoopClose(Collections.emptyList()), -1);
         }
+        // Stable per-statement key so VERBOSE EXPLAIN (rendered on a different, transient provider instance) can
+        // report THIS scan's manifest-cache hits/misses via the shared per-catalog cache.
+        String queryId = session.getQueryId();
         Expression filterExpr = combineFilter(filter, table, session);
         Map<Integer, PartitionSpec> specsById = table.specs();
         boolean caseSensitive = true;
@@ -1258,7 +1290,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             if (!ManifestEvaluator.forPartitionFilter(filterExpr, spec, caseSensitive).eval(manifest)) {
                 continue;
             }
-            deleteFiles.addAll(manifestCache.getManifestCacheValue(manifest, table).getDeleteFiles());
+            deleteFiles.addAll(manifestCache.getManifestCacheValue(manifest, table, queryId).getDeleteFiles());
         }
         DeleteFileIndex deleteIndex = DeleteFileIndex.builderFor(deleteFiles)
                 .specsById(specsById)
@@ -1281,7 +1313,7 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
                 if (residualEvaluator == null) {
                     continue;
                 }
-                ManifestCacheValue value = manifestCache.getManifestCacheValue(manifest, table);
+                ManifestCacheValue value = manifestCache.getManifestCacheValue(manifest, table, queryId);
                 for (DataFile dataFile : value.getDataFiles()) {
                     if (!metricsEvaluator.eval(dataFile)) {
                         continue;

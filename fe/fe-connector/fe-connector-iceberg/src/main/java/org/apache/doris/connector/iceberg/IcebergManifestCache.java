@@ -31,7 +31,11 @@ import org.apache.iceberg.Table;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ForkJoinPool;
+import java.util.concurrent.TimeUnit;
+import java.util.function.LongSupplier;
 
 /**
  * Per-catalog cache of an iceberg manifest's parsed files, keyed by {@link IcebergManifestEntryKey}
@@ -60,17 +64,50 @@ final class IcebergManifestCache {
     /** Legacy effective capacity (fe-core {@code DEFAULT_MANIFEST_CACHE_CAPACITY}, asserted in its stats tests). */
     static final int DEFAULT_MANIFEST_CACHE_CAPACITY = 100_000;
 
+    /** Leak backstop for the per-scan stats stash (see {@link #statsByQuery}); far above any live entry's life. */
+    private static final long DEFAULT_STATS_TTL_SECONDS = 300L;
+
     private final MetaCacheEntry<IcebergManifestEntryKey, ManifestCacheValue> entry;
+
+    // Per-scan manifest-cache access tally, keyed by the statement's stable queryId
+    // (ConnectorSession.getQueryId()), so VERBOSE EXPLAIN can report THIS scan's hits/misses/failures (the
+    // "manifest cache:" line). The provider that PLANS the scan and the (transient, fresh-per-call) provider that
+    // renders EXPLAIN are different instances, so per-scan state cannot live on the provider; the long-lived
+    // per-catalog cache is their only shared survivor — same rationale as IcebergRewritableDeleteStash.
+    // {@link #takeStats} is the primary eviction (EXPLAIN drains its entry); a non-EXPLAIN query records but
+    // never drains, so its leaked entry is aged out by the lazy TTL sweep in {@link #touch}.
+    private final Map<String, ScanStats> statsByQuery = new ConcurrentHashMap<>();
+    private final long statsTtlNanos;
+    private final LongSupplier nanoClock;
+
+    /** One in-flight statement's manifest-cache access tally, plus a touch stamp for the leak sweep. */
+    private static final class ScanStats {
+        long hits;
+        long misses;
+        long failures;
+        volatile long lastTouchNanos;
+
+        ScanStats(long nowNanos) {
+            this.lastTouchNanos = nowNanos;
+        }
+    }
 
     IcebergManifestCache() {
         this(DEFAULT_MANIFEST_CACHE_CAPACITY);
     }
 
     IcebergManifestCache(int maxSize) {
+        this(maxSize, DEFAULT_STATS_TTL_SECONDS, System::nanoTime);
+    }
+
+    /** Visible for testing: injectable stats TTL + clock so the leak sweep is deterministic without sleeping. */
+    IcebergManifestCache(int maxSize, long statsTtlSeconds, LongSupplier nanoClock) {
         // Always enabled, no expiry, capacity-bounded (CACHE_NO_TTL == -1 means "no expiration", enabled).
         CacheSpec spec = CacheSpec.of(true, CacheSpec.CACHE_NO_TTL, Math.max(1, maxSize));
         this.entry = new MetaCacheEntry<>("iceberg-manifest", null, spec,
                 ForkJoinPool.commonPool(), false, true, 0L, true);
+        this.statsTtlNanos = TimeUnit.SECONDS.toNanos(Math.max(1L, statsTtlSeconds));
+        this.nanoClock = nanoClock;
     }
 
     /**
@@ -81,6 +118,69 @@ final class IcebergManifestCache {
     ManifestCacheValue getManifestCacheValue(ManifestFile manifest, Table table) {
         IcebergManifestEntryKey key = IcebergManifestEntryKey.of(manifest);
         return entry.get(key, k -> loadManifestCacheValue(manifest, table, k.getContent()));
+    }
+
+    /**
+     * Same as {@link #getManifestCacheValue(ManifestFile, Table)} but tallies this access as a hit or miss under
+     * {@code queryId} (a hit == the entry was already cached BEFORE this load, matching the legacy
+     * {@code getIfPresent(key) != null} probe). Within one statement the manifest-level plan processes manifests
+     * sequentially, so the per-query counters need no synchronization. A blank queryId is not recorded.
+     */
+    ManifestCacheValue getManifestCacheValue(ManifestFile manifest, Table table, String queryId) {
+        IcebergManifestEntryKey key = IcebergManifestEntryKey.of(manifest);
+        boolean hit = entry.getIfPresent(key) != null;
+        if (queryId != null && !queryId.isEmpty()) {
+            ScanStats stats = touch(queryId);
+            if (hit) {
+                stats.hits++;
+            } else {
+                stats.misses++;
+            }
+        }
+        return entry.get(key, k -> loadManifestCacheValue(manifest, table, k.getContent()));
+    }
+
+    /**
+     * Records one manifest-level planning failure for {@code queryId} (the scan provider fell back to the SDK
+     * scan). Mirrors the legacy {@code manifestCacheFailures} bump. A blank queryId is not recorded.
+     */
+    void recordFailure(String queryId) {
+        if (queryId != null && !queryId.isEmpty()) {
+            touch(queryId).failures++;
+        }
+    }
+
+    /**
+     * Returns and REMOVES this query's {@code {hits, misses, failures}} tally (zeros when nothing was recorded).
+     * The remove is the primary eviction — VERBOSE EXPLAIN drains its own entry once it has rendered the line.
+     */
+    long[] takeStats(String queryId) {
+        if (queryId == null || queryId.isEmpty()) {
+            return new long[] {0L, 0L, 0L};
+        }
+        ScanStats stats = statsByQuery.remove(queryId);
+        return stats == null
+                ? new long[] {0L, 0L, 0L}
+                : new long[] {stats.hits, stats.misses, stats.failures};
+    }
+
+    /** Fetch (or lazily create) this query's tally, opportunistically aging out leaked entries first. */
+    private ScanStats touch(String queryId) {
+        long now = nanoClock.getAsLong();
+        ScanStats stats = statsByQuery.get(queryId);
+        if (stats == null) {
+            // First access of a not-yet-seen query: age out leaked non-EXPLAIN entries. Done OUTSIDE
+            // computeIfAbsent (ConcurrentHashMap forbids mutating other mappings from within it).
+            sweepExpiredStats(now);
+            stats = statsByQuery.computeIfAbsent(queryId, k -> new ScanStats(now));
+        }
+        stats.lastTouchNanos = now;
+        return stats;
+    }
+
+    /** Drops stats entries untouched for longer than the TTL — leaked non-EXPLAIN query tallies only. */
+    private void sweepExpiredStats(long nowNanos) {
+        statsByQuery.entrySet().removeIf(e -> nowNanos - e.getValue().lastTouchNanos >= statsTtlNanos);
     }
 
     private static ManifestCacheValue loadManifestCacheValue(ManifestFile manifest, Table table,
@@ -123,6 +223,7 @@ final class IcebergManifestCache {
      */
     void invalidateAll() {
         entry.invalidateAll();
+        statsByQuery.clear();
     }
 
     /** Test-only: current number of cached entries (accurate map membership, not Caffeine's estimate). */
