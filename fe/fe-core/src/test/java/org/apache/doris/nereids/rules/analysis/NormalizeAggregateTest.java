@@ -37,6 +37,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalApply;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.FieldChecker;
 import org.apache.doris.nereids.util.LogicalPlanBuilder;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
@@ -704,8 +705,8 @@ public class NormalizeAggregateTest extends TestWithFeService implements MemoPat
                                                 logicalProject().when(project -> {
                                                     Assertions.assertTrue(ExpressionUtils.containsTypes(
                                                             project.getProjects(), WindowExpression.class));
-                                                    Assertions.assertTrue(project.getProjects().stream()
-                                                            .noneMatch(OrderExpression.class::isInstance));
+                                                    Assertions.assertFalse(containsExpressionInstance(
+                                                            project.getProjects(), OrderExpression.class));
                                                     return true;
                                                 })
                                         ).when(agg -> ExpressionUtils.containsTypes(
@@ -722,8 +723,8 @@ public class NormalizeAggregateTest extends TestWithFeService implements MemoPat
                                 logicalProject(
                                         logicalAggregate(
                                                 logicalProject().when(project -> {
-                                                    Assertions.assertTrue(project.getProjects().stream()
-                                                            .noneMatch(OrderExpression.class::isInstance));
+                                                    Assertions.assertFalse(containsExpressionInstance(
+                                                            project.getProjects(), OrderExpression.class));
                                                     return true;
                                                 })
                                         ).when(agg -> ExpressionUtils.containsTypes(
@@ -745,8 +746,8 @@ public class NormalizeAggregateTest extends TestWithFeService implements MemoPat
                                                 logicalProject().when(project -> {
                                                     Assertions.assertTrue(ExpressionUtils.containsTypes(
                                                             project.getProjects(), Add.class));
-                                                    Assertions.assertTrue(project.getProjects().stream()
-                                                            .noneMatch(OrderExpression.class::isInstance));
+                                                    Assertions.assertFalse(containsExpressionInstance(
+                                                            project.getProjects(), OrderExpression.class));
                                                     return true;
                                                 })
                                         ).when(agg -> ExpressionUtils.containsTypes(
@@ -759,5 +760,15 @@ public class NormalizeAggregateTest extends TestWithFeService implements MemoPat
     private void checkExprsToSql(Collection<? extends Expression> expressions, String... exprsToSql) {
         Assertions.assertEquals(Arrays.asList(exprsToSql),
                 expressions.stream().map(Expression::toSql).collect(Collectors.toList()));
+    }
+
+    private boolean containsExpressionInstance(Collection<? extends Expression> expressions,
+            Class<? extends Expression> clazz) {
+        for (Expression expression : expressions) {
+            if (clazz.isInstance(expression)) {
+                return true;
+            }
+        }
+        return false;
     }
 }
