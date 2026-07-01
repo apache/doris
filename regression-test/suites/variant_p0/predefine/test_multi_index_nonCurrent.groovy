@@ -15,10 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_variant_multi_index_nonCurrent", "p0, nonConcurrent") { 
+suite("test_variant_multi_index_nonCurrent", "p0, nonConcurrent") {
     sql """ set describe_extend_variant_column = true """
     sql """ set enable_match_without_inverted_index = false """
-    sql """ set enable_common_expr_pushdown = true """
+    sql """ set enable_segment_limit_pushdown = true """
     sql """ set default_variant_enable_typed_paths_to_sparse = false """
     sql """ set default_variant_enable_doc_mode = false """
 
@@ -48,9 +48,9 @@ suite("test_variant_multi_index_nonCurrent", "p0, nonConcurrent") {
     sql """insert into ${tableName} values(1, '{"string" : "hello", "array_string" : ["hello"]}'), (2, '{"string" : "world", "array_string" : ["world"]}'), (3, '{"string" : "hello", "array_string" : ["hello"]}'), (4, '{"string" : "world", "array_string" : ["world"]}'), (5, '{"string" : "hello", "array_string" : ["hello"]}') """
     // insert into test_variant_multi_index_nonCurrent  values(1, '{"string" : "hello", "array_string" : ["hello"]}'), (2, '{"string" : "world", "array_string" : ["world"]}'), (3, '{"string" : "hello", "array_string" : ["hello"]}'), (4, '{"string" : "world", "array_string" : ["world"]}'), (5, '{"string" : "hello", "array_string" : ["hello"]}')
     sql """ set inverted_index_skip_threshold = 0 """
-    sql """ set enable_common_expr_pushdown = true """
+    sql """ set enable_segment_limit_pushdown = true """
     sql """ set enable_match_without_inverted_index = false """
-    
+
     queryAndCheck("select count() from ${tableName} where var['string'] match_phrase 'hello'", 2)
     queryAndCheck("select count() from ${tableName} where var['string'] = 'hello'", 2)
     queryAndCheck("select count() from ${tableName} where var['string'] in ('hello', 'world')", 0)
@@ -125,9 +125,9 @@ suite("test_variant_multi_index_nonCurrent", "p0, nonConcurrent") {
                                 (5, '{"string1" : "hello", "array_string" : ["hello"], "string2" : "hello"}') """
 
     sql """ set inverted_index_skip_threshold = 0 """
-    sql """ set enable_common_expr_pushdown = true """
+    sql """ set enable_segment_limit_pushdown = true """
     sql """ set enable_match_without_inverted_index = false """
-    
+
     queryAndCheck("select count() from ${tableName} where var['string1'] match_phrase 'hello'", 2)
     queryAndCheck("select count() from ${tableName} where var['string1'] = 'hello'", 2)
     queryAndCheck("select count() from ${tableName} where var['string1'] in ('hello', 'world')", 0)
@@ -221,9 +221,9 @@ suite("test_variant_multi_index_nonCurrent", "p0, nonConcurrent") {
         `var`  variant <
                 'array_decimal_*':array<decimalv3 (26,9)>,
                 'array_ipv6_*':array<ipv6>,
-                'int_*':int, 
-                'string_*':string, 
-                'decimal_*':decimalv3(26,9), 
+                'int_*':int,
+                'string_*':string,
+                'decimal_*':decimalv3(26,9),
                 'datetime_*':datetime,
                 'datetimev2_*':datetimev2(6),
                 'date_*':date,
@@ -280,7 +280,7 @@ suite("test_variant_multi_index_nonCurrent", "p0, nonConcurrent") {
               "largeint_1": "12345678901234567890123456789012345678",
               "char_1": "short text"
             }'
-        ); 
+        );
     """
 
     queryAndCheck("select count() from ${tableName} where array_contains(cast(var['array_decimal_1'] as array<decimalv3 (26,9)>), 12345678901234567.123456789)", 0)
@@ -343,7 +343,7 @@ suite("test_variant_multi_index_nonCurrent", "p0, nonConcurrent") {
 
     queryAndCheck("select count() from ${tableName} where var['char_1'] match_all 'short text'", 0)
     queryAndCheck("select count() from ${tableName} where var['char_1'] match_all 'short texts'", 1)
-    
+
     findException = false
     try {
         sql """ select count() from ${tableName} where var['char_1'] match_phrase 'short text' """

@@ -139,4 +139,19 @@ public class OlapTableWrapper extends OlapTable {
     public Set<String> getDistributionColumnNames() {
         return originTable.getDistributionColumnNames();
     }
+
+    @Override
+    public boolean needRowBinlog() {
+        return originTable.needRowBinlog();
+    }
+
+    @Override
+    public MaterializedIndexMeta getBaseIndexMeta() {
+        return originTable.getBaseIndexMeta();
+    }
+
+    @Override
+    public MaterializedIndex getBaseIndex() {
+        return originTable.getBaseIndex();
+    }
 }

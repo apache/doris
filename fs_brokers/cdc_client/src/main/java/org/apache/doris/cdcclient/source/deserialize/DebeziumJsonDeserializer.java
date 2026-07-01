@@ -21,6 +21,7 @@ import org.apache.doris.cdcclient.utils.ConfigUtil;
 import org.apache.doris.job.cdc.DataSourceConfigKeys;
 
 import org.apache.commons.lang3.StringUtils;
+import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.flink.cdc.connectors.mysql.source.utils.RecordUtils;
 import org.apache.flink.cdc.debezium.utils.TemporalConversions;
 import org.apache.flink.table.data.TimestampData;
@@ -33,15 +34,18 @@ import java.io.IOException;
 import java.math.BigDecimal;
 import java.nio.ByteBuffer;
 import java.time.DateTimeException;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.ZoneId;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -68,6 +72,7 @@ import io.debezium.time.NanoTime;
 import io.debezium.time.NanoTimestamp;
 import io.debezium.time.Time;
 import io.debezium.time.Timestamp;
+import io.debezium.time.ZonedTime;
 import io.debezium.time.ZonedTimestamp;
 import lombok.Getter;
 import lombok.Setter;
@@ -161,6 +166,7 @@ public class DebeziumJsonDeserializer
                             if (!excludeColumns.contains(field.name())) {
                                 Object valueConverted =
                                         convert(
+                                                field.name(),
                                                 field.schema(),
                                                 after.getWithoutDefault(field.name()));
                                 record.put(field.name(), valueConverted);
@@ -185,6 +191,7 @@ public class DebeziumJsonDeserializer
                             if (!excludeColumns.contains(field.name())) {
                                 Object valueConverted =
                                         convert(
+                                                field.name(),
                                                 field.schema(),
                                                 before.getWithoutDefault(field.name()));
                                 record.put(field.name(), valueConverted);
@@ -194,7 +201,20 @@ public class DebeziumJsonDeserializer
         return objectMapper.writeValueAsString(record);
     }
 
-    private Object convert(Schema fieldSchema, Object dbzObj) {
+    private Object convert(String fieldName, Schema fieldSchema, Object dbzObj) {
+        try {
+            return convertInternal(fieldSchema, dbzObj);
+        } catch (Exception e) {
+            String msg =
+                    String.format(
+                            "Failed to convert column '%s' value=%s: %s",
+                            fieldName, dbzObj, ExceptionUtils.getMessage(e));
+            LOG.error(msg, e);
+            throw new RuntimeException(msg);
+        }
+    }
+
+    private Object convertInternal(Schema fieldSchema, Object dbzObj) {
         if (dbzObj == null) {
             return null;
         }
@@ -239,6 +259,8 @@ public class DebeziumJsonDeserializer
                     return convertTimestamp(name, dbzObj);
                 case ZonedTimestamp.SCHEMA_NAME:
                     return convertZoneTimestamp(dbzObj);
+                case ZonedTime.SCHEMA_NAME:
+                    return convertZoneTime(dbzObj);
                 case Decimal.LOGICAL_NAME:
                     return convertDecimal(dbzObj, fieldSchema);
                 case Bits.LOGICAL_NAME:
@@ -301,21 +323,43 @@ public class DebeziumJsonDeserializer
         return dbzObj.toString();
     }
 
+    private Object convertZoneTime(Object dbzObj) {
+        // timetz has no date, so a named zone's DST offset cannot be resolved. Following
+        // Debezium/PostgreSQL semantics, keep Debezium's UTC-normalized ZonedTime string as-is
+        // (offset preserved) rather than shifting it into serverTimeZone, which would drop the
+        // offset and mishandle DST.
+        if (dbzObj instanceof String) {
+            return dbzObj;
+        }
+        LOG.warn("Unable to convert to zone time, default {}", dbzObj);
+        return dbzObj.toString();
+    }
+
     private Object convertTimestamp(String typeName, Object dbzObj) {
         if (dbzObj instanceof Long) {
             switch (typeName) {
                 case Timestamp.SCHEMA_NAME:
                     return TimestampData.fromEpochMillis((Long) dbzObj).toTimestamp().toString();
                 case MicroTimestamp.SCHEMA_NAME:
-                    long micro = (long) dbzObj;
-                    return TimestampData.fromEpochMillis(micro / 1000, (int) (micro % 1000 * 1000))
-                            .toTimestamp()
-                            .toString();
+                    {
+                        // floorDiv/floorMod keep nanoOfMillisecond non-negative for pre-1970
+                        // values.
+                        long micro = (long) dbzObj;
+                        long millis = Math.floorDiv(micro, 1000L);
+                        int nanos = (int) Math.floorMod(micro, 1000L) * 1000;
+                        return TimestampData.fromEpochMillis(millis, nanos)
+                                .toTimestamp()
+                                .toString();
+                    }
                 case NanoTimestamp.SCHEMA_NAME:
-                    long nano = (long) dbzObj;
-                    return TimestampData.fromEpochMillis(nano / 1000_000, (int) (nano % 1000_000))
-                            .toTimestamp()
-                            .toString();
+                    {
+                        long nano = (long) dbzObj;
+                        long millis = Math.floorDiv(nano, 1_000_000L);
+                        int nanos = (int) Math.floorMod(nano, 1_000_000L);
+                        return TimestampData.fromEpochMillis(millis, nanos)
+                                .toTimestamp()
+                                .toString();
+                    }
             }
         }
         LocalDateTime localDateTime = TemporalConversions.toLocalDateTime(dbzObj, serverTimeZone);
@@ -364,26 +408,63 @@ public class DebeziumJsonDeserializer
             Schema elementSchema = fieldSchema.valueSchema();
             List<Object> result = new ArrayList<>();
             for (Object element : (List<?>) dbzObj) {
-                result.add(element == null ? null : convert(elementSchema, element));
+                result.add(element == null ? null : convertInternal(elementSchema, element));
             }
             return result;
         }
         return dbzObj.toString();
     }
 
+    // Format a since-midnight time value given as total microseconds (may be negative or exceed
+    // 24h) as MySQL TIME literal text: ±HH:MM:SS[.ffffff], with trailing fractional zeros removed.
+    private static String formatTimeText(long microsTotal) {
+        String sign = microsTotal < 0 ? "-" : "";
+        Duration d = Duration.of(Math.abs(microsTotal), ChronoUnit.MICROS);
+        StringBuilder sb = new StringBuilder(sign);
+        // toHours may exceed two digits (e.g. 838); minute/second parts are always < 60.
+        sb.append(
+                String.format(
+                        Locale.ROOT,
+                        "%02d:%02d:%02d",
+                        d.toHours(),
+                        d.toMinutesPart(),
+                        d.toSecondsPart()));
+        long micros = d.toNanosPart() / 1000L;
+        if (micros > 0) {
+            // six-digit zero-padded micros, then drop trailing zeros (e.g. 500000 -> "5").
+            sb.append('.')
+                    .append(StringUtils.stripEnd(String.format(Locale.ROOT, "%06d", micros), "0"));
+        }
+        return sb.toString();
+    }
+
     protected Object convertToTime(Object dbzObj, Schema schema) {
         try {
             if (dbzObj instanceof Long) {
+                long v = (Long) dbzObj;
                 switch (schema.name()) {
                     case MicroTime.SCHEMA_NAME:
-                        // micro to nano
-                        return LocalTime.ofNanoOfDay((Long) dbzObj * 1000L).toString();
+                        // MySQL TIME spans [-838:59:59, 838:59:59]; out-of-range (negative or
+                        // >=24h) cannot use LocalTime, format as ±HH:MM:SS instead. micro to nano.
+                        if (v >= 0 && v < 86_400_000_000L) {
+                            return LocalTime.ofNanoOfDay(v * 1000L).toString();
+                        }
+                        return formatTimeText(v);
                     case NanoTime.SCHEMA_NAME:
-                        return LocalTime.ofNanoOfDay((Long) dbzObj).toString();
+                        if (v >= 0 && v < 86_400_000_000_000L) {
+                            return LocalTime.ofNanoOfDay(v).toString();
+                        }
+                        // out-of-range: nano to micro. MySQL/PG TIME carries at most microsecond
+                        // precision, so dropping the sub-micro nanos here is lossless for them.
+                        return formatTimeText(v / 1000L);
                 }
             } else if (dbzObj instanceof Integer) {
-                // millis to nano
-                return LocalTime.ofNanoOfDay((Integer) dbzObj * 1_000_000L).toString();
+                // millis to nano; out-of-range formats as ±HH:MM:SS.
+                int v = (Integer) dbzObj;
+                if (v >= 0 && v < 86_400_000) {
+                    return LocalTime.ofNanoOfDay((long) v * 1_000_000L).toString();
+                }
+                return formatTimeText((long) v * 1000L);
             } else if (dbzObj instanceof java.util.Date) {
                 long millisOfDay = ((Date) dbzObj).getTime() % (24 * 60 * 60 * 1000);
                 // mills to nano

@@ -40,6 +40,7 @@
 #include "util/jsonb_writer.h"
 #include "util/mysql_global.h"
 #include "util/to_string.h"
+#include "util/unaligned.h"
 
 namespace doris {
 // Type map的基本结构
@@ -100,8 +101,8 @@ Status DataTypeNumberSerDe<T>::write_column_to_arrow(const IColumn& column, cons
         auto* null_builder = dynamic_cast<arrow::NullBuilder*>(array_builder);
         if (null_builder) {
             for (size_t i = start; i < end; ++i) {
-                RETURN_IF_ERROR(checkArrowStatus(null_builder->AppendNull(), column.get_name(),
-                                                 null_builder->type()->name()));
+                RETURN_IF_ERROR(
+                        checkArrowStatus(null_builder->AppendNull(), column, *null_builder));
             }
         } else {
             auto& builder = assert_cast<ARROW_BUILDER_TYPE&>(*array_builder);
@@ -109,7 +110,7 @@ Status DataTypeNumberSerDe<T>::write_column_to_arrow(const IColumn& column, cons
                     builder.AppendValues(reinterpret_cast<const uint8_t*>(col_data.data() + start),
                                          end - start,
                                          reinterpret_cast<const uint8_t*>(arrow_null_map_data)),
-                    column.get_name(), array_builder->type()->name()));
+                    column, *array_builder));
         }
 
     } else if constexpr (T == TYPE_LARGEINT) {
@@ -118,13 +119,13 @@ Status DataTypeNumberSerDe<T>::write_column_to_arrow(const IColumn& column, cons
             auto& data_value = col_data[i];
             std::string value_str = fmt::format("{}", data_value);
             if (null_map && (*null_map)[i]) {
-                RETURN_IF_ERROR(checkArrowStatus(string_builder.AppendNull(), column.get_name(),
-                                                 array_builder->type()->name()));
+                RETURN_IF_ERROR(
+                        checkArrowStatus(string_builder.AppendNull(), column, *array_builder));
             } else {
                 RETURN_IF_ERROR(checkArrowStatus(
                         string_builder.Append(value_str.data(),
                                               cast_set<int, size_t, false>(value_str.length())),
-                        column.get_name(), array_builder->type()->name()));
+                        column, *array_builder));
             }
         }
     } else if constexpr (T == TYPE_IPV6) {
@@ -133,25 +134,25 @@ Status DataTypeNumberSerDe<T>::write_column_to_arrow(const IColumn& column, cons
         RETURN_IF_ERROR(checkArrowStatus(
                 builder.AppendValues((int64_t*)col_data.data() + start, end - start,
                                      reinterpret_cast<const uint8_t*>(arrow_null_map_data)),
-                column.get_name(), array_builder->type()->name()));
+                column, *array_builder));
     } else if constexpr (T == TYPE_DATEV2) {
         auto& builder = assert_cast<ARROW_BUILDER_TYPE&>(*array_builder);
         RETURN_IF_ERROR(checkArrowStatus(
                 builder.AppendValues((uint32_t*)col_data.data() + start, end - start,
                                      reinterpret_cast<const uint8_t*>(arrow_null_map_data)),
-                column.get_name(), array_builder->type()->name()));
+                column, *array_builder));
     } else if constexpr (T == TYPE_DATETIMEV2 || T == TYPE_TIMESTAMPTZ) {
         auto& builder = assert_cast<ARROW_BUILDER_TYPE&>(*array_builder);
         RETURN_IF_ERROR(checkArrowStatus(
                 builder.AppendValues((uint64_t*)col_data.data() + start, end - start,
                                      reinterpret_cast<const uint8_t*>(arrow_null_map_data)),
-                column.get_name(), array_builder->type()->name()));
+                column, *array_builder));
     } else {
         auto& builder = assert_cast<ARROW_BUILDER_TYPE&>(*array_builder);
         RETURN_IF_ERROR(checkArrowStatus(
                 builder.AppendValues(col_data.data() + start, end - start,
                                      reinterpret_cast<const uint8_t*>(arrow_null_map_data)),
-                column.get_name(), array_builder->type()->name()));
+                column, *array_builder));
     }
     return Status::OK();
 }
@@ -708,7 +709,9 @@ void DataTypeNumberSerDe<T>::write_one_cell_to_jsonb(const IColumn& column,
         int64_t val = *reinterpret_cast<const int64_t*>(data_ref.data);
         result.writeInt64(val);
     } else if constexpr (T == TYPE_LARGEINT) {
-        __int128_t val = *reinterpret_cast<const __int128_t*>(data_ref.data);
+        // data_ref.data may not be 16-byte aligned; dereferencing __int128*
+        // directly is UB and may SIGBUS on alignment-strict platforms.
+        __int128_t val = unaligned_load<__int128_t>(data_ref.data);
         result.writeInt128(val);
     } else if constexpr (T == TYPE_FLOAT) {
         float val = *reinterpret_cast<const float*>(data_ref.data);
@@ -1005,7 +1008,7 @@ const uint8_t* DataTypeNumberSerDe<T>::deserialize_binary_to_field(const uint8_t
         field = Field::create_field<TYPE_DATEV2>(v);
         data += sizeof(UInt32);
     } else if constexpr (T == TYPE_DATETIMEV2 || T == TYPE_TIMESTAMPTZ) {
-        const uint8_t scale = *reinterpret_cast<const uint8_t*>(data);
+        const uint8_t scale = *data;
         data += sizeof(uint8_t);
         UInt64 v = unaligned_load<UInt64>(data);
         info.precision = -1;

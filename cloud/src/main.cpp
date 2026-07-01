@@ -42,6 +42,7 @@
 #include "meta-store/mem_txn_kv.h"
 #include "meta-store/txn_kv.h"
 #include "recycler/recycler.h"
+#include "server/cloud_server_starter_factory.h"
 
 using namespace doris::cloud;
 
@@ -325,23 +326,10 @@ int main(int argc, char** argv) {
         pthread_setname_np(periodiccally_log_thread.native_handle(), "recycler_periodically_log");
     }
 
-    // start service
-    brpc::ServerOptions options;
-    if (config::brpc_idle_timeout_sec != -1) {
-        options.idle_timeout_sec = config::brpc_idle_timeout_sec;
-    }
-    if (config::brpc_num_threads != -1) {
-        options.num_threads = config::brpc_num_threads;
-    }
-    int32_t internal_port = config::brpc_internal_listen_port;
-    if (internal_port > 0) {
-        options.internal_port = internal_port;
-    }
+    std::unique_ptr<ICloudServerStarter> meta_brpc_starter;
     int port = config::brpc_listen_port;
-    if (server.Start(port, &options) != 0) {
-        char buf[64];
-        LOG(WARNING) << "failed to start brpc, errno=" << errno
-                     << ", errmsg=" << strerror_r(errno, buf, 64) << ", port=" << port;
+    if (!create_meta_brpc_starter(&server, port, &meta_brpc_starter) ||
+        !meta_brpc_starter->start()) {
         return -1;
     }
     end = steady_clock::now();
@@ -355,12 +343,16 @@ int main(int argc, char** argv) {
 
     msg = "successfully started service listening on port=" + std::to_string(port) +
           " time_elapsed_ms=" + std::to_string(duration_cast<milliseconds>(end - start).count()) +
-          (internal_port > 0 ? " internal_port=" + std::to_string(internal_port) : "");
+          (config::brpc_internal_listen_port > 0
+                   ? " internal_port=" + std::to_string(config::brpc_internal_listen_port)
+                   : "");
 
     LOG(INFO) << msg;
     std::cerr << msg << std::endl;
 
     server.RunUntilAskedToQuit(); // Wait for signals
+    meta_brpc_starter->stop();
+    meta_brpc_starter->join();
     server.ClearServices();
     if (meta_server) {
         meta_server->stop();

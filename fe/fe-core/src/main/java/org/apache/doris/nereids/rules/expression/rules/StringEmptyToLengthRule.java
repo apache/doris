@@ -47,7 +47,7 @@ import java.util.List;
  * to {@code length(s) = 0}; for NULL, both sides evaluate to NULL.
  *
  * Applies when the compared expression is a non-literal expression of string-like type (e.g. a
- * {@code SlotReference}, a {@code StructElement} field access, etc.), so that the resulting
+ * {@code SlotReference}, an {@code ElementAt} struct field access, etc.), so that the resulting
  * {@code length(expr)} call can benefit from OFFSET-only column reading.
  */
 public class StringEmptyToLengthRule implements ExpressionPatternRuleFactory {

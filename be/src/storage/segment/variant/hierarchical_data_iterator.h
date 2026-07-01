@@ -140,7 +140,7 @@ private:
         dst = IColumn::mutate(std::move(dst));
         // // Read all sub columns, and merge with root column
         ColumnNullable* nullable_column = nullptr;
-        if (dst->is_nullable()) {
+        if (is_column_nullable(*dst)) {
             nullable_column = assert_cast<ColumnNullable*>(dst.get());
         }
         auto& variant = nullable_column == nullptr

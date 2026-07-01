@@ -1006,6 +1006,10 @@ void TabletSchema::append_column(TabletColumn column, ColumnType col_type) {
         _version_col_idx = _num_columns;
     } else if (UNLIKELY(column.name() == SKIP_BITMAP_COL)) {
         _skip_bitmap_col_idx = _num_columns;
+    } else if (UNLIKELY(column.name() == BINLOG_TIMESTAMP_COL)) {
+        _binlog_timestamp_col_idx = _num_columns;
+    } else if (UNLIKELY(column.name() == BINLOG_LSN_COL)) {
+        _binlog_lsn_col_idx = _num_columns;
     } else if (UNLIKELY(column.name().starts_with(BeConsts::VIRTUAL_COLUMN_PREFIX))) {
         _vir_col_idx_to_unique_id[_num_columns] = column.unique_id();
     }
@@ -1207,13 +1211,14 @@ void TabletSchema::init_from_pb(const TabletSchemaPB& schema, bool ignore_extrac
     }
     _is_in_memory = schema.is_in_memory();
     _disable_auto_compaction = schema.disable_auto_compaction();
-    _enable_single_replica_compaction = schema.enable_single_replica_compaction();
     _store_row_column = schema.store_row_column();
     _skip_write_index_on_load = schema.skip_write_index_on_load();
     _delete_sign_idx = schema.delete_sign_idx();
     _sequence_col_idx = schema.sequence_col_idx();
     _version_col_idx = schema.version_col_idx();
     _skip_bitmap_col_idx = schema.skip_bitmap_col_idx();
+    _binlog_timestamp_col_idx = schema.binlog_timestamp_col_idx();
+    _binlog_lsn_col_idx = schema.binlog_lsn_col_idx();
     _sort_type = schema.sort_type();
     _sort_col_num = schema.sort_col_num();
     _compression_type = schema.compression_type();
@@ -1289,16 +1294,16 @@ void TabletSchema::init_from_pb(const TabletSchemaPB& schema, bool ignore_extrac
     _row_store_column_unique_ids.assign(schema.row_store_column_unique_ids().begin(),
                                         schema.row_store_column_unique_ids().end());
     _deprecated_enable_variant_flatten_nested = schema.enable_variant_flatten_nested();
-    if (schema.has_is_external_segment_column_meta_used()) {
-        _is_external_segment_column_meta_used = schema.is_external_segment_column_meta_used();
+    if (schema.has_storage_format()) {
+        _storage_format = schema.storage_format();
+    } else if (schema.is_external_segment_column_meta_used() ||
+               schema.integer_type_default_use_plain_encoding() ||
+               schema.binary_plain_encoding_default_impl() ==
+                       BinaryPlainEncodingTypePB::BINARY_PLAIN_ENCODING_V2) {
+        // Old PB without storage_format: any of the three legacy V3-flavor flags implies V3.
+        _storage_format = TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V3;
     } else {
-        _is_external_segment_column_meta_used = false;
-    }
-    if (schema.has_integer_type_default_use_plain_encoding()) {
-        _integer_type_default_use_plain_encoding = schema.integer_type_default_use_plain_encoding();
-    }
-    if (schema.has_binary_plain_encoding_default_impl()) {
-        _binary_plain_encoding_default_impl = schema.binary_plain_encoding_default_impl();
+        _storage_format = TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V2;
     }
     update_metadata_size();
 }
@@ -1362,7 +1367,6 @@ void TabletSchema::build_current_tablet_schema(int64_t index_id, int32_t version
     _next_column_unique_id = ori_tablet_schema.next_column_unique_id();
     _is_in_memory = ori_tablet_schema.is_in_memory();
     _disable_auto_compaction = ori_tablet_schema.disable_auto_compaction();
-    _enable_single_replica_compaction = ori_tablet_schema.enable_single_replica_compaction();
     _skip_write_index_on_load = ori_tablet_schema.skip_write_index_on_load();
     _sort_type = ori_tablet_schema.sort_type();
     _sort_col_num = ori_tablet_schema.sort_col_num();
@@ -1389,6 +1393,8 @@ void TabletSchema::build_current_tablet_schema(int64_t index_id, int32_t version
     _sequence_col_idx = -1;
     _version_col_idx = -1;
     _skip_bitmap_col_idx = -1;
+    _binlog_timestamp_col_idx = -1;
+    _binlog_lsn_col_idx = -1;
     _cluster_key_uids.clear();
     for (const auto& i : ori_tablet_schema._cluster_key_uids) {
         _cluster_key_uids.push_back(i);
@@ -1414,6 +1420,10 @@ void TabletSchema::build_current_tablet_schema(int64_t index_id, int32_t version
             _version_col_idx = _num_columns;
         } else if (UNLIKELY(column->name() == SKIP_BITMAP_COL)) {
             _skip_bitmap_col_idx = _num_columns;
+        } else if (UNLIKELY(column->name() == BINLOG_TIMESTAMP_COL)) {
+            _binlog_timestamp_col_idx = _num_columns;
+        } else if (UNLIKELY(column->name() == BINLOG_LSN_COL)) {
+            _binlog_lsn_col_idx = _num_columns;
         }
         // Reuse TabletColumn object from pool to reduce memory consumption
         TabletColumnPtr new_column;
@@ -1553,7 +1563,6 @@ void TabletSchema::to_schema_pb(TabletSchemaPB* tablet_schema_pb) const {
     tablet_schema_pb->set_next_column_unique_id(cast_set<uint32_t>(_next_column_unique_id));
     tablet_schema_pb->set_is_in_memory(_is_in_memory);
     tablet_schema_pb->set_disable_auto_compaction(_disable_auto_compaction);
-    tablet_schema_pb->set_enable_single_replica_compaction(_enable_single_replica_compaction);
     tablet_schema_pb->set_store_row_column(_store_row_column);
     tablet_schema_pb->set_skip_write_index_on_load(_skip_write_index_on_load);
     tablet_schema_pb->set_delete_sign_idx(_delete_sign_idx);
@@ -1567,15 +1576,25 @@ void TabletSchema::to_schema_pb(TabletSchemaPB* tablet_schema_pb) const {
     tablet_schema_pb->set_storage_dict_page_size(_storage_dict_page_size);
     tablet_schema_pb->set_version_col_idx(_version_col_idx);
     tablet_schema_pb->set_skip_bitmap_col_idx(_skip_bitmap_col_idx);
+    tablet_schema_pb->set_binlog_timestamp_col_idx(_binlog_timestamp_col_idx);
+    tablet_schema_pb->set_binlog_lsn_col_idx(_binlog_lsn_col_idx);
     tablet_schema_pb->set_inverted_index_storage_format(_inverted_index_storage_format);
     tablet_schema_pb->mutable_row_store_column_unique_ids()->Assign(
             _row_store_column_unique_ids.begin(), _row_store_column_unique_ids.end());
     tablet_schema_pb->set_enable_variant_flatten_nested(_deprecated_enable_variant_flatten_nested);
-    tablet_schema_pb->set_is_external_segment_column_meta_used(
-            _is_external_segment_column_meta_used);
-    tablet_schema_pb->set_integer_type_default_use_plain_encoding(
-            _integer_type_default_use_plain_encoding);
-    tablet_schema_pb->set_binary_plain_encoding_default_impl(_binary_plain_encoding_default_impl);
+    tablet_schema_pb->set_storage_format(_storage_format);
+    // Backward downgrade safety: if a new BE rewrites tablet_meta.json carrying only
+    // storage_format and the deployment is then rolled back to an old BE, the old BE
+    // does not know the new field and would default-derive V2 for a V3 tablet, causing
+    // it to write V2-encoded segments into a V3 tablet. Redundantly emit the three
+    // legacy V3-flavor flags so old BEs can recover the format via the prior "any of
+    // these implies V3" rule. ~3 bytes per schema PB; only paid for V3 tablets.
+    if (_storage_format == TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V3) {
+        tablet_schema_pb->set_is_external_segment_column_meta_used(true);
+        tablet_schema_pb->set_integer_type_default_use_plain_encoding(true);
+        tablet_schema_pb->set_binary_plain_encoding_default_impl(
+                BinaryPlainEncodingTypePB::BINARY_PLAIN_ENCODING_V2);
+    }
     auto column_groups_pb = tablet_schema_pb->mutable_seq_map();
     for (const auto& it : _seq_col_uid_to_value_cols_uid) {
         uint32_t key = it.first;
@@ -1958,7 +1977,6 @@ bool operator==(const TabletSchema& a, const TabletSchema& b) {
     if (a._is_in_memory != b._is_in_memory) return false;
     if (a._delete_sign_idx != b._delete_sign_idx) return false;
     if (a._disable_auto_compaction != b._disable_auto_compaction) return false;
-    if (a._enable_single_replica_compaction != b._enable_single_replica_compaction) return false;
     if (a._store_row_column != b._store_row_column) return false;
     if (a._row_store_page_size != b._row_store_page_size) return false;
     if (a._storage_page_size != b._storage_page_size) return false;
@@ -1968,12 +1986,7 @@ bool operator==(const TabletSchema& a, const TabletSchema& b) {
         b._deprecated_enable_variant_flatten_nested) {
         return false;
     }
-    if (a._is_external_segment_column_meta_used != b._is_external_segment_column_meta_used)
-        return false;
-    if (a._integer_type_default_use_plain_encoding != b._integer_type_default_use_plain_encoding)
-        return false;
-    if (a._binary_plain_encoding_default_impl != b._binary_plain_encoding_default_impl)
-        return false;
+    if (a._storage_format != b._storage_format) return false;
     return true;
 }
 

@@ -31,10 +31,6 @@ namespace doris {
 
 namespace {
 
-constexpr uint32_t MD5_A0 = 0x67452301;
-constexpr uint32_t MD5_B0 = 0xefcdab89;
-constexpr uint32_t MD5_C0 = 0x98badcfe;
-constexpr uint32_t MD5_D0 = 0x10325476;
 constexpr unsigned char MD5_DUMMY_INPUT = 0;
 
 void md5_to_hex(const unsigned char* digest, char* out) {
@@ -44,6 +40,13 @@ void md5_to_hex(const unsigned char* digest, char* out) {
         *out++ = DIGITS[digest[i] & 0x0F];
     }
 }
+
+#ifdef __AVX2__
+
+constexpr uint32_t MD5_A0 = 0x67452301;
+constexpr uint32_t MD5_B0 = 0xefcdab89;
+constexpr uint32_t MD5_C0 = 0x98badcfe;
+constexpr uint32_t MD5_D0 = 0x10325476;
 
 size_t md5_num_blocks(size_t len) {
     return (len + 9 + 63) / 64;
@@ -62,8 +65,6 @@ size_t md5_pad_final_blocks(const unsigned char* data, size_t len, unsigned char
 
     return final_count;
 }
-
-#ifdef __AVX2__
 
 struct AVX2MD5Ops {
     using Vec = __m256i;

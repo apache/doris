@@ -16,6 +16,9 @@
 // under the License.
 
 suite("test_olap_table_stream_history_query") {
+    if (isCloudMode()) {
+        return
+    }
     sql "DROP DATABASE IF EXISTS test_olap_table_stream_history_query_db"
     sql "CREATE DATABASE test_olap_table_stream_history_query_db"
     sql "USE test_olap_table_stream_history_query_db"
@@ -29,7 +32,10 @@ suite("test_olap_table_stream_history_query") {
         UNIQUE KEY(`sid`)
         DISTRIBUTED BY HASH(`sid`) BUCKETS 1
         PROPERTIES (
-        "replication_allocation" = "tag.location.default: 1"
+        "replication_allocation" = "tag.location.default: 1",
+        "binlog.enable" = "true",
+        "binlog.format" = "ROW",
+        "binlog.need_historical_value" = "true"
         ); 
     """
     sql """ 
@@ -40,7 +46,6 @@ suite("test_olap_table_stream_history_query") {
         CREATE STREAM `s1` ON TABLE tbl1
         COMMENT 'test stream 1'
         PROPERTIES(
-            'type' = 'default',
             'show_initial_rows' = 'true'
         );
     """
@@ -54,7 +59,9 @@ suite("test_olap_table_stream_history_query") {
         DUPLICATE KEY(`sid`)
         DISTRIBUTED BY HASH(`sid`) BUCKETS 1
         PROPERTIES (
-        "replication_allocation" = "tag.location.default: 1"
+        "replication_allocation" = "tag.location.default: 1",
+        "binlog.enable" = "true",
+        "binlog.format" = "ROW"
         ); 
     """
 
@@ -66,7 +73,6 @@ suite("test_olap_table_stream_history_query") {
         CREATE STREAM `s2` ON TABLE tbl2
         COMMENT 'test stream 3'
         PROPERTIES(
-            'type' = 'default',
             'show_initial_rows' = 'true'
         );
     """

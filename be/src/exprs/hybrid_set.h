@@ -268,7 +268,7 @@ public:
                                    "HybridSet::insert_range_from method (data.size() = {}).",
                                    start, end, column->size());
         }
-        if (column->is_nullable()) {
+        if (is_column_nullable(*column)) {
             const auto* nullable = assert_cast<const ColumnNullable*>(column.get());
             const auto& col = nullable->get_nested_column();
             const auto& nullmap = nullable->get_null_map_column().get_data();
@@ -460,7 +460,7 @@ public:
                                    "StringSet::insert_range_from method (data.size() = {}).",
                                    start, end, column->size());
         }
-        if (column->is_nullable()) {
+        if (is_column_nullable(*column)) {
             const auto* nullable = assert_cast<const ColumnNullable*>(column.get());
             const auto& nullmap = nullable->get_null_map_column().get_data();
             if (nullable->get_nested_column().is_column_string64()) {
@@ -663,7 +663,7 @@ public:
                                    "StringSet::insert_range_from method (data.size() = {}).",
                                    start, end, column->size());
         }
-        if (column->is_nullable()) {
+        if (is_column_nullable(*column)) {
             const auto* nullable = assert_cast<const ColumnNullable*>(column.get());
             const auto& nullmap = nullable->get_null_map_column().get_data();
             if (nullable->get_nested_column().is_column_string64()) {

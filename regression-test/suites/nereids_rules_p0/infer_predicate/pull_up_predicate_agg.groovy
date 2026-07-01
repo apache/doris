@@ -16,6 +16,7 @@
 // under the License.
 
 suite("test_pull_up_agg") {
+    sql "set parallel_pipeline_task_num=2"
 //    sql "set disable_nereids_rules='INFER_PREDICATES'"
     sql "set enable_nereids_planner=true"
     sql "set enable_fallback_to_original_planner=false"

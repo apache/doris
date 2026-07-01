@@ -38,6 +38,7 @@ import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.Version;
 import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
+import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.connectivity.CatalogConnectivityTestCoordinator;
 import org.apache.doris.datasource.doris.RemoteDorisExternalDatabase;
@@ -271,6 +272,20 @@ public abstract class ExternalCatalog
         if (metadataOps == null) {
             throw new UnsupportedOperationException("List databases is not supported for catalog: " + getName());
         } else {
+            // Allow manual regression to isolate catalog-level metadata enumeration cost during collect.
+            if (DebugPointUtil.isEnable("ExternalCatalog.listDatabaseNames.sleep")) {
+                long sleepMs = DebugPointUtil.getDebugParamOrDefault(
+                        "ExternalCatalog.listDatabaseNames.sleep", "sleepMs", 0L);
+                if (sleepMs > 0) {
+                    LOG.info("debug point ExternalCatalog.listDatabaseNames.sleep hit for {}, sleep {}ms",
+                            getName(), sleepMs);
+                    try {
+                        Thread.sleep(sleepMs);
+                    } catch (InterruptedException ignore) {
+                        Thread.currentThread().interrupt();
+                    }
+                }
+            }
             return metadataOps.listDatabaseNames();
         }
     }

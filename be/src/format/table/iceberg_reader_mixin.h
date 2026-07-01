@@ -365,10 +365,14 @@ protected:
 
 template <typename BaseReader>
 Status IcebergReaderMixin<BaseReader>::_init_row_filters() {
-    // COUNT(*) short-circuit
+    // COUNT(*) short-circuit. A table-level row count of 0 (e.g. an all-deleted table read with
+    // ignore_iceberg_dangling_delete, where total-records == total-position-deletes) is still a
+    // valid pushed-down count, so accept >= 0 -- matching FileScanner and the Paimon readers. FE
+    // sends -1 when there is no table-level count; using > 0 here would drop a genuine 0 into the
+    // delete-applying path below and never produce the intended CountReader(0).
     if (this->_push_down_agg_type == TPushAggOp::type::COUNT &&
         this->get_scan_range().table_format_params.__isset.table_level_row_count &&
-        this->get_scan_range().table_format_params.table_level_row_count > 0) {
+        this->get_scan_range().table_format_params.table_level_row_count >= 0) {
         return Status::OK();
     }
 
@@ -593,7 +597,7 @@ Status IcebergReaderMixin<BaseReader>::_expand_block_if_need(Block* block) {
             return Status::InternalError("Wrong expand column '{}'", col.name);
         }
         names.insert(col.name);
-        (*this->col_name_to_block_idx_ref())[col.name] = static_cast<uint32_t>(block->columns());
+        (*this->col_name_to_block_idx_ref())[col.name] = block->columns();
         block->insert({col.type->create_column(), col.type, col.name});
     }
     return Status::OK();

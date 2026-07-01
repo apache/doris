@@ -17,10 +17,6 @@
 
 #include "core/data_type_serde/data_type_jsonb_serde.h"
 
-#include <rapidjson/document.h>
-#include <rapidjson/stringbuffer.h>
-#include <rapidjson/writer.h>
-
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -103,8 +99,7 @@ Status DataTypeJsonbSerDe::write_column_to_arrow(const IColumn& column, const Nu
     auto& builder = assert_cast<arrow::StringBuilder&>(*array_builder);
     for (size_t string_i = start; string_i < end; ++string_i) {
         if (null_map && (*null_map)[string_i]) {
-            RETURN_IF_ERROR(checkArrowStatus(builder.AppendNull(), column.get_name(),
-                                             array_builder->type()->name()));
+            RETURN_IF_ERROR(checkArrowStatus(builder.AppendNull(), column, *array_builder));
             continue;
         }
         std::string_view string_ref = string_column.get_data_at(string_i).to_string_view();
@@ -113,7 +108,7 @@ Status DataTypeJsonbSerDe::write_column_to_arrow(const IColumn& column, const Nu
         RETURN_IF_ERROR(
                 checkArrowStatus(builder.Append(json_string.data(),
                                                 cast_set<int, size_t, false>(json_string.size())),
-                                 column.get_name(), array_builder->type()->name()));
+                                 column, *array_builder));
     }
     return Status::OK();
 }
@@ -149,12 +144,11 @@ Status DataTypeJsonbSerDe::read_column_from_arrow(IColumn& column, const arrow::
     } else if (arrow_array->type_id() == arrow::Type::FIXED_SIZE_BINARY) {
         const auto* concrete_array = dynamic_cast<const arrow::FixedSizeBinaryArray*>(arrow_array);
         uint32_t width = concrete_array->byte_width();
-        const auto* array_data = concrete_array->GetValue(start);
 
         JsonBinaryValue value;
-        for (size_t offset_i = 0; offset_i < end - start; ++offset_i) {
+        for (auto offset_i = start; offset_i < end; ++offset_i) {
             if (!concrete_array->IsNull(offset_i)) {
-                const auto* raw_data = array_data + (offset_i * width);
+                const auto* raw_data = concrete_array->GetValue(offset_i);
 
                 RETURN_IF_ERROR(
                         value.from_json_string(reinterpret_cast<const char*>(raw_data), width));
@@ -263,77 +257,6 @@ Status DataTypeJsonbSerDe::read_column_from_pb(IColumn& column, const PValues& a
         column_string.insert_data(value.value(), value.size());
     }
     return Status::OK();
-}
-
-void convert_jsonb_to_rapidjson(const JsonbValue& val, rapidjson::Value& target,
-                                rapidjson::Document::AllocatorType& allocator) {
-    // convert type of jsonb to rapidjson::Value
-    switch (val.type) {
-    case JsonbType::T_True:
-        target.SetBool(true);
-        break;
-    case JsonbType::T_False:
-        target.SetBool(false);
-        break;
-    case JsonbType::T_Null:
-        target.SetNull();
-        break;
-    case JsonbType::T_Float:
-        target.SetFloat(val.unpack<JsonbFloatVal>()->val());
-        break;
-    case JsonbType::T_Double:
-        target.SetDouble(val.unpack<JsonbDoubleVal>()->val());
-        break;
-    case JsonbType::T_Int64:
-        target.SetInt64(val.unpack<JsonbInt64Val>()->val());
-        break;
-    case JsonbType::T_Int32:
-        target.SetInt(val.unpack<JsonbInt32Val>()->val());
-        break;
-    case JsonbType::T_Int16:
-        target.SetInt(val.unpack<JsonbInt16Val>()->val());
-        break;
-    case JsonbType::T_Int8:
-        target.SetInt(val.unpack<JsonbInt8Val>()->val());
-        break;
-    case JsonbType::T_String:
-        target.SetString(val.unpack<JsonbStringVal>()->getBlob(),
-                         val.unpack<JsonbStringVal>()->getBlobLen());
-        break;
-    case JsonbType::T_Array: {
-        target.SetArray();
-        const ArrayVal& array = *val.unpack<ArrayVal>();
-        if (array.numElem() == 0) {
-            target.SetNull();
-            break;
-        }
-        target.Reserve(array.numElem(), allocator);
-        for (auto it = array.begin(); it != array.end(); ++it) {
-            rapidjson::Value array_val;
-            convert_jsonb_to_rapidjson(*static_cast<const JsonbValue*>(it), array_val, allocator);
-            target.PushBack(array_val, allocator);
-        }
-        break;
-    }
-    case JsonbType::T_Object: {
-        target.SetObject();
-        const ObjectVal& obj = *val.unpack<ObjectVal>();
-        for (auto it = obj.begin(); it != obj.end(); ++it) {
-            rapidjson::Value obj_val;
-            convert_jsonb_to_rapidjson(*it->value(), obj_val, allocator);
-            target.AddMember(rapidjson::GenericStringRef(it->getKeyStr(), it->klen()), obj_val,
-                             allocator);
-        }
-        break;
-    }
-    case JsonbType::T_Int128: {
-        target.SetUint64(static_cast<uint64_t>(val.unpack<JsonbInt128Val>()->val()));
-        break;
-    }
-    default:
-        CHECK(false) << "unkown type " << static_cast<int>(val.type);
-        break;
-    }
 }
 
 Status DataTypeJsonbSerDe::serialize_column_to_jsonb(const IColumn& from_column, int64_t row_num,

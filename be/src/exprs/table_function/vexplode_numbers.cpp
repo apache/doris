@@ -52,7 +52,7 @@ Status VExplodeNumbersTableFunction::process_init(Block* block, RuntimeState* st
         // the argument columns -> Int32
         const auto& column_nested =
                 assert_cast<const ColumnConst&>(*_value_column).get_data_column_ptr();
-        if (column_nested->is_nullable()) {
+        if (is_column_nullable(*column_nested)) {
             if (!column_nested->is_null_at(0)) {
                 _cur_size = assert_cast<const ColumnInt32*>(
                                     assert_cast<const ColumnNullable*>(column_nested.get())
@@ -64,14 +64,14 @@ Status VExplodeNumbersTableFunction::process_init(Block* block, RuntimeState* st
             _cur_size = assert_cast<const ColumnInt32*>(column_nested.get())->get_element(0);
         }
 
-        ((ColumnInt32*)_elements_column.get())->clear();
+        _elements_column->clear();
         //_cur_size may be a negative number
         _cur_size = std::max(static_cast<int64_t>(0L), _cur_size);
         if (_cur_size &&
             _cur_size <= state->batch_size()) { // avoid elements_column too big or empty
             _is_const = true;                   // use const optimize
             for (int i = 0; i < _cur_size; i++) {
-                ((ColumnInt32*)_elements_column.get())->insert_value(i);
+                _elements_column->insert_value(i);
             }
         }
     }

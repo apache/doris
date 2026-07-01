@@ -343,6 +343,21 @@ Status Block::check_type_and_column() const {
     return Status::OK();
 }
 
+Status Block::check_column_and_type_not_null() const {
+    for (size_t i = 0; i != data.size(); ++i) {
+        const auto& elem = data[i];
+        if (!elem.column) {
+            return Status::InternalError("Column in block is nullptr, column index: {}, name: {}",
+                                         i, elem.name);
+        }
+        if (!elem.type) {
+            return Status::InternalError("Type in block is nullptr, column index: {}, name: {}", i,
+                                         elem.name);
+        }
+    }
+    return Status::OK();
+}
+
 size_t Block::rows() const {
     for (const auto& elem : data) {
         if (elem.column) {
@@ -464,8 +479,7 @@ std::string Block::dump_data_json(size_t begin, size_t row_limit, bool allow_nul
 
             // This value-extraction logic is preserved from your original function
             // to maintain consistency, especially for handling nullability mismatches.
-            if (data[i].column && data[i].type->is_nullable() &&
-                !data[i].column->is_concrete_nullable()) {
+            if (data[i].column && data[i].type->is_nullable() && !data[i].column->is_nullable()) {
                 // This branch handles a specific internal representation of nullable columns.
                 // The original code would assert here if allow_null_mismatch is false.
                 assert(allow_null_mismatch);
@@ -530,7 +544,7 @@ std::string Block::dump_data(size_t begin, size_t row_limit, bool allow_null_mis
             std::string s;
             if (data[i].column) { // column may be const
                 // for code inside `default_implementation_for_nulls`, there's could have: type = null, col != null
-                if (data[i].type->is_nullable() && !data[i].column->is_concrete_nullable()) {
+                if (data[i].type->is_nullable() && !data[i].column->is_nullable()) {
                     assert(allow_null_mismatch);
                     s = assert_cast<const DataTypeNullable*>(data[i].type.get())
                                 ->get_nested_type()
@@ -1015,14 +1029,16 @@ Status Block::serialize(int be_exec_version, PBlock* pblock,
 
     // calc uncompressed size for allocation
     size_t content_uncompressed_size = 0;
-    for (const auto& c : *this) {
-        PColumnMeta* pcm = pblock->add_column_metas();
-        c.to_pb_column_meta(pcm);
-        DCHECK(pcm->type() != PGenericType::UNKNOWN) << " forget to set pb type";
-        // get serialized size
-        content_uncompressed_size +=
-                c.type->get_uncompressed_serialized_bytes(*(c.column), pblock->be_exec_version());
-    }
+    RETURN_IF_CATCH_EXCEPTION({
+        for (const auto& c : *this) {
+            PColumnMeta* pcm = pblock->add_column_metas();
+            c.to_pb_column_meta(pcm);
+            DCHECK(pcm->type() != PGenericType::UNKNOWN) << " forget to set pb type";
+            // get serialized size
+            content_uncompressed_size += c.type->get_uncompressed_serialized_bytes(
+                    *(c.column), pblock->be_exec_version());
+        }
+    });
 
     // serialize data values
     // when data type is HLL, content_uncompressed_size maybe larger than real size.
@@ -1038,9 +1054,11 @@ Status Block::serialize(int be_exec_version, PBlock* pblock,
     }
     char* buf = column_values.data();
 
-    for (const auto& c : *this) {
-        buf = c.type->serialize(*(c.column), buf, pblock->be_exec_version());
-    }
+    RETURN_IF_CATCH_EXCEPTION({
+        for (const auto& c : *this) {
+            buf = c.type->serialize(*(c.column), buf, pblock->be_exec_version());
+        }
+    });
     *uncompressed_bytes = content_uncompressed_size;
     const size_t serialize_bytes = buf - column_values.data() + STREAMVBYTE_PADDING;
     *compressed_bytes = serialize_bytes;
@@ -1256,21 +1274,6 @@ std::unique_ptr<Block> Block::create_same_struct_block(size_t size, bool is_rese
         temp_block->insert({std::move(column), d.type, d.name});
     }
     return temp_block;
-}
-
-void Block::shrink_char_type_column_suffix_zero(const std::vector<size_t>& char_type_idx) {
-    for (auto idx : char_type_idx) {
-        if (idx < data.size()) {
-            auto& col_and_name = this->get_by_position(idx);
-            if (col_and_name.column->is_exclusive()) {
-                col_and_name.column->assert_mutable()->shrink_padding_chars();
-            } else {
-                auto mutable_col = std::move(*col_and_name.column).mutate();
-                mutable_col->shrink_padding_chars();
-                col_and_name.column = std::move(mutable_col);
-            }
-        }
-    }
 }
 
 size_t MutableBlock::allocated_bytes() const {

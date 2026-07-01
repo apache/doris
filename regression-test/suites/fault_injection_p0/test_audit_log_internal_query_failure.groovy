@@ -57,15 +57,20 @@ suite('test_audit_log_internal_query_failure', 'nonConcurrent') {
                 GetDebugPoint().clearDebugPointsForAllBEs()
             }
 
+            def currentDb = (sql_return_maparray "select database() as db")[0].db.toString()
+            def fullTableName = "internal.${currentDb}.${tbl}"
+
             // Force a flush so the failed internal query is queryable from
             // __internal_schema.audit_log.
             // The failed gather SQL reads from our user table and runs as an
             // internal query; it must show up with state=ERR. Filter by start
             // time to avoid matching stale entries from previous runs.
+            // Use queried_tables_and_views instead of stmt because stmt can be
+            // truncated by audit_plugin_max_sql_length when running in CI.
             def query = """select state, error_code, error_message
                            from __internal_schema.audit_log
                            where is_internal = 1
-                             and stmt like '%${tbl}%'
+                             and array_contains(queried_tables_and_views, '${fullTableName}')
                              and state = 'ERR'
                              and `time` >= '${startTime}'
                            order by `time` desc limit 1"""

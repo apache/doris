@@ -1405,6 +1405,8 @@ struct TCreatePartitionRequest {
     6: optional bool write_single_replica = false
     // query_id to identify the coordinator, if coordinator exists, it means this is a multi-instance load
     7: optional Types.TUniqueId query_id
+    // Whether the caller's table sink is using load_to_single_tablet mode.
+    8: optional bool load_to_single_tablet = false
 }
 
 struct TCreatePartitionResult {
@@ -1425,6 +1427,8 @@ struct TReplacePartitionRequest {
     5: optional string be_endpoint
     6: optional bool write_single_replica = false
     7: optional Types.TUniqueId query_id
+    // Whether the caller's table sink is using load_to_single_tablet mode.
+    8: optional bool load_to_single_tablet = false
 }
 
 struct TReplacePartitionResult {
@@ -1734,6 +1738,7 @@ struct TPartitionMeta {
     1: optional i64 id
     2: optional i64 visible_version
     3: optional i64 visible_version_time
+    4: optional string meta_checksum
 }
 
 struct TGetOlapTableMetaRequest {
@@ -1754,6 +1759,8 @@ struct TGetOlapTableMetaResult {
     4: optional list<i64> removed_partitions
     5: optional list<binary> updated_temp_partitions
     6: optional list<i64> removed_temp_partitions
+    7: optional list<string> updated_partition_checksums
+    8: optional list<string> updated_temp_partition_checksums
 }
 
 // Remote transaction request and Result definitions for cross-cluster export.

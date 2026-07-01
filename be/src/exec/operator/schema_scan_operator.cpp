@@ -208,7 +208,7 @@ Status SchemaScanOperatorX::prepare(RuntimeState* state) {
     return Status::OK();
 }
 
-Status SchemaScanOperatorX::get_block(RuntimeState* state, Block* block, bool* eos) {
+Status SchemaScanOperatorX::get_block_impl(RuntimeState* state, Block* block, bool* eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     RETURN_IF_CANCELLED(state);
@@ -261,10 +261,10 @@ Status SchemaScanOperatorX::get_block(RuntimeState* state, Block* block, bool* e
                         IColumn::mutate(std::move(block->get_by_position(i).column));
                 ColumnPtr src_column = src_block.safe_get_by_position(_slot_offsets[i])
                                                .column->convert_to_full_column_if_const();
-                if (column_ptr->is_nullable() && !src_column->is_nullable()) {
+                if (is_column_nullable(*column_ptr) && !is_column_nullable(*src_column)) {
                     src_column = make_nullable(src_column);
                 }
-                DORIS_CHECK(column_ptr->is_nullable() == src_column->is_nullable());
+                DORIS_CHECK(is_column_nullable(*column_ptr) == is_column_nullable(*src_column));
                 column_ptr->insert_range_from(*src_column, 0, src_block.rows());
                 block->replace_by_position(i, std::move(column_ptr));
             }

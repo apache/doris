@@ -43,6 +43,7 @@ suite('test_balance_use_compute_group_properties', 'docker') {
         'disable_auto_compaction=true',
         'sys_log_verbose_modules=*',
         "enable_packed_file=${enablePackedFile}",
+        'skip_writing_empty_rowset_metadata=false',
     ]
     options.setFeNum(1)
     options.setBeNum(1)

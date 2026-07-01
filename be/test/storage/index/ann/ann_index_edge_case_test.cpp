@@ -22,6 +22,7 @@
 #include <string>
 #include <vector>
 
+#include "runtime/runtime_state.h"
 #include "storage/index/ann/ann_index_iterator.h"
 #include "storage/index/ann/ann_index_reader.h"
 #include "storage/index/ann/ann_index_writer.h"
@@ -38,24 +39,34 @@ TEST_F(VectorSearchTest, TestAnnIndexStatsInitialization) {
     // Test initial values
     EXPECT_EQ(stats.search_costs_ns.value(), 0);
     EXPECT_EQ(stats.load_index_costs_ns.value(), 0);
+    EXPECT_EQ(stats.range_fallback_by_small_candidate_cnt, 0);
+    EXPECT_EQ(stats.range_fallback_small_candidate_rows, 0);
 
     // Test setting values
     stats.search_costs_ns.set(1000L);
     stats.load_index_costs_ns.set(2000L);
+    stats.range_fallback_by_small_candidate_cnt = 1;
+    stats.range_fallback_small_candidate_rows = 3;
 
     EXPECT_EQ(stats.search_costs_ns.value(), 1000);
     EXPECT_EQ(stats.load_index_costs_ns.value(), 2000);
+    EXPECT_EQ(stats.range_fallback_by_small_candidate_cnt, 1);
+    EXPECT_EQ(stats.range_fallback_small_candidate_rows, 3);
 }
 
 TEST_F(VectorSearchTest, TestAnnIndexStatsCopyConstructor) {
     doris::segment_v2::AnnIndexStats original;
     original.search_costs_ns.set(1500L);
     original.load_index_costs_ns.set(2500L);
+    original.range_fallback_by_small_candidate_cnt = 1;
+    original.range_fallback_small_candidate_rows = 3;
 
     doris::segment_v2::AnnIndexStats copied(original);
 
     EXPECT_EQ(copied.search_costs_ns.value(), 1500);
     EXPECT_EQ(copied.load_index_costs_ns.value(), 2500);
+    EXPECT_EQ(copied.range_fallback_by_small_candidate_cnt, 1);
+    EXPECT_EQ(copied.range_fallback_small_candidate_rows, 3);
 }
 
 TEST_F(VectorSearchTest, TestAnnRangeSearchParamsToString) {
@@ -119,6 +130,25 @@ TEST_F(VectorSearchTest, TestVectorSearchUserParamsDefaultValues) {
     EXPECT_EQ(params.hnsw_ef_search, 32);
     EXPECT_EQ(params.hnsw_check_relative_distance, true);
     EXPECT_EQ(params.hnsw_bounded_queue, true);
+    EXPECT_EQ(params.ivf_nprobe, 32);
+    EXPECT_EQ(params.ann_index_candidate_rows_threshold, 0);
+    EXPECT_EQ(params.ann_index_candidate_rows_percent_threshold, 0.3);
+}
+
+TEST_F(VectorSearchTest, TestVectorSearchUserParamsSmallCandidateFallback) {
+    doris::VectorSearchUserParams params;
+    params.ann_index_candidate_rows_percent_threshold = 0;
+
+    EXPECT_FALSE(params.should_fallback_ann_index_by_small_candidate(3, 10));
+
+    params.ann_index_candidate_rows_threshold = 4;
+    EXPECT_TRUE(params.should_fallback_ann_index_by_small_candidate(3, 10));
+    EXPECT_FALSE(params.should_fallback_ann_index_by_small_candidate(4, 10));
+
+    params.ann_index_candidate_rows_threshold = 0;
+    params.ann_index_candidate_rows_percent_threshold = 0.3;
+    EXPECT_TRUE(params.should_fallback_ann_index_by_small_candidate(2, 10));
+    EXPECT_FALSE(params.should_fallback_ann_index_by_small_candidate(3, 10));
 }
 
 TEST_F(VectorSearchTest, TestVectorSearchUserParamsEquality) {
@@ -137,6 +167,33 @@ TEST_F(VectorSearchTest, TestVectorSearchUserParamsEquality) {
     // Test inequality
     params2.hnsw_ef_search = 50;
     EXPECT_NE(params1, params2);
+
+    params2.hnsw_ef_search = 100;
+    params2.ann_index_candidate_rows_threshold = 10;
+    EXPECT_NE(params1, params2);
+
+    params2.ann_index_candidate_rows_threshold = 0;
+    params2.ann_index_candidate_rows_percent_threshold = 0.1;
+    EXPECT_NE(params1, params2);
+}
+
+TEST_F(VectorSearchTest, TestRuntimeStateVectorSearchUserParams) {
+    TQueryOptions query_options;
+    query_options.__set_hnsw_ef_search(64);
+    query_options.__set_hnsw_check_relative_distance(false);
+    query_options.__set_hnsw_bounded_queue(false);
+    query_options.__set_ivf_nprobe(8);
+    query_options.__set_ann_index_candidate_rows_threshold(100);
+    query_options.__set_ann_index_candidate_rows_percent_threshold(0.2);
+
+    RuntimeState state(query_options, TQueryGlobals());
+    auto params = state.get_vector_search_params();
+    EXPECT_EQ(params.hnsw_ef_search, 64);
+    EXPECT_EQ(params.hnsw_check_relative_distance, false);
+    EXPECT_EQ(params.hnsw_bounded_queue, false);
+    EXPECT_EQ(params.ivf_nprobe, 8);
+    EXPECT_EQ(params.ann_index_candidate_rows_threshold, 100);
+    EXPECT_EQ(params.ann_index_candidate_rows_percent_threshold, 0.2);
 }
 
 TEST_F(VectorSearchTest, TestIndexSearchResultInitialization) {

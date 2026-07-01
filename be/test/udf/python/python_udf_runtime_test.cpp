@@ -20,6 +20,7 @@
 #include <gtest/gtest.h>
 #include <sys/socket.h>
 #include <sys/un.h>
+#include <sys/wait.h>
 #include <unistd.h>
 
 #include <boost/process.hpp>
@@ -130,6 +131,76 @@ TEST_F(PythonUDFRuntimeTest, ProcessPtrIsSharedPtr) {
     ProcessPtr ptr = nullptr;
     EXPECT_EQ(ptr, nullptr);
     EXPECT_FALSE(ptr);
+}
+
+TEST_F(PythonUDFRuntimeTest, WaitChildExitReturnsExitedForExitedChild) {
+    bp::ipstream output;
+    bp::child child("/bin/bash", "-c", "exit 7", bp::std_out > output);
+    ASSERT_TRUE(child.valid());
+
+    int exit_status = 0;
+    auto result = PythonUDFProcess::wait_child_exit(child.id(), std::chrono::milliseconds(1000),
+                                                    &exit_status);
+    child.detach();
+
+    EXPECT_TRUE(result == PythonUDFProcess::ChildExitWaitResult::EXITED ||
+                result == PythonUDFProcess::ChildExitWaitResult::ALREADY_REAPED);
+    if (result == PythonUDFProcess::ChildExitWaitResult::EXITED) {
+        EXPECT_TRUE(WIFEXITED(exit_status));
+        EXPECT_EQ(WEXITSTATUS(exit_status), 7);
+    }
+}
+
+TEST_F(PythonUDFRuntimeTest, WaitChildExitReturnsTimeoutForRunningChild) {
+    bp::ipstream output;
+    bp::child child("/bin/sleep", "60", bp::std_out > output);
+    ASSERT_TRUE(child.valid());
+    ASSERT_TRUE(child.running());
+
+    int exit_status = 0;
+    auto result = PythonUDFProcess::wait_child_exit(child.id(), std::chrono::milliseconds(20),
+                                                    &exit_status);
+
+    EXPECT_EQ(result, PythonUDFProcess::ChildExitWaitResult::TIMEOUT);
+
+    child.terminate();
+    child.wait();
+}
+
+TEST_F(PythonUDFRuntimeTest, WaitChildExitReturnsAlreadyReapedForReapedChild) {
+    bp::ipstream output;
+    bp::child child("/bin/true", bp::std_out > output);
+    ASSERT_TRUE(child.valid());
+    pid_t child_pid = child.id();
+    child.wait();
+
+    int exit_status = 0;
+    auto result = PythonUDFProcess::wait_child_exit(child_pid, std::chrono::milliseconds(0),
+                                                    &exit_status);
+
+    EXPECT_EQ(result, PythonUDFProcess::ChildExitWaitResult::ALREADY_REAPED);
+}
+
+TEST_F(PythonUDFRuntimeTest, BackgroundReaperReapsQueuedChild) {
+    bp::ipstream output;
+    bp::child child("/bin/bash", "-c", "sleep 0.1; exit 0", bp::std_out > output);
+    ASSERT_TRUE(child.valid());
+    pid_t child_pid = child.id();
+
+    // Do not try to force the real "SIGKILLed but still not reapable" case in UT. That usually
+    // needs kernel-level uninterruptible sleep. The behavior we must guarantee is that once such a
+    // pid is handed off, the background reaper keeps waitpid ownership until the child exits.
+    child.detach();
+    PythonUDFProcess::enqueue_child_for_reap(child_pid);
+
+    bool reaped = PythonUDFProcess::wait_background_reaped_for_test(
+            child_pid, std::chrono::milliseconds(5000));
+    EXPECT_TRUE(reaped);
+
+    int exit_status = 0;
+    auto result = PythonUDFProcess::wait_child_exit(child_pid, std::chrono::milliseconds(0),
+                                                    &exit_status);
+    EXPECT_EQ(result, PythonUDFProcess::ChildExitWaitResult::ALREADY_REAPED);
 }
 
 // Test socket file path generation for various PIDs
@@ -258,6 +329,27 @@ TEST_F(PythonUDFRuntimeTest, ShutdownWithStubbornProcess) {
 
     EXPECT_TRUE(process.is_shutdown());
     EXPECT_FALSE(process.is_alive());
+}
+
+TEST_F(PythonUDFRuntimeTest, ShutdownEnqueuesBackgroundReapWhenSigkillWaitTimesOut) {
+    bp::ipstream output;
+    bp::child child("/bin/bash", "-c", "trap '' TERM; exec sleep 60", bp::std_out > output);
+    ASSERT_TRUE(child.valid());
+    pid_t child_pid = child.id();
+
+    PythonUDFProcess process(std::move(child), std::move(output));
+    ASSERT_TRUE(process.is_alive());
+
+    // SIGKILL not becoming reapable inside a short bounded wait is rare and depends on kernel
+    // state, so force only the wait results here. This covers the shutdown handoff contract:
+    // a pid that was killed but not reaped synchronously must be owned by the background reaper.
+    PythonUDFProcess::force_child_exit_timeouts_for_test(2);
+    process.shutdown();
+    PythonUDFProcess::force_child_exit_timeouts_for_test(0);
+
+    EXPECT_TRUE(process.is_shutdown());
+    EXPECT_TRUE(PythonUDFProcess::wait_background_reaped_for_test(child_pid,
+                                                                  std::chrono::milliseconds(5000)));
 }
 
 // ============================================================================

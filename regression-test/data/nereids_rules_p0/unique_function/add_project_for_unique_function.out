@@ -42,16 +42,16 @@ PhysicalResultSink
 --hashAgg[GLOBAL, groupByExpr=(k), outputExpr=(k)]
 ----hashAgg[LOCAL, groupByExpr=(k), outputExpr=(k)]
 ------PhysicalUnion(constantExprsList=[[TRUE AS `true`]])
---------PhysicalProject[AND[($_random_10_$ >= 0.1),($_random_10_$ <= 0.5)] AS `k`]
-----------PhysicalOneRowRelation[random() AS `$_random_10_$`]
+--------PhysicalProject[AND[($_random_8_$ >= 0.1),($_random_8_$ <= 0.5)] AS `k`]
+----------PhysicalOneRowRelation[random() AS `$_random_8_$`]
 
 -- !union_2 --
 PhysicalResultSink
 --hashAgg[GLOBAL, groupByExpr=(k), outputExpr=(k)]
 ----hashAgg[LOCAL, groupByExpr=(k), outputExpr=(k)]
 ------PhysicalUnion(constantExprsList=[[TRUE AS `true`]])
---------PhysicalProject[AND[((cast(id as DOUBLE) + $_random_11_$) >= 0.1),((cast(id as DOUBLE) + $_random_11_$) <= 0.5)] AS `k`]
-----------PhysicalProject[random() AS `$_random_11_$`, t1.id]
+--------PhysicalProject[AND[((cast(id as DOUBLE) + $_random_9_$) >= 0.1),((cast(id as DOUBLE) + $_random_9_$) <= 0.5)] AS `k`]
+----------PhysicalProject[random() AS `$_random_9_$`, t1.id]
 ------------PhysicalOlapScan[t1]
 
 -- !union_all_1 --
@@ -70,32 +70,32 @@ PhysicalResultSink
 -- !intersect_1 --
 PhysicalResultSink
 --PhysicalIntersect
-----PhysicalProject[AND[($_random_8_$ >= 0.1),($_random_8_$ <= 0.5)] AS `k`]
-------filter(($_random_8_$ <= 0.5) and ($_random_8_$ >= 0.1))
---------PhysicalOneRowRelation[random() AS `$_random_8_$`]
+----PhysicalProject[AND[($_random_6_$ >= 0.1),($_random_6_$ <= 0.5)] AS `k`]
+------filter(($_random_6_$ <= 0.5) and ($_random_6_$ >= 0.1))
+--------PhysicalOneRowRelation[random() AS `$_random_6_$`]
 ----PhysicalOneRowRelation[TRUE AS `true`]
 
 -- !intersect_2 --
 PhysicalResultSink
 --PhysicalIntersect
-----PhysicalProject[AND[((cast(id as DOUBLE) + $_random_9_$) >= 0.1),((cast(id as DOUBLE) + $_random_9_$) <= 0.5)] AS `k`]
-------filter(((cast(id as DOUBLE) + $_random_9_$) <= 0.5) and ((cast(id as DOUBLE) + $_random_9_$) >= 0.1))
---------PhysicalProject[random() AS `$_random_9_$`, t1.id]
+----PhysicalProject[AND[((cast(id as DOUBLE) + $_random_7_$) >= 0.1),((cast(id as DOUBLE) + $_random_7_$) <= 0.5)] AS `k`]
+------filter(((cast(id as DOUBLE) + $_random_7_$) <= 0.5) and ((cast(id as DOUBLE) + $_random_7_$) >= 0.1))
+--------PhysicalProject[random() AS `$_random_7_$`, t1.id]
 ----------PhysicalOlapScan[t1]
 ----PhysicalOneRowRelation[TRUE AS `true`]
 
 -- !except_1 --
 PhysicalResultSink
 --PhysicalExcept
-----PhysicalProject[AND[($_random_8_$ >= 0.1),($_random_8_$ <= 0.5)] AS `k`]
-------PhysicalOneRowRelation[random() AS `$_random_8_$`]
+----PhysicalProject[AND[($_random_6_$ >= 0.1),($_random_6_$ <= 0.5)] AS `k`]
+------PhysicalOneRowRelation[random() AS `$_random_6_$`]
 ----PhysicalOneRowRelation[TRUE AS `true`]
 
 -- !except_2 --
 PhysicalResultSink
 --PhysicalExcept
-----PhysicalProject[AND[((cast(id as DOUBLE) + $_random_9_$) >= 0.1),((cast(id as DOUBLE) + $_random_9_$) <= 0.5)] AS `k`]
-------PhysicalProject[random() AS `$_random_9_$`, t1.id]
+----PhysicalProject[AND[((cast(id as DOUBLE) + $_random_7_$) >= 0.1),((cast(id as DOUBLE) + $_random_7_$) <= 0.5)] AS `k`]
+------PhysicalProject[random() AS `$_random_7_$`, t1.id]
 --------PhysicalOlapScan[t1]
 ----PhysicalOneRowRelation[TRUE AS `true`]
 
@@ -180,12 +180,11 @@ PhysicalResultSink
 PhysicalResultSink
 --PhysicalProject[t1.id, t1.msg, t2.id, t2.msg]
 ----NestedLoopJoin[INNER_JOIN](((cast(id as BIGINT) + cast(id as BIGINT)) + $_random_9_$) >= 10)(((cast(id as BIGINT) + cast(id as BIGINT)) + $_random_9_$) <= 20)
-------PhysicalProject[cast(id as BIGINT) AS `cast(id as BIGINT)`, random(1, 100) AS `$_random_9_$`, t1.id, t1.msg]
---------filter(($_random_10_$ <= 10) and ($_random_10_$ >= 1))
-----------PhysicalProject[random(1, 100) AS `$_random_10_$`, t1.id, t1.msg]
+------PhysicalProject[$_random_9_$, cast(id as BIGINT), t1.id, t1.msg]
+--------filter(($_random_11_$ <= 10) and ($_random_11_$ >= 1))
+----------PhysicalProject[cast(id as BIGINT) AS `cast(id as BIGINT)`, random(1, 100) AS `$_random_11_$`, random(1, 100) AS `$_random_9_$`, t1.id, t1.msg]
 ------------PhysicalOlapScan[t1]
-------PhysicalProject[cast(id as BIGINT) AS `cast(id as BIGINT)`, t2.id, t2.msg]
---------filter(((cast(id as BIGINT) * $_random_11_$) <= 200) and ((cast(id as BIGINT) * $_random_11_$) >= 100))
-----------PhysicalProject[random(1, 100) AS `$_random_11_$`, t2.id, t2.msg]
+------PhysicalProject[cast(id as BIGINT), t2.id, t2.msg]
+--------filter(((cast(id as BIGINT) * $_random_10_$) <= 200) and ((cast(id as BIGINT) * $_random_10_$) >= 100))
+----------PhysicalProject[cast(id as BIGINT) AS `cast(id as BIGINT)`, random(1, 100) AS `$_random_10_$`, t2.id, t2.msg]
 ------------PhysicalOlapScan[t2]
-

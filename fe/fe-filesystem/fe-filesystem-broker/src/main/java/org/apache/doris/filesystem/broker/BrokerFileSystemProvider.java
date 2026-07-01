@@ -18,6 +18,7 @@
 package org.apache.doris.filesystem.broker;
 
 import org.apache.doris.filesystem.FileSystem;
+import org.apache.doris.filesystem.properties.FileSystemProperties;
 import org.apache.doris.filesystem.spi.FileSystemProvider;
 
 import java.io.IOException;
@@ -35,7 +36,7 @@ import java.util.Map;
  * <p>Registered via:
  * META-INF/services/org.apache.doris.filesystem.spi.FileSystemProvider
  */
-public class BrokerFileSystemProvider implements FileSystemProvider {
+public class BrokerFileSystemProvider implements FileSystemProvider<FileSystemProperties> {
 
     static final String KEY_TYPE      = "_STORAGE_TYPE_";
     static final String KEY_HOST      = "BROKER_HOST";

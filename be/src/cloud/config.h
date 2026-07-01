@@ -58,7 +58,6 @@ DECLARE_mInt32(meta_service_connection_age_base_seconds);
 //
 // Only works when meta_service_endpoint is set to a single host.
 DECLARE_mInt32(meta_service_idle_connection_timeout_ms);
-DECLARE_mInt32(meta_service_rpc_timeout_ms);
 DECLARE_mInt32(meta_service_rpc_retry_times);
 // default brpc timeout
 DECLARE_mInt32(meta_service_brpc_timeout_ms);
@@ -146,8 +145,6 @@ DECLARE_mInt32(tablet_txn_info_min_expired_seconds);
 DECLARE_mBool(enable_use_cloud_unique_id_from_fe);
 
 DECLARE_Bool(enable_cloud_tablet_report);
-
-DECLARE_mInt32(delete_bitmap_rpc_retry_times);
 
 DECLARE_mInt64(meta_service_rpc_reconnect_interval_ms);
 

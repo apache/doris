@@ -324,6 +324,9 @@ public class NumericArithmetic {
             boolean isLowerInclusive, boolean isUpperInclusive) {
         if (input instanceof DoubleLiteral) {
             double inputValue = ((DoubleLiteral) input).getValue();
+            if (Double.isNaN(inputValue)) {
+                return false;
+            }
             boolean lowerCheck = isLowerInclusive ? (inputValue >= lowerBound) : (inputValue > lowerBound);
             // Check upper bound
             boolean upperCheck = isUpperInclusive ? (inputValue <= upperBound) : (inputValue < upperBound);
@@ -727,11 +730,7 @@ public class NumericArithmetic {
      */
     @ExecFunction(name = "signbit")
     public static Expression signbit(DoubleLiteral first) {
-        if (first.getValue() < 0) {
-            return BooleanLiteral.of(true);
-        } else {
-            return BooleanLiteral.of(false);
-        }
+        return BooleanLiteral.of(Double.doubleToRawLongBits(first.getValue()) < 0);
     }
 
     /**

@@ -163,8 +163,20 @@ suite("test_show_routine_load","p0") {
                 sleep(5000)
                 count++
             }
-            res = sql "SHOW ROUTINE LOAD TASK WHERE JobName = \"testShow1\";"
-            log.info("SHOW ROUTINE LOAD task result: ${res}".toString())
+            res = sql "SHOW ROUTINE LOAD TASK WHERE JobName = \"testShow1\""
+            assertTrue(res.size() == 1)
+
+            res = sql "SHOW ROUTINE LOAD TASK FROM ${db} WHERE JobName = \"testShow1\""
+            assertTrue(res.size() == 1)
+
+            res = sql "SHOW ROUTINE LOAD TASK IN ${db} WHERE JobName = \"testShow1\""
+            assertTrue(res.size() == 1)
+
+            res = sql "SHOW ROUTINE LOAD TASK FOR testShow1"
+            assertTrue(res.size() == 1)
+
+            res = sql "SHOW ROUTINE LOAD TASK FOR ${db}.testShow1"
+            log.info("SHOW ROUTINE LOAD TASK result: ${res}".toString())
             assertTrue(res.size() == 1)
         } finally {
             sql "stop routine load for testShow"

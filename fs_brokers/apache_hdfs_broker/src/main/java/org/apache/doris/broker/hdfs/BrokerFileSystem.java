@@ -17,7 +17,9 @@
 
 package org.apache.doris.broker.hdfs;
 
+import java.io.IOException;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReentrantLock;
 
 import org.apache.hadoop.fs.FileSystem;
@@ -25,14 +27,15 @@ import org.apache.log4j.Logger;
 
 public class BrokerFileSystem {
 
-    private static Logger logger = Logger
-            .getLogger(BrokerFileSystem.class.getName());
+    private static Logger logger = Logger.getLogger(BrokerFileSystem.class.getName());
 
     private ReentrantLock lock;
     private FileSystemIdentity identity;
-    private FileSystem dfsFileSystem;
+    private volatile FileSystem dfsFileSystem;
     private volatile long lastAccessTimestamp;
     private UUID fileSystemId;
+    private final AtomicInteger activeOperationCount = new AtomicInteger(0);
+    private final AtomicInteger activeStreamCount = new AtomicInteger(0);
 
     public BrokerFileSystem(FileSystemIdentity identity) {
         this.identity = identity;
@@ -42,21 +45,24 @@ public class BrokerFileSystem {
         this.fileSystemId = UUID.randomUUID();
     }
 
-    public synchronized void setFileSystem(FileSystem fileSystem) {
-        this.dfsFileSystem = fileSystem;
-        this.lastAccessTimestamp = System.currentTimeMillis();
+    public void setFileSystem(FileSystem fileSystem) {
+        lock.lock();
+        try {
+            this.dfsFileSystem = fileSystem;
+            this.lastAccessTimestamp = System.currentTimeMillis();
+        } finally {
+            lock.unlock();
+        }
     }
 
-    public void closeFileSystem() {
+    public void closeFileSystem() throws IOException {
         lock.lock();
         try {
             if (this.dfsFileSystem != null) {
                 try {
-                    // do not close file system, it will be closed automatically.
-                    // this.dfsFileSystem.close();
-                } catch (Exception e) {
-                    logger.error("errors while close file system", e);
+                    this.dfsFileSystem.close();
                 } finally {
+                    // Even if it fails, do not call close again, just set null.
                     this.dfsFileSystem = null;
                 }
             }
@@ -81,6 +87,26 @@ public class BrokerFileSystem {
     public ReentrantLock getLock() {
         return lock;
     }
+
+    public UUID getFileSystemId() {
+        return fileSystemId;
+    }
+
+    public long getLastAccessTimestamp() {
+        return lastAccessTimestamp;
+    }
+
+    // now we only call incrementActiveOperations in updateCachedFileSystem.
+    // concurrentHashMap.compute() ensures atomicity,
+    // and all "brokerFileSystem object" that call this method must be in "FileSystemManager.cachedFileSystem",
+    // so there is no need to lock it
+    public void incrementActiveOperations() { activeOperationCount.incrementAndGet(); }
+    public void decrementActiveOperations() { activeOperationCount.decrementAndGet(); }
+    public int  getActiveOperationsCount() { return activeOperationCount.get(); }
+
+    public void incrementActiveStreams() { activeStreamCount.incrementAndGet(); }
+    public void decrementActiveStreams() { activeStreamCount.decrementAndGet(); }
+    public int  getActiveStreamCount() { return activeStreamCount.get(); }
 
     public boolean isExpiredByLastAccessTime() {
         return System.currentTimeMillis() - lastAccessTimestamp > BrokerConfig.client_expire_seconds * 1000L;
