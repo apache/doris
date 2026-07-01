@@ -22,6 +22,7 @@
 #include <unordered_map>
 #include <vector>
 
+#include "common/status.h"
 #include "util/uid_util.h"
 
 namespace doris {
@@ -30,8 +31,8 @@ class AdaptiveRandomBucketState {
 public:
     explicit AdaptiveRandomBucketState(UniqueId load_id) : _load_id(load_id) {}
 
-    void init_partition(int64_t partition_id, const std::vector<int64_t>& tablets,
-                        const std::vector<int32_t>& bucket_seqs, int32_t start_tablet_idx);
+    Status init_partition(int64_t partition_id, const std::vector<int64_t>& tablets,
+                          const std::vector<int32_t>& bucket_seqs, int32_t start_tablet_idx);
     int64_t current_tablet(int64_t partition_id);
     void rotate_by_tablet(int64_t partition_id, int64_t tablet_id);
 
@@ -40,6 +41,7 @@ private:
         int64_t partition_id = -1;
         std::vector<int64_t> tablets;
         std::vector<int32_t> bucket_seqs;
+        int32_t initial_tablet_pos = 0;
         int32_t tablet_pos = 0;
         int64_t current_tablet_id = -1;
     };

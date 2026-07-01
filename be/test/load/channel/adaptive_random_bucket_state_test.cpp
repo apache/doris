@@ -27,8 +27,12 @@ namespace {
 TEST(AdaptiveRandomBucketStateTest, TracksCurrentTabletPerPartition) {
     AdaptiveRandomBucketState state(UniqueId(1, 2));
 
-    state.init_partition(10, std::vector<int64_t> {100, 101}, std::vector<int32_t> {0, 1}, 0);
-    state.init_partition(11, std::vector<int64_t> {200, 201}, std::vector<int32_t> {0, 1}, 1);
+    EXPECT_TRUE(state.init_partition(10, std::vector<int64_t> {100, 101},
+                                     std::vector<int32_t> {0, 1}, 0)
+                        .ok());
+    EXPECT_TRUE(state.init_partition(11, std::vector<int64_t> {200, 201},
+                                     std::vector<int32_t> {0, 1}, 1)
+                        .ok());
 
     EXPECT_EQ(state.current_tablet(10), 100);
     EXPECT_EQ(state.current_tablet(11), 201);
@@ -46,13 +50,44 @@ TEST(AdaptiveRandomBucketStateTest, TracksCurrentTabletPerPartition) {
     EXPECT_EQ(state.current_tablet(11), 200);
 }
 
-TEST(AdaptiveRandomBucketStateTest, IgnoresDuplicateInitForSamePartition) {
+TEST(AdaptiveRandomBucketStateTest, AllowsDuplicateInitForSamePartitionWithSameSequence) {
     AdaptiveRandomBucketState state(UniqueId(1, 2));
 
-    state.init_partition(10, std::vector<int64_t> {100, 101}, std::vector<int32_t> {0, 1}, 0);
-    state.init_partition(10, std::vector<int64_t> {200, 201}, std::vector<int32_t> {0, 1}, 1);
+    EXPECT_TRUE(state.init_partition(10, std::vector<int64_t> {100, 101},
+                                     std::vector<int32_t> {0, 1}, 0)
+                        .ok());
 
+    state.rotate_by_tablet(10, 100);
+    EXPECT_TRUE(state.init_partition(10, std::vector<int64_t> {100, 101},
+                                     std::vector<int32_t> {0, 1}, 0)
+                        .ok());
+
+    EXPECT_EQ(state.current_tablet(10), 101);
+}
+
+TEST(AdaptiveRandomBucketStateTest, RejectsDuplicateInitForSamePartitionWithDifferentSequence) {
+    AdaptiveRandomBucketState state(UniqueId(1, 2));
+
+    EXPECT_TRUE(state.init_partition(10, std::vector<int64_t> {100, 101},
+                                     std::vector<int32_t> {0, 1}, 0)
+                        .ok());
+
+    EXPECT_FALSE(state.init_partition(10, std::vector<int64_t> {200, 201},
+                                      std::vector<int32_t> {0, 1}, 1)
+                         .ok());
     EXPECT_EQ(state.current_tablet(10), 100);
+}
+
+TEST(AdaptiveRandomBucketStateTest, RejectsInvalidTabletSequence) {
+    AdaptiveRandomBucketState state(UniqueId(1, 2));
+
+    EXPECT_FALSE(
+            state.init_partition(10, std::vector<int64_t> {100, 101}, std::vector<int32_t> {0}, 0)
+                    .ok());
+    EXPECT_FALSE(state.init_partition(10, std::vector<int64_t> {100, 101},
+                                      std::vector<int32_t> {0, 1}, 2)
+                         .ok());
+    EXPECT_EQ(state.current_tablet(10), -1);
 }
 
 } // namespace

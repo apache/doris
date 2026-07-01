@@ -152,7 +152,7 @@ Status DeltaWriterV2::write(const Block* block, const DorisVector<uint32_t>& row
     if (UNLIKELY(row_idxs.empty())) {
         return Status::OK();
     }
-    if (_req.enable_table_memtable_backpressure) {
+    if (_req.enable_table_memtable_backpressure && !_req.is_high_priority) {
         Status cancel_status = Status::OK();
         ExecEnv::GetInstance()->memtable_memory_limiter()->handle_table_memtable_backpressure(
                 [&]() {

@@ -74,7 +74,7 @@ Status CloudDeltaWriter::write(const Block* block, const DorisVector<uint32_t>& 
     if (row_idxs.empty()) [[unlikely]] {
         return Status::OK();
     }
-    if (_req.enable_table_memtable_backpressure) {
+    if (_req.enable_table_memtable_backpressure && !_req.is_high_priority) {
         ExecEnv::GetInstance()->memtable_memory_limiter()->handle_table_memtable_backpressure(
                 [this]() {
                     std::lock_guard lock(_mtx);

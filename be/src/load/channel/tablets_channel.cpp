@@ -292,8 +292,8 @@ Status BaseTabletsChannel::_init_adaptive_random_bucket_state(
         for (auto tablet_id : partition.ordered_tablet_ids()) {
             ordered_tablet_ids.push_back(tablet_id);
         }
-        _adaptive_random_bucket_state->init_partition(partition.partition_id(), ordered_tablet_ids,
-                                                      ordered_positions, 0);
+        RETURN_IF_ERROR(_adaptive_random_bucket_state->init_partition(
+                partition.partition_id(), ordered_tablet_ids, ordered_positions, 0));
     }
     return Status::OK();
 }
