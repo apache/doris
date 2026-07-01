@@ -39,7 +39,7 @@ io::FileCacheStatistics take_initial_file_cache_stats(
     if (it == preload_stats->end()) {
         return {};
     }
-    auto stats = it->second;
+    auto stats = std::move(it->second);
     preload_stats->erase(it);
     return stats;
 }

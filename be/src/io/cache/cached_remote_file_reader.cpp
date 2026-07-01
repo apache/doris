@@ -864,6 +864,7 @@ Status CachedRemoteFileReader::_read_remote_blocks_into_cache(
         }
     }
 
+    SCOPED_CONCURRENCY_COUNT(ConcurrencyStatsManager::instance().cached_remote_reader_write_back);
     for (size_t idx = 0; idx < empty_blocks.size(); ++idx) {
         auto& block = empty_blocks[idx];
         if (block->state() == FileBlock::State::SKIP_CACHE) {
@@ -965,6 +966,8 @@ Status CachedRemoteFileReader::_read_remaining_blocks_from_cache(
         static int64_t max_wait_time = 10;
         TEST_SYNC_POINT_CALLBACK("CachedRemoteFileReader::max_wait_time", &max_wait_time);
         if (block_state != FileBlock::State::DOWNLOADED) {
+            SCOPED_CONCURRENCY_COUNT(
+                    ConcurrencyStatsManager::instance().cached_remote_reader_blocking);
             do {
                 SCOPED_RAW_TIMER(&stats.remote_wait_timer);
                 TEST_SYNC_POINT_CALLBACK("CachedRemoteFileReader::DOWNLOADING");
@@ -990,6 +993,8 @@ Status CachedRemoteFileReader::_read_remaining_blocks_from_cache(
             } else {
                 size_t file_offset = current_offset - left;
                 SCOPED_RAW_TIMER(&stats.local_read_timer);
+                SCOPED_CONCURRENCY_COUNT(
+                        ConcurrencyStatsManager::instance().cached_remote_reader_local_read);
                 st = block->read(Slice(result.data + (current_offset - offset), read_size),
                                  file_offset);
                 indirect_read_bytes += read_size;
@@ -1007,6 +1012,11 @@ Status CachedRemoteFileReader::_read_remaining_blocks_from_cache(
             }
         }
         if (!st || block_state != FileBlock::State::DOWNLOADED) {
+            if (is_dryrun) [[unlikely]] {
+                *bytes_read += read_size;
+                current_offset = right + 1;
+                continue;
+            }
             LOG(WARNING) << "Read data failed from file cache downloaded by others. err="
                          << st.msg() << ", block state=" << block_state;
             size_t remote_bytes_read {0};
@@ -1045,8 +1055,10 @@ Status CachedRemoteFileReader::_read_from_indirect_cache(size_t offset, Slice re
     cache_context.stats = &stats;
     MonotonicStopWatch sw;
     sw.start();
+    ConcurrencyStatsManager::instance().cached_remote_reader_get_or_set->increment();
     FileBlocksHolder holder =
             _cache->get_or_set(_cache_hash, align_left, align_size, cache_context);
+    ConcurrencyStatsManager::instance().cached_remote_reader_get_or_set->decrement();
     stats.cache_get_or_set_timer += sw.elapsed_time();
 
     auto empty_blocks = _collect_remote_read_blocks(holder, stats);
@@ -1142,21 +1154,46 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
 }
 
 void CachedRemoteFileReader::prefetch_range(size_t offset, size_t size, const IOContext* io_ctx) {
-    if (size == 0 || offset >= this->size()) {
+    if (offset >= this->size() || size == 0) {
         return;
     }
 
-    IOContext prefetch_ctx = io_ctx == nullptr ? IOContext {} : *io_ctx;
-    prefetch_ctx.is_dryrun = true;
+    size = std::min(size, this->size() - offset);
 
-    const size_t prefetch_size = std::min(size, this->size() - offset);
-    auto buffer = std::make_unique<char[]>(prefetch_size);
-    size_t bytes_read = 0;
-    Status st =
-            read_at_impl(offset, Slice(buffer.get(), prefetch_size), &bytes_read, &prefetch_ctx);
+    ThreadPool* pool = ExecEnv::GetInstance()->segment_prefetch_thread_pool();
+    if (pool == nullptr) {
+        return;
+    }
+
+    IOContext dryrun_ctx;
+    if (io_ctx != nullptr) {
+        dryrun_ctx = *io_ctx;
+    }
+    dryrun_ctx.is_dryrun = true;
+    dryrun_ctx.query_id = nullptr;
+    dryrun_ctx.file_cache_stats = nullptr;
+    dryrun_ctx.file_reader_stats = nullptr;
+
+    LOG_IF(INFO, config::enable_segment_prefetch_verbose_log)
+            << fmt::format("[verbose] Submitting prefetch task for offset={} size={}, file={}",
+                           offset, size, path().filename().native());
+    std::weak_ptr<CachedRemoteFileReader> weak_this = shared_from_this();
+    auto st = pool->submit_func([weak_this, offset, size, dryrun_ctx]() {
+        auto self = weak_this.lock();
+        if (self == nullptr) {
+            return;
+        }
+        size_t bytes_read = 0;
+        Slice dummy_buffer((char*)nullptr, size);
+        (void)self->read_at_impl(offset, dummy_buffer, &bytes_read, &dryrun_ctx);
+        LOG_IF(INFO, config::enable_segment_prefetch_verbose_log)
+                << fmt::format("[verbose] Prefetch task completed for offset={} size={}, file={}",
+                               offset, size, self->path().filename().native());
+    });
+
     if (!st.ok()) {
-        LOG(WARNING) << "Failed to prefetch file cache range, path=" << path().native()
-                     << ", offset=" << offset << ", size=" << prefetch_size << ", err=" << st.msg();
+        VLOG_DEBUG << "Failed to submit prefetch task for offset=" << offset << " size=" << size
+                   << " error=" << st.to_string();
     }
 }
 

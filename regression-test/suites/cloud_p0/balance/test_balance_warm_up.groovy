@@ -41,7 +41,6 @@ suite('test_balance_warm_up', 'docker') {
         'schedule_sync_tablets_interval_s=18000',
         'disable_auto_compaction=true',
         'sys_log_verbose_modules=*',
-        'cache_read_from_peer_expired_seconds=100',
         "enable_packed_file=${enablePackedFile}",
         'skip_writing_empty_rowset_metadata=false',
         'peer_candidate_cleanup_interval_s=10',
