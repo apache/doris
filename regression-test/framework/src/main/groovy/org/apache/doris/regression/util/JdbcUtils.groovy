@@ -201,19 +201,11 @@ class JdbcUtils {
     }
 
     private static Object materializeObject(Object value) {
-        if (value instanceof java.sql.Array) {
-            return materializeObject(((java.sql.Array) value).getArray())
+        if (value instanceof java.sql.Array || value instanceof java.sql.Struct) {
+            return value.toString()
         }
         if (value instanceof byte[]) {
             return bytesToHex((byte[]) value)
-        }
-        if (value != null && value.getClass().isArray()) {
-            List<Object> values = new ArrayList<>()
-            int length = java.lang.reflect.Array.getLength(value)
-            for (int i = 0; i < length; i++) {
-                values.add(materializeObject(java.lang.reflect.Array.get(value, i)))
-            }
-            return values
         }
         return value
     }
