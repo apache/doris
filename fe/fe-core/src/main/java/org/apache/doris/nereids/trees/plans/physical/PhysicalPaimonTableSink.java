@@ -34,6 +34,7 @@ import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.statistics.Statistics;
 
+import org.apache.paimon.schema.TableSchema;
 import org.apache.paimon.table.BucketMode;
 import org.apache.paimon.table.FileStoreTable;
 
@@ -57,7 +58,7 @@ public class PhysicalPaimonTableSink<CHILD_TYPE extends Plan> extends PhysicalBa
                                    LogicalProperties logicalProperties,
                                    CHILD_TYPE child) {
         this(database, targetTable, cols, outputExprs, groupExpression, logicalProperties,
-                PhysicalProperties.GATHER, null, child);
+                PhysicalProperties.SINK_RANDOM_PARTITIONED, null, child);
     }
 
     /**
@@ -93,7 +94,7 @@ public class PhysicalPaimonTableSink<CHILD_TYPE extends Plan> extends PhysicalBa
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return AbstractPlan.copyWithSameId(this, () -> new PhysicalPaimonTableSink<>(
                 (PaimonExternalDatabase) database, (PaimonExternalTable) targetTable, cols, outputExprs,
-                groupExpression, getLogicalProperties(), child()));
+                groupExpression, getLogicalProperties(), physicalProperties, statistics, child()));
     }
 
     @Override
@@ -101,7 +102,7 @@ public class PhysicalPaimonTableSink<CHILD_TYPE extends Plan> extends PhysicalBa
                                                  Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return AbstractPlan.copyWithSameId(this, () -> new PhysicalPaimonTableSink<>(
                 (PaimonExternalDatabase) database, (PaimonExternalTable) targetTable, cols, outputExprs,
-                groupExpression, logicalProperties.get(), children.get(0)));
+                groupExpression, logicalProperties.get(), physicalProperties, statistics, children.get(0)));
     }
 
     @Override
@@ -116,18 +117,29 @@ public class PhysicalPaimonTableSink<CHILD_TYPE extends Plan> extends PhysicalBa
         PaimonExternalTable paimonExternalTable = (PaimonExternalTable) targetTable;
         Optional<MvccSnapshot> snapshot = MvccUtil.getSnapshotFromContext(targetTable);
         org.apache.paimon.table.Table paimonTable = paimonExternalTable.getPaimonTable(snapshot);
+        BucketMode bucketMode = null;
+        List<String> bucketKeys = new ArrayList<>();
         if (paimonTable instanceof FileStoreTable) {
-            BucketMode bucketMode = ((FileStoreTable) paimonTable).bucketMode();
-            if (bucketMode == BucketMode.HASH_DYNAMIC) {
-                return PhysicalProperties.GATHER;
-            }
-            if (bucketMode == BucketMode.KEY_DYNAMIC || bucketMode == BucketMode.POSTPONE_MODE) {
+            FileStoreTable fileStoreTable = (FileStoreTable) paimonTable;
+            bucketMode = fileStoreTable.bucketMode();
+            if (bucketMode == BucketMode.HASH_DYNAMIC
+                    || bucketMode == BucketMode.KEY_DYNAMIC
+                    || bucketMode == BucketMode.POSTPONE_MODE) {
                 throw new UnsupportedOperationException("Unsupported Paimon bucket mode for write: " + bucketMode);
+            }
+            if (bucketMode == BucketMode.HASH_FIXED) {
+                TableSchema schema = fileStoreTable.schema();
+                bucketKeys.addAll(schema.bucketKeys());
             }
         }
 
         List<Column> partitionColumns = paimonExternalTable.getPartitionColumns(snapshot);
-        if (partitionColumns.isEmpty()) {
+        List<String> distributionColumns = new ArrayList<>();
+        for (Column partitionColumn : partitionColumns) {
+            distributionColumns.add(partitionColumn.getName());
+        }
+        distributionColumns.addAll(bucketKeys);
+        if (distributionColumns.isEmpty()) {
             return PhysicalProperties.SINK_RANDOM_PARTITIONED;
         }
 
@@ -138,9 +150,14 @@ public class PhysicalPaimonTableSink<CHILD_TYPE extends Plan> extends PhysicalBa
         }
 
         List<ExprId> exprIds = new ArrayList<>();
-        for (Column partitionColumn : partitionColumns) {
-            ExprId exprId = columnExprIdMap.get(partitionColumn.getName());
+        for (String distributionColumn : distributionColumns) {
+            ExprId exprId = columnExprIdMap.get(distributionColumn);
             if (exprId == null) {
+                if (bucketMode == BucketMode.HASH_FIXED) {
+                    throw new UnsupportedOperationException(
+                            "Paimon fixed bucket write requires distribution column in sink output: "
+                                    + distributionColumn);
+                }
                 return PhysicalProperties.SINK_RANDOM_PARTITIONED;
             }
             exprIds.add(exprId);

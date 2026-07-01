@@ -17,6 +17,9 @@
 
 package org.apache.doris.paimon;
 
+import org.apache.paimon.types.DataType;
+import org.apache.paimon.types.DataTypes;
+import org.apache.paimon.types.RowType;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -24,9 +27,16 @@ import java.io.IOException;
 
 public class PaimonJniWriterTest {
     @Test
-    public void testHashDynamicBucketAssignerIdMatchesSingleAssigner() {
-        Assert.assertEquals(1, PaimonJniWriter.DYNAMIC_BUCKET_ASSIGNER_COUNT);
-        Assert.assertEquals(0, PaimonJniWriter.DYNAMIC_BUCKET_ASSIGNER_ID);
+    public void testFullRowWriteRequiresSameFieldOrder() {
+        RowType tableType = RowType.of(new DataType[] {
+                DataTypes.INT(), DataTypes.STRING()}, new String[] {"k", "v"});
+        RowType sameOrder = RowType.of(new DataType[] {
+                DataTypes.INT(), DataTypes.STRING()}, new String[] {"k", "v"});
+        RowType differentOrder = RowType.of(new DataType[] {
+                DataTypes.STRING(), DataTypes.INT()}, new String[] {"v", "k"});
+
+        Assert.assertTrue(PaimonJniWriter.isFullRowWrite(tableType, sameOrder));
+        Assert.assertFalse(PaimonJniWriter.isFullRowWrite(tableType, differentOrder));
     }
 
     @Test
