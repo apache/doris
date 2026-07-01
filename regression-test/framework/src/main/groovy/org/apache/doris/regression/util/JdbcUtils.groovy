@@ -129,7 +129,7 @@ class JdbcUtils {
                         byte[] bytes = resultSet.getBytes(i)
                         row.add(bytes == null ? null : bytesToHex(bytes))
                     } else {
-                        row.add(resultSet.getObject(i))
+                        row.add(materializeObject(resultSet.getObject(i)))
                     }
                 }
                 rows.add(row)
@@ -148,7 +148,7 @@ class JdbcUtils {
                     try {
                         if (isPreparedStatement) {
                             // For prepared statements, use getObject to get the value
-                            row.add(resultSet.getObject(i))
+                            row.add(materializeObject(resultSet.getObject(i)))
                         } else {
                             int jdbcType = resultSet.metaData.getColumnType(i)
                             if (jdbcType == Types.TIME
@@ -172,7 +172,7 @@ class JdbcUtils {
                                 byte[] bytes = resultSet.getBytes(i)
                                 row.add(bytes == null ? null : bytesToHex(bytes))
                             } else {
-                                row.add(resultSet.getObject(i))
+                                row.add(materializeObject(resultSet.getObject(i)))
                             }
                         }
                     } catch (Throwable t) {
@@ -180,7 +180,7 @@ class JdbcUtils {
                             if(resultSet.getBytes(i) != null){
                                 row.add(new String(resultSet.getBytes(i)))
                             } else {
-                                row.add(resultSet.getObject(i))
+                                row.add(materializeObject(resultSet.getObject(i)))
                             }
                         } catch (Throwable t2) {
                             /**
@@ -190,7 +190,7 @@ class JdbcUtils {
                             at org.codehaus.groovy.vmplugin.v8.IndyInterface.fromCache(IndyInterface.java:321)
                             at org.apache.doris.regression.util.JdbcUtils$_toStringList_closure5.doCall(JdbcUtils.groovy:163)
                             */
-                            row.add(resultSet.getObject(i))
+                            row.add(materializeObject(resultSet.getObject(i)))
                         }
                     }
                 }
@@ -198,6 +198,24 @@ class JdbcUtils {
             }
             return [rows, resultSet.metaData]
         }
+    }
+
+    private static Object materializeObject(Object value) {
+        if (value instanceof java.sql.Array) {
+            return materializeObject(((java.sql.Array) value).getArray())
+        }
+        if (value instanceof byte[]) {
+            return bytesToHex((byte[]) value)
+        }
+        if (value != null && value.getClass().isArray()) {
+            List<Object> values = new ArrayList<>()
+            int length = java.lang.reflect.Array.getLength(value)
+            for (int i = 0; i < length; i++) {
+                values.add(materializeObject(java.lang.reflect.Array.get(value, i)))
+            }
+            return values
+        }
+        return value
     }
 
     // Detect if a JDBC column type is binary-like
