@@ -175,14 +175,6 @@ std::vector<int32_t> projection_ids(const std::vector<LocalColumnIndex>& project
     return ids;
 }
 
-std::vector<std::string> target_names(const FileStructPredicateTarget* target) {
-    std::vector<std::string> names;
-    for (const auto* current = target; current != nullptr; current = current->child.get()) {
-        names.push_back(current->file_child_name);
-    }
-    return names;
-}
-
 TEST(ColumnMapperDebugTest, CoversDebugStringEnumAndNestedBranches) {
     ColumnDefinition child = field_id_col("child", 2, str(), 3);
     child.name_mapping = {"legacy_child"};
@@ -434,23 +426,6 @@ VExprSPtr compound_predicate(TExprOpcode::type opcode, const VExprSPtr& left,
     expr->add_child(left);
     expr->add_child(right);
     return expr;
-}
-
-ColumnMapping mapped_struct_column(int32_t root_file_local_id, const std::string& child_name,
-                                   int32_t child_file_local_id, DataTypePtr child_type) {
-    ColumnDefinition file_child = name_col(child_name, child_type, child_file_local_id);
-    ColumnMapping root;
-    root.global_index = GlobalIndex(0);
-    root.table_column_name = "s";
-    root.file_local_id = root_file_local_id;
-    root.file_column_name = "s";
-    root.table_type =
-            std::make_shared<DataTypeStruct>(DataTypes {child_type}, Strings {child_name});
-    root.file_type = root.table_type;
-    root.original_file_type = root.table_type;
-    root.original_file_children = {file_child};
-    root.projected_file_children = {file_child};
-    return root;
 }
 
 std::vector<NestedStructPath> collect_paths(const VExprSPtr& expr) {
@@ -768,82 +743,10 @@ TEST(ColumnMapperNestedHelperTest, BuildsProjectionByNameAndOrdinalSelectors) {
     EXPECT_EQ(ordinal_projection.children[0].local_id(), 0);
 }
 
-TEST(ColumnMapperNestedHelperTest, MergesPredicateFiltersForSameNestedTarget) {
-    FileColumnPredicateFilter gt_filter;
-    gt_filter.target = FileNestedPredicateTarget(
-            LocalColumnId(7), std::make_unique<FileStructPredicateTarget>(2, "score"));
-    gt_filter.file_column_id = LocalColumnId(7);
-    gt_filter.file_child_id_path = {2};
-    gt_filter.predicates.push_back(create_comparison_predicate<PredicateType::GT>(
-            7, "score", i32(), Field::create_field<TYPE_INT>(10), false));
-
-    FileColumnPredicateFilter lt_filter;
-    lt_filter.target = FileNestedPredicateTarget(
-            LocalColumnId(7), std::make_unique<FileStructPredicateTarget>(2, "score"));
-    lt_filter.file_column_id = LocalColumnId(7);
-    lt_filter.file_child_id_path = {2};
-    lt_filter.predicates.push_back(create_comparison_predicate<PredicateType::LT>(
-            7, "score", i32(), Field::create_field<TYPE_INT>(100), false));
-
-    std::vector<FileColumnPredicateFilter> filters;
-    merge_column_predicate_filter(std::move(gt_filter), &filters);
-    merge_column_predicate_filter(std::move(lt_filter), &filters);
-
-    ASSERT_EQ(filters.size(), 1);
-    EXPECT_EQ(filters[0].effective_file_column_id(), LocalColumnId(7));
-    EXPECT_EQ(filters[0].effective_file_child_id_path(), std::vector<int32_t>({2}));
-    ASSERT_EQ(filters[0].predicates.size(), 2);
-    EXPECT_EQ(target_names(filters[0].target.struct_target.get()),
-              std::vector<std::string>({"score"}));
-}
-
-TEST(ColumnMapperNestedHelperTest, DoesNotExtractPredicateFiltersFromOr) {
-    const auto int_type = i32();
-    const auto struct_type = std::make_shared<DataTypeStruct>(DataTypes {int_type}, Strings {"a"});
-    const auto slot = table_slot(0, 0, struct_type, "s");
-    const auto left = int_gt(struct_element(slot, int_type, "a"), 10);
-    const auto right = int_gt(struct_element(slot, int_type, "a"), 20);
-    const auto or_expr = compound_predicate(TExprOpcode::COMPOUND_OR, left, right);
-
-    std::vector<FileColumnPredicateFilter> filters;
-    collect_nested_column_predicate_filters(or_expr, {mapped_struct_column(5, "a", 0, int_type)},
-                                            &filters);
-
-    EXPECT_TRUE(filters.empty());
-}
-
-TEST(ColumnMapperNestedHelperTest, DoesNotExtractPredicateFiltersFromUnsupportedExpression) {
-    const auto int_type = i32();
-    const auto struct_type = std::make_shared<DataTypeStruct>(DataTypes {int_type}, Strings {"a"});
-    auto add_expr = std::make_shared<TestFunctionExpr>("add", int_type);
-    add_expr->add_child(struct_element(table_slot(0, 0, struct_type, "s"), int_type, "a"));
-    add_expr->add_child(literal(int_type, Field::create_field<TYPE_INT>(1)));
-
-    std::vector<FileColumnPredicateFilter> filters;
-    collect_nested_column_predicate_filters(add_expr, {mapped_struct_column(5, "a", 0, int_type)},
-                                            &filters);
-
-    EXPECT_TRUE(filters.empty());
-}
-
-TEST(ColumnMapperNestedHelperTest, DoesNotExtractPredicateFiltersThroughUnsafeCast) {
-    const auto file_type = i64();
-    const auto table_type = i32();
-    const auto struct_type = std::make_shared<DataTypeStruct>(DataTypes {file_type}, Strings {"a"});
-    const auto nested_leaf = struct_element(table_slot(0, 0, struct_type, "s"), file_type, "a");
-    const auto filter_expr = int_gt(cast_expr(nested_leaf, table_type), 10);
-
-    std::vector<FileColumnPredicateFilter> filters;
-    collect_nested_column_predicate_filters(filter_expr,
-                                            {mapped_struct_column(5, "a", 0, file_type)}, &filters);
-
-    EXPECT_TRUE(filters.empty());
-}
-
 // ----------------------------------------------------------------------
 // collect_nested_struct_paths() helper tests.
 // These tests assert the entry helper for nested scan projection: it only discovers
-// table-side struct paths. Later localization decides whether to build pruning predicates.
+// table-side struct paths. Later localization decides how to add scan projections.
 // ----------------------------------------------------------------------
 
 TEST(ColumnMapperCollectNestedStructPathsTest, CollectsNameOrdinalAndBooleanSelectors) {
@@ -1057,10 +960,7 @@ TEST(ColumnMapperCollectNestedStructPathsTest, ProjectionMergeKeepsFilterOnlyPat
     EXPECT_EQ(request.predicate_columns[0].column_id(), LocalColumnId(5));
     ASSERT_FALSE(request.predicate_columns[0].project_all_children);
     EXPECT_EQ(projection_ids(request.predicate_columns[0].children), std::vector<int32_t>({0, 1}));
-    ASSERT_EQ(request.column_predicate_filters.size(), 1);
-    EXPECT_EQ(request.column_predicate_filters[0].effective_file_child_id_path(),
-              std::vector<int32_t>({1}));
-    ASSERT_EQ(request.column_predicate_filters[0].predicates.size(), 2);
+    EXPECT_TRUE(request.column_predicate_filters.empty());
 }
 
 // Scenario: row-oriented readers such as CSV/Text cannot lazy-read predicate columns separately.
@@ -2318,7 +2218,7 @@ TEST(ColumnMapperLocalizeFiltersTest, ColumnPredicatesUseOnlyExistingLocalPositi
     EXPECT_EQ(request_with_local_position.non_predicate_columns[0].column_id(), LocalColumnId(3));
     EXPECT_TRUE(request_with_local_position.predicate_columns.empty());
     ASSERT_EQ(request_with_local_position.column_predicate_filters.size(), 1);
-    EXPECT_EQ(request_with_local_position.column_predicate_filters[0].effective_file_column_id(),
+    EXPECT_EQ(request_with_local_position.column_predicate_filters[0].file_column_id,
               LocalColumnId(3));
     ASSERT_EQ(request_with_local_position.column_predicate_filters[0].predicates.size(), 1);
     EXPECT_EQ(request_with_local_position.column_predicate_filters[0].predicates[0]->type(),
@@ -2360,12 +2260,7 @@ TEST(ColumnMapperLocalizeFiltersTest, NestedFilterOnlyChildMergesIntoPredicatePr
     EXPECT_EQ(request.local_positions.at(LocalColumnId(5)), LocalIndex(0));
     ASSERT_TRUE(mapper.filter_entries().at(GlobalIndex(0)).is_local());
     EXPECT_EQ(mapper.filter_entries().at(GlobalIndex(0)).local_index(), LocalIndex(0));
-    ASSERT_EQ(request.column_predicate_filters.size(), 1);
-    EXPECT_EQ(request.column_predicate_filters[0].effective_file_column_id(), LocalColumnId(5));
-    EXPECT_EQ(request.column_predicate_filters[0].effective_file_child_id_path(),
-              std::vector<int32_t>({0}));
-    EXPECT_EQ(target_names(request.column_predicate_filters[0].target.struct_target.get()),
-              std::vector<std::string>({"a"}));
+    EXPECT_TRUE(request.column_predicate_filters.empty());
 }
 
 TEST(ColumnMapperLocalizeFiltersTest, PreservesExistingScanStateWhenAddingPredicateColumn) {
@@ -2435,7 +2330,7 @@ TEST(ColumnMapperScanRequestTest, ColumnPredicatesDoNotForceRowPredicateMaterial
     EXPECT_EQ(request.local_positions.at(LocalColumnId(0)), LocalIndex(0));
     EXPECT_EQ(request.local_positions.at(LocalColumnId(1)), LocalIndex(1));
     ASSERT_EQ(request.column_predicate_filters.size(), 1);
-    EXPECT_EQ(request.column_predicate_filters[0].effective_file_column_id(), LocalColumnId(0));
+    EXPECT_EQ(request.column_predicate_filters[0].file_column_id, LocalColumnId(0));
 }
 
 TEST(ColumnMapperScanRequestTest, HiddenTopLevelFilterMappingUsesNameFallback) {
@@ -2495,11 +2390,7 @@ TEST(ColumnMapperScanRequestTest, StructOutputAndFilterOnlyChildAreMerged) {
     EXPECT_EQ(request.predicate_columns[0].column_id(), LocalColumnId(5));
     ASSERT_FALSE(request.predicate_columns[0].project_all_children);
     EXPECT_EQ(projection_ids(request.predicate_columns[0].children), std::vector<int32_t>({0, 1}));
-    ASSERT_EQ(request.column_predicate_filters.size(), 1);
-    EXPECT_EQ(request.column_predicate_filters[0].effective_file_child_id_path(),
-              std::vector<int32_t>({0}));
-    EXPECT_EQ(target_names(request.column_predicate_filters[0].target.struct_target.get()),
-              std::vector<std::string>({"a"}));
+    EXPECT_TRUE(request.column_predicate_filters.empty());
 }
 
 TEST(ColumnMapperScanRequestTest, RenamedNestedPredicateTargetsMappedFileChild) {
@@ -2523,12 +2414,7 @@ TEST(ColumnMapperScanRequestTest, RenamedNestedPredicateTargetsMappedFileChild) 
     FileScanRequest request;
     ASSERT_TRUE(mapper.create_scan_request({filter}, {}, {table_struct}, &request).ok());
 
-    ASSERT_EQ(request.column_predicate_filters.size(), 1);
-    EXPECT_EQ(request.column_predicate_filters[0].effective_file_column_id(), LocalColumnId(5));
-    EXPECT_EQ(request.column_predicate_filters[0].effective_file_child_id_path(),
-              std::vector<int32_t>({1}));
-    EXPECT_EQ(target_names(request.column_predicate_filters[0].target.struct_target.get()),
-              std::vector<std::string>({"b"}));
+    EXPECT_TRUE(request.column_predicate_filters.empty());
 }
 
 TEST(ColumnMapperScanRequestTest, NestedInNullAndReverseComparisonFiltersAreMerged) {
@@ -2566,18 +2452,7 @@ TEST(ColumnMapperScanRequestTest, NestedInNullAndReverseComparisonFiltersAreMerg
     FileScanRequest request;
     ASSERT_TRUE(mapper.create_scan_request({filter}, {}, {table_struct}, &request).ok());
 
-    ASSERT_EQ(request.column_predicate_filters.size(), 1);
-    EXPECT_EQ(request.column_predicate_filters[0].effective_file_column_id(), LocalColumnId(5));
-    EXPECT_EQ(request.column_predicate_filters[0].effective_file_child_id_path(),
-              std::vector<int32_t>({0}));
-    EXPECT_EQ(target_names(request.column_predicate_filters[0].target.struct_target.get()),
-              std::vector<std::string>({"a"}));
-    ASSERT_EQ(request.column_predicate_filters[0].predicates.size(), 4);
-    EXPECT_EQ(request.column_predicate_filters[0].predicates[0]->type(), PredicateType::IN_LIST);
-    EXPECT_EQ(request.column_predicate_filters[0].predicates[1]->type(), PredicateType::GT);
-    EXPECT_EQ(request.column_predicate_filters[0].predicates[2]->type(), PredicateType::IS_NULL);
-    EXPECT_EQ(request.column_predicate_filters[0].predicates[3]->type(),
-              PredicateType::IS_NOT_NULL);
+    EXPECT_TRUE(request.column_predicate_filters.empty());
 }
 
 TEST(ColumnMapperScanRequestTest, NestedPredicateFilterThroughSafeCast) {
@@ -2608,12 +2483,7 @@ TEST(ColumnMapperScanRequestTest, NestedPredicateFilterThroughSafeCast) {
     FileScanRequest request;
     ASSERT_TRUE(mapper.create_scan_request({filter}, {}, {table_struct}, &request).ok());
 
-    ASSERT_EQ(request.column_predicate_filters.size(), 1);
-    EXPECT_EQ(request.column_predicate_filters[0].effective_file_column_id(), LocalColumnId(5));
-    EXPECT_EQ(request.column_predicate_filters[0].effective_file_child_id_path(),
-              std::vector<int32_t>({0}));
-    ASSERT_EQ(request.column_predicate_filters[0].predicates.size(), 1);
-    EXPECT_EQ(request.column_predicate_filters[0].predicates[0]->type(), PredicateType::GT);
+    EXPECT_TRUE(request.column_predicate_filters.empty());
 }
 
 TEST(ColumnMapperScanRequestTest, UnsafeCastDoesNotBuildNestedPredicateFilter) {
@@ -2683,14 +2553,7 @@ TEST(ColumnMapperScanRequestTest, DeepNestedPredicateTargetsLeafPath) {
     FileScanRequest request;
     ASSERT_TRUE(mapper.create_scan_request({filter}, {}, {table_struct}, &request).ok());
 
-    ASSERT_EQ(request.column_predicate_filters.size(), 1);
-    EXPECT_EQ(request.column_predicate_filters[0].effective_file_column_id(), LocalColumnId(5));
-    EXPECT_EQ(request.column_predicate_filters[0].effective_file_child_id_path(),
-              std::vector<int32_t>({0, 0}));
-    EXPECT_EQ(target_names(request.column_predicate_filters[0].target.struct_target.get()),
-              std::vector<std::string>({"a", "id"}));
-    ASSERT_EQ(request.column_predicate_filters[0].predicates.size(), 1);
-    EXPECT_EQ(request.column_predicate_filters[0].predicates[0]->type(), PredicateType::IN_LIST);
+    EXPECT_TRUE(request.column_predicate_filters.empty());
 }
 
 TEST(ColumnMapperScanRequestTest, ArrayStructProjectionPrunesElementChildren) {
@@ -2811,8 +2674,8 @@ TEST(ColumnMapperScanRequestTest, StructProjectionPrunesChildrenByName) {
 }
 
 // Scenario: a row filter reaches a struct child through an array wrapper
-// (`items.item.a > 5`). The nested predicate filter path only supports direct struct paths, so
-// the mapper keeps this as a row predicate and reads the full array root for predicate evaluation.
+// (`items.item.a > 5`). The mapper keeps this as a row predicate and reads the full array root for
+// predicate evaluation.
 TEST(ColumnMapperScanRequestTest, ArrayWrapperDoesNotBuildNestedPredicateFilter) {
     const auto int_type = i32();
     const auto string_type = str();
@@ -3035,14 +2898,11 @@ TEST(ColumnMapperScanRequestTest, PredicateOnlyTopLevelColumnUsesHiddenMapping) 
     EXPECT_TRUE(request.predicate_columns[0].children.empty());
 
     ASSERT_EQ(request.conjuncts.size(), 1);
-    ASSERT_EQ(request.column_predicate_filters.size(), 1);
-    EXPECT_EQ(request.column_predicate_filters[0].effective_file_column_id(), LocalColumnId(10));
-    EXPECT_EQ(request.column_predicate_filters[0].effective_file_child_id_path(),
-              std::vector<int32_t>({0}));
+    EXPECT_TRUE(request.column_predicate_filters.empty());
 }
 
-// Scenario: a nested predicate targets a table-side renamed struct field; both predicate pruning and
-// scan projection must resolve that field to the old physical file child.
+// Scenario: a nested predicate targets a table-side renamed struct field; scan projection must
+// resolve that field to the old physical file child.
 TEST(ColumnMapperScanRequestTest, NestedPredicateProjectionUsesMappedRenamedChild) {
     const auto int_type = i32();
 
@@ -3065,17 +2925,14 @@ TEST(ColumnMapperScanRequestTest, NestedPredicateProjectionUsesMappedRenamedChil
     FileScanRequest request;
     ASSERT_TRUE(mapper.create_scan_request({filter}, {}, {table_struct}, &request).ok());
 
-    ASSERT_EQ(request.column_predicate_filters.size(), 1);
-    EXPECT_EQ(request.column_predicate_filters[0].effective_file_column_id(), LocalColumnId(10));
-    EXPECT_EQ(request.column_predicate_filters[0].effective_file_child_id_path(),
-              std::vector<int32_t>({1}));
+    EXPECT_TRUE(request.column_predicate_filters.empty());
     ASSERT_EQ(request.predicate_columns.size(), 1);
     EXPECT_TRUE(request.predicate_columns[0].project_all_children);
     EXPECT_TRUE(request.predicate_columns[0].children.empty());
 }
 
 // Scenario: element_at(struct, 'table_name') in a row filter is localized to the physical file
-// child name, matching the struct_element rewrite and nested predicate filter resolution paths.
+// child name, matching the struct_element rewrite path.
 TEST(ColumnMapperScanRequestTest,
      FileLocalElementAtConjunctUsesFileChildNameForRenamedStructField) {
     const auto int_type = i32();
