@@ -116,6 +116,10 @@ private:
     Status _create_commit_info(std::vector<TTabletCommitInfo>& tablet_commit_infos,
                                std::shared_ptr<LoadStreamMap> load_stream_map);
 
+    void _collect_load_stream_profiles(
+            const std::unordered_map<int64_t, std::shared_ptr<LoadStreamStubs>>& streams_for_node,
+            const std::unordered_set<std::shared_ptr<LoadStreamStub>>& streams_to_collect_profile);
+
 private:
     Status _init_row_distribution();
 

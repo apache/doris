@@ -814,12 +814,7 @@ Status VTabletWriterV2::_close_wait(
     auto streams_for_node = _load_stream_map->get_streams_for_node();
     auto streams_to_collect_profile = unfinished_streams;
     Defer collect_load_stream_profiles {[&]() {
-        for (const auto& stream : streams_to_collect_profile) {
-            auto load_stream_profile = stream->collect_load_stream_profile(_state->profile_level());
-            if (load_stream_profile != nullptr) {
-                _state->load_channel_profile()->update(*load_stream_profile);
-            }
-        }
+        _collect_load_stream_profiles(streams_for_node, streams_to_collect_profile);
     }};
     // 1. first wait for quorum success
     std::unordered_set<int64_t> need_finish_tablets;
@@ -1002,6 +997,31 @@ Status VTabletWriterV2::_check_timeout() {
         return Status::TimedOut("load timed out before close waiting");
     }
     return Status::OK();
+}
+
+void VTabletWriterV2::_collect_load_stream_profiles(
+        const std::unordered_map<int64_t, std::shared_ptr<LoadStreamStubs>>& streams_for_node,
+        const std::unordered_set<std::shared_ptr<LoadStreamStub>>& streams_to_collect_profile) {
+    for (const auto& [dst_id, streams] : streams_for_node) {
+        auto stream_list = streams->streams();
+        for (size_t stream_idx = 0; stream_idx < stream_list.size(); ++stream_idx) {
+            const auto& stream = stream_list[stream_idx];
+            if (!streams_to_collect_profile.contains(stream)) {
+                continue;
+            }
+            auto load_stream_profile = stream->collect_load_stream_profile(_state->profile_level());
+            if (load_stream_profile != nullptr) {
+                const auto profile_name =
+                        fmt::format("LoadStream dst_id={} stream_idx={}", dst_id, stream_idx);
+                auto* stream_profile = _state->load_channel_profile()->get_child(profile_name);
+                if (stream_profile == nullptr) {
+                    stream_profile =
+                            _state->load_channel_profile()->create_child(profile_name, true, true);
+                }
+                stream_profile->update(*load_stream_profile);
+            }
+        }
+    }
 }
 
 Status VTabletWriterV2::_check_streams_finish(
