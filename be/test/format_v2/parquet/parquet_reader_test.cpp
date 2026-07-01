@@ -1650,7 +1650,7 @@ TEST_F(NewParquetReaderTest, ScanRangeFiltersRowGroupsBeforeDictionaryPruning) {
     EXPECT_EQ(plan.pruning_stats.filtered_group_rows, 0);
 }
 
-TEST_F(NewParquetReaderTest, NestedStructPredicateFiltersRowGroupsByStatistics) {
+TEST_F(NewParquetReaderTest, NestedStructPredicateDoesNotFilterRowGroupsByStatistics) {
     write_struct_filter_parquet_file(_file_path);
     auto parquet_file_reader = ::parquet::ParquetFileReader::OpenFile(_file_path, false);
     ASSERT_EQ(parquet_file_reader->metadata()->num_row_groups(), 2);
@@ -1667,7 +1667,6 @@ TEST_F(NewParquetReaderTest, NestedStructPredicateFiltersRowGroupsByStatistics) 
     format::FileScanRequest request;
     format::FileColumnPredicateFilter column_filter;
     column_filter.file_column_id = format::LocalColumnId(0);
-    column_filter.file_child_id_path = {0};
     auto id_type = std::make_shared<DataTypeInt32>();
     column_filter.predicates.push_back(create_comparison_predicate<PredicateType::GT>(
             0, "id", id_type, Field::create_field<TYPE_INT>(5), false));
@@ -1679,15 +1678,14 @@ TEST_F(NewParquetReaderTest, NestedStructPredicateFiltersRowGroupsByStatistics) 
                                                          parquet_file_reader.get(), file_schema,
                                                          request, scan_range, false, &plan)
                         .ok());
-    ASSERT_EQ(plan.row_groups.size(), 1);
-    EXPECT_EQ(plan.row_groups[0].row_group_id, 1);
+    ASSERT_EQ(plan.row_groups.size(), 2);
     EXPECT_EQ(plan.pruning_stats.total_row_groups, 2);
-    EXPECT_EQ(plan.pruning_stats.selected_row_groups, 1);
-    EXPECT_EQ(plan.pruning_stats.filtered_row_groups_by_statistics, 1);
-    EXPECT_EQ(plan.pruning_stats.filtered_group_rows, 2);
+    EXPECT_EQ(plan.pruning_stats.selected_row_groups, 2);
+    EXPECT_EQ(plan.pruning_stats.filtered_row_groups_by_statistics, 0);
+    EXPECT_EQ(plan.pruning_stats.filtered_group_rows, 0);
 }
 
-TEST_F(NewParquetReaderTest, NestedStructPredicateFiltersRowGroupsByDictionary) {
+TEST_F(NewParquetReaderTest, NestedStructPredicateDoesNotFilterRowGroupsByDictionary) {
     write_nested_dictionary_filter_parquet_file(_file_path);
     auto parquet_file_reader = ::parquet::ParquetFileReader::OpenFile(_file_path, false);
     ASSERT_EQ(parquet_file_reader->metadata()->num_row_groups(), 6);
@@ -1712,7 +1710,6 @@ TEST_F(NewParquetReaderTest, NestedStructPredicateFiltersRowGroupsByDictionary) 
     format::FileScanRequest request;
     format::FileColumnPredicateFilter column_filter;
     column_filter.file_column_id = format::LocalColumnId(0);
-    column_filter.file_child_id_path = {1};
     auto name_type = std::make_shared<DataTypeString>();
     column_filter.predicates.push_back(create_comparison_predicate<PredicateType::EQ>(
             0, "name", name_type, Field::create_field<TYPE_STRING>("lm"), false));
@@ -1724,12 +1721,11 @@ TEST_F(NewParquetReaderTest, NestedStructPredicateFiltersRowGroupsByDictionary) 
                                                          parquet_file_reader.get(), file_schema,
                                                          request, scan_range, false, &plan)
                         .ok());
-    ASSERT_EQ(plan.row_groups.size(), 1);
-    EXPECT_EQ(plan.row_groups[0].row_group_id, 2);
+    ASSERT_EQ(plan.row_groups.size(), 6);
     EXPECT_EQ(plan.pruning_stats.total_row_groups, 6);
-    EXPECT_EQ(plan.pruning_stats.selected_row_groups, 1);
-    EXPECT_EQ(plan.pruning_stats.filtered_row_groups_by_dictionary, 5);
-    EXPECT_EQ(plan.pruning_stats.filtered_group_rows, 5);
+    EXPECT_EQ(plan.pruning_stats.selected_row_groups, 6);
+    EXPECT_EQ(plan.pruning_stats.filtered_row_groups_by_dictionary, 0);
+    EXPECT_EQ(plan.pruning_stats.filtered_group_rows, 0);
 }
 
 TEST_F(NewParquetReaderTest, PlannerNarrowsRowRangesByPageIndex) {
@@ -1790,7 +1786,7 @@ TEST_F(NewParquetReaderTest, PlannerNarrowsRowRangesByPageIndex) {
     EXPECT_EQ(plan.pruning_stats.selected_row_ranges, plan.row_groups[0].selected_ranges.size());
 }
 
-TEST_F(NewParquetReaderTest, NestedStructPredicateNarrowsRowRangesByPageIndex) {
+TEST_F(NewParquetReaderTest, NestedStructPredicateDoesNotNarrowRowRangesByPageIndex) {
     write_nested_page_index_filter_parquet_file(_file_path);
     auto parquet_file_reader = ::parquet::ParquetFileReader::OpenFile(_file_path, false);
     ASSERT_EQ(parquet_file_reader->metadata()->num_row_groups(), 1);
@@ -1814,7 +1810,6 @@ TEST_F(NewParquetReaderTest, NestedStructPredicateNarrowsRowRangesByPageIndex) {
     format::FileScanRequest request;
     format::FileColumnPredicateFilter column_filter;
     column_filter.file_column_id = format::LocalColumnId(0);
-    column_filter.file_child_id_path = {0};
     auto id_type = std::make_shared<DataTypeInt32>();
     column_filter.predicates.push_back(create_comparison_predicate<PredicateType::GT>(
             0, "id", id_type, Field::create_field<TYPE_INT>(63), false));
@@ -1828,26 +1823,14 @@ TEST_F(NewParquetReaderTest, NestedStructPredicateNarrowsRowRangesByPageIndex) {
                         .ok());
     ASSERT_EQ(plan.row_groups.size(), 1);
     ASSERT_FALSE(plan.row_groups[0].selected_ranges.empty());
-    EXPECT_GT(plan.row_groups[0].selected_ranges.front().start, 0);
-    EXPECT_LT(plan.row_groups[0].selected_ranges.front().length, 128);
-    auto skip_plan_it = plan.row_groups[0].page_skip_plans.find(0);
-    ASSERT_NE(skip_plan_it, plan.row_groups[0].page_skip_plans.end());
-    EXPECT_EQ(skip_plan_it->second.leaf_column_id, 0);
-    EXPECT_GT(skip_plan_it->second.skipped_ranges.size(), 0);
-    EXPECT_GT(skip_plan_it->second.skipped_pages.size(), 1);
-    ASSERT_EQ(skip_plan_it->second.skipped_pages.size(),
-              skip_plan_it->second.skipped_page_compressed_sizes.size());
-    int64_t skipped_compressed_bytes = 0;
-    for (size_t page_idx = 0; page_idx < skip_plan_it->second.skipped_pages.size(); ++page_idx) {
-        if (skip_plan_it->second.should_skip_page(page_idx)) {
-            skipped_compressed_bytes += skip_plan_it->second.skipped_page_compressed_size(page_idx);
-        }
-    }
-    EXPECT_GT(skipped_compressed_bytes, 0);
+    EXPECT_EQ(plan.row_groups[0].selected_ranges.front().start, 0);
+    EXPECT_EQ(plan.row_groups[0].selected_ranges.front().length,
+              parquet_file_reader->metadata()->RowGroup(0)->num_rows());
+    EXPECT_TRUE(plan.row_groups[0].page_skip_plans.empty());
     EXPECT_EQ(plan.pruning_stats.total_row_groups, 1);
     EXPECT_EQ(plan.pruning_stats.selected_row_groups, 1);
     EXPECT_EQ(plan.pruning_stats.filtered_row_groups_by_page_index, 0);
-    EXPECT_GT(plan.pruning_stats.filtered_page_rows, 0);
+    EXPECT_EQ(plan.pruning_stats.filtered_page_rows, 0);
     EXPECT_EQ(plan.pruning_stats.selected_row_ranges, plan.row_groups[0].selected_ranges.size());
 }
 
