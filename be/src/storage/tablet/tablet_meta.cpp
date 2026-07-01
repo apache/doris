@@ -617,6 +617,9 @@ void TabletMeta::init_schema_from_thrift(const TTabletSchema& tablet_schema,
     if (tablet_schema.__isset.store_row_column) {
         tablet_schema_pb->set_store_row_column(tablet_schema.store_row_column);
     }
+    if (tablet_schema.__isset.row_store_only) {
+        tablet_schema_pb->set_row_store_only(tablet_schema.row_store_only);
+    }
     if (tablet_schema.__isset.row_store_page_size) {
         tablet_schema_pb->set_row_store_page_size(tablet_schema.row_store_page_size);
     }

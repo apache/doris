@@ -1212,6 +1212,7 @@ void TabletSchema::init_from_pb(const TabletSchemaPB& schema, bool ignore_extrac
     _is_in_memory = schema.is_in_memory();
     _disable_auto_compaction = schema.disable_auto_compaction();
     _store_row_column = schema.store_row_column();
+    _row_store_only = schema.row_store_only();
     _skip_write_index_on_load = schema.skip_write_index_on_load();
     _delete_sign_idx = schema.delete_sign_idx();
     _sequence_col_idx = schema.sequence_col_idx();
@@ -1564,6 +1565,7 @@ void TabletSchema::to_schema_pb(TabletSchemaPB* tablet_schema_pb) const {
     tablet_schema_pb->set_is_in_memory(_is_in_memory);
     tablet_schema_pb->set_disable_auto_compaction(_disable_auto_compaction);
     tablet_schema_pb->set_store_row_column(_store_row_column);
+    tablet_schema_pb->set_row_store_only(_row_store_only);
     tablet_schema_pb->set_skip_write_index_on_load(_skip_write_index_on_load);
     tablet_schema_pb->set_delete_sign_idx(_delete_sign_idx);
     tablet_schema_pb->set_sequence_col_idx(_sequence_col_idx);
@@ -1978,6 +1980,7 @@ bool operator==(const TabletSchema& a, const TabletSchema& b) {
     if (a._delete_sign_idx != b._delete_sign_idx) return false;
     if (a._disable_auto_compaction != b._disable_auto_compaction) return false;
     if (a._store_row_column != b._store_row_column) return false;
+    if (a._row_store_only != b._row_store_only) return false;
     if (a._row_store_page_size != b._row_store_page_size) return false;
     if (a._storage_page_size != b._storage_page_size) return false;
     if (a._storage_dict_page_size != b._storage_dict_page_size) return false;

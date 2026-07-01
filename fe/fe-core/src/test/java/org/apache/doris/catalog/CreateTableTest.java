@@ -32,6 +32,8 @@ import com.google.common.collect.Maps;
 import org.junit.Assert;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -49,6 +51,58 @@ public class CreateTableTest extends TestWithFeService {
         FeConstants.runningUnitTest = true;
         Config.allow_replica_on_same_host = true;
         createDatabase("test");
+    }
+
+    @Test
+    public void testRowStoreOnlyCreateTable() throws Exception {
+        ExceptionChecker.expectThrowsNoException(() -> createTable("create table test.row_store_only_valid\n"
+                + "(k1 int not null, v1 int, v2 varchar(20) default 'x')\n"
+                + "unique key(k1)\n"
+                + "distributed by hash(k1) buckets 1\n"
+                + "properties('replication_num'='1',\n"
+                + "'enable_unique_key_merge_on_write'='true',\n"
+                + "'light_schema_change'='true',\n"
+                + "'store_row_column'='true',\n"
+                + "'row_store_only'='true');"));
+
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("test");
+        OlapTable rowStoreOnlyTable = (OlapTable) db.getTableOrDdlException("row_store_only_valid");
+        Assert.assertTrue(rowStoreOnlyTable.storeRowColumn());
+        Assert.assertTrue(rowStoreOnlyTable.rowStoreOnly());
+
+        List<String> createTableStmt = new ArrayList<>();
+        Env.getDdlStmt(null, "test", rowStoreOnlyTable, createTableStmt, null, null, false, true, false, -1L,
+                false, false);
+        Assert.assertEquals(1, createTableStmt.size());
+        String createSql = createTableStmt.get(0);
+        Assert.assertTrue(createSql.contains("\"row_store_only\" = \"true\""));
+        createTable(createSql.replace("`row_store_only_valid`", "`row_store_only_replay`"));
+        OlapTable replayTable = (OlapTable) db.getTableOrDdlException("row_store_only_replay");
+        Assert.assertTrue(replayTable.storeRowColumn());
+        Assert.assertTrue(replayTable.rowStoreOnly());
+
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class,
+                "row_store_columns must be empty when row_store_only is true",
+                () -> createTable("create table test.row_store_only_with_subset\n"
+                        + "(k1 int not null, v1 int, v2 int)\n"
+                        + "unique key(k1)\n"
+                        + "distributed by hash(k1) buckets 1\n"
+                        + "properties('replication_num'='1',\n"
+                        + "'enable_unique_key_merge_on_write'='true',\n"
+                        + "'light_schema_change'='true',\n"
+                        + "'store_row_column'='true',\n"
+                        + "'row_store_only'='true',\n"
+                        + "'row_store_columns'='k1,v1');"));
+
+        ExceptionChecker.expectThrowsNoException(() -> createTable("create table test.row_store_subset_valid\n"
+                + "(k1 int not null, v1 int, v2 int)\n"
+                + "unique key(k1)\n"
+                + "distributed by hash(k1) buckets 1\n"
+                + "properties('replication_num'='1',\n"
+                + "'enable_unique_key_merge_on_write'='true',\n"
+                + "'store_row_column'='true',\n"
+                + "'row_store_columns'='k1,v1');"));
+
     }
 
     @Test

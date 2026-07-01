@@ -279,6 +279,9 @@ Status Compaction::merge_input_rowsets() {
     // Propagate input rowset readers into the rowset writer context before the writer is created.
     // Variant nested-group compaction uses this metadata to enable the streaming writer path.
     ctx.input_rs_readers = input_rs_readers;
+    if (_cur_tablet_schema != nullptr && _cur_tablet_schema->row_store_only()) {
+        _is_vertical = false;
+    }
     RETURN_IF_ERROR(construct_output_rowset_writer(ctx));
 
     // write merged rows to output rowset

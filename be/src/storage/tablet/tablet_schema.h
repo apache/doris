@@ -499,6 +499,19 @@ public:
     bool has_row_store_for_all_columns() const {
         return _store_row_column && row_columns_uids().empty();
     }
+    void set_row_store_only(bool row_store_only) { _row_store_only = row_store_only; }
+    bool row_store_only() const { return _row_store_only; }
+    // In row_store_only layout, ordinary logical columns have no independent
+    // data pages; only the derived __DORIS_ROW_STORE_COL__ column is persisted.
+    bool is_row_store_only_derived_column(size_t ordinal) const {
+        return _row_store_only && ordinal < _num_columns && _cols[ordinal]->is_row_store_column();
+    }
+    // Whether the column at `ordinal` should be persisted as an independent
+    // column (data page) on disk. For non row_store_only schema every column is
+    // persisted; for row_store_only only the row store derived column is.
+    bool should_persist_column(size_t ordinal) const {
+        return !_row_store_only || is_row_store_only_derived_column(ordinal);
+    }
     void set_skip_write_index_on_load(bool skip) { _skip_write_index_on_load = skip; }
     bool skip_write_index_on_load() const { return _skip_write_index_on_load; }
     int32_t delete_sign_idx() const { return _delete_sign_idx; }
@@ -816,6 +829,7 @@ private:
     int64_t _db_id = -1;
     bool _disable_auto_compaction = false;
     bool _store_row_column = false;
+    bool _row_store_only = false;
     bool _skip_write_index_on_load = false;
     InvertedIndexStorageFormatPB _inverted_index_storage_format = InvertedIndexStorageFormatPB::V1;
 

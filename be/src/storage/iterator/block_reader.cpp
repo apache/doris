@@ -532,6 +532,9 @@ Status BlockReader::init(const ReaderParams& read_params) {
     SCOPED_RAW_TIMER(&_stats.tablet_reader_init_timer_ns);
     RETURN_IF_ERROR(TabletReader::init(read_params));
 
+    _output_column_cids.assign(read_params.origin_return_columns->begin(),
+                               read_params.origin_return_columns->end());
+
     auto return_column_size = read_params.origin_return_columns->size();
     _return_columns_loc.resize(read_params.return_columns.size(), -1);
     std::unordered_map<int32_t /*cid*/, int32_t /*pos*/> pos_map;
@@ -651,6 +654,13 @@ Status BlockReader::init(const ReaderParams& read_params) {
     }
 
     return Status::OK();
+}
+
+bool BlockReader::_is_row_store_only_derived_output_column(uint32_t output_column_idx) const {
+    if (_tablet_schema == nullptr || output_column_idx >= _output_column_cids.size()) {
+        return false;
+    }
+    return _tablet_schema->is_row_store_only_derived_column(_output_column_cids[output_column_idx]);
 }
 
 Status BlockReader::_direct_next_block(Block* block, bool* eof) {
@@ -949,7 +959,18 @@ Status BlockReader::_unique_key_next_block(Block* block, bool* eof) {
                                                          "__DORIS_COMPACTION_FILTER__"};
         target_columns_guard.restore();
         block->insert(column_with_type_and_name);
-        RETURN_IF_ERROR(Block::filter_block(block, target_columns_size, target_columns_size));
+        std::vector<uint32_t> columns_to_filter;
+        columns_to_filter.reserve(target_columns_size);
+        for (uint32_t i = 0; i < target_columns_size; ++i) {
+            // Row-store-only keeps this placeholder in the output block, but SegmentWriter
+            // rebuilds the physical row-store column after delete filtering.
+            if (_is_row_store_only_derived_output_column(i)) {
+                continue;
+            }
+            columns_to_filter.emplace_back(i);
+        }
+        RETURN_IF_ERROR(Block::filter_block(block, columns_to_filter, target_columns_size,
+                                            target_columns_size));
         _stats.rows_del_filtered += target_block_row - block->rows();
         if (UNLIKELY(_reader_context.record_rowids)) {
             DCHECK_EQ(_block_row_locations.size(), block->rows() + delete_count);

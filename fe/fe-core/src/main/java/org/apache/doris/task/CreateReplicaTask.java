@@ -130,6 +130,8 @@ public class CreateReplicaTask extends AgentTask {
 
     private boolean storeRowColumn;
 
+    private boolean rowStoreOnly;
+
     private BinlogConfig binlogConfig;
     // update binlog schema only when create base index
     private MaterializedIndexMeta rowBinlogMeta;
@@ -163,6 +165,7 @@ public class CreateReplicaTask extends AgentTask {
                              long timeSeriesCompactionEmptyRowsetsThreshold,
                              long timeSeriesCompactionLevelThreshold,
                              boolean storeRowColumn,
+                             boolean rowStoreOnly,
                              BinlogConfig binlogConfig,
                              List<Integer> rowStoreColumnUniqueIds,
                              Map<Object, Object> objectPool,
@@ -215,6 +218,7 @@ public class CreateReplicaTask extends AgentTask {
         this.timeSeriesCompactionLevelThreshold = timeSeriesCompactionLevelThreshold;
         this.verticalCompactionNumColumnsPerGroup = verticalCompactionNumColumnsPerGroup;
         this.storeRowColumn = storeRowColumn;
+        this.rowStoreOnly = rowStoreOnly;
         this.binlogConfig = binlogConfig;
         this.objectPool = objectPool;
         this.rowStorePageSize = rowStorePageSize;
@@ -382,6 +386,7 @@ public class CreateReplicaTask extends AgentTask {
         tSchema.setVariantEnableFlattenNested(variantEnableFlattenNested);
         tSchema.setSkipWriteIndexOnLoad(skipWriteIndexOnLoad);
         tSchema.setStoreRowColumn(storeRowColumn);
+        tSchema.setRowStoreOnly(rowStoreOnly);
         tSchema.setRowStorePageSize(rowStorePageSize);
         tSchema.setStoragePageSize(storagePageSize);
         tSchema.setStorageDictPageSize(storageDictPageSize);

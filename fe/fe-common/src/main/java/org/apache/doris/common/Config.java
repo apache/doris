@@ -582,6 +582,11 @@ public class Config extends ConfigBase {
     @ConfField(description = {"The timeout of RPC for high-concurrency short-circuit queries"})
     public static int point_query_timeout_ms = 10000; // 10s
 
+    @ConfField(mutable = true, masterOnly = false, description = {
+            "Whether to block complex queries on row_store_only tables in FE. If enabled, queries involving "
+                    + "row_store_only tables with aggregate or join will be rejected."})
+    public static boolean enable_row_store_only_complex_query_block = true;
+
     @ConfField(mutable = true, masterOnly = true, description = {"Default timeout for insert load jobs, in seconds."})
     public static int insert_load_default_timeout_second = 14400; // 4 hour
 

@@ -333,6 +333,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 implements GsonPostProcessable
                                     tbl.getTimeSeriesCompactionEmptyRowsetsThreshold(),
                                     tbl.getTimeSeriesCompactionLevelThreshold(),
                                     tbl.storeRowColumn(),
+                                    tbl.rowStoreOnly(),
                                     binlogConfig,
                                     tbl.getRowStoreColumnsUniqueIds(rowStoreColumns),
                                     objectPool,

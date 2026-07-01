@@ -91,7 +91,8 @@ Status PartialUpdateInfo::init(int64_t tablet_id, int64_t txn_id, const TabletSc
                 auto tablet_column = tablet_schema.column(i);
                 if (!partial_update_input_columns.contains(tablet_column.name())) {
                     missing_cids.emplace_back(i);
-                    if (!tablet_column.has_default_value() && !tablet_column.is_nullable() &&
+                    if (!tablet_column.is_row_store_column() &&
+                        !tablet_column.has_default_value() && !tablet_column.is_nullable() &&
                         tablet_schema.auto_increment_column() != tablet_column.name()) {
                         can_insert_new_rows_in_partial_update = false;
                     }
@@ -222,7 +223,8 @@ Status PartialUpdateInfo::handle_new_key(const TabletSchema& tablet_schema,
                 std::string error_column;
                 for (auto cid : missing_cids) {
                     const TabletColumn& col = tablet_schema.column(cid);
-                    if (!col.has_default_value() && !col.is_nullable() &&
+                    if (!col.is_row_store_column() && !col.has_default_value() &&
+                        !col.is_nullable() &&
                         !(tablet_schema.auto_increment_column() == col.name())) {
                         error_column = col.name();
                         break;
@@ -239,8 +241,8 @@ Status PartialUpdateInfo::handle_new_key(const TabletSchema& tablet_schema,
             std::string error_column;
             for (auto cid : missing_cids) {
                 const TabletColumn& col = tablet_schema.column(cid);
-                if (skip_bitmap->contains(col.unique_id()) && !col.has_default_value() &&
-                    !col.is_nullable() && !col.is_auto_increment()) {
+                if (!col.is_row_store_column() && skip_bitmap->contains(col.unique_id()) &&
+                    !col.has_default_value() && !col.is_nullable() && !col.is_auto_increment()) {
                     error_column = col.name();
                     can_insert_new_row = false;
                     break;

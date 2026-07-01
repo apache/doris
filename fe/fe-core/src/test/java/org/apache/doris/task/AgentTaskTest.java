@@ -119,7 +119,7 @@ public class AgentTaskTest {
         createReplicaTask = new CreateReplicaTask(backendId1, dbId, tableId, partitionId,
                 indexId1, tabletId1, replicaId1, shortKeyNum, schemaHash1, version, KeysType.AGG_KEYS, storageType,
                 TStorageMedium.SSD, columns, null, 0, latch, null, false, TTabletType.TABLET_TYPE_DISK, null,
-                TCompressionType.LZ4F, false, "", false, false, "", 0, 0, 0, 0, 0, false, null, null, objectPool, rowStorePageSize, false,
+                TCompressionType.LZ4F, false, "", false, false, "", 0, 0, 0, 0, 0, false, false, null, null, objectPool, rowStorePageSize, false,
                 storagePageSize, TEncryptionAlgorithm.PLAINTEXT, storageDictPageSize, new HashMap<>(), 5, null);
 
         // drop
@@ -186,7 +186,7 @@ public class AgentTaskTest {
                 indexId1, tabletId1, replicaId1, shortKeyNum, schemaHash1, version, KeysType.AGG_KEYS, storageType,
                 TStorageMedium.SSD, columns, null, 0, latch, null, false, TTabletType.TABLET_TYPE_DISK, null,
                 TCompressionType.LZ4F, false, "", false, false, "", 0, 0, 0, 0, 0, false,
-                binlogConfig, null, objectPool, rowStorePageSize, false, storagePageSize,
+                false, binlogConfig, null, objectPool, rowStorePageSize, false, storagePageSize,
                 TEncryptionAlgorithm.PLAINTEXT, storageDictPageSize, new HashMap<>(), 5, rowBinlogMeta);
         TAgentTaskRequest requestWithRowBinlog =
                 (TAgentTaskRequest) toAgentTaskRequest.invoke(agentBatchTask, createWithRowBinlog);

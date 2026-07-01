@@ -1484,6 +1484,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                             localTbl.getTimeSeriesCompactionEmptyRowsetsThreshold(),
                             localTbl.getTimeSeriesCompactionLevelThreshold(),
                             localTbl.storeRowColumn(),
+                            localTbl.rowStoreOnly(),
                             binlogConfig,
                             localTbl.getRowStoreColumnsUniqueIds(rowStoreColumns),
                             objectPool,
