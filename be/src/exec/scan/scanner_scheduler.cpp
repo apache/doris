@@ -362,18 +362,17 @@ void ScannerScheduler::_make_sure_virtual_col_is_materialized(
             continue;
         }
 
-        std::vector<std::string> vcid_to_idx;
-
-        for (const auto& pair : olap_scanner->_vir_cid_to_idx_in_block) {
-            vcid_to_idx.push_back(fmt::format("{}-{}", pair.first, pair.second));
+        std::vector<ColumnId> virtual_column_ids;
+        for (const auto& pair : olap_scanner->_virtual_column_exprs) {
+            virtual_column_ids.push_back(pair.first);
         }
 
         std::string error_msg = fmt::format(
                 "Column in idx {} is nothing, block columns {}, normal_columns "
                 "{}, "
-                "vir_cid_to_idx_in_block_msg {}",
+                "virtual_column_ids [{}]",
                 idx, free_block->columns(), olap_scanner->_return_columns.size(),
-                fmt::format("_vir_cid_to_idx_in_block:[{}]", fmt::join(vcid_to_idx, ",")));
+                fmt::join(virtual_column_ids, ","));
         throw doris::Exception(ErrorCode::INTERNAL_ERROR, error_msg);
     }
 #endif

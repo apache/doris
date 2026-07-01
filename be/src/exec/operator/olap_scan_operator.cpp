@@ -1006,16 +1006,6 @@ Status OlapScanLocalState::open(RuntimeState* state) {
             RETURN_IF_ERROR(virtual_column_expr_ctx->open(state));
 
             _slot_id_to_virtual_column_expr[slot_desc->id()] = virtual_column_expr_ctx;
-            _slot_id_to_col_type[slot_desc->id()] = slot_desc->get_data_type_ptr();
-            int col_pos = p.intermediate_row_desc().get_column_id(slot_desc->id());
-            if (col_pos < 0) {
-                return Status::InternalError(
-                        "Invalid virtual slot, can not find its information. Slot desc:\n{}\nRow "
-                        "desc:\n{}",
-                        slot_desc->debug_string(), p.row_desc().debug_string());
-            } else {
-                _slot_id_to_index_in_block[slot_desc->id()] = col_pos;
-            }
         }
     }
 
