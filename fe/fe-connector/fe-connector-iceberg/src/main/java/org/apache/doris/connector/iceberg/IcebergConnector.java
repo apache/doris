@@ -41,6 +41,7 @@ import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.CatalogUtil;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.TableIdentifier;
+import org.apache.iceberg.util.ThreadPools;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
@@ -70,6 +71,10 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Iceberg connector implementation. Manages the lifecycle of an Iceberg SDK
@@ -102,6 +107,11 @@ public class IcebergConnector implements Connector {
     private static final Map<URL, ClassLoader> DRIVER_CLASS_LOADER_CACHE = new ConcurrentHashMap<>();
     private static final Set<String> REGISTERED_DRIVER_KEYS = ConcurrentHashMap.newKeySet();
 
+    // Guards the one-per-JVM pinning of iceberg's shared worker-pool threads to the plugin classloader (see
+    // pinIcebergWorkerPoolToPluginClassLoader). The iceberg connector provider is loaded once, so every iceberg
+    // catalog shares the single ThreadPools.getWorkerPool(); pinning it once covers them all.
+    private static final AtomicBoolean ICEBERG_WORKER_POOL_PINNED = new AtomicBoolean(false);
+
     // T08 latest-snapshot cache knobs (mirror PaimonConnector). The TTL pins a STABLE snapshot across queries;
     // <= 0 means "no-cache catalog" (always live). Defaults mirror the legacy iceberg table cache
     // (Config.external_cache_expire_time_seconds_after_access = 24h, Config.max_external_table_cache_num).
@@ -126,7 +136,13 @@ public class IcebergConnector implements Connector {
 
     public IcebergConnector(Map<String, String> properties, ConnectorContext context) {
         this.properties = Collections.unmodifiableMap(properties);
-        this.context = context;
+        // Pin the thread-context classloader to the plugin loader for the duration of every
+        // executeAuthenticated call (see TcclPinningConnectorContext). The injected context is fanned out to
+        // the metadata / transaction / procedure ops below; wrapping it once here is what extends the
+        // "TCCL pinned to the plugin loader" guard (already applied on the scan + catalog-build paths) to the
+        // write/DDL/procedure commits, whose lazy iceberg-aws S3-client build otherwise ClassCasts
+        // ApacheHttpClientConfigurations across the app/child loader split.
+        this.context = new TcclPinningConnectorContext(context, getClass().getClassLoader());
         this.latestSnapshotCache = new IcebergLatestSnapshotCache(
                 resolveTableCacheTtlSecond(this.properties), DEFAULT_TABLE_CACHE_CAPACITY);
     }
@@ -511,19 +527,101 @@ public class IcebergConnector implements Connector {
     }
 
     private Catalog buildCatalogAuthenticated(String flavor, Callable<Catalog> builder) {
-        // Pin the thread-context classloader to the plugin loader for the duration of catalog creation
-        // (FIX-PAIMON-HADOOP-CLASSLOADER parity): Hadoop's FileSystem ServiceLoader + SecurityUtil static init
-        // resolve through the TCCL; without the pin they read the parent 'app' loader and split-brain against
-        // the child-loaded classes. Mirrors PaimonConnector.createCatalogFromContext.
-        ClassLoader previous = Thread.currentThread().getContextClassLoader();
+        // Catalog creation needs the thread-context classloader pinned to the plugin loader (Hadoop's
+        // FileSystem ServiceLoader + SecurityUtil static init, and iceberg-aws's reflective client build, all
+        // resolve helper classes through the TCCL; without the pin they read the parent 'app' loader and
+        // split-brain against the child-loaded classes). That pin is now applied once, for every
+        // executeAuthenticated call, by TcclPinningConnectorContext (which wraps the injected context in the
+        // constructor) — the single seam shared with the write/DDL/procedure commits — so it is not repeated
+        // here. PaimonConnector.createCatalogFromContext still pins inline (no such wrapper).
         try {
-            Thread.currentThread().setContextClassLoader(getClass().getClassLoader());
-            return context.executeAuthenticated(builder);
+            Catalog catalog = context.executeAuthenticated(builder);
+            // iceberg's parallel data-manifest WRITE runs on its own shared worker pool, whose threads do NOT
+            // inherit the per-commit TCCL pin TcclPinningConnectorContext applies on the engine thread; pin
+            // those threads to the plugin loader once so that path resolves iceberg-aws on the plugin side too
+            // (see pinIcebergWorkerPoolToPluginClassLoader).
+            pinIcebergWorkerPoolToPluginClassLoader();
+            return catalog;
         } catch (Exception e) {
             throw new DorisConnectorException(
                     "Failed to create Iceberg catalog (flavor=" + flavor + "): " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Pins the thread-context classloader of iceberg's shared worker pool to this plugin's classloader, once
+     * per JVM.
+     *
+     * <p>iceberg fans its parallel data-manifest WRITE ({@code SnapshotProducer.writeManifests}, reached on
+     * every INSERT/UPDATE/DELETE/MERGE/REWRITE commit and the snapshot procedures) onto
+     * {@code ThreadPools.getWorkerPool()}. Because the iceberg connector provider is loaded once and shared by
+     * every iceberg catalog, that is a single JVM-wide daemon pool. {@link TcclPinningConnectorContext} pins
+     * only the engine thread that drives a commit; the worker-pool threads do NOT inherit that pin, so the lazy
+     * iceberg-aws S3-client build on a worker thread resolves {@code ApacheHttpClientConfigurations} via
+     * {@code DynMethods} against the parent 'app' loader and {@link ClassCastException}s the child-loaded
+     * plugin copy the rest of the iceberg-aws stack uses. Setting each worker thread's TCCL to the plugin
+     * loader (the loader the iceberg-aws classes are child-first-loaded from) keeps every reflective load on
+     * the plugin side — the worker-pool analogue of the scan ({@code PluginDrivenScanNode.onPluginClassLoader})
+     * and commit-thread ({@link TcclPinningConnectorContext}) guards.
+     *
+     * <p>Set explicitly (not relying on thread-creation inheritance) so it also repins any worker thread an
+     * earlier unpinned use already created; a {@code ThreadPoolExecutor} never resets a worker's TCCL between
+     * tasks, so the pin persists. A short-lived barrier forces every thread of the fixed pool to run a primer.
+     * Best-effort: a failure or timeout is logged and never fails catalog creation (the write path then behaves
+     * as before the pin), and the guard is reset so a later catalog build retries.
+     */
+    private void pinIcebergWorkerPoolToPluginClassLoader() {
+        if (!ICEBERG_WORKER_POOL_PINNED.compareAndSet(false, true)) {
+            return;
+        }
+        int poolSize = ThreadPools.WORKER_THREAD_POOL_SIZE;
+        if (poolSize <= 0) {
+            return;
+        }
+        try {
+            if (!pinPoolThreadsToClassLoader(
+                    ThreadPools.getWorkerPool(), poolSize, getClass().getClassLoader(), 30)) {
+                ICEBERG_WORKER_POOL_PINNED.set(false);
+                LOG.warn("Timed out pinning iceberg worker pool ({} threads) to the plugin classloader; "
+                        + "iceberg-aws writes may ClassCast until a later catalog build retries", poolSize);
+            }
+        } catch (InterruptedException e) {
+            ICEBERG_WORKER_POOL_PINNED.set(false);
+            Thread.currentThread().interrupt();
+        } catch (RuntimeException e) {
+            ICEBERG_WORKER_POOL_PINNED.set(false);
+            LOG.warn("Failed to pin iceberg worker pool to the plugin classloader", e);
+        }
+    }
+
+    /**
+     * Sets the thread-context classloader of EVERY thread of a fixed-size {@code pool} to {@code target},
+     * returning whether all {@code poolSize} threads were reached within {@code timeoutSeconds}. A barrier holds
+     * each primer until all have started, forcing every distinct worker thread to run a primer and set its TCCL
+     * (a single fast thread could otherwise serve every submitted task, leaving the rest unpinned).
+     * Package-private for {@code IcebergConnectorWorkerPoolPinTest}.
+     */
+    static boolean pinPoolThreadsToClassLoader(ExecutorService pool, int poolSize, ClassLoader target,
+            long timeoutSeconds) throws InterruptedException {
+        CountDownLatch allStarted = new CountDownLatch(poolSize);
+        CountDownLatch release = new CountDownLatch(1);
+        try {
+            for (int i = 0; i < poolSize; i++) {
+                pool.execute(() -> {
+                    Thread.currentThread().setContextClassLoader(target);
+                    allStarted.countDown();
+                    // Park so the next task is forced onto a DISTINCT worker thread, until every thread in the
+                    // fixed pool has run a primer and set its TCCL.
+                    try {
+                        release.await();
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                    }
+                });
+            }
+            return allStarted.await(timeoutSeconds, TimeUnit.SECONDS);
         } finally {
-            Thread.currentThread().setContextClassLoader(previous);
+            release.countDown();
         }
     }
 
