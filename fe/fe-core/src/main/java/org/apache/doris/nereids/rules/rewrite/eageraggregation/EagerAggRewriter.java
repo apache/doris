@@ -172,7 +172,8 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
         LogicalJoin<? extends Plan, ? extends Plan> newJoin = (LogicalJoin<? extends Plan, ? extends Plan>)
                 join.withChildren(newLeft, newRight);
 
-        if (leftChildCountSlot.isPresent() || rightChildCountSlot.isPresent()) {
+        if ((leftChildContext.isPresent() && rightChildContext.isPresent())
+                || leftChildCountSlot.isPresent() || rightChildCountSlot.isPresent()) {
             return buildCanonicalJoinProject(newJoin, context, leftChildContext, rightChildContext,
                     leftChildCountSlot, rightChildCountSlot);
         }
