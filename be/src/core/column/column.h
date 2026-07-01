@@ -462,7 +462,8 @@ public:
      *  // nullable -> predict_column
      *  // string (dictionary) -> column_dictionary
      */
-    virtual Status filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) {
+    virtual Status filter_by_selector(const uint16_t* sel, size_t sel_size,
+                                      IColumn* col_ptr) const {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "Method filter_by_selector is not supported for {}, only "
                                "column_nullable, column_dictionary and predict_column support",

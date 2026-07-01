@@ -148,7 +148,8 @@ public:
         memset(data.data() + old_size, 0, length * sizeof(data[0]));
     }
 
-    Status filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) override {
+    Status filter_by_selector(const uint16_t* sel, size_t sel_size,
+                              IColumn* col_ptr) const override {
         Self* output = assert_cast<Self*>(col_ptr);
         auto& res_data = output->get_data();
         DCHECK(res_data.empty())
