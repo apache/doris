@@ -160,7 +160,25 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
         Optional<ConnectorMvccPartitionView> viewOpt =
                 metadata.getMvccPartitionView(session, pinnedHandle);
         if (viewOpt.isPresent()) {
-            return buildFromRangeView(connectorSnapshot, viewOpt.get());
+            ConnectorMvccPartitionView view = viewOpt.get();
+            // A non-RANGE (UNPARTITIONED) view is the connector's "not RANGE / not MTMV-range-eligible" verdict
+            // (iceberg's range view only covers single time-transform specs). If the table nonetheless declares
+            // partition columns (e.g. iceberg identity / bucket / truncate partitions), enumerate them via the
+            // generic LIST path so partition pruning / selectedPartitionNum / SQL-block-rule enforcement see the
+            // real partition set — WITHOUT which they wrongly report 0 partitions. The connector's UNPARTITIONED
+            // verdict is preserved on the pin (partitionType), so getPartitionType() and isValidRelatedTable()
+            // (MTMV eligibility) stay byte-unchanged; only getNameToPartitionItem() gains the LIST partitions.
+            // A RANGE view (range items) and a genuinely unpartitioned table (no partition columns) are
+            // unaffected. Freshness matches the legacy LIST path (timestamps / 0), harmless here because the
+            // UNPARTITIONED verdict keeps this table out of the snapshot-id MTMV path.
+            if (view.getStyle() != ConnectorMvccPartitionView.Style.RANGE && !getPartitionColumns().isEmpty()) {
+                Map<String, PartitionItem> listItems = Maps.newHashMap();
+                Map<String, Long> listLastModifiedMillis = Maps.newHashMap();
+                listLatestPartitions(metadata, session, handle, listItems, listLastModifiedMillis);
+                return new PluginDrivenMvccSnapshot(connectorSnapshot, listItems, listLastModifiedMillis,
+                        null, PartitionType.UNPARTITIONED, false, 0L);
+            }
+            return buildFromRangeView(connectorSnapshot, view);
         }
 
         Map<String, PartitionItem> nameToPartitionItem = Maps.newHashMap();

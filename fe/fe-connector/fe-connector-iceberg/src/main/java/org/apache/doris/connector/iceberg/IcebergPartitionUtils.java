@@ -17,6 +17,7 @@
 
 package org.apache.doris.connector.iceberg;
 
+import org.apache.doris.connector.api.ConnectorPartitionInfo;
 import org.apache.doris.connector.api.mvcc.ConnectorMvccPartition;
 import org.apache.doris.connector.api.mvcc.ConnectorMvccPartitionView;
 
@@ -61,6 +62,7 @@ import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
@@ -479,6 +481,37 @@ final class IcebergPartitionUtils {
     }
 
     /**
+     * The physical iceberg partitions of {@code table} at its CURRENT snapshot with per-partition metadata,
+     * for the generic {@code ConnectorMetadata.listPartitions} SPI hook. Each {@link ConnectorPartitionInfo}
+     * carries the display name ({@code "f1=v1/f2=v2"}) and a value map keyed by the partition-field SOURCE
+     * column name (lowercased) so {@code PluginDrivenExternalTable.getNameToPartitionItems} can index it by the
+     * generic partition-column remote name. Unlike the MTMV {@link #buildMvccPartitionView} this is NOT gated on
+     * the MTMV eligibility rules — it enumerates ANY partitioned iceberg table so the generic node can report a
+     * real {@code selectedPartitionNum} (EXPLAIN {@code partition=N/M} + SQL-block-rule {@code partition_num}
+     * enforcement). An unpartitioned or empty table yields an empty list. Must run inside
+     * {@code context.executeAuthenticated}.
+     */
+    static List<ConnectorPartitionInfo> listPartitions(Table table) {
+        if (table.spec().isUnpartitioned()) {
+            return Collections.emptyList();
+        }
+        Snapshot current = table.currentSnapshot();
+        if (current == null) {
+            return Collections.emptyList();
+        }
+        List<IcebergRawPartition> raws = loadRawPartitions(table, current.snapshotId());
+        List<ConnectorPartitionInfo> partitions = new ArrayList<>(raws.size());
+        for (IcebergRawPartition raw : raws) {
+            Map<String, String> values = new LinkedHashMap<>();
+            for (int i = 0; i < raw.columnNames.size(); ++i) {
+                values.put(raw.columnNames.get(i), raw.values.get(i));
+            }
+            partitions.add(new ConnectorPartitionInfo(raw.name, values, Collections.emptyMap()));
+        }
+        return partitions;
+    }
+
+    /**
      * Port of master {@code IcebergExternalTable.isValidRelatedTable}: an iceberg table is a valid MTMV related
      * table iff EVERY partition spec has exactly one field whose transform is {@code year}/{@code month}/{@code
      * day}/{@code hour}, and the partition source column is stable across partition evolution (a single distinct
@@ -536,6 +569,7 @@ final class IcebergPartitionUtils {
         PartitionSpec partitionSpec = table.specs().get(specId);
         StructProjection partitionData = row.get(0, StructProjection.class);
         StringBuilder sb = new StringBuilder();
+        List<String> partitionColumnNames = new ArrayList<>();
         List<String> partitionValues = new ArrayList<>();
         List<String> transforms = new ArrayList<>();
         for (int i = 0; i < partitionSpec.fields().size(); ++i) {
@@ -548,6 +582,12 @@ final class IcebergPartitionUtils {
             Object o = partitionData.get(index, fieldClass);
             String fieldValue = o == null ? null : o.toString();
             sb.append(partitionField.name()).append("=").append(fieldValue).append("/");
+            // Resolve the partition field's SOURCE column name (lowercased), matching the generic
+            // "partition_columns" contract in IcebergConnectorMetadata.buildTableSchema; fall back to the
+            // field name for a source-less field (e.g. void transform).
+            NestedField source = table.schema().findField(partitionField.sourceId());
+            partitionColumnNames.add((source != null ? source.name() : partitionField.name())
+                    .toLowerCase(Locale.ROOT));
             partitionValues.add(fieldValue);
             transforms.add(partitionField.transform().toString());
         }
@@ -566,7 +606,8 @@ final class IcebergPartitionUtils {
         } catch (NullPointerException e) {
             lastSnapshotId = UNKNOWN_SNAPSHOT_ID;
         }
-        return new IcebergRawPartition(sb.toString(), partitionValues, transforms, lastUpdateTime, lastSnapshotId);
+        return new IcebergRawPartition(sb.toString(), partitionColumnNames, partitionValues, transforms,
+                lastUpdateTime, lastSnapshotId);
     }
 
     /**
@@ -699,14 +740,19 @@ final class IcebergPartitionUtils {
     /** One PARTITIONS-metadata-table row reduced to what the MTMV partition view needs (port of IcebergPartition). */
     private static final class IcebergRawPartition {
         private final String name;
+        // Partition-field SOURCE column names (lowercased), parallel to {@link #values}, so listPartitions can
+        // build a value map keyed by the generic partition-column remote name (see IcebergConnectorMetadata
+        // buildTableSchema's "partition_columns" derivation).
+        private final List<String> columnNames;
         private final List<String> values;
         private final List<String> transforms;
         private final long lastUpdateTime;
         private final long lastSnapshotId;
 
-        IcebergRawPartition(String name, List<String> values, List<String> transforms,
+        IcebergRawPartition(String name, List<String> columnNames, List<String> values, List<String> transforms,
                 long lastUpdateTime, long lastSnapshotId) {
             this.name = name;
+            this.columnNames = columnNames;
             this.values = values;
             this.transforms = transforms;
             this.lastUpdateTime = lastUpdateTime;

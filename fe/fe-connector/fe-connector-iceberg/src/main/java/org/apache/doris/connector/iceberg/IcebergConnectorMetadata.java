@@ -20,6 +20,7 @@ package org.apache.doris.connector.iceberg;
 import org.apache.doris.connector.api.ConnectorColumn;
 import org.apache.doris.connector.api.ConnectorDatabaseMetadata;
 import org.apache.doris.connector.api.ConnectorMetadata;
+import org.apache.doris.connector.api.ConnectorPartitionInfo;
 import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.ConnectorTableSchema;
 import org.apache.doris.connector.api.ConnectorTableStatistics;
@@ -39,6 +40,7 @@ import org.apache.doris.connector.api.handle.WriteOperation;
 import org.apache.doris.connector.api.mvcc.ConnectorMvccPartitionView;
 import org.apache.doris.connector.api.mvcc.ConnectorMvccSnapshot;
 import org.apache.doris.connector.api.mvcc.ConnectorTimeTravelSpec;
+import org.apache.doris.connector.api.pushdown.ConnectorExpression;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.thrift.THiveTable;
 import org.apache.doris.thrift.TIcebergTable;
@@ -1441,6 +1443,37 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
             });
         } catch (Exception e) {
             throw new RuntimeException("Failed to list iceberg partition names, error message is:"
+                    + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * The physical iceberg partitions of {@code handle} with per-partition value maps, so the generic
+     * {@code PluginDrivenExternalTable.getNameToPartitionItems} can populate {@code selectedPartitionNum}
+     * (EXPLAIN {@code partition=N/M} + SQL-block-rule {@code partition_num} enforcement). Mirrors
+     * {@link #listPartitionNames}: the remote PARTITIONS scan runs inside the auth context; a concurrent drop
+     * yields an empty list. The {@code filter} is ignored (iceberg planScan is predicate-driven; the reported
+     * partition count is display/enforcement metadata only, never the read set). Unpartitioned tables map to
+     * the SPI default empty list via {@link IcebergPartitionUtils#listPartitions}.
+     */
+    @Override
+    public List<ConnectorPartitionInfo> listPartitions(ConnectorSession session,
+            ConnectorTableHandle handle, Optional<ConnectorExpression> filter) {
+        IcebergTableHandle iceHandle = (IcebergTableHandle) handle;
+        try {
+            return context.executeAuthenticated(() -> {
+                Table table;
+                try {
+                    table = catalogOps.loadTable(iceHandle.getDbName(), iceHandle.getTableName());
+                } catch (NoSuchTableException e) {
+                    LOG.warn("Iceberg table not found while listing partitions: {}.{}",
+                            iceHandle.getDbName(), iceHandle.getTableName(), e);
+                    return Collections.<ConnectorPartitionInfo>emptyList();
+                }
+                return IcebergPartitionUtils.listPartitions(table);
+            });
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to list iceberg partitions, error message is:"
                     + e.getMessage(), e);
         }
     }
