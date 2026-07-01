@@ -30,10 +30,22 @@
 #include "runtime/cluster_info.h"
 #include "runtime/descriptors.h"
 #include "runtime/memory/mem_tracker.h"
+#include "runtime/query_context.h"
 #include "runtime/runtime_state.h"
 #include "runtime/user_function_cache.h"
 
 namespace doris {
+
+namespace {
+
+// Build a real query context so FileScanner can update ResourceContext-backed metrics in UT.
+std::shared_ptr<QueryContext> create_ut_query_context() {
+    TNetworkAddress fe_address;
+    return QueryContext::create(TUniqueId(), ExecEnv::GetInstance(), TQueryOptions(), fe_address,
+                                true, fe_address, QuerySource::INTERNAL_FRONTEND);
+}
+
+} // namespace
 
 class TestSplitSourceConnectorStub : public SplitSourceConnector {
 private:
@@ -63,7 +75,9 @@ public:
 class VfileScannerExceptionTest : public testing::Test {
 public:
     VfileScannerExceptionTest()
-            : _runtime_state(TQueryOptions(), TQueryGlobals()),
+            : _query_ctx(create_ut_query_context()),
+              _runtime_state(TUniqueId(), 0, TQueryOptions(), TQueryGlobals(),
+                             ExecEnv::GetInstance(), _query_ctx.get()),
               _global_profile("<global profile>") {
         _runtime_state.resize_op_id_to_local_state(-1);
         init();
@@ -90,6 +104,8 @@ private:
     std::string _label_2 = "test2";
 
     TupleId _dst_tuple_id = 0;
+    // Keep the query context alive for the lifetime of RuntimeState in this test fixture.
+    std::shared_ptr<QueryContext> _query_ctx;
     RuntimeState _runtime_state;
     RuntimeProfile _global_profile;
     RuntimeProfile* _profile;
