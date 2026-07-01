@@ -34,7 +34,6 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.TimeUnit;
 
 public class RemoteDorisExternalCatalog extends ExternalCatalog {
     private static final Logger LOG = LogManager.getLogger(RemoteDorisExternalCatalog.class);
@@ -189,7 +188,7 @@ public class RemoteDorisExternalCatalog extends ExternalCatalog {
                 + " please check your Doris cluster or your Doris catalog configuration.");
         }
         client = new FeServiceClient(name, getFeThriftNodes(), getUsername(), getPassword(),
-                getMetadataSyncRetryCount(), (int) TimeUnit.SECONDS.toMillis(getMetadataReadTimeoutSec()));
+                getMetadataSyncRetryCount(), getMetadataReadTimeoutSec());
     }
 
     protected List<String> listDatabaseNames() {
