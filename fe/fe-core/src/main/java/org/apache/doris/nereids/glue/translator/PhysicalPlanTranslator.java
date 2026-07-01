@@ -108,6 +108,7 @@ import org.apache.doris.nereids.trees.expressions.WindowFrame;
 import org.apache.doris.nereids.trees.expressions.functions.Udf;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
+import org.apache.doris.nereids.trees.expressions.functions.agg.AggregatePhase;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingScalarFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UniqueFunction;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
@@ -1156,50 +1157,15 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         List<SlotReference> groupSlots = collectGroupBySlots(groupByExpressions, outputExpressions);
         ArrayList<Expr> execGroupingExpressions = translateGroupByExprs(groupByExpressions, context);
         // 2. collect agg expressions and generate agg function to slot reference map
-        List<Slot> aggFunctionOutput = Lists.newArrayList();
-        ArrayList<FunctionCallExpr> execAggregateFunctions = Lists.newArrayListWithCapacity(outputExpressions.size());
-        AtomicBoolean hasPartialInAggFunc = new AtomicBoolean(false);
-        Set<AggregateExpression> processedAggregateExpressions = Sets.newIdentityHashSet();
-        for (NamedExpression o : outputExpressions) {
-            if (o.containsType(AggregateExpression.class)) {
-                aggFunctionOutput.add(o.toSlot());
-
-                o.foreach(c -> {
-                    if (c instanceof SessionVarGuardExpr) {
-                        SessionVarGuardExpr guardExpr = (SessionVarGuardExpr) c;
-                        if (guardExpr.child() instanceof AggregateExpression) {
-                            AggregateExpression aggregateExpression = (AggregateExpression) guardExpr.child();
-                            if (processedAggregateExpressions.add(aggregateExpression)) {
-                                execAggregateFunctions.add(
-                                        (FunctionCallExpr) ExpressionTranslator.translate(guardExpr, context)
-                                );
-                                hasPartialInAggFunc.set(
-                                        aggregateExpression.getAggregateParam().aggMode.productAggregateBuffer);
-                            }
-                        }
-                        // Continue through transparent guards unless this guard directly wraps
-                        // the aggregate expression already processed above.
-                        return guardExpr.child() instanceof AggregateExpression;
-                    }
-                    if (c instanceof AggregateExpression) {
-                        AggregateExpression aggregateExpression = (AggregateExpression) c;
-                        if (processedAggregateExpressions.add(aggregateExpression)) {
-                            execAggregateFunctions.add(
-                                    (FunctionCallExpr) ExpressionTranslator.translate(aggregateExpression, context)
-                            );
-                            hasPartialInAggFunc.set(
-                                    aggregateExpression.getAggregateParam().aggMode.productAggregateBuffer);
-                        }
-                        return true;
-                    }
-                    return false;
-                });
-            }
-        }
+        boolean[] hasPartialInAggFunc = new boolean[1];
+        Pair<List<Slot>, ArrayList<FunctionCallExpr>> aggResult =
+                collectAggFunctions(outputExpressions, hasPartialInAggFunc, context);
+        List<Slot> aggFunctionOutput = aggResult.first;
+        ArrayList<FunctionCallExpr> execAggregateFunctions = aggResult.second;
         // An agg may have different functions, some product buffer, some product result.
         // The criterion for passing it to the be stage is: as long as there is a product buffer function in agg,
         // it must be isPartial
-        boolean isPartial = hasPartialInAggFunc.get();
+        boolean isPartial = hasPartialInAggFunc[0];
 
         // 3. generate output tuple
         Pair<TupleDescriptor, List<Integer>> tupleAndIds =
@@ -3003,6 +2969,18 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 || aggregate.getAggMode() != AggMode.INPUT_TO_RESULT) {
             return false;
         }
+        // Exclude one-phase-only aggregates (e.g. GROUP_CONCAT with ORDER BY).
+        // BucketedAggregationNode has no sort-info field, so fusing would drop
+        // the aggregate ORDER BY contract. Only aggregates supporting two-phase
+        // execution can be safely fused.
+        if (!supportsTwoPhaseAgg(aggregate)) {
+            return false;
+        }
+        // BucketedAggregationNode does not support sortByGroupKey (PushTopnToAgg
+        // optimization). Regular AggregationNode fills sort info; fusing would drop it.
+        if (aggregate.getTopnPushInfo() != null) {
+            return false;
+        }
         // Child must be PhysicalDistribute with hash distribution matching group keys
         Plan child = aggregate.child(0);
         if (!(child instanceof PhysicalDistribute)) {
@@ -3019,6 +2997,32 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 .map(SlotReference::getExprId)
                 .collect(Collectors.toList());
         return distKeys.equals(groupByKeys);
+    }
+
+    /**
+     * Check whether all aggregate functions in this physical hash aggregate
+     * support two-phase execution. One-phase-only aggregates (e.g. GROUP_CONCAT
+     * with ORDER BY) cannot be bucketed because BucketedAggregationNode does not
+     * carry sort-info metadata; fusing them would drop the ORDER BY contract.
+     */
+    private boolean supportsTwoPhaseAgg(PhysicalHashAggregate<? extends Plan> aggregate) {
+        for (NamedExpression o : aggregate.getOutputExpressions()) {
+            AtomicBoolean foundOnePhaseOnly = new AtomicBoolean(false);
+            o.foreach(c -> {
+                if (c instanceof AggregateExpression) {
+                    AggregateFunction func = ((AggregateExpression) c).getFunction();
+                    if (!func.supportAggregatePhase(AggregatePhase.TWO)) {
+                        foundOnePhaseOnly.set(true);
+                    }
+                    return true;
+                }
+                return false;
+            });
+            if (foundOnePhaseOnly.get()) {
+                return false;
+            }
+        }
+        return true;
     }
 
     /**
@@ -3102,6 +3106,65 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         }
         updateLegacyPlanIdToPhysicalPlan(inputPlanFragment.getPlanRoot(), aggregate);
         return inputPlanFragment;
+    }
+
+    /**
+     * Collect aggregate function outputs and translate them to legacy FunctionCallExpr.
+     * Shared by visitPhysicalHashAggregate and visitBucketedFusion.
+     *
+     * @param hasPartialOut if non-null and length >= 1, hasPartialOut[0] is set to
+     *        true when any aggregate function produces a buffer (i.e. is partial).
+     *        The bucketed path passes null.
+     */
+    private Pair<List<Slot>, ArrayList<FunctionCallExpr>> collectAggFunctions(
+            List<NamedExpression> outputExpressions,
+            boolean[] hasPartialOut,
+            PlanTranslatorContext context) {
+        List<Slot> aggFunctionOutput = Lists.newArrayList();
+        ArrayList<FunctionCallExpr> execAggregateFunctions =
+                Lists.newArrayListWithCapacity(outputExpressions.size());
+        Set<AggregateExpression> processed = Sets.newIdentityHashSet();
+        for (NamedExpression o : outputExpressions) {
+            if (o.containsType(AggregateExpression.class)) {
+                aggFunctionOutput.add(o.toSlot());
+                collectAggInTree(o, processed, execAggregateFunctions, hasPartialOut, context);
+            }
+        }
+        return Pair.of(aggFunctionOutput, execAggregateFunctions);
+    }
+
+    /** Walk the expression tree to find and translate AggregateExpression nodes. */
+    private void collectAggInTree(Expression expr,
+            Set<AggregateExpression> processed,
+            ArrayList<FunctionCallExpr> out,
+            boolean[] hasPartialOut,
+            PlanTranslatorContext context) {
+        if (expr instanceof SessionVarGuardExpr) {
+            SessionVarGuardExpr guard = (SessionVarGuardExpr) expr;
+            if (guard.child() instanceof AggregateExpression) {
+                AggregateExpression ae = (AggregateExpression) guard.child();
+                if (processed.add(ae)) {
+                    out.add((FunctionCallExpr) ExpressionTranslator.translate(guard, context));
+                    if (hasPartialOut != null) {
+                        hasPartialOut[0] |= ae.getAggregateParam().aggMode.productAggregateBuffer;
+                    }
+                }
+            }
+            return;
+        }
+        if (expr instanceof AggregateExpression) {
+            AggregateExpression ae = (AggregateExpression) expr;
+            if (processed.add(ae)) {
+                out.add((FunctionCallExpr) ExpressionTranslator.translate(ae, context));
+                if (hasPartialOut != null) {
+                    hasPartialOut[0] |= ae.getAggregateParam().aggMode.productAggregateBuffer;
+                }
+            }
+            return;
+        }
+        for (Expression child : expr.children()) {
+            collectAggInTree(child, processed, out, hasPartialOut, context);
+        }
     }
 
     /**

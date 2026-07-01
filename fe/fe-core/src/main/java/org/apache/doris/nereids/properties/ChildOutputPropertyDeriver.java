@@ -29,6 +29,7 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
+import org.apache.doris.nereids.trees.plans.AggMode;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
@@ -60,6 +61,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalWindow;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalWorkTableReference;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.util.AggregateUtils;
 import org.apache.doris.nereids.util.JoinUtils;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
@@ -188,6 +190,17 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
             case GLOBAL:
             case DISTINCT_LOCAL:
             case DISTINCT_GLOBAL:
+                // Bucketed hash agg fusion: when the one-phase GLOBAL aggregate
+                // will be fused with its distribute child into BucketedAggregationNode,
+                // the output is NOT hash-distributed (256-bucket internal hash is
+                // not shuffle-compatible). Advertise ANY to prevent parent operators
+                // from incorrectly skipping exchanges.
+                if (agg.getAggPhase().isGlobal()
+                        && agg.getAggMode() == AggMode.INPUT_TO_RESULT
+                        && AggregateUtils.isBucketedHashAggEnabled(
+                            agg.getGroupByExpressions().size())) {
+                    return PhysicalProperties.ANY;
+                }
                 return new PhysicalProperties(childOutputProperty.getDistributionSpec());
             default:
                 throw new RuntimeException("Could not derive output properties for agg phase: " + agg.getAggPhase());

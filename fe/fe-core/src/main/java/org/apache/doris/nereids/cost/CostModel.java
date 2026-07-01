@@ -90,6 +90,8 @@ class CostModel extends PlanVisitor<Cost, PlanContext> {
     // The cost of using external tables should be somewhat higher than using internal tables,
     // so when encountering a scan of an external table, a coefficient should be applied.
     static final double EXTERNAL_TABLE_SCAN_FACTOR = 5;
+    static final double BUCKETED_AGG_COST_DISCOUNT = 0.5;
+
     private static final Logger LOG = LogManager.getLogger(CostModel.class);
     private final int beNumber;
     private final int parallelInstance;
@@ -97,7 +99,7 @@ class CostModel extends PlanVisitor<Cost, PlanContext> {
 
     public CostModel(ConnectContext connectContext) {
         SessionVariable sessionVariable = connectContext.getSessionVariable();
-        if (sessionVariable.getBeNumberForTest() != -1) {
+        if (sessionVariable.getBeNumberForTest() > 0) {
             // shape test, fix the BE number and instance number
             beNumber = sessionVariable.getBeNumberForTest();
             parallelInstance = 8;
@@ -363,18 +365,14 @@ class CostModel extends PlanVisitor<Cost, PlanContext> {
         } else {
             int factor = aggregate.getGroupByExpressions().isEmpty() ? 1 : beNumber;
             double rowCost = inputStatistics.getRowCount() / factor;
-
             // Bucketed fusion discount: when the one-phase GLOBAL INPUT_TO_RESULT
-            // aggregate is generated with a PhysicalDistribute child on single BE,
-            // the translator will fuse them into a BucketedAggregationNode.
-            // Apply a discount to make this path preferred over two-phase
-            // (local+global) aggregation which requires extra serialize/deserialize.
+            // aggregate is eligible for translator fusion (correctness + data-volume
+            // gates are enforced by ChildrenPropertiesRegulator), apply a discount
+            // to prefer this path over two-phase aggregation.
             if (aggregate.getAggMode() == AggMode.INPUT_TO_RESULT
-                    && beNumber == 1
-                    && AggregateUtils.isBucketedHashAggEnabled(aggregate.getGroupByExpressions().size())
-                    && inputStatistics.getRowCount()
-                        >= context.getSessionVariable().bucketedAggMinInputRows) {
-                rowCost *= 0.5;
+                    && AggregateUtils.isBucketedHashAggEnabled(
+                        aggregate.getGroupByExpressions().size())) {
+                rowCost *= BUCKETED_AGG_COST_DISCOUNT;
             }
             return Cost.of(context.getSessionVariable(),
                     exprCost / 100 + rowCost, rowCost, 0);
