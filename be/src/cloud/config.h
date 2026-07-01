@@ -175,6 +175,7 @@ DECLARE_mBool(enable_warmup_immediately_on_new_rowset);
 
 // Packed file manager config
 DECLARE_mBool(enable_packed_file);
+DECLARE_mBool(enable_file_cache_write_index_file_only);
 DECLARE_mInt64(packed_file_size_threshold_bytes);
 DECLARE_mInt64(packed_file_time_threshold_ms);
 DECLARE_mInt64(packed_file_try_lock_timeout_ms);
