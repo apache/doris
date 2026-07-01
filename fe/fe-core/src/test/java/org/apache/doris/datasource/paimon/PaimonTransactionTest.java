@@ -68,6 +68,20 @@ public class PaimonTransactionTest {
     }
 
     @Test
+    public void testDeserializeCommitMessagePayloadsAggregatesChunks() throws Exception {
+        byte[] firstPayload = serializePayload(Collections.singletonList(newCommitMessage(11)));
+        byte[] secondPayload = serializePayload(Arrays.asList(newCommitMessage(12), newCommitMessage(13)));
+
+        List<CommitMessage> messages = PaimonTransaction.deserializeCommitMessagePayloads(
+                Arrays.asList(firstPayload, secondPayload));
+
+        Assert.assertEquals(3, messages.size());
+        Assert.assertEquals(11, messages.get(0).bucket());
+        Assert.assertEquals(12, messages.get(1).bucket());
+        Assert.assertEquals(13, messages.get(2).bucket());
+    }
+
+    @Test
     public void testDeserializeCommitMessagePayloadRejectsInvalidHeader() {
         IOException exception = Assert.assertThrows(IOException.class,
                 () -> PaimonTransaction.deserializeCommitMessagePayload(new byte[] {'B', 'A', 'D'}));
@@ -106,12 +120,59 @@ public class PaimonTransactionTest {
     }
 
     @Test
+    public void testCommitAggregatesMessagesFromMultiplePayloads() throws Exception {
+        RecordingCommitExecutor executor = new RecordingCommitExecutor();
+        PaimonTransaction transaction = new PaimonTransaction(executor);
+        transaction.beginInsert(mockTable(), Optional.empty());
+        transaction.setTransactionId(142L);
+        transaction.updateCommitMessages(Arrays.asList(
+                newThriftMessage(serializePayload(Collections.singletonList(newCommitMessage(30)))),
+                newThriftMessage(serializePayload(Arrays.asList(newCommitMessage(31), newCommitMessage(32))))));
+
+        transaction.commit();
+
+        Assert.assertEquals(1, executor.commitCalls);
+        Assert.assertEquals(3, executor.committedMessages.size());
+        Assert.assertEquals(30, executor.committedMessages.get(0).bucket());
+        Assert.assertEquals(31, executor.committedMessages.get(1).bucket());
+        Assert.assertEquals(32, executor.committedMessages.get(2).bucket());
+    }
+
+    @Test
     public void testCommitWithEmptyPayloadIsNoop() throws Exception {
         RecordingCommitExecutor executor = new RecordingCommitExecutor();
         PaimonTransaction transaction = new PaimonTransaction(executor);
         transaction.commit();
 
         Assert.assertFalse(transaction.isCommitted());
+        Assert.assertEquals(0, executor.commitCalls);
+    }
+
+    @Test
+    public void testCommitWithPayloadRequiresTable() throws Exception {
+        RecordingCommitExecutor executor = new RecordingCommitExecutor();
+        PaimonTransaction transaction = new PaimonTransaction(executor);
+        transaction.setTransactionId(143L);
+        transaction.updateCommitMessages(Collections.singletonList(
+                newThriftMessage(serializePayload(Collections.singletonList(newCommitMessage(33))))));
+
+        UserException exception = Assert.assertThrows(UserException.class, transaction::commit);
+
+        Assert.assertTrue(exception.getMessage().contains("Missing paimon table"));
+        Assert.assertEquals(0, executor.commitCalls);
+    }
+
+    @Test
+    public void testCommitWithPayloadRequiresTransactionId() throws Exception {
+        RecordingCommitExecutor executor = new RecordingCommitExecutor();
+        PaimonTransaction transaction = new PaimonTransaction(executor);
+        transaction.beginInsert(mockTable(), Optional.empty());
+        transaction.updateCommitMessages(Collections.singletonList(
+                newThriftMessage(serializePayload(Collections.singletonList(newCommitMessage(34))))));
+
+        UserException exception = Assert.assertThrows(UserException.class, transaction::commit);
+
+        Assert.assertTrue(exception.getMessage().contains("Missing transaction id"));
         Assert.assertEquals(0, executor.commitCalls);
     }
 
@@ -150,6 +211,19 @@ public class PaimonTransactionTest {
 
         Assert.assertTrue(transaction.isCommitted());
         Assert.assertEquals(1, executor.commitCalls);
+        Assert.assertEquals(0, executor.abortCalls);
+    }
+
+    @Test
+    public void testRollbackWithPayloadAndMissingTableSkipsAbort() throws Exception {
+        RecordingCommitExecutor executor = new RecordingCommitExecutor();
+        PaimonTransaction transaction = new PaimonTransaction(executor);
+        transaction.setTransactionId(144L);
+        transaction.updateCommitMessages(Collections.singletonList(
+                newThriftMessage(serializePayload(Collections.singletonList(newCommitMessage(35))))));
+
+        transaction.rollback();
+
         Assert.assertEquals(0, executor.abortCalls);
     }
 
