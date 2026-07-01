@@ -1,13 +1,25 @@
 # Design — Unifying the external meta-cache framework for connector reuse
 
-Status: **Option A chosen (user, 2026-07-01); Caffeine split-brain shown avoidable; concrete plan below** ·
+Status: **Option A — INDEPENDENT-COPY variant (user, 2026-07-01, revised); fe-core untouched; P1① CacheSpec done** ·
 Branch: `catalog-spi-10-iceberg` · Date: 2026-07-01
 
-> **Decision (2026-07-01):** user chose **Option A** — move the generic framework into a shared
-> connector-visible module (`org.apache.doris.connector.api.cache`); connectors OWN their caches.
-> Post-decision verification (below) shows A's headline risk — the Caffeine classloader split-brain — is
-> **avoidable**, because `org.apache.doris.connector.*` is loaded **parent-first** (single app-loader
-> identity) and `MetaCacheEntry` encapsulates Caffeine. See revised §4-A and the §5 Option-A plan.
+> **⚠️ DECISION REVISED (2026-07-01, later) — "independent copy", NOT "move".**
+> The user narrowed Option A: build a **standalone** cache framework inside the new module
+> `fe-connector-cache` (package `org.apache.doris.connector.cache`) that serves **only the fe-connector
+> connectors**; **fe-core's existing `org.apache.doris.datasource.metacache` framework is left completely
+> untouched** (zero fe-core edits). The two live side-by-side as **independent duplicates** during the
+> migration; the fe-core copy is deleted **only after every connector has migrated onto the SPI framework**.
+> This supersedes the original "move + repoint ~16 fe-core importers" wording throughout §4-A/§5/§8 below —
+> wherever those say "move the framework out of fe-core / fe-core imports the moved core", read instead
+> "**copy** the class into `connector.cache`; fe-core keeps its original". Rationale: smallest blast radius
+> (fe-core byte-identical to HEAD → zero regression risk), fully decoupled, and it sidesteps the fe-core↔
+> connector coupling the move would have introduced. Accepted cost: temporary duplication (removed at the end).
+>
+> **Original decision (2026-07-01, earlier — SUPERSEDED):** user chose **Option A** as "move the generic
+> framework into a shared connector-visible module; connectors OWN their caches." Post-decision verification
+> showed A's headline risk — the Caffeine classloader split-brain — is **avoidable**, because
+> `org.apache.doris.connector.*` is loaded **parent-first** (single app-loader identity) and `MetaCacheEntry`
+> encapsulates Caffeine. That split-brain analysis still holds for the independent-copy variant.
 
 Supersedes the narrower [metacache-connector-cachespec-design.md](./metacache-connector-cachespec-design.md)
 (the `CacheSpec` validation restore — done, unit-verified). That work stands; the `CacheSpec` mirror it
@@ -335,25 +347,49 @@ would fail the branch's CI. **Options:** (a) allowlist that one patched client i
 decision (out of this task's scope, but it gates it). Workaround for now: build single modules directly
 (`-pl <module>` without `-am`).
 
-### P1 — remaining (execute next, with fresh context)
-Move, in order (each batch: change package → update importers → build), from `datasource.metacache` +
-`common.CacheFactory` into `org.apache.doris.connector.cache`:
-1. `CacheSpec` — reconcile the 3 copies into ONE here (validators throw `IllegalArgumentException`); update
-   fe-core importers (`AbstractExternalMetaCache`, `MetaCacheEntry`, `IcebergExternalMetaCache`, `IcebergUtils`,
-   `HMSExternalCatalog`, `AbstractIcebergProperties`, `IcebergExternalCatalog`(dead), tests) AND repoint the
-   Phase-1 connector validation (`IcebergConnectorProvider`/`PaimonConnectorProvider` currently import
-   `connector.api.cache.CacheSpec`) to `connector.cache.CacheSpec`; delete the `connector.api.cache` copy.
-2. `MetaCacheEntryStats`, `CatalogEntryGroup`, `ExternalMetaCacheRegistry`, `MetaCacheEntryDef`,
-   `MetaCacheEntryInvalidation` (drop/rehome the `NameMapping`-coupled `forNameMapping`).
-3. `CacheFactory` (+ re-add pinned `org.jetbrains:annotations`) and `MetaCacheEntry` — change `MetaCacheEntry`
-   ctor to take `refreshAfterWriteSeconds` + `manualMissLoadEnabled` params (was `Config.*`); update
-   `AbstractExternalMetaCache.newMetaCacheEntry` (fe-core) to pass the `Config`-derived values; update the 2
-   non-metacache `CacheFactory` callers (`ExternalRowCountCache`, `FileSystemCache`).
-   Keep `CacheFactory` framework-internal (its API returns Caffeine `LoadingCache`).
-4. Add the `fe-connector-cache` exclusion to **all 8** `plugin-zip.xml` (iceberg, paimon, hudi, hive, jdbc, es,
-   maxcompute, trino) so it loads app-loader single-identity like `-api`/`-spi`.
-5. Build fe-core + connectors (once the gate blocker is resolved); all existing cache tests unchanged.
-Then P2–P5 per §5.
-- **Load-bearing but not yet re-verified** (confirm before implementing): exact `getOrLoad`
-  loader bodies in `Iceberg/PaimonConnectorMetadata.beginQuerySnapshot`; whether metadata/sys-table queries
-  against a PluginDriven iceberg catalog secretly depend on the dead `IcebergExternalMetaCache` path.
+### P1① — DONE (2026-07-01): `CacheSpec` as an INDEPENDENT copy (per the revised copy strategy)
+The CacheSpec step landed as a **copy**, not a move (see the revised-decision callout at the top of this doc):
+- **fe-core reverted to HEAD.** The prior in-tree "move" WIP (had deleted `datasource.metacache.CacheSpec` +
+  `CacheSpecTest`, repointed ~10 fe-core importers to `connector.cache.CacheSpec`) was `git checkout`-reverted.
+  fe-core's `datasource.metacache.CacheSpec` and every importer are now **byte-identical to HEAD** (0 fe-core
+  source edits). Verified: no fe-core source imports `org.apache.doris.connector.cache`.
+- **`fe-connector-cache` owns an independent `CacheSpec`** (+ `CacheSpecTest`, 14 tests) under
+  `org.apache.doris.connector.cache`; validators throw `IllegalArgumentException`.
+  `mvn -pl fe-connector/fe-connector-cache install` → BUILD SUCCESS, **14/14** green.
+- **Connectors repointed** `connector.api.cache.CacheSpec` → `connector.cache.CacheSpec`
+  (`IcebergConnectorProvider`, `IcebergCatalogFactory`, `IcebergScanPlanProvider`, `PaimonConnectorProvider`);
+  both connector poms add the `fe-connector-cache` dependency; the old `connector.api.cache.CacheSpec` (+ test)
+  is deleted. The new CacheSpec public API is **byte-identical** to the deleted connector-api copy (verified by
+  signature diff), so the repoint compiles by construction.
+- **`fe-core → fe-connector-cache` pom dependency REMOVED.** The skeleton commit (`f6063a0c87c`) had added it
+  for the abandoned move; under copy fe-core imports nothing from `connector.cache`, so it is deleted to keep
+  fe-core decoupled. `fe-connector-cache` is **NOT** excluded from any `plugin-zip.xml` → it **bundles
+  per-plugin** (child-loaded). Safe for `CacheSpec`: it is a JDK-only value/validation class that never crosses
+  the fe-core↔connector boundary as an object (only its `IllegalArgumentException`, a JDK type, crosses).
+- **Import gate:** `check-connector-imports.sh` reports only the pre-existing HMS `HiveVersionUtil` violation
+  (`4acb5f91e1a`, unrelated); my files add zero forbidden imports.
+- **Connector build:** `-pl fe-connector/fe-connector-iceberg,fe-connector-paimon -am package -DskipTests
+  -Dexec.skip=true` (paimon needs `package` for HiveConf; `exec.skip` steps past the pre-existing HMS gate) →
+  **BUILD SUCCESS** — iceberg + paimon (+ `fe-connector-cache`) all compile/package against the repoint.
+
+### P1 — remaining, under the copy strategy (COPY, do NOT move; fe-core stays untouched)
+For each class below, **copy** it into `org.apache.doris.connector.cache` as an independent duplicate; leave
+the fe-core original in `datasource.metacache` completely alone (no fe-core edits, no importer repointing).
+Only connectors consume the copy. **When copying, mechanically rewrite the two fe-core couplings** the classes
+carry: fe-core `Config` static reads and (for `MetaCacheEntryInvalidation`) `datasource.NameMapping`.
+2. Copy `MetaCacheEntryStats`, `CatalogEntryGroup`, `ExternalMetaCacheRegistry`, `MetaCacheEntryDef`,
+   `MetaCacheEntryInvalidation` (drop the `NameMapping`-coupled `forNameMapping` in the copy — §6 Q3).
+3. Copy `CacheFactory` (+ pinned `org.jetbrains:annotations`) and `MetaCacheEntry`. In the COPY only, make
+   `MetaCacheEntry` take `refreshAfterWriteSeconds` + `manualMissLoadEnabled` as ctor params (it can't read
+   fe-core `Config`); the connector supplies them. Keep `CacheFactory` framework-internal (its API returns
+   Caffeine `LoadingCache`). **fe-core's `MetaCacheEntry`/`CacheFactory` are NOT touched** (no
+   `newMetaCacheEntry`/`ExternalRowCountCache`/`FileSystemCache` edits — those were move-only steps).
+4. ~~Add `fe-connector-cache` exclusions to plugin-zips~~ **DROPPED under copy** — do NOT exclude it; it
+   bundles per-plugin (child-loaded). Objects never cross the fe-core↔connector boundary, so no split-brain.
+   Caffeine is `provided` in `fe-connector-cache` and already bundled 3.2.3 child-first in each plugin zip.
+5. Build each connector (`-am … -Dexec.skip=true`; `package` for paimon). fe-core is untouched → its cache
+   tests are unaffected by construction (no need to rerun them for these copies).
+Then P2–P5 (port the connector caches onto the copied `MetaCacheEntry`) per §5.
+- **Load-bearing but not yet re-verified** (confirm before P2+): exact `getOrLoad` loader bodies in
+  `Iceberg/PaimonConnectorMetadata.beginQuerySnapshot`; whether metadata/sys-table queries against a
+  PluginDriven iceberg catalog secretly depend on the (dead-for-native) `IcebergExternalMetaCache` path.
