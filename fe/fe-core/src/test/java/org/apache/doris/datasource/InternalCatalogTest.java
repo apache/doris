@@ -17,7 +17,6 @@
 
 package org.apache.doris.datasource;
 
-import org.apache.doris.analysis.AddPartitionClause;
 import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.analysis.SinglePartitionDesc;
@@ -51,6 +50,7 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.TableProperty;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.nereids.trees.plans.commands.info.AddPartitionOp;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.system.SystemInfoService.HostInfo;
@@ -99,9 +99,9 @@ public class InternalCatalogTest {
 
     @Test
     public void testAddPartitionRollbackPartitionInfoOnCommitFailure() throws Exception {
-        AddPartitionClause addPartitionClause = createAddPartitionClause();
+        AddPartitionOp addPartitionOp = createAddPartitionOp();
         DdlException exception = Assert.assertThrows(DdlException.class,
-                () -> catalog.addPartition(db, TABLE_NAME, addPartitionClause, false, 0, true, null));
+                () -> catalog.addPartition(db, TABLE_NAME, addPartitionOp, false, 0, true, null));
         Assert.assertTrue(exception.getMessage().contains("injected commit failure"));
         long newPartitionId = catalog.getCommittedPartitionId();
 
@@ -115,10 +115,10 @@ public class InternalCatalogTest {
         Assert.assertEquals(ReplicaAllocation.DEFAULT_ALLOCATION, partitionInfo.getReplicaAllocation(newPartitionId));
     }
 
-    private AddPartitionClause createAddPartitionClause() {
+    private AddPartitionOp createAddPartitionOp() {
         SinglePartitionDesc singlePartitionDesc = new SinglePartitionDesc(false, NEW_PARTITION_NAME,
                 PartitionKeyDesc.createLessThan(Lists.newArrayList(new PartitionValue("20"))), Maps.newHashMap());
-        return new AddPartitionClause(singlePartitionDesc, null, Maps.newHashMap(), false);
+        return new AddPartitionOp(singlePartitionDesc, null, Maps.newHashMap(), false);
     }
 
     private SystemInfoService createSystemInfoService() {
