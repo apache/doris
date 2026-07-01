@@ -47,6 +47,16 @@ under the License.
             <version>${project.version}</version>
         </dependency>
 
+        <!-- fe-connector-cache: the shared external meta-cache framework (single source of truth for
+             CacheSpec's CREATE/ALTER meta-cache property validation; MetaCacheEntry/CacheFactory land here
+             in later phases). Parent-first org.apache.doris.connector.* prefix → single app-loader Class
+             identity; carries no third-party dep on the compile classpath (Caffeine is provided). -->
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-connector-cache</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
         <!-- connector-api provides SPI interfaces -->
         <dependency>
             <groupId>${project.groupId}</groupId>

@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.connector.api.cache;
+package org.apache.doris.connector.cache;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -25,14 +25,16 @@ import java.util.Map;
 import java.util.OptionalLong;
 
 /**
- * Pins the connector-side {@link CacheSpec} validators and parsing.
+ * Pins the shared {@link CacheSpec} validators and parsing (the single source of truth after the
+ * three prior copies — fe-core {@code datasource.metacache.CacheSpec}, the {@code connector.api.cache}
+ * mirror, and the connectors' hand-rolled checks — were collapsed here).
  *
- * <p><b>WHY this matters:</b> this class restores the legacy CREATE/ALTER CATALOG meta-cache
- * property validation that was dropped at the SPI cutover. The validators MUST throw
- * {@link IllegalArgumentException} (NOT a fe-core {@code DdlException}, which is unavailable here and
- * would not be caught by {@code PluginDrivenExternalCatalog.checkProperties}) and MUST emit the exact
- * legacy message substring {@code "is wrong"} so the user-facing error and the regression assertions
- * (e.g. {@code test_iceberg_table_meta_cache} / {@code test_paimon_table_meta_cache}) still match.
+ * <p><b>WHY this matters:</b> this class restores the legacy CREATE/ALTER CATALOG meta-cache property
+ * validation that was dropped at the SPI cutover. The validators MUST throw {@link IllegalArgumentException}
+ * (NOT a fe-core {@code DdlException}, which is unavailable here and would not be caught by
+ * {@code PluginDrivenExternalCatalog.checkProperties}) and MUST emit the exact legacy message substring
+ * {@code "is wrong"} so the user-facing error and the regression assertions (e.g.
+ * {@code test_iceberg_table_meta_cache} / {@code test_paimon_table_meta_cache}) still match.
  */
 public class CacheSpecTest {
 
@@ -84,6 +86,59 @@ public class CacheSpecTest {
     }
 
     @Test
+    public void fromPropertiesWithExplicitKeys() {
+        Map<String, String> properties = new HashMap<>();
+        properties.put("k.enable", "false");
+        properties.put("k.ttl", "123");
+        properties.put("k.capacity", "456");
+
+        CacheSpec spec = CacheSpec.fromProperties(
+                properties,
+                "k.enable", true,
+                "k.ttl", CacheSpec.CACHE_NO_TTL,
+                "k.capacity", 100);
+
+        Assertions.assertFalse(spec.isEnable());
+        Assertions.assertEquals(123, spec.getTtlSecond());
+        Assertions.assertEquals(456, spec.getCapacity());
+    }
+
+    @Test
+    public void fromPropertiesWithPropertySpecBuilder() {
+        Map<String, String> properties = new HashMap<>();
+        properties.put("k.enable", "false");
+        properties.put("k.ttl", "123");
+        properties.put("k.capacity", "456");
+
+        CacheSpec spec = CacheSpec.fromProperties(properties, CacheSpec.propertySpecBuilder()
+                .enable("k.enable", true)
+                .ttl("k.ttl", CacheSpec.CACHE_NO_TTL)
+                .capacity("k.capacity", 100)
+                .build());
+
+        Assertions.assertFalse(spec.isEnable());
+        Assertions.assertEquals(123, spec.getTtlSecond());
+        Assertions.assertEquals(456, spec.getCapacity());
+    }
+
+    @Test
+    public void fromPropertiesWithEngineEntryKeys() {
+        Map<String, String> properties = new HashMap<>();
+        properties.put("meta.cache.hive.schema.ttl-second", "0");
+
+        CacheSpec defaultSpec = CacheSpec.fromProperties(
+                new HashMap<>(),
+                "enable", true,
+                "ttl", 60,
+                "capacity", 100);
+
+        CacheSpec spec = CacheSpec.fromProperties(properties, "hive", "schema", defaultSpec);
+        Assertions.assertTrue(spec.isEnable());
+        Assertions.assertEquals(0, spec.getTtlSecond());
+        Assertions.assertEquals(100, spec.getCapacity());
+    }
+
+    @Test
     public void fromPropertiesIsBestEffort() {
         // Parsing must never throw; a bad value falls back to the default (validation is a separate step).
         Map<String, String> props = new HashMap<>();
@@ -94,6 +149,43 @@ public class CacheSpecTest {
         Assertions.assertTrue(spec.isEnable());
         Assertions.assertEquals(3600L, spec.getTtlSecond());
         Assertions.assertEquals(1000L, spec.getCapacity());
+    }
+
+    @Test
+    public void applyCompatibilityMap() {
+        Map<String, String> properties = new HashMap<>();
+        properties.put("legacy.ttl", "10");
+        properties.put("new.ttl", "20");
+        properties.put("legacy.capacity", "30");
+
+        Map<String, String> compatibilityMap = new HashMap<>();
+        compatibilityMap.put("legacy.ttl", "new.ttl");
+        compatibilityMap.put("legacy.capacity", "new.capacity");
+
+        Map<String, String> mapped = CacheSpec.applyCompatibilityMap(properties, compatibilityMap);
+
+        // New key keeps precedence if already present.
+        Assertions.assertEquals("20", mapped.get("new.ttl"));
+        // Missing new key is copied from legacy key.
+        Assertions.assertEquals("30", mapped.get("new.capacity"));
+        // Original map is not modified.
+        Assertions.assertFalse(properties.containsKey("new.capacity"));
+    }
+
+    @Test
+    public void ofSemantics() {
+        CacheSpec enabled = CacheSpec.of(true, 60, 100);
+        Assertions.assertTrue(enabled.isEnable());
+        Assertions.assertEquals(60, enabled.getTtlSecond());
+        Assertions.assertEquals(100, enabled.getCapacity());
+
+        CacheSpec zeroTtl = CacheSpec.of(true, 0, 100);
+        Assertions.assertTrue(zeroTtl.isEnable());
+        Assertions.assertEquals(0, zeroTtl.getTtlSecond());
+        Assertions.assertEquals(100, zeroTtl.getCapacity());
+
+        CacheSpec disabled = CacheSpec.of(false, 60, 100);
+        Assertions.assertFalse(disabled.isEnable());
     }
 
     @Test

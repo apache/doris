@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.connector.api.cache;
+package org.apache.doris.connector.cache;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -25,16 +25,15 @@ import java.util.OptionalLong;
 /**
  * Common cache specification for external metadata caches.
  *
- * <p>Connector-side copy of the fe-core {@code org.apache.doris.datasource.metacache.CacheSpec}. The
- * connector modules cannot depend on fe-core (see {@code tools/check-connector-imports.sh}), so this
- * mirror lives in {@code fe-connector-api} and is reused by the connector providers to restore the
- * legacy CREATE/ALTER CATALOG meta-cache property validation that was dropped at the SPI cutover.
+ * <p>Single source of truth for the meta-cache property model, shared by fe-core (the framework core in
+ * {@code org.apache.doris.datasource.metacache} imports it) and the connector plugins. It lives in the
+ * parent-first {@code org.apache.doris.connector.*} prefix so both sides load one {@code Class} identity;
+ * it carries no third-party dependency (JDK only), so it is safe on both classpaths.
  *
- * <p>Two intentional differences from the fe-core original: the {@code check*Property} validators throw
- * {@link IllegalArgumentException} (which {@code PluginDrivenExternalCatalog.checkProperties} re-wraps
- * into a {@code DdlException} verbatim) instead of {@code DdlException}, and the long parse is inlined
- * rather than using {@code commons-lang3 NumberUtils} ({@code fe-connector-api} carries no third-party
- * dependency). The user-facing message text is identical to the legacy one.
+ * <p>The {@code check*Property} validators throw {@link IllegalArgumentException} (fe-core's
+ * {@code PluginDrivenExternalCatalog.checkProperties} re-wraps it into a {@code DdlException} verbatim; the
+ * legacy fe-core catalogs that still call these validators declare {@code throws DdlException} but no longer
+ * need it). The user-facing message text is identical to the legacy one ({@code "... is wrong, value is ..."}).
  *
  * <p>Semantics:
  * <ul>

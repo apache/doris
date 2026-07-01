@@ -47,6 +47,16 @@ under the License.
             <version>${project.version}</version>
         </dependency>
 
+        <!-- fe-connector-cache: the shared external meta-cache framework (single source of truth for
+             CacheSpec's CREATE/ALTER meta-cache property validation; MetaCacheEntry/CacheFactory land here
+             in later phases). Parent-first org.apache.doris.connector.* prefix → single app-loader Class
+             identity; carries no third-party dep on the compile classpath (Caffeine is provided). -->
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-connector-cache</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
         <!-- Shared HMS module: supplies Doris's version-aware org.apache.hadoop.hive.metastore.HiveMetaStoreClient
              (bundled in fe-connector-hms-*.jar, which sorts before hive-catalog-shade-*.jar in the plugin lib so
              it shadows the shaded, unpatched client). Required for the hms flavor: without it, iceberg's

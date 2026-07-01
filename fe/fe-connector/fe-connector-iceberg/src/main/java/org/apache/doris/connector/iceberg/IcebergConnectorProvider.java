@@ -18,7 +18,7 @@
 package org.apache.doris.connector.iceberg;
 
 import org.apache.doris.connector.api.Connector;
-import org.apache.doris.connector.api.cache.CacheSpec;
+import org.apache.doris.connector.cache.CacheSpec;
 import org.apache.doris.connector.metastore.spi.MetaStoreProviders;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorProvider;

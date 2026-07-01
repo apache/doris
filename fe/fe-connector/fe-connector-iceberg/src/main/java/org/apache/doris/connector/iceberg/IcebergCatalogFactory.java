@@ -18,7 +18,7 @@
 package org.apache.doris.connector.iceberg;
 
 import org.apache.doris.connector.api.DorisConnectorException;
-import org.apache.doris.connector.api.cache.CacheSpec;
+import org.apache.doris.connector.cache.CacheSpec;
 import org.apache.doris.filesystem.properties.S3CompatibleFileSystemProperties;
 import org.apache.doris.filesystem.properties.StorageProperties;
 

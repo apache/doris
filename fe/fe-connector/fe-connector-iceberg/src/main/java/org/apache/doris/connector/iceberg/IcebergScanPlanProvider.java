@@ -18,7 +18,6 @@
 package org.apache.doris.connector.iceberg;
 
 import org.apache.doris.connector.api.ConnectorSession;
-import org.apache.doris.connector.api.cache.CacheSpec;
 import org.apache.doris.connector.api.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.api.pushdown.ConnectorExpression;
@@ -26,6 +25,7 @@ import org.apache.doris.connector.api.scan.ConnectorColumnCategory;
 import org.apache.doris.connector.api.scan.ConnectorScanPlanProvider;
 import org.apache.doris.connector.api.scan.ConnectorScanRange;
 import org.apache.doris.connector.api.scan.ConnectorSplitSource;
+import org.apache.doris.connector.cache.CacheSpec;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.filesystem.properties.StorageProperties;
 import org.apache.doris.thrift.TFileFormatType;
