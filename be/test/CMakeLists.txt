@@ -109,14 +109,6 @@ list(REMOVE_ITEM UT_FILES
 message(STATUS "Disable the metrics collection for orc")
 add_compile_definitions(ENABLE_METRICS=0)
 
-# enterprise key/encryption symbols are only available when WITH_TDE_DIR is enabled
-if ("${WITH_TDE_DIR}" STREQUAL "")
-    list(REMOVE_ITEM UT_FILES
-        ${CMAKE_CURRENT_SOURCE_DIR}/io/fs/key_cache_test.cpp
-        ${CMAKE_CURRENT_SOURCE_DIR}/io/fs/encrypted_file_system_test.cpp
-    )
-endif()
-
 list(APPEND UT_FILES
     ${CONTRIB_PATH}/apache-orc/c++/test/MemoryInputStream.cc
     ${CONTRIB_PATH}/apache-orc/c++/test/MemoryOutputStream.cc

@@ -25,7 +25,6 @@
 #include <cstdint> // for uint32_t
 #include <map>
 #include <memory> // for unique_ptr
-#include <mutex>
 #include <string>
 #include <utility>
 #include <vector>

@@ -159,8 +159,13 @@ Status CloudSnapshotLoader::download(const std::map<std::string, std::string>& s
         }
 
         // 1.3. download hdr file
-        io::FileReaderOptions reader_options;
-        reader_options.file_size = static_cast<int64_t>(hdr_file_len);
+        io::FileReaderOptions reader_options {
+                .cache_type = io::FileCachePolicy::NO_CACHE,
+                .is_doris_table = false,
+                .cache_base_path = "",
+                .file_size = static_cast<int64_t>(hdr_file_len),
+                .storage_resource_id {},
+        };
         LOG(INFO) << "download hdr file: " << full_remote_hdr_path;
         io::FileReaderSPtr hdr_reader = nullptr;
         RETURN_IF_ERROR(_remote_fs->open_file(full_remote_hdr_path, &hdr_reader, &reader_options));
@@ -200,8 +205,13 @@ Status CloudSnapshotLoader::download(const std::map<std::string, std::string>& s
             std::string full_target_file = target_path + "/" + target_file;
             LOG(INFO) << "begin to download from " << full_remote_file << " to "
                       << full_target_file;
-            io::FileReaderOptions nested_reader_options;
-            nested_reader_options.file_size = static_cast<int64_t>(file_stat.size);
+            io::FileReaderOptions nested_reader_options {
+                    .cache_type = io::FileCachePolicy::NO_CACHE,
+                    .is_doris_table = false,
+                    .cache_base_path = "",
+                    .file_size = static_cast<int64_t>(file_stat.size),
+                    .storage_resource_id {},
+            };
             io::FileReaderSPtr file_reader = nullptr;
             RETURN_IF_ERROR(
                     _remote_fs->open_file(full_remote_file, &file_reader, &nested_reader_options));

@@ -39,7 +39,6 @@
 #include "storage/olap_define.h"
 #include "storage/tablet/tablet_schema.h"
 #include "util/debug_points.h"
-#include "util/mem_info.h"
 #include "util/stopwatch.hpp"
 
 namespace doris {

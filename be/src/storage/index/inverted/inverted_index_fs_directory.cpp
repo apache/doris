@@ -89,7 +89,6 @@ bool DorisFSDirectory::FSIndexInput::open(const io::FileSystemSPtr& fs, const ch
                                           IndexInput*& ret, CLuceneError& error,
                                           int32_t buffer_size, int64_t file_size,
                                           int64_t tablet_id) {
-    // no throw error
     CND_PRECONDITION(path != nullptr, "path is NULL");
 
     if (buffer_size == -1) {
