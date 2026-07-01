@@ -19,7 +19,8 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite("table_modify_resouce_by_hdfs") {
     if (!enableHdfs()) {
-        throw new RuntimeException("Hdfs is not enabled, if you want to skip this case, please mute it in regression-conf.groovy");
+        logger.info("Hdfs is not enabled, skip table_modify_resouce_by_hdfs")
+        return
     }
     def fetchBeHttp = { check_func, meta_url ->
         def i = meta_url.indexOf("/api")

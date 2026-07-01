@@ -256,7 +256,11 @@ suite("test_file_cache_query_limit", "external_docker,hive,external_docker_hive,
 
     logger.info("==================== Start running file cache query limit test 1 ====================")
 
-    def fileCacheQueryLimitPercentTest1 = (fileCacheQueryLimitPercent / 2) as Long
+    // file_cache_query_limit_percent only accepts integers in [1, 100]. When the base query caches
+    // less than 2% of file_cache_capacity, "half of that percent" truncates to 0 and the SET below is
+    // rejected ("should be between 1 and 100"). Clamp to at least 1 so the limit stays valid and still
+    // caps the query below its natural footprint.
+    def fileCacheQueryLimitPercentTest1 = Math.max(1L, (fileCacheQueryLimitPercent / 2) as Long)
     logger.info("file_cache_query_limit_percent_test1: " + fileCacheQueryLimitPercentTest1)
 
     // Clear file cache
