@@ -33,15 +33,17 @@ under the License.
     <packaging>jar</packaging>
     <name>Doris FE Connector Cache Framework</name>
     <description>
-        Shared external meta-cache framework (CacheSpec + MetaCacheEntry + CacheFactory + entry
-        definitions/stats/registry). Lives under the parent-first `org.apache.doris.connector.*` prefix
-        (ConnectorPluginManager loads it on the app classloader with a single Class identity), so both fe-core
-        and the connector plugins reuse ONE cache framework instead of hand-rolling per-plugin caches.
+        Connector-side meta-cache framework (CacheSpec + MetaCacheEntry + CacheFactory + MetaCacheEntryStats),
+        an INDEPENDENT copy of fe-core's `org.apache.doris.datasource.metacache` framework re-homed under the
+        `org.apache.doris.connector.*` prefix so the connector plugins can reuse it (they cannot import fe-core).
+        fe-core keeps its own copy untouched; the two live side-by-side until every connector has migrated, then
+        the fe-core copy is retired. fe-core does NOT depend on this module.
 
-        Caffeine is `provided`: the framework classes load parent-first (app classloader) and use fe-core's
-        app-loader Caffeine at runtime, so no Caffeine is bundled into any plugin zip and no version collides
-        across the classloader boundary. The framework's public API (MetaCacheEntry) is Caffeine-free;
-        Caffeine types never cross to connector (child-first) code.
+        This module is bundled into each connector plugin zip (child-first), so it uses the plugin's own bundled
+        Caffeine at runtime; Caffeine is therefore `provided` here (compiled against, never packaged by this
+        module). The framework's public API (MetaCacheEntry) is Caffeine-free, and fe-core and the connectors
+        never share a cache object across the classloader boundary, so no Caffeine type crosses and there is no
+        split-brain. Two knobs fe-core reads from static Config are constructor-injected here.
     </description>
 
     <dependencies>
