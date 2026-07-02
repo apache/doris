@@ -31,6 +31,14 @@ suite("test_workload_policy_remote_scan_bytes", "p0,external") {
     String workloadGroupName = "test_remote_scan_bytes_wg"
     String policyName = "test_remote_scan_bytes_policy"
     String invalidPolicyName = "test_remote_scan_bytes_invalid"
+    // Lower the FE->BE publish interval during this suite so the BE-side policy
+    // becomes visible without waiting for the default 30s publish window.
+    def getFrontendConfigValue = { configKey ->
+        def configRows = sql """ADMIN SHOW FRONTEND CONFIG LIKE '${configKey}'"""
+        assertEquals(1, configRows.size())
+        return configRows[0][1].toString()
+    }
+    String originalPublishTopicInfoIntervalMs = getFrontendConfigValue("publish_topic_info_interval_ms")
 
     String forComputeGroupStr = ""
     String currentCgName = ""
@@ -43,101 +51,108 @@ suite("test_workload_policy_remote_scan_bytes", "p0,external") {
     }
 
     try {
-        sql """DROP WORKLOAD POLICY IF EXISTS ${policyName}"""
-        sql """DROP WORKLOAD POLICY IF EXISTS ${invalidPolicyName}"""
-        sql """DROP WORKLOAD GROUP IF EXISTS ${workloadGroupName} ${forComputeGroupStr}"""
-        sql """DROP CATALOG IF EXISTS ${catalogName}"""
-
-        sql """
-            CREATE CATALOG ${catalogName} PROPERTIES (
-                'type' = 'hms',
-                'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hmsPort}',
-                'hadoop.username' = 'hive',
-                'ipc.client.fallback-to-simple-auth-allowed' = 'true'
-            )
-        """
-
-        String lineitemDb = "tpch1_parquet"
+        // Use a shorter publish interval in the shared regression environment and
+        // restore it in finally to avoid leaving global FE state behind.
+        sql """ADMIN SET FRONTEND CONFIG("publish_topic_info_interval_ms" = "1000")"""
         try {
-            def tables = sql """SHOW TABLES FROM ${catalogName}.${lineitemDb} LIKE 'lineitem'"""
-            if (tables.isEmpty()) {
-                throw new IllegalStateException("${lineitemDb}.lineitem does not exist")
+            sql """DROP WORKLOAD POLICY IF EXISTS ${policyName}"""
+            sql """DROP WORKLOAD POLICY IF EXISTS ${invalidPolicyName}"""
+            sql """DROP WORKLOAD GROUP IF EXISTS ${workloadGroupName} ${forComputeGroupStr}"""
+            sql """DROP CATALOG IF EXISTS ${catalogName}"""
+
+            sql """
+                CREATE CATALOG ${catalogName} PROPERTIES (
+                    'type' = 'hms',
+                    'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hmsPort}',
+                    'hadoop.username' = 'hive',
+                    'ipc.client.fallback-to-simple-auth-allowed' = 'true'
+                )
+            """
+
+            String lineitemDb = "tpch1_parquet"
+            try {
+                def tables = sql """SHOW TABLES FROM ${catalogName}.${lineitemDb} LIKE 'lineitem'"""
+                if (tables.isEmpty()) {
+                    throw new IllegalStateException("${lineitemDb}.lineitem does not exist")
+                }
+            } catch (Throwable ignored) {
+                lineitemDb = "tpch1"
+                def tables = sql """SHOW TABLES FROM ${catalogName}.${lineitemDb} LIKE 'lineitem'"""
+                assertFalse(tables.isEmpty(), "${catalogName} does not contain tpch1_parquet.lineitem or tpch1.lineitem")
             }
-        } catch (Throwable ignored) {
-            lineitemDb = "tpch1"
-            def tables = sql """SHOW TABLES FROM ${catalogName}.${lineitemDb} LIKE 'lineitem'"""
-            assertFalse(tables.isEmpty(), "${catalogName} does not contain tpch1_parquet.lineitem or tpch1.lineitem")
-        }
 
-        sql """
-            CREATE WORKLOAD GROUP ${workloadGroupName} ${forComputeGroupStr}
-            PROPERTIES ('max_cpu_percent' = '100')
-        """
-
-        test {
             sql """
-                CREATE WORKLOAD POLICY ${invalidPolicyName}
-                CONDITIONS(be_scan_bytes_from_remote_storage > -1)
+                CREATE WORKLOAD GROUP ${workloadGroupName} ${forComputeGroupStr}
+                PROPERTIES ('max_cpu_percent' = '100')
+            """
+
+            test {
+                sql """
+                    CREATE WORKLOAD POLICY ${invalidPolicyName}
+                    CONDITIONS(be_scan_bytes_from_remote_storage > -1)
+                    ACTIONS(cancel_query)
+                    PROPERTIES('enabled' = 'false')
+                """
+                exception "invalid remote scan bytes value"
+            }
+
+            sql """
+                CREATE WORKLOAD POLICY ${policyName}
+                CONDITIONS(be_scan_bytes_from_remote_storage > 1)
                 ACTIONS(cancel_query)
-                PROPERTIES('enabled' = 'false')
+                PROPERTIES(
+                    'priority' = '100',
+                    'workload_group' = '${currentCgName}${workloadGroupName}'
+                )
             """
-            exception "invalid remote scan bytes value"
-        }
 
-        sql """
-            CREATE WORKLOAD POLICY ${policyName}
-            CONDITIONS(be_scan_bytes_from_remote_storage > 1)
-            ACTIONS(cancel_query)
-            PROPERTIES(
-                'priority' = '100',
-                'workload_group' = '${currentCgName}${workloadGroupName}'
-            )
-        """
-
-        def policy = sql """
-            SELECT name, condition, action, priority, enabled, workload_group
-            FROM information_schema.workload_policy
-            WHERE name = '${policyName}'
-        """
-        assertEquals(1, policy.size())
-        assertEquals(policyName, policy[0][0])
-        assertTrue(policy[0][1].toString().contains("be_scan_bytes_from_remote_storage > 1"))
-
-        // Wait for FE to publish the new BE-side policy before issuing the query.
-        Thread.sleep(15000)
-
-        Throwable queryException = null
-        sql """SET workload_group = '${workloadGroupName}'"""
-        sql """SET enable_file_cache = false"""
-        sql """SET enable_sql_cache = false"""
-        try {
-            sql """
-                SELECT SUM(SLEEP(1) + l_quantity)
-                FROM (
-                    SELECT l_quantity
-                    FROM ${catalogName}.${lineitemDb}.lineitem
-                    LIMIT 10
-                ) s
+            def policy = sql """
+                SELECT name, condition, action, priority, enabled, workload_group
+                FROM information_schema.workload_policy
+                WHERE name = '${policyName}'
             """
-        } catch (Throwable t) {
-            queryException = t
+            assertEquals(1, policy.size())
+            assertEquals(policyName, policy[0][0])
+            assertTrue(policy[0][1].toString().contains("be_scan_bytes_from_remote_storage > 1"))
+
+            // Wait long enough for the BE-side policy to become effective on the target cluster.
+            Thread.sleep(40000)
+
+            Throwable queryException = null
+            sql """SET workload_group = '${workloadGroupName}'"""
+            sql """SET enable_file_cache = false"""
+            sql """SET enable_sql_cache = false"""
+            try {
+                sql """
+                    SELECT SUM(SLEEP(1) + l_quantity)
+                    FROM (
+                        SELECT l_quantity
+                        FROM ${catalogName}.${lineitemDb}.lineitem
+                        LIMIT 10
+                    ) s
+                """
+            } catch (Throwable t) {
+                queryException = t
+            }
+            assertTrue(queryException != null, "query should be cancelled by remote scan bytes workload policy")
+            String msg = queryException.getMessage()
+            logger.info("Remote scan bytes workload policy cancel message: " + msg)
+            assertTrue(msg != null && msg.contains("cancelled by workload policy: ${policyName}"),
+                    "unexpected cancel policy: " + msg)
+            assertTrue(msg.contains("scan_bytes_from_remote_storage"),
+                    "remote scan bytes counter is missing from cancel message: " + msg)
+        } finally {
+            try {
+                sql """SET workload_group = ''"""
+            } catch (Throwable t) {
+                logger.info("ignore reset workload_group failure: " + t.getMessage())
+            }
+            sql """DROP WORKLOAD POLICY IF EXISTS ${policyName}"""
+            sql """DROP WORKLOAD POLICY IF EXISTS ${invalidPolicyName}"""
+            sql """DROP WORKLOAD GROUP IF EXISTS ${workloadGroupName} ${forComputeGroupStr}"""
+            sql """DROP CATALOG IF EXISTS ${catalogName}"""
         }
-        assertTrue(queryException != null, "query should be cancelled by remote scan bytes workload policy")
-        String msg = queryException.getMessage()
-        logger.info("Remote scan bytes workload policy cancel message: " + msg)
-        assertTrue(msg != null && msg.contains("cancelled by workload policy: ${policyName}"),
-                "unexpected cancel policy: " + msg)
-        assertTrue(msg.contains("scan_bytes_from_remote_storage"),
-                "remote scan bytes counter is missing from cancel message: " + msg)
     } finally {
-        try {
-            sql """SET workload_group = ''"""
-        } catch (Throwable t) {
-            logger.info("ignore reset workload_group failure: " + t.getMessage())
-        }
-        sql """DROP WORKLOAD POLICY IF EXISTS ${policyName}"""
-        sql """DROP WORKLOAD POLICY IF EXISTS ${invalidPolicyName}"""
-        sql """DROP WORKLOAD GROUP IF EXISTS ${workloadGroupName} ${forComputeGroupStr}"""
-        sql """DROP CATALOG IF EXISTS ${catalogName}"""
+        sql """ADMIN SET FRONTEND CONFIG("publish_topic_info_interval_ms" = "${originalPublishTopicInfoIntervalMs}")"""
     }
 }
