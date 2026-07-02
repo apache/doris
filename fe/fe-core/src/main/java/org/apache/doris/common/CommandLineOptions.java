@@ -28,6 +28,7 @@ public class CommandLineOptions {
     private boolean runImageTool;
     private String imagePath;
     private String clusterSnapshotPath;
+    private String localResourceGroup;
 
     public CommandLineOptions(boolean isVersion, String helperNode, BDBToolOptions bdbToolOptions, String imagePath) {
         this.isVersion = isVersion;
@@ -50,6 +51,12 @@ public class CommandLineOptions {
             String clusterSnapshotPath) {
         this(isVersion, helperNode, bdbToolOptions, imagePath);
         this.clusterSnapshotPath = clusterSnapshotPath;
+    }
+
+    public CommandLineOptions(boolean isVersion, String helperNode, BDBToolOptions bdbToolOptions, String imagePath,
+            String clusterSnapshotPath, String localResourceGroup) {
+        this(isVersion, helperNode, bdbToolOptions, imagePath, clusterSnapshotPath);
+        this.localResourceGroup = localResourceGroup;
     }
 
     public boolean isVersion() {
@@ -76,6 +83,10 @@ public class CommandLineOptions {
         return clusterSnapshotPath;
     }
 
+    public String getLocalResourceGroup() {
+        return localResourceGroup;
+    }
+
     @Override
     public String toString() {
         StringBuilder sb = new StringBuilder();
@@ -84,6 +95,7 @@ public class CommandLineOptions {
         sb.append("bdb tool options: \n(\n" + bdbToolOpts).append("\n)\n");
         sb.append("image tool options:  \n(\n" + imagePath).append("\n)\n");
         sb.append("cluster snapshot options:  \n(\n" + clusterSnapshotPath).append("\n)\n");
+        sb.append("local resource group: " + localResourceGroup).append("\n");
         return sb.toString();
     }
 

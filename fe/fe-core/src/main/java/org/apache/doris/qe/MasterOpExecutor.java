@@ -20,8 +20,13 @@ package org.apache.doris.qe;
 import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.LoadException;
+import org.apache.doris.resource.ResourceGroupAffinity;
+import org.apache.doris.resource.ResourceGroupAffinityPolicy;
+import org.apache.doris.resource.ResourceGroupAffinityPolicyFactory;
 import org.apache.doris.thrift.TGroupCommitInfo;
 import org.apache.doris.thrift.TMasterOpRequest;
+import org.apache.doris.thrift.TMasterOpResult;
 import org.apache.doris.thrift.TNetworkAddress;
 
 import org.apache.logging.log4j.LogManager;
@@ -77,8 +82,23 @@ public class MasterOpExecutor extends FEOpExecutor {
 
     public long getGroupCommitLoadBeId(long tableId, String cluster) throws Exception {
         result = forward(buildGetGroupCommitLoadBeIdParmas(tableId, cluster));
+        if (result.isSetStatusCode() && result.getStatusCode() != 0) {
+            throw new LoadException(getForwardResultErrorMessage(result));
+        }
+        if (result.isSetErrMessage()) {
+            // the master carries selection failures in the result;
+            // a thrift-level exception would lose the message on the wire
+            throw new LoadException(result.getErrMessage());
+        }
         waitOnReplaying();
         return result.groupCommitLoadBeId;
+    }
+
+    private static String getForwardResultErrorMessage(TMasterOpResult result) {
+        if (result.isSetErrMessage() && result.getErrMessage() != null && !result.getErrMessage().isEmpty()) {
+            return result.getErrMessage();
+        }
+        return "failed to select backend for group commit, status code: " + result.getStatusCode();
     }
 
     public void updateLoadData(long tableId, long receiveData) throws Exception {
@@ -104,7 +124,21 @@ public class MasterOpExecutor extends FEOpExecutor {
         groupCommitParams.setGetGroupCommitLoadBeId(true);
         groupCommitParams.setGroupCommitLoadTableId(tableId);
         groupCommitParams.setCluster(cluster);
+        setGroupCommitLoadAffinity(groupCommitParams, ctx);
         return getMasterOpRequestForGroupCommit(groupCommitParams);
+    }
+
+    static void setGroupCommitLoadAffinity(TGroupCommitInfo groupCommitParams, ConnectContext context) {
+        ResourceGroupAffinityPolicy policy = ResourceGroupAffinityPolicyFactory.get();
+        if (!policy.isLoadAffinityEnabled(context)) {
+            return;
+        }
+        ResourceGroupAffinity.AffinityDecision decision = policy.decideForLoad(context);
+        if (decision == null) {
+            return;
+        }
+        groupCommitParams.setLoadAffinityPreferredGroup(decision.getEffectivePreferredGroup());
+        groupCommitParams.setLoadAffinityPolicy(decision.getEffectivePolicy().name());
     }
 
     private TMasterOpRequest buildUpdateLoadDataParams(long tableId, long receiveData) {

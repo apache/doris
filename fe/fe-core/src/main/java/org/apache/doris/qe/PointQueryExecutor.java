@@ -138,11 +138,16 @@ public class PointQueryExecutor implements CoordInterface {
                 candidateBackends.add(backend);
             }
         }
-        // Random read replicas
-        Collections.shuffle(this.candidateBackends);
+        if (shouldShuffleCandidateBackends(scanNode)) {
+            Collections.shuffle(candidateBackends);
+        }
         if (LOG.isDebugEnabled()) {
             LOG.debug("set scan locations, backend ids {}, tablet id {}", candidateBackends, tabletID);
         }
+    }
+
+    static boolean shouldShuffleCandidateBackends(OlapScanNode scanNode) {
+        return !scanNode.isScanBackendOrderByQueryAffinity();
     }
 
     // execute query without analyze & plan

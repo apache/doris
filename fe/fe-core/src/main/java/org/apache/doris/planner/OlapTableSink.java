@@ -63,6 +63,9 @@ import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.DebugPointUtil.DebugPoint;
 import org.apache.doris.nereids.trees.plans.commands.insert.OlapInsertCommandContext;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.resource.ResourceGroupAffinity;
+import org.apache.doris.resource.ResourceGroupAffinityPolicy;
+import org.apache.doris.resource.ResourceGroupAffinityPolicyFactory;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TColumn;
@@ -88,6 +91,7 @@ import org.apache.doris.thrift.TUniqueKeyUpdateMode;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.HashMultimap;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Range;
@@ -375,6 +379,7 @@ public class OlapTableSink extends DataSink {
         }
         strBuilder.append(prefix + "  TUPLE ID: " + tupleDescriptor.getId() + "\n");
         strBuilder.append(prefix + "  " + DataPartition.RANDOM.getExplainString(explainLevel));
+        appendSinkAffinityExplain(strBuilder, prefix);
         boolean isPartialUpdate = uniqueKeyUpdateMode != TUniqueKeyUpdateMode.UPSERT;
         strBuilder.append(prefix + "  IS_PARTIAL_UPDATE: " + isPartialUpdate);
         if (isPartialUpdate) {
@@ -387,6 +392,23 @@ public class OlapTableSink extends DataSink {
             strBuilder.append("\n" + prefix + "  PARTIAL_UPDATE_NEW_KEY_BEHAVIOR: " + partialUpdateNewKeyPolicy);
         }
         return strBuilder.toString();
+    }
+
+    // Only printed when the session enables load local affinity, so existing plans stay unchanged.
+    private void appendSinkAffinityExplain(StringBuilder strBuilder, String prefix) {
+        ConnectContext context = ConnectContext.get();
+        ResourceGroupAffinityPolicy policy = ResourceGroupAffinityPolicyFactory.get();
+        if (!policy.isLoadAffinityEnabled(context)) {
+            return;
+        }
+        ResourceGroupAffinity.AffinityDecision decision =
+                policy.decideForLoad(context);
+        if (decision == null) {
+            return;
+        }
+        strBuilder.append(prefix).append("  sink affinity: preferred=").append(decision.getEffectivePreferredGroup())
+                .append(", policy=").append(decision.getEffectivePolicy())
+                .append(", source=").append(decision.getResolveNote()).append("\n");
     }
 
     @Override
@@ -1264,10 +1286,8 @@ public class OlapTableSink extends DataSink {
                     }
 
                     if (singleReplicaLoad) {
-                        Long[] nodes = bePathsMap.keySet().toArray(new Long[0]);
-                        Random random = new SecureRandom();
-                        Long masterNode = nodes[random.nextInt(nodes.length)];
-                        Multimap<Long, Long> slaveBePathsMap = bePathsMap;
+                        Long masterNode = chooseSingleReplicaMaster(bePathsMap);
+                        Multimap<Long, Long> slaveBePathsMap = HashMultimap.create(bePathsMap);
                         slaveBePathsMap.removeAll(masterNode);
                         locationParam.addToTablets(new TTabletLocation(tablet.getId(),
                                 Lists.newArrayList(Sets.newHashSet(masterNode))));
@@ -1294,6 +1314,32 @@ public class OlapTableSink extends DataSink {
             throw new DdlException(st.getErrorMsg());
         }
         return Arrays.asList(locationParam, slaveLocationParam);
+    }
+
+    private Long chooseSingleReplicaMaster(Multimap<Long, Long> bePathsMap) throws UserException {
+        ConnectContext context = ConnectContext.get();
+        if (!ResourceGroupAffinityPolicyFactory.get().isLoadAffinityEnabled(context)) {
+            return chooseRandomSingleReplicaMaster(bePathsMap);
+        }
+        List<Backend> candidates = Lists.newArrayList();
+        for (Long backendId : bePathsMap.keySet()) {
+            Backend backend = Env.getCurrentSystemInfo().getBackend(backendId);
+            if (backend != null) {
+                candidates.add(backend);
+            }
+        }
+        Backend selected = ResourceGroupAffinityPolicyFactory.get().chooseFirstAvailableLoadBackend(
+                context, ImmutableList.copyOf(candidates), Backend::isLoadAvailable);
+        if (selected != null) {
+            return selected.getId();
+        }
+        return chooseRandomSingleReplicaMaster(bePathsMap);
+    }
+
+    private Long chooseRandomSingleReplicaMaster(Multimap<Long, Long> bePathsMap) {
+        Long[] nodes = bePathsMap.keySet().toArray(new Long[0]);
+        Random random = new SecureRandom();
+        return nodes[random.nextInt(nodes.length)];
     }
 
     private void debugWriteRandomChooseSink(Tablet tablet, long version, Multimap<Long, Long> bePathsMap) {

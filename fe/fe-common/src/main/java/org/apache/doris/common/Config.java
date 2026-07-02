@@ -135,6 +135,19 @@ public class Config extends ConfigBase {
             description = {"Whether to check for table lock leaks"})
     public static boolean check_table_lock_leaky = false;
 
+    @ConfField(mutable = false, description = {"当前 FE 节点所属的 Resource Group。可通过命令行参数 "
+            + "`--local_resource_group` 或环境变量 `DORIS_LOCAL_RESOURCE_GROUP` 覆盖。空字符串表示未设置。",
+            "The Resource Group that the current FE node belongs to. It can be overridden by the "
+                    + "`--local_resource_group` command line option or the "
+                    + "`DORIS_LOCAL_RESOURCE_GROUP` environment variable. An empty string means unset."})
+    public static String local_resource_group = "";
+
+    @ConfField(mutable = false, description = {"是否启用基于 location resource tag 的权限检查。关闭后，不再根据"
+            + "用户的 location resource tag 过滤可访问的副本。",
+            "Whether to enable permission checks based on location resource tags. If disabled, "
+                    + "accessible replicas will no longer be filtered by the user's location resource tags."})
+    public static boolean resource_tag_location_check = true;
+
     @ConfField(mutable = true, masterOnly = false,
             description = {"PreparedStatement stmtId starting position, used for testing only"})
     public static long prepared_stmt_start_id = -1;
@@ -1000,6 +1013,14 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = true)
     public static long tablet_schedule_high_priority_second = 30 * 60;
+
+    @ConfField(mutable = true, masterOnly = true,
+            description = {"是否允许 Resource Group affinity 扩展实现参与副本修复 clone 选源。"
+                    + "默认公共实现为 no-op，不改变修复行为。",
+                    "Whether Resource Group affinity extension implementations may participate in repair clone "
+                    + "source selection. The default public implementation is a no-op and does not change repair "
+                    + "behavior."})
+    public static boolean enable_repair_src_replica_local_affinity = true;
 
     /**
      * publish version queue's size in be, report it to fe,

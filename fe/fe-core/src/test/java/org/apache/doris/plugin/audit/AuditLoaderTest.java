@@ -17,15 +17,20 @@
 
 package org.apache.doris.plugin.audit;
 
+import org.apache.doris.analysis.ColumnDef;
+import org.apache.doris.catalog.InternalSchema;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.plugin.AuditEvent;
 
 import org.junit.Assert;
 import org.junit.Test;
 
+import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 public class AuditLoaderTest {
 
@@ -62,6 +67,41 @@ public class AuditLoaderTest {
             throw new AssertionError("failed to assemble audit event", error.get());
         }
         Assert.assertTrue(getAuditLogBuffer(auditLoader).contains(auditEvent.queryId));
+    }
+
+    @Test
+    public void testAuditTableResourceAffinityFieldsMatchSchemaOrder() {
+        List<String> schemaNames = InternalSchema.AUDIT_SCHEMA.stream()
+                .map(ColumnDef::getName)
+                .collect(Collectors.toList());
+        int workloadGroupIndex = schemaNames.indexOf("workload_group");
+        Assert.assertEquals(workloadGroupIndex + 1, schemaNames.indexOf("compute_group"));
+        Assert.assertEquals(workloadGroupIndex + 2, schemaNames.indexOf("effective_preferred_resource_group"));
+        Assert.assertEquals(workloadGroupIndex + 3, schemaNames.indexOf("resource_group_select_policy"));
+        Assert.assertEquals(workloadGroupIndex + 4, schemaNames.indexOf("stmt"));
+        Assert.assertEquals(schemaNames.size() - 1, schemaNames.indexOf("stmt"));
+
+        AuditEvent auditEvent = new AuditEvent.AuditEventBuilder()
+                .setWorkloadGroup("wg_a")
+                .setCloudCluster("compute_a")
+                .setEffectivePreferredResourceGroup("rg_a")
+                .setResourceGroupSelectPolicy("prefer_local")
+                .setStmt("select 1")
+                .build();
+        StringBuilder logBuffer = new StringBuilder();
+        Deencapsulation.invoke(new AuditLoader(), "fillLogBuffer", auditEvent, logBuffer);
+
+        String logLine = logBuffer.toString();
+        Assert.assertTrue(logLine.endsWith(String.valueOf(AuditLoader.AUDIT_TABLE_LINE_DELIMITER)));
+        String logLineWithoutDelimiter = logLine.substring(0, logLine.length() - 1);
+        String[] fields = logLineWithoutDelimiter.split(Pattern.quote(
+                String.valueOf(AuditLoader.AUDIT_TABLE_COL_SEPARATOR)), -1);
+        Assert.assertEquals(schemaNames.size(), fields.length);
+        Assert.assertEquals("wg_a", fields[workloadGroupIndex]);
+        Assert.assertEquals("compute_a", fields[workloadGroupIndex + 1]);
+        Assert.assertEquals("rg_a", fields[workloadGroupIndex + 2]);
+        Assert.assertEquals("prefer_local", fields[workloadGroupIndex + 3]);
+        Assert.assertEquals("select 1", fields[workloadGroupIndex + 4]);
     }
 
     private boolean waitForBlocked(Thread thread) throws InterruptedException {

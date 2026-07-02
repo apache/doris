@@ -40,6 +40,8 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.persist.ReplicaPersistInfo;
+import org.apache.doris.resource.ResourceGroupAffinityPolicy;
+import org.apache.doris.resource.ResourceGroupAffinityPolicyFactory;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
@@ -193,6 +195,9 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
     private ReplicaAllocation replicaAlloc;
     // tag is only set for BALANCE task, used to identify which workload group this Balance job is in
     private Tag tag;
+
+    private ResourceGroupAffinityPolicy.SrcAffinityResult srcAffinityResult =
+            ResourceGroupAffinityPolicy.SrcAffinityResult.DISABLED;
 
     private SubCode schedFailedCode;
 
@@ -446,6 +451,10 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         return copyTimeMs;
     }
 
+    public ResourceGroupAffinityPolicy.SrcAffinityResult getSrcAffinityResult() {
+        return srcAffinityResult;
+    }
+
     public long getSrcBackendId() {
         if (srcReplica != null) {
             return srcReplica.getBackendIdWithoutException();
@@ -653,7 +662,15 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
         // choose a replica which slot is available from candidates.
         // sort replica by version count asc and isUserDrop, so that we prefer to choose replicas with fewer versions
         Collections.sort(candidates, CLONE_SRC_COMPARATOR);
-        for (Replica srcReplica : candidates) {
+
+        // Resource-group (tag.location) source affinity is behind an SPI. The default no-op policy
+        // leaves the candidate ordering unchanged.
+        ResourceGroupAffinityPolicy affinityPolicy = ResourceGroupAffinityPolicyFactory.get();
+        boolean affinity = isRepairSrcAffinityActive(affinityPolicy, destBackendId);
+        List<Replica> orderedCandidates = affinity
+                ? affinityPolicy.orderRepairSrcCandidates(candidates, destBackendId)
+                : candidates;
+        for (Replica srcReplica : orderedCandidates) {
             long replicaBeId = srcReplica.getBackendIdWithoutException();
             PathSlot slot = backendsWorkingSlots.get(replicaBeId);
             if (slot == null) {
@@ -673,10 +690,20 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
                 continue;
             }
             setSrc(srcReplica);
+            srcAffinityResult = affinity
+                    ? affinityPolicy.classifyRepairSrc(replicaBeId, destBackendId,
+                            tablet.getReplicas(), candidates)
+                    : ResourceGroupAffinityPolicy.SrcAffinityResult.DISABLED;
             return;
         }
         throw new SchedException(Status.SCHEDULE_FAILED, SubCode.WAITING_SLOT,
                 "waiting for source replica's slot");
+    }
+
+    static boolean isRepairSrcAffinityActive(ResourceGroupAffinityPolicy affinityPolicy, long destBackendId) {
+        return Config.enable_repair_src_replica_local_affinity
+                && affinityPolicy.isRepairSrcAffinityEnabled()
+                && destBackendId != -1;
     }
 
     /*

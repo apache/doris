@@ -31,6 +31,7 @@ import org.apache.doris.clone.TabletSchedCtx.Priority;
 import org.apache.doris.clone.TabletSchedCtx.Type;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.DebugPointUtil;
+import org.apache.doris.resource.ResourceGroupAffinityPolicy;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.system.Backend;
 import org.apache.doris.utframe.TestWithFeService;
@@ -242,5 +243,27 @@ public class TabletSchedCtxTest extends TestWithFeService {
                 .filter(beId -> !replicasBeIds.contains(beId)).collect(Collectors.toList());
         Assertions.assertEquals(1, notInReplicaBeIds.size());
         Assertions.assertFalse(tabletSchedCtx.filterDestBE(notInReplicaBeIds.get(0)));
+    }
+
+    @Test
+    public void testRepairSrcAffinityConfigGate() {
+        boolean oldConfig = Config.enable_repair_src_replica_local_affinity;
+        try {
+            ResourceGroupAffinityPolicy enabledPolicy = new ResourceGroupAffinityPolicy() {
+                @Override
+                public boolean isRepairSrcAffinityEnabled() {
+                    return true;
+                }
+            };
+
+            Config.enable_repair_src_replica_local_affinity = false;
+            Assertions.assertFalse(TabletSchedCtx.isRepairSrcAffinityActive(enabledPolicy, 1L));
+
+            Config.enable_repair_src_replica_local_affinity = true;
+            Assertions.assertTrue(TabletSchedCtx.isRepairSrcAffinityActive(enabledPolicy, 1L));
+            Assertions.assertFalse(TabletSchedCtx.isRepairSrcAffinityActive(enabledPolicy, -1L));
+        } finally {
+            Config.enable_repair_src_replica_local_affinity = oldConfig;
+        }
     }
 }

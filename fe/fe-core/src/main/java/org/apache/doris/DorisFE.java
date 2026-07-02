@@ -42,6 +42,7 @@ import org.apache.doris.qe.Coordinator;
 import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.qe.QeService;
 import org.apache.doris.qe.SimpleScheduler;
+import org.apache.doris.resource.Tag;
 import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.tls.server.FeServerStarterFactory;
@@ -89,6 +90,7 @@ public class DorisFE {
     private static String LOCK_FILE_PATH;
 
     private static final String LOCK_FILE_NAME = "process.lock";
+    private static final String LOCAL_RESOURCE_GROUP_ENV = "DORIS_LOCAL_RESOURCE_GROUP";
     private static FileChannel processLockFileChannel;
     private static FileLock processFileLock;
 
@@ -136,8 +138,6 @@ public class DorisFE {
             return;
         }
 
-        CommandLineOptions cmdLineOpts = parseArgs(args);
-
         try {
             // init config
             Config config = new Config();
@@ -145,6 +145,8 @@ public class DorisFE {
             // Must init custom config after init config, separately.
             // Because the path of custom config file is defined in fe.conf
             config.initCustom(Config.custom_config_dir + "/fe_custom.conf");
+
+            CommandLineOptions cmdLineOpts = parseArgs(args);
 
             LdapConfig ldapConfig = new LdapConfig();
             if (new File(dorisHomeDir + "/conf/ldap.conf").exists()) {
@@ -382,6 +384,8 @@ public class DorisFE {
         options.addOption("c", "cluster_snapshot", true, "Specify the cluster snapshot json file");
         options.addOption(Option.builder().longOpt(FeConstants.DROP_BACKENDS_KEY)
                 .desc("When this FE becomes MASTER, drop all backends from cluster metadata (destructive)").build());
+        options.addOption(null, "local_resource_group", true,
+                "Specify the local resource group for the current FE");
 
         CommandLine cmd = null;
         try {
@@ -392,9 +396,11 @@ public class DorisFE {
             System.exit(-1);
         }
 
+        String localResourceGroup = resolveLocalResourceGroup(cmd);
+
         // version
         if (cmd.hasOption('v') || cmd.hasOption("version")) {
-            return new CommandLineOptions(true, "", null, "");
+            return new CommandLineOptions(true, "", null, "", null, localResourceGroup);
         }
         // helper
         if (cmd.hasOption('h') || cmd.hasOption("helper")) {
@@ -403,7 +409,7 @@ public class DorisFE {
                 System.err.println("Missing helper node");
                 System.exit(-1);
             }
-            return new CommandLineOptions(false, helperNode, null, "");
+            return new CommandLineOptions(false, helperNode, null, "", null, localResourceGroup);
         }
         // image
         if (cmd.hasOption('i') || cmd.hasOption("image")) {
@@ -413,7 +419,7 @@ public class DorisFE {
                 System.err.println("imagePath is not set");
                 System.exit(-1);
             }
-            return new CommandLineOptions(false, "", null, imagePath);
+            return new CommandLineOptions(false, "", null, imagePath, null, localResourceGroup);
         }
         if (cmd.hasOption('r') || cmd.hasOption(FeConstants.METADATA_FAILURE_RECOVERY_KEY)) {
             System.setProperty(FeConstants.METADATA_FAILURE_RECOVERY_KEY, "true");
@@ -433,7 +439,7 @@ public class DorisFE {
             if (cmd.hasOption('l') || cmd.hasOption("listdb")) {
                 // list bdb je databases
                 BDBToolOptions bdbOpts = new BDBToolOptions(true, "", false, "", "", 0);
-                return new CommandLineOptions(false, "", bdbOpts, "");
+                return new CommandLineOptions(false, "", bdbOpts, "", null, localResourceGroup);
             }
             if (cmd.hasOption('d') || cmd.hasOption("db")) {
                 // specify a database
@@ -444,7 +450,7 @@ public class DorisFE {
                 }
                 if (cmd.hasOption('s') || cmd.hasOption("stat")) {
                     BDBToolOptions bdbOpts = new BDBToolOptions(false, dbName, true, "", "", 0);
-                    return new CommandLineOptions(false, "", bdbOpts, "");
+                    return new CommandLineOptions(false, "", bdbOpts, "", null, localResourceGroup);
                 }
                 String fromKey = "";
                 String endKey = "";
@@ -473,7 +479,7 @@ public class DorisFE {
                 }
 
                 BDBToolOptions bdbOpts = new BDBToolOptions(false, dbName, false, fromKey, endKey, metaVersion);
-                return new CommandLineOptions(false, "", bdbOpts, "");
+                return new CommandLineOptions(false, "", bdbOpts, "", null, localResourceGroup);
 
             } else {
                 System.err.println("Invalid options when running bdb je tools");
@@ -487,11 +493,38 @@ public class DorisFE {
                 System.err.println("Missing cluster_snapshot file");
                 System.exit(-1);
             }
-            return new CommandLineOptions(false, null, null, "", clusterSnapshotFile.trim());
+            return new CommandLineOptions(false, null, null, "", clusterSnapshotFile.trim(), localResourceGroup);
         }
 
         // helper node is null, means no helper node is specified
-        return new CommandLineOptions(false, null, null, "");
+        return new CommandLineOptions(false, null, null, "", null, localResourceGroup);
+    }
+
+    private static String resolveLocalResourceGroup(CommandLine cmd) {
+        String localResourceGroup = Strings.nullToEmpty(Config.local_resource_group);
+        String source = localResourceGroup.isEmpty() ? "DEFAULT" : "FE_CONF";
+        if (System.getenv().containsKey(LOCAL_RESOURCE_GROUP_ENV)) {
+            localResourceGroup = Strings.nullToEmpty(System.getenv(LOCAL_RESOURCE_GROUP_ENV));
+            source = "ENV";
+        }
+        if (cmd.hasOption("local_resource_group")) {
+            localResourceGroup = Strings.nullToEmpty(cmd.getOptionValue("local_resource_group"));
+            source = "CMDLINE";
+        }
+
+        LOG.info("effective local_resource_group={}, source={}", localResourceGroup, source);
+        Config.local_resource_group = localResourceGroup;
+        if (!localResourceGroup.isEmpty()) {
+            try {
+                Tag.create(Tag.TYPE_LOCATION, localResourceGroup);
+            } catch (Exception e) {
+                String errMsg = "Invalid local_resource_group: " + localResourceGroup;
+                LOG.error(errMsg, e);
+                System.err.println(errMsg);
+                System.exit(-1);
+            }
+        }
+        return localResourceGroup;
     }
 
     private static void printVersion() {

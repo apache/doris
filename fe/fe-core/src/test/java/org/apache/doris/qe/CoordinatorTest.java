@@ -20,33 +20,52 @@ package org.apache.doris.qe;
 import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.catalog.EnvFactory;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.Reference;
+import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.trees.plans.physical.TopnFilter;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanFragmentId;
+import org.apache.doris.planner.Planner;
+import org.apache.doris.planner.RuntimeFilter;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.planner.SortNode;
+import org.apache.doris.resource.ResourceGroupAffinity;
+import org.apache.doris.resource.ResourceGroupAffinityPolicy;
+import org.apache.doris.resource.ResourceGroupAffinityPolicyFactory;
+import org.apache.doris.resource.Tag;
+import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPipelineFragmentParams;
 import org.apache.doris.thrift.TPipelineInstanceParams;
 import org.apache.doris.thrift.TPlanFragment;
+import org.apache.doris.thrift.TScanRangeLocation;
+import org.apache.doris.thrift.TScanRangeLocations;
 import org.apache.doris.thrift.TTopnFilterDesc;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.utframe.TestWithFeService;
 
+import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.io.IOException;
 import java.lang.reflect.Field;
+import java.lang.reflect.Method;
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 public class CoordinatorTest extends TestWithFeService {
 
@@ -151,6 +170,39 @@ public class CoordinatorTest extends TestWithFeService {
         Mockito.verify(sortNode).setHasRuntimePredicate();
     }
 
+    @Test
+    public void testCoordinatorQueryAffinityUsesCoordinatorContext() throws Exception {
+        ConnectContext context = new ConnectContext();
+        context.setQueryId(new TUniqueId(3L, 3L));
+        Coordinator coordinator = new Coordinator(context, mockPlanner());
+
+        Backend tagABackend = createAvailableBackend(10001L, "127.0.0.1", 9060, "tag_a");
+        Backend tagBBackend = createAvailableBackend(10002L, "127.0.0.2", 9061, "tag_b");
+        coordinator.idToBackend = ImmutableMap.of(tagABackend.getId(), tagABackend, tagBBackend.getId(), tagBBackend);
+
+        TScanRangeLocations scanRangeLocations = new TScanRangeLocations();
+        scanRangeLocations.setLocations(new ArrayList<>());
+        scanRangeLocations.addToLocations(createScanRangeLocation(tagABackend));
+        scanRangeLocations.addToLocations(createScanRangeLocation(tagBBackend));
+
+        ContextCapturingQueryAffinityPolicy policy = new ContextCapturingQueryAffinityPolicy("tag_b");
+        ConnectContext previousContext = ConnectContext.get();
+        ConnectContext.remove();
+        try (MockedStatic<ResourceGroupAffinityPolicyFactory> mockedFactory =
+                Mockito.mockStatic(ResourceGroupAffinityPolicyFactory.class)) {
+            mockedFactory.when(ResourceGroupAffinityPolicyFactory::get).thenReturn(policy);
+
+            Reference<Long> backendIdRef = new Reference<>();
+            selectBackendsByRoundRobinWithAffinity(coordinator, scanRangeLocations, new HashMap<>(),
+                    initialReplicaNumPerHost(scanRangeLocations), backendIdRef);
+
+            Assertions.assertEquals(tagBBackend.getId(), backendIdRef.getRef());
+            Assertions.assertSame(context, policy.getDecideContext());
+        } finally {
+            restoreThreadLocalContext(previousContext);
+        }
+    }
+
     private NereidsPlanner plan(String sql) throws IOException {
         connectContext.getSessionVariable().setDisableNereidsRules(
                 "PRUNE_EMPTY_PARTITION,OLAP_SCAN_TABLET_PRUNE");
@@ -165,5 +217,88 @@ public class CoordinatorTest extends TestWithFeService {
         connectContext.setQueryId(
                 new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits()));
         return PlanChecker.from(connectContext).plan(sql);
+    }
+
+    private Planner mockPlanner() {
+        Planner planner = Mockito.mock(Planner.class);
+        Mockito.when(planner.getFragments()).thenReturn(Collections.emptyList());
+        Mockito.when(planner.getScanNodes()).thenReturn(Collections.emptyList());
+        Mockito.when(planner.getDescTable()).thenReturn(new DescriptorTable());
+        Mockito.when(planner.getRuntimeFilters()).thenReturn(Collections.<RuntimeFilter>emptyList());
+        Mockito.when(planner.handleQueryInFe(Mockito.any())).thenReturn(Optional.empty());
+        Mockito.when(planner.getTopnFilters()).thenReturn(Collections.emptyList());
+        return planner;
+    }
+
+    private Backend createAvailableBackend(long backendId, String host, int bePort, String locationTag)
+            throws Exception {
+        Backend backend = new Backend(backendId, host, bePort + 1000);
+        backend.setAlive(true);
+        backend.setBePort(bePort);
+        backend.setTagMap(Tag.create(Tag.TYPE_LOCATION, locationTag).toMap());
+        return backend;
+    }
+
+    private TScanRangeLocation createScanRangeLocation(Backend backend) {
+        TScanRangeLocation location = new TScanRangeLocation();
+        location.setBackendId(backend.getId());
+        location.setServer(new TNetworkAddress(backend.getHost(), backend.getBePort()));
+        return location;
+    }
+
+    private Map<TNetworkAddress, Long> initialReplicaNumPerHost(TScanRangeLocations scanRangeLocations) {
+        return scanRangeLocations.getLocations().stream()
+                .collect(Collectors.toMap(location -> location.server, location -> 1L));
+    }
+
+    private void restoreThreadLocalContext(ConnectContext previousContext) {
+        if (previousContext == null) {
+            ConnectContext.remove();
+            return;
+        }
+        previousContext.setThreadLocalInfo();
+    }
+
+    private void selectBackendsByRoundRobinWithAffinity(Coordinator coordinator,
+            TScanRangeLocations scanRangeLocations, Map<TNetworkAddress, Long> assignedBytesPerHost,
+            Map<TNetworkAddress, Long> replicaNumPerHost, Reference<Long> backendIdRef) throws Exception {
+        Method method = Coordinator.class.getDeclaredMethod("selectBackendsByRoundRobin",
+                TScanRangeLocations.class, Map.class, Map.class, Reference.class, boolean.class, boolean.class);
+        method.setAccessible(true);
+        method.invoke(coordinator, scanRangeLocations, assignedBytesPerHost, replicaNumPerHost, backendIdRef,
+                false, true);
+    }
+
+    private static final class ContextCapturingQueryAffinityPolicy implements ResourceGroupAffinityPolicy {
+        private final String preferredTag;
+        private ConnectContext decideContext;
+
+        private ContextCapturingQueryAffinityPolicy(String preferredTag) {
+            this.preferredTag = preferredTag;
+        }
+
+        private ConnectContext getDecideContext() {
+            return decideContext;
+        }
+
+        @Override
+        public ResourceGroupAffinity.AffinityDecision decideForQuery(ConnectContext context) {
+            decideContext = context;
+            return new ResourceGroupAffinity.AffinityDecision(preferredTag,
+                    ResourceGroupAffinity.Policy.PREFER_LOCAL, "test");
+        }
+
+        @Override
+        public <T> List<T> applyQueryAffinity(ResourceGroupAffinity.AffinityDecision decision, List<T> candidates,
+                Function<T, Tag> beTagOf) throws UserException {
+            if (!preferredTag.equals(decision.getEffectivePreferredGroup())) {
+                return candidates;
+            }
+            return candidates.stream()
+                    .sorted((left, right) -> Boolean.compare(
+                            preferredTag.equals(beTagOf.apply(right).value),
+                            preferredTag.equals(beTagOf.apply(left).value)))
+                    .collect(Collectors.toList());
+        }
     }
 }

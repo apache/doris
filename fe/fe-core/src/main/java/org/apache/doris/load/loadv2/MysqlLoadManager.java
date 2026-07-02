@@ -45,6 +45,7 @@ import org.apache.doris.nereids.trees.plans.commands.load.MysqlLoadCommand;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.VariableMgr;
+import org.apache.doris.resource.ResourceGroupAffinityPolicyFactory;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.BeSelectionPolicy;
 import org.apache.doris.system.SystemInfoService;
@@ -678,13 +679,27 @@ public class MysqlLoadManager {
                 throw new LoadException("failed to get cloud cluster: " + e);
             }
             backend = StreamLoadHandler.selectBackend(clusterName);
+            if (backend == null) {
+                throw new LoadException(SystemInfoService.NO_BACKEND_LOAD_AVAILABLE_MSG
+                        + ", cluster: " + clusterName);
+            }
         } else {
             BeSelectionPolicy policy = new BeSelectionPolicy.Builder().needLoadAvailable().build();
-            List<Long> backendIds = Env.getCurrentSystemInfo().selectBackendIdsByPolicy(policy, 1);
+            // -1 returns every eligible backend shuffled, so the affinity helper's head pick
+            // stays equivalent to the old random single pick when affinity is inactive.
+            List<Long> backendIds = Env.getCurrentSystemInfo().selectBackendIdsByPolicy(policy, -1);
             if (backendIds.isEmpty()) {
                 throw new LoadException(SystemInfoService.NO_BACKEND_LOAD_AVAILABLE_MSG + ", policy: " + policy);
             }
-            backend = Env.getCurrentSystemInfo().getBackend(backendIds.get(0));
+            List<Backend> candidates = new ArrayList<>();
+            for (Long backendId : backendIds) {
+                Backend candidate = Env.getCurrentSystemInfo().getBackend(backendId);
+                if (candidate != null) {
+                    candidates.add(candidate);
+                }
+            }
+            backend = ResourceGroupAffinityPolicyFactory.get()
+                    .chooseLoadBackendWithAffinity(ConnectContext.get(), candidates);
             if (backend == null) {
                 throw new LoadException(SystemInfoService.NO_BACKEND_LOAD_AVAILABLE_MSG + ", policy: " + policy);
             }

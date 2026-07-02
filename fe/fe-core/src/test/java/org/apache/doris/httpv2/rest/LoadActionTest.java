@@ -21,6 +21,8 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.load.StreamLoadHandler;
+import org.apache.doris.resource.ResourceGroupAffinityPolicyFactory;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TNetworkAddress;
@@ -353,6 +355,30 @@ public class LoadActionTest {
     }
 
     @Test
+    public void testSelectCloudRedirectBackendIgnoresLoadAffinity() throws Exception {
+        LoadAction loadAction = new LoadAction();
+        HttpServletRequest request = Mockito.mock(HttpServletRequest.class);
+        Mockito.when(request.getHeader("host")).thenReturn("fe-host:8030");
+        Mockito.when(request.getHeader(LoadAction.HEADER_REDIRECT_POLICY))
+                .thenReturn(LoadAction.REDIRECT_POLICY_RANDOM_BE);
+        Backend backend = mockBackend("be-host", 8040, null);
+
+        try (MockedStatic<StreamLoadHandler> mockedStreamLoad = Mockito.mockStatic(StreamLoadHandler.class);
+                MockedStatic<ResourceGroupAffinityPolicyFactory> mockedAffinity =
+                        Mockito.mockStatic(ResourceGroupAffinityPolicyFactory.class)) {
+            mockedStreamLoad.when(() -> StreamLoadHandler.selectBackend("cg1")).thenReturn(backend);
+            mockedAffinity.when(ResourceGroupAffinityPolicyFactory::get)
+                    .thenThrow(new AssertionError("cloud stream load redirect should not use load affinity"));
+
+            TNetworkAddress addr = invokeSelectCloudRedirectBackend(loadAction, request, "cg1", false, -1L, null);
+
+            Assertions.assertEquals("be-host", addr.getHostname());
+            Assertions.assertEquals(8040, addr.getPort());
+            mockedStreamLoad.verify(() -> StreamLoadHandler.selectBackend("cg1"));
+        }
+    }
+
+    @Test
     public void testSplitHostAndPortParsesIpv4() throws Exception {
         LoadAction loadAction = new LoadAction();
         org.apache.doris.common.Pair<String, Integer> result = invokeSplitHostAndPort(loadAction, "10.0.0.1:8040");
@@ -451,6 +477,15 @@ public class LoadActionTest {
                 HttpServletRequest.class, TNetworkAddress.class, String.class);
         method.setAccessible(true);
         return (RedirectView) method.invoke(loadAction, request, addr, forwardTarget);
+    }
+
+    private TNetworkAddress invokeSelectCloudRedirectBackend(LoadAction loadAction, HttpServletRequest request,
+            String clusterName, boolean groupCommit, long tableId, Backend preSelectedBackend) throws Exception {
+        Method method = LoadAction.class.getDeclaredMethod("selectCloudRedirectBackend",
+                String.class, HttpServletRequest.class, boolean.class, long.class, Backend.class);
+        method.setAccessible(true);
+        return (TNetworkAddress) method.invoke(loadAction, clusterName, request, groupCommit, tableId,
+                preSelectedBackend);
     }
 
     private TNetworkAddress invokeSelectEndpointByRedirectPolicy(LoadAction loadAction, HttpServletRequest request,

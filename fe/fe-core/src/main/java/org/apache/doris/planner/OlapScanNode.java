@@ -76,6 +76,10 @@ import org.apache.doris.planner.LocalExchangeNode.LocalExchangeTypeRequire;
 import org.apache.doris.planner.normalize.Normalizer;
 import org.apache.doris.planner.normalize.PartitionRangePredicateNormalizer;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.resource.ResourceGroupAffinity;
+import org.apache.doris.resource.ResourceGroupAffinityPolicy;
+import org.apache.doris.resource.ResourceGroupAffinityPolicyFactory;
+import org.apache.doris.resource.Tag;
 import org.apache.doris.resource.computegroup.ComputeGroup;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TAggregationType;
@@ -227,6 +231,9 @@ public class OlapScanNode extends ScanNode {
     private final PartitionPruneV2ForShortCircuitPlan cachedPartitionPruner =
                         new PartitionPruneV2ForShortCircuitPlan();
 
+    private ResourceGroupAffinity.AffinityDecision affinityDecision;
+    private boolean scanBackendOrderByQueryAffinity = false;
+
     private boolean isTopnLazyMaterialize = false;
     private List<Column> topnLazyMaterializeOutputColumns = new ArrayList<>();
 
@@ -261,8 +268,12 @@ public class OlapScanNode extends ScanNode {
         return isPreAggregation;
     }
 
-    public HashSet<Long> getScanBackendIds() {
+    public Set<Long> getScanBackendIds() {
         return scanBackendIds;
+    }
+
+    public boolean isScanBackendOrderByQueryAffinity() {
+        return scanBackendOrderByQueryAffinity;
     }
 
     public void setTableSample(TableSample tSample) {
@@ -595,6 +606,17 @@ public class OlapScanNode extends ScanNode {
                 } else if (replicas.size() > 1) {
                     Collections.shuffle(replicas);
                 }
+                if (shouldApplyQueryAffinity(skipMissingVersion)) {
+                    if (affinityDecision == null) {
+                        affinityDecision = context.getQueryResourceGroupAffinityDecision();
+                    }
+                    ResourceGroupAffinityPolicy affinityPolicy = ResourceGroupAffinityPolicyFactory.get();
+                    if (affinityPolicy.hasEffectiveQueryAffinity(affinityDecision)) {
+                        replicas = new ArrayList<>(affinityPolicy.applyQueryAffinity(affinityDecision, replicas,
+                                replica -> getReplicaLocationTag(replica, allBackends)));
+                        scanBackendOrderByQueryAffinity = true;
+                    }
+                }
             } else {
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("use fix replica, value: {}, replica count: {}", useFixReplica, replicas.size());
@@ -641,17 +663,16 @@ public class OlapScanNode extends ScanNode {
                 // third time we choose BE C, after this time all replica is cached
                 // but it means we will do 3 S3 IO to get the data which will bring 3 slow query
                 if (-1L != coolDownReplicaId) {
-                    final Optional<Replica> replicaOptional = replicas.stream()
+                    Optional<Replica> replicaOptional = replicas.stream()
                             .filter(r -> r.getId() == coolDownReplicaId).findAny();
-                    replicaOptional.ifPresent(
-                            r -> {
-                                Backend backend = allBackends.get(r.getBackendIdWithoutException());
-                                if (backend != null && backend.isAlive()) {
-                                    replicas.clear();
-                                    replicas.add(r);
-                                }
-                            }
-                    );
+                    if (replicaOptional.isPresent()) {
+                        Replica replica = replicaOptional.get();
+                        Backend backend = allBackends.get(replica.getBackendIdWithoutException());
+                        if (backend != null && backend.isAlive()) {
+                            replicas.clear();
+                            replicas.add(replica);
+                        }
+                    }
                 }
             }
 
@@ -697,7 +718,8 @@ public class OlapScanNode extends ScanNode {
                     continue;
                 }
                 String beTagName = backend.getLocationTag().value;
-                if (isInvalidComputeGroup || (isNotCloudComputeGroup && !computeGroup.containsBackend(beTagName))) {
+                if (shouldFilterReplicaByResourceTag(isInvalidComputeGroup, isNotCloudComputeGroup,
+                        computeGroup, beTagName)) {
                     String err = String.format(
                             "Replica on backend %d with tag %s," + " which is not in user's resource tag: %s",
                             backend.getId(), beTagName, computeGroup.toString());
@@ -771,6 +793,12 @@ public class OlapScanNode extends ScanNode {
             version /= 10;
         }
         return new String(chars, index + 1, 23 - index);
+    }
+
+    private Tag getReplicaLocationTag(Replica replica, ImmutableMap<Long, Backend> allBackends) {
+        long backendId = replica.getBackendIdWithoutException();
+        Backend backend = allBackends.get(backendId);
+        return backend == null ? null : backend.getLocationTag();
     }
 
     private boolean isEnableCooldownReplicaAffinity(ConnectContext connectContext) {
@@ -1038,6 +1066,8 @@ public class OlapScanNode extends ScanNode {
         computeColumnsFilter(olapTable.getBaseSchemaKeyColumns(), olapTable.getPartitionInfo());
         computePartitionInfo();
         scanBackendIds.clear();
+        affinityDecision = null;
+        scanBackendOrderByQueryAffinity = false;
         scanTabletIds.clear();
         tabletId2BucketSeq.clear();
         bucketSeq2locations.clear();
@@ -1050,6 +1080,18 @@ public class OlapScanNode extends ScanNode {
             throw new UserException(e.getMessage());
         }
         return scanRangeLocations;
+    }
+
+    @VisibleForTesting
+    static boolean shouldFilterReplicaByResourceTag(boolean isInvalidComputeGroup, boolean isNotCloudComputeGroup,
+            ComputeGroup computeGroup, String beTagName) {
+        return Config.resource_tag_location_check
+                && (isInvalidComputeGroup || (isNotCloudComputeGroup && !computeGroup.containsBackend(beTagName)));
+    }
+
+    @VisibleForTesting
+    static boolean shouldApplyQueryAffinity(boolean skipMissingVersion) {
+        return !Config.isCloudMode() && !skipMissingVersion;
     }
 
     @Override

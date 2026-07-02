@@ -160,6 +160,12 @@ public class AuditEvent {
     public String workloadGroup = "";
     @AuditField(value = "ComputeGroupName", colName = "compute_group")
     public String cloudClusterName = "";
+    // resource group affinity decision of this statement; preferred group is empty when no
+    // effective group was resolved (affinity inactive)
+    @AuditField(value = "EffectivePreferredResourceGroup", colName = "effective_preferred_resource_group")
+    public String effectivePreferredResourceGroup = "";
+    @AuditField(value = "ResourceGroupSelectPolicy", colName = "resource_group_select_policy")
+    public String resourceGroupSelectPolicy = "";
 
     // stmt should be last one
     @AuditField(value = "Stmt", colName = "stmt")
@@ -320,6 +326,16 @@ public class AuditEvent {
 
         public AuditEventBuilder setWorkloadGroup(String workloadGroup) {
             auditEvent.workloadGroup = workloadGroup;
+            return this;
+        }
+
+        public AuditEventBuilder setEffectivePreferredResourceGroup(String effectivePreferredResourceGroup) {
+            auditEvent.effectivePreferredResourceGroup = effectivePreferredResourceGroup;
+            return this;
+        }
+
+        public AuditEventBuilder setResourceGroupSelectPolicy(String resourceGroupSelectPolicy) {
+            auditEvent.resourceGroupSelectPolicy = resourceGroupSelectPolicy;
             return this;
         }
 

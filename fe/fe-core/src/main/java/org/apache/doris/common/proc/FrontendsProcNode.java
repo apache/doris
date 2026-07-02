@@ -163,6 +163,7 @@ public class FrontendsProcNode implements ProcNodeInterface {
             info.add(fe.getVersion());
             // To indicate which FE we currently connected
             info.add(fe.getHost().equals(selfNode) ? "Yes" : "No");
+            info.add(fe.getLocalResourceGroup());
             info.add(TimeUtils.longToTimeString(fe.getLiveSince()));
 
             infos.add(info);

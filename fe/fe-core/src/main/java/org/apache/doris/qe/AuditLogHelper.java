@@ -46,6 +46,7 @@ import org.apache.doris.plugin.AuditEvent;
 import org.apache.doris.plugin.AuditEvent.AuditEventBuilder;
 import org.apache.doris.plugin.AuditEvent.EventType;
 import org.apache.doris.qe.QueryState.MysqlStateType;
+import org.apache.doris.resource.ResourceGroupAffinity;
 import org.apache.doris.resource.workloadgroup.QueueToken;
 import org.apache.doris.service.FrontendOptions;
 
@@ -61,6 +62,7 @@ import java.nio.charset.Charset;
 import java.nio.charset.CharsetDecoder;
 import java.nio.charset.CodingErrorAction;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -278,6 +280,11 @@ public class AuditLogHelper {
                 .setisInternal(ctx.getState().isInternal())
                 .setCloudCluster(Strings.isNullOrEmpty(cluster) ? "UNKNOWN" : cluster)
                 .setWorkloadGroup(ctx.getWorkloadGroupName());
+
+        ResourceGroupAffinity.AffinityDecision affinityDecision = ctx.getQueryResourceGroupAffinityDecisionForAudit();
+        auditEventBuilder.setEffectivePreferredResourceGroup(affinityDecision.getEffectivePreferredGroup())
+                .setResourceGroupSelectPolicy(affinityDecision.getEffectivePolicy().name()
+                        .toLowerCase(Locale.ROOT));
 
         // sql mode
         if (ctx.sessionVariable != null) {
@@ -512,4 +519,3 @@ public class AuditLogHelper {
         }
     }
 }
-

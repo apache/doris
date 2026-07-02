@@ -64,6 +64,7 @@ public class FrontendsTableValuedFunction extends MetadataTableValuedFunction {
             new Column("ErrMsg", ScalarType.createStringType()),
             new Column("Version", ScalarType.createStringType()),
             new Column("CurrentConnected", ScalarType.createStringType()),
+            new Column("LocalResourceGroup", ScalarType.createStringType()),
             new Column("LiveSince", ScalarType.createStringType())
     );
     private static final ImmutableMap<String, Integer> COLUMN_TO_INDEX;

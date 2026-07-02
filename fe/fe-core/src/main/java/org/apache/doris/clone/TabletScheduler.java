@@ -47,7 +47,9 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.MasterDaemon;
+import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.persist.ReplicaPersistInfo;
+import org.apache.doris.resource.ResourceGroupAffinityPolicy.SrcAffinityResult;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
@@ -1917,6 +1919,8 @@ public class TabletScheduler extends MasterDaemon {
      * This should only be called when the tablet is down with state FINISHED.
      */
     private void gatherStatistics(TabletSchedCtx tabletCtx) {
+        gatherCloneAzBytes(tabletCtx);
+
         if (tabletCtx.getCopySize() > 0 && tabletCtx.getCopyTimeMs() > 0) {
             if (tabletCtx.getSrcBackendId() != -1 && tabletCtx.getSrcPathHash() != -1) {
                 PathSlot pathSlot = backendsWorkingSlots.get(tabletCtx.getSrcBackendId());
@@ -1943,6 +1947,39 @@ public class TabletScheduler extends MasterDaemon {
         // need to find a better way to determine the slot number.
 
         lastSlotAdjustTime = System.currentTimeMillis();
+    }
+
+    private void gatherCloneAzBytes(TabletSchedCtx tabletCtx) {
+        long bytes = tabletCtx.getCopySize();
+        if (bytes <= 0) {
+            return;
+        }
+        Backend src = infoService.getBackend(tabletCtx.getSrcBackendId());
+        Backend dest = infoService.getBackend(tabletCtx.getDestBackendId());
+        if (src == null || dest == null) {
+            return;
+        }
+        if (src.getLocationTag().equals(dest.getLocationTag())) {
+            if (MetricRepo.COUNTER_CLONE_BYTES_LOCAL_AZ != null) {
+                MetricRepo.COUNTER_CLONE_BYTES_LOCAL_AZ.increase(bytes);
+            }
+            return;
+        }
+
+        if (MetricRepo.COUNTER_CLONE_BYTES_CROSS_AZ != null) {
+            MetricRepo.COUNTER_CLONE_BYTES_CROSS_AZ.increase(bytes);
+        }
+        SrcAffinityResult result = tabletCtx.getSrcAffinityResult();
+        if (result == SrcAffinityResult.FALLBACK_SLOT_FULL) {
+            if (MetricRepo.COUNTER_CLONE_CROSS_AZ_SLOT_FULL != null) {
+                MetricRepo.COUNTER_CLONE_CROSS_AZ_SLOT_FULL.increase(bytes);
+            }
+        } else if (result == SrcAffinityResult.FALLBACK_NO_LOCAL
+                || result == SrcAffinityResult.FALLBACK_LOCAL_UNHEALTHY) {
+            if (MetricRepo.COUNTER_CLONE_CROSS_AZ_NO_LOCAL != null) {
+                MetricRepo.COUNTER_CLONE_CROSS_AZ_NO_LOCAL.increase(bytes);
+            }
+        }
     }
 
     /**

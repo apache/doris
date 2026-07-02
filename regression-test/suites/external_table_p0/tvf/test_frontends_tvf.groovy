@@ -20,7 +20,7 @@ suite("test_frontends_tvf", "p0,external") {
     List<List<Object>> table =  sql """ select * from `frontends`(); """
     logger.info("${table}")
     assertTrue(table.size() > 0)
-    assertTrue(table[0].size() == 20)
+    assertTrue(table[0].size() == 21)
 
     List<List<Object>> titleNames =  sql """ describe function frontends(); """
     assertTrue(titleNames[0][0] == "Name")
@@ -42,7 +42,8 @@ suite("test_frontends_tvf", "p0,external") {
     assertTrue(titleNames[16][0] == "ErrMsg")
     assertTrue(titleNames[17][0] == "Version")
     assertTrue(titleNames[18][0] == "CurrentConnected")
-    assertTrue(titleNames[19][0] == "LiveSince")
+    assertTrue(titleNames[19][0] == "LocalResourceGroup")
+    assertTrue(titleNames[20][0] == "LiveSince")
 
     // filter columns
     table = sql """ select Name from `frontends`();"""
@@ -65,10 +66,10 @@ suite("test_frontends_tvf", "p0,external") {
     def res = sql """ select count(*) from frontends() where alive = 'true'; """
     assertTrue(res[0][0] > 0)
 
-    sql """ select Name, Host, EditLogPort
-            HttpPort, QueryPort, RpcPort, ArrowFlightSqlPort, `Role`, IsMaster, ClusterId
-            `Join`, Alive, ReplayedJournalId, LastHeartbeat
-            IsHelper, ErrMsg, Version, CurrentConnected, LiveSince from frontends();
+    sql """ select Name, Host, EditLogPort, HttpPort, QueryPort, RpcPort, ArrowFlightSqlPort,
+            `Role`, IsMaster, ClusterId, `Join`, Alive, ReplayedJournalId, LastStartTime,
+            LastHeartbeat, IsHelper, ErrMsg, Version, CurrentConnected, LocalResourceGroup,
+            LiveSince from frontends();
     """
 
     // test exception

@@ -73,6 +73,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -109,9 +110,9 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
     protected List<Column> columns;
 
     // Save the id of backends which this scan node will be executed on.
-    // This is also important for local shuffle logic.
+    // Iteration order is part of the semantics for point-query and affinity/local-shuffle consumers.
     // Now only OlapScanNode and FileQueryScanNode implement this.
-    protected HashSet<Long> scanBackendIds = new HashSet<>();
+    protected Set<Long> scanBackendIds = new LinkedHashSet<>();
     // Immutable scan context used for evolving scan-related metadata.
     protected final ScanContext scanContext;
 

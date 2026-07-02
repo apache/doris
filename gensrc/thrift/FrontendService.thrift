@@ -372,6 +372,8 @@ struct TGroupCommitInfo{
     5: optional bool updateLoadData
     6: optional i64 tableId 
     7: optional i64 receiveData
+    8: optional string loadAffinityPreferredGroup
+    9: optional string loadAffinityPolicy
 }
 
 struct TMasterOpRequest {
@@ -416,6 +418,7 @@ struct TMasterOpRequest {
     // thrift field ids wire-compatible across maintained branches. Do not reuse these ids.
     34: optional set<string> reserved_field_34
     35: optional bool reserved_field_35
+    36: optional string connectingFeLocalResourceGroup
 
     // selectdb cloud
     1000: optional string cloud_cluster
@@ -863,6 +866,7 @@ struct TFrontendPingFrontendResult {
     8: optional list<TDiskInfo> diskInfos
     9: optional i64 processUUID
     10: optional i32 arrowFlightSqlPort
+    11: optional string localResourceGroup
 }
 
 struct TPropertyVal {
