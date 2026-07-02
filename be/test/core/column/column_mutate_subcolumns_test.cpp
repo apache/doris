@@ -92,6 +92,25 @@ TEST(ColumnMutateSubcolumnsTest, ArrayKeepsExclusiveSubcolumns) {
     EXPECT_EQ(mutated_array.get_offsets_ptr().get(), offsets_raw);
 }
 
+TEST(ColumnMutateSubcolumnsTest, ArrayDetachesSharedSubcolumns) {
+    ColumnPtr data = create_int64_column(10);
+    ColumnPtr data_alias = data;
+    ColumnPtr offsets = create_single_element_offsets();
+    ColumnPtr offsets_alias = offsets;
+
+    ColumnPtr array = ColumnArray::create(data, offsets);
+    auto mutated = IColumn::mutate(std::move(array));
+    auto& mutated_array = assert_cast<ColumnArray&>(*mutated);
+
+    EXPECT_NE(mutated_array.get_data_ptr().get(), data_alias.get());
+    EXPECT_NE(mutated_array.get_offsets_ptr().get(), offsets_alias.get());
+
+    assert_cast<ColumnInt64&>(mutated_array.get_data()).get_data()[0] = 20;
+    mutated_array.get_offsets()[0] = 2;
+    EXPECT_EQ(assert_cast<const ColumnInt64&>(*data_alias).get_data()[0], 10);
+    EXPECT_EQ(assert_cast<const ColumnArray::ColumnOffsets&>(*offsets_alias).get_data()[0], 1);
+}
+
 TEST(ColumnMutateSubcolumnsTest, MapKeepsExclusiveSubcolumns) {
     ColumnPtr map = ColumnMap::create(create_int64_column(1), create_int64_column(10),
                                       create_single_element_offsets());
@@ -108,6 +127,30 @@ TEST(ColumnMutateSubcolumnsTest, MapKeepsExclusiveSubcolumns) {
     EXPECT_EQ(mutated_map.get_offsets_ptr().get(), offsets_raw);
 }
 
+TEST(ColumnMutateSubcolumnsTest, MapDetachesSharedSubcolumns) {
+    ColumnPtr keys = create_int64_column(1);
+    ColumnPtr keys_alias = keys;
+    ColumnPtr values = create_int64_column(10);
+    ColumnPtr values_alias = values;
+    ColumnPtr offsets = create_single_element_offsets();
+    ColumnPtr offsets_alias = offsets;
+
+    ColumnPtr map = ColumnMap::create(keys, values, offsets);
+    auto mutated = IColumn::mutate(std::move(map));
+    auto& mutated_map = assert_cast<ColumnMap&>(*mutated);
+
+    EXPECT_NE(mutated_map.get_keys_ptr().get(), keys_alias.get());
+    EXPECT_NE(mutated_map.get_values_ptr().get(), values_alias.get());
+    EXPECT_NE(mutated_map.get_offsets_ptr().get(), offsets_alias.get());
+
+    assert_cast<ColumnInt64&>(mutated_map.get_keys()).get_data()[0] = 2;
+    assert_cast<ColumnInt64&>(mutated_map.get_values()).get_data()[0] = 20;
+    mutated_map.get_offsets()[0] = 2;
+    EXPECT_EQ(assert_cast<const ColumnInt64&>(*keys_alias).get_data()[0], 1);
+    EXPECT_EQ(assert_cast<const ColumnInt64&>(*values_alias).get_data()[0], 10);
+    EXPECT_EQ(assert_cast<const ColumnMap::COffsets&>(*offsets_alias).get_data()[0], 1);
+}
+
 TEST(ColumnMutateSubcolumnsTest, ConstKeepsExclusiveSubcolumn) {
     ColumnPtr column_const = ColumnConst::create(create_int64_column(10), 3);
     const auto& const_ref = assert_cast<const ColumnConst&>(*column_const);
@@ -117,6 +160,19 @@ TEST(ColumnMutateSubcolumnsTest, ConstKeepsExclusiveSubcolumn) {
     const auto& mutated_const = assert_cast<const ColumnConst&>(*mutated);
 
     EXPECT_EQ(mutated_const.get_data_column_ptr().get(), data_raw);
+}
+
+TEST(ColumnMutateSubcolumnsTest, ConstDetachesSharedSubcolumn) {
+    ColumnPtr data = create_int64_column(10);
+    ColumnPtr data_alias = data;
+
+    ColumnPtr column_const = ColumnConst::create(data, 3);
+    auto mutated = IColumn::mutate(std::move(column_const));
+    const auto& mutated_const = assert_cast<const ColumnConst&>(*mutated);
+
+    EXPECT_NE(mutated_const.get_data_column_ptr().get(), data_alias.get());
+    EXPECT_EQ(mutated_const.get_data_column().get_int(0), 10);
+    EXPECT_EQ(assert_cast<const ColumnInt64&>(*data_alias).get_data()[0], 10);
 }
 
 TEST(ColumnMutateSubcolumnsTest, StructKeepsExclusiveSubcolumns) {
@@ -134,6 +190,25 @@ TEST(ColumnMutateSubcolumnsTest, StructKeepsExclusiveSubcolumns) {
 
     EXPECT_EQ(mutated_struct.get_column_ptr(0).get(), first_raw);
     EXPECT_EQ(mutated_struct.get_column_ptr(1).get(), second_raw);
+}
+
+TEST(ColumnMutateSubcolumnsTest, StructDetachesSharedSubcolumns) {
+    ColumnPtr first = create_int64_column(10);
+    ColumnPtr first_alias = first;
+    ColumnPtr second = create_uint8_column(1);
+    ColumnPtr second_alias = second;
+
+    ColumnPtr column_struct = ColumnStruct::create(Columns {first, second});
+    auto mutated = IColumn::mutate(std::move(column_struct));
+    auto& mutated_struct = assert_cast<ColumnStruct&>(*mutated);
+
+    EXPECT_NE(mutated_struct.get_column_ptr(0).get(), first_alias.get());
+    EXPECT_NE(mutated_struct.get_column_ptr(1).get(), second_alias.get());
+
+    assert_cast<ColumnInt64&>(mutated_struct.get_column(0)).get_data()[0] = 20;
+    assert_cast<ColumnUInt8&>(mutated_struct.get_column(1)).get_data()[0] = 2;
+    EXPECT_EQ(assert_cast<const ColumnInt64&>(*first_alias).get_data()[0], 10);
+    EXPECT_EQ(assert_cast<const ColumnUInt8&>(*second_alias).get_data()[0], 1);
 }
 
 } // namespace doris
