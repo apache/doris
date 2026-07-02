@@ -3341,43 +3341,46 @@ Status SegmentIterator::_next_batch_internal(Block* block) {
                                     _late_short_cir_eval_predicate, _late_pre_eval_block_predicate,
                                     /*include_delete_condition_columns=*/false);
 
-                            _sel_rowid_idx_stage2.resize(stage2_rows_read);
-                            uint16_t stage2_size_all = stage2_rows_read;
                             if (_is_need_vec_eval_late) {
-                                stage2_size_all = _evaluate_vectorization_predicate(
-                                        _late_pre_eval_block_predicate,
-                                        _sel_rowid_idx_stage2.data(), stage2_size_all);
-                            } else {
-                                for (uint16_t i = 0; i < stage2_size_all; ++i) {
-                                    _sel_rowid_idx_stage2[i] = i;
+                                _sel_rowid_idx_stage2.resize(stage2_rows_read);
+                                uint16_t stage2_size_all = _evaluate_vectorization_predicate(
+                                        _late_pre_eval_block_predicate, _sel_rowid_idx_stage2.data(),
+                                        stage2_rows_read);
+
+                                _sel_rowid_idx.clear();
+                                _sel_rowid_idx.reserve(
+                                        std::min<uint16_t>(stage1_size, stage2_size_all));
+                                uint16_t i = 0;
+                                uint16_t j = 0;
+                                while (i < stage1_size && j < stage2_size_all) {
+                                    const uint16_t a = _sel_rowid_idx_stage1[i];
+                                    const uint16_t b = _sel_rowid_idx_stage2[j];
+                                    if (a == b) {
+                                        _sel_rowid_idx.push_back(a);
+                                        ++i;
+                                        ++j;
+                                    } else if (a < b) {
+                                        ++i;
+                                    } else {
+                                        ++j;
+                                    }
                                 }
+                                _selected_size = cast_set<uint16_t>(_sel_rowid_idx.size());
+                            } else {
+                                _sel_rowid_idx.resize(stage1_size);
+                                for (uint16_t i = 0; i < stage1_size; ++i) {
+                                    _sel_rowid_idx[i] = _sel_rowid_idx_stage1[i];
+                                }
+                                _selected_size = stage1_size;
                             }
-                            if (_is_need_short_eval_late) {
-                                stage2_size_all = _evaluate_short_circuit_predicate(
-                                        _late_short_cir_eval_predicate,
-                                        _sel_rowid_idx_stage2.data(), stage2_size_all,
+
+                            if (_is_need_short_eval_late && _selected_size > 0) {
+                                _selected_size = _evaluate_short_circuit_predicate(
+                                        _late_short_cir_eval_predicate, _sel_rowid_idx.data(),
+                                        _selected_size,
                                         /*evaluate_delete_condition=*/false);
                             }
 
-                            _sel_rowid_idx.clear();
-                            _sel_rowid_idx.reserve(
-                                    std::min<uint16_t>(stage1_size, stage2_size_all));
-                            uint16_t i = 0;
-                            uint16_t j = 0;
-                            while (i < stage1_size && j < stage2_size_all) {
-                                const uint16_t a = _sel_rowid_idx_stage1[i];
-                                const uint16_t b = _sel_rowid_idx_stage2[j];
-                                if (a == b) {
-                                    _sel_rowid_idx.push_back(a);
-                                    ++i;
-                                    ++j;
-                                } else if (a < b) {
-                                    ++i;
-                                } else {
-                                    ++j;
-                                }
-                            }
-                            _selected_size = cast_set<uint16_t>(_sel_rowid_idx.size());
                             stage2_columns_dense_on_all_rows = true;
                         }
                     } else {
