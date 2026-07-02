@@ -108,8 +108,7 @@ public class PluginDrivenExternalTable extends ExternalTable {
             return false;
         }
         Connector connector = ((PluginDrivenExternalCatalog) catalog).getConnector();
-        return connector != null
-                && connector.getCapabilities().contains(ConnectorCapability.SUPPORTS_PARALLEL_WRITE);
+        return connector != null && connector.requiresParallelWrite();
     }
 
     /**
@@ -199,8 +198,7 @@ public class PluginDrivenExternalTable extends ExternalTable {
             return false;
         }
         Connector connector = ((PluginDrivenExternalCatalog) catalog).getConnector();
-        return connector != null
-                && connector.getCapabilities().contains(ConnectorCapability.SINK_REQUIRE_PARTITION_LOCAL_SORT);
+        return connector != null && connector.requiresPartitionLocalSort();
     }
 
     /**
@@ -214,8 +212,7 @@ public class PluginDrivenExternalTable extends ExternalTable {
             return false;
         }
         Connector connector = ((PluginDrivenExternalCatalog) catalog).getConnector();
-        return connector != null
-                && connector.getCapabilities().contains(ConnectorCapability.SINK_REQUIRE_FULL_SCHEMA_ORDER);
+        return connector != null && connector.requiresFullSchemaWriteOrder();
     }
 
     /**
@@ -230,9 +227,7 @@ public class PluginDrivenExternalTable extends ExternalTable {
             return false;
         }
         Connector connector = ((PluginDrivenExternalCatalog) catalog).getConnector();
-        return connector != null
-                && connector.getCapabilities().contains(
-                        ConnectorCapability.SINK_MATERIALIZE_STATIC_PARTITION_VALUES);
+        return connector != null && connector.requiresMaterializeStaticPartitionValues();
     }
 
     @Override

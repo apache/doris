@@ -26,6 +26,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.InternalDatabaseUtil;
+import org.apache.doris.connector.api.handle.WriteOperation;
 import org.apache.doris.datasource.PluginDrivenExternalCatalog;
 import org.apache.doris.datasource.PluginDrivenExternalTable;
 import org.apache.doris.datasource.doris.RemoteDorisExternalTable;
@@ -337,8 +338,7 @@ public class InsertOverwriteTableCommand extends Command implements NeedAuditEnc
      */
     private static boolean pluginConnectorSupportsInsertOverwrite(PluginDrivenExternalTable table) {
         PluginDrivenExternalCatalog catalog = (PluginDrivenExternalCatalog) table.getCatalog();
-        return catalog.getConnector().getMetadata(catalog.buildConnectorSession())
-                .supportsInsertOverwrite();
+        return catalog.getConnector().supportedWriteOperations().contains(WriteOperation.OVERWRITE);
     }
 
     /**
@@ -353,8 +353,7 @@ public class InsertOverwriteTableCommand extends Command implements NeedAuditEnc
         }
         PluginDrivenExternalCatalog catalog =
                 (PluginDrivenExternalCatalog) ((PluginDrivenExternalTable) targetTable).getCatalog();
-        return catalog.getConnector().getMetadata(catalog.buildConnectorSession())
-                .supportsWriteBranch();
+        return catalog.getConnector().supportsWriteBranch();
     }
 
     private void runInsertCommand(LogicalPlan logicalQuery, InsertCommandContext insertCtx,

@@ -682,12 +682,13 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                         null, col.isAllowNull(), null))
                 .collect(java.util.stream.Collectors.toList());
 
-        ConnectorWritePlanProvider writePlanProvider = connector.getWritePlanProvider();
-        if (writePlanProvider == null) {
+        Set<WriteOperation> writeOps = connector.supportedWriteOperations();
+        if (!(writeOps.contains(WriteOperation.DELETE) || writeOps.contains(WriteOperation.MERGE))) {
             throw new AnalysisException(
                     "Connector '" + catalog.getName() + "' (type: " + catalog.getType()
                             + ") does not support row-level DML operations");
         }
+        ConnectorWritePlanProvider writePlanProvider = connector.getWritePlanProvider();
         ConnectorTableHandle providerTableHandle = metadata.getTableHandle(connSession,
                 targetTable.getRemoteDbName(), targetTable.getRemoteName())
                 .orElseThrow(() -> new AnalysisException(
@@ -728,14 +729,14 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 .collect(java.util.stream.Collectors.toList());
 
         // Every write-capable connector builds its own opaque TDataSink via its write-plan
-        // provider (jdbc / maxcompute / iceberg). A null provider means the connector does not
-        // support writes.
-        ConnectorWritePlanProvider writePlanProvider = connector.getWritePlanProvider();
-        if (writePlanProvider == null) {
+        // provider (jdbc / maxcompute / iceberg). A connector whose declared write operations do
+        // not include INSERT does not support writes.
+        if (!connector.supportedWriteOperations().contains(WriteOperation.INSERT)) {
             throw new AnalysisException(
                     "Connector '" + catalog.getName() + "' (type: " + catalog.getType()
                             + ") does not support INSERT operations");
         }
+        ConnectorWritePlanProvider writePlanProvider = connector.getWritePlanProvider();
         ConnectorTableHandle providerTableHandle = metadata.getTableHandle(connSession,
                 targetTable.getRemoteDbName(), targetTable.getRemoteName())
                 .orElseThrow(() -> new AnalysisException(

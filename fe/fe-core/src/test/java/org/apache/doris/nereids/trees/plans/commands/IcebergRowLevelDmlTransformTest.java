@@ -58,6 +58,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
+import java.util.EnumSet;
 import java.util.Optional;
 import java.util.Set;
 
@@ -90,20 +91,22 @@ public class IcebergRowLevelDmlTransformTest {
     /**
      * A {@link PluginDrivenExternalTable} whose connector reports the given row-level DML capabilities.
      * Mirrors {@code InsertOverwriteTableCommandTest.pluginTable} — the established way to exercise the
-     * {@code getConnector().getMetadata(buildConnectorSession()).supportsX()} probe.
+     * {@code getConnector().supportedWriteOperations()} probe.
      */
     private static PluginDrivenExternalTable pluginTable(boolean supportsDelete, boolean supportsMerge) {
         PluginDrivenExternalTable table = Mockito.mock(PluginDrivenExternalTable.class);
         PluginDrivenExternalCatalog catalog = Mockito.mock(PluginDrivenExternalCatalog.class);
         Connector connector = Mockito.mock(Connector.class);
-        ConnectorMetadata metadata = Mockito.mock(ConnectorMetadata.class);
-        ConnectorSession session = Mockito.mock(ConnectorSession.class);
+        Set<WriteOperation> ops = EnumSet.noneOf(WriteOperation.class);
+        if (supportsDelete) {
+            ops.add(WriteOperation.DELETE);
+        }
+        if (supportsMerge) {
+            ops.add(WriteOperation.MERGE);
+        }
         Mockito.when(table.getCatalog()).thenReturn(catalog);
-        Mockito.when(catalog.buildConnectorSession()).thenReturn(session);
         Mockito.when(catalog.getConnector()).thenReturn(connector);
-        Mockito.when(connector.getMetadata(session)).thenReturn(metadata);
-        Mockito.when(metadata.supportsDelete()).thenReturn(supportsDelete);
-        Mockito.when(metadata.supportsMerge()).thenReturn(supportsMerge);
+        Mockito.when(connector.supportedWriteOperations()).thenReturn(ops);
         return table;
     }
 

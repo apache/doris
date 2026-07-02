@@ -21,8 +21,6 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.connector.api.Connector;
-import org.apache.doris.connector.api.ConnectorMetadata;
-import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.datasource.PluginDrivenExternalCatalog;
 import org.apache.doris.datasource.PluginDrivenExternalTable;
 import org.apache.doris.datasource.doris.RemoteDorisExternalTable;
@@ -180,19 +178,15 @@ class InsertIntoTableCommandTest {
 
     /**
      * A PluginDrivenExternalTable whose connector reports {@code supportsWriteBranch()==supported},
-     * stubbing the catalog -> connector -> metadata chain the @branch gate walks.
+     * stubbing the catalog -> connector chain the @branch gate walks.
      */
     private static PluginDrivenExternalTable pluginTableForWriteBranch(boolean supported) {
         PluginDrivenExternalTable table = Mockito.mock(PluginDrivenExternalTable.class);
         PluginDrivenExternalCatalog catalog = Mockito.mock(PluginDrivenExternalCatalog.class);
         Connector connector = Mockito.mock(Connector.class);
-        ConnectorMetadata metadata = Mockito.mock(ConnectorMetadata.class);
-        ConnectorSession session = Mockito.mock(ConnectorSession.class);
         Mockito.when(table.getCatalog()).thenReturn(catalog);
-        Mockito.when(catalog.buildConnectorSession()).thenReturn(session);
         Mockito.when(catalog.getConnector()).thenReturn(connector);
-        Mockito.when(connector.getMetadata(session)).thenReturn(metadata);
-        Mockito.when(metadata.supportsWriteBranch()).thenReturn(supported);
+        Mockito.when(connector.supportsWriteBranch()).thenReturn(supported);
         return table;
     }
 

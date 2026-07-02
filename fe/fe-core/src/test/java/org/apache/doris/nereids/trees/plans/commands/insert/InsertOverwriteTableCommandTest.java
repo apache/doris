@@ -20,8 +20,7 @@ package org.apache.doris.nereids.trees.plans.commands.insert;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.connector.api.Connector;
-import org.apache.doris.connector.api.ConnectorMetadata;
-import org.apache.doris.connector.api.ConnectorSession;
+import org.apache.doris.connector.api.handle.WriteOperation;
 import org.apache.doris.datasource.PluginDrivenExternalCatalog;
 import org.apache.doris.datasource.PluginDrivenExternalTable;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -30,7 +29,9 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
+import java.util.EnumSet;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Tests for {@link InsertOverwriteTableCommand}'s {@code allowInsertOverwrite} type gate
@@ -57,38 +58,31 @@ public class InsertOverwriteTableCommandTest {
     }
 
     /**
-     * A PluginDrivenExternalTable whose connector reports {@code supportsInsertOverwrite()==supported},
-     * stubbing the exact catalog -> connector -> metadata chain the production gate walks.
+     * A PluginDrivenExternalTable whose connector reports {@code supportedWriteOperations()} containing
+     * (or omitting) {@code OVERWRITE}, stubbing the exact catalog -> connector chain the production gate walks.
      */
     private static PluginDrivenExternalTable pluginTable(boolean supported) {
         PluginDrivenExternalTable table = Mockito.mock(PluginDrivenExternalTable.class);
         PluginDrivenExternalCatalog catalog = Mockito.mock(PluginDrivenExternalCatalog.class);
         Connector connector = Mockito.mock(Connector.class);
-        ConnectorMetadata metadata = Mockito.mock(ConnectorMetadata.class);
-        ConnectorSession session = Mockito.mock(ConnectorSession.class);
+        Set<WriteOperation> ops = supported ? EnumSet.of(WriteOperation.OVERWRITE) : EnumSet.noneOf(WriteOperation.class);
         Mockito.when(table.getCatalog()).thenReturn(catalog);
-        Mockito.when(catalog.buildConnectorSession()).thenReturn(session);
         Mockito.when(catalog.getConnector()).thenReturn(connector);
-        Mockito.when(connector.getMetadata(session)).thenReturn(metadata);
-        Mockito.when(metadata.supportsInsertOverwrite()).thenReturn(supported);
+        Mockito.when(connector.supportedWriteOperations()).thenReturn(ops);
         return table;
     }
 
     /**
      * A PluginDrivenExternalTable whose connector reports {@code supportsWriteBranch()==supported},
-     * stubbing the exact catalog -> connector -> metadata chain the @branch gate walks.
+     * stubbing the exact catalog -> connector chain the @branch gate walks.
      */
     private static PluginDrivenExternalTable pluginTableForWriteBranch(boolean supported) {
         PluginDrivenExternalTable table = Mockito.mock(PluginDrivenExternalTable.class);
         PluginDrivenExternalCatalog catalog = Mockito.mock(PluginDrivenExternalCatalog.class);
         Connector connector = Mockito.mock(Connector.class);
-        ConnectorMetadata metadata = Mockito.mock(ConnectorMetadata.class);
-        ConnectorSession session = Mockito.mock(ConnectorSession.class);
         Mockito.when(table.getCatalog()).thenReturn(catalog);
-        Mockito.when(catalog.buildConnectorSession()).thenReturn(session);
         Mockito.when(catalog.getConnector()).thenReturn(connector);
-        Mockito.when(connector.getMetadata(session)).thenReturn(metadata);
-        Mockito.when(metadata.supportsWriteBranch()).thenReturn(supported);
+        Mockito.when(connector.supportsWriteBranch()).thenReturn(supported);
         return table;
     }
 

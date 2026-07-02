@@ -810,8 +810,7 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
         }
         PluginDrivenExternalCatalog catalog =
                 (PluginDrivenExternalCatalog) ((PluginDrivenExternalTable) targetTable).getCatalog();
-        return catalog.getConnector().getMetadata(catalog.buildConnectorSession())
-                .supportsWriteBranch();
+        return catalog.getConnector().supportsWriteBranch();
     }
 
     @Override

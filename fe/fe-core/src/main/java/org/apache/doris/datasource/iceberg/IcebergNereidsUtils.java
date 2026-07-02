@@ -20,7 +20,7 @@ package org.apache.doris.datasource.iceberg;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.common.UserException;
 import org.apache.doris.connector.api.Connector;
-import org.apache.doris.connector.api.ConnectorMetadata;
+import org.apache.doris.connector.api.handle.WriteOperation;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.PluginDrivenExternalCatalog;
 import org.apache.doris.datasource.PluginDrivenExternalTable;
@@ -68,6 +68,7 @@ import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.function.BiFunction;
 import javax.annotation.Nullable;
 
@@ -162,8 +163,8 @@ public class IcebergNereidsUtils {
             // rather than NPE-aborting the query, mirroring PluginDrivenExternalTable.fetchSyntheticWriteColumns.
             return false;
         }
-        ConnectorMetadata metadata = connector.getMetadata(catalog.buildConnectorSession());
-        return metadata.supportsDelete() || metadata.supportsMerge();
+        Set<WriteOperation> ops = connector.supportedWriteOperations();
+        return ops.contains(WriteOperation.DELETE) || ops.contains(WriteOperation.MERGE);
     }
 
     /** Check if a plan tree contains any unbound nodes or expressions. */

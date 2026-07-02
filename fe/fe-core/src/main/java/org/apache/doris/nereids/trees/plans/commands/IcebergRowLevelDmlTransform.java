@@ -49,6 +49,7 @@ import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.qe.ConnectContext;
 
 import java.util.Optional;
+import java.util.Set;
 import java.util.function.Predicate;
 
 /**
@@ -96,8 +97,8 @@ public class IcebergRowLevelDmlTransform implements RowLevelDmlTransform {
      */
     private static boolean pluginConnectorSupportsRowLevelDml(PluginDrivenExternalTable table) {
         PluginDrivenExternalCatalog catalog = (PluginDrivenExternalCatalog) table.getCatalog();
-        ConnectorMetadata metadata = catalog.getConnector().getMetadata(catalog.buildConnectorSession());
-        return metadata.supportsDelete() || metadata.supportsMerge();
+        Set<WriteOperation> ops = catalog.getConnector().supportedWriteOperations();
+        return ops.contains(WriteOperation.DELETE) || ops.contains(WriteOperation.MERGE);
     }
 
     @Override

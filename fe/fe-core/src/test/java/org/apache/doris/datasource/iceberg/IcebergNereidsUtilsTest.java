@@ -19,8 +19,7 @@ package org.apache.doris.datasource.iceberg;
 
 import org.apache.doris.common.UserException;
 import org.apache.doris.connector.api.Connector;
-import org.apache.doris.connector.api.ConnectorMetadata;
-import org.apache.doris.connector.api.ConnectorSession;
+import org.apache.doris.connector.api.handle.WriteOperation;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.PluginDrivenExternalCatalog;
 import org.apache.doris.datasource.PluginDrivenExternalTable;
@@ -74,7 +73,9 @@ import org.mockito.Mockito;
 
 import java.math.BigDecimal;
 import java.util.Arrays;
+import java.util.EnumSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * Unit tests for IcebergNereidsUtils
@@ -1017,15 +1018,17 @@ public class IcebergNereidsUtilsTest {
 
     /** A plugin-driven table whose connector declares the given row-level-DML capabilities. */
     private static PluginDrivenExternalTable pluginTableWithCapability(boolean supportsDelete, boolean supportsMerge) {
-        ConnectorMetadata metadata = Mockito.mock(ConnectorMetadata.class);
-        Mockito.when(metadata.supportsDelete()).thenReturn(supportsDelete);
-        Mockito.when(metadata.supportsMerge()).thenReturn(supportsMerge);
-        ConnectorSession session = Mockito.mock(ConnectorSession.class);
+        Set<WriteOperation> ops = EnumSet.noneOf(WriteOperation.class);
+        if (supportsDelete) {
+            ops.add(WriteOperation.DELETE);
+        }
+        if (supportsMerge) {
+            ops.add(WriteOperation.MERGE);
+        }
         Connector connector = Mockito.mock(Connector.class);
-        Mockito.when(connector.getMetadata(Mockito.any())).thenReturn(metadata);
+        Mockito.when(connector.supportedWriteOperations()).thenReturn(ops);
         PluginDrivenExternalCatalog catalog = Mockito.mock(PluginDrivenExternalCatalog.class);
         Mockito.when(catalog.getConnector()).thenReturn(connector);
-        Mockito.when(catalog.buildConnectorSession()).thenReturn(session);
         PluginDrivenExternalTable table = Mockito.mock(PluginDrivenExternalTable.class);
         Mockito.when(table.getCatalog()).thenReturn(catalog);
         return table;
