@@ -17,6 +17,7 @@
 
 #include "exec/operator/nested_loop_join_probe_operator.h"
 
+#include <algorithm>
 #include <memory>
 
 #include "common/cast_set.h"
@@ -171,6 +172,43 @@ Status NestedLoopJoinProbeLocalState::close(RuntimeState* state) {
 
     return JoinProbeLocalState<NestedLoopJoinSharedState, NestedLoopJoinProbeLocalState>::close(
             state);
+}
+
+std::string NestedLoopJoinProbeLocalState::debug_string(int indentation_level) const {
+    const auto batch_size = _state ? _state->batch_size() : 0;
+    const auto child_block_rows = _child_block ? _child_block->rows() : 0;
+    const auto join_block_rows = _join_block.rows();
+    size_t build_blocks = 0;
+    size_t current_build_block_rows = 0;
+    size_t max_build_block_rows = 0;
+    if (_shared_state) {
+        build_blocks = _shared_state->build_blocks.size();
+        for (const auto& build_block : _shared_state->build_blocks) {
+            max_build_block_rows = std::max(max_build_block_rows, build_block.rows());
+        }
+        if (_current_build_pos < build_blocks) {
+            current_build_block_rows = _shared_state->build_blocks[_current_build_pos].rows();
+        }
+    }
+
+    fmt::memory_buffer debug_string_buffer;
+    fmt::format_to(
+            debug_string_buffer,
+            "{}, batch_size: {}, child_block_rows: {}, child_eos: {}, join_block_rows: {}, "
+            "build_blocks: {}, current_build_pos: {}, current_build_block_rows: {}, "
+            "max_build_block_rows: {}, probe_block_start_pos: {}, probe_block_pos: {}, "
+            "current_build_row_pos: {}, need_more_input_data: {}, matched_rows_done: {}, "
+            "oversized_child_block: {}, oversized_join_block: {}, oversized_build_block: {}",
+            JoinProbeLocalState<NestedLoopJoinSharedState,
+                                NestedLoopJoinProbeLocalState>::debug_string(indentation_level),
+            batch_size, child_block_rows, _child_eos, join_block_rows, build_blocks,
+            _current_build_pos, current_build_block_rows, max_build_block_rows,
+            _probe_block_start_pos, _probe_block_pos, _current_build_row_pos, _need_more_input_data,
+            _matched_rows_done,
+            batch_size > 0 && child_block_rows > static_cast<size_t>(batch_size),
+            batch_size > 0 && join_block_rows > static_cast<size_t>(batch_size),
+            batch_size > 0 && max_build_block_rows > static_cast<size_t>(batch_size));
+    return fmt::to_string(debug_string_buffer);
 }
 
 void NestedLoopJoinProbeLocalState::_update_additional_flags(Block* block) {
