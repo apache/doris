@@ -19,9 +19,9 @@ package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.BinaryArithmetic;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Divide;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Multiply;
@@ -71,7 +71,7 @@ public class SimplifyAggGroupBy extends OneRewriteRuleFactory {
     }
 
     @VisibleForTesting
-    protected static boolean isBinaryArithmeticSlot(TreeNode<Expression> expr) {
+    protected static boolean isBinaryArithmeticSlot(Expression expr) {
         if (expr instanceof Slot) {
             return true;
         }
@@ -81,7 +81,56 @@ public class SimplifyAggGroupBy extends OneRewriteRuleFactory {
         if (!supportedFunctions.contains(expr.getClass())) {
             return false;
         }
-        return ExpressionUtils.isSlotOrCastOnSlot(expr.child(0)).isPresent() && expr.child(1) instanceof Literal
-                || ExpressionUtils.isSlotOrCastOnSlot(expr.child(1)).isPresent() && expr.child(0) instanceof Literal;
+
+        // Float/double arithmetic: precision loss for all operations
+        if (expr.child(0).getDataType().isFloatLikeType()
+                || expr.child(1).getDataType().isFloatLikeType()) {
+            return false;
+        }
+
+        Expression slotExpr;
+        Literal literal;
+        if (expr.child(0) instanceof Literal) {
+            literal = (Literal) expr.child(0);
+            slotExpr = expr.child(1);
+        } else if (expr.child(1) instanceof Literal) {
+            literal = (Literal) expr.child(1);
+            slotExpr = expr.child(0);
+        } else {
+            return false;
+        }
+
+        if (!canExtractSlot(slotExpr)) {
+            return false;
+        }
+
+        return checkLiteral((BinaryArithmetic) expr, literal);
     }
+
+    @VisibleForTesting
+    protected static boolean checkLiteral(BinaryArithmetic expr, Literal literal) {
+        if (literal.isNullLiteral()) {
+            return false;
+        }
+        if (expr instanceof Multiply || expr instanceof Divide) {
+            if (literal.isZero()) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    @VisibleForTesting
+    protected static boolean canExtractSlot(Expression expr) {
+        while (expr instanceof Cast) {
+            Cast cast = (Cast) expr;
+            Expression inner = cast.child();
+            if (!inner.getDataType().isInjectiveCastTo(cast.getDataType())) {
+                return false;
+            }
+            expr = inner;
+        }
+        return expr instanceof Slot;
+    }
+
 }

@@ -65,6 +65,8 @@ import static io.debezium.connector.postgresql.Utils.refreshSchema;
  * Copied from Flink Cdc 3.6.0
  *
  * <p>Line 333~336: modified createDataEventsForTable to fix FLINK-39748.
+ *
+ * <p>Line 326: use sourceConfig.getFetchSize() for the snapshot fetch size to fix FLINK-40007.
  */
 public class PostgresScanFetchTask extends AbstractScanFetchTask {
 
@@ -103,6 +105,7 @@ public class PostgresScanFetchTask extends AbstractScanFetchTask {
 
         PostgresSnapshotSplitReadTask snapshotSplitReadTask =
                 new PostgresSnapshotSplitReadTask(
+                        (PostgresSourceConfig) ctx.getSourceConfig(),
                         ctx.getConnection(),
                         ctx.getDbzConnectorConfig(),
                         ctx.getDatabaseSchema(),
@@ -219,7 +222,7 @@ public class PostgresScanFetchTask extends AbstractScanFetchTask {
                 LoggerFactory.getLogger(PostgresSnapshotSplitReadTask.class);
 
         private final PostgresConnection jdbcConnection;
-        private final PostgresConnectorConfig connectorConfig;
+        private final PostgresSourceConfig sourceConfig;
         private final PostgresEventDispatcher<TableId> eventDispatcher;
         private final SnapshotSplit snapshotSplit;
         private final PostgresOffsetContext offsetContext;
@@ -228,6 +231,7 @@ public class PostgresScanFetchTask extends AbstractScanFetchTask {
         private final Clock clock;
 
         public PostgresSnapshotSplitReadTask(
+                PostgresSourceConfig sourceConfig,
                 PostgresConnection jdbcConnection,
                 PostgresConnectorConfig connectorConfig,
                 PostgresSchema databaseSchema,
@@ -237,7 +241,7 @@ public class PostgresScanFetchTask extends AbstractScanFetchTask {
                 SnapshotSplit snapshotSplit) {
             super(connectorConfig, snapshotProgressListener);
             this.jdbcConnection = jdbcConnection;
-            this.connectorConfig = connectorConfig;
+            this.sourceConfig = sourceConfig;
             this.snapshotProgressListener = snapshotProgressListener;
             this.databaseSchema = databaseSchema;
             this.eventDispatcher = eventDispatcher;
@@ -319,7 +323,7 @@ public class PostgresScanFetchTask extends AbstractScanFetchTask {
                                     snapshotSplit.getSplitStart(),
                                     snapshotSplit.getSplitEnd(),
                                     snapshotSplit.getSplitKeyType().getFieldCount(),
-                                    connectorConfig.getSnapshotFetchSize());
+                                    sourceConfig.getFetchSize());
                     ResultSet rs = selectStatement.executeQuery()) {
 
                 ColumnUtils.ColumnArray columnArray = ColumnUtils.toArray(rs, table);

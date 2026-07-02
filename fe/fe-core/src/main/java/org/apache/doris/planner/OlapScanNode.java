@@ -189,6 +189,7 @@ public class OlapScanNode extends ScanNode {
 
     private SortInfo sortInfo = null;
     private Set<Integer> outputColumnUniqueIds = new HashSet<>();
+    private Set<Integer> extraKeyColumnSlotIds = new HashSet<>();
 
     // When scan match sort_info, we can push limit into OlapScanNode.
     // It's limit for scanner instead of scanNode so we add a new limit.
@@ -267,6 +268,10 @@ public class OlapScanNode extends ScanNode {
 
     public void setTableSample(TableSample tSample) {
         this.tableSample = tSample;
+    }
+
+    public Set<Integer> getExtraKeyColumnSlotIds() {
+        return extraKeyColumnSlotIds;
     }
 
     public void setNereidsPrunedTabletIds(Set<Long> nereidsPrunedTabletIds) {
@@ -1124,6 +1129,12 @@ public class OlapScanNode extends ScanNode {
                             .map(node -> node.getId().asInt() + "").collect(Collectors.toList()));
             output.append(prefix).append("TOPN OPT:").append(topnFilterSources).append("\n");
         }
+        if (!extraKeyColumnSlotIds.isEmpty()) {
+            String extraKeyColumns = extraKeyColumnSlotIds.stream().sorted()
+                    .map(this::getExtraKeyColumnExplainName)
+                    .collect(Collectors.joining(","));
+            output.append(prefix).append("EXTRA KEY COLUMNS: ").append(extraKeyColumns).append("\n");
+        }
 
         if (!conjuncts.isEmpty()) {
             Expr expr = convertConjunctsToAndCompoundPredicate(conjuncts);
@@ -1162,6 +1173,17 @@ public class OlapScanNode extends ScanNode {
         printNestedColumns(output, prefix, getTupleDesc());
 
         return output.toString();
+    }
+
+    private String getExtraKeyColumnExplainName(Integer slotId) {
+        SlotDescriptor extraKeySlot = desc.getSlots().stream()
+                .filter(slot -> slot.getId().asInt() == slotId)
+                .findFirst()
+                .orElse(null);
+        Preconditions.checkNotNull(extraKeySlot, "missing extra key slot %s", slotId);
+        Column column = extraKeySlot.getColumn();
+        Preconditions.checkNotNull(column, "missing column for extra key slot %s", slotId);
+        return column.getName();
     }
 
     @Override
@@ -1317,6 +1339,9 @@ public class OlapScanNode extends ScanNode {
 
         if (outputColumnUniqueIds != null) {
             msg.olap_scan_node.setOutputColumnUniqueIds(outputColumnUniqueIds);
+        }
+        if (!extraKeyColumnSlotIds.isEmpty()) {
+            msg.olap_scan_node.setExtraKeyColumnSlotIds(extraKeyColumnSlotIds);
         }
 
         msg.olap_scan_node.setDistributeColumnIds(new ArrayList<>(distributionColumnIds));

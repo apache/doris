@@ -26,6 +26,7 @@
 #include <algorithm>
 #include <chrono> // IWYU pragma: keep
 #include <cstddef>
+#include <exception>
 #include <functional>
 #include <memory>
 #include <mutex>
@@ -146,7 +147,11 @@ void TaskScheduler::_do_work(int index) {
         }
 
         // Main logics of execution
-        ASSIGN_STATUS_IF_CATCH_EXCEPTION(status = task->execute(&done), status);
+        try {
+            ASSIGN_STATUS_IF_CATCH_EXCEPTION(status = task->execute(&done), status);
+        } catch (const std::exception& e) {
+            status = Status::InternalError("Catch std::exception: {}", e.what());
+        }
         fragment_context->trigger_report_if_necessary();
     }
 }

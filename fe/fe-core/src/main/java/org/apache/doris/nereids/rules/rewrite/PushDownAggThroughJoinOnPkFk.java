@@ -215,6 +215,7 @@ public class PushDownAggThroughJoinOnPkFk implements RewriteRuleFactory {
             }
             if (expression instanceof Alias
                     && expression.child(0) instanceof Count
+                    && expression.child(0).arity() > 0
                     && expression.child(0).child(0) instanceof Slot) {
                 // count(slot) can be rewritten by circle deps
                 Slot slot = (Slot) expression.child(0).child(0);

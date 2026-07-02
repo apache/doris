@@ -32,11 +32,12 @@ std::string IColumn::dump_structure() const {
     std::stringstream res;
     res << get_name() << "(size = " << size();
 
-    ColumnCallback callback = [&](const IColumn& subcolumn) {
-        res << ", " << subcolumn.dump_structure();
+    ColumnCallback callback = [&](ColumnPtr& subcolumn) {
+        res << ", " << subcolumn->dump_structure();
     };
 
-    for_each_subcolumn(callback);
+    // simply read using for_each_subcolumn without modification; const_cast can be used.
+    const_cast<IColumn*>(this)->for_each_subcolumn(callback);
 
     res << ")";
     return res.str();
@@ -44,10 +45,11 @@ std::string IColumn::dump_structure() const {
 
 int IColumn::count_const_column() const {
     int count = is_column_const(*this) ? 1 : 0;
-    ColumnCallback callback = [&](const IColumn& subcolumn) {
-        count += subcolumn.count_const_column();
+    ColumnCallback callback = [&](ColumnPtr& subcolumn) {
+        count += subcolumn->count_const_column();
     };
-    for_each_subcolumn(callback);
+    // simply read using for_each_subcolumn without modification; const_cast can be used.
+    const_cast<IColumn*>(this)->for_each_subcolumn(callback);
     return count;
 }
 
@@ -93,12 +95,13 @@ bool IColumn::column_boolean_check() const {
     };
 
     bool is_valid = check_boolean_is_zero_or_one(*this);
-    ColumnCallback callback = [&](const IColumn& subcolumn) {
-        if (!subcolumn.column_boolean_check()) {
+    ColumnCallback callback = [&](ColumnPtr& subcolumn) {
+        if (!subcolumn->column_boolean_check()) {
             is_valid = false;
         }
     };
-    for_each_subcolumn(callback);
+    // simply read using for_each_subcolumn without modification; const_cast can be used.
+    const_cast<IColumn*>(this)->for_each_subcolumn(callback);
     return is_valid;
 }
 
@@ -119,12 +122,13 @@ bool IColumn::null_map_check() const {
     };
 
     bool is_valid = check_null_map_is_zero_or_one(*this);
-    ColumnCallback callback = [&](const IColumn& subcolumn) {
-        if (!subcolumn.null_map_check()) {
+    ColumnCallback callback = [&](ColumnPtr& subcolumn) {
+        if (!subcolumn->null_map_check()) {
             is_valid = false;
         }
     };
-    for_each_subcolumn(callback);
+    // simply read using for_each_subcolumn without modification; const_cast can be used.
+    const_cast<IColumn*>(this)->for_each_subcolumn(callback);
     return is_valid;
 }
 
@@ -227,14 +231,15 @@ bool is_column_const(const IColumn& column) {
 }
 
 void IColumn::check_const_only_in_top_level() const {
-    ColumnCallback throw_if_const = [&](const IColumn& column) {
-        if (is_column_const(column)) {
+    ColumnCallback throw_if_const = [&](WrappedPtr& column) {
+        const ColumnPtr& col = const_cast<const WrappedPtr&>(column);
+        if (is_column_const(*col)) {
             throw doris::Exception(ErrorCode::INTERNAL_ERROR,
                                    "const column is not allowed to be nested, but got {}",
-                                   column.get_name());
+                                   col->get_name());
         }
     };
-    for_each_subcolumn(throw_if_const);
+    const_cast<IColumn*>(this)->for_each_subcolumn(throw_if_const);
 }
 
 } // namespace doris
