@@ -32,6 +32,7 @@ import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.StructLike;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.exceptions.ValidationException;
 import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.types.Type;
 import org.apache.iceberg.types.Type.TypeID;
@@ -88,6 +89,23 @@ final class IcebergPartitionUtils {
     private static final Logger LOG = LogManager.getLogger(IcebergPartitionUtils.class);
 
     private IcebergPartitionUtils() {
+    }
+
+    // The iceberg (>= 1.5) ValidationException message emitted by PartitionSpec.partitionType() for a partition
+    // field whose SOURCE column was later DROPPED (partition evolution). Both the bind-time partition listing
+    // (listPartitions) and the scan planning (IcebergScanPlanProvider) treat EXACTLY this failure as recoverable
+    // — any OTHER ValidationException propagates. (Pre-1.5 iceberg threw a raw NullPointerException here instead;
+    // the connector is pinned to a newer iceberg, so only the ValidationException form is handled.)
+    private static final String DROPPED_SOURCE_COLUMN_SIGNATURE = "Cannot find source column for partition field";
+
+    /**
+     * Whether {@code e} is the iceberg partition-evolution failure raised when a partition field's source column
+     * was dropped (see {@link #DROPPED_SOURCE_COLUMN_SIGNATURE}). Package-private so the scan provider shares the
+     * single signature definition.
+     */
+    static boolean isDroppedPartitionSourceColumn(ValidationException e) {
+        String message = e.getMessage();
+        return message != null && message.contains(DROPPED_SOURCE_COLUMN_SIGNATURE);
     }
 
     /**
@@ -499,7 +517,26 @@ final class IcebergPartitionUtils {
         if (current == null) {
             return Collections.emptyList();
         }
-        List<IcebergRawPartition> raws = loadRawPartitions(table, current.snapshotId());
+        List<IcebergRawPartition> raws;
+        try {
+            raws = loadRawPartitions(table, current.snapshotId());
+        } catch (ValidationException e) {
+            if (!isDroppedPartitionSourceColumn(e)) {
+                // A different iceberg validation error (not the dropped-partition-source-column case) — fail loud.
+                throw e;
+            }
+            // Partition evolution can leave a HISTORICAL spec referencing a source column that was later
+            // DROPPED. Building the PARTITIONS metadata table unifies the partition type across ALL specs, and
+            // iceberg PartitionSpec.partitionType() throws ValidationException ("Cannot find source column for
+            // partition field: ...") for the orphaned field. This list is DISPLAY/enforcement metadata only
+            // (selectedPartitionNum + partition_num block-rule), never the read set — a full-table scan must not
+            // fail just because the partition display cannot be computed. Degrade to UNPARTITIONED display (empty
+            // list); the data scan is unaffected. Only this specific class is swallowed: an auth/IO failure is a
+            // different exception type and still propagates from loadRawPartitions.
+            LOG.warn("Cannot list partitions for iceberg table {}: a partition field's source column was dropped "
+                    + "(partition evolution); reporting UNPARTITIONED. Cause: {}", table.name(), e.getMessage());
+            return Collections.emptyList();
+        }
         List<ConnectorPartitionInfo> partitions = new ArrayList<>(raws.size());
         for (IcebergRawPartition raw : raws) {
             Map<String, String> values = new LinkedHashMap<>();

@@ -18,6 +18,7 @@
 package org.apache.doris.connector.iceberg;
 
 import org.apache.doris.connector.api.ConnectorSession;
+import org.apache.doris.connector.api.DorisConnectorException;
 import org.apache.doris.connector.api.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.api.pushdown.ConnectorExpression;
@@ -56,6 +57,7 @@ import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.TableScan;
+import org.apache.iceberg.exceptions.ValidationException;
 import org.apache.iceberg.expressions.Expression;
 import org.apache.iceberg.expressions.Expressions;
 import org.apache.iceberg.expressions.InclusiveMetricsEvaluator;
@@ -537,9 +539,44 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
         } catch (IOException e) {
             throw new RuntimeException("Failed to enumerate iceberg file scan tasks, error message is:"
                     + e.getMessage(), e);
+        } catch (ValidationException e) {
+            // Port of legacy IcebergScanNode.checkNotSupportedException: a table with a partition spec whose
+            // SOURCE column was later DROPPED cannot be planned — iceberg resolves the orphaned partition field
+            // while building the delete-file index / partition projection during planFiles() and fails. The
+            // legacy stack was a raw NullPointerException on iceberg 1.4.x ("Type cannot be null"); the iceberg
+            // version this connector links guards the null source explicitly and throws ValidationException
+            // ("Cannot find source column for partition field: ..."). Surface the stable legacy user-facing
+            // message (the partition-evolution regression asserts this substring) instead of a raw internal
+            // failure. Only the dropped-source-column signature is reclassified; any UNRELATED ValidationException
+            // (a genuine query-validation error) is rethrown untouched. NullPointerException is deliberately NOT
+            // caught here — on this iceberg version the dropped-column case is a ValidationException, so catching
+            // NPE would only mask unrelated bugs (fail loud instead).
+            if (!IcebergPartitionUtils.isDroppedPartitionSourceColumn(e)) {
+                throw e;
+            }
+            LOG.warn("Unable to plan for iceberg table {}", table.name(), e);
+            throw new DorisConnectorException("Unable to plan for this table. "
+                    + "Maybe read Iceberg table with dropped old partition column. Cause: " + rootCauseMessage(e));
         }
         LOG.debug("Iceberg planScan produced {} ranges for table {}", ranges.size(), table.name());
         return ranges;
+    }
+
+    /**
+     * The class-qualified message of the ROOT cause, a self-contained port of legacy
+     * {@code Util.getRootCauseMessage} (the connector cannot import fe-core), used to fill the legacy
+     * "Cause: ..." suffix of the "Unable to plan for this table" error.
+     */
+    private static String rootCauseMessage(Throwable t) {
+        if (t == null) {
+            return "unknown";
+        }
+        Throwable p = t;
+        while (p.getCause() != null) {
+            p = p.getCause();
+        }
+        String message = p.getMessage();
+        return message == null ? p.getClass().getName() : p.getClass().getName() + ": " + message;
     }
 
     /**

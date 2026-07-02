@@ -22,13 +22,18 @@ import org.apache.doris.connector.api.mvcc.ConnectorMvccPartitionView;
 
 import org.apache.iceberg.DataFiles;
 import org.apache.iceberg.FileFormat;
+import org.apache.iceberg.FileScanTask;
+import org.apache.iceberg.MetadataTableType;
+import org.apache.iceberg.MetadataTableUtils;
 import org.apache.iceberg.PartitionData;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
+import org.apache.iceberg.exceptions.ValidationException;
 import org.apache.iceberg.inmemory.InMemoryCatalog;
+import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.types.Types;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -783,6 +788,60 @@ public class IcebergPartitionUtilsTest {
     public void listPartitionNamesUnpartitionedIsEmpty() {
         Table table = tableWith(RELATED_SCHEMA, PartitionSpec.unpartitioned());
         Assertions.assertTrue(IcebergPartitionUtils.listPartitionNames(table).isEmpty());
+    }
+
+    @Test
+    public void listPartitionsDegradesToEmptyWhenPartitionSourceColumnDropped() {
+        // Partition-evolution regression (external_table_p0/iceberg/test_iceberg_partition_evolution): a
+        // HISTORICAL spec references a source column that was later DROPPED, while the CURRENT spec stays
+        // partitioned on a surviving column. Building the PARTITIONS metadata table unifies the partition type
+        // across ALL specs, so iceberg throws ValidationException ("Cannot find source column for partition
+        // field: ...") for the orphaned field. listPartitions is display/enforcement metadata only (never the
+        // read set), so it must degrade to an empty (UNPARTITIONED) list instead of failing the whole query.
+        InMemoryCatalog catalog = new InMemoryCatalog();
+        catalog.initialize("test", Collections.emptyMap());
+        catalog.createNamespace(Namespace.of("db1"));
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "id", Types.IntegerType.get()),
+                Types.NestedField.optional(2, "region", Types.StringType.get()));
+        TableIdentifier id = TableIdentifier.of("db1", "t");
+        // format-version 2 so a partition field can be removed (v1 partition specs are append-only).
+        Table table = catalog.createTable(id, schema,
+                PartitionSpec.builderFor(schema).bucket("region", 8).build(),
+                Collections.singletonMap("format-version", "2"));
+        // A data file under the original (bucket-on-region) spec so the PARTITIONS metadata scan has a row whose
+        // spec must be unified.
+        table.newAppend().appendFile(DataFiles.builder(table.spec())
+                .withPath("s3://b/db1/t/f0.parquet").withFileSizeInBytes(100).withRecordCount(1)
+                .withPartitionPath("region_bucket=1").withFormat(FileFormat.PARQUET).build()).commit();
+        // Evolve: drop the bucket(region) partition field and add identity(id) — the CURRENT spec stays
+        // PARTITIONED (on the surviving id column), so listPartitions passes the isUnpartitioned() early-return
+        // and genuinely reaches the metadata scan (guards this test against a vacuous unpartitioned pass).
+        table.updateSpec().removeField("region_bucket").addField("id").commit();
+        table.newAppend().appendFile(DataFiles.builder(table.spec())
+                .withPath("s3://b/db1/t/f1.parquet").withFileSizeInBytes(100).withRecordCount(1)
+                .withPartitionPath("id=5").withFormat(FileFormat.PARQUET).build()).commit();
+        // Drop the source column referenced only by the historical spec, leaving that spec dangling.
+        table.updateSchema().deleteColumn("region").commit();
+        Table evolved = catalog.loadTable(id);
+        Assertions.assertTrue(evolved.spec().isPartitioned(),
+                "current spec must stay partitioned so listPartitions reaches the metadata scan, not the "
+                        + "unpartitioned early-return (otherwise this test would pass vacuously)");
+
+        // Precondition — prove the raw iceberg partition-metadata scan genuinely throws ValidationException here
+        // (guards against a future iceberg that tolerates the dangling spec, which would make this test vacuous).
+        Assertions.assertThrows(ValidationException.class, () -> {
+            Table partitionsTable = MetadataTableUtils.createMetadataTableInstance(
+                    evolved, MetadataTableType.PARTITIONS);
+            try (CloseableIterable<FileScanTask> tasks = partitionsTable.newScan().planFiles()) {
+                tasks.forEach(t -> { });
+            }
+        });
+
+        // The fix: listPartitions swallows exactly that failure and reports UNPARTITIONED (empty), so a
+        // full-table select on such a table is not blocked by uncomputable display metadata. MUTATION:
+        // rethrowing (or removing the catch) -> this throws instead of returning empty -> red.
+        Assertions.assertTrue(IcebergPartitionUtils.listPartitions(evolved).isEmpty());
     }
 
     @Test
