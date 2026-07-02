@@ -30,7 +30,10 @@ namespace doris::io {
 struct FileDescription;
 struct IOContext;
 } // namespace doris::io
+
+namespace doris {
 class RuntimeProfile;
+} // namespace doris
 
 namespace doris::format::parquet {
 
