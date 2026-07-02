@@ -862,6 +862,9 @@ class MS(CLOUD):
             time.strftime("%Y%m%d_%H%M%S"),
             uuid.uuid4().hex[:8],
         )
+        base_prefix = envs.get('DORIS_CLOUD_PREFIX', '').strip().strip('/')
+        if base_prefix:
+            prefix = '{}/{}'.format(base_prefix, prefix)
         envs['DORIS_CLOUD_PREFIX'] = prefix
         LOG.info(f"Set DORIS_CLOUD_PREFIX to {prefix}")
         return envs

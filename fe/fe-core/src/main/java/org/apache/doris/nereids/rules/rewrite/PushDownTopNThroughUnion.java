@@ -28,6 +28,7 @@ import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.collect.ImmutableList;
 
@@ -62,6 +63,14 @@ public class PushDownTopNThroughUnion implements RewriteRuleFactory {
         return ImmutableList.of(
                 logicalTopN(logicalUnion().when(union -> union.getQualifier() == Qualifier.ALL))
                         .then(topN -> {
+                            // The child TopN must keep limit + offset rows. When that sum overflows the
+                            // long range (e.g. LIMIT and OFFSET both BIGINT_MAX) no child can hold that many
+                            // rows, so pushing down cannot reduce anything and would create an illegal
+                            // negative limit. Skip the rewrite; the parent TopN still applies limit/offset.
+                            if (Utils.addOverflows(topN.getLimit(), topN.getOffset())) {
+                                return null;
+                            }
+                            long childLimit = topN.getLimit() + topN.getOffset();
                             LogicalUnion union = topN.child();
                             List<Plan> newChildren = new ArrayList<>();
                             for (int j = 0; j < union.children().size(); j++) {
@@ -77,8 +86,7 @@ public class PushDownTopNThroughUnion implements RewriteRuleFactory {
                                         .map(orderKey -> orderKey.withExpression(
                                                 ExpressionUtils.replace(orderKey.getExpr(), replaceMap)))
                                         .collect(ImmutableList.toImmutableList());
-                                newChildren.add(
-                                        new LogicalTopN<>(orderKeys, topN.getLimit() + topN.getOffset(), 0, child));
+                                newChildren.add(new LogicalTopN<>(orderKeys, childLimit, 0, child));
                             }
                             if (union.children().equals(newChildren)) {
                                 return null;

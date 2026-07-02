@@ -23,7 +23,8 @@
 
 #include <cstddef> // for size_t
 #include <cstdint> // for uint32_t
-#include <memory>  // for unique_ptr
+#include <map>
+#include <memory> // for unique_ptr
 #include <string>
 #include <utility>
 #include <vector>
@@ -45,6 +46,7 @@
 #include "storage/segment/page_handle.h" // for PageHandle
 #include "storage/segment/page_pointer.h"
 #include "storage/segment/parsed_page.h" // for ParsedPage
+#include "storage/segment/row_ranges.h"
 #include "storage/segment/segment_prefetcher.h"
 #include "storage/segment/stream_reader.h"
 #include "storage/tablet/tablet_schema.h"
@@ -209,6 +211,12 @@ public:
 
     Status prune_predicates_by_zone_map(std::vector<std::shared_ptr<ColumnPredicate>>& predicates,
                                         const int column_id, bool* pruned) const;
+
+    Status get_segment_zone_map(segment_v2::ZoneMap* zone_map) const;
+    Status get_page_zone_maps(const ColumnIteratorOptions& iter_opts,
+                              const std::vector<ZoneMapPB>** zone_maps);
+    Status get_row_range_for_page(uint32_t page_index, const ColumnIteratorOptions& iter_opts,
+                                  RowRange* row_range);
 
     CompressionTypePB get_compression() const { return _meta_compression; }
 

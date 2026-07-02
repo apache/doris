@@ -163,7 +163,7 @@ protected:
         node.in_predicate.__set_is_not_in(false);
         node.__set_opcode(TExprOpcode::FILTER_IN);
         node.__set_is_nullable(false);
-        return VDirectInPredicate::create_shared(node, in_filter<PT>(value, contain_null));
+        return VDirectInPredicate::create_shared(node, in_filter<PT>(value, contain_null), true);
     }
 
     template <PrimitiveType PT>

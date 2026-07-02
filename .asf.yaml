@@ -57,7 +57,6 @@ github:
           - vault_p0 (Doris Cloud Regression)
           - FE UT (Doris FE UT)
           - BE UT (Doris BE UT)
-          - Build Broker
           - Build Third Party Libraries (Linux)
           - Build Third Party Libraries (macOS)
           - Build Third Party Libraries (macOS-arm64)

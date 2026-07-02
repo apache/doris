@@ -333,6 +333,8 @@ DECLARE_mInt32(download_low_speed_limit_kbps);
 DECLARE_mInt32(download_low_speed_time);
 // whether to download small files in batch.
 DECLARE_mBool(enable_batch_download);
+// whether to enable stream load forward endpoint for cloud group commit
+DECLARE_mBool(enable_group_commit_streamload_be_forward);
 // whether to check md5sum when download
 DECLARE_mBool(enable_download_md5sum_check);
 // download binlog meta timeout
@@ -472,6 +474,7 @@ DECLARE_String(storage_page_cache_limit);
 // Shard size for page cache, the value must be power of two.
 // It's recommended to set it to a value close to the number of BE cores in order to reduce lock contentions.
 DECLARE_Int32(storage_page_cache_shard_size);
+DECLARE_mInt32(file_cache_mem_storage_shard_num);
 // Percentage for index page cache
 // all storage page cache will be divided into data_page_cache and index_page_cache
 DECLARE_Int32(index_page_cache_percentage);
@@ -713,9 +716,11 @@ DECLARE_mInt64(load_error_log_limit_bytes);
 // each category has diffrent thread number
 // threads to handle heavy api interface, such as transmit_block etc
 DECLARE_Int32(brpc_heavy_work_pool_threads);
+DECLARE_Int32(brpc_peer_fetch_pool_threads);
 // threads to handle light api interface, such as exec_plan_fragment_prepare/exec_plan_fragment_start
 DECLARE_Int32(brpc_light_work_pool_threads);
 DECLARE_Int32(brpc_heavy_work_pool_max_queue_size);
+DECLARE_Int32(brpc_peer_fetch_pool_max_queue_size);
 DECLARE_Int32(brpc_light_work_pool_max_queue_size);
 DECLARE_mBool(enable_bthread_transmit_block);
 DECLARE_Int32(brpc_arrow_flight_work_pool_threads);
@@ -1150,6 +1155,11 @@ DECLARE_mInt32(cold_data_compaction_score_threshold);
 DECLARE_Int32(min_s3_file_system_thread_num);
 DECLARE_Int32(max_s3_file_system_thread_num);
 
+// Thread pool for S3 reads in cross-CG peer winner race.
+// Max should match max_concurrent_peer_races so the pool never fills up under normal operation.
+DECLARE_Int32(min_peer_race_s3_thread_num);
+DECLARE_Int32(max_peer_race_s3_thread_num);
+
 DECLARE_Bool(enable_time_lut);
 
 DECLARE_mBool(enable_query_like_bloom_filter);
@@ -1509,6 +1519,8 @@ DECLARE_mInt32(group_commit_queue_mem_limit);
 // group_commit_wal_max_disk_limit=1024 or group_commit_wal_max_disk_limit=10% can be automatically identified.
 DECLARE_mString(group_commit_wal_max_disk_limit);
 DECLARE_Bool(group_commit_wait_replay_wal_finish);
+// Max time(ms) to wait for creating group commit plan fragment. 0 means no timeout.
+DECLARE_mInt32(group_commit_create_plan_timeout_ms);
 
 // The configuration item is used to lower the priority of the scanner thread,
 // typically employed to ensure CPU scheduling for write operations.

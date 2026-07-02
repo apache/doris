@@ -153,3 +153,4 @@ compile_commands.json
 .github
 
 .worktrees/
+.worktree_initialized

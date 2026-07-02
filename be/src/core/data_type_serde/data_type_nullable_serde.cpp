@@ -22,7 +22,7 @@
 
 #include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
-#include <memory>
+#include <vector>
 
 #include "common/config.h"
 #include "core/assert_cast.h"
@@ -33,10 +33,12 @@
 #include "core/data_type_serde/arrow_validation.h"
 #include "core/data_type_serde/data_type_serde.h"
 #include "core/data_type_serde/data_type_string_serde.h"
+#include "core/data_type_serde/decoded_column_view.h"
 #include "exprs/function/cast/cast_base.h"
 #include "format/transformer/vcsv_transformer.h"
 #include "util/jsonb_document.h"
 #include "util/jsonb_writer.h"
+#include "util/simd/bits.h"
 
 namespace doris {
 class Arena;
@@ -354,6 +356,39 @@ Status DataTypeNullableSerDe::read_column_from_arrow(IColumn& column,
     }
     return nested_serde->read_column_from_arrow(col.get_nested_column(), arrow_array, start, end,
                                                 ctz);
+}
+
+Status DataTypeNullableSerDe::read_column_from_decoded_values(IColumn& column,
+                                                              const DecodedColumnView& view) const {
+    auto& nullable_column = assert_cast<ColumnNullable&>(column);
+    auto& null_map = nullable_column.get_null_map_data();
+    const auto old_size = null_map.size();
+    auto& nested_column = nullable_column.get_nested_column();
+    const auto old_nested_size = nested_column.size();
+    null_map.resize(null_map.size() + view.row_count);
+    if (view.null_map == nullptr) {
+        // No null value
+        memset(null_map.data() + old_size, 0, view.row_count);
+    } else {
+        // TODO: skip if no null in map
+        auto* dst = null_map.data() + old_size;
+        memcpy(dst, view.null_map, view.row_count);
+        // If there are all null values, we can skip reading nested column and just insert defaults.
+        if (simd::count_zero_num(reinterpret_cast<const int8_t*>(view.null_map), view.row_count) ==
+            0) {
+            nested_column.insert_many_defaults(view.row_count);
+            return Status::OK();
+        }
+    }
+    DecodedColumnView nested_view = view;
+    nested_view.conversion_failure_null_map = &null_map;
+    nested_view.conversion_failure_null_map_offset = old_size;
+    auto st = nested_serde->read_column_from_decoded_values(nested_column, nested_view);
+    if (!st.ok()) {
+        null_map.resize(old_size);
+        nested_column.resize(old_nested_size);
+    }
+    return st;
 }
 
 bool DataTypeNullableSerDe::write_column_to_mysql_text(const IColumn& column, BufferWritable& bw,

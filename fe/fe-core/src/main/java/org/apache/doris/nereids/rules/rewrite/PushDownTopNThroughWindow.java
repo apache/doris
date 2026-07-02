@@ -30,6 +30,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
+import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.collect.ImmutableList;
 
@@ -53,6 +54,11 @@ public class PushDownTopNThroughWindow implements RewriteRuleFactory {
                 if (!checkTopNForPartitionLimitPushDown(topn, windowExprId)) {
                     return topn;
                 }
+                // When limit + offset overflows the long range (e.g. LIMIT and OFFSET both
+                // BIGINT_MAX) the partition limit cannot reduce anything; skip the push-down.
+                if (Utils.addOverflows(topn.getLimit(), topn.getOffset())) {
+                    return topn;
+                }
                 long partitionLimit = topn.getLimit() + topn.getOffset();
                 Pair<WindowExpression, Long> windowFuncLongPair = window
                         .getPushDownWindowFuncAndLimit(null, partitionLimit);
@@ -74,6 +80,11 @@ public class PushDownTopNThroughWindow implements RewriteRuleFactory {
                 }
 
                 if (!checkTopNForPartitionLimitPushDown(topn, windowExprId)) {
+                    return topn;
+                }
+                // When limit + offset overflows the long range (e.g. LIMIT and OFFSET both
+                // BIGINT_MAX) the partition limit cannot reduce anything; skip the push-down.
+                if (Utils.addOverflows(topn.getLimit(), topn.getOffset())) {
                     return topn;
                 }
                 long partitionLimit = topn.getLimit() + topn.getOffset();

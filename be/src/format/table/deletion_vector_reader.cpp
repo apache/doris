@@ -54,9 +54,9 @@ Status DeletionVectorReader::_create_file_reader() {
         return Status::EndOfFile("stop read.");
     }
 
-    _file_description.mtime = _range.__isset.modification_time ? _range.modification_time : 0;
+    _file_description.mtime = _desc.modification_time;
     io::FileReaderOptions reader_options =
-            FileFactory::get_reader_options(_state, _file_description);
+            FileFactory::get_reader_options(_state->query_options(), _file_description);
     _file_reader = DORIS_TRY(io::DelegateReader::create_file_reader(
             _profile, _system_properties, _file_description, reader_options,
             io::DelegateReader::AccessMode::RANDOM, _io_ctx));
@@ -64,20 +64,13 @@ Status DeletionVectorReader::_create_file_reader() {
 }
 
 void DeletionVectorReader::_init_file_description() {
-    _file_description.path = _range.path;
-    _file_description.file_size = _range.__isset.file_size ? _range.file_size : -1;
-    if (_range.__isset.fs_name) {
-        _file_description.fs_name = _range.fs_name;
-    }
+    _file_description.path = _desc.path;
+    _file_description.file_size = _desc.file_size;
+    _file_description.fs_name = _desc.fs_name;
 }
 
 void DeletionVectorReader::_init_system_properties() {
-    if (_range.__isset.file_type) {
-        // for compatibility
-        _system_properties.system_type = _range.file_type;
-    } else {
-        _system_properties.system_type = _params.file_type;
-    }
+    _system_properties.system_type = _params.file_type;
     _system_properties.properties = _params.properties;
     _system_properties.hdfs_params = _params.hdfs_params;
     if (_params.__isset.broker_addresses) {

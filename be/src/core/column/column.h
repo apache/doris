@@ -421,6 +421,16 @@ public:
                                "Method update_crc32c_batch is not supported for " + get_name());
     }
 
+    // Hash NULL rows as this column type's default value, instead of skipping them like
+    // update_crc32c_batch(hashes, null_map). This keeps the legacy Nullable fixed-width hash
+    // semantics without mutating the source nested column.
+    virtual void update_crc32c_batch_default_on_null(uint32_t* __restrict hashes,
+                                                     const uint8_t* __restrict null_map) const {
+        throw doris::Exception(
+                ErrorCode::NOT_IMPLEMENTED_ERROR,
+                "Method update_crc32c_batch_default_on_null is not supported for " + get_name());
+    }
+
     // use range for one hash value to avoid virtual function call in loop
     virtual void update_crc32c_single(size_t start, size_t end, uint32_t& hash,
                                       const uint8_t* __restrict null_map) const {
@@ -452,7 +462,8 @@ public:
      *  // nullable -> predict_column
      *  // string (dictionary) -> column_dictionary
      */
-    virtual Status filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) {
+    virtual Status filter_by_selector(const uint16_t* sel, size_t sel_size,
+                                      IColumn* col_ptr) const {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "Method filter_by_selector is not supported for {}, only "
                                "column_nullable, column_dictionary and predict_column support",

@@ -17,10 +17,12 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
+import org.apache.doris.nereids.util.Utils;
 
 /**
  * This rule aims to merge consecutive limits.
@@ -54,7 +56,16 @@ public class MergeLimits extends OneRewriteRuleFactory {
                 }).toRule(RuleType.MERGE_LIMITS);
     }
 
+    /**
+     * Merge two consecutive limits' offsets into a single offset. Consecutive limits must be merged,
+     * and an overflowing combined offset cannot be represented as a single offset, so fail fast
+     * instead of wrapping to a negative offset.
+     */
     public static long mergeOffset(long upperOffset, long bottomOffset) {
+        if (Utils.addOverflows(upperOffset, bottomOffset)) {
+            throw new AnalysisException(
+                    "offset overflows long range when merging limits: " + upperOffset + " + " + bottomOffset);
+        }
         return upperOffset + bottomOffset;
     }
 

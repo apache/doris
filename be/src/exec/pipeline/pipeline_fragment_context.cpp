@@ -145,7 +145,6 @@ PipelineFragmentContext::PipelineFragmentContext(
           _exec_env(exec_env),
           _query_ctx(std::move(query_ctx)),
           _call_back(call_back),
-          _is_report_on_cancel(true),
           _params(request),
           _parallel_instances(_params.__isset.parallel_instances ? _params.parallel_instances : 0),
           _need_notify_close(request.__isset.need_notify_close ? request.need_notify_close
@@ -240,9 +239,7 @@ void PipelineFragmentContext::cancel(const Status reason) {
     }
 
     _query_ctx->cancel(reason, _fragment_id);
-    if (reason.is<ErrorCode::LIMIT_REACH>()) {
-        _is_report_on_cancel = false;
-    } else {
+    if (!reason.is<ErrorCode::LIMIT_REACH>() && !reason.is<ErrorCode::FINISHED>()) {
         for (auto& id : _fragment_instance_ids) {
             LOG(WARNING) << "PipelineFragmentContext cancel instance: " << print_id(id);
         }
@@ -2568,26 +2565,17 @@ void PipelineFragmentContext::_coordinator_callback(const ReportStatusRequest& r
 
 Status PipelineFragmentContext::send_report(bool done) {
     Status exec_status = _query_ctx->exec_status();
-    // If plan is done successfully, but _is_report_success is false,
-    // no need to send report.
-    // Load will set _is_report_success to true because load wants to know
-    // the process.
-    if (!_is_report_success && done && exec_status.ok()) {
-        return Status::OK();
-    }
 
-    // If both _is_report_success and _is_report_on_cancel are false,
-    // which means no matter query is success or failed, no report is needed.
-    // This may happen when the query limit reached and
-    // a internal cancellation being processed
-    // When limit is reached the fragment is also cancelled, but _is_report_on_cancel will
-    // be set to false, to avoid sending fault report to FE.
-    if (!_is_report_success && !_is_report_on_cancel) {
-        if (done) {
-            // if done is true, which means the query is finished successfully, we can safely close the fragment instance without sending report to FE, and just return OK status here.
+    if (!_is_report_success) {
+        // _is_report_success means this is not a load job, do not need to report to fe periodically.
+        if (exec_status.is<ErrorCode::LIMIT_REACH>() || exec_status.is<ErrorCode::FINISHED>() ||
+            exec_status.ok()) {
             return Status::OK();
+        } else {
+            // else it means there is some error in processing the query, and we need to send report to FE to let FE know the error.
         }
-        return Status::NeedSendAgain("");
+    } else {
+        // This is a load job, need report the process status to FE periodly, so that FE can know the process of the load job.
     }
 
     std::vector<RuntimeState*> runtime_states;

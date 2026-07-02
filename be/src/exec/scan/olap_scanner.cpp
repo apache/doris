@@ -92,19 +92,19 @@ OlapScanner::OlapScanner(ScanLocalStateBase* parent, OlapScanner::Params&& param
                                  .rs_splits {},
                                  .return_columns {},
                                  .output_columns {},
+                                 .extra_columns {},
                                  .common_expr_ctxs_push_down {},
                                  .topn_filter_source_node_ids {},
                                  .key_group_cluster_key_idxes {},
                                  .virtual_column_exprs {},
-                                 .vir_cid_to_idx_in_block {},
-                                 .vir_col_idx_to_type {},
                                  .score_runtime {},
                                  .collection_statistics {},
                                  .ann_topn_runtime {},
                                  .condition_cache_digest = parent->get_condition_cache_digest(),
                                  .binlog_scan_type = params.binlog_scan_type}),
           _start_tso(params.start_tso),
-          _end_tso(params.end_tso) {
+          _end_tso(params.end_tso),
+          _initial_file_cache_stats(std::move(params.initial_file_cache_stats)) {
     _tablet_reader_params.set_read_source(std::move(params.read_source),
                                           _state->skip_delete_bitmap());
     _has_prepared = false;
@@ -179,8 +179,6 @@ Status OlapScanner::_prepare_impl() {
         _slot_id_to_virtual_column_expr[pair.first] = context;
     }
 
-    _slot_id_to_index_in_block = local_state->_slot_id_to_index_in_block;
-    _slot_id_to_col_type = local_state->_slot_id_to_col_type;
     _score_runtime = local_state->_score_runtime;
     // All scanners share the same ann_topn_runtime.
     _ann_topn_runtime = local_state->_ann_topn_runtime;
@@ -308,6 +306,7 @@ Status OlapScanner::_open_impl(RuntimeState* state) {
                    ", backend=" + BackendOptions::get_localhost());
         return res;
     }
+    _tablet_reader->mutable_stats()->file_cache_stats.merge_from(_initial_file_cache_stats);
 
     // Do not hold rs_splits any more to release memory.
     _tablet_reader_params.rs_splits.clear();
@@ -399,8 +398,6 @@ Status OlapScanner::_init_tablet_reader_params(
 
     _tablet_reader_params.common_expr_ctxs_push_down = _common_expr_ctxs_push_down;
     _tablet_reader_params.virtual_column_exprs = _virtual_column_exprs;
-    _tablet_reader_params.vir_cid_to_idx_in_block = _vir_cid_to_idx_in_block;
-    _tablet_reader_params.vir_col_idx_to_type = _vir_col_idx_to_type;
     _tablet_reader_params.score_runtime = _score_runtime;
     _tablet_reader_params.output_columns = ((OlapScanLocalState*)_local_state)->_output_column_ids;
     _tablet_reader_params.ann_topn_runtime = _ann_topn_runtime;
@@ -696,6 +693,11 @@ Status OlapScanner::_init_variant_columns() {
 }
 
 Status OlapScanner::_init_return_columns() {
+    // For OLAP scan, _output_tuple_desc is the storage-aligned scan tuple
+    // descriptor. extra_key_column_slot_ids marks extra key slots that are
+    // present only for scan-schema alignment. For example, on an AGG table with
+    // keys (k1, k2), a query returning only k2 may still scan (k1, k2); k1 is
+    // an extra column and can be removed by the projection output tuple.
     for (auto* slot : _output_tuple_desc->slots()) {
         // variant column using path to index a column
         int32_t index = 0;
@@ -716,19 +718,25 @@ Status OlapScanner::_init_return_columns() {
         }
 
         if (slot->get_virtual_column_expr()) {
-            ColumnId virtual_column_cid = index;
-            _virtual_column_exprs[virtual_column_cid] = _slot_id_to_virtual_column_expr[slot->id()];
-            size_t idx_in_block = _slot_id_to_index_in_block[slot->id()];
-            _vir_cid_to_idx_in_block[virtual_column_cid] = idx_in_block;
-            _vir_col_idx_to_type[idx_in_block] = _slot_id_to_col_type[slot->id()];
+            _virtual_column_exprs[index] = _slot_id_to_virtual_column_expr[slot->id()];
 
-            VLOG_DEBUG << fmt::format(
-                    "Virtual column, slot id: {}, cid {}, column index: {}, type: {}", slot->id(),
-                    virtual_column_cid, _vir_cid_to_idx_in_block[virtual_column_cid],
-                    _vir_col_idx_to_type[idx_in_block]->get_name());
+            VLOG_DEBUG << fmt::format("Virtual column, slot id: {}, cid {}, type: {}", slot->id(),
+                                      index, slot->get_data_type_ptr()->get_name());
         }
 
         const auto& column = tablet_schema->column(index);
+        auto* olap_local_state = static_cast<OlapScanLocalState*>(_local_state);
+        const auto& olap_scan_node = olap_local_state->olap_scan_node();
+        if (olap_scan_node.__isset.extra_key_column_slot_ids &&
+            olap_scan_node.extra_key_column_slot_ids.contains(slot->id())) {
+            DORIS_CHECK(column.is_key());
+            if (_tablet_reader_params.direct_mode) {
+                // Direct readers can synthesize extra storage keys because they are only
+                // placeholders before the scan projection removes them. Merge/aggregation
+                // readers must still read real key values to preserve storage semantics.
+                _tablet_reader_params.extra_columns.insert(index);
+            }
+        }
         int32_t unique_id =
                 column.unique_id() >= 0 ? column.unique_id() : column.parent_unique_id();
         if (!slot->all_access_paths().empty()) {
@@ -935,6 +943,14 @@ void OlapScanner::_collect_profile_before_close() {
     COUNTER_UPDATE(local_state->_rows_expr_cond_input_counter, stats.expr_cond_input_rows);
     COUNTER_UPDATE(local_state->_stats_filtered_counter, stats.rows_stats_filtered);
     COUNTER_UPDATE(local_state->_stats_rp_filtered_counter, stats.rows_stats_rp_filtered);
+    COUNTER_UPDATE(local_state->_expr_zonemap_filtered_segment_counter,
+                   stats.expr_zonemap_filtered_segments);
+    COUNTER_UPDATE(local_state->_expr_zonemap_filtered_page_counter,
+                   stats.expr_zonemap_filtered_pages);
+    COUNTER_UPDATE(local_state->_expr_zonemap_unusable_counter, stats.expr_zonemap_unusable_evals);
+    COUNTER_UPDATE(local_state->_in_zonemap_point_check_counter,
+                   stats.in_zonemap_point_check_count);
+    COUNTER_UPDATE(local_state->_in_zonemap_range_only_counter, stats.in_zonemap_range_only_count);
     COUNTER_UPDATE(local_state->_dict_filtered_counter, stats.segment_dict_filtered);
     COUNTER_UPDATE(local_state->_bf_filtered_counter, stats.rows_bf_filtered);
     COUNTER_UPDATE(local_state->_del_filtered_counter, stats.rows_del_filtered);

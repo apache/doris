@@ -229,6 +229,16 @@ Status OlapScanLocalState::_init_profile() {
     _stats_filtered_counter = ADD_COUNTER(_segment_profile, "RowsStatsFiltered", TUnit::UNIT);
     _stats_rp_filtered_counter =
             ADD_COUNTER(_segment_profile, "RowsZoneMapRuntimePredicateFiltered", TUnit::UNIT);
+    _expr_zonemap_filtered_segment_counter =
+            ADD_COUNTER(_segment_profile, "ExprZoneMapFilteredSegments", TUnit::UNIT);
+    _expr_zonemap_filtered_page_counter =
+            ADD_COUNTER(_segment_profile, "ExprZoneMapFilteredPages", TUnit::UNIT);
+    _expr_zonemap_unusable_counter =
+            ADD_COUNTER(_segment_profile, "ExprZoneMapUnusableEvals", TUnit::UNIT);
+    _in_zonemap_point_check_counter =
+            ADD_COUNTER(_segment_profile, "InZoneMapPointCheckCount", TUnit::UNIT);
+    _in_zonemap_range_only_counter =
+            ADD_COUNTER(_segment_profile, "InZoneMapRangeOnlyCount", TUnit::UNIT);
     _bf_filtered_counter = ADD_COUNTER(_segment_profile, "RowsBloomFilterFiltered", TUnit::UNIT);
     _dict_filtered_counter = ADD_COUNTER(_segment_profile, "SegmentDictFiltered", TUnit::UNIT);
     _del_filtered_counter = ADD_COUNTER(_scanner_profile, "RowsDelFiltered", TUnit::UNIT);
@@ -767,7 +777,6 @@ Status OlapScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
             for (auto& split : _read_sources[scan_range_idx].rs_splits) {
                 split.rs_reader = split.rs_reader->clone();
             }
-
             auto scanner = OlapScanner::create_shared(
                     this, OlapScanner::Params {
                                   state(),
@@ -776,6 +785,7 @@ Status OlapScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
                                   _tablets[scan_range_idx].tablet,
                                   version,
                                   _read_sources[scan_range_idx],
+                                  {},
                                   p._limit,
                                   p._olap_scan_node.is_preaggregation,
                                   read_row_binlog,
@@ -996,16 +1006,6 @@ Status OlapScanLocalState::open(RuntimeState* state) {
             RETURN_IF_ERROR(virtual_column_expr_ctx->open(state));
 
             _slot_id_to_virtual_column_expr[slot_desc->id()] = virtual_column_expr_ctx;
-            _slot_id_to_col_type[slot_desc->id()] = slot_desc->get_data_type_ptr();
-            int col_pos = p.intermediate_row_desc().get_column_id(slot_desc->id());
-            if (col_pos < 0) {
-                return Status::InternalError(
-                        "Invalid virtual slot, can not find its information. Slot desc:\n{}\nRow "
-                        "desc:\n{}",
-                        slot_desc->debug_string(), p.row_desc().debug_string());
-            } else {
-                _slot_id_to_index_in_block[slot_desc->id()] = col_pos;
-            }
         }
     }
 
