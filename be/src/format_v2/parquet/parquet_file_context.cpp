@@ -189,7 +189,10 @@ public:
     }
 
     arrow::Status Close() override {
-        _closed = true;
+        if (!_closed) {
+            collect_active_merge_range_profile();
+            _closed = true;
+        }
         return arrow::Status::OK();
     }
 
@@ -425,8 +428,18 @@ private:
     }
 
     void reset_active_file_reader() {
+        collect_active_merge_range_profile();
         _merge_range_active = false;
         set_active_file_reader(_base_file_reader);
+    }
+
+    void collect_active_merge_range_profile() {
+        if (_merge_range_active && _file_reader != nullptr) {
+            // MergeRangeFileReader writes its MergedSmallIO counters only from
+            // collect_profile_before_close(). v2 replaces the active reader for every row group,
+            // so collect before overwriting it; Close() handles the final row group.
+            _file_reader->collect_profile_before_close();
+        }
     }
 
     std::shared_ptr<io::CachedRemoteFileReader> cached_remote_file_reader() {
