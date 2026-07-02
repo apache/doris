@@ -1146,21 +1146,19 @@ public class PaimonConnectorMetadataMvccTest {
     // ==================== capabilities ====================
 
     @Test
-    public void connectorDeclaresMvccAndTimeTravelCapabilities() {
+    public void connectorDeclaresMvccCapability() {
         // PaimonConnector is unit-constructable: getCapabilities() does NOT touch the catalog (the
         // catalog is created lazily on first getMetadata/getScanPlanProvider call), so a null-config
         // connector with a recording context suffices.
         ConnectorContext ctx = new RecordingConnectorContext();
         Set<ConnectorCapability> caps = new PaimonConnector(Collections.emptyMap(), ctx).getCapabilities();
 
-        // WHY: B5's fe-core MvccTable wiring keys off these capabilities to decide whether paimon
-        // tables expose MVCC pinning and FOR TIME TRAVEL / FOR VERSION AS OF. If they were absent
-        // (the inherited Connector default = emptySet), the E5 methods above would never be called.
-        // MUTATION: leaving getCapabilities() unoverridden (empty set) -> both assertions red.
+        // WHY: B5's fe-core MvccTable wiring keys off this capability to decide whether paimon
+        // tables expose MVCC pinning. If it were absent (the inherited Connector default = emptySet),
+        // the E5 methods above would never be called. MUTATION: leaving getCapabilities()
+        // unoverridden (empty set) -> assertion red.
         Assertions.assertTrue(caps.contains(ConnectorCapability.SUPPORTS_MVCC_SNAPSHOT),
                 "paimon must declare SUPPORTS_MVCC_SNAPSHOT");
-        Assertions.assertTrue(caps.contains(ConnectorCapability.SUPPORTS_TIME_TRAVEL),
-                "paimon must declare SUPPORTS_TIME_TRAVEL");
     }
 
     @Test

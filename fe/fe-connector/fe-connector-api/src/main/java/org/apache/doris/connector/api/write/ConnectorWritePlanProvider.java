@@ -151,7 +151,7 @@ public interface ConnectorWritePlanProvider {
     /**
      * The write operations this provider can plan, in one place — the single source of truth for a
      * connector's write capability. Replaces the removed {@code ConnectorWriteOps} boolean methods and
-     * the {@code SUPPORTS_INSERT} capability. Default: INSERT only (any write provider can at least
+     * the removed INSERT-support capability switch. Default: INSERT only (any write provider can at least
      * append). A connector overrides this to add OVERWRITE / DELETE / MERGE / REWRITE. Connector-level
      * (does not vary per table); per-table mode constraints stay in
      * {@link org.apache.doris.connector.api.ConnectorWriteOps#validateRowLevelDmlMode}.
@@ -167,8 +167,9 @@ public interface ConnectorWritePlanProvider {
 
     /**
      * Whether the connector supports multiple concurrent writers (parallel sink instances). Connectors that
-     * do not declare this get GATHER (single-writer) distribution. Relocated from
-     * {@code ConnectorCapability.SUPPORTS_PARALLEL_WRITE}. Default: no.
+     * do not declare this get GATHER (single-writer) distribution. Formerly a static
+     * {@code ConnectorCapability} switch; now this per-provider method is the single source of truth.
+     * Default: no.
      */
     default boolean requiresParallelWrite() {
         return false;
@@ -176,8 +177,9 @@ public interface ConnectorWritePlanProvider {
 
     /**
      * Whether the connector maps write data columns positionally against the full table schema (so the sink
-     * must project rows to full-schema order with unmentioned columns filled). Relocated from
-     * {@code ConnectorCapability.SINK_REQUIRE_FULL_SCHEMA_ORDER}. Default: no.
+     * must project rows to full-schema order with unmentioned columns filled). Formerly a static
+     * {@code ConnectorCapability} switch; now this per-provider method is the single source of truth.
+     * Default: no.
      */
     default boolean requiresFullSchemaWriteOrder() {
         return false;
@@ -185,9 +187,9 @@ public interface ConnectorWritePlanProvider {
 
     /**
      * Whether dynamic-partition writes must be hash-distributed by partition columns and locally sorted by
-     * them before the sink (e.g. MaxCompute Storage API). Relocated from
-     * {@code ConnectorCapability.SINK_REQUIRE_PARTITION_LOCAL_SORT}. A connector declaring this must also
-     * declare {@link #requiresParallelWrite()} and {@link #requiresFullSchemaWriteOrder()}. Default: no.
+     * them before the sink (e.g. MaxCompute Storage API). Formerly a static {@code ConnectorCapability}
+     * switch; now this per-provider method is the single source of truth. A connector declaring this must
+     * also declare {@link #requiresParallelWrite()} and {@link #requiresFullSchemaWriteOrder()}. Default: no.
      */
     default boolean requiresPartitionLocalSort() {
         return false;
@@ -196,7 +198,8 @@ public interface ConnectorWritePlanProvider {
     /**
      * Whether the connector's data files physically retain partition columns, so a static-partition write
      * must materialize the PARTITION-clause literal into the data column instead of NULL-filling it (e.g.
-     * Iceberg). Relocated from {@code ConnectorCapability.SINK_MATERIALIZE_STATIC_PARTITION_VALUES}. Default: no.
+     * Iceberg). Formerly a static {@code ConnectorCapability} switch; now this per-provider method is the
+     * single source of truth. Default: no.
      */
     default boolean requiresMaterializeStaticPartitionValues() {
         return false;

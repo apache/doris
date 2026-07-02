@@ -98,61 +98,15 @@ public class IcebergConnectorTest {
     }
 
     @Test
-    public void declaresMvccAndTimeTravelCapabilities() {
+    public void declaresMvccSnapshotCapability() {
         // WHY: SUPPORTS_MVCC_SNAPSHOT is the gate PluginDrivenExternalDatabase checks to build the MVCC/MTMV
-        // table subclass (so beginQuerySnapshot/resolveTimeTravel/applySnapshot fire); SUPPORTS_TIME_TRAVEL
-        // mirrors paimon. MUTATION: leaving the default empty capability set -> iceberg tables build as plain
-        // non-MVCC tables, time-travel silently reads latest -> red. (Inert pre-cutover; iceberg is not yet in
-        // SPI_READY_TYPES, so getCapabilities does not touch the catalog and needs no live connection.)
+        // table subclass (so beginQuerySnapshot/resolveTimeTravel/applySnapshot fire). MUTATION: leaving the
+        // default empty capability set -> iceberg tables build as plain non-MVCC tables, time-travel silently
+        // reads latest -> red. (Inert pre-cutover; iceberg is not yet in SPI_READY_TYPES, so getCapabilities
+        // does not touch the catalog and needs no live connection.)
         IcebergConnector connector = new IcebergConnector(Collections.emptyMap(), new RecordingConnectorContext());
         Set<ConnectorCapability> caps = connector.getCapabilities();
         Assertions.assertTrue(caps.contains(ConnectorCapability.SUPPORTS_MVCC_SNAPSHOT));
-        Assertions.assertTrue(caps.contains(ConnectorCapability.SUPPORTS_TIME_TRAVEL));
-    }
-
-    @Test
-    public void declaresFullSchemaWriteOrderCapability() {
-        // WHY (T06): legacy bindIcebergTableSink ALWAYS projects the write child to table.getFullSchema()
-        // order (BindSink:797-803), regardless of the INSERT column list. The generic
-        // bindConnectorTableSink reproduces that full-schema projection ONLY when the connector declares
-        // SINK_REQUIRE_FULL_SCHEMA_ORDER (BindSink:892-905); otherwise it keeps user-column order, which
-        // (a) writes values into the wrong remote columns and (b) makes the write-sort columnIndex
-        // (a full-schema position) resolve against a misaligned sink output. MUTATION: omitting the
-        // capability -> `INSERT INTO t (name, id) ...` orders/writes by the wrong column -> red.
-        IcebergConnector connector = new IcebergConnector(Collections.emptyMap(), new RecordingConnectorContext());
-        Assertions.assertTrue(connector.getCapabilities()
-                .contains(ConnectorCapability.SINK_REQUIRE_FULL_SCHEMA_ORDER));
-    }
-
-    @Test
-    public void declaresStaticPartitionMaterializationCapability() {
-        // WHY: legacy bindIcebergTableSink re-projects each static PARTITION(col='v') literal into its data
-        // column (BindSink:783-795); the iceberg BE writer keeps partition columns in the data file (does NOT
-        // strip them). The generic bindConnectorTableSink reproduces that projection ONLY when the connector
-        // declares SINK_MATERIALIZE_STATIC_PARTITION_VALUES; otherwise the static-partition column is
-        // NULL-filled and iceberg's InclusiveMetricsEvaluator prunes the file on read-back (e.g.
-        // `INSERT OVERWRITE ... PARTITION(par='a') SELECT ...` then `WHERE par='a'` reads empty). MaxCompute
-        // must NOT declare it (it strips partition columns + refills from static_partition_values). MUTATION:
-        // omitting the capability -> static-partition overwrite writes par=NULL -> read-back empty -> red.
-        IcebergConnector connector = new IcebergConnector(Collections.emptyMap(), new RecordingConnectorContext());
-        Assertions.assertTrue(connector.getCapabilities()
-                .contains(ConnectorCapability.SINK_MATERIALIZE_STATIC_PARTITION_VALUES));
-    }
-
-    @Test
-    public void declaresParallelWriteCapability() {
-        // WHY (C3b ④b): legacy iceberg INSERT distributes via PhysicalIcebergTableSink, whose partition-hash
-        // branch is DEAD (it reads getPartitionNames(), which IcebergExternalTable never overrides -> empty),
-        // so at RUNTIME every iceberg INSERT (partitioned or not) returns SINK_RANDOM_PARTITIONED (parallel
-        // writers). Post-cutover the generic PhysicalConnectorTableSink reproduces SINK_RANDOM_PARTITIONED
-        // ONLY when the connector declares SUPPORTS_PARALLEL_WRITE (else it falls through to GATHER, a single
-        // writer = a parallelism regression vs legacy). MUTATION: omitting the capability -> iceberg INSERT
-        // degrades to GATHER post-flip -> red.
-        IcebergConnector connector = new IcebergConnector(Collections.emptyMap(), new RecordingConnectorContext());
-        Assertions.assertTrue(connector.getCapabilities()
-                .contains(ConnectorCapability.SUPPORTS_PARALLEL_WRITE),
-                "iceberg must declare SUPPORTS_PARALLEL_WRITE so post-flip INSERT keeps legacy random "
-                        + "(parallel) distribution instead of degrading to GATHER");
     }
 
     @Test

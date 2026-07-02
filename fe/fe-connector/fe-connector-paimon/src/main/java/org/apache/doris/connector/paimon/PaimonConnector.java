@@ -184,16 +184,15 @@ public class PaimonConnector implements Connector {
     }
 
     /**
-     * Declares the E5 read-path capabilities paimon supports: MVCC snapshot pinning and time travel
-     * (FOR TIME TRAVEL / FOR VERSION AS OF). The B5 fe-core MvccTable wiring keys off these to call
-     * {@link PaimonConnectorMetadata#beginQuerySnapshot} / {@code resolveTimeTravel}.
+     * Declares the E5 read-path capabilities paimon supports: MVCC snapshot pinning. The B5 fe-core
+     * MvccTable wiring keys off this to call {@link PaimonConnectorMetadata#beginQuerySnapshot} /
+     * {@code resolveTimeTravel}.
      * No write capability is declared: paimon write is not migrated.
      */
     @Override
     public Set<ConnectorCapability> getCapabilities() {
         return EnumSet.of(
                 ConnectorCapability.SUPPORTS_MVCC_SNAPSHOT,
-                ConnectorCapability.SUPPORTS_TIME_TRAVEL,
                 // Paimon exposes per-partition stats (record/size/file count) via listPartitions,
                 // so SHOW PARTITIONS renders the legacy 5-column result (D-045).
                 ConnectorCapability.SUPPORTS_PARTITION_STATS,

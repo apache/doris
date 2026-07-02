@@ -18,81 +18,17 @@
 package org.apache.doris.connector.api;
 
 /**
- * Enumerates the optional capabilities a connector may declare.
- * The planner and execution engine use these to decide which
- * pushdown and write paths are available.
+ * Enumerates optional, connector-declared capability switches consumed directly by
+ * static query-planning code (pushdown/DDL/view/statistics gating, etc.).
+ *
+ * <p>This is an escape-hatch layer for capability checks that don't warrant a dedicated
+ * provider abstraction. Write operations and sink traits (parallel write, partition-local
+ * sort, full-schema write order, static-partition materialization) are NOT declared here —
+ * they live on the connector's {@link org.apache.doris.connector.api.write.ConnectorWritePlanProvider}
+ * instead, surfaced via {@link Connector#getWritePlanProvider()}.</p>
  */
 public enum ConnectorCapability {
-    SUPPORTS_FILTER_PUSHDOWN,
-    SUPPORTS_PROJECTION_PUSHDOWN,
-    SUPPORTS_LIMIT_PUSHDOWN,
-    SUPPORTS_PARTITION_PRUNING,
-    SUPPORTS_INSERT,
-    SUPPORTS_DELETE,
-    SUPPORTS_UPDATE,
-    SUPPORTS_MERGE,
-    SUPPORTS_CREATE_TABLE,
     SUPPORTS_MVCC_SNAPSHOT,
-    SUPPORTS_METASTORE_EVENTS,
-    SUPPORTS_STATISTICS,
-    SUPPORTS_VENDED_CREDENTIALS,
-    SUPPORTS_ACID_TRANSACTIONS,
-    SUPPORTS_TIME_TRAVEL,
-    /**
-     * Indicates the connector supports multiple concurrent writers (sink instances).
-     *
-     * <p>Connectors that do NOT declare this capability will use GATHER distribution
-     * (single writer), which is the safe default for transactional sinks like JDBC
-     * where each writer commits independently.</p>
-     *
-     * <p>File-based connectors (Hive, Iceberg, etc.) that can safely handle
-     * parallel writers should declare this capability.</p>
-     */
-    SUPPORTS_PARALLEL_WRITE,
-    /**
-     * Indicates the connector requires dynamic-partition writes to be hash-distributed by
-     * partition columns and locally sorted by them before reaching the sink.
-     *
-     * <p>Streaming partition writers (e.g. the MaxCompute Storage API) close the previous
-     * partition writer as soon as a new partition value appears; un-grouped (unsorted)
-     * multi-partition rows therefore cause "writer has been closed" errors. The planner uses
-     * this capability to require a hash-by-partition distribution plus a mandatory local sort
-     * on the partition columns for dynamic-partition writes.</p>
-     *
-     * <p>A connector declaring this is expected to also declare
-     * {@link #SUPPORTS_PARALLEL_WRITE} (hash distribution is inherently parallel) and
-     * {@link #SINK_REQUIRE_FULL_SCHEMA_ORDER}: the sink distribution locates partition columns by their
-     * <b>full-schema</b> position in the child output, which only holds when the bind layer projects the
-     * write to full-schema order (the projection gated by {@code SINK_REQUIRE_FULL_SCHEMA_ORDER}). A
-     * connector declaring this without {@code SINK_REQUIRE_FULL_SCHEMA_ORDER} would shuffle/sort by the
-     * wrong column whenever cols order diverges from the full schema.</p>
-     */
-    SINK_REQUIRE_PARTITION_LOCAL_SORT,
-    /**
-     * Indicates the connector's write path maps data columns <b>positionally</b> against the full
-     * table schema (e.g. MaxCompute's columnar Storage API / JNI writer), rather than by column name.
-     *
-     * <p>For such connectors the sink's output rows must be projected to <b>full table schema order</b>
-     * with any unmentioned columns filled (NULL / default) — exactly like the legacy MaxCompute bind
-     * path — so that a reordered or partial explicit column list does not land values in the wrong
-     * remote columns. Name-mapped connectors (e.g. JDBC, which builds an {@code INSERT INTO t (cols)}
-     * statement) must NOT declare this capability: their data stays in user/cols order to match the
-     * generated column list.</p>
-     */
-    SINK_REQUIRE_FULL_SCHEMA_ORDER,
-    /**
-     * Indicates the connector's data files PHYSICALLY RETAIN the partition columns, so a static-partition
-     * write (e.g. {@code INSERT OVERWRITE ... PARTITION(pt='x')}) must MATERIALIZE the PARTITION-clause
-     * literal into the data column rather than leave it NULL.
-     *
-     * <p>{@code BindSink.bindConnectorTableSink} excludes static-partition columns from the bound columns
-     * and {@code getColumnToOutput} NULL-fills them; a connector declaring this capability has the bind
-     * layer re-project the static literal into the column (mirrors legacy {@code bindIcebergTableSink}),
-     * because its writer persists the partition value FROM the data column (e.g. Iceberg). Connectors whose
-     * writer STRIPS partition columns from data files and refills them from the partition metadata /
-     * {@code static_partition_values} (e.g. MaxCompute) must NOT declare this and keep the NULL fill.</p>
-     */
-    SINK_MATERIALIZE_STATIC_PARTITION_VALUES,
     /**
      * Indicates the connector supports passthrough query via the {@code query()} TVF.
      *
@@ -108,8 +44,7 @@ public enum ConnectorCapability {
      * <p>{@code SHOW PARTITIONS} renders a rich multi-column result (Partition / PartitionKey /
      * RecordCount / FileSizeInBytes / FileCount) for connectors declaring this capability, instead
      * of the single partition-name column used by connectors that only implement
-     * {@code listPartitionNames}. This is distinct from {@link #SUPPORTS_STATISTICS}, which is
-     * table-level statistics for the optimizer.</p>
+     * {@code listPartitionNames}.</p>
      */
     SUPPORTS_PARTITION_STATS,
     /**

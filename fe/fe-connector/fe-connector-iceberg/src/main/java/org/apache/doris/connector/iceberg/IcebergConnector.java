@@ -261,24 +261,11 @@ public class IcebergConnector implements Connector {
     /**
      * Iceberg exposes point-in-time snapshots, so it declares {@code SUPPORTS_MVCC_SNAPSHOT} (the gate for the
      * generic {@code PluginDrivenMvccExternalTable}, which drives {@code beginQuerySnapshot}/{@code
-     * resolveTimeTravel}/{@code applySnapshot}) and {@code SUPPORTS_TIME_TRAVEL} (mirrors paimon). Inert
-     * pre-cutover — the capability is consumed only on the plugin-driven path, which iceberg does not use until
-     * it enters {@code SPI_READY_TYPES} (P6.6).
+     * resolveTimeTravel}/{@code applySnapshot}). Inert pre-cutover — the capability is consumed only on the
+     * plugin-driven path, which iceberg does not use until it enters {@code SPI_READY_TYPES} (P6.6).
      */
     @Override
     public Set<ConnectorCapability> getCapabilities() {
-        // SINK_REQUIRE_FULL_SCHEMA_ORDER: legacy bindIcebergTableSink ALWAYS projects the write child to
-        // table.getFullSchema() order (regardless of the INSERT column list), and the BE iceberg writer
-        // maps data columns positionally against the full schema. The generic bindConnectorTableSink
-        // reproduces that projection only under this capability; without it a reordered/partial column
-        // list (and the write-sort columnIndex, a full-schema position) would resolve against a
-        // user-ordered sink output. Mirrors MaxComputeDorisConnector. Inert pre-cutover (P6.6).
-        // SUPPORTS_PARALLEL_WRITE: legacy iceberg INSERT runs through PhysicalIcebergTableSink, whose
-        // partition-hash branch is dead code (getPartitionNames() is the empty TableIf default for iceberg),
-        // so at runtime every iceberg INSERT returns SINK_RANDOM_PARTITIONED (parallel writers). The generic
-        // PhysicalConnectorTableSink reproduces that ONLY under this capability; without it it falls through
-        // to GATHER (single writer), a parallelism regression. NOT SINK_REQUIRE_PARTITION_LOCAL_SORT: legacy
-        // never sorts on write. Inert pre-cutover (P6.6).
         // SUPPORTS_COLUMN_AUTO_ANALYZE: legacy IcebergExternalTable is in the auto-analyze whitelist and is
         // forced to FULL analyze; the generic statistics collector reproduces both ONLY under this capability,
         // so post-cutover iceberg keeps background per-column stats (CBO quality). Inert pre-cutover (P6.6).
@@ -303,15 +290,7 @@ public class IcebergConnector implements Connector {
         // avoidance). Correct only because the connector also carries per-field ids down its column tree
         // (parseSchema withUniqueId + IcebergTypeMapping withChildrenFieldIds), which the BE field-id scan
         // path matches nested leaves by; without them a nested leaf reads NULL. Inert pre-cutover (P6.6).
-        // SINK_MATERIALIZE_STATIC_PARTITION_VALUES: legacy bindIcebergTableSink re-projects each static
-        // PARTITION(col='v') literal into its data column; the iceberg BE writer keeps partition columns in
-        // the data file (does NOT strip them), so without this the generic bindConnectorTableSink NULL-fills
-        // the static-partition column and InclusiveMetricsEvaluator drops the file on read-back. MaxCompute
-        // must NOT declare this (it strips + refills from static_partition_values). Inert pre-cutover (P6.6).
-        return EnumSet.of(ConnectorCapability.SUPPORTS_MVCC_SNAPSHOT, ConnectorCapability.SUPPORTS_TIME_TRAVEL,
-                ConnectorCapability.SINK_REQUIRE_FULL_SCHEMA_ORDER,
-                ConnectorCapability.SINK_MATERIALIZE_STATIC_PARTITION_VALUES,
-                ConnectorCapability.SUPPORTS_PARALLEL_WRITE,
+        return EnumSet.of(ConnectorCapability.SUPPORTS_MVCC_SNAPSHOT,
                 ConnectorCapability.SUPPORTS_COLUMN_AUTO_ANALYZE,
                 ConnectorCapability.SUPPORTS_TOPN_LAZY_MATERIALIZE,
                 ConnectorCapability.SUPPORTS_SHOW_CREATE_DDL,

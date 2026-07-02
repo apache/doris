@@ -45,12 +45,13 @@ import java.util.List;
  * legacy 3-branch distribution, gated by connector capabilities:
  *
  * <ul>
- *   <li><b>dynamic-partition write</b> (a partition column present in {@code cols}) + connector
- *       declaring {@code SINK_REQUIRE_PARTITION_LOCAL_SORT} → hash-by-partition + mandatory local sort,
- *       so the MaxCompute Storage API streaming partition writer does not hit "writer has been
- *       closed" on un-grouped rows;</li>
- *   <li><b>non-partition / all-static write</b> + {@code SUPPORTS_PARALLEL_WRITE} →
- *       {@code SINK_RANDOM_PARTITIONED} (parallel writers, NG-4 parity);</li>
+ *   <li><b>dynamic-partition write</b> (a partition column present in {@code cols}) + connector's write
+ *       provider returning {@code true} from {@code requiresPartitionLocalSort()} → hash-by-partition +
+ *       mandatory local sort, so the MaxCompute Storage API streaming partition writer does not hit
+ *       "writer has been closed" on un-grouped rows;</li>
+ *   <li><b>non-partition / all-static write</b> + write provider returning {@code true} from
+ *       {@code requiresParallelWrite()} → {@code SINK_RANDOM_PARTITIONED} (parallel writers, NG-4
+ *       parity);</li>
  *   <li><b>capability-less connector</b> (jdbc/es-like) → {@code GATHER} (single writer).</li>
  * </ul>
  *

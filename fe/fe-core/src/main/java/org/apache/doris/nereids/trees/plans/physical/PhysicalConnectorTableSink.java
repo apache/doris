@@ -136,20 +136,21 @@ public class PhysicalConnectorTableSink<CHILD_TYPE extends Plan> extends Physica
      *
      * <ul>
      *   <li><b>Dynamic-partition write</b> (a partition column is present in {@code cols}) when the
-     *       connector declares {@code SINK_REQUIRE_PARTITION_LOCAL_SORT}: hash-distribute by the
-     *       partition columns and require a mandatory local sort on them. Streaming partition
-     *       writers (MaxCompute Storage API) close the previous partition writer once a different
-     *       partition value appears; un-grouped rows cause "writer has been closed".</li>
-     *   <li><b>Non-partitioned / all-static-partition write</b> when the connector declares
-     *       {@code SUPPORTS_PARALLEL_WRITE}: {@code SINK_RANDOM_PARTITIONED} (parallel writers).</li>
+     *       connector's write provider returns {@code true} from {@code requiresPartitionLocalSort()}:
+     *       hash-distribute by the partition columns and require a mandatory local sort on them.
+     *       Streaming partition writers (MaxCompute Storage API) close the previous partition writer
+     *       once a different partition value appears; un-grouped rows cause "writer has been closed".</li>
+     *   <li><b>Non-partitioned / all-static-partition write</b> when the connector's write provider
+     *       returns {@code true} from {@code requiresParallelWrite()}: {@code SINK_RANDOM_PARTITIONED}
+     *       (parallel writers).</li>
      *   <li><b>Otherwise</b> (e.g. JDBC, ES): {@code GATHER} (single writer) for transactional
      *       safety.</li>
      * </ul>
      *
-     * <p><b>Index by full schema, not {@code cols}.</b> For a positional-write connector (one declaring
-     * {@code SINK_REQUIRE_FULL_SCHEMA_ORDER}, e.g. MaxCompute), {@code BindSink.bindConnectorTableSink}
-     * projects the child to <em>full-schema</em> order (any unmentioned / static-partition columns filled
-     * in), exactly like legacy {@code bindMaxComputeTableSink},
+     * <p><b>Index by full schema, not {@code cols}.</b> For a positional-write connector (one whose write
+     * provider returns {@code true} from {@code requiresFullSchemaWriteOrder()}, e.g. MaxCompute),
+     * {@code BindSink.bindConnectorTableSink} projects the child to <em>full-schema</em> order (any
+     * unmentioned / static-partition columns filled in), exactly like legacy {@code bindMaxComputeTableSink},
      * because the BE writer strips the trailing partition columns by position. So {@code child().getOutput()}
      * is aligned 1:1 with {@code targetTable.getFullSchema()}, while {@code cols} excludes the static
      * partition columns and may be in a different (user-specified) order. Partition columns are therefore

@@ -97,7 +97,6 @@ public class JdbcDorisConnector implements Connector {
     @Override
     public Set<ConnectorCapability> getCapabilities() {
         return EnumSet.of(
-                ConnectorCapability.SUPPORTS_INSERT,
                 ConnectorCapability.SUPPORTS_PASSTHROUGH_QUERY
         );
     }
