@@ -202,12 +202,56 @@ class JdbcUtils {
 
     private static Object materializeObject(Object value) {
         if (value instanceof java.sql.Array || value instanceof java.sql.Struct) {
-            return value.toString()
+            return normalizeJsonLikeComplexText(value.toString())
+        }
+        if (isArrowJsonStringHashMap(value)) {
+            return normalizeJsonLikeComplexText(value.toString())
         }
         if (value instanceof byte[]) {
             return bytesToHex((byte[]) value)
         }
         return value
+    }
+
+    private static boolean isArrowJsonStringHashMap(Object value) {
+        return value != null && value.getClass().getName().endsWith(".JsonStringHashMap")
+    }
+
+    private static String normalizeJsonLikeComplexText(String text) {
+        if (text == null) {
+            return null
+        }
+
+        StringBuilder sb = new StringBuilder(text.length())
+        boolean inString = false
+        boolean escaped = false
+        for (int i = 0; i < text.length(); i++) {
+            char c = text.charAt(i)
+            if (inString) {
+                sb.append(c)
+                if (escaped) {
+                    escaped = false
+                } else if (c == '\\' as char) {
+                    escaped = true
+                } else if (c == '"' as char) {
+                    inString = false
+                }
+                continue
+            }
+
+            if (c == '"' as char) {
+                inString = true
+                sb.append(c)
+            } else if (c == ',' as char) {
+                sb.append(", ")
+                while (i + 1 < text.length() && text.charAt(i + 1) == (' ' as char)) {
+                    i++
+                }
+            } else {
+                sb.append(c)
+            }
+        }
+        return sb.toString()
     }
 
     // Detect if a JDBC column type is binary-like
