@@ -21,6 +21,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.PlanContext;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.stats.ExpressionEstimation;
 import org.apache.doris.nereids.stats.StatsCalculator;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -40,6 +41,7 @@ import org.apache.doris.statistics.util.StatisticsUtil;
 import com.google.common.collect.ImmutableList;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
@@ -188,7 +190,7 @@ public class ShuffleKeyPruneUtils {
                 .filter(s -> s.getDataType().isNumericType() || s.getDataType().isDateLikeType())
                 .collect(Collectors.toList());
         if (!numericAndDateExprs.isEmpty()) {
-            double combinedNdv = StatsCalculator.estimateGroupByRowCount(numericAndDateExprs, childStats);
+            double combinedNdv = estimateCombinedNDV(numericAndDateExprs, childStats);
             long ndvThreshold = (long) instanceNum * AggregateUtils.NDV_INSTANCE_BALANCE_MULTIPLIER;
             if (combinedNdv > ndvThreshold) {
                 return Optional.of(ImmutableList.copyOf(numericAndDateExprs));
@@ -231,151 +233,6 @@ public class ShuffleKeyPruneUtils {
             return ((CharacterType) dataType).getLen();
         }
         return 0;
-    }
-
-    /**
-     * Get Global AGG plan and its input statistics from a Group (if the group's best plan is Global AGG).
-     */
-    private static Optional<Pair<PhysicalHashAggregate<? extends Plan>, Statistics>> getGlobalAggInputStatsFromGroup(
-            Group group) {
-        for (GroupExpression ge : group.getPhysicalExpressions()) {
-            Plan p = ge.getPlan();
-            if (p instanceof PhysicalHashAggregate && ((PhysicalHashAggregate<?>) p).getAggPhase().isGlobal()) {
-                Optional<Statistics> inputStats = getGlobalAggChildStats((PhysicalHashAggregate<? extends Plan>) p);
-                return inputStats.map(statistics -> Pair.of((PhysicalHashAggregate<? extends Plan>) p, statistics));
-            }
-        }
-        return Optional.empty();
-    }
-
-    /**
-     * Scenario 3.3: when both join children are Global AGG, find optimal shuffle keys from
-     * join key ∩ left_agg.gby ∩ right_agg.gby. Same three-step strategy as agg:
-     * 1) Try single key (isBalanced); 2) Try numeric+date keys (remove strings);
-     * 3) Fall back. Returns (leftKeys, rightKeys) or empty.
-     */
-    public static Optional<Pair<List<ExprId>, List<ExprId>>> tryFindOptimalShuffleKeyForBothAggChildren(
-            PhysicalHashJoin<? extends Plan, ? extends Plan> hashJoin, PlanContext context) {
-        Optional<GroupExpression> joinGroupExpr = hashJoin.getGroupExpression();
-        if (!joinGroupExpr.isPresent()) {
-            return Optional.empty();
-        }
-        Group leftGroup = joinGroupExpr.get().child(0);
-        Group rightGroup = joinGroupExpr.get().child(1);
-        Optional<Pair<PhysicalHashAggregate<? extends Plan>, Statistics>> leftOpt =
-                getGlobalAggInputStatsFromGroup(leftGroup);
-        Optional<Pair<PhysicalHashAggregate<? extends Plan>, Statistics>> rightOpt =
-                getGlobalAggInputStatsFromGroup(rightGroup);
-        if (!leftOpt.isPresent() || !rightOpt.isPresent()) {
-            return Optional.empty();
-        }
-
-        PhysicalHashAggregate<? extends Plan> leftAgg = leftOpt.get().first;
-        PhysicalHashAggregate<? extends Plan> rightAgg = rightOpt.get().first;
-        if (leftAgg.hasSourceRepeat() || rightAgg.hasSourceRepeat()) {
-            return Optional.empty();
-        }
-        Statistics leftStats = leftOpt.get().second;
-        Statistics rightStats = rightOpt.get().second;
-
-        Pair<List<ExprId>, List<ExprId>> joinKeys = hashJoin.getHashConjunctsExprIds();
-        if (joinKeys.first.isEmpty() || joinKeys.second.size() != joinKeys.first.size()) {
-            return Optional.empty();
-        }
-
-        Set<ExprId> leftGbyIds = leftAgg.getGroupByExpressions().stream()
-                .filter(SlotReference.class::isInstance)
-                .map(SlotReference.class::cast)
-                .map(SlotReference::getExprId)
-                .collect(Collectors.toSet());
-        Set<ExprId> rightGbyIds = rightAgg.getGroupByExpressions().stream()
-                .filter(SlotReference.class::isInstance)
-                .map(SlotReference.class::cast)
-                .map(SlotReference::getExprId)
-                .collect(Collectors.toSet());
-
-        double leftRows = leftStats.getRowCount();
-        double rightRows = rightStats.getRowCount();
-        int instanceNum = context.getConnectContext().getTotalInstanceNum();
-
-        // Build (leftSlotRef, rightSlotRef) pairs for join keys in both gby sets
-        List<Pair<SlotReference, SlotReference>> validPairs = new ArrayList<>();
-        for (int i = 0; i < joinKeys.first.size(); i++) {
-            ExprId leftId = joinKeys.first.get(i);
-            ExprId rightId = joinKeys.second.get(i);
-            if (!leftGbyIds.contains(leftId) || !rightGbyIds.contains(rightId)) {
-                continue;
-            }
-            SlotReference leftSlotRef = leftAgg.getGroupByExpressions().stream()
-                    .filter(e -> e instanceof SlotReference && ((SlotReference) e).getExprId().equals(leftId))
-                    .map(SlotReference.class::cast)
-                    .findFirst()
-                    .orElse(null);
-            SlotReference rightSlotRef = rightAgg.getGroupByExpressions().stream()
-                    .filter(e -> e instanceof SlotReference && ((SlotReference) e).getExprId().equals(rightId))
-                    .map(SlotReference.class::cast)
-                    .findFirst()
-                    .orElse(null);
-            if (leftSlotRef != null && rightSlotRef != null) {
-                validPairs.add(Pair.of(leftSlotRef, rightSlotRef));
-            }
-        }
-        if (validPairs.isEmpty()) {
-            return Optional.empty();
-        }
-        // If any join key pair lacks column stats on either side, skip optimization.
-        for (Pair<SlotReference, SlotReference> pair : validPairs) {
-            if (leftStats.findColumnStatistics(pair.first) == null
-                    || rightStats.findColumnStatistics(pair.second) == null) {
-                return Optional.empty();
-            }
-        }
-
-        // Step 1: Try single key - sort by type, pick first where both isBalanced
-        List<Pair<SlotReference, SlotReference>> sortedPairs =
-                sortJoinKeyPairsByTypePriority(validPairs, leftStats, rightStats);
-        for (Pair<SlotReference, SlotReference> pair : sortedPairs) {
-            SlotReference leftSlotRef = pair.first;
-            SlotReference rightSlotRef = pair.second;
-            ColumnStatistic leftColStats = leftStats.findColumnStatistics(leftSlotRef);
-            ColumnStatistic rightColStats = rightStats.findColumnStatistics(rightSlotRef);
-            if (StatisticsUtil.isBalanced(leftColStats, leftRows, instanceNum)
-                    && StatisticsUtil.isBalanced(rightColStats, rightRows, instanceNum)) {
-                return Optional.of(Pair.of(
-                        ImmutableList.of(leftSlotRef.getExprId()),
-                        ImmutableList.of(rightSlotRef.getExprId())));
-            }
-        }
-
-        // Step 2: Try remove string types - filter numeric+date pairs, check combined NDV
-        List<SlotReference> numericDateLeftSlots = new ArrayList<>();
-        List<SlotReference> numericDateRightSlots = new ArrayList<>();
-        for (Pair<SlotReference, SlotReference> pair : validPairs) {
-            if ((pair.first.getDataType().isNumericType() || pair.first.getDataType().isDateLikeType())
-                    && (pair.second.getDataType().isNumericType() || pair.second.getDataType().isDateLikeType())) {
-                numericDateLeftSlots.add(pair.first);
-                numericDateRightSlots.add(pair.second);
-            }
-        }
-        if (!numericDateLeftSlots.isEmpty()) {
-            double leftCombinedNdv = StatsCalculator.estimateGroupByRowCount(
-                    new ArrayList<>(numericDateLeftSlots), leftStats);
-            double rightCombinedNdv = StatsCalculator.estimateGroupByRowCount(
-                    new ArrayList<>(numericDateRightSlots), rightStats);
-            long ndvThreshold = (long) instanceNum * AggregateUtils.NDV_INSTANCE_BALANCE_MULTIPLIER;
-            if (leftCombinedNdv > ndvThreshold && rightCombinedNdv > ndvThreshold) {
-                List<ExprId> leftIds = numericDateLeftSlots.stream()
-                        .map(SlotReference::getExprId)
-                        .collect(Collectors.toList());
-                List<ExprId> rightIds = numericDateRightSlots.stream()
-                        .map(SlotReference::getExprId)
-                        .collect(Collectors.toList());
-                return Optional.of(Pair.of(leftIds, rightIds));
-            }
-        }
-
-        // Step 3: Fall back
-        return Optional.empty();
     }
 
     /**
@@ -472,9 +329,9 @@ public class ShuffleKeyPruneUtils {
             }
         }
         if (!numericDateLeftSlots.isEmpty()) {
-            double leftCombinedNdv = StatsCalculator.estimateGroupByRowCount(
+            double leftCombinedNdv = estimateCombinedNDV(
                     new ArrayList<>(numericDateLeftSlots), leftStats);
-            double rightCombinedNdv = StatsCalculator.estimateGroupByRowCount(
+            double rightCombinedNdv = estimateCombinedNDV(
                     new ArrayList<>(numericDateRightSlots), rightStats);
             long ndvThreshold = (long) instanceNum * AggregateUtils.NDV_INSTANCE_BALANCE_MULTIPLIER;
             if (leftCombinedNdv > ndvThreshold && rightCombinedNdv > ndvThreshold) {
@@ -511,5 +368,44 @@ public class ShuffleKeyPruneUtils {
             return (getStringAvgSizeForSort(pair.first, leftStats) + getStringAvgSizeForSort(pair.second, rightStats));
         }
         return 0;
+    }
+
+    /**
+     * computeAggregate
+     */
+    public static double estimateCombinedNDV(List<Expression> groupByExpressions, Statistics childStats) {
+        double combinedNDV = 1;
+        // if there is group-bys, output row count is childStats.getRowCount() * DEFAULT_AGGREGATE_RATIO,
+        // o.w. output row count is 1
+        // example: select sum(A) from T;
+        if (groupByExpressions.isEmpty()) {
+            return 1;
+        }
+        List<Double> groupByNdvs = new ArrayList<>();
+        for (Expression groupByExpr : groupByExpressions) {
+            ColumnStatistic colStats = childStats.findColumnStatistics(groupByExpr);
+            if (colStats == null) {
+                colStats = ExpressionEstimation.estimate(groupByExpr, childStats);
+            }
+            if (colStats.isUnKnown()) {
+                return -1;
+            }
+            double ndv = colStats.ndv;
+            groupByNdvs.add(ndv);
+        }
+        groupByNdvs.sort(Collections.reverseOrder());
+
+        combinedNDV = groupByNdvs.get(0);
+        for (int groupByIndex = 1; groupByIndex < groupByExpressions.size(); ++groupByIndex) {
+            combinedNDV *= Math.max(1, groupByNdvs.get(groupByIndex) * Math.pow(
+                    StatsCalculator.AGGREGATE_COLUMN_CORRELATION_COEFFICIENT, groupByIndex + 1D));
+            if (combinedNDV > childStats.getRowCount()) {
+                combinedNDV = childStats.getRowCount();
+                break;
+            }
+        }
+        combinedNDV = Math.max(1, combinedNDV);
+        combinedNDV = Math.min(combinedNDV, childStats.getRowCount());
+        return combinedNDV;
     }
 }

@@ -319,23 +319,6 @@ class ShuffleKeyPruneUtilsTest extends TestWithFeService {
     }
 
     @Test
-    void testTryFindOptimalShuffleKeyForBothAggChildren_selectBestKey() {
-        Pair<Group, Group> groups = createJoinAggGroups();
-        PhysicalHashJoin<GroupPlan, GroupPlan> hashJoin = createHashJoinWithConjuncts(groups.first, groups.second, 7);
-
-        GroupExpression joinGroupExpr = new GroupExpression(hashJoin, Lists.newArrayList(groups.first, groups.second));
-        new Group(GroupId.createGenerator().getNextId(), joinGroupExpr, null);
-        PlanContext planContext = new PlanContext(connectContext, joinGroupExpr);
-
-        Optional<Pair<List<ExprId>, List<ExprId>>> result = ShuffleKeyPruneUtils.tryFindOptimalShuffleKeyForBothAggChildren(
-                (PhysicalHashJoin) joinGroupExpr.getPlan(), planContext);
-
-        Assertions.assertTrue(result.isPresent());
-        Assertions.assertFalse(result.get().first.isEmpty());
-        Assertions.assertFalse(result.get().second.isEmpty());
-    }
-
-    @Test
     void testSelectBestShuffleKeyForAgg_pruneStringKeysWithCombinedNdv() {
         SlotReference numericSlot = new SlotReference(new ExprId(14), "num_col", IntegerType.INSTANCE, true,
                 ImmutableList.of());
@@ -359,35 +342,5 @@ class ShuffleKeyPruneUtilsTest extends TestWithFeService {
         Assertions.assertEquals(2, result.get().size());
         Assertions.assertEquals(numericSlot, result.get().get(0));
         Assertions.assertEquals(dateSlot, result.get().get(1));
-    }
-
-    @Test
-    void testTryFindOptimalShuffleKeyForBothAggChildren_leftHasSourceRepeat() {
-        Pair<Group, Group> groups = createJoinAggGroups(true, false);
-        PhysicalHashJoin<GroupPlan, GroupPlan> hashJoin = createHashJoinWithConjuncts(groups.first, groups.second, 7);
-
-        GroupExpression joinGroupExpr = new GroupExpression(hashJoin, Lists.newArrayList(groups.first, groups.second));
-        new Group(GroupId.createGenerator().getNextId(), joinGroupExpr, null);
-        PlanContext planContext = new PlanContext(connectContext, joinGroupExpr);
-
-        Optional<Pair<List<ExprId>, List<ExprId>>> result = ShuffleKeyPruneUtils.tryFindOptimalShuffleKeyForBothAggChildren(
-                (PhysicalHashJoin<? extends Plan, ? extends Plan>) joinGroupExpr.getPlan(), planContext);
-
-        Assertions.assertFalse(result.isPresent());
-    }
-
-    @Test
-    void testTryFindOptimalShuffleKeyForBothAggChildren_rightHasSourceRepeat() {
-        Pair<Group, Group> groups = createJoinAggGroups(false, true);
-        PhysicalHashJoin<GroupPlan, GroupPlan> hashJoin = createHashJoinWithConjuncts(groups.first, groups.second, 7);
-
-        GroupExpression joinGroupExpr = new GroupExpression(hashJoin, Lists.newArrayList(groups.first, groups.second));
-        new Group(GroupId.createGenerator().getNextId(), joinGroupExpr, null);
-        PlanContext planContext = new PlanContext(connectContext, joinGroupExpr);
-
-        Optional<Pair<List<ExprId>, List<ExprId>>> result = ShuffleKeyPruneUtils.tryFindOptimalShuffleKeyForBothAggChildren(
-                (PhysicalHashJoin<? extends Plan, ? extends Plan>) joinGroupExpr.getPlan(), planContext);
-
-        Assertions.assertFalse(result.isPresent());
     }
 }
