@@ -201,11 +201,14 @@ class JdbcUtils {
     }
 
     private static Object materializeObject(Object value) {
-        if (value instanceof java.sql.Array || value instanceof java.sql.Struct) {
-            return normalizeJsonLikeComplexText(value.toString())
+        if (value instanceof java.sql.Array) {
+            return renderComplexValue(((java.sql.Array) value).getArray())
         }
-        if (isArrowJsonStringHashMap(value)) {
-            return normalizeJsonLikeComplexText(value.toString())
+        if (value instanceof java.sql.Struct) {
+            return renderComplexValue(((java.sql.Struct) value).getAttributes())
+        }
+        if (isArrowJsonStringContainer(value)) {
+            return renderComplexValue(value)
         }
         if (value instanceof byte[]) {
             return bytesToHex((byte[]) value)
@@ -213,45 +216,95 @@ class JdbcUtils {
         return value
     }
 
-    private static boolean isArrowJsonStringHashMap(Object value) {
-        return value != null && value.getClass().getName().endsWith(".JsonStringHashMap")
+    private static boolean isArrowJsonStringContainer(Object value) {
+        if (value == null) {
+            return false
+        }
+        String className = value.getClass().getName()
+        return className.endsWith(".JsonStringHashMap") || className.endsWith(".JsonStringArrayList")
     }
 
-    private static String normalizeJsonLikeComplexText(String text) {
-        if (text == null) {
+    private static String renderComplexValue(Object value) {
+        if (value == null) {
+            return "null"
+        }
+        if (value instanceof java.sql.Array) {
+            return renderComplexValue(((java.sql.Array) value).getArray())
+        }
+        if (value instanceof java.sql.Struct) {
+            return renderComplexValue(((java.sql.Struct) value).getAttributes())
+        }
+        if (value instanceof Map) {
+            StringBuilder sb = new StringBuilder()
+            sb.append("{")
+            boolean first = true
+            ((Map<?, ?>) value).each { Object key, Object mapValue ->
+                if (!first) {
+                    sb.append(", ")
+                }
+                sb.append(renderComplexKey(key)).append(":").append(renderComplexValue(mapValue))
+                first = false
+            }
+            sb.append("}")
+            return sb.toString()
+        }
+        if (value instanceof byte[]) {
+            return bytesToHex((byte[]) value)
+        }
+        if (value.getClass().isArray()) {
+            StringBuilder sb = new StringBuilder()
+            sb.append("[")
+            int length = java.lang.reflect.Array.getLength(value)
+            for (int i = 0; i < length; i++) {
+                if (i > 0) {
+                    sb.append(", ")
+                }
+                sb.append(renderComplexValue(java.lang.reflect.Array.get(value, i)))
+            }
+            sb.append("]")
+            return sb.toString()
+        }
+        if (value instanceof Iterable) {
+            StringBuilder sb = new StringBuilder()
+            sb.append("[")
+            boolean first = true
+            ((Iterable<?>) value).each { Object item ->
+                if (!first) {
+                    sb.append(", ")
+                }
+                sb.append(renderComplexValue(item))
+                first = false
+            }
+            sb.append("]")
+            return sb.toString()
+        }
+        if (isStringLikeComplexValue(value)) {
+            return "\"" + escapeComplexString(value.toString()) + "\""
+        }
+        return value.toString()
+    }
+
+    private static String renderComplexKey(Object key) {
+        if (key == null) {
+            return "null"
+        }
+        if (isStringLikeComplexValue(key)) {
+            return "\"" + escapeComplexString(key.toString()) + "\""
+        }
+        return renderComplexValue(key)
+    }
+
+    private static boolean isStringLikeComplexValue(Object value) {
+        return value instanceof CharSequence
+                || value instanceof java.time.temporal.TemporalAccessor
+                || value instanceof java.util.Date
+    }
+
+    private static String escapeComplexString(String value) {
+        if (value == null) {
             return null
         }
-
-        StringBuilder sb = new StringBuilder(text.length())
-        boolean inString = false
-        boolean escaped = false
-        for (int i = 0; i < text.length(); i++) {
-            char c = text.charAt(i)
-            if (inString) {
-                sb.append(c)
-                if (escaped) {
-                    escaped = false
-                } else if (c == '\\' as char) {
-                    escaped = true
-                } else if (c == '"' as char) {
-                    inString = false
-                }
-                continue
-            }
-
-            if (c == '"' as char) {
-                inString = true
-                sb.append(c)
-            } else if (c == ',' as char) {
-                sb.append(", ")
-                while (i + 1 < text.length() && text.charAt(i + 1) == (' ' as char)) {
-                    i++
-                }
-            } else {
-                sb.append(c)
-            }
-        }
-        return sb.toString()
+        return value
     }
 
     // Detect if a JDBC column type is binary-like
