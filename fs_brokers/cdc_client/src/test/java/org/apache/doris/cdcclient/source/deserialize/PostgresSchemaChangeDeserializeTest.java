@@ -133,7 +133,7 @@ class PostgresSchemaChangeDeserializeTest {
     }
 
     @Test
-    void relationAddColumn_stringLiteralDefaultWithParens_keepsLiteral() throws Exception {
+    void relationAddColumn_withDefault_omitsDefaultAndNotNull() throws Exception {
         PostgresDebeziumJsonDeserializer deserializer = newDeserializer(storedTable("id"));
         Table fresh =
                 tableWith(
@@ -145,14 +145,14 @@ class PostgresSchemaChangeDeserializeTest {
         assertEquals(DeserializeResult.Type.SCHEMA_CHANGE, result.getType());
         String ddl = result.getDdls().get(0);
         assertTrue(ddl.contains("ADD COLUMN"), ddl);
-        // parenthesised string literal kept verbatim, not mistaken for a function expression
-        assertTrue(ddl.contains("DEFAULT 'foo(bar)'"), ddl);
-        // usable default present -> NOT NULL preserved
-        assertTrue(ddl.toUpperCase().contains("NOT NULL"), ddl);
+        // CDC records carry the value evaluated by PostgreSQL. Do not propagate the source DEFAULT
+        // expression or NOT NULL constraint because existing Doris rows are not backfilled.
+        assertFalse(ddl.toUpperCase().contains("DEFAULT"), ddl);
+        assertFalse(ddl.toUpperCase().contains("NOT NULL"), ddl);
     }
 
     @Test
-    void relationAddColumn_unrecognizedKeywordDefault_omitsDefault() throws Exception {
+    void relationAddColumn_expressionDefault_omitsDefaultAndNotNull() throws Exception {
         PostgresDebeziumJsonDeserializer deserializer = newDeserializer(storedTable("id"));
         Table fresh =
                 tableWith(
@@ -163,14 +163,13 @@ class PostgresSchemaChangeDeserializeTest {
 
         String ddl = result.getDdls().get(0).toUpperCase();
         assertTrue(ddl.contains("ADD COLUMN"), ddl);
-        // current_date is not statically mapped -> no DEFAULT (never a wrong 'current_date' literal)
+        // PostgreSQL evaluates the expression for subsequent DML; Doris does not copy it.
         assertFalse(ddl.contains("DEFAULT"), ddl);
-        // NOT NULL without a usable default -> downgraded to nullable
         assertFalse(ddl.contains("NOT NULL"), ddl);
     }
 
     @Test
-    void relationAddColumn_castInsideStringLiteralDefault_keepsLiteral() throws Exception {
+    void relationAddColumn_castDefault_omitsDefaultAndNotNull() throws Exception {
         PostgresDebeziumJsonDeserializer deserializer = newDeserializer(storedTable("id"));
         Table fresh =
                 tableWith(
@@ -179,9 +178,9 @@ class PostgresSchemaChangeDeserializeTest {
 
         DeserializeResult result = deserializer.deserialize(CONTEXT, schemaRecord(fresh));
 
-        String ddl = result.getDdls().get(0);
-        // the :: inside the literal is part of the value, not a cast — literal kept intact
-        assertTrue(ddl.contains("DEFAULT 'a::b'"), ddl);
+        String ddl = result.getDdls().get(0).toUpperCase();
+        assertFalse(ddl.contains("DEFAULT"), ddl);
+        assertFalse(ddl.contains("NOT NULL"), ddl);
     }
 
     @Test

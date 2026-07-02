@@ -51,11 +51,9 @@ import org.slf4j.LoggerFactory;
  *
  * <p>Schema changes are detected from pgoutput Relation messages, which flink-cdc surfaces as
  * {@link PostgresSchemaRecord} (the source is created with {@code includeSchemaChanges(true)}). The
- * carried Debezium {@link Table} is the full post-change schema (column
- * types/nullability/default/PK are filled by Debezium from the database while decoding the Relation
- * message) and is diffed against the stored baseline — the Doris table's current full schema,
- * loaded from FE — to derive ADD/DROP column DDL. Regular DML records are emitted directly without
- * per-record schema comparison.
+ * carried Debezium {@link Table} is the full post-change schema and is diffed against the stored
+ * baseline — the Doris table's current full schema, loaded from FE — to derive ADD/DROP column DDL.
+ * Regular DML records are emitted directly without per-record schema comparison.
  *
  * <p>The baseline is also established by Relation events: when a table first appears (e.g. a stream
  * started directly from an offset without a snapshot), pgoutput sends its Relation before the first
@@ -188,27 +186,16 @@ public class PostgresDebeziumJsonDeserializer extends DebeziumJsonDeserializer {
                 continue;
             }
             String colType = SchemaChangeHelper.columnToDorisType(col);
-            String defaultValue = stripPgDefault(col.defaultValueExpression().orElse(null));
-            String nullable;
-            if (!col.isOptional() && defaultValue == null) {
-                // NOT NULL without a usable default would fail ADD COLUMN against existing Doris
-                // rows; add as nullable. Incoming DML still carries the real values.
-                nullable = "";
-                LOG.warn(
-                        "[SCHEMA-CHANGE] Table {}: column '{}' is NOT NULL in PG but has no usable"
-                                + " default; adding it as NULLABLE in Doris.",
-                        tableId.identifier(),
-                        col.name());
-            } else {
-                nullable = col.isOptional() ? "" : " NOT NULL";
-            }
+            // Do not propagate source DEFAULT expressions or NOT NULL. PostgreSQL evaluates
+            // defaults before writing new rows to WAL, so subsequent DML carries the actual value.
+            // Existing Doris rows are not backfilled and must remain valid with NULL in this column.
             ddls.add(
                     SchemaChangeHelper.buildAddColumnSql(
                             db,
                             resolveTargetTable(tableId.table()),
                             col.name(),
-                            colType + nullable,
-                            defaultValue,
+                            colType,
+                            null,
                             null));
         }
 
@@ -229,76 +216,4 @@ public class PostgresDebeziumJsonDeserializer extends DebeziumJsonDeserializer {
         return new TableId(null, schemaName, tableName);
     }
 
-    /**
-     * Convert a raw PostgreSQL default-value expression into a plain value usable by {@link
-     * SchemaChangeHelper#quoteDefaultValue}. Best-effort: only string literals, numeric/boolean
-     * literals and the common {@code now()/current_timestamp/localtimestamp} forms are mapped; any
-     * other expression (sequence-backed serial, other function calls, unrecognized keywords like
-     * {@code current_date}) degrades to no static default rather than risk emitting a wrong DEFAULT
-     * clause. The column is still populated by incoming DML; only the Doris DEFAULT is omitted.
-     */
-    private static String stripPgDefault(String expr) {
-        if (expr == null) {
-            return null;
-        }
-        String e = expr.trim();
-        if (e.isEmpty()) {
-            return null;
-        }
-        String lower = e.toLowerCase();
-        if (lower.contains("nextval(")) {
-            return null; // serial / identity — no static default
-        }
-        if (lower.startsWith("now()")
-                || lower.startsWith("current_timestamp")
-                || lower.startsWith("localtimestamp")) {
-            return "CURRENT_TIMESTAMP";
-        }
-        // String literal, optionally followed by a ::type cast. Parse it first (honoring ''
-        // escapes), so characters inside the literal — parentheses, or a :: that is part of the
-        // value rather than a cast (e.g. 'a::b'::text) — are not misread.
-        if (e.charAt(0) == '\'') {
-            return parseQuotedLiteral(e);
-        }
-        // Non-quoted: strip a ::type cast suffix, then accept only numeric / boolean literals
-        // (quoteDefaultValue passes them through as-is).
-        int cast = e.indexOf("::");
-        if (cast >= 0) {
-            e = e.substring(0, cast).trim();
-        }
-        if (isNumericLiteral(e) || e.equalsIgnoreCase("true") || e.equalsIgnoreCase("false")) {
-            return e;
-        }
-        // Anything else is an unsupported expression/keyword — degrade to no static default.
-        return null;
-    }
-
-    /** Parse a single-quoted PG literal (honoring '' escapes); ignore any trailing ::type cast. */
-    private static String parseQuotedLiteral(String e) {
-        StringBuilder sb = new StringBuilder();
-        int i = 1;
-        while (i < e.length()) {
-            char c = e.charAt(i);
-            if (c == '\'') {
-                if (i + 1 < e.length() && e.charAt(i + 1) == '\'') {
-                    sb.append('\''); // escaped quote
-                    i += 2;
-                    continue;
-                }
-                return sb.toString(); // closing quote — ignore any ::type cast suffix after it
-            }
-            sb.append(c);
-            i++;
-        }
-        return null; // unterminated literal — no usable default
-    }
-
-    private static boolean isNumericLiteral(String s) {
-        try {
-            Double.parseDouble(s);
-            return true;
-        } catch (NumberFormatException ignored) {
-            return false;
-        }
-    }
 }
