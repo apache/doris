@@ -104,18 +104,6 @@ bool is_row_group_outside_range(const ::parquet::FileMetaData& metadata,
     return row_group_mid_offset < range_start_offset || row_group_mid_offset >= range_end_offset;
 }
 
-size_t average_prefetch_range_size(const std::vector<ParquetPageCacheRange>& ranges) {
-    if (ranges.empty()) {
-        return 0;
-    }
-    size_t total_size = 0;
-    for (const auto& range : ranges) {
-        DORIS_CHECK(range.size >= 0);
-        total_size += static_cast<size_t>(range.size);
-    }
-    return total_size / ranges.size();
-}
-
 std::vector<format::LocalColumnIndex> request_scan_columns(const format::FileScanRequest& request) {
     std::vector<format::LocalColumnIndex> scan_columns;
     scan_columns.reserve(request.predicate_columns.size() + request.non_predicate_columns.size());
@@ -139,6 +127,9 @@ std::vector<ParquetPageCacheRange> build_row_group_prefetch_ranges(
         }
         DORIS_CHECK(local_id >= 0 && local_id < static_cast<int32_t>(file_schema.size()));
         DORIS_CHECK(file_schema[local_id] != nullptr);
+        // Prefetch and merge-reader ranges must be physical leaf chunks, not Doris logical slots.
+        // Example: for a struct column s<a:int,b:string>, projecting only s.a should include only
+        // the Parquet leaf chunk of a. Projecting the whole struct includes both a and b.
         collect_projected_leaf_column_ids(*file_schema[local_id], projection, &leaf_column_ids);
     }
 
@@ -601,7 +592,7 @@ bool ParquetScanScheduler::prepare_current_row_group_reader(
     }
     const auto ranges = build_row_group_prefetch_ranges(
             *file_context.metadata, file_schema, request_scan_columns(request), row_group_idx);
-    const size_t avg_io_size = average_prefetch_range_size(ranges);
+    const size_t avg_io_size = detail::average_prefetch_range_size(ranges);
     return file_context.set_random_access_ranges(ranges, avg_io_size, _profile,
                                                  _merge_read_slice_size);
 }

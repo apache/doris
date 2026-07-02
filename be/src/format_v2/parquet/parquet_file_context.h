@@ -79,6 +79,27 @@ namespace detail {
 std::vector<ParquetPageCacheReadPlanEntry> plan_page_cache_range_read(
         int64_t position, int64_t nbytes, const std::vector<ParquetPageCacheRange>& cached_ranges);
 
+// Keep only byte ranges that are safe to hand to FileReader implementations. Parquet metadata is
+// expected to contain non-negative offsets and positive compressed sizes, but tests and corrupted
+// footers can still feed invalid values. Example: [100, 64) is kept, while [-1, 64), [100, 0) and
+// an offset+size overflow are ignored.
+std::vector<ParquetPageCacheRange> valid_prefetch_ranges(
+        const std::vector<ParquetPageCacheRange>& ranges);
+
+// Average projected column-chunk size for one row group. The v1 parquet path uses this value to
+// decide whether a row group is dominated by small random IOs; v2 uses the same signal before
+// installing MergeRangeFileReader. Example: chunks of 512KB and 1MB average below SMALL_IO and are
+// good merge-reader candidates, while two 8MB chunks should stay on the raw random-access reader.
+size_t average_prefetch_range_size(const std::vector<ParquetPageCacheRange>& ranges);
+
+// Decide whether Arrow ReadAt() should be routed through MergeRangeFileReader for the current row
+// group. This is intentionally stricter than the background warm-up path:
+// - no valid projected chunks -> nothing to merge;
+// - in-memory file readers already avoid remote random IO;
+// - average chunk size >= MergeRangeFileReader::SMALL_IO would make merged reading wasteful.
+bool should_use_merge_range_reader(const std::vector<ParquetPageCacheRange>& ranges,
+                                   size_t avg_io_size, bool is_in_memory_reader);
+
 } // namespace detail
 
 struct ParquetFileContext {

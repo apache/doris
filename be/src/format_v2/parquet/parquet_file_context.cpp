@@ -24,6 +24,7 @@
 #include <algorithm>
 #include <cstring>
 #include <exception>
+#include <limits>
 #include <mutex>
 #include <unordered_map>
 #include <utility>
@@ -92,6 +93,38 @@ std::vector<ParquetPageCacheReadPlanEntry> plan_page_cache_range_read(
         cursor += copy_size;
     }
     return plan;
+}
+
+std::vector<ParquetPageCacheRange> valid_prefetch_ranges(
+        const std::vector<ParquetPageCacheRange>& ranges) {
+    std::vector<ParquetPageCacheRange> valid_ranges;
+    valid_ranges.reserve(ranges.size());
+    for (const auto& range : ranges) {
+        if (range.offset < 0 || range.size <= 0 ||
+            range.offset > std::numeric_limits<int64_t>::max() - range.size) {
+            continue;
+        }
+        valid_ranges.push_back(range);
+    }
+    return valid_ranges;
+}
+
+size_t average_prefetch_range_size(const std::vector<ParquetPageCacheRange>& ranges) {
+    const auto valid_ranges = valid_prefetch_ranges(ranges);
+    if (valid_ranges.empty()) {
+        return 0;
+    }
+    size_t total_size = 0;
+    for (const auto& range : valid_ranges) {
+        total_size += static_cast<size_t>(range.size);
+    }
+    return total_size / valid_ranges.size();
+}
+
+bool should_use_merge_range_reader(const std::vector<ParquetPageCacheRange>& ranges,
+                                   size_t avg_io_size, bool is_in_memory_reader) {
+    return !is_in_memory_reader && !valid_prefetch_ranges(ranges).empty() &&
+           avg_io_size < io::MergeRangeFileReader::SMALL_IO;
 }
 
 } // namespace detail
@@ -285,28 +318,27 @@ public:
                                   size_t avg_io_size, RuntimeProfile* profile,
                                   int64_t merge_read_slice_size) {
         reset_active_file_reader();
-        if (ranges.empty() || avg_io_size >= io::MergeRangeFileReader::SMALL_IO ||
-            typeid_cast<io::InMemoryFileReader*>(_base_file_reader.get())) {
+        const auto valid_ranges = detail::valid_prefetch_ranges(ranges);
+        if (!detail::should_use_merge_range_reader(
+                    valid_ranges, avg_io_size,
+                    typeid_cast<io::InMemoryFileReader*>(_base_file_reader.get()) != nullptr)) {
             return false;
         }
 
         std::vector<io::PrefetchRange> random_access_ranges;
-        random_access_ranges.reserve(ranges.size());
-        for (const auto& range : ranges) {
-            if (range.offset < 0 || range.size <= 0) {
-                continue;
-            }
+        random_access_ranges.reserve(valid_ranges.size());
+        for (const auto& range : valid_ranges) {
             random_access_ranges.emplace_back(static_cast<size_t>(range.offset),
                                               static_cast<size_t>(range.end_offset()));
-        }
-        if (random_access_ranges.empty()) {
-            return false;
         }
 
         // This mirrors the v1 parquet reader: when projected column chunks in a row group are
         // small random IOs, make the actual ReadAt path range-aware. Arrow still drives decoding,
         // but every page read below this point sees MergeRangeFileReader instead of the raw remote
         // reader, so adjacent small requests can be coalesced and served from merge buffers.
+        // Example: a row group projects leaf chunks [1MB, 1.5MB) and [1.6MB, 2MB). Arrow later
+        // issues page reads inside those chunks; MergeRangeFileReader can fetch a wider slice once
+        // and satisfy the following ReadAt calls from its boxes, reducing remote request count.
         _merge_range_active = true;
         set_active_file_reader(std::make_shared<io::MergeRangeFileReader>(
                 profile, _base_file_reader, random_access_ranges, merge_read_slice_size));
@@ -437,7 +469,9 @@ private:
         if (_merge_range_active && _file_reader != nullptr) {
             // MergeRangeFileReader writes its MergedSmallIO counters only from
             // collect_profile_before_close(). v2 replaces the active reader for every row group,
-            // so collect before overwriting it; Close() handles the final row group.
+            // so collect before overwriting it; Close() handles the final row group. Example:
+            // RG0 installs a merge reader, RG1 calls set_random_access_ranges() and resets the
+            // active reader first, so RG0's RequestIO/MergedIO counters must be flushed here.
             _file_reader->collect_profile_before_close();
         }
     }
