@@ -147,7 +147,7 @@ jobs:
 
       - name: Run cdc client integration tests
         run: |
-          cd fe && mvn -Pflatten install -pl fe-common -am -Dskip.doc=true -DskipTests -Dmaven.build.cache.enabled=false
+          cd fe && mvn -Pflatten install -pl fe-common -Dskip.doc=true -DskipTests -Dmaven.build.cache.enabled=false
           cd ../fs_brokers/cdc_client && mvn -B test failsafe:integration-test failsafe:verify
   # build-docs:
   #   name: Build Documents
