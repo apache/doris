@@ -583,12 +583,17 @@ class IvmJoinDeltaHandlerTest extends IvmDeltaTestBase {
         Alias rightRowIdAlias = (Alias) project.getProjects().get(rightRowIdIndex);
         Assertions.assertInstanceOf(NullLiteral.class, rightRowIdAlias.child());
 
-        NamedExpression lastProject = project.getProjects().get(project.getProjects().size() - 1);
-        Assertions.assertEquals(Column.IVM_DML_FACTOR_COL, lastProject.getName());
-        Assertions.assertInstanceOf(Alias.class, lastProject);
-        Expression dmlFactor = ((Alias) lastProject).child();
+        // dml_factor is second-to-last, baseOp is last
+        int size = project.getProjects().size();
+        NamedExpression dmlFactorProject = project.getProjects().get(size - 2);
+        Assertions.assertEquals(Column.IVM_DML_FACTOR_COL, dmlFactorProject.getName());
+        Assertions.assertInstanceOf(Alias.class, dmlFactorProject);
+        Expression dmlFactor = ((Alias) dmlFactorProject).child();
         Assertions.assertInstanceOf(TinyIntLiteral.class, dmlFactor);
         Assertions.assertEquals(expectedDmlFactor, ((TinyIntLiteral) dmlFactor).getValue());
+
+        NamedExpression baseOpProject = project.getProjects().get(size - 1);
+        Assertions.assertEquals(Column.IVM_BASE_OP_COL, baseOpProject.getName());
     }
 
     private void assertLeftNullSideRowId(LogicalProject<?> project, int rightRowIdIndex, byte expectedDmlFactor) {
@@ -600,28 +605,40 @@ class IvmJoinDeltaHandlerTest extends IvmDeltaTestBase {
         Alias rightRowIdAlias = (Alias) project.getProjects().get(rightRowIdIndex);
         Assertions.assertFalse(rightRowIdAlias.child() instanceof NullLiteral);
 
-        NamedExpression lastProject = project.getProjects().get(project.getProjects().size() - 1);
-        Assertions.assertEquals(Column.IVM_DML_FACTOR_COL, lastProject.getName());
-        Assertions.assertInstanceOf(Alias.class, lastProject);
-        Expression dmlFactor = ((Alias) lastProject).child();
+        // dml_factor is second-to-last, baseOp is last
+        int size = project.getProjects().size();
+        NamedExpression dmlFactorProject = project.getProjects().get(size - 2);
+        Assertions.assertEquals(Column.IVM_DML_FACTOR_COL, dmlFactorProject.getName());
+        Assertions.assertInstanceOf(Alias.class, dmlFactorProject);
+        Expression dmlFactor = ((Alias) dmlFactorProject).child();
         Assertions.assertInstanceOf(TinyIntLiteral.class, dmlFactor);
         Assertions.assertEquals(expectedDmlFactor, ((TinyIntLiteral) dmlFactor).getValue());
+
+        NamedExpression baseOpProject = project.getProjects().get(size - 1);
+        Assertions.assertEquals(Column.IVM_BASE_OP_COL, baseOpProject.getName());
     }
 
     private void assertNullSideRepairEvent(LogicalProject<?> project, byte expectedDmlFactor) {
         int eventKeyCount = 1;
-        for (int i = eventKeyCount; i < project.getProjects().size() - 1; i++) {
+        // value slots are between event keys and dml_factor; skip dml_factor and baseOp
+        for (int i = eventKeyCount; i < project.getProjects().size() - 2; i++) {
             Assertions.assertInstanceOf(Alias.class, project.getProjects().get(i));
             Alias nullSideValueAlias = (Alias) project.getProjects().get(i);
             Assertions.assertInstanceOf(NullLiteral.class, nullSideValueAlias.child());
         }
 
-        NamedExpression lastProject = project.getProjects().get(project.getProjects().size() - 1);
-        Assertions.assertEquals(Column.IVM_DML_FACTOR_COL, lastProject.getName());
-        Assertions.assertInstanceOf(Alias.class, lastProject);
-        Expression dmlFactor = ((Alias) lastProject).child();
+        // dml_factor is second-to-last
+        int size = project.getProjects().size();
+        NamedExpression dmlFactorProject = project.getProjects().get(size - 2);
+        Assertions.assertEquals(Column.IVM_DML_FACTOR_COL, dmlFactorProject.getName());
+        Assertions.assertInstanceOf(Alias.class, dmlFactorProject);
+        Expression dmlFactor = ((Alias) dmlFactorProject).child();
         Assertions.assertInstanceOf(TinyIntLiteral.class, dmlFactor);
         Assertions.assertEquals(expectedDmlFactor, ((TinyIntLiteral) dmlFactor).getValue());
+
+        // baseOp is last, always +1 for repair events
+        NamedExpression baseOpProject = project.getProjects().get(size - 1);
+        Assertions.assertEquals(Column.IVM_BASE_OP_COL, baseOpProject.getName());
     }
 
     private LogicalUnion nullSideEventUnion(Plan plan) {

@@ -386,7 +386,7 @@ class IvmAggDeltaHandlerTest extends IvmDeltaTestBase {
         LogicalAggregate<?> agg = buildGroupedAgg(buildScan());
         MTMV mtmv = buildMtmvFromPlan(agg.getOutput());
         IvmRefreshContext ctx = new IvmRefreshContext(mtmv, new ConnectContext(), null);
-        IvmDeltaRewriteResult childResult = new IvmDeltaRewriteResult(agg.child(0), (Slot) null);
+        IvmDeltaRewriteResult childResult = new IvmDeltaRewriteResult(agg.child(0), (Slot) null, (Slot) null);
 
         AnalysisException ex = Assertions.assertThrows(AnalysisException.class,
                 () -> new IvmAggDeltaHandler().rewriteAggregate(agg, childResult, ctx));
