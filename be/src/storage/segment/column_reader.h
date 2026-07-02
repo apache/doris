@@ -221,7 +221,7 @@ public:
     Status prune_predicates_by_zone_map(std::vector<std::shared_ptr<ColumnPredicate>>& predicates,
                                         const int column_id, bool* pruned) const;
 
-    Status get_segment_zone_map(segment_v2::ZoneMap* zone_map) const;
+    virtual Status get_segment_zone_map(segment_v2::ZoneMap* zone_map) const;
     Status get_page_zone_maps(const ColumnIteratorOptions& iter_opts,
                               const std::vector<ZoneMapPB>** zone_maps);
     Status get_row_range_for_page(uint32_t page_index, const ColumnIteratorOptions& iter_opts,
@@ -967,6 +967,8 @@ public:
         *iterator = std::make_unique<ConstantColumnIterator>(_value);
         return Status::OK();
     }
+
+    Status get_segment_zone_map(segment_v2::ZoneMap* zone_map) const override;
 
 private:
     Field _value;

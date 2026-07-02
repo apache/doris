@@ -345,6 +345,15 @@ Status OlapScanner::_init_tso_predicates() {
                 tso_index, std::string(kRowBinlogTimestampColName), data_type, end_value, false));
     }
 
+    // The storage-layer statistics fast path (VStatisticsIterator, picked when
+    // push_down_agg_type is COUNT/MINMAX) bypasses SegmentIterator and returns raw
+    // segment row counts without applying any column predicate. The commit-tso
+    // predicate injected above is row-level, so the fast path would both miscount
+    // (ignoring commit_tso <= snapshot_tso) and crash on a column-count DCHECK when
+    // the tso predicate column is not in return_columns. Disable it here, matching
+    // the binlog DETAIL/MIN_DELTA handling.
+    _tablet_reader_params.push_down_agg_type_opt = TPushAggOp::NONE;
+
     if (std::find(_tablet_reader_params.return_columns.begin(),
                   _tablet_reader_params.return_columns.end(),
                   tso_index) == _tablet_reader_params.return_columns.end()) {

@@ -23,6 +23,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.Maps;
 
 import java.util.Map;
+import java.util.Objects;
 
 /**
  * A lightweight wrapper base for read binlog<Row> of table
@@ -79,5 +80,10 @@ public class RowBinlogTableWrapper extends OlapTableWrapper {
         }
         RowBinlogTableWrapper other = (RowBinlogTableWrapper) obj;
         return rowBinlogMeta.equals(other.rowBinlogMeta);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(super.hashCode(), rowBinlogMeta.getRowBinlogIndexId());
     }
 }

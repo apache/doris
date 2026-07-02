@@ -637,6 +637,13 @@ Status ColumnReader::get_segment_zone_map(segment_v2::ZoneMap* zone_map) const {
     return ZoneMap::from_proto(*_segment_zone_map, _data_type, *zone_map);
 }
 
+Status ConstantColumnReader::get_segment_zone_map(segment_v2::ZoneMap* zone_map) const {
+    zone_map->min_value = _value;
+    zone_map->max_value = _value;
+    zone_map->has_not_null = !_value.is_null();
+    return Status::OK();
+}
+
 Status ColumnReader::get_page_zone_maps(const ColumnIteratorOptions& iter_opts,
                                         const std::vector<ZoneMapPB>** zone_maps) {
     DORIS_CHECK(zone_maps != nullptr);

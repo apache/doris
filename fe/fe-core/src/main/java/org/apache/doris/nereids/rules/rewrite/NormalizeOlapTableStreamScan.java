@@ -227,8 +227,7 @@ public class NormalizeOlapTableStreamScan extends OneRewriteRuleFactory {
         OlapTableStreamWrapper streamWrapper = scan.getTable();
         OlapTable baseTable = streamWrapper.getBaseTable();
         Plan plan = makeOlapScanOnBaseTable(scan, cascadesContext, baseTable, scan.getSelectedPartitionIds());
-        List<Slot> originSlots = scan.getLogicalProperties().getOutput();
-        return projectToOriginSlots(plan, originSlots);
+        return projectToOriginSlots(plan, scan.getOutput());
     }
 
     /**
@@ -250,7 +249,7 @@ public class NormalizeOlapTableStreamScan extends OneRewriteRuleFactory {
         List<Long> selectedPartitionIds = scan.getSelectedPartitionIds();
         OlapTableStreamWrapper streamWrapper = scan.getTable();
         OlapTable baseTable = streamWrapper.getBaseTable();
-        List<Slot> originSlots = scan.getLogicalProperties().getOutput();
+        List<Slot> originSlots = scan.getOutput();
         selectedPartitionIds = streamWrapper.filterConsumedPartitionIds(selectedPartitionIds);
         if (baseTable.getKeysType().equals(KeysType.DUP_KEYS)) {
             // dup key table can just rebuild from base table

@@ -23,6 +23,7 @@ import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
@@ -181,5 +182,10 @@ public class OlapTableWrapper extends OlapTable {
         OlapTableWrapper other = (OlapTableWrapper) obj;
         return originTable.equals(other.originTable)
                 && partitionOffsetMap.equals(other.partitionOffsetMap);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(super.hashCode(), originTable.getId());
     }
 }
