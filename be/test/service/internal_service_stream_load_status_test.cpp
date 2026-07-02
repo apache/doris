@@ -18,7 +18,9 @@
 #include <gen_cpp/internal_service.pb.h>
 #include <gtest/gtest.h>
 
+#include <chrono>
 #include <functional>
+#include <future>
 #include <memory>
 #include <utility>
 
@@ -96,6 +98,7 @@ TEST_F(InternalServiceStreamLoadStatusTest, report_stream_load_status_uses_reque
     EXPECT_TRUE(done);
     Status response_status = Status::create(response.status());
     EXPECT_TRUE(response_status.ok());
+    ASSERT_EQ(ctx->load_status_future.wait_for(std::chrono::seconds(5)), std::future_status::ready);
     Status load_status = ctx->load_status_future.get();
     EXPECT_FALSE(load_status.ok());
     EXPECT_NE(load_status.to_string().find("reported failure"), std::string::npos);
