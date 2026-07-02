@@ -324,25 +324,27 @@ Status OlapScanner::_init_tso_predicates() {
     }
 
     auto& tablet_schema = _tablet_reader_params.tablet_schema;
-    int32_t tso_index = tablet_schema->binlog_timestamp_col_idx();
-    if (_tablet_reader_params.reader_type != ReaderType::READER_BINLOG) {
-        tso_index = tablet_schema->commit_tso_col_idx();
-    }
+    int32_t tso_index = _tablet_reader_params.reader_type == ReaderType::READER_BINLOG
+                                ? tablet_schema->binlog_timestamp_col_idx()
+                                : tso_index = tablet_schema->commit_tso_col_idx();
+    const std::string& column_name = _tablet_reader_params.reader_type == ReaderType::READER_BINLOG
+                                             ? BINLOG_TIMESTAMP_COL
+                                             : COMMIT_TSO_COL;
     if (tso_index < 0) {
         return Status::InternalError("Column {} not found in tablet schema after append",
-                                     BINLOG_TIMESTAMP_COL);
+                                     column_name);
     }
 
     auto data_type = std::make_shared<DataTypeInt64>();
     if (_start_tso.has_value()) {
         Field start_value = Field::create_field<TYPE_BIGINT>(*_start_tso);
         _tablet_reader_params.predicates.push_back(create_comparison_predicate<PredicateType::GT>(
-                tso_index, std::string(kRowBinlogTimestampColName), data_type, start_value, false));
+                tso_index, column_name, data_type, start_value, false));
     }
     if (_end_tso.has_value()) {
         Field end_value = Field::create_field<TYPE_BIGINT>(*_end_tso);
         _tablet_reader_params.predicates.push_back(create_comparison_predicate<PredicateType::LE>(
-                tso_index, std::string(kRowBinlogTimestampColName), data_type, end_value, false));
+                tso_index, column_name, data_type, end_value, false));
     }
 
     // The storage-layer statistics fast path (VStatisticsIterator, picked when
