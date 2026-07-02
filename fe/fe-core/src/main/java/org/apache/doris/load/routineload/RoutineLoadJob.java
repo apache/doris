@@ -1732,6 +1732,7 @@ public abstract class RoutineLoadJob
             row.add(userIdentity.getQualifiedUser());
             row.add(comment);
             row.add(getClusterInfo());
+            row.add(getLastTaskScheduleTimeString());
             return row;
         } finally {
             readUnlock();

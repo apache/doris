@@ -110,6 +110,7 @@ public class ShowRoutineLoadCommand extends ShowCommand {
             .add("User")
             .add("Comment")
             .add("ComputeGroup")
+            .add("LastTaskScheduleTime")
             .build();
 
     private final LabelNameInfo labelNameInfo;
