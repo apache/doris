@@ -5429,6 +5429,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             jobInfo.setCurrentAbortTaskNum(job.getJobStatistic().currentAbortedTaskNum);
             jobInfo.setIsAbnormalPause(job.isAbnormalPause());
             jobInfo.setComputeGroup(job.getClusterInfo());
+            jobInfo.setLastTaskScheduleTime(job.getLastTaskScheduleTimeString());
             jobInfos.add(jobInfo);
         }
         if (LOG.isDebugEnabled()) {
