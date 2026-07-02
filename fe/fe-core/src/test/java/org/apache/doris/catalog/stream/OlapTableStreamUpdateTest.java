@@ -33,7 +33,8 @@ public class OlapTableStreamUpdateTest {
         Map<Long, Long> historicalPartitionTSO = Collections.singletonMap(1L, 100L);
         Map<Long, Long> partitionOffset = Collections.emptyMap();
 
-        Map<Long, Long> prev = Collections.singletonMap(1L, 100L);
+        // history partition prev offset is encoded as negative (see StreamConsumptionInfoExtractor)
+        Map<Long, Long> prev = Collections.singletonMap(1L, -100L);
         Map<Long, Long> next = Collections.emptyMap();
         OlapTableStreamUpdate update = new OlapTableStreamUpdate(prev, next);
 
@@ -45,7 +46,8 @@ public class OlapTableStreamUpdateTest {
         Map<Long, Long> historicalPartitionTSO = Collections.singletonMap(1L, 99L);
         Map<Long, Long> partitionOffset = Collections.emptyMap();
 
-        Map<Long, Long> prev = Collections.singletonMap(1L, 100L);
+        // history partition prev offset is encoded as negative; -(-100)=100 != 99 -> conflict
+        Map<Long, Long> prev = Collections.singletonMap(1L, -100L);
         Map<Long, Long> next = new HashMap<>();
         OlapTableStreamUpdate update = new OlapTableStreamUpdate(prev, next);
 

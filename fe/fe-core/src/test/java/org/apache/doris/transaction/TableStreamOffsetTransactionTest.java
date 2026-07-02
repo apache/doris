@@ -94,8 +94,11 @@ public class TableStreamOffsetTransactionTest extends TestWithFeService {
         Deencapsulation.setField(stream, "historicalPartitionTSO", historicalPartitionTSO);
         Deencapsulation.setField(stream, "partitionOffset", new HashMap<Long, Long>());
 
-        // historical consume: prev/next both point to the historical TSO snapshot
-        OlapTableStreamUpdate update = new OlapTableStreamUpdate(new HashMap<>(historicalPartitionTSO),
+        // historical consume: prev is the historical TSO snapshot encoded as negative
+        // (see StreamConsumptionInfoExtractor), next points to the historical TSO snapshot
+        Map<Long, Long> negatedPrev = new HashMap<>();
+        historicalPartitionTSO.forEach((pid, tso) -> negatedPrev.put(pid, -tso));
+        OlapTableStreamUpdate update = new OlapTableStreamUpdate(negatedPrev,
                 new HashMap<>(historicalPartitionTSO));
         Assertions.assertTrue(update.getNext().keySet().containsAll(partitionIds));
 

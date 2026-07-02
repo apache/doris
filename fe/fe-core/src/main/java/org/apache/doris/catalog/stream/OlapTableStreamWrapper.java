@@ -232,4 +232,8 @@ public class OlapTableStreamWrapper extends OlapTable {
                 .filter(partitionId -> !stream.hasData(getPartition(partitionId)))
                 .collect(Collectors.toList());
     }
+
+    public boolean isHistoryPartition(long partitionId) {
+        return stream.hasHistoricalData(partitionId);
+    }
 }

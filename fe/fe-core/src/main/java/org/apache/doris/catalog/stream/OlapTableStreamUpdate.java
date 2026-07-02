@@ -64,11 +64,16 @@ public class OlapTableStreamUpdate extends AbstractTableStreamUpdate {
             throws UserException {
         for (Map.Entry<Long, Long> entry : prev.entrySet()) {
             if (historicalPartitionTSO.containsKey(entry.getKey())) {
-                if (!historicalPartitionTSO.get(entry.getKey()).equals(entry.getValue())) {
+                if (!historicalPartitionTSO.get(entry.getKey()).equals(-entry.getValue())) {
                     throw new TransactionCommitFailedException("history offset not consumed: "
                             + dbName + '-' + streamName + '-' + entry.getKey() + '-' + entry.getValue()
                             + " vs " + historicalPartitionTSO.get(entry.getKey()));
                 }
+            } else if (partitionOffset.containsKey(entry.getKey())
+                    && !partitionOffset.get(entry.getKey()).equals(entry.getValue())) {
+                throw new TransactionCommitFailedException("target offset already consumed: "
+                        + dbName + '-' + streamName + '-' + entry.getKey() + '-' + entry.getValue()
+                        + " vs " + partitionOffset.get(entry.getKey()));
             }
         }
         for (Map.Entry<Long, Long> entry : next.entrySet()) {
@@ -77,11 +82,6 @@ public class OlapTableStreamUpdate extends AbstractTableStreamUpdate {
                     throw new TransactionCommitFailedException(
                             "previous version missing for partition=" + entry.getKey() + ", db=" + dbName
                                     + ", stream=" + streamName);
-                }
-                if (!partitionOffset.get(entry.getKey()).equals(prev.get(entry.getKey()))) {
-                    throw new TransactionCommitFailedException("target offset already consumed: "
-                            + dbName + '-' + streamName + '-' + entry.getKey() + '-' + entry.getValue()
-                            + " vs " + partitionOffset.get(entry.getKey()));
                 }
             } else {
                 // the new partition id may not be updated in time, so key in table stream not exist is also valid

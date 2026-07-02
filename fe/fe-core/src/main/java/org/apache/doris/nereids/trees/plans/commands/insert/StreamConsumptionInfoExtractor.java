@@ -75,7 +75,12 @@ public class StreamConsumptionInfoExtractor {
         for (Map.Entry<Long, Pair<Long, Long>> entry : wrapper.getOutputUpdateMap().entrySet()) {
             Pair<Long, Long> update = entry.getValue();
             if (update.first != null) {
-                prev.put(entry.getKey(), update.first);
+                if (wrapper.isHistoryPartition(entry.getKey())) {
+                    // use negative value to mark history offset
+                    prev.put(entry.getKey(), -update.first);
+                } else {
+                    prev.put(entry.getKey(), update.first);
+                }
             }
             if (update.second != null) {
                 next.put(entry.getKey(), update.second);

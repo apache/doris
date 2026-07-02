@@ -251,7 +251,8 @@ public class InsertIntoTableCommandTableStreamTest extends TestWithFeService {
         // (C) End-to-end FE-side contract: the OlapTableStreamUpdate produced by the insert
         // path's planner must carry, for each selected partition,
         //   next == partition.getTso() (the dedicated commit-tso field), and
-        //   prev == historicalPartitionTSO[pid] when present, else partitionOffset[pid].
+        //   prev == -historicalPartitionTSO[pid] (negated to mark a history offset) when present,
+        //   else partitionOffset[pid].
         Database db = (Database) Env.getCurrentInternalCatalog().getDbOrMetaException("test_stream");
         OlapTable baseTable = (OlapTable) db.getTableOrMetaException("tbl_stream_base");
         // s1 was created with show_initial_rows=true. Seed historicalPartitionTSO for one
@@ -309,8 +310,9 @@ public class InsertIntoTableCommandTableStreamTest extends TestWithFeService {
             Assertions.assertEquals(baseTable.getPartition(pid).getTso(), entry.getValue(),
                     "next must equal partition.tso (commit tso)");
         }
-        // history partition's prev must equal the historical TSO snapshot.
-        Assertions.assertEquals(Long.valueOf(historyTso), producedPrev.get(historyPid),
-                "prev of history partition must equal historicalPartitionTSO");
+        // history partition's prev is the historical TSO snapshot encoded as negative
+        // (see StreamConsumptionInfoExtractor).
+        Assertions.assertEquals(Long.valueOf(-historyTso), producedPrev.get(historyPid),
+                "prev of history partition must equal negated historicalPartitionTSO");
     }
 }
