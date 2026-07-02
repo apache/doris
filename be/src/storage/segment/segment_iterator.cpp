@@ -3186,6 +3186,7 @@ Status SegmentIterator::_next_batch_internal(Block* block) {
     RETURN_IF_ERROR(_init_current_block(block, _current_return_columns, nrows_read_limit));
     _converted_column_ids.assign(_schema->columns().size(), false);
 
+    bool read_limit_applied_to_selected_rows = false;
     _selected_size = 0;
     RETURN_IF_ERROR(_read_columns_by_index(_predicate_column_ids, nrows_read_limit, _selected_size,
                                            /*read_rowids=*/true));
@@ -3391,6 +3392,22 @@ Status SegmentIterator::_next_batch_internal(Block* block) {
                         _selected_size = stage1_size;
                     }
 
+                    if (!_is_need_expr_eval) {
+                        const bool stage2_output_uses_stage2_selector =
+                                do_stage2 && !stage2_columns_dense_on_all_rows;
+                        const uint16_t selected_size_before_limit = _selected_size;
+                        RETURN_IF_ERROR(_apply_read_limit_to_selected_rows(block, _selected_size));
+                        read_limit_applied_to_selected_rows = true;
+
+                        if (stage2_output_uses_stage2_selector && _opts.read_orderby_key_reverse &&
+                            _selected_size < selected_size_before_limit) {
+                            const auto offset = selected_size_before_limit - _selected_size;
+                            for (uint16_t i = 0; i < _selected_size; ++i) {
+                                _sel_rowid_idx_stage2[i] = _sel_rowid_idx_stage2[offset + i];
+                            }
+                        }
+                    }
+
                     if (_selected_size > 0) {
                         // Output stage1 predicate columns
                         RETURN_IF_ERROR(_output_column_by_sel_idx(block, _predicate_column_ids,
@@ -3451,7 +3468,9 @@ Status SegmentIterator::_next_batch_internal(Block* block) {
             RETURN_IF_ERROR(_process_common_expr(_sel_rowid_idx.data(), _selected_size, block));
         }
 
-        RETURN_IF_ERROR(_apply_read_limit_to_selected_rows(block, _selected_size));
+        if (!read_limit_applied_to_selected_rows) {
+            RETURN_IF_ERROR(_apply_read_limit_to_selected_rows(block, _selected_size));
+        }
 
         // step4: read non_predicate column
         if (_selected_size > 0) {
