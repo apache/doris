@@ -252,7 +252,7 @@ public abstract class RoutineLoadJob
     @SerializedName("ets")
     protected long endTimestamp = -1;
     // Last time any task of this job was scheduled by RoutineLoadTaskScheduler.
-    private long lastTaskScheduleTimeMs = -1L;
+    private transient long lastTaskScheduleTimeMs = -1L;
 
     @SerializedName("js")
     protected RoutineLoadStatistic jobStatistic = new RoutineLoadStatistic();
