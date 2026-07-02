@@ -109,7 +109,7 @@ class IvmJoinDeltaHandler {
                     "IVM: both sides of outer join have dml_factor; expected at most one delta side");
         }
         if (leftResult.dmlFactorSlot == null && rightResult.dmlFactorSlot == null) {
-            return new IvmDeltaRewriteResult(join.withChildren(leftResult.plan, rightResult.plan), null);
+            return new IvmDeltaRewriteResult(join.withChildren(leftResult.plan, rightResult.plan), null, null);
         }
         boolean deltaOnLeft = leftResult.dmlFactorSlot != null;
         boolean isPreservedSideDelta = (deltaOnLeft && join.getJoinType().isLeftOuterJoin())
@@ -138,7 +138,7 @@ class IvmJoinDeltaHandler {
 
         LogicalJoin<Plan, Plan> newJoin = join.withChildren(ImmutableList.of(leftResult.plan, rightResult.plan));
         if (leftResult.dmlFactorSlot == null && rightResult.dmlFactorSlot == null) {
-            return new IvmDeltaRewriteResult(newJoin, null);
+            return new IvmDeltaRewriteResult(newJoin, null, null);
         }
         return helper.addNonDetGuardForJoinDelta(newJoin, leftResult, rightResult, context);
     }
@@ -167,6 +167,8 @@ class IvmJoinDeltaHandler {
         }
         projects.add(new Alias(joinResult.dmlFactorSlot.getExprId(),
                 joinResult.dmlFactorSlot, joinResult.dmlFactorSlot.getName()));
+        projects.add(new Alias(joinResult.baseOpSlot.getExprId(),
+                joinResult.baseOpSlot, joinResult.baseOpSlot.getName()));
         return new LogicalProject<>(projects.build(), joinResult.plan);
     }
 
@@ -241,7 +243,8 @@ class IvmJoinDeltaHandler {
                 joinedProject, repairProjects.get(0), repairProjects.get(1)));
         LogicalProject<Plan> outputProject = helper.projectUnionOutputs(union, joinedProject.getOutput());
         Slot dmlFactor = findSlotByName(outputProject.getOutput(), Column.IVM_DML_FACTOR_COL);
-        return new IvmDeltaRewriteResult(outputProject, dmlFactor);
+        Slot baseOp = findSlotByName(outputProject.getOutput(), Column.IVM_BASE_OP_COL);
+        return new IvmDeltaRewriteResult(outputProject, dmlFactor, baseOp);
     }
 
     /**
@@ -260,7 +263,8 @@ class IvmJoinDeltaHandler {
         // The joined-row branch changes the join type, so its output slots/schema are not the same as the
         // original outer join output. Project it back before unioning with the repair branches.
         return projectJoinDeltaOutputs(join,
-                new IvmDeltaRewriteResult(newJoin, deltaContext.deltaSideResult().dmlFactorSlot));
+                new IvmDeltaRewriteResult(newJoin, deltaContext.deltaSideResult().dmlFactorSlot,
+                        deltaContext.deltaSideResult().baseOpSlot));
     }
 
     /**
@@ -375,9 +379,10 @@ class IvmJoinDeltaHandler {
                 retainedSnapshot.first, nullSideEvents.plan, JoinReorderContext.EMPTY);
         LogicalProject<Plan> outputProject = projectEventJoinOutputs(targetOutputs,
                 eventJoin, retainedSnapshot.second, nullSideEvents.nullSideOutputMapping,
-                nullSideEvents.dmlFactorSlot);
+                nullSideEvents.dmlFactorSlot, nullSideEvents.baseOpSlot);
         Slot dmlFactor = findSlotByName(outputProject.getOutput(), Column.IVM_DML_FACTOR_COL);
-        return new IvmDeltaRewriteResult(outputProject, dmlFactor);
+        Slot baseOp = findSlotByName(outputProject.getOutput(), Column.IVM_BASE_OP_COL);
+        return new IvmDeltaRewriteResult(outputProject, dmlFactor, baseOp);
     }
 
     /**
@@ -469,6 +474,9 @@ class IvmJoinDeltaHandler {
             }
         }
         projects.add(new Alias(dmlFactor, Column.IVM_DML_FACTOR_COL));
+        // Repair rows are synthetic — either +1 or -1 would be correct here. Using +1 puts
+        // them into insert_delta, keeping delete_delta smaller (only real base-table deletes).
+        projects.add(new Alias(new TinyIntLiteral((byte) 1), Column.IVM_BASE_OP_COL));
         return new LogicalProject<>(projects.build(), (LogicalPlan) source);
     }
 
@@ -499,8 +507,10 @@ class IvmJoinDeltaHandler {
             nullSideOutputIndex++;
         }
         List<Slot> eventKeySlots = unionOutputs.subList(0, deltaContext.deltaSideKeyExpressions(equiJoinKeys).size());
-        Slot dmlFactorSlot = unionOutputs.get(unionOutputs.size() - 1);
-        return new NullSideEventPlan(union, nullSideOutputMapping, eventKeySlots, dmlFactorSlot);
+        Slot dmlFactorSlot = unionOutputs.get(unionOutputs.size() - 2);
+        Slot baseOpSlot = unionOutputs.get(unionOutputs.size() - 1);
+        return new NullSideEventPlan(union, nullSideOutputMapping, eventKeySlots,
+                dmlFactorSlot, baseOpSlot);
     }
 
     /**
@@ -521,6 +531,8 @@ class IvmJoinDeltaHandler {
         }
         projects.add(new Alias(nullSideDelta.second.get(deltaContext.deltaSideResult().dmlFactorSlot),
                 Column.IVM_DML_FACTOR_COL));
+        projects.add(new Alias(nullSideDelta.second.get(deltaContext.deltaSideResult().baseOpSlot),
+                Column.IVM_BASE_OP_COL));
         return new LogicalProject<>(projects.build(), (LogicalPlan) nullSideDelta.first);
     }
 
@@ -562,6 +574,9 @@ class IvmJoinDeltaHandler {
             projects.add(new Alias(new NullLiteral(slot.getDataType()), slot.getName()));
         }
         projects.add(new Alias(dmlFactor, Column.IVM_DML_FACTOR_COL));
+        // Repair event rows are synthetic — either +1 or -1 would be correct. Using +1 puts
+        // them into insert_delta, keeping delete_delta smaller.
+        projects.add(new Alias(new TinyIntLiteral((byte) 1), Column.IVM_BASE_OP_COL));
         return new LogicalProject<>(projects.build(), antiJoin);
     }
 
@@ -600,13 +615,16 @@ class IvmJoinDeltaHandler {
      * Project the one-probe event join back to the same schema as the bare join result.
      */
     private LogicalProject<Plan> projectEventJoinOutputs(List<Slot> targetOutputs, Plan source,
-            Map<Slot, Slot> retainedOutputMapping, Map<Slot, Slot> nullSideOutputMapping, Slot dmlFactorSlot) {
+            Map<Slot, Slot> retainedOutputMapping, Map<Slot, Slot> nullSideOutputMapping,
+            Slot dmlFactorSlot, Slot baseOpSlot) {
         ImmutableList.Builder<NamedExpression> projects = ImmutableList.builderWithExpectedSize(
                 targetOutputs.size());
         for (Slot target : targetOutputs) {
             Expression expr;
             if (Column.IVM_DML_FACTOR_COL.equals(target.getName())) {
                 expr = dmlFactorSlot;
+            } else if (Column.IVM_BASE_OP_COL.equals(target.getName())) {
+                expr = baseOpSlot;
             } else {
                 expr = retainedOutputMapping.get(target);
                 if (expr == null) {
@@ -719,12 +737,13 @@ class IvmJoinDeltaHandler {
     }
 
     /**
-     * Return null-side output slots carried by null-side events, excluding the synthetic dml factor.
+     * Return null-side output slots carried by null-side events, excluding synthetic dml factor and op type.
      */
     private List<Slot> nullSideValueSlots(NullSideDeltaContext deltaContext) {
         ImmutableList.Builder<Slot> slots = ImmutableList.builder();
         for (Slot slot : deltaContext.deltaSideResult().plan.getOutput()) {
-            if (!Column.IVM_DML_FACTOR_COL.equals(slot.getName())) {
+            if (!Column.IVM_DML_FACTOR_COL.equals(slot.getName())
+                    && !Column.IVM_BASE_OP_COL.equals(slot.getName())) {
                 slots.add(slot);
             }
         }
@@ -926,16 +945,18 @@ class IvmJoinDeltaHandler {
         private final Map<Slot, Slot> nullSideOutputMapping;
         private final List<Slot> eventKeySlots;
         private final Slot dmlFactorSlot;
+        private final Slot baseOpSlot;
 
         /**
          * Store the event relation and the output slots consumed by the final probe projection.
          */
         private NullSideEventPlan(Plan plan, Map<Slot, Slot> nullSideOutputMapping,
-                List<Slot> eventKeySlots, Slot dmlFactorSlot) {
+                List<Slot> eventKeySlots, Slot dmlFactorSlot, Slot baseOpSlot) {
             this.plan = plan;
             this.nullSideOutputMapping = nullSideOutputMapping;
             this.eventKeySlots = eventKeySlots;
             this.dmlFactorSlot = dmlFactorSlot;
+            this.baseOpSlot = baseOpSlot;
         }
     }
 

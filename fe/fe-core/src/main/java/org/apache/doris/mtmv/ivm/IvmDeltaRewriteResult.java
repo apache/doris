@@ -26,9 +26,11 @@ import org.apache.doris.nereids.trees.plans.Plan;
 class IvmDeltaRewriteResult {
     final Plan plan;
     final Slot dmlFactorSlot;
+    final Slot baseOpSlot;
 
-    IvmDeltaRewriteResult(Plan plan, Slot dmlFactorSlot) {
+    IvmDeltaRewriteResult(Plan plan, Slot dmlFactorSlot, Slot baseOpSlot) {
         this.plan = plan;
         this.dmlFactorSlot = dmlFactorSlot;
+        this.baseOpSlot = baseOpSlot;
     }
 }
