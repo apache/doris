@@ -22,9 +22,16 @@ import org.apache.doris.connector.api.handle.WriteOperation;
 import java.util.Set;
 
 /**
- * Fails loud at connector registration if a connector's declared write capabilities are internally
- * inconsistent. The invariants are structural (no table handle needed) and mirror the doc contracts the
- * removed {@code ConnectorCapability} javadoc stated only in prose.
+ * Fails loud ({@link IllegalStateException}) if a connector's declared write capabilities are internally
+ * inconsistent. The invariants are purely structural (no table handle, no live catalog needed) and mirror
+ * the doc contracts the removed {@code ConnectorCapability} javadoc stated only in prose.
+ *
+ * <p>Because the invariants are static properties of a connector's own capability declarations, they are
+ * enforced by the per-connector contract tests (which build each connector and call {@link #validate}),
+ * not at catalog registration: reading a connector's write capabilities constructs its write plan provider,
+ * which for some connectors (e.g. iceberg) eagerly builds the live remote catalog — too costly and
+ * outage-fragile to run on the FE metadata-replay / CREATE CATALOG path. This class stays available to any
+ * caller that already holds an eagerly-built connector and wants the same check.</p>
  */
 public final class ConnectorContractValidator {
 

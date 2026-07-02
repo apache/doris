@@ -29,10 +29,11 @@ import java.util.EnumSet;
 
 /**
  * Rule-9 behavior gates for {@link ConnectorContractValidator}: it must fail loud
- * ({@link IllegalStateException}) at connector registration when a connector's own delegators are
- * internally inconsistent, and it must pass silently when they are not. Fake {@link Connector}s
- * (plain Mockito mocks, stubbing only the argless delegators the two invariants read) stand in for the
- * real connector {@link ConnectorPluginManager#createConnector} validates at catalog creation.
+ * ({@link IllegalStateException}) when a connector's own delegators are internally inconsistent, and it
+ * must pass silently when they are not. These are the primary enforcement of the two structural invariants
+ * (static per-connector properties, checked here and in each connector's own contract test rather than at
+ * catalog registration). Fake {@link Connector}s (plain Mockito mocks, stubbing only the argless delegators
+ * the two invariants read) stand in for a real connector.
  */
 public class ConnectorContractValidatorTest {
 
@@ -69,6 +70,24 @@ public class ConnectorContractValidatorTest {
                 () -> ConnectorContractValidator.validate(fake, "fake_localsort_no_parallel"));
         Assertions.assertTrue(ex.getMessage().contains("requiresPartitionLocalSort"), "got: " + ex.getMessage());
         Assertions.assertTrue(ex.getMessage().contains("fake_localsort_no_parallel"), "got: " + ex.getMessage());
+    }
+
+    @Test
+    void validatorRejectsLocalSortWithoutFullSchema() {
+        // Invariant #3, the OTHER half: local-sort with parallel write but WITHOUT full-schema write order is
+        // equally self-contradictory. This is the distinguishing input (localSort=T, parallel=T, fullSchema=F)
+        // that validatorRejectsLocalSortWithoutParallelAndFullSchema cannot exercise (it fixes parallel=F). A
+        // mutant dropping the `&& requiresFullSchemaWriteOrder()` conjunct still throws on that other case but
+        // NOT here, so this test is what actually kills that mutation — both conjuncts of #3 are now covered.
+        Connector fake = Mockito.mock(Connector.class);
+        Mockito.when(fake.requiresPartitionLocalSort()).thenReturn(true);
+        Mockito.when(fake.requiresParallelWrite()).thenReturn(true);
+        Mockito.when(fake.requiresFullSchemaWriteOrder()).thenReturn(false);
+
+        IllegalStateException ex = Assertions.assertThrows(IllegalStateException.class,
+                () -> ConnectorContractValidator.validate(fake, "fake_localsort_no_fullschema"));
+        Assertions.assertTrue(ex.getMessage().contains("requiresPartitionLocalSort"), "got: " + ex.getMessage());
+        Assertions.assertTrue(ex.getMessage().contains("fake_localsort_no_fullschema"), "got: " + ex.getMessage());
     }
 
     @Test

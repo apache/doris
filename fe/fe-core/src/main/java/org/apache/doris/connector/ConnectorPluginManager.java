@@ -18,7 +18,6 @@
 package org.apache.doris.connector;
 
 import org.apache.doris.connector.api.Connector;
-import org.apache.doris.connector.api.ConnectorContractValidator;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorProvider;
 import org.apache.doris.extension.loader.ClassLoadingPolicy;
@@ -136,9 +135,7 @@ public class ConnectorPluginManager {
                 }
                 LOG.info("Creating connector via provider '{}' for catalogType='{}'",
                         provider.getType(), catalogType);
-                Connector connector = provider.create(properties, context);
-                ConnectorContractValidator.validate(connector, catalogType);
-                return connector;
+                return provider.create(properties, context);
             }
         }
         LOG.debug("No ConnectorProvider supports catalogType='{}'. Registered: {}",
