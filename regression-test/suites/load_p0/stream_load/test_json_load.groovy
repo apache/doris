@@ -177,7 +177,7 @@ suite("test_json_load", "p0,nonConcurrent") {
                     assertEquals(json.NumberLoadedRows, expected_succ_rows)
                 } else {
                     assertEquals(json.NumberTotalRows, json.NumberLoadedRows + json.NumberUnselectedRows)
-                    assertTrue(json.NumberLoadedRows > 0 && json.LoadBytes > 0)
+                    assertTrue(json.NumberLoadedRows > 0 && json.receivedBytes > 0)
                 }
             }
         }
@@ -449,7 +449,7 @@ suite("test_json_load", "p0,nonConcurrent") {
                 assertEquals(json.NumberTotalRows, json.NumberLoadedRows + json.NumberUnselectedRows + json.NumberFilteredRows)
                 assertEquals(json.NumberFilteredRows, 4)
                 assertEquals(json.NumberLoadedRows, 6)
-                assertTrue(json.NumberLoadedRows > 0 && json.LoadBytes > 0)
+                assertTrue(json.NumberLoadedRows > 0 && json.receivedBytes > 0)
             }
         }
         sql "sync"

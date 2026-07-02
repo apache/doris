@@ -62,7 +62,7 @@ suite("test_csv_with_none_utf8_data", "p0") {
             assertEquals(4, json.NumberTotalRows)
             assertEquals(0, json.NumberLoadedRows)
             assertEquals(2, json.NumberFilteredRows)
-            assertTrue(json.LoadBytes > 0)
+            assertTrue(json.receivedBytes > 0)
             log.info("url: " + json.ErrorURL)
         }
     }

@@ -195,7 +195,7 @@ std::string StreamLoadRecorderManager::_parse_and_format_record(const std::strin
     int64_t loaded_rows = get_int64("NumberLoadedRows");
     int64_t filtered_rows = get_int64("NumberFilteredRows");
     int64_t unselected_rows = get_int64("NumberUnselectedRows");
-    int64_t load_bytes = get_int64("LoadBytes");
+    int64_t load_bytes = get_int64("receivedBytes");
     int64_t start_time = get_int64("StartTime");
     int64_t finish_time = get_int64("FinishTime");
     std::string comment = get_string("Comment");

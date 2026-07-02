@@ -97,7 +97,7 @@ std::string StreamLoadContext::to_json() const {
     writer.Int64(number_filtered_rows);
     writer.Key("NumberUnselectedRows");
     writer.Int64(number_unselected_rows);
-    writer.Key("LoadBytes");
+    writer.Key("receivedBytes");
     writer.Int64(receive_bytes);
     writer.Key("LoadTimeMs");
     writer.Int64(load_cost_millis);
@@ -271,10 +271,10 @@ void StreamLoadContext::parse_stream_load_record(const std::string& stream_load_
         ss << ", NumberUnselectedRows: " << unselected_rows.GetInt64();
     }
 
-    if (document.HasMember("LoadBytes")) {
-        const rapidjson::Value& load_bytes = document["LoadBytes"];
-        stream_load_item.__set_load_bytes(load_bytes.GetInt64());
-        ss << ", LoadBytes: " << load_bytes.GetInt64();
+    if (document.HasMember("receivedBytes")) {
+        const rapidjson::Value& received_bytes = document["receivedBytes"];
+        stream_load_item.__set_load_bytes(received_bytes.GetInt64());
+        ss << ", receivedBytes: " << received_bytes.GetInt64();
     }
 
     if (document.HasMember("StartTime")) {

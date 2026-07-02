@@ -62,7 +62,7 @@ suite("test_map_load_and_compaction", "p0") {
                 log.info("expect ", assertLoadNum)
                 log.info("now: ",  json.NumberTotalRows)
                 assertTrue(assertLoadNum==json.NumberTotalRows)
-                assertTrue(json.LoadBytes > 0)
+                assertTrue(json.receivedBytes > 0)
             }
         }
     }

@@ -56,7 +56,7 @@ suite("test_map_load_and_function", "p0") {
             assertEquals("success", json.Status.toLowerCase())
             assertEquals("OK", json.Message)
             assertEquals(15, json.NumberTotalRows)
-            assertTrue(json.LoadBytes > 0)
+            assertTrue(json.receivedBytes > 0)
 
         }
     }

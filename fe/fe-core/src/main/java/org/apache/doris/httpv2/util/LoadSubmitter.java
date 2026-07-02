@@ -165,7 +165,7 @@ public class LoadSubmitter {
         public String NumberLoadedRows;
         public String NumberFilteredRows;
         public String NumberUnselectedRows;
-        public String LoadBytes;
+        public String receivedBytes;
         public String LoadTimeMs;
         public String BeginTxnTimeMs;
         public String StreamLoadPutTimeMs;

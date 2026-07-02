@@ -51,7 +51,7 @@ suite("test_load_with_map_nested_array", "p0") {
             assertEquals("success", json.Status.toLowerCase())
             assertEquals("OK", json.Message)
             assertEquals(1000, json.NumberTotalRows)
-            assertTrue(json.LoadBytes > 0)
+            assertTrue(json.receivedBytes > 0)
 
         }
     }

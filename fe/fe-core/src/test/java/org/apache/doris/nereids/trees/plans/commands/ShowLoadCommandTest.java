@@ -50,7 +50,7 @@ public class ShowLoadCommandTest extends TestWithFeService {
     public static final ImmutableList<String> STREAM_LOAD_TITLE_NAMES = new ImmutableList.Builder<String>()
             .add("Label").add("Db").add("Table")
             .add("ClientIp").add("Status").add("Message").add("Url").add("TotalRows")
-            .add("LoadedRows").add("FilteredRows").add("UnselectedRows").add("LoadBytes")
+            .add("LoadedRows").add("FilteredRows").add("UnselectedRows").add("receivedBytes")
             .add("StartTime").add("FinishTime").add("User").add("Comment")
             .build();
 

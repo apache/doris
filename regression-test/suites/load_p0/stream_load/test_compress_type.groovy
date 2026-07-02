@@ -42,7 +42,7 @@ suite("test_stream_load_compress_type", "load_p0") {
                 assertEquals(20, json.NumberLoadedRows)
                 assertEquals(0, json.NumberFilteredRows)
                 assertEquals(0, json.NumberUnselectedRows)
-                assertTrue(json.LoadBytes > 0)
+                assertTrue(json.receivedBytes > 0)
         }
     }
 
@@ -64,7 +64,7 @@ suite("test_stream_load_compress_type", "load_p0") {
                 assertEquals(20, json.NumberLoadedRows)
                 assertEquals(0, json.NumberFilteredRows)
                 assertEquals(0, json.NumberUnselectedRows)
-                assertTrue(json.LoadBytes > 0)
+                assertTrue(json.receivedBytes > 0)
         }
     }
 
@@ -86,7 +86,7 @@ suite("test_stream_load_compress_type", "load_p0") {
                 assertEquals(20, json.NumberLoadedRows)
                 assertEquals(0, json.NumberFilteredRows)
                 assertEquals(0, json.NumberUnselectedRows)
-                assertTrue(json.LoadBytes > 0)
+                assertTrue(json.receivedBytes > 0)
         }
     }
 
@@ -107,7 +107,7 @@ suite("test_stream_load_compress_type", "load_p0") {
                 assertEquals(20, json.NumberLoadedRows)
                 assertEquals(0, json.NumberFilteredRows)
                 assertEquals(0, json.NumberUnselectedRows)
-                assertTrue(json.LoadBytes > 0)
+                assertTrue(json.receivedBytes > 0)
         }
     }
 
@@ -128,7 +128,7 @@ suite("test_stream_load_compress_type", "load_p0") {
                 assertEquals(20, json.NumberLoadedRows)
                 assertEquals(0, json.NumberFilteredRows)
                 assertEquals(0, json.NumberUnselectedRows)
-                assertTrue(json.LoadBytes > 0)
+                assertTrue(json.receivedBytes > 0)
         }
     }
 
@@ -149,7 +149,7 @@ suite("test_stream_load_compress_type", "load_p0") {
                 assertEquals(20, json.NumberLoadedRows)
                 assertEquals(0, json.NumberFilteredRows)
                 assertEquals(0, json.NumberUnselectedRows)
-                assertTrue(json.LoadBytes > 0)
+                assertTrue(json.receivedBytes > 0)
         }       
     }
 
@@ -171,7 +171,7 @@ suite("test_stream_load_compress_type", "load_p0") {
                 assertEquals(20, json.NumberLoadedRows)
                 assertEquals(0, json.NumberFilteredRows)
                 assertEquals(0, json.NumberUnselectedRows)
-                assertTrue(json.LoadBytes > 0)
+                assertTrue(json.receivedBytes > 0)
         }
     }
 
@@ -192,7 +192,7 @@ suite("test_stream_load_compress_type", "load_p0") {
                 assertEquals(20, json.NumberLoadedRows)
                 assertEquals(0, json.NumberFilteredRows)
                 assertEquals(0, json.NumberUnselectedRows)
-                assertTrue(json.LoadBytes > 0)
+                assertTrue(json.receivedBytes > 0)
         }
     }
 
@@ -214,7 +214,7 @@ suite("test_stream_load_compress_type", "load_p0") {
                 assertEquals(20, json.NumberLoadedRows)
                 assertEquals(0, json.NumberFilteredRows)
                 assertEquals(0, json.NumberUnselectedRows)
-                assertTrue(json.LoadBytes > 0)
+                assertTrue(json.receivedBytes > 0)
         }
     }
 
@@ -235,7 +235,7 @@ suite("test_stream_load_compress_type", "load_p0") {
                 assertEquals(20, json.NumberLoadedRows)
                 assertEquals(0, json.NumberFilteredRows)
                 assertEquals(0, json.NumberUnselectedRows)
-                assertTrue(json.LoadBytes > 0)
+                assertTrue(json.receivedBytes > 0)
         }
     }
 
@@ -257,7 +257,7 @@ suite("test_stream_load_compress_type", "load_p0") {
                 assertEquals(13, json.NumberTotalRows)
                 assertEquals(0, json.NumberLoadedRows)
                 assertEquals(13, json.NumberFilteredRows)
-                assertTrue(json.LoadBytes > 0)
+                assertTrue(json.receivedBytes > 0)
         }
     }
 
@@ -279,7 +279,7 @@ suite("test_stream_load_compress_type", "load_p0") {
                 assertEquals(9, json.NumberTotalRows)
                 assertEquals(0, json.NumberLoadedRows)
                 assertEquals(9, json.NumberFilteredRows)
-                assertTrue(json.LoadBytes > 0)
+                assertTrue(json.receivedBytes > 0)
         }
     }
 
@@ -301,7 +301,7 @@ suite("test_stream_load_compress_type", "load_p0") {
                 assertEquals(31, json.NumberTotalRows)
                 assertEquals(0, json.NumberLoadedRows)
                 assertEquals(31, json.NumberFilteredRows)
-                assertTrue(json.LoadBytes > 0)
+                assertTrue(json.receivedBytes > 0)
         }
     }
 
@@ -322,7 +322,7 @@ suite("test_stream_load_compress_type", "load_p0") {
                 assertEquals(13, json.NumberTotalRows)
                 assertEquals(0, json.NumberLoadedRows)
                 assertEquals(13, json.NumberFilteredRows)
-                assertTrue(json.LoadBytes > 0)
+                assertTrue(json.receivedBytes > 0)
         }
     }
 
@@ -343,7 +343,7 @@ suite("test_stream_load_compress_type", "load_p0") {
                 assertEquals(9, json.NumberTotalRows)
                 assertEquals(0, json.NumberLoadedRows)
                 assertEquals(9, json.NumberFilteredRows)
-                assertTrue(json.LoadBytes > 0)
+                assertTrue(json.receivedBytes > 0)
         }
     }
 
@@ -364,7 +364,7 @@ suite("test_stream_load_compress_type", "load_p0") {
                 assertEquals(31, json.NumberTotalRows)
                 assertEquals(0, json.NumberLoadedRows)
                 assertEquals(31, json.NumberFilteredRows)
-                assertTrue(json.LoadBytes > 0)
+                assertTrue(json.receivedBytes > 0)
         }
     }
 
@@ -385,7 +385,7 @@ suite("test_stream_load_compress_type", "load_p0") {
                 assertEquals(23, json.NumberTotalRows)
                 assertEquals(0, json.NumberLoadedRows)
                 assertEquals(23, json.NumberFilteredRows)
-                assertTrue(json.LoadBytes > 0)
+                assertTrue(json.receivedBytes > 0)
         }
     }
 
