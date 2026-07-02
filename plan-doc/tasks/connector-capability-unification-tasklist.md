@@ -3,6 +3,8 @@
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 >
 > **Design source:** `plan-doc/tasks/designs/connector-capability-unification-design.md` (confirmed with user). This plan re-derives the concrete edit set from CURRENT code — the design's line numbers and capability inventory were ~3 days stale (see "Drift reconciliation" below). **Trust this plan's control-flow/method anchors, not the design's line numbers.**
+>
+> **⚠️ v2 anchor re-verification (2026-07-02, 6-agent read-only pass against HEAD `7aea0b12ade`):** every file/method/before-snippet confirmed present and line-accurate. Corrections folded inline below; the load-bearing ones: **(Task 5)** three extra `IcebergConnectorTest` methods (`declaresFullSchemaWriteOrderCapability`, `declaresStaticPartitionMaterializationCapability`, `declaresParallelWriteCapability`) reference the moved sink-trait enum values and **must be deleted or the iceberg test module won't compile**; **(Task 3)** the 4 fe-core test helpers use plain `Mockito.mock(Connector.class)` (not `CALLS_REAL_METHODS`), so stub `connector.supportedWriteOperations()`/`supportsWriteBranch()` **directly**; **(Task 2)** iceberg already imports `Set`+`WriteOperation`, and `MaxComputeWritePlanProviderTest` does not exist yet.
 
 **Goal:** Make a connector's write capabilities declared in exactly one place — the write plan provider (the SPI seam that implements them) — and delete the parallel `ConnectorCapability` flag layer and `ConnectorWriteOps` boolean layer that duplicated them.
 
@@ -257,7 +259,7 @@ void delegatorsReflectProviderAndAreNullSafe() {
 
 > JDBC needs no change — its provider inherits `supportedOperations() = {INSERT}` and all sink-traits false, which is exactly correct.
 
-- [ ] **Step 1: Override in `IcebergWritePlanProvider`.** Add imports `java.util.EnumSet`, `java.util.Set`, `org.apache.doris.connector.api.handle.WriteOperation`. Add:
+- [ ] **Step 1: Override in `IcebergWritePlanProvider`.** Add import `java.util.EnumSet` ONLY — `java.util.Set` (:74) and `org.apache.doris.connector.api.handle.WriteOperation` (:27) are **already imported** (v2-verified). None of the 6 methods are overridden yet; append cleanly. Add:
 
 ```java
     @Override
@@ -287,7 +289,7 @@ void delegatorsReflectProviderAndAreNullSafe() {
     }
 ```
 
-- [ ] **Step 2: Override in `MaxComputeWritePlanProvider`.** Add the same imports. Add:
+- [ ] **Step 2: Override in `MaxComputeWritePlanProvider`.** Add imports `java.util.EnumSet`, `java.util.Set`, `org.apache.doris.connector.api.handle.WriteOperation` — all three are **absent here** (v2-verified; unlike iceberg). The class has a single ctor `MaxComputeWritePlanProvider(MaxComputeDorisConnector connector)`; the 4 argless overrides do not dereference the connector field. Add:
 
 ```java
     @Override
@@ -337,9 +339,9 @@ void delegatorsReflectProviderAndAreNullSafe() {
 }
 ```
 
-> If constructing the provider standalone is awkward (needs a connector context), assert through `connector.getWritePlanProvider()` instead — follow the existing `*WritePlanProviderTest` construction pattern in that module.
+> **Construction (v2-verified):** `IcebergWritePlanProviderTest` **exists** (iceberg module, no Mockito) — build via `providerFor()` / `new IcebergWritePlanProvider(NON_REST_PROPS, new RecordingIcebergCatalogOps(), ctx)`; no table needed for the argless assertions. `MaxComputeWritePlanProviderTest` **does not exist — create it new**; construct via `new MaxComputeWritePlanProvider(connector)` where `connector = new MaxComputeDorisConnector(connectivityProps(true), null)` (existing pattern in `MaxComputeConnectorProviderTest`), or assert through `connector.getWritePlanProvider()`. (Because the 4 overrides never deref the connector, `new MaxComputeWritePlanProvider(null)` also works if full connector init is undesirable.)
 
-- [ ] **Step 4: Build + test** each module (`-pl :fe-connector-iceberg -am`, `-pl :fe-connector-maxcompute -am`, both need `package` for maxcompute if HiveConf shade applies — iceberg is fine with `test`). Checkstyle each (no `-am`).
+- [ ] **Step 4: Build + test** each module (`-pl :fe-connector-iceberg -am ... test`, `-pl :fe-connector-maxcompute -am ... test`). **maxcompute needs only `test`** — its pom has no shade plugin / no HiveConf (v2-verified `grep -c shade`=0), so the `package` caveat does not apply. Checkstyle each (no `-am`).
 - [ ] **Step 5: Commit:**
   `[refactor](connector) 写能力单一来源(2/6)：iceberg/maxcompute 写 provider 声明 supportedOperations + sink-trait`
 
@@ -445,9 +447,10 @@ return ops.contains(WriteOperation.DELETE) || ops.contains(WriteOperation.MERGE)
   (The `import ...ConnectorCapability;` stays for now — the other accessors still use it; it is removed in Task 5 if it becomes unused.)
 
 - [ ] **Step 9: Migrate behavioral test mocks** (these stub the OLD boolean and assert downstream behavior — repoint them at the new path so they still exercise real coverage; do NOT delete):
-  - `IcebergNereidsUtilsTest` (~:1019-1022) and `IcebergRowLevelDmlTransformTest` (~:95-121): currently stub `metadata.supportsDelete()/supportsMerge()`. Production now calls `connector.supportedWriteOperations()`. Repoint: stub `connector.getWritePlanProvider()` to return a provider whose `supportedOperations()` yields `{DELETE}` / `{MERGE}` / `{}` for the respective positive/negative cases (or stub `connector.supportedWriteOperations()` directly since it's a `CALLS_REAL_METHODS` default — stub the underlying `getWritePlanProvider()`). Assert the same downstream selection/transform behavior.
-  - `InsertIntoTableCommandTest` (~:182-195): stubbed `supportsWriteBranch()` on metadata → repoint to stub `connector.getWritePlanProvider().supportsWriteBranch()` (or `connector.supportsWriteBranch()`). Keep the `@branch` gating assertion.
-  - `InsertOverwriteTableCommandTest` (~:60-145): stubbed `supportsInsertOverwrite()` (:73) and `supportsWriteBranch()` (:91) → repoint to `supportedWriteOperations()` containing/omitting `OVERWRITE` and `supportsWriteBranch()`. Keep the mutation-guard comments at :111/:145 pointing at the new gate expressions.
+  > **⚠️ v2-verified Mockito mode:** all 4 helpers create the connector via **plain `Mockito.mock(Connector.class)`** (NOT `CALLS_REAL_METHODS`): `IcebergNereidsUtilsTest:1024`, `IcebergRowLevelDmlTransformTest:98`, `InsertIntoTableCommandTest:188`, `InsertOverwriteTableCommandTest:66/84`. On a plain mock the new delegator default-methods return Mockito defaults, so stubbing `getWritePlanProvider()` alone will NOT route through them. **Stub the `Connector` delegators DIRECTLY on the plain mock** (e.g. `Mockito.when(connector.supportedWriteOperations()).thenReturn(EnumSet.of(WriteOperation.DELETE))`, `...supportsWriteBranch()...`). Do not switch these to `CALLS_REAL_METHODS`.
+  - `IcebergNereidsUtilsTest` (~:1019-1024) and `IcebergRowLevelDmlTransformTest` (~:95-108): currently stub `metadata.supportsDelete()/supportsMerge()` (production now calls `connector.supportedWriteOperations()`). Repoint: stub `connector.supportedWriteOperations()` to `{DELETE}` / `{MERGE}` / `{}` for the positive/negative cases. Assert the same downstream selection/transform behavior. (The retained `validateRowLevelDmlMode` path via a separate `pluginTableWithMetadata` helper at `IcebergRowLevelDmlTransformTest:135` stays untouched.)
+  - `InsertIntoTableCommandTest` (~:185-197): stubbed `supportsWriteBranch()` on metadata → repoint to stub `connector.supportsWriteBranch()` directly. Keep the `@branch` gating assertion.
+  - `InsertOverwriteTableCommandTest` (~:63-145): stubbed `supportsInsertOverwrite()` (:73) and `supportsWriteBranch()` (:91) → repoint to stub `connector.supportedWriteOperations()` containing/omitting `OVERWRITE` and `connector.supportsWriteBranch()`. Keep the mutation-guard comments at :111/:145 pointing at the new gate expressions.
 
 - [ ] **Step 10: Build + test.** `-pl :fe-core -am` build; run the 4 migrated test classes + `IcebergConnectorMetadataTest` (still green — booleans still exist). Expected PASS. **Mutation check:** flip `contains(WriteOperation.INSERT)` → `contains(WriteOperation.OVERWRITE)` in the INSERT gate; confirm an INSERT-admission test fails; restore.
 - [ ] **Step 11: Commit:**
@@ -493,10 +496,15 @@ return ops.contains(WriteOperation.DELETE) || ops.contains(WriteOperation.MERGE)
   - `JdbcDorisConnector` (~:100-101): remove `SUPPORTS_INSERT` → `getCapabilities()` returns just `SUPPORTS_PASSTHROUGH_QUERY`.
   - `PaimonConnector` (~:194-213): remove `SUPPORTS_TIME_TRAVEL`; keep `SUPPORTS_MVCC_SNAPSHOT, SUPPORTS_PARTITION_STATS, SUPPORTS_COLUMN_AUTO_ANALYZE, SUPPORTS_SHOW_CREATE_DDL`.
 - [ ] **Step 3: Fix enum tests:**
-  - `IcebergConnectorTest.declaresMvccAndTimeTravelCapabilities()` (~:109-110): delete the `SUPPORTS_TIME_TRAVEL` assertion; keep the `SUPPORTS_MVCC_SNAPSHOT` one. Rename the method to `declaresMvccSnapshotCapability()`.
+  - `IcebergConnectorTest.declaresMvccAndTimeTravelCapabilities()` (~:100-111): delete the `SUPPORTS_TIME_TRAVEL` assertion (:110); keep the `SUPPORTS_MVCC_SNAPSHOT` one (:109). Rename the method to `declaresMvccSnapshotCapability()`.
+  - **⚠️ v2-verified compile gap — `IcebergConnectorTest` has 3 MORE methods that assert the MOVED sink-trait enum values and will NOT compile after they're deleted. Delete all three** (their coverage now lives in Task 2's `IcebergWritePlanProviderTest` provider-level assertions `requiresFullSchemaWriteOrder`/`requiresMaterializeStaticPartitionValues`/`requiresParallelWrite`):
+    - `declaresFullSchemaWriteOrderCapability()` (~:113-125, asserts `SINK_REQUIRE_FULL_SCHEMA_ORDER` at :124)
+    - `declaresStaticPartitionMaterializationCapability()` (~:127-140, asserts `SINK_MATERIALIZE_STATIC_PARTITION_VALUES` at :139)
+    - `declaresParallelWriteCapability()` (~:142-156, asserts `SUPPORTS_PARALLEL_WRITE` at :153)
   - `PaimonConnectorMetadataMvccTest.connectorDeclaresMvccAndTimeTravelCapabilities()` (~:1160-1163): delete the `SUPPORTS_TIME_TRAVEL` assertion; keep `SUPPORTS_MVCC_SNAPSHOT`. Rename to drop "TimeTravel".
   - `PluginDrivenMvccTableFactoryTest` (~:66): the placeholder `catalogWithCapabilities(ConnectorCapability.SUPPORTS_FILTER_PUSHDOWN)` uses a now-deleted value → change to `ConnectorCapability.SUPPORTS_VIEW` (any surviving non-MVCC value; the test only needs "some non-MVCC capability").
 - [ ] **Step 4: Grep-verify no dangling references.** `grep -rn "SUPPORTS_TIME_TRAVEL\|SUPPORTS_INSERT\|SUPPORTS_PARALLEL_WRITE\|SINK_REQUIRE_FULL_SCHEMA_ORDER\|SINK_REQUIRE_PARTITION_LOCAL_SORT\|SINK_MATERIALIZE_STATIC_PARTITION_VALUES\|SUPPORTS_FILTER_PUSHDOWN\|SUPPORTS_STATISTICS" fe/ --include=*.java` → expect zero hits after this task.
+  - **⚠️ v2-verified surviving `{@code}` comment refs** (NOT in this task's edit set, non-compile-breaking but keep the grep honest): `PhysicalConnectorTableSink.java:139,144,150` and `PhysicalConnectorTableSinkTest.java:49,52` mention `SINK_REQUIRE_PARTITION_LOCAL_SORT`/`SUPPORTS_PARALLEL_WRITE`/`SINK_REQUIRE_FULL_SCHEMA_ORDER` in javadoc/comments describing the sink traits. **Scrub/repoint those comments to the new provider methods** (`requiresPartitionLocalSort()`/`requiresParallelWrite()`/`requiresFullSchemaWriteOrder()`) so the grep truly returns zero — these files are fe-core, editing comments is safe and keeps the docs from referencing deleted symbols.
 - [ ] **Step 5: Build + test** all touched connector modules + `:fe-core -am`. Run `IcebergConnectorTest`, `PaimonConnectorMetadataMvccTest`, `PluginDrivenMvccTableFactoryTest`, and a full `:fe-connector-iceberg` module test (watch for the known pre-existing flaky field-id classes — isolate-run to confirm). Checkstyle each module (no `-am`). `bash tools/check-connector-imports.sh`.
 - [ ] **Step 6: Commit:**
   `[refactor](connector) 写能力单一来源(5/6)：ConnectorCapability 删 18 死/派生/迁移值(26→8) + 各连接器 getCapabilities 收口`
@@ -549,7 +557,7 @@ public final class ConnectorContractValidator {
 }
 ```
 
-- [ ] **Step 2: Invoke at registration.** In `ConnectorPluginManager.createConnector` (~:126-144), capture `provider.create(...)` into a local, validate, return:
+- [ ] **Step 2: Invoke at registration.** In `ConnectorPluginManager.createConnector` (v2-verified :126-144), capture `provider.create(...)` into a local, validate, return. **`catalogType` is the method's first parameter (:127) — in scope.** ⚠️ The method has **two** `return`s: wrap ONLY line 138 `return provider.create(properties, context);`; leave the `:143 return null;` no-provider fallback untouched (do not validate null).
 
   Before: `return provider.create(properties, context);`
   After:
@@ -559,7 +567,7 @@ ConnectorContractValidator.validate(connector, catalogType);
 return connector;
 ```
 
-- [ ] **Step 3: Parameterized contract test** (`ConnectorContractTest`, in whichever module can see all 6 connectors — likely fe-core with the connectors on the test classpath; else one test per connector module). Encodes invariant #1 as the per-connector expected set (the pragmatic "declaration = implementation" check — a naive `planWrite`-per-op probe is unsafe without real handles):
+- [ ] **Step 3: Parameterized contract test.** ⚠️ **v2-verified:** fe-core depends only on `fe-connector-api` + `fe-connector-spi`; **no module can see all 6 concrete connectors** (they are plugin-loaded, not compile deps). So do NOT put a single 6-way parameterized test in fe-core. Instead: **(a)** put the per-connector expected-set assertion in each connector's own module (extend the existing `*WritePlanProviderTest` / connector test — most are already added in Task 2/4/5), and **(b)** keep the validator negative tests + INSERT/OVERWRITE/row-level-DML admission-gate tests in **fe-core using Mockito fake `Connector`s** (fe-core CAN construct fakes + call `ConnectorContractValidator` since it depends on `fe-connector-api`). The parameterized table below documents the expected per-connector matrix (assert its rows in the respective modules); it encodes invariant #1 as the per-connector expected set (the pragmatic "declaration = implementation" check — a naive `planWrite`-per-op probe is unsafe without real handles):
 
 ```java
 static Stream<Arguments> connectors() {
