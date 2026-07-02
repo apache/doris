@@ -27,6 +27,7 @@
 
 namespace doris::io {
 struct FileDescription;
+struct IOContext;
 } // namespace doris::io
 
 namespace doris::format::parquet {
@@ -90,6 +91,11 @@ struct ParquetFileContext {
     // decoding, so v2 caches the serialized bytes read inside these ranges and excludes
     // footer/metadata reads that happen before registration.
     void register_page_cache_ranges(std::vector<ParquetPageCacheRange> ranges);
+    // Best-effort asynchronous warm-up for Parquet column chunks. This only has an effect when
+    // the underlying Doris file reader is a CachedRemoteFileReader; other readers keep the same
+    // random-access behavior and simply skip prefetch.
+    void prefetch_ranges(const std::vector<ParquetPageCacheRange>& ranges,
+                         const io::IOContext* io_ctx);
     ParquetPageCacheStats page_cache_stats() const;
     Status close();
 };

@@ -30,8 +30,10 @@
 
 #include "common/check.h"
 #include "common/config.h"
+#include "io/cache/cached_remote_file_reader.h"
 #include "io/file_factory.h"
 #include "io/fs/file_reader.h"
+#include "io/fs/tracing_file_reader.h"
 #include "storage/cache/page_cache.h"
 #include "util/slice.h"
 
@@ -253,6 +255,22 @@ public:
         _page_cache_ranges = std::move(ranges);
     }
 
+    void prefetch_ranges(const std::vector<ParquetPageCacheRange>& ranges,
+                         const io::IOContext* io_ctx) {
+        auto cached_reader = cached_remote_file_reader();
+        if (cached_reader == nullptr) {
+            return;
+        }
+        const auto* prefetch_io_ctx = io_ctx != nullptr ? io_ctx : _io_ctx;
+        for (const auto& range : ranges) {
+            if (range.offset < 0 || range.size <= 0) {
+                continue;
+            }
+            cached_reader->prefetch_range(static_cast<size_t>(range.offset),
+                                          static_cast<size_t>(range.size), prefetch_io_ctx);
+        }
+    }
+
     ParquetPageCacheStats page_cache_stats() const {
         std::lock_guard lock(_page_cache_mutex);
         return _page_cache_stats;
@@ -359,6 +377,20 @@ private:
         ++_page_cache_stats.compressed_write_count;
     }
 
+    std::shared_ptr<io::CachedRemoteFileReader> cached_remote_file_reader() {
+        auto reader = _file_reader;
+        if (reader == nullptr) {
+            return nullptr;
+        }
+        // FileReader::init wraps the physical reader with TracingFileReader when scan IO stats are
+        // enabled. Prefetch should target the physical cached reader below that tracing wrapper,
+        // otherwise v2 scans with profiling would silently lose prefetch.
+        if (auto tracing_reader = std::dynamic_pointer_cast<io::TracingFileReader>(reader)) {
+            reader = tracing_reader->inner_reader();
+        }
+        return std::dynamic_pointer_cast<io::CachedRemoteFileReader>(reader);
+    }
+
     io::FileReaderSPtr _file_reader;
     io::IOContext* _io_ctx = nullptr;
     int64_t _pos = 0;
@@ -415,6 +447,12 @@ void ParquetFileContext::register_page_cache_ranges(std::vector<ParquetPageCache
     DORIS_CHECK(arrow_file != nullptr);
     static_cast<DorisRandomAccessFile*>(arrow_file.get())
             ->register_page_cache_ranges(std::move(ranges));
+}
+
+void ParquetFileContext::prefetch_ranges(const std::vector<ParquetPageCacheRange>& ranges,
+                                         const io::IOContext* io_ctx) {
+    DORIS_CHECK(arrow_file != nullptr);
+    static_cast<DorisRandomAccessFile*>(arrow_file.get())->prefetch_ranges(ranges, io_ctx);
 }
 
 ParquetPageCacheStats ParquetFileContext::page_cache_stats() const {

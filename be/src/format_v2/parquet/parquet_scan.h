@@ -145,9 +145,16 @@ private:
                                Block* file_block, SelectionVector* selection,
                                uint16_t* selected_rows, int64_t* conjunct_filtered_rows);
 
-    Status read_current_row_group_batch(int64_t batch_rows, const format::FileScanRequest& request,
-                                        int64_t batch_first_file_row, Block* file_block,
-                                        size_t* rows);
+    void prefetch_current_row_group_columns(
+            ParquetFileContext& file_context,
+            const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
+            const std::vector<format::LocalColumnIndex>& scan_columns, bool* prefetched);
+
+    Status read_current_row_group_batch(
+            ParquetFileContext& file_context,
+            const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
+            int64_t batch_rows, const format::FileScanRequest& request,
+            int64_t batch_first_file_row, Block* file_block, size_t* rows);
 
     void mark_condition_cache_granules(const SelectionVector& selection, uint16_t selected_rows,
                                        int64_t batch_first_file_row);
@@ -161,6 +168,7 @@ private:
     std::map<ColumnId, std::unique_ptr<ParquetColumnReader>>
             _current_non_predicate_columns;   // non-predicate ColumnReaders
     int64_t _current_row_group_rows = 0;      // current row group row count
+    int _current_row_group_id = -1;           // current row group id in parquet metadata
     int64_t _current_row_group_rows_read = 0; // rows read in the current row group (cursor)
     int64_t _current_row_group_first_row = 0; // first file row of the current row group
     std::vector<RowRange>
@@ -168,6 +176,8 @@ private:
     size_t _current_range_idx = 0;        // current selected_range index
     int64_t _current_range_rows_read = 0; // rows read in the current range
 
+    bool _current_predicate_prefetched = false;
+    bool _current_non_predicate_prefetched = false;
     ParquetPageSkipProfile _page_skip_profile;
     ParquetScanProfile _scan_profile;
     std::optional<format::GlobalRowIdContext> _global_rowid_context;
