@@ -66,6 +66,7 @@ import org.apache.iceberg.util.LocationUtil;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -290,6 +291,32 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
         // actual injection request-side (show-hidden / synthetic-write-column ctx flag); here we only
         // declare it, so neither the session nor the table handle is consulted.
         return SYNTHETIC_WRITE_COLUMNS;
+    }
+
+    @Override
+    public Set<WriteOperation> supportedOperations() {
+        return EnumSet.of(WriteOperation.INSERT, WriteOperation.OVERWRITE,
+                WriteOperation.DELETE, WriteOperation.MERGE, WriteOperation.REWRITE);
+    }
+
+    @Override
+    public boolean supportsWriteBranch() {
+        return true;
+    }
+
+    @Override
+    public boolean requiresParallelWrite() {
+        return true;
+    }
+
+    @Override
+    public boolean requiresFullSchemaWriteOrder() {
+        return true;
+    }
+
+    @Override
+    public boolean requiresMaterializeStaticPartitionValues() {
+        return true;
     }
 
     /** Parses the bracket argument of an iceberg transform string ({@code bucket[16] -> 16}); null when absent. */

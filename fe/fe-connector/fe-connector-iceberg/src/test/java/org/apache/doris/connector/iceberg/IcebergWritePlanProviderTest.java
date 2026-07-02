@@ -67,6 +67,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -998,6 +999,28 @@ public class IcebergWritePlanProviderTest {
         TIcebergMergeSink sink = planMergeSink(table, contextWithStorage(),
                 new WriteHandle(new IcebergTableHandle("db1", "t1")).writeOperation(WriteOperation.MERGE));
         Assertions.assertEquals("t1", sink.getTbName());
+    }
+
+    // ───────────────────────────── write capability declarations (single-source-of-truth) ─────────────────────────────
+    //
+    // WHY: the write plan provider is now the single source of truth for a connector's write capabilities
+    // (supportedOperations + the sink-trait defaults from ConnectorWritePlanProvider). Iceberg supports the
+    // full DML surface (INSERT/OVERWRITE/DELETE/MERGE/REWRITE), write-targeted branches, parallel write,
+    // full-schema write order, and materializing static partition values — but does NOT require
+    // partition-local sort (unlike e.g. MaxCompute), so that one trait stays at its interface default (false).
+
+    @Test
+    public void declaresFullWriteOperationSet() {
+        IcebergWritePlanProvider provider = providerFor(unpartitionedUnsortedTable(freshCatalog()), contextWithStorage());
+
+        Assertions.assertEquals(EnumSet.of(WriteOperation.INSERT, WriteOperation.OVERWRITE,
+                WriteOperation.DELETE, WriteOperation.MERGE, WriteOperation.REWRITE), provider.supportedOperations());
+        Assertions.assertTrue(provider.supportsWriteBranch());
+        Assertions.assertTrue(provider.requiresParallelWrite());
+        Assertions.assertTrue(provider.requiresFullSchemaWriteOrder());
+        Assertions.assertTrue(provider.requiresMaterializeStaticPartitionValues());
+        Assertions.assertFalse(provider.requiresPartitionLocalSort(),
+                "iceberg does NOT require partition-local sort (unlike MaxCompute)");
     }
 
     // ───────────────────────────── test doubles ─────────────────────────────
