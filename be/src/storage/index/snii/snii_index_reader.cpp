@@ -564,16 +564,6 @@ Status SniiIndexReader::_try_count_only_fastpath(const IndexQueryContextPtr& con
     RETURN_IF_ERROR(_get_logical_reader(context, &searcher_cache_handle, &uncached_reader,
                                         &logical_reader));
 
-    // Null guard. The fabricated bitmap is a dense [0, df) id range; the MATCH
-    // machinery unconditionally subtracts the segment's null bitmap from the
-    // result (FunctionMatchBase -> mask_out_null). Real postings never contain
-    // null rows so that subtraction is a no-op on the true bitmap, but it WOULD
-    // remove fabricated ids that happen to collide with null rows. Only proceed
-    // when the segment column has no null bitmap at all.
-    if (logical_reader->section_refs().null_bitmap.length > 0) {
-        return Status::OK();
-    }
-
     uint64_t count = 0;
     if (single_term) {
         RETURN_IF_ERROR(
@@ -589,8 +579,42 @@ Status SniiIndexReader::_try_count_only_fastpath(const IndexQueryContextPtr& con
         }
     }
 
+    // Null handling. df is the exact match count REGARDLESS of nulls: the
+    // writer adds no tokens for a null doc (scalar add_nulls; a NULL array row
+    // is an empty range), so postings -- and therefore df -- never include
+    // null rows, exactly matching MATCH's "null never matches" semantics. The
+    // fabricated bitmap however flows through FunctionMatchBase ->
+    // InvertedIndexResultBitmap::mask_out_null, which subtracts the segment's
+    // REAL null bitmap from it; a dense [0, df) range colliding with null row
+    // ids would be shrunk below df. So on a segment WITH a null bitmap, load
+    // it (query-cache backed, the same read the normal MATCH path performs)
+    // and fabricate df ids DISJOINT from it, making that subtraction a
+    // provable no-op. Segments without a null section (the writer omits it
+    // when no row is null) keep the trivial [0, df) range.
     auto result = std::make_shared<roaring::Roaring>();
-    if (count > 0) {
+    if (count > 0 && logical_reader->section_refs().null_bitmap.length > 0) {
+        InvertedIndexQueryCacheHandle null_bitmap_cache_handle;
+        RETURN_IF_ERROR(read_null_bitmap(context, &null_bitmap_cache_handle));
+        std::shared_ptr<roaring::Roaring> nulls = null_bitmap_cache_handle.get_bitmap();
+        // Fall through on a missing bitmap behind the cache handle or a
+        // fabrication failure (df + null count breaching the docid domain):
+        // both mean a corrupt index, and the row-accurate decode -- which
+        // intersects real ids -- must own the answer rather than a blind
+        // fabrication. The count_fastpath_hits test seam already counted the
+        // dict lookup above; production correctness is unaffected.
+        if (nulls == nullptr) {
+            return Status::OK();
+        }
+        if (!nulls->isEmpty()) {
+            if (!::doris::snii::query::fabricate_null_disjoint_count_bitmap(count, *nulls,
+                                                                            result.get())
+                         .ok()) {
+                return Status::OK();
+            }
+        } else {
+            result->addRange(0, count);
+        }
+    } else if (count > 0) {
         result->addRange(0, count);
     }
     *out = std::move(result);

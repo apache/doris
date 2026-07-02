@@ -17,6 +17,10 @@
 
 #include "storage/index/snii/query/count_query.h"
 
+#include <cstdint>
+#include <limits>
+
+#include "roaring/roaring.hh"
 #include "storage/index/snii/format/dict_entry.h"
 #include "storage/index/snii/format/phrase_bigram.h"
 #include "storage/index/snii/query/internal/query_test_counters.h"
@@ -77,6 +81,40 @@ Status count_only_two_term_phrase_bigram_df(const LogicalIndexReader& idx, const
     *handled = true;
     *count = entry.df;
     SNII_QUERY_COUNT(count_fastpath_hits);
+    return Status::OK();
+}
+
+Status fabricate_null_disjoint_count_bitmap(uint64_t count, const roaring::Roaring& nulls,
+                                            roaring::Roaring* out) {
+    if (out == nullptr) {
+        return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
+                "fabricate_null_disjoint_count_bitmap: null out");
+    }
+    roaring::Roaring result;
+    if (count > 0) {
+        // [0, count + |nulls|) holds at least `count` non-null ids: at most
+        // |nulls| of its members are null. count counts only non-null docs, so
+        // the window end never exceeds the segment doc count (row space).
+        const uint64_t window_end = count + nulls.cardinality();
+        if (window_end > uint64_t(std::numeric_limits<uint32_t>::max()) + 1) {
+            return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
+                    "fabricate_null_disjoint_count_bitmap: count {} + null count {} exceeds the "
+                    "uint32 docid domain (corrupt df or null bitmap)",
+                    count, nulls.cardinality());
+        }
+        result.addRange(0, window_end);
+        result -= nulls;
+        uint32_t last_kept = 0;
+        // Keep exactly the first `count` survivors (select ranks are 0-based).
+        if (!result.select(static_cast<uint32_t>(count - 1), &last_kept)) {
+            return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
+                    "fabricate_null_disjoint_count_bitmap: window [0, {}) holds fewer than {} "
+                    "non-null ids (corrupt df or null bitmap)",
+                    window_end, count);
+        }
+        result.removeRange(uint64_t(last_kept) + 1, window_end);
+    }
+    *out = std::move(result);
     return Status::OK();
 }
 

@@ -73,13 +73,17 @@ private:
     // G02 count-only fast path. Only called when the caller (SegmentIterator)
     // set context->count_on_index_fastpath, i.e. the match count alone decides
     // the scan result. On *handled = true, *out is a bitmap of cardinality df
-    // ([0, df), row ids NOT real) built from dict entries WITHOUT decoding
-    // postings: single exact term -> dict-entry df; 2-term MATCH_PHRASE with a
-    // surviving (dict-HIT) G01 bigram -> bigram df. Falls through (*handled =
-    // false) for every other shape: multi-term OR/AND, prefix/regexp/wildcard
-    // expansion, sloppy phrase, pruned/absent bigram, or a segment whose null
-    // bitmap is non-empty (FunctionMatchBase::mask_out_null would wrongly
-    // subtract null rows from the fabricated id range).
+    // (row ids NOT real) built from dict entries WITHOUT decoding postings:
+    // single exact term -> dict-entry df; 2-term MATCH_PHRASE with a surviving
+    // (dict-HIT) G01 bigram -> bigram df. On a segment without a null bitmap
+    // the fabricated ids are the dense range [0, df); on a segment WITH one
+    // they are the first df NON-NULL row ids (see
+    // fabricate_null_disjoint_count_bitmap) so that the unconditional
+    // FunctionMatchBase -> mask_out_null subtraction of the real null bitmap
+    // is a no-op and the cardinality stays df -- which is already the exact
+    // match count, because postings never contain null docs. Falls through
+    // (*handled = false) for every other shape: multi-term OR/AND,
+    // prefix/regexp/wildcard expansion, sloppy phrase, pruned/absent bigram.
     Status _try_count_only_fastpath(const IndexQueryContextPtr& context,
                                     InvertedIndexQueryType query_type,
                                     const InvertedIndexQueryInfo& query_info,

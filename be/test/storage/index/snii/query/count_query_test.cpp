@@ -20,11 +20,14 @@
 #include <gtest/gtest.h>
 
 #include <cstdint>
+#include <limits>
 #include <string>
 #include <vector>
 
 #include "common/status.h"
+#include "roaring/roaring.hh"
 #include "storage/index/snii/format/format_constants.h"
+#include "storage/index/snii/format/null_bitmap.h"
 #include "storage/index/snii/query/internal/query_test_counters.h"
 #include "storage/index/snii/query/phrase_query.h"
 #include "storage/index/snii/query/term_query.h"
@@ -44,6 +47,7 @@ using namespace doris::snii;
 using namespace doris::snii::snii_test;
 using doris::snii::query::count_only_term_df;
 using doris::snii::query::count_only_two_term_phrase_bigram_df;
+using doris::snii::query::fabricate_null_disjoint_count_bitmap;
 using doris::snii::query::phrase_query;
 using doris::snii::query::term_query;
 namespace qinternal = doris::snii::query::internal;
@@ -243,4 +247,152 @@ TEST(SniiCountQuery, DocsOnlyIndexPhraseFallsThroughTermStillCounts) {
     assert_ok(count_only_term_df(idx, "bravo", &df));
     EXPECT_EQ(df, 15U);
     EXPECT_EQ(count_hits(), 2U);
+}
+
+// --- fabricate_null_disjoint_count_bitmap truth table -----------------------
+// The fabricated bitmap must (a) hold exactly `count` ids, (b) be DISJOINT
+// from the null bitmap so the caller-side FunctionMatchBase ->
+// InvertedIndexResultBitmap::mask_out_null subtraction is a provable no-op,
+// and (c) stay inside [0, count + |nulls|), which never exceeds the segment's
+// [0, num_rows) row space because df counts only non-null docs.
+
+TEST(SniiCountQuery, FabricateNoNullsIsDenseRange) {
+    roaring::Roaring nulls;
+    roaring::Roaring out;
+    assert_ok(fabricate_null_disjoint_count_bitmap(100, nulls, &out));
+    roaring::Roaring expected;
+    expected.addRange(0, 100);
+    EXPECT_EQ(out, expected);
+}
+
+TEST(SniiCountQuery, FabricateNullPrefixShiftsRange) {
+    roaring::Roaring nulls;
+    nulls.addRange(0, 100);
+    roaring::Roaring out;
+    assert_ok(fabricate_null_disjoint_count_bitmap(50, nulls, &out));
+    roaring::Roaring expected;
+    expected.addRange(100, 150);
+    EXPECT_EQ(out, expected);
+    EXPECT_TRUE((out & nulls).isEmpty());
+}
+
+TEST(SniiCountQuery, FabricateInterleavedNullsStaysDisjointAndExact) {
+    roaring::Roaring nulls;
+    for (uint32_t id = 0; id < 200; id += 2) {
+        nulls.add(id); // 100 even nulls
+    }
+    roaring::Roaring out;
+    assert_ok(fabricate_null_disjoint_count_bitmap(70, nulls, &out));
+    EXPECT_EQ(out.cardinality(), 70U);
+    EXPECT_TRUE((out & nulls).isEmpty());
+    // Exactly the first 70 odd (non-null) ids.
+    roaring::Roaring expected;
+    for (uint32_t id = 1; id < 140; id += 2) {
+        expected.add(id);
+    }
+    EXPECT_EQ(out, expected);
+    // The safety property itself: the null-bitmap subtraction the MATCH
+    // machinery applies to every index result must not change the count.
+    roaring::Roaring masked = out;
+    masked -= nulls;
+    EXPECT_EQ(masked.cardinality(), 70U);
+}
+
+TEST(SniiCountQuery, FabricateNullsBeyondWindowIrrelevant) {
+    roaring::Roaring nulls;
+    nulls.add(1000000);
+    roaring::Roaring out;
+    assert_ok(fabricate_null_disjoint_count_bitmap(10, nulls, &out));
+    roaring::Roaring expected;
+    expected.addRange(0, 10);
+    EXPECT_EQ(out, expected);
+}
+
+TEST(SniiCountQuery, FabricateConsumesEntireNonNullWindow) {
+    // nulls {0..4}, count 5: every non-null id of the window [0, 10) is used.
+    roaring::Roaring nulls;
+    nulls.addRange(0, 5);
+    roaring::Roaring out;
+    assert_ok(fabricate_null_disjoint_count_bitmap(5, nulls, &out));
+    roaring::Roaring expected;
+    expected.addRange(5, 10);
+    EXPECT_EQ(out, expected);
+}
+
+TEST(SniiCountQuery, FabricateZeroCountIsEmpty) {
+    roaring::Roaring nulls;
+    nulls.addRange(0, 100);
+    roaring::Roaring out;
+    out.add(7); // stale content must be overwritten
+    assert_ok(fabricate_null_disjoint_count_bitmap(0, nulls, &out));
+    EXPECT_TRUE(out.isEmpty());
+}
+
+TEST(SniiCountQuery, FabricateRejectsDocidDomainOverflow) {
+    // df + null count beyond the uint32 docid domain can only come from a
+    // corrupt index: it must surface as an error (the reader glue falls
+    // through to the row-accurate decode), never as a silently wrong bitmap.
+    roaring::Roaring nulls;
+    nulls.add(0);
+    roaring::Roaring out;
+    const uint64_t count = uint64_t(std::numeric_limits<uint32_t>::max()) + 1; // 2^32
+    doris::Status st = fabricate_null_disjoint_count_bitmap(count, nulls, &out);
+    EXPECT_FALSE(st.ok());
+}
+
+// A segment WITH a null bitmap end to end through the real writer/reader:
+// df from the dict is unchanged by nulls (the writer adds NO postings for a
+// null doc, so postings -- and df -- can never include null rows), and the
+// fabricated bitmap built against the segment's REAL null bitmap keeps
+// cardinality df through the caller-side null subtraction. This pins the
+// contract that replaced the old "veto whenever a null section exists" guard.
+TEST(SniiCountQuery, NullBitmapSegmentDfCountsAndFabricationSurvivesMasking) {
+    MemoryFile file;
+    writer::SniiIndexInput input;
+    input.index_id = 4;
+    input.index_suffix = "Nullable";
+    input.config = format::IndexConfig::kDocsPositions;
+    input.doc_count = 100;
+    // Writer invariant mirrored by the fixture: null docids carry no postings
+    // (scalar add_nulls adds no tokens; a NULL array row is an empty range).
+    input.null_docids = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 50, 99};
+    input.terms = {make_term("alpha", docs_with_one_position(10, 50, 0))};
+    writer::SniiCompoundWriter writer(&file);
+    assert_ok(writer.add_logical_index(input));
+    assert_ok(writer.finish());
+
+    reader::SniiSegmentReader segment_reader;
+    assert_ok(reader::SniiSegmentReader::open(&file, &segment_reader));
+    reader::LogicalIndexReader idx;
+    assert_ok(segment_reader.open_index(input.index_id, input.index_suffix, &idx));
+    ASSERT_GT(idx.section_refs().null_bitmap.length, 0U);
+
+    // df is the exact match count despite the null rows.
+    uint64_t df = 0;
+    assert_ok(count_only_term_df(idx, "alpha", &df));
+    EXPECT_EQ(df, full_decode_term_count(idx, "alpha"));
+    EXPECT_EQ(df, 40U);
+
+    // Decode the segment's REAL null bitmap the same way the reader glue does.
+    const auto& ref = idx.section_refs().null_bitmap;
+    std::vector<uint8_t> bytes;
+    assert_ok(idx.reader()->read_at(ref.offset, ref.length, &bytes));
+    format::NullBitmapReader null_reader;
+    assert_ok(format::NullBitmapReader::open(Slice(bytes), &null_reader));
+    roaring::Roaring nulls;
+    null_reader.copy_to(&nulls);
+    ASSERT_EQ(nulls.cardinality(), input.null_docids.size());
+
+    roaring::Roaring fabricated;
+    assert_ok(fabricate_null_disjoint_count_bitmap(df, nulls, &fabricated));
+    EXPECT_EQ(fabricated.cardinality(), df);
+    EXPECT_TRUE((fabricated & nulls).isEmpty());
+    roaring::Roaring masked = fabricated;
+    masked -= nulls; // FunctionMatchBase::mask_out_null equivalent
+    EXPECT_EQ(masked.cardinality(), df);
+    // With the 10 leading nulls the first 40 non-null ids are exactly [10, 50):
+    // pinned to catch select / removeRange off-by-ones against a real layout.
+    roaring::Roaring expected;
+    expected.addRange(10, 50);
+    EXPECT_EQ(fabricated, expected);
 }
