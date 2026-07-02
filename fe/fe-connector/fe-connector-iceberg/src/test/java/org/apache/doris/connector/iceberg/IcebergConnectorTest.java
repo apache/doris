@@ -18,7 +18,9 @@
 package org.apache.doris.connector.iceberg;
 
 import org.apache.doris.connector.api.ConnectorCapability;
+import org.apache.doris.connector.api.ConnectorContractValidator;
 import org.apache.doris.connector.api.DorisConnectorException;
+import org.apache.doris.connector.api.handle.WriteOperation;
 import org.apache.doris.filesystem.properties.StorageProperties;
 
 import org.apache.iceberg.Schema;
@@ -32,6 +34,7 @@ import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Field;
 import java.util.Collections;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -252,5 +255,36 @@ public class IcebergConnectorTest {
         IcebergCatalogOps ops = catalogOpsOf(connector.getScanPlanProvider());
         Assertions.assertDoesNotThrow(() -> ops.loadTable("mydb", "t"),
                 "without external_catalog.name a plain 2-level namespace [mydb] must resolve unchanged");
+    }
+
+    // ------------------------------------------------------------------------------------------------------
+    // Task 6 (write-capability unification, P2): the per-connector expected-set assertion (the pragmatic
+    // "declaration == implementation" check for the write-capability invariant the removed
+    // ConnectorContractValidator#1 runtime probe is NOT safe to make) plus the structural contract validator,
+    // exercised against a real IcebergConnector (not just IcebergWritePlanProvider in isolation, which
+    // declaresFullWriteOperationSet in IcebergWritePlanProviderTest already pins) so this also proves
+    // Connector's null-safe write delegators route the provider's declarations through unchanged. The catalog
+    // is injected offline (reflection, same seam as the H-2 tests above) so getWritePlanProvider() never
+    // attempts a live catalog connection.
+    // ------------------------------------------------------------------------------------------------------
+
+    @Test
+    public void declaredWriteCapabilitiesMatchAndPassContractValidator() throws Exception {
+        InMemoryCatalog catalog = new InMemoryCatalog();
+        catalog.initialize("test", Collections.emptyMap());
+        IcebergConnector connector = connectorWithCatalog(Collections.emptyMap(), catalog);
+
+        Assertions.assertEquals(
+                EnumSet.of(WriteOperation.INSERT, WriteOperation.OVERWRITE, WriteOperation.DELETE,
+                        WriteOperation.MERGE, WriteOperation.REWRITE),
+                connector.supportedWriteOperations());
+        Assertions.assertTrue(connector.supportsWriteBranch());
+        Assertions.assertTrue(connector.requiresParallelWrite());
+        Assertions.assertFalse(connector.requiresPartitionLocalSort(),
+                "iceberg does NOT require partition-local sort (unlike MaxCompute)");
+        Assertions.assertTrue(connector.requiresFullSchemaWriteOrder());
+        Assertions.assertTrue(connector.requiresMaterializeStaticPartitionValues());
+
+        ConnectorContractValidator.validate(connector, "iceberg");
     }
 }

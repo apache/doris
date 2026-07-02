@@ -17,6 +17,7 @@
 
 package org.apache.doris.connector.jdbc;
 
+import org.apache.doris.connector.api.ConnectorContractValidator;
 import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.DorisConnectorException;
 import org.apache.doris.connector.api.handle.ConnectorTransaction;
@@ -168,6 +169,8 @@ class JdbcDorisConnectorTest {
                 "JDBC connector should declare INSERT as its only supported write operation");
         Assertions.assertFalse(connector.supportsWriteBranch(),
                 "JDBC connector should not support writing into a named table branch");
+        // Task 6 P2: the structural contract validator must pass for a real connector (positive control).
+        ConnectorContractValidator.validate(connector, "jdbc");
     }
 
     @Test

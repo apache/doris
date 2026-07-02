@@ -17,6 +17,7 @@
 
 package org.apache.doris.connector.es;
 
+import org.apache.doris.connector.api.ConnectorContractValidator;
 import org.apache.doris.connector.spi.ConnectorContext;
 
 import org.junit.jupiter.api.Assertions;
@@ -159,6 +160,8 @@ class EsScanPlanProviderTest {
         });
         Assertions.assertTrue(connector.supportedWriteOperations().isEmpty(),
                 "ES connector should declare no supported write operations");
+        // Task 6 P2: the structural contract validator must pass for a real connector (positive control).
+        ConnectorContractValidator.validate(connector, "es");
     }
 
     @Test
