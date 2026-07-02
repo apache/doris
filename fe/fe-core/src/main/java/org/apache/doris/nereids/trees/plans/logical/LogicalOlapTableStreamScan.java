@@ -305,7 +305,25 @@ public class LogicalOlapTableStreamScan extends LogicalOlapScan {
                         Optional.of(scanParams), isReset, isSnapshot));
     }
 
-    /** withIsSnapshot */
+    /**
+     * withRelationId
+     */
+    @Override
+    public LogicalOlapTableStreamScan withRelationId(RelationId relationId) {
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalOlapTableStreamScan(relationId, (Table) table, qualifier,
+                        groupExpression, Optional.empty(),
+                        selectedPartitionIds, partitionPruned, hasPartitionPredicate, selectedTabletIds,
+                        selectedIndexId, indexSelected, preAggStatus, manuallySpecifiedPartitions,
+                        hints, cacheSlotWithSlotName, cachedOutput, tableSample, directMvScan, colToSubPathsMap,
+                        manuallySpecifiedTabletIds, operativeSlots, virtualColumns, scoreOrderKeys, scoreLimit,
+                        scoreRangeInfo, annOrderKeys, annLimit, tableAlias, partitionPrunablePredicates,
+                        scanParams, isReset, isSnapshot));
+    }
+
+    /**
+     * withIsSnapshot
+     */
     public LogicalOlapTableStreamScan withIsSnapshot(boolean isSnapshot) {
         return AbstractPlan.copyWithSameId(this, () ->
                 new LogicalOlapTableStreamScan(relationId, (Table) table, qualifier,
@@ -318,7 +336,9 @@ public class LogicalOlapTableStreamScan extends LogicalOlapScan {
                         scanParams, isReset, isSnapshot));
     }
 
-    /** withIsSnapshot */
+    /**
+     * withIsReset
+     */
     public LogicalOlapTableStreamScan withIsReset(boolean isReset) {
         return AbstractPlan.copyWithSameId(this, () ->
                 new LogicalOlapTableStreamScan(relationId, (Table) table, qualifier,
