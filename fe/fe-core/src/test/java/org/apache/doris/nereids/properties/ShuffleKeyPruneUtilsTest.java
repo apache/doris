@@ -34,7 +34,6 @@ import org.apache.doris.nereids.trees.plans.AggPhase;
 import org.apache.doris.nereids.trees.plans.DistributeType;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
-import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
@@ -44,6 +43,8 @@ import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.statistics.ColumnStatistic;
+import org.apache.doris.statistics.Statistics;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.ImmutableList;
@@ -342,5 +343,27 @@ class ShuffleKeyPruneUtilsTest extends TestWithFeService {
         Assertions.assertEquals(2, result.get().size());
         Assertions.assertEquals(numericSlot, result.get().get(0));
         Assertions.assertEquals(dateSlot, result.get().get(1));
+    }
+
+    @Test
+    void testSelectBestShuffleKeyForAgg_unknownStatsDoNotPruneStringKey() {
+        SlotReference numericSlot = new SlotReference(new ExprId(17), "num_col", IntegerType.INSTANCE, true,
+                ImmutableList.of());
+        SlotReference stringSlot = new SlotReference(new ExprId(18), "str_col", new VarcharType(64), true,
+                ImmutableList.of());
+
+        Map<Expression, ColumnStatistic> columnStats = new HashMap<>();
+        columnStats.put(numericSlot, ColumnStatistic.UNKNOWN);
+        columnStats.put(stringSlot, statsWithNdv(ImmutableMap.of(stringSlot, 1.0), ROW_COUNT)
+                .findColumnStatistics(stringSlot));
+        Group childGroup = new Group(GroupId.createGenerator().getNextId(), emptyExpression, null);
+        childGroup.setStatistics(new Statistics(ROW_COUNT, columnStats));
+        Pair<PhysicalHashAggregate<GroupPlan>, GroupExpression> aggSetup = createAggAndRegister(childGroup,
+                ImmutableList.of(numericSlot, stringSlot), false);
+
+        Optional<List<Expression>> result = ShuffleKeyPruneUtils.selectBestShuffleKeyForAgg(aggSetup.first,
+                ImmutableList.of(numericSlot, stringSlot), connectContext);
+
+        Assertions.assertFalse(result.isPresent());
     }
 }
