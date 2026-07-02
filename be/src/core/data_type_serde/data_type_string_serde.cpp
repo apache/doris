@@ -338,8 +338,7 @@ Status DataTypeStringSerDeBase<ColumnType>::read_column_from_orc(
         const orc::ColumnVectorBatch* orc_col_batch, int64_t start, int64_t end,
         const UInt8* filter) const {
     const bool is_orc_char = orc_type != nullptr && orc_type->getKind() == orc::TypeKind::CHAR;
-    return orc_serde::read_string_column(column, orc_col_batch, start, end,
-                                         _type == TYPE_CHAR || is_orc_char, filter);
+    return orc_serde::read_string_column(column, orc_col_batch, start, end, is_orc_char, filter);
 }
 
 template <typename ColumnType>

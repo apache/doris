@@ -447,7 +447,7 @@ Status DataTypeDecimalSerDe<T>::read_column_from_orc(const std::string& timezone
                                                               scale, filter);
     } else if constexpr (T == TYPE_DECIMALV2) {
         return orc_serde::read_decimal_column<TYPE_DECIMALV2>(column, orc_col_batch, start, end,
-                                                              scale, filter);
+                                                              DecimalV2Value::SCALE, filter);
     } else if constexpr (T == TYPE_DECIMAL128I) {
         return orc_serde::read_decimal_column<TYPE_DECIMAL128I>(column, orc_col_batch, start, end,
                                                                 scale, filter);

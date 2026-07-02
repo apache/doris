@@ -26,7 +26,9 @@
 #include <cstdint>
 #include <cstring>
 #include <iostream>
+#include <memory>
 #include <type_traits>
+#include <vector>
 
 #include "core/assert_cast.h"
 #include "core/column/column.h"
@@ -37,6 +39,7 @@
 #include "core/data_type/data_type_decimal.h"
 #include "core/data_type_serde/data_type_decimal_serde.h"
 #include "core/types.h"
+#include "orc/OrcFile.hh"
 #include "testutil/test_util.h"
 #include "util/slice.h"
 #include "util/string_util.h"
@@ -83,6 +86,24 @@ static ColumnDecimal128V3::MutablePtr column_decimal128v3_3; // decimal128(38,38
 static ColumnDecimal256::MutablePtr column_decimal256_1; // decimal256(76,0)
 static ColumnDecimal256::MutablePtr column_decimal256_2; // decimal256(76,38)
 static ColumnDecimal256::MutablePtr column_decimal256_3; // decimal256(76,76)
+
+std::unique_ptr<orc::Decimal64VectorBatch> create_orc_decimal64_batch(
+        const std::vector<int64_t>& values, int32_t precision, int32_t scale) {
+    auto batch = std::make_unique<orc::Decimal64VectorBatch>(values.size(), *orc::getDefaultPool());
+    batch->resize(values.size());
+    batch->precision = precision;
+    batch->scale = scale;
+    batch->hasNulls = false;
+    batch->numElements = values.size();
+    batch->notNull.resize(values.size());
+
+    for (size_t i = 0; i < values.size(); ++i) {
+        batch->notNull[i] = true;
+        batch->values[i] = values[i];
+    }
+    return batch;
+}
+
 class DataTypeDecimalSerDeTest : public ::testing::Test {
 public:
     static void SetUpTestSuite() {
@@ -492,5 +513,47 @@ TEST_F(DataTypeDecimalSerDeTest, ArrowMemNotAlignedDecimal256TypeAlignment) {
     ASSERT_EQ(column->size(), num_elements);
     EXPECT_EQ(column->get_element(0).to_string(20), decimal_strings[0]);
     EXPECT_EQ(column->get_element(1).to_string(20), decimal_strings[1]);
+}
+
+TEST_F(DataTypeDecimalSerDeTest, OrcDecimalScalesUpAndDown) {
+    auto batch = create_orc_decimal64_batch({123456, -123456}, 18, 4);
+
+    {
+        DataTypeDecimalSerDe<TYPE_DECIMAL64> serde(18, 6);
+        auto column = ColumnDecimal64::create(0, 6);
+        auto st = serde.read_column_from_orc("", *column, nullptr, batch.get(), 0,
+                                             batch->numElements, nullptr);
+
+        ASSERT_TRUE(st.ok()) << st.to_string();
+        ASSERT_EQ(column->size(), 2);
+        EXPECT_EQ(column->get_data()[0].value, 12345600);
+        EXPECT_EQ(column->get_data()[1].value, -12345600);
+    }
+
+    {
+        DataTypeDecimalSerDe<TYPE_DECIMAL64> serde(18, 2);
+        auto column = ColumnDecimal64::create(0, 2);
+        auto st = serde.read_column_from_orc("", *column, nullptr, batch.get(), 0,
+                                             batch->numElements, nullptr);
+
+        ASSERT_TRUE(st.ok()) << st.to_string();
+        ASSERT_EQ(column->size(), 2);
+        EXPECT_EQ(column->get_data()[0].value, 1234);
+        EXPECT_EQ(column->get_data()[1].value, -1234);
+    }
+}
+
+TEST_F(DataTypeDecimalSerDeTest, OrcDecimalV2UsesMemoryScale) {
+    auto batch = create_orc_decimal64_batch({123456, -123456}, 12, 4);
+    DataTypeDecimalSerDe<TYPE_DECIMALV2> serde(12, 4);
+    auto column = ColumnDecimal128V2::create(0, DecimalV2Value::SCALE);
+
+    auto st = serde.read_column_from_orc("", *column, nullptr, batch.get(), 0, batch->numElements,
+                                         nullptr);
+
+    ASSERT_TRUE(st.ok()) << st.to_string();
+    ASSERT_EQ(column->size(), 2);
+    EXPECT_EQ(column->get_element(0).to_string(DecimalV2Value::SCALE), "12.345600000");
+    EXPECT_EQ(column->get_element(1).to_string(DecimalV2Value::SCALE), "-12.345600000");
 }
 } // namespace doris
