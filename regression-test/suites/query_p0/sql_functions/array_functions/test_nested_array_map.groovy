@@ -80,6 +80,10 @@ suite("test_nested_array_map") {
         select array_map(x -> array_map(y -> y - x, [1, 2]), [10, 20]);
     """
 
+    qt_select_nested_array_sortby """
+        select array_map(x -> array_sortby(y -> abs(y - x), [5, 1, 3, 9]), [2, 6, 8]);
+    """
+
     qt_select_same_name_shadow """
         select array_map(x -> array_map(x -> x + 1, x), [[1, 2], [3, 4]]);
     """
