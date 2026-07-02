@@ -46,6 +46,7 @@ public class AliasUdf extends ScalarFunction implements ExplicitlyCastableSignat
     private final Expression unboundFunction;
     private final List<String> parameters;
     private final List<DataType> argTypes;
+    private final boolean hasVarArguments;
     private final Map<String, String> sessionVariables;
 
     /**
@@ -55,6 +56,20 @@ public class AliasUdf extends ScalarFunction implements ExplicitlyCastableSignat
             List<String> parameters, Map<String, String> sessionVariables, Expression... arguments) {
         super(name, arguments);
         this.argTypes = argTypes;
+        this.hasVarArguments = false;
+        this.unboundFunction = unboundFunction;
+        this.parameters = parameters;
+        this.sessionVariables = sessionVariables;
+    }
+
+    /**
+     * constructor with session variables.
+     */
+    public AliasUdf(String name, List<DataType> argTypes, boolean hasVarArguments, Expression unboundFunction,
+            List<String> parameters, Map<String, String> sessionVariables, Expression... arguments) {
+        super(name, arguments);
+        this.argTypes = argTypes;
+        this.hasVarArguments = hasVarArguments;
         this.unboundFunction = unboundFunction;
         this.parameters = parameters;
         this.sessionVariables = sessionVariables;
@@ -62,7 +77,7 @@ public class AliasUdf extends ScalarFunction implements ExplicitlyCastableSignat
 
     @Override
     public List<FunctionSignature> getSignatures() {
-        return ImmutableList.of(FunctionSignature.of(NullType.INSTANCE, argTypes));
+        return ImmutableList.of(FunctionSignature.of(NullType.INSTANCE, hasVarArguments, argTypes));
     }
 
     public List<String> getParameters() {
@@ -101,6 +116,7 @@ public class AliasUdf extends ScalarFunction implements ExplicitlyCastableSignat
         AliasUdf aliasUdf = new AliasUdf(
                 function.functionName(),
                 Arrays.stream(function.getArgs()).map(DataType::fromCatalogType).collect(Collectors.toList()),
+                function.hasVarArgs(),
                 parsedFunction,
                 function.getParameters(),
                 sessionVariables);
@@ -116,7 +132,7 @@ public class AliasUdf extends ScalarFunction implements ExplicitlyCastableSignat
 
     @Override
     public Expression withChildren(List<Expression> children) {
-        return new AliasUdf(getName(), argTypes, unboundFunction, parameters, sessionVariables,
+        return new AliasUdf(getName(), argTypes, hasVarArguments, unboundFunction, parameters, sessionVariables,
                 children.toArray(new Expression[0]));
     }
 

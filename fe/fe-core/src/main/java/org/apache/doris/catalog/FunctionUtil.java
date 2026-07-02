@@ -231,7 +231,7 @@ public class FunctionUtil {
             String fnName = function.getName().getFunction();
             List<DataType> argTypes = Arrays.stream(function.getArgTypes()).map(DataType::fromCatalogType)
                     .collect(Collectors.toList());
-            Env.getCurrentEnv().getFunctionRegistry().dropUdf(dbName, fnName, argTypes);
+            Env.getCurrentEnv().getFunctionRegistry().dropUdf(dbName, fnName, argTypes, function.isVariadic());
         } catch (Exception e) {
             LOG.warn("Nereids drop function {}:{} failed, caused by: {}", dbName == null ? "_global_" : dbName,
                     function.getName(), e);
