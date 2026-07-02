@@ -716,17 +716,6 @@ public class CreateTableInfo {
                 }
             }
 
-            // __DORIS_COMMIT_TSO_COL__ injection for time-travel:
-            // only on dup / mow tables with row binlog enabled (binlog.enable=true && binlog.format=ROW).
-            if (keysType.equals(KeysType.DUP_KEYS)
-                    || (keysType.equals(KeysType.UNIQUE_KEYS) && isEnableMergeOnWrite)) {
-                BinlogConfig binlogConfig = new BinlogConfig();
-                binlogConfig.mergeFromProperties(properties);
-                if (binlogConfig.isRowFormat()) {
-                    columns.add(ColumnDefinition.newCommitTsoColumnDefinition(AggregateType.NONE));
-                }
-            }
-
             if (properties != null) {
                 if (properties.containsKey(PropertyAnalyzer.ENABLE_UNIQUE_KEY_SKIP_BITMAP_COLUMN)
                         && !(keysType.equals(KeysType.UNIQUE_KEYS) && isEnableMergeOnWrite)) {
@@ -1756,6 +1745,20 @@ public class CreateTableInfo {
             String sortCol = sortField.getColumnName();
             if (!sortColSet.add(sortCol)) {
                 throw new AnalysisException("Duplicate sort order column: " + sortCol);
+            }
+        }
+    }
+
+    /**
+     * check if add Commit TSO Column
+     */
+    public void createCommitTSOColumnIfNecessary(BinlogConfig binlogConfig) {
+        // __DORIS_COMMIT_TSO_COL__ injection for time-travel:
+        // only on dup / mow tables with row binlog enabled (binlog.enable=true && binlog.format=ROW).
+        if (keysType.equals(KeysType.DUP_KEYS)
+                || (keysType.equals(KeysType.UNIQUE_KEYS) && isEnableMergeOnWrite)) {
+            if (binlogConfig.isRowFormat()) {
+                columns.add(ColumnDefinition.newCommitTsoColumnDefinition(AggregateType.NONE));
             }
         }
     }

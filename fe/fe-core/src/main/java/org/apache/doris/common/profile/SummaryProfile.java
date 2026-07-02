@@ -194,6 +194,7 @@ public class SummaryProfile {
             PLAN_TIME,
             NEREIDS_GARBAGE_COLLECT_TIME,
             NEREIDS_PRELOAD_EXTERNAL_METADATA_TIME,
+            WAIT_CHANGE_VISIBLE_TIME,
             NEREIDS_LOCK_TABLE_TIME,
             NEREIDS_ANALYSIS_TIME,
             NEREIDS_REWRITE_TIME,

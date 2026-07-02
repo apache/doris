@@ -74,7 +74,10 @@ public class RowBinlogTableWrapper extends OlapTableWrapper {
 
     @Override
     public boolean equals(Object obj) {
-        return super.equals(obj)
-                && rowBinlogMeta.equals(((RowBinlogTableWrapper) obj).rowBinlogMeta);
+        if (!super.equals(obj)) {
+            return false;
+        }
+        RowBinlogTableWrapper other = (RowBinlogTableWrapper) obj;
+        return rowBinlogMeta.equals(other.rowBinlogMeta);
     }
 }

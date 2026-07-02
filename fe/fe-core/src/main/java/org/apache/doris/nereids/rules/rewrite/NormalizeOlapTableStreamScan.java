@@ -53,7 +53,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableStreamScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.planner.OlapScanNode;
-import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -94,8 +93,10 @@ public class NormalizeOlapTableStreamScan extends OneRewriteRuleFactory {
     }
 
     private Plan normalize(LogicalOlapTableStreamScan scan, CascadesContext cascadesContext) {
+        // short-cut for empty partition
         if (scan.getSelectedPartitionIds().isEmpty()) {
-            return scan;
+            return new LogicalEmptyRelation(cascadesContext.getStatementContext().getNextRelationId(),
+                    scan.getOutput());
         }
         if (scan.isReset()) {
             return makeResetOlapFullScan(scan, cascadesContext);
@@ -130,12 +131,12 @@ public class NormalizeOlapTableStreamScan extends OneRewriteRuleFactory {
         return project;
     }
 
-    // project from origin output slots to child slots with new expr ids
+    // project from child slots to origin output slots with new expr ids
     private Plan projectFromOriginSlots(Plan plan, List<Slot> originSlots) {
         return new LogicalProject<>(mapOriginOutputFromChild(originSlots, plan.getOutput(), false), plan);
     }
 
-    // project to origin output slots with original expr ids
+    // project to origin output slots with original expr ids. always add the project before final normalize output
     private Plan projectToOriginSlots(Plan plan, List<Slot> originSlots) {
         return new LogicalProject<>(mapOriginOutputFromChild(originSlots, plan.getOutput(), true), plan);
     }
@@ -285,9 +286,9 @@ public class NormalizeOlapTableStreamScan extends OneRewriteRuleFactory {
             Plan binlogPartPlan = makeIncrementalScanFromBinlog(cascadesContext, scan, rebuildPartitionIds,
                     baseTable, streamWrapper.getPartitionOffsets(rebuildPartitionIds),
                     BaseTableStream.StreamScanType.MIN_DELTA, originSlots, originSlots, false);
-            rebuildPlan = combineTwoPlan(basePartPlan, binlogPartPlan, originSlots);
+            rebuildPlan = combineTwoPlan(cascadesContext, basePartPlan, binlogPartPlan, originSlots);
         }
-        return combineTwoPlan(normalPlan, rebuildPlan, originSlots);
+        return projectToOriginSlots(combineTwoPlan(cascadesContext, normalPlan, rebuildPlan, originSlots), originSlots);
     }
 
     private Plan makeOlapScanOnBaseTable(LogicalOlapTableStreamScan scan, CascadesContext cascadesContext,
@@ -393,19 +394,20 @@ public class NormalizeOlapTableStreamScan extends OneRewriteRuleFactory {
                     streamWrapper.getStreamScanType(), originSlots, notVirtualSlots, true);
         }
 
-        return combineTwoPlan(historyPlan, incrementalPlan, originSlots);
+        return projectToOriginSlots(combineTwoPlan(cascadesContext, historyPlan, incrementalPlan, originSlots),
+                originSlots);
     }
 
-    private Plan combineTwoPlan(Plan plan0, Plan plan1, List<Slot> originSlots) {
+    private Plan combineTwoPlan(CascadesContext cascadesContext, Plan plan0, Plan plan1, List<Slot> originSlots) {
         if (plan0 == null && plan1 == null) {
-            return new LogicalEmptyRelation(ConnectContext.get().getStatementContext().getNextRelationId(),
+            return new LogicalEmptyRelation(cascadesContext.getStatementContext().getNextRelationId(),
                     originSlots);
         } else if (plan0 == null) {
-            return projectToOriginSlots(plan1, originSlots);
+            return plan1;
         } else if (plan1 == null) {
-            return projectToOriginSlots(plan0, originSlots);
+            return plan0;
         }
-        return projectToOriginSlots(makeUnionPlan(plan0, plan1, originSlots), originSlots);
+        return makeUnionPlan(plan0, plan1, originSlots);
     }
 
     private Plan makeUnionPlan(Plan child0, Plan child1, List<Slot> originSlots) {

@@ -175,8 +175,11 @@ public class OlapTableWrapper extends OlapTable {
 
     @Override
     public boolean equals(Object obj) {
-        return super.equals(obj)
-                && originTable.equals(((OlapTableWrapper) obj).originTable)
-                && partitionOffsetMap.equals(((OlapTableWrapper) obj).partitionOffsetMap);
+        if (!super.equals(obj)) {
+            return false;
+        }
+        OlapTableWrapper other = (OlapTableWrapper) obj;
+        return originTable.equals(other.originTable)
+                && partitionOffsetMap.equals(other.partitionOffsetMap);
     }
 }
