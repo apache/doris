@@ -21,9 +21,12 @@ import org.apache.doris.connector.api.ConnectorColumn;
 import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.api.handle.ConnectorWriteHandle;
+import org.apache.doris.connector.api.handle.WriteOperation;
 
 import java.util.Collections;
+import java.util.EnumSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * Plans the write (sink) for a connector table: produces the opaque
@@ -143,5 +146,59 @@ public interface ConnectorWritePlanProvider {
     default List<ConnectorColumn> getSyntheticWriteColumns(ConnectorSession session,
             ConnectorTableHandle tableHandle) {
         return Collections.emptyList();
+    }
+
+    /**
+     * The write operations this provider can plan, in one place — the single source of truth for a
+     * connector's write capability. Replaces the removed {@code ConnectorWriteOps} boolean methods and
+     * the {@code SUPPORTS_INSERT} capability. Default: INSERT only (any write provider can at least
+     * append). A connector overrides this to add OVERWRITE / DELETE / MERGE / REWRITE. Connector-level
+     * (does not vary per table); per-table mode constraints stay in
+     * {@link org.apache.doris.connector.api.ConnectorWriteOps#validateRowLevelDmlMode}.
+     */
+    default Set<WriteOperation> supportedOperations() {
+        return EnumSet.of(WriteOperation.INSERT);
+    }
+
+    /** Whether this connector can write into a named table branch ({@code INSERT INTO t@branch(name)}). Default: no. */
+    default boolean supportsWriteBranch() {
+        return false;
+    }
+
+    /**
+     * Whether the connector supports multiple concurrent writers (parallel sink instances). Connectors that
+     * do not declare this get GATHER (single-writer) distribution. Relocated from
+     * {@code ConnectorCapability.SUPPORTS_PARALLEL_WRITE}. Default: no.
+     */
+    default boolean requiresParallelWrite() {
+        return false;
+    }
+
+    /**
+     * Whether the connector maps write data columns positionally against the full table schema (so the sink
+     * must project rows to full-schema order with unmentioned columns filled). Relocated from
+     * {@code ConnectorCapability.SINK_REQUIRE_FULL_SCHEMA_ORDER}. Default: no.
+     */
+    default boolean requiresFullSchemaWriteOrder() {
+        return false;
+    }
+
+    /**
+     * Whether dynamic-partition writes must be hash-distributed by partition columns and locally sorted by
+     * them before the sink (e.g. MaxCompute Storage API). Relocated from
+     * {@code ConnectorCapability.SINK_REQUIRE_PARTITION_LOCAL_SORT}. A connector declaring this must also
+     * declare {@link #requiresParallelWrite()} and {@link #requiresFullSchemaWriteOrder()}. Default: no.
+     */
+    default boolean requiresPartitionLocalSort() {
+        return false;
+    }
+
+    /**
+     * Whether the connector's data files physically retain partition columns, so a static-partition write
+     * must materialize the PARTITION-clause literal into the data column instead of NULL-filling it (e.g.
+     * Iceberg). Relocated from {@code ConnectorCapability.SINK_MATERIALIZE_STATIC_PARTITION_VALUES}. Default: no.
+     */
+    default boolean requiresMaterializeStaticPartitionValues() {
+        return false;
     }
 }

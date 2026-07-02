@@ -17,6 +17,7 @@
 
 package org.apache.doris.connector.api;
 
+import org.apache.doris.connector.api.handle.WriteOperation;
 import org.apache.doris.connector.api.procedure.ConnectorProcedureOps;
 import org.apache.doris.connector.api.scan.ConnectorScanPlanProvider;
 import org.apache.doris.connector.api.write.ConnectorWritePlanProvider;
@@ -24,6 +25,7 @@ import org.apache.doris.connector.api.write.ConnectorWritePlanProvider;
 import java.io.Closeable;
 import java.io.IOException;
 import java.util.Collections;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.OptionalLong;
 import java.util.Set;
@@ -50,6 +52,49 @@ public interface Connector extends Closeable {
      */
     default ConnectorWritePlanProvider getWritePlanProvider() {
         return null;
+    }
+
+    /**
+     * The write operations the engine may perform on this connector — the single admission source. Reads the
+     * write provider's {@link ConnectorWritePlanProvider#supportedOperations()}; no provider ⇒ empty set ⇒ all
+     * writes rejected. The engine consults this instead of {@code getWritePlanProvider() != null}.
+     */
+    default Set<WriteOperation> supportedWriteOperations() {
+        ConnectorWritePlanProvider p = getWritePlanProvider();
+        return p == null ? EnumSet.noneOf(WriteOperation.class) : p.supportedOperations();
+    }
+
+    /** Null-safe view of {@link ConnectorWritePlanProvider#supportsWriteBranch()}. No provider ⇒ false. */
+    default boolean supportsWriteBranch() {
+        ConnectorWritePlanProvider p = getWritePlanProvider();
+        return p != null && p.supportsWriteBranch();
+    }
+
+    /** Null-safe view of {@link ConnectorWritePlanProvider#requiresParallelWrite()}. No provider ⇒ false. */
+    default boolean requiresParallelWrite() {
+        ConnectorWritePlanProvider p = getWritePlanProvider();
+        return p != null && p.requiresParallelWrite();
+    }
+
+    /** Null-safe view of {@link ConnectorWritePlanProvider#requiresFullSchemaWriteOrder()}. No provider ⇒ false. */
+    default boolean requiresFullSchemaWriteOrder() {
+        ConnectorWritePlanProvider p = getWritePlanProvider();
+        return p != null && p.requiresFullSchemaWriteOrder();
+    }
+
+    /** Null-safe view of {@link ConnectorWritePlanProvider#requiresPartitionLocalSort()}. No provider ⇒ false. */
+    default boolean requiresPartitionLocalSort() {
+        ConnectorWritePlanProvider p = getWritePlanProvider();
+        return p != null && p.requiresPartitionLocalSort();
+    }
+
+    /**
+     * Null-safe view of {@link ConnectorWritePlanProvider#requiresMaterializeStaticPartitionValues()}. No
+     * provider ⇒ false.
+     */
+    default boolean requiresMaterializeStaticPartitionValues() {
+        ConnectorWritePlanProvider p = getWritePlanProvider();
+        return p != null && p.requiresMaterializeStaticPartitionValues();
     }
 
     /**
