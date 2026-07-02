@@ -126,7 +126,13 @@ Suite.metaClass.trigger_and_wait_compaction = { String table_name, String compac
             def be_port = backendId_to_backendHttpPort["${tablet.BackendId}"]
 
             (exit_code, stdout, stderr) = be_get_compaction_status(be_host, be_port, tablet.TabletId)
-            assert exit_code == 0: "get compaction status failed, exit code: ${exit_code}, stdout: ${stdout}, stderr: ${stderr}"
+            if (exit_code != 0) {
+                // The BE http port can be transiently unresponsive under heavy load (e.g. curl
+                // timeout, exit code 28). Treat it as "not ready yet" and re-poll on the next
+                // interval instead of failing the whole wait.
+                logger.warn("get compaction status failed (will retry), exit code: ${exit_code}, stdout: ${stdout}, stderr: ${stderr}")
+                return false
+            }
             def compactionStatus = parseJson(stdout.trim())
             assert compactionStatus.status.toLowerCase() == "success": "compaction failed, be host: ${be_host}, tablet id: ${tablet.TabletId}, status: ${compactionStatus.status}"
             // running is true means compaction is still running
@@ -134,7 +140,10 @@ Suite.metaClass.trigger_and_wait_compaction = { String table_name, String compac
 
             if (!is_time_series_compaction) {
                 (exit_code, stdout, stderr) = be_show_tablet_status(be_host, be_port, tablet.TabletId)
-                assert exit_code == 0: "get tablet status failed, exit code: ${exit_code}, stdout: ${stdout}, stderr: ${stderr}"
+                if (exit_code != 0) {
+                    logger.warn("get tablet status failed (will retry), exit code: ${exit_code}, stdout: ${stdout}, stderr: ${stderr}")
+                    return false
+                }
                 def tabletStatus = parseJson(stdout.trim())
                 def oldStatus = be_tablet_compaction_status.get("${be_host}-${tablet.TabletId}")
                 // last compaction success time isn't updated, indicates compaction is not started(so we treat it as running and wait)
