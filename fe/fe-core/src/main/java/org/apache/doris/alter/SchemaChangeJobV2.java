@@ -397,7 +397,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 implements GsonPostProcessable
         }
 
         // create all replicas success.
-        // add all shadow indexes to catalog
+        // reserve the watershed txn id and then add all shadow indexes to catalog
         while (DebugPointUtil.isEnable("FE.SchemaChangeJobV2.createShadowIndexReplica.addShadowIndexToCatalog.block")) {
             try {
                 Thread.sleep(1000);
@@ -409,6 +409,12 @@ public class SchemaChangeJobV2 extends AlterJobV2 implements GsonPostProcessable
         tbl.writeLockOrAlterCancelException();
         try {
             Preconditions.checkState(tbl.getState() == OlapTableState.SCHEMA_CHANGE);
+            Preconditions.checkState(watershedTxnId == -1, watershedTxnId);
+            try {
+                this.watershedTxnId = Env.getCurrentGlobalTransactionMgr().getNextTransactionId();
+            } catch (UserException e) {
+                throw new AlterCancelException(e.getMessage());
+            }
             addShadowIndexToCatalog(tbl);
         } finally {
             tbl.writeUnlock();
@@ -418,9 +424,9 @@ public class SchemaChangeJobV2 extends AlterJobV2 implements GsonPostProcessable
     /**
      * runPendingJob():
      * 1. Create all replicas of all shadow indexes and wait them finished.
-     * 2. After creating done, add the shadow indexes to catalog, user can not see this
-     *    shadow index, but internal load process will generate data for these indexes.
-     * 3. Get a new transaction id, then set job's state to WAITING_TXN
+     * 2. Reserve the watershed txn id while holding the table write lock.
+     * 3. Add the shadow indexes to catalog so later transactions see them consistently.
+     * 4. Set job's state to WAITING_TXN
      */
     @Override
     protected void runPendingJob() throws Exception {
@@ -434,8 +440,6 @@ public class SchemaChangeJobV2 extends AlterJobV2 implements GsonPostProcessable
         }
 
         createShadowIndexReplica();
-
-        this.watershedTxnId = Env.getCurrentGlobalTransactionMgr().getNextTransactionId();
         setJobState(JobState.WAITING_TXN);
 
         // write edit log

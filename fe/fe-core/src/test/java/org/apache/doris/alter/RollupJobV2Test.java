@@ -270,6 +270,32 @@ public class RollupJobV2Test {
     }
 
     @Test
+    public void testCreateRollupReplicaSetsWatershedTxnId() throws Exception {
+        fakeEnv = new FakeEnv();
+        fakeEditLog = new FakeEditLog();
+        FakeEnv.setEnv(masterEnv);
+        MaterializedViewHandler materializedViewHandler = Env.getCurrentEnv().getMaterializedViewHandler();
+
+        ArrayList<AlterOp> alterOps = new ArrayList<>();
+        alterOps.add(op);
+        Database db = masterEnv.getInternalCatalog().getDbOrDdlException(CatalogTestUtil.testDbId1);
+        OlapTable olapTable = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId1);
+        Partition testPartition = olapTable.getPartition(CatalogTestUtil.testPartitionId1);
+        materializedViewHandler.process(alterOps, db, olapTable);
+        RollupJobV2 rollupJob = (RollupJobV2) materializedViewHandler.getAlterJobsV2()
+                .values().stream().findAny().get();
+
+        Assert.assertEquals(-1L, rollupJob.getWatershedTxnId());
+        Assert.assertEquals(1, testPartition.getMaterializedIndices(IndexExtState.ALL).size());
+
+        Deencapsulation.invoke(rollupJob, "createRollupReplica");
+
+        Assert.assertTrue(rollupJob.getWatershedTxnId() > 0);
+        Assert.assertEquals(2, testPartition.getMaterializedIndices(IndexExtState.ALL).size());
+        Assert.assertEquals(1, testPartition.getMaterializedIndices(IndexExtState.SHADOW).size());
+    }
+
+    @Test
     public void testSchemaChangeWhileTabletNotStable() throws Exception {
         if (fakeEnv != null) {
             fakeEnv.close();

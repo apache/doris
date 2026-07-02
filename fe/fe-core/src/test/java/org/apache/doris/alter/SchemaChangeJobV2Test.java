@@ -251,6 +251,32 @@ public class SchemaChangeJobV2Test {
     }
 
     @Test
+    public void testCreateShadowIndexReplicaSetsWatershedTxnId() throws Exception {
+        fakeEnv = new FakeEnv();
+        fakeEditLog = new FakeEditLog();
+        FakeEnv.setEnv(masterEnv);
+        SchemaChangeHandler schemaChangeHandler = Env.getCurrentEnv().getSchemaChangeHandler();
+
+        ArrayList<AlterOp> alterOps = new ArrayList<>();
+        alterOps.add(addColumnOp);
+        Database db = masterEnv.getInternalCatalog().getDbOrDdlException(CatalogTestUtil.testDbId1);
+        OlapTable olapTable = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId1);
+        Partition testPartition = olapTable.getPartition(CatalogTestUtil.testPartitionId1);
+        schemaChangeHandler.process(alterOps, db, olapTable);
+        SchemaChangeJobV2 schemaChangeJob = (SchemaChangeJobV2) schemaChangeHandler.getAlterJobsV2()
+                .values().stream().findAny().get();
+
+        Assert.assertEquals(-1L, schemaChangeJob.getWatershedTxnId());
+        Assert.assertEquals(1, testPartition.getMaterializedIndices(IndexExtState.ALL).size());
+
+        Deencapsulation.invoke(schemaChangeJob, "createShadowIndexReplica");
+
+        Assert.assertTrue(schemaChangeJob.getWatershedTxnId() > 0);
+        Assert.assertEquals(2, testPartition.getMaterializedIndices(IndexExtState.ALL).size());
+        Assert.assertEquals(1, testPartition.getMaterializedIndices(IndexExtState.SHADOW).size());
+    }
+
+    @Test
     public void testSchemaChangeWhileTabletNotStable() throws Exception {
         if (fakeEnv != null) {
             fakeEnv.close();
