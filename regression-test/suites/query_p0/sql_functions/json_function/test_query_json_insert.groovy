@@ -59,6 +59,7 @@ suite("test_query_json_insert", "query,arrow_flight_sql") {
     qt_sql_json """ SELECT json_insert('{"data": {}}', '\$.data.json', cast('{\"a\":\"b\"}' as JSON)); """
     qt_sql_json """ SELECT json_insert('{"data": {}}', '\$.data.json', cast('{\"a\":1}' as JSON)); """
     qt_sql_json """ SELECT json_insert('{"data": {}}', '\$.data.json', cast('{\"a\":1.1}' as JSON)); """
+    qt_sql_escape """ SELECT array('a\\\\b','line\\\\nfeed'), named_struct('name', 'a\\\\b', 'note', 'line\\\\nfeed'); """
 
     // test with table
     tableName = "test_query_json_insert_complex"
