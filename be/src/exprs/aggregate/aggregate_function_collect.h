@@ -26,6 +26,7 @@
 #include <memory>
 #include <new>
 #include <string>
+#include <type_traits>
 
 #include "core/assert_cast.h"
 #include "core/column/column.h"
@@ -102,7 +103,7 @@ struct AggregateFunctionCollectSetData {
     }
 
     void insert_result_into(IColumn& to) const {
-        auto& vec = assert_cast<ColVecType&>(to).get_data();
+        auto& vec = assert_cast<ColVecType&, TypeCheckOnRelease::DISABLE>(to).get_data();
         vec.reserve(size());
         for (const auto& item : data_set) {
             vec.push_back(item);
@@ -170,7 +171,7 @@ struct AggregateFunctionCollectSetData<T, HasLimit> {
     }
 
     void insert_result_into(IColumn& to) const {
-        auto& vec = assert_cast<ColVecType&>(to);
+        auto& vec = assert_cast<ColVecType&, TypeCheckOnRelease::DISABLE>(to);
         vec.reserve(size());
         for (const auto& item : data_set) {
             vec.insert_data(item.data, item.size);
@@ -232,7 +233,7 @@ struct AggregateFunctionCollectListData {
     void reset() { data.clear(); }
 
     void insert_result_into(IColumn& to) const {
-        auto& vec = assert_cast<ColVecType&>(to).get_data();
+        auto& vec = assert_cast<ColVecType&, TypeCheckOnRelease::DISABLE>(to).get_data();
         size_t old_size = vec.size();
         vec.resize(old_size + size());
         std::memcpy(vec.data() + old_size, data.data(), size() * sizeof(ElementType));
@@ -298,7 +299,7 @@ struct AggregateFunctionCollectListData<T, HasLimit> {
     void reset() { data->clear(); }
 
     void insert_result_into(IColumn& to) const {
-        auto& to_str = assert_cast<ColVecType&>(to);
+        auto& to_str = assert_cast<ColVecType&, TypeCheckOnRelease::DISABLE>(to);
         to_str.insert_range_from(*data, 0, size());
     }
 };
@@ -460,12 +461,45 @@ public:
     }
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
-        auto& to_arr = assert_cast<ColumnArray&>(to);
+        auto& to_arr = assert_cast<ColumnArray&, TypeCheckOnRelease::DISABLE>(to);
         auto& to_nested_col = to_arr.get_data();
-        auto* col_null = assert_cast<ColumnNullable*>(&to_nested_col);
+        auto* col_null = assert_cast<ColumnNullable*, TypeCheckOnRelease::DISABLE>(&to_nested_col);
         this->data(place).insert_result_into(col_null->get_nested_column());
         col_null->get_null_map_data().resize_fill(col_null->get_nested_column().size(), 0);
         to_arr.get_offsets().push_back(to_nested_col.size());
+    }
+
+    void check_input_columns_type(const IColumn** columns) const override {
+        IAggregateFunction::check_input_columns_type(columns);
+        if constexpr (is_string_type(Data::PType) &&
+                      std::is_same_v<AggregateFunctionCollectListData<Data::PType, HasLimit>,
+                                     Data>) {
+            this->template check_argument_column_type<ColumnString>(columns[0]);
+        }
+    }
+
+    void check_result_column_type(const IColumn& to) const override {
+        IAggregateFunction::check_result_column_type(to);
+        if constexpr (is_string_type(Data::PType)) {
+            const auto* array_column = check_and_get_column<ColumnArray>(to);
+            if (UNLIKELY(array_column == nullptr)) {
+                throw doris::Exception(Status::InternalError(
+                        "Aggregate function {} result type check failed: Column type {} is not "
+                        "ColumnArray",
+                        get_name(), to.get_name()));
+            }
+
+            const auto& nested_column = array_column->get_data();
+            const auto* nullable_column = check_and_get_column<ColumnNullable>(nested_column);
+            if (UNLIKELY(nullable_column == nullptr)) {
+                throw doris::Exception(Status::InternalError(
+                        "Aggregate function {} result type check failed: Column type {} is not "
+                        "ColumnNullable",
+                        get_name(), nested_column.get_name()));
+            }
+            this->template check_result_column_type_as<ColumnString>(
+                    nullable_column->get_nested_column());
+        }
     }
 
 private:

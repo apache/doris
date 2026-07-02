@@ -662,6 +662,15 @@ public:
         this->data(place).init(pattern, this->data(place).get_arg_count());
     }
 
+    void check_input_columns_type(const IColumn** columns) const override {
+        this->template check_argument_column_type<ColumnString>(columns[0]);
+        this->template check_argument_column_type<typename PrimitiveTypeTraits<T>::ColumnType>(
+                columns[1]);
+        for (size_t i = 2; i < arg_count; ++i) {
+            this->template check_argument_column_type<ColumnUInt8>(columns[i]);
+        }
+    }
+
 private:
     size_t arg_count;
 };
@@ -684,7 +693,7 @@ public:
     DataTypePtr get_return_type() const override { return std::make_shared<DataTypeUInt8>(); }
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
-        auto& output = assert_cast<ColumnUInt8&>(to).get_data();
+        auto& output = assert_cast<ColumnUInt8&, TypeCheckOnRelease::DISABLE>(to).get_data();
         if (!this->data(place).conditions_in_pattern.any()) {
             output.push_back(false);
             return;
@@ -731,7 +740,7 @@ public:
     DataTypePtr get_return_type() const override { return std::make_shared<DataTypeInt64>(); }
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
-        auto& output = assert_cast<ColumnInt64&>(to).get_data();
+        auto& output = assert_cast<ColumnInt64&, TypeCheckOnRelease::DISABLE>(to).get_data();
         if (!this->data(place).conditions_in_pattern.any()) {
             output.push_back(0);
             return;
