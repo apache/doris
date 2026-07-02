@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifdef __linux__
+#if defined(__linux__) && !defined(THREAD_SANITIZER) && !defined(USE_MUSL)
 
 #include "common/phdr_cache.h"
 
@@ -47,6 +47,12 @@ bool phdr_contains_test_dso() {
     return found;
 }
 
+bool unwind_phdr_cache_contains_test_dso(uintptr_t ip) {
+    bool found = false;
+    doris_unwind_iterate_phdr(find_test_dso, &found, ip);
+    return found;
+}
+
 std::string test_dso_path() {
     const char* doris_home = std::getenv("DORIS_HOME");
     std::filesystem::path path = doris_home == nullptr ? "." : doris_home;
@@ -66,6 +72,9 @@ TEST(PhdrCacheTest, DefaultLoaderViewIsLiveWhileScopedViewUsesSnapshot) {
 
     void* handle = dlopen(test_dso_path().c_str(), RTLD_NOW | RTLD_LOCAL);
     ASSERT_NE(nullptr, handle) << dlerror();
+    using MarkerFunction = int (*)();
+    auto* marker = reinterpret_cast<MarkerFunction>(dlsym(handle, "phdr_cache_test_dso_marker"));
+    ASSERT_NE(nullptr, marker) << dlerror();
     // Keep the handle open. Several sanitizer configurations are known to be fragile around
     // dlclose(), and this test only needs a late-loaded object in the process loader list.
     (void)handle;
@@ -78,8 +87,12 @@ TEST(PhdrCacheTest, DefaultLoaderViewIsLiveWhileScopedViewUsesSnapshot) {
         EXPECT_FALSE(phdr_contains_test_dso())
                 << "scoped PHDR cache should read the pre-dlopen snapshot";
     }
+    EXPECT_FALSE(unwind_phdr_cache_contains_test_dso(reinterpret_cast<uintptr_t>(marker)))
+            << "libunwind PHDR hook should also read the pre-dlopen snapshot";
 
     updatePHDRCache();
+    EXPECT_TRUE(unwind_phdr_cache_contains_test_dso(reinterpret_cast<uintptr_t>(marker)))
+            << "libunwind PHDR hook should use the refreshed snapshot without scoped opt-in";
     {
         ScopedPHDRCacheRead cache_scope;
         EXPECT_TRUE(phdr_contains_test_dso())
@@ -87,4 +100,4 @@ TEST(PhdrCacheTest, DefaultLoaderViewIsLiveWhileScopedViewUsesSnapshot) {
     }
 }
 
-#endif // __linux__
+#endif

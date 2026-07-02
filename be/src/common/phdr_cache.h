@@ -20,17 +20,25 @@
 
 #pragma once
 
+#if defined(__linux__) && !defined(THREAD_SANITIZER) && !defined(USE_MUSL)
+#include <link.h>
+
+#include <cstddef>
+#include <cstdint>
+#endif
+
 /// This code was based on the code by Fedor Korotkiy https://www.linkedin.com/in/fedor-korotkiy-659a1838/
 
-/** Collects all dl_phdr_info items and caches them in a static array.
-  * Doris uses this snapshot only inside the BE stack-trace signal handler. That handler may
-  * interrupt a target thread while the dynamic loader lock is already held, so libunwind must not
-  * call glibc dl_iterate_phdr from that interrupted context.
+/** Collects loaded-object PHDR metadata into a lock-free snapshot.
+  * Doris uses this snapshot in two narrow places where entering glibc's loader lock can deadlock:
+  * the BE stack-trace signal handler and Doris-patched GNU libunwind's FDE lookup. Both paths may
+  * run while another thread is inside dlopen/dlclose or jemalloc profiling.
   *
   * Normal code paths must keep using the original glibc dl_iterate_phdr. Process-wide use of a
   * snapshot can hide libraries loaded after the last refresh from sanitizers, JVM/Jindo native
-  * code, C++ exception handling, and ordinary libunwind callers. Use ScopedPHDRCacheRead only
-  * around the minimal signal-handler unwind section.
+  * code, and C++ exception handling. Use ScopedPHDRCacheRead only around the minimal
+  * signal-handler unwind section; GNU libunwind reaches this cache through
+  * doris_unwind_iterate_phdr without changing ordinary dl_iterate_phdr callers.
   *
   * Old cache snapshots are intentionally leaked and remain readable by concurrent signal-handler
   * unwinders.
@@ -39,8 +47,24 @@
   */
 void updatePHDRCache();
 
+/** Configure GNU libunwind to use the PHDR snapshot without its global register-state cache. */
+void configureLibunwindPHDRCache();
+
 /** Check if a PHDR snapshot is available for ScopedPHDRCacheRead. */
 bool hasPHDRCache();
+
+#if defined(__linux__) && !defined(THREAD_SANITIZER) && !defined(USE_MUSL)
+/**
+ * GNU libunwind calls this weak hook from Doris-patched thirdparty libunwind instead of calling
+ * glibc dl_iterate_phdr directly. The hook is intentionally narrower than the process-wide
+ * dl_iterate_phdr interposer: ordinary loader users still see glibc's live loader list, while
+ * libunwind reads Doris' lock-free PHDR snapshot to avoid loader-lock inversions during profiling
+ * and signal-context stack capture.
+ */
+extern "C" int doris_unwind_iterate_phdr(int (*callback)(dl_phdr_info* info, size_t size,
+                                                         void* data),
+                                         void* data, uintptr_t ip);
+#endif
 
 class ScopedPHDRCacheRead {
 public:

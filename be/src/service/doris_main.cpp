@@ -589,9 +589,11 @@ int main(int argc, char** argv) {
     LOG(INFO) << doris::DiskInfo::debug_string();
     LOG(INFO) << doris::MemInfo::debug_string();
 
-    // The BE stack trace signal handler uses libunwind on interrupted thread contexts. Populate an
-    // initial PHDR snapshot before daemon threads start; normal code still uses glibc's live
-    // dl_iterate_phdr, and only the signal handler reads this snapshot while unwinding.
+    // Doris-patched GNU libunwind reads PHDR metadata from our lock-free snapshot instead of
+    // entering glibc dl_iterate_phdr while jemalloc profiling or signal-context unwinding may
+    // already be involved in loader-lock-sensitive code. Configure libunwind before daemon threads
+    // start so all later heap-profile and stack-trace unwinds use the same lock-safe policy.
+    configureLibunwindPHDRCache();
     updatePHDRCache();
     LOG(INFO) << "PHDR cache enabled: " << hasPHDRCache();
 #if defined(__ELF__) && !defined(__FreeBSD__)
