@@ -142,7 +142,10 @@ Status WalManager::_init_wal_dirs_info() {
                                                            -1, available_bytes, &is_percent);
         if (wal_disk_limit < 0) {
             return Status::InternalError(
-                    "group_commit_wal_max_disk_limit config is wrong, please check your config!");
+                    "group_commit_wal_max_disk_limit config is wrong, parse_mem_spec args: "
+                    "mem_spec_str={}, parent_limit={}, physical_mem={}, is_percent={}, please "
+                    "check your config!",
+                    config::group_commit_wal_max_disk_limit, -1, available_bytes, is_percent);
         }
         // if there are some wal files in wal dir, we need to add it to wal disk limit.
         size_t wal_dir_size = 0;
