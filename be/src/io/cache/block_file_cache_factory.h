@@ -20,6 +20,7 @@
 
 #pragma once
 
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -50,6 +51,10 @@ public:
 
     Status create_file_cache(const std::string& cache_base_path,
                              FileCacheSettings file_cache_settings);
+
+    Status create_file_caches(
+            const std::vector<CachePath>& cache_paths,
+            const std::function<bool(const std::string&, const Status&)>& should_ignore_error);
 
     Status reload_file_cache(const std::vector<CachePath>& cache_base_paths);
 
@@ -106,6 +111,8 @@ public:
     std::string reset_capacity(const std::string& path, int64_t new_capacity);
 
     void get_cache_stats_block(vectorized::Block* block);
+
+    const std::vector<std::unique_ptr<BlockFileCache>>& get_caches() const { return _caches; }
 
     FileCacheFactory() = default;
     FileCacheFactory& operator=(const FileCacheFactory&) = delete;
