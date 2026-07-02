@@ -2017,9 +2017,18 @@ Status SegmentIterator::_vec_init_lazy_materialization() {
         }
 
         if (_enable_multi_stage_predicate_lazy_materialization) {
-            if (!_opts.predicate_lm_stage1_column_ids.empty()) {
+            const bool has_explicit_stage1_columns =
+                    !_opts.predicate_lm_stage1_column_ids.empty();
+            bool has_valid_explicit_stage1_column = false;
+            if (has_explicit_stage1_columns) {
                 stage1_pred_col_id_set.insert(_opts.predicate_lm_stage1_column_ids.begin(),
                                               _opts.predicate_lm_stage1_column_ids.end());
+                for (auto cid : _opts.predicate_lm_stage1_column_ids) {
+                    if (pred_column_ids.find(cid) != pred_column_ids.end()) {
+                        has_valid_explicit_stage1_column = true;
+                        break;
+                    }
+                }
             } else {
                 stage1_pred_col_id_set.insert(runtime_filter_cids.begin(),
                                               runtime_filter_cids.end());
@@ -2033,8 +2042,13 @@ Status SegmentIterator::_vec_init_lazy_materialization() {
                 }
             }
 
-            if (stage1_pred_col_id_set.empty() && !pred_column_ids.empty()) {
-                stage1_pred_col_id_set.insert(*pred_column_ids.begin());
+            if (has_explicit_stage1_columns && !has_valid_explicit_stage1_column) {
+                _enable_multi_stage_predicate_lazy_materialization = false;
+                stage1_pred_col_id_set = pred_column_ids;
+            } else {
+                if (stage1_pred_col_id_set.empty() && !pred_column_ids.empty()) {
+                    stage1_pred_col_id_set.insert(*pred_column_ids.begin());
+                }
             }
 
             for (auto cid : pred_column_ids) {
