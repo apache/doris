@@ -266,6 +266,9 @@ public class BindRelation extends OneAnalysisRuleFactory {
                 if (isChangeRead && olapTable.getBaseIndexId() != indexId) {
                     throw new AnalysisException("Change read is not supported on non-base index " + indexName.get());
                 }
+                if (unboundRelation.getTableSnapshot().isPresent() && olapTable.getBaseIndexId() != indexId) {
+                    throw new AnalysisException("Time travel is not supported on non-base index " + indexName.get());
+                }
                 PreAggStatus preAggStatus = olapTable.isDupKeysOrMergeOnWrite() ? PreAggStatus.unset()
                         : PreAggStatus.off("For direct index scan on mor/agg.");
 
