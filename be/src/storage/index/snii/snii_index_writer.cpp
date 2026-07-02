@@ -122,11 +122,14 @@ Status SniiIndexColumnWriter::_add_phrase_bigram_tokens(const std::vector<TermIn
         return Status::OK();
     }
 
+    // Zero-alloc bigram add (G01 part C): the buffer interns the synthetic
+    // marker+varint(len(left))+left+right term by PIECEWISE hash/compare, so a
+    // repeat word pair (the vast majority of the ~per-token pair stream) builds
+    // no std::string at all; the owned string is composed once per DISTINCT pair.
     const bool did_sort = emit_adjacent_phrase_bigrams(
             _bigram_positioned,
             [&](std::string_view left, std::string_view right, uint32_t position) {
-                _term_buffer->add_token(::doris::snii::format::make_phrase_bigram_term(left, right),
-                                        docid, position);
+                _term_buffer->add_bigram_token(left, right, docid, position);
             });
     // Analyzer token positions are monotonic non-decreasing, so the filtered
     // positioned terms are already position-ordered and the guard never sorts.

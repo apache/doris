@@ -103,6 +103,12 @@ public:
 
     void set_section_refs(const SectionRefs& refs);
 
+    // Effective phrase-bigram df-prune threshold applied by the writer (G01).
+    // Non-zero emits an OPTIONAL kBigramPruneInfo framed section (varint64);
+    // 0 (the default) emits nothing -- legacy segments carry no section and old
+    // readers skip the new one (unknown optional type).
+    void set_bigram_prune_min_df(uint64_t min_df) { bigram_prune_min_df_ = min_df; }
+
     // Appends an arbitrary already-framed section verbatim. Used for forward-compat
     // optional sections; the reader skips unrecognized types.
     void add_raw_section(Slice framed_bytes);
@@ -119,6 +125,7 @@ private:
     std::vector<uint8_t> sampled_term_index_;
     std::vector<uint8_t> dict_block_directory_;
     SectionRefs section_refs_;
+    uint64_t bigram_prune_min_df_ = 0;
     std::vector<std::vector<uint8_t>> extra_sections_;
 };
 
@@ -154,12 +161,20 @@ public:
     // length). True iff the index was built as docs-positions(+scoring) (tier>=T2).
     bool has_positions() const { return (flags_ & PerIndexMetaBuilder::kHasPositions) != 0; }
 
+    // Effective phrase-bigram df-prune threshold the writer applied (G01), from
+    // the OPTIONAL kBigramPruneInfo section. 0 == section absent == legacy
+    // semantics (every adjacent pair was materialized; a bigram dict miss means
+    // "no adjacency"). Non-zero declares this index bigram-df-pruned: a bigram
+    // dict miss must fall back to generic positions verification.
+    uint64_t bigram_prune_min_df() const { return bigram_prune_min_df_; }
+
 private:
     uint64_t index_id_ = 0;
     std::string index_suffix_;
     uint32_t flags_ = 0;
     StatsBlock stats_;
     SectionRefs section_refs_;
+    uint64_t bigram_prune_min_df_ = 0;
     Slice sampled_term_index_;
     Slice dict_block_directory_;
 };

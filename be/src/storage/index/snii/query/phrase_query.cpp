@@ -167,9 +167,26 @@ Status TryTwoTermPhraseBigram(const LogicalIndexReader& idx, const std::vector<s
     RETURN_IF_ERROR(internal::resolve_query_term(
             idx, format::make_phrase_bigram_term(terms[0], terms[1]), &resolved, &found));
     if (found) {
+        // Docid membership IS the phrase answer (the pair was adjacent when the
+        // bigram token was emitted); positions are never read here, which is what
+        // lets the writer store bigram postings docs-only (G01 part B).
+        SNII_QUERY_COUNT(bigram_hits);
         *handled = true;
         return internal::read_docid_posting(idx, resolved.entry, resolved.frq_base,
                                             resolved.prx_base, docids);
+    }
+
+    // Bigram dict MISS. When THIS segment's meta declares bigram df-pruning
+    // (G01), the miss is ambiguous -- the pair may have been pruned (df below the
+    // recorded threshold) rather than absent -- so fall back to the generic
+    // positions-verification phrase path (*handled stays false). The fallback is
+    // the full-fidelity implementation, and a pruned pair is low-df by
+    // definition, so its candidate set is small. Segments WITHOUT the meta field
+    // keep the legacy contract: the writer materialized EVERY adjacent pair, so
+    // miss == no adjacency == empty result.
+    if (idx.bigram_prune_min_df() > 0) {
+        SNII_QUERY_COUNT(bigram_fallbacks);
+        return Status::OK();
     }
 
     bool enabled = false;

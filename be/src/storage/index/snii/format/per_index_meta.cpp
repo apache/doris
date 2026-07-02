@@ -67,6 +67,23 @@ Status decode_section_refs(Slice payload, SectionRefs* out) {
     return Status::OK();
 }
 
+// kBigramPruneInfo payload: varint64 effective bigram_prune_min_df. The section
+// is OPTIONAL (emitted only when the writer pruned) and forward-extensible:
+// trailing payload bytes are IGNORED so a future writer can append fields
+// without a new section type.
+void encode_bigram_prune_info(uint64_t min_df, ByteSink* sink) {
+    ByteSink payload;
+    payload.put_varint64(min_df);
+    SectionFramer::write(*sink, static_cast<uint8_t>(SectionType::kBigramPruneInfo),
+                         payload.view());
+}
+
+Status decode_bigram_prune_info(Slice payload, uint64_t* min_df) {
+    ByteSource ps(payload);
+    RETURN_IF_ERROR(ps.get_varint64(min_df));
+    return Status::OK();
+}
+
 // Writes the self-checksummed header prefix. Layout matches the class comment.
 void encode_header(uint64_t index_id, const std::string& suffix, uint32_t flags, ByteSink* sink) {
     ByteSink head;
@@ -170,6 +187,9 @@ Status PerIndexMetaBuilder::finish(ByteSink* sink) const {
     sink->put_bytes(Slice(sampled_term_index_));
     sink->put_bytes(Slice(dict_block_directory_));
     encode_section_refs(section_refs_, sink);
+    if (bigram_prune_min_df_ != 0) {
+        encode_bigram_prune_info(bigram_prune_min_df_, sink);
+    }
     for (const auto& extra : extra_sections_) {
         sink->put_bytes(Slice(extra));
     }
@@ -198,6 +218,11 @@ Status PerIndexMetaReader::open(Slice block, PerIndexMetaReader* out) {
             RETURN_IF_ERROR(SectionFramer::read(fs, &sec));
             RETURN_IF_ERROR(decode_section_refs(sec.payload, &out->section_refs_));
             have_refs = true;
+        } else if (type == static_cast<uint8_t>(SectionType::kBigramPruneInfo)) {
+            FramedSection sec;
+            ByteSource fs(frame);
+            RETURN_IF_ERROR(SectionFramer::read(fs, &sec));
+            RETURN_IF_ERROR(decode_bigram_prune_info(sec.payload, &out->bigram_prune_min_df_));
         } else {
             dispatch_frame(type, frame, &out->sampled_term_index_, &out->dict_block_directory_);
         }

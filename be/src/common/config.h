@@ -1342,6 +1342,14 @@ DECLARE_Int32(ann_index_result_cache_stale_sweep_time_sec);
 // inverted index
 DECLARE_mDouble(inverted_index_ram_buffer_size);
 DECLARE_mInt32(inverted_index_max_buffered_docs);
+// SNII phrase-bigram df-prune threshold (G01 "bigram diet"). Hidden adjacent-pair
+// bigram terms whose final segment df is below the effective threshold are not
+// materialized (their 2-term phrases fall back to positions verification), and
+// surviving bigram postings are written docs+freq only (no positions).
+//   < 0 : auto -- max(64, segment_doc_count / 10000) per segment (default)
+//   = 0 : disable pruning; emit every bigram with positions (legacy layout)
+//   > 0 : use this fixed min-df threshold
+DECLARE_mInt32(snii_bigram_prune_min_df);
 // dict path for chinese analyzer
 DECLARE_String(inverted_index_dict_path);
 DECLARE_Int32(inverted_index_read_buffer_size);

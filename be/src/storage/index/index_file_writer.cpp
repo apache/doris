@@ -23,6 +23,7 @@
 #include <filesystem>
 
 #include "common/cast_set.h"
+#include "common/config.h"
 #include "common/status.h"
 #include "io/fs/packed_file_writer.h"
 #include "io/fs/s3_file_writer.h"
@@ -35,10 +36,36 @@
 #include "storage/index/inverted/inverted_index_desc.h"
 #include "storage/index/inverted/inverted_index_fs_directory.h"
 #include "storage/index/inverted/inverted_index_reader.h"
+#include "storage/index/snii/format/phrase_bigram.h"
 #include "storage/index/snii/snii_doris_adapter.h"
 #include "storage/tablet/tablet_schema.h"
 
 namespace doris::segment_v2 {
+
+namespace {
+
+// Resolves the EFFECTIVE SNII phrase-bigram df-prune threshold for one segment
+// index (G01): 0 for non-positional configs (no bigrams exist there) and when
+// config::snii_bigram_prune_min_df == 0 (pruning disabled, legacy layout); the
+// fixed config value when > 0; otherwise (< 0, the default) the auto formula
+// max(64, doc_count / 10000). The resolved value is what the writer applies AND
+// records in the per-index segment meta.
+uint32_t snii_effective_bigram_prune_min_df(uint32_t doc_count,
+                                            doris::snii::format::IndexConfig index_config) {
+    if (!doris::snii::format::has_positions(index_config)) {
+        return 0;
+    }
+    const int32_t conf = config::snii_bigram_prune_min_df;
+    if (conf == 0) {
+        return 0;
+    }
+    if (conf > 0) {
+        return static_cast<uint32_t>(conf);
+    }
+    return doris::snii::format::default_phrase_bigram_prune_min_df(doc_count);
+}
+
+} // namespace
 
 IndexFileWriter::IndexFileWriter(io::FileSystemSPtr fs, std::string index_path_prefix,
                                  std::string rowset_id, int64_t seg_id,
@@ -129,6 +156,7 @@ Status IndexFileWriter::add_snii_index(const TabletIndex* index_meta, uint32_t d
     input.null_docids = std::move(null_docids);
     input.term_source = term_buffer;
     input.mem_reporter = mem_reporter;
+    input.bigram_prune_min_df = snii_effective_bigram_prune_min_df(doc_count, index_config);
     RETURN_IF_ERROR(_snii_compound_writer->add_logical_index(input));
     ++_snii_index_count;
     return Status::OK();

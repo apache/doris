@@ -19,8 +19,8 @@
 
 #include <cstdint>
 
-// Deterministic op-count seam for the phrase-query hot path (T24). Two counters
-// let the phrase-prefix UTs assert complexity/allocation reductions directly:
+// Deterministic op-count seam for the phrase-query hot path (T24/G01). The
+// counters let the phrase UTs assert routing/complexity directly:
 //   - expected_docids_build : how many times the multi-tail phrase-prefix branch
 //                             materializes the expected-docid vector for a query.
 //                             Hoisted out of the per-tail loop, so == 1 per query
@@ -30,6 +30,13 @@
 //                             on the shortest per-doc span instead of the hardcoded
 //                             phrase-position-0 span shrinks this when the leading
 //                             exact term is high-frequency.
+//   - bigram_hits           : 2-term phrases answered DIRECTLY by a hidden
+//                             phrase-bigram posting (dict hit).
+//   - bigram_fallbacks      : 2-term phrases whose bigram term MISSED the dict on
+//                             a bigram-df-PRUNED segment (meta declares a non-zero
+//                             threshold), rerouted to the generic positions-
+//                             verification path. Stays 0 on legacy (unpruned)
+//                             segments, where a miss keeps meaning "empty result".
 //
 // The seam is active only under SNII_QUERY_TEST_COUNTERS, which is auto-enabled by
 // the library-wide BE_TEST define (be/CMakeLists.txt `if (MAKE_TEST)`) used to
@@ -56,6 +63,8 @@ namespace doris::snii::query::internal {
 struct QueryTestCounters {
     uint64_t expected_docids_build = 0;
     uint64_t anchor_iterations = 0;
+    uint64_t bigram_hits = 0;
+    uint64_t bigram_fallbacks = 0;
 };
 
 // `inline` gives a single shared instance across all TUs that include this header

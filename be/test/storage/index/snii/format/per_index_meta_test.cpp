@@ -202,6 +202,36 @@ TEST(SniiPerIndexMeta, EmptySuffix) {
     EXPECT_TRUE(reader.index_suffix().empty());
 }
 
+TEST(SniiPerIndexMeta, BigramPruneMinDfRoundTripsAndDefaultsToZero) {
+    // G01: absent kBigramPruneInfo section (the builder default AND every legacy
+    // segment) reads back as 0 == "not pruned, legacy semantics".
+    auto legacy_bytes =
+            BuildMeta(1, "body", {"a"},
+                      {{.offset = 0, .length = 1, .n_entries = 1, .flags = 0, .checksum = 0}});
+    PerIndexMetaReader legacy;
+    ASSERT_TRUE(PerIndexMetaReader::open(Slice(legacy_bytes), &legacy).ok());
+    EXPECT_EQ(legacy.bigram_prune_min_df(), 0U);
+
+    // A non-zero threshold emits the optional framed section and round-trips
+    // exactly, without disturbing the required sub-sections.
+    PerIndexMetaBuilder builder(2, "body", PerIndexMetaBuilder::kHasPositions);
+    builder.set_stats(SampleStats());
+    builder.set_sampled_term_index(Slice(BuildSampled({"a"})));
+    builder.set_dict_block_directory(Slice(
+            BuildDict({{.offset = 0, .length = 1, .n_entries = 1, .flags = 0, .checksum = 0}})));
+    builder.set_section_refs(SampleRefs());
+    builder.set_bigram_prune_min_df(640);
+    ByteSink sink;
+    ASSERT_TRUE(builder.finish(&sink).ok());
+
+    PerIndexMetaReader pruned;
+    ASSERT_TRUE(PerIndexMetaReader::open(Slice(sink.buffer()), &pruned).ok());
+    EXPECT_EQ(pruned.bigram_prune_min_df(), 640U);
+    EXPECT_TRUE(pruned.has_positions());
+    ExpectStatsEq(pruned.stats(), SampleStats());
+    ExpectRefsEq(pruned.section_refs(), SampleRefs());
+}
+
 TEST(SniiPerIndexMeta, HeaderStartsWithMetaFormatVersion) {
     auto bytes = BuildMeta(7, "x", {"a"},
                            {{.offset = 0, .length = 1, .n_entries = 1, .flags = 0, .checksum = 0}});

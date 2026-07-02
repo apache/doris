@@ -52,6 +52,14 @@ enum class SectionType : uint8_t {
     kLogicalIndexDirectory = 7,
     kTailMetaHeader = 8,
     kFeatureBits = 9,
+    // OPTIONAL per-index meta section (G01): payload = varint64
+    // bigram_prune_min_df, the effective phrase-bigram df-prune threshold the
+    // writer applied to THIS index. Emitted only when pruning was active (> 0);
+    // absent == 0 == legacy semantics (every adjacent pair materialized, so a
+    // bigram dict miss means "no adjacency"). Readers that predate this section
+    // skip it (unknown optional type), keeping old binaries readable on new
+    // segments and new binaries on old segments.
+    kBigramPruneInfo = 10,
 };
 
 // ---- Logical index postings storage content configuration (fixed per logical

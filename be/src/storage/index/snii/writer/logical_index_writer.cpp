@@ -34,6 +34,7 @@
 #include "storage/index/snii/format/frq_prelude.h"
 #include "storage/index/snii/format/norms_pod.h"
 #include "storage/index/snii/format/null_bitmap.h"
+#include "storage/index/snii/format/phrase_bigram.h"
 #include "storage/index/snii/format/prx_pod.h"
 
 namespace doris::snii::writer {
@@ -375,6 +376,38 @@ uint64_t term_freq_scans() {
 void reset_term_freq_scans() {
     term_freq_scan_counter().store(0, std::memory_order_relaxed);
 }
+
+namespace {
+// G01 bigram-diet counters: bumped once per non-sentinel phrase-bigram TERM (not
+// per token) at the process_term materialize/prune decision. Always-on relaxed
+// atomics like term_freq_scan_counter -- one branch + one add per bigram term is
+// noise next to the term's encode work.
+std::atomic<uint64_t>& bigram_materialized_counter() {
+    static std::atomic<uint64_t> counter {0};
+    return counter;
+}
+std::atomic<uint64_t>& bigram_pruned_counter() {
+    static std::atomic<uint64_t> counter {0};
+    return counter;
+}
+} // namespace
+
+void note_bigram_term_materialized() {
+    bigram_materialized_counter().fetch_add(1, std::memory_order_relaxed);
+}
+void note_bigram_term_pruned() {
+    bigram_pruned_counter().fetch_add(1, std::memory_order_relaxed);
+}
+uint64_t bigram_terms_materialized() {
+    return bigram_materialized_counter().load(std::memory_order_relaxed);
+}
+uint64_t bigram_terms_pruned() {
+    return bigram_pruned_counter().load(std::memory_order_relaxed);
+}
+void reset_bigram_prune_counters() {
+    bigram_materialized_counter().store(0, std::memory_order_relaxed);
+    bigram_pruned_counter().store(0, std::memory_order_relaxed);
+}
 // Forwards to the real fused helper so pure boundary tests exercise production
 // code (not a test-local re-implementation).
 FreqStats fuse_freq_stats_for_test(const std::vector<uint32_t>& freqs) {
@@ -389,6 +422,10 @@ LogicalIndexWriter::LogicalIndexWriter(const SniiIndexInput& in)
           has_prx_(format::has_positions(in.config)),
           has_freq_(format::tier_of(in.config) >= format::IndexTier::kT2),
           has_norms_(format::has_scoring(in.config)),
+          // Bigram df-pruning only makes sense for positions-capable configs (the
+          // only ones that emit hidden phrase bigrams); force 0 otherwise so the
+          // meta never (mis)declares pruning on a docs-only index.
+          bigram_prune_min_df_(format::has_positions(in.config) ? in.bigram_prune_min_df : 0),
           doc_count_(in.doc_count),
           null_docids_(in.null_docids),
           terms_(in.terms),
@@ -434,14 +471,16 @@ Status LogicalIndexWriter::validate_term(const TermPostings& tp, uint64_t total_
 // enc=windowed + has_sb. frq_docs_len = prelude_len + dd_block_len is the
 // contiguous docs-only prefix, which stays INSIDE the frq span.
 Status LogicalIndexWriter::build_windowed_entry(TermPostings& tp, uint64_t frq_base,
-                                                uint64_t prx_base, DictEntry* e) {
+                                                uint64_t prx_base, bool write_prx, DictEntry* e) {
     // The prx span starts here: pass 1 streams each .prx window straight into
     // the posting sink, so prx_off_delta is measured against the live
-    // posting-sink size.
+    // posting-sink size. write_prx == false (G01 docs-only bigram) streams no
+    // prx bytes at all and leaves the entry's prx locator zeroed; the per-term
+    // prelude records has_prx=false so the layout stays self-describing.
     const uint64_t prx_off = posting_size();
     WindowedPosting wp;
     RETURN_IF_ERROR(
-            BuildWindowedPosting(tp, has_freq_, has_prx_, encoded_norms_, posting_out_, &wp));
+            BuildWindowedPosting(tp, has_freq_, write_prx, encoded_norms_, posting_out_, &wp));
     // wp.prx_total_len bytes were just streamed straight to the posting sink (0
     // when !has_prx). docids/freqs are now fully encoded into wp; release the
     // source arrays before the (potentially large) wp blocks are appended to
@@ -449,7 +488,7 @@ Status LogicalIndexWriter::build_windowed_entry(TermPostings& tp, uint64_t frq_b
     std::vector<uint32_t>().swap(tp.docids);
     std::vector<uint32_t>().swap(tp.freqs);
     std::vector<uint8_t> prelude;
-    RETURN_IF_ERROR(BuildPrelude(wp.windows, has_freq_, has_prx_, &prelude));
+    RETURN_IF_ERROR(BuildPrelude(wp.windows, has_freq_, write_prx, &prelude));
 
     e->kind = DictEntryKind::kPodRef;
     e->enc = DictEntryEnc::kWindowed;
@@ -468,7 +507,7 @@ Status LogicalIndexWriter::build_windowed_entry(TermPostings& tp, uint64_t frq_b
     RETURN_IF_ERROR(posting_out_->append(Slice(wp.freq_block)));
     e->frq_off_delta = frq_off - frq_base;
     e->frq_len = posting_size() - frq_off;
-    if (has_prx_) {
+    if (write_prx) {
         e->prx_off_delta = prx_off - prx_base;
         e->prx_len = wp.prx_total_len; // == frq_off - prx_off
     }
@@ -484,7 +523,7 @@ Status LogicalIndexWriter::build_windowed_entry(TermPostings& tp, uint64_t frq_b
 // path); the reader resolves each delta independently so the relative order is
 // not load-bearing.
 Status LogicalIndexWriter::build_slim_entry(TermPostings& tp, uint64_t frq_base, uint64_t prx_base,
-                                            DictEntry* e) {
+                                            bool write_prx, DictEntry* e) {
     std::vector<uint8_t> dd_bytes, freq_bytes;
     FrqRegionMeta dd_meta, freq_meta;
     RETURN_IF_ERROR(EncodeRegions(tp.docids, tp.freqs, /*win_base=*/0, has_freq_, &dd_bytes,
@@ -492,7 +531,7 @@ Status LogicalIndexWriter::build_slim_entry(TermPostings& tp, uint64_t frq_base,
     std::vector<uint8_t> frq_win = dd_bytes; // [dd_region][freq_region]
     AppendBytes(&frq_win, freq_bytes);
     std::vector<uint8_t> prx_win;
-    if (has_prx_) {
+    if (write_prx) {
         RETURN_IF_ERROR(MakePrxWindow(tp.positions_flat, tp.freqs, &prx_win));
     }
 
@@ -504,14 +543,16 @@ Status LogicalIndexWriter::build_slim_entry(TermPostings& tp, uint64_t frq_base,
         e->kind = DictEntryKind::kInline;
         e->inline_dd_disk_len = dd_meta.disk_len;
         e->frq_bytes = std::move(frq_win);
-        if (has_prx_) e->prx_bytes = std::move(prx_win);
+        // !write_prx (G01 docs-only bigram) leaves prx_bytes empty; the T2 entry
+        // encoding round-trips prx_len == 0 fine.
+        if (write_prx) e->prx_bytes = std::move(prx_win);
         return Status::OK();
     }
 
     // POD_REF: write [prx][frq] into the single posting sink, prx span first.
     e->kind = DictEntryKind::kPodRef;
     e->frq_docs_len = dd_meta.disk_len; // docs-only prefix = the single dd region
-    if (has_prx_) {
+    if (write_prx) {
         const uint64_t prx_off = posting_size();
         RETURN_IF_ERROR(posting_out_->append(Slice(prx_win)));
         e->prx_off_delta = prx_off - prx_base;
@@ -529,16 +570,16 @@ Status LogicalIndexWriter::build_slim_entry(TermPostings& tp, uint64_t frq_base,
 // and record off_delta relative to frq_base/prx_base (the posting-region size
 // captured when the block opened; both bases hold that same value).
 Status LogicalIndexWriter::build_entry(TermPostings& tp, uint64_t frq_base, uint64_t prx_base,
-                                       const FreqStats& fs, DictEntry* e) {
+                                       const FreqStats& fs, bool write_prx, DictEntry* e) {
     e->term = tp.term;
     e->df = static_cast<uint32_t>(tp.docids.size());
     e->ttf_delta = fs.total_freq; // reused fused total (was SumOf(tp.freqs))
     e->max_freq = fs.max_freq;    // reused fused max (was MaxOf(tp.freqs))
 
     if (e->df >= format::kSlimDfThreshold) {
-        return build_windowed_entry(tp, frq_base, prx_base, e);
+        return build_windowed_entry(tp, frq_base, prx_base, write_prx, e);
     }
-    return build_slim_entry(tp, frq_base, prx_base, e);
+    return build_slim_entry(tp, frq_base, prx_base, write_prx, e);
 }
 
 // Serializes the current open block, zstd-compresses it (the dict region is the
@@ -586,6 +627,29 @@ struct LogicalIndexWriter::BlockState {
 };
 
 Status LogicalIndexWriter::process_term(TermPostings& tp, BlockState* st) {
+    // G01 bigram diet: the materialize/prune decision for hidden phrase-bigram
+    // terms happens HERE -- the single choke point both drain paths (streaming
+    // for_each_term_sorted and the materialized vector) funnel through, and the
+    // first point where the term's FINAL df (tp.docids.size(), post-merge) is
+    // known. A pruned term is dropped before ANY materialization side effect:
+    // no dict entry, no posting bytes, no bloom membership, no term_count/stats
+    // contribution. The sentinel term is never prunable (it flags "bigram
+    // feature present" for legacy reader semantics).
+    const bool is_bigram = format::is_phrase_bigram_term(tp.term);
+    if (is_bigram && !format::is_phrase_bigram_sentinel_term(tp.term)) {
+        if (bigram_prune_min_df_ > 0 && tp.docids.size() < bigram_prune_min_df_) {
+            testing::note_bigram_term_pruned();
+            return Status::OK();
+        }
+        testing::note_bigram_term_materialized();
+    }
+    // Surviving bigram postings are DOCS+FREQ ONLY in prune mode: the 2-term
+    // phrase bigram hit path answers from docid membership alone (it never reads
+    // bigram positions -- phrase_prefix multi-tail uses unigram prx and filters
+    // bigram tails), so their .prx spans are pure dead bytes. Legacy mode
+    // (threshold 0) keeps writing positions, byte-identical to pre-G01 output.
+    const bool write_prx = has_prx_ && !(is_bigram && bigram_prune_min_df_ > 0);
+
     // ONE fused term-level scan of freqs: total + max in a single pass, reused by
     // validate (has_prx position-count budget), stats, and the DictEntry
     // ttf_delta/max_freq. Computed BEFORE validate_term so the validator receives
@@ -608,7 +672,7 @@ Status LogicalIndexWriter::process_term(TermPostings& tp, BlockState* st) {
     }
 
     DictEntry e;
-    RETURN_IF_ERROR(build_entry(tp, st->frq_base, st->prx_base, fs, &e));
+    RETURN_IF_ERROR(build_entry(tp, st->frq_base, st->prx_base, fs, write_prx, &e));
     // `e` is not used after this point, so move it into the block to avoid a
     // per-term DictEntry copy (two vector heap allocations for inline entries).
     st->block->add_entry(std::move(e));
@@ -744,6 +808,10 @@ Status LogicalIndexWriter::finish_meta(const SectionRefs& abs_refs, uint64_t dic
     builder.set_dict_block_directory(dir_sink.view());
     // The BSBF is a physical section (abs_refs.bsbf), not embedded in the meta.
     builder.set_section_refs(abs_refs);
+    // G01: declare the APPLIED bigram df-prune threshold (0 emits nothing --
+    // legacy segments stay byte-identical) so the reader's 2-term phrase path
+    // knows a bigram dict miss means "fall back", not "empty".
+    builder.set_bigram_prune_min_df(bigram_prune_min_df_);
     return builder.finish(out);
 }
 

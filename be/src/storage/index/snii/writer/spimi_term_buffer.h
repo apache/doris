@@ -27,10 +27,21 @@
 #include <vector>
 
 #include "common/status.h"
+#include "storage/index/snii/format/phrase_bigram.h"
 #include "storage/index/snii/writer/compact_posting_pool.h"
 #include "storage/index/snii/writer/memory_reporter.h"
 
 namespace doris::snii::writer {
+
+// Heterogeneous probe key for a hidden phrase-bigram term (G01 part C): the
+// synthetic term make_phrase_bigram_term(left, right) addressed by its two
+// fragments, WITHOUT composing the string. The intern-set functors hash and
+// compare it piecewise (marker / varint(len(left)) / left / right), so a repeat
+// word pair costs zero allocation and zero byte copies on the add hot path.
+struct PhraseBigramTermView {
+    std::string_view left;
+    std::string_view right;
+};
 
 // One term's posting list: docids ascending, with parallel freqs and (when
 // positions are enabled) a single FLAT positions buffer.
@@ -214,6 +225,20 @@ public:
     // reserve this for tests / legacy string-fed callers.
     void add_token(std::string_view term, uint32_t docid, uint32_t pos);
 
+    // ZERO-ALLOC hidden phrase-bigram token (G01 part C): records one occurrence
+    // of the synthetic term make_phrase_bigram_term(left, right) WITHOUT ever
+    // composing that string on the hot path. The intern probe hashes and
+    // compares the term piecewise (marker + varint(len(left)) + left + right)
+    // via the transparent PhraseBigramTermView overloads below; the owned
+    // std::string is constructed EXACTLY ONCE, on the pair's first-time intern.
+    // Byte-identical accumulation to
+    //   add_token(format::make_phrase_bigram_term(left, right), docid, pos)
+    // (the two entry points intern to the SAME term-id -- one shared content
+    // hash/equality), and the same OWNED-vocab-mode-only contract: called on a
+    // borrowed-vocab buffer it latches InvalidArgument and ignores the token.
+    void add_bigram_token(std::string_view left, std::string_view right, uint32_t docid,
+                          uint32_t pos);
+
     // Number of DISTINCT terms accumulated so far (touched ids still resident).
     size_t unique_terms() const;
     uint64_t total_tokens() const { return total_tokens_; }
@@ -330,20 +355,53 @@ private:
     // The set stores ONLY 4-byte term-ids; each id's string lives EXACTLY ONCE in
     // owned_vocab_ (F03 single-store -- no second owned-string map key). Both functors
     // hold a back-pointer to owned_vocab_ and dereference a stored id to
-    // owned_vocab_[id] for content hashing/equality. Hashing ALWAYS routes through
-    // std::string_view, so a stored id and a probe string_view of identical content
-    // hash identically -- the precondition for find(string_view) to locate an existing
-    // entry. BOTH functors MUST be transparent (P0919/P1690): a transparent hash alone
-    // does NOT enable heterogeneous find(string_view); the equal functor must be
-    // transparent too.
+    // owned_vocab_[id] for content hashing/equality.
+    //
+    // CONTENT HASH: a byte-INCREMENTAL FNV-1a 64 (fnv_update below) replaces
+    // std::hash<string_view> so the SAME hash is computable either over a whole
+    // string (id / string_view probes) or fragment-by-fragment over a
+    // PhraseBigramTermView probe (marker, varint(len(left)), left, right) WITHOUT
+    // composing the synthetic bigram string -- the G01 zero-alloc requirement.
+    // std::hash cannot be computed piecewise (implementation-defined), which is
+    // exactly why it was replaced; equal content ALWAYS hashes equal across all
+    // three key forms because every form feeds the identical byte sequence.
+    //
+    // BOTH functors MUST be transparent (P0919/P1690): a transparent hash alone
+    // does NOT enable heterogeneous find(); the equal functor must be transparent
+    // too, and both must accept every probe key form.
+    static constexpr uint64_t kFnvOffsetBasis = 1469598103934665603ULL;
+    static constexpr uint64_t kFnvPrime = 1099511628211ULL;
+    static uint64_t fnv_update(uint64_t h, std::string_view bytes) noexcept {
+        for (const char c : bytes) {
+            h ^= static_cast<unsigned char>(c);
+            h *= kFnvPrime;
+        }
+        return h;
+    }
+    static size_t hash_term_bytes(std::string_view s) noexcept {
+        return static_cast<size_t>(fnv_update(kFnvOffsetBasis, s));
+    }
+    static size_t hash_bigram_view(const PhraseBigramTermView& v) noexcept {
+        // Fragment order mirrors make_phrase_bigram_term's byte layout exactly:
+        // marker ++ varint(len(left)) ++ left ++ right.
+        uint64_t h = fnv_update(kFnvOffsetBasis, format::kPhraseBigramTermMarker);
+        char varint_buf[5];
+        const size_t n = format::encode_phrase_bigram_varint32(static_cast<uint32_t>(v.left.size()),
+                                                               varint_buf);
+        h = fnv_update(h, std::string_view(varint_buf, n));
+        h = fnv_update(h, v.left);
+        h = fnv_update(h, v.right);
+        return static_cast<size_t>(h);
+    }
     struct OwnedVocabHash {
         using is_transparent = void;
         const std::vector<std::string>* vocab = nullptr;
-        size_t operator()(std::string_view s) const noexcept {
-            return std::hash<std::string_view> {}(s);
-        }
+        size_t operator()(std::string_view s) const noexcept { return hash_term_bytes(s); }
         size_t operator()(uint32_t id) const noexcept {
-            return std::hash<std::string_view> {}(std::string_view((*vocab)[id]));
+            return hash_term_bytes(std::string_view((*vocab)[id]));
+        }
+        size_t operator()(const PhraseBigramTermView& v) const noexcept {
+            return hash_bigram_view(v);
         }
     };
     struct OwnedVocabEq {
@@ -355,6 +413,16 @@ private:
         }
         bool operator()(std::string_view s, uint32_t a) const noexcept {
             return std::string_view((*vocab)[a]) == s;
+        }
+        // Piecewise fragment compare against the stored composed string -- no
+        // temporary composition on either side.
+        bool operator()(uint32_t a, const PhraseBigramTermView& v) const noexcept {
+            return format::phrase_bigram_term_equals(std::string_view((*vocab)[a]), v.left,
+                                                     v.right);
+        }
+        bool operator()(const PhraseBigramTermView& v, uint32_t a) const noexcept {
+            return format::phrase_bigram_term_equals(std::string_view((*vocab)[a]), v.left,
+                                                     v.right);
         }
     };
     // Owned mode only: interns each distinct term to a term-id on first occurrence.

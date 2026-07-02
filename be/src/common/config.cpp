@@ -1298,6 +1298,9 @@ DEFINE_mDouble(inverted_index_ram_buffer_size, "512");
 // -1 indicates not working.
 // Normally we should not change this, it's useful for testing.
 DEFINE_mInt32(inverted_index_max_buffered_docs, "-1");
+// SNII phrase-bigram df-prune threshold: <0 auto (max(64, doc_count/10000)),
+// 0 disable (legacy: emit every bigram with positions), >0 fixed min-df.
+DEFINE_mInt32(snii_bigram_prune_min_df, "-1");
 // dict path for chinese analyzer
 DEFINE_String(inverted_index_dict_path, "${DORIS_HOME}/dict");
 DEFINE_Int32(inverted_index_read_buffer_size, "4096");

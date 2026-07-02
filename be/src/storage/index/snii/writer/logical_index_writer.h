@@ -104,6 +104,18 @@ struct SniiIndexInput {
     // this. 0 uses kDefaultTargetDictBlockBytes. Smaller values yield more blocks
     // (and a finer-grained sampled-term index).
     uint32_t target_dict_block_bytes = 0;
+    // EFFECTIVE phrase-bigram df-prune threshold (G01). 0 (default) == legacy:
+    // every term materializes as before. > 0 (positions-capable configs only;
+    // ignored otherwise): a hidden phrase-bigram term (marker prefix, sentinel
+    // excluded) whose FINAL df < this is skipped entirely at materialization (no
+    // dict entry, no postings, no bloom membership, no stats), and every
+    // SURVIVING bigram term writes its posting docs+freq-only (no .prx) even in
+    // kDocsPositions config. The applied value is recorded in the per-index meta
+    // (kBigramPruneInfo) so the reader's 2-term phrase path knows a bigram dict
+    // miss must fall back to positions verification. The caller (Doris adapter)
+    // resolves config::snii_bigram_prune_min_df + the doc-count formula into
+    // this field; the core writer just applies it.
+    uint32_t bigram_prune_min_df = 0;
     // Optional writer-level build-RAM reporter (one per SniiCompoundWriter = one
     // segment inverted index). When non-null, the dict buffer reports its REAL
     // resident-byte deltas (positive on grow, negative on spill). The SPIMI side
@@ -210,16 +222,20 @@ private:
     uint64_t posting_size() const { return posting_out_->bytes_written() - posting_off0_; }
     // Builds one DictEntry (inline or pod_ref), growing the posting region as
     // needed. `fs` is the fused term-level freq stats (reused for ttf_delta /
-    // max_freq, so no second sum/max scan).
+    // max_freq, so no second sum/max scan). `write_prx` is the PER-TERM positions
+    // switch: has_prx_ for normal terms, false for phrase-bigram terms in
+    // prune mode (G01 docs-only bigrams) -- the entry then carries no .prx span
+    // (prx_len == 0) while the dd/freq regions stay identical.
     Status build_entry(TermPostings& tp, uint64_t frq_base, uint64_t prx_base, const FreqStats& fs,
-                       format::DictEntry* e);
+                       bool write_prx, format::DictEntry* e);
     // Builds a windowed (df >= kSlimDfThreshold) entry: multi-window + two-level
-    // prelude. The term's [prx span][frq span] is appended to the posting region.
+    // prelude. The term's [prx span][frq span] is appended to the posting region
+    // (prx span empty when !write_prx; the per-term prelude is self-describing).
     Status build_windowed_entry(TermPostings& tp, uint64_t frq_base, uint64_t prx_base,
-                                format::DictEntry* e);
+                                bool write_prx, format::DictEntry* e);
     // Builds a slim (df < kSlimDfThreshold) entry: single window, inline or
     // pod_ref, no prelude.
-    Status build_slim_entry(TermPostings& tp, uint64_t frq_base, uint64_t prx_base,
+    Status build_slim_entry(TermPostings& tp, uint64_t frq_base, uint64_t prx_base, bool write_prx,
                             format::DictEntry* e);
     // Serializes the current open block, streams its bytes into the dict scratch
     // file, and records a compact directory entry (no block bytes retained).
@@ -231,6 +247,10 @@ private:
     bool has_prx_;
     bool has_freq_; // tier >= T2: a freq region is encoded per window
     bool has_norms_;
+    // G01 effective bigram df-prune threshold (0 == off/legacy). Forced to 0 for
+    // non-positional configs (no bigrams are ever emitted there). Recorded into
+    // the per-index meta by finish_meta when non-zero.
+    uint32_t bigram_prune_min_df_;
     uint32_t doc_count_;
     std::vector<uint32_t> null_docids_;
     const std::vector<TermPostings>& terms_; // materialized fallback (may be empty)
@@ -281,6 +301,22 @@ void note_term_freq_scan();
 uint64_t term_freq_scans();
 void reset_term_freq_scans();
 FreqStats fuse_freq_stats_for_test(const std::vector<uint32_t>& freqs);
+
+// G01 bigram-diet observability seam (same always-on relaxed-atomic pattern as
+// term_freq_scans). Counts the writer's per-bigram materialization decisions --
+// bumped ONCE per non-sentinel phrase-bigram term reaching process_term:
+//   bigram_terms_materialized : the term got a dict entry (df >= threshold, or
+//                               pruning disabled).
+//   bigram_terms_pruned       : the term was skipped entirely (pruning active
+//                               and final df < threshold): no dict entry, no
+//                               postings, no bloom membership, no stats.
+// The sentinel term counts toward NEITHER (it is never prunable). Process-
+// global; reset between tests. Not part of the production API.
+void note_bigram_term_materialized();
+void note_bigram_term_pruned();
+uint64_t bigram_terms_materialized();
+uint64_t bigram_terms_pruned();
+void reset_bigram_prune_counters();
 } // namespace testing
 
 } // namespace doris::snii::writer

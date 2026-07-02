@@ -165,9 +165,13 @@ inline void assert_ok(const Status& status) {
 // The standard reader-side fixture: a 9000-doc kDocsPositions index whose terms
 // exercise dense/sparse/windowed/tail postings, optionally including the hidden
 // phrase-bigram terms. Opens `segment_reader`/`index_reader` over `file`.
+// `bigram_prune_min_df` != 0 builds a G01 df-PRUNED segment: bigram terms with
+// df below it are dropped at materialization, survivors are written docs-only,
+// and the per-index meta records the threshold (reader fallback gate). 0 (the
+// default) keeps the legacy layout byte-identical to the pre-G01 fixture.
 inline Status build_reader(MemoryFile* file, reader::SniiSegmentReader* segment_reader,
                            reader::LogicalIndexReader* index_reader,
-                           bool include_phrase_bigrams = false) {
+                           bool include_phrase_bigrams = false, uint32_t bigram_prune_min_df = 0) {
     constexpr uint32_t kDocCount = 9000;
     auto failed_docs = docs_with_one_position(0, kDocCount, 0);
     auto order_docs = docs_with_one_position(0, kDocCount, 2);
@@ -215,6 +219,7 @@ inline Status build_reader(MemoryFile* file, reader::SniiSegmentReader* segment_
     input.index_suffix = "Body";
     input.config = format::IndexConfig::kDocsPositions;
     input.doc_count = kDocCount;
+    input.bigram_prune_min_df = bigram_prune_min_df;
     input.terms = {make_term("almost", std::move(almost_docs)),
                    make_term("123", std::move(numeric_tail_docs)),
                    make_term("driver", std::move(driver_docs)),

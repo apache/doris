@@ -323,6 +323,44 @@ void SpimiTermBuffer::add_token(std::string_view term, uint32_t docid, uint32_t 
     accumulate(term_id, docid, pos);
 }
 
+void SpimiTermBuffer::add_bigram_token(std::string_view left, std::string_view right,
+                                       uint32_t docid, uint32_t pos) {
+    // Same OWNED-vocab-mode contract (and failure latch) as add_token(string_view):
+    // interning into a borrowed vocab would corrupt the id space.
+    if (vocab_ != &owned_vocab_) {
+        if (spill_status_.ok()) {
+            spill_status_ = Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
+                    "spimi: add_bigram_token requires owned-vocab mode");
+        }
+        return;
+    }
+    // G01 part C hot path: probe the intern set with the PIECEWISE key -- the
+    // transparent functors hash/compare marker + varint(len(left)) + left + right
+    // fragment by fragment against the stored composed strings, so a REPEAT word
+    // pair (the overwhelming majority of the ~per-token bigram stream) performs
+    // zero allocation and zero byte copies. The composed std::string is built
+    // exactly once, on first-time intern below.
+    const PhraseBigramTermView probe {left, right};
+    auto it = intern_.find(probe);
+    uint32_t term_id;
+    if (it == intern_.end()) {
+        term_id = static_cast<uint32_t>(owned_vocab_.size());
+        // The SOLE composition/materialization of this bigram's synthetic term
+        // (F03 single-store). Push FIRST so owned_vocab_[term_id] is valid before
+        // insert(term_id) hashes it; hash_bigram_view(probe) ==
+        // hash_term_bytes(composed) by construction (identical byte sequence
+        // through the same FNV update), so the id lands in the same bucket the
+        // probe searched.
+        owned_vocab_.emplace_back(format::make_phrase_bigram_term(left, right));
+        g_vocab_materializations.fetch_add(1, std::memory_order_relaxed);
+        intern_.insert(term_id);
+        slot_of_.push_back(0); // vocab grows: new id starts with no live slot
+    } else {
+        term_id = *it; // the set element IS the term-id
+    }
+    accumulate(term_id, docid, pos);
+}
+
 namespace {
 
 // Reorders a term's flat arrays into ascending-docid order, COALESCING any
