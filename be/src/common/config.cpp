@@ -1301,6 +1301,11 @@ DEFINE_mInt32(inverted_index_max_buffered_docs, "-1");
 // SNII phrase-bigram df-prune threshold: <0 auto (max(64, doc_count/10000)),
 // 0 disable (legacy: emit every bigram with positions), >0 fixed min-df.
 DEFINE_mInt32(snii_bigram_prune_min_df, "-1");
+// SNII per-writer bigram intern-vocabulary cap (bytes): df==1 bigram terms are
+// incrementally evicted (and bloom-recorded for the flush-time drop) once the
+// live bigram intern storage crosses this. 0 = uncapped. Effective only when
+// snii_bigram_prune_min_df != 0. Default 512 MiB.
+DEFINE_mInt64(snii_bigram_vocab_cap_bytes, "536870912");
 // dict path for chinese analyzer
 DEFINE_String(inverted_index_dict_path, "${DORIS_HOME}/dict");
 DEFINE_Int32(inverted_index_read_buffer_size, "4096");

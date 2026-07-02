@@ -157,6 +157,22 @@ Status IndexFileWriter::add_snii_index(const TabletIndex* index_meta, uint32_t d
     input.term_source = term_buffer;
     input.mem_reporter = mem_reporter;
     input.bigram_prune_min_df = snii_effective_bigram_prune_min_df(doc_count, index_config);
+    // G04: hand the flush the buffer's ever-dropped bloom so vocab-cap-evicted
+    // bigram pairs that reappeared (incomplete postings) are dropped in addition
+    // to the df threshold. Null when no eviction ever fired (zero probe cost).
+    input.bigram_ever_dropped = term_buffer->bigram_dropped_filter();
+    // GUARD against a mid-import config flip: the buffer suppressed bigram
+    // positions / evicted terms because pruning was enabled at init, but the
+    // mutable config now resolves the threshold to 0 (legacy layout). Flushing a
+    // legacy layout from a dieted buffer would either fail validation (missing
+    // positions) or -- worse -- materialize incomplete evicted pairs on a segment
+    // whose meta declares no fallback. Fail loudly instead.
+    if (input.bigram_prune_min_df == 0 && term_buffer->bigram_diet_configured()) {
+        return Status::InternalError(
+                "SNII: snii_bigram_prune_min_df was disabled while an import with the bigram "
+                "diet active was in flight for {}; keep the config stable during a load",
+                _index_path_prefix);
+    }
     RETURN_IF_ERROR(_snii_compound_writer->add_logical_index(input));
     ++_snii_index_count;
     return Status::OK();

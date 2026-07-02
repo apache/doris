@@ -116,6 +116,19 @@ struct SniiIndexInput {
     // resolves config::snii_bigram_prune_min_df + the doc-count formula into
     // this field; the core writer just applies it.
     uint32_t bigram_prune_min_df = 0;
+    // G04: EVER-DROPPED bloom over bigram terms the SPIMI vocab-cap eviction
+    // dropped mid-build (SpimiTermBuffer::bigram_dropped_filter(); the caller
+    // wires it). When non-null AND pruning is active (bigram_prune_min_df > 0),
+    // process_term drops any non-sentinel bigram term the filter may contain IN
+    // ADDITION to the df threshold: an evicted-then-reappearing pair's
+    // re-accumulated postings are INCOMPLETE (they miss the docids dropped at
+    // eviction), so materializing them would silently lose phrase hits; dropping
+    // them instead routes the pair to the G01 dict-miss fallback (correct, just
+    // slower). Bloom false positives only over-drop -- safe under the same
+    // contract. Ignored (with pruning forced off) when bigram_prune_min_df == 0:
+    // a bloom drop on a segment whose meta declares NO pruning would break the
+    // legacy miss==empty reader semantics. Borrowed; null when no eviction fired.
+    const BigramDropFilter* bigram_ever_dropped = nullptr;
     // Optional writer-level build-RAM reporter (one per SniiCompoundWriter = one
     // segment inverted index). When non-null, the dict buffer reports its REAL
     // resident-byte deltas (positive on grow, negative on spill). The SPIMI side
@@ -201,9 +214,14 @@ private:
 
     // Validates one term's shape (parallel lengths, strictly ascending docids).
     // `total_freq` is the fused sum(freqs) the caller computes once via
-    // fuse_freq_stats; the has_prx position-count check compares against it
-    // instead of re-summing freqs internally.
-    Status validate_term(const TermPostings& tp, uint64_t total_freq) const;
+    // fuse_freq_stats; the position-count check compares against it instead of
+    // re-summing freqs internally. `expect_positions` is the PER-TERM positions
+    // switch (the caller's write_prx): a G04 position-suppressed bigram term
+    // legitimately arrives with an empty positions_flat while freqs sum > 0, and
+    // its .prx is never written -- so the count check is skipped exactly when the
+    // term writes no positions. For every other term (and all terms in legacy
+    // mode) expect_positions == has_prx_, preserving the strict check.
+    Status validate_term(const TermPostings& tp, uint64_t total_freq, bool expect_positions) const;
     // Iterates terms (from the streaming source or the materialized vector),
     // splitting DICT blocks by target size and filling PODs + blocks_.
     Status build_blocks();
@@ -251,6 +269,10 @@ private:
     // non-positional configs (no bigrams are ever emitted there). Recorded into
     // the per-index meta by finish_meta when non-zero.
     uint32_t bigram_prune_min_df_;
+    // G04 ever-dropped bloom (borrowed from SniiIndexInput). Non-null ONLY when
+    // pruning is active (see the SniiIndexInput field contract): probed once per
+    // df-surviving bigram term in process_term.
+    const BigramDropFilter* bigram_ever_dropped_;
     uint32_t doc_count_;
     std::vector<uint32_t> null_docids_;
     const std::vector<TermPostings>& terms_; // materialized fallback (may be empty)
@@ -317,6 +339,14 @@ void note_bigram_term_pruned();
 uint64_t bigram_terms_materialized();
 uint64_t bigram_terms_pruned();
 void reset_bigram_prune_counters();
+
+// G04 flush-side seam: bumped ONCE per bigram term that SURVIVED the df
+// threshold but was dropped because the ever-dropped bloom may contain it
+// (i.e. the drop the bloom -- not the threshold -- caused). df-dropped terms
+// count toward bigram_terms_pruned as before, never here. Reset together with
+// the prune counters by reset_bigram_prune_counters().
+void note_bigram_bloom_dropped();
+uint64_t bigram_bloom_dropped();
 } // namespace testing
 
 } // namespace doris::snii::writer

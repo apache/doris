@@ -19,6 +19,7 @@
 
 #include <cstdint>
 #include <functional>
+#include <memory>
 #include <span>
 #include <string>
 #include <string_view>
@@ -28,6 +29,7 @@
 
 #include "common/status.h"
 #include "storage/index/snii/format/phrase_bigram.h"
+#include "storage/index/snii/writer/bigram_drop_filter.h"
 #include "storage/index/snii/writer/compact_posting_pool.h"
 #include "storage/index/snii/writer/memory_reporter.h"
 
@@ -239,6 +241,58 @@ public:
     void add_bigram_token(std::string_view left, std::string_view right, uint32_t docid,
                           uint32_t pos);
 
+    // G04 "bigram diet" phase 2. Call ONCE, before any add, on an OWNED-vocab
+    // buffer, and ONLY when the flush-time G01 bigram df-prune WILL be active
+    // (config snii_bigram_prune_min_df != 0) -- the caller (SNII column writer)
+    // owns that gate. Enables, for every hidden phrase-bigram term (marker
+    // prefix, sentinel included):
+    //   (a) POSITION SUPPRESSION: bigram tokens accumulate DOCS+FREQ ONLY. Their
+    //       positions were pure dead bytes since G01 (surviving bigrams are
+    //       written docs+freq with no .prx; pruned ones vanish), yet were still
+    //       varint-encoded per token into the arena, spilled into every run and
+    //       re-materialized at drain. Suppressed terms emit an EMPTY
+    //       positions_flat (and never a pos_pump); freqs are unaffected. The
+    //       flush-time validate accepts this because write_prx is false for
+    //       bigrams whenever pruning is active. Unigrams are untouched.
+    //   (b) VOCAB-CAP EVICTION (when vocab_cap_bytes > 0): once the live bigram
+    //       intern storage (string capacity + a fixed per-term overhead
+    //       estimate) exceeds vocab_cap_bytes, bigram terms whose CURRENT df is
+    //       exactly 1 (the Zipf long tail; never the sentinel) are evicted
+    //       INCREMENTALLY -- a bounded sweep step per bigram add, plus a pass at
+    //       each gate-2 spill -- releasing their intern string, intern-set entry,
+    //       term slot and postings, and recycling their term-id for the next
+    //       intern. Every evicted term is recorded in the ever-dropped bloom
+    //       (bigram_dropped_filter()); the flush-time process_term drops any
+    //       bigram the bloom may contain IN ADDITION to the df threshold, so an
+    //       evicted-then-reappearing pair (whose re-interned postings would be
+    //       INCOMPLETE) can never materialize. Bloom false positives only
+    //       over-drop, which the G01 reader fallback contract makes safe.
+    //       Ids already written to a spill run are NEVER evicted or recycled
+    //       (the run records reference them; their vocab strings are immutable
+    //       from first spill on).
+    // Calling this on a BORROWED-vocab buffer latches InvalidArgument and is
+    // ignored (the diet needs the owned intern table).
+    void configure_bigram_diet(uint64_t vocab_cap_bytes);
+    bool bigram_diet_configured() const { return bigram_diet_; }
+
+    // Ever-dropped bloom over evicted bigram terms; nullptr until the first
+    // eviction (so the flush path probes nothing when the feature never fired).
+    // Borrowed; valid for the buffer's lifetime.
+    const BigramDropFilter* bigram_dropped_filter() const { return bigram_drop_filter_.get(); }
+
+    // Live bigram intern storage estimate the vocab cap is enforced against:
+    // sum over live non-sentinel bigram terms of (string capacity +
+    // kBigramInternFixedOverheadBytes). Exposed for the cap-bound tests /
+    // observability.
+    uint64_t bigram_intern_bytes() const { return bigram_intern_bytes_; }
+
+    // Fixed per-term overhead added to a bigram string's capacity when
+    // accounting intern storage against the vocab cap: the std::string header in
+    // owned_vocab_, the intern-set node, and the 4 B slot/rank entries. An
+    // estimate (allocator slack varies); deterministic so tests can reason about
+    // the cap exactly.
+    static constexpr uint64_t kBigramInternFixedOverheadBytes = 64;
+
     // Number of DISTINCT terms accumulated so far (touched ids still resident).
     size_t unique_terms() const;
     uint64_t total_tokens() const { return total_tokens_; }
@@ -290,6 +344,15 @@ private:
         uint8_t level = 0;                 // current slice level of w (packed here, not in w)
         bool started = false;              // false until the first token is appended
         bool sorted = true;                // false if a docid arrived out of ascending order
+        // G04: distinct-doc count SATURATED AT 2 -- all the vocab-cap eviction
+        // needs is "df == 1 vs df >= 2" (only the df==1 Zipf tail is evictable),
+        // so one byte in Term's padding replaces a full doc counter.
+        uint8_t ndocs2 = 0;
+        // G04 part (b of G01 phase-2 note): true for hidden phrase-bigram terms
+        // when the diet is configured -- the chain then stores the new_doc tag
+        // ONLY (no position payload; identical bytes to a positions-disabled
+        // encoding) and to_postings emits an empty positions_flat.
+        bool pos_suppressed = false;
     };
     static_assert(sizeof(CompactPostingPool::SliceWriter) == 8,
                   "SliceWriter must stay 8 bytes to keep Term compact");
@@ -324,9 +387,19 @@ private:
     // that RETAIN the TermPostings past the drain (finalize_sorted) must pass false.
     Status drain_sorted(const std::function<void(TermPostings&&)>& fn, bool allow_stream_positions);
     // Spills the current buffer to a fresh sorted run file and clears memory.
-    Status spill_to_run();
+    // `evict_low_df_bigrams`: gate-2 mid-feed spills pass true so df==1 bigram
+    // terms are EVICTED (bloom-recorded, id recycled) instead of being written
+    // to the run -- a run record would otherwise pin the term's vocab string
+    // forever (in-run ids are never evictable). The FINAL residual spill inside
+    // merge_runs passes false: no token can arrive after it, so its df==1
+    // bigrams are already doomed by the flush-time df threshold and blooming
+    // them would only add false-positive pressure.
+    Status spill_to_run(bool evict_low_df_bigrams);
     // Writes all current terms (sorted) to an already-open RunWriter, draining.
-    Status drain_to_writer(class RunWriter* w);
+    // Skips ids whose slot is gone (evicted mid-feed) and, when
+    // `evict_low_df_bigrams`, evicts eligible df==1 bigrams instead of writing
+    // them; every id actually written is marked in-run (never evictable after).
+    Status drain_to_writer(class RunWriter* w, bool evict_low_df_bigrams);
     // REAL resident accumulator bytes: pool_.arena_bytes() + slot_of_.capacity()*4.
     // The single source of truth for both the gate-2 spill trigger and the spill
     // space-precheck -- replaces the old gated live_bytes_ estimate.
@@ -347,6 +420,39 @@ private:
     void cleanup_runs();
     // Frees a drained term's accumulator (id leaves the touched set).
     void release_term(uint32_t term_id);
+
+    // ---- G04 bigram vocab-cap eviction (owned-vocab mode only) ---------------
+    // Shared first-time-intern tail for both owned-mode add paths: recycles a
+    // freed (evicted) term-id when one is available -- otherwise appends a fresh
+    // id -- stores `term_str` as the id's vocab string, inserts the id into the
+    // intern set, and does the bigram intern-storage accounting. Returns the id.
+    uint32_t intern_owned_term(std::string&& term_str);
+    // True when eviction can fire: diet configured with a non-zero cap on an
+    // owned-vocab buffer.
+    bool bigram_evict_enabled() const {
+        return bigram_diet_ && bigram_vocab_cap_bytes_ != 0 && vocab_ == &owned_vocab_;
+    }
+    // Cap-accounted footprint of one bigram term's intern storage.
+    static uint64_t bigram_term_footprint(const std::string& s) {
+        return s.capacity() + kBigramInternFixedOverheadBytes;
+    }
+    // Is `id` evictable right now: live slot, current df == 1 (ndocs2 == 1),
+    // never written to a spill run, and a non-sentinel phrase-bigram term.
+    bool bigram_evictable(uint32_t id) const;
+    // Evicts one eligible id: records the term in the ever-dropped bloom,
+    // releases its slot/postings, erases it from the intern set, frees its vocab
+    // string and recycles the id. Bumps the eviction seam + the vocab epoch.
+    void evict_bigram_term(uint32_t id);
+    // Bounded incremental sweep step (amortized, never stop-the-world): when the
+    // bigram intern storage is over the cap (and the sweep is not paused after a
+    // fruitless full lap), scans up to kVocabSweepStride ids from a persistent
+    // cursor, evicting every eligible one EXCEPT `just_touched_id` -- the term
+    // the current add extended. Skipping it costs one compare and guarantees a
+    // recurring pair whose occurrences arrive back-to-back reaches df==2 (and
+    // thus permanent immunity) instead of being churned at df==1 by its own
+    // add's sweep -- decisive when the vocabulary is no larger than the stride.
+    // Called once per owned-mode add.
+    void maybe_sweep_bigram_vocab(uint32_t just_touched_id);
 
     const std::vector<std::string>* vocab_; // active vocab (borrowed or &owned_)
     std::vector<std::string> owned_vocab_;  // owned mode: interned term strings
@@ -471,6 +577,24 @@ private:
     void put_byte(Term* t, uint8_t b);
     void put_varint(Term* t, uint64_t v);
 
+    // ---- G04 bigram diet state (owned-vocab mode only) -----------------------
+    bool bigram_diet_ = false;            // position suppression + (cap) eviction on
+    uint64_t bigram_vocab_cap_bytes_ = 0; // 0 = no eviction (suppression only)
+    uint64_t bigram_intern_bytes_ = 0;    // live bigram intern storage (cap metric)
+    std::vector<uint32_t> free_ids_;      // evicted ids awaiting recycling
+    std::vector<uint8_t> id_in_run_;      // 1 = id written to some spill run (pinned);
+                                          // sized lazily at the first evict-enabled spill
+    std::unique_ptr<BigramDropFilter> bigram_drop_filter_; // created on first eviction
+    uint32_t sweep_cursor_ = 0;              // next vocab id the incremental sweep examines
+    uint64_t sweep_scanned_since_evict_ = 0; // fruitless-lap detector
+    uint64_t sweep_rearm_bytes_ = 0;         // paused sweep re-arms once bytes reach this
+    // Bumped whenever an EXISTING vocab id's string changes (eviction clears it,
+    // recycling re-assigns it). string_rank_ caches this epoch: a recycled id
+    // would otherwise keep its stale rank (the vocab SIZE alone cannot detect an
+    // in-place string change), and a stale rank would emit spill runs out of
+    // lexicographic order -- corrupting the k-way merge.
+    uint64_t vocab_epoch_ = 0;
+
     std::vector<std::string> run_paths_; // spilled run temp files (deleted in dtor)
     Status spill_status_;                // first spill / range error, at finalize
     bool drained_ = false;               // set once finalize_sorted/for_each_term_sorted has run;
@@ -480,9 +604,12 @@ private:
 
     // Lazily-built vocab-sized map: term-id -> its lexicographic rank among all
     // vocab strings. Computed once (one full std::string sort of the vocabulary)
-    // on the first sorted_ids() call, then reused by every spill's id sort. mutable
-    // so the const sorted_ids() can fill it on demand.
+    // on the first sorted_ids() call, then reused by every spill's id sort UNTIL
+    // the vocab grows OR an existing id's string mutates (G04 eviction/recycling;
+    // detected via string_rank_epoch_ != vocab_epoch_). mutable so the const
+    // sorted_ids() can fill it on demand.
     mutable std::vector<uint32_t> string_rank_;
+    mutable uint64_t string_rank_epoch_ = 0; // vocab_epoch_ the rank was built at
 };
 
 // TEST-ONLY observability seam (mirrors the reader-side decode-counter pattern).
@@ -496,6 +623,17 @@ private:
 namespace testing {
 uint64_t vocab_string_materialization_count();
 void reset_vocab_string_materialization_count();
+
+// G04 bigram vocab-cap observability seams (same always-on relaxed-atomic
+// pattern). Deterministic on the single-threaded build path; reset between
+// tests. Not part of the production API.
+//   bigram_evictions : terms evicted from the intern table (cap sweep + spill
+//                      pass combined); each was recorded in the drop bloom.
+//   vocab_cap_sweeps : bounded incremental sweep STEPS executed (each scans at
+//                      most kVocabSweepStride vocabulary ids).
+uint64_t bigram_evictions();
+uint64_t vocab_cap_sweeps();
+void reset_bigram_vocab_cap_counters();
 } // namespace testing
 
 } // namespace doris::snii::writer

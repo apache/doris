@@ -406,11 +406,18 @@ struct HeapGreater {
 // consistent with the merged (coalesced) freqs.
 void Concat(TermPostings* dst, const TermPostings& src, bool has_positions) {
     if (src.docids.empty()) return;
+    // PER-TERM positions presence: a G04 position-suppressed bigram term is
+    // written with an EMPTY position block (n_pos == 0) even in a has_positions
+    // run. Its freqs are still real (> 0), so indexing positions_flat by freqs
+    // would read out of range -- gate every positions splice on the term
+    // actually carrying position bytes. Suppression is a property of the TERM
+    // (its marker prefix), so it is consistent across every run that holds it.
+    const bool src_has_pos = has_positions && !src.positions_flat.empty();
     size_t start = 0;
     size_t src_pos_start = 0; // flat offset of src positions to append after splice
     if (!dst->docids.empty() && dst->docids.back() == src.docids.front()) {
         const uint32_t head_fc = src.freqs.front();
-        if (has_positions && head_fc != 0) {
+        if (src_has_pos && head_fc != 0) {
             // Splice src's first-doc positions in right after dst's last-doc positions.
             // dst's last doc owns dst->freqs.back() entries at the tail of positions_flat
             // BEFORE we bump that freq, so insert at end() (last doc is the tail run).
@@ -424,7 +431,7 @@ void Concat(TermPostings* dst, const TermPostings& src, bool has_positions) {
     }
     dst->docids.insert(dst->docids.end(), src.docids.begin() + start, src.docids.end());
     dst->freqs.insert(dst->freqs.end(), src.freqs.begin() + start, src.freqs.end());
-    if (has_positions) {
+    if (src_has_pos) {
         dst->positions_flat.insert(dst->positions_flat.end(),
                                    src.positions_flat.begin() + src_pos_start,
                                    src.positions_flat.end());

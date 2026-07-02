@@ -390,6 +390,10 @@ std::atomic<uint64_t>& bigram_pruned_counter() {
     static std::atomic<uint64_t> counter {0};
     return counter;
 }
+std::atomic<uint64_t>& bigram_bloom_dropped_counter() {
+    static std::atomic<uint64_t> counter {0};
+    return counter;
+}
 } // namespace
 
 void note_bigram_term_materialized() {
@@ -398,15 +402,22 @@ void note_bigram_term_materialized() {
 void note_bigram_term_pruned() {
     bigram_pruned_counter().fetch_add(1, std::memory_order_relaxed);
 }
+void note_bigram_bloom_dropped() {
+    bigram_bloom_dropped_counter().fetch_add(1, std::memory_order_relaxed);
+}
 uint64_t bigram_terms_materialized() {
     return bigram_materialized_counter().load(std::memory_order_relaxed);
 }
 uint64_t bigram_terms_pruned() {
     return bigram_pruned_counter().load(std::memory_order_relaxed);
 }
+uint64_t bigram_bloom_dropped() {
+    return bigram_bloom_dropped_counter().load(std::memory_order_relaxed);
+}
 void reset_bigram_prune_counters() {
     bigram_materialized_counter().store(0, std::memory_order_relaxed);
     bigram_pruned_counter().store(0, std::memory_order_relaxed);
+    bigram_bloom_dropped_counter().store(0, std::memory_order_relaxed);
 }
 // Forwards to the real fused helper so pure boundary tests exercise production
 // code (not a test-local re-implementation).
@@ -426,6 +437,12 @@ LogicalIndexWriter::LogicalIndexWriter(const SniiIndexInput& in)
           // only ones that emit hidden phrase bigrams); force 0 otherwise so the
           // meta never (mis)declares pruning on a docs-only index.
           bigram_prune_min_df_(format::has_positions(in.config) ? in.bigram_prune_min_df : 0),
+          // The G04 bloom drop rides the SAME reader contract as the df prune (a
+          // dict miss falls back only when the meta declares pruning), so it is
+          // honored ONLY when the effective threshold is non-zero. NOTE: the
+          // threshold expression above must match -- use the member-init ordering
+          // guarantee (bigram_prune_min_df_ is declared before this member).
+          bigram_ever_dropped_(bigram_prune_min_df_ > 0 ? in.bigram_ever_dropped : nullptr),
           doc_count_(in.doc_count),
           null_docids_(in.null_docids),
           terms_(in.terms),
@@ -439,16 +456,19 @@ LogicalIndexWriter::LogicalIndexWriter(const SniiIndexInput& in)
           // per-buffer cap.
           dict_buf_(UINT64_MAX, "dict", in.mem_reporter) {}
 
-Status LogicalIndexWriter::validate_term(const TermPostings& tp, uint64_t total_freq) const {
+Status LogicalIndexWriter::validate_term(const TermPostings& tp, uint64_t total_freq,
+                                         bool expect_positions) const {
     if (tp.freqs.size() != tp.docids.size()) {
         return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
                 "logical_index: freqs length must equal docids");
     }
-    if (has_prx_) {
+    if (expect_positions) {
         // total_freq is the fused sum(freqs) computed once by the caller (no
         // internal re-sum). Streamed positions (pos_pump set): validate against the
         // declared pos_total (positions_flat is intentionally empty). Otherwise
-        // validate the flat buffer.
+        // validate the flat buffer. Skipped (expect_positions == false) exactly
+        // when this term writes no .prx: G04 position-suppressed bigram terms
+        // arrive with an empty positions_flat by design.
         const uint64_t have = tp.pos_pump ? tp.pos_total : tp.positions_flat.size();
         if (total_freq != have) {
             return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
@@ -641,6 +661,16 @@ Status LogicalIndexWriter::process_term(TermPostings& tp, BlockState* st) {
             testing::note_bigram_term_pruned();
             return Status::OK();
         }
+        // G04: drop a df-surviving bigram the ever-dropped bloom MAY contain --
+        // the vocab-cap eviction dropped (at least) one of its docids mid-build,
+        // so the postings here are INCOMPLETE; materializing them would silently
+        // lose phrase hits, while dropping routes the pair to the G01 dict-miss
+        // fallback (bigram_ever_dropped_ is non-null only when the meta declares
+        // pruning). A bloom false positive lands here too: pure over-drop, safe.
+        if (bigram_ever_dropped_ != nullptr && bigram_ever_dropped_->maybe_contains(tp.term)) {
+            testing::note_bigram_bloom_dropped();
+            return Status::OK();
+        }
         testing::note_bigram_term_materialized();
     }
     // Surviving bigram postings are DOCS+FREQ ONLY in prune mode: the 2-term
@@ -651,11 +681,13 @@ Status LogicalIndexWriter::process_term(TermPostings& tp, BlockState* st) {
     const bool write_prx = has_prx_ && !(is_bigram && bigram_prune_min_df_ > 0);
 
     // ONE fused term-level scan of freqs: total + max in a single pass, reused by
-    // validate (has_prx position-count budget), stats, and the DictEntry
+    // validate (position-count budget), stats, and the DictEntry
     // ttf_delta/max_freq. Computed BEFORE validate_term so the validator receives
-    // the budget total instead of re-summing.
+    // the budget total instead of re-summing. The position-count check is gated
+    // on write_prx (== has_prx_ for every term except prune-mode bigrams, whose
+    // positions the G04 diet stopped buffering).
     const FreqStats fs = fuse_freq_stats(tp.freqs);
-    RETURN_IF_ERROR(validate_term(tp, fs.total_freq));
+    RETURN_IF_ERROR(validate_term(tp, fs.total_freq, write_prx));
     // Collect only the 8-byte filter key per term (no whole-vocabulary string
     // copy). BSBF key = XXH64 seed 0 (Parquet-canonical).
     term_hashes_.push_back(format::bsbf_hash(tp.term));

@@ -78,9 +78,11 @@ public:
     // Opens `path` for writing (truncating). Returns IoError on failure.
     Status open(const std::string& path);
 
-    // Appends one term's postings under `term_id`. `tp.positions_flat` must be empty
-    // iff !has_positions (and otherwise hold sum(freqs) entries in doc order).
-    // Caller guarantees ascending docids and parallel docids/freqs lengths.
+    // Appends one term's postings under `term_id`. `tp.positions_flat` either
+    // holds sum(freqs) entries in doc order, or is EMPTY -- always when
+    // !has_positions, and per-term for G04 position-suppressed bigram terms
+    // (the record's explicit n_pos makes either self-describing). Caller
+    // guarantees ascending docids and parallel docids/freqs lengths.
     Status write_term(uint32_t term_id, const TermPostings& tp);
 
     // Flushes the buffer and closes the file. Safe to call once; idempotent.

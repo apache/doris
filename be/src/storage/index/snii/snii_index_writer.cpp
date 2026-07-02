@@ -51,6 +51,17 @@ Status SniiIndexColumnWriter::init() {
             std::make_unique<::doris::snii::writer::MemoryReporter>(nullptr, spill_threshold);
     _term_buffer = std::make_unique<::doris::snii::writer::SpimiTermBuffer>(
             _has_positions, spill_threshold, _memory_reporter.get());
+    // G04 bigram diet: whenever the G01 flush-time bigram df-prune WILL be
+    // active (config != 0; <0 auto and >0 fixed both resolve to a threshold
+    // >= 1 at flush), bigram positions are dead bytes and the intern vocabulary
+    // may be capped -- enable docs+freq-only bigram buffering plus, when
+    // snii_bigram_vocab_cap_bytes > 0, incremental df==1 eviction with the
+    // ever-dropped bloom. Captured ONCE here; a mid-import flip of the prune
+    // config to 0 is rejected at flush (see IndexFileWriter::add_snii_index).
+    if (_has_positions && config::snii_bigram_prune_min_df != 0) {
+        const int64_t cap = config::snii_bigram_vocab_cap_bytes;
+        _term_buffer->configure_bigram_diet(cap > 0 ? static_cast<uint64_t>(cap) : 0);
+    }
     _analyzer_config.analyzer_name = get_analyzer_name_from_properties(_index_meta->properties());
     _analyzer_config.parser_type = get_inverted_index_parser_type_from_string(
             get_parser_string_from_properties(_index_meta->properties()));

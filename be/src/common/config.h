@@ -1350,6 +1350,19 @@ DECLARE_mInt32(inverted_index_max_buffered_docs);
 //   = 0 : disable pruning; emit every bigram with positions (legacy layout)
 //   > 0 : use this fixed min-df threshold
 DECLARE_mInt32(snii_bigram_prune_min_df);
+// SNII phrase-bigram vocabulary cap in bytes, PER index writer (G04 "bigram
+// diet" phase 2). The SPIMI intern table otherwise accumulates every distinct
+// hidden bigram string for the whole segment (the dominant import RSS
+// overshoot on long-document corpora). When the live bigram intern storage
+// (strings + fixed per-term overhead) crosses this cap, bigram terms whose
+// current df == 1 (the Zipf long tail) are incrementally EVICTED from the
+// intern table and postings buffer and recorded in an ever-dropped bloom; at
+// flush any bigram in the bloom is dropped IN ADDITION to the df threshold
+// (safe: a dropped bigram's 2-term phrase falls back to positions
+// verification per the G01 reader contract). Only takes effect when bigram
+// pruning is enabled (snii_bigram_prune_min_df != 0); 0 disables the cap
+// (unbounded vocabulary, pre-G04 behavior).
+DECLARE_mInt64(snii_bigram_vocab_cap_bytes);
 // dict path for chinese analyzer
 DECLARE_String(inverted_index_dict_path);
 DECLARE_Int32(inverted_index_read_buffer_size);

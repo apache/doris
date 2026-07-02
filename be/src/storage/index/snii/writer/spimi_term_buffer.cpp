@@ -65,6 +65,18 @@ std::string MakeRunPath(const std::string& dir) {
 // the build path is single-threaded, so only the COUNT matters, not ordering.
 std::atomic<uint64_t> g_vocab_materializations {0};
 
+// G04 bigram vocab-cap seams (same always-on relaxed pattern): evictions from
+// the intern table, and bounded incremental sweep steps executed.
+std::atomic<uint64_t> g_bigram_evictions {0};
+std::atomic<uint64_t> g_vocab_cap_sweeps {0};
+
+// Vocabulary ids examined per incremental sweep step. Small enough that a step
+// is noise on the per-token add path, large enough that the sweep's amortized
+// eviction rate (typically many eligible ids per step -- the over-cap
+// vocabulary is dominated by the df==1 tail) outpaces the one-term-per-add
+// intern growth that armed it.
+constexpr uint32_t kVocabSweepStride = 64;
+
 } // namespace
 
 namespace testing {
@@ -73,6 +85,16 @@ uint64_t vocab_string_materialization_count() {
 }
 void reset_vocab_string_materialization_count() {
     g_vocab_materializations.store(0, std::memory_order_relaxed);
+}
+uint64_t bigram_evictions() {
+    return g_bigram_evictions.load(std::memory_order_relaxed);
+}
+uint64_t vocab_cap_sweeps() {
+    return g_vocab_cap_sweeps.load(std::memory_order_relaxed);
+}
+void reset_bigram_vocab_cap_counters() {
+    g_bigram_evictions.store(0, std::memory_order_relaxed);
+    g_vocab_cap_sweeps.store(0, std::memory_order_relaxed);
 }
 } // namespace testing
 
@@ -131,6 +153,21 @@ SpimiTermBuffer::~SpimiTermBuffer() {
         reported_resident_ = 0;
     }
     cleanup_runs();
+}
+
+void SpimiTermBuffer::configure_bigram_diet(uint64_t vocab_cap_bytes) {
+    // The diet suppresses positions and (with a cap) evicts through the OWNED
+    // intern table; a borrowed vocab has neither, so reject loudly instead of
+    // silently doing nothing (mirrors the add_bigram_token mode contract).
+    if (vocab_ != &owned_vocab_) {
+        if (spill_status_.ok()) {
+            spill_status_ = Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
+                    "spimi: configure_bigram_diet requires owned-vocab mode");
+        }
+        return;
+    }
+    bigram_diet_ = true;
+    bigram_vocab_cap_bytes_ = vocab_cap_bytes;
 }
 
 void SpimiTermBuffer::report_arena_delta() {
@@ -214,13 +251,23 @@ void SpimiTermBuffer::accumulate(uint32_t term_id, uint32_t docid, uint32_t pos)
     if (new_term) {
         touched_ids_.push_back(term_id);
         ++live_term_count_;
+        // G04 position suppression: a hidden phrase-bigram term (marker prefix;
+        // sentinel included -- its single token is position 0 either way) stores
+        // no position payload once the diet is on. Decided ONCE per term at slot
+        // claim (a 20-byte prefix check), never per token.
+        if (bigram_diet_) {
+            t.pos_suppressed = format::is_phrase_bigram_term(vocab()[term_id]);
+        }
     }
     // A token starts a new doc unless it continues the most-recent doc for this term.
     const bool new_doc = !t.started || t.cur_docid != docid;
     // Tagged entry: varint((pos << 1) | new_doc). Positions are tagged 0 when
-    // disabled. The new_doc bit lets the decoder recover per-doc freqs by counting.
+    // disabled buffer-wide OR suppressed for this term (G04 bigram diet: the
+    // suppressed encoding is bit-identical to the positions-disabled one). The
+    // new_doc bit lets the decoder recover per-doc freqs by counting.
     // Widen to 64-bit so a full 32-bit position survives the << 1 without truncation.
-    const uint64_t tagged = has_positions_
+    const bool token_has_pos = has_positions_ && !t.pos_suppressed;
+    const uint64_t tagged = token_has_pos
                                     ? ((static_cast<uint64_t>(pos) << 1) | (new_doc ? 1U : 0U))
                                     : (new_doc ? 1U : 0U);
     put_varint(&t, tagged);
@@ -236,6 +283,9 @@ void SpimiTermBuffer::accumulate(uint32_t term_id, uint32_t docid, uint32_t pos)
         put_varint(&t, zigzag_encode(delta));
         t.cur_docid = docid;
         t.started = true;
+        if (t.ndocs2 < 2) {
+            ++t.ndocs2; // saturating distinct-doc count: eviction needs df==1 vs >=2
+        }
     }
     ++t.ntok;
     ++total_tokens_;
@@ -263,7 +313,9 @@ void SpimiTermBuffer::accumulate(uint32_t term_id, uint32_t docid, uint32_t pos)
                                                       resident_bytes() >= spill_threshold_bytes_);
     const bool arena_near_limit = pool_.arena_bytes() >= kArenaSpillCap;
     if ((over_cap || arena_near_limit) && spill_status_.ok()) {
-        spill_status_ = spill_to_run();
+        // Mid-feed spill: evict df==1 bigrams instead of writing them (a run
+        // record would pin their vocab strings forever -- see drain_to_writer).
+        spill_status_ = spill_to_run(/*evict_low_df_bigrams=*/true);
     }
 }
 
@@ -308,19 +360,17 @@ void SpimiTermBuffer::add_token(std::string_view term, uint32_t docid, uint32_t 
     auto it = intern_.find(term);
     uint32_t term_id;
     if (it == intern_.end()) {
-        term_id = static_cast<uint32_t>(owned_vocab_.size());
-        // The SOLE materialization of this term's string (F03 single-store). Push
-        // FIRST so owned_vocab_[term_id] is valid before insert(term_id) hashes it. The
-        // set stores only the id, so this emplace_back's possible reallocation never
-        // invalidates existing entries (their functors re-read owned_vocab_[id]).
-        owned_vocab_.emplace_back(term);
-        g_vocab_materializations.fetch_add(1, std::memory_order_relaxed);
-        intern_.insert(term_id);
-        slot_of_.push_back(0); // vocab grows: new id starts with no live slot
+        // First occurrence: materialize the string exactly once (F03
+        // single-store) and intern it, recycling an evicted id when available.
+        term_id = intern_owned_term(std::string(term));
     } else {
         term_id = *it; // the set element IS the term-id
     }
     accumulate(term_id, docid, pos);
+    // G04: amortized vocab-cap sweep step. Hooked on the string path too so
+    // synthetic bigram terms fed by tests / legacy callers behave identically to
+    // the piecewise add_bigram_token path. Two compares when the cap is off/idle.
+    maybe_sweep_bigram_vocab(term_id);
 }
 
 void SpimiTermBuffer::add_bigram_token(std::string_view left, std::string_view right,
@@ -344,21 +394,57 @@ void SpimiTermBuffer::add_bigram_token(std::string_view left, std::string_view r
     auto it = intern_.find(probe);
     uint32_t term_id;
     if (it == intern_.end()) {
-        term_id = static_cast<uint32_t>(owned_vocab_.size());
         // The SOLE composition/materialization of this bigram's synthetic term
-        // (F03 single-store). Push FIRST so owned_vocab_[term_id] is valid before
-        // insert(term_id) hashes it; hash_bigram_view(probe) ==
-        // hash_term_bytes(composed) by construction (identical byte sequence
-        // through the same FNV update), so the id lands in the same bucket the
-        // probe searched.
-        owned_vocab_.emplace_back(format::make_phrase_bigram_term(left, right));
-        g_vocab_materializations.fetch_add(1, std::memory_order_relaxed);
-        intern_.insert(term_id);
-        slot_of_.push_back(0); // vocab grows: new id starts with no live slot
+        // (F03 single-store): hash_bigram_view(probe) == hash_term_bytes(composed)
+        // by construction (identical byte sequence through the same FNV update),
+        // so the interned id lands in the same bucket the probe searched. An
+        // EVICTED-then-reappearing pair misses the probe (eviction erased it) and
+        // re-interns here as a fresh term -- by then it is already in the
+        // ever-dropped bloom, so the flush drops it regardless of what its
+        // re-accumulated df grows to (the G04 completeness invariant).
+        term_id = intern_owned_term(format::make_phrase_bigram_term(left, right));
     } else {
         term_id = *it; // the set element IS the term-id
     }
     accumulate(term_id, docid, pos);
+    // G04: amortized vocab-cap sweep step (bounded; a no-op two compares while
+    // the bigram intern storage is under the cap or the sweep is paused).
+    maybe_sweep_bigram_vocab(term_id);
+}
+
+// Shared owned-mode first-time-intern tail: stores `term_str` as the new id's
+// vocab string (recycling an evicted id when one is free -- keeps the vocab
+// vector, slot index and rank arrays from growing past the live vocabulary),
+// inserts the id into the intern set, and accounts bigram intern storage
+// against the G04 vocab cap. The string is stored BEFORE insert(term_id) so the
+// set functors can hash owned_vocab_[term_id]; the set stores only the id, so a
+// vocab reallocation never invalidates existing entries.
+uint32_t SpimiTermBuffer::intern_owned_term(std::string&& term_str) {
+    uint32_t term_id;
+    if (!free_ids_.empty()) {
+        // Recycle an evicted id. Its old string was cleared at eviction and the
+        // id is in NO spill run (only never-spilled ids are evictable), so
+        // re-keying it cannot mis-attribute any run record. The in-place string
+        // change invalidates the cached lexicographic rank -> bump the epoch.
+        term_id = free_ids_.back();
+        free_ids_.pop_back();
+        owned_vocab_[term_id] = std::move(term_str);
+        ++vocab_epoch_;
+    } else {
+        term_id = static_cast<uint32_t>(owned_vocab_.size());
+        owned_vocab_.emplace_back(std::move(term_str));
+        slot_of_.push_back(0); // vocab grows: new id starts with no live slot
+    }
+    g_vocab_materializations.fetch_add(1, std::memory_order_relaxed);
+    intern_.insert(term_id);
+    if (bigram_diet_) {
+        const std::string& s = owned_vocab_[term_id];
+        // The sentinel is exempt from the cap (never evictable; one per index).
+        if (format::is_phrase_bigram_term(s) && !format::is_phrase_bigram_sentinel_term(s)) {
+            bigram_intern_bytes_ += bigram_term_footprint(s);
+        }
+    }
+    return term_id;
 }
 
 namespace {
@@ -472,13 +558,21 @@ TermPostings SpimiTermBuffer::to_postings(std::string term, Term&& t,
     tp.docids.reserve(t.ntok);
     tp.freqs.reserve(t.ntok);
 
+    // Per-TERM positions capability: a G04 position-suppressed bigram term
+    // stored no position payload (its chain holds bare new_doc tags, identical
+    // to a positions-disabled encoding), so it decodes -- and is emitted -- as a
+    // docs+freq-only term: positions_flat stays empty and no pos_pump is ever
+    // built. The flush path never writes .prx for it (write_prx false whenever
+    // pruning is active), so nothing downstream misses the bytes.
+    const bool term_has_pos = has_positions_ && !t.pos_suppressed;
+
     // For a large SORTED term, stream positions on demand instead of materializing a
     // multi-MiB flat buffer: the writer (prx builder) pulls them window by window via
     // pos_pump, decoding straight from the still-resident arena chain. Out-of-order
     // terms (rare, defensive) need a full sort, so they always use the flat path.
-    const bool stream_pos = allow_stream_positions && has_positions_ && t.sorted &&
+    const bool stream_pos = allow_stream_positions && term_has_pos && t.sorted &&
                             t.ntok >= kStreamPositionsTokenThreshold;
-    if (has_positions_ && !stream_pos) {
+    if (term_has_pos && !stream_pos) {
         tp.positions_flat.reserve(t.ntok);
     }
 
@@ -493,7 +587,7 @@ TermPostings SpimiTermBuffer::to_postings(std::string term, Term&& t,
             tp.freqs.push_back(0);
         }
         ++tp.freqs.back(); // count this token toward the current doc's freq
-        if (has_positions_ && !stream_pos) {
+        if (term_has_pos && !stream_pos) {
             tp.positions_flat.push_back(static_cast<uint32_t>(tagged >> 1));
         }
     }
@@ -525,9 +619,10 @@ TermPostings SpimiTermBuffer::to_postings(std::string term, Term&& t,
                 dst[k] = static_cast<uint32_t>(tagged >> 1);
             }
         };
-    } else if (stream_pos && has_positions_) {
+    } else if (stream_pos) {
         // Slim fallback: the decode loop skipped positions (stream candidate) but the
         // term is slim, so materialize positions_flat in a second pass for build_slim.
+        // (stream_pos implies term_has_pos, so a suppressed term never lands here.)
         tp.positions_flat.reserve(t.ntok);
         CompactPostingPool::Cursor pc = pool_.cursor(t.head, t.w.cur);
         for (uint32_t i = 0; i < t.ntok; ++i) {
@@ -540,17 +635,22 @@ TermPostings SpimiTermBuffer::to_postings(std::string term, Term&& t,
     } else if (!t.sorted) {
         // Defensive reorder for the rare out-of-order-docid feed (merge of pre-sorted
         // runs). The common ascending path leaves t.sorted true and skips it.
-        SortByDocid(&tp.docids, &tp.freqs, &tp.positions_flat, has_positions_);
+        // term_has_pos (not the buffer flag): a suppressed term's positions_flat is
+        // empty, and indexing it by freqs would read out of range.
+        SortByDocid(&tp.docids, &tp.freqs, &tp.positions_flat, term_has_pos);
     }
     return tp;
 }
 
 void SpimiTermBuffer::ensure_string_rank() const {
     const std::vector<std::string>& v = vocab();
-    if (string_rank_.size() == v.size()) {
-        return; // already built (or empty vocab)
+    if (string_rank_.size() == v.size() && string_rank_epoch_ == vocab_epoch_) {
+        return; // already built (or empty vocab) and no id's string mutated since
     }
     // One full lexicographic sort of the vocabulary, amortized over every spill.
+    // Rebuilt when the vocab GREW or when G04 eviction/recycling mutated an
+    // existing id's string in place (epoch mismatch) -- a stale rank would order
+    // spill runs / the k-way merge by the id's OLD string.
     std::vector<uint32_t> order(v.size());
     std::iota(order.begin(), order.end(), 0U);
     std::ranges::sort(order, [&](uint32_t a, uint32_t b) { return v[a] < v[b]; });
@@ -558,6 +658,7 @@ void SpimiTermBuffer::ensure_string_rank() const {
     for (uint32_t rank = 0; rank < order.size(); ++rank) {
         string_rank_[order[rank]] = rank;
     }
+    string_rank_epoch_ = vocab_epoch_;
 }
 
 std::vector<uint32_t> SpimiTermBuffer::sorted_ids() const {
@@ -583,11 +684,121 @@ void SpimiTermBuffer::release_term(uint32_t term_id) {
     --live_term_count_;
 }
 
+bool SpimiTermBuffer::bigram_evictable(uint32_t id) const {
+    if (id >= slot_of_.size()) {
+        return false; // defensive: slot index freed (post-drain) or stale cursor
+    }
+    const uint32_t enc = slot_of_[id];
+    if (enc == 0) {
+        return false; // no live postings: already drained (in-run) or evicted
+    }
+    if (slots_[enc - 1].ndocs2 != 1) {
+        return false; // df >= 2: past the Zipf tail, never evicted (hot/warm)
+    }
+    if (id < id_in_run_.size() && id_in_run_[id] != 0) {
+        return false; // a spill run references this id: string is pinned forever
+    }
+    const std::string& s = owned_vocab_[id];
+    // The sentinel gates reader semantics ("bigram feature present") and must
+    // never be dropped; everything non-bigram is out of scope.
+    return format::is_phrase_bigram_term(s) && !format::is_phrase_bigram_sentinel_term(s);
+}
+
+// Evicts one eligible bigram id (caller checked bigram_evictable):
+//   1. record the term bytes in the ever-dropped bloom -- the flush-time
+//      process_term will drop this term even if the pair reappears and
+//      re-accumulates past the df threshold (its postings would be missing the
+//      docid dropped here);
+//   2. drop the in-memory postings (release_term; the term's arena chain bytes
+//      become dead until the next pool reset -- an amortized cost, reclaimed at
+//      the next spill/drain);
+//   3. erase the id from the intern set, so a reappearing pair re-interns as a
+//      FRESH term instead of resurrecting the dropped one;
+//   4. free the vocab string and recycle the id (bounding owned_vocab_ /
+//      slot_of_ / string_rank_ to the live vocabulary), bumping the vocab epoch
+//      so the cached lexicographic rank is rebuilt before the next spill sort.
+void SpimiTermBuffer::evict_bigram_term(uint32_t id) {
+    if (bigram_drop_filter_ == nullptr) {
+        // First eviction: size partition 0 from the cap -- roughly the live-term
+        // count the cap can hold at the fixed-overhead estimate, i.e. the upper
+        // bound on evictions a single full sweep can produce.
+        bigram_drop_filter_ = std::make_unique<BigramDropFilter>(bigram_vocab_cap_bytes_ /
+                                                                 kBigramInternFixedOverheadBytes);
+    }
+    std::string& s = owned_vocab_[id];
+    bigram_drop_filter_->insert(s);
+    const uint64_t footprint = bigram_term_footprint(s);
+    bigram_intern_bytes_ = bigram_intern_bytes_ > footprint ? bigram_intern_bytes_ - footprint : 0;
+    intern_.erase(id);
+    release_term(id);
+    std::string().swap(s); // free the string payload (capacity 0)
+    free_ids_.push_back(id);
+    ++vocab_epoch_;
+    g_bigram_evictions.fetch_add(1, std::memory_order_relaxed);
+}
+
+void SpimiTermBuffer::maybe_sweep_bigram_vocab(uint32_t just_touched_id) {
+    if (!bigram_evict_enabled() || bigram_intern_bytes_ <= bigram_vocab_cap_bytes_) {
+        return; // feature off or under the cap: two compares, no work
+    }
+    // Fruitless-lap pause: when a full lap over the vocabulary evicted nothing
+    // (everything over the cap is df>=2 or run-pinned -- nothing legal to drop),
+    // sweeping again is pure waste until the tail GROWS. sweep_rearm_bytes_ was
+    // set to current-bytes + a delta at pause time; stay parked until then.
+    if (bigram_intern_bytes_ < sweep_rearm_bytes_) {
+        return;
+    }
+    g_vocab_cap_sweeps.fetch_add(1, std::memory_order_relaxed);
+    const size_t vocab_size = owned_vocab_.size();
+    uint64_t evicted = 0;
+    for (uint32_t scanned = 0;
+         scanned < kVocabSweepStride && bigram_intern_bytes_ > bigram_vocab_cap_bytes_; ++scanned) {
+        if (sweep_cursor_ >= vocab_size) {
+            sweep_cursor_ = 0; // circular scan; ids interned mid-lap are caught next lap
+        }
+        const uint32_t id = sweep_cursor_++;
+        // Never evict the term the CURRENT add just extended: its df may be
+        // about to grow (a recurring pair's occurrences often arrive
+        // back-to-back), and skipping it guarantees such a pair reaches df==2
+        // immunity instead of being churned at df==1 by its own add's sweep --
+        // decisive when the live vocabulary is no larger than the stride.
+        if (id == just_touched_id) {
+            continue;
+        }
+        if (bigram_evictable(id)) {
+            evict_bigram_term(id);
+            ++evicted;
+        }
+    }
+    if (evicted != 0) {
+        sweep_scanned_since_evict_ = 0;
+        sweep_rearm_bytes_ = 0;
+        return;
+    }
+    sweep_scanned_since_evict_ += kVocabSweepStride;
+    if (sweep_scanned_since_evict_ >= vocab_size) {
+        // One full fruitless lap: pause until the bigram intern storage grows by
+        // a meaningful delta (deterministic; scaled to the cap with a small floor
+        // so tiny test caps still re-arm).
+        const uint64_t delta = std::max<uint64_t>(4096, bigram_vocab_cap_bytes_ / 64);
+        sweep_rearm_bytes_ = bigram_intern_bytes_ + delta;
+        sweep_scanned_since_evict_ = 0;
+    }
+}
+
 Status SpimiTermBuffer::drain_sorted(const std::function<void(TermPostings&&)>& fn,
                                      bool allow_stream_positions) {
     const std::vector<std::string>& v = vocab();
     for (uint32_t id : sorted_ids()) {
-        Term term = slots_[slot_of_[id] - 1];
+        const uint32_t enc = slot_of_[id];
+        if (enc == 0) {
+            // G04: touched_ids_ may hold ids whose slot is gone -- evicted bigram
+            // terms (dropped + bloom-recorded) and the stale first entry of a
+            // recycled id appearing twice (duplicates sort adjacently; the live
+            // slot drains exactly once).
+            continue;
+        }
+        Term term = slots_[enc - 1];
         release_term(id); // release this term's slot before building the next
         // Allow streaming positions only when the caller consumes synchronously (the
         // arena chain stays resident for the whole drain, so the pump can read from it).
@@ -609,16 +820,44 @@ Status SpimiTermBuffer::drain_sorted(const std::function<void(TermPostings&&)>& 
     return Status::OK();
 }
 
-Status SpimiTermBuffer::drain_to_writer(RunWriter* w) {
+Status SpimiTermBuffer::drain_to_writer(RunWriter* w, bool evict_low_df_bigrams) {
     Status st = Status::OK();
     const std::vector<std::string>& v = vocab();
+    const bool evict = evict_low_df_bigrams && bigram_evict_enabled();
+    if (evict && id_in_run_.size() < v.size()) {
+        // Lazily size the run-pin map at the first evict-enabled spill (1 B/id,
+        // bounded because the cap bounds the vocabulary).
+        id_in_run_.resize(v.size(), 0);
+    }
     // Spill writes by term-id (no string IO). Iterate touched ids in vocab-string
     // order so each run is sorted; the k-way merge re-orders runs by the same key.
     for (uint32_t id : sorted_ids()) {
-        Term term = slots_[slot_of_[id] - 1];
+        const uint32_t enc = slot_of_[id];
+        if (enc == 0) {
+            continue; // evicted mid-feed / stale duplicate of a recycled id (see drain_sorted)
+        }
+        if (evict && bigram_evictable(id)) {
+            // G04 spill-side eviction: a df==1 bigram written to this run would
+            // PIN its vocab string for the rest of the build (run records key on
+            // the id, so an in-run id can never be evicted or recycled) -- across
+            // tens of spills the pinned tail would defeat the cap entirely. Drop
+            // it here instead: bloom-recorded, so if the pair reappears later its
+            // re-interned term is dropped at flush; if it never reappears the
+            // flush-time df threshold would have dropped it anyway (df 1 < any
+            // active threshold's minimum of 1... except threshold==1, which the
+            // bloom drop covers -- over-drop, safe under the fallback contract).
+            evict_bigram_term(id);
+            continue;
+        }
+        if (evict) {
+            id_in_run_[id] = 1; // this run now references the id: pinned for good
+        }
+        Term term = slots_[enc - 1];
         release_term(id);
         // Spill path: the run codec serializes positions_flat directly, so positions
-        // must be materialized (no streaming pump).
+        // must be materialized (no streaming pump). A G04 position-suppressed
+        // bigram term serializes an EMPTY position block (n_pos == 0), which the
+        // run codec and merge handle per-term.
         TermPostings tp = to_postings(v[id], std::move(term), /*allow_stream=*/false);
         if (st.ok()) {
             st = w->write_term(id, tp);
@@ -633,7 +872,7 @@ Status SpimiTermBuffer::drain_to_writer(RunWriter* w) {
     return st;
 }
 
-Status SpimiTermBuffer::spill_to_run() {
+Status SpimiTermBuffer::spill_to_run(bool evict_low_df_bigrams) {
     const std::string dir = resolve_temp_dir();
     // Best-effort space pre-check: fail with a clear, early error rather than a
     // mid-write IoError that leaves a half-written run. Best-effort only (TOCTOU; on
@@ -651,7 +890,7 @@ Status SpimiTermBuffer::spill_to_run() {
     RunWriter w;
     RETURN_IF_ERROR(w.open(path));
     run_paths_.push_back(path); // tracked for cleanup even if a later step fails
-    RETURN_IF_ERROR(drain_to_writer(&w));
+    RETURN_IF_ERROR(drain_to_writer(&w, evict_low_df_bigrams));
     // drain emptied touched_ids_ and freed each term's arrays; terms_/present_ keep
     // their (vocab-sized) capacity so the next fill reuses the dense slots with no
     // re-allocation. present_ is already all-zero after release_term per id.
@@ -662,8 +901,13 @@ Status SpimiTermBuffer::merge_runs(const std::function<void(TermPostings&&)>& fn
                                    bool allow_stream_positions) {
     // Flush whatever is still resident as one final sorted run so the k-way merge
     // sees a uniform set of run files (and never holds two term sources at once).
+    // NO eviction on this FINAL residual spill: no token can arrive after it, so
+    // its df==1 bigrams are dropped by the flush-time df threshold regardless;
+    // blooming them here would only inflate the filter (false-positive pressure
+    // on hot survivors) and, at an explicit threshold of 1, wrongly drop terms
+    // the control build would materialize.
     if (!touched_ids_.empty()) {
-        Status s = spill_to_run();
+        Status s = spill_to_run(/*evict_low_df_bigrams=*/false);
         if (!s.ok() && spill_status_.ok()) {
             spill_status_ = s;
         }
