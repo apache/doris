@@ -884,7 +884,9 @@ void ExecEnv::destroy() {
     _load_stream_map_pool.reset();
     // Workload group schedulers own the query pipeline, scan, and memtable flush queues.
     // Release them after fragment/load resources have stopped submitting cleanup work.
-    _workload_group_manager->destroy_schedulers();
+    if (_workload_group_manager) {
+        _workload_group_manager->destroy_schedulers();
+    }
     SAFE_STOP(_write_cooldown_meta_executors);
 
     // _id_manager must be destoried before tablet schema cache
