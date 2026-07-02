@@ -477,6 +477,8 @@ TEST_F(BlockFileCacheTest, cached_remote_file_reader_remote_only_on_miss) {
         auto reader = std::make_shared<CachedRemoteFileReader>(local_reader, opts);
 
         auto key = io::BlockFileCache::hash(remote_file.filename().string());
+        Defer fd_cache_cleanup {
+                [key] { io::FDCache::instance()->remove_file_reader(std::make_pair(key, 0)); }};
         cache->remove_if_cached(key);
 
         std::string buffer(4_kb, '\0');
