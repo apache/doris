@@ -66,7 +66,7 @@ void BetaRowsetReader::reset_read_options() {
 
     _read_options.enable_multi_stage_predicate_lazy_materialization = false;
     _read_options.predicate_lm_stage1_column_ids.clear();
-    _read_options.predicate_lm_stage1_survival_ratio_threshold = 0.8;
+    _read_options.predicate_lm_stage1_survival_ratio_threshold = 0.1;
 }
 
 RowsetReaderSharedPtr BetaRowsetReader::clone() {

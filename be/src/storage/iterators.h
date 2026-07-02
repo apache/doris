@@ -175,7 +175,7 @@ public:
     std::vector<ColumnId> predicate_lm_stage1_column_ids;
     // If stage1 survival ratio is greater than this threshold, stage2 rowid reads may be
     // less beneficial. SegmentIterator may choose a conservative evaluation path.
-    double predicate_lm_stage1_survival_ratio_threshold = 0.8;
+    double predicate_lm_stage1_survival_ratio_threshold = 0.1;
 
     // Cache for sparse column data to avoid redundant reads
     // col_unique_id -> cached column_ptr
