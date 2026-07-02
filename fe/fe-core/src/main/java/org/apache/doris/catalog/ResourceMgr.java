@@ -39,6 +39,9 @@ import org.apache.doris.qe.ConnectContext;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -233,7 +236,31 @@ public class ResourceMgr implements Writable {
 
     public static ResourceMgr read(DataInput in) throws IOException {
         String json = Text.readString(in);
+        json = addLegacyClazzForResourcesIfMissing(json);
         return GsonUtils.GSON.fromJson(json, ResourceMgr.class);
+    }
+
+    // ResourceMgr image keeps Resource objects nested in nameToResource, so Resource.read() is not used.
+    private static String addLegacyClazzForResourcesIfMissing(String json) {
+        JsonElement jsonElement = JsonParser.parseString(json);
+        if (!jsonElement.isJsonObject()) {
+            return json;
+        }
+
+        JsonObject jsonObject = jsonElement.getAsJsonObject();
+        JsonElement resourcesElement = jsonObject.get("nameToResource");
+        if (resourcesElement == null || !resourcesElement.isJsonObject()) {
+            return json;
+        }
+
+        boolean changed = false;
+        for (Map.Entry<String, JsonElement> entry : resourcesElement.getAsJsonObject().entrySet()) {
+            JsonElement resourceElement = entry.getValue();
+            if (resourceElement != null && resourceElement.isJsonObject()) {
+                changed |= Resource.addLegacyClazzIfMissing(resourceElement.getAsJsonObject());
+            }
+        }
+        return changed ? jsonObject.toString() : json;
     }
 
     public class ResourceProcNode implements ProcNodeInterface {
