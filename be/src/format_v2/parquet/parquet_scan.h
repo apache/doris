@@ -109,6 +109,10 @@ public:
         _page_skip_profile = page_skip_profile;
     }
     void set_scan_profile(ParquetScanProfile scan_profile) { _scan_profile = scan_profile; }
+    void set_merge_read_options(RuntimeProfile* profile, int64_t merge_read_slice_size) {
+        _profile = profile;
+        _merge_read_slice_size = merge_read_slice_size;
+    }
     void set_global_rowid_context(std::optional<format::GlobalRowIdContext> context) {
         _global_rowid_context = context;
     }
@@ -145,9 +149,21 @@ private:
                                Block* file_block, SelectionVector* selection,
                                uint16_t* selected_rows, int64_t* conjunct_filtered_rows);
 
-    Status read_current_row_group_batch(int64_t batch_rows, const format::FileScanRequest& request,
-                                        int64_t batch_first_file_row, Block* file_block,
-                                        size_t* rows);
+    void prefetch_current_row_group_columns(
+            ParquetFileContext& file_context,
+            const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
+            const std::vector<format::LocalColumnIndex>& scan_columns, bool* prefetched);
+
+    bool prepare_current_row_group_reader(
+            ParquetFileContext& file_context,
+            const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
+            const format::FileScanRequest& request, int row_group_idx);
+
+    Status read_current_row_group_batch(
+            ParquetFileContext& file_context,
+            const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
+            int64_t batch_rows, const format::FileScanRequest& request,
+            int64_t batch_first_file_row, Block* file_block, size_t* rows);
 
     void mark_condition_cache_granules(const SelectionVector& selection, uint16_t selected_rows,
                                        int64_t batch_first_file_row);
@@ -161,6 +177,7 @@ private:
     std::map<ColumnId, std::unique_ptr<ParquetColumnReader>>
             _current_non_predicate_columns;   // non-predicate ColumnReaders
     int64_t _current_row_group_rows = 0;      // current row group row count
+    int _current_row_group_id = -1;           // current row group id in parquet metadata
     int64_t _current_row_group_rows_read = 0; // rows read in the current row group (cursor)
     int64_t _current_row_group_first_row = 0; // first file row of the current row group
     std::vector<RowRange>
@@ -168,8 +185,13 @@ private:
     size_t _current_range_idx = 0;        // current selected_range index
     int64_t _current_range_rows_read = 0; // rows read in the current range
 
+    bool _current_predicate_prefetched = false;
+    bool _current_non_predicate_prefetched = false;
+    bool _current_merge_range_active = false;
     ParquetPageSkipProfile _page_skip_profile;
     ParquetScanProfile _scan_profile;
+    RuntimeProfile* _profile = nullptr;
+    int64_t _merge_read_slice_size = -1;
     std::optional<format::GlobalRowIdContext> _global_rowid_context;
     const cctz::time_zone* _timezone = nullptr;
     bool _enable_strict_mode = false;
