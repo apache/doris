@@ -18,6 +18,7 @@
 #include <arrow/io/interfaces.h>
 #include <parquet/api/reader.h>
 
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <vector>
@@ -29,6 +30,7 @@ namespace doris::io {
 struct FileDescription;
 struct IOContext;
 } // namespace doris::io
+class RuntimeProfile;
 
 namespace doris::format::parquet {
 
@@ -96,6 +98,13 @@ struct ParquetFileContext {
     // random-access behavior and simply skip prefetch.
     void prefetch_ranges(const std::vector<ParquetPageCacheRange>& ranges,
                          const io::IOContext* io_ctx);
+    // Switch the active reader used by Arrow ReadAt() to v1's MergeRangeFileReader when the current
+    // row group's projected column chunks are small random IOs. This is the real v1-compatible
+    // prefetch path: subsequent Arrow page reads go through the merged reader instead of merely
+    // warming file cache in the background. Returns true when merge-range reading is active.
+    bool set_random_access_ranges(const std::vector<ParquetPageCacheRange>& ranges,
+                                  size_t avg_io_size, RuntimeProfile* profile,
+                                  int64_t merge_read_slice_size);
     ParquetPageCacheStats page_cache_stats() const;
     Status close();
 };

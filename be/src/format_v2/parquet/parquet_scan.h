@@ -109,6 +109,10 @@ public:
         _page_skip_profile = page_skip_profile;
     }
     void set_scan_profile(ParquetScanProfile scan_profile) { _scan_profile = scan_profile; }
+    void set_merge_read_options(RuntimeProfile* profile, int64_t merge_read_slice_size) {
+        _profile = profile;
+        _merge_read_slice_size = merge_read_slice_size;
+    }
     void set_global_rowid_context(std::optional<format::GlobalRowIdContext> context) {
         _global_rowid_context = context;
     }
@@ -150,6 +154,11 @@ private:
             const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
             const std::vector<format::LocalColumnIndex>& scan_columns, bool* prefetched);
 
+    bool prepare_current_row_group_reader(
+            ParquetFileContext& file_context,
+            const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
+            const format::FileScanRequest& request, int row_group_idx);
+
     Status read_current_row_group_batch(
             ParquetFileContext& file_context,
             const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
@@ -178,8 +187,11 @@ private:
 
     bool _current_predicate_prefetched = false;
     bool _current_non_predicate_prefetched = false;
+    bool _current_merge_range_active = false;
     ParquetPageSkipProfile _page_skip_profile;
     ParquetScanProfile _scan_profile;
+    RuntimeProfile* _profile = nullptr;
+    int64_t _merge_read_slice_size = -1;
     std::optional<format::GlobalRowIdContext> _global_rowid_context;
     const cctz::time_zone* _timezone = nullptr;
     bool _enable_strict_mode = false;
