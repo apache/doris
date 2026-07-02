@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.plans.algebra.TopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
+import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
@@ -47,6 +48,7 @@ public class PushDownTopNThroughJoin implements RewriteRuleFactory {
                         // TODO: complex orderby
                         .when(topn ->
                                 ConnectContext.get() != null
+                                        && !Utils.addOverflows(topn.getLimit(), topn.getOffset())
                                         && ConnectContext.get().getSessionVariable().topnOptLimitThreshold
                                         >= topn.getLimit() + topn.getOffset())
                         .when(topN -> topN.getOrderKeys().stream().map(OrderKey::getExpr)
@@ -66,6 +68,13 @@ public class PushDownTopNThroughJoin implements RewriteRuleFactory {
                         .when(topN -> topN.getOrderKeys().stream().map(OrderKey::getExpr)
                                 .allMatch(Slot.class::isInstance))
                         .then(topN -> {
+                            // limit + offset overflowing the long range means no child can hold that
+                            // many rows, so pushing the TopN below the join cannot reduce anything;
+                            // skip the rewrite. (The direct TopN -> Join branch is gated the same way
+                            // via topn_opt_limit_threshold.)
+                            if (Utils.addOverflows(topN.getLimit(), topN.getOffset())) {
+                                return null;
+                            }
                             LogicalProject<LogicalJoin<Plan, Plan>> project = topN.child();
                             LogicalJoin<Plan, Plan> join = project.child();
 
@@ -138,4 +147,5 @@ public class PushDownTopNThroughJoin implements RewriteRuleFactory {
                 return null;
         }
     }
+
 }
