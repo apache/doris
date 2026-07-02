@@ -21,21 +21,23 @@ import org.awaitility.Awaitility
 import static java.util.concurrent.TimeUnit.SECONDS
 
 /**
- * Test streaming INSERT job using cdc_stream TVF for PostgreSQL.
+ * Test CDC stream TVF with delete sign enabled for PostgreSQL primary-key table.
  *
  * Scenario:
  *   1. Snapshot phase (offset=initial): pre-existing rows (A1, B1) are synced.
- *   2. Binlog phase: INSERT (C1, D1) are applied.
+ *   2. Incremental INSERT (C1, D1).
+ *   3. Incremental UPDATE (C1 age -> 30).
+ *   4. Incremental DELETE (D1 removed).
  */
-suite("test_streaming_job_cdc_stream_postgres", "p0,external,pg,external_docker,external_docker_pg,nondatalake") {
-    def jobName = "test_streaming_job_cdc_stream_postgres_name"
+suite("test_streaming_job_cdc_stream_postgres_delete_sign", "p0,external,pg,external_docker,external_docker_pg,nondatalake") {
+    def jobName = "test_streaming_job_cdc_stream_postgres_ds_name"
     def currentDb = (sql "select database()")[0][0]
-    def dorisTable = "test_streaming_job_cdc_stream_postgres_tbl"
+    def dorisTable = "test_streaming_job_cdc_stream_postgres_ds_tbl"
     def pgDB = "postgres"
     def pgSchema = "cdc_test"
     def pgUser = "postgres"
     def pgPassword = "123456"
-    def pgTable = "test_streaming_job_cdc_stream_postgres_src"
+    def pgTable = "test_streaming_job_cdc_stream_postgres_ds_src"
 
     sql """DROP JOB IF EXISTS where jobname = '${jobName}'"""
     sql """drop table if exists ${currentDb}.${dorisTable} force"""
@@ -45,9 +47,12 @@ suite("test_streaming_job_cdc_stream_postgres", "p0,external,pg,external_docker,
             `name` varchar(200) NULL,
             `age`  int NULL
         ) ENGINE=OLAP
-        DUPLICATE KEY(`name`)
+        UNIQUE KEY(`name`)
         DISTRIBUTED BY HASH(`name`) BUCKETS AUTO
-        PROPERTIES ("replication_allocation" = "tag.location.default: 1")
+        PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1",
+            "enable_unique_key_merge_on_write" = "true"
+        )
     """
 
     String enabled = context.config.otherConfigs.get("enableJdbcTest")
@@ -58,7 +63,7 @@ suite("test_streaming_job_cdc_stream_postgres", "p0,external,pg,external_docker,
         String bucket = getS3BucketName()
         String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/postgresql-42.5.0.jar"
 
-        // prepare source table with pre-existing snapshot data
+        // prepare source table with primary key and pre-existing snapshot data
         connect("${pgUser}", "${pgPassword}", "jdbc:postgresql://${externalEnvIp}:${pg_port}/${pgDB}") {
             sql """DROP TABLE IF EXISTS ${pgDB}.${pgSchema}.${pgTable}"""
             sql """CREATE TABLE ${pgDB}.${pgSchema}.${pgTable} (
@@ -69,11 +74,11 @@ suite("test_streaming_job_cdc_stream_postgres", "p0,external,pg,external_docker,
             sql """INSERT INTO ${pgDB}.${pgSchema}.${pgTable} (name, age) VALUES ('B1', 2)"""
         }
 
-        // create streaming job via cdc_stream TVF (offset=initial → snapshot then binlog)
+        // create streaming job via cdc_stream TVF with delete sign enabled
         sql """
             CREATE JOB ${jobName}
-            ON STREAMING DO INSERT INTO ${currentDb}.${dorisTable} (name, age)
-            SELECT name, age FROM cdc_stream(
+            ON STREAMING DO INSERT INTO ${currentDb}.${dorisTable} (name, age, __DORIS_DELETE_SIGN__)
+            SELECT name, age, __DORIS_DELETE_SIGN__ FROM cdc_stream(
                 "type"         = "postgres",
                 "jdbc_url"     = "jdbc:postgresql://${externalEnvIp}:${pg_port}/${pgDB}",
                 "driver_url"   = "${driver_url}",
@@ -84,11 +89,12 @@ suite("test_streaming_job_cdc_stream_postgres", "p0,external,pg,external_docker,
                 "schema"             = "${pgSchema}",
                 "table"              = "${pgTable}",
                 "offset"             = "initial",
-                "snapshot_split_size"             = "1"
+                "snapshot_split_size" = "1",
+                "include_delete_sign" = "true"
             )
         """
 
-        // wait for at least one snapshot task to succeed
+        // wait for at least two snapshot tasks to succeed (split_size=1 → 2 splits)
         try {
             Awaitility.await().atMost(300, SECONDS).pollInterval(2, SECONDS).until({
                 def cnt = sql """select SucceedTaskCount from jobs("type"="insert") where Name='${jobName}' and ExecuteType='STREAMING'"""
@@ -102,9 +108,9 @@ suite("test_streaming_job_cdc_stream_postgres", "p0,external,pg,external_docker,
         }
 
         // verify snapshot data
-        qt_snapshot_data """ SELECT * FROM ${currentDb}.${dorisTable} ORDER BY name """
+        qt_snapshot_data """ SELECT name, age FROM ${currentDb}.${dorisTable} ORDER BY name """
 
-        // insert incremental rows in PostgreSQL
+        // insert incremental rows
         connect("${pgUser}", "${pgPassword}", "jdbc:postgresql://${externalEnvIp}:${pg_port}/${pgDB}") {
             sql """INSERT INTO ${pgDB}.${pgSchema}.${pgTable} (name, age) VALUES ('C1', 3)"""
             sql """INSERT INTO ${pgDB}.${pgSchema}.${pgTable} (name, age) VALUES ('D1', 4)"""
@@ -123,7 +129,29 @@ suite("test_streaming_job_cdc_stream_postgres", "p0,external,pg,external_docker,
             throw ex
         }
 
-        qt_final_data """ SELECT * FROM ${currentDb}.${dorisTable} ORDER BY name """
+        qt_incremental_data """ SELECT name, age, __DORIS_DELETE_SIGN__ FROM ${currentDb}.${dorisTable} ORDER BY name """
+
+        // verify incremental UPDATE
+        connect("${pgUser}", "${pgPassword}", "jdbc:postgresql://${externalEnvIp}:${pg_port}/${pgDB}") {
+            sql """UPDATE ${pgDB}.${pgSchema}.${pgTable} SET age = 30 WHERE name = 'C1'"""
+        }
+        Awaitility.await().atMost(120, SECONDS).pollInterval(2, SECONDS).until({
+            def rows = sql """SELECT age FROM ${currentDb}.${dorisTable} WHERE name = 'C1'"""
+            rows.size() == 1 && (rows.get(0).get(0) as int) == 30
+        })
+
+        qt_after_update """ SELECT name, age, __DORIS_DELETE_SIGN__ FROM ${currentDb}.${dorisTable} ORDER BY name """
+
+        // verify incremental DELETE
+        connect("${pgUser}", "${pgPassword}", "jdbc:postgresql://${externalEnvIp}:${pg_port}/${pgDB}") {
+            sql """DELETE FROM ${pgDB}.${pgSchema}.${pgTable} WHERE name = 'D1'"""
+        }
+        Awaitility.await().atMost(120, SECONDS).pollInterval(2, SECONDS).until({
+            def rows = sql """SELECT count(1) FROM ${currentDb}.${dorisTable} WHERE name = 'D1'"""
+            (rows.get(0).get(0) as int) == 0
+        })
+
+        qt_after_delete """ SELECT name, age, __DORIS_DELETE_SIGN__ FROM ${currentDb}.${dorisTable} ORDER BY name """
 
         sql """DROP JOB IF EXISTS where jobname = '${jobName}'"""
         sql """drop table if exists ${currentDb}.${dorisTable} force"""

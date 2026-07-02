@@ -21,18 +21,20 @@ import org.awaitility.Awaitility
 import static java.util.concurrent.TimeUnit.SECONDS
 
 /**
- * Test streaming INSERT job using cdc_stream TVF for MySQL.
+ * Test CDC stream TVF with delete sign enabled for MySQL primary-key table.
  *
  * Scenario:
  *   1. Snapshot phase (offset=initial): pre-existing rows (A1, B1) are synced.
- *   2. Binlog phase: INSERT (C1, D1)  are applied.
+ *   2. Incremental INSERT (C1, D1).
+ *   3. Incremental UPDATE (C1 age -> 30).
+ *   4. Incremental DELETE (D1 removed).
  */
-suite("test_streaming_job_cdc_stream_mysql", "p0,external,mysql,external_docker,external_docker_mysql,nondatalake") {
-    def jobName = "test_streaming_job_cdc_stream_mysql_name"
+suite("test_streaming_job_cdc_stream_mysql_delete_sign", "p0,external,mysql,external_docker,external_docker_mysql,nondatalake") {
+    def jobName = "test_streaming_job_cdc_stream_mysql_ds_name"
     def currentDb = (sql "select database()")[0][0]
-    def dorisTable = "test_streaming_job_cdc_stream_mysql_tbl"
+    def dorisTable = "test_streaming_job_cdc_stream_mysql_ds_tbl"
     def mysqlDb = "test_cdc_db"
-    def mysqlTable = "test_streaming_job_cdc_stream_mysql_src"
+    def mysqlTable = "test_streaming_job_cdc_stream_mysql_ds_src"
 
     sql """DROP JOB IF EXISTS where jobname = '${jobName}'"""
     sql """drop table if exists ${currentDb}.${dorisTable} force"""
@@ -42,9 +44,12 @@ suite("test_streaming_job_cdc_stream_mysql", "p0,external,mysql,external_docker,
             `name` varchar(200) NULL,
             `age`  int NULL
         ) ENGINE=OLAP
-        DUPLICATE KEY(`name`)
+        UNIQUE KEY(`name`)
         DISTRIBUTED BY HASH(`name`) BUCKETS AUTO
-        PROPERTIES ("replication_allocation" = "tag.location.default: 1")
+        PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1",
+            "enable_unique_key_merge_on_write" = "true"
+        )
     """
 
     String enabled = context.config.otherConfigs.get("enableJdbcTest")
@@ -55,23 +60,24 @@ suite("test_streaming_job_cdc_stream_mysql", "p0,external,mysql,external_docker,
         String bucket = getS3BucketName()
         String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/mysql-connector-j-8.4.0.jar"
 
-        // prepare source table with pre-existing snapshot data
+        // prepare source table with primary key and pre-existing snapshot data
         connect("root", "123456", "jdbc:mysql://${externalEnvIp}:${mysql_port}") {
             sql """CREATE DATABASE IF NOT EXISTS ${mysqlDb}"""
             sql """DROP TABLE IF EXISTS ${mysqlDb}.${mysqlTable}"""
             sql """CREATE TABLE ${mysqlDb}.${mysqlTable} (
                       `name` varchar(200) NOT NULL,
-                      `age`  int DEFAULT NULL
+                      `age`  int DEFAULT NULL,
+                      PRIMARY KEY (`name`)
                   ) ENGINE=InnoDB"""
             sql """INSERT INTO ${mysqlDb}.${mysqlTable} (name, age) VALUES ('A1', 1)"""
             sql """INSERT INTO ${mysqlDb}.${mysqlTable} (name, age) VALUES ('B1', 2)"""
         }
 
-        // create streaming job via cdc_stream TVF (offset=initial → snapshot then binlog)
+        // create streaming job via cdc_stream TVF with delete sign enabled
         sql """
             CREATE JOB ${jobName}
-            ON STREAMING DO INSERT INTO ${currentDb}.${dorisTable} (name, age)
-            SELECT name, age FROM cdc_stream(
+            ON STREAMING DO INSERT INTO ${currentDb}.${dorisTable} (name, age, __DORIS_DELETE_SIGN__)
+            SELECT name, age, __DORIS_DELETE_SIGN__ FROM cdc_stream(
                 "type"         = "mysql",
                 "jdbc_url"     = "jdbc:mysql://${externalEnvIp}:${mysql_port}",
                 "driver_url"   = "${driver_url}",
@@ -80,8 +86,9 @@ suite("test_streaming_job_cdc_stream_mysql", "p0,external,mysql,external_docker,
                 "password"     = "123456",
                 "database"          = "${mysqlDb}",
                 "table"             = "${mysqlTable}",
-                "offset"            = "initial",
-                "snapshot_split_key" = "name"
+                "offset"             = "initial",
+                "snapshot_split_key" = "name",
+                "include_delete_sign" = "true"
             )
         """
 
@@ -99,9 +106,9 @@ suite("test_streaming_job_cdc_stream_mysql", "p0,external,mysql,external_docker,
         }
 
         // verify snapshot data
-        qt_snapshot_data """ SELECT * FROM ${currentDb}.${dorisTable} ORDER BY name """
+        qt_snapshot_data """ SELECT name, age FROM ${currentDb}.${dorisTable} ORDER BY name """
 
-        // insert incremental rows in MySQL
+        // insert incremental rows
         connect("root", "123456", "jdbc:mysql://${externalEnvIp}:${mysql_port}") {
             sql """INSERT INTO ${mysqlDb}.${mysqlTable} (name, age) VALUES ('C1', 3)"""
             sql """INSERT INTO ${mysqlDb}.${mysqlTable} (name, age) VALUES ('D1', 4)"""
@@ -120,77 +127,29 @@ suite("test_streaming_job_cdc_stream_mysql", "p0,external,mysql,external_docker,
             throw ex
         }
 
-        qt_final_data """ SELECT * FROM ${currentDb}.${dorisTable} ORDER BY name """
+        qt_incremental_data """ SELECT name, age, __DORIS_DELETE_SIGN__ FROM ${currentDb}.${dorisTable} ORDER BY name """
 
-        // snapshot_split_key / snapshot_split_size / snapshot_parallelism are materialized
-        // into split metadata at CREATE and are never re-read; ALTER must reject them.
-        sql """PAUSE JOB where jobname = '${jobName}'"""
-        Awaitility.await().atMost(30, SECONDS).pollInterval(1, SECONDS).until({
-            def s = sql """select status from jobs("type"="insert") where Name='${jobName}'"""
-            s.size() == 1 && s.get(0).get(0) == "PAUSED"
+        // verify incremental UPDATE
+        connect("root", "123456", "jdbc:mysql://${externalEnvIp}:${mysql_port}") {
+            sql """UPDATE ${mysqlDb}.${mysqlTable} SET age = 30 WHERE name = 'C1'"""
+        }
+        Awaitility.await().atMost(120, SECONDS).pollInterval(2, SECONDS).until({
+            def rows = sql """SELECT age FROM ${currentDb}.${dorisTable} WHERE name = 'C1'"""
+            rows.size() == 1 && (rows.get(0).get(0) as int) == 30
         })
 
-        test {
-            sql """
-                ALTER JOB ${jobName}
-                INSERT INTO ${currentDb}.${dorisTable} (name, age)
-                SELECT name, age FROM cdc_stream(
-                    "type"               = "mysql",
-                    "jdbc_url"           = "jdbc:mysql://${externalEnvIp}:${mysql_port}",
-                    "driver_url"         = "${driver_url}",
-                    "driver_class"       = "com.mysql.cj.jdbc.Driver",
-                    "user"               = "root",
-                    "password"           = "123456",
-                    "database"           = "${mysqlDb}",
-                    "table"              = "${mysqlTable}",
-                    "offset"             = "initial",
-                    "snapshot_split_key" = "age"
-                )
-            """
-            exception "snapshot_split_key"
-        }
+        qt_after_update """ SELECT name, age, __DORIS_DELETE_SIGN__ FROM ${currentDb}.${dorisTable} ORDER BY name """
 
-        test {
-            sql """
-                ALTER JOB ${jobName}
-                INSERT INTO ${currentDb}.${dorisTable} (name, age)
-                SELECT name, age FROM cdc_stream(
-                    "type"                = "mysql",
-                    "jdbc_url"            = "jdbc:mysql://${externalEnvIp}:${mysql_port}",
-                    "driver_url"          = "${driver_url}",
-                    "driver_class"        = "com.mysql.cj.jdbc.Driver",
-                    "user"                = "root",
-                    "password"            = "123456",
-                    "database"            = "${mysqlDb}",
-                    "table"               = "${mysqlTable}",
-                    "offset"              = "initial",
-                    "snapshot_split_key"  = "name",
-                    "snapshot_split_size" = "2048"
-                )
-            """
-            exception "snapshot_split_size"
+        // verify incremental DELETE
+        connect("root", "123456", "jdbc:mysql://${externalEnvIp}:${mysql_port}") {
+            sql """DELETE FROM ${mysqlDb}.${mysqlTable} WHERE name = 'D1'"""
         }
+        Awaitility.await().atMost(120, SECONDS).pollInterval(2, SECONDS).until({
+            def rows = sql """SELECT count(1) FROM ${currentDb}.${dorisTable} WHERE name = 'D1'"""
+            (rows.get(0).get(0) as int) == 0
+        })
 
-        test {
-            sql """
-                ALTER JOB ${jobName}
-                INSERT INTO ${currentDb}.${dorisTable} (name, age)
-                SELECT name, age FROM cdc_stream(
-                    "type"                 = "mysql",
-                    "jdbc_url"             = "jdbc:mysql://${externalEnvIp}:${mysql_port}",
-                    "driver_url"           = "${driver_url}",
-                    "driver_class"         = "com.mysql.cj.jdbc.Driver",
-                    "user"                 = "root",
-                    "password"             = "123456",
-                    "database"             = "${mysqlDb}",
-                    "table"                = "${mysqlTable}",
-                    "offset"               = "initial",
-                    "snapshot_split_key"   = "name",
-                    "snapshot_parallelism" = "4"
-                )
-            """
-            exception "snapshot_parallelism"
-        }
+        qt_after_delete """ SELECT name, age, __DORIS_DELETE_SIGN__ FROM ${currentDb}.${dorisTable} ORDER BY name """
 
         sql """DROP JOB IF EXISTS where jobname = '${jobName}'"""
         sql """drop table if exists ${currentDb}.${dorisTable} force"""
