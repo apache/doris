@@ -103,6 +103,7 @@
 #include "storage/segment/column_reader.h"
 #include "storage/segment/column_reader_cache.h"
 #include "storage/segment/condition_cache.h"
+#include "storage/segment/count_on_index_fastpath.h"
 #include "storage/segment/row_ranges.h"
 #include "storage/segment/segment.h"
 #include "storage/segment/segment_prefetcher.h"
@@ -825,6 +826,19 @@ Status SegmentIterator::_get_row_ranges_by_column_conditions() {
             (has_index_in_iterators() || !_common_expr_ctxs_push_down.empty())) {
             SCOPED_RAW_TIMER(&_opts.stats->inverted_index_filter_timer);
             size_t input_rows = _row_bitmap.cardinality();
+            // G02 count-only fast path handshake: only while the single
+            // pushed-down MATCH predicate of a provably filter-free
+            // COUNT_ON_INDEX scan is evaluated may a reader answer with a
+            // count-shaped bitmap (see count_on_index_fastpath.h). Reset on
+            // every exit path so no later read_from_index call can observe it.
+            if (_index_query_context != nullptr) {
+                _index_query_context->count_on_index_fastpath = _count_on_index_fastpath_safe();
+            }
+            DEFER({
+                if (_index_query_context != nullptr) {
+                    _index_query_context->count_on_index_fastpath = false;
+                }
+            });
             // Only apply column-level inverted index if we have iterators
             if (has_index_in_iterators()) {
                 RETURN_IF_ERROR(_apply_inverted_index());
@@ -1335,6 +1349,45 @@ Status SegmentIterator::_apply_index_expr() {
     }
 
     return Status::OK();
+}
+
+bool SegmentIterator::_count_on_index_fastpath_safe() const {
+    CountOnIndexFastpathFacts facts;
+    facts.is_count_on_index_agg = _opts.push_down_agg_type_opt == TPushAggOp::COUNT_ON_INDEX;
+    facts.has_column_predicates = !_col_predicates.empty();
+    facts.common_expr_count = _common_expr_ctxs_push_down.size();
+    facts.single_expr_is_match_pred =
+            _common_expr_ctxs_push_down.size() == 1 &&
+            _common_expr_ctxs_push_down.front()->root() != nullptr &&
+            _common_expr_ctxs_push_down.front()->root()->node_type() == TExprNodeType::MATCH_PRED;
+    facts.has_virtual_column_exprs = !_virtual_column_exprs.empty();
+    facts.has_delete_predicates = _opts.delete_condition_predicates != nullptr &&
+                                  _opts.delete_condition_predicates->num_of_column_predicate() > 0;
+    // Mirror of the _lazy_init delete-bitmap subtraction: the fast path is only
+    // sound when there is nothing to subtract for THIS segment.
+    const auto delete_bitmap_it = _opts.delete_bitmap.find(segment_id());
+    facts.segment_delete_bitmap_empty = delete_bitmap_it == _opts.delete_bitmap.end() ||
+                                        delete_bitmap_it->second == nullptr ||
+                                        delete_bitmap_it->second->isEmpty();
+    facts.has_col_id_predicates = !_opts.col_id_to_predicates.empty();
+    facts.has_topn_filters = !_opts.topn_filter_source_node_ids.empty();
+    facts.has_external_row_ranges = !_opts.row_ranges.is_empty();
+    // Catches every earlier pruning source in one check (condition cache, key
+    // ranges): the fabricated [0, df) range only counts correctly against a
+    // full [0, num_rows) bitmap.
+    facts.row_bitmap_is_full = _row_bitmap.cardinality() == uint64_t(num_rows());
+    facts.record_rowids = _opts.record_rowids;
+    facts.has_ann_topn = _opts.ann_topn_runtime != nullptr;
+    facts.has_score_runtime = _score_runtime != nullptr;
+    // Mirror of the _need_read_data preamble: rows must be emitted as defaults,
+    // never materialized from the fabricated row ids.
+    facts.no_need_read_data_opt_enabled =
+            _opts.runtime_state == nullptr ||
+            _opts.runtime_state->query_options().enable_no_need_read_data_opt;
+    facts.keys_type_supported = _opts.tablet_schema->keys_type() == KeysType::DUP_KEYS ||
+                                (_opts.tablet_schema->keys_type() == KeysType::UNIQUE_KEYS &&
+                                 _opts.enable_unique_key_merge_on_write);
+    return count_on_index_fastpath_safe(facts);
 }
 
 bool SegmentIterator::_downgrade_without_index(Status res, bool need_remaining) {

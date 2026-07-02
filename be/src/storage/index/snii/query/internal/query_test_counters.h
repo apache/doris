@@ -37,6 +37,12 @@
 //                             threshold), rerouted to the generic positions-
 //                             verification path. Stays 0 on legacy (unpruned)
 //                             segments, where a miss keeps meaning "empty result".
+//   - count_fastpath_hits   : count-only (G02) answers produced from dict-entry
+//                             df alone -- single-term df or a 2-term phrase
+//                             bigram-dict-HIT df -- with NO posting decode
+//                             (count_query.cpp). Guard fall-throughs (pruned or
+//                             absent bigram, non-count context upstream) leave
+//                             it unchanged.
 //
 // The seam is active only under SNII_QUERY_TEST_COUNTERS, which is auto-enabled by
 // the library-wide BE_TEST define (be/CMakeLists.txt `if (MAKE_TEST)`) used to
@@ -65,6 +71,7 @@ struct QueryTestCounters {
     uint64_t anchor_iterations = 0;
     uint64_t bigram_hits = 0;
     uint64_t bigram_fallbacks = 0;
+    uint64_t count_fastpath_hits = 0;
 };
 
 // `inline` gives a single shared instance across all TUs that include this header

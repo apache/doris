@@ -198,6 +198,12 @@ private:
             bool* continue_apply);
     [[nodiscard]] Status _apply_ann_topn_predicate();
     [[nodiscard]] Status _apply_index_expr();
+    // G02: true iff answering the single pushed-down MATCH predicate by its
+    // match COUNT alone is indistinguishable from the row-accurate bitmap for
+    // this COUNT_ON_INDEX scan (no deletes, no other filters, full row bitmap,
+    // no row-id consumers). Gates IndexQueryContext::count_on_index_fastpath;
+    // the decision predicate itself lives in count_on_index_fastpath.h.
+    bool _count_on_index_fastpath_safe() const;
 
     bool _column_has_fulltext_index(int32_t cid);
     bool _column_has_ann_index(int32_t cid);

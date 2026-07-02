@@ -70,6 +70,21 @@ private:
                                  const InvertedIndexQueryInfo& query_info,
                                  std::string_view search_str, const std::vector<std::string>& terms,
                                  int32_t max_expansions, std::shared_ptr<roaring::Roaring>* out);
+    // G02 count-only fast path. Only called when the caller (SegmentIterator)
+    // set context->count_on_index_fastpath, i.e. the match count alone decides
+    // the scan result. On *handled = true, *out is a bitmap of cardinality df
+    // ([0, df), row ids NOT real) built from dict entries WITHOUT decoding
+    // postings: single exact term -> dict-entry df; 2-term MATCH_PHRASE with a
+    // surviving (dict-HIT) G01 bigram -> bigram df. Falls through (*handled =
+    // false) for every other shape: multi-term OR/AND, prefix/regexp/wildcard
+    // expansion, sloppy phrase, pruned/absent bigram, or a segment whose null
+    // bitmap is non-empty (FunctionMatchBase::mask_out_null would wrongly
+    // subtract null rows from the fabricated id range).
+    Status _try_count_only_fastpath(const IndexQueryContextPtr& context,
+                                    InvertedIndexQueryType query_type,
+                                    const InvertedIndexQueryInfo& query_info,
+                                    const std::vector<std::string>& terms, bool* handled,
+                                    std::shared_ptr<roaring::Roaring>* out);
 
     InvertedIndexReaderType _reader_type;
 };

@@ -39,6 +39,7 @@
 #include "storage/index/snii/common/single_flight.h"
 #include "storage/index/snii/format/null_bitmap.h"
 #include "storage/index/snii/query/boolean_query.h"
+#include "storage/index/snii/query/count_query.h"
 #include "storage/index/snii/query/docid_sink.h"
 #include "storage/index/snii/query/phrase_query.h"
 #include "storage/index/snii/query/prefix_query.h"
@@ -467,6 +468,25 @@ Status SniiIndexReader::query(const IndexQueryContextPtr& context, const std::st
         return Status::OK();
     }
 
+    // G02 count-only fast path: the SegmentIterator asserted (via the context
+    // flag) that only the match COUNT of this predicate matters, so eligible
+    // shapes are answered from dict-entry df without decoding postings. Placed
+    // AFTER the query-cache lookup (a cached row-accurate bitmap is free and
+    // counts correctly) and BEFORE single-flight; the fabricated [0, df) bitmap
+    // is returned early and NEVER inserted into the query cache or published to
+    // single-flight followers -- both are keyed identically to row-accurate
+    // queries and must only ever serve real row ids.
+    if (context->count_on_index_fastpath) {
+        bool count_handled = false;
+        std::shared_ptr<roaring::Roaring> count_bitmap;
+        RETURN_IF_ERROR(_try_count_only_fastpath(context, query_type, query_info, terms,
+                                                 &count_handled, &count_bitmap));
+        if (count_handled) {
+            bit_map = std::move(count_bitmap);
+            return Status::OK();
+        }
+    }
+
     // Under a cold cache, parallel scanners _lazy_init the same segment concurrently and each
     // would otherwise miss the searcher/query caches and redundantly open + decode this segment's
     // index. Collapse identical concurrent queries into one shared execution (see SingleFlight).
@@ -501,6 +521,80 @@ Status SniiIndexReader::_compute_query_bitmap(const IndexQueryContextPtr& contex
     RETURN_IF_ERROR(execute_snii_query(*logical_reader, query_type, query_info, search_str, terms,
                                        max_expansions, &query_result));
     *out = std::move(query_result.bitmap);
+    return Status::OK();
+}
+
+Status SniiIndexReader::_try_count_only_fastpath(const IndexQueryContextPtr& context,
+                                                 InvertedIndexQueryType query_type,
+                                                 const InvertedIndexQueryInfo& query_info,
+                                                 const std::vector<std::string>& terms,
+                                                 bool* handled,
+                                                 std::shared_ptr<roaring::Roaring>* out) {
+    *handled = false;
+    // Shape guard: only exact-term query types. Prefix/regexp/wildcard/
+    // phrase-prefix expand the term set, so no single dict entry carries the
+    // count; range types never reach SNII anyway.
+    switch (query_type) {
+    case InvertedIndexQueryType::EQUAL_QUERY:
+    case InvertedIndexQueryType::MATCH_ANY_QUERY:
+    case InvertedIndexQueryType::MATCH_ALL_QUERY:
+    case InvertedIndexQueryType::MATCH_PHRASE_QUERY:
+        break;
+    default:
+        return Status::OK();
+    }
+    // The normal path rejects sloppy phrases with a BYPASS (downgrade to raw
+    // evaluation); the count path must fall through so the downgrade happens.
+    if (query_type == InvertedIndexQueryType::MATCH_PHRASE_QUERY && query_info.slop != 0) {
+        return Status::OK();
+    }
+    const bool single_term = terms.size() == 1;
+    const bool two_term_phrase =
+            terms.size() == 2 && query_type == InvertedIndexQueryType::MATCH_PHRASE_QUERY;
+    if (!single_term && !two_term_phrase) {
+        // Multi-term MATCH_ANY (OR) / MATCH_ALL (AND) counts are not derivable
+        // from per-term dfs (overlap unknown) -> normal decode path.
+        return Status::OK();
+    }
+
+    snii_doris::DorisSniiFileReader::ScopedIOContext io_context_scope(context->io_ctx);
+    InvertedIndexCacheHandle searcher_cache_handle;
+    std::unique_ptr<::doris::snii::reader::LogicalIndexReader> uncached_reader;
+    const ::doris::snii::reader::LogicalIndexReader* logical_reader = nullptr;
+    RETURN_IF_ERROR(_get_logical_reader(context, &searcher_cache_handle, &uncached_reader,
+                                        &logical_reader));
+
+    // Null guard. The fabricated bitmap is a dense [0, df) id range; the MATCH
+    // machinery unconditionally subtracts the segment's null bitmap from the
+    // result (FunctionMatchBase -> mask_out_null). Real postings never contain
+    // null rows so that subtraction is a no-op on the true bitmap, but it WOULD
+    // remove fabricated ids that happen to collide with null rows. Only proceed
+    // when the segment column has no null bitmap at all.
+    if (logical_reader->section_refs().null_bitmap.length > 0) {
+        return Status::OK();
+    }
+
+    uint64_t count = 0;
+    if (single_term) {
+        RETURN_IF_ERROR(
+                ::doris::snii::query::count_only_term_df(*logical_reader, terms.front(), &count));
+    } else {
+        bool bigram_handled = false;
+        RETURN_IF_ERROR(::doris::snii::query::count_only_two_term_phrase_bigram_df(
+                *logical_reader, terms[0], terms[1], &bigram_handled, &count));
+        if (!bigram_handled) {
+            // Pruned or absent bigram (or positionless index): the generic
+            // phrase path owns those semantics.
+            return Status::OK();
+        }
+    }
+
+    auto result = std::make_shared<roaring::Roaring>();
+    if (count > 0) {
+        result->addRange(0, count);
+    }
+    *out = std::move(result);
+    *handled = true;
     return Status::OK();
 }
 

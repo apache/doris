@@ -32,6 +32,17 @@ struct IndexQueryContext {
 
     size_t query_limit = 0;
     bool is_asc = false;
+
+    // G02 count-only fast-path handshake. Set by SegmentIterator ONLY while it
+    // evaluates the single pushed-down MATCH predicate of a COUNT_ON_INDEX scan
+    // whose row space is provably unfiltered (no deletes, no other conjuncts,
+    // full row bitmap, no row-id consumers -- see count_on_index_fastpath.h),
+    // and reset immediately after. When set, an index reader MAY answer the
+    // query with a bitmap whose CARDINALITY equals the match count without the
+    // row ids being real (SNII returns [0, df) straight from dict-entry df,
+    // skipping the posting decode). Readers must never cache such a bitmap
+    // under a key a row-accurate query could hit.
+    bool count_on_index_fastpath = false;
 };
 using IndexQueryContextPtr = std::shared_ptr<IndexQueryContext>;
 
