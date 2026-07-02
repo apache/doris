@@ -589,13 +589,13 @@ public class PipelineCoordinator {
                                         && maxIntervalMillis > 0
                                         && elapsedTime >= maxIntervalMillis;
 
-                        if (!isSnapshotSplit && timeoutReached) {
+                        if (!isSnapshotSplit && timeoutReached && !shouldStop) {
                             LOG.info(
-                                    "Binlog split max interval reached and heartbeat received, stopping data reading");
+                                    "Binlog split max interval reached; draining current batch before stopping");
                             shouldStop = true;
-                            break;
                         }
-                        // Skip heartbeat messages during normal processing
+                        // Drain the rest of this batch instead of breaking: records after the
+                        // heartbeat are already dequeued and the reused reader won't re-read them.
                         continue;
                     }
 
