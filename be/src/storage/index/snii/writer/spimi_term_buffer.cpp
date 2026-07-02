@@ -474,7 +474,12 @@ void SpimiTermBuffer::add_bigram_token(uint32_t left_id, uint32_t right_id, uint
     uint32_t term_id;
     auto it = bigram_pair_map_.find(pair_key);
     if (it == bigram_pair_map_.end()) {
+#ifdef BE_TEST
+        // Seam only under BE_TEST: this is the per-token-pair hot path (billions of
+        // calls per import); an always-on shared atomic here cache-line-ping-pongs
+        // across concurrent writers (measured 35% of BE CPU on a 16-way load).
         g_bigram_pair_map_misses.fetch_add(1, std::memory_order_relaxed);
+#endif
         // An EVICTED-then-reappearing pair misses here (eviction erased its
         // entry) and re-interns as a fresh term -- by then its content hash is
         // already in the ever-dropped bloom, so the flush drops it regardless of
@@ -482,7 +487,9 @@ void SpimiTermBuffer::add_bigram_token(uint32_t left_id, uint32_t right_id, uint
         // unchanged under pair keying).
         term_id = intern_pair_term(pair_key);
     } else {
+#ifdef BE_TEST
         g_bigram_pair_map_hits.fetch_add(1, std::memory_order_relaxed);
+#endif
         term_id = it->second;
     }
     accumulate(term_id, docid, pos);
