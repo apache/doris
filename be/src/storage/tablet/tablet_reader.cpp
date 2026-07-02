@@ -235,10 +235,6 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params) {
     _reader_context.predicate_lm_stage1_survival_ratio_threshold =
             read_params.predicate_lm_stage1_survival_ratio_threshold;
 
-    // Preserve the original requested output layout so BlockReader can map expanded storage
-    // columns (for non-direct AGG/UNIQUE paths) back to the final output block.
-    _reader_context.origin_return_columns = read_params.origin_return_columns;
-
     return Status::OK();
 }
 
