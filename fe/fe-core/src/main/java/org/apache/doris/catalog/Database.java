@@ -769,16 +769,45 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
     }
 
     public synchronized void addFunction(Function function, boolean ifNotExists) throws UserException {
-        function.checkWritable();
-        if (FunctionUtil.addFunctionImpl(function, ifNotExists, false, name2Function)) {
-            try {
-                FunctionUtil.translateToNereidsThrows(this.getFullName(), function);
-            } catch (Exception e) {
-                FunctionUtil.removeFunctionImpl(function, name2Function);
-                throw e;
+        addFunctions(ImmutableList.of(function), ifNotExists);
+    }
+
+    public synchronized void addTableFunction(Function function, boolean ifNotExists) throws UserException {
+        // Doris table functions are registered as two functions: the normal function and its outer variant.
+        Function outerFunction = function.clone();
+        FunctionName name = outerFunction.getFunctionName();
+        name.setFn(name.getFunction() + "_outer");
+        addFunctions(ImmutableList.of(function, outerFunction), ifNotExists);
+    }
+
+    private void addFunctions(List<Function> functions, boolean ifNotExists) throws UserException {
+        List<Function> addedFunctions = Lists.newArrayList();
+        try {
+            for (Function function : functions) {
+                function.checkWritable();
+                if (FunctionUtil.addFunctionImpl(function, ifNotExists, false, name2Function)) {
+                    addedFunctions.add(function);
+                }
             }
+            for (Function function : addedFunctions) {
+                FunctionUtil.translateToNereidsThrows(this.getFullName(), function);
+            }
+        } catch (Exception e) {
+            for (Function function : addedFunctions) {
+                FunctionUtil.dropFromNereids(this.getFullName(), getFunctionSearchDesc(function));
+            }
+            for (int i = addedFunctions.size() - 1; i >= 0; i--) {
+                FunctionUtil.removeFunctionImpl(addedFunctions.get(i), name2Function);
+            }
+            throw e;
+        }
+        for (Function function : addedFunctions) {
             Env.getCurrentEnv().getEditLog().logAddFunction(function);
         }
+    }
+
+    private FunctionSearchDesc getFunctionSearchDesc(Function function) {
+        return new FunctionSearchDesc(function.getFunctionName(), function.getArgs(), function.hasVarArgs());
     }
 
     public synchronized void replayAddFunction(Function function) {

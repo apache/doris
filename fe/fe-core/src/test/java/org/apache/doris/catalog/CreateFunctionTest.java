@@ -22,6 +22,7 @@ import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.util.URI;
 import org.apache.doris.nereids.StatementContext;
@@ -209,6 +210,82 @@ public class CreateFunctionTest {
     }
 
     @Test
+    public void testCreateTableFunctionRollbackWhenOuterFunctionFails() throws Exception {
+        ConnectContext ctx = UtFrameUtils.createDefaultCtx();
+        createDatabase(ctx, "create database rollback_table_function_db;");
+        Database db = Env.getCurrentInternalCatalog().getDbNullable("rollback_table_function_db");
+        Assert.assertNotNull(db);
+
+        EditLog editLog = Env.getCurrentEnv().getEditLog();
+        EditLog spyEditLog = Mockito.spy(editLog);
+        Mockito.doNothing().when(spyEditLog).logAddFunction(Mockito.any(Function.class));
+        Env.getCurrentEnv().setEditLog(spyEditLog);
+        try (MockedStatic<FunctionUtil> mockedFunctionUtil = Mockito.mockStatic(FunctionUtil.class,
+                Mockito.CALLS_REAL_METHODS)) {
+            Function tableFunction = createJavaUdtf("rollback_table_function_db", "rollback_table_fn", Type.INT);
+            mockedFunctionUtil.when(() -> FunctionUtil.translateToNereidsThrows(
+                    Mockito.eq("rollback_table_function_db"), Mockito.any(Function.class)))
+                    .thenAnswer(invocation -> {
+                        Function function = invocation.getArgument(1);
+                        if ("rollback_table_fn_outer".equals(function.functionName())) {
+                            throw new RuntimeException("outer translate failed");
+                        }
+                        return true;
+                    });
+
+            RuntimeException exception = Assert.assertThrows(RuntimeException.class,
+                    () -> db.addTableFunction(tableFunction, false));
+            Assert.assertEquals("outer translate failed", exception.getMessage());
+            Mockito.verify(spyEditLog, Mockito.never()).logAddFunction(Mockito.any(Function.class));
+            Assert.assertThrows(AnalysisException.class, () -> db.getFunction(searchDesc(tableFunction)));
+            Assert.assertThrows(AnalysisException.class,
+                    () -> db.getFunction(searchDesc("rollback_table_function_db", "rollback_table_fn_outer",
+                            Type.INT)));
+            mockedFunctionUtil.verify(() -> FunctionUtil.dropFromNereids(Mockito.eq("rollback_table_function_db"),
+                    Mockito.argThat(function -> "rollback_table_fn".equals(function.getName().getFunction()))));
+            mockedFunctionUtil.verify(() -> FunctionUtil.dropFromNereids(Mockito.eq("rollback_table_function_db"),
+                    Mockito.argThat(function -> "rollback_table_fn_outer".equals(function.getName().getFunction()))));
+        } finally {
+            Env.getCurrentEnv().setEditLog(editLog);
+        }
+    }
+
+    @Test
+    public void testCreateTableFunctionRollbackWhenOuterFunctionConflicts() throws Exception {
+        ConnectContext ctx = UtFrameUtils.createDefaultCtx();
+        createDatabase(ctx, "create database rollback_table_function_conflict_db;");
+        Database db = Env.getCurrentInternalCatalog().getDbNullable("rollback_table_function_conflict_db");
+        Assert.assertNotNull(db);
+
+        EditLog editLog = Env.getCurrentEnv().getEditLog();
+        EditLog spyEditLog = Mockito.spy(editLog);
+        Mockito.doNothing().when(spyEditLog).logAddFunction(Mockito.any(Function.class));
+        Env.getCurrentEnv().setEditLog(spyEditLog);
+        try (MockedStatic<FunctionUtil> mockedFunctionUtil = Mockito.mockStatic(FunctionUtil.class,
+                Mockito.CALLS_REAL_METHODS)) {
+            mockedFunctionUtil.when(() -> FunctionUtil.translateToNereidsThrows(
+                    Mockito.eq("rollback_table_function_conflict_db"), Mockito.any(Function.class)))
+                    .thenReturn(true);
+            Function existingOuterFunction = createJavaUdtf(
+                    "rollback_table_function_conflict_db", "rollback_table_conflict_fn_outer", Type.INT);
+            db.addFunction(existingOuterFunction, false);
+            Assert.assertSame(existingOuterFunction, db.getFunction(searchDesc(existingOuterFunction)));
+
+            Mockito.clearInvocations(spyEditLog);
+            Function tableFunction = createJavaUdtf(
+                    "rollback_table_function_conflict_db", "rollback_table_conflict_fn", Type.INT);
+            UserException exception = Assert.assertThrows(UserException.class,
+                    () -> db.addTableFunction(tableFunction, false));
+            Assert.assertEquals("function already exists", exception.getMessage());
+            Mockito.verify(spyEditLog, Mockito.never()).logAddFunction(Mockito.any(Function.class));
+            Assert.assertThrows(AnalysisException.class, () -> db.getFunction(searchDesc(tableFunction)));
+            Assert.assertSame(existingOuterFunction, db.getFunction(searchDesc(existingOuterFunction)));
+        } finally {
+            Env.getCurrentEnv().setEditLog(editLog);
+        }
+    }
+
+    @Test
     public void testCreateGlobalFunctionRollbackOnlyFailedOverload() throws Exception {
         GlobalFunctionMgr globalFunctionMgr = Env.getCurrentEnv().getGlobalFunctionMgr();
         FunctionSearchDesc existingFunctionDesc = searchDesc(null, "rollback_global_fn", Type.INT);
@@ -351,6 +428,12 @@ public class CreateFunctionTest {
     private Function createJavaUdf(String dbName, String functionName, Type... argTypes) throws AnalysisException {
         return ScalarFunction.createUdf(Function.BinaryType.JAVA_UDF, new FunctionName(dbName, functionName), argTypes,
                 Type.INT, false, URI.create("file:///tmp/" + functionName + ".jar"), "evaluate", null, null);
+    }
+
+    private Function createJavaUdtf(String dbName, String functionName, Type... argTypes) throws AnalysisException {
+        Function function = createJavaUdf(dbName, functionName, argTypes);
+        function.setUDTFunction(true);
+        return function;
     }
 
     private FunctionSearchDesc searchDesc(Function function) {
