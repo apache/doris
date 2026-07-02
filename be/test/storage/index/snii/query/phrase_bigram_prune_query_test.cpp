@@ -17,6 +17,7 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <cstdint>
 #include <numeric>
 #include <string>
@@ -24,11 +25,14 @@
 
 #include "common/status.h"
 #include "storage/index/snii/format/dict_entry.h"
+#include "storage/index/snii/format/format_constants.h"
 #include "storage/index/snii/format/phrase_bigram.h"
 #include "storage/index/snii/query/internal/query_test_counters.h"
 #include "storage/index/snii/query/phrase_query.h"
 #include "storage/index/snii/reader/logical_index_reader.h"
 #include "storage/index/snii/reader/snii_segment_reader.h"
+#include "storage/index/snii/writer/snii_compound_writer.h"
+#include "storage/index/snii/writer/spimi_term_buffer.h"
 #include "storage/index/snii_query_test_util.h"
 
 // G01 "bigram diet" reader/writer behavior over the shared 9000-doc fixture
@@ -239,4 +243,158 @@ TEST(SniiPhraseBigramPrune, PhrasePrefixUnaffectedByPruning) {
     std::vector<uint32_t> single_tail;
     assert_ok(phrase_prefix_query(pruned.index_reader, {"failed", "ordi"}, &single_tail, 10));
     EXPECT_EQ(single_tail, std::vector<uint32_t> {6000});
+}
+
+namespace {
+
+// A pprefix-focused fixture (its own index; independent of the shared 9000-doc
+// one): a HOT anchor whose tail-prefix family STRADDLES the prune threshold,
+// plus one REAL term living inside the hidden-marker byte region.
+//   vulcan             @0 in docs [0, 9000)    hot anchor (df 9000)
+//   warpcore           @1 in docs [0, 8000)    bigram(vulcan,warpcore)  df=8000 SURVIVES
+//   warpdrive          @1 in docs [8000, 8003) bigram(vulcan,warpdrive) df=3    PRUNED
+//   warpgate           @1 in docs [8003, 8010) bigram(vulcan,warpgate)  df=7    PRUNED
+//   "\x1F" "zz_raw"    @1 in docs {42, 43}     a raw (untokenized-value style)
+//                                              term that sorts AFTER the marker
+//                                              cluster; the "\x1F" tail prefix
+//                                              range covers every hidden bigram
+//                                              dict term on bigram-bearing
+//                                              layouts.
+// include_bigrams=false builds the pure-positions ground-truth layout.
+Status build_warp_reader(Fixture* f, bool include_bigrams, uint32_t bigram_prune_min_df) {
+    constexpr uint32_t kDocCount = 9000;
+    writer::SniiIndexInput input;
+    input.index_id = 11;
+    input.index_suffix = "Warp";
+    input.config = format::IndexConfig::kDocsPositions;
+    input.doc_count = kDocCount;
+    input.bigram_prune_min_df = bigram_prune_min_df;
+    input.terms = {make_term("vulcan", docs_with_one_position(0, kDocCount, 0)),
+                   make_term("warpcore", docs_with_one_position(0, 8000, 1)),
+                   make_term("warpdrive", docs_with_one_position(8000, 8003, 1)),
+                   make_term("warpgate", docs_with_one_position(8003, 8010, 1)),
+                   make_term("\x1F"
+                             "zz_raw",
+                             {{.docid = 42, .positions = {1}}, {.docid = 43, .positions = {1}}})};
+    if (include_bigrams) {
+        input.terms.push_back(make_term(format::make_phrase_bigram_sentinel_term(),
+                                        {{.docid = 0, .positions = {0}}}));
+        input.terms.push_back(make_term(format::make_phrase_bigram_term("vulcan", "warpcore"),
+                                        docs_with_one_position(0, 8000, 0)));
+        input.terms.push_back(make_term(format::make_phrase_bigram_term("vulcan", "warpdrive"),
+                                        docs_with_one_position(8000, 8003, 0)));
+        input.terms.push_back(make_term(format::make_phrase_bigram_term("vulcan", "warpgate"),
+                                        docs_with_one_position(8003, 8010, 0)));
+    }
+    std::ranges::sort(input.terms,
+                      [](const writer::TermPostings& lhs, const writer::TermPostings& rhs) {
+                          return lhs.term < rhs.term;
+                      });
+
+    writer::SniiCompoundWriter writer(&f->file);
+    RETURN_IF_ERROR(writer.add_logical_index(input));
+    RETURN_IF_ERROR(writer.finish());
+    RETURN_IF_ERROR(reader::SniiSegmentReader::open(&f->file, &f->segment_reader));
+    return f->segment_reader.open_index(input.index_id, input.index_suffix, &f->index_reader);
+}
+
+void build_warp_fixture(Fixture* f, bool include_bigrams, uint32_t bigram_prune_min_df) {
+    assert_ok(build_warp_reader(f, include_bigrams, bigram_prune_min_df));
+}
+
+std::vector<uint32_t> run_phrase_prefix(const reader::LogicalIndexReader& idx,
+                                        const std::vector<std::string>& terms,
+                                        int32_t max_expansions) {
+    std::vector<uint32_t> docids;
+    assert_ok(phrase_prefix_query(idx, terms, &docids, max_expansions));
+    return docids;
+}
+
+} // namespace
+
+// G01 pprefix regression, the shape production hit: the anchor is HOT and its
+// tail-prefix family MIXES a surviving (anchor,tail) bigram with pruned ones.
+// The pprefix answer must come from UNIGRAM positions for EVERY expanded tail:
+// a path that consulted the hidden (anchor,tail) bigram postings as
+// authoritative would silently drop the pruned tails' docs (their pair left no
+// dict trace) and could not position-verify the surviving pair (its posting is
+// docs-only). Assert exact equality between the pruned segment, the unpruned
+// control, and the no-bigram ground truth -- after pinning the dict-level
+// premise (SOME pairs survive, SOME are pruned) so the fixture cannot rot.
+TEST(SniiPhraseBigramPrune, PhrasePrefixMixedHotAndPrunedTailPairsEqualControl) {
+    Fixture control, pruned, nobigram;
+    build_warp_fixture(&control, /*include_bigrams=*/true, /*threshold=*/0);
+    build_warp_fixture(&pruned, /*include_bigrams=*/true, kPruneThreshold);
+    build_warp_fixture(&nobigram, /*include_bigrams=*/false, /*threshold=*/0);
+
+    // Premise: the hot pair kept a docs-only dict entry on the pruned segment,
+    // both cold pairs left none; the control kept all three (with positions).
+    bool found = false;
+    format::DictEntry entry;
+    uint64_t frq_base = 0;
+    uint64_t prx_base = 0;
+    assert_ok(pruned.index_reader.lookup(format::make_phrase_bigram_term("vulcan", "warpcore"),
+                                         &found, &entry, &frq_base, &prx_base));
+    ASSERT_TRUE(found);
+    EXPECT_EQ(entry.df, 8000U);
+    EXPECT_EQ(entry.prx_len, 0U); // the survivor is docs-only (G01 part B)
+    assert_ok(pruned.index_reader.lookup(format::make_phrase_bigram_term("vulcan", "warpdrive"),
+                                         &found, &entry, &frq_base, &prx_base));
+    EXPECT_FALSE(found);
+    assert_ok(pruned.index_reader.lookup(format::make_phrase_bigram_term("vulcan", "warpgate"),
+                                         &found, &entry, &frq_base, &prx_base));
+    EXPECT_FALSE(found);
+    assert_ok(control.index_reader.lookup(format::make_phrase_bigram_term("vulcan", "warpdrive"),
+                                          &found, &entry, &frq_base, &prx_base));
+    ASSERT_TRUE(found); // the legacy control materialized every pair
+
+    // Multi-tail pprefix over the mixed family: every tail verified by unigram
+    // positions, so all three layouts agree with the ground truth.
+    const std::vector<std::string> query {"vulcan", "warp"};
+    const std::vector<uint32_t> truth = run_phrase_prefix(nobigram.index_reader, query, 10);
+    EXPECT_EQ(truth, all_docids(8010));
+    EXPECT_EQ(run_phrase_prefix(control.index_reader, query, 10), truth);
+    EXPECT_EQ(run_phrase_prefix(pruned.index_reader, query, 10), truth);
+
+    // A capped expansion must budget REAL tails only, identically on every
+    // layout: the first two dict-order tails are warpcore + warpdrive.
+    const std::vector<uint32_t> capped = run_phrase_prefix(nobigram.index_reader, query, 2);
+    EXPECT_EQ(capped, all_docids(8003));
+    EXPECT_EQ(run_phrase_prefix(control.index_reader, query, 2), capped);
+    EXPECT_EQ(run_phrase_prefix(pruned.index_reader, query, 2), capped);
+
+    // 2-term MATCH_PHRASE cross-checks over the same pairs: the hot pair is
+    // answered bigram-DIRECT from the docs-only posting, the pruned pair takes
+    // the positions fallback -- both equal to the pprefix per-tail evidence.
+    reset_query_counters();
+    EXPECT_EQ(run_phrase(pruned.index_reader, {"vulcan", "warpcore"}), all_docids(8000));
+    EXPECT_EQ(qinternal::query_test_counters().bigram_hits, 1U);
+    EXPECT_EQ(qinternal::query_test_counters().bigram_fallbacks, 0U);
+    reset_query_counters();
+    EXPECT_EQ(run_phrase(pruned.index_reader, {"vulcan", "warpdrive"}),
+              (std::vector<uint32_t> {8000, 8001, 8002}));
+    EXPECT_EQ(qinternal::query_test_counters().bigram_fallbacks, 1U);
+    EXPECT_EQ(qinternal::query_test_counters().bigram_hits, 0U);
+}
+
+// G01 pprefix regression: hidden bigram dict terms that fall inside the tail
+// prefix range must NOT consume max_expansions slots. Pre-fix,
+// prefix_terms(max_expansions) filled the whole budget with hidden terms and
+// only then erased them, silently dropping the REAL tail -- and because the
+// pruned layout materializes FEWER hidden terms (sentinel + 1 survivor) than
+// the legacy control (sentinel + 3 pairs), the same query returned DIFFERENT
+// results per segment layout. The raw "\x1F"-lead term stands in for an
+// untokenized value whose prefix range overlaps the hidden bigram cluster.
+TEST(SniiPhraseBigramPrune, PhrasePrefixExpansionBudgetIgnoresHiddenBigramTerms) {
+    Fixture control, pruned, nobigram;
+    build_warp_fixture(&control, /*include_bigrams=*/true, /*threshold=*/0);
+    build_warp_fixture(&pruned, /*include_bigrams=*/true, kPruneThreshold);
+    build_warp_fixture(&nobigram, /*include_bigrams=*/false, /*threshold=*/0);
+
+    const std::vector<std::string> query {"vulcan", "\x1F"};
+    const std::vector<uint32_t> truth {42, 43}; // vulcan@0 followed by the raw term@1
+
+    EXPECT_EQ(run_phrase_prefix(nobigram.index_reader, query, 3), truth);
+    EXPECT_EQ(run_phrase_prefix(control.index_reader, query, 3), truth);
+    EXPECT_EQ(run_phrase_prefix(pruned.index_reader, query, 3), truth);
 }

@@ -1359,11 +1359,30 @@ Status phrase_prefix_query(const LogicalIndexReader& idx, const std::vector<std:
         exact_terms.push_back(std::move(resolved));
     }
 
+    // Expand the tail prefix over REAL terms only: hidden phrase-bigram dict
+    // terms (and the sentinel) are rejected DURING enumeration so they never
+    // consume a max_expansions slot. The previous prefix_terms(max_expansions) +
+    // erase_if ordering counted hidden terms against the expansion budget FIRST
+    // and dropped them AFTER, so every hidden term inside the prefix range
+    // silently displaced one real tail past the truncated window -- and because
+    // G01 df-pruning changes how many hidden bigram terms a segment
+    // materializes, the surviving tail set (and thus the result) depended on
+    // the segment's bigram layout instead of the query. Bigram postings are
+    // NEVER consulted as tail evidence here, on pruned or legacy segments
+    // alike: every expanded tail below is verified against UNIGRAM postings and
+    // positions (single-tail via the generic streaming phrase path, multi-tail
+    // via CollectTailMatchesAtExpectedPositions), which G01's diet leaves
+    // untouched.
     std::vector<LogicalIndexReader::PrefixHit> tail_hits;
-    RETURN_IF_ERROR(idx.prefix_terms(terms.back(), &tail_hits, max_expansions));
-    std::erase_if(tail_hits, [](const LogicalIndexReader::PrefixHit& hit) {
-        return format::is_phrase_bigram_term(hit.term);
-    });
+    RETURN_IF_ERROR(idx.visit_prefix_terms(terms.back(), [&](LogicalIndexReader::PrefixHit&& hit,
+                                                             bool* stop) {
+        if (format::is_phrase_bigram_term(hit.term)) {
+            return Status::OK(); // hidden term: never a tail, never a slot
+        }
+        tail_hits.push_back(std::move(hit));
+        *stop = max_expansions > 0 && tail_hits.size() >= static_cast<size_t>(max_expansions);
+        return Status::OK();
+    }));
     if (tail_hits.empty()) {
         return Status::OK();
     }
