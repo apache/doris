@@ -20,8 +20,7 @@
 
 #pragma once
 
-#include <stddef.h>
-
+#include <cstddef>
 #include <memory>
 #include <vector>
 
@@ -49,6 +48,8 @@ class ColumnVector;
 template <PrimitiveType T>
 struct AggregateFunctionSumData {
     typename PrimitiveTypeTraits<T>::CppType sum {};
+
+    void reset() { sum = {}; }
 
     NO_SANITIZE_UNDEFINED void add(typename PrimitiveTypeTraits<T>::CppType value) {
 #ifdef __clang__
