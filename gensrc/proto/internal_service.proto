@@ -1150,6 +1150,15 @@ message PFetchPeerDataRequest {
     optional int64 file_size = 4;
     // PEER_FILE_CACHE_BLOCK
     repeated CacheBlockReqest cache_req = 5;
+    // Client capability for attachment payload mode.
+    // If false (default), server must return payload in datas.data for compatibility.
+    optional bool support_attachment = 6 [default = false];
+    // Client requests server to pull data from S3 and fill local cache on cache miss.
+    // Server only executes fill when this is true AND enable_peer_server_cache_fill config is true.
+    // Only set for the designated fill compute group (peer_cache_fill_compute_group_id).
+    optional bool request_cache_fill = 7 [default = false];
+    // Rowset meta carrier for peer read/fill. The current caller only fills resource_id/tablet_id.
+    optional RowsetMetaPB rowset_meta = 8;
 }
 
 message CacheBlockPB {
@@ -1161,6 +1170,10 @@ message CacheBlockPB {
 message PFetchPeerDataResponse {
     optional PStatus status = 1;
     repeated CacheBlockPB datas = 2;
+    // Response mode flag.
+    // true: payload is in brpc response attachment; datas carries metadata only.
+    // false: payload is in datas[*].data.
+    optional bool data_in_attachment = 3 [default = false];
 }
 
 message PRequestCdcClientRequest {

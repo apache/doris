@@ -23,7 +23,8 @@
 
 #include <cstddef> // for size_t
 #include <cstdint> // for uint32_t
-#include <memory>  // for unique_ptr
+#include <map>
+#include <memory> // for unique_ptr
 #include <string>
 #include <utility>
 #include <vector>

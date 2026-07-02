@@ -777,7 +777,6 @@ Status OlapScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
             for (auto& split : _read_sources[scan_range_idx].rs_splits) {
                 split.rs_reader = split.rs_reader->clone();
             }
-
             auto scanner = OlapScanner::create_shared(
                     this, OlapScanner::Params {
                                   state(),
@@ -786,6 +785,7 @@ Status OlapScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
                                   _tablets[scan_range_idx].tablet,
                                   version,
                                   _read_sources[scan_range_idx],
+                                  {},
                                   p._limit,
                                   p._olap_scan_node.is_preaggregation,
                                   read_row_binlog,
