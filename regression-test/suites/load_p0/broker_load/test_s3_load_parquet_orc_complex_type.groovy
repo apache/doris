@@ -215,9 +215,9 @@ suite("test_s3_load_parquet_orc_complex_type", "load_p0,external") {
             "(c_int, tmp_array, tmp_map, tmp_struct) SET (c_array = tmp_struct.f1)",
             "Parquet/orc complex type load only supports direct column mapping or rename column mapping")
     submitS3LoadAndExpectCancelled.call(scalarParquetTable, "${s3BasePath}/scalar_parquet", "parquet",
-            "(c_int, tmp_array) SET (c_array = tmp_array)", "complex column types")
+            "(c_int, tmp_array) SET (c_array = tmp_array)", "require complex file columns")
     submitS3LoadAndExpectCancelled.call(scalarOrcTable, "${s3BasePath}/scalar_orc", "orc",
-            "(c_int, tmp_array) SET (c_array = tmp_array)", "complex column types")
+            "(c_int, tmp_array) SET (c_array = tmp_array)", "require complex file columns")
 
     qt_parquet_count """ SELECT COUNT(*) FROM ${parquetTable} """
     order_qt_parquet_nested """
