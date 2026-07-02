@@ -18,7 +18,7 @@
 import groovy.json.JsonSlurper
 import org.apache.doris.regression.action.ProfileAction
 
-def getProfile = { masterHTTPAddr, id ->
+def fetchProfile = { masterHTTPAddr, id ->
     def dst = 'http://' + masterHTTPAddr
     def conn = new URL(dst + "/api/profile/text/?query_id=$id").openConnection()
     conn.setRequestMethod("GET")
@@ -26,6 +26,31 @@ def getProfile = { masterHTTPAddr, id ->
             (context.config.feHttpPassword == null ? "" : context.config.feHttpPassword)).getBytes("UTF-8"))
     conn.setRequestProperty("Authorization", "Basic ${encoding}")
     return conn.getInputStream().getText()
+}
+
+def isProfileReady = { profileString, requiredContents ->
+    if (profileString == null || profileString.isEmpty()) {
+        return false
+    }
+    if (requiredContents != null && !requiredContents.isEmpty()
+            && requiredContents.every { profileString.contains(it) }) {
+        return true
+    }
+    return profileString.contains("Profile Completion State: COMPLETE")
+}
+
+def getProfile = { masterHTTPAddr, id, requiredContents = [], timeoutMs = 30000L, intervalMs = 500L ->
+    String profileString = ""
+    long deadline = System.currentTimeMillis() + timeoutMs
+    while (System.currentTimeMillis() <= deadline) {
+        profileString = fetchProfile(masterHTTPAddr, id)
+        if (isProfileReady(profileString, requiredContents)) {
+            return profileString
+        }
+        logger.info("Load profile ${id} is not ready, required contents: ${requiredContents}")
+        Thread.sleep(intervalMs)
+    }
+    return profileString
 }
 
 // ref https://github.com/apache/doris/blob/3525a03815814f66ec78aa2ad6bbd9225b0e7a6b/regression-test/suites/load_p0/broker_load/test_s3_load.groovy
@@ -197,7 +222,7 @@ PROPERTIES (
     def masterAddress = masterIP + ":" + masterHTTPPort
     logger.info("masterIP:masterHTTPPort is:${masterAddress}")
 
-    def profileString = getProfile(masterAddress, jobId.toString())
+    def profileString = getProfile(masterAddress, jobId.toString(), ["NumScanners", "RowsProduced", "RowsRead"])
     logger.info("profileDataString:" + profileString)
     assertTrue(profileString.contains("NumScanners"))
     assertTrue(profileString.contains("RowsProduced"))
