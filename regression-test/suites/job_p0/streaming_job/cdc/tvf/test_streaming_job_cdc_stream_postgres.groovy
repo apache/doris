@@ -25,7 +25,7 @@ import static java.util.concurrent.TimeUnit.SECONDS
  *
  * Scenario:
  *   1. Snapshot phase (offset=initial): pre-existing rows (A1, B1) are synced.
- *   2. Binlog phase: INSERT (C1, D1) are applied.
+ *   2. Binlog phase: INSERT (C1, D1), UPDATE (C1), and DELETE (D1) are applied.
  */
 suite("test_streaming_job_cdc_stream_postgres", "p0,external,pg,external_docker,external_docker_pg,nondatalake") {
     def jobName = "test_streaming_job_cdc_stream_postgres_name"
@@ -45,9 +45,12 @@ suite("test_streaming_job_cdc_stream_postgres", "p0,external,pg,external_docker,
             `name` varchar(200) NULL,
             `age`  int NULL
         ) ENGINE=OLAP
-        DUPLICATE KEY(`name`)
+        UNIQUE KEY(`name`)
         DISTRIBUTED BY HASH(`name`) BUCKETS AUTO
-        PROPERTIES ("replication_allocation" = "tag.location.default: 1")
+        PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1",
+            "enable_unique_key_merge_on_write" = "true"
+        )
     """
 
     String enabled = context.config.otherConfigs.get("enableJdbcTest")
@@ -72,8 +75,8 @@ suite("test_streaming_job_cdc_stream_postgres", "p0,external,pg,external_docker,
         // create streaming job via cdc_stream TVF (offset=initial → snapshot then binlog)
         sql """
             CREATE JOB ${jobName}
-            ON STREAMING DO INSERT INTO ${currentDb}.${dorisTable} (name, age)
-            SELECT name, age FROM cdc_stream(
+            ON STREAMING DO INSERT INTO ${currentDb}.${dorisTable} (name, age, __DORIS_DELETE_SIGN__)
+            SELECT name, age, __DORIS_DELETE_SIGN__ FROM cdc_stream(
                 "type"         = "postgres",
                 "jdbc_url"     = "jdbc:postgresql://${externalEnvIp}:${pg_port}/${pgDB}",
                 "driver_url"   = "${driver_url}",
@@ -84,7 +87,8 @@ suite("test_streaming_job_cdc_stream_postgres", "p0,external,pg,external_docker,
                 "schema"             = "${pgSchema}",
                 "table"              = "${pgTable}",
                 "offset"             = "initial",
-                "snapshot_split_size"             = "1"
+                "snapshot_split_size" = "1",
+                "include_delete_sign" = "true"
             )
         """
 
@@ -124,6 +128,24 @@ suite("test_streaming_job_cdc_stream_postgres", "p0,external,pg,external_docker,
         }
 
         qt_final_data """ SELECT * FROM ${currentDb}.${dorisTable} ORDER BY name """
+
+        // verify incremental update
+        connect("${pgUser}", "${pgPassword}", "jdbc:postgresql://${externalEnvIp}:${pg_port}/${pgDB}") {
+            sql """UPDATE ${pgDB}.${pgSchema}.${pgTable} SET age = 30 WHERE name = 'C1'"""
+        }
+        Awaitility.await().atMost(120, SECONDS).pollInterval(2, SECONDS).until({
+            def rows = sql """SELECT age FROM ${currentDb}.${dorisTable} WHERE name = 'C1'"""
+            rows.size() == 1 && (rows.get(0).get(0) as int) == 30
+        })
+
+        // verify incremental delete
+        connect("${pgUser}", "${pgPassword}", "jdbc:postgresql://${externalEnvIp}:${pg_port}/${pgDB}") {
+            sql """DELETE FROM ${pgDB}.${pgSchema}.${pgTable} WHERE name = 'D1'"""
+        }
+        Awaitility.await().atMost(120, SECONDS).pollInterval(2, SECONDS).until({
+            def rows = sql """SELECT count(1) FROM ${currentDb}.${dorisTable} WHERE name = 'D1'"""
+            (rows.get(0).get(0) as int) == 0
+        })
 
         sql """DROP JOB IF EXISTS where jobname = '${jobName}'"""
         sql """drop table if exists ${currentDb}.${dorisTable} force"""

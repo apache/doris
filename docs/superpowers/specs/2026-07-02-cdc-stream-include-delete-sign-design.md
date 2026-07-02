@@ -37,6 +37,6 @@ job 状态持久化，因此不影响 FE image 和 edit log 兼容性。
 ## 测试方案
 
 增加 FE 单元测试，覆盖默认 schema、开启参数后的 schema，以及非法参数值。
-扩展 MySQL streaming job 回归测试，显式写入 TVF 暴露的 delete sign，并验证
-上游删除后目标行不可见。测试通过轮询可观测的 job 和数据状态进行同步，不使用
-固定时长的 sleep。
+扩展 MySQL 和 PostgreSQL streaming job 回归测试，显式写入 TVF 暴露的
+delete sign，并覆盖 snapshot、INSERT、UPDATE 和 DELETE。测试通过轮询可观测的
+job 和数据状态进行同步，不使用固定时长的 sleep。
