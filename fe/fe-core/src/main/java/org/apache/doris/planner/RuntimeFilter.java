@@ -258,6 +258,29 @@ public final class RuntimeFilter {
     }
 
     /**
+     * DFS from {@code node} down to {@code target} within the fragment (stopping at
+     * ExchangeNode boundaries). Returns null if target is not under node, otherwise
+     * whether the path crosses a LocalExchangeNode.
+     */
+    private static Boolean pathCrossesLocalExchange(PlanNode node, PlanNode target) {
+        if (node == target) {
+            return false;
+        }
+        for (PlanNode child : node.getChildren()) {
+            if (child instanceof ExchangeNode) {
+                // fragment boundary: a target behind it is a remote target, handled by
+                // has_remote_targets
+                continue;
+            }
+            Boolean sub = pathCrossesLocalExchange(child, target);
+            if (sub != null) {
+                return sub || child instanceof LocalExchangeNode;
+            }
+        }
+        return null;
+    }
+
+    /**
      * Serializes a runtime filter to Thrift.
      */
     public TRuntimeFilterDesc toThrift() {
@@ -270,11 +293,25 @@ public final class RuntimeFilter {
         tFilter.setHasRemoteTargets(hasRemoteTargets);
 
         boolean hasSerialTargets = false;
+        boolean forceLocalMerge = false;
         for (RuntimeFilterTarget target : targets) {
             tFilter.putToPlanIdToTargetExpr(target.node.getId().asInt(), ExprToThriftVisitor.treeToThrift(target.expr));
             hasSerialTargets = hasSerialTargets
                     || target.node.isSerialOperatorOnBe(ConnectContext.get());
+            // Truthful merge signal: if a LocalExchangeNode sits between the builder join
+            // and a same-fragment target scan, per-instance partial filters are not aligned
+            // with the scan's data slice and must be merged before being applied. BE used to
+            // infer this from the target scan's is_serial_operator (scan pooled => LE
+            // in between), which silently breaks once the scan is parallelized; this bit is
+            // computed from the actual plan after FE local exchange planning. In BE-planned
+            // mode (planner off) the FE tree has no LocalExchangeNodes and the bit stays
+            // false — the serial-flag inference still covers that world.
+            if (!forceLocalMerge && target.isLocalTarget) {
+                Boolean crossed = pathCrossesLocalExchange(builderNode, target.node);
+                forceLocalMerge = crossed != null && crossed;
+            }
         }
+        tFilter.setForceLocalMerge(forceLocalMerge);
 
         boolean enableSyncFilterSize = ConnectContext.get() != null
                 && ConnectContext.get().getSessionVariable().enableSyncRuntimeFilterSize();

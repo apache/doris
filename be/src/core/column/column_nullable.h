@@ -213,7 +213,8 @@ public:
 
     size_t filter(const Filter& filter) override;
 
-    Status filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) override;
+    Status filter_by_selector(const uint16_t* sel, size_t sel_size,
+                              IColumn* col_ptr) const override;
     MutableColumnPtr permute(const Permutation& perm, size_t limit) const override;
     //    ColumnPtr index(const IColumn & indexes, size_t limit) const override;
     int compare_at(size_t n, size_t m, const IColumn& rhs_, int null_direction_hint) const override;
@@ -250,7 +251,7 @@ public:
         return get_ptr();
     }
 
-    void for_each_subcolumn(MutableColumnCallback callback) override {
+    void for_each_subcolumn(ColumnCallback callback) override {
         callback(_nested_column);
 
         IColumn::WrappedPtr null_map(std::move(static_cast<ColumnUInt8::Ptr&>(_null_map)));
@@ -258,11 +259,6 @@ public:
             _null_map = cast_to_column<ColumnUInt8>(static_cast<const IColumn::Ptr&>(null_map));
         });
         callback(null_map);
-    }
-
-    void for_each_subcolumn(ColumnCallback callback) const override {
-        callback(*static_cast<const IColumn::Ptr&>(_nested_column));
-        callback(*static_cast<const ColumnUInt8::Ptr&>(_null_map));
     }
 
     bool structure_equals(const IColumn& rhs) const override {

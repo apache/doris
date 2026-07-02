@@ -23,6 +23,7 @@
 
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/exception.h"
+#include "common/logging.h"
 #include "common/status.h"
 #include "core/block/column_numbers.h"
 #include "core/block/column_with_type_and_name.h"
@@ -184,6 +185,22 @@ Status VExprContext::evaluate_inverted_index(uint32_t segment_num_rows) {
     Status st;
     RETURN_IF_CATCH_EXCEPTION({ st = _root->evaluate_inverted_index(this, segment_num_rows); });
     return st;
+}
+
+ZoneMapFilterResult VExprContext::evaluate_zonemap_filter(const VExprContextSPtrs& conjuncts,
+                                                          const ZoneMapEvalContext& ctx) {
+    for (const auto& conjunct : conjuncts) {
+        DORIS_CHECK(conjunct != nullptr);
+        const auto& root = conjunct->root();
+        DORIS_CHECK(root != nullptr);
+        if (!root->can_evaluate_zonemap_filter()) {
+            continue;
+        }
+        if (root->evaluate_zonemap_filter(ctx) == ZoneMapFilterResult::kNoMatch) {
+            return ZoneMapFilterResult::kNoMatch;
+        }
+    }
+    return ZoneMapFilterResult::kMayMatch;
 }
 
 bool VExprContext::all_expr_inverted_index_evaluated() {
@@ -386,8 +403,15 @@ Status VExprContext::execute_conjuncts_and_filter_block(const VExprContextSPtrs&
     return Status::OK();
 }
 
+// do_projection: for some query(e.g. in MultiCastDataStreamerSourceOperator::get_block()),
+// output_vexpr_ctxs will output the same column more than once, and if the output_block
+// is mem-reused later, it will trigger DCHECK_EQ(d.column->use_count(), 1) failure when
+// doing Block::clear_column_data, set do_projection to true to copy the column data to
+// avoid this problem.
 Status VExprContext::get_output_block_after_execute_exprs(
-        const VExprContextSPtrs& output_vexpr_ctxs, const Block& input_block, Block* output_block) {
+        const VExprContextSPtrs& output_vexpr_ctxs, const Block& input_block, Block* output_block,
+        bool do_projection) {
+    auto rows = input_block.rows();
     ColumnsWithTypeAndName result_columns;
     _reset_memory_usage(output_vexpr_ctxs);
 
@@ -399,7 +423,12 @@ Status VExprContext::get_output_block_after_execute_exprs(
         const auto& name = vexpr_ctx->expr_name();
 
         vexpr_ctx->_memory_usage += result_column->allocated_bytes();
-        result_columns.emplace_back(result_column, type, name);
+        if (do_projection) {
+            result_columns.emplace_back(result_column->clone_resized(rows), type, name);
+
+        } else {
+            result_columns.emplace_back(result_column, type, name);
+        }
     }
     *output_block = {result_columns};
     return Status::OK();

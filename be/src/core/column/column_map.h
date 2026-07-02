@@ -74,7 +74,7 @@ public:
 
     std::string get_name() const override;
 
-    void for_each_subcolumn(MutableColumnCallback callback) override {
+    void for_each_subcolumn(ColumnCallback callback) override {
         IColumn::WrappedPtr offsets(std::move(static_cast<COffsets::Ptr&>(offsets_column)));
         Defer defer([&] {
             static_cast<COffsets::Ptr&>(offsets_column) =
@@ -83,12 +83,6 @@ public:
         callback(keys_column);
         callback(values_column);
         callback(offsets);
-    }
-
-    void for_each_subcolumn(ColumnCallback callback) const override {
-        callback(*static_cast<const IColumn::Ptr&>(keys_column));
-        callback(*static_cast<const IColumn::Ptr&>(values_column));
-        callback(*static_cast<const COffsets::Ptr&>(offsets_column));
     }
 
     void sanity_check() const override {

@@ -448,6 +448,9 @@ if [[ " ${TP_ARCHIVES[*]} " =~ " ARROW " ]]; then
             # apache-arrow-17.0.0-force-write-int96-timestamps.patch : 
             # Introducing the parameter that forces writing int96 timestampes for compatibility with Paimon cpp. 
             patch -p1 <"${TP_PATCH_DIR}/apache-arrow-17.0.0-force-write-int96-timestamps.patch"
+
+            # Add Parquet LZO page decompression support used by file scanner v2.
+            patch -p1 <"${TP_PATCH_DIR}/apache-arrow-17.0.0-lzo.patch"
             touch "${PATCHED_MARK}"
         fi
         cd -

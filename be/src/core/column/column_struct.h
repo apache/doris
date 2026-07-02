@@ -155,8 +155,7 @@ public:
     size_t byte_size() const override;
     size_t allocated_bytes() const override;
     bool has_enough_capacity(const IColumn& src) const override;
-    void for_each_subcolumn(MutableColumnCallback callback) override;
-    void for_each_subcolumn(ColumnCallback callback) const override;
+    void for_each_subcolumn(ColumnCallback callback) override;
     bool structure_equals(const IColumn& rhs) const override;
 
     size_t tuple_size() const { return columns.size(); }

@@ -614,6 +614,8 @@ public class NodeAction extends RestBaseController {
     @PostMapping("/{action}/be")
     public Object operateBackend(HttpServletRequest request, HttpServletResponse response,
             @PathVariable("action") String action, @RequestBody BackendReqInfo reqInfo) {
+        ActionAuthorizationInfo authInfo = executeCheckPassword(request, response);
+        checkAdminAuth(authInfo.userIdentity);
         try {
             if (needRedirect(request.getScheme())) {
                 return redirectToHttps(request);
@@ -661,6 +663,8 @@ public class NodeAction extends RestBaseController {
     @PostMapping("/{action}/fe")
     public Object operateFrontends(HttpServletRequest request, HttpServletResponse response,
             @PathVariable("action") String action, @RequestBody FrontendReqInfo reqInfo) {
+        ActionAuthorizationInfo authInfo = executeCheckPassword(request, response);
+        checkAdminAuth(authInfo.userIdentity);
         try {
             if (needRedirect(request.getScheme())) {
                 return redirectToHttps(request);
@@ -693,6 +697,8 @@ public class NodeAction extends RestBaseController {
     @PostMapping("/{action}/broker")
     public Object operateBroker(HttpServletRequest request, HttpServletResponse response,
                                 @PathVariable("action") String action, @RequestBody BrokerReqInfo reqInfo) {
+        ActionAuthorizationInfo authInfo = executeCheckPassword(request, response);
+        checkAdminAuth(authInfo.userIdentity);
         try {
             if (!Env.getCurrentEnv().isMaster()) {
                 return redirectToMasterOrException(request, response);

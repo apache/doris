@@ -39,6 +39,7 @@
 #include "cloud/cloud_meta_mgr.h"
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_tablet.h"
+#include "cloud/config.h"
 #include "cloud/pb_convert.h"
 #include "common/config.h"
 #include "common/metrics/doris_metrics.h"
@@ -2020,6 +2021,10 @@ int64_t CloudCompactionMixin::num_input_rowsets() const {
 }
 
 bool CloudCompactionMixin::should_cache_compaction_output() {
+    if (config::enable_file_cache_write_index_file_only) {
+        return false;
+    }
+
     if (compaction_type() == ReaderType::READER_CUMULATIVE_COMPACTION) {
         return true;
     }

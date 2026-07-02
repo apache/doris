@@ -77,6 +77,7 @@ import io.debezium.connector.postgresql.connection.Lsn;
 import io.debezium.connector.postgresql.connection.PostgresConnection;
 import io.debezium.connector.postgresql.connection.PostgresReplicationConnection;
 import io.debezium.connector.postgresql.spi.SlotState;
+import io.debezium.jdbc.JdbcConfiguration;
 import io.debezium.jdbc.JdbcConnection;
 import io.debezium.relational.Column;
 import io.debezium.relational.TableId;
@@ -655,11 +656,12 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
                     jobId);
             return true;
         }
-        PostgresDialect dialect = new PostgresDialect(getSourceConfig(jobConfig));
+        JdbcConfiguration jdbcConfig =
+                getSourceConfig(jobConfig).getDbzConnectorConfig().getJdbcConfig();
         boolean cleaned = true;
         if (dropPub) {
             LOG.info("Dropping auto-created publication {} for job {}", pubName, jobId);
-            try (PostgresConnection connection = dialect.openJdbcConnection()) {
+            try (PostgresConnection connection = createCleanupConnection(jdbcConfig)) {
                 connection.execute("DROP PUBLICATION IF EXISTS " + pubName);
             } catch (Exception ex) {
                 LOG.warn(
@@ -668,7 +670,7 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
                         jobId,
                         ex.getMessage());
             }
-            if (publicationExists(dialect, pubName)) {
+            if (publicationExists(jdbcConfig, pubName)) {
                 LOG.warn(
                         "Publication {} for job {} still present after drop, will retry",
                         pubName,
@@ -678,8 +680,8 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
         }
         if (dropSlot) {
             LOG.info("Dropping auto-created replication slot {} for job {}", slotName, jobId);
-            try {
-                dialect.removeSlot(slotName);
+            try (PostgresConnection connection = createCleanupConnection(jdbcConfig)) {
+                connection.dropReplicationSlot(slotName);
             } catch (Exception ex) {
                 LOG.warn(
                         "Drop of replication slot {} for job {} failed: {}",
@@ -687,7 +689,7 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
                         jobId,
                         ex.getMessage());
             }
-            if (slotExists(dialect, slotName)) {
+            if (slotExists(jdbcConfig, slotName)) {
                 LOG.warn(
                         "Replication slot {} for job {} still present after drop, will retry",
                         slotName,
@@ -698,8 +700,12 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
         return cleaned;
     }
 
-    private boolean slotExists(PostgresDialect dialect, String slotName) {
-        try (PostgresConnection connection = dialect.openJdbcConnection()) {
+    static PostgresConnection createCleanupConnection(JdbcConfiguration jdbcConfig) {
+        return new PostgresConnection(jdbcConfig, PostgresConnection.CONNECTION_GENERAL);
+    }
+
+    private boolean slotExists(JdbcConfiguration jdbcConfig, String slotName) {
+        try (PostgresConnection connection = createCleanupConnection(jdbcConfig)) {
             return connection.queryAndMap(
                     "SELECT 1 FROM pg_replication_slots WHERE slot_name = '" + slotName + "'",
                     rs -> rs.next());
@@ -712,8 +718,8 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
         }
     }
 
-    private boolean publicationExists(PostgresDialect dialect, String pubName) {
-        try (PostgresConnection connection = dialect.openJdbcConnection()) {
+    private boolean publicationExists(JdbcConfiguration jdbcConfig, String pubName) {
+        try (PostgresConnection connection = createCleanupConnection(jdbcConfig)) {
             return connection.queryAndMap(
                     "SELECT 1 FROM pg_publication WHERE pubname = '" + pubName + "'",
                     rs -> rs.next());
