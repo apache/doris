@@ -17,12 +17,18 @@
 
 #include <gtest/gtest.h>
 
+#include <initializer_list>
+#include <memory>
+
+#include "common/logging.h"
 #include "core/column/column_array.h"
 #include "core/column/column_const.h"
 #include "core/column/column_map.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_struct.h"
+#include "core/column/column_variant.h"
 #include "core/column/column_vector.h"
+#include "core/data_type/data_type_number.h"
 
 namespace doris {
 namespace {
@@ -30,6 +36,14 @@ namespace {
 ColumnInt64::MutablePtr create_int64_column(int64_t value) {
     auto column = ColumnInt64::create();
     column->insert_value(value);
+    return column;
+}
+
+ColumnInt64::MutablePtr create_int64_column(std::initializer_list<int64_t> values) {
+    auto column = ColumnInt64::create();
+    for (const auto value : values) {
+        column->insert_value(value);
+    }
     return column;
 }
 
@@ -43,6 +57,15 @@ ColumnArray::ColumnOffsets::MutablePtr create_single_element_offsets() {
     auto offsets = ColumnArray::ColumnOffsets::create();
     offsets->insert_value(1);
     return offsets;
+}
+
+ColumnVariant::MutablePtr create_variant_column() {
+    auto variant = ColumnVariant::create(0, false);
+    variant->create_root(std::make_shared<DataTypeInt64>(), create_int64_column({1, 2}));
+    CHECK(variant->add_sub_column(PathInData("v.a"), create_int64_column({10, 20}),
+                                  std::make_shared<DataTypeInt64>()));
+    variant->finalize();
+    return variant;
 }
 
 } // namespace
@@ -209,6 +232,73 @@ TEST(ColumnMutateSubcolumnsTest, StructDetachesSharedSubcolumns) {
     assert_cast<ColumnUInt8&>(mutated_struct.get_column(1)).get_data()[0] = 2;
     EXPECT_EQ(assert_cast<const ColumnInt64&>(*first_alias).get_data()[0], 10);
     EXPECT_EQ(assert_cast<const ColumnUInt8&>(*second_alias).get_data()[0], 1);
+}
+
+TEST(ColumnMutateSubcolumnsTest, VariantKeepsExclusiveSubcolumns) {
+    auto variant = create_variant_column();
+    const auto* root = variant->get_subcolumns().get_root();
+    ASSERT_NE(root, nullptr);
+    ASSERT_EQ(root->data.data.size(), 1);
+    const auto* root_raw = static_cast<const IColumn::Ptr&>(root->data.data[0]).get();
+    auto* materialized = variant->get_subcolumn(PathInData("v.a"));
+    ASSERT_NE(materialized, nullptr);
+    ASSERT_EQ(materialized->data.size(), 1);
+    const auto* materialized_raw = static_cast<const IColumn::Ptr&>(materialized->data[0]).get();
+    const auto* sparse_raw = variant->get_sparse_column().get();
+    const auto* doc_value_raw = variant->get_doc_value_column().get();
+
+    ColumnPtr variant_ptr = std::move(variant);
+    auto mutated = IColumn::mutate(std::move(variant_ptr));
+    const auto& mutated_variant = assert_cast<const ColumnVariant&>(*mutated);
+    const auto* mutated_root = mutated_variant.get_subcolumns().get_root();
+    ASSERT_NE(mutated_root, nullptr);
+    ASSERT_EQ(mutated_root->data.data.size(), 1);
+    const auto* mutated_materialized = mutated_variant.get_subcolumn(PathInData("v.a"));
+    ASSERT_NE(mutated_materialized, nullptr);
+    ASSERT_EQ(mutated_materialized->data.size(), 1);
+
+    EXPECT_EQ(static_cast<const IColumn::Ptr&>(mutated_root->data.data[0]).get(), root_raw);
+    EXPECT_EQ(static_cast<const IColumn::Ptr&>(mutated_materialized->data[0]).get(),
+              materialized_raw);
+    EXPECT_EQ(mutated_variant.get_sparse_column().get(), sparse_raw);
+    EXPECT_EQ(mutated_variant.get_doc_value_column().get(), doc_value_raw);
+}
+
+TEST(ColumnMutateSubcolumnsTest, VariantDetachesSharedSubcolumns) {
+    auto variant = create_variant_column();
+    const auto* root = variant->get_subcolumns().get_root();
+    ASSERT_NE(root, nullptr);
+    ASSERT_EQ(root->data.data.size(), 1);
+    ColumnPtr root_alias = static_cast<const IColumn::Ptr&>(root->data.data[0]);
+    auto* materialized = variant->get_subcolumn(PathInData("v.a"));
+    ASSERT_NE(materialized, nullptr);
+    ASSERT_EQ(materialized->data.size(), 1);
+    ColumnPtr materialized_alias = static_cast<const IColumn::Ptr&>(materialized->data[0]);
+    ColumnPtr sparse_alias = variant->get_sparse_column();
+    ColumnPtr doc_value_alias = variant->get_doc_value_column();
+
+    ColumnPtr variant_ptr = std::move(variant);
+    auto mutated = IColumn::mutate(std::move(variant_ptr));
+    auto& mutated_variant = assert_cast<ColumnVariant&>(*mutated);
+    const auto* mutated_root = mutated_variant.get_subcolumns().get_root();
+    ASSERT_NE(mutated_root, nullptr);
+    ASSERT_EQ(mutated_root->data.data.size(), 1);
+    auto* mutated_materialized = mutated_variant.get_subcolumn(PathInData("v.a"));
+    ASSERT_NE(mutated_materialized, nullptr);
+    ASSERT_EQ(mutated_materialized->data.size(), 1);
+
+    EXPECT_NE(static_cast<const IColumn::Ptr&>(mutated_root->data.data[0]).get(), root_alias.get());
+    EXPECT_NE(static_cast<const IColumn::Ptr&>(mutated_materialized->data[0]).get(),
+              materialized_alias.get());
+    EXPECT_NE(mutated_variant.get_sparse_column().get(), sparse_alias.get());
+    EXPECT_NE(mutated_variant.get_doc_value_column().get(), doc_value_alias.get());
+
+    IColumn::Filter filter {1, 0};
+    EXPECT_EQ(mutated_variant.filter(filter), 1);
+    EXPECT_EQ(root_alias->size(), 2);
+    EXPECT_EQ(materialized_alias->size(), 2);
+    EXPECT_EQ(sparse_alias->size(), 2);
+    EXPECT_EQ(doc_value_alias->size(), 2);
 }
 
 } // namespace doris
