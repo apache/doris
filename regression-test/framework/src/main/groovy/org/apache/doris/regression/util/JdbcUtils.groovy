@@ -213,7 +213,16 @@ class JdbcUtils {
         if (value instanceof byte[]) {
             return bytesToHex((byte[]) value)
         }
+        if (isGenericComplexContainer(value)) {
+            return renderComplexValue(value)
+        }
         return value
+    }
+
+    private static boolean isGenericComplexContainer(Object value) {
+        return value != null && (value instanceof Map
+                || value.getClass().isArray()
+                || value instanceof Iterable)
     }
 
     private static boolean isArrowJsonStringContainer(Object value) {
@@ -296,8 +305,13 @@ class JdbcUtils {
 
     private static boolean isStringLikeComplexValue(Object value) {
         return value instanceof CharSequence
+                || isTextLikeObject(value)
                 || value instanceof java.time.temporal.TemporalAccessor
                 || value instanceof java.util.Date
+    }
+
+    private static boolean isTextLikeObject(Object value) {
+        return value != null && value.getClass().getName().endsWith(".Text")
     }
 
     private static String escapeComplexString(String value) {
