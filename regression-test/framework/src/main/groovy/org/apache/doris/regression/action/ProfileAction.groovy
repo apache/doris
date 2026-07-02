@@ -129,14 +129,20 @@ class ProfileAction implements SuiteAction {
 
     String getProfile(String profileId, List<String> requiredContents, long timeoutMs = DEFAULT_PROFILE_WAIT_TIMEOUT_MS,
             long intervalMs = DEFAULT_PROFILE_WAIT_INTERVAL_MS) {
+        return waitProfile({ getProfile(profileId) }, requiredContents, "Profile ${profileId}", timeoutMs, intervalMs)
+    }
+
+    String waitProfile(Closure<String> profileFetcher, List<String> requiredContents = [],
+            String profileDescription = "Profile", long timeoutMs = DEFAULT_PROFILE_WAIT_TIMEOUT_MS,
+            long intervalMs = DEFAULT_PROFILE_WAIT_INTERVAL_MS) {
         String profileText = ""
         long deadline = System.currentTimeMillis() + timeoutMs
         while (System.currentTimeMillis() <= deadline) {
-            profileText = getProfile(profileId)
+            profileText = profileFetcher.call()
             if (isProfileReady(profileText, requiredContents)) {
                 return profileText
             }
-            log.info("Profile {} is not ready, required contents: {}", profileId, requiredContents)
+            log.info("{} is not ready, required contents: {}", profileDescription, requiredContents)
             Thread.sleep(intervalMs)
         }
         return profileText
