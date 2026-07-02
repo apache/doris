@@ -2017,8 +2017,7 @@ Status SegmentIterator::_vec_init_lazy_materialization() {
         }
 
         if (_enable_multi_stage_predicate_lazy_materialization) {
-            const bool has_explicit_stage1_columns =
-                    !_opts.predicate_lm_stage1_column_ids.empty();
+            const bool has_explicit_stage1_columns = !_opts.predicate_lm_stage1_column_ids.empty();
             bool has_valid_explicit_stage1_column = false;
             if (has_explicit_stage1_columns) {
                 stage1_pred_col_id_set.insert(_opts.predicate_lm_stage1_column_ids.begin(),
@@ -3345,8 +3344,8 @@ Status SegmentIterator::_next_batch_internal(Block* block) {
                             if (_is_need_vec_eval_late) {
                                 _sel_rowid_idx_stage2.resize(stage2_rows_read);
                                 uint16_t stage2_size_all = _evaluate_vectorization_predicate(
-                                        _late_pre_eval_block_predicate, _sel_rowid_idx_stage2.data(),
-                                        stage2_rows_read);
+                                        _late_pre_eval_block_predicate,
+                                        _sel_rowid_idx_stage2.data(), stage2_rows_read);
 
                                 _sel_rowid_idx.clear();
                                 _sel_rowid_idx.reserve(
