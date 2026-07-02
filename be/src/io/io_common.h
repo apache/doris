@@ -107,6 +107,10 @@ struct IOContext {
     // if `is_warmup` == true, this I/O request is from a warm up task
     bool is_warmup {false};
     int64_t condition_cache_filtered_rows = 0;
+    // Rows removed by file-local predicate conjuncts inside FileReader/TableReader. Scanner-level
+    // output filtering already records its own unselected rows; this counter carries the rows that
+    // were filtered before the block returned to Scanner.
+    int64_t predicate_filtered_rows = 0;
 };
 
 } // namespace io

@@ -355,6 +355,12 @@ struct TPaimonDeletionFileDesc {
     3: optional i64 length;
 }
 
+enum TPaimonReaderType {
+    PAIMON_NATIVE = 0,
+    PAIMON_JNI = 1,
+    PAIMON_CPP = 2,
+}
+
 struct TPaimonFileDesc {
     1: optional string paimon_split
     2: optional string paimon_column_names
@@ -372,6 +378,8 @@ struct TPaimonFileDesc {
     14: optional string paimon_table  // deprecated
     15: optional i64 row_count // deprecated
     16: optional i64 schema_id; // for schema change.
+    // Reader implementation for logical paimon split. Native file split uses range format type.
+    17: optional TPaimonReaderType reader_type;
 }
 
 struct TTrinoConnectorFileDesc {
