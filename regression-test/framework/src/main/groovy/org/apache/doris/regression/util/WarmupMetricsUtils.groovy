@@ -265,4 +265,259 @@ class WarmupMetricsUtils {
         logger.warn("waitForMetricsStable timed out after ${timeoutMs}ms")
         return getWarmupMetrics(sqlRunner, srcCluster, dstCluster)
     }
+
+    static List<Map> showWarmupJobs(Closure sqlRunner) {
+        def rows = sqlRunner("SHOW WARM UP JOB")
+        return rows.collect { row -> normalizeWarmupJobRow(row) }
+    }
+
+    static Map showWarmupJob(Closure sqlRunner, Object jobId) {
+        def rows = sqlRunner("SHOW WARM UP JOB WHERE ID = ${jobId}")
+        if (rows == null || rows.isEmpty()) {
+            throw new RuntimeException("warmup job ${jobId} not found")
+        }
+        return normalizeWarmupJobRow(rows[0])
+    }
+
+    static Map normalizeWarmupJobRow(Object row) {
+        List values = row as List
+        return [
+                jobId          : values[0]?.toString(),
+                srcCluster     : values[1]?.toString(),
+                dstCluster     : values[2]?.toString(),
+                status         : values[3]?.toString(),
+                type           : values[4]?.toString(),
+                syncMode       : values[5]?.toString(),
+                createTime     : values[6]?.toString(),
+                startTime      : values[7]?.toString(),
+                finishedTime   : values[8]?.toString(),
+                allBatch       : values[9]?.toString(),
+                finishedBatch  : values[10]?.toString(),
+                errMsg         : values[11]?.toString(),
+                tableOrPattern : values.size() > 12 ? values[12]?.toString() : "",
+                tableFilter    : values.size() > 13 ? values[13]?.toString() : "",
+                matchedTables  : values.size() > 14 ? values[14]?.toString() : "",
+                syncStats      : values.size() > 15 ? values[15]?.toString() : "",
+                raw            : values,
+        ]
+    }
+
+    static boolean isNormalWarmupJob(Map row) {
+        String syncMode = row.syncMode ?: ""
+        return syncMode.startsWith("ONCE") || syncMode.startsWith("PERIODIC")
+    }
+
+    static boolean isEventDrivenWarmupJob(Map row) {
+        String syncMode = row.syncMode ?: ""
+        return syncMode.startsWith("EVENT_DRIVEN")
+    }
+
+    static List<Map> showWarmupJobsByDst(Closure sqlRunner, String dstCluster) {
+        return showWarmupJobs(sqlRunner).findAll { it.dstCluster == dstCluster }
+    }
+
+    static long countRunningNormalWarmupByDst(Closure sqlRunner, String dstCluster) {
+        return showWarmupJobsByDst(sqlRunner, dstCluster).count {
+            isNormalWarmupJob(it) && it.status == "RUNNING"
+        } as long
+    }
+
+    static List<Map> snapshotWarmupJobs(Closure sqlRunner) {
+        return showWarmupJobs(sqlRunner).collect { new LinkedHashMap<>(it) }
+    }
+
+    static Map<String, Map> snapshotWarmupJobsById(Closure sqlRunner) {
+        Map<String, Map> result = [:]
+        snapshotWarmupJobs(sqlRunner).each { result[it.jobId] = it }
+        return result
+    }
+
+    static void waitForOnlyOneRunningNormalWarmup(Closure sqlRunner, String dstCluster,
+                                                  long timeoutMs = 30000) {
+        long deadline = System.currentTimeMillis() + timeoutMs
+        long lastCount = -1
+        while (System.currentTimeMillis() < deadline) {
+            lastCount = countRunningNormalWarmupByDst(sqlRunner, dstCluster)
+            if (lastCount <= 1) {
+                return
+            }
+            Thread.sleep(1000)
+        }
+        throw new RuntimeException("expected at most one running normal warmup on ${dstCluster}, last=${lastCount}")
+    }
+
+    static Map waitForWarmupJobsRecovered(Closure sqlRunner, Map<String, Map> beforeSnapshot,
+                                          Closure<Boolean> predicate, long timeoutMs = 60000) {
+        long deadline = System.currentTimeMillis() + timeoutMs
+        Map<String, Map> current = [:]
+        while (System.currentTimeMillis() < deadline) {
+            current = snapshotWarmupJobsById(sqlRunner)
+            if (predicate(beforeSnapshot, current)) {
+                return current
+            }
+            Thread.sleep(1000)
+        }
+        return current
+    }
+
+    static Map waitForPeriodicCycles(Closure sqlRunner, Object jobId, int minTransitions,
+                                     long timeoutMs = 120000) {
+        long deadline = System.currentTimeMillis() + timeoutMs
+        List<String> states = []
+        String lastState = null
+        while (System.currentTimeMillis() < deadline) {
+            def row = showWarmupJob(sqlRunner, jobId)
+            if (row.status != lastState) {
+                states << row.status
+                lastState = row.status
+            }
+            int transitions = 0
+            for (int i = 1; i < states.size(); i++) {
+                if (states[i - 1] == "RUNNING" && (states[i] == "PENDING" || states[i] == "WAITING")) {
+                    transitions++
+                }
+            }
+            if (transitions >= minTransitions) {
+                return [states: states, row: row]
+            }
+            Thread.sleep(1000)
+        }
+        return [states: states, row: showWarmupJob(sqlRunner, jobId)]
+    }
+
+    static List<Map> sampleJobTimeline(Closure sqlRunner, Object jobId, long durationMs,
+                                       long intervalMs = 1000) {
+        long deadline = System.currentTimeMillis() + durationMs
+        List<Map> samples = []
+        while (System.currentTimeMillis() < deadline) {
+            def row = showWarmupJob(sqlRunner, jobId)
+            samples << [
+                    ts      : System.currentTimeMillis(),
+                    status  : row.status,
+                    start   : row.startTime,
+                    finished: row.finishedTime,
+                    syncMode: row.syncMode,
+            ]
+            Thread.sleep(intervalMs)
+        }
+        return samples
+    }
+
+    static List<Map> collectWarmupJobsByCluster(Closure sqlRunner, String clusterName) {
+        return showWarmupJobs(sqlRunner).findAll {
+            it.srcCluster == clusterName || it.dstCluster == clusterName
+        }
+    }
+
+    static void assertAffectedJobsCancelled(Closure sqlRunner, Collection<String> jobIds,
+                                            long timeoutMs = 60000) {
+        long deadline = System.currentTimeMillis() + timeoutMs
+        Map<String, String> lastStates = [:]
+        while (System.currentTimeMillis() < deadline) {
+            boolean allCancelled = true
+            for (String jobId in jobIds) {
+                def row = showWarmupJob(sqlRunner, jobId)
+                lastStates[jobId] = row.status
+                if (row.status != "CANCELLED") {
+                    allCancelled = false
+                }
+            }
+            if (allCancelled) {
+                return
+            }
+            Thread.sleep(1000)
+        }
+        throw new RuntimeException("expected jobs cancelled, lastStates=${lastStates}")
+    }
+
+    static void assertUnrelatedJobsUnaffected(Closure sqlRunner, Collection<String> jobIds,
+                                              Collection<String> allowedStatuses = ["RUNNING", "PENDING", "FINISHED"]) {
+        for (String jobId in jobIds) {
+            def row = showWarmupJob(sqlRunner, jobId)
+            if (!allowedStatuses.contains(row.status)) {
+                throw new RuntimeException("unrelated warmup job ${jobId} entered unexpected status ${row.status}")
+            }
+        }
+    }
+
+    static String expectCreateConflict(Closure sqlRunner, Closure createJob) {
+        try {
+            createJob.call()
+        } catch (Throwable t) {
+            return t.message ?: t.toString()
+        }
+        throw new RuntimeException("expected warmup create conflict, but statement succeeded")
+    }
+
+    static void assertConflictMessage(String message, Collection<String> expectedKeywords) {
+        expectedKeywords.each { keyword ->
+            if (!(message?.toLowerCase()?.contains(keyword.toLowerCase()))) {
+                throw new RuntimeException("expected conflict message to contain '${keyword}', actual=${message}")
+            }
+        }
+    }
+
+    static List<String> getVcgWarmupJobIds(Closure sqlRunner, String srcCluster, String dstCluster) {
+        return showWarmupJobs(sqlRunner).findAll {
+            it.srcCluster == srcCluster && it.dstCluster == dstCluster
+        }.collect { it.jobId }
+    }
+
+    static List<Map> waitForWarmupJobsByPair(Closure sqlRunner, String srcCluster, String dstCluster,
+                                             int minCount = 1, long timeoutMs = 120000) {
+        long deadline = System.currentTimeMillis() + timeoutMs
+        List<Map> rows = []
+        while (System.currentTimeMillis() < deadline) {
+            rows = showWarmupJobs(sqlRunner).findAll {
+                it.srcCluster == srcCluster && it.dstCluster == dstCluster
+            }
+            if (rows.size() >= minCount) {
+                return rows
+            }
+            Thread.sleep(1000)
+        }
+        return rows
+    }
+
+    static List<String> waitForVcgWarmupRecreated(Closure sqlRunner, String srcCluster, String dstCluster,
+                                                  Collection<String> oldJobIds, int minNewJobs = 1,
+                                                  long timeoutMs = 120000) {
+        long deadline = System.currentTimeMillis() + timeoutMs
+        List<String> newJobs = []
+        while (System.currentTimeMillis() < deadline) {
+            newJobs = getVcgWarmupJobIds(sqlRunner, srcCluster, dstCluster).findAll {
+                !oldJobIds.contains(it)
+            }
+            if (newJobs.size() >= minNewJobs) {
+                return newJobs
+            }
+            Thread.sleep(1000)
+        }
+        return newJobs
+    }
+
+    static void assertHistoricalJobsCancelled(Closure sqlRunner, Collection<String> jobIds,
+                                              long timeoutMs = 120000) {
+        assertAffectedJobsCancelled(sqlRunner, jobIds.collect { it.toString() }, timeoutMs)
+    }
+
+    static Map waitForWarmupStatsResume(Closure sqlRunner, Object jobId, Closure<Boolean> predicate,
+                                        long timeoutMs = 120000) {
+        return waitForJobSyncStats(sqlRunner, jobId, predicate, timeoutMs)
+    }
+
+    static void waitForJobStatus(Closure sqlRunner, Object jobId, Collection<String> expectedStatuses,
+                                 long timeoutMs = 60000) {
+        long deadline = System.currentTimeMillis() + timeoutMs
+        String lastStatus = null
+        while (System.currentTimeMillis() < deadline) {
+            def row = showWarmupJob(sqlRunner, jobId)
+            lastStatus = row.status
+            if (expectedStatuses.contains(lastStatus)) {
+                return
+            }
+            Thread.sleep(1000)
+        }
+        throw new RuntimeException("warmup job ${jobId} status ${lastStatus} not in ${expectedStatuses}")
+    }
 }

@@ -926,6 +926,9 @@ public class CloudWarmUpJob implements Writable {
 
         // make sure only one job runs concurrently for one destination cluster
         if (!((CloudEnv) Env.getCurrentEnv()).getCacheHotspotMgr().tryRegisterRunningJob(this)) {
+            LOG.debug("warmup-lock pending-blocked jobId={} srcCluster={} dstCluster={} syncMode={} jobType={} "
+                            + "state={}",
+                    jobId, srcClusterName, dstClusterName, syncMode, jobType, jobState);
             return;
         }
 
@@ -948,7 +951,9 @@ public class CloudWarmUpJob implements Writable {
         MetricRepo.increaseClusterWarmUpJobExecCount(dstClusterName);
         this.jobState = JobState.RUNNING;
         Env.getCurrentEnv().getEditLog().logModifyCloudWarmUpJob(this);
-        LOG.info("transfer cloud warm up job {} state to {}", jobId, this.jobState);
+        LOG.info("warmup-lock state-transition jobId={} srcCluster={} dstCluster={} syncMode={} jobType={} "
+                        + "fromState=PENDING toState={} totalTablets={}",
+                jobId, srcClusterName, dstClusterName, syncMode, jobType, this.jobState, totalTablets);
     }
 
     private List<TJobMeta> buildJobMetas(long beId, long batchId) {
@@ -1123,6 +1128,13 @@ public class CloudWarmUpJob implements Writable {
                         if (this.isPeriodic()) {
                             // wait for next schedule
                             this.jobState = JobState.PENDING;
+                            long nextScheduleTimeMs = finishedTimeMs + getSyncInterval() * 1000;
+                            LOG.debug("warmup-periodic reschedule jobId={} srcCluster={} dstCluster={} "
+                                            + "syncIntervalSec={} lastFinishTimeMs={} nextScheduleTimeMs={} nowMs={} "
+                                            + "triggerImmediately={}",
+                                    jobId, srcClusterName, dstClusterName, getSyncInterval(),
+                                    finishedTimeMs, nextScheduleTimeMs, System.currentTimeMillis(),
+                                    System.currentTimeMillis() >= nextScheduleTimeMs);
                         } else {
                             // release job
                             this.jobState = JobState.FINISHED;
