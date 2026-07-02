@@ -44,6 +44,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.thrift.TExprOpcode;
 
 import com.google.common.collect.ImmutableList;
@@ -189,10 +190,9 @@ public class PushDownScoreTopNIntoOlapScan implements RewriteRuleFactory {
         }
 
         // When limit + offset overflows the long range, the pushed scan limit would wrap to a
-        // negative value. Fail with the same error as ordinary TopN instead of leaving score()
-        // unmaterialized and reporting an unrelated score() usage error.
-        if (topN.getLimit() > Long.MAX_VALUE - topN.getOffset()) {
-            throw new AnalysisException("limit + offset overflows the long range");
+        // negative value; skip the push-down and let the TopN above the scan apply limit/offset.
+        if (Utils.addOverflows(topN.getLimit(), topN.getOffset())) {
+            return null;
         }
 
         long scoreLimit = topN.getLimit() + topN.getOffset();
