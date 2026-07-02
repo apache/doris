@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.property.storage;
 
+import org.apache.doris.cloud.proto.Cloud.CredProviderTypePB;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.UserException;
@@ -314,7 +315,25 @@ public class S3PropertiesTest {
         Assertions.assertNotNull(provider);
         Assertions.assertTrue(provider instanceof AwsCredentialsProviderChain);
         Assertions.assertEquals("software.amazon.awssdk.auth.credentials.EnvironmentVariableCredentialsProvider,software.amazon.awssdk.auth.credentials.SystemPropertyCredentialsProvider,software.amazon.awssdk.auth.credentials.InstanceProfileCredentialsProvider,software.amazon.awssdk.auth.credentials.AnonymousCredentialsProvider", s3Props.getHadoopStorageConfig().get("fs.s3a.aws.credentials.provider"));
+    }
 
+    @Test
+    public void testS3CredentialsProviderTypeWithoutIamRoleForCloud() {
+        origProps.put("s3.endpoint", "s3.us-west-2.amazonaws.com");
+        origProps.put("s3.region", "us-west-2");
+        origProps.put("s3.bucket", "bucket");
+        origProps.put("s3.root.path", "root");
+        origProps.put("s3.credentials_provider_type", "instance_profile");
+
+        Assertions.assertEquals(CredProviderTypePB.INSTANCE_PROFILE,
+                S3Properties.getObjStoreInfoPB(origProps).getCredProviderType());
+        Assertions.assertFalse(S3Properties.getObjStoreInfoPB(origProps).hasRoleArn());
+
+        origProps.remove("s3.credentials_provider_type");
+        origProps.put("AWS_CREDENTIALS_PROVIDER_TYPE", "instance_profile");
+        Assertions.assertEquals(CredProviderTypePB.INSTANCE_PROFILE,
+                S3Properties.getObjStoreInfoPB(origProps).getCredProviderType());
+        Assertions.assertFalse(S3Properties.getObjStoreInfoPB(origProps).hasRoleArn());
     }
 
     @Test

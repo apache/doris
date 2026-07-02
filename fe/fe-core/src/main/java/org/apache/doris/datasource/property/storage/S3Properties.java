@@ -18,7 +18,6 @@
 package org.apache.doris.datasource.property.storage;
 
 import org.apache.doris.cloud.proto.Cloud;
-import org.apache.doris.cloud.proto.Cloud.CredProviderTypePB;
 import org.apache.doris.cloud.proto.Cloud.ObjectStoreInfoPB.Provider;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -472,6 +471,7 @@ public class S3Properties extends AbstractS3CompatibleProperties {
 
         public static final String ROLE_ARN = "AWS_ROLE_ARN";
         public static final String EXTERNAL_ID = "AWS_EXTERNAL_ID";
+        public static final String CREDENTIALS_PROVIDER_TYPE = "AWS_CREDENTIALS_PROVIDER_TYPE";
 
         public static final List<String> REQUIRED_FIELDS = Arrays.asList(ENDPOINT);
         public static final List<String> FS_KEYS = Arrays.asList(ENDPOINT, REGION, ACCESS_KEY, SECRET_KEY, TOKEN,
@@ -561,6 +561,9 @@ public class S3Properties extends AbstractS3CompatibleProperties {
         if (properties.containsKey(Env.EXTERNAL_ID)) {
             properties.putIfAbsent(EXTERNAL_ID, properties.get(Env.EXTERNAL_ID));
         }
+        if (properties.containsKey(Env.CREDENTIALS_PROVIDER_TYPE)) {
+            properties.putIfAbsent(CREDENTIALS_PROVIDER_TYPE, properties.get(Env.CREDENTIALS_PROVIDER_TYPE));
+        }
     }
 
     private static final Pattern IPV4_PORT_PATTERN = Pattern.compile("((?:\\d{1,3}\\.){3}\\d{1,3}:\\d{1,5})");
@@ -591,6 +594,23 @@ public class S3Properties extends AbstractS3CompatibleProperties {
         properties.putIfAbsent(Env.MAX_CONNECTIONS, Env.DEFAULT_MAX_CONNECTIONS);
         properties.putIfAbsent(Env.REQUEST_TIMEOUT_MS, Env.DEFAULT_REQUEST_TIMEOUT_MS);
         properties.putIfAbsent(Env.CONNECTION_TIMEOUT_MS, Env.DEFAULT_CONNECTION_TIMEOUT_MS);
+    }
+
+    private static boolean hasCredentialsProviderType(Map<String, String> properties) {
+        return properties.containsKey(CREDENTIALS_PROVIDER_TYPE)
+                || properties.containsKey(Env.CREDENTIALS_PROVIDER_TYPE);
+    }
+
+    private static Cloud.CredProviderTypePB getCredProviderTypePB(Map<String, String> properties) {
+        String modeValue = properties.get(CREDENTIALS_PROVIDER_TYPE);
+        if (StringUtils.isBlank(modeValue)) {
+            modeValue = properties.get(Env.CREDENTIALS_PROVIDER_TYPE);
+        }
+        AwsCredentialsProviderMode mode = AwsCredentialsProviderMode.fromString(
+                StringUtils.defaultIfBlank(modeValue, AwsCredentialsProviderMode.INSTANCE_PROFILE.name()));
+        Preconditions.checkArgument(mode == AwsCredentialsProviderMode.INSTANCE_PROFILE,
+                "Unsupported AWS credentials provider mode for cloud storage vault: %s", mode);
+        return Cloud.CredProviderTypePB.INSTANCE_PROFILE;
     }
 
     public static Cloud.ObjectStoreInfoPB.Builder getObjStoreInfoPB(Map<String, String> properties) {
@@ -632,12 +652,21 @@ public class S3Properties extends AbstractS3CompatibleProperties {
             builder.setUsePathStyle(value.equalsIgnoreCase("true"));
         }
 
+        if (hasCredentialsProviderType(properties)) {
+            builder.setCredProviderType(getCredProviderTypePB(properties));
+        }
+
         if (properties.containsKey(S3Properties.ROLE_ARN)) {
-            builder.setRoleArn(properties.get(S3Properties.ROLE_ARN));
-            if (properties.containsKey(S3Properties.EXTERNAL_ID)) {
+            String roleArn = properties.get(S3Properties.ROLE_ARN);
+            if (!Strings.isNullOrEmpty(roleArn)) {
+                builder.setRoleArn(roleArn);
+            }
+            if (!Strings.isNullOrEmpty(roleArn) && properties.containsKey(S3Properties.EXTERNAL_ID)) {
                 builder.setExternalId(properties.get(S3Properties.EXTERNAL_ID));
             }
-            builder.setCredProviderType(CredProviderTypePB.INSTANCE_PROFILE);
+            if (!Strings.isNullOrEmpty(roleArn) && !builder.hasCredProviderType()) {
+                builder.setCredProviderType(getCredProviderTypePB(properties));
+            }
         }
 
         return builder;
