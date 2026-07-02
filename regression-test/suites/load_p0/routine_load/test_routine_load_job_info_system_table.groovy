@@ -139,6 +139,16 @@ suite("test_routine_load_job_info_system_table","p0") {
             log.info("compute group res: ${computeGroupRes}".toString())
             assertTrue(computeGroupRes.size() > 0)
             assertNotNull(computeGroupRes[0][1])
+
+            def lastTaskScheduleTimeRes = sql """
+                SELECT JOB_NAME, LAST_TASK_SCHEDULE_TIME
+                FROM information_schema.routine_load_jobs
+                WHERE JOB_NAME = '${jobName}'
+            """
+            log.info("last task schedule time res: ${lastTaskScheduleTimeRes}".toString())
+            assertTrue(lastTaskScheduleTimeRes.size() > 0)
+            assertNotNull(lastTaskScheduleTimeRes[0][1])
+            assertTrue(lastTaskScheduleTimeRes[0][1].toString().length() > 0)
         } finally {
             sql "stop routine load for ${jobName}"
             sql "DROP TABLE IF EXISTS ${tableName}"
