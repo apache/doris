@@ -79,8 +79,8 @@ start-thriftserver.sh \
   --conf spark.dynamicAllocation.enabled=false \
   --conf spark.cores.max=8 \
   --conf spark.executor.cores=4 \
-  --conf spark.executor.memory=8g \
-  --conf spark.driver.memory=4g \
+  --conf spark.executor.memory=1g \
+  --conf spark.driver.memory=1g \
   --conf spark.sql.shuffle.partitions=16 \
   --conf spark.default.parallelism=16 \
   --driver-java-options "-Dderby.system.home=/tmp/derby"
