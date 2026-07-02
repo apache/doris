@@ -216,6 +216,18 @@ suite("test_routine_load_job_info_system_table","p0") {
             assertTrue(lastTaskScheduleTimeRes.size() > 0)
             assertNotNull(lastTaskScheduleTimeRes[0][1])
             assertTrue(lastTaskScheduleTimeRes[0][1].toString().length() > 0)
+
+            // Verify SHOW ROUTINE LOAD also includes LastTaskScheduleTime
+            def showRoutineLoadRes = sql "SHOW ROUTINE LOAD FOR ${scheduleJobName}"
+            log.info("show routine load res: ${showRoutineLoadRes}".toString())
+            assertTrue(showRoutineLoadRes.size() > 0)
+            // LastTaskScheduleTime should be the last column (index 23, after ComputeGroup at index 22)
+            def lastTaskScheduleTimeFromShow = showRoutineLoadRes[0][23]
+            log.info("LastTaskScheduleTime from SHOW ROUTINE LOAD: ${lastTaskScheduleTimeFromShow}".toString())
+            assertNotNull(lastTaskScheduleTimeFromShow)
+            assertTrue(lastTaskScheduleTimeFromShow.toString().length() > 0)
+            // Verify consistency between SHOW ROUTINE LOAD and system table
+            assertEquals(lastTaskScheduleTimeRes[0][1].toString(), lastTaskScheduleTimeFromShow.toString())
         } finally {
             try_sql "stop routine load for ${scheduleJobName}"
             try_sql "stop routine load for ${jobName}"
