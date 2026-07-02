@@ -16,6 +16,19 @@
 // under the License.
 
 suite("partition_key_minmax") {
+    def waitIndexRowCountReported = { tableName, expectedRowCount ->
+        def lastResult = null
+        for (int i = 0; i < 60; i++) {
+            lastResult = sql """show index stats ${tableName} ${tableName};"""
+            logger.info("${tableName} index stats: " + lastResult)
+            if (lastResult[0][4].toString() == expectedRowCount.toString()) {
+                return
+            }
+            sleep(1000)
+        }
+        throw new Exception("${tableName} row count report timeout, last index stats: ${lastResult}")
+    }
+
     sql """
         drop table if exists rangetable;
         create table rangetable (a int,
@@ -32,6 +45,7 @@ suite("partition_key_minmax") {
 
         analyze table rangetable with sync;
     """
+    waitIndexRowCountReported("rangetable", 4)
     def columnStats = sql """show column cached stats rangetable"""
     logger.info("rangetable cached stats: " + columnStats)
     explain {
@@ -63,6 +77,7 @@ suite("partition_key_minmax") {
 
     analyze table listtable with sync;
     """
+    waitIndexRowCountReported("listtable", 3)
 
     columnStats = sql """show column cached stats listtable"""
     logger.info("listtable cached stats: " + columnStats)
@@ -74,4 +89,3 @@ suite("partition_key_minmax") {
         contains("id#0 -> ndv=1.0000, min=3.000000(3), max=3.000000(3), count=1.0000")
     }
 }
-
