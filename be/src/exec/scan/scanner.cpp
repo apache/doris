@@ -87,9 +87,10 @@ Status Scanner::init(RuntimeState* state, const VExprContextSPtrs& conjuncts) {
     // Pure slot-ref projections do not compute new values; they only reorder or forward scan
     // columns. Record the source column ids once here so the hot projection path can move the
     // existing ColumnPtr instead of executing VSlotRef and then mutating it, which would clone
-    // the column when the input block still shares the same pointer.
-    if (!_projections.empty() && _intermediate_projections.empty() && _conjuncts.empty() &&
-        _limit <= 0 && _shared_scan_limit == nullptr && _output_row_descriptor != nullptr &&
+    // the column when the input block still shares the same pointer. Conjuncts are safe for this
+    // path because Scanner filters the source block before running output projections.
+    if (!_projections.empty() && _intermediate_projections.empty() && _limit <= 0 &&
+        _shared_scan_limit == nullptr && _output_row_descriptor != nullptr &&
         _output_row_descriptor->num_materialized_slots() == _projections.size()) {
         std::vector<int> direct_slot_ref_projection_column_ids;
         direct_slot_ref_projection_column_ids.reserve(_projections.size());
