@@ -188,7 +188,8 @@ public class PostgresDebeziumJsonDeserializer extends DebeziumJsonDeserializer {
             String colType = SchemaChangeHelper.columnToDorisType(col);
             // Do not propagate source DEFAULT expressions or NOT NULL. PostgreSQL evaluates
             // defaults before writing new rows to WAL, so subsequent DML carries the actual value.
-            // Existing Doris rows are not backfilled and must remain valid with NULL in this column.
+            // Existing Doris rows are not backfilled and must remain valid with NULL in this
+            // column.
             ddls.add(
                     SchemaChangeHelper.buildAddColumnSql(
                             db,
@@ -215,5 +216,4 @@ public class PostgresDebeziumJsonDeserializer extends DebeziumJsonDeserializer {
         String tableName = source.getString(TABLE_NAME_KEY);
         return new TableId(null, schemaName, tableName);
     }
-
 }
