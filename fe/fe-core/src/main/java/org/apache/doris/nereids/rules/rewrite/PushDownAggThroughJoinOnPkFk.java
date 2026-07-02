@@ -42,6 +42,7 @@ import java.util.ArrayList;
 import java.util.BitSet;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -100,7 +101,7 @@ public class PushDownAggThroughJoinOnPkFk implements RewriteRuleFactory {
             LogicalAggregate<?> newAgg =
                     eliminatePrimaryOutput(agg, subJoin, primaryAndForeign.first, primaryAndForeign.second);
             if (newAgg == null) {
-                return null;
+                continue;
             }
             LogicalJoin<?, ?> newJoin = innerJoinCluster
                     .constructJoinWithPrimary(e.getKey(), subJoin, primaryAndForeign.first);
@@ -279,7 +280,8 @@ public class PushDownAggThroughJoinOnPkFk implements RewriteRuleFactory {
      *        a       b
      */
     static class InnerJoinCluster {
-        private final Map<BitSet, LogicalJoin<?, ?>> innerJoins = new HashMap<>();
+        private final Map<BitSet, LogicalJoin<?, ?>> innerJoins = new LinkedHashMap<>();
+        private final Map<BitSet, int[]> joinChildLeaves = new HashMap<>();
         private final List<Plan> leaf = new ArrayList<>();
 
         void collectContiguousInnerJoins(Plan plan) {
@@ -295,14 +297,21 @@ public class PushDownAggThroughJoinOnPkFk implements RewriteRuleFactory {
                 Set<Slot> inputSlots = join.getInputSlots();
                 BitSet childrenIndices = new BitSet();
                 List<Plan> children = new ArrayList<>();
+                int[] childLeaves = new int[2];
+                int childIdx = 0;
                 for (int i = 0; i < leaf.size(); i++) {
                     if (!Sets.intersection(leaf.get(i).getOutputSet(), inputSlots).isEmpty()) {
                         childrenIndices.set(i);
                         children.add(leaf.get(i));
+                        if (childIdx < 2) {
+                            childLeaves[childIdx] = i;
+                        }
+                        childIdx++;
                     }
                 }
                 if (childrenIndices.cardinality() == 2) {
                     join = join.withChildren(children);
+                    joinChildLeaves.put(childrenIndices, childLeaves);
                 }
                 innerJoins.put(childrenIndices, join);
             }
@@ -340,14 +349,73 @@ public class PushDownAggThroughJoinOnPkFk implements RewriteRuleFactory {
                         continue;
                     }
                     if (currentBitset.isEmpty()) {
+                        // Start with the first available join that is a subset of target
+                        BitSet entryBitset = entry.getKey();
+                        // The join should cover at most what's in the target
+                        BitSet outsideTarget = (BitSet) entryBitset.clone();
+                        outsideTarget.andNot(bitSet);
+                        if (!outsideTarget.isEmpty()) {
+                            continue;
+                        }
                         addJoin = true;
-                        currentBitset.or(entry.getKey());
+                        currentBitset.or(entryBitset);
                         currentPlan = entry.getValue();
                         forbiddenJoin.add(entry.getKey());
                     } else if (currentBitset.intersects(entry.getKey())) {
+                        // The new join shares leaves with the current accumulated plan.
+                        // We need to replace the shared child with currentPlan.
+                        BitSet entryBitset = entry.getKey();
+
+                        // Ensure the new join doesn't introduce leaves outside the target
+                        BitSet outsideTarget = (BitSet) entryBitset.clone();
+                        outsideTarget.andNot(bitSet);
+                        if (!outsideTarget.isEmpty()) {
+                            continue;
+                        }
+
+                        // Find which leaf is shared and which is new
+                        BitSet sharedBits = (BitSet) entryBitset.clone();
+                        sharedBits.and(currentBitset);
+
+                        BitSet newBits = (BitSet) entryBitset.clone();
+                        newBits.andNot(currentBitset);
+
+                        if (sharedBits.isEmpty()) {
+                            continue;
+                        }
+
+                        LogicalJoin<?, ?> entryJoin = entry.getValue();
+                        int sharedLeaf = sharedBits.nextSetBit(0);
+
+                        // Determine the new child: it could be a single leaf or a sub-plan
+                        Plan newChild;
+                        if (newBits.cardinality() == 1) {
+                            newChild = leaf.get(newBits.nextSetBit(0));
+                        } else if (newBits.cardinality() == 0) {
+                            // Both leaves already covered, skip
+                            continue;
+                        } else {
+                            // Multiple new leaves, recursively construct
+                            newChild = constructPlan(newBits, new HashSet<>(forbiddenJoin));
+                            if (newChild == null) {
+                                continue;
+                            }
+                        }
+
+                        // Determine which child of entryJoin covers the shared leaf
+                        int[] childLeaves = joinChildLeaves.get(entryBitset);
+                        if (childLeaves != null && childLeaves[1] == sharedLeaf) {
+                            // Right child covers the shared leaf,
+                            // replace right child with currentPlan
+                            currentPlan = entryJoin.withChildren(newChild, currentPlan);
+                        } else {
+                            // Left child covers the shared leaf,
+                            // replace left child with currentPlan
+                            currentPlan = entryJoin.withChildren(currentPlan, newChild);
+                        }
+
                         addJoin = true;
-                        currentBitset.or(entry.getKey());
-                        currentPlan = currentPlan.withChildren(currentPlan, entry.getValue());
+                        currentBitset.or(entryBitset);
                         forbiddenJoin.add(entry.getKey());
                     }
                 }
