@@ -2019,7 +2019,7 @@ Status TableColumnMapper::localize_filters(const std::vector<TableFilter>& table
             Status clone_status;
             try {
                 clone_status = clone_table_expr_tree(table_filter.conjunct->root(), &rewrite_root);
-            } catch (const Exception& e) {
+            } catch ([[maybe_unused]] const Exception& e) {
                 // Some table filters contain complex intermediate values, for example
                 // `element_at(MAP_VALUES(m)[1], 'age') > 30`. The current file-local rewrite only
                 // understands top-level slots and struct-element paths rooted at top-level slots;
@@ -2033,7 +2033,7 @@ Status TableColumnMapper::localize_filters(const std::vector<TableFilter>& table
 #else
                 continue;
 #endif
-            } catch (const std::exception& e) {
+            } catch ([[maybe_unused]] const std::exception& e) {
 #ifndef NDEBUG
                 return Status::InternalError(
                         "Failed to clone table filter for file-local rewrite: {}, expr={}",
