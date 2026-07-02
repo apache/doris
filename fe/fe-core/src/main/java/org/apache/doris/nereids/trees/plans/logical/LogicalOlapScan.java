@@ -240,7 +240,8 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
                            List<Long> tabletIds, List<String> hints, Optional<TableSample> tableSample,
                            List<Slot> operativeSlots, Optional<TableScanParams> scanParams) {
         this(id, table, qualifier, Optional.empty(), Optional.empty(),
-                table.getPartitionIds(), false, false, tabletIds,
+                // must use specifiedPartitions here for prune partition by sql like 'select * from t partition p1'
+                specifiedPartitions, false, false, tabletIds,
                 -1, false, PreAggStatus.unset(), specifiedPartitions, hints, Maps.newHashMap(), Optional.empty(),
                 tableSample, false, ImmutableMap.of(), ImmutableList.of(), operativeSlots,
                 ImmutableList.of(), ImmutableList.of(), Optional.empty(), Optional.empty(),
