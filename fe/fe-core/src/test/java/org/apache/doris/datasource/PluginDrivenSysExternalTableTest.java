@@ -29,16 +29,25 @@ import java.util.EnumSet;
 import java.util.Set;
 
 /**
- * Pins the system-table opt-out from Top-N lazy materialization on {@link PluginDrivenSysExternalTable}.
+ * Pins the system-table opt-outs from Top-N lazy materialization and nested-column pruning on
+ * {@link PluginDrivenSysExternalTable}.
  *
- * <p>WHY this matters: a system/metadata table (e.g. {@code tbl$snapshots}) is served by the connector's JNI
- * serialized-split metadata reader, which synthesizes rows and produces no file+position row-id. Top-N lazy
- * materialization injects the engine-wide row-id slot ({@code __DORIS_GLOBAL_ROWID_COL__}) and expects the
- * scan to re-fetch survivors by row-id, so admitting a sys table makes BE abort with
+ * <p>WHY the lazy-mat opt-out matters: a system/metadata table (e.g. {@code tbl$snapshots}) is served by the
+ * connector's JNI serialized-split metadata reader, which synthesizes rows and produces no file+position row-id.
+ * Top-N lazy materialization injects the engine-wide row-id slot ({@code __DORIS_GLOBAL_ROWID_COL__}) and expects
+ * the scan to re-fetch survivors by row-id, so admitting a sys table makes BE abort with
  * {@code __DORIS_GLOBAL_ROWID_COL__... return column size 0 not equal to expected size 1}. Legacy never lazy-
  * materialized sys tables ({@code IcebergSysExternalTable} is absent from
  * {@code MaterializeProbeVisitor.SUPPORT_RELATION_TYPES}); the base {@link PluginDrivenExternalTable} keys the
  * capability off the connector alone, so the sys table must opt out itself.
+ *
+ * <p>WHY the nested-prune opt-out matters: pruning would rewrite a complex column's access-path top element from
+ * its NAME to a numeric iceberg field id ({@code SlotTypeReplacer}), but a system-table scan ships no field-id
+ * dictionary ({@code IcebergScanPlanProvider} skips {@code SCHEMA_EVOLUTION_PROP} when {@code systemTable}), so
+ * BE cannot field-id-match and rejects the scan with {@code AccessPathParser access path N does not match slot X}.
+ * Legacy gated the field-id rewrite on the exact class {@code IcebergExternalTable}, which sys tables are not, so
+ * it never fired for them; the migrated gate keys off the connector capability alone, so the sys table must opt
+ * out itself.
  *
  * <p>Mockito {@code CALLS_REAL_METHODS} runs the real capability methods over a stubbed connector chain,
  * mirroring {@code PluginDrivenExternalTableTest}.
@@ -72,12 +81,16 @@ public class PluginDrivenSysExternalTableTest {
     }
 
     @Test
-    public void systemTableStillSupportsNestedColumnPruneFromConnectorCapability() {
-        // Parity guard: legacy DOES prune nested columns on sys tables (LogicalFileScan.supportPruneNestedColumn
-        // lists IcebergSysExternalTable), so the sys-table lazy-mat opt-out must NOT bleed into nested prune.
-        // MUTATION: an over-broad opt-out that also disables nested prune turns this red.
-        Assertions.assertTrue(sysTableWithCapabilities(
+    public void systemTableNeverSupportsNestedColumnPruneEvenWhenConnectorDeclaresIt() {
+        // A system/metadata-table scan ships NO field-id dictionary, so the name->field-id access-path rewrite BE
+        // would receive (SlotTypeReplacer) cannot be field-id-matched and BE rejects it with
+        // "AccessPathParser access path N does not match slot X". The sys table must therefore opt out of
+        // nested-column prune (disabling both name-based path generation and the field-id rewrite), even though
+        // its connector declares the capability. On master the field-id rewrite was gated on the exact class
+        // IcebergExternalTable, which a sys table is not, so it never fired for sys tables.
+        // MUTATION: deleting the override re-inherits the connector-capability answer -> true -> red.
+        Assertions.assertFalse(sysTableWithCapabilities(
                         EnumSet.of(ConnectorCapability.SUPPORTS_NESTED_COLUMN_PRUNE)).supportsNestedColumnPrune(),
-                "the lazy-mat opt-out must not disable nested-column prune, which legacy keeps on for sys tables");
+                "a system/metadata table must never nested-column-prune, even when the connector supports it");
     }
 }
