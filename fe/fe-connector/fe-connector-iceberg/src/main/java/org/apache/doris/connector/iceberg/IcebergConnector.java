@@ -68,6 +68,7 @@ import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ConcurrentHashMap;
@@ -218,6 +219,27 @@ public class IcebergConnector implements Connector {
     public void invalidateAll() {
         latestSnapshotCache.invalidateAll();
         manifestCache.invalidateAll();
+    }
+
+    /**
+     * Restore the legacy single-knob semantics: {@code meta.cache.iceberg.table.ttl-second} also governs the FE
+     * schema cache (the SPI routes iceberg schema to the generic schema cache keyed by
+     * {@code schema.cache.ttl-second}), so a no-cache catalog ({@code ttl-second=0}) serves FRESH schema after
+     * external DDL (mirrors {@code PaimonConnector.schemaCacheTtlSecondOverride}). Absent -> no override (engine
+     * default TTL). Do NOT reuse {@link #resolveTableCacheTtlSecond}, which substitutes the 24h default for a
+     * blank value and would defeat the engine default.
+     */
+    @Override
+    public OptionalLong schemaCacheTtlSecondOverride() {
+        String raw = properties.get(TABLE_CACHE_TTL_SECOND);
+        if (raw == null || raw.trim().isEmpty()) {
+            return OptionalLong.empty();
+        }
+        try {
+            return OptionalLong.of(Long.parseLong(raw.trim()));
+        } catch (NumberFormatException e) {
+            return OptionalLong.empty();
+        }
     }
 
     /** Test-only: the manifest cache, so cache tests can assert REFRESH CATALOG ({@link #invalidateAll}) drops it. */

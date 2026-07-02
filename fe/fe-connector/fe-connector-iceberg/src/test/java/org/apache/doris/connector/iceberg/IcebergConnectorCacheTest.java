@@ -32,6 +32,7 @@ import org.junit.jupiter.api.Test;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.OptionalLong;
 
 /**
  * Tests IcebergConnector's T08 cache knobs: the latest-snapshot cache TTL resolution
@@ -78,6 +79,41 @@ public class IcebergConnectorCacheTest {
                         props(IcebergConnector.TABLE_CACHE_TTL_SECOND, "not-a-number")));
         Assertions.assertEquals(IcebergConnector.DEFAULT_TABLE_CACHE_TTL_SECOND,
                 IcebergConnector.resolveTableCacheTtlSecond(props(IcebergConnector.TABLE_CACHE_TTL_SECOND, "   ")));
+    }
+
+    @Test
+    public void schemaTtlOverrideEmptyWhenUnset() {
+        // No meta.cache.iceberg.table.ttl-second -> no override, so the engine-default schema-cache TTL applies
+        // (mirrors PaimonConnector). MUTATION: returning a concrete value would wrongly override the engine
+        // default for a plain (with-cache) catalog -> red.
+        Assertions.assertEquals(OptionalLong.empty(),
+                new IcebergConnector(Collections.emptyMap(), new RecordingConnectorContext())
+                        .schemaCacheTtlSecondOverride());
+    }
+
+    @Test
+    public void schemaTtlOverrideZeroDisablesSchemaCache() {
+        // The no-cache catalog (meta.cache.iceberg.table.ttl-second=0) must drive schema.cache.ttl-second=0 so a
+        // desc after external DDL reads FRESH schema (test_iceberg_table_cache line 251). MUTATION: not mapping
+        // ttl-second here -> the no-cache catalog serves stale cached schema -> red.
+        Assertions.assertEquals(OptionalLong.of(0L),
+                new IcebergConnector(props(IcebergConnector.TABLE_CACHE_TTL_SECOND, "0"),
+                        new RecordingConnectorContext()).schemaCacheTtlSecondOverride());
+    }
+
+    @Test
+    public void schemaTtlOverridePositiveIsPassedThrough() {
+        Assertions.assertEquals(OptionalLong.of(3600L),
+                new IcebergConnector(props(IcebergConnector.TABLE_CACHE_TTL_SECOND, "3600"),
+                        new RecordingConnectorContext()).schemaCacheTtlSecondOverride());
+    }
+
+    @Test
+    public void schemaTtlOverrideIgnoresUnparseableValue() {
+        // A malformed value must not break catalog schema caching; fall back to no override (engine default).
+        Assertions.assertEquals(OptionalLong.empty(),
+                new IcebergConnector(props(IcebergConnector.TABLE_CACHE_TTL_SECOND, "not-a-number"),
+                        new RecordingConnectorContext()).schemaCacheTtlSecondOverride());
     }
 
     @Test
