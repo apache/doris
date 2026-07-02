@@ -61,6 +61,7 @@ public class Column implements GsonPostProcessable {
     public static final String IVM_ROW_ID_COL = "__DORIS_IVM_ROW_ID_COL__";
     public static final String IVM_AGG_COUNT_COL = "__DORIS_IVM_AGG_COUNT_COL__";
     public static final String IVM_DML_FACTOR_COL = "__DORIS_IVM_DML_FACTOR_COL__";
+    public static final String IVM_BASE_OP_COL = "__DORIS_IVM_BASE_OP_COL__";
     public static final String IVM_DELTA_GROUP_COUNT_COL = "__DORIS_IVM_DELTA_GROUP_COUNT_COL__";
     public static final String ROW_STORE_COL = "__DORIS_ROW_STORE_COL__";
     public static final String VERSION_COL = "__DORIS_VERSION_COL__";

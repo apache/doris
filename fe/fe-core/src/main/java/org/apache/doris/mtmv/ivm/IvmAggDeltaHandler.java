@@ -145,7 +145,8 @@ class IvmAggDeltaHandler {
         DeltaPlanParts delta = buildDeltaSubPlan(agg, childResult, aggMeta);
         LogicalProject<?> applyProject = buildApplyPlan(agg, delta, aggMeta, context);
         Slot dmlFactorSlot = helper.findSlotByName(applyProject.getOutput(), Column.IVM_DML_FACTOR_COL);
-        return new IvmDeltaRewriteResult(applyProject, dmlFactorSlot);
+        // AGG MV does not produce or need baseOp — always null.
+        return new IvmDeltaRewriteResult(applyProject, dmlFactorSlot, null);
     }
 
     /**
