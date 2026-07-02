@@ -92,7 +92,7 @@ The same `IvmUtil.buildRowIdHash()` function is used by both the normalize phase
 
 ## Backward Compatibility
 
-IVM is not publicly available until July 2026. Before that date, there is no need to maintain backward compatibility with existing IVM materialized views. Breaking changes to IVM metadata, DDL format, or internal storage layout are acceptable without migration support.
+IVM is not publicly available until October 2026. Before that date, there is no need to maintain backward compatibility with existing IVM materialized views. Breaking changes to IVM metadata, DDL format, or internal storage layout are acceptable without migration support.
 
 ## Regression Test Guide: Binlog Operations
 

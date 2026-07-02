@@ -19,18 +19,26 @@ package org.apache.doris.mtmv.ivm;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.MTMV;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.rules.exploration.join.JoinReorderContext;
+import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
+import org.apache.doris.nereids.util.PlanConstructor;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
@@ -543,13 +551,55 @@ class IvmDeltaRewriterTest extends IvmDeltaTestBase {
     }
 
     @org.junit.jupiter.api.Disabled("TODO: Re-enable when stream-based TSO tracking is implemented in IvmDeltaRewriter.collectDeltaScanContexts()")
-    @Test
-    void testGenLatestTsoLessThanConsumedTsoThrows() {
-        LogicalOlapScan scan = buildScanForTable(1, "a");
-        // latestTso (5) < consumedTso (100) — invalid lifecycle state
-        Map<TableNameInfo, Long> streams = makeStreamsWithTso(scan, 100, 5);
 
-        Assertions.assertThrows(IllegalStateException.class,
-                () -> new IvmDeltaRewriter().generateDeltaPlans(scan, rewriteContext(streams), NO_EXCLUSIONS, false));
+
+    // Inner class to expose package-private applyBinlogOrderRewrite for testing
+    private static class TestableApplyBinlogOrderRewrite {
+        Plan exposeApplyBinlogOrderRewrite(Plan mergedPlan, IvmRefreshContext ctx) {
+            return new IvmDeltaRewriter().applyBinlogOrderRewrite(mergedPlan, ctx);
+        }
+    }
+
+    @Test
+    void testBinlogOrderRewriteProducesFojPlan() {
+        // Build a manually constructed plan with all required columns:
+        // id, name, row_id, dml_factor, baseOp (mimics visitor-rewritten delta plan)
+        OlapTable table = PlanConstructor.newOlapTable(0, "t1", 0);
+        enableRowBinlog(table);
+        table.setQualifiedDbName("test_db");
+        LogicalOlapScan scan = new LogicalOlapScan(PlanConstructor.getNextRelationId(), table,
+                ImmutableList.of("test_db"));
+        Slot idSlot = scan.getOutput().get(0);
+        Slot nameSlot = scan.getOutput().get(1);
+
+        Alias rowIdAlias = new Alias(idSlot, Column.IVM_ROW_ID_COL);
+        Alias dmlAlias = new Alias(new TinyIntLiteral((byte) 1), Column.IVM_DML_FACTOR_COL);
+        Alias baseOpAlias = new Alias(new TinyIntLiteral((byte) 1), Column.IVM_BASE_OP_COL);
+
+        LogicalProject<?> plan = new LogicalProject<>(
+                ImmutableList.of(idSlot, nameSlot, rowIdAlias, dmlAlias, baseOpAlias), scan);
+        IvmRefreshContext ctx = new IvmRefreshContext(mockMtmv(), new ConnectContext(), new IvmNormalizeResult());
+
+        Plan fojPlan = new TestableApplyBinlogOrderRewrite().exposeApplyBinlogOrderRewrite(plan, ctx);
+
+        // Verify: CTE tree — LogicalCTEAnchor(Producer, IF Project(FOJ(...)))
+        Assertions.assertInstanceOf(LogicalCTEAnchor.class, fojPlan);
+        LogicalCTEAnchor<?, ?> anchor = (LogicalCTEAnchor<?, ?>) fojPlan;
+        Assertions.assertInstanceOf(LogicalCTEProducer.class, anchor.left());
+        Assertions.assertInstanceOf(LogicalProject.class, anchor.right());
+        LogicalJoin<?, ?> join = (LogicalJoin<?, ?>) ((LogicalProject<?>) anchor.right()).child();
+        Assertions.assertEquals(JoinType.FULL_OUTER_JOIN, join.getJoinType());
+
+        // Verify: FOJ branches are SubQueryAlias wrapping Filter wrapping CTE Consumer
+        Assertions.assertInstanceOf(LogicalSubQueryAlias.class, join.left());
+        Assertions.assertInstanceOf(LogicalSubQueryAlias.class, join.right());
+
+        // Verify: output has dmlFactor and baseOp (FOJ preserves them)
+        Assertions.assertTrue(fojPlan.getOutput().stream()
+                .anyMatch(s -> Column.IVM_DML_FACTOR_COL.equals(s.getName())),
+                "FOJ output should contain dmlFactor");
+        Assertions.assertTrue(fojPlan.getOutput().stream()
+                .anyMatch(s -> Column.IVM_BASE_OP_COL.equals(s.getName())),
+                "FOJ output should contain baseOp");
     }
 }

@@ -73,12 +73,20 @@ class IvmDeltaRewriteHelper {
     }
 
     Slot findSlotByName(List<Slot> slots, String name) {
+        Slot slot = findSlotByNameOrNull(slots, name);
+        if (slot == null) {
+            throw new AnalysisException("IVM failed to find slot: " + name);
+        }
+        return slot;
+    }
+
+    Slot findSlotByNameOrNull(List<Slot> slots, String name) {
         for (Slot slot : slots) {
             if (name.equals(slot.getName())) {
                 return slot;
             }
         }
-        throw new AnalysisException("IVM failed to find slot: " + name);
+        return null;
     }
 
     /**
@@ -100,13 +108,14 @@ class IvmDeltaRewriteHelper {
             IvmDeltaRewriteResult leftResult, IvmDeltaRewriteResult rightResult, IvmRefreshContext ctx) {
         boolean deltaOnLeft = leftResult.dmlFactorSlot != null;
         Slot dmlFactorSlot = deltaOnLeft ? leftResult.dmlFactorSlot : rightResult.dmlFactorSlot;
+        Slot baseOpSlot = deltaOnLeft ? leftResult.baseOpSlot : rightResult.baseOpSlot;
         Plan snapshotSidePlan = deltaOnLeft ? join.right() : join.left();
 
         if (needNonDetGuard(snapshotSidePlan, ctx)) {
             return wrapDmlFactorWithNonDetGuard(
-                    new IvmDeltaRewriteResult(join, dmlFactorSlot), join.getJoinType());
+                    new IvmDeltaRewriteResult(join, dmlFactorSlot, baseOpSlot), join.getJoinType());
         }
-        return new IvmDeltaRewriteResult(join, dmlFactorSlot);
+        return new IvmDeltaRewriteResult(join, dmlFactorSlot, baseOpSlot);
     }
 
     /**
@@ -158,7 +167,8 @@ class IvmDeltaRewriteHelper {
                 .filter(s -> Column.IVM_DML_FACTOR_COL.equals(s.getName()))
                 .findFirst()
                 .orElseThrow(() -> new AnalysisException("IVM: lost dml_factor after non-det guard"));
-        return new IvmDeltaRewriteResult(guardProject, newDmlFactorSlot);
+        Slot newBaseOpSlot = findSlotByName(guardProject.getOutput(), Column.IVM_BASE_OP_COL);
+        return new IvmDeltaRewriteResult(guardProject, newDmlFactorSlot, newBaseOpSlot);
     }
 
     /**
