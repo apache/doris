@@ -28,7 +28,12 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.properties.DataTrait;
+import org.apache.doris.nereids.properties.DistributionSpec;
+import org.apache.doris.nereids.properties.DistributionSpecExternalTableSinkHashPartitioned;
+import org.apache.doris.nereids.properties.DistributionSpecExternalTableSinkHashPartitioned.PaimonFixedBucketRouteInfo;
+import org.apache.doris.nereids.properties.DistributionSpecExternalTableSinkUnPartitioned;
 import org.apache.doris.nereids.properties.LogicalProperties;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -47,6 +52,7 @@ import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanConstructor;
 import org.apache.doris.planner.AggregationNode;
+import org.apache.doris.planner.DataPartition;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanNode;
@@ -55,7 +61,11 @@ import org.apache.doris.planner.Planner;
 import org.apache.doris.planner.RepeatNode;
 import org.apache.doris.planner.ScanContext;
 import org.apache.doris.planner.ScanNode;
+import org.apache.doris.thrift.TDataPartition;
 import org.apache.doris.thrift.TExplainLevel;
+import org.apache.doris.thrift.TExternalSinkHashMode;
+import org.apache.doris.thrift.TPaimonBucketFunctionType;
+import org.apache.doris.thrift.TPartitionType;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TScanRangeLocations;
 import org.apache.doris.utframe.TestWithFeService;
@@ -68,8 +78,10 @@ import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
 import java.lang.reflect.Field;
+import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
@@ -236,6 +248,84 @@ public class PhysicalPlanTranslatorTest extends TestWithFeService {
     }
 
     @Test
+    public void testExternalTableSinkHashPartitionedToThriftStrictHashWithPaimonRoute() throws Exception {
+        PlanTranslatorContext context = new PlanTranslatorContext();
+        SlotReference partitionSlot = new SlotReference("pt", IntegerType.INSTANCE);
+        SlotReference bucketSlot = new SlotReference("bucket_key", IntegerType.INSTANCE);
+        registerSlot(context, partitionSlot);
+        registerSlot(context, bucketSlot);
+
+        DistributionSpecExternalTableSinkHashPartitioned distribution =
+                new DistributionSpecExternalTableSinkHashPartitioned();
+        distribution.setOutputColExprIds(ImmutableList.of(partitionSlot.getExprId()));
+        distribution.setExternalSinkHashMode(
+                DistributionSpecExternalTableSinkHashPartitioned.ExternalSinkHashMode.STRICT_HASH);
+        distribution.setPaimonFixedBucketRouteInfo(new PaimonFixedBucketRouteInfo(
+                8, PaimonFixedBucketRouteInfo.BucketFunctionType.MOD,
+                ImmutableList.of(bucketSlot.getExprId())));
+
+        TDataPartition thrift = invokeToDataPartition(distribution,
+                Arrays.asList(partitionSlot.getExprId(), bucketSlot.getExprId()), context).toThrift();
+
+        Assertions.assertEquals(TPartitionType.HIVE_TABLE_SINK_HASH_PARTITIONED, thrift.getType());
+        Assertions.assertEquals(TExternalSinkHashMode.STRICT_HASH, thrift.getExternalSinkHashMode());
+        Assertions.assertTrue(thrift.isSetPaimonRouteBucketInfo());
+        Assertions.assertEquals(8, thrift.getPaimonRouteBucketInfo().getBucketNum());
+        Assertions.assertEquals(TPaimonBucketFunctionType.MOD,
+                thrift.getPaimonRouteBucketInfo().getBucketFunctionType());
+        Assertions.assertEquals(1, thrift.getPaimonRouteBucketInfo().getBucketKeyExprs().size());
+    }
+
+    @Test
+    public void testExternalTableSinkHashPartitionedToThriftScaleWriter() throws Exception {
+        PlanTranslatorContext context = new PlanTranslatorContext();
+        SlotReference partitionSlot = new SlotReference("pt", IntegerType.INSTANCE);
+        registerSlot(context, partitionSlot);
+
+        DistributionSpecExternalTableSinkHashPartitioned distribution =
+                new DistributionSpecExternalTableSinkHashPartitioned();
+        distribution.setOutputColExprIds(ImmutableList.of(partitionSlot.getExprId()));
+
+        TDataPartition thrift = invokeToDataPartition(distribution,
+                ImmutableList.of(partitionSlot.getExprId()), context).toThrift();
+
+        Assertions.assertEquals(TPartitionType.HIVE_TABLE_SINK_HASH_PARTITIONED, thrift.getType());
+        Assertions.assertEquals(TExternalSinkHashMode.SCALE_WRITER, thrift.getExternalSinkHashMode());
+        Assertions.assertFalse(thrift.isSetPaimonRouteBucketInfo());
+    }
+
+    @Test
+    public void testExternalTableSinkHashPartitionedRequiresRouteKeyInChildOutput() {
+        PlanTranslatorContext context = new PlanTranslatorContext();
+        SlotReference partitionSlot = new SlotReference("pt", IntegerType.INSTANCE);
+        SlotReference bucketSlot = new SlotReference("bucket_key", IntegerType.INSTANCE);
+        registerSlot(context, partitionSlot);
+        registerSlot(context, bucketSlot);
+
+        DistributionSpecExternalTableSinkHashPartitioned distribution =
+                new DistributionSpecExternalTableSinkHashPartitioned();
+        distribution.setOutputColExprIds(ImmutableList.of(partitionSlot.getExprId()));
+        distribution.setExternalSinkHashMode(
+                DistributionSpecExternalTableSinkHashPartitioned.ExternalSinkHashMode.STRICT_HASH);
+        distribution.setPaimonFixedBucketRouteInfo(new PaimonFixedBucketRouteInfo(
+                8, PaimonFixedBucketRouteInfo.BucketFunctionType.DEFAULT,
+                ImmutableList.of(bucketSlot.getExprId())));
+
+        RuntimeException exception = Assertions.assertThrows(RuntimeException.class,
+                () -> invokeToDataPartition(distribution, ImmutableList.of(partitionSlot.getExprId()), context));
+
+        Assertions.assertTrue(exception.getMessage().contains("Cannot translate Paimon bucket route expr"));
+    }
+
+    @Test
+    public void testExternalTableSinkUnPartitionedToThrift() throws Exception {
+        TDataPartition thrift = invokeToDataPartition(DistributionSpecExternalTableSinkUnPartitioned.INSTANCE,
+                ImmutableList.of(), new PlanTranslatorContext()).toThrift();
+
+        Assertions.assertEquals(TPartitionType.HIVE_TABLE_SINK_UNPARTITIONED, thrift.getType());
+    }
+
+    @Test
     public void testRepeatInputOutputOrder() throws Exception {
         String sql = "select grouping(a), grouping(b), grouping_id(a, b), sum(a + 2 * b), sum(a + 3 * b) + grouping_id(b, a, b), b, a, b, a"
                 + " from test_db.t"
@@ -264,6 +354,28 @@ public class PhysicalPlanTranslatorTest extends TestWithFeService {
                 }
             }
         });
+    }
+
+    private void registerSlot(PlanTranslatorContext context, SlotReference slotReference) {
+        TupleDescriptor tupleDescriptor = context.generateTupleDesc();
+        context.createSlotDesc(tupleDescriptor, slotReference);
+    }
+
+    private DataPartition invokeToDataPartition(DistributionSpec distributionSpec,
+            List<ExprId> childOutputIds, PlanTranslatorContext context) throws Exception {
+        PhysicalPlanTranslator translator = new PhysicalPlanTranslator(context, null);
+        Method method = PhysicalPlanTranslator.class.getDeclaredMethod("toDataPartition",
+                DistributionSpec.class, List.class, PlanTranslatorContext.class);
+        method.setAccessible(true);
+        try {
+            return (DataPartition) method.invoke(translator, distributionSpec, childOutputIds, context);
+        } catch (InvocationTargetException e) {
+            Throwable cause = e.getCause();
+            if (cause instanceof RuntimeException) {
+                throw (RuntimeException) cause;
+            }
+            throw e;
+        }
     }
 
     private OlapScanNode getFirstOlapScanNode(String sql) throws Exception {

@@ -20,11 +20,15 @@
 #include <gtest/gtest.h>
 
 #include <memory>
+#include <optional>
 #include <vector>
 
 #include "core/block/block.h"
 #include "core/data_type/data_type_number.h"
 #include "exec/operator/operator_helper.h"
+#include "exec/partitioner/paimon_fixed_bucket_partitioner.h"
+#include "exec/partitioner/partitioner.h"
+#include "exec/sink/scale_writer_partitioning_exchanger.hpp"
 #include "testutil/column_helper.h"
 #include "testutil/mock/mock_data_stream_sender.h"
 #include "testutil/mock/mock_descriptors.h"
@@ -52,11 +56,12 @@ struct MockExchangeLocalState : public ExchangeSinkLocalState {
 };
 
 struct MockExchangeSinkOperatorX : public ExchangeSinkOperatorX {
-    MockExchangeSinkOperatorX(OperatorContext& ctx)
+    MockExchangeSinkOperatorX(OperatorContext& ctx,
+                              const TDataStreamSink& sink = TDataStreamSink {})
             : ExchangeSinkOperatorX(
                       &ctx.state,
-                      MockRowDescriptor {{std::make_shared<DataTypeInt32>()}, &ctx.pool}, 0,
-                      TDataStreamSink {}, {}, {}) {}
+                      MockRowDescriptor {{std::make_shared<DataTypeInt32>()}, &ctx.pool}, 0, sink,
+                      {}, {}) {}
 
     void _init_sink_buffer() override {
         std::vector<InstanceLoId> ins_ids {fragment_instance_id.lo};
@@ -69,13 +74,14 @@ struct ChannelInfo {
     TUniqueId fragment_instance_id;
 };
 
-auto create_exchange_sink(std::vector<ChannelInfo> channel_info) {
+auto create_exchange_sink(std::vector<ChannelInfo> channel_info,
+                          const TDataStreamSink& sink = TDataStreamSink {}) {
     std::shared_ptr<OperatorContext> ctx = std::make_shared<OperatorContext>();
 
     ctx->state._fragment_instance_id = fragment_instance_id;
 
     std::shared_ptr<MockExchangeSinkOperatorX> op =
-            std::make_shared<MockExchangeSinkOperatorX>(*ctx);
+            std::make_shared<MockExchangeSinkOperatorX>(*ctx, sink);
     EXPECT_TRUE(op->prepare(&ctx->state));
 
     auto local_state = std::make_unique<MockExchangeLocalState>(op.get(), &ctx->state);
@@ -101,6 +107,32 @@ auto create_exchange_sink(std::vector<ChannelInfo> channel_info) {
     EXPECT_TRUE(sink_local_state->open(&ctx->state).ok());
 
     return std::make_tuple(op, ctx, mock_channel);
+}
+
+TDataStreamSink create_external_sink_hash_partitioned(
+        std::optional<TExternalSinkHashMode::type> hash_mode,
+        std::optional<TPaimonRouteBucketInfo> route_info = std::nullopt) {
+    TDataStreamSink sink;
+    sink.output_partition.__set_type(TPartitionType::HIVE_TABLE_SINK_HASH_PARTITIONED);
+    if (hash_mode.has_value()) {
+        sink.output_partition.__set_external_sink_hash_mode(*hash_mode);
+    }
+    if (route_info.has_value()) {
+        sink.output_partition.__set_paimon_route_bucket_info(*route_info);
+    }
+    return sink;
+}
+
+auto create_external_sink_state(const TDataStreamSink& sink) {
+    auto exchange_sink = create_exchange_sink(
+            {{.is_local = true, .fragment_instance_id = create_TUniqueId(1, 1)},
+             {.is_local = true, .fragment_instance_id = create_TUniqueId(1, 2)}},
+            sink);
+    auto& [op, ctx, mock_channel] = exchange_sink;
+    auto* sink_local_state = ctx->state.get_sink_local_state();
+    auto* exchange_sink_local_state = dynamic_cast<MockExchangeLocalState*>(sink_local_state);
+    EXPECT_TRUE(exchange_sink_local_state != nullptr);
+    return std::tuple_cat(std::move(exchange_sink), std::make_tuple(exchange_sink_local_state));
 }
 
 auto test_for_no_partitioned(std::vector<ChannelInfo> channel_info) {
@@ -186,6 +218,46 @@ TEST(ExchangeSinkOperatorTest, test_some_api) {
     EXPECT_EQ(exchange_sink_local_state->_working_channels_count, 0);
 
     EXPECT_TRUE(exchange_sink_local_state->_finish_dependency->ready());
+}
+
+TEST(ExchangeSinkOperatorTest, ExternalSinkHashPartitionedScaleWriterUsesScaleWriterPartitioner) {
+    TDataStreamSink sink =
+            create_external_sink_hash_partitioned(TExternalSinkHashMode::SCALE_WRITER);
+
+    auto [op, ctx, mock_channel, local_state] = create_external_sink_state(sink);
+
+    EXPECT_TRUE(dynamic_cast<ScaleWriterPartitioner*>(local_state->partitioner()) != nullptr);
+}
+
+TEST(ExchangeSinkOperatorTest, ExternalSinkHashPartitionedStrictHashUsesCrc32HashPartitioner) {
+    TDataStreamSink sink =
+            create_external_sink_hash_partitioned(TExternalSinkHashMode::STRICT_HASH);
+
+    auto [op, ctx, mock_channel, local_state] = create_external_sink_state(sink);
+
+    EXPECT_TRUE(dynamic_cast<Crc32HashPartitioner<ShuffleChannelIds>*>(
+                        local_state->partitioner()) != nullptr);
+}
+
+TEST(ExchangeSinkOperatorTest,
+     ExternalSinkHashPartitionedStrictHashWithPaimonRouteUsesPaimonRoute) {
+    TPaimonRouteBucketInfo route_info;
+    route_info.__set_bucket_num(8);
+    route_info.__set_bucket_function_type(TPaimonBucketFunctionType::MOD);
+    TDataStreamSink sink =
+            create_external_sink_hash_partitioned(TExternalSinkHashMode::STRICT_HASH, route_info);
+
+    auto [op, ctx, mock_channel, local_state] = create_external_sink_state(sink);
+
+    EXPECT_TRUE(dynamic_cast<PaimonFixedBucketPartitioner*>(local_state->partitioner()) != nullptr);
+}
+
+TEST(ExchangeSinkOperatorTest, ExternalSinkHashPartitionedDefaultsToScaleWriterMode) {
+    TDataStreamSink sink = create_external_sink_hash_partitioned(std::nullopt);
+
+    auto [op, ctx, mock_channel, local_state] = create_external_sink_state(sink);
+
+    EXPECT_TRUE(dynamic_cast<ScaleWriterPartitioner*>(local_state->partitioner()) != nullptr);
 }
 
 } // namespace doris

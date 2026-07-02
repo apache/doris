@@ -177,7 +177,7 @@ Status PaimonFixedBucketPartitioner::do_partitioning(RuntimeState* state, Block*
     for (size_t row = 0; row < rows; ++row) {
         bucket_data[row] = bucket_ids[row];
     }
-    bucket_column->update_crcs_with_value(hashes, TYPE_INT, cast_set<HashValType>(rows));
+    bucket_column->update_crcs_with_value(hashes, TYPE_INT, cast_set<uint32_t>(rows), 0, nullptr);
 
     for (size_t i = 0; i < rows; i++) {
         hashes[i] = ShuffleChannelIds()(hashes[i], _partition_count);
