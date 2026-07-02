@@ -35,6 +35,54 @@ namespace doris {
 #include "common/compile_check_begin.h"
 DataTypeSerDe::~DataTypeSerDe() = default;
 
+bool decoded_column_view_can_null_on_conversion_failure(const DecodedColumnView& view) {
+    return !view.enable_strict_mode && view.conversion_failure_null_map != nullptr;
+}
+
+void decoded_column_view_insert_null_on_conversion_failure(IColumn& column,
+                                                           const DecodedColumnView& view,
+                                                           int64_t row) {
+    DORIS_CHECK(decoded_column_view_can_null_on_conversion_failure(view));
+    DORIS_CHECK(row >= 0);
+    DORIS_CHECK(row < view.row_count);
+    DORIS_CHECK(view.conversion_failure_null_map_offset >= 0);
+    const auto null_map_row = view.conversion_failure_null_map_offset + row;
+    DORIS_CHECK(null_map_row >= 0);
+    DORIS_CHECK(static_cast<size_t>(null_map_row) < view.conversion_failure_null_map->size());
+    column.insert_default();
+    (*view.conversion_failure_null_map)[null_map_row] = 1;
+}
+
+Status decoded_column_view_handle_conversion_failure(IColumn& column, const DecodedColumnView& view,
+                                                     const Status& status) {
+    if (!decoded_column_view_can_null_on_conversion_failure(view)) {
+        return status;
+    }
+    for (int64_t row = 0; row < view.row_count; ++row) {
+        decoded_column_view_insert_null_on_conversion_failure(column, view, row);
+    }
+    return Status::OK();
+}
+
+Status DataTypeSerDe::read_column_from_decoded_values(IColumn& column,
+                                                      const DecodedColumnView& view) const {
+    return decoded_column_view_handle_conversion_failure(
+            column, view,
+            Status::NotSupported("read_column_from_decoded_values is not supported for {}",
+                                 get_name()));
+}
+
+Status DataTypeSerDe::read_field_from_decoded_value(const IDataType& data_type, Field* field,
+                                                    const DecodedColumnView& view) const {
+    DORIS_CHECK(field != nullptr);
+    DORIS_CHECK(view.row_count == 1);
+    auto column = data_type.create_column();
+    RETURN_IF_ERROR(read_column_from_decoded_values(*column, view));
+    DORIS_CHECK(column->size() == 1);
+    column->get(0, *field);
+    return Status::OK();
+}
+
 DataTypeSerDeSPtrs create_data_type_serdes(const DataTypes& types) {
     DataTypeSerDeSPtrs serdes;
     serdes.reserve(types.size());

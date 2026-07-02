@@ -48,6 +48,7 @@ import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TPaimonDeletionFileDesc;
 import org.apache.doris.thrift.TPaimonFileDesc;
+import org.apache.doris.thrift.TPaimonReaderType;
 import org.apache.doris.thrift.TPushAggOp;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 
@@ -293,8 +294,10 @@ public class PaimonScanNode extends FileQueryScanNode {
             rangeDesc.setFormatType(TFileFormatType.FORMAT_JNI);
             // Use Paimon native serialization for paimon-cpp reader
             if (sessionVariable.isEnablePaimonCppReader() && split instanceof DataSplit) {
+                fileDesc.setReaderType(TPaimonReaderType.PAIMON_CPP);
                 fileDesc.setPaimonSplit(PaimonUtil.encodeDataSplitToString((DataSplit) split));
             } else {
+                fileDesc.setReaderType(TPaimonReaderType.PAIMON_JNI);
                 fileDesc.setPaimonSplit(PaimonUtil.encodeObjectToString(split));
             }
             // Set table location for paimon-cpp reader
@@ -305,6 +308,7 @@ public class PaimonScanNode extends FileQueryScanNode {
             rangeDesc.setSelfSplitWeight(paimonSplit.getSelfSplitWeight());
         } else {
             // use native reader
+            fileDesc.setReaderType(TPaimonReaderType.PAIMON_NATIVE);
             if (fileFormat.equals("orc")) {
                 rangeDesc.setFormatType(TFileFormatType.FORMAT_ORC);
             } else if (fileFormat.equals("parquet")) {

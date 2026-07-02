@@ -24,6 +24,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <ostream>
 #include <string>
@@ -80,6 +81,7 @@ struct AnnRangeSearchRuntime;
 // the relatioinship between threads and classes.
 
 using Selector = IColumn::Selector;
+using VExprCloneNodeOverride = std::function<Status(const VExpr&, VExprSPtr*)>;
 
 struct AnnRangeSearchEvaluationResult {
     // Indicates whether the expr row_bitmap has been updated.
@@ -211,11 +213,13 @@ public:
 
     const DataTypePtr& data_type() const { return _data_type; }
 
-    bool is_slot_ref() const { return _node_type == TExprNodeType::SLOT_REF; }
+    virtual bool is_slot_ref() const { return _node_type == TExprNodeType::SLOT_REF; }
 
-    bool is_virtual_slot_ref() const { return _node_type == TExprNodeType::VIRTUAL_SLOT_REF; }
+    virtual bool is_virtual_slot_ref() const {
+        return _node_type == TExprNodeType::VIRTUAL_SLOT_REF;
+    }
 
-    bool is_column_ref() const { return _node_type == TExprNodeType::COLUMN_REF; }
+    virtual bool is_column_ref() const { return _node_type == TExprNodeType::COLUMN_REF; }
 
     virtual bool is_literal() const { return false; }
 
@@ -249,6 +253,10 @@ public:
 
     static bool contains_blockable_function(const VExprContextSPtrs& ctxs);
 
+    Status deep_clone(VExprSPtr* cloned_expr,
+                      const VExprCloneNodeOverride& clone_node_override = {}) const;
+    virtual Status clone_node(VExprSPtr* cloned_expr) const;
+
     bool is_nullable() const { return _data_type->is_nullable(); }
 
     PrimitiveType result_type() const { return _data_type->get_primitive_type(); }
@@ -263,6 +271,7 @@ public:
     virtual const VExprSPtrs& children() const { return _children; }
     void set_children(const VExprSPtrs& children) { _children = children; }
     void set_children(VExprSPtrs&& children) { _children = std::move(children); }
+    void reset_prepare_state();
     virtual std::string debug_string() const;
     static std::string debug_string(const VExprSPtrs& exprs);
     static std::string debug_string(const VExprContextSPtrs& ctxs);
@@ -270,7 +279,7 @@ public:
     static ColumnPtr filter_column_with_selector(const ColumnPtr& origin_column,
                                                  const Selector* selector, size_t count) {
         if (selector == nullptr) {
-            DCHECK_EQ(origin_column->size(), count);
+            DCHECK_EQ(origin_column->size(), count) << origin_column->get_name();
             return origin_column;
         }
         DCHECK_EQ(count, selector->size());
@@ -363,6 +372,8 @@ public:
     virtual uint64_t get_digest(uint64_t seed) const;
 
 protected:
+    TExprNode clone_texpr_node() const;
+
     /// Simple debug string that provides no expr subclass-specific information
     std::string debug_string(const std::string& expr_name) const {
         std::stringstream out;

@@ -63,6 +63,13 @@ public:
     ~ShortCircuitIfExpr() override = default;
 
     const std::string& expr_name() const override { return IF_NAME; }
+    Status clone_node(VExprSPtr* cloned_expr) const override {
+        DORIS_CHECK(cloned_expr != nullptr);
+        auto node = clone_texpr_node();
+        node.__set_short_circuit_evaluation(true);
+        *cloned_expr = ShortCircuitIfExpr::create_shared(node);
+        return Status::OK();
+    }
 
     Status execute_column(VExprContext* context, const Block* block, Selector* selector,
                           size_t count, ColumnPtr& result_column) const override;
@@ -76,8 +83,20 @@ public:
     ShortCircuitCaseExpr(const TExprNode& node);
     ~ShortCircuitCaseExpr() override = default;
     const std::string& expr_name() const override { return CASE_NAME; }
-    Status execute_column(VExprContext* context, const Block* block, Selector* selector,
-                          size_t count, ColumnPtr& result_column) const override;
+    bool has_else_expr() const { return _has_else_expr; }
+    Status clone_node(VExprSPtr* cloned_expr) const override {
+        DORIS_CHECK(cloned_expr != nullptr);
+        auto node = clone_texpr_node();
+        TCaseExpr case_node;
+        case_node.__set_has_case_expr(false);
+        case_node.__set_has_else_expr(_has_else_expr);
+        node.__set_case_expr(case_node);
+        node.__set_short_circuit_evaluation(true);
+        *cloned_expr = ShortCircuitCaseExpr::create_shared(node);
+        return Status::OK();
+    }
+    Status execute_column_impl(VExprContext* context, const Block* block, const Selector* selector,
+                               size_t count, ColumnPtr& result_column) const override;
 
 private:
     const bool _has_else_expr;
@@ -91,8 +110,15 @@ public:
     ~ShortCircuitIfNullExpr() override = default;
 
     const std::string& expr_name() const override { return IFNULL_NAME; }
-    Status execute_column(VExprContext* context, const Block* block, Selector* selector,
-                          size_t count, ColumnPtr& result_column) const override;
+    Status clone_node(VExprSPtr* cloned_expr) const override {
+        DORIS_CHECK(cloned_expr != nullptr);
+        auto node = clone_texpr_node();
+        node.__set_short_circuit_evaluation(true);
+        *cloned_expr = ShortCircuitIfNullExpr::create_shared(node);
+        return Status::OK();
+    }
+    Status execute_column_impl(VExprContext* context, const Block* block, const Selector* selector,
+                               size_t count, ColumnPtr& result_column) const override;
 
 private:
     inline static const std::string IFNULL_NAME = "ifnull";
@@ -104,8 +130,15 @@ public:
     ShortCircuitCoalesceExpr(const TExprNode& node) : ShortCircuitExpr(node) {}
     ~ShortCircuitCoalesceExpr() override = default;
     const std::string& expr_name() const override { return COALESCE_NAME; }
-    Status execute_column(VExprContext* context, const Block* block, Selector* selector,
-                          size_t count, ColumnPtr& result_column) const override;
+    Status clone_node(VExprSPtr* cloned_expr) const override {
+        DORIS_CHECK(cloned_expr != nullptr);
+        auto node = clone_texpr_node();
+        node.__set_short_circuit_evaluation(true);
+        *cloned_expr = ShortCircuitCoalesceExpr::create_shared(node);
+        return Status::OK();
+    }
+    Status execute_column_impl(VExprContext* context, const Block* block, const Selector* selector,
+                               size_t count, ColumnPtr& result_column) const override;
 
 private:
     inline static const std::string COALESCE_NAME = "coalesce";

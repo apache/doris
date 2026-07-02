@@ -452,8 +452,8 @@ Status OrcReader::_create_file_reader() {
     if (_file_input_stream == nullptr) {
         _file_description.mtime =
                 _scan_range.__isset.modification_time ? _scan_range.modification_time : 0;
-        io::FileReaderOptions reader_options =
-                FileFactory::get_reader_options(_state, _file_description);
+        io::FileReaderOptions reader_options = FileFactory::get_reader_options(
+                _state ? _state->query_options() : _default_query_options, _file_description);
         io::FileReaderSPtr inner_reader;
         if (_io_ctx_holder != nullptr) {
             inner_reader = DORIS_TRY(io::DelegateReader::create_file_reader(
