@@ -808,7 +808,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
                     + oldDorisType.toSql() + " to " + newDorisType.toSql());
         }
         try {
-            ColumnType.checkSupportSchemaChangeForComplexType(oldDorisType, newDorisType, false);
+            ColumnType.checkSupportIcebergSchemaChangeForComplexType(oldDorisType, newDorisType, false);
         } catch (DdlException e) {
             throw new UserException(e.getMessage(), e);
         }
