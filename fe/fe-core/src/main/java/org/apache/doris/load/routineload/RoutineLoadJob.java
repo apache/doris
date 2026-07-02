@@ -251,6 +251,8 @@ public abstract class RoutineLoadJob
     protected long pauseTimestamp = -1;
     @SerializedName("ets")
     protected long endTimestamp = -1;
+    // Last time any task of this job was scheduled by RoutineLoadTaskScheduler.
+    private long lastTaskScheduleTimeMs = -1L;
 
     @SerializedName("js")
     protected RoutineLoadStatistic jobStatistic = new RoutineLoadStatistic();
@@ -507,6 +509,24 @@ public abstract class RoutineLoadJob
 
     public String getEndTimestampString() {
         return TimeUtils.longToTimeString(endTimestamp);
+    }
+
+    public void updateLastTaskScheduleTimeMs(long scheduleTimeMs) {
+        writeLock();
+        try {
+            lastTaskScheduleTimeMs = Math.max(lastTaskScheduleTimeMs, scheduleTimeMs);
+        } finally {
+            writeUnlock();
+        }
+    }
+
+    public String getLastTaskScheduleTimeString() {
+        readLock();
+        try {
+            return lastTaskScheduleTimeMs < 0 ? "" : TimeUtils.longToTimeString(lastTaskScheduleTimeMs);
+        } finally {
+            readUnlock();
+        }
     }
 
     public void setOtherMsg(String otherMsg) {
