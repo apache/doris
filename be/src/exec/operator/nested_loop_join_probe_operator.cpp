@@ -173,6 +173,38 @@ Status NestedLoopJoinProbeLocalState::close(RuntimeState* state) {
             state);
 }
 
+std::string NestedLoopJoinProbeLocalState::debug_string(int indentation_level) const {
+    fmt::memory_buffer debug_string_buffer;
+    fmt::format_to(
+            debug_string_buffer, "{}",
+            JoinProbeLocalState<NestedLoopJoinSharedState,
+                                NestedLoopJoinProbeLocalState>::debug_string(indentation_level));
+
+    const auto child_block_rows = _child_block == nullptr ? 0 : _child_block->rows();
+    const auto build_blocks = _shared_state == nullptr ? 0 : _shared_state->build_blocks.size();
+    const auto first_build_block_rows =
+            build_blocks == 0 ? 0 : _shared_state->build_blocks[0].rows();
+    const auto current_build_block_rows =
+            _shared_state != nullptr && _current_build_pos < build_blocks
+                    ? _shared_state->build_blocks[_current_build_pos].rows()
+                    : 0;
+    const auto use_build_base = build_blocks == 1;
+    const auto& p = _parent->cast<NestedLoopJoinProbeOperatorX>();
+    fmt::format_to(debug_string_buffer,
+                   ", join_state: _child_block_rows={}, _child_eos={}, _join_block_rows={}, "
+                   "_need_more_input_data={}, _matched_rows_done={}, _probe_block_start_pos={}, "
+                   "_probe_block_pos={}, _probe_side_process_count={}, _current_build_pos={}, "
+                   "_current_build_row_pos={}, build_blocks={}, first_build_block_rows={}, "
+                   "current_build_block_rows={}, use_generate_block_base_build={}, "
+                   "_enable_lazy_materialize={}",
+                   child_block_rows, _child_eos, _join_block.rows(), _need_more_input_data,
+                   _matched_rows_done, _probe_block_start_pos, _probe_block_pos,
+                   _probe_side_process_count, _current_build_pos, _current_build_row_pos,
+                   build_blocks, first_build_block_rows, current_build_block_rows, use_build_base,
+                   p._enable_lazy_materialize);
+    return fmt::to_string(debug_string_buffer);
+}
+
 void NestedLoopJoinProbeLocalState::_update_additional_flags(Block* block) {
     auto& p = _parent->cast<NestedLoopJoinProbeOperatorX>();
     if (p._is_mark_join) {

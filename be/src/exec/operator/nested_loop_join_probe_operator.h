@@ -58,6 +58,7 @@ public:
     Status init(RuntimeState* state, LocalStateInfo& info) override;
     Status open(RuntimeState* state) override;
     Status close(RuntimeState* state) override;
+    std::string debug_string(int indentation_level = 0) const override;
 
     // For some complex join types, after generating data on the build/probe side,
     // we need to update visited flags.

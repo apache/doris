@@ -30,6 +30,7 @@
 #include <vector>
 
 #include "common/be_mock_util.h"
+#include "common/check.h"
 #include "common/exception.h"
 #include "common/logging.h"
 #include "common/status.h"
@@ -617,6 +618,10 @@ public:
     [[nodiscard]] Status sink(RuntimeState* state, Block* block, bool eos) {
         RETURN_IF_ERROR(block->check_column_and_type_not_null());
         RETURN_IF_ERROR(block->check_type_and_column());
+        DORIS_CHECK_LE(block->rows(), static_cast<size_t>(state->batch_size()))
+                << "sink=" << get_name() << ", node_id=" << _node_id
+                << ", operator_id=" << _operator_id << ", block_rows=" << block->rows()
+                << ", batch_size=" << state->batch_size() << ", eos=" << eos;
         return sink_impl(state, block, eos);
     }
 
@@ -879,6 +884,10 @@ public:
         RETURN_IF_ERROR(get_block_impl(state, block, eos));
         RETURN_IF_ERROR(block->check_column_and_type_not_null());
         RETURN_IF_ERROR(block->check_type_and_column());
+        DORIS_CHECK_LE(block->rows(), static_cast<size_t>(state->batch_size()))
+                << "operator=" << _op_name << ", node_id=" << _node_id
+                << ", operator_id=" << _operator_id << ", block_rows=" << block->rows()
+                << ", batch_size=" << state->batch_size() << ", eos=" << *eos;
         return Status::OK();
     }
 
