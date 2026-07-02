@@ -85,6 +85,7 @@ private:
     void _upload_one_part(int part_num, UploadFileBuffer& buf);
     bool _complete_part_task_callback(Status s);
     Status _build_upload_buffer();
+    Status _submit_upload_buffer(const std::shared_ptr<FileBuffer>& buf);
     void _record_close_latency();
 
     ObjectStoragePathOptions _obj_storage_path_opts;
