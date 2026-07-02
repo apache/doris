@@ -3255,6 +3255,7 @@ Status SegmentIterator::_next_batch_internal(Block* block) {
 
                 _opts.stats->predicate_lm_stage1_input_rows += rows_read;
                 _opts.stats->predicate_lm_stage1_output_rows += stage1_size;
+                _selected_size = stage1_size;
 
                 if (stage1_size > 0) {
                     bool do_stage2 = _enable_multi_stage_predicate_lazy_materialization &&
