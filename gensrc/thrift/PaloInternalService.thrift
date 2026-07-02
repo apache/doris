@@ -504,8 +504,9 @@ struct TQueryOptions {
   // To control whether BE scan readers may apply expression-based ZoneMap pruning.
   224: optional bool enable_expr_zonemap_filter = true
 
-  225: optional bool enable_prune_nested_column = false;
+  225: optional i64 runtime_filter_tree_publish_max_send_bytes = 268435456
 
+  226: optional bool enable_prune_nested_column = false;
   // For cloud, to control if the content would be written into file cache
   // In write path, to control if the content would be written into file cache.
   // In read path, read from file cache or remote storage when execute query.
@@ -521,13 +522,6 @@ struct TScanRangeParams {
   2: optional i32 volume_id = -1
 }
 
-// deprecated
-struct TRuntimeFilterTargetParams {
-  1: required Types.TUniqueId target_fragment_instance_id
-  // The address of the instance where the fragment is expected to run
-  2: required Types.TNetworkAddress target_fragment_instance_addr
-}
-
 struct TRuntimeFilterTargetParamsV2 {
   1: required list<Types.TUniqueId> target_fragment_instance_ids
   // The address of the instance where the fragment is expected to run
@@ -538,10 +532,6 @@ struct TRuntimeFilterTargetParamsV2 {
 struct TRuntimeFilterParams {
   // Runtime filter merge instance address. Used if this filter has a remote target
   1: optional Types.TNetworkAddress runtime_filter_merge_addr
-
-  // keep 2/3/4/5 unset if BE is not used for merge 
-  // deprecated
-  2: optional map<i32, list<TRuntimeFilterTargetParams>> rid_to_target_param
 
   // Runtime filter ID to the runtime filter desc
   // Used if this filter has a remote target
