@@ -124,6 +124,29 @@ TEST_F(HiveV2ReaderTest, MappingModeUsesInitializedFormat) {
     EXPECT_FALSE(reader.prepare_split(orc_split).ok());
 }
 
+TEST_F(HiveV2ReaderTest, OrcConsumesColumnIdxsAsPositionalSchemaMapping) {
+    query_options.hive_orc_use_column_names = false;
+    state.set_query_options(query_options);
+
+    TFileScanRangeParams params;
+    params.__set_format_type(TFileFormatType::FORMAT_ORC);
+    params.__set_column_idxs({3});
+    ProjectedColumnBuildContext context {
+            .scan_params = &params,
+            .runtime_state = &state,
+    };
+    HiveReader reader;
+
+    TFileScanSlotInfo slot;
+    slot.__set_is_file_slot(true);
+    auto column = table_column("value", std::make_shared<DataTypeInt32>());
+
+    ASSERT_TRUE(reader.annotate_projected_column(slot, &context, &column).ok());
+    ASSERT_TRUE(column.has_identifier_field_id());
+    EXPECT_EQ(column.get_identifier_position(), 3);
+    EXPECT_EQ(context.next_file_column_idx, 1);
+}
+
 // Scenario: positional mapping is only for Hive Parquet/ORC sessions that disable name mapping.
 // CSV keeps the synthesized file-column names and leaves column_idxs for the CsvReader itself.
 TEST_F(HiveV2ReaderTest, CsvDoesNotConsumeColumnIdxsAsPositionalSchemaMapping) {

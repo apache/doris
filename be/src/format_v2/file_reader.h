@@ -233,6 +233,7 @@ public:
         int64_t filtered_group_rows = 0;
         int64_t filtered_page_rows = 0;
         int64_t lazy_read_filtered_rows = 0;
+        int64_t orc_lazy_read_filtered_rows = 0;
         int64_t read_rows = 0;
         int64_t filtered_bytes = 0;
         int64_t column_read_time = 0;
@@ -330,6 +331,8 @@ public:
         _eof = true;
         return Status::OK();
     }
+
+    const ReaderStatistics& reader_statistics() const { return _reader_statistics; }
 
 protected:
     virtual void _init_profile() {}

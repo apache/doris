@@ -40,6 +40,8 @@ bool use_column_position_mapping(const format::ProjectedColumnBuildContext& cont
     switch (format_type_from_context(context)) {
     case TFileFormatType::FORMAT_PARQUET:
         return !context.runtime_state->query_options().hive_parquet_use_column_names;
+    case TFileFormatType::FORMAT_ORC:
+        return !context.runtime_state->query_options().hive_orc_use_column_names;
     default:
         return false;
     }
