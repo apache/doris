@@ -84,6 +84,9 @@ private:
     // match count, because postings never contain null docs. Falls through
     // (*handled = false) for every other shape: multi-term OR/AND,
     // prefix/regexp/wildcard expansion, sloppy phrase, pruned/absent bigram.
+    // On *handled = true, query() also raises
+    // context->count_on_index_fastpath_hit (G03) so the SegmentIterator may
+    // short-circuit row emission for the count-shaped bitmap.
     Status _try_count_only_fastpath(const IndexQueryContextPtr& context,
                                     InvertedIndexQueryType query_type,
                                     const InvertedIndexQueryInfo& query_info,

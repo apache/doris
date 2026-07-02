@@ -175,4 +175,139 @@ TEST(CountOnIndexFastpath, DataReadContractVetoes) {
     }
 }
 
+// --- G03 count-emission shortcut guard truth table --------------------------
+// The shortcut replaces the per-rowid batch loop with a defaults-fill
+// countdown; the ONLY admitted configuration is: reader answered from df +
+// zero surviving evaluation stages + zero row-id/value consumers + pure
+// countdown batch accounting + a schema-shaped block whose every column is
+// defaults-fillable. Each single deviation must refuse (keep today's batch
+// loop, which is always count-exact).
+
+namespace {
+
+CountEmitShortcutFacts safe_emit_facts() {
+    CountEmitShortcutFacts f;
+    f.count_fastpath_hit = true;
+    f.needs_vec_eval = false;
+    f.needs_short_eval = false;
+    f.needs_expr_eval = false;
+    f.has_remaining_col_predicates = false;
+    f.has_remaining_common_exprs = false;
+    f.has_delete_predicates = false;
+    f.lazy_materialization_read = false;
+    f.has_virtual_columns = false;
+    f.record_rowids = false;
+    f.has_read_limit = false;
+    f.read_orderby_key_reverse = false;
+    f.has_condition_cache_digest = false;
+    f.block_shape_matches_schema = true;
+    f.all_columns_emit_defaults = true;
+    return f;
+}
+
+} // namespace
+
+TEST(CountEmitShortcut, AllGuardsSatisfiedAdmits) {
+    EXPECT_TRUE(count_emit_shortcut_safe(safe_emit_facts()));
+}
+
+// The reader must have ANSWERED via the fabricated count bitmap. A mere G02
+// guard pass whose reader fell through to a row-accurate decode (multi-term,
+// pruned bigram, CLucene index, query-cache hit) keeps today's emission.
+TEST(CountEmitShortcut, NoReaderHitRefuses) {
+    auto f = safe_emit_facts();
+    f.count_fastpath_hit = false;
+    EXPECT_FALSE(count_emit_shortcut_safe(f));
+}
+
+// Any surviving evaluation stage refuses: the shortcut emits unconditionally
+// and cannot re-apply filters (e.g. an index-eval downgrade kept the expr).
+TEST(CountEmitShortcut, SurvivingEvaluationRefuses) {
+    {
+        auto f = safe_emit_facts();
+        f.needs_vec_eval = true;
+        EXPECT_FALSE(count_emit_shortcut_safe(f));
+    }
+    {
+        auto f = safe_emit_facts();
+        f.needs_short_eval = true;
+        EXPECT_FALSE(count_emit_shortcut_safe(f));
+    }
+    {
+        auto f = safe_emit_facts();
+        f.needs_expr_eval = true;
+        EXPECT_FALSE(count_emit_shortcut_safe(f));
+    }
+    {
+        auto f = safe_emit_facts();
+        f.has_remaining_col_predicates = true;
+        EXPECT_FALSE(count_emit_shortcut_safe(f));
+    }
+    {
+        auto f = safe_emit_facts();
+        f.has_remaining_common_exprs = true;
+        EXPECT_FALSE(count_emit_shortcut_safe(f));
+    }
+    {
+        auto f = safe_emit_facts();
+        f.has_delete_predicates = true;
+        EXPECT_FALSE(count_emit_shortcut_safe(f));
+    }
+    {
+        auto f = safe_emit_facts();
+        f.lazy_materialization_read = true;
+        EXPECT_FALSE(count_emit_shortcut_safe(f));
+    }
+}
+
+// Consumers of real row ids or per-row values refuse.
+TEST(CountEmitShortcut, RowIdOrValueConsumersRefuse) {
+    {
+        auto f = safe_emit_facts();
+        f.has_virtual_columns = true;
+        EXPECT_FALSE(count_emit_shortcut_safe(f));
+    }
+    {
+        auto f = safe_emit_facts();
+        f.record_rowids = true;
+        EXPECT_FALSE(count_emit_shortcut_safe(f));
+    }
+}
+
+// Batch accounting must be a pure countdown: limits, reverse key-ordered
+// reads, and condition-cache writes all keep today's loop.
+TEST(CountEmitShortcut, NonCountdownBatchAccountingRefuses) {
+    {
+        auto f = safe_emit_facts();
+        f.has_read_limit = true;
+        EXPECT_FALSE(count_emit_shortcut_safe(f));
+    }
+    {
+        auto f = safe_emit_facts();
+        f.read_orderby_key_reverse = true;
+        EXPECT_FALSE(count_emit_shortcut_safe(f));
+    }
+    {
+        auto f = safe_emit_facts();
+        f.has_condition_cache_digest = true;
+        EXPECT_FALSE(count_emit_shortcut_safe(f));
+    }
+}
+
+// The emitted block must be exactly the read schema and every column must be
+// one today's path fills with defaults (no real read, no storage->schema
+// cast, no version/lsn/tso rewrite).
+TEST(CountEmitShortcut, BlockShapeOrColumnFillMismatchRefuses) {
+    {
+        auto f = safe_emit_facts();
+        f.block_shape_matches_schema = false;
+        EXPECT_FALSE(count_emit_shortcut_safe(f));
+    }
+    {
+        auto f = safe_emit_facts();
+        f.all_columns_emit_defaults = false;
+        EXPECT_FALSE(count_emit_shortcut_safe(f));
+    }
+}
+
 } // namespace doris::segment_v2

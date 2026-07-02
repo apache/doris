@@ -483,6 +483,12 @@ Status SniiIndexReader::query(const IndexQueryContextPtr& context, const std::st
                                                  &count_handled, &count_bitmap));
         if (count_handled) {
             bit_map = std::move(count_bitmap);
+            // G03 reply: tell the SegmentIterator the bitmap is count-shaped
+            // (cardinality exact, row ids fabricated) so it may short-circuit
+            // row emission. Deliberately NOT set on the cache-hit return above
+            // or on the decode path below -- those bitmaps are row-accurate
+            // and keep today's emission.
+            context->count_on_index_fastpath_hit = true;
             return Status::OK();
         }
     }

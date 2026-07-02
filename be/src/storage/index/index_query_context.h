@@ -43,6 +43,13 @@ struct IndexQueryContext {
     // skipping the posting decode). Readers must never cache such a bitmap
     // under a key a row-accurate query could hit.
     bool count_on_index_fastpath = false;
+    // G03 reply direction of the same handshake. Set by a reader iff it DID
+    // answer with such a fabricated count bitmap (never on a query-cache hit,
+    // a single-flight shared result, or any row-accurate decode). Read and
+    // reset by SegmentIterator right after the index apply; a true value is
+    // the precondition for the count-emission shortcut that materializes the
+    // remaining count as default rows without iterating the row bitmap.
+    bool count_on_index_fastpath_hit = false;
 };
 using IndexQueryContextPtr = std::shared_ptr<IndexQueryContext>;
 

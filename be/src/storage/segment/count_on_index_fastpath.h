@@ -18,6 +18,7 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 
 // G02 count-only fast-path caller guard (functional core, unit-testable
 // without a SegmentIterator).
@@ -82,4 +83,114 @@ inline bool count_on_index_fastpath_safe(const CountOnIndexFastpathFacts& f) {
            f.keys_type_supported;
 }
 
+// G03 count-emission shortcut guard (functional core, unit-testable without a
+// SegmentIterator).
+//
+// After the G02 fast path answered the single MATCH predicate with a
+// count-shaped bitmap, the only remaining work of the scan is to emit
+// |_row_bitmap| default-valued rows batch by batch: the per-batch rowid
+// iteration over the fabricated bitmap and the per-column no-read checks are
+// pure overhead. The shortcut replaces them with a countdown that fills the
+// block columns with defaults directly, in VStatisticsIterator-sized batches.
+//
+// That replacement is byte-for-byte equal to today's emission only when, at
+// the end of _lazy_init:
+//   1. the reader ACTUALLY answered from df (count_fastpath_hit) -- a mere
+//      guard pass with a row-accurate decode keeps today's path untouched,
+//   2. no evaluation stage survives (vec/short-circuit/expr eval, leftover
+//      column predicates or common exprs, delete predicates, lazy
+//      materialization),
+//   3. nothing consumes real row ids or per-row values (virtual columns,
+//      rowid recording),
+//   4. batch accounting is a pure countdown (no read limit, no reverse
+//      key-ordered read, no condition-cache writes), and
+//   5. the block is exactly the read schema and EVERY column would take a
+//      defaults fill in _read_columns_by_index (no real column read, no
+//      storage->schema cast, no version/lsn/tso rewrite) -- checked
+//      per-column by the iterator and summarized in one fact.
+//
+// Every fact is re-verified from live iterator state even though the G02
+// facts guard already implies most of them: the shortcut independently
+// refuses on any drift, falling through to today's emission (which is always
+// count-exact).
+struct CountEmitShortcutFacts {
+    // (1) reader answered with a fabricated count bitmap.
+    bool count_fastpath_hit = false;
+    // (2) nothing evaluates or filters rows after the index apply.
+    bool needs_vec_eval = false;
+    bool needs_short_eval = false;
+    bool needs_expr_eval = false;
+    bool has_remaining_col_predicates = false;
+    bool has_remaining_common_exprs = false;
+    bool has_delete_predicates = false;
+    bool lazy_materialization_read = false;
+    // (3) consumers of real row ids / per-row values.
+    bool has_virtual_columns = false;
+    bool record_rowids = false;
+    // (4) batch accounting must be a pure countdown.
+    bool has_read_limit = false;
+    bool read_orderby_key_reverse = false;
+    bool has_condition_cache_digest = false;
+    // (5) emitted block == read schema, all columns defaults-fillable.
+    bool block_shape_matches_schema = false;
+    bool all_columns_emit_defaults = false;
+};
+
+inline bool count_emit_shortcut_safe(const CountEmitShortcutFacts& f) {
+    return f.count_fastpath_hit && !f.needs_vec_eval && !f.needs_short_eval && !f.needs_expr_eval &&
+           !f.has_remaining_col_predicates && !f.has_remaining_common_exprs &&
+           !f.has_delete_predicates && !f.lazy_materialization_read && !f.has_virtual_columns &&
+           !f.record_rowids && !f.has_read_limit && !f.read_orderby_key_reverse &&
+           !f.has_condition_cache_digest && f.block_shape_matches_schema &&
+           f.all_columns_emit_defaults;
+}
+
 } // namespace doris::segment_v2
+
+// Deterministic seam for the G03 count-emission shortcut, mirroring the SNII
+// query seam (storage/index/snii/query/internal/query_test_counters.h):
+//   - count_emit_shortcut_hits    : engage decisions that ADMITTED the
+//                                   shortcut (incremented inside
+//                                   _should_engage_count_emit_shortcut, which
+//                                   _lazy_init calls once per iterator). Guard
+//                                   fall-throughs leave it unchanged.
+//   - count_emit_shortcut_batches : default-rows batches emitted by the
+//                                   shortcut (== ceil(count / 65535) per
+//                                   engaged iterator with a non-zero count).
+//
+// Active only under BE_TEST (library-wide define of doris_be_test); in a
+// release build the macro expands to ((void)0): zero overhead, no global
+// mutable state on the production path. The singleton is intentionally
+// unsynchronized -- single-threaded test-only seam; reset between cases with
+// `count_emit_test_counters() = {}`.
+#if defined(BE_TEST) && !defined(SNII_COUNT_EMIT_TEST_COUNTERS)
+#define SNII_COUNT_EMIT_TEST_COUNTERS
+#endif
+
+#ifdef SNII_COUNT_EMIT_TEST_COUNTERS
+
+namespace doris::segment_v2::internal {
+
+struct CountEmitTestCounters {
+    uint64_t count_emit_shortcut_hits = 0;
+    uint64_t count_emit_shortcut_batches = 0;
+};
+
+// `inline` gives a single shared instance across all TUs that include this
+// header, so counter increments made in segment_iterator.cpp are visible to
+// the test that reads them.
+inline CountEmitTestCounters& count_emit_test_counters() {
+    static CountEmitTestCounters counters;
+    return counters;
+}
+
+} // namespace doris::segment_v2::internal
+
+#define SNII_COUNT_EMIT_COUNT(field) \
+    (++::doris::segment_v2::internal::count_emit_test_counters().field)
+
+#else
+
+#define SNII_COUNT_EMIT_COUNT(field) ((void)0)
+
+#endif
