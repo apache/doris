@@ -77,7 +77,7 @@ suite("test_count_on_index_2", "p0"){
         );
     """
 
-    sql """ 
+    sql """
         INSERT INTO ${indexTbName3} VALUES
         (1, 1, 1),
         (2, 2, 2),
@@ -113,11 +113,11 @@ suite("test_count_on_index_2", "p0"){
 
     def load_httplogs_data = {table_name, label, read_flag, format_flag, file_name, ignore_failure=false,
                         expected_succ_rows = -1, load_to_single_tablet = 'true' ->
-        
+
         // load the json data
         streamLoad {
             table "${table_name}"
-            
+
             // set http request header params
             set 'label', label + "_" + UUID.randomUUID().toString()
             set 'read_json_by_line', read_flag
@@ -153,7 +153,7 @@ suite("test_count_on_index_2", "p0"){
         load_httplogs_data.call(indexTbName2, indexTbName2, 'true', 'json', 'documents-1000.json')
 
         sql "sync"
-        sql """ set enable_common_expr_pushdown = true """
+        sql """ set enable_segment_limit_pushdown = true """
 
         qt_sql """ select count() from ${indexTbName1} where `@timestamp` >= 893964736 and `@timestamp` <= 893966453; """
         qt_sql """ select count() from ${indexTbName2} where `@timestamp` >= 893964736 and `@timestamp` <= 893966453; """

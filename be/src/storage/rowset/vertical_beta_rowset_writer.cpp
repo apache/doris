@@ -32,11 +32,13 @@
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/logging.h"
 #include "core/block/block.h"
+#include "cpp/sync_point.h"
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
 #include "storage/rowset/beta_rowset.h"
 #include "storage/rowset/rowset_meta.h"
 #include "storage/rowset/rowset_writer_context.h"
+#include "storage/segment/segment_index_file_cache_loader.h"
 #include "util/slice.h"
 
 namespace doris {
@@ -172,7 +174,7 @@ Status VerticalBetaRowsetWriter<T>::_create_segment_writer(
 
     IndexFileWriterPtr index_file_writer;
     if (context.tablet_schema->has_inverted_index() || context.tablet_schema->has_ann_index()) {
-        RETURN_IF_ERROR(RowsetWriter::create_index_file_writer(seg_id, &index_file_writer));
+        RETURN_IF_ERROR(this->create_index_file_writer(seg_id, &index_file_writer));
     }
 
     segment_v2::SegmentWriterOptions writer_options;
@@ -205,13 +207,18 @@ Status VerticalBetaRowsetWriter<T>::final_flush() {
     for (auto& segment_writer : _segment_writers) {
         uint64_t segment_size = 0;
         //uint64_t footer_position = 0;
-        auto st = segment_writer->finalize_footer(&segment_size);
+        segment_v2::SegmentIndexFileCacheInfo index_file_cache_info;
+        auto segment_id = segment_writer->get_segment_id();
+        auto st = segment_writer->finalize_footer(&segment_size, &index_file_cache_info);
         if (!st.ok()) {
             LOG(WARNING) << "Fail to finalize segment footer, " << st;
             return st;
         }
         this->_total_data_size += segment_size;
+        TEST_SYNC_POINT_CALLBACK("VerticalBetaRowsetWriter::final_flush_segment_writer",
+                                 &segment_id);
         segment_writer.reset();
+        _record_segment_index_file_cache_preload(segment_id, index_file_cache_info);
     }
     return Status::OK();
 }
@@ -220,7 +227,28 @@ template <class T>
     requires std::is_base_of_v<BaseBetaRowsetWriter, T>
 Status VerticalBetaRowsetWriter<T>::_close_file_writers() {
     RETURN_IF_ERROR(BaseBetaRowsetWriter::_close_inverted_index_file_writers());
-    return this->_seg_files.close();
+    RETURN_IF_ERROR(this->_seg_files.close());
+    return _preload_segment_indexes_to_file_cache();
+}
+
+template <class T>
+    requires std::is_base_of_v<BaseBetaRowsetWriter, T>
+void VerticalBetaRowsetWriter<T>::_record_segment_index_file_cache_preload(
+        uint32_t segment_id, const segment_v2::SegmentIndexFileCacheInfo& info) {
+    std::lock_guard lock(_segment_index_file_cache_preloads_lock);
+    _segment_index_file_cache_preloads.push_back({segment_id, info});
+}
+
+template <class T>
+    requires std::is_base_of_v<BaseBetaRowsetWriter, T>
+Status VerticalBetaRowsetWriter<T>::_preload_segment_indexes_to_file_cache() {
+    std::vector<segment_v2::SegmentIndexFileCachePreloadTask> tasks;
+    {
+        std::lock_guard lock(_segment_index_file_cache_preloads_lock);
+        tasks.swap(_segment_index_file_cache_preloads);
+    }
+    return segment_v2::SegmentIndexFileCacheLoader::preload_segment_indexes_to_file_cache(
+            this->_context, tasks);
 }
 
 } // namespace doris

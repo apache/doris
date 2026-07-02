@@ -165,10 +165,12 @@ private:
     // if row cursors equal, compare data version.
     class LevelIteratorComparator {
     public:
-        LevelIteratorComparator(int sequence, bool is_reverse, bool use_insert_order_when_same)
+        LevelIteratorComparator(int sequence, bool is_reverse, bool use_insert_order_when_same,
+                                bool small_seq_first)
                 : _sequence(sequence),
                   _is_reverse(is_reverse),
-                  _use_insert_order_when_same(use_insert_order_when_same) {}
+                  _use_insert_order_when_same(use_insert_order_when_same),
+                  _small_seq_first(small_seq_first) {}
 
         bool operator()(LevelIterator* lhs, LevelIterator* rhs);
 
@@ -178,6 +180,11 @@ private:
         bool _is_reverse = false;
         // For rows with the same key, use ascending order (small-to-large) for tie-breakers.
         bool _use_insert_order_when_same = false;
+        // Ordering direction of the tie-break column when keys are equal:
+        // - false : larger value sorts first (UNIQUE_KEYS sequence column).
+        // - true  : smaller value sorts first (row binlog LSN column).
+        // The two cases are mutually exclusive (DCHECK at construction site).
+        bool _small_seq_first = false;
     };
 
 #ifdef USE_LIBCPP

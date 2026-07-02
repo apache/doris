@@ -38,5 +38,5 @@ gen_func: ${GEN_FUNC_OUTPUT}
 
 # generate version info
 gen_version:
-	${CURDIR}/gen_build_version.sh
+	bash ${CURDIR}/gen_build_version.sh
 .PHONY: gen_version

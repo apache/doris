@@ -52,7 +52,7 @@ Status VExplodeNumbersTableFunction::process_init(Block* block, RuntimeState* st
         // the argument columns -> Int32
         const auto& column_nested =
                 assert_cast<const ColumnConst&>(*_value_column).get_data_column_ptr();
-        if (column_nested->is_nullable()) {
+        if (is_column_nullable(*column_nested)) {
             if (!column_nested->is_null_at(0)) {
                 _cur_size = assert_cast<const ColumnInt32*>(
                                     assert_cast<const ColumnNullable*>(column_nested.get())

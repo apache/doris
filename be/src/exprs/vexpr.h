@@ -24,6 +24,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <ostream>
 #include <string>
@@ -51,16 +52,17 @@
 #include "storage/index/ann/ann_search_params.h"
 #include "storage/index/index_reader.h"
 #include "storage/index/inverted/inverted_index_reader.h"
+#include "storage/index/zone_map/zonemap_filter_result.h"
 #include "util/date_func.h"
 #include "util/unaligned.h"
 
 namespace doris {
-class BitmapFilterFuncBase;
 class BloomFilterFuncBase;
 class HybridSetBase;
 class ObjectPool;
 class RowDescriptor;
 class RuntimeState;
+class ZoneMapEvalContext;
 
 namespace segment_v2 {
 class IndexIterator;
@@ -80,6 +82,7 @@ struct AnnRangeSearchRuntime;
 // the relatioinship between threads and classes.
 
 using Selector = IColumn::Selector;
+using VExprCloneNodeOverride = std::function<Status(const VExpr&, VExprSPtr*)>;
 
 struct AnnRangeSearchEvaluationResult {
     // Indicates whether the expr row_bitmap has been updated.
@@ -181,6 +184,9 @@ public:
         return Status::OK();
     }
 
+    virtual ZoneMapFilterResult evaluate_zonemap_filter(const ZoneMapEvalContext& ctx) const;
+    virtual bool can_evaluate_zonemap_filter() const { return false; }
+
     // Get analyzer key for inverted index queries (overridden by VMatchPredicate)
     [[nodiscard]] virtual const std::string& get_analyzer_key() const {
         static const std::string empty;
@@ -211,11 +217,13 @@ public:
 
     const DataTypePtr& data_type() const { return _data_type; }
 
-    bool is_slot_ref() const { return _node_type == TExprNodeType::SLOT_REF; }
+    virtual bool is_slot_ref() const { return _node_type == TExprNodeType::SLOT_REF; }
 
-    bool is_virtual_slot_ref() const { return _node_type == TExprNodeType::VIRTUAL_SLOT_REF; }
+    virtual bool is_virtual_slot_ref() const {
+        return _node_type == TExprNodeType::VIRTUAL_SLOT_REF;
+    }
 
-    bool is_column_ref() const { return _node_type == TExprNodeType::COLUMN_REF; }
+    virtual bool is_column_ref() const { return _node_type == TExprNodeType::COLUMN_REF; }
 
     virtual bool is_literal() const { return false; }
 
@@ -249,6 +257,10 @@ public:
 
     static bool contains_blockable_function(const VExprContextSPtrs& ctxs);
 
+    Status deep_clone(VExprSPtr* cloned_expr,
+                      const VExprCloneNodeOverride& clone_node_override = {}) const;
+    virtual Status clone_node(VExprSPtr* cloned_expr) const;
+
     bool is_nullable() const { return _data_type->is_nullable(); }
 
     PrimitiveType result_type() const { return _data_type->get_primitive_type(); }
@@ -263,6 +275,7 @@ public:
     virtual const VExprSPtrs& children() const { return _children; }
     void set_children(const VExprSPtrs& children) { _children = children; }
     void set_children(VExprSPtrs&& children) { _children = std::move(children); }
+    void reset_prepare_state();
     virtual std::string debug_string() const;
     static std::string debug_string(const VExprSPtrs& exprs);
     static std::string debug_string(const VExprContextSPtrs& ctxs);
@@ -270,7 +283,7 @@ public:
     static ColumnPtr filter_column_with_selector(const ColumnPtr& origin_column,
                                                  const Selector* selector, size_t count) {
         if (selector == nullptr) {
-            DCHECK_EQ(origin_column->size(), count);
+            DCHECK_EQ(origin_column->size(), count) << origin_column->get_name();
             return origin_column;
         }
         DCHECK_EQ(count, selector->size());
@@ -326,13 +339,6 @@ public:
 
     virtual std::shared_ptr<HybridSetBase> get_set_func() const { return nullptr; }
 
-    // If this expr is a BitmapPredicate, this method will return a BitmapFilterFunc
-    virtual std::shared_ptr<BitmapFilterFuncBase> get_bitmap_filter_func() const {
-        throw Exception(Status::FatalError(
-                "Method 'get_bitmap_filter_func()' is not supported in expression: {}",
-                this->debug_string()));
-    }
-
     // fast_execute can direct copy expr filter result which build by apply index in segment_iterator
     bool fast_execute(VExprContext* context, const Selector* selector, size_t count,
                       ColumnPtr& result_column) const;
@@ -356,8 +362,9 @@ public:
             const std::vector<std::unique_ptr<segment_v2::IndexIterator>>& cid_to_index_iterators,
             const std::vector<ColumnId>& idx_to_cid,
             const std::vector<std::unique_ptr<segment_v2::ColumnIterator>>& column_iterators,
-            roaring::Roaring& row_bitmap, segment_v2::AnnIndexStats& ann_index_stats,
-            bool enable_result_cache, AnnRangeSearchEvaluationResult& result);
+            size_t rows_of_segment, roaring::Roaring& row_bitmap,
+            segment_v2::AnnIndexStats& ann_index_stats, bool enable_result_cache,
+            AnnRangeSearchEvaluationResult& result);
 
     // Prepare the runtime for ANN range search.
     // AnnRangeSearchRuntime is used to store the runtime information of ann range search.
@@ -370,6 +377,8 @@ public:
     virtual uint64_t get_digest(uint64_t seed) const;
 
 protected:
+    TExprNode clone_texpr_node() const;
+
     /// Simple debug string that provides no expr subclass-specific information
     std::string debug_string(const std::string& expr_name) const {
         std::stringstream out;

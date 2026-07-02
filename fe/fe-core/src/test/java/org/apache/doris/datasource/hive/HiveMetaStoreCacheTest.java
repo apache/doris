@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.hive;
 
+import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.util.Util;
@@ -30,6 +31,7 @@ import org.junit.jupiter.api.Test;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.atomic.AtomicLong;
@@ -121,6 +123,19 @@ public class HiveMetaStoreCacheTest {
             executor.shutdownNow();
             listExecutor.shutdownNow();
         }
+    }
+
+    @Test
+    public void testHivePartitionValuesCopyKeepsIndependentNameMaps() {
+        Map<String, PartitionItem> nameToPartitionItem = new HashMap<>();
+        Map<String, List<String>> nameToPartitionValues = new HashMap<>();
+        nameToPartitionValues.put("dt=2026-06-26", Collections.singletonList("2026-06-26"));
+        HiveExternalMetaCache.HivePartitionValues partitionValues =
+                new HiveExternalMetaCache.HivePartitionValues(nameToPartitionItem, nameToPartitionValues);
+
+        HiveExternalMetaCache.HivePartitionValues copy = partitionValues.copy();
+        copy.getNameToPartitionValues().put("dt=2026-06-27", Collections.singletonList("2026-06-27"));
+        Assertions.assertFalse(partitionValues.getNameToPartitionValues().containsKey("dt=2026-06-27"));
     }
 
     private void putCache(

@@ -66,38 +66,58 @@ suite("test_paimon_jdbc_catalog", "p0,external") {
 
     assertTrue(jdbcDriversDir != null && !jdbcDriversDir.isEmpty(), "jdbc_drivers_dir must be configured")
 
-    def executeCommand = { String cmd, Boolean mustSuc ->
+    def executeCommand = { String cmd, Boolean mustSuc, int timeoutSeconds = 300 ->
+        StringBuilder stdout = new StringBuilder()
+        StringBuilder stderr = new StringBuilder()
         try {
             logger.info("execute ${cmd}")
-            def proc = new ProcessBuilder("/bin/bash", "-c", cmd).redirectErrorStream(true).start()
-            int exitcode = proc.waitFor()
-            String output = proc.text
+            def proc = new ProcessBuilder("/bin/bash", "-c", cmd).start()
+            proc.consumeProcessOutput(stdout, stderr)
+            proc.waitForOrKill(timeoutSeconds * 1000)
+            int exitcode = proc.exitValue()
+            String output = stdout.toString()
+            String error = stderr.toString()
             if (exitcode != 0) {
-                logger.info("exit code: ${exitcode}, output\n: ${output}")
+                logger.info("exit code: ${exitcode}, stdout\n: ${output}\nstderr\n: ${error}")
                 if (mustSuc) {
-                    assertTrue(false, "Execute failed: ${cmd}")
+                    assertTrue(false, "Execute failed: ${cmd}\nstdout:\n${output}\nstderr:\n${error}")
                 }
             }
             return output
         } catch (IOException e) {
-            assertTrue(false, "Execute timeout: ${cmd}")
+            assertTrue(false, "Execute failed: ${cmd}, err: ${e.message}")
         }
     }
 
-    executeCommand("mkdir -p ${localDriverDir}", false)
-    executeCommand("mkdir -p ${jdbcDriversDir}", true)
+    executeCommand("mkdir -p ${localDriverDir}", false, 60)
+    executeCommand("mkdir -p ${jdbcDriversDir}", true, 60)
     if (!new File(localDriverPath).exists()) {
-        executeCommand("/usr/bin/curl --max-time 600 ${driverDownloadUrl} --output ${localDriverPath}", true)
+        executeCommand("/usr/bin/curl --max-time 600 ${driverDownloadUrl} --output ${localDriverPath}", true, 660)
     }
-    executeCommand("cp -f ${localDriverPath} ${jdbcDriversDir}/${driverName}", true)
+    executeCommand("cp -f ${localDriverPath} ${jdbcDriversDir}/${driverName}", true, 60)
 
-    String sparkContainerName = executeCommand("docker ps --filter name=spark-iceberg --format {{.Names}}", false)
+    String sparkContainerName = executeCommand("docker ps --filter name=spark-iceberg --format {{.Names}}", false, 30)
             ?.trim()
     if (sparkContainerName == null || sparkContainerName.isEmpty()) {
         logger.info("spark-iceberg container not found, skip this test")
         return
     }
-    executeCommand("docker cp ${localDriverPath} ${sparkContainerName}:${sparkDriverPath}", true)
+    executeCommand("docker cp ${localDriverPath} ${sparkContainerName}:${sparkDriverPath}", true, 60)
+
+    String sparkMinioEndpoint = "http://${externalEnvIp}:${minioPort}"
+    if (sparkContainerName.contains("spark-iceberg")) {
+        String sparkMinioContainerName = sparkContainerName.replaceFirst("spark-iceberg", "minio")
+        String resolvedSparkMinioContainer = executeCommand(
+                "docker ps --filter name=${sparkMinioContainerName} --format {{.Names}}",
+                false,
+                30
+        )?.trim()
+        if (resolvedSparkMinioContainer == sparkMinioContainerName) {
+            // Spark runs inside the docker network and may not be able to reach the host-mapped MinIO port.
+            sparkMinioEndpoint = "http://${resolvedSparkMinioContainer}:9000"
+        }
+    }
+    logger.info("spark seed minio endpoint: ${sparkMinioEndpoint}")
 
     def sparkPaimonJdbc = { String sqlText ->
         String escapedSql = sqlText.replaceAll('"', '\\\\"')
@@ -115,13 +135,13 @@ suite("test_paimon_jdbc_catalog", "p0,external") {
 --conf spark.sql.catalog.${sparkSeedCatalogName}.jdbc.user=postgres \
 --conf spark.sql.catalog.${sparkSeedCatalogName}.jdbc.password=123456 \
 --conf spark.sql.catalog.${sparkSeedCatalogName}.lock.enabled=false \
---conf spark.sql.catalog.${sparkSeedCatalogName}.s3.endpoint=http://${externalEnvIp}:${minioPort} \
+--conf spark.sql.catalog.${sparkSeedCatalogName}.s3.endpoint=${sparkMinioEndpoint} \
 --conf spark.sql.catalog.${sparkSeedCatalogName}.s3.access-key=${minioAk} \
 --conf spark.sql.catalog.${sparkSeedCatalogName}.s3.secret-key=${minioSk} \
 --conf spark.sql.catalog.${sparkSeedCatalogName}.s3.region=us-east-1 \
 --conf spark.sql.catalog.${sparkSeedCatalogName}.s3.path.style.access=true \
 -e "${escapedSql}" """
-        executeCommand(command, true)
+        executeCommand(command, true, 300)
     }
 
     def assertSystemTableReadable = { String tableExpr, List<String> expectedColumns = [], Integer minCount = null ->

@@ -298,6 +298,17 @@ suite("test_outfile_parquet_complex_type", "p0") {
         // test outfile to s3
         def outfile_url = outfile_to_S3()
 
+        sql """ set enable_file_scanner_v2 = false; """
+        qt_select_load7 """ SELECT * FROM S3 (
+                            "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.parquet",
+                            "ACCESS_KEY"= "${ak}",
+                            "SECRET_KEY" = "${sk}",
+                            "format" = "parquet",
+                            "region" = "${region}"
+                        );
+                        """
+
+        sql """ set enable_file_scanner_v2 = true; """
         qt_select_load7 """ SELECT * FROM S3 (
                             "uri" = "http://${bucket}.${s3_endpoint}${outfile_url.substring(5 + bucket.length(), outfile_url.length() - 1)}0.parquet",
                             "ACCESS_KEY"= "${ak}",

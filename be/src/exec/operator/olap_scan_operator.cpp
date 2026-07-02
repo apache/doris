@@ -229,6 +229,16 @@ Status OlapScanLocalState::_init_profile() {
     _stats_filtered_counter = ADD_COUNTER(_segment_profile, "RowsStatsFiltered", TUnit::UNIT);
     _stats_rp_filtered_counter =
             ADD_COUNTER(_segment_profile, "RowsZoneMapRuntimePredicateFiltered", TUnit::UNIT);
+    _expr_zonemap_filtered_segment_counter =
+            ADD_COUNTER(_segment_profile, "ExprZoneMapFilteredSegments", TUnit::UNIT);
+    _expr_zonemap_filtered_page_counter =
+            ADD_COUNTER(_segment_profile, "ExprZoneMapFilteredPages", TUnit::UNIT);
+    _expr_zonemap_unusable_counter =
+            ADD_COUNTER(_segment_profile, "ExprZoneMapUnusableEvals", TUnit::UNIT);
+    _in_zonemap_point_check_counter =
+            ADD_COUNTER(_segment_profile, "InZoneMapPointCheckCount", TUnit::UNIT);
+    _in_zonemap_range_only_counter =
+            ADD_COUNTER(_segment_profile, "InZoneMapRangeOnlyCount", TUnit::UNIT);
     _bf_filtered_counter = ADD_COUNTER(_segment_profile, "RowsBloomFilterFiltered", TUnit::UNIT);
     _dict_filtered_counter = ADD_COUNTER(_segment_profile, "SegmentDictFiltered", TUnit::UNIT);
     _del_filtered_counter = ADD_COUNTER(_scanner_profile, "RowsDelFiltered", TUnit::UNIT);
@@ -395,6 +405,14 @@ Status OlapScanLocalState::_init_profile() {
                             "AnnIndexRangeResultPostProcessCosts");
     _ann_fallback_brute_force_cnt =
             ADD_COUNTER(_segment_profile, "AnnIndexFallbackBruteForceCnt", TUnit::UNIT);
+    _ann_topn_fallback_by_small_candidate_cnt =
+            ADD_COUNTER(_segment_profile, "AnnIndexTopNFallbackBySmallCandidateCnt", TUnit::UNIT);
+    _ann_topn_fallback_small_candidate_rows =
+            ADD_COUNTER(_segment_profile, "AnnIndexTopNFallbackSmallCandidateRows", TUnit::UNIT);
+    _ann_range_fallback_by_small_candidate_cnt =
+            ADD_COUNTER(_segment_profile, "AnnIndexRangeFallbackBySmallCandidateCnt", TUnit::UNIT);
+    _ann_range_fallback_small_candidate_rows =
+            ADD_COUNTER(_segment_profile, "AnnIndexRangeFallbackSmallCandidateRows", TUnit::UNIT);
     _variant_scan_sparse_column_timer = ADD_TIMER(_segment_profile, "VariantScanSparseColumnTimer");
     _variant_scan_sparse_column_bytes =
             ADD_COUNTER(_segment_profile, "VariantScanSparseColumnBytes", TUnit::BYTES);
@@ -651,6 +669,12 @@ Status OlapScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
     }
 
     bool enable_parallel_scan = state()->enable_parallel_scan();
+    auto resolve_binlog_scan_type = [](const TPaloScanRange& scan_range) {
+        if (scan_range.__isset.binlog_scan_type) {
+            return scan_range.binlog_scan_type;
+        }
+        return TBinlogScanType::NONE;
+    };
     bool read_row_binlog =
             p._olap_scan_node.__isset.read_row_binlog && p._olap_scan_node.read_row_binlog;
 
@@ -722,11 +746,10 @@ Status OlapScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
 
     int scanners_per_tablet = std::max(1, 64 / (int)_scan_ranges.size());
     for (size_t scan_range_idx = 0; scan_range_idx < _scan_ranges.size(); scan_range_idx++) {
+        const auto& palo_scan_range = *_scan_ranges[scan_range_idx];
         int64_t version = 0;
-        std::from_chars(_scan_ranges[scan_range_idx]->version.data(),
-                        _scan_ranges[scan_range_idx]->version.data() +
-                                _scan_ranges[scan_range_idx]->version.size(),
-                        version);
+        std::from_chars(palo_scan_range.version.data(),
+                        palo_scan_range.version.data() + palo_scan_range.version.size(), version);
         std::vector<std::unique_ptr<doris::OlapScanRange>>* ranges = &_cond_ranges;
         int size_based_scanners_per_tablet = 1;
 
@@ -754,18 +777,26 @@ Status OlapScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
             for (auto& split : _read_sources[scan_range_idx].rs_splits) {
                 split.rs_reader = split.rs_reader->clone();
             }
-            auto scanner =
-                    OlapScanner::create_shared(this, OlapScanner::Params {
-                                                             state(),
-                                                             _scanner_profile.get(),
-                                                             scanner_ranges,
-                                                             _tablets[scan_range_idx].tablet,
-                                                             version,
-                                                             _read_sources[scan_range_idx],
-                                                             p._limit,
-                                                             p._olap_scan_node.is_preaggregation,
-                                                             read_row_binlog,
-                                                     });
+
+            auto scanner = OlapScanner::create_shared(
+                    this, OlapScanner::Params {
+                                  state(),
+                                  _scanner_profile.get(),
+                                  scanner_ranges,
+                                  _tablets[scan_range_idx].tablet,
+                                  version,
+                                  _read_sources[scan_range_idx],
+                                  p._limit,
+                                  p._olap_scan_node.is_preaggregation,
+                                  read_row_binlog,
+                                  resolve_binlog_scan_type(palo_scan_range),
+                                  palo_scan_range.__isset.start_tso
+                                          ? std::make_optional(palo_scan_range.start_tso)
+                                          : std::nullopt,
+                                  palo_scan_range.__isset.end_tso
+                                          ? std::make_optional(palo_scan_range.end_tso)
+                                          : std::nullopt,
+                          });
             RETURN_IF_ERROR(scanner->init(state(), _conjuncts));
             scanners->push_back(std::move(scanner));
         }
@@ -975,16 +1006,6 @@ Status OlapScanLocalState::open(RuntimeState* state) {
             RETURN_IF_ERROR(virtual_column_expr_ctx->open(state));
 
             _slot_id_to_virtual_column_expr[slot_desc->id()] = virtual_column_expr_ctx;
-            _slot_id_to_col_type[slot_desc->id()] = slot_desc->get_data_type_ptr();
-            int col_pos = p.intermediate_row_desc().get_column_id(slot_desc->id());
-            if (col_pos < 0) {
-                return Status::InternalError(
-                        "Invalid virtual slot, can not find its information. Slot desc:\n{}\nRow "
-                        "desc:\n{}",
-                        slot_desc->debug_string(), p.row_desc().debug_string());
-            } else {
-                _slot_id_to_index_in_block[slot_desc->id()] = col_pos;
-            }
         }
     }
 

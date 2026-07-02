@@ -39,7 +39,7 @@ namespace doris {
   * - addresses remain valid during lifetime of pool;
   * - at destruction of pool, all memory is freed;
   * - memory is allocated and freed by large chunks;
-  * - freeing parts of data is not possible (but look at ArenaWithFreeLists if you need);
+  * - freeing parts of data is not possible;
   */
 class Arena : private boost::noncopyable {
 private:

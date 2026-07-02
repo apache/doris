@@ -35,6 +35,7 @@
 #include "service/http/action/adjust_log_level.h"
 #include "service/http/action/batch_download_action.h"
 #include "service/http/action/be_proc_thread_action.h"
+#include "service/http/action/be_thread_stack_action.h"
 #include "service/http/action/calc_file_crc_action.h"
 #include "service/http/action/check_encryption_action.h"
 #include "service/http/action/check_rpc_channel_action.h"
@@ -76,6 +77,7 @@
 #include "service/http/action/tablets_distribution_action.h"
 #include "service/http/action/tablets_info_action.h"
 #include "service/http/action/version_action.h"
+#include "service/http/action/warmup_stats_action.h"
 #include "service/http/default_path_handlers.h"
 #include "service/http/ev_http_server.h"
 #include "service/http/http_method.h"
@@ -142,7 +144,7 @@ Status HttpService::start() {
                                       streamload_2pc_action);
 
     // register stream load forward handler
-    auto* forward_handler = _pool.add(new StreamLoadForwardHandler());
+    auto* forward_handler = _pool.add(new StreamLoadForwardHandler(_env));
     _ev_http_server->register_handler(HttpMethod::PUT, "/api/{db}/{table}/_stream_load_forward",
                                       forward_handler);
 
@@ -194,6 +196,10 @@ Status HttpService::start() {
     BeProcThreadAction* be_proc_thread_action = _pool.add(new BeProcThreadAction(_env));
     _ev_http_server->register_handler(HttpMethod::GET, "/api/be_process_thread_num",
                                       be_proc_thread_action);
+
+    // Dump C++ stack traces for current BE threads.
+    BeThreadStackAction* be_thread_stack_action = _pool.add(new BeThreadStackAction(_env));
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/stack_trace", be_thread_stack_action);
 
     // Register BE LoadStream action
     LoadStreamAction* load_stream_action = _pool.add(new LoadStreamAction(_env));
@@ -506,6 +512,10 @@ void HttpService::register_cloud_handler(CloudStorageEngine& engine) {
     _ev_http_server->register_handler(HttpMethod::GET, "/api/file_cache", file_cache_action);
     auto* show_hotspot_action = _pool.add(new ShowHotspotAction(engine, _env));
     _ev_http_server->register_handler(HttpMethod::GET, "/api/hotspot/tablet", show_hotspot_action);
+
+    auto* warmup_stats_action = _pool.add(new WarmUpStatsAction(_env));
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/warmup_event_driven_stats",
+                                      warmup_stats_action);
 
     CalcFileCrcAction* calc_crc_action = _pool.add(
             new CalcFileCrcAction(_env, engine, TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN));

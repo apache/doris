@@ -266,4 +266,22 @@ public class DatasourcePrintableMapTest {
     public void testPasswordMaskConstant() {
         Assertions.assertEquals("*XXX", DatasourcePrintableMap.PASSWORD_MASK);
     }
+
+    @Test
+    public void testRegisterSensitiveKeysMasksNewlyRegisteredKey() {
+        // Simulates a filesystem provider contributing its sensitive alias at startup.
+        DatasourcePrintableMap.registerSensitiveKeys(
+                java.util.Collections.singleton("PROVIDER_CONTRIBUTED_SECRET_KEY"));
+
+        Map<String, String> testMap = new HashMap<>();
+        testMap.put("PROVIDER_CONTRIBUTED_SECRET_KEY", "super_secret_value");
+
+        DatasourcePrintableMap<String, String> printableMap =
+                new DatasourcePrintableMap<>(testMap, "=", false, false, true);
+        String result = printableMap.toString();
+
+        Assertions.assertFalse(result.contains("super_secret_value"));
+        Assertions.assertTrue(result.contains(
+                "PROVIDER_CONTRIBUTED_SECRET_KEY = " + DatasourcePrintableMap.PASSWORD_MASK));
+    }
 }

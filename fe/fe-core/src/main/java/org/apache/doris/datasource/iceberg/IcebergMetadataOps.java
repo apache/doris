@@ -421,10 +421,16 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         Schema schema = new Schema(visit.asNestedType().asStructType().fields());
         Map<String, String> properties = createTableInfo.getProperties();
         properties.put(ExternalCatalog.DORIS_VERSION, ExternalCatalog.DORIS_VERSION_VALUE);
-        properties.putIfAbsent(TableProperties.FORMAT_VERSION, "2");
+        Map<String, String> catalogProperties = dorisCatalog.getProperties();
+        if (!properties.containsKey(TableProperties.FORMAT_VERSION)
+                && !IcebergUtils.hasIcebergCatalogFormatVersion(catalogProperties)) {
+            properties.put(TableProperties.FORMAT_VERSION, "2");
+        }
         properties.putIfAbsent(TableProperties.DELETE_MODE, RowLevelOperationMode.MERGE_ON_READ.modeName());
         properties.putIfAbsent(TableProperties.UPDATE_MODE, RowLevelOperationMode.MERGE_ON_READ.modeName());
         properties.putIfAbsent(TableProperties.MERGE_MODE, RowLevelOperationMode.MERGE_ON_READ.modeName());
+        createTableInfo.validateIcebergRowLineageColumns(
+                IcebergUtils.getEffectiveIcebergFormatVersion(properties, catalogProperties));
         PartitionSpec partitionSpec = IcebergUtils.solveIcebergPartitionSpec(createTableInfo.getPartitionDesc(),
                 schema);
         // Build and create table with optional sort order
@@ -969,7 +975,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
                     + oldDorisType.toSql() + " to " + newDorisType.toSql());
         }
         try {
-            ColumnType.checkSupportSchemaChangeForComplexType(oldDorisType, newDorisType, false);
+            ColumnType.checkSupportIcebergSchemaChangeForComplexType(oldDorisType, newDorisType, false);
         } catch (DdlException e) {
             throw new UserException(e.getMessage(), e);
         }

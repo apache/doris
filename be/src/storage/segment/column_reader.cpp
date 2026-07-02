@@ -318,12 +318,11 @@ void ColumnReader::check_data_by_zone_map_for_test(const MutableColumnPtr& dst) 
     }
 
     auto* non_nullable_column =
-            dst->is_nullable()
+            is_column_nullable(*dst)
                     ? assert_cast<ColumnNullable*>(dst.get())->get_nested_column_ptr().get()
                     : dst.get();
 
-    /// `PredicateColumnType<TYPE_INT>` does not support `void get(size_t n, Field& res)`,
-    /// So here only check `CoumnVector<TYPE_INT>`
+    /// Only verify when the destination column carries Field-accessible TYPE_INT data.
     if (check_and_get_column<ColumnVector<TYPE_INT>>(non_nullable_column) == nullptr) {
         return;
     }
@@ -613,6 +612,35 @@ Status ColumnReader::_load_zone_map_index(bool use_page_cache, bool kept_in_memo
     if (_zone_map_index != nullptr) {
         return _zone_map_index->load(use_page_cache, kept_in_memory, iter_opts.stats);
     }
+    return Status::OK();
+}
+
+Status ColumnReader::get_segment_zone_map(segment_v2::ZoneMap* zone_map) const {
+    DORIS_CHECK(zone_map != nullptr);
+    DORIS_CHECK(_segment_zone_map != nullptr);
+    return ZoneMap::from_proto(*_segment_zone_map, _data_type, *zone_map);
+}
+
+Status ColumnReader::get_page_zone_maps(const ColumnIteratorOptions& iter_opts,
+                                        const std::vector<ZoneMapPB>** zone_maps) {
+    DORIS_CHECK(zone_maps != nullptr);
+    if (_zone_map_index == nullptr) {
+        *zone_maps = nullptr;
+        return Status::OK();
+    }
+    RETURN_IF_ERROR(_load_zone_map_index(_use_index_page_cache, _opts.kept_in_memory, iter_opts));
+    *zone_maps = &_zone_map_index->page_zone_maps();
+    return Status::OK();
+}
+
+Status ColumnReader::get_row_range_for_page(uint32_t page_index,
+                                            const ColumnIteratorOptions& iter_opts,
+                                            RowRange* row_range) {
+    DORIS_CHECK(row_range != nullptr);
+    RETURN_IF_ERROR(_load_ordinal_index(_use_index_page_cache, _opts.kept_in_memory, iter_opts));
+    DORIS_CHECK(page_index < _ordinal_index->num_data_pages());
+    *row_range = RowRange(_ordinal_index->get_first_ordinal(page_index),
+                          _ordinal_index->get_last_ordinal(page_index) + 1);
     return Status::OK();
 }
 
@@ -972,7 +1000,7 @@ Status MapFileColumnIterator::next_batch(size_t* n, MutableColumnPtr& dst, bool*
 
     if (read_null_map_only()) {
         // NULL_MAP_ONLY mode: read null map, fill nested ColumnMap with empty defaults
-        DORIS_CHECK(dst->is_nullable());
+        DORIS_CHECK(is_column_nullable(*dst));
         auto& nullable_col = assert_cast<ColumnNullable&>(*dst);
         auto null_map_ptr = nullable_col.get_null_map_column_ptr();
         size_t num_read = *n;
@@ -995,7 +1023,8 @@ Status MapFileColumnIterator::next_batch(size_t* n, MutableColumnPtr& dst, bool*
     }
 
     auto& column_map = assert_cast<ColumnMap&, TypeCheckOnRelease::DISABLE>(
-            dst->is_nullable() ? static_cast<ColumnNullable&>(*dst).get_nested_column() : *dst);
+            is_column_nullable(*dst) ? static_cast<ColumnNullable&>(*dst).get_nested_column()
+                                     : *dst);
     auto column_offsets_ptr = IColumn::mutate(std::move(column_map.get_offsets_ptr()));
     Defer defer_offsets {[&] {
         auto typed_column_offsets_ptr = ColumnMap::COffsets::cast_to_column_mutptr(
@@ -1035,7 +1064,7 @@ Status MapFileColumnIterator::next_batch(size_t* n, MutableColumnPtr& dst, bool*
         }
     }
 
-    if (dst->is_nullable()) {
+    if (is_column_nullable(*dst)) {
         size_t num_read = *n;
         auto null_map_ptr = static_cast<ColumnNullable&>(*dst).get_null_map_column_ptr();
         // in not-null to null linked-schemachange mode,
@@ -1065,7 +1094,7 @@ Status MapFileColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t
 
     if (read_null_map_only()) {
         // NULL_MAP_ONLY mode: read null map by rowids, fill nested ColumnMap with empty defaults
-        DORIS_CHECK(dst->is_nullable());
+        DORIS_CHECK(is_column_nullable(*dst));
         auto& nullable_col = assert_cast<ColumnNullable&>(*dst);
         if (_null_iterator) {
             auto null_map_ptr = nullable_col.get_null_map_column_ptr();
@@ -1088,7 +1117,8 @@ Status MapFileColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t
     }
     // resolve ColumnMap and nullable wrapper
     auto& column_map = assert_cast<ColumnMap&, TypeCheckOnRelease::DISABLE>(
-            dst->is_nullable() ? static_cast<ColumnNullable&>(*dst).get_nested_column() : *dst);
+            is_column_nullable(*dst) ? static_cast<ColumnNullable&>(*dst).get_nested_column()
+                                     : *dst);
     auto offsets_ptr = IColumn::mutate(std::move(column_map.get_offsets_ptr()));
     Defer defer_offsets {[&] {
         auto typed_offsets_ptr = ColumnMap::COffsets::cast_to_column_mutptr(
@@ -1103,7 +1133,7 @@ Status MapFileColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t
     std::vector<uint8_t> null_mask; // 0: not null, 1: null
     if (_map_reader->is_nullable()) {
         // For nullable map columns, the destination column must also be nullable.
-        if (UNLIKELY(!dst->is_nullable())) {
+        if (UNLIKELY(!is_column_nullable(*dst))) {
             return Status::InternalError(
                     "unexpected non-nullable destination column for nullable map reader");
         }
@@ -1117,7 +1147,7 @@ Status MapFileColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t
         for (size_t i = 0; i < count; ++i) {
             null_mask.push_back(null_map_col->get_element(null_before + i));
         }
-    } else if (dst->is_nullable()) {
+    } else if (is_column_nullable(*dst)) {
         // in not-null to null linked-schemachange mode,
         // actually we do not change dat data include meta in footer,
         // so may dst from changed meta which is nullable but old data is not nullable,
@@ -1401,7 +1431,7 @@ Status StructFileColumnIterator::next_batch(size_t* n, MutableColumnPtr& dst, bo
 
     if (read_null_map_only()) {
         // NULL_MAP_ONLY mode: read null map, fill nested ColumnStruct with empty defaults
-        DORIS_CHECK(dst->is_nullable());
+        DORIS_CHECK(is_column_nullable(*dst));
         auto& nullable_col = assert_cast<ColumnNullable&>(*dst);
         auto null_map_ptr = nullable_col.get_null_map_column_ptr();
         size_t num_read = *n;
@@ -1424,7 +1454,8 @@ Status StructFileColumnIterator::next_batch(size_t* n, MutableColumnPtr& dst, bo
     }
 
     auto& column_struct = assert_cast<ColumnStruct&, TypeCheckOnRelease::DISABLE>(
-            dst->is_nullable() ? static_cast<ColumnNullable&>(*dst).get_nested_column() : *dst);
+            is_column_nullable(*dst) ? static_cast<ColumnNullable&>(*dst).get_nested_column()
+                                     : *dst);
     for (size_t i = 0; i < column_struct.tuple_size(); i++) {
         size_t num_read = *n;
         auto sub_column_ptr = IColumn::mutate(std::move(column_struct.get_column_ptr(i)));
@@ -1436,7 +1467,7 @@ Status StructFileColumnIterator::next_batch(size_t* n, MutableColumnPtr& dst, bo
         DCHECK(num_read == *n);
     }
 
-    if (dst->is_nullable()) {
+    if (is_column_nullable(*dst)) {
         size_t num_read = *n;
         auto null_map_ptr = static_cast<ColumnNullable&>(*dst).get_null_map_column_ptr();
         // in not-null to null linked-schemachange mode,
@@ -1603,7 +1634,6 @@ Status StructFileColumnIterator::set_access_paths(
         }
 
         if (!need_to_read) {
-            set_reading_flag(ReadingFlag::SKIP_READING);
             sub_iterator->set_reading_flag(ReadingFlag::SKIP_READING);
             DLOG(INFO) << "Struct column iterator set sub-column " << name << " to SKIP_READING";
             continue;
@@ -1766,7 +1796,7 @@ Status ArrayFileColumnIterator::next_batch(size_t* n, MutableColumnPtr& dst, boo
 
     if (read_null_map_only()) {
         // NULL_MAP_ONLY mode: read null map, fill nested ColumnArray with empty defaults
-        DORIS_CHECK(dst->is_nullable());
+        DORIS_CHECK(is_column_nullable(*dst));
         auto& nullable_col = assert_cast<ColumnNullable&>(*dst);
         auto null_map_ptr = nullable_col.get_null_map_column_ptr();
         size_t num_read = *n;
@@ -1789,7 +1819,8 @@ Status ArrayFileColumnIterator::next_batch(size_t* n, MutableColumnPtr& dst, boo
     }
 
     auto& column_array = assert_cast<ColumnArray&, TypeCheckOnRelease::DISABLE>(
-            dst->is_nullable() ? static_cast<ColumnNullable&>(*dst).get_nested_column() : *dst);
+            is_column_nullable(*dst) ? static_cast<ColumnNullable&>(*dst).get_nested_column()
+                                     : *dst);
 
     bool offsets_has_null = false;
     auto column_offsets_ptr = std::move(*column_array.get_offsets_ptr()).mutate();
@@ -1824,7 +1855,7 @@ Status ArrayFileColumnIterator::next_batch(size_t* n, MutableColumnPtr& dst, boo
         }
     }
 
-    if (dst->is_nullable()) {
+    if (is_column_nullable(*dst)) {
         auto null_map_ptr = static_cast<ColumnNullable&>(*dst).get_null_map_column_ptr();
         size_t num_read = *n;
         // in not-null to null linked-schemachange mode,
@@ -2143,7 +2174,7 @@ Status FileColumnIterator::next_batch(size_t* n, MutableColumnPtr& dst, bool* ha
     if (read_null_map_only()) {
         DLOG(INFO) << "File column iterator column " << _column_name
                    << " in NULL_MAP_ONLY mode, reading only null map.";
-        DORIS_CHECK(dst->is_nullable());
+        DORIS_CHECK(is_column_nullable(*dst));
         auto& nullable_col = assert_cast<ColumnNullable&>(*dst);
         auto& null_map_data = nullable_col.get_null_map_data();
 
@@ -2257,7 +2288,7 @@ Status FileColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t co
         DLOG(INFO) << "File column iterator column " << _column_name
                    << " in NULL_MAP_ONLY mode, reading only null map by rowids.";
 
-        DORIS_CHECK(dst->is_nullable());
+        DORIS_CHECK(is_column_nullable(*dst));
         auto& nullable_col = assert_cast<ColumnNullable&>(*dst);
         auto& null_map_data = nullable_col.get_null_map_data();
         const size_t base_size = null_map_data.size();

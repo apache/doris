@@ -38,11 +38,13 @@
 #include "storage/index/ann/ann_range_search_runtime.h"
 #include "storage/index/ann/ann_search_params.h"
 #include "storage/index/inverted/inverted_index_reader.h"
+#include "storage/index/zone_map/zonemap_filter_result.h"
 #include "storage/segment/column_reader.h"
 
 namespace doris {
 class RowDescriptor;
 class RuntimeState;
+class ZoneMapEvalContext;
 } // namespace doris
 
 namespace doris::segment_v2 {
@@ -286,6 +288,9 @@ public:
     //  skip this expr, just do not apply index anymore.
     [[nodiscard]] Status evaluate_inverted_index(uint32_t segment_num_rows);
 
+    [[nodiscard]] static ZoneMapFilterResult evaluate_zonemap_filter(
+            const VExprContextSPtrs& conjuncts, const ZoneMapEvalContext& ctx);
+
     bool all_expr_inverted_index_evaluated();
 
     Status execute_filter(const Block* block, uint8_t* __restrict result_filter_data, size_t rows,
@@ -388,8 +393,9 @@ public:
             const std::vector<std::unique_ptr<segment_v2::ColumnIterator>>& column_iterators,
             const std::unordered_map<VExprContext*, std::unordered_map<ColumnId, VExpr*>>&
                     common_expr_to_slotref_map,
-            roaring::Roaring& row_bitmap, segment_v2::AnnIndexStats& ann_index_stats,
-            bool enable_result_cache, bool* ann_range_search_executed);
+            size_t rows_of_segment, roaring::Roaring& row_bitmap,
+            segment_v2::AnnIndexStats& ann_index_stats, bool enable_result_cache,
+            bool* ann_range_search_executed);
 
     uint64_t get_digest(uint64_t seed) const;
 

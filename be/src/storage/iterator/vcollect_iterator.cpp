@@ -42,6 +42,7 @@
 #include "runtime/runtime_predicate.h"
 #include "runtime/runtime_profile.h"
 #include "runtime/runtime_state.h"
+#include "storage/binlog.h"
 #include "storage/olap_common.h"
 #include "storage/olap_define.h"
 #include "storage/rowset/rowset.h"
@@ -229,7 +230,10 @@ bool VCollectIterator::LevelIteratorComparator::operator()(LevelIterator* lhs, L
     // `_use_insert_order_when_same` is enabled, read from lower to higher.
     // for UNIQUE_KEYS just read the highest version and no need agg_update.
     // for AGG_KEYS if a version is deleted, the lower version no need to agg_update
-    bool lower = (cmp_res != 0) ? (cmp_res < 0)
+    // Tie-break direction depends on `_small_seq_first`:
+    //   - false (UNIQUE_KEYS sequence column): larger value sorts first (cmp_res < 0 => lhs sorts first).
+    //   - true  (row binlog LSN column):       smaller value sorts first (cmp_res > 0 => lhs sorts first).
+    bool lower = (cmp_res != 0) ? (_small_seq_first ? (cmp_res > 0) : (cmp_res < 0))
                                 : (_use_insert_order_when_same ? (lhs->version() > rhs->version())
                                                                : (lhs->version() < rhs->version()));
     lower ? lhs->set_same(true) : rhs->set_same(true);
@@ -283,23 +287,23 @@ Status VCollectIterator::_topn_next(Block* block) {
         return Status::Error<END_OF_FILE>("");
     }
 
+    // `block` is reused below as the per-rowset read buffer. Keep TopN candidates in a
+    // separate mutable block with the same schema so stored row positions remain stable.
     auto clone_block = block->clone_empty();
-    // Initialize virtual slot columns by schema (avoid runtime type checks):
-    // use _reader_context.vir_col_idx_to_type to construct real columns for those positions.
-    if (!_reader->_reader_context.vir_col_idx_to_type.empty()) {
-        const auto& idx_to_type = _reader->_reader_context.vir_col_idx_to_type;
-        for (const auto& kv : idx_to_type) {
-            size_t idx = kv.first;
-            if (idx < clone_block.columns()) {
-                clone_block.get_by_position(idx).column = kv.second->create_column();
-            }
-        }
+    // Initialize virtual slot columns by schema (avoid runtime type checks).
+    for (const auto& [cid, expr_ctx] : _reader->_reader_context.virtual_column_exprs) {
+        auto it = std::find(_reader->_return_columns.begin(), _reader->_return_columns.end(), cid);
+        DORIS_CHECK(it != _reader->_return_columns.end());
+        auto idx = cast_set<size_t>(std::distance(_reader->_return_columns.begin(), it));
+        DORIS_CHECK(idx < clone_block.columns());
+        clone_block.get_by_position(idx).column = expr_ctx->root()->data_type()->create_column();
     }
+    const size_t clone_block_columns = clone_block.columns();
     MutableBlock mutable_block = MutableBlock::build_mutable_block(std::move(clone_block));
 
     const std::vector<uint32_t>* sort_columns = _reader->_reader_context.read_orderby_key_columns;
     for (auto column_idx : *sort_columns) {
-        DORIS_CHECK(column_idx < clone_block.columns());
+        DORIS_CHECK(column_idx < clone_block_columns);
     }
     size_t first_sort_column_idx = (*sort_columns)[0];
 
@@ -693,8 +697,21 @@ Status VCollectIterator::Level1Iterator::init(bool get_data_by_ref) {
                 break;
             }
         }
+
+        int32_t lsn_col_id = _reader->_tablet_schema->binlog_lsn_col_idx();
+        if (lsn_col_id >= 0) {
+            DCHECK(sequence_loc == -1);
+            for (int loc = 0; loc < _reader->_return_columns.size(); ++loc) {
+                if (_reader->_return_columns[loc] == static_cast<uint32_t>(lsn_col_id)) {
+                    sequence_loc = loc;
+                    break;
+                }
+            }
+        }
+
         _heap = std::make_unique<MergeHeap>(LevelIteratorComparator(
-                sequence_loc, _is_reverse, _reader->_reader_context.use_insert_order_when_same));
+                sequence_loc, _is_reverse, _reader->_reader_context.use_insert_order_when_same,
+                lsn_col_id >= 0));
         for (auto&& child : _children) {
             DCHECK(child != nullptr);
             //DCHECK(child->current_row().ok());
@@ -762,10 +779,17 @@ Status VCollectIterator::Level1Iterator::_merge_next(IteratorRowRef* ref) {
             _heap->pop();
         } else {
             _ref.reset();
+            // Keep _ref and _cur_child consistent: once EOF is returned and the heap
+            // is drained, no further reads are valid. Resetting _cur_child here lets
+            // the nullptr guard in next(Block*)/next(IteratorRowRef*) actually fire if
+            // the caller mistakenly invokes us again (e.g. when an upstream scanner
+            // overrides *eof for non-empty blocks).
+            _cur_child.reset();
             return Status::Error<END_OF_FILE>("");
         }
     } else {
         _ref.reset();
+        _cur_child.reset();
         LOG(WARNING) << "failed to get next from child, res=" << res;
         return res;
     }

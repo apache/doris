@@ -83,7 +83,7 @@ public:
 
     static DataTypePtr get_data_type_ptr(const TabletColumn& column);
 
-    static IColumn::MutablePtr get_predicate_column_ptr(const FieldType& type, bool is_nullable,
+    static IColumn::MutablePtr get_predicate_column_ptr(const DataTypePtr& data_type,
                                                         const ReaderType reader_type);
 
     const std::vector<TabletColumnPtr>& columns() const { return _cols; }
@@ -96,6 +96,8 @@ public:
     size_t num_column_ids() const { return _col_ids.size(); }
     const std::vector<ColumnId>& column_ids() const { return _col_ids; }
     ColumnId column_id(size_t index) const { return _col_ids[index]; }
+    int column_index(ColumnId cid) const { return _column_id_to_index[cid]; }
+    const std::vector<int>& column_id_to_index() const { return _column_id_to_index; }
     int32_t delete_sign_idx() const { return _delete_sign_idx; }
     bool has_sequence_col() const { return _has_sequence_col; }
     int32_t rowid_col_idx() const { return _rowid_col_idx; }
@@ -119,6 +121,8 @@ private:
     // NOTE: _cols[cid] can only be accessed when the cid is
     // contained in _col_ids
     std::vector<TabletColumnPtr> _cols;
+    // Tablet column id -> slot index in this Schema.
+    std::vector<int> _column_id_to_index;
 
     size_t _num_key_columns;
     int32_t _delete_sign_idx = -1;

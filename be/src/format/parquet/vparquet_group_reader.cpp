@@ -208,7 +208,7 @@ Status RowGroupReader::init(
     }
     // _state is nullptr in some ut.
     if (_state && _state->enable_adjust_conjunct_order_by_cost()) {
-        std::ranges::sort(_filter_conjuncts, [](const auto& a, const auto& b) {
+        std::ranges::stable_sort(_filter_conjuncts, [](const auto& a, const auto& b) {
             return a->execute_cost() < b->execute_cost();
         });
     }
@@ -1270,7 +1270,7 @@ Status RowGroupReader::_rewrite_dict_conjuncts(std::vector<int32_t>& dict_codes,
             for (int j = 0; j < dict_codes.size(); ++j) {
                 hybrid_set->insert(&dict_codes[j]);
             }
-            root = VDirectInPredicate::create_shared(node, hybrid_set);
+            root = VDirectInPredicate::create_shared(node, hybrid_set, false);
         }
         {
             SlotDescriptor* slot = nullptr;

@@ -19,30 +19,26 @@ import groovy.json.JsonOutput
 import groovy.json.JsonSlurper
 import groovy.json.StringEscapeUtils
 import org.apache.doris.regression.action.ProfileAction
+import org.awaitility.Awaitility
+import static java.util.concurrent.TimeUnit.SECONDS
 
-def verifyProfileContent = { suiteContext, stmt, serialReadOnLimit ->
-    // Sleep 500ms to wait for the profile collection 
-    Thread.sleep(500)
-    // Get profile list by using getProfileList
+def verifyProfileContent = { suiteContext, profileId, stmt, serialReadOnLimit ->
     def profileAction = new ProfileAction(suiteContext)
-    List profileData = profileAction.getProfileList()
-    // Find the profile id for the query that we just emitted
-    String profileId = ""
-    for (def profileItem : profileData) {
-        if (profileItem["Sql Statement"].toString().contains(stmt)) {
-            profileId = profileItem["Profile ID"].toString()
-            logger.info("Profile ID of ${stmt} is ${profileId}")
-            break
+    String profileContent = ""
+    Awaitility.await().atMost(60, SECONDS).pollInterval(1, SECONDS).until {
+        def profileItem = profileAction.getProfileList().find {
+            it["Profile ID"]?.toString() == profileId
         }
+        if (profileItem == null) {
+            return false
+        }
+        if (profileItem["Profile Completion State"]?.toString() != "COMPLETE") {
+            return false
+        }
+        profileContent = profileAction.getProfile(profileId)
+        return profileContent.contains("MaxScanConcurrency")
     }
-
-    if (profileId == "" || profileId == null) {
-        logger.error("Profile ID of ${stmt} is not found")
-        return false
-    }
-    // Get profile content by using getProfile
-    String profileContent = profileAction.getProfile(profileId)
-    logger.info("Profile content of ${stmt} is\n${profileContent}")
+    logger.info("Profile content of ${stmt} (${profileId}) is\n${profileContent}")
     // Check if the profile contains the expected content
     if (serialReadOnLimit) {
         return profileContent.contains("- MaxScanConcurrency: 1") == true
@@ -107,19 +103,23 @@ suite('adaptive_pipeline_task_serial_read_on_limit') {
     sql "set parallel_pipeline_task_num=1;"
 
     // With Limit, MaxScannerThreadNum = 1
-    sql "select * from adaptive_pipeline_task_serial_read_on_limit limit 10;"
-    assertTrue(verifyProfileContent(context, "select * from adaptive_pipeline_task_serial_read_on_limit limit 10;", true))
-    sql "select * from adaptive_pipeline_task_serial_read_on_limit limit 10000;"
-    assertTrue(verifyProfileContent(context, "select * from adaptive_pipeline_task_serial_read_on_limit limit 10000;", true))
+    def verifyQueryProfile = { stmt, serialReadOnLimit ->
+        sql stmt
+        String profileId = sql("select last_query_id()")[0][0].toString()
+        assertTrue(verifyProfileContent(context, profileId, stmt, serialReadOnLimit))
+    }
+
+    verifyQueryProfile("select * from adaptive_pipeline_task_serial_read_on_limit limit 10;", true)
+    verifyQueryProfile("select * from adaptive_pipeline_task_serial_read_on_limit limit 10000;", true)
     // With Limit, but bigger then adaptive_pipeline_task_serial_read_on_limit,  MaxScannerThreadNum = TabletNum
     sql "set adaptive_pipeline_task_serial_read_on_limit=9998;"
-    sql "select * from adaptive_pipeline_task_serial_read_on_limit limit 9999;"
-    assertTrue(verifyProfileContent(context, "select * from adaptive_pipeline_task_serial_read_on_limit limit 9999;", false))
+    verifyQueryProfile("select * from adaptive_pipeline_task_serial_read_on_limit limit 9999;", false)
     // With limit, but with predicates too. MaxScannerThreadNum = TabletNum
-    sql "select * from adaptive_pipeline_task_serial_read_on_limit where id > 10 limit 1;"
-    assertTrue(verifyProfileContent(context, "select * from adaptive_pipeline_task_serial_read_on_limit where id > 10 limit 1;", false))
+    verifyQueryProfile("select * from adaptive_pipeline_task_serial_read_on_limit where id > 10 limit 1;", false)
     // With large engough limit, but enable_adaptive_pipeline_task_serial_read_on_limit is false. MaxScannerThreadNum = TabletNum
     sql "set enable_adaptive_pipeline_task_serial_read_on_limit=false;"
-    sql """select "enable_adaptive_pipeline_task_serial_read_on_limit=false", * from adaptive_pipeline_task_serial_read_on_limit limit 1000000;"""
-    assertTrue(verifyProfileContent(context, "select \"enable_adaptive_pipeline_task_serial_read_on_limit=false\", * from adaptive_pipeline_task_serial_read_on_limit limit 1000000;", false))
+    verifyQueryProfile("""
+        select "enable_adaptive_pipeline_task_serial_read_on_limit=false", *
+        from adaptive_pipeline_task_serial_read_on_limit limit 1000000;
+    """, false)
 }

@@ -215,6 +215,7 @@ private:
         const char* pos = pattern.data();
         const char* begin = pos;
         const char* end = pos + pattern.size();
+        const size_t event_count = arg_count - 2;
 
         // Pattern is checked in fe, so pattern should be valid here, we check it and if pattern is invalid, we return.
         auto fail_parse = [&]() {
@@ -298,17 +299,18 @@ private:
                         return;
                     }
 
-                    if (event_number > arg_count - 1) {
+                    if (event_number == 0 || event_number > event_count) {
                         throw_exception("Event number " + std::to_string(event_number) +
                                         " is out of range");
                         return;
                     }
 
-                    actions.emplace_back(PatternActionType::SpecificEvent, event_number - 1);
+                    const auto event_index = event_number - 1;
+                    actions.emplace_back(PatternActionType::SpecificEvent, event_index);
                     dfa_states.back().transition = DFATransition::SpecificEvent;
-                    dfa_states.back().event = static_cast<uint32_t>(event_number - 1);
+                    dfa_states.back().event = static_cast<uint32_t>(event_index);
                     dfa_states.emplace_back();
-                    conditions_in_pattern.set(event_number - 1);
+                    conditions_in_pattern.set(event_index);
                 }
 
                 if (!match(")")) {

@@ -19,6 +19,8 @@ package org.apache.doris.nereids.types.coercion;
 
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.DecimalV3Type;
+import org.apache.doris.nereids.types.LargeIntType;
 
 import org.apache.commons.lang3.NotImplementedException;
 
@@ -42,6 +44,19 @@ public class IntegralType extends NumericType {
     @Override
     public String simpleString() {
         return "integral";
+    }
+
+    @Override
+    public boolean isInjectiveCastTo(DataType target) {
+        if (target instanceof IntegralType) {
+            return this.equals(target) || ((IntegralType) target).widerThan(this);
+        }
+        if (target instanceof DecimalV3Type && !(this instanceof LargeIntType)) {
+            DecimalV3Type other = (DecimalV3Type) target;
+            DecimalV3Type self = DecimalV3Type.forType(this);
+            return other.getRange() >= self.getRange();
+        }
+        return target instanceof CharacterType;
     }
 
     public boolean widerThan(IntegralType other) {

@@ -997,7 +997,7 @@ class Suite implements GroovyInterceptable {
     }
 
     void waitForColocateGroupStable(String dbName, String groupName, int timeoutSeconds = 60) {
-        String fullGroupName = "${dbName}.${groupName}"
+        String fullGroupName = groupName.startsWith("__global__") ? groupName : "${dbName}.${groupName}"
         logger.info("wait colocate group ${fullGroupName} stable")
         awaitUntil(timeoutSeconds) {
             def groups = sql_return_maparray("SHOW PROC '/colocation_group'")
@@ -2655,6 +2655,33 @@ class Suite implements GroovyInterceptable {
                 + expected_any_pre_rewrite_strategys
                 + ", current strategy = " + current_strategy)
         return false;
+    }
+
+    // Wait until the table row count reported by BE reaches the expected value.
+    // This is necessary before running sample analyze, because if row count is 0
+    // at task creation time, OlapAnalysisTask.doExecute() returns early without
+    // collecting any statistics, causing the analyze task to finish with an empty
+    // message instead of the expected skip reason.
+    void waitRowCountReady(String db, String table, long expectedRowCount) {
+        Awaitility.await().atMost(120, TimeUnit.SECONDS)
+                .pollInterval(3, TimeUnit.SECONDS).until {
+            def data = sql_return_maparray """SHOW DATA FROM ${db}.${table};"""
+            logger.info("SHOW DATA FROM ${db}.${table}: ${data}")
+            if (data.size() > 0) {
+                // Row 0 is the base index row which always has RowCount.
+                // The last row is "Total" whose RowCount may be empty.
+                def rc = data[0].RowCount
+                // RowCount may be empty string if BE hasn't reported yet.
+                if (rc == null || rc == '') {
+                    return false
+                }
+                def rowCount = (rc as long)
+                if (rowCount >= expectedRowCount) {
+                    return true
+                }
+            }
+            return false
+        }
     }
 
     // Given tables to decide whether the table partition row count statistic is ready or not

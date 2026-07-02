@@ -18,6 +18,10 @@
 #include <gmock/gmock-more-matchers.h>
 #include <gtest/gtest.h>
 
+#include <initializer_list>
+#include <string>
+#include <string_view>
+
 #include "core/column/column_nothing.h"
 #include "core/column/column_variant.h"
 #include "core/data_type/data_type_array.h"
@@ -25,9 +29,12 @@
 #include "core/data_type/data_type_date_time.h"
 #include "core/data_type/data_type_decimal.h"
 #include "core/data_type/data_type_ipv4.h"
+#include "core/data_type/data_type_jsonb.h"
 #include "core/data_type/data_type_nothing.h"
+#include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_time.h"
 #include "core/data_type/data_type_variant.h"
+#include "core/data_type_serde/data_type_jsonb_serde.h"
 #include "exec/common/variant_util.h"
 #include "storage/rowset/beta_rowset.h"
 #include "storage/rowset/rowset_fwd.h"
@@ -45,6 +52,52 @@ public:
     SchemaUtilTest() = default;
     ~SchemaUtilTest() override = default;
 };
+
+ColumnString::MutablePtr make_jsonb_column(std::initializer_list<std::string_view> jsons) {
+    auto jsonb_column = ColumnString::create();
+    DataTypeJsonbSerDe jsonb_serde;
+    DataTypeSerDe::FormatOptions options;
+    options.converted_from_string = true;
+    options.escape_char = '\\';
+
+    for (auto json : jsons) {
+        std::string json_text(json);
+        Slice slice(json_text.data(), json_text.size());
+        auto status = jsonb_serde.deserialize_one_cell_from_json(*jsonb_column, slice, options);
+        EXPECT_TRUE(status.ok()) << status.to_string();
+    }
+    return jsonb_column;
+}
+
+void expect_variant_string_subcolumn(const ColumnVariant& variant, std::string_view path,
+                                     std::string_view expected) {
+    const auto* subcolumn = variant.get_subcolumn(PathInData(std::string(path)));
+    ASSERT_NE(subcolumn, nullptr);
+
+    FieldWithDataType field;
+    subcolumn->get(0, field);
+    ASSERT_EQ(field.field.get_type(), PrimitiveType::TYPE_STRING);
+    EXPECT_EQ(field.field.get<PrimitiveType::TYPE_STRING>(), expected);
+}
+
+void expect_variant_int_field(const Field& field, int64_t expected) {
+    switch (field.get_type()) {
+    case PrimitiveType::TYPE_TINYINT:
+        EXPECT_EQ(field.get<PrimitiveType::TYPE_TINYINT>(), expected);
+        break;
+    case PrimitiveType::TYPE_SMALLINT:
+        EXPECT_EQ(field.get<PrimitiveType::TYPE_SMALLINT>(), expected);
+        break;
+    case PrimitiveType::TYPE_INT:
+        EXPECT_EQ(field.get<PrimitiveType::TYPE_INT>(), expected);
+        break;
+    case PrimitiveType::TYPE_BIGINT:
+        EXPECT_EQ(field.get<PrimitiveType::TYPE_BIGINT>(), expected);
+        break;
+    default:
+        FAIL() << "unexpected field type: " << field.get_type_name();
+    }
+}
 
 void construct_column(ColumnPB* column_pb, TabletIndexPB* tablet_index, int64_t index_id,
                       const std::string& index_name, int32_t col_unique_id,
@@ -1294,8 +1347,7 @@ TEST_F(SchemaUtilTest, TestParseVariantColumnsEdgeCases) {
 
     // Test parsing from JSONB to variant
     auto jsonb_type = std::make_shared<DataTypeJsonb>();
-    auto jsonb_column = ColumnString::create();
-    jsonb_column->insert(Field::create_field<PrimitiveType::TYPE_STRING>("{'x': 1}"));
+    auto jsonb_column = make_jsonb_column({R"({"x":1})"});
 
     auto variant_column2 = ColumnVariant::create(10, false);
     variant_column2->create_root(jsonb_type, jsonb_column->get_ptr());
@@ -1315,6 +1367,45 @@ TEST_F(SchemaUtilTest, TestParseVariantColumnsEdgeCases) {
 
     status = variant_util::parse_and_materialize_variant_columns(block3, {0}, configs);
     EXPECT_TRUE(status.ok());
+}
+
+TEST_F(SchemaUtilTest, TestParseJsonbRootVariantMaterializesDocument) {
+    auto variant_type = std::make_shared<DataTypeVariant>(10, false);
+    auto jsonb_type = std::make_shared<DataTypeJsonb>();
+    auto jsonb_column = make_jsonb_column(
+            {R"({"ok":"abc","msg":"he said \"hi\"","path":"C:\\tmp","nested":{"x":1},"arr":[1,2]})"});
+
+    auto variant_column = ColumnVariant::create(10, false);
+    variant_column->create_root(jsonb_type, jsonb_column->get_ptr());
+
+    Block block;
+    block.insert({variant_column->get_ptr(), variant_type, "variant_col"});
+
+    ParseConfig config;
+    auto status = variant_util::parse_and_materialize_variant_columns(block, {0}, {config});
+    ASSERT_TRUE(status.ok()) << status.to_string();
+
+    const auto& result = assert_cast<const ColumnVariant&>(*block.get_by_position(0).column);
+    EXPECT_FALSE(result.is_scalar_variant());
+    expect_variant_string_subcolumn(result, "ok", "abc");
+    expect_variant_string_subcolumn(result, "msg", R"(he said "hi")");
+    expect_variant_string_subcolumn(result, "path", R"(C:\tmp)");
+
+    FieldWithDataType nested_x;
+    const auto* nested_x_subcolumn = result.get_subcolumn(PathInData("nested.x"));
+    ASSERT_NE(nested_x_subcolumn, nullptr);
+    nested_x_subcolumn->get(0, nested_x);
+    expect_variant_int_field(nested_x.field, 1);
+
+    FieldWithDataType arr;
+    const auto* arr_subcolumn = result.get_subcolumn(PathInData("arr"));
+    ASSERT_NE(arr_subcolumn, nullptr);
+    arr_subcolumn->get(0, arr);
+    ASSERT_EQ(arr.field.get_type(), PrimitiveType::TYPE_ARRAY);
+    const auto& arr_value = arr.field.get<PrimitiveType::TYPE_ARRAY>();
+    ASSERT_EQ(arr_value.size(), 2);
+    expect_variant_int_field(arr_value[0], 1);
+    expect_variant_int_field(arr_value[1], 2);
 }
 
 TEST_F(SchemaUtilTest, TestParseVariantColumnsWithNulls) {

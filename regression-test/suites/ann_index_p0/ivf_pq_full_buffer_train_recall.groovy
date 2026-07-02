@@ -16,7 +16,7 @@
 // under the License.
 
 suite("ivf_pq_full_buffer_train_recall", "nonConcurrent") {
-    sql "set enable_common_expr_pushdown=true;"
+    sql "set enable_segment_limit_pushdown=true;"
     sql "set enable_ann_index_result_cache=false;"
     sql "set ivf_nprobe=8;"
 

@@ -166,9 +166,6 @@ protected:
     virtual PushDownType _should_push_down_topn_filter() const {
         return PushDownType::UNACCEPTABLE;
     }
-    virtual PushDownType _should_push_down_bitmap_filter() const {
-        return PushDownType::UNACCEPTABLE;
-    }
     virtual PushDownType _should_push_down_is_null_predicate(VectorizedFnCall* fn_call) const {
         return PushDownType::UNACCEPTABLE;
     }
@@ -199,10 +196,6 @@ protected:
                                   SlotDescriptor* slot,
                                   std::vector<std::shared_ptr<ColumnPredicate>>& predicates,
                                   PushDownType* pdt);
-    Status _normalize_bitmap_filter(VExprContext* expr_ctx, const VExprSPtr& root,
-                                    SlotDescriptor* slot,
-                                    std::vector<std::shared_ptr<ColumnPredicate>>& predicates,
-                                    PushDownType* pdt);
     Status _normalize_function_filters(VExprContext* expr_ctx, SlotDescriptor* slot,
                                        PushDownType* pdt);
 
@@ -397,9 +390,9 @@ public:
     DataDistribution required_data_distribution(RuntimeState* /*state*/) const override {
         if (OperatorX<LocalStateType>::is_serial_operator()) {
             // `is_serial_operator()` returns true means we ignore the distribution.
-            return {ExchangeType::NOOP};
+            return {TLocalPartitionType::NOOP};
         }
-        return {ExchangeType::BUCKET_HASH_SHUFFLE};
+        return {TLocalPartitionType::BUCKET_HASH_SHUFFLE};
     }
 
     void set_low_memory_mode(RuntimeState* state) override {

@@ -23,6 +23,7 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.collect.ImmutableList;
 
@@ -52,7 +53,15 @@ public class CollectLimitAboveConsumer implements RewriteRuleFactory {
 
     private void collectLimitRows(CascadesContext cascadesContext, LogicalLimit<?> limit,
             LogicalCTEConsumer cteConsumer) {
-        cascadesContext.putConsumerIdToLimitRows(
-                cteConsumer.getRelationId(), limit.getLimit() + limit.getOffset());
+        // The recorded value is the number of rows this consumer needs (limit + offset). When that
+        // overflows the long range the consumer effectively needs all rows, so do not record anything:
+        // tryToConstructLimit treats a missing entry as "unbounded" and leaves the producer unlimited
+        // (this consumer's own limit still applies above it). Recording a wrapped-around negative count
+        // would corrupt the producer row bound.
+        if (Utils.addOverflows(limit.getLimit(), limit.getOffset())) {
+            return;
+        }
+        cascadesContext.putConsumerIdToLimitRows(cteConsumer.getRelationId(),
+                limit.getLimit() + limit.getOffset());
     }
 }

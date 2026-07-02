@@ -27,3 +27,15 @@
 1	2	3
 10	2	12
 
+-- !delete_mow_without_light_delete_generated_column --
+2	20	21	200
+
+-- !delete_mow_without_light_delete_generated_key_column --
+2	21	20	200
+
+-- !delete_mow_without_light_delete_generated_column_with_not_null_value --
+2	20	21	200
+
+-- !delete_mow_without_light_delete_variant_generated_column --
+2	2026-06-08T11:00	order-2	{"city":"bj"}	200
+

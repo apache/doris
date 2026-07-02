@@ -42,7 +42,7 @@ HADOOP_DEPS_NAME="hadoop-deps"
 # ===== Build Profile =====
 if [[ "${DORIS_BUILD_PROFILE}" == "1" ]]; then
     _BP_STATE="${DORIS_HOME}/.build_profile_state.$$"
-    "${DORIS_HOME}/build_profile.sh" collect "${_BP_STATE}" "$*"
+    bash "${DORIS_HOME}/build_profile.sh" collect "${_BP_STATE}" "$*"
     trap '"${DORIS_HOME}/build_profile.sh" record "${_BP_STATE}" 130; exit 130' INT TERM
     trap '"${DORIS_HOME}/build_profile.sh" record "${_BP_STATE}" $?; exit $?' ERR
 fi
@@ -461,9 +461,9 @@ if [[ ! -f "${DORIS_THIRDPARTY}/installed/lib/${LAST_THIRDPARTY_LIB}" ]]; then
     rm -rf "${DORIS_THIRDPARTY}/installed"
 
     if [[ "${CLEAN}" -eq 0 ]]; then
-        "${DORIS_THIRDPARTY}/build-thirdparty.sh" -j "${PARALLEL}"
+        bash "${DORIS_THIRDPARTY}/build-thirdparty.sh" -j "${PARALLEL}"
     else
-        "${DORIS_THIRDPARTY}/build-thirdparty.sh" -j "${PARALLEL}" --clean
+        bash "${DORIS_THIRDPARTY}/build-thirdparty.sh" -j "${PARALLEL}" --clean
     fi
 fi
 
@@ -703,6 +703,7 @@ echo "Get params:
 FEAT=()
 FEAT+=($(feature_enabled "tde" && echo "+TDE" || echo "-TDE"))
 FEAT+=($(feature_enabled "tls" && echo "+TLS" || echo "-TLS"))
+FEAT+=($(feature_enabled "variant-nested-group" && echo "+VARIANT_NESTED_GROUP" || echo "-VARIANT_NESTED_GROUP"))
 FEAT+=($([[ "${ENABLE_HDFS_STORAGE_VAULT:-OFF}" == "ON" ]] && echo "+HDFS_STORAGE_VAULT" || echo "-HDFS_STORAGE_VAULT"))
 FEAT+=($([[ ${BUILD_UI} -eq 1 ]] && echo "+UI" || echo "-UI"))
 FEAT+=($([[ "${BUILD_AZURE}" == "ON" ]] && echo "+AZURE_BLOB,+AZURE_STORAGE_VAULT" || echo "-AZURE_BLOB,-AZURE_STORAGE_VAULT"))
@@ -716,7 +717,7 @@ echo "Feature List: ${DORIS_FEATURE_LIST}"
 if [[ "${CLEAN}" -eq 1 ]]; then
     clean_gensrc
 fi
-"${DORIS_HOME}"/generated-source.sh noclean
+bash "${DORIS_HOME}"/generated-source.sh noclean
 
 # Assesmble FE modules
 FE_MODULES=''
@@ -1042,7 +1043,7 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
     #cp -r -p "${DORIS_HOME}/docs/build/help-resource.zip" "${DORIS_OUTPUT}/fe/lib"/
 
     # Third-party filesystem jars (JuiceFS, JindoFS) are packaged by post-build.sh
-    "${DORIS_HOME}/post-build.sh" --fe --output "${DORIS_OUTPUT}"
+    bash "${DORIS_HOME}/post-build.sh" --fe --output "${DORIS_OUTPUT}"
 
     cp -r -p "${DORIS_HOME}/minidump" "${DORIS_OUTPUT}/fe"/
     cp -r -p "${DORIS_HOME}/webroot/static" "${DORIS_OUTPUT}/fe/webroot"/
@@ -1254,7 +1255,7 @@ EOF
     done        
 
     # Third-party filesystem jars (JuiceFS, JindoFS) are packaged by post-build.sh
-    "${DORIS_HOME}/post-build.sh" --be --output "${DORIS_OUTPUT}"
+    bash "${DORIS_HOME}/post-build.sh" --be --output "${DORIS_OUTPUT}"
 
     cp -r -p "${DORIS_THIRDPARTY}/installed/webroot"/* "${DORIS_OUTPUT}/be/www"/
     copy_common_files "${DORIS_OUTPUT}/be/"
@@ -1273,7 +1274,7 @@ if [[ "${BUILD_BROKER}" -eq 1 ]]; then
     install -d "${DORIS_OUTPUT}/apache_hdfs_broker"
 
     cd "${DORIS_HOME}/fs_brokers/apache_hdfs_broker"
-    ./build.sh
+    bash ./build.sh
     rm -rf "${DORIS_OUTPUT}/apache_hdfs_broker"/*
     cp -r -p "${DORIS_HOME}/fs_brokers/apache_hdfs_broker/output/apache_hdfs_broker"/* "${DORIS_OUTPUT}/apache_hdfs_broker"/
     copy_common_files "${DORIS_OUTPUT}/apache_hdfs_broker/"
@@ -1283,7 +1284,7 @@ fi
 if [[ "${BUILD_BE_CDC_CLIENT}" -eq 1 ]]; then
     install -d "${DORIS_OUTPUT}/be/lib/cdc_client"
     cd "${DORIS_HOME}/fs_brokers/cdc_client"
-    ./build.sh
+    bash ./build.sh
     rm -rf "${DORIS_OUTPUT}/be/lib/cdc_client"/*
     cp -r -p "${DORIS_HOME}/fs_brokers/cdc_client/target/cdc-client.jar" "${DORIS_OUTPUT}/be/lib/cdc_client/"
     cd "${DORIS_HOME}"

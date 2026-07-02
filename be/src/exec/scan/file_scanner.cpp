@@ -795,7 +795,7 @@ Status FileScanner::_convert_to_output_block(Block* block) {
 
         // because of src_slot_desc is always be nullable, so the column_ptr after do dest_expr
         // is likely to be nullable
-        if (LIKELY(column_ptr->is_nullable())) {
+        if (LIKELY(is_column_nullable(*column_ptr))) {
             const auto* nullable_column = reinterpret_cast<const ColumnNullable*>(column_ptr.get());
             for (int i = 0; i < rows; ++i) {
                 if (filter_map[i] && nullable_column->is_null_at(i)) {
@@ -1078,8 +1078,31 @@ Status FileScanner::_get_next_reader() {
                 _cur_reader = std::move(mc_reader);
             } else if (range.__isset.table_format_params &&
                        range.table_format_params.table_format_type == "paimon") {
-                if (_state->query_options().__isset.enable_paimon_cpp_reader &&
-                    _state->query_options().enable_paimon_cpp_reader) {
+                const auto& paimon_params = range.table_format_params.paimon_params;
+                bool use_paimon_cpp_reader = false;
+                if (paimon_params.__isset.reader_type) {
+                    switch (paimon_params.reader_type) {
+                    case TPaimonReaderType::PAIMON_CPP:
+                        use_paimon_cpp_reader = true;
+                        break;
+                    case TPaimonReaderType::PAIMON_JNI:
+                        break;
+                    case TPaimonReaderType::PAIMON_NATIVE:
+                        return Status::InternalError(
+                                "invalid PAIMON_NATIVE reader_type for paimon FORMAT_JNI split, "
+                                "possibly caused by FE/BE protocol mismatch");
+                    default:
+                        return Status::InternalError(
+                                "unknown paimon reader_type for paimon FORMAT_JNI split, possibly "
+                                "caused by FE/BE protocol mismatch");
+                    }
+                } else {
+                    // TODO: Remove this fallback after all FE versions set TPaimonReaderType.
+                    use_paimon_cpp_reader =
+                            _state->query_options().__isset.enable_paimon_cpp_reader &&
+                            _state->query_options().enable_paimon_cpp_reader;
+                }
+                if (use_paimon_cpp_reader) {
                     auto cpp_reader = PaimonCppReader::create_unique(_file_slot_descs, _state,
                                                                      _profile, range, _params);
                     if (!_is_load && !_push_down_conjuncts.empty()) {
@@ -1771,7 +1794,6 @@ Status FileScanner::_init_expr_ctxes() {
         if (is_file_slot) {
             _is_file_slot.emplace(slot_id);
             _file_slot_descs.emplace_back(it->second);
-            _file_col_names.push_back(it->second->col_name());
         }
 
         _column_descs.push_back(col_desc);
@@ -2077,6 +2099,19 @@ void FileScanner::update_realtime_counters() {
 
     _last_bytes_read_from_local = _file_cache_statistics->bytes_read_from_local;
     _last_bytes_read_from_remote = _file_cache_statistics->bytes_read_from_remote;
+}
+
+bool FileScanner::_should_update_load_counters() const {
+    if (_is_load) {
+        return true;
+    }
+    // TVF based loads (e.g. http_stream, group commit relay) plan the load source as a
+    // tvf query scan without src tuple desc, so _is_load is false. But rows filtered by
+    // the load's WHERE clause still need to be reported as unselected rows. FILE_STREAM
+    // is only reachable from such load entries, never from normal queries, so use it to
+    // identify these scanners.
+    return (_params->__isset.file_type && _params->file_type == TFileType::FILE_STREAM) ||
+           (_current_range.__isset.file_type && _current_range.file_type == TFileType::FILE_STREAM);
 }
 
 void FileScanner::_collect_profile_before_close() {

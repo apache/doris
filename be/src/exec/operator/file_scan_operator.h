@@ -29,6 +29,7 @@
 
 namespace doris {
 class FileScanner;
+class FileScannerV2;
 } // namespace doris
 
 namespace doris {
@@ -56,6 +57,7 @@ public:
 
 private:
     friend class FileScanner;
+    friend class FileScannerV2;
     PushDownType _should_push_down_bloom_filter() const override {
         return PushDownType::UNACCEPTABLE;
     }
@@ -64,9 +66,6 @@ private:
     }
     bool _push_down_topn(const RuntimePredicate& predicate) override;
 
-    PushDownType _should_push_down_bitmap_filter() const override {
-        return PushDownType::UNACCEPTABLE;
-    }
     PushDownType _should_push_down_is_null_predicate(VectorizedFnCall* fn_call) const override {
         return fn_call->fn().name.function_name == "is_null_pred" ||
                                fn_call->fn().name.function_name == "is_not_null_pred"

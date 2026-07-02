@@ -180,9 +180,7 @@ suite("null_column_pruning") {
     // covers the same prefix and inherently includes the null flag.
     explain {
         sql "select int_col from ncp_tbl where int_col is null"
-        contains "nested columns"
-        contains "all access paths: [int_col]"
-        notContains "predicate access paths:"
+        notContains "nested columns"
     }
 
     order_qt_10 "select int_col from ncp_tbl where int_col is null";
@@ -351,7 +349,15 @@ suite("null_column_pruning") {
     explain {
         sql "select count(1) from ncp_tbl where map_col['a'] is null"
         contains "nested columns"
-        contains "map_col.*.NULL"
+        contains "map_col.KEYS"
+        contains "map_col.VALUES.NULL"
+    // expectedPlan
+    //    nested columns:
+    //    map_col:
+    //      origin type: map<text,int>
+    //      all access paths: [map_col.KEYS, map_col.VALUES.NULL]
+    //      predicate access paths: [map_col.KEYS, map_col.VALUES.NULL]
+
     }
 
     order_qt_20 "select count(1) from ncp_tbl where map_col['a'] is null";
@@ -360,7 +366,8 @@ suite("null_column_pruning") {
     explain {
         sql "select count(1) from ncp_tbl where map_col['a'] is not null"
         contains "nested columns"
-        contains "map_col.*.NULL"
+        contains "map_col.KEYS"
+        contains "map_col.VALUES.NULL"
     }
 
     order_qt_21 "select count(1) from ncp_tbl where map_col['a'] is not null";

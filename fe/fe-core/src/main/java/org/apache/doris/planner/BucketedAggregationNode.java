@@ -97,9 +97,10 @@ public class BucketedAggregationNode extends PlanNode {
     }
 
     @Override
-    public boolean isSerialOperator() {
-        // Bucketed agg handles group-by keys only (no without-key in initial version),
-        // so it's never a serial operator.
+    public boolean isSerialNode() {
+        // Bucketed agg handles group-by keys only (no without-key in initial version), so it is never
+        // a serial operator. Overriding isSerialNode() (rather than isSerialOperatorOnBe) keeps it
+        // consistent with every other node; isSerialOperatorOnBe() derives from isSerialNode().
         return false;
     }
 }

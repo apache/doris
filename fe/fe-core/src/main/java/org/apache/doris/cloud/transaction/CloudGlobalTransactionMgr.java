@@ -2040,6 +2040,11 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
     }
 
     @Override
+    public List<TransactionState> getCommittedTransactions(long dbId) throws AnalysisException {
+        return new ArrayList<TransactionState>();
+    }
+
+    @Override
     public boolean existCommittedTxns(Long dbId, Long tableId, Long partitionId) {
         //do nothing for CloudGlobalTransactionMgr
         return false;

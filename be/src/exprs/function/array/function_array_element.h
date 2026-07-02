@@ -144,8 +144,8 @@ public:
             block.replace_by_position(arguments[0],
                                       col_left_raw.column->convert_to_full_column_if_const());
             auto col_left = block.get_by_position(arguments[0]);
-            if (col_left.column->is_nullable()) {
-                const auto* null_col = assert_cast<const ColumnNullable*>(col_left.column.get());
+            if (const auto* null_col =
+                        check_and_get_column<ColumnNullable>(col_left.column.get())) {
                 src_null_map = null_col->get_null_map_column().get_data().data();
                 args = {{null_col->get_nested_column_ptr(), remove_nullable(col_left.type),
                          col_left.name},
@@ -160,8 +160,7 @@ public:
             // unpack_if_const() gives us that inner column plus a constancy flag so inner
             // loops can use index_check_const() instead of expanding N copies.
             auto [unpacked_col, is_const_array] = unpack_if_const(col_left_raw.column);
-            if (unpacked_col->is_nullable()) {
-                const auto* null_col = assert_cast<const ColumnNullable*>(unpacked_col.get());
+            if (const auto* null_col = check_and_get_column<ColumnNullable>(unpacked_col.get())) {
                 src_null_map = null_col->get_null_map_column().get_data().data();
                 args = {{null_col->get_nested_column_ptr(), remove_nullable(col_left_raw.type),
                          col_left_raw.name},
@@ -231,8 +230,7 @@ private:
         // element_at manages nulls itself (use_default_implementation_for_nulls() == false), so a
         // null struct row must be merged into the result null map manually.
         const ColumnUInt8* outer_null_map = nullptr;
-        if (struct_col_ptr->is_nullable()) {
-            const auto* nullable = assert_cast<const ColumnNullable*>(struct_col_ptr.get());
+        if (const auto* nullable = check_and_get_column<ColumnNullable>(struct_col_ptr.get())) {
             outer_null_map = &nullable->get_null_map_column();
             struct_col_ptr = nullable->get_nested_column_ptr();
         }
@@ -253,8 +251,7 @@ private:
         auto res_null_column = ColumnUInt8::create(input_rows_count, 0);
         auto& res_null_map = res_null_column->get_data();
         ColumnPtr res_nested = field_col;
-        if (field_col->is_nullable()) {
-            const auto* field_nullable = assert_cast<const ColumnNullable*>(field_col.get());
+        if (const auto* field_nullable = check_and_get_column<ColumnNullable>(field_col.get())) {
             const auto& field_null_map = field_nullable->get_null_map_column().get_data();
             memcpy(res_null_map.data(), field_null_map.data(), input_rows_count);
             res_nested = field_nullable->get_nested_column_ptr();
@@ -265,9 +262,8 @@ private:
                 res_null_map[i] |= outer[i];
             }
         }
-        block.replace_by_position(
-                result, ColumnNullable::create(res_nested->clone_resized(input_rows_count),
-                                               std::move(res_null_column)));
+        block.replace_by_position(result,
+                                  ColumnNullable::create(res_nested, std::move(res_null_column)));
         return Status::OK();
     }
 
@@ -485,10 +481,9 @@ private:
                         .get_nested_type());
         const UInt8* idx_null_map = nullptr;
         auto idx_col_with_const = unpack_if_const(arguments[1].column);
-        if (idx_col_with_const.first->is_nullable()) {
-            const auto& idx_null_column =
-                    reinterpret_cast<const ColumnNullable&>(*idx_col_with_const.first);
-            idx_null_map = idx_null_column.get_null_map_column().get_data().data();
+        if (const auto* idx_null_column =
+                    check_and_get_column<ColumnNullable>(idx_col_with_const.first.get())) {
+            idx_null_map = idx_null_column->get_null_map_column().get_data().data();
         }
         auto idx_col_raw = remove_nullable(idx_col_with_const.first);
         bool is_const_index = idx_col_with_const.second;
