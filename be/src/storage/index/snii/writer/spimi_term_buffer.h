@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <parallel_hashmap/phmap.h>
+
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -227,6 +229,21 @@ public:
     // reserve this for tests / legacy string-fed callers.
     void add_token(std::string_view term, uint32_t docid, uint32_t pos);
 
+    // Sentinel "no term id" return of add_token_returning_id (a real id would
+    // require a four-billion-string vocabulary). Returned only when the token was
+    // REJECTED (wrong vocab mode; the error is latched into status()).
+    static constexpr uint32_t kInvalidTermId = 0xFFFFFFFFU;
+
+    // Same contract/behavior as add_token(std::string_view, ...) but returns the
+    // OWNED-vocab term-id the token was interned/accumulated under (G05): the SNII
+    // column writer captures each unigram's id here and feeds adjacent pairs to
+    // the id-keyed add_bigram_token below, so the per-pair hot path never hashes
+    // or compares term BYTES again. The returned id is stable for the buffer's
+    // lifetime for every NON-bigram term (only marker-prefixed bigram terms are
+    // ever evicted/recycled by the G04 diet). Returns kInvalidTermId (and latches
+    // InvalidArgument) on a borrowed-vocab buffer.
+    uint32_t add_token_returning_id(std::string_view term, uint32_t docid, uint32_t pos);
+
     // ZERO-ALLOC hidden phrase-bigram token (G01 part C): records one occurrence
     // of the synthetic term make_phrase_bigram_term(left, right) WITHOUT ever
     // composing that string on the hot path. The intern probe hashes and
@@ -240,6 +257,34 @@ public:
     // borrowed-vocab buffer it latches InvalidArgument and ignores the token.
     void add_bigram_token(std::string_view left, std::string_view right, uint32_t docid,
                           uint32_t pos);
+
+    // G05 PAIR-KEYED hidden phrase-bigram token: records one occurrence of the
+    // synthetic term make_phrase_bigram_term(vocab[left_id], vocab[right_id])
+    // keyed by the uint64 (left_id << 32 | right_id) PAIR KEY -- no byte hashing,
+    // no fragment compares, no string storage on the accumulation path at all.
+    // `left_id`/`right_id` are the UNIGRAM ids add_token_returning_id handed the
+    // caller for the two constituent tokens (both already interned, so their
+    // vocab strings are pinned for the buffer's lifetime -- only bigram terms are
+    // ever evicted). The pair's Term accumulates under an owned-vocab id whose
+    // vocab string stays EMPTY until the composed on-disk term string is
+    // materialized from the two unigram strings at the LAST possible moment:
+    //   * at a gate-2 spill, for pair terms actually written to the run (df>=2;
+    //     df==1 pair terms are evicted instead, exactly like G04), because run
+    //     records pin the id and the k-way merge orders by the vocab string;
+    //   * at drain start (flush), for every still-live pair term, BEFORE any
+    //     sort -- so the emitted term order is identical to the composed-string
+    //     order the string-keyed path produces.
+    // Byte-identical accumulation and drain output to
+    //   add_bigram_token(vocab[left_id], vocab[right_id], docid, pos).
+    // OWNED-vocab mode only (latches InvalidArgument otherwise); ids must be
+    // in-range non-bigram terms (else latches InvalidArgument, token ignored).
+    // MIXING CONTRACT: within one buffer a given pair must be fed EITHER through
+    // this id-keyed path OR through the string paths above, never both -- the two
+    // interning tables cannot see each other's entries, so mixing would emit the
+    // same composed term twice (the documented duplicate-vocab-string caveat).
+    // The production writer only ever uses this path; the string paths remain
+    // for tests/legacy callers.
+    void add_bigram_token(uint32_t left_id, uint32_t right_id, uint32_t docid, uint32_t pos);
 
     // G04 "bigram diet" phase 2. Call ONCE, before any add, on an OWNED-vocab
     // buffer, and ONLY when the flush-time G01 bigram df-prune WILL be active
@@ -282,16 +327,25 @@ public:
 
     // Live bigram intern storage estimate the vocab cap is enforced against:
     // sum over live non-sentinel bigram terms of (string capacity +
-    // kBigramInternFixedOverheadBytes). Exposed for the cap-bound tests /
-    // observability.
+    // kBigramInternFixedOverheadBytes) for string-keyed terms, or exactly
+    // kBigramInternFixedOverheadBytes for a G05 pair-keyed term (it owns NO
+    // string until materialization -- the footprint is the fixed pair-map /
+    // vocab-slot overhead). Exposed for the cap-bound tests / observability.
     uint64_t bigram_intern_bytes() const { return bigram_intern_bytes_; }
 
     // Fixed per-term overhead added to a bigram string's capacity when
     // accounting intern storage against the vocab cap: the std::string header in
-    // owned_vocab_, the intern-set node, and the 4 B slot/rank entries. An
-    // estimate (allocator slack varies); deterministic so tests can reason about
-    // the cap exactly.
+    // owned_vocab_, the intern-set node (or the G05 pair-map entry + reverse
+    // pair-key slot), and the 4 B slot/rank entries. An estimate (allocator
+    // slack varies); deterministic so tests can reason about the cap exactly.
+    // A G05 pair-keyed bigram term's WHOLE footprint is this constant (fixed
+    // bytes per pair-map entry; no string).
     static constexpr uint64_t kBigramInternFixedOverheadBytes = 64;
+
+    // TEST-ONLY: number of live pair-keyed bigram terms (pair-map entries,
+    // including entries whose id was materialized+pinned by a spill). Not part
+    // of the production API.
+    size_t bigram_pair_terms_for_test() const { return bigram_pair_map_.size(); }
 
     // Number of DISTINCT terms accumulated so far (touched ids still resident).
     size_t unique_terms() const;
@@ -454,6 +508,47 @@ private:
     // Called once per owned-mode add.
     void maybe_sweep_bigram_vocab(uint32_t just_touched_id);
 
+    // ---- G05 pair-keyed bigram terms (owned-vocab mode only) -----------------
+    // Composes the uint64 pair key add_bigram_token(left_id, right_id) interns
+    // bigram terms under.
+    static uint64_t make_pair_key(uint32_t left_id, uint32_t right_id) {
+        return (static_cast<uint64_t>(left_id) << 32) | right_id;
+    }
+    // True when `id` is a live pair-keyed bigram term that has NOT yet had its
+    // composed string materialized OR was materialized by a spill (the pair-map
+    // entry outlives materialization so later occurrences keep finding the id);
+    // false for every unigram / string-keyed / recycled id.
+    bool is_pair_term(uint32_t id) const {
+        return id < pair_of_.size() && pair_of_[id] != kNoPairKey;
+    }
+    // First-time intern of a pair key: recycles a freed id when available (else
+    // appends a fresh id whose vocab string stays EMPTY), records the reverse
+    // id -> pair-key mapping, inserts the pair-map entry, and accounts the FIXED
+    // per-entry footprint against the vocab cap. Never bumps vocab_epoch_ (the
+    // id's vocab string is empty before and after).
+    uint32_t intern_pair_term(uint64_t pair_key);
+    // FNV-1a 64 of the pair's synthetic term bytes, computed piecewise from the
+    // two unigram vocab strings (== fnv of the composed string; the drop-filter
+    // key for pair-term evictions).
+    uint64_t pair_term_content_fnv(uint64_t pair_key) const;
+    // Composes and stores the pair's on-disk term string into owned_vocab_[id]
+    // (the single materialization point), switches the cap accounting from the
+    // fixed pair footprint to the string footprint, and bumps vocab_epoch_ so
+    // the cached lexicographic rank is rebuilt over the COMPOSED string before
+    // any subsequent sort. The pair-map entry is kept (later adds of the pair
+    // must keep resolving to this id).
+    void materialize_pair_term(uint32_t id, uint64_t pair_key);
+    // MUST run at the start of every drain that sorts (drain_sorted and
+    // drain_to_writer), BEFORE sorted_ids(): pair-keyed terms carry EMPTY vocab
+    // strings, which would rank first en bloc and emit the run / stream out of
+    // lexicographic order. For every live not-yet-materialized pair term this
+    // either EVICTS it (mid-feed spills only, df==1 -- same rule and bloom as
+    // the G04 string path) or MATERIALIZES its composed string; afterwards every
+    // id the sort can see ranks by its final on-disk bytes, so the emitted order
+    // is identical to the string-keyed build's. Flush-side df pruning and bloom
+    // drops stay in LogicalIndexWriter::process_term, unchanged.
+    void prepare_pair_terms_for_drain(bool evict_low_df_bigrams);
+
     const std::vector<std::string>* vocab_; // active vocab (borrowed or &owned_)
     std::vector<std::string> owned_vocab_;  // owned mode: interned term strings
 
@@ -487,9 +582,13 @@ private:
     static size_t hash_term_bytes(std::string_view s) noexcept {
         return static_cast<size_t>(fnv_update(kFnvOffsetBasis, s));
     }
-    static size_t hash_bigram_view(const PhraseBigramTermView& v) noexcept {
-        // Fragment order mirrors make_phrase_bigram_term's byte layout exactly:
-        // marker ++ varint(len(left)) ++ left ++ right.
+    // Full 64-bit piecewise FNV of the synthetic bigram term addressed by `v`.
+    // Fragment order mirrors make_phrase_bigram_term's byte layout exactly:
+    // marker ++ varint(len(left)) ++ left ++ right -- so the value EQUALS the
+    // FNV-1a 64 of the composed string (the intern-set content hash AND the
+    // BigramDropFilter key hash; the G05 pair-keyed eviction blooms with this,
+    // never composing the string).
+    static uint64_t bigram_view_fnv(const PhraseBigramTermView& v) noexcept {
         uint64_t h = fnv_update(kFnvOffsetBasis, format::kPhraseBigramTermMarker);
         char varint_buf[5];
         const size_t n = format::encode_phrase_bigram_varint32(static_cast<uint32_t>(v.left.size()),
@@ -497,7 +596,10 @@ private:
         h = fnv_update(h, std::string_view(varint_buf, n));
         h = fnv_update(h, v.left);
         h = fnv_update(h, v.right);
-        return static_cast<size_t>(h);
+        return h;
+    }
+    static size_t hash_bigram_view(const PhraseBigramTermView& v) noexcept {
+        return static_cast<size_t>(bigram_view_fnv(v));
     }
     struct OwnedVocabHash {
         using is_transparent = void;
@@ -577,6 +679,20 @@ private:
     void put_byte(Term* t, uint8_t b);
     void put_varint(Term* t, uint64_t v);
 
+    // ---- G05 pair-keyed bigram state (owned-vocab mode only) -----------------
+    // pair key (left_id << 32 | right_id) -> owned-vocab term-id. The bigram
+    // accumulation hot path is ONE integer-keyed flat-map probe; no term bytes
+    // are hashed, compared or stored. Entries are erased on eviction and RETAINED
+    // across materialization (an in-run materialized id keeps accumulating later
+    // occurrences of its pair).
+    phmap::flat_hash_map<uint64_t, uint32_t> bigram_pair_map_;
+    // Reverse map id -> pair key (kNoPairKey = not a pair term), sized lazily to
+    // the vocab on the first pair intern; the sweep/evict/materialize paths need
+    // id-first access. kNoPairKey is unreachable as a real key: left_id ==
+    // 0xFFFFFFFF would require a four-billion-entry vocabulary.
+    static constexpr uint64_t kNoPairKey = 0xFFFFFFFFFFFFFFFFULL;
+    std::vector<uint64_t> pair_of_;
+
     // ---- G04 bigram diet state (owned-vocab mode only) -----------------------
     bool bigram_diet_ = false;            // position suppression + (cap) eviction on
     uint64_t bigram_vocab_cap_bytes_ = 0; // 0 = no eviction (suppression only)
@@ -634,6 +750,19 @@ void reset_vocab_string_materialization_count();
 uint64_t bigram_evictions();
 uint64_t vocab_cap_sweeps();
 void reset_bigram_vocab_cap_counters();
+
+// G05 pair-keyed bigram observability seams (same always-on relaxed-atomic
+// pattern; deterministic on the single-threaded build path; reset between
+// tests). One of the two is bumped per add_bigram_token(left_id, right_id)
+// call that reaches the pair map:
+//   bigram_pair_map_hits   : the pair key was already interned (the
+//                            overwhelming majority of the per-token stream);
+//   bigram_pair_map_misses : first-time intern of the pair key (== distinct
+//                            pairs interned, counting re-interns after an
+//                            eviction).
+uint64_t bigram_pair_map_hits();
+uint64_t bigram_pair_map_misses();
+void reset_bigram_pair_map_counters();
 } // namespace testing
 
 } // namespace doris::snii::writer

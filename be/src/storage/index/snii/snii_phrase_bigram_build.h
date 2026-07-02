@@ -38,6 +38,19 @@ struct PhrasePositionedTerm {
     uint32_t position = 0;
 };
 
+// G05 id-keyed variant: the token is carried as the SPIMI unigram TERM-ID the
+// writer captured from add_token_returning_id when it interned the token, so
+// the emitted pair feeds SpimiTermBuffer::add_bigram_token(left_id, right_id,
+// ...) -- no term bytes flow through the per-pair hot path at all. Unigram ids
+// are stable for the buffer's lifetime (only hidden bigram terms are ever
+// evicted/recycled), so holding them across the row is safe. The member is
+// deliberately named `term` too: emit_adjacent_phrase_bigrams below is generic
+// over the element type and forwards `.term` / `.position` unchanged.
+struct PhrasePositionedTermId {
+    uint32_t term = 0;
+    uint32_t position = 0;
+};
+
 // Emits every adjacent phrase-bigram pair (left@p, right@p+1) drawn from `terms`.
 //
 // Contract: `terms` is expected to be ordered by ascending position. Analyzer
@@ -55,13 +68,15 @@ struct PhrasePositionedTerm {
 // what the downstream SpimiTermBuffer needs: it dedups per term and re-sorts on
 // finish, so emission order never reaches the on-disk posting bytes.
 //
-// `emit` has signature void(std::string_view left, std::string_view right,
+// Generic over the positioned-term element `PT` (PhrasePositionedTerm or
+// PhrasePositionedTermId -- anything with `.term` and a uint32_t `.position`).
+// `emit` has signature void(decltype(PT::term) left, decltype(PT::term) right,
 // uint32_t position); `position` is the left token's position.
-template <class Emit>
-bool emit_adjacent_phrase_bigrams(std::vector<PhrasePositionedTerm>& terms, Emit&& emit) {
+template <class PT, class Emit>
+bool emit_adjacent_phrase_bigrams(std::vector<PT>& terms, Emit&& emit) {
     bool did_sort = false;
-    if (!std::ranges::is_sorted(terms, {}, &PhrasePositionedTerm::position)) {
-        std::ranges::sort(terms, {}, &PhrasePositionedTerm::position);
+    if (!std::ranges::is_sorted(terms, {}, &PT::position)) {
+        std::ranges::sort(terms, {}, &PT::position);
         did_sort = true;
     }
 

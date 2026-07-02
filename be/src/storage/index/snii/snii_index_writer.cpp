@@ -111,36 +111,20 @@ Status SniiIndexColumnWriter::_analyze(const Slice& value, std::vector<TermInfo>
     return Status::OK();
 }
 
-Status SniiIndexColumnWriter::_add_phrase_bigram_tokens(const std::vector<TermInfo>& terms,
-                                                        uint32_t docid, uint32_t position_base) {
-    if (!_has_positions || terms.size() < 2) {
-        return Status::OK();
-    }
-
-    // clear() keeps the backing capacity across rows so this per-row build stops
-    // allocating a fresh positioned-term vector every text value / array element.
-    _bigram_positioned.clear();
-    for (const auto& term_info : terms) {
-        DCHECK(term_info.is_single_term());
-        const std::string_view term = term_info.get_single_term();
-        if (!::doris::snii::format::is_phrase_bigram_indexable_term(term)) {
-            continue;
-        }
-        _bigram_positioned.push_back(
-                {term, position_base + cast_set<uint32_t>(term_info.position)});
-    }
+Status SniiIndexColumnWriter::_add_phrase_bigram_tokens(uint32_t docid) {
     if (_bigram_positioned.size() < 2) {
         return Status::OK();
     }
 
-    // Zero-alloc bigram add (G01 part C): the buffer interns the synthetic
-    // marker+varint(len(left))+left+right term by PIECEWISE hash/compare, so a
-    // repeat word pair (the vast majority of the ~per-token pair stream) builds
-    // no std::string at all; the owned string is composed once per DISTINCT pair.
+    // G05 pair-keyed bigram add: every adjacent pair is fed to the buffer as the
+    // two UNIGRAM TERM-IDS _add_value_tokens captured when it interned the row's
+    // tokens, so the per-pair hot path is one integer pair-map probe -- no term
+    // bytes are hashed, compared or composed during accumulation. The composed
+    // on-disk term string is materialized inside the buffer only at spill/flush,
+    // and only for terms actually written.
     const bool did_sort = emit_adjacent_phrase_bigrams(
-            _bigram_positioned,
-            [&](std::string_view left, std::string_view right, uint32_t position) {
-                _term_buffer->add_bigram_token(left, right, docid, position);
+            _bigram_positioned, [&](uint32_t left_id, uint32_t right_id, uint32_t position) {
+                _term_buffer->add_bigram_token(left_id, right_id, docid, position);
             });
     // Analyzer token positions are monotonic non-decreasing, so the filtered
     // positioned terms are already position-ordered and the guard never sorts.
@@ -161,15 +145,29 @@ Status SniiIndexColumnWriter::_add_value_tokens(const Slice& value, uint32_t doc
 
     std::vector<TermInfo> terms;
     RETURN_IF_ERROR(_analyze(value, &terms));
+    // clear() keeps the backing capacity across rows so the per-row bigram build
+    // stops allocating a fresh positioned-term vector every text value / array
+    // element.
+    _bigram_positioned.clear();
     for (const auto& term_info : terms) {
         DCHECK(term_info.is_single_term());
         const auto& term = term_info.get_single_term();
         const uint32_t position =
                 _has_positions ? position_base + cast_set<uint32_t>(term_info.position) : 0;
-        _term_buffer->add_token(term, docid, position);
+        // G05: capture the unigram's SPIMI term-id as it is interned; the
+        // bigram-indexable ones seed the id-keyed pair adds below. Unigram ids
+        // are stable for the buffer's lifetime (only hidden bigram terms are
+        // evicted/recycled by the G04 diet), so the pair keys built from them
+        // stay resolvable until flush materialization.
+        const uint32_t term_id = _term_buffer->add_token_returning_id(term, docid, position);
         *max_position = std::max(*max_position, position);
+        if (_has_positions && term_id != ::doris::snii::writer::SpimiTermBuffer::kInvalidTermId &&
+            ::doris::snii::format::is_phrase_bigram_indexable_term(term)) {
+            _bigram_positioned.push_back(
+                    {term_id, position_base + cast_set<uint32_t>(term_info.position)});
+        }
     }
-    RETURN_IF_ERROR(_add_phrase_bigram_tokens(terms, docid, position_base));
+    RETURN_IF_ERROR(_add_phrase_bigram_tokens(docid));
     return Status::OK();
 }
 

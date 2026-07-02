@@ -70,6 +70,12 @@ std::atomic<uint64_t> g_vocab_materializations {0};
 std::atomic<uint64_t> g_bigram_evictions {0};
 std::atomic<uint64_t> g_vocab_cap_sweeps {0};
 
+// G05 pair-keyed bigram seams: pair-map probe outcomes on the id-keyed
+// add_bigram_token hot path (hit = pair already interned; miss = first-time
+// intern, counting re-interns after an eviction).
+std::atomic<uint64_t> g_bigram_pair_map_hits {0};
+std::atomic<uint64_t> g_bigram_pair_map_misses {0};
+
 // Vocabulary ids examined per incremental sweep step. Small enough that a step
 // is noise on the per-token add path, large enough that the sweep's amortized
 // eviction rate (typically many eligible ids per step -- the over-cap
@@ -95,6 +101,16 @@ uint64_t vocab_cap_sweeps() {
 void reset_bigram_vocab_cap_counters() {
     g_bigram_evictions.store(0, std::memory_order_relaxed);
     g_vocab_cap_sweeps.store(0, std::memory_order_relaxed);
+}
+uint64_t bigram_pair_map_hits() {
+    return g_bigram_pair_map_hits.load(std::memory_order_relaxed);
+}
+uint64_t bigram_pair_map_misses() {
+    return g_bigram_pair_map_misses.load(std::memory_order_relaxed);
+}
+void reset_bigram_pair_map_counters() {
+    g_bigram_pair_map_hits.store(0, std::memory_order_relaxed);
+    g_bigram_pair_map_misses.store(0, std::memory_order_relaxed);
 }
 } // namespace testing
 
@@ -254,9 +270,13 @@ void SpimiTermBuffer::accumulate(uint32_t term_id, uint32_t docid, uint32_t pos)
         // G04 position suppression: a hidden phrase-bigram term (marker prefix;
         // sentinel included -- its single token is position 0 either way) stores
         // no position payload once the diet is on. Decided ONCE per term at slot
-        // claim (a 20-byte prefix check), never per token.
+        // claim (a 20-byte prefix check), never per token. A G05 pair-keyed
+        // bigram term carries an EMPTY vocab string until flush, so it is
+        // recognized by its pair-map membership instead (checked first: two
+        // loads, and it skips the prefix memcmp on the dominant bigram stream).
         if (bigram_diet_) {
-            t.pos_suppressed = format::is_phrase_bigram_term(vocab()[term_id]);
+            t.pos_suppressed =
+                    is_pair_term(term_id) || format::is_phrase_bigram_term(vocab()[term_id]);
         }
     }
     // A token starts a new doc unless it continues the most-recent doc for this term.
@@ -333,6 +353,11 @@ void SpimiTermBuffer::add_token(uint32_t term_id, uint32_t docid, uint32_t pos) 
 }
 
 void SpimiTermBuffer::add_token(std::string_view term, uint32_t docid, uint32_t pos) {
+    (void)add_token_returning_id(term, docid, pos);
+}
+
+uint32_t SpimiTermBuffer::add_token_returning_id(std::string_view term, uint32_t docid,
+                                                 uint32_t pos) {
     // Compatibility path: intern the term into the owned vocabulary on first
     // occurrence, then accumulate by its id. ONLY valid in OWNED-vocab mode. In
     // BORROWED-vocab mode vocab_ points at the caller's vector, NOT &owned_vocab_:
@@ -345,7 +370,7 @@ void SpimiTermBuffer::add_token(std::string_view term, uint32_t docid, uint32_t 
             spill_status_ = Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
                     "spimi: add_token(string_view) requires owned-vocab mode");
         }
-        return;
+        return kInvalidTermId;
     }
     // F03 single-store invariant, fixed at compile time: the interning set keys on the
     // 4-byte term-id, NEVER on a std::string, so each vocab string lives in exactly one
@@ -371,6 +396,7 @@ void SpimiTermBuffer::add_token(std::string_view term, uint32_t docid, uint32_t 
     // synthetic bigram terms fed by tests / legacy callers behave identically to
     // the piecewise add_bigram_token path. Two compares when the cap is off/idle.
     maybe_sweep_bigram_vocab(term_id);
+    return term_id;
 }
 
 void SpimiTermBuffer::add_bigram_token(std::string_view left, std::string_view right,
@@ -412,6 +438,58 @@ void SpimiTermBuffer::add_bigram_token(std::string_view left, std::string_view r
     maybe_sweep_bigram_vocab(term_id);
 }
 
+void SpimiTermBuffer::add_bigram_token(uint32_t left_id, uint32_t right_id, uint32_t docid,
+                                       uint32_t pos) {
+    // Same OWNED-vocab-mode contract (and failure latch) as the string paths.
+    if (vocab_ != &owned_vocab_) {
+        if (spill_status_.ok()) {
+            spill_status_ = Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
+                    "spimi: add_bigram_token requires owned-vocab mode");
+        }
+        return;
+    }
+    // The ids must name two ALREADY-INTERNED UNIGRAMS: an out-of-range id has no
+    // vocab string to materialize from, and a pair-term id as a constituent
+    // would compose a nested synthetic term. Both are caller bugs -- latch and
+    // ignore, mirroring add_token's out-of-range contract. (A string-keyed
+    // MARKER term as a constituent is equally wrong but costs a 20-byte memcmp
+    // to detect, so that stays a DCHECK: production feeds analyzer-token ids.)
+    if (left_id >= owned_vocab_.size() || right_id >= owned_vocab_.size() ||
+        is_pair_term(left_id) || is_pair_term(right_id)) {
+        if (spill_status_.ok()) {
+            spill_status_ = Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
+                    "spimi: add_bigram_token(left_id, right_id) requires interned unigram ids");
+        }
+        return;
+    }
+    DCHECK(!format::is_phrase_bigram_term(owned_vocab_[left_id]));
+    DCHECK(!format::is_phrase_bigram_term(owned_vocab_[right_id]));
+
+    // G05 hot path: ONE integer flat-map probe. No term bytes are hashed or
+    // compared, and nothing is allocated for a repeat pair (the ~per-token
+    // majority); a first-time pair interns a pair-map entry plus an EMPTY vocab
+    // slot -- the composed string is deferred to spill/flush materialization,
+    // and only for terms that must actually be emitted.
+    const uint64_t pair_key = make_pair_key(left_id, right_id);
+    uint32_t term_id;
+    auto it = bigram_pair_map_.find(pair_key);
+    if (it == bigram_pair_map_.end()) {
+        g_bigram_pair_map_misses.fetch_add(1, std::memory_order_relaxed);
+        // An EVICTED-then-reappearing pair misses here (eviction erased its
+        // entry) and re-interns as a fresh term -- by then its content hash is
+        // already in the ever-dropped bloom, so the flush drops it regardless of
+        // what its re-accumulated df grows to (the G04 completeness invariant,
+        // unchanged under pair keying).
+        term_id = intern_pair_term(pair_key);
+    } else {
+        g_bigram_pair_map_hits.fetch_add(1, std::memory_order_relaxed);
+        term_id = it->second;
+    }
+    accumulate(term_id, docid, pos);
+    // G04: amortized vocab-cap sweep step, identical to the string bigram path.
+    maybe_sweep_bigram_vocab(term_id);
+}
+
 // Shared owned-mode first-time-intern tail: stores `term_str` as the new id's
 // vocab string (recycling an evicted id when one is free -- keeps the vocab
 // vector, slot index and rank arrays from growing past the live vocabulary),
@@ -445,6 +523,103 @@ uint32_t SpimiTermBuffer::intern_owned_term(std::string&& term_str) {
         }
     }
     return term_id;
+}
+
+// G05 first-time intern of a pair key: assigns an owned-vocab id whose string
+// stays EMPTY (the composed term is deferred to spill/flush materialization),
+// records the id <-> pair-key mappings, and accounts the FIXED per-entry
+// footprint against the vocab cap. NOT in intern_ (the content-keyed set) and
+// NOT counted by the vocab-string-materialization seam -- no string exists yet.
+// No vocab_epoch_ bump: a recycled id's string was already cleared (empty) at
+// eviction and stays empty here, so no cached lexicographic rank changes.
+uint32_t SpimiTermBuffer::intern_pair_term(uint64_t pair_key) {
+    uint32_t term_id;
+    if (!free_ids_.empty()) {
+        term_id = free_ids_.back();
+        free_ids_.pop_back();
+        DCHECK(owned_vocab_[term_id].empty());
+    } else {
+        term_id = static_cast<uint32_t>(owned_vocab_.size());
+        owned_vocab_.emplace_back();
+        slot_of_.push_back(0); // vocab grows: new id starts with no live slot
+    }
+    if (pair_of_.size() < owned_vocab_.size()) {
+        pair_of_.resize(owned_vocab_.size(), kNoPairKey);
+    }
+    pair_of_[term_id] = pair_key;
+    bigram_pair_map_.emplace(pair_key, term_id);
+    if (bigram_diet_) {
+        // Fixed bytes per pair-map entry (there is no string to measure); the
+        // pair key can never address the sentinel, so no exemption check.
+        bigram_intern_bytes_ += kBigramInternFixedOverheadBytes;
+    }
+    return term_id;
+}
+
+uint64_t SpimiTermBuffer::pair_term_content_fnv(uint64_t pair_key) const {
+    const uint32_t left_id = static_cast<uint32_t>(pair_key >> 32);
+    const uint32_t right_id = static_cast<uint32_t>(pair_key);
+    // The unigram strings are pinned for the buffer's lifetime (only bigram
+    // terms are ever evicted/recycled), so resolving them here -- possibly long
+    // after the pair was interned -- is safe.
+    return bigram_view_fnv(PhraseBigramTermView {std::string_view(owned_vocab_[left_id]),
+                                                 std::string_view(owned_vocab_[right_id])});
+}
+
+// The single point where a pair-keyed bigram term's on-disk string comes into
+// existence. Bumps the vocab epoch (empty -> composed changes this id's
+// lexicographic rank) and the materialization seam (this is the pair path's
+// one-string-per-emitted-term analogue of intern_owned_term's bump). Cap
+// accounting switches from the fixed pair footprint to the string footprint,
+// mirroring what a string-keyed intern of the same term would carry.
+void SpimiTermBuffer::materialize_pair_term(uint32_t id, uint64_t pair_key) {
+    const uint32_t left_id = static_cast<uint32_t>(pair_key >> 32);
+    const uint32_t right_id = static_cast<uint32_t>(pair_key);
+    owned_vocab_[id] =
+            format::make_phrase_bigram_term(owned_vocab_[left_id], owned_vocab_[right_id]);
+    if (bigram_diet_) {
+        const uint64_t fixed = kBigramInternFixedOverheadBytes;
+        bigram_intern_bytes_ = bigram_intern_bytes_ > fixed ? bigram_intern_bytes_ - fixed : 0;
+        bigram_intern_bytes_ += bigram_term_footprint(owned_vocab_[id]);
+    }
+    ++vocab_epoch_;
+    g_vocab_materializations.fetch_add(1, std::memory_order_relaxed);
+}
+
+void SpimiTermBuffer::prepare_pair_terms_for_drain(bool evict_low_df_bigrams) {
+    if (bigram_pair_map_.empty()) {
+        return;
+    }
+    const bool evict = evict_low_df_bigrams && bigram_evict_enabled();
+    // Deferred eviction list: evict_bigram_term erases pair-map entries, so it
+    // must not run while the map is being iterated. Bounded by the live df==1
+    // tail (cap-bounded whenever eviction is enabled at all).
+    std::vector<uint32_t> evict_ids;
+    for (const auto& [pair_key, id] : bigram_pair_map_) {
+        if (!owned_vocab_[id].empty()) {
+            continue; // materialized by an earlier spill; its string is final
+        }
+        if (slot_of_[id] == 0) {
+            continue; // defensive: no live postings to drain (see header note)
+        }
+        if (evict && bigram_evictable(id)) {
+            // Mid-feed spill: a df==1 pair term is EVICTED (bloomed, id
+            // recycled) instead of materialized -- writing it to the run would
+            // pin its id and (now) a composed string for the rest of the build.
+            // Identical rule, timing (spill) and bloom key (the synthetic term
+            // bytes' FNV) as the G04 string path's in-loop eviction.
+            evict_ids.push_back(id);
+            continue;
+        }
+        // Survivor (df>=2 on mid-feed spills; EVERY live pair term on the final
+        // residual spill / in-memory drain, matching the string path where even
+        // df==1 terms reach the flush and die at process_term's df gate): give
+        // it its on-disk bytes BEFORE any sort sees the id.
+        materialize_pair_term(id, pair_key);
+    }
+    for (uint32_t id : evict_ids) {
+        evict_bigram_term(id);
+    }
 }
 
 namespace {
@@ -698,6 +873,14 @@ bool SpimiTermBuffer::bigram_evictable(uint32_t id) const {
     if (id < id_in_run_.size() && id_in_run_[id] != 0) {
         return false; // a spill run references this id: string is pinned forever
     }
+    // A G05 pair-keyed term is a real (non-sentinel) phrase bigram by
+    // construction -- the pair key can never address the sentinel -- and its
+    // vocab string is empty, so it is recognized by pair-map membership, not by
+    // the marker prefix. (A pair term MATERIALIZED by an earlier spill is
+    // in-run, caught above.)
+    if (is_pair_term(id)) {
+        return true;
+    }
     const std::string& s = owned_vocab_[id];
     // The sentinel gates reader semantics ("bigram feature present") and must
     // never be dropped; everything non-bigram is out of scope.
@@ -705,18 +888,24 @@ bool SpimiTermBuffer::bigram_evictable(uint32_t id) const {
 }
 
 // Evicts one eligible bigram id (caller checked bigram_evictable):
-//   1. record the term bytes in the ever-dropped bloom -- the flush-time
-//      process_term will drop this term even if the pair reappears and
-//      re-accumulates past the df threshold (its postings would be missing the
-//      docid dropped here);
+//   1. record the term's SYNTHETIC BYTES in the ever-dropped bloom -- the
+//      flush-time process_term will drop this term even if the pair reappears
+//      and re-accumulates past the df threshold (its postings would be missing
+//      the docid dropped here). A string-keyed term inserts its stored string;
+//      a G05 pair-keyed term inserts the SAME key via the piecewise content
+//      FNV of its two unigram strings (never composing the term), so the
+//      flush-time string probe agrees bit-for-bit either way;
 //   2. drop the in-memory postings (release_term; the term's arena chain bytes
 //      become dead until the next pool reset -- an amortized cost, reclaimed at
 //      the next spill/drain);
-//   3. erase the id from the intern set, so a reappearing pair re-interns as a
-//      FRESH term instead of resurrecting the dropped one;
-//   4. free the vocab string and recycle the id (bounding owned_vocab_ /
-//      slot_of_ / string_rank_ to the live vocabulary), bumping the vocab epoch
-//      so the cached lexicographic rank is rebuilt before the next spill sort.
+//   3. erase the id from its interning table (the content-keyed intern set for
+//      string terms, the pair map for pair terms), so a reappearing pair
+//      re-interns as a FRESH term instead of resurrecting the dropped one;
+//   4. recycle the id (bounding owned_vocab_ / slot_of_ / string_rank_ to the
+//      live vocabulary). For a string term this also frees the vocab string and
+//      bumps the vocab epoch so the cached lexicographic rank is rebuilt before
+//      the next spill sort; a pair term's vocab string was empty and stays
+//      empty, so no rank-visible state changes and the epoch is untouched.
 void SpimiTermBuffer::evict_bigram_term(uint32_t id) {
     if (bigram_drop_filter_ == nullptr) {
         // First eviction: size partition 0 from the cap -- roughly the live-term
@@ -724,6 +913,18 @@ void SpimiTermBuffer::evict_bigram_term(uint32_t id) {
         // bound on evictions a single full sweep can produce.
         bigram_drop_filter_ = std::make_unique<BigramDropFilter>(bigram_vocab_cap_bytes_ /
                                                                  kBigramInternFixedOverheadBytes);
+    }
+    if (is_pair_term(id)) {
+        const uint64_t pair_key = pair_of_[id];
+        bigram_drop_filter_->insert_hashed(pair_term_content_fnv(pair_key));
+        const uint64_t fixed = kBigramInternFixedOverheadBytes;
+        bigram_intern_bytes_ = bigram_intern_bytes_ > fixed ? bigram_intern_bytes_ - fixed : 0;
+        bigram_pair_map_.erase(pair_key);
+        pair_of_[id] = kNoPairKey;
+        release_term(id);
+        free_ids_.push_back(id);
+        g_bigram_evictions.fetch_add(1, std::memory_order_relaxed);
+        return;
     }
     std::string& s = owned_vocab_[id];
     bigram_drop_filter_->insert(s);
@@ -788,6 +989,11 @@ void SpimiTermBuffer::maybe_sweep_bigram_vocab(uint32_t just_touched_id) {
 
 Status SpimiTermBuffer::drain_sorted(const std::function<void(TermPostings&&)>& fn,
                                      bool allow_stream_positions) {
+    // G05: give every live pair-keyed bigram term its composed on-disk string
+    // BEFORE sorted_ids() ranks anything (no eviction: this is the terminal
+    // in-memory drain; df==1 pair terms reach the flush and die at
+    // process_term's df gate exactly like the string path's).
+    prepare_pair_terms_for_drain(/*evict_low_df_bigrams=*/false);
     const std::vector<std::string>& v = vocab();
     for (uint32_t id : sorted_ids()) {
         const uint32_t enc = slot_of_[id];
@@ -808,11 +1014,15 @@ Status SpimiTermBuffer::drain_sorted(const std::function<void(TermPostings&&)>& 
     touched_ids_.clear();
     // Drop the arena + the slot pool (their bytes are fully decoded) and return the
     // freed chunks to the OS so the process peak reflects only what survives the
-    // drain, not retained input-phase arena memory.
+    // drain, not retained input-phase arena memory. The G05 pair map / reverse
+    // pair-key slots are equally dead after a terminal drain (every pair term is
+    // materialized into owned_vocab_, which the emitted strings copied from).
     pool_.reset();
     std::vector<Term>().swap(slots_);
     std::vector<uint32_t>().swap(free_slots_);
     std::vector<uint32_t>().swap(slot_of_);
+    phmap::flat_hash_map<uint64_t, uint32_t>().swap(bigram_pair_map_);
+    std::vector<uint64_t>().swap(pair_of_);
     TrimMalloc();
     // Arena reset + slot_of_ freed: now real resident ~0, so this emits the final
     // negative that returns every reported byte (no leak after the in-memory drain).
@@ -822,6 +1032,12 @@ Status SpimiTermBuffer::drain_sorted(const std::function<void(TermPostings&&)>& 
 
 Status SpimiTermBuffer::drain_to_writer(RunWriter* w, bool evict_low_df_bigrams) {
     Status st = Status::OK();
+    // G05: pair-keyed bigram terms must carry their composed string BEFORE
+    // sorted_ids() ranks this spill (run records pin the id; the k-way merge
+    // orders by the vocab string). On mid-feed spills (evict_low_df_bigrams)
+    // df==1 pair terms are evicted here instead of materialized -- the same
+    // rule the in-loop check below applies to string-keyed bigram terms.
+    prepare_pair_terms_for_drain(evict_low_df_bigrams);
     const std::vector<std::string>& v = vocab();
     const bool evict = evict_low_df_bigrams && bigram_evict_enabled();
     if (evict && id_in_run_.size() < v.size()) {
@@ -918,11 +1134,16 @@ Status SpimiTermBuffer::merge_runs(const std::function<void(TermPostings&&)>& fn
     // All terms are now spilled; the merge reads runs and never touches the
     // accumulators. Free the pool + the vocab-sized slot index so the merge phase
     // holds none of the input-side arrays resident -- keeps spill-mode peak RSS
-    // down. malloc_trim(0) returns the freed glibc arenas to the OS so the peak RSS
-    // measurement reflects the merge transient, not retained input-phase chunks.
+    // down. The G05 pair map is dead too: the residual spill materialized every
+    // live pair term (no more adds can arrive), so only the (still-needed) vocab
+    // strings survive into the merge. malloc_trim(0) returns the freed glibc
+    // arenas to the OS so the peak RSS measurement reflects the merge transient,
+    // not retained input-phase chunks.
     std::vector<Term>().swap(slots_);
     std::vector<uint32_t>().swap(free_slots_);
     std::vector<uint32_t>().swap(slot_of_);
+    phmap::flat_hash_map<uint64_t, uint32_t>().swap(bigram_pair_map_);
+    std::vector<uint64_t>().swap(pair_of_);
     TrimMalloc();
     // pool_ was already reset by the final spill_to_run -> drain_to_writer (reported
     // there); this swap frees slot_of_, so report the remaining negative now. After a

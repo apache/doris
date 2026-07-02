@@ -53,6 +53,16 @@ namespace doris::snii::writer {
 // intern table uses, so insert (at eviction, from the owned vocab string) and
 // probe (at flush, from TermPostings::term) agree byte-for-byte.
 //
+// PREHASHED entry points (G05 pair-keyed bigrams): a caller that never
+// composed the synthetic term string can insert/probe with the FNV-1a 64 it
+// computed PIECEWISE over the same byte layout (marker / varint(len(left)) /
+// left / right -- SpimiTermBuffer's fragment hash). Because the piecewise
+// update feeds the identical byte sequence, insert_hashed(piecewise_fnv) sets
+// exactly the bits insert(composed_string) would, and the flush-time
+// maybe_contains(TermPostings::term) probe still matches -- the filter's key
+// contract stays "the synthetic term bytes" regardless of which side composed
+// a string.
+//
 // insert() is CHECK-THEN-INSERT: a key the filter already reports as present
 // consumes no new bits and does not advance the partition fill count, so a
 // pair that is evicted, re-interned, and evicted again (each eviction
@@ -76,15 +86,27 @@ public:
 
     // Records `term` as ever-dropped. No-op (and no bit writes) when the filter
     // already reports the key as maybe-present.
-    void insert(std::string_view term) {
-        if (maybe_contains(term)) {
+    void insert(std::string_view term) { insert_hashed(fnv1a64(term)); }
+
+    // May this term have been evicted? False negatives never occur; a false
+    // positive only over-drops (safe, see header comment).
+    bool maybe_contains(std::string_view term) const {
+        return maybe_contains_hashed(fnv1a64(term));
+    }
+
+    // Prehashed variants: `h` MUST be the FNV-1a 64 of the synthetic term bytes
+    // (same constants/byte order as fnv1a64 below). The SPIMI pair-keyed
+    // eviction computes it piecewise from the two unigram strings without ever
+    // composing the term, and the flush-time string probe above lands on the
+    // identical bits.
+    void insert_hashed(uint64_t h) {
+        if (maybe_contains_hashed(h)) {
             return;
         }
         if (partitions_.empty() || partitions_.back().inserted >= partitions_.back().capacity) {
             add_partition();
         }
         Partition& p = partitions_.back();
-        const uint64_t h = fnv1a64(term);
         const uint64_t h2 = (h >> 32) | 1ULL; // odd step (Kirsch-Mitzenmacher)
         for (uint32_t i = 0; i < kNumHashes; ++i) {
             const uint64_t bit = (h + static_cast<uint64_t>(i) * h2) % p.n_bits;
@@ -94,13 +116,10 @@ public:
         ++insertions_;
     }
 
-    // May this term have been evicted? False negatives never occur; a false
-    // positive only over-drops (safe, see header comment).
-    bool maybe_contains(std::string_view term) const {
+    bool maybe_contains_hashed(uint64_t h) const {
         if (partitions_.empty()) {
             return false;
         }
-        const uint64_t h = fnv1a64(term);
         const uint64_t h2 = (h >> 32) | 1ULL;
         for (const Partition& p : partitions_) {
             bool all = true;

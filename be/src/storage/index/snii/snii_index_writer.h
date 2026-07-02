@@ -57,8 +57,10 @@ public:
 private:
     Status _add_value_tokens(const Slice& value, uint32_t docid, uint32_t position_base,
                              uint32_t* max_position);
-    Status _add_phrase_bigram_tokens(const std::vector<TermInfo>& terms, uint32_t docid,
-                                     uint32_t position_base);
+    // Emits the hidden phrase-bigram tokens for the row whose bigram-indexable
+    // unigrams (as SPIMI term-ids + positions) _add_value_tokens collected into
+    // _bigram_positioned.
+    Status _add_phrase_bigram_tokens(uint32_t docid);
     Status _analyze(const Slice& value, std::vector<TermInfo>* terms);
 
     IndexFileWriter* _index_file_writer = nullptr;
@@ -74,11 +76,14 @@ private:
     std::unique_ptr<::doris::snii::writer::MemoryReporter> _memory_reporter;
     std::unique_ptr<::doris::snii::writer::SpimiTermBuffer> _term_buffer;
     std::vector<uint32_t> _null_docids;
-    // Reused across every _add_phrase_bigram_tokens call: clear() keeps the
-    // backing capacity so the per-row phrase-bigram build stops re-allocating a
-    // fresh positioned-term vector on each text row/array element. Single-threaded
-    // per-column build state (see _add_phrase_bigram_tokens).
-    std::vector<PhrasePositionedTerm> _bigram_positioned;
+    // Reused across every _add_value_tokens call: clear() keeps the backing
+    // capacity so the per-row phrase-bigram build stops re-allocating a fresh
+    // positioned-term vector on each text row/array element. G05: carries the
+    // SPIMI unigram TERM-IDS captured while adding the row's unigram tokens (not
+    // term bytes) -- the bigram emission feeds the id-keyed
+    // SpimiTermBuffer::add_bigram_token pair path. Single-threaded per-column
+    // build state (see _add_phrase_bigram_tokens).
+    std::vector<PhrasePositionedTermId> _bigram_positioned;
 };
 
 } // namespace doris::segment_v2
