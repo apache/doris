@@ -121,18 +121,20 @@ void KuromojiViterbi::segment(std::string_view text, std::vector<KuromojiMorphem
     }
 
     std::vector<VNode> nodes;
-    std::vector<std::vector<int>> ending_at(n + 1); // node indices ending at each byte position
+    std::vector<int32_t> end_head(n + 1, -1);
+    std::vector<int32_t> end_next;
 
     // BOS (index 0): ends at position 0, context id 0, zero cost.
     nodes.push_back(VNode {0, 0, 0, 0, 0, false, 0, 0, -1});
-    ending_at[0].push_back(0);
+    end_next.push_back(-1);
+    end_head[0] = 0;
 
     // Add a node and relax it against all nodes ending at its start position.
     auto add_node = [&](uint32_t s, uint32_t e, int16_t lid, int16_t rid, int16_t wcost, bool known,
                         uint32_t wid) {
         int64_t best = KMJ_INF;
         int best_prev = -1;
-        for (int pe : ending_at[s]) {
+        for (int pe = end_head[s]; pe >= 0; pe = end_next[pe]) {
             const VNode& pv = nodes[static_cast<std::size_t>(pe)];
             if (pv.total_cost >= KMJ_INF) {
                 continue;
@@ -140,7 +142,7 @@ void KuromojiViterbi::segment(std::string_view text, std::vector<KuromojiMorphem
             const int64_t c =
                     pv.total_cost + _dict.connection_cost(static_cast<uint32_t>(pv.right_id),
                                                           static_cast<uint32_t>(lid));
-            if (c < best) {
+            if (c <= best) {
                 best = c;
                 best_prev = pe;
             }
@@ -154,12 +156,14 @@ void KuromojiViterbi::segment(std::string_view text, std::vector<KuromojiMorphem
         const auto idx = static_cast<int>(nodes.size());
         nodes.push_back(
                 VNode {s, e, lid, rid, wcost, known, wid, best + wcost + penalty, best_prev});
-        ending_at[e].push_back(idx);
+        end_next.push_back(end_head[e]);
+        end_head[e] = idx;
     };
 
     uint32_t pos = 0;
+    std::vector<KuromojiDictionary::PrefixMatch> matches;
     while (pos < n) {
-        if (ending_at[pos].empty()) {
+        if (end_head[pos] < 0) {
             pos += decode_utf8(text, pos).len; // unreachable boundary; skip
             continue;
         }
@@ -167,7 +171,6 @@ void KuromojiViterbi::segment(std::string_view text, std::vector<KuromojiMorphem
         const auto before = nodes.size();
 
         // System-dictionary words (common-prefix search).
-        std::vector<KuromojiDictionary::PrefixMatch> matches;
         _dict.common_prefix_search(text.data() + pos, n - pos, &matches);
         bool any_known = false;
         for (const auto& mt : matches) {
@@ -219,14 +222,14 @@ void KuromojiViterbi::segment(std::string_view text, std::vector<KuromojiMorphem
     // EOS: best node ending at n connected to the EOS context (id 0).
     int64_t best = KMJ_INF;
     int best_prev = -1;
-    for (int pe : ending_at[n]) {
+    for (int pe = end_head[n]; pe >= 0; pe = end_next[pe]) {
         const VNode& pv = nodes[static_cast<std::size_t>(pe)];
         if (pv.total_cost >= KMJ_INF) {
             continue;
         }
         const int64_t c =
                 pv.total_cost + _dict.connection_cost(static_cast<uint32_t>(pv.right_id), 0);
-        if (c < best) {
+        if (c <= best) {
             best = c;
             best_prev = pe;
         }
