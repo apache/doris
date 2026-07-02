@@ -219,6 +219,7 @@ public class CreateFunctionTest {
         EditLog editLog = Env.getCurrentEnv().getEditLog();
         EditLog spyEditLog = Mockito.spy(editLog);
         Mockito.doNothing().when(spyEditLog).logAddFunction(Mockito.any(Function.class));
+        Mockito.doNothing().when(spyEditLog).logAddFunctions(Mockito.anyList());
         Env.getCurrentEnv().setEditLog(spyEditLog);
         try (MockedStatic<FunctionUtil> mockedFunctionUtil = Mockito.mockStatic(FunctionUtil.class,
                 Mockito.CALLS_REAL_METHODS)) {
@@ -237,6 +238,7 @@ public class CreateFunctionTest {
                     () -> db.addTableFunction(tableFunction, false));
             Assert.assertEquals("outer translate failed", exception.getMessage());
             Mockito.verify(spyEditLog, Mockito.never()).logAddFunction(Mockito.any(Function.class));
+            Mockito.verify(spyEditLog, Mockito.never()).logAddFunctions(Mockito.anyList());
             Assert.assertThrows(AnalysisException.class, () -> db.getFunction(searchDesc(tableFunction)));
             Assert.assertThrows(AnalysisException.class,
                     () -> db.getFunction(searchDesc("rollback_table_function_db", "rollback_table_fn_outer",
@@ -260,6 +262,7 @@ public class CreateFunctionTest {
         EditLog editLog = Env.getCurrentEnv().getEditLog();
         EditLog spyEditLog = Mockito.spy(editLog);
         Mockito.doNothing().when(spyEditLog).logAddFunction(Mockito.any(Function.class));
+        Mockito.doNothing().when(spyEditLog).logAddFunctions(Mockito.anyList());
         Env.getCurrentEnv().setEditLog(spyEditLog);
         try (MockedStatic<FunctionUtil> mockedFunctionUtil = Mockito.mockStatic(FunctionUtil.class,
                 Mockito.CALLS_REAL_METHODS)) {
@@ -275,11 +278,86 @@ public class CreateFunctionTest {
             Function tableFunction = createJavaUdtf(
                     "rollback_table_function_conflict_db", "rollback_table_conflict_fn", Type.INT);
             UserException exception = Assert.assertThrows(UserException.class,
-                    () -> db.addTableFunction(tableFunction, false));
-            Assert.assertEquals("function already exists", exception.getMessage());
+                    () -> db.addTableFunction(tableFunction, true));
+            Assert.assertEquals("function already exists", exception.getDetailMessage());
             Mockito.verify(spyEditLog, Mockito.never()).logAddFunction(Mockito.any(Function.class));
+            Mockito.verify(spyEditLog, Mockito.never()).logAddFunctions(Mockito.anyList());
             Assert.assertThrows(AnalysisException.class, () -> db.getFunction(searchDesc(tableFunction)));
             Assert.assertSame(existingOuterFunction, db.getFunction(searchDesc(existingOuterFunction)));
+        } finally {
+            Env.getCurrentEnv().setEditLog(editLog);
+        }
+    }
+
+    @Test
+    public void testCreateTableFunctionIfNotExistsSkipsExistingPair() throws Exception {
+        ConnectContext ctx = UtFrameUtils.createDefaultCtx();
+        createDatabase(ctx, "create database existing_table_function_pair_db;");
+        Database db = Env.getCurrentInternalCatalog().getDbNullable("existing_table_function_pair_db");
+        Assert.assertNotNull(db);
+
+        EditLog editLog = Env.getCurrentEnv().getEditLog();
+        EditLog spyEditLog = Mockito.spy(editLog);
+        Mockito.doNothing().when(spyEditLog).logAddFunction(Mockito.any(Function.class));
+        Mockito.doNothing().when(spyEditLog).logAddFunctions(Mockito.anyList());
+        Env.getCurrentEnv().setEditLog(spyEditLog);
+        try (MockedStatic<FunctionUtil> mockedFunctionUtil = Mockito.mockStatic(FunctionUtil.class,
+                Mockito.CALLS_REAL_METHODS)) {
+            mockedFunctionUtil.when(() -> FunctionUtil.translateToNereidsThrows(
+                    Mockito.eq("existing_table_function_pair_db"), Mockito.any(Function.class)))
+                    .thenReturn(true);
+            Function existingFunction = createJavaUdtf(
+                    "existing_table_function_pair_db", "existing_table_pair_fn", Type.INT);
+            Function existingOuterFunction = createJavaUdtf(
+                    "existing_table_function_pair_db", "existing_table_pair_fn_outer", Type.INT);
+            db.addFunction(existingFunction, false);
+            db.addFunction(existingOuterFunction, false);
+            Assert.assertSame(existingFunction, db.getFunction(searchDesc(existingFunction)));
+            Assert.assertSame(existingOuterFunction, db.getFunction(searchDesc(existingOuterFunction)));
+
+            Mockito.clearInvocations(spyEditLog);
+            Function tableFunction = createJavaUdtf(
+                    "existing_table_function_pair_db", "existing_table_pair_fn", Type.INT);
+            db.addTableFunction(tableFunction, true);
+
+            Mockito.verify(spyEditLog, Mockito.never()).logAddFunction(Mockito.any(Function.class));
+            Mockito.verify(spyEditLog, Mockito.never()).logAddFunctions(Mockito.anyList());
+            Assert.assertSame(existingFunction, db.getFunction(searchDesc(existingFunction)));
+            Assert.assertSame(existingOuterFunction, db.getFunction(searchDesc(existingOuterFunction)));
+        } finally {
+            Env.getCurrentEnv().setEditLog(editLog);
+        }
+    }
+
+    @Test
+    public void testCreateTableFunctionLogsPairAtomically() throws Exception {
+        ConnectContext ctx = UtFrameUtils.createDefaultCtx();
+        createDatabase(ctx, "create database atomic_table_function_db;");
+        Database db = Env.getCurrentInternalCatalog().getDbNullable("atomic_table_function_db");
+        Assert.assertNotNull(db);
+
+        EditLog editLog = Env.getCurrentEnv().getEditLog();
+        EditLog spyEditLog = Mockito.spy(editLog);
+        Mockito.doNothing().when(spyEditLog).logAddFunction(Mockito.any(Function.class));
+        Mockito.doNothing().when(spyEditLog).logAddFunctions(Mockito.anyList());
+        Env.getCurrentEnv().setEditLog(spyEditLog);
+        try (MockedStatic<FunctionUtil> mockedFunctionUtil = Mockito.mockStatic(FunctionUtil.class,
+                Mockito.CALLS_REAL_METHODS)) {
+            mockedFunctionUtil.when(() -> FunctionUtil.translateToNereidsThrows(
+                    Mockito.eq("atomic_table_function_db"), Mockito.any(Function.class)))
+                    .thenReturn(true);
+            Function tableFunction = createJavaUdtf("atomic_table_function_db", "atomic_table_fn", Type.INT);
+
+            db.addTableFunction(tableFunction, false);
+
+            Mockito.verify(spyEditLog, Mockito.never()).logAddFunction(Mockito.any(Function.class));
+            Mockito.verify(spyEditLog).logAddFunctions(Mockito.argThat(functions ->
+                    functions.size() == 2
+                            && "atomic_table_fn".equals(functions.get(0).functionName())
+                            && "atomic_table_fn_outer".equals(functions.get(1).functionName())));
+            Assert.assertSame(tableFunction, db.getFunction(searchDesc(tableFunction)));
+            Assert.assertNotNull(db.getFunction(searchDesc("atomic_table_function_db", "atomic_table_fn_outer",
+                    Type.INT)));
         } finally {
             Env.getCurrentEnv().setEditLog(editLog);
         }

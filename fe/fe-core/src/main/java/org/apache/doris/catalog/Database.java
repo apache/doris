@@ -769,7 +769,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
     }
 
     public synchronized void addFunction(Function function, boolean ifNotExists) throws UserException {
-        addFunctions(ImmutableList.of(function), ifNotExists);
+        addFunctions(ImmutableList.of(function), ifNotExists, false);
     }
 
     public synchronized void addTableFunction(Function function, boolean ifNotExists) throws UserException {
@@ -777,10 +777,35 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
         Function outerFunction = function.clone();
         FunctionName name = outerFunction.getFunctionName();
         name.setFn(name.getFunction() + "_outer");
-        addFunctions(ImmutableList.of(function, outerFunction), ifNotExists);
+        if (hasSameTableFunctionPair(function, outerFunction, ifNotExists)) {
+            return;
+        }
+        addFunctions(ImmutableList.of(function, outerFunction), false, true);
     }
 
-    private void addFunctions(List<Function> functions, boolean ifNotExists) throws UserException {
+    private boolean hasSameTableFunctionPair(Function function, Function outerFunction, boolean ifNotExists)
+            throws UserException {
+        Function existingFunction = getExistingFunction(function);
+        Function existingOuterFunction = getExistingFunction(outerFunction);
+        if (existingFunction == null && existingOuterFunction == null) {
+            return false;
+        }
+        if (ifNotExists && existingFunction != null && existingOuterFunction != null
+                && existingFunction.isUDTFunction() && existingOuterFunction.isUDTFunction()) {
+            return true;
+        }
+        throw new UserException("function already exists");
+    }
+
+    private Function getExistingFunction(Function function) {
+        try {
+            return getFunction(getFunctionSearchDesc(function));
+        } catch (AnalysisException e) {
+            return null;
+        }
+    }
+
+    private void addFunctions(List<Function> functions, boolean ifNotExists, boolean logAsBatch) throws UserException {
         List<Function> addedFunctions = Lists.newArrayList();
         try {
             for (Function function : functions) {
@@ -801,8 +826,12 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
             }
             throw e;
         }
-        for (Function function : addedFunctions) {
-            Env.getCurrentEnv().getEditLog().logAddFunction(function);
+        if (logAsBatch) {
+            Env.getCurrentEnv().getEditLog().logAddFunctions(addedFunctions);
+        } else {
+            for (Function function : addedFunctions) {
+                Env.getCurrentEnv().getEditLog().logAddFunction(function);
+            }
         }
     }
 
