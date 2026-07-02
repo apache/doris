@@ -32,6 +32,7 @@
 #include "core/block/column_with_type_and_name.h"
 #include "core/column/column.h"
 #include "exec/runtime_filter/runtime_filter_selectivity.h"
+#include "exprs/expr_zonemap_filter.h"
 #include "exprs/function_context.h"
 #include "exprs/vexpr_fwd.h"
 #include "runtime/runtime_state.h"
@@ -290,6 +291,10 @@ public:
 
     [[nodiscard]] static ZoneMapFilterResult evaluate_zonemap_filter(
             const VExprContextSPtrs& conjuncts, const ZoneMapEvalContext& ctx);
+    [[nodiscard]] static ZoneMapFilterResult evaluate_dictionary_filter(
+            const VExprContextSPtrs& conjuncts, const DictionaryEvalContext& ctx);
+    [[nodiscard]] static ZoneMapFilterResult evaluate_bloom_filter(
+            const VExprContextSPtrs& conjuncts, const BloomFilterEvalContext& ctx);
 
     bool all_expr_inverted_index_evaluated();
 

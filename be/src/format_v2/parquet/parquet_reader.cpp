@@ -48,6 +48,7 @@ struct ParquetReaderScanState {
     std::vector<std::unique_ptr<ParquetColumnSchema>> file_schema;
     RowGroupScanPlan scan_plan;
     ParquetScanScheduler scheduler;
+    const RuntimeState* runtime_state = nullptr;
     const cctz::time_zone* timezone = nullptr;
     bool enable_bloom_filter = false;
     bool enable_page_cache = false;
@@ -329,6 +330,7 @@ Status ParquetReader::init(RuntimeState* state) {
     _state->enable_page_cache =
             state != nullptr && state->query_options().enable_parquet_file_page_cache;
     if (state != nullptr) {
+        _state->runtime_state = state;
         _state->timezone = &state->timezone_obj();
         _state->enable_strict_mode = state->enable_strict_mode();
         _state->scheduler.set_timezone(&state->timezone_obj());
@@ -398,15 +400,6 @@ Status ParquetReader::open(std::shared_ptr<format::FileScanRequest> request) {
     DORIS_CHECK(request_snapshot != nullptr);
     RETURN_IF_ERROR(format::FileReader::open(std::move(request)));
 
-    const int num_fields = static_cast<int>(_state->file_schema.size());
-    for (const auto& column_filter : request_snapshot->column_predicate_filters) {
-        const auto file_column_id = column_filter.file_column_id;
-        if (!file_column_id.is_valid() || file_column_id.value() >= num_fields) {
-            return Status::InvalidArgument("Invalid parquet filter top-level local id {}",
-                                           file_column_id.value());
-        }
-    }
-
     // `local_positions.empty()` means all columns are needed by table reader
     // TODO(gabriel): It will happen only for TVF `select *` query.
     if (request_snapshot->local_positions.empty()) {
@@ -448,7 +441,7 @@ Status ParquetReader::open(std::shared_ptr<format::FileScanRequest> request) {
     RETURN_IF_ERROR(plan_parquet_row_groups(
             *_state->file_context.metadata, _state->file_context.file_reader.get(),
             _state->file_schema, *request_snapshot, scan_range, _state->enable_bloom_filter,
-            &row_group_plan, _state->timezone));
+            &row_group_plan, _state->timezone, _state->runtime_state));
     if (_profile != nullptr) {
         _parquet_profile.update_pruning_stats(row_group_plan.pruning_stats);
     }

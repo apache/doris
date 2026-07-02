@@ -307,20 +307,6 @@ std::string table_filter_debug_string(const TableFilter& filter) {
     return out.str();
 }
 
-std::string table_column_predicates_debug_string(const TableColumnPredicates& predicates) {
-    std::ostringstream out;
-    out << "{";
-    size_t idx = 0;
-    for (const auto& [global_index, column_predicates] : predicates) {
-        if (idx++ > 0) {
-            out << ", ";
-        }
-        out << global_index.value() << ":{predicate_count=" << column_predicates.size() << "}";
-    }
-    out << "}";
-    return out.str();
-}
-
 bool contains_runtime_filter(const VExprContextSPtrs& conjuncts) {
     return std::ranges::any_of(conjuncts, [](const auto& conjunct) {
         return conjunct != nullptr && conjunct->root() != nullptr &&
@@ -481,8 +467,6 @@ std::string TableReader::debug_string() const {
         << join_table_reader_debug_strings(
                    _table_filters,
                    [](const TableFilter& filter) { return table_filter_debug_string(filter); })
-        << ", table_column_predicates="
-        << table_column_predicates_debug_string(_table_column_predicates)
         << ", conjunct_count=" << _conjuncts.size() << ", conjuncts="
         << join_table_reader_debug_strings(_conjuncts,
                                            [](const VExprContextSPtr& conjunct) {
@@ -541,7 +525,6 @@ Status TableReader::init(TableReadOptions&& options) {
     _system_properties = create_system_properties(_scan_params);
     _mapper_options.mode = TableColumnMappingMode::BY_NAME;
     _conjuncts = std::move(options.conjuncts);
-    _table_column_predicates = std::move(options.column_predicates);
 
     if (_scanner_profile != nullptr) {
         static const char* table_profile = "TableReader";
@@ -596,8 +579,8 @@ bool TableReader::_should_enable_condition_cache(const FileScanRequest& file_req
         return false;
     }
     // Condition cache is populated by file readers after evaluating file-local row-level
-    // conjuncts. ColumnPredicate-only scans can prune row groups/pages, but they do not produce a
-    // per-row survivor bitmap that can safely populate the cache.
+    // conjuncts. Metadata pruning can skip row groups/pages, but it does not produce a per-row
+    // survivor bitmap that can safely populate the cache.
     if (file_request.conjuncts.empty()) {
         return false;
     }

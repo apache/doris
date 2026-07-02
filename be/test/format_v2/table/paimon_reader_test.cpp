@@ -437,7 +437,6 @@ TEST(PaimonReaderTest, AppliesBitmapDeletionVectorFile) {
     paimon::PaimonReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
-                                    .column_predicates = {},
                                     .conjuncts = {},
                                     .format = FileFormat::PARQUET,
                                     .scan_params = &scan_params,
@@ -510,7 +509,6 @@ TEST(PaimonHybridReaderTest, DispatchesNativeThenJniSplitToMatchingReader) {
     paimon::PaimonHybridReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = {},
-                                    .column_predicates = {},
                                     .conjuncts = {},
                                     .format = FileFormat::PARQUET,
                                     .scan_params = &scan_params,

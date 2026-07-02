@@ -143,7 +143,6 @@ Status PaimonHybridReader::_init_child_reader(format::TableReader* reader,
     RETURN_IF_ERROR(_clone_conjuncts(&conjuncts));
     return reader->init({
             .projected_columns = _projected_columns,
-            .column_predicates = _table_column_predicates,
             .conjuncts = std::move(conjuncts),
             .format = file_format,
             .scan_params = _scan_params,
