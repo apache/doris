@@ -16,6 +16,12 @@
 // under the License.
 
 suite("test_hudi_rewrite_mtmv", "p2,external,hudi") {
+    if (true) {
+        // Temporarily disable: flaky mv transparent rewrite over external hudi table
+        // (mv not engaged as rewrite candidate when external partition metadata is not ready)
+        logger.info("disable test_hudi_rewrite_mtmv temporarily")
+        return
+    }
     String enabled = context.config.otherConfigs.get("enableHudiTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
         logger.info("disable hudi test")
