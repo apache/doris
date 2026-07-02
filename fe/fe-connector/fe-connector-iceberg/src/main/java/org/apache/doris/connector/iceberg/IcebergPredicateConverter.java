@@ -352,6 +352,13 @@ public class IcebergPredicateConverter {
                     return decimal;
                 case STRING:
                     return decimal.toString();
+                case FLOAT:
+                    // Nereids types an unsuffixed decimal literal (e.g. 90.0) as a BigDecimal, so a FLOAT-column
+                    // predicate lands here, not in the Double/Float branch. Mirror that branch: only REWRITE may
+                    // push it (file scoping with no downstream re-filter -> the decimal->float narrowing can only
+                    // shrink the rewrite set, which is safe); SCAN/CONFLICT omit it to avoid wrongly pruning
+                    // matching rows. Restores legacy IcebergNereidsUtils rewrite behaviour (column-type FLOAT).
+                    return mode == Mode.REWRITE ? decimal.doubleValue() : null;
                 case DOUBLE:
                     return decimal.doubleValue();
                 default:
@@ -370,6 +377,14 @@ public class IcebergPredicateConverter {
                 }
             }
             switch (id) {
+                case FLOAT:
+                    // Only REWRITE may push a (non-float-typed) double/decimal literal onto a FLOAT column:
+                    // it scopes file rewriting with no downstream re-filter, so the double->float narrowing
+                    // can only shrink the rewrite set (a file merely goes un-rewritten), which is safe.
+                    // SCAN/CONFLICT keep omitting it -- an incorrect prune there would silently drop matching
+                    // rows (BE re-filters a widened scan, but cannot recover a wrongly-pruned file). Restores
+                    // legacy IcebergNereidsUtils rewrite behaviour (case FLOAT -> floatValue()).
+                    return mode == Mode.REWRITE ? doubleValue : null;
                 case DOUBLE:
                 case DECIMAL:
                     return doubleValue;
@@ -407,9 +422,18 @@ public class IcebergPredicateConverter {
         } else if (value instanceof String) {
             String string = (String) value;
             switch (id) {
+                case TIMESTAMP:
+                    // The rewrite WHERE is not type-coerced, so a quoted datetime literal arrives here as a raw
+                    // Doris-format string ("yyyy-MM-dd HH:mm:ss[.SSSSSS]", or a date-only string). Iceberg's own
+                    // string->timestamp bind expects ISO-8601 (with 'T') and rejects the space-separated form, so
+                    // parse it to zone-adjusted epoch micros ourselves (via toMicros, honoring timestamptz),
+                    // mirroring legacy IcebergNereidsUtils' string branch. Null (drop) when not a parseable
+                    // datetime. (Normal scans coerce the literal to a DateTimeLiteral -> the LocalDateTime branch,
+                    // so this string path is only reached by the uncoerced rewrite/EXECUTE WHERE.)
+                    LocalDateTime parsedTs = parseDorisDateTime(string);
+                    return parsedTs == null ? null : toMicros(parsedTs, icebergType);
                 case DATE:
                 case TIME:
-                case TIMESTAMP:
                 case STRING:
                 case UUID:
                 case DECIMAL:
@@ -449,6 +473,24 @@ public class IcebergPredicateConverter {
         ZoneId zone = ((Types.TimestampType) icebergType).shouldAdjustToUTC() ? sessionZone : ZoneOffset.UTC;
         Instant instant = dateTime.atZone(zone).toInstant();
         return instant.getEpochSecond() * 1_000_000L + instant.getNano() / 1000L;
+    }
+
+    // Parse a Doris-format datetime string ("yyyy-MM-dd HH:mm:ss[.fraction]") -- or a date-only string, taken
+    // at start-of-day -- to a LocalDateTime, or null when unparseable. Normalizes the space separator to ISO
+    // 'T' so java.time's ISO parsers accept the Doris rendering (mirrors legacy IcebergNereidsUtils' string ->
+    // timestamp path, which parsed the literal itself rather than handing the raw string to iceberg).
+    private static LocalDateTime parseDorisDateTime(String value) {
+        String iso = value.trim().replace(' ', 'T');
+        try {
+            return LocalDateTime.parse(iso);
+        } catch (RuntimeException ignored) {
+            // not a full datetime -- fall through to date-only
+        }
+        try {
+            return LocalDate.parse(iso).atStartOfDay();
+        } catch (RuntimeException ignored) {
+            return null;
+        }
     }
 
     // Best-effort Doris-style "yyyy-MM-dd HH:mm:ss[.SSSSSS]" (DateLiteral.getStringValue). Only reached for a

@@ -487,7 +487,7 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
      * CREATE TABLE. Mirrors legacy {@code IcebergExternalTable.getSortOrderSql} + {@code SortFieldInfo.toSql}
      * ({@code `col` ASC|DESC NULLS FIRST|LAST}). Returns "" when the table is unsorted.
      */
-    private String buildShowSortClause(Table table) {
+    static String buildShowSortClause(Table table) {
         SortOrder sortOrder = table.sortOrder();
         if (sortOrder == null || sortOrder.isUnsorted() || sortOrder.fields().isEmpty()) {
             return "";

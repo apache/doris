@@ -211,6 +211,13 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
         IcebergTableHandle tableHandle = (IcebergTableHandle) handle.getTableHandle();
         output.append(prefix).append("  ICEBERG TABLE: ")
                 .append(tableHandle.getDbName()).append(".").append(tableHandle.getTableName()).append("\n");
+        // Legacy IcebergTableSink also rendered the table's write sort order (getSortOrderSql) when sorted;
+        // reuse the SHOW CREATE TABLE renderer so EXPLAIN INSERT surfaces the same "ORDER BY (...)" the BE
+        // write applies (getWriteSortColumns), keeping EXPLAIN and SHOW CREATE TABLE consistent.
+        String sortClause = IcebergConnectorMetadata.buildShowSortClause(resolveTable(tableHandle));
+        if (!sortClause.isEmpty()) {
+            output.append(prefix).append("  ").append(sortClause).append("\n");
+        }
     }
 
     /**
