@@ -54,6 +54,7 @@ import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.util.Collections;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Optional;
 
@@ -263,6 +264,11 @@ public class PhysicalPlanTranslatorIcebergRowLevelDmlTest {
         ConnectorWritePlanProvider provider = Mockito.mock(ConnectorWritePlanProvider.class);
         Connector connector = Mockito.mock(Connector.class);
         Mockito.when(connector.getWritePlanProvider()).thenReturn(provider);
+        // The row-level DML gate (buildPluginRowLevelDmlSink) admits on connector.supportedWriteOperations()
+        // containing DELETE/MERGE. On a plain mock the Connector delegator default is not invoked, so stub it
+        // directly (an iceberg connector declares row-level DML support).
+        Mockito.when(connector.supportedWriteOperations())
+                .thenReturn(EnumSet.of(WriteOperation.DELETE, WriteOperation.MERGE));
         Mockito.when(connector.getMetadata(Mockito.any())).thenReturn(metadata);
         Mockito.when(metadata.getTableHandle(Mockito.any(), Mockito.any(), Mockito.any()))
                 .thenReturn(Optional.of(handle));
