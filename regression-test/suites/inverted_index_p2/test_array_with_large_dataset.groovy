@@ -49,7 +49,7 @@ suite("test_array_with_large_dataset", "p2"){
                 log.info("Stream load result: ${result}".toString())
                 def json = parseJson(result)
                 assertEquals("success", json.Status.toLowerCase())
-                assertTrue(json.NumberLoadedRows > 0 && json.LoadBytes > 0)
+                assertTrue(json.NumberLoadedRows > 0 && json.receivedBytes > 0)
             }
         }
     }

@@ -76,7 +76,7 @@ suite("test_decimal256_outfile_csv") {
            assertEquals("success", json.Status.toLowerCase())
            assertEquals(19, json.NumberTotalRows)
            assertEquals(json.NumberTotalRows, json.NumberLoadedRows)
-           assertTrue(json.LoadBytes > 0)
+           assertTrue(json.receivedBytes > 0)
        }
    }
     sql "sync"

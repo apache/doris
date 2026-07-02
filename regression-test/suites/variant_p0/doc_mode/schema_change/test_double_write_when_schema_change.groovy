@@ -51,7 +51,7 @@ suite("double_write_schema_change_doc_value", "nonConcurrent") {
                 def json = parseJson(result)
                 assertEquals("success", json.Status.toLowerCase())
                 // assertEquals(json.NumberTotalRows, json.NumberLoadedRows + json.NumberUnselectedRows)
-                assertTrue(json.NumberLoadedRows > 0 && json.LoadBytes > 0)
+                assertTrue(json.NumberLoadedRows > 0 && json.receivedBytes > 0)
             }
         }
     }

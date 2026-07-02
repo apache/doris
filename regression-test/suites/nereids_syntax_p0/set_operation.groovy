@@ -337,7 +337,7 @@ suite("set_operation") {
                 assertEquals("success", json.Status.toLowerCase())
                 assertEquals(json.NumberTotalRows, json.NumberLoadedRows + json.NumberUnselectedRows
                         + json.NumberFilteredRows)
-                assertTrue(json.NumberLoadedRows > 0 && json.LoadBytes > 0)
+                assertTrue(json.NumberLoadedRows > 0 && json.receivedBytes > 0)
             }
             def loadRowCount = sql "select count(*) from ${table_name};"
             logger.info("select count(*) from ${loadRowCount};")

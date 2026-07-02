@@ -76,7 +76,7 @@ suite("test_json_load_double", "p0") {
             assertEquals("success", json.Status.toLowerCase())
             assertEquals(2, json.NumberTotalRows)
             assertEquals(2, json.NumberLoadedRows)
-            assertTrue(json.LoadBytes > 0)
+            assertTrue(json.receivedBytes > 0)
             log.info("url: " + json.ErrorURL)
         }
     }

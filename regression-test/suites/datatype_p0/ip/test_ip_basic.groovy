@@ -207,7 +207,7 @@ suite("test_ip_basic") {
                  def json = parseJson(res)
                  assertEquals("success", json.Status.toLowerCase())
                  assertEquals(json.NumberTotalRows, json.NumberLoadedRows)
-                 assertTrue(json.LoadBytes > 0)
+                 assertTrue(json.receivedBytes > 0)
              }
     }
     qt_sql_ipv6 """ select * from table_ipv6_uint128 order by col0 """
@@ -230,7 +230,7 @@ suite("test_ip_basic") {
                      def json = parseJson(res)
                      assertEquals("success", json.Status.toLowerCase())
                      assertEquals(json.NumberTotalRows, json.NumberLoadedRows)
-                     assertTrue(json.LoadBytes > 0)
+                     assertTrue(json.receivedBytes > 0)
                  }
         }
 

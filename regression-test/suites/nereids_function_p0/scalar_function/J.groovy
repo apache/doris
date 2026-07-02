@@ -59,7 +59,7 @@ suite("nereids_scalar_fn_J") {
             assertEquals(25, json.NumberTotalRows)
             assertEquals(0, json.NumberLoadedRows)
             assertEquals(7, json.NumberFilteredRows)
-            assertTrue(json.LoadBytes > 0)
+            assertTrue(json.receivedBytes > 0)
             log.info("url: " + json.ErrorURL)
         }
     }
@@ -90,7 +90,7 @@ suite("nereids_scalar_fn_J") {
             assertEquals(25, json.NumberTotalRows)
             assertEquals(18, json.NumberLoadedRows)
             assertEquals(7, json.NumberFilteredRows)
-            assertTrue(json.LoadBytes > 0)
+            assertTrue(json.receivedBytes > 0)
         }
     }
 

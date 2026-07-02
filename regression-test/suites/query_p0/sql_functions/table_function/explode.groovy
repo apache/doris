@@ -114,7 +114,7 @@ suite("explode") {
                 assertEquals(25, json.NumberTotalRows)
                 assertEquals(25, json.NumberLoadedRows)
                 assertEquals(0, json.NumberFilteredRows)
-                assertTrue(json.LoadBytes > 0)
+                assertTrue(json.receivedBytes > 0)
             }
      }
 

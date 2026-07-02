@@ -67,7 +67,7 @@ suite("test_storage_format_default", "p0") {
                     assertEquals(json.NumberLoadedRows, expectedSuccRows)
                 } else {
                     assertEquals(json.NumberTotalRows, json.NumberLoadedRows + json.NumberUnselectedRows)
-                    assertTrue(json.NumberLoadedRows > 0 && json.LoadBytes > 0)
+                    assertTrue(json.NumberLoadedRows > 0 && json.receivedBytes > 0)
                 }
             }
         }

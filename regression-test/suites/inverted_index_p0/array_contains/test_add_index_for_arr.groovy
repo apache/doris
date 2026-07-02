@@ -100,7 +100,7 @@ suite("test_add_index_for_arr") {
                  def json = parseJson(result)
                  assertEquals(200, json.NumberTotalRows)
                  assertEquals(200, json.NumberLoadedRows)
-                 assertTrue(json.LoadBytes > 0)
+                 assertTrue(json.receivedBytes > 0)
              }
      }
 

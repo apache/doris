@@ -65,7 +65,7 @@ suite("test_complex_type_unique_key", "p0") {
             assertEquals(2, json.NumberTotalRows)
             assertEquals(2, json.NumberLoadedRows)
             assertEquals(0, json.NumberFilteredRows)
-            assertTrue(json.LoadBytes > 0)
+            assertTrue(json.receivedBytes > 0)
         }
     }
 
@@ -93,7 +93,7 @@ suite("test_complex_type_unique_key", "p0") {
             assertEquals(2, json.NumberTotalRows)
             assertEquals(2, json.NumberLoadedRows)
             assertEquals(0, json.NumberFilteredRows)
-            assertTrue(json.LoadBytes > 0)
+            assertTrue(json.receivedBytes > 0)
         }
     }
 

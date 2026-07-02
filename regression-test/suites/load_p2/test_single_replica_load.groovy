@@ -46,7 +46,7 @@ suite("test_single_replica_load", "p2, nonConcurrent") {
                 logger.info("Stream load ${file_name} result: ${result}".toString())
                 def json = parseJson(result)
                 assertEquals("success", json.Status.toLowerCase())
-                assertTrue(json.NumberLoadedRows > 0 && json.LoadBytes > 0)
+                assertTrue(json.NumberLoadedRows > 0 && json.receivedBytes > 0)
             }
         }
     }

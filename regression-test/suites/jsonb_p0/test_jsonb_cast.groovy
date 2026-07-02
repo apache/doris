@@ -53,7 +53,7 @@ suite("test_jsonb_cast", "p0") {
             def json = parseJson(result)
             assertEquals(4, json.NumberTotalRows)
             assertEquals(4, json.NumberLoadedRows)
-            assertTrue(json.LoadBytes > 0)
+            assertTrue(json.receivedBytes > 0)
         }
     }
 

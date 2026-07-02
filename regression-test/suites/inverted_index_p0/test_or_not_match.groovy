@@ -55,7 +55,7 @@ suite("test_or_not_match", "p0") {
             log.info("Stream load result: ${result}".toString())
             def json = parseJson(result)
             assertEquals("success", json.Status.toLowerCase())
-            assertTrue(json.NumberLoadedRows > 0 && json.LoadBytes > 0)
+            assertTrue(json.NumberLoadedRows > 0 && json.receivedBytes > 0)
         }
     }
     for (int i = 0; i < 10; i++) {

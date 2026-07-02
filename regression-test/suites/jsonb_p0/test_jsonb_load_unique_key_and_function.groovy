@@ -55,7 +55,7 @@ suite("test_jsonb_unique_load_and_function", "p0") {
             assertEquals(75, json.NumberTotalRows)
             assertEquals(0, json.NumberLoadedRows)
             assertEquals(21, json.NumberFilteredRows)
-            assertTrue(json.LoadBytes > 0)
+            assertTrue(json.receivedBytes > 0)
         }
     }
 
@@ -82,7 +82,7 @@ suite("test_jsonb_unique_load_and_function", "p0") {
             assertEquals(75, json.NumberTotalRows)
             assertEquals(54, json.NumberLoadedRows)
             assertEquals(21, json.NumberFilteredRows)
-            assertTrue(json.LoadBytes > 0)
+            assertTrue(json.receivedBytes > 0)
         }
     }
 

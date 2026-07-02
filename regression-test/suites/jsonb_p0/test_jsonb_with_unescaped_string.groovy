@@ -54,7 +54,7 @@ suite("test_jsonb_with_unescaped_string", "p0") {
             def json = parseJson(result)
             assertEquals(5, json.NumberTotalRows)
             assertEquals(5, json.NumberLoadedRows)
-            assertTrue(json.LoadBytes > 0)
+            assertTrue(json.receivedBytes > 0)
         }
     }
 
@@ -84,7 +84,7 @@ suite("test_jsonb_with_unescaped_string", "p0") {
             def json = parseJson(result)
             assertEquals(5, json.NumberTotalRows)
             assertEquals(5, json.NumberLoadedRows)
-            assertTrue(json.LoadBytes > 0)
+            assertTrue(json.receivedBytes > 0)
         }
     }
 

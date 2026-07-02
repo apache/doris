@@ -580,7 +580,7 @@ suite('test_temp_table', 'p0') {
             log.info("Stream load result: ${result}".toString())
             def json = parseJson(result)
             assertEquals("fail", json.Status.toLowerCase())
-            assertTrue(json.NumberLoadedRows == 0 && json.LoadBytes == 0)
+            assertTrue(json.NumberLoadedRows == 0 && json.receivedBytes == 0)
         }
     }
     sql "sync"

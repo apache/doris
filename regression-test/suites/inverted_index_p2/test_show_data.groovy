@@ -94,7 +94,7 @@ suite("test_show_data", "p2") {
                         assertEquals(json.NumberLoadedRows, expected_succ_rows)
                     } else {
                         assertEquals(json.NumberTotalRows, json.NumberLoadedRows + json.NumberUnselectedRows)
-                        assertTrue(json.NumberLoadedRows > 0 && json.LoadBytes > 0)
+                        assertTrue(json.NumberLoadedRows > 0 && json.receivedBytes > 0)
                 }
             }
         }
@@ -291,7 +291,7 @@ suite("test_show_data_for_bkd", "p2") {
                         assertEquals(json.NumberLoadedRows, expected_succ_rows)
                     } else {
                         assertEquals(json.NumberTotalRows, json.NumberLoadedRows + json.NumberUnselectedRows)
-                        assertTrue(json.NumberLoadedRows > 0 && json.LoadBytes > 0)
+                        assertTrue(json.NumberLoadedRows > 0 && json.receivedBytes > 0)
                 }
             }
         }
@@ -489,7 +489,7 @@ suite("test_show_data_multi_add", "p2") {
                         assertEquals(json.NumberLoadedRows, expected_succ_rows)
                     } else {
                         assertEquals(json.NumberTotalRows, json.NumberLoadedRows + json.NumberUnselectedRows)
-                        assertTrue(json.NumberLoadedRows > 0 && json.LoadBytes > 0)
+                        assertTrue(json.NumberLoadedRows > 0 && json.receivedBytes > 0)
                 }
             }
         }
@@ -701,7 +701,7 @@ suite("test_show_data_with_compaction", "p2") {
                         assertEquals(json.NumberLoadedRows, expected_succ_rows)
                     } else {
                         assertEquals(json.NumberTotalRows, json.NumberLoadedRows + json.NumberUnselectedRows)
-                        assertTrue(json.NumberLoadedRows > 0 && json.LoadBytes > 0)
+                        assertTrue(json.NumberLoadedRows > 0 && json.receivedBytes > 0)
                 }
             }
         }

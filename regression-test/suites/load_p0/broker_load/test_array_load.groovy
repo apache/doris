@@ -126,7 +126,7 @@ suite("test_array_load", "load_p0,external") {
                 def json = parseJson(result)
                 assertEquals("success", json.Status.toLowerCase())
                 assertEquals(json.NumberTotalRows, json.NumberLoadedRows + json.NumberUnselectedRows + json.NumberFilteredRows)
-                assertTrue(json.NumberLoadedRows > 0 && json.LoadBytes > 0)
+                assertTrue(json.NumberLoadedRows > 0 && json.receivedBytes > 0)
             }
         }
     }

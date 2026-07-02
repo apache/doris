@@ -34,7 +34,7 @@ suite("test_dup_table_inverted_index", "p1") {
                 def json = parseJson(result)
                 assertEquals("success", json.Status.toLowerCase())
                 assertEquals(json.NumberTotalRows, json.NumberLoadedRows)
-                assertTrue(json.NumberLoadedRows > 0 && json.LoadBytes > 0)
+                assertTrue(json.NumberLoadedRows > 0 && json.receivedBytes > 0)
             }
         }
     }

@@ -83,7 +83,7 @@ suite("table_modify_resouce") {
                 def json = parseJson(result)
                 assertEquals("success", json.Status.toLowerCase())
                 assertEquals(json.NumberTotalRows, json.NumberLoadedRows)
-                assertTrue(json.NumberLoadedRows > 0 && json.LoadBytes > 0)
+                assertTrue(json.NumberLoadedRows > 0 && json.receivedBytes > 0)
             }
         }
     }

@@ -66,7 +66,7 @@ suite("test_delete_where_in", "delete_p0") {
                 def json = parseJson(result)
                 assertEquals("success", json.Status.toLowerCase())
                 assertEquals(json.NumberTotalRows, json.NumberLoadedRows)
-                assertTrue(json.NumberLoadedRows > 0 && json.LoadBytes > 0)
+                assertTrue(json.NumberLoadedRows > 0 && json.receivedBytes > 0)
             }
         }
 

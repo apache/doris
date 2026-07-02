@@ -85,7 +85,7 @@ suite("test_insert_statistic", "p0") {
     assertEquals(json.ScannedRows, 3)
     assertEquals(json.FileNumber, 0)
     assertEquals(json.FileSize, 0)
-    assertTrue(json.LoadBytes > 0)
+    assertTrue(json.receivedBytes > 0)
 
     // failed insert into select → job should be CANCELLED
     sql """ DROP TABLE IF EXISTS ${insert_tbl}_fail"""
@@ -149,5 +149,5 @@ suite("test_insert_statistic", "p0") {
     assertEquals(json.ScannedRows, 2)
     assertEquals(json.FileNumber, 1)
     assertEquals(json.FileSize, 86)
-    assertTrue(json.LoadBytes > 0)
+    assertTrue(json.receivedBytes > 0)
 }

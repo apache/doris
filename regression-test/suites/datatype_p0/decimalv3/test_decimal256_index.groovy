@@ -105,7 +105,7 @@ suite("test_decimal256_index") {
             assertEquals("success", json.Status.toLowerCase())
             assertEquals(4096, json.NumberTotalRows)
             assertEquals(json.NumberTotalRows, json.NumberLoadedRows)
-            assertTrue(json.LoadBytes > 0)
+            assertTrue(json.receivedBytes > 0)
         }
     }
     // RowsStatsFiltered in profile

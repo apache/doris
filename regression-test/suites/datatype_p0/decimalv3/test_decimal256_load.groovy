@@ -104,7 +104,7 @@ suite("test_decimal256_load") {
             assertEquals("success", json.Status.toLowerCase())
             assertEquals(19, json.NumberTotalRows)
             assertEquals(json.NumberTotalRows, json.NumberLoadedRows)
-            assertTrue(json.LoadBytes > 0)
+            assertTrue(json.receivedBytes > 0)
         }
     }
     qt_select "select * from test_decimal256_load order by 1,2,3;"

@@ -58,7 +58,7 @@ suite("test_stream_load_with_inverted_index_p0", "p0, nonConcurrent") {
                 def json = parseJson(result)
                 assertEquals("success", json.Status.toLowerCase())
                 // assertEquals(json.NumberTotalRows, json.NumberLoadedRows + json.NumberUnselectedRows)
-                assertTrue(json.NumberLoadedRows > 0 && json.LoadBytes > 0)
+                assertTrue(json.NumberLoadedRows > 0 && json.receivedBytes > 0)
             }
         }
     }

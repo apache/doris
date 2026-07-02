@@ -40,7 +40,7 @@ suite("regression_test_variant_logdata", "p2"){
                 def json = parseJson(result)
                 assertEquals("success", json.Status.toLowerCase())
                 // assertEquals(json.NumberTotalRows, json.NumberLoadedRows + json.NumberUnselectedRows)
-                assertTrue(json.NumberLoadedRows > 0 && json.LoadBytes > 0)
+                assertTrue(json.NumberLoadedRows > 0 && json.receivedBytes > 0)
             }
         }
     }

@@ -64,7 +64,7 @@ suite("test_array_contains_estimate", "nonConcurrent"){
             def json = parseJson(result)
             assertEquals(149, json.NumberTotalRows)
             assertEquals(149, json.NumberLoadedRows)
-            assertTrue(json.LoadBytes > 0)
+            assertTrue(json.receivedBytes > 0)
         }
     }
 

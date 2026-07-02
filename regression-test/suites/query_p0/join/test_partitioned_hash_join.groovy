@@ -55,7 +55,7 @@ suite("test_partitioned_hash_join", "query,p0,arrow_flight_sql") {
             def json = parseJson(result)
             assertEquals("success", json.Status.toLowerCase())
             assertEquals(json.NumberTotalRows, json.NumberLoadedRows)
-            assertTrue(json.NumberLoadedRows > 0 && json.LoadBytes > 0)
+            assertTrue(json.NumberLoadedRows > 0 && json.receivedBytes > 0)
         }
     }
     sql """ set enable_profile = 1; """
