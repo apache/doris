@@ -174,6 +174,24 @@ class JdbcDorisConnectorTest {
     }
 
     @Test
+    void testGetWritePlanProviderWithoutDriverClassDoesNotThrow() {
+        // Regression test: driver_class is optional (JdbcConnectorProperties.DRIVER_CLASS is read
+        // via a plain properties.get(), so it is null when the catalog omits it — see
+        // JdbcDorisConnector#createClient). initializeDataSource() must not pass that null straight
+        // to HikariConfig#setDriverClassName, which NPEs deep inside HikariCP (loadClass(null) ->
+        // ClassLoader lock map -> ConcurrentHashMap forbids a null key) instead of throwing
+        // ClassNotFoundException. Use postgresql (no detectDoris probe in postInitialize(), unlike
+        // mysql) so client creation succeeds without a live database or driver jar on the classpath;
+        // HikariDataSource is lazy and only resolves the driver from the jdbcUrl at first
+        // getConnection(), so building it here must succeed even without driver_class.
+        Map<String, String> props = new HashMap<>();
+        props.put(JdbcConnectorProperties.JDBC_URL, "jdbc:postgresql://localhost:5432/test");
+        JdbcDorisConnector connector = new JdbcDorisConnector(props, testContext());
+        Assertions.assertDoesNotThrow(connector::getWritePlanProvider,
+                "missing driver_class must not NPE inside HikariCP during client initialization");
+    }
+
+    @Test
     void testBeginTransactionReturnsNoOpTransaction() {
         // jdbc writes are auto-committed by BE per row; beginTransaction returns a degenerate no-op
         // transaction so the engine's write lifecycle is uniform (single ConnectorTransaction model).
