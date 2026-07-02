@@ -277,11 +277,6 @@ public class JdbcConnectorMetadata implements ConnectorMetadata {
     // ========= ConnectorWriteOps =========
 
     @Override
-    public boolean supportsInsert() {
-        return true;
-    }
-
-    @Override
     public ConnectorTransaction beginTransaction(ConnectorSession session) {
         // JDBC writes are auto-committed by BE per row via PreparedStatement; there is no
         // FE-side transaction to coordinate. Return a degenerate no-op transaction so the

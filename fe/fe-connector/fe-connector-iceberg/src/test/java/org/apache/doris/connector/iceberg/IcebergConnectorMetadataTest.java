@@ -112,17 +112,6 @@ public class IcebergConnectorMetadataTest {
     // ---------------------------------------------------------------------
 
     @Test
-    public void declaresDeleteAndMergeCapabilities() {
-        // WHY: iceberg is the first connector to support row-level DELETE/MERGE. The generic
-        // RowLevelDmlCommand shell routes to iceberg's plan synthesis by querying these capabilities (at the
-        // P6.6 cutover). MUTATION: returning the default false (dropping the override) -> the shell would
-        // never dispatch iceberg DELETE/MERGE -> red.
-        IcebergConnectorMetadata metadata = metadataWith(new RecordingIcebergCatalogOps());
-        Assertions.assertTrue(metadata.supportsDelete(), "iceberg must declare DELETE support");
-        Assertions.assertTrue(metadata.supportsMerge(), "iceberg must declare MERGE support");
-    }
-
-    @Test
     public void applyRewriteFileScopeThreadsRawPathsOntoHandle() {
         // The distributed rewrite scan-scope pin reaches the connector through the handle: the engine calls
         // applyRewriteFileScope, the iceberg override threads the RAW paths onto an immutable handle copy that
@@ -303,33 +292,6 @@ public class IcebergConnectorMetadataTest {
         IcebergConnectorMetadata md = metadataWithSpec(idNameSchema(), PartitionSpec.unpartitioned());
         Assertions.assertDoesNotThrow(() -> md.validateStaticPartitionColumns(
                 null, new IcebergTableHandle("db1", "t1"), Collections.emptyList()));
-    }
-
-    @Test
-    public void declaresInsertOverwriteCapability() {
-        // WHY: iceberg's write path fully implements OVERWRITE (the overwrite flag rides the write handle
-        // into IcebergWritePlanProvider, which promotes INSERT->OVERWRITE, and IcebergConnectorTransaction
-        // maps it to ReplacePartitions/OverwriteFiles at commit). Post-cutover an iceberg table is a
-        // PluginDrivenExternalTable, so InsertOverwriteTableCommand.allowInsertOverwrite admits it ONLY when
-        // the connector declares this capability; the SPI default false would fail the command up front.
-        // MUTATION: dropping the override (default false) -> allowInsertOverwrite rejects iceberg INSERT
-        // OVERWRITE post-flip -> red.
-        IcebergConnectorMetadata metadata = metadataWith(new RecordingIcebergCatalogOps());
-        Assertions.assertTrue(metadata.supportsInsertOverwrite(),
-                "iceberg must declare INSERT OVERWRITE support");
-    }
-
-    @Test
-    public void declaresWriteBranchCapability() {
-        // WHY: iceberg's write path threads a target branch (INSERT INTO t@branch) onto the write handle,
-        // and IcebergConnectorTransaction.beginWrite validates+commits to it. Post-cutover an iceberg table
-        // is a PluginDrivenExternalTable, so the generic INSERT @branch guard admits it ONLY when the
-        // connector declares this capability; the SPI default false would reject the branch up front (and
-        // dropping the guard entirely would silently write to the default ref). MUTATION: dropping the
-        // override (default false) -> @branch INSERT rejected post-flip -> red.
-        IcebergConnectorMetadata metadata = metadataWith(new RecordingIcebergCatalogOps());
-        Assertions.assertTrue(metadata.supportsWriteBranch(),
-                "iceberg must declare write-branch support");
     }
 
     // ---------------------------------------------------------------------

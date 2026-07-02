@@ -21,6 +21,7 @@ import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.DorisConnectorException;
 import org.apache.doris.connector.api.handle.ConnectorTransaction;
 import org.apache.doris.connector.api.handle.NoOpConnectorTransaction;
+import org.apache.doris.connector.api.handle.WriteOperation;
 import org.apache.doris.connector.spi.ConnectorContext;
 
 import org.junit.jupiter.api.Assertions;
@@ -28,6 +29,7 @@ import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
 import java.util.Collections;
+import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -153,14 +155,19 @@ class JdbcDorisConnectorTest {
     }
 
     @Test
-    void testJdbcMetadataSupportsInsert() {
-        JdbcConnectorMetadata metadata = new JdbcConnectorMetadata(null, minimalProps());
-        Assertions.assertTrue(metadata.supportsInsert(),
-                "JDBC connector metadata should support INSERT");
-        Assertions.assertFalse(metadata.supportsDelete(),
-                "JDBC connector metadata should not support DELETE by default");
-        Assertions.assertFalse(metadata.supportsMerge(),
-                "JDBC connector metadata should not support MERGE by default");
+    void testJdbcConnectorSupportsInsertOnly() {
+        // getWritePlanProvider() eagerly resolves a real JdbcConnectorClient, whose postInitialize()
+        // probes the remote server for MySQL (detectDoris) — use postgresql (no such probe) plus a
+        // harmless instantiable driver_class (java.lang.Object; never cast to java.sql.Driver here)
+        // so client creation succeeds without a live database or driver jar on the test classpath.
+        Map<String, String> props = new HashMap<>();
+        props.put(JdbcConnectorProperties.JDBC_URL, "jdbc:postgresql://localhost:5432/test");
+        props.put(JdbcConnectorProperties.DRIVER_CLASS, "java.lang.Object");
+        JdbcDorisConnector connector = new JdbcDorisConnector(props, testContext());
+        Assertions.assertEquals(EnumSet.of(WriteOperation.INSERT), connector.supportedWriteOperations(),
+                "JDBC connector should declare INSERT as its only supported write operation");
+        Assertions.assertFalse(connector.supportsWriteBranch(),
+                "JDBC connector should not support writing into a named table branch");
     }
 
     @Test

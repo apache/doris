@@ -38,44 +38,6 @@ import java.util.List;
  */
 public interface ConnectorWriteOps {
 
-    // ──────────────────── Capability Queries ────────────────────
-
-    /** Returns {@code true} if this connector supports INSERT operations. */
-    default boolean supportsInsert() {
-        return false;
-    }
-
-    /**
-     * Returns {@code true} if this connector supports INSERT OVERWRITE (truncate-and-insert)
-     * semantics. A connector that supports plain INSERT but not overwrite must keep this
-     * {@code false} so callers reject the command up front (fail loud) instead of silently
-     * degrading OVERWRITE to a plain append.
-     */
-    default boolean supportsInsertOverwrite() {
-        return false;
-    }
-
-    /** Returns {@code true} if this connector supports DELETE operations. */
-    default boolean supportsDelete() {
-        return false;
-    }
-
-    /** Returns {@code true} if this connector supports MERGE (INSERT + DELETE) operations. */
-    default boolean supportsMerge() {
-        return false;
-    }
-
-    /**
-     * Returns {@code true} if this connector supports writing into a named table branch
-     * ({@code INSERT INTO t@branch(name) ...}). A connector declaring this must also thread the
-     * branch through its write path (the branch rides {@code ConnectorWriteHandle.getBranchName}).
-     * Connectors that cannot target a branch keep this {@code false} so the command is rejected up
-     * front (fail loud) rather than silently writing to the table's default ref.
-     */
-    default boolean supportsWriteBranch() {
-        return false;
-    }
-
     /**
      * Validates that a row-level DML {@code op} ({@link WriteOperation#DELETE} / {@link WriteOperation#UPDATE} /
      * {@link WriteOperation#MERGE}) is permitted on {@code handle} under the table's configured write mode,

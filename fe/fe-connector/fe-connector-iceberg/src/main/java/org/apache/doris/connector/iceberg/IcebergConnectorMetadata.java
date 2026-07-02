@@ -1289,24 +1289,6 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
     }
 
     /**
-     * Iceberg is the first connector to support row-level DELETE / MERGE (merge-on-read position deletes /
-     * deletion vectors). These capabilities route the generic {@code RowLevelDmlCommand} shell to iceberg's
-     * fe-resident plan synthesis (T07c). The {@code format-version >= 2} requirement is enforced fail-loud at
-     * {@code IcebergConnectorTransaction.beginWrite} (the begin-guards), matching legacy command-analysis
-     * rejection. Gate-closed until P6.6: iceberg is not yet a {@code PluginDrivenExternalTable}, so the
-     * capability dispatch is unreachable and the legacy {@code instanceof}-routed commands still run.
-     */
-    @Override
-    public boolean supportsDelete() {
-        return true;
-    }
-
-    @Override
-    public boolean supportsMerge() {
-        return true;
-    }
-
-    /**
      * Rejects row-level DML on iceberg copy-on-write tables (Doris only supports merge-on-read deletes /
      * deletion vectors). Reads the per-operation write-mode property ({@code write.delete.mode} /
      * {@code write.update.mode} / {@code write.merge.mode}, defaulting to {@code merge-on-read}) and throws if
@@ -1388,40 +1370,6 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
                                 + " (transform: %s).", colName, field.transform().toString()));
             }
         }
-    }
-
-    /**
-     * Iceberg supports INSERT OVERWRITE: the overwrite flag rides the write handle into
-     * {@code IcebergWritePlanProvider.planWrite} (promoting INSERT&rarr;OVERWRITE) and the commit-time
-     * {@code IcebergConnectorTransaction} maps it to the SDK overwrite ops (dynamic
-     * {@code ReplacePartitions} / empty-or-unpartitioned {@code OverwriteFiles} / static
-     * {@code OverwriteFiles.overwriteByRowFilter}). The capability must be declared so
-     * {@code InsertOverwriteTableCommand.allowInsertOverwrite} admits a plugin-driven iceberg table
-     * instead of rejecting it (the SPI default {@code false} fails loud rather than silently degrading
-     * OVERWRITE to a plain append). Gate-closed until P6.6:
-     * iceberg is not yet a {@code PluginDrivenExternalTable}, so the legacy
-     * {@code instanceof IcebergExternalTable} branch admits overwrite pre-flip and this declaration is
-     * dormant.
-     */
-    @Override
-    public boolean supportsInsertOverwrite() {
-        return true;
-    }
-
-    /**
-     * Iceberg supports writing into a named branch ({@code INSERT INTO t@branch(name) ...}): the branch
-     * rides the write handle into {@code IcebergWritePlanProvider.planWrite}, which hands it to
-     * {@code IcebergConnectorTransaction.beginWrite} — there it is validated against the table refs and
-     * the commit is pointed at the branch. The capability must be declared so the generic
-     * {@code @branch} INSERT guard ({@code InsertIntoTableCommand} / {@code InsertOverwriteTableCommand})
-     * admits a plugin-driven iceberg table; the SPI default {@code false} fails loud rather than silently
-     * writing to the table's default ref. Gate-closed until P6.6: iceberg is not yet a
-     * {@code PluginDrivenExternalTable}, so the legacy {@code PhysicalIcebergTableSink} guard arm admits
-     * {@code @branch} writes pre-flip and this declaration is dormant.
-     */
-    @Override
-    public boolean supportsWriteBranch() {
-        return true;
     }
 
     // ========== B-2: partition enumeration (MTMV RANGE view + SHOW PARTITIONS) ==========

@@ -293,25 +293,6 @@ public class MaxComputeConnectorMetadata implements ConnectorMetadata {
     // ==================== Write / Transaction (P4-T03 / P4-T04) ====================
 
     /**
-     * Declares INSERT support so the engine routes MaxCompute writes through the
-     * plugin-driven sink path. The sink is built by
-     * {@link MaxComputeWritePlanProvider#planWrite} (P4-T04) and the write is driven by the
-     * connector transaction opened in {@link #beginTransaction} and committed via
-     * {@link MaxComputeConnectorTransaction#commit()}.
-     */
-    @Override
-    public boolean supportsInsert() {
-        return true;
-    }
-
-    @Override
-    public boolean supportsInsertOverwrite() {
-        // MaxCompute honors overwrite end-to-end: MaxComputeWritePlanProvider sets
-        // builder.overwrite(true) on the write session when the sink requests it.
-        return true;
-    }
-
-    /**
      * Disables pushing predicates that contain implicit CAST expressions down to ODPS (F9 fix).
      *
      * <p>The shared {@code ExprToConnectorExpressionConverter} unwraps CAST shells, so without this
