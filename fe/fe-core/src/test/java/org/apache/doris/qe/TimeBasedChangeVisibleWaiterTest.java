@@ -53,11 +53,10 @@ public class TimeBasedChangeVisibleWaiterTest {
     @Test
     public void testCollectDbToTableEndTSOUsesDefaultEndTimestamp() {
         OlapTable table = mockOlapTable(DB_ID, TABLE_ID);
-        TimeBasedChangeVisibleWaiter waiter = new TimeBasedChangeVisibleWaiter(
+
+        Map<Long, Map<Long, Long>> result = TimeBasedChangeVisibleWaiter.collectDbToTableEndTSO(
                 mockContext(), newChangeRelation(1, ImmutableMap.of()),
                 ImmutableMap.of(TABLE_QUALIFIER, table), DEFAULT_END_TS_MS);
-
-        Map<Long, Map<Long, Long>> result = waiter.collectDbToTableEndTSO();
 
         Assertions.assertEquals(TSOTimestamp.composeFullTimestamp(DEFAULT_END_TS_MS),
                 result.get(DB_ID).get(TABLE_ID));
@@ -73,10 +72,9 @@ public class TimeBasedChangeVisibleWaiterTest {
                 newChangeRelation(2, ImmutableMap.of(OlapScanNode.OLAP_END_TIMESTAMP, endTimestamp2)),
                 null);
         OlapTable table = mockOlapTable(DB_ID, TABLE_ID);
-        TimeBasedChangeVisibleWaiter waiter = new TimeBasedChangeVisibleWaiter(
-                mockContext(), plan, ImmutableMap.of(TABLE_QUALIFIER, table), DEFAULT_END_TS_MS);
 
-        Map<Long, Map<Long, Long>> result = waiter.collectDbToTableEndTSO();
+        Map<Long, Map<Long, Long>> result = TimeBasedChangeVisibleWaiter.collectDbToTableEndTSO(
+                mockContext(), plan, ImmutableMap.of(TABLE_QUALIFIER, table), DEFAULT_END_TS_MS);
 
         Assertions.assertEquals(
                 TSOTimestamp.composeFullTimestamp(OlapScanNode.parseChangeTimestamp(endTimestamp2)),

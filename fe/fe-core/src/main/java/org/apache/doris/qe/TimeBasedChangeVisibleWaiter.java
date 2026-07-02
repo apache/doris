@@ -48,29 +48,19 @@ import java.util.Map;
  */
 public class TimeBasedChangeVisibleWaiter {
     private final ConnectContext context;
-    private final Plan plan;
-    private final Map<List<String>, TableIf> tables;
-    private final long defaultEndTsMs;
 
     public static void waitForVisible(ConnectContext context, Plan plan, Map<List<String>, TableIf> tables)
             throws UserException {
         if (context.getSessionVariable().isEnableEventualConsistentChange() || tables.isEmpty()) {
             return;
         }
-        new TimeBasedChangeVisibleWaiter(context, plan, tables, System.currentTimeMillis()).waitInternal();
+        Map<Long, Map<Long, Long>> dbToTableEndTSO = collectDbToTableEndTSO(
+                context, plan, tables, System.currentTimeMillis());
+        new TimeBasedChangeVisibleWaiter(context).waitForDbToTableEndTSO(dbToTableEndTSO);
     }
 
-    @VisibleForTesting
-    TimeBasedChangeVisibleWaiter(ConnectContext context, Plan plan,
-            Map<List<String>, TableIf> tables, long defaultEndTsMs) {
+    private TimeBasedChangeVisibleWaiter(ConnectContext context) {
         this.context = context;
-        this.plan = plan;
-        this.tables = tables;
-        this.defaultEndTsMs = defaultEndTsMs;
-    }
-
-    private void waitInternal() throws UserException {
-        waitForDbToTableEndTSO(collectDbToTableEndTSO());
     }
 
     /**
@@ -78,18 +68,23 @@ public class TimeBasedChangeVisibleWaiter {
      * read end timestamp (converted to a full TSO) aggregated as dbId -> (tableId -> max endTSO).
      */
     @VisibleForTesting
-    Map<Long, Map<Long, Long>> collectDbToTableEndTSO() {
+    static Map<Long, Map<Long, Long>> collectDbToTableEndTSO(ConnectContext context, Plan plan,
+            Map<List<String>, TableIf> tables, long defaultEndTsMs) {
         Map<Long, Map<Long, Long>> dbToTableEndTSO = new HashMap<>();
-        for (UnboundRelation relation : plan.<UnboundRelation>collectToList(UnboundRelation.class::isInstance)) {
+        plan.foreach(node -> {
+            if (!(node instanceof UnboundRelation)) {
+                return;
+            }
+            UnboundRelation relation = (UnboundRelation) node;
             TableScanParams scanParams = relation.getScanParams();
             if (scanParams == null || !scanParams.incrementalRead()) {
-                continue;
+                return;
             }
             TableIf table = tables.get(RelationUtil.getQualifierName(context, relation.getNameParts()));
             if (table instanceof OlapTable) {
-                addTableEndTSO(dbToTableEndTSO, (OlapTable) table, getEndTsMs(scanParams));
+                addTableEndTSO(dbToTableEndTSO, (OlapTable) table, getEndTsMs(scanParams, defaultEndTsMs));
             }
-        }
+        });
         return dbToTableEndTSO;
     }
 
@@ -166,7 +161,7 @@ public class TimeBasedChangeVisibleWaiter {
 
     // Resolve the read end timestamp (ms) from scan params; fall back to defaultEndTsMs (the query
     // start time) when absent or non-positive.
-    private long getEndTsMs(TableScanParams scanParams) {
+    private static long getEndTsMs(TableScanParams scanParams, long defaultEndTsMs) {
         if (scanParams.getMapParams().containsKey(OlapScanNode.OLAP_END_TIMESTAMP)) {
             long endTsMs = OlapScanNode.parseChangeTimestamp(
                     scanParams.getMapParams().get(OlapScanNode.OLAP_END_TIMESTAMP));
@@ -176,7 +171,7 @@ public class TimeBasedChangeVisibleWaiter {
     }
 
     // Compose endTsMs into a full TSO and merge into dbId -> (tableId -> endTSO), keeping the max.
-    private void addTableEndTSO(Map<Long, Map<Long, Long>> dbToTableEndTSO, OlapTable table, long endTsMs) {
+    private static void addTableEndTSO(Map<Long, Map<Long, Long>> dbToTableEndTSO, OlapTable table, long endTsMs) {
         dbToTableEndTSO.computeIfAbsent(table.getDatabase().getId(), ignored -> new HashMap<>())
                 .merge(table.getId(), TSOTimestamp.composeFullTimestamp(endTsMs), Math::max);
     }
