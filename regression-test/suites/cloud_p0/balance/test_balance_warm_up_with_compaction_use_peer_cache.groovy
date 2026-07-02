@@ -42,8 +42,6 @@ suite('test_balance_warm_up_with_compaction_use_peer_cache', 'docker') {
         'disable_auto_compaction=true',
         'sys_log_verbose_modules=*',
         'cumulative_compaction_min_deltas=5',
-        'peer_candidate_cleanup_interval_s=10',
-        'peer_candidate_expiry_s=30',
         'enable_cache_read_from_peer=true',
         'enable_packed_file=false',
         'skip_writing_empty_rowset_metadata=false'

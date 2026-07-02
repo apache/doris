@@ -173,8 +173,6 @@ private:
                                                size_t replica_count, int64_t tablet_id,
                                                int64_t table_id, const std::string& rowset_id);
 
-    void schedule_remove_balanced_tablet(int64_t tablet_id);
-    static void clean_up_expired_mappings(void* arg);
     void handle_jobs();
     void run_cleanup_loop();
 
