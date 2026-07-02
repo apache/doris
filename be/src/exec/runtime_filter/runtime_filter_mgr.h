@@ -53,15 +53,12 @@ class QueryContext;
 class ExecEnv;
 
 struct LocalMergeContext {
-    std::mutex mtx;
     std::shared_ptr<RuntimeFilterMerger> merger;
     std::vector<std::shared_ptr<RuntimeFilterProducer>> producers;
     // Tracks the recursive CTE round.  When a producer from a newer round
-    // registers, the context is reset (merger recreated, old producers dropped).
+    // registers, RuntimeFilterMgr replaces the whole context and old in-flight
+    // users keep the previous context alive through shared_ptr.
     uint32_t stage = 0;
-
-    Status register_producer(const QueryContext* query_ctx, const TRuntimeFilterDesc* desc,
-                             std::shared_ptr<RuntimeFilterProducer> producer);
 };
 
 struct GlobalMergeContext {
@@ -92,11 +89,12 @@ public:
                                     int node_id,
                                     std::shared_ptr<RuntimeFilterConsumer>* consumer_filter);
 
-    Status register_local_merger_producer_filter(const QueryContext* query_ctx,
-                                                 const TRuntimeFilterDesc& desc,
-                                                 std::shared_ptr<RuntimeFilterProducer> producer);
+    Status register_local_merge_producer_filter(const QueryContext* query_ctx,
+                                                const TRuntimeFilterDesc& desc,
+                                                std::shared_ptr<RuntimeFilterProducer> producer);
 
-    Status get_local_merge_producer_filters(int filter_id, LocalMergeContext** local_merge_filters);
+    Status get_local_merge_context(int filter_id, uint32_t expected_stage,
+                                   std::shared_ptr<LocalMergeContext>* context);
 
     // Create local producer. This producer is hold by RuntimeFilterProducerHelper.
     Status register_producer_filter(const QueryContext* query_ctx, const TRuntimeFilterDesc& desc,
@@ -110,10 +108,10 @@ public:
     std::string debug_string();
 
     void remove_filter(int32_t filter_id) {
-        std::lock_guard<std::mutex> l(_lock);
+        LockGuard l(_lock);
         _consumer_map.erase(filter_id);
-        // NOTE: _local_merge_map is NOT erased here.  It is reset lazily in
-        // LocalMergeContext::register_producer when a producer from a newer
+        // NOTE: _local_merge_map is NOT erased here.  It is replaced lazily in
+        // register_local_merge_producer_filter when a producer from a newer
         // recursive CTE round registers.  Erasing eagerly here would race with
         // multi-fragment REBUILD: a consumer-only fragment's remove_filter could
         // delete the entry that the producer fragment just re-registered.
@@ -136,16 +134,21 @@ private:
     // RuntimeFilterMgr is owned by RuntimeState, so we only
     // use filter_id as key
     // key: "filter-id"
-    std::map<int32_t, std::vector<std::shared_ptr<RuntimeFilterConsumer>>> _consumer_map;
-    std::set<int32_t> _producer_id_set;
-    std::map<int32_t, LocalMergeContext> _local_merge_map;
+    // Protects fields marked GUARDED_BY(_lock). While holding this lock, only
+    // access RuntimeFilterMgr-owned state or copy shared_ptr snapshots; do not
+    // call methods on existing RuntimeFilter objects, because RF objects have
+    // their own locks and may call back into RuntimeFilterMgr.
+    AnnotatedMutex _lock;
+    std::map<int32_t, std::vector<std::shared_ptr<RuntimeFilterConsumer>>> _consumer_map
+            GUARDED_BY(_lock);
+    std::set<int32_t> _producer_id_set GUARDED_BY(_lock);
+    std::map<int32_t, std::shared_ptr<LocalMergeContext>> _local_merge_map GUARDED_BY(_lock);
 
     std::unique_ptr<MemTracker> _tracker;
 
     TNetworkAddress _merge_addr;
 
     bool _has_merge_addr = false;
-    std::mutex _lock;
 };
 
 // controller -> <query-id, entity>

@@ -1064,6 +1064,34 @@ public class IcebergUtils {
     }
 
     /**
+     * Decide whether a row count can be read from an Iceberg snapshot summary.
+     * Returns {@link TableIf#UNKNOWN_ROW_COUNT} when required counters are absent
+     * or when delete semantics make the summary count unsafe to use.
+     */
+    @VisibleForTesting
+    public static long getCountFromSummary(Map<String, String> summary, boolean ignoreDanglingDelete) {
+        String equalityDeletes = summary.get(TOTAL_EQUALITY_DELETES);
+        String positionDeletes = summary.get(TOTAL_POSITION_DELETES);
+        String totalRecords = summary.get(TOTAL_RECORDS);
+        if (equalityDeletes == null || positionDeletes == null || totalRecords == null) {
+            return TableIf.UNKNOWN_ROW_COUNT;
+        }
+        if (!equalityDeletes.equals("0")) {
+            return TableIf.UNKNOWN_ROW_COUNT;
+        }
+
+        long deleteCount = Long.parseLong(positionDeletes);
+        if (deleteCount == 0) {
+            return Long.parseLong(totalRecords);
+        }
+        if (ignoreDanglingDelete) {
+            return Long.parseLong(totalRecords) - deleteCount;
+        } else {
+            return TableIf.UNKNOWN_ROW_COUNT;
+        }
+    }
+
+    /**
      * Estimate iceberg table row count.
      * Get the row count by adding all task file recordCount.
      *
@@ -1082,7 +1110,12 @@ public class IcebergUtils {
             return TableIf.UNKNOWN_ROW_COUNT;
         }
         Map<String, String> summary = snapshot.summary();
-        long rows = Long.parseLong(summary.get(TOTAL_RECORDS)) - Long.parseLong(summary.get(TOTAL_POSITION_DELETES));
+        long rows = getCountFromSummary(summary, true);
+        if (rows == TableIf.UNKNOWN_ROW_COUNT) {
+            LOG.info("Iceberg table {}.{}.{} row count in summary is unknown, return -1.",
+                    tbl.getCatalog().getName(), tbl.getDbName(), tbl.getName());
+            return TableIf.UNKNOWN_ROW_COUNT;
+        }
         LOG.info("Iceberg table {}.{}.{} row count in summary is {}",
                 tbl.getCatalog().getName(), tbl.getDbName(), tbl.getName(), rows);
         return rows;

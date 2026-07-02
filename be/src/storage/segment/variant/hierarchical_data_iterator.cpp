@@ -224,11 +224,9 @@ Status HierarchicalDataIterator::_process_nested_columns(
     // will type the type of ColumnVariant::NESTED_TYPE, whih is Nullable<ColumnArray<NULLABLE(ColumnVariant)>>.
     for (const auto& entry : nested_subcolumns) {
         const auto* base_array =
-                check_and_get_column<ColumnArray>(*remove_nullable(entry.second[0].column));
-        MutableColumnPtr nested_object =
-                ColumnVariant::create(0, false, base_array->get_data().size());
+                assert_cast<const ColumnArray*>(remove_nullable(entry.second[0].column).get());
+        auto nested_object_variant = ColumnVariant::create(0, false, base_array->get_data().size());
         MutableColumnPtr offset = IColumn::mutate(base_array->get_offsets_ptr());
-        auto* nested_object_ptr = assert_cast<ColumnVariant*>(nested_object.get());
         // flatten nested arrays
         for (const auto& subcolumn : entry.second) {
             const auto& column = subcolumn.column;
@@ -253,13 +251,13 @@ Status HierarchicalDataIterator::_process_nested_columns(
                     check_and_get_data_type<DataTypeArray>(remove_nullable(type).get())
                             ->get_nested_type();
             // add sub path without parent prefix
-            nested_object_ptr->add_sub_column(
+            nested_object_variant->add_sub_column(
                     subcolumn.path.copy_pop_nfront(entry.first.get_parts().size()),
                     std::move(flattend_column), std::move(flattend_type));
         }
-        const size_t nested_object_size = nested_object->size();
-        nested_object = ColumnNullable::create(std::move(nested_object),
-                                               ColumnUInt8::create(nested_object_size, 0));
+        const size_t nested_object_size = nested_object_variant->size();
+        MutableColumnPtr nested_object = ColumnNullable::create(
+                std::move(nested_object_variant), ColumnUInt8::create(nested_object_size, 0));
         auto array = ColumnArray::create(std::move(nested_object), std::move(offset));
         const size_t array_size = array->size();
         auto nullable_array =

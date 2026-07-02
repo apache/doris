@@ -172,6 +172,9 @@ public:
     void update_crc32c_batch(uint32_t* __restrict hashes,
                              const uint8_t* __restrict null_map) const override;
 
+    void update_crc32c_batch_default_on_null(uint32_t* __restrict hashes,
+                                             const uint8_t* __restrict null_map) const override;
+
     void update_crc32c_single(size_t start, size_t end, uint32_t& hash,
                               const uint8_t* __restrict null_map) const override;
 
@@ -205,7 +208,7 @@ public:
     MutableColumnPtr permute(const IColumn::Permutation& perm, size_t limit) const override;
 
     bool structure_equals(const IColumn& rhs) const override {
-        if (auto rhs_concrete = typeid_cast<const ColumnDecimal<T>*>(&rhs))
+        if (auto rhs_concrete = check_and_get_column<ColumnDecimal<T>>(&rhs))
             return scale == rhs_concrete->scale;
         return false;
     }

@@ -17,6 +17,9 @@
 
 #include "core/data_type_serde/data_type_string_serde.h"
 
+#include <array>
+#include <cstring>
+
 #include "core/column/column_string.h"
 #include "core/data_type/define_primitive_type.h"
 #include "util/jsonb_document_cast.h"
@@ -24,6 +27,88 @@
 #include "util/jsonb_writer.h"
 
 namespace doris {
+
+namespace {
+
+int hex_value(char c) {
+    if (c >= '0' && c <= '9') {
+        return c - '0';
+    }
+    if (c >= 'a' && c <= 'f') {
+        return c - 'a' + 10;
+    }
+    if (c >= 'A' && c <= 'F') {
+        return c - 'A' + 10;
+    }
+    return -1;
+}
+
+Status parse_uuid_to_bytes(StringRef uuid, std::array<uint8_t, 16>* bytes) {
+    if (uuid.size != 32 && uuid.size != 36) {
+        return Status::InvalidArgument("Invalid UUID string length: {}", uuid.size);
+    }
+
+    int hex_count = 0;
+    int high_nibble = -1;
+    int byte_index = 0;
+    for (size_t i = 0; i < uuid.size; ++i) {
+        char c = uuid.data[i];
+        if (uuid.size == 36 && (i == 8 || i == 13 || i == 18 || i == 23)) {
+            if (c != '-') {
+                return Status::InvalidArgument("Invalid UUID string format");
+            }
+            continue;
+        }
+        if (c == '-') {
+            return Status::InvalidArgument("Invalid UUID string format");
+        }
+
+        int value = hex_value(c);
+        if (value < 0) {
+            return Status::InvalidArgument("Invalid UUID string format");
+        }
+        if (hex_count % 2 == 0) {
+            high_nibble = value;
+        } else {
+            (*bytes)[byte_index++] = static_cast<uint8_t>((high_nibble << 4) | value);
+        }
+        ++hex_count;
+    }
+
+    if (hex_count != 32 || byte_index != 16) {
+        return Status::InvalidArgument("Invalid UUID string format");
+    }
+    return Status::OK();
+}
+
+Status append_fixed_size_binary(arrow::FixedSizeBinaryBuilder& builder, const IColumn& column,
+                                StringRef string_ref, int byte_width, bool pad_char_value,
+                                bool convert_uuid_string) {
+    if (convert_uuid_string && byte_width == 16 &&
+        (string_ref.size == 32 || string_ref.size == 36)) {
+        std::array<uint8_t, 16> bytes;
+        RETURN_IF_ERROR(parse_uuid_to_bytes(string_ref, &bytes));
+        return checkArrowStatus(builder.Append(bytes.data()), column, builder);
+    }
+
+    if (string_ref.size == byte_width) {
+        return checkArrowStatus(builder.Append(reinterpret_cast<const uint8_t*>(string_ref.data)),
+                                column, builder);
+    }
+
+    if (pad_char_value && string_ref.size < byte_width) {
+        std::string padded_value(byte_width, '\0');
+        std::memcpy(padded_value.data(), string_ref.data, string_ref.size);
+        return checkArrowStatus(
+                builder.Append(reinterpret_cast<const uint8_t*>(padded_value.data())), column,
+                builder);
+    }
+
+    return Status::InvalidArgument("Fixed size binary column expects {} bytes, got {}", byte_width,
+                                   string_ref.size);
+}
+
+} // namespace
 
 template <typename ColumnType>
 Status DataTypeStringSerDeBase<ColumnType>::serialize_column_to_json(const IColumn& column,
@@ -243,9 +328,42 @@ Status DataTypeStringSerDeBase<ColumnType>::write_column_to_arrow(
     if (array_builder->type()->id() == arrow::Type::LARGE_STRING) {
         auto& builder = assert_cast<arrow::LargeStringBuilder&>(*array_builder);
         return write_column_to_arrow_impl(column, null_map, builder, start, end);
+    } else if (array_builder->type()->id() == arrow::Type::LARGE_BINARY) {
+        auto& builder = assert_cast<arrow::LargeBinaryBuilder&>(*array_builder);
+        const auto& string_column = assert_cast<const ColumnType&>(column);
+        for (size_t string_i = start; string_i < end; ++string_i) {
+            if (null_map && (*null_map)[string_i]) {
+                RETURN_IF_ERROR(checkArrowStatus(builder.AppendNull(), column, builder));
+                continue;
+            }
+            auto string_ref = string_column.get_data_at(string_i);
+            RETURN_IF_ERROR(checkArrowStatus(
+                    builder.Append(reinterpret_cast<const uint8_t*>(string_ref.data),
+                                   cast_set<int64_t, size_t, false>(string_ref.size)),
+                    column, builder));
+        }
+        return Status::OK();
     } else if (array_builder->type()->id() == arrow::Type::STRING) {
         auto& builder = assert_cast<arrow::StringBuilder&>(*array_builder);
         return write_column_to_arrow_impl(column, null_map, builder, start, end);
+    } else if (array_builder->type()->id() == arrow::Type::BINARY) {
+        auto& builder = assert_cast<arrow::BinaryBuilder&>(*array_builder);
+        return write_column_to_arrow_impl(column, null_map, builder, start, end);
+    } else if (array_builder->type()->id() == arrow::Type::FIXED_SIZE_BINARY) {
+        auto& builder = assert_cast<arrow::FixedSizeBinaryBuilder&>(*array_builder);
+        const int byte_width =
+                static_cast<const arrow::FixedSizeBinaryType&>(*array_builder->type()).byte_width();
+        const auto& string_column = assert_cast<const ColumnType&>(column);
+        for (size_t string_i = start; string_i < end; ++string_i) {
+            if (null_map && (*null_map)[string_i]) {
+                RETURN_IF_ERROR(checkArrowStatus(builder.AppendNull(), column, builder));
+                continue;
+            }
+            auto string_ref = string_column.get_data_at(string_i);
+            RETURN_IF_ERROR(append_fixed_size_binary(builder, column, string_ref, byte_width,
+                                                     _type == TYPE_CHAR, _type != TYPE_CHAR));
+        }
+        return Status::OK();
     } else {
         return Status::InvalidArgument("Unsupported arrow type for string column: {}",
                                        array_builder->type()->name());
@@ -282,11 +400,10 @@ Status DataTypeStringSerDeBase<ColumnType>::read_column_from_arrow(
     } else if (arrow_array->type_id() == arrow::Type::FIXED_SIZE_BINARY) {
         const auto* concrete_array = dynamic_cast<const arrow::FixedSizeBinaryArray*>(arrow_array);
         uint32_t width = concrete_array->byte_width();
-        const auto* array_data = concrete_array->GetValue(start);
 
-        for (size_t offset_i = 0; offset_i < end - start; ++offset_i) {
+        for (auto offset_i = start; offset_i < end; ++offset_i) {
             if (!concrete_array->IsNull(offset_i)) {
-                const auto* raw_data = array_data + (offset_i * width);
+                const auto* raw_data = concrete_array->GetValue(offset_i);
                 assert_cast<ColumnType&>(column).insert_data((char*)raw_data, width);
             } else {
                 assert_cast<ColumnType&>(column).insert_default();

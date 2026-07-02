@@ -66,7 +66,7 @@ public:
                         const DescriptorTbl& descs)
             : OperatorX<RecCTEScanLocalState>(pool, tnode, operator_id, descs) {}
 
-    Status get_block(RuntimeState* state, Block* block, bool* eos) override {
+    Status get_block_impl(RuntimeState* state, Block* block, bool* eos) override {
         auto& local_state = get_local_state(state);
 
         if (local_state._blocks.empty()) {

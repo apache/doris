@@ -36,7 +36,7 @@ namespace doris {
 
 ColumnPtr squash_const(const ColumnPtr& col) {
     ColumnPtr res = col;
-    while (const auto* c = typeid_cast<const ColumnConst*>(res.get())) {
+    while (const auto* c = check_and_get_column<ColumnConst>(res.get())) {
         res = c->get_data_column_ptr();
     }
     return res;

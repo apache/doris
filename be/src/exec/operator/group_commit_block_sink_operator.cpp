@@ -19,16 +19,34 @@
 
 #include <gen_cpp/DataSinks_types.h>
 
+#include <chrono>
+#include <thread>
+
 #include "exec/sink/vtablet_block_convertor.h"
 #include "load/group_commit/group_commit_mgr.h"
+#include "util/debug_points.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
 GroupCommitBlockSinkLocalState::~GroupCommitBlockSinkLocalState() {
     if (_load_block_queue) {
+        DBUG_EXECUTE_IF("GroupCommitBlockSink.delay_teardown_remove_load_id", {
+            int64_t waited_ms = 0;
+            while (_load_block_queue->group_commit_load_count.load() < 2 && waited_ms < 10000 &&
+                   DebugPoints::instance()->is_enable(
+                           "GroupCommitBlockSink.delay_teardown_remove_load_id")) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                waited_ms += 10;
+            }
+            LOG(INFO) << "debug delayed teardown remove_load_id, label=" << _load_block_queue->label
+                      << ", load_count=" << _load_block_queue->group_commit_load_count.load()
+                      << ", waited_ms=" << waited_ms;
+        });
         _remove_estimated_wal_bytes();
-        [[maybe_unused]] auto st = _load_block_queue->remove_load_id(
-                _parent->cast<GroupCommitBlockSinkOperatorX>()._load_id);
+        if (!_load_id_removed) {
+            [[maybe_unused]] auto st = _load_block_queue->remove_load_id(
+                    _parent->cast<GroupCommitBlockSinkOperatorX>()._load_id);
+        }
     } else {
         _state->exec_env()->group_commit_mgr()->remove_load_id(
                 _parent->cast<GroupCommitBlockSinkOperatorX>()._table_id,
@@ -69,8 +87,8 @@ Status GroupCommitBlockSinkLocalState::_initialize_load_queue() {
     if (_state->exec_env()->wal_mgr()->is_running()) {
         RETURN_IF_ERROR(_state->exec_env()->group_commit_mgr()->get_first_block_load_queue(
                 p._db_id, p._table_id, p._base_schema_version, p._schema->indexes().size(),
-                p._load_id, _load_block_queue, _state->be_exec_version(),
-                _state->query_mem_tracker(), _create_plan_dependency, _put_block_dependency));
+                p._load_id, _load_block_queue, _state->be_exec_version(), _create_plan_dependency,
+                _put_block_dependency));
         _state->set_import_label(_load_block_queue->label);
         _state->set_wal_id(_load_block_queue->txn_id); // wal_id is txn_id
         return Status::OK();
@@ -123,17 +141,16 @@ Status GroupCommitBlockSinkLocalState::_add_block(RuntimeState* state,
         block->get_by_position(i).column = make_nullable(block->get_by_position(i).column);
         block->get_by_position(i).type = make_nullable(block->get_by_position(i).type);
     }
-    // add block to queue
-    auto cur_mutable_block = MutableBlock::create_unique(block->clone_empty());
-    {
-        IColumn::Selector selector;
-        for (auto i = 0; i < block->rows(); i++) {
-            selector.emplace_back(i);
-        }
-        RETURN_IF_ERROR(block->append_to_block_by_selector(cur_mutable_block.get(), selector));
-    }
+    // Add block to queue. The block has already been converted to all-nullable columns above
+    // and contains exactly the rows to enqueue (filtering is done by the caller before
+    // _add_block), so move its columns into a standalone output_block instead of deep-copying
+    // them. The previous code appended every row through an identity selector, which duplicated
+    // all column data (notably ColumnString chars) and dominated group-commit load memory.
+    // Columns are COW shared_ptrs, so swapping into a fresh Block is O(1) and memory-safe: the
+    // queued block is a distinct object (consumers swap/mutate only that object) while the
+    // underlying data stays alive via reference counting and is only read downstream.
     std::shared_ptr<Block> output_block = Block::create_shared();
-    output_block->swap(cur_mutable_block->to_block());
+    output_block->swap(*block);
     if (!_is_block_appended && state->num_rows_load_total() + state->num_rows_load_unselected() +
                                                state->num_rows_load_filtered() <=
                                        config::group_commit_memory_rows_for_max_filter_ratio) {
@@ -224,6 +241,7 @@ Status GroupCommitBlockSinkLocalState::_add_blocks(RuntimeState* state,
             if (_load_block_queue) {
                 _remove_estimated_wal_bytes();
                 [[maybe_unused]] auto st = _load_block_queue->remove_load_id(p._load_id);
+                _load_id_removed = true;
             }
             if (ExecEnv::GetInstance()->group_commit_mgr()->debug_future.wait_for(
                         std ::chrono ::seconds(60)) == std ::future_status ::ready) {
@@ -281,7 +299,7 @@ Status GroupCommitBlockSinkOperatorX::prepare(RuntimeState* state) {
     return VExpr::open(_output_vexpr_ctxs, state);
 }
 
-Status GroupCommitBlockSinkOperatorX::sink(RuntimeState* state, Block* input_block, bool eos) {
+Status GroupCommitBlockSinkOperatorX::sink_impl(RuntimeState* state, Block* input_block, bool eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)input_block->rows());
@@ -313,15 +331,16 @@ Status GroupCommitBlockSinkOperatorX::sink(RuntimeState* state, Block* input_blo
             }
             local_state._remove_estimated_wal_bytes();
             [[maybe_unused]] auto st = local_state._load_block_queue->remove_load_id(_load_id);
+            local_state._load_id_removed = true;
         }
         return Status::OK();
     };
 
     auto rows = input_block->rows();
-    auto bytes = input_block->bytes();
     if (UNLIKELY(rows == 0)) {
         return wind_up();
     }
+    auto bytes = input_block->bytes();
 
     // update incrementally so that FE can get the progress.
     // the real 'num_rows_load_total' will be set when sink being closed.
@@ -343,11 +362,9 @@ Status GroupCommitBlockSinkOperatorX::sink(RuntimeState* state, Block* input_blo
         local_state._partitions.assign(rows, nullptr);
         local_state._filter_bitmap.Reset(rows);
 
-        for (int index = 0; index < rows; index++) {
-            local_state._vpartition->find_partition(block.get(), index,
-                                                    local_state._partitions[index]);
-        }
         for (int row_index = 0; row_index < rows; row_index++) {
+            local_state._vpartition->find_partition(block.get(), row_index,
+                                                    local_state._partitions[row_index]);
             if (local_state._partitions[row_index] == nullptr) [[unlikely]] {
                 local_state._filter_bitmap.Set(row_index, true);
                 LOG(WARNING) << "no partition for this tuple. tuple="
@@ -374,6 +391,8 @@ Status GroupCommitBlockSinkOperatorX::sink(RuntimeState* state, Block* input_blo
             local_state._has_filtered_rows) {
             auto cloneBlock = block->clone_without_columns();
             auto res_block = MutableBlock::build_mutable_block(std::move(cloneBlock));
+            std::vector<uint32_t> rows_to_keep;
+            rows_to_keep.reserve(rows);
             for (int i = 0; i < rows; ++i) {
                 if (local_state._block_convertor->filter_map()[i]) {
                     continue;
@@ -381,8 +400,10 @@ Status GroupCommitBlockSinkOperatorX::sink(RuntimeState* state, Block* input_blo
                 if (local_state._filter_bitmap.Get(i)) {
                     continue;
                 }
-                res_block.add_row(block.get(), i);
+                rows_to_keep.emplace_back(i);
             }
+            RETURN_IF_ERROR(res_block.add_rows(block.get(), rows_to_keep.data(),
+                                               rows_to_keep.data() + rows_to_keep.size()));
             block->swap(res_block.to_block());
         }
         // add block into block queue

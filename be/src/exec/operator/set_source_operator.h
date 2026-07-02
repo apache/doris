@@ -85,7 +85,7 @@ public:
                             : DataDistribution(ExchangeType::HASH_SHUFFLE);
     }
 
-    Status get_block(RuntimeState* state, Block* block, bool* eos) override;
+    Status get_block_impl(RuntimeState* state, Block* block, bool* eos) override;
     Status set_child(OperatorPtr child) override {
         Base::_child = child;
         return Status::OK();
