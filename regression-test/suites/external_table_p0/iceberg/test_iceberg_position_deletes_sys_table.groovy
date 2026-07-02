@@ -84,6 +84,27 @@ suite("test_iceberg_position_deletes_sys_table", "p0,external") {
             (3, 'c', '2026-06-27'),
             (4, 'd', '2026-06-27') AS t(id, name, dt);
         DELETE FROM demo.${dbName}.pd_partitioned WHERE id = 2;
+        DROP TABLE IF EXISTS demo.${dbName}.pd_int_partitioned;
+        CREATE TABLE demo.${dbName}.pd_int_partitioned (
+            id INT,
+            name STRING,
+            p INT
+        ) USING iceberg
+        PARTITIONED BY (p)
+        TBLPROPERTIES (
+            'format-version'='2',
+            'write.delete.mode'='merge-on-read',
+            'write.update.mode'='merge-on-read',
+            'write.merge.mode'='merge-on-read',
+            'write.distribution-mode'='none',
+            'write.target-file-size-bytes'='134217728'
+        );
+        INSERT INTO demo.${dbName}.pd_int_partitioned
+        SELECT /*+ COALESCE(1) */ id, name, p FROM VALUES
+            (1, 'a', 10),
+            (2, 'b', 10),
+            (3, 'c', 20) AS t(id, name, p);
+        DELETE FROM demo.${dbName}.pd_int_partitioned WHERE id = 2;
         DROP TABLE IF EXISTS demo.${dbName}.pd_v3_unpartitioned;
         CREATE TABLE demo.${dbName}.pd_v3_unpartitioned (
             id INT,
@@ -226,6 +247,21 @@ suite("test_iceberg_position_deletes_sys_table", "p0,external") {
     assertTrue(partitionedRows.every { it[0] == null && it[1] != null })
     assertEquals([[1, "a", "2026-06-26"], [3, "c", "2026-06-27"], [4, "d", "2026-06-27"]],
             sql("""select * from pd_partitioned order by id"""))
+
+    assertPositionDeletesSchema("pd_int_partitioned", true)
+    long intPartitionedCount = countRows("""select count(*) from pd_int_partitioned\$position_deletes""")
+    assertTrue(intPartitionedCount > 0)
+    assertEquals(intPartitionedCount, countRows("""select count(pos) from pd_int_partitioned\$position_deletes"""))
+    assertEquals(intPartitionedCount, countRows(
+            """select count(*) from pd_int_partitioned\$position_deletes where `partition` is not null"""))
+    List<List<Object>> intPartitionedRows = sql """select `row`, `partition` from pd_int_partitioned\$position_deletes"""
+    assertEquals(intPartitionedCount, (long) intPartitionedRows.size())
+    assertTrue(intPartitionedRows.every { it[0] == null && it[1] != null })
+    assertTrue(intPartitionedRows.every {
+        String partitionValue = it[1].toString()
+        partitionValue.contains("\"p\":10") && !partitionValue.contains("\"p\":\"10\"")
+    })
+    assertEquals([[1, "a", 10], [3, "c", 20]], sql("""select * from pd_int_partitioned order by id"""))
 
     assertPositionDeletesSchema("pd_v3_unpartitioned", false, v3ExtraColumns)
     long v3UnpartitionedCount = countRows("""select count(*) from pd_v3_unpartitioned\$position_deletes""")

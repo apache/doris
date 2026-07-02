@@ -102,6 +102,8 @@ import org.apache.iceberg.mapping.MappedField;
 import org.apache.iceberg.mapping.MappedFields;
 import org.apache.iceberg.mapping.NameMapping;
 import org.apache.iceberg.mapping.NameMappingParser;
+import org.apache.iceberg.types.Type;
+import org.apache.iceberg.types.Types.NestedField;
 import org.apache.iceberg.util.ScanTaskUtil;
 import org.apache.iceberg.util.SerializationUtil;
 import org.apache.iceberg.util.TableScanUtil;
@@ -109,6 +111,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -1006,12 +1009,42 @@ public class IcebergScanNode extends FileQueryScanNode {
     private String getPartitionDataObjectJson(PartitionData partitionData, PartitionSpec partitionSpec) {
         List<String> partitionValues = IcebergUtils.getPartitionValues(
                 partitionData, partitionSpec, sessionVariable.getTimeZone());
-        Map<String, String> partitionJson = new LinkedHashMap<>();
+        List<NestedField> partitionTypes = partitionData.getPartitionType().asNestedType().fields();
+        Map<String, Object> partitionJson = new LinkedHashMap<>();
         List<PartitionField> fields = partitionSpec.fields();
         for (int i = 0; i < fields.size(); i++) {
-            partitionJson.put(fields.get(i).name(), partitionValues.get(i));
+            partitionJson.put(fields.get(i).name(),
+                    getPartitionJsonValue(partitionTypes.get(i).type(), partitionValues.get(i)));
         }
         return GsonUtils.GSON.toJson(partitionJson);
+    }
+
+    private static Object getPartitionJsonValue(Type type, String partitionValue) {
+        if (partitionValue == null) {
+            return null;
+        }
+        switch (type.typeId()) {
+            case BOOLEAN:
+                return Boolean.parseBoolean(partitionValue);
+            case INTEGER:
+                return Integer.parseInt(partitionValue);
+            case LONG:
+                return Long.parseLong(partitionValue);
+            case FLOAT:
+                return Float.parseFloat(partitionValue);
+            case DOUBLE:
+                return Double.parseDouble(partitionValue);
+            case DECIMAL:
+                return new BigDecimal(partitionValue);
+            case STRING:
+            case UUID:
+            case DATE:
+            case TIME:
+            case TIMESTAMP:
+                return partitionValue;
+            default:
+                return partitionValue;
+        }
     }
 
     @Override
