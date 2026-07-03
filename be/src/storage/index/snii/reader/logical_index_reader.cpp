@@ -282,10 +282,23 @@ Status LogicalIndexReader::open(io::FileReader* file_reader, IndexTier tier, boo
     const Slice owned_meta(out->meta_block_);
 
     RETURN_IF_ERROR(PerIndexMetaReader::open(owned_meta, &out->meta_));
-    RETURN_IF_ERROR(
-            SampledTermIndexReader::open(out->meta_.sampled_term_index_bytes(), &out->sti_));
-    RETURN_IF_ERROR(
-            DictBlockDirectoryReader::open(out->meta_.dict_block_directory_bytes(), &out->dbd_));
+    // G13: large sti/dbd frames are stored zstd-compressed in the meta blob; the
+    // frame accessors materialize the original frames (raw frames alias the meta
+    // block and leave the scratch untouched). The scratches are transient:
+    // SampledTermIndexReader / DictBlockDirectoryReader fully materialize their
+    // decoded state on open and retain no view into the input frame.
+    {
+        std::vector<uint8_t> scratch;
+        Slice frame;
+        RETURN_IF_ERROR(out->meta_.sampled_term_index_frame(&scratch, &frame));
+        RETURN_IF_ERROR(SampledTermIndexReader::open(frame, &out->sti_));
+    }
+    {
+        std::vector<uint8_t> scratch;
+        Slice frame;
+        RETURN_IF_ERROR(out->meta_.dict_block_directory_frame(&scratch, &frame));
+        RETURN_IF_ERROR(DictBlockDirectoryReader::open(frame, &out->dbd_));
+    }
     RETURN_IF_ERROR(out->load_resident_dict_blocks());
 
     // Block-split bloom XFilter -- gated on RESIDENCY (P1 cold-read fix, see

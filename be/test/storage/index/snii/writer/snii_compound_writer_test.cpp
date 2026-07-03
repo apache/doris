@@ -184,10 +184,16 @@ SniiIndexInput MakeIndex(uint64_t index_id, const std::string& suffix, uint32_t 
 // Locate a term through the full reader walk and return its DictEntry.
 Status LocateEntry(const std::vector<uint8_t>& file, const PerIndexMetaReader& meta,
                    const std::string& term, bool* found, DictEntry* out) {
+    std::vector<uint8_t> sti_scratch;
+    Slice sti_frame;
+    RETURN_IF_ERROR(meta.sampled_term_index_frame(&sti_scratch, &sti_frame));
     SampledTermIndexReader sti;
-    RETURN_IF_ERROR(SampledTermIndexReader::open(meta.sampled_term_index_bytes(), &sti));
+    RETURN_IF_ERROR(SampledTermIndexReader::open(sti_frame, &sti));
+    std::vector<uint8_t> dbd_scratch;
+    Slice dbd_frame;
+    RETURN_IF_ERROR(meta.dict_block_directory_frame(&dbd_scratch, &dbd_frame));
     DictBlockDirectoryReader dbd;
-    RETURN_IF_ERROR(DictBlockDirectoryReader::open(meta.dict_block_directory_bytes(), &dbd));
+    RETURN_IF_ERROR(DictBlockDirectoryReader::open(dbd_frame, &dbd));
 
     bool maybe = false;
     uint32_t ordinal = 0;
@@ -308,10 +314,16 @@ TEST(SniiCompoundWriter, ReadBackSelfValidation) {
 
         // The DICT block carrying "common" supplies frq_base via DictBlockReader.
         // Recompute frq_base by re-locating the block.
+        std::vector<uint8_t> sti_scratch;
+        Slice sti_frame;
+        ASSERT_TRUE(meta.sampled_term_index_frame(&sti_scratch, &sti_frame).ok());
         SampledTermIndexReader sti;
-        ASSERT_TRUE(SampledTermIndexReader::open(meta.sampled_term_index_bytes(), &sti).ok());
+        ASSERT_TRUE(SampledTermIndexReader::open(sti_frame, &sti).ok());
+        std::vector<uint8_t> dbd_scratch;
+        Slice dbd_frame;
+        ASSERT_TRUE(meta.dict_block_directory_frame(&dbd_scratch, &dbd_frame).ok());
         DictBlockDirectoryReader dbd;
-        ASSERT_TRUE(DictBlockDirectoryReader::open(meta.dict_block_directory_bytes(), &dbd).ok());
+        ASSERT_TRUE(DictBlockDirectoryReader::open(dbd_frame, &dbd).ok());
         bool maybe = false;
         uint32_t ord = 0;
         ASSERT_TRUE(sti.locate("common", &maybe, &ord).ok());

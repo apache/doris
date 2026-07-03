@@ -22,6 +22,7 @@
 #include <atomic>
 #include <cstdlib>
 #include <cstring>
+#include <iostream>
 #include <memory>
 #include <mutex>
 #include <numeric>
@@ -296,6 +297,105 @@ TEST(SniiSegmentReaderTest, MemoryUsageGrowsWithVocabulary) {
 
     EXPECT_GE(small_reader.memory_usage(), sizeof(reader::LogicalIndexReader));
     EXPECT_GT(large_reader.memory_usage(), small_reader.memory_usage());
+}
+
+// G13 end-to-end: a many-term segment's per-index META BLOB (the first serial
+// fetch of a cold open, dominated by the sti + dbd tables) must SHRINK on disk
+// once those sections are zstd-compressed, the open must therefore fetch fewer
+// bytes (MemoryFile::reads()), and every lookup / prefix enumeration must stay
+// equal to an uncompressed control built from the identical input.
+// NOLINTNEXTLINE(readability-function-cognitive-complexity)
+TEST(SniiSegmentReaderTest, MetaCompressionShrinksOpenFetchAndKeepsLookupsEqual) {
+    constexpr uint32_t kTerms = 4096;
+    auto build = [](MemoryFile* file) {
+        writer::SniiCompoundWriter writer(file);
+        assert_ok(writer.add_logical_index(make_many_term_input(7, "Body", kTerms)));
+        assert_ok(writer.finish());
+    };
+
+    MemoryFile compressed_file;
+    build(&compressed_file); // default: G13 compression active
+    MemoryFile control_file;
+    {
+        ScopedEnv off("SNII_META_COMPRESS_MIN", "18446744073709551615");
+        build(&control_file); // pre-G13 layout from the identical input
+    }
+
+    // The tail meta region (which embeds the per-index meta blob) shrinks.
+    const format::TailPointer tp_compressed = read_tail_pointer(&compressed_file);
+    const format::TailPointer tp_control = read_tail_pointer(&control_file);
+    ASSERT_GT(tp_control.meta_region_length, 0U);
+    EXPECT_LT(tp_compressed.meta_region_length, tp_control.meta_region_length);
+
+    // So does the single per-index meta blob read_index_meta() fetches.
+    reader::SniiSegmentReader compressed_segment;
+    assert_ok(reader::SniiSegmentReader::open(&compressed_file, &compressed_segment));
+    reader::SniiSegmentReader control_segment;
+    assert_ok(reader::SniiSegmentReader::open(&control_file, &control_segment));
+    std::vector<uint8_t> compressed_meta;
+    assert_ok(compressed_segment.read_index_meta(7, "Body", &compressed_meta));
+    std::vector<uint8_t> control_meta;
+    assert_ok(control_segment.read_index_meta(7, "Body", &control_meta));
+    EXPECT_LT(compressed_meta.size(), control_meta.size());
+
+    // Cold index open fetches fewer bytes end to end (same reads elsewhere: the
+    // dict blocks / bsbf bytes are identical; only the meta blob differs).
+    compressed_file.clear_reads();
+    reader::LogicalIndexReader compressed_reader;
+    assert_ok(compressed_segment.open_index(7, "Body", &compressed_reader));
+    const size_t compressed_open_bytes = compressed_file.read_bytes();
+
+    control_file.clear_reads();
+    reader::LogicalIndexReader control_reader;
+    assert_ok(control_segment.open_index(7, "Body", &control_reader));
+    const size_t control_open_bytes = control_file.read_bytes();
+    EXPECT_LT(compressed_open_bytes, control_open_bytes);
+    std::cout << "[G13] meta blob: raw=" << control_meta.size()
+              << "B zstd=" << compressed_meta.size() << "B; open fetch: raw=" << control_open_bytes
+              << "B zstd=" << compressed_open_bytes << "B\n";
+
+    // Lookups stay equal across the two layouts: present terms resolve to the
+    // same entry essentials, absent terms miss on both.
+    for (uint32_t i = 0; i < kTerms; i += 97) {
+        const std::string term = "term_" + std::to_string(1000000 + i);
+        bool found_a = false;
+        bool found_b = false;
+        format::DictEntry entry_a;
+        format::DictEntry entry_b;
+        uint64_t frq_a = 0;
+        uint64_t prx_a = 0;
+        uint64_t frq_b = 0;
+        uint64_t prx_b = 0;
+        assert_ok(compressed_reader.lookup(term, &found_a, &entry_a, &frq_a, &prx_a));
+        assert_ok(control_reader.lookup(term, &found_b, &entry_b, &frq_b, &prx_b));
+        ASSERT_TRUE(found_a) << term;
+        ASSERT_TRUE(found_b) << term;
+        EXPECT_EQ(entry_a.term, entry_b.term);
+        EXPECT_EQ(entry_a.kind, entry_b.kind);
+        EXPECT_EQ(entry_a.df, entry_b.df);
+        EXPECT_EQ(frq_a, frq_b);
+        EXPECT_EQ(prx_a, prx_b);
+    }
+    bool found_absent = true;
+    format::DictEntry absent_entry;
+    uint64_t frq = 0;
+    uint64_t prx = 0;
+    assert_ok(
+            compressed_reader.lookup("zzzz_not_indexed", &found_absent, &absent_entry, &frq, &prx));
+    EXPECT_FALSE(found_absent);
+
+    // Ordered prefix enumeration walks sti + dbd + dict blocks on both layouts
+    // and must produce the identical term sequence.
+    std::vector<reader::LogicalIndexReader::PrefixHit> hits_a;
+    std::vector<reader::LogicalIndexReader::PrefixHit> hits_b;
+    assert_ok(compressed_reader.prefix_terms("term_10001", &hits_a));
+    assert_ok(control_reader.prefix_terms("term_10001", &hits_b));
+    ASSERT_EQ(hits_a.size(), hits_b.size());
+    ASSERT_EQ(hits_a.size(), 100U); // term_1000100 .. term_1000199
+    for (size_t i = 0; i < hits_a.size(); ++i) {
+        EXPECT_EQ(hits_a[i].term, hits_b[i].term);
+        EXPECT_EQ(hits_a[i].entry.df, hits_b[i].entry.df);
+    }
 }
 
 // P1 cold-read fix: a NON-resident bloom is skipped entirely. open() must not

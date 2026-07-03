@@ -19,7 +19,10 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <cstdint>
+#include <cstring>
+#include <iostream>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -29,13 +32,19 @@
 #include "storage/index/snii/encoding/byte_sink.h"
 #include "storage/index/snii/encoding/byte_source.h"
 #include "storage/index/snii/encoding/section_framer.h"
+#include "storage/index/snii/encoding/zstd_codec.h"
 #include "storage/index/snii/format/dict_block_directory.h"
 #include "storage/index/snii/format/format_constants.h"
 #include "storage/index/snii/format/sampled_term_index.h"
 #include "storage/index/snii/format/stats_block.h"
+#include "storage/index/snii_query_test_util.h"
 
 using namespace doris::snii;
 using namespace doris::snii::format;
+using doris::snii::snii_test::ScopedEnv;
+
+// Env value that disables G13 meta-section compression (threshold == SIZE_MAX).
+static const char* const kCompressOff = "18446744073709551615";
 
 namespace {
 
@@ -139,9 +148,15 @@ TEST(SniiPerIndexMeta, RoundTrip) {
     ExpectStatsEq(reader.stats(), SampleStats());
     ExpectRefsEq(reader.section_refs(), SampleRefs());
 
-    // The exposed sub-section byte Slices must be openable by their own readers.
+    // The materialized sub-section frames must be openable by their own readers.
+    // Small sections stay raw, so the frames alias the block and leave the
+    // scratch untouched.
+    std::vector<uint8_t> sti_scratch;
+    Slice sti_frame;
+    ASSERT_TRUE(reader.sampled_term_index_frame(&sti_scratch, &sti_frame).ok());
+    EXPECT_TRUE(sti_scratch.empty());
     SampledTermIndexReader sti;
-    ASSERT_TRUE(SampledTermIndexReader::open(reader.sampled_term_index_bytes(), &sti).ok());
+    ASSERT_TRUE(SampledTermIndexReader::open(sti_frame, &sti).ok());
     EXPECT_EQ(sti.n_blocks(), 3U);
     bool maybe = false;
     uint32_t ord = 0;
@@ -149,8 +164,12 @@ TEST(SniiPerIndexMeta, RoundTrip) {
     EXPECT_TRUE(maybe);
     EXPECT_EQ(ord, 1U);
 
+    std::vector<uint8_t> dbd_scratch;
+    Slice dbd_frame;
+    ASSERT_TRUE(reader.dict_block_directory_frame(&dbd_scratch, &dbd_frame).ok());
+    EXPECT_TRUE(dbd_scratch.empty());
     DictBlockDirectoryReader dbd;
-    ASSERT_TRUE(DictBlockDirectoryReader::open(reader.dict_block_directory_bytes(), &dbd).ok());
+    ASSERT_TRUE(DictBlockDirectoryReader::open(dbd_frame, &dbd).ok());
     ASSERT_EQ(dbd.n_blocks(), 3U);
     BlockRef got {};
     ASSERT_TRUE(dbd.get(1, &got).ok());
@@ -294,11 +313,17 @@ TEST(SniiPerIndexMeta, UnknownOptionalSectionSkipped) {
     ASSERT_TRUE(PerIndexMetaReader::open(Slice(bytes), &reader).ok());
     ExpectStatsEq(reader.stats(), SampleStats());
     ExpectRefsEq(reader.section_refs(), SampleRefs());
+    std::vector<uint8_t> sti_scratch;
+    Slice sti_frame;
+    ASSERT_TRUE(reader.sampled_term_index_frame(&sti_scratch, &sti_frame).ok());
     SampledTermIndexReader sti;
-    ASSERT_TRUE(SampledTermIndexReader::open(reader.sampled_term_index_bytes(), &sti).ok());
+    ASSERT_TRUE(SampledTermIndexReader::open(sti_frame, &sti).ok());
     EXPECT_EQ(sti.n_blocks(), 2U);
+    std::vector<uint8_t> dbd_scratch;
+    Slice dbd_frame;
+    ASSERT_TRUE(reader.dict_block_directory_frame(&dbd_scratch, &dbd_frame).ok());
     DictBlockDirectoryReader dbd;
-    ASSERT_TRUE(DictBlockDirectoryReader::open(reader.dict_block_directory_bytes(), &dbd).ok());
+    ASSERT_TRUE(DictBlockDirectoryReader::open(dbd_frame, &dbd).ok());
     EXPECT_EQ(dbd.n_blocks(), 1U);
 }
 
@@ -326,4 +351,297 @@ TEST(SniiPerIndexMeta, OpenNullReaderRejected) {
                            {{.offset = 0, .length = 1, .n_entries = 1, .flags = 0, .checksum = 0}});
     EXPECT_TRUE(PerIndexMetaReader::open(Slice(bytes), nullptr)
                         .is<doris::ErrorCode::INVALID_ARGUMENT>());
+}
+
+// ---- G13: zstd-compressed embedded sti/dbd sections ----
+
+namespace {
+
+// A large ascending vocabulary whose sampled-term frame exceeds the 4KB
+// compression threshold. Fixed-width numeric tails keep lexicographic order.
+std::vector<std::string> ManyTerms(uint32_t n) {
+    std::vector<std::string> terms;
+    terms.reserve(n);
+    for (uint32_t i = 0; i < n; ++i) {
+        terms.push_back("term_" + std::to_string(1000000 + i));
+    }
+    return terms;
+}
+
+// A large block-ref table whose directory frame exceeds the threshold.
+std::vector<BlockRef> ManyRefs(uint32_t n) {
+    std::vector<BlockRef> refs;
+    refs.reserve(n);
+    for (uint32_t i = 0; i < n; ++i) {
+        refs.push_back({.offset = 4096 + static_cast<uint64_t>(i) * 128,
+                        .length = 128,
+                        .n_entries = 3,
+                        .flags = 0,
+                        .checksum = i});
+    }
+    return refs;
+}
+
+// Walks a per-index meta block and returns the framed section type ids in
+// emission order (header fields are consumed structurally, not verified here).
+std::vector<uint8_t> SectionTypesOf(Slice block) {
+    ByteSource src(block);
+    uint16_t ver = 0;
+    EXPECT_TRUE(src.get_fixed16(&ver).ok());
+    uint64_t index_id = 0;
+    EXPECT_TRUE(src.get_varint64(&index_id).ok());
+    uint32_t suffix_len = 0;
+    EXPECT_TRUE(src.get_varint32(&suffix_len).ok());
+    Slice suffix;
+    EXPECT_TRUE(src.get_bytes(suffix_len, &suffix).ok());
+    uint32_t flags = 0;
+    EXPECT_TRUE(src.get_fixed32(&flags).ok());
+    uint32_t crc = 0;
+    EXPECT_TRUE(src.get_fixed32(&crc).ok());
+    std::vector<uint8_t> types;
+    while (!src.eof()) {
+        FramedSection sec;
+        EXPECT_TRUE(SectionFramer::read(src, &sec).ok());
+        types.push_back(sec.type);
+    }
+    return types;
+}
+
+bool ContainsType(const std::vector<uint8_t>& types, SectionType t) {
+    return std::find(types.begin(), types.end(), static_cast<uint8_t>(t)) != types.end();
+}
+
+// Builds a meta block whose sti/dbd sections are corrupt zstd carriers: the
+// carrier frame CRC is VALID (SectionFramer computes it over the given payload),
+// so only the zstd layer can catch the damage. `payload` = the carrier frame
+// payload (varint64 uncomp_len + compressed bytes).
+std::vector<uint8_t> BuildMetaWithRawStiSection(Slice sti_carrier_payload) {
+    PerIndexMetaBuilder builder(1, "x", 0);
+    builder.set_stats(SampleStats());
+    builder.set_dict_block_directory(Slice(
+            BuildDict({{.offset = 0, .length = 1, .n_entries = 1, .flags = 0, .checksum = 0}})));
+    builder.set_section_refs(SampleRefs());
+    ByteSink carrier;
+    SectionFramer::write(carrier, static_cast<uint8_t>(SectionType::kSampledTermIndexZstd),
+                         sti_carrier_payload);
+    builder.add_raw_section(carrier.view());
+    ByteSink sink;
+    EXPECT_TRUE(builder.finish(&sink).ok());
+    return sink.buffer();
+}
+
+} // namespace
+
+// Large sti/dbd frames are emitted as kSampledTermIndexZstd/kDictBlockDirectoryZstd
+// carriers, the block shrinks vs the uncompressed control, and the materialized
+// frames are BYTE-EXACT copies of the original framed sub-sections.
+TEST(SniiPerIndexMetaZstd, LargeSectionsCompressedAndByteRoundTrip) {
+    const auto terms = ManyTerms(2000);
+    const auto refs = ManyRefs(2000);
+    const auto sti_raw = BuildSampled(terms);
+    const auto dbd_raw = BuildDict(refs);
+    ASSERT_GT(sti_raw.size(), kMetaSectionCompressMinBytes);
+    ASSERT_GT(dbd_raw.size(), kMetaSectionCompressMinBytes);
+
+    const auto compressed = BuildMeta(7, "title", terms, refs);
+    std::vector<uint8_t> control;
+    {
+        ScopedEnv off("SNII_META_COMPRESS_MIN", kCompressOff);
+        control = BuildMeta(7, "title", terms, refs);
+    }
+    // The compressed layout must be a real shrink over the raw layout.
+    EXPECT_LT(compressed.size(), control.size());
+    std::cout << "[G13] per-index meta block: raw=" << control.size()
+              << "B zstd=" << compressed.size() << "B (sti_frame=" << sti_raw.size()
+              << "B dbd_frame=" << dbd_raw.size() << "B)\n";
+
+    const auto compressed_types = SectionTypesOf(Slice(compressed));
+    EXPECT_TRUE(ContainsType(compressed_types, SectionType::kSampledTermIndexZstd));
+    EXPECT_TRUE(ContainsType(compressed_types, SectionType::kDictBlockDirectoryZstd));
+    EXPECT_FALSE(ContainsType(compressed_types, SectionType::kSampledTermIndex));
+    EXPECT_FALSE(ContainsType(compressed_types, SectionType::kDictBlockDirectory));
+    const auto control_types = SectionTypesOf(Slice(control));
+    EXPECT_TRUE(ContainsType(control_types, SectionType::kSampledTermIndex));
+    EXPECT_FALSE(ContainsType(control_types, SectionType::kSampledTermIndexZstd));
+
+    PerIndexMetaReader reader;
+    ASSERT_TRUE(PerIndexMetaReader::open(Slice(compressed), &reader).ok());
+    std::vector<uint8_t> sti_scratch;
+    Slice sti_frame;
+    ASSERT_TRUE(reader.sampled_term_index_frame(&sti_scratch, &sti_frame).ok());
+    ASSERT_EQ(sti_frame.size(), sti_raw.size());
+    EXPECT_EQ(std::memcmp(sti_frame.data(), sti_raw.data(), sti_raw.size()), 0);
+    std::vector<uint8_t> dbd_scratch;
+    Slice dbd_frame;
+    ASSERT_TRUE(reader.dict_block_directory_frame(&dbd_scratch, &dbd_frame).ok());
+    ASSERT_EQ(dbd_frame.size(), dbd_raw.size());
+    EXPECT_EQ(std::memcmp(dbd_frame.data(), dbd_raw.data(), dbd_raw.size()), 0);
+
+    // The materialized frames parse with the unchanged sub-module readers.
+    SampledTermIndexReader sti;
+    ASSERT_TRUE(SampledTermIndexReader::open(sti_frame, &sti).ok());
+    EXPECT_EQ(sti.n_blocks(), 2000U);
+    bool maybe = false;
+    uint32_t ord = 0;
+    ASSERT_TRUE(sti.locate("term_1001500", &maybe, &ord).ok());
+    EXPECT_TRUE(maybe);
+    EXPECT_EQ(ord, 1500U);
+    DictBlockDirectoryReader dbd;
+    ASSERT_TRUE(DictBlockDirectoryReader::open(dbd_frame, &dbd).ok());
+    ASSERT_EQ(dbd.n_blocks(), 2000U);
+    BlockRef got {};
+    ASSERT_TRUE(dbd.get(1500, &got).ok());
+    EXPECT_EQ(got.offset, 4096U + 1500U * 128U);
+    EXPECT_EQ(got.checksum, 1500U);
+}
+
+// Old-segment compatibility: a large meta built with compression disabled (the
+// pre-G13 layout) still opens and materializes as in-place raw frames.
+TEST(SniiPerIndexMetaZstd, UncompressedLargeSectionsStillRead) {
+    const auto terms = ManyTerms(2000);
+    const auto refs = ManyRefs(2000);
+    std::vector<uint8_t> legacy;
+    {
+        ScopedEnv off("SNII_META_COMPRESS_MIN", kCompressOff);
+        legacy = BuildMeta(7, "title", terms, refs);
+    }
+    PerIndexMetaReader reader;
+    ASSERT_TRUE(PerIndexMetaReader::open(Slice(legacy), &reader).ok());
+    std::vector<uint8_t> sti_scratch;
+    Slice sti_frame;
+    ASSERT_TRUE(reader.sampled_term_index_frame(&sti_scratch, &sti_frame).ok());
+    // Raw frame: a view into the block, no decompression scratch used.
+    EXPECT_TRUE(sti_scratch.empty());
+    EXPECT_GE(sti_frame.data(), legacy.data());
+    EXPECT_LE(sti_frame.data() + sti_frame.size(), legacy.data() + legacy.size());
+    SampledTermIndexReader sti;
+    ASSERT_TRUE(SampledTermIndexReader::open(sti_frame, &sti).ok());
+    EXPECT_EQ(sti.n_blocks(), 2000U);
+    std::vector<uint8_t> dbd_scratch;
+    Slice dbd_frame;
+    ASSERT_TRUE(reader.dict_block_directory_frame(&dbd_scratch, &dbd_frame).ok());
+    EXPECT_TRUE(dbd_scratch.empty());
+    DictBlockDirectoryReader dbd;
+    ASSERT_TRUE(DictBlockDirectoryReader::open(dbd_frame, &dbd).ok());
+    EXPECT_EQ(dbd.n_blocks(), 2000U);
+}
+
+// Below the threshold nothing changes: the default build is byte-identical to a
+// compression-disabled build (small/legacy segments keep the exact old layout).
+TEST(SniiPerIndexMetaZstd, SmallSectionsStayRawByteIdentical) {
+    const std::vector<std::string> terms = {"alpha", "kappa", "zeta"};
+    const std::vector<BlockRef> refs = {
+            {.offset = 4096, .length = 1024, .n_entries = 10, .flags = 0, .checksum = 0x11U}};
+    const auto def = BuildMeta(7, "title", terms, refs);
+    std::vector<uint8_t> off_bytes;
+    {
+        ScopedEnv off("SNII_META_COMPRESS_MIN", kCompressOff);
+        off_bytes = BuildMeta(7, "title", terms, refs);
+    }
+    EXPECT_EQ(def, off_bytes);
+    const auto types = SectionTypesOf(Slice(def));
+    EXPECT_TRUE(ContainsType(types, SectionType::kSampledTermIndex));
+    EXPECT_TRUE(ContainsType(types, SectionType::kDictBlockDirectory));
+    EXPECT_FALSE(ContainsType(types, SectionType::kSampledTermIndexZstd));
+    EXPECT_FALSE(ContainsType(types, SectionType::kDictBlockDirectoryZstd));
+}
+
+// The threshold gate itself: sections between the zstd win size and the 4KB
+// default stay raw by default but compress when the env lowers the threshold,
+// and the forced layout still round-trips byte-exactly.
+TEST(SniiPerIndexMetaZstd, ThresholdGateControlsCompression) {
+    const auto terms = ManyTerms(300); // ~2KB sti: below the 4KB default, above zstd win size
+    const auto refs = ManyRefs(300);
+    const auto sti_raw = BuildSampled(terms);
+    ASSERT_LT(sti_raw.size(), kMetaSectionCompressMinBytes);
+
+    const auto def = BuildMeta(7, "title", terms, refs);
+    EXPECT_TRUE(ContainsType(SectionTypesOf(Slice(def)), SectionType::kSampledTermIndex));
+
+    std::vector<uint8_t> forced;
+    {
+        ScopedEnv force("SNII_META_COMPRESS_MIN", "1");
+        forced = BuildMeta(7, "title", terms, refs);
+    }
+    const auto forced_types = SectionTypesOf(Slice(forced));
+    EXPECT_TRUE(ContainsType(forced_types, SectionType::kSampledTermIndexZstd));
+    EXPECT_TRUE(ContainsType(forced_types, SectionType::kDictBlockDirectoryZstd));
+    EXPECT_LT(forced.size(), def.size());
+
+    PerIndexMetaReader reader;
+    ASSERT_TRUE(PerIndexMetaReader::open(Slice(forced), &reader).ok());
+    std::vector<uint8_t> scratch;
+    Slice frame;
+    ASSERT_TRUE(reader.sampled_term_index_frame(&scratch, &frame).ok());
+    ASSERT_EQ(frame.size(), sti_raw.size());
+    EXPECT_EQ(std::memcmp(frame.data(), sti_raw.data(), sti_raw.size()), 0);
+}
+
+// Garbage compressed bytes under a VALID carrier-frame crc must fail with
+// kCorruption at materialization (the zstd layer catches what the crc cannot).
+TEST(SniiPerIndexMetaZstd, CorruptZstdPayloadRejected) {
+    ByteSink payload;
+    payload.put_varint64(1024); // plausible uncomp_len
+    std::vector<uint8_t> garbage(64, 0xAB);
+    payload.put_bytes(Slice(garbage));
+    const auto bytes = BuildMetaWithRawStiSection(payload.view());
+
+    PerIndexMetaReader reader;
+    ASSERT_TRUE(PerIndexMetaReader::open(Slice(bytes), &reader).ok());
+    std::vector<uint8_t> scratch;
+    Slice frame;
+    EXPECT_TRUE(reader.sampled_term_index_frame(&scratch, &frame)
+                        .is<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>());
+}
+
+// Truncated compressed bytes and a wrong declared uncomp_len are both detected.
+TEST(SniiPerIndexMetaZstd, TruncatedOrMisdeclaredZstdRejected) {
+    const auto sti_raw = BuildSampled(ManyTerms(500));
+    std::vector<uint8_t> comp;
+    ASSERT_TRUE(zstd_compress(Slice(sti_raw), 3, &comp).ok());
+
+    {
+        // Half the compressed stream, full declared length.
+        ByteSink payload;
+        payload.put_varint64(sti_raw.size());
+        payload.put_bytes(Slice(comp.data(), comp.size() / 2));
+        const auto bytes = BuildMetaWithRawStiSection(payload.view());
+        PerIndexMetaReader reader;
+        ASSERT_TRUE(PerIndexMetaReader::open(Slice(bytes), &reader).ok());
+        std::vector<uint8_t> scratch;
+        Slice frame;
+        EXPECT_TRUE(reader.sampled_term_index_frame(&scratch, &frame)
+                            .is<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>());
+    }
+    {
+        // Full compressed stream, under-declared length (decompress overflows dst).
+        ByteSink payload;
+        payload.put_varint64(sti_raw.size() - 1);
+        payload.put_bytes(Slice(comp));
+        const auto bytes = BuildMetaWithRawStiSection(payload.view());
+        PerIndexMetaReader reader;
+        ASSERT_TRUE(PerIndexMetaReader::open(Slice(bytes), &reader).ok());
+        std::vector<uint8_t> scratch;
+        Slice frame;
+        EXPECT_TRUE(reader.sampled_term_index_frame(&scratch, &frame)
+                            .is<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>());
+    }
+}
+
+// A declared uncomp_len outside (0, 256MB] is rejected before any allocation.
+TEST(SniiPerIndexMetaZstd, ZstdUncompLenOutOfRangeRejected) {
+    for (const uint64_t bad_len : {uint64_t {0}, uint64_t {256ULL * 1024 * 1024 + 1}}) {
+        ByteSink payload;
+        payload.put_varint64(bad_len);
+        std::vector<uint8_t> some(16, 0x01);
+        payload.put_bytes(Slice(some));
+        const auto bytes = BuildMetaWithRawStiSection(payload.view());
+        PerIndexMetaReader reader;
+        ASSERT_TRUE(PerIndexMetaReader::open(Slice(bytes), &reader).ok());
+        std::vector<uint8_t> scratch;
+        Slice frame;
+        EXPECT_TRUE(reader.sampled_term_index_frame(&scratch, &frame)
+                            .is<doris::ErrorCode::INVERTED_INDEX_FILE_CORRUPTED>())
+                << "uncomp_len=" << bad_len;
+    }
 }

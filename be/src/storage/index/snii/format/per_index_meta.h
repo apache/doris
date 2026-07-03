@@ -52,6 +52,16 @@
 // SectionFramer frame), not re-framed. This lets the reader hand the exact frame
 // Slice straight back to each sub-module's open() (which expects a full frame),
 // and reuses the framer instead of re-implementing sub-section parsing.
+//
+// G13: when an embedded SampledTermIndex / DICT block directory frame reaches
+// kMetaSectionCompressMinBytes, finish() wraps it in a kSampledTermIndexZstd /
+// kDictBlockDirectoryZstd frame instead (payload = varint64 uncomp_len +
+// zstd(original frame)) -- these sorted string/offset tables compress several
+// fold and dominate the serial per-segment meta fetch at open. Smaller frames
+// (and any frame zstd fails to shrink) are emitted raw, byte-identical to the
+// pre-G13 layout, so old segments keep reading through the same path. The reader
+// captures either layout and materializes the original frame on demand via
+// sampled_term_index_frame() / dict_block_directory_frame().
 namespace doris::snii::format {
 
 // Physical reference to a contiguous region within the container. (0, 0) means
@@ -149,10 +159,18 @@ public:
     const StatsBlock& stats() const { return stats_; }
     const SectionRefs& section_refs() const { return section_refs_; }
 
-    // Full kSampledTermIndex frame Slice, ready for SampledTermIndexReader::open.
-    Slice sampled_term_index_bytes() const { return sampled_term_index_; }
-    // Full kDictBlockDirectory frame Slice, ready for DictBlockDirectoryReader::open.
-    Slice dict_block_directory_bytes() const { return dict_block_directory_; }
+    // Materializes the full kSampledTermIndex frame, ready for
+    // SampledTermIndexReader::open. A raw (uncompressed) section returns a view
+    // into the opened block (*scratch untouched); a kSampledTermIndexZstd section
+    // decompresses into *scratch and returns a view of it (G13). Decompression is
+    // deliberately deferred to this call: several open() callers only need the
+    // header/refs and must not pay a decompress. Corrupt/truncated zstd payload
+    // or an out-of-range uncomp_len -> kCorruption. *scratch must be non-null and
+    // must outlive the returned *frame; the sub-module readers fully materialize
+    // on open, so a stack-local scratch is sufficient.
+    Status sampled_term_index_frame(std::vector<uint8_t>* scratch, Slice* frame) const;
+    // Same contract for the kDictBlockDirectory frame / DictBlockDirectoryReader.
+    Status dict_block_directory_frame(std::vector<uint8_t>* scratch, Slice* frame) const;
 
     // Block-split bloom XFilter: present iff a non-empty bsbf section ref exists.
     bool has_bsbf() const { return section_refs_.bsbf.length > 0; }
@@ -175,8 +193,12 @@ private:
     StatsBlock stats_;
     SectionRefs section_refs_;
     uint64_t bigram_prune_min_df_ = 0;
+    // Captured frame Slices into the opened block: the raw sub-section frame, or
+    // its kXxxZstd carrier frame when *_zstd_ is set (G13).
     Slice sampled_term_index_;
+    bool sampled_term_index_zstd_ = false;
     Slice dict_block_directory_;
+    bool dict_block_directory_zstd_ = false;
 };
 
 } // namespace doris::snii::format

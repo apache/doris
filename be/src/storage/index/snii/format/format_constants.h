@@ -60,6 +60,19 @@ enum class SectionType : uint8_t {
     // skip it (unknown optional type), keeping old binaries readable on new
     // segments and new binaries on old segments.
     kBigramPruneInfo = 10,
+    // G13: zstd-compressed carriers for the two large embedded meta sub-sections
+    // (they are highly compressible sorted string/offset tables and dominate the
+    // per-segment meta blob fetched serially at open). Payload = varint64
+    // uncomp_len followed by zstd(original full frame), where "original full
+    // frame" is the byte-exact kSampledTermIndex / kDictBlockDirectory frame
+    // (type+len+payload+crc32c) the raw layout would have embedded. Decompression
+    // therefore reproduces the legacy frame verbatim and the sub-module readers
+    // (which re-verify the inner crc) stay unchanged. The writer emits these ONLY
+    // when the raw frame reaches kMetaSectionCompressMinBytes AND compression
+    // shrinks it; otherwise the raw frame is emitted as before, so small/legacy
+    // segments remain byte-identical and always readable.
+    kSampledTermIndexZstd = 11,
+    kDictBlockDirectoryZstd = 12,
 };
 
 // ---- Logical index postings storage content configuration (fixed per logical
@@ -132,5 +145,12 @@ inline constexpr uint32_t kDefaultInlineThreshold = 256; // slim encoded bytes â
 inline constexpr uint32_t kAdaptiveWindowDfThreshold = 8192; // df >= this -> larger windows
 inline constexpr uint32_t kAdaptiveWindowDocs = 1024;        // larger window size (4 * base unit)
 inline constexpr uint32_t kDefaultTargetDictBlockBytes = 64 * 1024;
+// G13: embedded meta sub-sections (SampledTermIndex / DictBlockDirectory frames)
+// at or above this raw size are emitted zstd-compressed (kSampledTermIndexZstd /
+// kDictBlockDirectoryZstd); smaller ones stay raw -- compression overhead is not
+// worth it below a few KB and the raw layout keeps small segments byte-identical
+// to the pre-G13 format. A build-time parameter, not format semantics: readers
+// accept both layouts regardless of the value.
+inline constexpr size_t kMetaSectionCompressMinBytes = 4 * 1024;
 
 } // namespace doris::snii::format
