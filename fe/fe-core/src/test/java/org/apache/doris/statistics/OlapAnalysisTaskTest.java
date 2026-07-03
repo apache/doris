@@ -152,9 +152,9 @@ public class OlapAnalysisTaskTest {
                         + "SUBSTRING(CAST('1' AS STRING), 1, 1024) AS `min`, "
                         + "SUBSTRING(CAST('2' AS STRING), 1, 1024) AS `max`, "
                         + "COUNT(1) * 4 * ${scaleFactor} AS `data_size`, NOW() FROM cte1), "
-                        + "cte3 AS (SELECT GROUP_CONCAT(CONCAT(REPLACE(REPLACE(t.`column_key`, "
+                        + "cte3 AS (SELECT IFNULL(GROUP_CONCAT(CONCAT(REPLACE(REPLACE(t.`column_key`, "
                         + "\":\", \"\\\\:\"), \";\", \"\\\\;\"), \" :\", ROUND(t.`count` / ${rowCount2}, 2)), "
-                        + "\" ;\") as `hot_value` FROM (SELECT ${subStringColName} as `hash_value`, "
+                        + "\" ;\"), '') as `hot_value` FROM (SELECT ${subStringColName} as `hash_value`, "
                         + "MAX(`null`) as `column_key`, COUNT(1) AS `count` FROM cte1 "
                         + "WHERE `null` IS NOT NULL GROUP BY `hash_value` ORDER BY `count` DESC LIMIT 10) t) "
                         + "SELECT * FROM cte2 CROSS JOIN cte3", sql);

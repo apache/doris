@@ -26,8 +26,8 @@ import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.algebra.Join.ShuffleType;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
@@ -347,7 +347,7 @@ public class ShuffleKeyPruner extends PlanPostProcessor {
         if (join.isBroadCastJoin()) {
             return Pair.of(parentAllowShuffleKeyPrune, false);
         }
-        if (join.shuffleType() == org.apache.doris.nereids.trees.plans.algebra.ShuffleType.shuffle) {
+        if (join.shuffleType() == ShuffleType.shuffle) {
             return Pair.of(false, false);
         }
         return Pair.of(false, false);
@@ -542,9 +542,8 @@ public class ShuffleKeyPruner extends PlanPostProcessor {
             DistributionSpecHash newHashSpec, Plan newChild) {
         PhysicalProperties props = PhysicalProperties.createHash(newHashSpec)
                 .withOrderSpec(origin.getPhysicalProperties().getOrderSpec());
-        return AbstractPlan.copyWithSameId(origin,
-                () -> new PhysicalDistribute<>(newHashSpec, origin.getGroupExpression(),
-                        origin.getLogicalProperties(), props, origin.getStats(), newChild));
+        return new PhysicalDistribute<>(newHashSpec, origin.getGroupExpression(),
+                        origin.getLogicalProperties(), props, origin.getStats(), newChild);
     }
 
     @SuppressWarnings("unchecked")
