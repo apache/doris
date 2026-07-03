@@ -216,10 +216,6 @@ public:
                                const NullMap* null_map, orc::ColumnVectorBatch* orc_col_batch,
                                int64_t start, int64_t end, Arena& arena,
                                const FormatOptions& options) const override;
-    Status read_column_from_orc(const std::string& timezone, IColumn& column,
-                                const orc::Type* orc_type,
-                                const orc::ColumnVectorBatch* orc_col_batch, int64_t start,
-                                int64_t end, const UInt8* filter) const override;
 
     bool write_column_to_presto_text(const IColumn& column, BufferWritable& bw, int64_t row_idx,
                                      const FormatOptions& options) const override;

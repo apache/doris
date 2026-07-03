@@ -23,11 +23,7 @@
 #include "core/column/column.h"
 #include "core/column/column_const.h"
 #include "core/column/column_map.h"
-#include "core/column/column_nullable.h"
-#include "core/data_type/data_type_map.h"
-#include "core/data_type/data_type_nullable.h"
 #include "core/data_type_serde/complex_type_deserialize_util.h"
-#include "core/data_type_serde/orc_data_type_serde.h"
 #include "core/string_ref.h"
 #include "util/jsonb_document.h"
 #include "util/jsonb_writer.h"
@@ -451,93 +447,6 @@ Status DataTypeMapSerDe::write_column_to_orc(const std::string& timezone, const 
     cur_batch->elements->numElements = nested_values_column.size();
 
     cur_batch->numElements = end - start;
-    return Status::OK();
-}
-
-Status DataTypeMapSerDe::read_column_from_orc(const OrcSerDeReadContext& context,
-                                              const std::string& column_name,
-                                              const DataTypePtr& data_type, IColumn& column,
-                                              const orc::Type* orc_type,
-                                              const orc::ColumnVectorBatch* orc_col_batch,
-                                              int64_t start, int64_t end) const {
-    if (start != 0) {
-        return Status::NotSupported("read_column_from_orc with non-zero start for type {}",
-                                    get_name());
-    }
-    if (orc_type->getKind() != orc::TypeKind::MAP) {
-        return Status::InternalError("Wrong data type for column '{}', expected map, actual {}",
-                                     column_name, orc_type->getKind());
-    }
-    const auto* orc_map = dynamic_cast<const orc::MapVectorBatch*>(orc_col_batch);
-    if (orc_map == nullptr) {
-        return Status::InternalError("Wrong ORC data type for map column {}, actual {}",
-                                     column_name, orc_col_batch->toString());
-    }
-
-    auto& doris_map = assert_cast<ColumnMap&>(column);
-    size_t element_size = 0;
-    RETURN_IF_ERROR(orc_serde::fill_array_offsets(column_name, doris_map.get_offsets(),
-                                                  orc_map->offsets, end - start, &element_size,
-                                                  context.decode_value_time));
-    const auto* map_type = assert_cast<const DataTypeMap*>(remove_nullable(data_type).get());
-    const DataTypePtr& doris_key_type = map_type->get_key_type();
-    const DataTypePtr& doris_value_type = map_type->get_value_type();
-
-    const orc::Type* orc_key_type = orc_type->getSubtype(0);
-    const orc::Type* orc_value_type = orc_type->getSubtype(1);
-    bool key_is_missing = (orc_key_type == nullptr);
-    bool value_is_missing = (orc_value_type == nullptr);
-
-    if (key_is_missing || value_is_missing) {
-        const orc::Type* complete_map_type = context.resolve_file_type(orc_type->getColumnId());
-        if (complete_map_type != nullptr && complete_map_type->getKind() == orc::TypeKind::MAP &&
-            complete_map_type->getSubtypeCount() == 2) {
-            if (key_is_missing) {
-                orc_key_type = complete_map_type->getSubtype(0);
-            }
-            if (value_is_missing) {
-                orc_value_type = complete_map_type->getSubtype(1);
-            }
-        }
-    }
-
-    ColumnPtr& doris_key_column = doris_map.get_keys_ptr();
-    ColumnPtr& doris_value_column = doris_map.get_values_ptr();
-    std::string key_col_name = column_name + ".key";
-    std::string value_col_name = column_name + ".value";
-
-    if (key_is_missing) {
-        auto mutable_key_column = IColumn::mutate(std::move(doris_key_column));
-        if (is_column_nullable(*mutable_key_column)) {
-            auto* nullable_column = assert_cast<ColumnNullable*>(mutable_key_column.get());
-            nullable_column->insert_many_defaults(element_size);
-        } else {
-            mutable_key_column->insert_many_defaults(element_size);
-        }
-        doris_key_column = std::move(mutable_key_column);
-    } else {
-        RETURN_IF_ERROR(context.read_nested_column(key_col_name, doris_key_column, doris_key_type,
-                                                   context.get_key_node(context.schema_node),
-                                                   orc_key_type, orc_map->keys.get(), element_size,
-                                                   false));
-    }
-
-    if (value_is_missing) {
-        auto mutable_value_column = IColumn::mutate(std::move(doris_value_column));
-        if (is_column_nullable(*mutable_value_column)) {
-            auto* nullable_column = assert_cast<ColumnNullable*>(mutable_value_column.get());
-            nullable_column->insert_many_defaults(element_size);
-        } else {
-            mutable_value_column->insert_many_defaults(element_size);
-        }
-        doris_value_column = std::move(mutable_value_column);
-    } else {
-        RETURN_IF_ERROR(context.read_nested_column(
-                value_col_name, doris_value_column, doris_value_type,
-                context.get_value_node(context.schema_node), orc_value_type,
-                orc_map->elements.get(), element_size, false));
-    }
-
     return Status::OK();
 }
 

@@ -246,41 +246,6 @@ Status DataTypeTimeStampTzSerDe::write_column_to_orc(const std::string& timezone
     return Status::OK();
 }
 
-Status DataTypeTimeStampTzSerDe::read_column_from_orc(const std::string& /* timezone */,
-                                                      IColumn& column, const orc::Type* orc_type,
-                                                      const orc::ColumnVectorBatch* orc_col_batch,
-                                                      int64_t start, int64_t end,
-                                                      const UInt8* filter) const {
-    const auto* cur_batch = dynamic_cast<const orc::TimestampVectorBatch*>(orc_col_batch);
-    if (cur_batch == nullptr) {
-        return Status::InternalError("Wrong data type for timestamptz column, expected {}",
-                                     orc_col_batch->toString());
-    }
-
-    auto& col_data = assert_cast<ColumnTimeStampTz&>(column).get_data();
-    const auto origin_size = col_data.size();
-    const auto rows = end - start;
-    col_data.resize(origin_size + rows);
-
-    static const auto& UTC = cctz::utc_time_zone();
-    for (int64_t row_id = start; row_id < end; ++row_id) {
-        const auto result_index = origin_size + row_id - start;
-        const auto filter_index = row_id - start;
-        if (filter != nullptr && !filter[filter_index]) {
-            continue;
-        }
-        if (cur_batch->hasNulls && !cur_batch->notNull[row_id]) {
-            continue;
-        }
-
-        DateV2Value<DateTimeV2ValueType> utc_dt;
-        utc_dt.from_unixtime(cur_batch->data[row_id],
-                             static_cast<int32_t>(cur_batch->nanoseconds[row_id]), UTC, _scale);
-        col_data[result_index] = TimestampTzValue(utc_dt);
-    }
-    return Status::OK();
-}
-
 std::string DataTypeTimeStampTzSerDe::to_olap_string(const Field& field) const {
     return CastToString::from_timestamptz(field.get<TYPE_TIMESTAMPTZ>(), 6);
 }

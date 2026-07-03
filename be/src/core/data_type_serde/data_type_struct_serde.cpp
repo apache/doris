@@ -18,18 +18,12 @@
 #include "core/data_type_serde/data_type_struct_serde.h"
 
 #include <algorithm>
-#include <map>
-#include <set>
-#include <unordered_map>
 
 #include "arrow/array/builder_nested.h"
 #include "common/status.h"
 #include "core/column/column.h"
 #include "core/column/column_const.h"
-#include "core/column/column_nullable.h"
 #include "core/column/column_struct.h"
-#include "core/data_type/data_type_nullable.h"
-#include "core/data_type/data_type_struct.h"
 #include "core/data_type_serde/complex_type_deserialize_util.h"
 #include "core/data_type_serde/data_type_serde.h"
 #include "core/string_ref.h"
@@ -456,85 +450,6 @@ Status DataTypeStructSerDe::write_column_to_orc(const std::string& timezone, con
     }
 
     cur_batch->numElements = end - start;
-    return Status::OK();
-}
-
-Status DataTypeStructSerDe::read_column_from_orc(const OrcSerDeReadContext& context,
-                                                 const std::string& column_name,
-                                                 const DataTypePtr& data_type, IColumn& column,
-                                                 const orc::Type* orc_type,
-                                                 const orc::ColumnVectorBatch* orc_col_batch,
-                                                 int64_t start, int64_t end) const {
-    if (start != 0) {
-        return Status::NotSupported("read_column_from_orc with non-zero start for type {}",
-                                    get_name());
-    }
-    if (orc_type->getKind() != orc::TypeKind::STRUCT) {
-        return Status::InternalError("Wrong data type for column '{}', expected struct, actual {}",
-                                     column_name, orc_type->getKind());
-    }
-    const auto* orc_struct = dynamic_cast<const orc::StructVectorBatch*>(orc_col_batch);
-    if (orc_struct == nullptr) {
-        return Status::InternalError("Wrong ORC data type for struct column {}, actual {}",
-                                     column_name, orc_col_batch->toString());
-    }
-
-    auto& doris_struct = assert_cast<ColumnStruct&>(column);
-    std::map<int, int> read_fields;
-    std::set<int> missing_fields;
-    const auto* doris_struct_type =
-            assert_cast<const DataTypeStruct*>(remove_nullable(data_type).get());
-
-    std::unordered_map<std::string, int> orc_field_name_to_idx;
-    for (int j = 0; j < orc_type->getSubtypeCount(); ++j) {
-        std::string field_name = orc_type->getFieldName(j);
-        std::transform(field_name.begin(), field_name.end(), field_name.begin(), ::tolower);
-        orc_field_name_to_idx[field_name] = j;
-    }
-
-    for (int i = 0; i < doris_struct.tuple_size(); ++i) {
-        const auto& table_column_name = doris_struct_type->get_name_by_position(i);
-        if (!context.child_exists(context.schema_node, table_column_name)) {
-            missing_fields.insert(i);
-            continue;
-        }
-        std::string file_column_name =
-                context.get_child_file_name(context.schema_node, table_column_name);
-        std::transform(file_column_name.begin(), file_column_name.end(), file_column_name.begin(),
-                       ::tolower);
-
-        auto it = orc_field_name_to_idx.find(file_column_name);
-        if (it != orc_field_name_to_idx.end()) {
-            read_fields[i] = it->second;
-        } else {
-            missing_fields.insert(i);
-        }
-    }
-
-    for (int missing_field : missing_fields) {
-        ColumnPtr& doris_field = doris_struct.get_column_ptr(missing_field);
-        if (!doris_field->is_nullable()) {
-            return Status::InternalError(
-                    "Child field of '{}' is not nullable, but is missing in orc file", column_name);
-        }
-        auto mutable_field = IColumn::mutate(std::move(doris_field));
-        assert_cast<ColumnNullable*>(mutable_field.get())->insert_many_defaults(end - start);
-        doris_field = std::move(mutable_field);
-    }
-
-    for (auto read_field : read_fields) {
-        orc::ColumnVectorBatch* orc_field = orc_struct->fields[read_field.second];
-        const orc::Type* field_orc_type = orc_type->getSubtype(read_field.second);
-        std::string field_name = column_name + "." + orc_type->getFieldName(read_field.second);
-        ColumnPtr& doris_field = doris_struct.get_column_ptr(read_field.first);
-        const DataTypePtr& doris_type = doris_struct_type->get_element(read_field.first);
-        const std::string& table_field_name =
-                doris_struct_type->get_name_by_position(read_field.first);
-        RETURN_IF_ERROR(context.read_nested_column(
-                field_name, doris_field, doris_type,
-                context.get_child_node(context.schema_node, table_field_name), field_orc_type,
-                orc_field, end - start, true));
-    }
     return Status::OK();
 }
 

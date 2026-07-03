@@ -31,7 +31,6 @@
 #include "core/column/column_decimal.h"
 #include "core/data_type/data_type_decimal.h"
 #include "core/data_type/define_primitive_type.h"
-#include "core/data_type_serde/orc_data_type_serde.h"
 #include "core/types.h"
 #include "exec/common/arithmetic_overflow.h"
 #include "exprs/function/cast/cast_to_decimal.h"
@@ -431,32 +430,6 @@ Status DataTypeDecimalSerDe<T>::write_column_to_orc(const std::string& timezone,
         cur_batch->numElements = end - start;
     }
     return Status::OK();
-}
-
-template <PrimitiveType T>
-Status DataTypeDecimalSerDe<T>::read_column_from_orc(const std::string& timezone, IColumn& column,
-                                                     const orc::Type* orc_type,
-                                                     const orc::ColumnVectorBatch* orc_col_batch,
-                                                     int64_t start, int64_t end,
-                                                     const UInt8* filter) const {
-    if constexpr (T == TYPE_DECIMAL32) {
-        return orc_serde::read_decimal_column<TYPE_DECIMAL32>(column, orc_col_batch, start, end,
-                                                              scale, filter);
-    } else if constexpr (T == TYPE_DECIMAL64) {
-        return orc_serde::read_decimal_column<TYPE_DECIMAL64>(column, orc_col_batch, start, end,
-                                                              scale, filter);
-    } else if constexpr (T == TYPE_DECIMALV2) {
-        return orc_serde::read_decimal_column<TYPE_DECIMALV2>(column, orc_col_batch, start, end,
-                                                              DecimalV2Value::SCALE, filter);
-    } else if constexpr (T == TYPE_DECIMAL128I) {
-        return orc_serde::read_decimal_column<TYPE_DECIMAL128I>(column, orc_col_batch, start, end,
-                                                                scale, filter);
-    } else if constexpr (T == TYPE_DECIMAL256) {
-        return orc_serde::read_decimal_column<TYPE_DECIMAL256>(column, orc_col_batch, start, end,
-                                                               scale, filter);
-    } else {
-        return Status::NotSupported("read_column_from_orc with type {}", get_name());
-    }
 }
 
 template <PrimitiveType T>

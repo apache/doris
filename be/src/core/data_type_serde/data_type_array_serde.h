@@ -110,12 +110,6 @@ public:
                                int64_t start, int64_t end, Arena& arena,
                                const FormatOptions& options) const override;
 
-    Status read_column_from_orc(const OrcSerDeReadContext& context, const std::string& column_name,
-                                const DataTypePtr& data_type, IColumn& column,
-                                const orc::Type* orc_type,
-                                const orc::ColumnVectorBatch* orc_col_batch, int64_t start,
-                                int64_t end) const override;
-
     Status serialize_column_to_jsonb(const IColumn& from_column, int64_t row_num,
                                      JsonbWriter& writer) const override;
 

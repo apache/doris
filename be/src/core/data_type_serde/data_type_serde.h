@@ -19,7 +19,6 @@
 
 #include <cstddef>
 #include <cstdint>
-#include <functional>
 #include <memory>
 #include <orc/OrcFile.hh>
 #include <vector>
@@ -42,7 +41,6 @@ namespace cctz {
 class time_zone;
 } // namespace cctz
 namespace orc {
-class Type;
 struct ColumnVectorBatch;
 } // namespace orc
 
@@ -88,38 +86,7 @@ using JsonbWriter = JsonbWriterT<JsonbOutStream>;
 class IColumn;
 class Arena;
 class IDataType;
-using DataTypePtr = std::shared_ptr<const IDataType>;
 struct CastParameters;
-
-struct OrcSerDeReadContext {
-    using SchemaNode = void;
-    using ReadNestedColumn = std::function<Status(
-            const std::string& name, ColumnPtr& column, const DataTypePtr& type,
-            const std::shared_ptr<SchemaNode>& node, const orc::Type* orc_type,
-            const orc::ColumnVectorBatch* batch, size_t rows, bool inherit_filter)>;
-    using ResolveFileType = std::function<const orc::Type*(uint64_t column_id)>;
-    using SchemaNodeAccessor =
-            std::function<std::shared_ptr<SchemaNode>(const std::shared_ptr<SchemaNode>& node)>;
-    using SchemaChildNode = std::function<std::shared_ptr<SchemaNode>(
-            const std::shared_ptr<SchemaNode>& node, const std::string& child_name)>;
-    using SchemaChildFileName = std::function<std::string(const std::shared_ptr<SchemaNode>& node,
-                                                          const std::string& child_name)>;
-    using SchemaChildExists = std::function<bool(const std::shared_ptr<SchemaNode>& node,
-                                                 const std::string& child_name)>;
-
-    std::string timezone;
-    const UInt8* filter = nullptr;
-    int64_t* decode_value_time = nullptr;
-    std::shared_ptr<SchemaNode> schema_node;
-    ReadNestedColumn read_nested_column;
-    ResolveFileType resolve_file_type;
-    SchemaNodeAccessor get_element_node;
-    SchemaNodeAccessor get_key_node;
-    SchemaNodeAccessor get_value_node;
-    SchemaChildNode get_child_node;
-    SchemaChildFileName get_child_file_name;
-    SchemaChildExists child_exists;
-};
 
 class DataTypeSerDe;
 using DataTypeSerDeSPtr = std::shared_ptr<DataTypeSerDe>;
@@ -525,19 +492,6 @@ public:
                                        int64_t end, Arena& arena,
                                        const FormatOptions& options) const = 0;
     // ORC deserializer
-    virtual Status read_column_from_orc(const std::string& timezone, IColumn& column,
-                                        const orc::Type* orc_type,
-                                        const orc::ColumnVectorBatch* orc_col_batch, int64_t start,
-                                        int64_t end, const UInt8* filter) const {
-        return Status::NotSupported("read_column_from_orc with type {}", get_name());
-    }
-
-    virtual Status read_column_from_orc(const OrcSerDeReadContext& context,
-                                        const std::string& column_name,
-                                        const DataTypePtr& data_type, IColumn& column,
-                                        const orc::Type* orc_type,
-                                        const orc::ColumnVectorBatch* orc_col_batch, int64_t start,
-                                        int64_t end) const;
 
     virtual void set_return_object_as_string(bool value) { _return_object_as_string = value; }
 

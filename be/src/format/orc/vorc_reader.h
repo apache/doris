@@ -40,6 +40,7 @@
 #include "exprs/vliteral.h"
 #include "exprs/vslot_ref.h"
 #include "format/column_type_convert.h"
+#include "format/format_common.h"
 #include "format/table/table_format_reader.h"
 #include "format/table/table_schema_change_helper.h"
 #include "format/table/transactional_hive_common.h"
@@ -67,6 +68,12 @@ struct IOContext;
 } // namespace io
 class Block;
 struct RowLineageColumns;
+template <PrimitiveType T>
+class ColumnVector;
+template <PrimitiveType T>
+class DataTypeDecimal;
+template <DecimalNativeTypeConcept T>
+struct Decimal;
 } // namespace doris
 namespace orc {
 template <class T>
@@ -415,6 +422,255 @@ private:
                                        const orc::Type* orc_column_type,
                                        const orc::ColumnVectorBatch* cvb, size_t num_values);
 
+    template <PrimitiveType PType, typename OrcColumnType>
+    Status _decode_flat_column(const std::string& col_name, const MutableColumnPtr& data_column,
+                               const orc::ColumnVectorBatch* cvb, size_t num_values) {
+        SCOPED_RAW_TIMER(&_statistics.decode_value_time);
+        auto* data = dynamic_cast<const OrcColumnType*>(cvb);
+        if (data == nullptr) {
+            return Status::InternalError("Wrong data type for column '{}', expected {}", col_name,
+                                         cvb->toString());
+        }
+        auto* cvb_data = data->data.data();
+        auto& column_data = static_cast<ColumnVector<PType>&>(*data_column).get_data();
+        auto origin_size = column_data.size();
+        column_data.resize(origin_size + num_values);
+        for (int i = 0; i < num_values; ++i) {
+            column_data[origin_size + i] =
+                    (typename PrimitiveTypeTraits<PType>::CppType)cvb_data[i];
+        }
+        return Status::OK();
+    }
+
+    template <PrimitiveType DecimalPrimitiveType>
+    void _init_decimal_converter(const DataTypePtr& data_type, DecimalScaleParams& scale_params,
+                                 const int32_t orc_decimal_scale) {
+        if (scale_params.scale_type != DecimalScaleParams::NOT_INIT) {
+            return;
+        }
+        auto* decimal_type = reinterpret_cast<const DataTypeDecimal<DecimalPrimitiveType>*>(
+                remove_nullable(data_type).get());
+        auto dest_scale = decimal_type->get_scale();
+        if (dest_scale > orc_decimal_scale) {
+            scale_params.scale_type = DecimalScaleParams::SCALE_UP;
+            scale_params.scale_factor =
+                    cast_set<int64_t>(DecimalScaleParams::get_scale_factor<DecimalPrimitiveType>(
+                            dest_scale - orc_decimal_scale));
+        } else if (dest_scale < orc_decimal_scale) {
+            scale_params.scale_type = DecimalScaleParams::SCALE_DOWN;
+            scale_params.scale_factor =
+                    cast_set<int64_t>(DecimalScaleParams::get_scale_factor<DecimalPrimitiveType>(
+                            orc_decimal_scale - dest_scale));
+        } else {
+            scale_params.scale_type = DecimalScaleParams::NO_SCALE;
+            scale_params.scale_factor = 1;
+        }
+    }
+
+    template <PrimitiveType DecimalPrimitiveType, typename OrcColumnType, bool is_filter>
+    Status _decode_explicit_decimal_column(const std::string& col_name,
+                                           const MutableColumnPtr& data_column,
+                                           const DataTypePtr& data_type,
+                                           const orc::ColumnVectorBatch* cvb, size_t num_values) {
+        using DecimalType = typename PrimitiveTypeTraits<DecimalPrimitiveType>::CppType;
+        auto* data = dynamic_cast<const OrcColumnType*>(cvb);
+        if (data == nullptr) {
+            return Status::InternalError("Wrong data type for column '{}', expected {}", col_name,
+                                         cvb->toString());
+        }
+        if (_decimal_scale_params_index >= _decimal_scale_params.size()) {
+            DecimalScaleParams temp_scale_params;
+            _init_decimal_converter<DecimalPrimitiveType>(data_type, temp_scale_params,
+                                                          data->scale);
+            _decimal_scale_params.emplace_back(temp_scale_params);
+        }
+        DecimalScaleParams& scale_params = _decimal_scale_params[_decimal_scale_params_index];
+        ++_decimal_scale_params_index;
+
+        auto* cvb_data = data->values.data();
+        auto& column_data =
+                static_cast<ColumnDecimal<DecimalPrimitiveType>&>(*data_column).get_data();
+        auto origin_size = column_data.size();
+        column_data.resize(origin_size + num_values);
+
+        if (scale_params.scale_type == DecimalScaleParams::SCALE_UP) {
+            for (int i = 0; i < num_values; ++i) {
+                int128_t value;
+                if constexpr (std::is_same_v<OrcColumnType, orc::Decimal64VectorBatch>) {
+                    value = static_cast<int128_t>(cvb_data[i]);
+                } else {
+                    // cast data to non const, to use a third-party dependency method to obtain an integer
+                    auto* non_const_data = const_cast<OrcColumnType*>(data);
+                    uint64_t hi = non_const_data->values[i].getHighBits();
+                    uint64_t lo = non_const_data->values[i].getLowBits();
+                    value = (((int128_t)hi) << 64) | (int128_t)lo;
+                }
+                value *= scale_params.scale_factor;
+                auto& v = reinterpret_cast<DecimalType&>(column_data[origin_size + i]);
+                v = (DecimalType)value;
+            }
+        } else if (scale_params.scale_type == DecimalScaleParams::SCALE_DOWN) {
+            for (int i = 0; i < num_values; ++i) {
+                int128_t value;
+                if constexpr (std::is_same_v<OrcColumnType, orc::Decimal64VectorBatch>) {
+                    value = static_cast<int128_t>(cvb_data[i]);
+                } else {
+                    // cast data to non const, to use a third-party dependency method to obtain an integer
+                    auto* non_const_data = const_cast<OrcColumnType*>(data);
+                    uint64_t hi = non_const_data->values[i].getHighBits();
+                    uint64_t lo = non_const_data->values[i].getLowBits();
+                    value = (((int128_t)hi) << 64) | (int128_t)lo;
+                }
+                value /= scale_params.scale_factor;
+                auto& v = reinterpret_cast<DecimalType&>(column_data[origin_size + i]);
+                v = (DecimalType)value;
+            }
+        } else {
+            for (int i = 0; i < num_values; ++i) {
+                int128_t value;
+                if constexpr (std::is_same_v<OrcColumnType, orc::Decimal64VectorBatch>) {
+                    value = static_cast<int128_t>(cvb_data[i]);
+                } else {
+                    // cast data to non const, to use a third-party dependency method to obtain an integer
+                    auto* non_const_data = const_cast<OrcColumnType*>(data);
+                    uint64_t hi = non_const_data->values[i].getHighBits();
+                    uint64_t lo = non_const_data->values[i].getLowBits();
+                    value = (((int128_t)hi) << 64) | (int128_t)lo;
+                }
+                auto& v = reinterpret_cast<DecimalType&>(column_data[origin_size + i]);
+                v = (DecimalType)value;
+            }
+        }
+        return Status::OK();
+    }
+
+    template <bool is_filter>
+    Status _decode_int32_column(const std::string& col_name, const MutableColumnPtr& data_column,
+                                const orc::ColumnVectorBatch* cvb, size_t num_values);
+
+    template <PrimitiveType DecimalPrimitiveType, bool is_filter>
+    Status _decode_decimal_column(const std::string& col_name, const MutableColumnPtr& data_column,
+                                  const DataTypePtr& data_type, const orc::ColumnVectorBatch* cvb,
+                                  size_t num_values) {
+        SCOPED_RAW_TIMER(&_statistics.decode_value_time);
+        if (dynamic_cast<const orc::Decimal64VectorBatch*>(cvb) != nullptr) {
+            return _decode_explicit_decimal_column<DecimalPrimitiveType, orc::Decimal64VectorBatch,
+                                                   is_filter>(col_name, data_column, data_type, cvb,
+                                                              num_values);
+        } else {
+            return _decode_explicit_decimal_column<DecimalPrimitiveType, orc::Decimal128VectorBatch,
+                                                   is_filter>(col_name, data_column, data_type, cvb,
+                                                              num_values);
+        }
+    }
+
+    template <typename CppType, PrimitiveType DorisColumnType, typename OrcColumnType,
+              bool is_filter>
+    Status _decode_time_column(const std::string& col_name, const MutableColumnPtr& data_column,
+                               const orc::ColumnVectorBatch* cvb, size_t num_values) {
+        SCOPED_RAW_TIMER(&_statistics.decode_value_time);
+        auto* data = dynamic_cast<const OrcColumnType*>(cvb);
+        if (data == nullptr) {
+            return Status::InternalError("Wrong data type for column '{}', expected {}", col_name,
+                                         cvb->toString());
+        }
+        date_day_offset_dict& date_dict = date_day_offset_dict::get();
+        auto& column_data = static_cast<ColumnVector<DorisColumnType>&>(*data_column).get_data();
+        auto origin_size = column_data.size();
+        column_data.resize(origin_size + num_values);
+        UInt8* __restrict filter_data;
+        if constexpr (is_filter) {
+            filter_data = _filter->data();
+        }
+        for (int i = 0; i < num_values; ++i) {
+            auto& v = reinterpret_cast<CppType&>(column_data[origin_size + i]);
+            if constexpr (std::is_same_v<OrcColumnType, orc::LongVectorBatch>) { // date
+                if constexpr (is_filter) {
+                    if (!filter_data[i]) {
+                        continue;
+                    }
+                }
+
+                // ORC DATE stores a logical day count without time zone semantics.
+                int32_t date_value = cast_set<int32_t>(data->data[i]);
+                if constexpr (std::is_same_v<CppType, VecDateTimeValue>) {
+                    v.create_from_date_v2(date_dict[date_value], TIME_DATE);
+                    // we should cast to date if using date v1.
+                    v.cast_to_date();
+                } else {
+                    v = date_dict[date_value];
+                }
+            } else { // timestamp
+                if constexpr (is_filter) {
+                    if (!filter_data[i]) {
+                        continue;
+                    }
+                }
+                v.from_unixtime(data->data[i], _time_zone);
+                if constexpr (std::is_same_v<CppType, DateV2Value<DateTimeV2ValueType>>) {
+                    // nanoseconds will lose precision. only keep microseconds.
+                    v.set_microsecond(data->nanoseconds[i] / 1000);
+                }
+            }
+        }
+        return Status::OK();
+    }
+
+    template <bool is_filter>
+    Status _decode_timestamp_tz_column(const std::string& col_name,
+                                       const MutableColumnPtr& data_column,
+                                       const orc::ColumnVectorBatch* cvb, size_t num_values) {
+        SCOPED_RAW_TIMER(&_statistics.decode_value_time);
+        const auto* data = dynamic_cast<const orc::TimestampVectorBatch*>(cvb);
+        if (data == nullptr) {
+            return Status::InternalError(
+                    "Wrong data type for timestamp_tz column '{}', expected {}", col_name,
+                    cvb->toString());
+        }
+        auto& column_data = assert_cast<ColumnTimeStampTz&>(*data_column).get_data();
+        auto origin_size = column_data.size();
+        column_data.resize(origin_size + num_values);
+        UInt8* __restrict filter_data;
+        if constexpr (is_filter) {
+            filter_data = _filter->data();
+        }
+        static const cctz::time_zone utc_time_zone = cctz::utc_time_zone();
+        for (int i = 0; i < num_values; ++i) {
+            auto& tz = column_data[origin_size + i];
+            if constexpr (is_filter) {
+                if (!filter_data[i]) {
+                    continue;
+                }
+            }
+            tz.from_unixtime(data->data[i], utc_time_zone);
+            // nanoseconds will lose precision. only keep microseconds.
+            tz.set_microsecond(data->nanoseconds[i] / 1000);
+        }
+        return Status::OK();
+    }
+
+    template <bool is_filter>
+    Status _decode_string_column(const std::string& col_name, const MutableColumnPtr& data_column,
+                                 const orc::TypeKind& type_kind, const orc::ColumnVectorBatch* cvb,
+                                 size_t num_values);
+
+    template <bool is_filter>
+    Status _decode_string_non_dict_encoded_column(const MutableColumnPtr& data_column,
+                                                  const orc::TypeKind& type_kind,
+                                                  const orc::EncodedStringVectorBatch* cvb,
+                                                  size_t num_values);
+
+    template <bool is_filter>
+    Status _decode_string_dict_encoded_column(const MutableColumnPtr& data_column,
+                                              const orc::TypeKind& type_kind,
+                                              const orc::EncodedStringVectorBatch* cvb,
+                                              size_t num_values);
+
+    Status _fill_doris_array_offsets(const std::string& col_name,
+                                     ColumnArray::Offsets64& doris_offsets,
+                                     const orc::DataBuffer<int64_t>& orc_offsets, size_t num_values,
+                                     size_t* element_size);
+
     bool _can_filter_by_dict(int slot_id);
 
     Status _rewrite_dict_conjuncts(std::vector<int32_t>& dict_codes, int slot_id, bool is_nullable);
@@ -490,6 +746,8 @@ private:
     int64_t _range_size;
     std::string _ctz;
 
+    cctz::time_zone _time_zone;
+
     // The columns of the table to be read (contain columns that do not exist)
     std::vector<std::string> _table_column_names;
 
@@ -538,6 +796,9 @@ private:
     const RowDescriptor* _row_descriptor = nullptr;
     bool _enable_lazy_mat = true;
     bool _enable_filter_by_min_max = true;
+
+    std::vector<DecimalScaleParams> _decimal_scale_params;
+    size_t _decimal_scale_params_index = 0;
 
 protected:
     bool _is_acid = false;

@@ -24,13 +24,9 @@
 #include <streamvbyte.h>
 
 #include <cstddef>
-#include <cstring>
 #include <iostream>
 #include <limits>
-#include <memory>
-#include <string>
 #include <type_traits>
-#include <vector>
 
 #include "agent/be_exec_version_manager.h"
 #include "core/assert_cast.h"
@@ -47,7 +43,6 @@
 #include "core/data_type/define_primitive_type.h"
 #include "core/field.h"
 #include "core/types.h"
-#include "orc/OrcFile.hh"
 #include "storage/olap_common.h"
 #include "testutil/test_util.h"
 
@@ -58,34 +53,6 @@ static auto serde_str = std::make_shared<DataTypeStringSerDe>(TYPE_STRING);
 
 static ColumnString::MutablePtr column_str32;
 static ColumnString64::MutablePtr column_str64;
-
-std::unique_ptr<orc::EncodedStringVectorBatch> create_orc_string_batch(
-        const std::vector<std::string>& values) {
-    auto batch =
-            std::make_unique<orc::EncodedStringVectorBatch>(values.size(), *orc::getDefaultPool());
-    batch->resize(values.size());
-    batch->hasNulls = false;
-    batch->isEncoded = false;
-    batch->notNull.resize(values.size());
-    batch->numElements = values.size();
-
-    size_t blob_size = 0;
-    for (const auto& value : values) {
-        blob_size += value.size();
-    }
-    batch->blob.resize(blob_size);
-
-    size_t offset = 0;
-    for (size_t i = 0; i < values.size(); ++i) {
-        batch->notNull[i] = true;
-        batch->data[i] = batch->blob.data() + offset;
-        batch->length[i] = values[i].size();
-        memcpy(batch->data[i], values[i].data(), values[i].size());
-        offset += values[i].size();
-    }
-    return batch;
-}
-
 class DataTypeStringSerDeTest : public ::testing::Test {
 protected:
     static void SetUpTestSuite() {
@@ -270,38 +237,6 @@ TEST_F(DataTypeStringSerDeTest, ArrowMemNotAligned) {
     cctz::time_zone tz;
     auto st = serde_str->read_column_from_arrow(*column_str32, arr.get(), 0, 1, tz);
     EXPECT_TRUE(st.ok());
-}
-
-TEST_F(DataTypeStringSerDeTest, OrcStringReadIntoCharKeepsTrailingSpaces) {
-    const std::vector<std::string> values = {"abc ", "de  "};
-    auto batch = create_orc_string_batch(values);
-    auto column = ColumnString::create();
-    auto orc_type = orc::createPrimitiveType(orc::TypeKind::STRING);
-    DataTypeStringSerDe char_serde(TYPE_CHAR);
-
-    Status st = char_serde.read_column_from_orc("", *column, orc_type.get(), batch.get(), 0,
-                                                values.size(), nullptr);
-
-    ASSERT_TRUE(st.ok()) << st.to_string();
-    ASSERT_EQ(column->size(), values.size());
-    EXPECT_EQ(column->get_data_at(0).to_string(), "abc ");
-    EXPECT_EQ(column->get_data_at(1).to_string(), "de  ");
-}
-
-TEST_F(DataTypeStringSerDeTest, OrcCharReadTrimsTrailingSpaces) {
-    const std::vector<std::string> values = {"abc ", "de  "};
-    auto batch = create_orc_string_batch(values);
-    auto column = ColumnString::create();
-    auto orc_type = orc::createPrimitiveType(orc::TypeKind::CHAR);
-    DataTypeStringSerDe string_serde(TYPE_STRING);
-
-    Status st = string_serde.read_column_from_orc("", *column, orc_type.get(), batch.get(), 0,
-                                                  values.size(), nullptr);
-
-    ASSERT_TRUE(st.ok()) << st.to_string();
-    ASSERT_EQ(column->size(), values.size());
-    EXPECT_EQ(column->get_data_at(0).to_string(), "abc");
-    EXPECT_EQ(column->get_data_at(1).to_string(), "de");
 }
 
 // Run with UBSan enabled to catch misalignment errors.

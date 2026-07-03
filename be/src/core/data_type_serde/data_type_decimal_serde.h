@@ -115,10 +115,6 @@ public:
                                const NullMap* null_map, orc::ColumnVectorBatch* orc_col_batch,
                                int64_t start, int64_t end, Arena& arena,
                                const FormatOptions& options) const override;
-    Status read_column_from_orc(const std::string& timezone, IColumn& column,
-                                const orc::Type* orc_type,
-                                const orc::ColumnVectorBatch* orc_col_batch, int64_t start,
-                                int64_t end, const UInt8* filter) const override;
 
     Status deserialize_column_from_fixed_json(IColumn& column, Slice& slice, uint64_t rows,
                                               uint64_t* num_deserialized,

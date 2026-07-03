@@ -18,7 +18,6 @@
 #include "core/data_type_serde/data_type_varbinary_serde.h"
 
 #include "core/column/column_varbinary.h"
-#include "core/data_type_serde/orc_data_type_serde.h"
 
 namespace doris {
 
@@ -96,14 +95,6 @@ Status DataTypeVarbinarySerDe::write_column_to_orc(const std::string& timezone,
 
     cur_batch->numElements = end - start;
     return Status::OK();
-}
-
-Status DataTypeVarbinarySerDe::read_column_from_orc(const std::string& timezone, IColumn& column,
-                                                    const orc::Type* orc_type,
-                                                    const orc::ColumnVectorBatch* orc_col_batch,
-                                                    int64_t start, int64_t end,
-                                                    const UInt8* filter) const {
-    return orc_serde::read_string_column(column, orc_col_batch, start, end, false, filter);
 }
 
 Status DataTypeVarbinarySerDe::serialize_one_cell_to_json(const IColumn& column, int64_t row_num,

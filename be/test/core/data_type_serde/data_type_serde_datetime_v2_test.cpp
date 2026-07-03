@@ -38,7 +38,6 @@
 #include "core/data_type_serde/data_type_datev2_serde.h"
 #include "core/data_type_serde/data_type_time_serde.h"
 #include "core/types.h"
-#include "orc/OrcFile.hh"
 #include "testutil/test_util.h"
 #include "util/slice.h"
 #include "util/string_util.h"
@@ -62,23 +61,6 @@ static ColumnDateV2::MutablePtr column_date_v2;
 static ColumnTimeV2::MutablePtr column_time_v2_6;
 static ColumnTimeV2::MutablePtr column_time_v2_5;
 static ColumnTimeV2::MutablePtr column_time_v2_0;
-
-std::unique_ptr<orc::TimestampVectorBatch> create_orc_timestamp_batch(
-        const std::vector<int64_t>& seconds, const std::vector<int64_t>& nanoseconds) {
-    auto batch =
-            std::make_unique<orc::TimestampVectorBatch>(seconds.size(), *orc::getDefaultPool());
-    batch->resize(seconds.size());
-    batch->hasNulls = false;
-    batch->numElements = seconds.size();
-    batch->notNull.resize(seconds.size());
-
-    for (size_t i = 0; i < seconds.size(); ++i) {
-        batch->notNull[i] = true;
-        batch->data[i] = seconds[i];
-        batch->nanoseconds[i] = nanoseconds[i];
-    }
-    return batch;
-}
 
 class DataTypeDateTimeV2SerDeTest : public ::testing::Test {
 public:
@@ -320,20 +302,6 @@ TEST_F(DataTypeDateTimeV2SerDeTest, SerializeDateTimeV2KeepsScale) {
             "2026-06-06 15:54:51.442|2026-06-06 15:54:51.442|"
             "2026-06-06 15:54:51.000",
             serialized);
-}
-
-TEST_F(DataTypeDateTimeV2SerDeTest, OrcTimestampTruncatesNanosToTargetScale) {
-    auto batch = create_orc_timestamp_batch({0, 0}, {320999999, 999999999});
-    DataTypeDateTimeV2SerDe serde(3);
-    auto column = ColumnDateTimeV2::create();
-
-    auto st = serde.read_column_from_orc("UTC", *column, nullptr, batch.get(), 0,
-                                         batch->numElements, nullptr);
-
-    ASSERT_TRUE(st.ok()) << st.to_string();
-    ASSERT_EQ(column->size(), 2);
-    EXPECT_EQ(column->get_data()[0].microsecond(), 320000);
-    EXPECT_EQ(column->get_data()[1].microsecond(), 999000);
 }
 
 // Run with UBSan enabled to catch misalignment errors.
