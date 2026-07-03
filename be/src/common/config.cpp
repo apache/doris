@@ -1309,7 +1309,7 @@ DEFINE_mInt64(snii_bigram_vocab_cap_bytes, "536870912");
 // Process-wide SNII index-build RAM budget across ALL live segment writers
 // (G09); the largest writers are asked to spill early once the sum crosses it.
 // 0 disables. Default 8 GiB.
-DEFINE_mInt64(snii_index_writer_global_memory_bytes, "8589934592");
+DEFINE_mInt64(snii_index_writer_global_memory_bytes, "0");
 // Minimum reclaimable posting-arena bytes before a G09 forced spill is honored
 // (and before a writer is eligible as a spill victim): forced spills reclaim
 // ONLY the arena, so smaller triggers cut tiny runs for near-zero relief.
