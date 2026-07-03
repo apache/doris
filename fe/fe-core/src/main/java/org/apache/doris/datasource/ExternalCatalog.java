@@ -419,6 +419,19 @@ public abstract class ExternalCatalog
         }
     }
 
+    /**
+     * Records the root-cause of a deferred metadata-load failure into {@code errorMsg} so it is
+     * visible in {@code show catalogs}. Some connectors connect lazily on first metadata access
+     * (their {@link #initLocalObjectsImpl()} only constructs the client), so the initial failure
+     * happens inside the meta-cache loader — outside {@link #makeSureInitialized()}'s try/catch,
+     * which is the only other place {@code errorMsg} is written. The message is cleared again by
+     * {@link #makeSureInitialized()} on the next successful (re-)initialization, e.g. after
+     * {@code alter catalog ... set properties} triggers {@link #resetToUninitialized(boolean)}.
+     */
+    protected void recordDeferredInitError(Throwable t) {
+        this.errorMsg = ExceptionUtils.getRootCauseMessage(t);
+    }
+
     protected final void initLocalObjects() {
         if (!objectCreated) {
             if (LOG.isDebugEnabled()) {

@@ -21,6 +21,7 @@ import org.apache.doris.connector.api.Connector;
 import org.apache.doris.connector.api.ConnectorCapability;
 import org.apache.doris.connector.api.ConnectorMetadata;
 import org.apache.doris.connector.api.ConnectorSession;
+import org.apache.doris.connector.api.ConnectorTestResult;
 import org.apache.doris.connector.api.ConnectorValidationContext;
 import org.apache.doris.connector.api.DorisConnectorException;
 import org.apache.doris.connector.api.procedure.ConnectorProcedureOps;
@@ -41,6 +42,8 @@ import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.CatalogUtil;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.TableIdentifier;
+import org.apache.iceberg.io.FileIO;
+import org.apache.iceberg.rest.RESTCatalog;
 import org.apache.iceberg.util.ThreadPools;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -66,6 +69,7 @@ import java.net.URLClassLoader;
 import java.util.Collections;
 import java.util.EnumSet;
 import java.util.HashMap;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
@@ -120,6 +124,15 @@ public class IcebergConnector implements Connector {
     static final long DEFAULT_TABLE_CACHE_TTL_SECOND = 86400L;
     static final int DEFAULT_TABLE_CACHE_CAPACITY = 1000;
 
+    // Doris storage property keys (mirror StorageProperties without a fe-core dependency).
+    private static final String S3_ACCESS_KEY = "s3.access_key";
+    private static final String S3_SECRET_KEY = "s3.secret_key";
+    private static final String S3_ENDPOINT = "s3.endpoint";
+    private static final String S3_REGION = "s3.region";
+    // Polaris REST catalog exposes its object-store base location under this key when the
+    // "warehouse" property is a catalog name rather than an s3:// location.
+    private static final String REST_DEFAULT_BASE_LOCATION = "default-base-location";
+
     private final Map<String, String> properties;
     private final ConnectorContext context;
     private volatile Catalog icebergCatalog;
@@ -171,6 +184,161 @@ public class IcebergConnector implements Connector {
     public ConnectorMetadata getMetadata(ConnectorSession session) {
         return new IcebergConnectorMetadata(
                 newCatalogBackedOps(), properties, context, latestSnapshotCache);
+    }
+
+    /**
+     * Eagerly validates connectivity during CREATE CATALOG (when {@code test_connection=true}).
+     * Runs two probes so bad configurations fail fast instead of at first query:
+     * <ul>
+     *   <li><b>Metastore</b> (REST only): lists namespaces, forcing a real REST round-trip that
+     *       validates the URI, auth (OAuth2/SigV4) and warehouse config.</li>
+     *   <li><b>Storage</b>: HEADs the warehouse location with the user-declared S3 credentials,
+     *       mirroring fe-core's S3ConnectivityTester so wrong keys are rejected up front.</li>
+     * </ul>
+     */
+    @Override
+    public ConnectorTestResult testConnection(ConnectorSession session) {
+        String catalogType = properties.getOrDefault(
+                IcebergConnectorProperties.ICEBERG_CATALOG_TYPE, "");
+
+        // -- Metastore probe (guarded by iceberg.catalog.type: only REST is probed here) --
+        if (IcebergConnectorProperties.TYPE_REST.equalsIgnoreCase(catalogType)) {
+            try {
+                getMetadata(session).listDatabaseNames(session);
+            } catch (Exception e) {
+                LOG.warn("Iceberg REST connectivity test failed for catalog '{}'",
+                        context.getCatalogName(), e);
+                return ConnectorTestResult.failure(metaFailureMessage(catalogType, e));
+            }
+        }
+
+        // -- Storage probe (only when the user supplied S3 credentials) --
+        ConnectorTestResult storageResult = probeStorage(catalogType);
+        if (storageResult != null) {
+            return storageResult;
+        }
+        return ConnectorTestResult.success();
+    }
+
+    /**
+     * Probes the object store with the user-declared S3 credentials. Returns a failure result if
+     * the store is unreachable or the credentials are rejected, or {@code null} when the check
+     * passes or is not applicable (no S3 credentials, or no resolvable s3:// location).
+     */
+    private ConnectorTestResult probeStorage(String catalogType) {
+        String accessKey = properties.get(S3_ACCESS_KEY);
+        String endpoint = properties.get(S3_ENDPOINT);
+        if (isBlank(accessKey) || isBlank(endpoint)) {
+            // No S3 credentials supplied: nothing to probe.
+            return null;
+        }
+        String location = resolveS3TestLocation(catalogType);
+        if (location == null) {
+            // Could not determine an s3:// location to probe (e.g. a non-REST catalog whose
+            // warehouse is not an s3:// path). Skip rather than fail a check we cannot perform.
+            LOG.info("Skipping Iceberg storage connectivity probe for catalog '{}': "
+                    + "no s3:// warehouse location resolved", context.getCatalogName());
+            return null;
+        }
+
+        // Map Doris s3.* keys to Iceberg S3FileIO keys and force static credentials (disable
+        // remote/vended signing) so the probe validates exactly what the user configured.
+        Map<String, String> ioProps = new HashMap<>();
+        ioProps.put("s3.endpoint", endpoint);
+        ioProps.put("s3.access-key-id", accessKey);
+        ioProps.put("s3.secret-access-key", properties.getOrDefault(S3_SECRET_KEY, ""));
+        ioProps.put("s3.path-style-access", "true");
+        ioProps.put("s3.remote-signing-enabled", "false");
+        String region = properties.get(S3_REGION);
+        if (!isBlank(region)) {
+            ioProps.put("client.region", region);
+        }
+
+        // Load S3FileIO reflectively via CatalogUtil so this module needs no compile-time AWS SDK
+        // dependency; the AWS SDK is resolved from the shared runtime classpath at execution time.
+        FileIO io = null;
+        try {
+            io = CatalogUtil.loadFileIO("org.apache.iceberg.aws.s3.S3FileIO", ioProps, null);
+            // exists() issues a HEAD: a 404 (missing object) returns false and is fine, but
+            // endpoint/credential failures (e.g. 403) throw — which is what we want to catch.
+            io.newInputFile(location).exists();
+            return null;
+        } catch (Exception e) {
+            LOG.warn("Iceberg storage connectivity test failed for catalog '{}'",
+                    context.getCatalogName(), e);
+            return ConnectorTestResult.failure(storageFailureMessage(e));
+        } finally {
+            if (io != null) {
+                try {
+                    io.close();
+                } catch (Exception ignored) {
+                    // best-effort cleanup
+                }
+            }
+        }
+    }
+
+    /**
+     * Resolves an {@code s3://} location to probe. Prefers an explicit S3 {@code warehouse} in the
+     * catalog properties; for REST catalogs falls back to the server-merged warehouse location
+     * (Iceberg {@code warehouse} or Polaris {@code default-base-location}).
+     */
+    private String resolveS3TestLocation(String catalogType) {
+        String location = toS3Location(properties.get(IcebergConnectorProperties.WAREHOUSE));
+        if (location != null) {
+            return location;
+        }
+        if (IcebergConnectorProperties.TYPE_REST.equalsIgnoreCase(catalogType)) {
+            Catalog catalog = getOrCreateCatalog();
+            if (catalog instanceof RESTCatalog) {
+                Map<String, String> merged = ((RESTCatalog) catalog).properties();
+                location = toS3Location(merged.get(CatalogProperties.WAREHOUSE_LOCATION));
+                if (location == null) {
+                    location = toS3Location(merged.get(REST_DEFAULT_BASE_LOCATION));
+                }
+            }
+        }
+        return location;
+    }
+
+    /**
+     * Builds the metastore-connectivity failure message. The wording deliberately contains both
+     * the catalog-type tag (e.g. {@code "Iceberg REST"}) and the phrase
+     * {@code "connectivity test failed"} so CREATE CATALOG surfaces a stable, actionable error.
+     */
+    static String metaFailureMessage(String catalogType, Throwable cause) {
+        String tag = "Iceberg " + catalogType.toUpperCase(Locale.ROOT);
+        return tag + " connectivity test failed: " + rootCauseMessage(cause);
+    }
+
+    static String storageFailureMessage(Throwable cause) {
+        return "Storage connectivity test failed: " + rootCauseMessage(cause);
+    }
+
+    /** Normalizes and returns {@code value} if it is an s3/s3a/s3n URI, otherwise {@code null}. */
+    static String toS3Location(String value) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        if (trimmed.matches("^(s3|s3a|s3n)://.+")) {
+            return trimmed.replaceFirst("^s3[an]://", "s3://");
+        }
+        return null;
+    }
+
+    /** Returns the message of the deepest cause, falling back to its simple class name. */
+    static String rootCauseMessage(Throwable t) {
+        Throwable root = t;
+        while (root.getCause() != null && root.getCause() != root) {
+            root = root.getCause();
+        }
+        String msg = root.getMessage();
+        return msg != null ? msg : root.getClass().getSimpleName();
+    }
+
+    private static boolean isBlank(String s) {
+        return s == null || s.trim().isEmpty();
     }
 
     /**

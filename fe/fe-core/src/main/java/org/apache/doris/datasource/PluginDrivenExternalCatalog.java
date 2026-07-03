@@ -264,8 +264,19 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
 
     @Override
     protected List<String> listDatabaseNames() {
-        ConnectorSession session = buildConnectorSession();
-        return connector.getMetadata(session).listDatabaseNames(session);
+        try {
+            ConnectorSession session = buildConnectorSession();
+            return connector.getMetadata(session).listDatabaseNames(session);
+        } catch (RuntimeException e) {
+            // The connector connects lazily: initLocalObjectsImpl() only constructs it, so the
+            // first metastore round-trip happens here — inside the meta-cache loader, which runs
+            // OUTSIDE makeSureInitialized()'s try/catch. Capture the failure so `show catalogs`
+            // surfaces it; makeSureInitialized() clears errorMsg again on the next successful
+            // (re-)initialization (e.g. after `alter catalog ... set properties`). This stays
+            // connector-agnostic: any plugin that connects lazily gets the same treatment.
+            recordDeferredInitError(e);
+            throw e;
+        }
     }
 
     @Override
