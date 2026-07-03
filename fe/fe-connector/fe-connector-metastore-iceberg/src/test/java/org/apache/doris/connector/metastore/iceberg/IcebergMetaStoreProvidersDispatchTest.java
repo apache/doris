@@ -66,10 +66,24 @@ public class IcebergMetaStoreProvidersDispatchTest {
     }
 
     @Test
-    public void hadoopAndS3TablesAreNoOpValidate() {
-        // The no-op backends exist only so bindForType resolves; validate() must not throw.
-        bind("hadoop").validate();
+    public void hadoopValidatesWarehouseAndS3TablesIsNoOp() {
+        // s3tables has NO metastore-side CREATE-CATALOG rule, so its validate() is a genuine no-op. hadoop, in
+        // contrast, restores the legacy IcebergHadoopExternalCatalog check (commit 935e4fb9d80): a HadoopCatalog
+        // cannot initialize without a warehouse root, so validate() throws when the warehouse is absent and passes
+        // once it is supplied. MUTATION: dropping the hadoop warehouse gate lets the missing-warehouse case pass
+        // -> red; a bogus s3tables rule makes the no-op case throw -> red.
         bind("s3tables").validate();
+
+        IllegalArgumentException missing = Assertions.assertThrows(IllegalArgumentException.class,
+                () -> bind("hadoop").validate());
+        Assertions.assertEquals(
+                "Cannot initialize Iceberg HadoopCatalog because 'warehouse' must not be null or empty",
+                missing.getMessage());
+
+        Map<String, String> withWarehouse = new HashMap<>();
+        withWarehouse.put("warehouse", "hdfs://ns/wh");
+        MetaStoreProviders.bindForType("hadoop", withWarehouse, Collections.emptyMap()).validate();
+
         Assertions.assertEquals("HADOOP", bind("hadoop").providerName());
         Assertions.assertEquals("S3TABLES", bind("s3tables").providerName());
     }

@@ -423,13 +423,22 @@ public class IcebergPredicateConverter {
             String string = (String) value;
             switch (id) {
                 case TIMESTAMP:
-                    // The rewrite WHERE is not type-coerced, so a quoted datetime literal arrives here as a raw
+                    if (mode == Mode.SCAN) {
+                        // Legacy IcebergUtils.extractDorisLiteral returns the raw string for a TIMESTAMP column and
+                        // lets the iceberg bind-check accept only a well-formed ISO timestamp; a date-only or
+                        // space-separated Doris string is then dropped. Returning the raw string keeps that scan
+                        // parity -- a VARCHAR must not push onto a timestamp column any wider than the legacy
+                        // IcebergScanNode did. (Normal scans coerce the literal to a DateTimeLiteral -> the
+                        // LocalDateTime branch, so this raw-string path is only the uncoerced case.)
+                        return string;
+                    }
+                    // REWRITE / CONFLICT are not type-coerced, so a quoted datetime literal arrives here as a raw
                     // Doris-format string ("yyyy-MM-dd HH:mm:ss[.SSSSSS]", or a date-only string). Iceberg's own
                     // string->timestamp bind expects ISO-8601 (with 'T') and rejects the space-separated form, so
                     // parse it to zone-adjusted epoch micros ourselves (via toMicros, honoring timestamptz),
-                    // mirroring legacy IcebergNereidsUtils' string branch. Null (drop) when not a parseable
-                    // datetime. (Normal scans coerce the literal to a DateTimeLiteral -> the LocalDateTime branch,
-                    // so this string path is only reached by the uncoerced rewrite/EXECUTE WHERE.)
+                    // mirroring legacy IcebergNereidsUtils' string branch -- which both the rewrite planner and the
+                    // conflict-detection util (IcebergConflictDetectionFilterUtils) delegate to. Null (drop) when
+                    // not a parseable datetime.
                     LocalDateTime parsedTs = parseDorisDateTime(string);
                     return parsedTs == null ? null : toMicros(parsedTs, icebergType);
                 case DATE:

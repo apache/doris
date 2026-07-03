@@ -1581,7 +1581,7 @@ public class IcebergScanPlanProviderTest {
         // Gate ON: the manifest-level path that reads manifests through the cache.
         IcebergManifestCache cache = new IcebergManifestCache();
         List<ConnectorScanRange> manifest = manifestProvider(manifestCacheProps(), table, cache)
-                .planScan(null, handle, Collections.emptyList(), Optional.empty());
+                .planScan(emptySession(), handle, Collections.emptyList(), Optional.empty());
 
         // WHY: the manifest-level path must enumerate the SAME data files as the SDK path. MUTATION: a mistake
         // in the ported planning (wrong manifest/metrics/residual handling) drops or duplicates files -> red.
@@ -1607,7 +1607,7 @@ public class IcebergScanPlanProviderTest {
                 .planScan(null, handle, Collections.emptyList(), wherePeq1);
         IcebergManifestCache cache = new IcebergManifestCache();
         List<ConnectorScanRange> manifest = manifestProvider(manifestCacheProps(), table, cache)
-                .planScan(null, handle, Collections.emptyList(), wherePeq1);
+                .planScan(emptySession(), handle, Collections.emptyList(), wherePeq1);
 
         // WHY: partition pruning (ManifestEvaluator + residual) must keep only p=1 in BOTH paths. MUTATION:
         // dropping the residual/metrics prune in the manifest path -> p=2 leaks in -> sizes differ -> red.
@@ -1671,7 +1671,7 @@ public class IcebergScanPlanProviderTest {
                 .planScan(null, handle, Collections.emptyList(), Optional.empty());
         IcebergManifestCache cache = new IcebergManifestCache();
         List<ConnectorScanRange> manifest = manifestProvider(manifestCacheProps(), table, cache)
-                .planScan(null, handle, Collections.emptyList(), Optional.empty());
+                .planScan(emptySession(), handle, Collections.emptyList(), Optional.empty());
 
         Assertions.assertEquals(1, sdk.size());
         Assertions.assertEquals(1, manifest.size());
