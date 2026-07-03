@@ -666,6 +666,22 @@ public class IcebergCatalogFactoryTest {
         Assertions.assertNull(opts.get("s3.access-key-id"));
     }
 
+    @Test
+    public void buildCatalogPropertiesRestVendedPropagatesClientRegionWithoutBoundS3() {
+        // WHY: a REST catalog with vended credentials binds NO fe-filesystem S3 storage (no static AK/SK/role ->
+        // chosenS3 empty), yet iceberg S3FileIO still needs client.region or it falls through to the AWS SDK
+        // DefaultAwsRegionProviderChain and the write commit fails with "Unable to load region". The raw s3.region
+        // carried by copy-all is inert (iceberg reads client.region). Legacy toFileIOProperties supplied this in
+        // its chosen==null branch. MUTATION: dropping the empty-chosenS3 region fallback -> client.region absent -> red.
+        Map<String, String> opts = IcebergCatalogFactory.buildCatalogProperties(
+                props("iceberg.catalog.type", "rest", "uri", "https://rest",
+                        "iceberg.rest.vended-credentials-enabled", "true", "s3.endpoint", "https://minio:9000",
+                        "s3.region", "us-east-1"),
+                "rest", Optional.empty());
+        Assertions.assertEquals("us-east-1", opts.get("client.region"),
+                "vended REST (no bound S3) must still translate s3.region -> client.region");
+    }
+
     // ---------------------------------------------------------------------
     // buildS3TablesCatalogProperties — bespoke s3tables options (NO catalog-impl, NO type removal)
     // ---------------------------------------------------------------------

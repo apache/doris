@@ -75,6 +75,13 @@ public final class IcebergCatalogFactory {
     private static final Pattern GLUE_ENDPOINT_PATTERN = Pattern.compile(
             "^(?:https?://)?(?:glue|glue-fips)\\.([a-z0-9-]+)\\.(?:api\\.aws|amazonaws\\.com)$");
 
+    // Region-field aliases scanned to propagate client.region when NO fe-filesystem S3 storage is bound
+    // (e.g. REST vended credentials: no static AK/SK/role, so S3FileSystemProvider.supports is false and
+    // chosenS3 is empty). Mirrors the legacy AbstractIcebergProperties.toFileIOProperties chosen==null
+    // fallback (getRegionFromProperties). The raw s3.region copied by buildBaseCatalogProperties is inert
+    // because iceberg S3FileIO reads client.region, not s3.region.
+    private static final String[] S3_REGION_ALIASES = {"s3.region", "aws.region", "region", "client.region"};
+
     private IcebergCatalogFactory() {
     }
 
@@ -166,6 +173,23 @@ public final class IcebergCatalogFactory {
         putS3FileIODialect(opts, s3);
         if ("S3".equals(s3.providerName())) {
             appendAssumeRoleProperties(opts, s3);
+        }
+    }
+
+    /**
+     * Emits the S3FileIO dialect from the bound fe-filesystem S3 storage when present; otherwise (no bound
+     * S3 storage, e.g. a REST catalog with vended credentials and no static AK/SK) still propagates
+     * {@code client.region} from the raw catalog properties so S3FileIO does not fall through to the AWS
+     * SDK {@code DefaultAwsRegionProviderChain} and fail the write commit with "Unable to load region".
+     * Legacy parity with {@code AbstractIcebergProperties.toFileIOProperties}, whose {@code chosen == null}
+     * branch supplied the region for exactly the rest/hadoop/jdbc flavors.
+     */
+    private static void appendS3FileIO(Map<String, String> opts, Map<String, String> props,
+            Optional<S3CompatibleFileSystemProperties> chosenS3) {
+        if (chosenS3.isPresent()) {
+            appendS3FileIOProperties(opts, chosenS3.get());
+        } else {
+            putIfNotBlank(opts, AwsClientProperties.CLIENT_REGION, firstNonBlank(props, S3_REGION_ALIASES));
         }
     }
 
@@ -290,7 +314,7 @@ public final class IcebergCatalogFactory {
         switch (flavor) {
             case IcebergConnectorProperties.TYPE_REST:
                 appendRestProperties(opts, props, chosenS3);
-                chosenS3.ifPresent(s3 -> appendS3FileIOProperties(opts, s3));
+                appendS3FileIO(opts, props, chosenS3);
                 break;
             case IcebergConnectorProperties.TYPE_GLUE:
                 // glue emits its OWN s3.* (unconditional) + glue-client creds; it does NOT use the base
@@ -299,7 +323,7 @@ public final class IcebergCatalogFactory {
                 break;
             case IcebergConnectorProperties.TYPE_JDBC:
                 appendJdbcProperties(opts, props);
-                chosenS3.ifPresent(s3 -> appendS3FileIOProperties(opts, s3));
+                appendS3FileIO(opts, props, chosenS3);
                 // iceberg.jdbc.catalog_name is the positional catalog NAME (see resolveCatalogName); legacy
                 // removes it from the options map before building.
                 opts.remove(IcebergConnectorProperties.JDBC_CATALOG_NAME);
@@ -309,7 +333,7 @@ public final class IcebergCatalogFactory {
                 // rides the HiveConf (fs.s3a.* from storage), built by the connector via assembleHiveConf.
                 break;
             case IcebergConnectorProperties.TYPE_HADOOP:
-                chosenS3.ifPresent(s3 -> appendS3FileIOProperties(opts, s3));
+                appendS3FileIO(opts, props, chosenS3);
                 break;
             default:
                 // s3tables / dlf: bespoke instantiation is T06/T07. Preserve the skeleton's base+impl routing.
