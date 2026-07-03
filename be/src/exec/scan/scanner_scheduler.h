@@ -164,7 +164,9 @@ public:
     }
 
     void stop() override {
-        _is_stop.store(true);
+        if (_is_stop.exchange(true)) {
+            return;
+        }
         _scan_thread_pool->shutdown();
         _scan_thread_pool->wait();
     }
@@ -264,7 +266,9 @@ public:
     }
 
     void stop() override {
-        _is_stop.store(true);
+        if (_is_stop.exchange(true)) {
+            return;
+        }
         _task_executor->stop();
         _task_executor->wait();
     }

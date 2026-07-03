@@ -274,9 +274,7 @@ Status TimeSharingTaskExecutor::init() {
 }
 
 TimeSharingTaskExecutor::~TimeSharingTaskExecutor() {
-    if (!_stopped.exchange(true)) {
-        stop();
-    }
+    stop();
 
     std::vector<std::shared_ptr<PrioritizedSplitRunner>> splits_to_destroy;
     {
@@ -313,6 +311,9 @@ Status TimeSharingTaskExecutor::start() {
 }
 
 void TimeSharingTaskExecutor::stop() {
+    if (_stopped.exchange(true)) {
+        return;
+    }
     // Why access to doris_metrics is safe here?
     // Since DorisMetrics is a singleton, it will be destroyed only after doris_main is exited.
     // The shutdown/destroy of SplitThreadPool is guaranteed to take place before doris_main exits by
