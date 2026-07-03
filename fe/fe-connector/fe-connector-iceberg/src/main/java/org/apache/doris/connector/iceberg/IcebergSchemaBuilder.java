@@ -24,6 +24,7 @@ import org.apache.doris.connector.api.ddl.ConnectorPartitionField;
 import org.apache.doris.connector.api.ddl.ConnectorPartitionSpec;
 import org.apache.doris.connector.api.ddl.ConnectorSortField;
 
+import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.NullOrder;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.RowLevelOperationMode;
@@ -37,6 +38,7 @@ import org.apache.iceberg.types.Types;
 import java.math.BigDecimal;
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
@@ -230,15 +232,44 @@ public final class IcebergSchemaBuilder {
      * Returns a mutable copy of the request properties with the Doris iceberg defaults applied (only when
      * absent): {@code format-version=2} and merge-on-read for delete/update/merge. Mirrors the
      * {@code putIfAbsent} block in legacy {@code performCreateTable} — the MOR modes are functionally
-     * required (Doris rejects row-level DML on copy-on-write iceberg tables).
+     * required (Doris rejects row-level DML on copy-on-write iceberg tables). Uses no catalog-level
+     * defaults; prefer {@link #buildTableProperties(Map, Map)} when the catalog properties are available.
      */
     public static Map<String, String> buildTableProperties(Map<String, String> requestProperties) {
+        return buildTableProperties(requestProperties, Collections.emptyMap());
+    }
+
+    /**
+     * Overload that respects a catalog-level default/override iceberg format-version (upstream 25f291673f1,
+     * #63825): the {@code format-version=2} default is applied ONLY when neither the table request nor the
+     * catalog specifies one, so a catalog {@code table-default.format-version} /
+     * {@code table-override.format-version} is no longer silently overridden to v2. Mirrors legacy
+     * {@code IcebergMetadataOps.performCreateTable} + {@code IcebergUtils.hasIcebergCatalogFormatVersion}
+     * (the connector cannot import fe-core IcebergUtils). The MOR modes stay unconditional (see the 1-arg
+     * overload).
+     */
+    public static Map<String, String> buildTableProperties(Map<String, String> requestProperties,
+            Map<String, String> catalogProperties) {
         Map<String, String> props = new HashMap<>(requestProperties);
-        props.putIfAbsent(TableProperties.FORMAT_VERSION, "2");
+        if (!props.containsKey(TableProperties.FORMAT_VERSION)
+                && !hasIcebergCatalogFormatVersion(catalogProperties)) {
+            props.put(TableProperties.FORMAT_VERSION, "2");
+        }
         props.putIfAbsent(TableProperties.DELETE_MODE, RowLevelOperationMode.MERGE_ON_READ.modeName());
         props.putIfAbsent(TableProperties.UPDATE_MODE, RowLevelOperationMode.MERGE_ON_READ.modeName());
         props.putIfAbsent(TableProperties.MERGE_MODE, RowLevelOperationMode.MERGE_ON_READ.modeName());
         return props;
+    }
+
+    /**
+     * Whether the catalog sets a table-level default/override iceberg format-version (the iceberg
+     * {@code table-default.*} / {@code table-override.*} namespaces applied by the underlying catalog).
+     * Mirrors fe-core {@code IcebergUtils.hasIcebergCatalogFormatVersion}.
+     */
+    private static boolean hasIcebergCatalogFormatVersion(Map<String, String> catalogProperties) {
+        return catalogProperties.containsKey(CatalogProperties.TABLE_OVERRIDE_PREFIX + TableProperties.FORMAT_VERSION)
+                || catalogProperties.containsKey(
+                        CatalogProperties.TABLE_DEFAULT_PREFIX + TableProperties.FORMAT_VERSION);
     }
 
     /**

@@ -1491,39 +1491,53 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
 
     /**
      * Compute the COUNT(*)-pushdown row count from the scan's snapshot summary, a faithful port of legacy
-     * {@code IcebergScanNode.getCountFromSnapshot} (:1142-1171):
-     * <ul>
-     *   <li>no snapshot (empty table) → {@code 0};</li>
-     *   <li>any equality delete ({@code total-equality-deletes != "0"}) → {@code -1} — not pushable, since
-     *       equality deletes re-project at read time and the summary cannot net them out;</li>
-     *   <li>no position deletes → {@code total-records};</li>
-     *   <li>position deletes present and session {@code ignore_iceberg_dangling_delete=true} →
-     *       {@code total-records - total-position-deletes};</li>
-     *   <li>otherwise {@code -1}.</li>
-     * </ul>
-     * Reads the scan's snapshot ({@code scan.snapshot()}) so the count tracks the scan automatically (the
-     * current snapshot today; the pinned snapshot once MVCC time-travel lands) — equivalent to legacy's
-     * {@code currentSnapshot()} for every non-time-travel query. The {@code summary.get(...)} calls are
-     * null-unsafe by design (legacy parity — real iceberg snapshots always carry these totals, "0" when none).
+     * {@code IcebergScanNode.getCountFromSnapshot}. No snapshot (empty table) &rarr; {@code 0}; otherwise
+     * delegates to {@link #getCountFromSummary}. Reads the scan's snapshot ({@code scan.snapshot()}) so the
+     * count tracks the scan automatically (the current snapshot today; the pinned snapshot once MVCC
+     * time-travel lands) — equivalent to legacy's {@code currentSnapshot()} for every non-time-travel query.
      */
     private static long getCountFromSnapshot(TableScan scan, ConnectorSession session) {
         Snapshot snapshot = scan.snapshot();
         if (snapshot == null) {
             return 0;
         }
-        Map<String, String> summary = snapshot.summary();
-        if (!summary.get(TOTAL_EQUALITY_DELETES).equals("0")) {
+        return getCountFromSummary(snapshot.summary(), ignoreIcebergDanglingDelete(session));
+    }
+
+    /**
+     * Null-safe port of fe-core {@code IcebergUtils.getCountFromSummary} (upstream 32a2651f66b, #64648).
+     * Returns {@code -1} — this module's "count not pushable / unknown" sentinel; the {@code planScan} gate
+     * and count-collapse callers both test {@code >= 0} — in two cases:
+     * <ul>
+     *   <li>any required {@code total-*} counter is ABSENT: compaction / replace / overwrite snapshots may
+     *       omit {@code total-records} / {@code total-position-deletes} / {@code total-equality-deletes}, and
+     *       the pre-fix code NPE-d on {@code summary.get(...).equals(...)} / {@code Long.parseLong(null)};</li>
+     *   <li>any equality delete ({@code total-equality-deletes != "0"}) — not pushable, since equality
+     *       deletes re-project at read time and the summary cannot net them out.</li>
+     * </ul>
+     * Otherwise: no position deletes &rarr; {@code total-records}; position deletes present and
+     * {@code ignoreDanglingDelete} &rarr; {@code total-records - total-position-deletes}; else {@code -1}.
+     */
+    static long getCountFromSummary(Map<String, String> summary, boolean ignoreDanglingDelete) {
+        String equalityDeletes = summary.get(TOTAL_EQUALITY_DELETES);
+        String positionDeletes = summary.get(TOTAL_POSITION_DELETES);
+        String totalRecords = summary.get(TOTAL_RECORDS);
+        if (equalityDeletes == null || positionDeletes == null || totalRecords == null) {
+            // a summary that omits any total-* counter can't be netted safely -> fall back to a real scan
+            return -1;
+        }
+        if (!equalityDeletes.equals("0")) {
             // has equality delete files, can not push down count
             return -1;
         }
-        long deleteCount = Long.parseLong(summary.get(TOTAL_POSITION_DELETES));
+        long deleteCount = Long.parseLong(positionDeletes);
         if (deleteCount == 0) {
             // no delete files, can push down count directly
-            return Long.parseLong(summary.get(TOTAL_RECORDS));
+            return Long.parseLong(totalRecords);
         }
-        if (ignoreIcebergDanglingDelete(session)) {
+        if (ignoreDanglingDelete) {
             // has position delete files; if we ignore dangling deletes, the netted count can be pushed down
-            return Long.parseLong(summary.get(TOTAL_RECORDS)) - deleteCount;
+            return Long.parseLong(totalRecords) - deleteCount;
         }
         // otherwise, can not push down count
         return -1;

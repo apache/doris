@@ -615,7 +615,16 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
             return -1;
         }
         Map<String, String> summary = snapshot.summary();
-        return Long.parseLong(summary.get(TOTAL_RECORDS)) - Long.parseLong(summary.get(TOTAL_POSITION_DELETES));
+        // Null-guard (upstream 32a2651f66b, #64648): compaction / replace / overwrite snapshots may omit a
+        // total-* counter, and the pre-fix Long.parseLong(null) NPE-d. -1 -> caller maps to UNKNOWN. NOTE:
+        // intentionally NOT the pushdown getCountFromSummary — this table-stats path deliberately omits the
+        // equality-delete gate (see the method javadoc), so only the NPE is fixed here, not the semantics.
+        String totalRecords = summary.get(TOTAL_RECORDS);
+        String positionDeletes = summary.get(TOTAL_POSITION_DELETES);
+        if (totalRecords == null || positionDeletes == null) {
+            return -1;
+        }
+        return Long.parseLong(totalRecords) - Long.parseLong(positionDeletes);
     }
 
     @Override
@@ -775,7 +784,11 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
         Schema schema = IcebergSchemaBuilder.buildSchema(request.getColumns());
         PartitionSpec partitionSpec = IcebergSchemaBuilder.buildPartitionSpec(request.getPartitionSpec(), schema);
         SortOrder sortOrder = IcebergSchemaBuilder.buildSortOrder(request.getSortOrder(), schema);
-        Map<String, String> tableProperties = IcebergSchemaBuilder.buildTableProperties(request.getProperties());
+        // Pass the catalog properties so a catalog-level table-default/override.format-version is respected
+        // instead of being forced to v2 (upstream 25f291673f1, #63825). `properties` holds the raw catalog
+        // CREATE properties (ConnectorFactory.createConnector(catalogProperty.getProperties())).
+        Map<String, String> tableProperties =
+                IcebergSchemaBuilder.buildTableProperties(request.getProperties(), properties);
         try {
             context.executeAuthenticated(() -> {
                 catalogOps.createTable(request.getDbName(), request.getTableName(),

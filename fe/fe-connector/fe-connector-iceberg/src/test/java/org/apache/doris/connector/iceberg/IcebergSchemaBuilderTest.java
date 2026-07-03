@@ -306,4 +306,52 @@ public class IcebergSchemaBuilderTest {
         Assertions.assertEquals("v", props.get("custom"));
         Assertions.assertEquals("merge-on-read", props.get(TableProperties.DELETE_MODE));
     }
+
+    // ---- format-version defaulting vs catalog-level default (upstream 25f291673f1, #63825) ----
+    // Literal iceberg keys (CatalogProperties.TABLE_DEFAULT_PREFIX/TABLE_OVERRIDE_PREFIX + FORMAT_VERSION)
+    // are used on purpose, to pin the actual wire contract the connector reads from catalog properties.
+
+    @Test
+    public void testCatalogDefaultFormatVersionNotOverriddenToV2() {
+        // WHY: when the catalog sets a table-default format-version and CREATE TABLE does not, the connector
+        // must NOT inject format-version=2 — the catalog default (e.g. v3) has to win. MUTATION: restoring
+        // the old unconditional putIfAbsent(FORMAT_VERSION,"2") forces v2 and silently ignores the catalog.
+        Map<String, String> catalogProps = new HashMap<>();
+        catalogProps.put("table-default.format-version", "3");
+        Map<String, String> props = IcebergSchemaBuilder.buildTableProperties(new HashMap<>(), catalogProps);
+        Assertions.assertFalse(props.containsKey(TableProperties.FORMAT_VERSION),
+                "catalog table-default.format-version must not be overridden by the v2 default");
+        // MOR defaults are still applied unconditionally.
+        Assertions.assertEquals("merge-on-read", props.get(TableProperties.DELETE_MODE));
+    }
+
+    @Test
+    public void testCatalogOverrideFormatVersionNotOverriddenToV2() {
+        Map<String, String> catalogProps = new HashMap<>();
+        catalogProps.put("table-override.format-version", "3");
+        Map<String, String> props = IcebergSchemaBuilder.buildTableProperties(new HashMap<>(), catalogProps);
+        Assertions.assertFalse(props.containsKey(TableProperties.FORMAT_VERSION));
+    }
+
+    @Test
+    public void testFormatVersionDefaultsToV2WhenNoCatalogDefault() {
+        // Backward compat: no table-level and no catalog-level format-version -> still defaults to v2.
+        Map<String, String> props =
+                IcebergSchemaBuilder.buildTableProperties(new HashMap<>(), Collections.emptyMap());
+        Assertions.assertEquals("2", props.get(TableProperties.FORMAT_VERSION));
+        // The 1-arg overload (used by the existing call sites) keeps the same v2 default via emptyMap.
+        Assertions.assertEquals("2",
+                IcebergSchemaBuilder.buildTableProperties(new HashMap<>()).get(TableProperties.FORMAT_VERSION));
+    }
+
+    @Test
+    public void testTableFormatVersionWinsOverCatalogDefault() {
+        // An explicit table-level format-version is always honored, regardless of any catalog default.
+        Map<String, String> tableProps = new HashMap<>();
+        tableProps.put(TableProperties.FORMAT_VERSION, "1");
+        Map<String, String> catalogProps = new HashMap<>();
+        catalogProps.put("table-default.format-version", "3");
+        Map<String, String> props = IcebergSchemaBuilder.buildTableProperties(tableProps, catalogProps);
+        Assertions.assertEquals("1", props.get(TableProperties.FORMAT_VERSION));
+    }
 }
