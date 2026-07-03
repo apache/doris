@@ -1124,7 +1124,7 @@ struct ToBase64Impl {
                 continue;
             }
 
-            auto cipher_len = srclen / 2;
+            auto cipher_len = (srclen + 2) / 3 * 4;
             char* dst = nullptr;
             if (cipher_len <= stack_buf.size()) {
                 dst = stack_buf.data();
@@ -1167,7 +1167,7 @@ struct FromBase64Impl {
                 continue;
             }
 
-            auto cipher_len = srclen / 2;
+            auto cipher_len = srclen / 4 * 3;
             char* dst = nullptr;
             if (cipher_len <= stack_buf.size()) {
                 dst = stack_buf.data();
