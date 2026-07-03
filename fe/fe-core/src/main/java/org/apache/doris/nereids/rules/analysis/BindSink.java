@@ -754,7 +754,7 @@ public class BindSink implements AnalysisRuleFactory {
         if (boundSink.getCols().size() != child.getOutput().size()) {
             throw new AnalysisException("insert into cols should be corresponding to the query output");
         }
-        Map<String, NamedExpression> columnToOutput = getColumnToOutput(ctx, table, false,
+        Map<String, NamedExpression> columnToOutput = getColumnToOutput(ctx, table, false, false,
                 boundSink, child, Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER));
         LogicalProject<?> fullOutputProject = getOutputProjectByCoercion(table.getFullSchema(), child, columnToOutput);
         return boundSink.withChildAndUpdateOutput(fullOutputProject);
@@ -830,7 +830,7 @@ public class BindSink implements AnalysisRuleFactory {
                     + "Expected " + boundSink.getCols().size() + " columns but got " + child.getOutput().size());
         }
 
-        Map<String, NamedExpression> columnToOutput = getColumnToOutput(ctx, table, false,
+        Map<String, NamedExpression> columnToOutput = getColumnToOutput(ctx, table, false, false,
                 boundSink, child, Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER));
 
         // For static partition columns, add constant expressions from PARTITION clause
@@ -955,7 +955,7 @@ public class BindSink implements AnalysisRuleFactory {
         if (boundSink.getCols().size() != child.getOutput().size()) {
             throw new AnalysisException("insert into cols should be corresponding to the query output");
         }
-        Map<String, NamedExpression> columnToOutput = getColumnToOutput(ctx, table, false,
+        Map<String, NamedExpression> columnToOutput = getColumnToOutput(ctx, table, false, false,
                 boundSink, child, Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER));
         LogicalProject<?> fullOutputProject = getOutputProjectByCoercion(table.getFullSchema(), child, columnToOutput);
         return boundSink.withChildAndUpdateOutput(fullOutputProject);
