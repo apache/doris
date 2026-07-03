@@ -149,6 +149,9 @@ public class UnboundTableSinkCreator {
         } else if (curCatalog instanceof IcebergExternalCatalog && !isAutoDetectPartition) {
             return new UnboundIcebergTableSink<>(nameParts, colNames, hints, partitions,
                     dmlCommandType, Optional.empty(), Optional.empty(), plan, staticPartitionKeyValues, false);
+        } else if (curCatalog instanceof PaimonExternalCatalog && !isAutoDetectPartition) {
+            return new UnboundPaimonTableSink<>(nameParts, colNames, hints, partitions,
+                    dmlCommandType, Optional.empty(), Optional.empty(), plan);
         } else if (curCatalog instanceof MaxComputeExternalCatalog && !isAutoDetectPartition) {
             return new UnboundMaxComputeTableSink<>(nameParts, colNames, hints, partitions,
                     dmlCommandType, Optional.empty(), Optional.empty(), plan, staticPartitionKeyValues);

@@ -56,6 +56,8 @@ import java.util.Set;
  */
 public class PaimonTableSink extends BaseExternalTableDataSink {
     private static final Logger LOG = LogManager.getLogger(PaimonTableSink.class);
+    private static final String OUTPUT_COLUMN_NAMES = "doris.output_column_names";
+    private static final String COLUMN_NAME_SEPARATOR = "\u0001";
     private final PaimonExternalTable targetTable;
     private static final Base64.Encoder BASE64_ENCODER = java.util.Base64.getUrlEncoder().withoutPadding();
     private List<Expr> outputExprs;
@@ -123,6 +125,7 @@ public class PaimonTableSink extends BaseExternalTableDataSink {
                 paimonOptions.put("doris.commit_user", ctx.getCommitUser());
             }
         }
+        paimonOptions.put(OUTPUT_COLUMN_NAMES, String.join(COLUMN_NAME_SEPARATOR, outputColumnNames()));
 
         if (ConnectContext.get() != null) {
             String hadoopUser = hadoopConfig.get("hadoop.username");
@@ -260,5 +263,18 @@ public class PaimonTableSink extends BaseExternalTableDataSink {
         if (value != null && !value.isEmpty()) {
             options.put(key, value);
         }
+    }
+
+    private List<String> outputColumnNames() throws AnalysisException {
+        List<Column> fullSchema = targetTable.getFullSchema();
+        if (fullSchema.size() != outputExprs.size()) {
+            throw new AnalysisException("Paimon sink output column size mismatch, schema size="
+                    + fullSchema.size() + ", output expr size=" + outputExprs.size());
+        }
+        ArrayList<String> outputColumnNames = new ArrayList<>(fullSchema.size());
+        for (Column column : fullSchema) {
+            outputColumnNames.add(column.getName());
+        }
+        return outputColumnNames;
     }
 }

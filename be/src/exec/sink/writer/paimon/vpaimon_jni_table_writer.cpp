@@ -23,6 +23,7 @@
 #include <arrow/record_batch.h>
 #include <arrow/type.h>
 
+#include "common/check.h"
 #include "core/block/block.h"
 #include "format/arrow/arrow_block_convertor.h"
 #include "format/arrow/arrow_row_batch.h"
@@ -36,6 +37,23 @@
 namespace doris {
 
 const std::string PAIMON_JNI_CLASS = "org/apache/doris/paimon/PaimonJniWriter";
+const std::string PAIMON_OUTPUT_COLUMN_NAMES = "doris.output_column_names";
+const char PAIMON_COLUMN_NAME_SEPARATOR = '\x01';
+
+std::vector<std::string> split_paimon_output_column_names(const std::string& column_names) {
+    std::vector<std::string> names;
+    size_t begin = 0;
+    while (begin <= column_names.size()) {
+        size_t end = column_names.find(PAIMON_COLUMN_NAME_SEPARATOR, begin);
+        if (end == std::string::npos) {
+            names.emplace_back(column_names.substr(begin));
+            break;
+        }
+        names.emplace_back(column_names.substr(begin, end - begin));
+        begin = end + 1;
+    }
+    return names;
+}
 
 VPaimonJniTableWriter::VPaimonJniTableWriter(const TDataSink& t_sink,
                                              const VExprContextSPtrs& output_exprs)
@@ -211,6 +229,17 @@ Status VPaimonJniTableWriter::write(RuntimeState* state, ::doris::Block& block) 
     {
         SCOPED_TIMER(_project_timer);
         RETURN_IF_ERROR(_projection_block(block, &output_block));
+    }
+    const auto& paimon_sink = _t_sink.paimon_table_sink;
+    if (paimon_sink.__isset.paimon_options) {
+        auto column_names = paimon_sink.paimon_options.find(PAIMON_OUTPUT_COLUMN_NAMES);
+        if (column_names != paimon_sink.paimon_options.end()) {
+            auto output_column_names = split_paimon_output_column_names(column_names->second);
+            DORIS_CHECK(output_column_names.size() == output_block.columns());
+            for (size_t i = 0; i < output_column_names.size(); ++i) {
+                output_block.get_by_position(i).name = output_column_names[i];
+            }
+        }
     }
 
     if (output_block.rows() >= _batch_max_rows || output_block.bytes() >= _batch_max_bytes) {
