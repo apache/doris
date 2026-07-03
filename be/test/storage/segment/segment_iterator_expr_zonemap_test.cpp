@@ -22,6 +22,8 @@
 #include <string>
 #include <vector>
 
+#include "core/assert_cast.h"
+#include "core/column/column_vector.h"
 #include "core/data_type/data_type_number.h"
 #include "core/field.h"
 #include "exprs/vexpr.h"
@@ -33,18 +35,22 @@
 #include "storage/index/zone_map/zonemap_eval_context.h"
 #include "storage/iterators.h"
 #include "storage/olap_common.h"
+#include "storage/predicate/block_column_predicate.h"
+#include "storage/predicate/comparison_predicate.h"
 #include "storage/row_cursor.h"
 #include "storage/segment/row_ranges.h"
 #include "storage/segment/segment.h"
 #include "storage/segment/segment_iterator.h"
 #include "storage/segment/test_segment_writer.h"
 #include "storage/tablet/tablet_schema_helper.h"
+#include "storage/utils.h"
 
 namespace doris::segment_v2 {
 namespace {
 
 constexpr auto kTestDir = "./ut_dir/segment_iterator_expr_zonemap_test";
 constexpr int kNumRows = 8192;
+constexpr int kCommitTsoRows = 8;
 const RowsetId kRowsetId {.version = 1};
 
 Field int_field(int32_t value) {
@@ -93,10 +99,28 @@ private:
 
 TabletSchemaSPtr make_tablet_schema() {
     auto tablet_schema = std::make_shared<TabletSchema>();
-    tablet_schema->append_column(*doris::create_int_key(0, false));
-    tablet_schema->append_column(*doris::create_int_key(1, false));
+    tablet_schema->append_column(*create_int_key(0, false));
+    tablet_schema->append_column(*create_int_key(1, false));
     tablet_schema->set_storage_page_size(4096);
     return tablet_schema;
+}
+
+TabletSchemaSPtr make_commit_tso_tablet_schema() {
+    auto tablet_schema = std::make_shared<TabletSchema>();
+    tablet_schema->append_column(*create_int_key(0, false));
+    tablet_schema->append_column(*create_commit_tso_column(1));
+    tablet_schema->set_storage_page_size(4096);
+    return tablet_schema;
+}
+
+std::shared_ptr<AndBlockColumnPredicate> make_commit_tso_gt_predicate(int32_t column_id,
+                                                                      int64_t value) {
+    auto predicates = AndBlockColumnPredicate::create_shared();
+    std::shared_ptr<ColumnPredicate> pred(
+            new ComparisonPredicateBase<TYPE_BIGINT, PredicateType::GT>(
+                    column_id, COMMIT_TSO_COL, Field::create_field<TYPE_BIGINT>(value)));
+    predicates->add_column_predicate(SingleColumnBlockPredicate::create_unique(pred));
+    return predicates;
 }
 
 SchemaSPtr make_read_schema(const TabletSchemaSPtr& tablet_schema) {
@@ -159,6 +183,44 @@ protected:
                            segment);
         ASSERT_TRUE(st.ok()) << st;
         ASSERT_EQ(kNumRows, (*segment)->num_rows());
+    }
+
+    void build_commit_tso_segment(std::shared_ptr<Segment>* segment) {
+        const auto path = std::string(kTestDir) + "/commit_tso_segment.dat";
+        auto fs = io::global_local_filesystem();
+        io::FileWriterPtr file_writer;
+        auto st = fs->create_file(path, &file_writer);
+        ASSERT_TRUE(st.ok()) << st;
+
+        SegmentWriterOptions opts;
+        opts.num_rows_per_block = 4;
+        TestSegmentWriter writer(file_writer.get(), 0, _tablet_schema, nullptr, nullptr, opts,
+                                 nullptr);
+        st = writer.init();
+        ASSERT_TRUE(st.ok()) << st;
+
+        RowCursor row;
+        std::vector<Field> fields(_tablet_schema->num_columns(), Field(PrimitiveType::TYPE_NULL));
+        st = row.init_scan_key(_tablet_schema, std::move(fields));
+        ASSERT_TRUE(st.ok()) << st;
+        for (int rid = 0; rid < kCommitTsoRows; ++rid) {
+            row.mutable_field(0) = int_field(rid);
+            row.mutable_field(1) = Field::create_field<TYPE_BIGINT>(0);
+            st = writer.append_row(row);
+            ASSERT_TRUE(st.ok()) << st;
+        }
+
+        uint64_t file_size = 0;
+        uint64_t index_size = 0;
+        st = writer.finalize(&file_size, &index_size);
+        ASSERT_TRUE(st.ok()) << st;
+        st = file_writer->close();
+        ASSERT_TRUE(st.ok()) << st;
+
+        st = Segment::open(fs, path, 100, 0, kRowsetId, _tablet_schema, io::FileReaderOptions {},
+                           segment);
+        ASSERT_TRUE(st.ok()) << st;
+        ASSERT_EQ(kCommitTsoRows, (*segment)->num_rows());
     }
 
     void prepare_expr_context(const VExprContextSPtr& expr_ctx) {
@@ -239,6 +301,72 @@ TEST_F(SegmentIteratorExprZonemapTest, ApplyExprZonemapPrunesPageRowRanges) {
     EXPECT_GT(row_ranges.from(), 0);
     EXPECT_LT(row_ranges.count(), kNumRows);
     EXPECT_EQ(kNumRows, row_ranges.to());
+}
+
+TEST_F(SegmentIteratorExprZonemapTest, NewColumnIteratorReadsCommitTsoFromReadOptions) {
+    constexpr int64_t kCommitTso = 466872251335573505L;
+    _tablet_schema = make_commit_tso_tablet_schema();
+
+    std::shared_ptr<Segment> segment;
+    ASSERT_NO_FATAL_FAILURE(build_commit_tso_segment(&segment));
+
+    StorageReadOptions read_options;
+    read_options.stats = &_stats;
+    read_options.tablet_schema = _tablet_schema;
+    read_options.version = Version(7, 7);
+    read_options.commit_tso = TsoRange(kCommitTso, kCommitTso);
+    read_options.io_ctx.reader_type = ReaderType::READER_QUERY;
+
+    ColumnIteratorUPtr iter;
+    auto st = segment->new_column_iterator(_tablet_schema->column(1), &iter, &read_options);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_NE(nullptr, iter);
+
+    auto file_reader = segment->file_reader();
+    ColumnIteratorOptions iter_opts;
+    iter_opts.stats = &_stats;
+    iter_opts.file_reader = file_reader.get();
+    iter_opts.io_ctx.reader_type = ReaderType::READER_QUERY;
+    st = iter->init(iter_opts);
+    ASSERT_TRUE(st.ok()) << st;
+
+    MutableColumnPtr dst = ColumnVector<TYPE_BIGINT>::create();
+    size_t n = kCommitTsoRows;
+    bool has_null = true;
+    st = iter->next_batch(&n, dst, &has_null);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_FALSE(has_null);
+    ASSERT_EQ(kCommitTsoRows, dst->size());
+    auto* col = assert_cast<ColumnInt64*>(dst.get());
+    for (size_t i = 0; i < dst->size(); ++i) {
+        EXPECT_EQ(kCommitTso, col->get_element(i));
+    }
+}
+
+TEST_F(SegmentIteratorExprZonemapTest, NewIteratorPrunesCommitTsoByReadOptionValue) {
+    constexpr int64_t kCommitTso = 466872251335573505L;
+    _tablet_schema = make_commit_tso_tablet_schema();
+
+    std::shared_ptr<Segment> segment;
+    ASSERT_NO_FATAL_FAILURE(build_commit_tso_segment(&segment));
+    auto read_schema = make_read_schema(_tablet_schema);
+
+    StorageReadOptions read_options;
+    read_options.stats = &_stats;
+    read_options.tablet_schema = _tablet_schema;
+    read_options.version = Version(7, 7);
+    read_options.commit_tso = TsoRange(kCommitTso, kCommitTso);
+    read_options.io_ctx.reader_type = ReaderType::READER_QUERY;
+    read_options.col_id_to_predicates.emplace(1,
+                                              make_commit_tso_gt_predicate(1, kCommitTso));
+
+    std::unique_ptr<RowwiseIterator> iter;
+    auto st = segment->new_iterator(read_schema, read_options, &iter);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_NE(nullptr, iter);
+    EXPECT_TRUE(iter->empty());
+    EXPECT_EQ(1, _stats.total_segment_number);
+    EXPECT_EQ(1, _stats.filtered_segment_number);
 }
 
 } // namespace doris::segment_v2

@@ -17,12 +17,16 @@
 
 #include <gtest/gtest.h>
 
+#include <memory>
+
 #include "common/status.h"
 #include "core/assert_cast.h"
 #include "core/column/column.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_vector.h"
 #include "core/field.h"
+#include "storage/predicate/block_column_predicate.h"
+#include "storage/predicate/comparison_predicate.h"
 #include "storage/segment/column_reader.h"
 #include "storage/segment/common.h"
 
@@ -31,6 +35,67 @@ using namespace doris::segment_v2;
 namespace doris {
 
 class ConstantColumnIteratorTest : public testing::Test {};
+
+TEST_F(ConstantColumnIteratorTest, ColumnReaderCreateWithConstValueReturnsConstantReader) {
+    const int64_t kValue = 8888;
+    ColumnReaderOptions opts;
+    opts.const_value = Field::create_field<TYPE_BIGINT>(kValue);
+
+    std::shared_ptr<ColumnReader> reader;
+    auto st = ColumnReader::create(opts, ColumnMetaPB(), 3, io::FileReaderSPtr(), &reader);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_NE(nullptr, reader);
+    EXPECT_TRUE(reader->has_zone_map());
+    EXPECT_EQ(FieldType::OLAP_FIELD_TYPE_BIGINT, reader->get_meta_type());
+
+    ZoneMap zone_map;
+    st = reader->get_segment_zone_map(&zone_map);
+    ASSERT_TRUE(st.ok()) << st;
+    EXPECT_EQ(kValue, zone_map.min_value.get<TYPE_BIGINT>());
+    EXPECT_EQ(kValue, zone_map.max_value.get<TYPE_BIGINT>());
+    EXPECT_TRUE(zone_map.has_not_null);
+
+    TabletColumn column;
+    column.set_type(FieldType::OLAP_FIELD_TYPE_BIGINT);
+    ColumnIteratorUPtr iter;
+    st = reader->new_iterator(&iter, &column, nullptr);
+    ASSERT_TRUE(st.ok()) << st;
+
+    MutableColumnPtr dst = ColumnVector<TYPE_BIGINT>::create();
+    size_t n = 3;
+    bool has_null = true;
+    st = iter->next_batch(&n, dst, &has_null);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_FALSE(has_null);
+    auto* col = assert_cast<ColumnInt64*>(dst.get());
+    for (size_t i = 0; i < n; ++i) {
+        EXPECT_EQ(kValue, col->get_element(i));
+    }
+}
+
+TEST_F(ConstantColumnIteratorTest, MatchConditionUsesConstantZoneMap) {
+    const int64_t kValue = 100;
+    ConstantColumnReader reader(Field::create_field<TYPE_BIGINT>(kValue));
+    auto make_gt_predicate = [](int64_t value) {
+        std::shared_ptr<ColumnPredicate> pred(
+                new ComparisonPredicateBase<TYPE_BIGINT, PredicateType::GT>(
+                        0, "", Field::create_field<TYPE_BIGINT>(value)));
+        return SingleColumnBlockPredicate::create_unique(pred);
+    };
+
+    bool matched = false;
+    AndBlockColumnPredicate keep;
+    keep.add_column_predicate(make_gt_predicate(kValue - 1));
+    auto st = reader.match_condition(&keep, &matched);
+    ASSERT_TRUE(st.ok()) << st;
+    EXPECT_TRUE(matched);
+
+    AndBlockColumnPredicate prune;
+    prune.add_column_predicate(make_gt_predicate(kValue));
+    st = reader.match_condition(&prune, &matched);
+    ASSERT_TRUE(st.ok()) << st;
+    EXPECT_FALSE(matched);
+}
 
 // next_batch fills every row with the constant value, advances the ordinal,
 // and reports has_null = false for a non-null value.
