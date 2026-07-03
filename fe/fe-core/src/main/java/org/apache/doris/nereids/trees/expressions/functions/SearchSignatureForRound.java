@@ -38,6 +38,10 @@ import java.util.List;
  */
 public interface SearchSignatureForRound extends ExplicitlyCastableSignature {
 
+    // IEEE-754 binary64 (double) can faithfully represent about 15-17 significant decimal digits.
+    // 15 is the safe lower bound - every double value round-trips through 15-digit decimal without
+    // change, so we cap the decimal reroute at 15 and let larger requested scales fall back to the
+    // original DOUBLE path.
     int DOUBLE_DECIMAL_RESULT_MAX_SCALE = 15;
 
     @Override
@@ -74,6 +78,9 @@ public interface SearchSignatureForRound extends ExplicitlyCastableSignature {
         if (!folded.isLiteral() && !folded.isSlot()) {
             ExpressionRewriteContext ctx = new ExpressionRewriteContext(CascadesContext.initTempContext());
             folded = FoldConstantRuleOnFE.evaluate(folded, ctx);
+        }
+        if (folded == null) {
+            return false;
         }
         Expression unwrapped = folded;
         if (unwrapped instanceof Cast && unwrapped.child(0).isLiteral()

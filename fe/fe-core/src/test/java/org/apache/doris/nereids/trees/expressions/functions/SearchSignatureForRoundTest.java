@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.expressions.functions;
 
+import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -119,6 +120,16 @@ public class SearchSignatureForRoundTest {
         withOptIn(true, () -> {
             Cast wrapped = new Cast(new IntegerLiteral(3), IntegerType.INSTANCE);
             assertDecimalReturn(3, new Round(DOUBLE_VAL, wrapped));
+        });
+    }
+
+    @Test
+    void roundDoubleWithFoldedIntExpressionReturnsDecimal() {
+        // Non-literal, non-slot scale that FoldConstantRuleOnFE can reduce to an int literal
+        // (1 + 2 -> 3).
+        withOptIn(true, () -> {
+            Add scale = new Add(new IntegerLiteral(1), new IntegerLiteral(2));
+            assertDecimalReturn(3, new Round(DOUBLE_VAL, scale));
         });
     }
 

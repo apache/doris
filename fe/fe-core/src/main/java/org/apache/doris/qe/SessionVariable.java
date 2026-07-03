@@ -1922,16 +1922,20 @@ public class SessionVariable implements Serializable, Writable {
             needForward = true, affectQueryResultInPlan = true,
             description = {
                     "当为 true 时，round/round_bankers/ceil/floor/truncate 在第一个参数为 DOUBLE 且第二个参数"
-                    + "为非负整数字面量（且不超过 15）时，返回类型从 DOUBLE 改为 DECIMAL，避免出现"
+                    + "为非负整数字面量（且不超过 15）时，函数签名解析会选中 DECIMAL 重载，进而使得计划器"
+                    + "对第一个参数插入到 decimal(30, 15) 的隐式 cast，最终返回 DECIMAL 类型结果，避免出现"
                     + " round(23900/293, 2) 显示为 81.56999999999999 这类 IEEE-754 残尾。注意启用后，"
-                    + " |x| >= 1e15 的 DOUBLE 输入以及 Inf/NaN 在隐式 cast 至 decimal(30, 15) 时会变 NULL"
+                    + " |x| >= 1e15 的 DOUBLE 输入以及 Inf/NaN 由于无法被 decimal(30, 15) 表示，会变 NULL"
                     + "（非严格模式）或抛 ARITHMETIC_OVERFLOW（严格模式），故默认关闭。",
-                    "When true, round/round_bankers/ceil/floor/truncate return DECIMAL instead of DOUBLE"
-                    + " when the first argument is a DOUBLE and the second is a non-negative integer literal"
-                    + " no greater than 15. This avoids IEEE-754 residual tails such as round(23900/293, 2)"
-                    + " rendering as 81.56999999999999. Enabling it makes DOUBLE inputs with |x| >= 1e15,"
-                    + " Inf, or NaN turn into NULL (non-strict mode) or raise ARITHMETIC_OVERFLOW"
-                    + " (strict mode) due to the implicit cast to decimal(30, 15); off by default."}
+                    "When true, round/round_bankers/ceil/floor/truncate resolve to a DECIMAL overload"
+                    + " when the first argument is a DOUBLE and the second is a non-negative integer"
+                    + " literal no greater than 15. The planner then inserts an implicit cast of the"
+                    + " first argument to decimal(30, 15), and the function returns DECIMAL. This"
+                    + " avoids IEEE-754 residual tails such as round(23900/293, 2) rendering as"
+                    + " 81.56999999999999. Because decimal(30, 15) cannot represent DOUBLE values"
+                    + " with |x| >= 1e15, Inf, or NaN, enabling this makes such inputs turn into"
+                    + " NULL (non-strict mode) or raise ARITHMETIC_OVERFLOW (strict mode); off by"
+                    + " default."}
     )
     public boolean roundDoubleReturnsDecimalForConstScale = false;
 

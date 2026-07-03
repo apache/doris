@@ -70,6 +70,12 @@
 4	90
 5	80
 
+-- !round_overflow_1e16 --
+\N
+
+-- !round_overflow_1e300 --
+\N
+
 -- !round_scale_col --
 1	81.56999999999999
 
