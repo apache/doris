@@ -20,6 +20,8 @@ import org.awaitility.Awaitility
 
 import static java.util.concurrent.TimeUnit.SECONDS
 
+// Verifies that PostgreSQL schema baselines survive an FE restart, including an idempotent
+// ADD-existing path, and that consecutive ADD/DROP changes continue from the restored baseline.
 suite("test_streaming_postgres_job_sc_restart_fe",
         "docker,pg,external_docker,external_docker_pg,nondatalake") {
     def jobName = "test_streaming_postgres_job_sc_restart_fe"

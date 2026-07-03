@@ -399,6 +399,8 @@ final class CdcClientWriteHarness implements AutoCloseable {
         req.setMaxInterval(3);
         req.setTaskTimeoutMs(60_000);
         req.setRebuildReader(rebuildReaderOnNextWrite);
+        req.setReuseReader(
+                BinlogSplit.BINLOG_SPLIT_ID.equals(String.valueOf(meta.get("splitId"))));
         rebuildReaderOnNextWrite = false;
         req.setStreamLoadProps(new HashMap<>());
         return req;
@@ -418,6 +420,10 @@ final class CdcClientWriteHarness implements AutoCloseable {
 
     @Override
     public void close() {
+        SourceReader reader = Env.getCurrentEnv().getReaderIfPresent(jobId);
+        if (reader != null) {
+            reader.close(baseConfig());
+        }
         Env.getCurrentEnv().close(jobId);
     }
 

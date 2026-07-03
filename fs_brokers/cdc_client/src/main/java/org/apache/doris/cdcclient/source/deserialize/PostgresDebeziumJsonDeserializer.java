@@ -23,7 +23,6 @@ import org.apache.doris.cdcclient.utils.SchemaChangeHelper;
 import org.apache.flink.cdc.connectors.base.utils.SourceRecordUtils;
 import org.apache.flink.cdc.connectors.mysql.source.utils.RecordUtils;
 import org.apache.flink.cdc.connectors.postgres.source.schema.PostgresSchemaRecord;
-import org.apache.kafka.connect.data.Struct;
 import org.apache.kafka.connect.source.SourceRecord;
 
 import java.io.IOException;
@@ -35,10 +34,6 @@ import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
-import static io.debezium.connector.AbstractSourceInfo.SCHEMA_NAME_KEY;
-import static io.debezium.connector.AbstractSourceInfo.TABLE_NAME_KEY;
-
-import io.debezium.data.Envelope;
 import io.debezium.relational.Column;
 import io.debezium.relational.Table;
 import io.debezium.relational.TableId;
@@ -195,13 +190,5 @@ public class PostgresDebeziumJsonDeserializer extends DebeziumJsonDeserializer {
                 dropped,
                 ddls);
         return DeserializeResult.schemaChange(ddls, updatedSchemas, Collections.emptyList());
-    }
-
-    private TableId extractTableId(SourceRecord record) {
-        Struct value = (Struct) record.value();
-        Struct source = value.getStruct(Envelope.FieldName.SOURCE);
-        String schemaName = source.getString(SCHEMA_NAME_KEY);
-        String tableName = source.getString(TABLE_NAME_KEY);
-        return new TableId(null, schemaName, tableName);
     }
 }

@@ -19,6 +19,8 @@ import org.awaitility.Awaitility
 
 import static java.util.concurrent.TimeUnit.SECONDS
 
+// Verifies that interleaved ADD/DROP changes on multiple PostgreSQL tables maintain independent
+// schema baselines and keep writing data with each table's latest schema.
 suite("test_streaming_postgres_job_sc_multi_table",
         "p0,external,pg,external_docker,external_docker_pg,nondatalake") {
     def jobName = "test_streaming_postgres_job_sc_multi_table"
