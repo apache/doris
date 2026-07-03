@@ -20,7 +20,7 @@ import groovy.json.JsonSlurper
 import groovy.json.StringEscapeUtils
 import org.apache.doris.regression.action.ProfileAction
 
-suite('scanner_profile') {
+suite('scanner_profile', 'nonConcurrent') {
     setFeConfigTemporary(["profile_waiting_time_for_spill_seconds": 60]) {
         sql """
             DROP TABLE IF EXISTS scanner_profile;
