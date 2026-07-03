@@ -59,13 +59,13 @@ suite("test_time_travel_mow", "nonConcurrent") {
     order_qt_future "SELECT k, v FROM test_time_travel_mow FOR VERSION AS OF 9223372036854775807 ORDER BY k"
 
     // ---- qualified column / star coverage on mow union path ----
-    def snapQualified = sql("""SELECT test_time_travel_mow.k, test_time_travel_mow.v
+    def snapQualified1 = sql("""SELECT test_time_travel_mow.k, test_time_travel_mow.v
             FROM test_time_travel_mow FOR VERSION AS OF ${t1} ORDER BY test_time_travel_mow.k""")
-    assertEquals([[1, 10], [2, 20], [3, 30]], snapQualified)
+    assertEquals([[1, 10], [2, 20], [3, 30]], snapQualified1)
 
-     def snapQualified = sql("""SELECT test_time_travel_mow.k
+    def snapQualified2 = sql("""SELECT test_time_travel_mow.k
             FROM test_time_travel_mow FOR VERSION AS OF ${t1} ORDER BY test_time_travel_mow.k""")
-    assertEquals([[1], [2], [3]], snapQualified)
+    assertEquals([[1], [2], [3]], snapQualified2)
 
     def snapStar = sql("""SELECT test_time_travel_mow.*
             FROM test_time_travel_mow FOR VERSION AS OF ${t1} ORDER BY k""")
