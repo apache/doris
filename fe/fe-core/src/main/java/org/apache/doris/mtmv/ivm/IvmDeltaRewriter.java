@@ -252,7 +252,7 @@ public class IvmDeltaRewriter {
 
     /** Replaces SlotReference ExprIds in an expression tree using the given mapping. */
     private Expression remapExprId(Expression expr, Map<ExprId, ExprId> map) {
-        return expr.rewriteDownShortCircuitDown(node -> {
+        return expr.rewriteDownShortCircuit(node -> {
             if (node instanceof SlotReference) {
                 ExprId newId = map.get(((SlotReference) node).getExprId());
                 if (newId != null) {
