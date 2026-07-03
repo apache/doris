@@ -3003,6 +3003,8 @@ Status Tablet::get_rowset_binlog_metas(Version binlog_versions, RowsetBinlogMeta
                                                       binlog_versions, metas_pb);
 }
 
+// Binlog is local-mode only. The segment index is the real binlog file id because segment-list
+// rowsets are cloud-only.
 std::string Tablet::get_segment_filepath(std::string_view rowset_id,
                                          std::string_view segment_index) const {
     return fmt::format("{}/_binlog/{}_{}.dat", _tablet_path, rowset_id, segment_index);

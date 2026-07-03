@@ -915,6 +915,8 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
                 }
             }};
 
+            // Binlog is local-mode only. These files use contiguous segment indexes because
+            // segment-list rowsets are cloud-only.
             // link segment files and index files
             for (int64_t segment_index = 0; segment_index < num_segments; ++segment_index) {
                 segment_file_path = ref_tablet->get_segment_filepath(rowset_id, segment_index);
