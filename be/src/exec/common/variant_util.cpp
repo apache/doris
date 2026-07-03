@@ -106,6 +106,44 @@
 namespace doris::variant_util {
 #include "common/compile_check_begin.h"
 
+namespace {
+
+PathInData make_full_subcolumn_path(const TabletColumnPtr& parent_column, std::string_view path) {
+    if (!path.empty()) {
+        return PathInData(parent_column->name_lower_case() + "." + std::string(path));
+    }
+
+    // Keep the empty JSON key as a real path part. The variant root is `parts.empty()`;
+    // an empty key is `parts.size() == 1 && parts[0].key.empty()` after popping root.
+    PathInDataBuilder builder;
+    return builder.append(parent_column->name_lower_case(), false).append("", false).build();
+}
+
+void append_empty_key_subcolumn_from_stats(TabletSchema::PathsSetInfo& paths_set_info,
+                                           const TabletColumnPtr& parent_column,
+                                           TabletSchemaSPtr& output_schema) {
+    if (!paths_set_info.sub_path_set.contains("") || paths_set_info.sparse_path_set.contains("") ||
+        paths_set_info.subcolumn_indexes.contains("")) {
+        return;
+    }
+
+    auto column_name = parent_column->name_lower_case() + ".";
+    auto column_path = make_full_subcolumn_path(parent_column, "");
+
+    TabletColumn subcolumn;
+    subcolumn.set_name(column_name);
+    subcolumn.set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);
+    subcolumn.set_parent_unique_id(parent_column->unique_id());
+    subcolumn.set_path_info(column_path);
+    subcolumn.set_aggregation_method(parent_column->aggregation());
+    subcolumn.set_variant_max_subcolumns_count(parent_column->variant_max_subcolumns_count());
+    subcolumn.set_variant_enable_doc_mode(parent_column->variant_enable_doc_mode());
+    subcolumn.set_is_nullable(true);
+    output_schema->append_column(subcolumn);
+}
+
+} // namespace
+
 // NestedGroup's physical children and offsets are produced by NestedGroupWriteProvider, not by
 // appending TabletSchema extracted columns here. This predicate keeps only ordinary Variant paths
 // that are outside the NG tree, for example `v.owner` beside `v.items[*]`.
@@ -1040,7 +1078,8 @@ void VariantCompactionUtil::get_compaction_subcolumns_from_subpaths(
     // append subcolumns
     for (const auto& subpath : sorted_subpaths) {
         auto column_name = parent_column->name_lower_case() + "." + subpath.to_string();
-        auto column_path = PathInData(column_name);
+        auto column_path = make_full_subcolumn_path(parent_column,
+                                                    std::string_view(subpath.data, subpath.size));
 
         const auto& find_data_types = path_to_data_types.find(PathInData(subpath));
 
@@ -1107,7 +1146,7 @@ void VariantCompactionUtil::get_compaction_subcolumns_from_data_types(
         DataTypePtr data_type;
         get_least_supertype_jsonb(data_types, &data_type);
         auto column_name = parent_column->name_lower_case() + "." + path.get_path();
-        auto column_path = PathInData(column_name);
+        auto column_path = make_full_subcolumn_path(parent_column, path.get_path());
         TabletColumn sub_column =
                 get_column_by_type(data_type, column_name,
                                    ExtraInfo {.unique_id = -1,
@@ -1122,6 +1161,10 @@ void VariantCompactionUtil::get_compaction_subcolumns_from_data_types(
         VLOG_DEBUG << "append sub column " << path.get_path() << " data type "
                    << data_type->get_name();
     }
+    // The data-type map can contain the variant root as PathInData(), while an empty JSON key
+    // only appears in path stats as "". If stats selected it as a materialized path, append it
+    // with an explicit empty path part so it does not collide with root.
+    append_empty_key_subcolumn_from_stats(paths_set_info, parent_column, output_schema);
 }
 
 // Build the temporary schema for compaction.
