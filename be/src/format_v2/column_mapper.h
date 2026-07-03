@@ -272,7 +272,7 @@ protected:
 };
 
 // Parquet consumes the full FileScanRequest shape: predicate columns for lazy materialization and
-// column_predicate_filters for statistics/page-index pruning.
+// top-level column_predicate_filters for statistics/page-index pruning.
 class ParquetColumnMapper final : public TableColumnMapper {
 public:
     using TableColumnMapper::TableColumnMapper;

@@ -334,6 +334,11 @@ Status ParquetReader::init(RuntimeState* state) {
         _state->scheduler.set_timezone(&state->timezone_obj());
         _state->scheduler.set_enable_strict_mode(_state->enable_strict_mode);
     }
+    int64_t merge_read_slice_size = -1;
+    if (state != nullptr && state->query_options().__isset.merge_read_slice_size) {
+        merge_read_slice_size = state->query_options().merge_read_slice_size;
+    }
+    _state->scheduler.set_merge_read_options(_profile, merge_read_slice_size);
     _state->scheduler.set_batch_size(_batch_size);
     // Open parquet file and parse metadata to get file schema.
     RETURN_IF_ERROR(_state->file_context.open(_tracing_file_reader, _io_ctx.get(),
@@ -395,7 +400,7 @@ Status ParquetReader::open(std::shared_ptr<format::FileScanRequest> request) {
 
     const int num_fields = static_cast<int>(_state->file_schema.size());
     for (const auto& column_filter : request_snapshot->column_predicate_filters) {
-        const auto file_column_id = column_filter.effective_file_column_id();
+        const auto file_column_id = column_filter.file_column_id;
         if (!file_column_id.is_valid() || file_column_id.value() >= num_fields) {
             return Status::InvalidArgument("Invalid parquet filter top-level local id {}",
                                            file_column_id.value());

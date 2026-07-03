@@ -253,6 +253,9 @@ suite("hive_on_hms_and_dlf", "p2,external") {
         sql """
             insert overwrite table ${table_name} values (3, 'charlie', 30);
         """
+        sql """
+            refresh table ${db_name}.${table_name};
+        """
         def result2 = sql """
             SELECT * FROM ${table_name};
         """
@@ -262,6 +265,9 @@ suite("hive_on_hms_and_dlf", "p2,external") {
         // Test 3: Another insert overwrite with multiple rows
         sql """
             insert overwrite table ${table_name} values (4, 'david', 35), (5, 'eve', 28), (6, 'frank', 40);
+        """
+        sql """
+            refresh table ${db_name}.${table_name};
         """
         def result3 = sql """
             SELECT COUNT(*) FROM ${table_name};

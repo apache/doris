@@ -21,6 +21,7 @@
 #include <gen_cpp/Opcodes_types.h>
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/olap_file.pb.h>
+#include <glog/logging.h>
 
 #include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
@@ -117,6 +118,30 @@
 namespace doris {
 using namespace ErrorCode;
 namespace segment_v2 {
+
+class ScopedColumnIteratorReadPhase {
+public:
+    ScopedColumnIteratorReadPhase(ColumnIterator* column_iter, ColumnIterator::ReadPhase mode)
+            : _column_iter(column_iter) {
+        DORIS_CHECK(_column_iter != nullptr);
+        _column_iter->set_read_phase(mode);
+    }
+
+    ScopedColumnIteratorReadPhase(const ScopedColumnIteratorReadPhase&) = delete;
+    ScopedColumnIteratorReadPhase& operator=(const ScopedColumnIteratorReadPhase&) = delete;
+
+    ~ScopedColumnIteratorReadPhase() {
+        // ReadPhase is a per-read phase knob. SegmentIterator only needs a
+        // temporary PREDICATE/LAZY mode while reading one column in one phase; it
+        // must be restored before the next column or later normal reads reuse the
+        // same ColumnIterator. Keep the restoration in one scoped helper instead
+        // of open-coding the same Defer block at every call site.
+        _column_iter->set_read_phase(ColumnIterator::ReadPhase::NORMAL);
+    }
+
+private:
+    ColumnIterator* _column_iter = nullptr;
+};
 
 SegmentIterator::~SegmentIterator() = default;
 
@@ -416,6 +441,10 @@ Status SegmentIterator::_init_impl(const StorageReadOptions& opts) {
     _score_runtime = _opts.score_runtime;
     _ann_topn_runtime = _opts.ann_topn_runtime;
 
+    _enable_prune_nested_column = _opts.io_ctx.reader_type == ReaderType::READER_QUERY &&
+                                  _opts.runtime_state &&
+                                  _opts.runtime_state->enable_prune_nested_column();
+
     if (opts.output_columns != nullptr) {
         _output_columns = *(opts.output_columns);
     }
@@ -652,8 +681,14 @@ void SegmentIterator::_init_segment_prefetchers() {
                                                        ? PrefetcherInitMethod::FROM_ROWIDS
                                                        : PrefetcherInitMethod::ALL_DATA_BLOCKS;
             std::map<PrefetcherInitMethod, std::vector<SegmentPrefetcher*>> prefetchers;
-            for (const auto& column_iter : _column_iterators) {
+            for (size_t idx = 0; idx < _column_iterators.size(); ++idx) {
+                auto cid = cast_set<ColumnId>(idx);
+                auto* column_iter = _column_iterators[cid].get();
                 if (column_iter != nullptr) {
+                    ScopedColumnIteratorReadPhase scoped_read_phase {
+                            column_iter, _support_lazy_read_pruned_columns.contains(cid)
+                                                 ? ColumnIterator::ReadPhase::PREDICATE
+                                                 : ColumnIterator::ReadPhase::NORMAL};
                     column_iter->collect_prefetchers(prefetchers, init_method);
                 }
             }
@@ -1983,6 +2018,25 @@ Status SegmentIterator::_vec_init_lazy_materialization() {
                 if (_is_common_expr_column[cid] || _is_pred_column[cid]) {
                     auto loc = _schema->column_index(cid);
                     _columns_to_filter.push_back(loc);
+
+                    const auto field_type = _schema->column(cid)->type();
+                    if (_is_common_expr_column[cid] && _enable_prune_nested_column &&
+                        (field_type == FieldType::OLAP_FIELD_TYPE_STRUCT ||
+                         field_type == FieldType::OLAP_FIELD_TYPE_ARRAY ||
+                         field_type == FieldType::OLAP_FIELD_TYPE_MAP)) {
+                        DCHECK(_column_iterators[cid]);
+                        if (_column_iterators[cid]->read_requirement() ==
+                                    ColumnIterator::ReadRequirement::PREDICATE &&
+                            _column_iterators[cid]->has_lazy_read_target()) {
+                            // Only split lazy recovery for complex common expr columns that have
+                            // both predicate-only and non-predicate nested targets. The two requirement
+                            // checks already imply that nested-column pruning happened: without an
+                            // explicit predicate sub-path the parent would not be
+                            // PREDICATE, and without a pruned non-predicate child there
+                            // would be no lazy target to recover after filtering.
+                            _support_lazy_read_pruned_columns.emplace(cid);
+                        }
+                    }
                 }
             }
 
@@ -2316,16 +2370,22 @@ Status SegmentIterator::_read_columns_by_index(uint32_t nrows_read_limit, uint16
             })
         }
 
+        auto* column_iter = _column_iterators[cid].get();
+        ScopedColumnIteratorReadPhase scoped_read_phase {
+                column_iter, _support_lazy_read_pruned_columns.contains(cid)
+                                     ? ColumnIterator::ReadPhase::PREDICATE
+                                     : ColumnIterator::ReadPhase::NORMAL};
+
         if (is_continuous) {
             size_t rows_read = nrows_read;
             _opts.stats->predicate_column_read_seek_num += 1;
             if (_opts.runtime_state && _opts.runtime_state->enable_profile()) {
                 SCOPED_RAW_TIMER(&_opts.stats->predicate_column_read_seek_ns);
-                RETURN_IF_ERROR(_column_iterators[cid]->seek_to_ordinal(_block_rowids[0]));
+                RETURN_IF_ERROR(column_iter->seek_to_ordinal(_block_rowids[0]));
             } else {
-                RETURN_IF_ERROR(_column_iterators[cid]->seek_to_ordinal(_block_rowids[0]));
+                RETURN_IF_ERROR(column_iter->seek_to_ordinal(_block_rowids[0]));
             }
-            RETURN_IF_ERROR(_column_iterators[cid]->next_batch(&rows_read, column));
+            RETURN_IF_ERROR(column_iter->next_batch(&rows_read, column));
             if (rows_read != nrows_read) {
                 return Status::Error<ErrorCode::INTERNAL_ERROR>("nrows({}) != rows_read({})",
                                                                 nrows_read, rows_read);
@@ -2345,20 +2405,18 @@ Status SegmentIterator::_read_columns_by_index(uint32_t nrows_read_limit, uint16
                     _opts.stats->predicate_column_read_seek_num += 1;
                     if (_opts.runtime_state && _opts.runtime_state->enable_profile()) {
                         SCOPED_RAW_TIMER(&_opts.stats->predicate_column_read_seek_ns);
-                        RETURN_IF_ERROR(
-                                _column_iterators[cid]->seek_to_ordinal(_block_rowids[processed]));
+                        RETURN_IF_ERROR(column_iter->seek_to_ordinal(_block_rowids[processed]));
                     } else {
-                        RETURN_IF_ERROR(
-                                _column_iterators[cid]->seek_to_ordinal(_block_rowids[processed]));
+                        RETURN_IF_ERROR(column_iter->seek_to_ordinal(_block_rowids[processed]));
                     }
-                    RETURN_IF_ERROR(_column_iterators[cid]->next_batch(&rows_read, column));
+                    RETURN_IF_ERROR(column_iter->next_batch(&rows_read, column));
                     if (rows_read != current_batch_size) {
                         return Status::Error<ErrorCode::INTERNAL_ERROR>(
                                 "batch nrows({}) != rows_read({})", current_batch_size, rows_read);
                     }
                 } else {
-                    RETURN_IF_ERROR(_column_iterators[cid]->read_by_rowids(
-                            &_block_rowids[processed], current_batch_size, column));
+                    RETURN_IF_ERROR(column_iter->read_by_rowids(&_block_rowids[processed],
+                                                                current_batch_size, column));
                 }
                 processed += current_batch_size;
             }
@@ -2655,7 +2713,8 @@ Status SegmentIterator::_read_columns_by_rowids(std::vector<ColumnId>& read_colu
                                                 std::vector<rowid_t>& rowid_vector,
                                                 uint16_t* sel_rowid_idx, size_t select_size,
                                                 MutableColumns* mutable_columns,
-                                                bool init_condition_cache) {
+                                                bool init_condition_cache,
+                                                bool read_for_predicate) {
     SCOPED_RAW_TIMER(&_opts.stats->lazy_read_ns);
     std::vector<rowid_t> rowids(select_size);
 
@@ -2699,10 +2758,43 @@ Status SegmentIterator::_read_columns_by_rowids(std::vector<ColumnId>& read_colu
                     "SegmentIterator meet invalid column, return columns size {}, cid {}",
                     _current_return_columns.size(), cid);
         }
-        RETURN_IF_ERROR(_column_iterators[cid]->read_by_rowids(rowids.data(), select_size,
-                                                               _current_return_columns[cid]));
+
+        auto* column_iter = _column_iterators[cid].get();
+        ScopedColumnIteratorReadPhase scoped_read_phase {
+                column_iter, read_for_predicate && _support_lazy_read_pruned_columns.contains(cid)
+                                     ? ColumnIterator::ReadPhase::PREDICATE
+                                     : ColumnIterator::ReadPhase::NORMAL};
+
+        RETURN_IF_ERROR(column_iter->read_by_rowids(rowids.data(), select_size,
+                                                    _current_return_columns[cid]));
     }
 
+    return Status::OK();
+}
+
+Status SegmentIterator::_read_lazy_pruned_columns(Block* block) {
+    if (_support_lazy_read_pruned_columns.empty()) {
+        return Status::OK();
+    }
+
+    SCOPED_RAW_TIMER(&_opts.stats->lazy_read_pruned_ns);
+    DorisVector<rowid_t> rowids(_selected_size);
+    for (size_t i = 0; i < _selected_size; ++i) {
+        rowids[i] = _block_rowids[_sel_rowid_idx[i]];
+    }
+
+    for (auto cid : _support_lazy_read_pruned_columns) {
+        auto loc = _schema->column_index(cid);
+        auto column = IColumn::mutate(std::move(block->get_by_position(loc).column));
+        auto* column_iter = _column_iterators[cid].get();
+        ScopedColumnIteratorReadPhase scoped_read_phase {column_iter,
+                                                         ColumnIterator::ReadPhase::LAZY};
+        if (_selected_size > 0) {
+            RETURN_IF_ERROR(column_iter->read_by_rowids(rowids.data(), _selected_size, column));
+        }
+        column_iter->finalize_lazy_phase(column);
+        block->get_by_position(loc).column = std::move(column);
+    }
     return Status::OK();
 }
 
@@ -2919,7 +3011,7 @@ Status SegmentIterator::_next_batch_internal(Block* block) {
                         SCOPED_RAW_TIMER(&_opts.stats->non_predicate_read_ns);
                         RETURN_IF_ERROR(_read_columns_by_rowids(
                                 _common_expr_column_ids, _block_rowids, _sel_rowid_idx.data(),
-                                _selected_size, &_current_return_columns));
+                                _selected_size, &_current_return_columns, false, true));
                         _replace_version_col_if_needed(_common_expr_column_ids, _selected_size);
                         _update_lsn_col_if_needed(_common_expr_column_ids, _selected_size);
                         _update_tso_col_if_needed(_common_expr_column_ids, _selected_size);
@@ -2954,7 +3046,7 @@ Status SegmentIterator::_next_batch_internal(Block* block) {
                 RETURN_IF_ERROR(_read_columns_by_rowids(
                         _non_predicate_columns, _block_rowids, _sel_rowid_idx.data(),
                         _selected_size, &_current_return_columns,
-                        _opts.condition_cache_digest && !_find_condition_cache));
+                        _opts.condition_cache_digest && !_find_condition_cache, false));
                 _replace_version_col_if_needed(_non_predicate_columns, _selected_size);
                 _update_lsn_col_if_needed(_non_predicate_columns, _selected_size);
                 _update_tso_col_if_needed(_non_predicate_columns, _selected_size);
@@ -2968,6 +3060,8 @@ Status SegmentIterator::_next_batch_internal(Block* block) {
                 }
             }
         }
+
+        RETURN_IF_ERROR(_read_lazy_pruned_columns(block));
     }
 
     // step5: output columns
