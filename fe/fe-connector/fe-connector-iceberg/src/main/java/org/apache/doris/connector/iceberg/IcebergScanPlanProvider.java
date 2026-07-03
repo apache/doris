@@ -29,6 +29,7 @@ import org.apache.doris.connector.api.scan.ConnectorSplitSource;
 import org.apache.doris.connector.cache.CacheSpec;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.filesystem.properties.StorageProperties;
+import org.apache.doris.kerberos.HadoopAuthenticator;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.doris.thrift.TIcebergDeleteFileDesc;
@@ -55,6 +56,7 @@ import org.apache.iceberg.Schema;
 import org.apache.iceberg.SchemaParser;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.TableOperations;
 import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.TableScan;
 import org.apache.iceberg.exceptions.ValidationException;
@@ -620,6 +622,26 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
      * the cross-version byte compatibility is covered by the P6.8 docker e2e. Dormant until P6.6.
      */
     private List<ConnectorScanRange> planSystemTableScan(IcebergTableHandle handle,
+            Optional<ConnectorExpression> filter, ConnectorSession session) {
+        // Thread-level auth wrap (legacy parity: preExecutionAuthenticator.execute around doGetSplits), ONE
+        // scope spanning the base-table load (resolveSysTable) plus the metadata-table planFiles — whose
+        // manifest-list read for the $files family happens on THIS thread. Deliberately NOT the
+        // wrapTableForScan object-level wrap — the planned FileScanTasks are Java-serialized to the BE JNI
+        // reader and the authenticator-bearing FileIO wrapper is not serializable.
+        if (context == null) {
+            return doPlanSystemTableScan(handle, filter, session);
+        }
+        try {
+            return context.executeAuthenticated(() -> doPlanSystemTableScan(handle, filter, session));
+        } catch (RuntimeException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to plan iceberg system-table scan, error message is:"
+                    + e.getMessage(), e);
+        }
+    }
+
+    private List<ConnectorScanRange> doPlanSystemTableScan(IcebergTableHandle handle,
             Optional<ConnectorExpression> filter, ConnectorSession session) {
         Table metadataTable = resolveSysTable(handle);
         TableScan scan = buildScan(metadataTable, handle, filter, session);
@@ -1569,34 +1591,61 @@ public class IcebergScanPlanProvider implements ConnectorScanPlanProvider {
             return catalogOps.loadTable(handle.getDbName(), handle.getTableName());
         }
         try {
-            return context.executeAuthenticated(
-                    () -> catalogOps.loadTable(handle.getDbName(), handle.getTableName()));
+            return wrapTableForScan(context.executeAuthenticated(
+                    () -> catalogOps.loadTable(handle.getDbName(), handle.getTableName())));
         } catch (Exception e) {
             throw new RuntimeException("Failed to load table for scan, error message is:" + e.getMessage(), e);
         }
     }
 
     /**
+     * Routes a resolved data table's {@code io()} through the plugin-side Kerberos {@code doAs}
+     * ({@link IcebergAuthenticatedFileIO} via {@link IcebergAuthenticatedTableOperations}) — the scan-side
+     * mirror of the write path ({@code IcebergConnectorTransaction.openTransaction}). Scan planning reads the
+     * manifest list and manifests through {@code table.io()} ({@code SnapshotScan.planFiles},
+     * {@code streamingSplitEstimate}'s {@code dataManifests}, the streaming source's lazy iteration) — on the
+     * CALLING thread for small tables and fanned onto iceberg's shared worker pool ({@code ParallelIterable})
+     * for multi-manifest tables, which never inherits a caller-thread {@code doAs}. Wrapping at the FileIO
+     * seam is thread-agnostic: the factory-time {@code doAs} captures the secured FileSystem, so later
+     * {@code newStream()} on ANY thread stays authenticated (see {@link IcebergAuthenticatedFileIO}). Legacy
+     * parity: {@code IcebergScanNode} wrapped {@code doGetSplits} AND its streaming callbacks in
+     * {@code preExecutionAuthenticator.execute}; single-UGI fe-core made thread-level cover enough there,
+     * while the plugin's child-first UGI copy does not (CI: SELECT after INSERT on
+     * test_iceberg_hadoop_catalog_kerberos failed SASL reading snap-*.avro at plan time).
+     *
+     * <p>Non-Kerberos catalogs ({@code getPluginAuthenticator() == null}) and offline tests (plain context /
+     * non-{@link BaseTable} fakes) pass through unchanged. Kerberos and REST vended credentials are disjoint
+     * (the authenticator is gated on hadoop.security.authentication=kerberos), so
+     * {@code extractVendedToken}'s {@code instanceof SupportsStorageCredentials} probe never sees the wrapper.
+     * The system-table path deliberately does NOT use this wrap: its {@code FileScanTask}s are Java-serialized
+     * to the BE JNI reader and the wrapper (authenticator-bearing) is not serializable — it is covered by the
+     * thread-level wrap in {@link #planSystemTableScan} instead. Package-private for unit testing.
+     */
+    Table wrapTableForScan(Table table) {
+        if (!(context instanceof TcclPinningConnectorContext) || !(table instanceof BaseTable)) {
+            return table;
+        }
+        HadoopAuthenticator auth = ((TcclPinningConnectorContext) context).getPluginAuthenticator();
+        if (auth == null) {
+            return table;
+        }
+        TableOperations rawOps = ((BaseTable) table).operations();
+        return new BaseTable(new IcebergAuthenticatedTableOperations(
+                rawOps, new IcebergAuthenticatedFileIO(rawOps.io(), auth)), table.name());
+    }
+
+    /**
      * Resolve the metadata table for a system-table handle, mirroring
      * {@code IcebergConnectorMetadata.loadSysTable} (and legacy {@code IcebergSysExternalTable.getSysIcebergTable}):
-     * load the BASE table and build the metadata-table instance ({@code MetadataTableUtils}) inside ONE auth
-     * scope, so the FE-injected Kerberos UGI covers the remote base load. {@code getSysTableName()} is the
-     * already-validated lowercase name, so {@code MetadataTableType.from} never returns null. A {@code null}
-     * context (offline unit tests / simple-auth) resolves directly.
+     * load the BASE table and build the metadata-table instance ({@code MetadataTableUtils}).
+     * {@code getSysTableName()} is the already-validated lowercase name, so {@code MetadataTableType.from}
+     * never returns null. The auth scope is owned by the SOLE caller {@link #planSystemTableScan}, whose
+     * thread-level {@code executeAuthenticated} spans the whole sys planning (this load + {@code planFiles} +
+     * task serialization) in ONE scope — no nested wrap here.
      */
     private Table resolveSysTable(IcebergTableHandle handle) {
-        if (context == null) {
-            return MetadataTableUtils.createMetadataTableInstance(
-                    catalogOps.loadTable(handle.getDbName(), handle.getTableName()),
-                    MetadataTableType.from(handle.getSysTableName()));
-        }
-        try {
-            return context.executeAuthenticated(() -> MetadataTableUtils.createMetadataTableInstance(
-                    catalogOps.loadTable(handle.getDbName(), handle.getTableName()),
-                    MetadataTableType.from(handle.getSysTableName())));
-        } catch (Exception e) {
-            throw new RuntimeException(
-                    "Failed to load iceberg system table for scan, error message is:" + e.getMessage(), e);
-        }
+        return MetadataTableUtils.createMetadataTableInstance(
+                catalogOps.loadTable(handle.getDbName(), handle.getTableName()),
+                MetadataTableType.from(handle.getSysTableName()));
     }
 }
