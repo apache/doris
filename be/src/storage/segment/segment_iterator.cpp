@@ -3291,7 +3291,7 @@ Status SegmentIterator::_next_batch_internal(Block* block) {
                             RETURN_IF_ERROR(_read_columns_by_rowids(
                                     _late_predicate_column_ids, _block_rowids,
                                     _sel_rowid_idx_stage1.data(), stage1_size,
-                                    &_current_return_columns));
+                                    &_current_return_columns, false, true));
                             _replace_version_col_if_needed(_late_predicate_column_ids, stage1_size);
                             _update_lsn_col_if_needed(_late_predicate_column_ids, stage1_size);
                             _update_tso_col_if_needed(_late_predicate_column_ids, stage1_size);
