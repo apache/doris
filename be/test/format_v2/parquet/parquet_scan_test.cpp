@@ -88,6 +88,11 @@ public:
 
     const std::string& expr_name() const override { return _expr_name; }
 
+    Status execute_column_impl(VExprContext*, const Block*, const Selector*, size_t,
+                               ColumnPtr&) const override {
+        return Status::InternalError("Int32ZoneMapExpr is only used by parquet scan tests");
+    }
+
     bool can_evaluate_zonemap_filter() const override { return true; }
 
     void collect_slot_column_ids(std::set<int>& column_ids) const override {

@@ -140,6 +140,11 @@ public:
 
     const std::string& expr_name() const override { return _expr_name; }
 
+    Status execute_column_impl(VExprContext*, const Block*, const Selector*, size_t,
+                               ColumnPtr&) const override {
+        return Status::InternalError("Int32ZoneMapExpr is only used by parquet statistics tests");
+    }
+
     bool can_evaluate_zonemap_filter() const override { return true; }
 
     void collect_slot_column_ids(std::set<int>& column_ids) const override {
@@ -191,6 +196,13 @@ public:
     }
 
     const std::string& expr_name() const override { return _expr_name; }
+
+    Status execute_column_impl(VExprContext*, const Block*, const Selector*, size_t,
+                               ColumnPtr&) const override {
+        return Status::InternalError(
+                "StringDictionaryInExpr is only used by parquet statistics tests");
+    }
+
     bool can_evaluate_dictionary_filter() const override { return true; }
 
     ZoneMapFilterResult evaluate_dictionary_filter(
@@ -216,6 +228,12 @@ public:
               _values(std::move(values)) {}
 
     const std::string& expr_name() const override { return _expr_name; }
+
+    Status execute_column_impl(VExprContext*, const Block*, const Selector*, size_t,
+                               ColumnPtr&) const override {
+        return Status::InternalError("BloomInExpr is only used by parquet statistics tests");
+    }
+
     bool can_evaluate_bloom_filter() const override { return true; }
 
     ZoneMapFilterResult evaluate_bloom_filter(const BloomFilterEvalContext& ctx) const override {
