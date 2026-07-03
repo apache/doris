@@ -607,9 +607,12 @@ public class BindRelation extends OneAnalysisRuleFactory {
 
         // both children are bound; BindExpression aligns by position and fills the union output.
         // buildNewOutputs() rebuilds the union output slots with empty qualifiers, so wrap the union
-        // in a subquery alias to restore the original catalog.db.table qualifier. Otherwise qualified
-        // references such as t.k / t.* fail to bind (the dup path keeps the original scan slots).
-        return new LogicalSubQueryAlias<>(qualifier, new LogicalUnion(Qualifier.ALL, ImmutableList.of(left, right)));
+        // in a subquery alias to restore the original catalog.db.table qualifier. Use the scan's
+        // fully-qualified name (catalog.db.table) rather than the table-less qualifier, otherwise
+        // qualified references such as t.k / t.* fail to bind (the dup path keeps the original scan
+        // slots that already carry the table name in their qualifier).
+        return new LogicalSubQueryAlias<>(baseScan.qualified(),
+                new LogicalUnion(Qualifier.ALL, ImmutableList.of(left, right)));
     }
 
     private Optional<LogicalPlan> handleMetaTable(TableIf table, UnboundRelation unboundRelation,
