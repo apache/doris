@@ -230,7 +230,7 @@ Status CloudStorageEngine::open() {
 
     _file_cache_block_downloader = std::make_unique<io::FileCacheBlockDownloader>(*this);
 
-    _cloud_warm_up_manager = std::make_unique<CloudWarmUpManager>(*this);
+    _cloud_warm_up_manager = std::make_shared<CloudWarmUpManager>(*this);
 
     _tablet_hotspot = std::make_unique<TabletHotspot>();
 
@@ -292,6 +292,12 @@ void CloudStorageEngine::stop() {
 bool CloudStorageEngine::stopped() {
     return _stopped;
 }
+
+#ifdef BE_TEST
+void CloudStorageEngine::set_cloud_warm_up_manager(std::unique_ptr<CloudWarmUpManager> manager) {
+    _cloud_warm_up_manager = std::shared_ptr<CloudWarmUpManager>(std::move(manager));
+}
+#endif
 
 Result<BaseTabletSPtr> CloudStorageEngine::get_tablet(int64_t tablet_id,
                                                       SyncRowsetStats* sync_stats,

@@ -1387,8 +1387,8 @@ static Status apply_scan_projection_to_mapping_file_type(const FileScanRequest& 
 // Example: for `SELECT s.a FROM t WHERE s.b.c > 1`, the output projection may only contain `s.a`,
 // but the file reader must also read `s.b.c` to evaluate the predicate. This function collects the
 // table-side filter path, resolves it through ColumnMapping first, and records the corresponding
-// file-side projection in filter_projections. This keeps renamed fields consistent across the scan
-// projection, row-level conjunct rewrite, and nested predicate pruning. Example:
+// file-side projection in filter_projections. This keeps renamed fields consistent between the scan
+// projection and row-level conjunct rewrite. Example:
 //   table filter path: s -> renamed_b -> c
 //   old file path:     s -> b -> c
 //   recorded path:     s -> b -> c
@@ -1819,7 +1819,7 @@ Status TableColumnMapper::localize_filters(const std::vector<TableFilter>& table
             Status clone_status;
             try {
                 clone_status = clone_table_expr_tree(table_filter.conjunct->root(), &rewrite_root);
-            } catch (const Exception& e) {
+            } catch ([[maybe_unused]] const Exception& e) {
                 // Some table filters contain complex intermediate values, for example
                 // `element_at(MAP_VALUES(m)[1], 'age') > 30`. The current file-local rewrite only
                 // understands top-level slots and struct-element paths rooted at top-level slots;
@@ -1833,7 +1833,7 @@ Status TableColumnMapper::localize_filters(const std::vector<TableFilter>& table
 #else
                 continue;
 #endif
-            } catch (const std::exception& e) {
+            } catch ([[maybe_unused]] const std::exception& e) {
 #ifndef NDEBUG
                 return Status::InternalError(
                         "Failed to clone table filter for file-local rewrite: {}, expr={}",
@@ -1875,8 +1875,6 @@ Status TableColumnMapper::localize_filters(const std::vector<TableFilter>& table
             }
             FileColumnPredicateFilter column_predicate_filter;
             column_predicate_filter.file_column_id = LocalColumnId(*mapping->file_local_id);
-            column_predicate_filter.target =
-                    FileNestedPredicateTarget(column_predicate_filter.file_column_id);
             const auto file_primitive_type =
                     remove_nullable(mapping->file_type)->get_primitive_type();
             for (const auto& predicate : predicates) {
@@ -1889,19 +1887,6 @@ Status TableColumnMapper::localize_filters(const std::vector<TableFilter>& table
                 continue;
             }
             file_request->column_predicate_filters.push_back(std::move(column_predicate_filter));
-        }
-        for (const auto& table_filter : table_filters) {
-            if (table_filter.conjunct == nullptr ||
-                !table_filter_has_only_local_entries(table_filter, _filter_entries)) {
-                continue;
-            }
-            std::vector<FileColumnPredicateFilter> nested_column_predicate_filters;
-            collect_nested_column_predicate_filters(table_filter.conjunct->root(), filter_mappings,
-                                                    &nested_column_predicate_filters);
-            for (auto& column_predicate_filter : nested_column_predicate_filters) {
-                merge_column_predicate_filter(std::move(column_predicate_filter),
-                                              &file_request->column_predicate_filters);
-            }
         }
     }
     return Status::OK();

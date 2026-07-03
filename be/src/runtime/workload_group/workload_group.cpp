@@ -743,6 +743,10 @@ int64_t WorkloadGroup::get_mem_used() {
 
 void WorkloadGroup::try_stop_schedulers() {
     std::lock_guard<std::shared_mutex> wlock(_task_sched_lock);
+    stop_schedulers_no_lock();
+}
+
+void WorkloadGroup::stop_schedulers_no_lock() {
     if (_task_sched) {
         _task_sched->stop();
     }
@@ -764,6 +768,15 @@ void WorkloadGroup::try_stop_schedulers() {
         _memtable_flush_pool->shutdown();
         _memtable_flush_pool->wait();
     }
+}
+
+void WorkloadGroup::destroy_schedulers() {
+    std::lock_guard<std::shared_mutex> wlock(_task_sched_lock);
+    _task_sched.reset();
+    _scan_task_sched.reset();
+    _remote_scan_task_sched.reset();
+    _memtable_flush_pool.reset();
+    _cgroup_cpu_ctl.reset();
 }
 
 void WorkloadGroup::update_memtable_flush_threads() {

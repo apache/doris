@@ -95,11 +95,4 @@ Status build_file_child_projection_from_schema(const std::vector<ColumnDefinitio
                                                std::span<const StructChildSelector> selectors,
                                                LocalColumnIndex* projection);
 
-void merge_column_predicate_filter(FileColumnPredicateFilter column_filter,
-                                   std::vector<FileColumnPredicateFilter>* filters);
-
-void collect_nested_column_predicate_filters(const VExprSPtr& expr,
-                                             const std::vector<ColumnMapping>& mappings,
-                                             std::vector<FileColumnPredicateFilter>* filters);
-
 } // namespace doris::format

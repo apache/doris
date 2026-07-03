@@ -149,13 +149,17 @@ using namespace ErrorCode;
 const uint32_t DOWNLOAD_FILE_MAX_RETRY = 3;
 
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(heavy_work_pool_queue_size, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(peer_fetch_work_pool_queue_size, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(light_work_pool_queue_size, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(heavy_work_active_threads, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(peer_fetch_work_active_threads, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(light_work_active_threads, MetricUnit::NOUNIT);
 
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(heavy_work_pool_max_queue_size, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(peer_fetch_work_pool_max_queue_size, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(light_work_pool_max_queue_size, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(heavy_work_max_threads, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(peer_fetch_work_max_threads, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(light_work_max_threads, MetricUnit::NOUNIT);
 
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(arrow_flight_work_pool_queue_size, MetricUnit::NOUNIT);
@@ -169,6 +173,17 @@ bthread_key_t btls_key;
 
 static void thread_context_deleter(void* d) {
     delete static_cast<ThreadContext*>(d);
+}
+
+static int32_t resolved_brpc_peer_fetch_pool_threads() {
+    return config::brpc_peer_fetch_pool_threads != -1 ? config::brpc_peer_fetch_pool_threads
+                                                      : std::max(64, CpuInfo::num_cores() * 2);
+}
+
+static int32_t resolved_brpc_peer_fetch_pool_max_queue_size() {
+    return config::brpc_peer_fetch_pool_max_queue_size != -1
+                   ? config::brpc_peer_fetch_pool_max_queue_size
+                   : std::max(4096, CpuInfo::num_cores() * 128);
 }
 
 template <typename T>
@@ -224,6 +239,9 @@ PInternalService::PInternalService(ExecEnv* exec_env)
                                    ? config::brpc_heavy_work_pool_max_queue_size
                                    : std::max(10240, CpuInfo::num_cores() * 320),
                            "brpc_heavy"),
+          // peer fetch threadpool isolates fetch_peer_data from heavy load traffic to avoid peer reads starving imports.
+          _peer_fetch_pool(resolved_brpc_peer_fetch_pool_threads(),
+                           resolved_brpc_peer_fetch_pool_max_queue_size(), "brpc_peer_fetch"),
 
           // light threadpool should be only used in query processing logic. All hanlers should be very light, not locked, not access disk.
           _light_work_pool(config::brpc_light_work_pool_threads != -1
@@ -242,19 +260,27 @@ PInternalService::PInternalService(ExecEnv* exec_env)
                                   "brpc_arrow_flight") {
     REGISTER_HOOK_METRIC(heavy_work_pool_queue_size,
                          [this]() { return _heavy_work_pool.get_queue_size(); });
+    REGISTER_HOOK_METRIC(peer_fetch_work_pool_queue_size,
+                         [this]() { return _peer_fetch_pool.get_queue_size(); });
     REGISTER_HOOK_METRIC(light_work_pool_queue_size,
                          [this]() { return _light_work_pool.get_queue_size(); });
     REGISTER_HOOK_METRIC(heavy_work_active_threads,
                          [this]() { return _heavy_work_pool.get_active_threads(); });
+    REGISTER_HOOK_METRIC(peer_fetch_work_active_threads,
+                         [this]() { return _peer_fetch_pool.get_active_threads(); });
     REGISTER_HOOK_METRIC(light_work_active_threads,
                          [this]() { return _light_work_pool.get_active_threads(); });
 
     REGISTER_HOOK_METRIC(heavy_work_pool_max_queue_size,
                          []() { return config::brpc_heavy_work_pool_max_queue_size; });
+    REGISTER_HOOK_METRIC(peer_fetch_work_pool_max_queue_size,
+                         []() { return resolved_brpc_peer_fetch_pool_max_queue_size(); });
     REGISTER_HOOK_METRIC(light_work_pool_max_queue_size,
                          []() { return config::brpc_light_work_pool_max_queue_size; });
     REGISTER_HOOK_METRIC(heavy_work_max_threads,
                          []() { return config::brpc_heavy_work_pool_threads; });
+    REGISTER_HOOK_METRIC(peer_fetch_work_max_threads,
+                         []() { return resolved_brpc_peer_fetch_pool_threads(); });
     REGISTER_HOOK_METRIC(light_work_max_threads,
                          []() { return config::brpc_light_work_pool_threads; });
 
@@ -280,13 +306,17 @@ PInternalServiceImpl::~PInternalServiceImpl() = default;
 
 PInternalService::~PInternalService() {
     DEREGISTER_HOOK_METRIC(heavy_work_pool_queue_size);
+    DEREGISTER_HOOK_METRIC(peer_fetch_work_pool_queue_size);
     DEREGISTER_HOOK_METRIC(light_work_pool_queue_size);
     DEREGISTER_HOOK_METRIC(heavy_work_active_threads);
+    DEREGISTER_HOOK_METRIC(peer_fetch_work_active_threads);
     DEREGISTER_HOOK_METRIC(light_work_active_threads);
 
     DEREGISTER_HOOK_METRIC(heavy_work_pool_max_queue_size);
+    DEREGISTER_HOOK_METRIC(peer_fetch_work_pool_max_queue_size);
     DEREGISTER_HOOK_METRIC(light_work_pool_max_queue_size);
     DEREGISTER_HOOK_METRIC(heavy_work_max_threads);
+    DEREGISTER_HOOK_METRIC(peer_fetch_work_max_threads);
     DEREGISTER_HOOK_METRIC(light_work_max_threads);
 
     DEREGISTER_HOOK_METRIC(arrow_flight_work_pool_queue_size);
