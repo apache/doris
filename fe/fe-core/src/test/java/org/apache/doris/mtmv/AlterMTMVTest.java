@@ -371,4 +371,28 @@ public class AlterMTMVTest extends TestWithFeService {
                 .getTableOrMetaException(includedStreamName);
         Assertions.assertNotNull(includedStream, "Non-excluded table should have a stream auto-created");
     }
+
+    @Test
+    public void testAlterIvmExcludedTriggerTablesCanOnlyExpandScope() throws Exception {
+        createDatabaseAndUse("alter_ivm_excluded_trigger_test");
+        createTable("CREATE TABLE alter_ivm_excluded_trigger_test.ivm_base (k1 int, v1 int)\n"
+                + "DUPLICATE KEY(k1)\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "PROPERTIES ('replication_num' = '1', 'binlog.enable' = 'true', 'binlog.format' = 'ROW')");
+        createMvByNereids("CREATE MATERIALIZED VIEW ivm_excluded_mv\n"
+                + " BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
+                + " DISTRIBUTED BY RANDOM BUCKETS 2\n"
+                + " PROPERTIES ('replication_num' = '1',"
+                + " 'excluded_trigger_tables' = 'alter_ivm_excluded_trigger_test.ivm_base')\n"
+                + " AS SELECT k1, v1 FROM ivm_base");
+
+        alterMv("ALTER MATERIALIZED VIEW ivm_excluded_mv\n"
+                + " SET ('excluded_trigger_tables' = 'ivm_base')");
+
+        Exception ex = Assertions.assertThrows(Exception.class,
+                () -> alterMv("ALTER MATERIALIZED VIEW ivm_excluded_mv\n"
+                        + " SET ('excluded_trigger_tables' = 'alter_ivm_excluded_trigger_test.ivm_base')"));
+        Assertions.assertTrue(ex.getMessage().contains("Existing excluded trigger tables can only be expanded"),
+                "unexpected message: " + ex.getMessage());
+    }
 }

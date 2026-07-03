@@ -118,16 +118,7 @@ public class RefreshMTMVInfo {
             // expanded to a full refresh by fallback.
             throw new AnalysisException("partitionSpec does not support FALLBACK");
         }
-        RefreshMethod mvRefreshMethod = mtmv.getRefreshInfo() == null
-                ? null : mtmv.getRefreshInfo().getRefreshMethod();
-        if (mvRefreshMethod == null) {
-            throw new AnalysisException("Materialized view has unknown refresh method.");
-        }
-        if (!isRefreshModeCompatible(mtmv, mvRefreshMethod)) {
-            throw new AnalysisException("Cannot use " + refreshMode
-                    + " refresh on a materialized view with " + mvRefreshMethod + " refresh policy.");
-        }
-        if (mtmv.isIvm() && !CollectionUtils.isEmpty(partitions)) {
+        if (!CollectionUtils.isEmpty(partitions) && mtmv.isIvm()) {
             // IVM MVs should not bypass incremental semantics through a legacy
             // partitionSpec. Users can explicitly choose the PARTITIONS keyword
             // when they want the partition-refresh strategy.
@@ -135,11 +126,24 @@ public class RefreshMTMVInfo {
                     "partitionSpec is not allowed on a materialized view with INCREMENTAL capability, "
                             + "use PARTITIONS keyword instead.");
         }
+        RefreshMethod mvRefreshMethod = mtmv.getRefreshInfo() == null
+                ? null : mtmv.getRefreshInfo().getRefreshMethod();
+        if (mvRefreshMethod == null) {
+            throw new AnalysisException("Materialized view has unknown refresh method.");
+        }
+        if (!CollectionUtils.isEmpty(partitions)) {
+            return;
+        }
+        if (!isRefreshModeCompatible(mtmv, mvRefreshMethod)) {
+            throw new AnalysisException("Cannot use " + refreshMode
+                    + " refresh on a materialized view with " + mvRefreshMethod + " refresh policy.");
+        }
     }
 
     private boolean isRefreshModeCompatible(MTMV mtmv, RefreshMethod mvRefreshMethod) {
         if (refreshMode == RefreshMode.AUTO) {
-            return false;
+            // Keep compatibility with legacy manual REFRESH ... AUTO syntax.
+            return true;
         }
         switch (mvRefreshMethod) {
             case COMPLETE:
