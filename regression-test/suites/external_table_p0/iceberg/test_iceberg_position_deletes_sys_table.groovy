@@ -239,6 +239,22 @@ suite("test_iceberg_position_deletes_sys_table", "p0,external") {
         assertSparkDorisResultEquals(sparkRows, dorisRows)
     }
 
+    def assertSparkDorisTableRows = { String tableName, List<List<Object>> expectedRows ->
+        spark_iceberg """REFRESH TABLE demo.${dbName}.${tableName}"""
+        List<List<Object>> sparkRows = spark_iceberg """
+                select id, name, dt
+                from demo.${dbName}.${tableName}
+                order by id
+                """
+        List<List<Object>> dorisRows = sql """
+                select id, name, dt
+                from ${tableName}
+                order by id
+                """
+        assertSparkDorisResultEquals(sparkRows, dorisRows)
+        assertEquals(expectedRows, dorisRows)
+    }
+
     List<String> v3ExtraColumns = ["content_offset", "content_size_in_bytes"]
     List<String> commonCompareColumns = ["file_path", "pos", "spec_id", "delete_file_path"]
     List<String> v3CompareColumns = commonCompareColumns + v3ExtraColumns
@@ -421,4 +437,88 @@ suite("test_iceberg_position_deletes_sys_table", "p0,external") {
     assertPositionDeletesSchema("pd_no_deletes", false)
     assertSparkDorisPositionDeletes("pd_no_deletes", commonCompareColumns)
     assertEquals(0L, countRows("""select count(*) from pd_no_deletes\$position_deletes"""))
+
+    def assertPositionDeletesScannerPath = { boolean enableFileScannerV2 ->
+        sql """set enable_file_scanner_v2 = ${enableFileScannerV2}"""
+        assertEquals(unpartitionedCount, countRows(
+                """select count(*) from pd_unpartitioned\$position_deletes where pos >= 0"""))
+        assertEquals(partitionedCount, countRows(
+                """select count(*) from pd_partitioned\$position_deletes where `partition` is not null"""))
+        assertEquals(v3UnpartitionedCount, countRows(
+                """select count(*) from pd_v3_unpartitioned\$position_deletes
+                        where content_offset >= 0 and content_size_in_bytes > 0"""))
+        assertSparkDorisPositionDeletes("pd_unpartitioned", commonCompareColumns)
+        assertSparkDorisPositionDeletes("pd_v3_unpartitioned", v3CompareColumns)
+    }
+    assertPositionDeletesScannerPath(false)
+    assertPositionDeletesScannerPath(true)
+    sql """set enable_file_scanner_v2 = true"""
+
+    spark_iceberg_multi """
+        DROP TABLE IF EXISTS demo.${dbName}.pd_doris_spark_interop;
+        CREATE TABLE demo.${dbName}.pd_doris_spark_interop (
+            id INT,
+            name STRING,
+            dt STRING
+        ) USING iceberg
+        PARTITIONED BY (dt)
+        TBLPROPERTIES (
+            'format-version'='2',
+            'write.delete.mode'='merge-on-read',
+            'write.update.mode'='merge-on-read',
+            'write.merge.mode'='merge-on-read',
+            'write.distribution-mode'='none',
+            'write.target-file-size-bytes'='134217728'
+        );
+        INSERT INTO demo.${dbName}.pd_doris_spark_interop
+        SELECT /*+ COALESCE(1) */ id, name, dt FROM VALUES
+            (1, 'spark_a', '2026-07-03'),
+            (2, 'spark_b', '2026-07-03') AS t(id, name, dt);
+    """
+
+    assertSparkDorisTableRows("pd_doris_spark_interop", [
+            [1, "spark_a", "2026-07-03"],
+            [2, "spark_b", "2026-07-03"]
+    ])
+
+    sql """insert into pd_doris_spark_interop values (3, 'doris_c', '2026-07-04')"""
+    assertSparkDorisTableRows("pd_doris_spark_interop", [
+            [1, "spark_a", "2026-07-03"],
+            [2, "spark_b", "2026-07-03"],
+            [3, "doris_c", "2026-07-04"]
+    ])
+
+    spark_iceberg """
+        INSERT INTO demo.${dbName}.pd_doris_spark_interop
+        SELECT /*+ COALESCE(1) */ id, name, dt FROM VALUES
+            (4, 'spark_d', '2026-07-04') AS t(id, name, dt)
+    """
+    assertSparkDorisTableRows("pd_doris_spark_interop", [
+            [1, "spark_a", "2026-07-03"],
+            [2, "spark_b", "2026-07-03"],
+            [3, "doris_c", "2026-07-04"],
+            [4, "spark_d", "2026-07-04"]
+    ])
+
+    sql """delete from pd_doris_spark_interop where id = 2"""
+    assertSparkDorisTableRows("pd_doris_spark_interop", [
+            [1, "spark_a", "2026-07-03"],
+            [3, "doris_c", "2026-07-04"],
+            [4, "spark_d", "2026-07-04"]
+    ])
+
+    spark_iceberg """DELETE FROM demo.${dbName}.pd_doris_spark_interop WHERE id = 1"""
+    assertSparkDorisTableRows("pd_doris_spark_interop", [
+            [3, "doris_c", "2026-07-04"],
+            [4, "spark_d", "2026-07-04"]
+    ])
+
+    assertPositionDeletesSchema("pd_doris_spark_interop", true)
+    long interopPositionDeleteCount = countRows(
+            """select count(*) from pd_doris_spark_interop\$position_deletes""")
+    assertEquals(2L, interopPositionDeleteCount)
+    assertEquals(interopPositionDeleteCount, countRows(
+            """select count(*) from pd_doris_spark_interop\$position_deletes
+                    where `partition` is not null and delete_file_path is not null"""))
+    assertSparkDorisPositionDeletes("pd_doris_spark_interop", commonCompareColumns)
 }
