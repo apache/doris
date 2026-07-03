@@ -37,8 +37,8 @@ import org.apache.paimon.CoreOptions;
 import org.apache.paimon.schema.TableSchema;
 import org.apache.paimon.table.BucketMode;
 import org.apache.paimon.table.FileStoreTable;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
 import java.util.Arrays;
@@ -62,7 +62,7 @@ public class PhysicalPaimonTableSinkTest {
                 Collections.singletonList(new Column("v", PrimitiveType.STRING)),
                 Collections.singletonList(valueSlot));
 
-        Assert.assertSame(PhysicalProperties.SINK_RANDOM_PARTITIONED, sink.getRequirePhysicalProperties());
+        Assertions.assertSame(PhysicalProperties.SINK_RANDOM_PARTITIONED, sink.getRequirePhysicalProperties());
     }
 
     @Test
@@ -78,14 +78,14 @@ public class PhysicalPaimonTableSinkTest {
 
         PhysicalProperties properties = sink.getRequirePhysicalProperties();
 
-        Assert.assertTrue(properties.getDistributionSpec()
+        Assertions.assertTrue(properties.getDistributionSpec()
                 instanceof DistributionSpecExternalTableSinkHashPartitioned);
         DistributionSpecExternalTableSinkHashPartitioned distribution =
                 (DistributionSpecExternalTableSinkHashPartitioned) properties.getDistributionSpec();
-        Assert.assertEquals(Collections.singletonList(partitionSlot.getExprId()), distribution.getOutputColExprIds());
-        Assert.assertEquals(DistributionSpecExternalTableSinkHashPartitioned.ExternalSinkHashMode.SCALE_WRITER,
+        Assertions.assertEquals(Collections.singletonList(partitionSlot.getExprId()), distribution.getOutputColExprIds());
+        Assertions.assertEquals(DistributionSpecExternalTableSinkHashPartitioned.ExternalSinkHashMode.SCALE_WRITER,
                 distribution.getExternalSinkHashMode());
-        Assert.assertNull(distribution.getPaimonFixedBucketRouteInfo());
+        Assertions.assertNull(distribution.getPaimonFixedBucketRouteInfo());
     }
 
     @Test
@@ -105,19 +105,19 @@ public class PhysicalPaimonTableSinkTest {
 
         PhysicalProperties properties = sink.getRequirePhysicalProperties();
 
-        Assert.assertTrue(properties.getDistributionSpec()
+        Assertions.assertTrue(properties.getDistributionSpec()
                 instanceof DistributionSpecExternalTableSinkHashPartitioned);
         DistributionSpecExternalTableSinkHashPartitioned distribution =
                 (DistributionSpecExternalTableSinkHashPartitioned) properties.getDistributionSpec();
-        Assert.assertEquals(Collections.singletonList(partitionSlot.getExprId()), distribution.getOutputColExprIds());
-        Assert.assertEquals(DistributionSpecExternalTableSinkHashPartitioned.ExternalSinkHashMode.STRICT_HASH,
+        Assertions.assertEquals(Collections.singletonList(partitionSlot.getExprId()), distribution.getOutputColExprIds());
+        Assertions.assertEquals(DistributionSpecExternalTableSinkHashPartitioned.ExternalSinkHashMode.STRICT_HASH,
                 distribution.getExternalSinkHashMode());
         PaimonFixedBucketRouteInfo routeInfo = distribution.getPaimonFixedBucketRouteInfo();
-        Assert.assertEquals(8, routeInfo.getBucketNum());
-        Assert.assertEquals(PaimonFixedBucketRouteInfo.BucketFunctionType.DEFAULT,
+        Assertions.assertEquals(8, routeInfo.getBucketNum());
+        Assertions.assertEquals(PaimonFixedBucketRouteInfo.BucketFunctionType.DEFAULT,
                 routeInfo.getBucketFunctionType());
-        Assert.assertEquals(Collections.singletonList(bucketSlot.getExprId()), routeInfo.getBucketKeyExprIds());
-        Assert.assertEquals(Arrays.asList(partitionSlot, bucketSlot, valueSlot), sink.getOutputExprs());
+        Assertions.assertEquals(Collections.singletonList(bucketSlot.getExprId()), routeInfo.getBucketKeyExprIds());
+        Assertions.assertEquals(Arrays.asList(partitionSlot, bucketSlot, valueSlot), sink.getOutputExprs());
     }
 
     @Test
@@ -136,18 +136,18 @@ public class PhysicalPaimonTableSinkTest {
 
         PhysicalProperties properties = sink.getRequirePhysicalProperties();
 
-        Assert.assertTrue(properties.getDistributionSpec()
+        Assertions.assertTrue(properties.getDistributionSpec()
                 instanceof DistributionSpecExternalTableSinkHashPartitioned);
         DistributionSpecExternalTableSinkHashPartitioned distribution =
                 (DistributionSpecExternalTableSinkHashPartitioned) properties.getDistributionSpec();
-        Assert.assertEquals(DistributionSpecExternalTableSinkHashPartitioned.ExternalSinkHashMode.STRICT_HASH,
+        Assertions.assertEquals(DistributionSpecExternalTableSinkHashPartitioned.ExternalSinkHashMode.STRICT_HASH,
                 distribution.getExternalSinkHashMode());
         PaimonFixedBucketRouteInfo routeInfo = distribution.getPaimonFixedBucketRouteInfo();
-        Assert.assertEquals(8, routeInfo.getBucketNum());
-        Assert.assertEquals(PaimonFixedBucketRouteInfo.BucketFunctionType.MOD,
+        Assertions.assertEquals(8, routeInfo.getBucketNum());
+        Assertions.assertEquals(PaimonFixedBucketRouteInfo.BucketFunctionType.MOD,
                 routeInfo.getBucketFunctionType());
-        Assert.assertEquals(Collections.singletonList(bucketSlot.getExprId()), routeInfo.getBucketKeyExprIds());
-        Assert.assertEquals(Arrays.asList(bucketSlot, valueSlot), sink.getOutputExprs());
+        Assertions.assertEquals(Collections.singletonList(bucketSlot.getExprId()), routeInfo.getBucketKeyExprIds());
+        Assertions.assertEquals(Arrays.asList(bucketSlot, valueSlot), sink.getOutputExprs());
     }
 
     @Test
@@ -161,11 +161,11 @@ public class PhysicalPaimonTableSinkTest {
                 Arrays.asList(new Column("pt", PrimitiveType.INT), new Column("v", PrimitiveType.STRING)),
                 Arrays.asList(partitionSlot, valueSlot));
 
-        UnsupportedOperationException exception = Assert.assertThrows(UnsupportedOperationException.class,
+        UnsupportedOperationException exception = Assertions.assertThrows(UnsupportedOperationException.class,
                 sink::getRequirePhysicalProperties);
 
-        Assert.assertTrue(exception.getMessage().contains("requires bucket key in sink output"));
-        Assert.assertTrue(exception.getMessage().contains("bucket_key"));
+        Assertions.assertTrue(exception.getMessage().contains("requires bucket key in sink output"));
+        Assertions.assertTrue(exception.getMessage().contains("bucket_key"));
     }
 
     @Test
@@ -180,10 +180,10 @@ public class PhysicalPaimonTableSinkTest {
                     Collections.singletonList(new Column("v", PrimitiveType.STRING)),
                     Collections.singletonList(valueSlot));
 
-            UnsupportedOperationException exception = Assert.assertThrows(UnsupportedOperationException.class,
+            UnsupportedOperationException exception = Assertions.assertThrows(UnsupportedOperationException.class,
                     sink::getRequirePhysicalProperties);
 
-            Assert.assertTrue(exception.getMessage().contains("Unsupported Paimon bucket mode"));
+            Assertions.assertTrue(exception.getMessage().contains("Unsupported Paimon bucket mode"));
         }
     }
 

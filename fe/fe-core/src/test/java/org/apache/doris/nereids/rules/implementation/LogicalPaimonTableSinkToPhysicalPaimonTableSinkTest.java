@@ -36,8 +36,8 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalPaimonTableSink;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.StringType;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
 import java.util.Arrays;
@@ -86,7 +86,7 @@ public class LogicalPaimonTableSinkToPhysicalPaimonTableSinkTest {
         Mockito.when(cascadesContext.getStatementContext()).thenReturn(Mockito.mock(StatementContext.class));
         Plan transformed = rule.transform(sink, cascadesContext).get(0);
 
-        Assert.assertTrue(transformed instanceof PhysicalPaimonTableSink);
-        Assert.assertSame(child, ((PhysicalPaimonTableSink<?>) transformed).child());
+        Assertions.assertTrue(transformed instanceof PhysicalPaimonTableSink);
+        Assertions.assertSame(child, ((PhysicalPaimonTableSink<?>) transformed).child());
     }
 }

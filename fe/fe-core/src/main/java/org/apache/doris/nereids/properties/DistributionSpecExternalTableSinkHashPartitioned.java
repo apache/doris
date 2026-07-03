@@ -25,15 +25,21 @@ import java.util.Objects;
 /** Distribution spec for external table sink hash writer routing. */
 public class DistributionSpecExternalTableSinkHashPartitioned extends DistributionSpec {
 
+    /** External table sink hash distribution mode. */
     public enum ExternalSinkHashMode {
+        /** Use scale writer to rebalance writer load. */
         SCALE_WRITER,
+        /** Use deterministic hash routing without writer rebalance. */
         STRICT_HASH
     }
 
     /** Paimon fixed bucket route descriptor. */
     public static class PaimonFixedBucketRouteInfo {
+        /** Paimon fixed bucket function type. */
         public enum BucketFunctionType {
+            /** Paimon default bucket function. */
             DEFAULT,
+            /** Paimon mod bucket function. */
             MOD
         }
 
