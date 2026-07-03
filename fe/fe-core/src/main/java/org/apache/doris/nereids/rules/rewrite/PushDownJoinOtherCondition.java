@@ -56,7 +56,6 @@ public class PushDownJoinOtherCondition extends OneRewriteRuleFactory {
             JoinType.INNER_JOIN,
             JoinType.LEFT_OUTER_JOIN,
             JoinType.LEFT_ANTI_JOIN,
-            JoinType.NULL_AWARE_LEFT_ANTI_JOIN,
             JoinType.LEFT_SEMI_JOIN,
             JoinType.RIGHT_SEMI_JOIN,
             JoinType.CROSS_JOIN
@@ -86,16 +85,7 @@ public class PushDownJoinOtherCondition extends OneRewriteRuleFactory {
                             leftConjuncts.add(otherConjunct);
                         } else if (PUSH_DOWN_RIGHT_VALID_TYPE.contains(join.getJoinType())
                                 && allCoveredBy(otherConjunct, join.right().getOutputSet())) {
-                            // For NULL_AWARE_LEFT_ANTI_JOIN (NOT IN subquery), when hash join
-                            // conjuncts are empty (no correlation), pushing other conditions to
-                            // the right child would filter rows before the null-aware check,
-                            // changing the NOT IN semantics. Keep them as remaining other
-                            // conjuncts instead.
-                            if (join.getJoinType().isNullAwareLeftAntiJoin() && join.getHashJoinConjuncts().isEmpty()) {
-                                remainingOther.add(otherConjunct);
-                            } else {
-                                rightConjuncts.add(otherConjunct);
-                            }
+                            rightConjuncts.add(otherConjunct);
                         } else {
                             remainingOther.add(otherConjunct);
                         }
