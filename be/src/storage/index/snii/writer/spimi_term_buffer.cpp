@@ -76,6 +76,14 @@ std::atomic<uint64_t> g_vocab_cap_sweeps {0};
 std::atomic<uint64_t> g_bigram_pair_map_hits {0};
 std::atomic<uint64_t> g_bigram_pair_map_misses {0};
 
+// G06 drain-side df-gate seam: pair terms dropped by the drain df gate without
+// materialization (final-drain no-bloom drops + mid-feed bloomed df-gate
+// drops; NOT the plain df==1 G04 evictions). Incremented under BE_TEST only --
+// the final drain visits every live pair term (hundreds of millions on a
+// wikipedia segment, concurrent writers), the same contention argument that
+// gated the pair-map seams above.
+std::atomic<uint64_t> g_bigram_drain_df_drops {0};
+
 // Vocabulary ids examined per incremental sweep step. Small enough that a step
 // is noise on the per-token add path, large enough that the sweep's amortized
 // eviction rate (typically many eligible ids per step -- the over-cap
@@ -111,6 +119,12 @@ uint64_t bigram_pair_map_misses() {
 void reset_bigram_pair_map_counters() {
     g_bigram_pair_map_hits.store(0, std::memory_order_relaxed);
     g_bigram_pair_map_misses.store(0, std::memory_order_relaxed);
+}
+uint64_t bigram_drain_df_drops() {
+    return g_bigram_drain_df_drops.load(std::memory_order_relaxed);
+}
+void reset_bigram_drain_df_drops() {
+    g_bigram_drain_df_drops.store(0, std::memory_order_relaxed);
 }
 } // namespace testing
 
@@ -171,7 +185,8 @@ SpimiTermBuffer::~SpimiTermBuffer() {
     cleanup_runs();
 }
 
-void SpimiTermBuffer::configure_bigram_diet(uint64_t vocab_cap_bytes) {
+void SpimiTermBuffer::configure_bigram_diet(uint64_t vocab_cap_bytes,
+                                            uint32_t bigram_drain_min_df) {
     // The diet suppresses positions and (with a cap) evicts through the OWNED
     // intern table; a borrowed vocab has neither, so reject loudly instead of
     // silently doing nothing (mirrors the add_bigram_token mode contract).
@@ -184,6 +199,9 @@ void SpimiTermBuffer::configure_bigram_diet(uint64_t vocab_cap_bytes) {
     }
     bigram_diet_ = true;
     bigram_vocab_cap_bytes_ = vocab_cap_bytes;
+    // G06: governs MID-FEED spill drains only until the flush re-plumbs the
+    // exact effective threshold via set_bigram_drain_min_df (see header).
+    bigram_drain_min_df_ = bigram_drain_min_df;
 }
 
 void SpimiTermBuffer::report_arena_delta() {
@@ -303,9 +321,10 @@ void SpimiTermBuffer::accumulate(uint32_t term_id, uint32_t docid, uint32_t pos)
         put_varint(&t, zigzag_encode(delta));
         t.cur_docid = docid;
         t.started = true;
-        if (t.ndocs2 < 2) {
-            ++t.ndocs2; // saturating distinct-doc count: eviction needs df==1 vs >=2
-        }
+        // Exact new-doc-GROUP count: >= the coalesced df, == it while t.sorted
+        // holds. Feeds the G04 df==1 evictability check and the G06 drain-side
+        // bigram df gate (branch-free; replaces the old saturate-at-2 branch).
+        ++t.ndocs;
     }
     ++t.ntok;
     ++total_tokens_;
@@ -598,10 +617,17 @@ void SpimiTermBuffer::prepare_pair_terms_for_drain(bool evict_low_df_bigrams) {
         return;
     }
     const bool evict = evict_low_df_bigrams && bigram_evict_enabled();
-    // Deferred eviction list: evict_bigram_term erases pair-map entries, so it
-    // must not run while the map is being iterated. Bounded by the live df==1
-    // tail (cap-bounded whenever eviction is enabled at all).
+    // G06 drain-side df gate: the flush prune threshold process_term gates
+    // with -- EXACT by the time any final drain runs (LogicalIndexWriter::
+    // build_blocks re-plumbs it), a safe lower bound of it during mid-feed
+    // spills (configure_bigram_diet). 0 == gate off: every live pair term
+    // materializes, the pre-G06 behavior.
+    const uint32_t min_df = bigram_drain_min_df_;
+    // Deferred mutation lists: evictions and df drops erase pair-map entries,
+    // so neither may run while the map is being iterated. Bounded by the live
+    // pair-term count.
     std::vector<uint32_t> evict_ids;
+    std::vector<uint32_t> drop_ids;
     for (const auto& [pair_key, id] : bigram_pair_map_) {
         if (!owned_vocab_[id].empty()) {
             continue; // materialized by an earlier spill; its string is final
@@ -618,14 +644,69 @@ void SpimiTermBuffer::prepare_pair_terms_for_drain(bool evict_low_df_bigrams) {
             evict_ids.push_back(id);
             continue;
         }
-        // Survivor (df>=2 on mid-feed spills; EVERY live pair term on the final
-        // residual spill / in-memory drain, matching the string path where even
-        // df==1 terms reach the flush and die at process_term's df gate): give
-        // it its on-disk bytes BEFORE any sort sees the id.
+        // G06: sink process_term's `df < bigram_prune_min_df` gate into the
+        // drain. Term::ndocs counts new-doc GROUPS: always >= the coalesced df,
+        // and EXACTLY the df process_term would compute while Term::sorted
+        // holds (a non-decreasing docid feed cannot revisit a docid
+        // non-adjacently). Dropping only when BOTH hold keeps the drop set
+        // identical to the flush gate's:
+        //   * sorted && ndocs < min_df  =>  final df == ndocs < min_df: the
+        //     term exists only for process_term to prune AFTER paying its
+        //     composed-string materialization, chain decode and emission (the
+        //     wikipedia final-drain hot spot: ~hundreds of millions of df==1 /
+        //     low-df pairs) -- drop it here without composing anything;
+        //   * !sorted (rare out-of-order revisit feed, e.g. docids 5,1,5):
+        //     ndocs may OVERCOUNT a revisited docid, so materialize + emit and
+        //     let process_term gate the exact coalesced df -- correctness over
+        //     savings. (Even trusting ndocs could never cause a WRONG drop --
+        //     it upper-bounds df, so ndocs < min_df implies df < min_df -- the
+        //     sorted requirement is deliberate belt-and-braces so a drop only
+        //     ever fires on a provably exact count.)
+        if (min_df > 0) {
+            const Term& t = slots_[slot_of_[id] - 1];
+            if (t.sorted && t.ndocs < min_df) {
+                if (!evict_low_df_bigrams) {
+                    // FINAL drain (terminal in-memory drain, or the residual
+                    // spill inside merge_runs): no token can arrive after it,
+                    // so the pair can never reappear -- drop WITHOUT bloom
+                    // insertion, the same no-trace disposition process_term's
+                    // df gate gives (no dict entry, no postings, no bloom
+                    // membership; the reader's G01 pruned-segment contract
+                    // covers the dict miss).
+                    drop_ids.push_back(id);
+#ifdef BE_TEST
+                    g_bigram_drain_df_drops.fetch_add(1, std::memory_order_relaxed);
+#endif
+                    continue;
+                }
+                if (evict) {
+                    // MID-FEED spill: same drop, but the pair MAY REAPPEAR
+                    // after this spill with the docids dropped here missing --
+                    // record it in the ever-dropped bloom via the full G04
+                    // eviction (the rule that already governs the df==1 path
+                    // above), so a reappearance is dropped at flush instead of
+                    // materializing incomplete postings.
+                    evict_ids.push_back(id);
+#ifdef BE_TEST
+                    g_bigram_drain_df_drops.fetch_add(1, std::memory_order_relaxed);
+#endif
+                    continue;
+                }
+                // Mid-feed spill WITHOUT the eviction machinery (no vocab
+                // cap): no bloom exists to make a reappearance safe, so fall
+                // through to materialize + emit and let process_term gate the
+                // final df -- correctness first.
+            }
+        }
+        // Survivor (df >= threshold, out-of-order-fed, or gate off): give it
+        // its on-disk bytes BEFORE any sort sees the id.
         materialize_pair_term(id, pair_key);
     }
     for (uint32_t id : evict_ids) {
         evict_bigram_term(id);
+    }
+    for (uint32_t id : drop_ids) {
+        release_pair_term(id, pair_of_[id]);
     }
 }
 
@@ -734,11 +815,12 @@ TermPostings SpimiTermBuffer::to_postings(std::string term, Term&& t,
         return tp;
     }
 
-    // Reserve docids/freqs by ntok (an upper bound on the doc count: ntok >= ndocs).
-    // The doc count is not stored separately to keep Term compact; since the corpus
-    // is freq~1 per (term, doc), ntok ~= ndocs so the over-reserve is negligible.
-    tp.docids.reserve(t.ntok);
-    tp.freqs.reserve(t.ntok);
+    // Reserve docids/freqs by ndocs -- EXACT: the decode loop pushes one entry per
+    // new_doc tag, which is precisely what t.ndocs counts (SortByDocid may then
+    // coalesce a revisited docid, only ever shrinking). Replaces the former ntok
+    // upper-bound reserve (one slot per token, loose for freq>1 docs).
+    tp.docids.reserve(t.ndocs);
+    tp.freqs.reserve(t.ndocs);
 
     // Per-TERM positions capability: a G04 position-suppressed bigram term
     // stored no position payload (its chain holds bare new_doc tags, identical
@@ -874,7 +956,9 @@ bool SpimiTermBuffer::bigram_evictable(uint32_t id) const {
     if (enc == 0) {
         return false; // no live postings: already drained (in-run) or evicted
     }
-    if (slots_[enc - 1].ndocs2 != 1) {
+    // ndocs can only OVERcount an out-of-order feed, so ndocs == 1 still means
+    // df == 1 exactly -- a df>=2 term can never look evictable.
+    if (slots_[enc - 1].ndocs != 1) {
         return false; // df >= 2: past the Zipf tail, never evicted (hot/warm)
     }
     if (id < id_in_run_.size() && id_in_run_[id] != 0) {
@@ -894,7 +978,12 @@ bool SpimiTermBuffer::bigram_evictable(uint32_t id) const {
     return format::is_phrase_bigram_term(s) && !format::is_phrase_bigram_sentinel_term(s);
 }
 
-// Evicts one eligible bigram id (caller checked bigram_evictable):
+// Evicts one eligible bigram id. The caller established eligibility: either
+// bigram_evictable (the G04 df==1 cap-sweep / spill rule) or the G06 mid-feed
+// df-gate drop in prepare_pair_terms_for_drain (a live, never-spilled,
+// not-yet-materialized PAIR term whose exact df -- possibly >= 2 -- is below
+// the drain threshold; blooming it here is precisely what makes a
+// post-spill reappearance safe). Steps:
 //   1. record the term's SYNTHETIC BYTES in the ever-dropped bloom -- the
 //      flush-time process_term will drop this term even if the pair reappears
 //      and re-accumulates past the df threshold (its postings would be missing
@@ -924,12 +1013,7 @@ void SpimiTermBuffer::evict_bigram_term(uint32_t id) {
     if (is_pair_term(id)) {
         const uint64_t pair_key = pair_of_[id];
         bigram_drop_filter_->insert_hashed(pair_term_content_fnv(pair_key));
-        const uint64_t fixed = kBigramInternFixedOverheadBytes;
-        bigram_intern_bytes_ = bigram_intern_bytes_ > fixed ? bigram_intern_bytes_ - fixed : 0;
-        bigram_pair_map_.erase(pair_key);
-        pair_of_[id] = kNoPairKey;
-        release_term(id);
-        free_ids_.push_back(id);
+        release_pair_term(id, pair_key);
         g_bigram_evictions.fetch_add(1, std::memory_order_relaxed);
         return;
     }
@@ -943,6 +1027,27 @@ void SpimiTermBuffer::evict_bigram_term(uint32_t id) {
     free_ids_.push_back(id);
     ++vocab_epoch_;
     g_bigram_evictions.fetch_add(1, std::memory_order_relaxed);
+}
+
+// Shared final release of a live, not-yet-materialized pair-keyed bigram term:
+// the tail of a G04 pair eviction (the caller has ALREADY bloomed the content
+// hash) and the WHOLE of a G06 final-drain df drop (deliberately no bloom --
+// nothing can reappear after the final drain, and blooming would only add
+// false-positive pressure on surviving hot pairs). Un-accounts the fixed pair
+// footprint, erases both pair mappings (so a later probe/intern of the pair
+// key cannot resurrect the id), releases the slot/postings and recycles the
+// id. The id's vocab string was empty and stays empty, so no cached
+// lexicographic rank changes and vocab_epoch_ is untouched (mirrors
+// intern_pair_term).
+void SpimiTermBuffer::release_pair_term(uint32_t id, uint64_t pair_key) {
+    DCHECK(is_pair_term(id));
+    DCHECK(owned_vocab_[id].empty());
+    const uint64_t fixed = kBigramInternFixedOverheadBytes;
+    bigram_intern_bytes_ = bigram_intern_bytes_ > fixed ? bigram_intern_bytes_ - fixed : 0;
+    bigram_pair_map_.erase(pair_key);
+    pair_of_[id] = kNoPairKey;
+    release_term(id);
+    free_ids_.push_back(id);
 }
 
 void SpimiTermBuffer::maybe_sweep_bigram_vocab(uint32_t just_touched_id) {
@@ -996,10 +1101,14 @@ void SpimiTermBuffer::maybe_sweep_bigram_vocab(uint32_t just_touched_id) {
 
 Status SpimiTermBuffer::drain_sorted(const std::function<void(TermPostings&&)>& fn,
                                      bool allow_stream_positions) {
-    // G05: give every live pair-keyed bigram term its composed on-disk string
-    // BEFORE sorted_ids() ranks anything (no eviction: this is the terminal
-    // in-memory drain; df==1 pair terms reach the flush and die at
-    // process_term's df gate exactly like the string path's).
+    // G05/G06: give every SURVIVING pair-keyed bigram term its composed on-disk
+    // string BEFORE sorted_ids() ranks anything. No bloomed eviction (this is
+    // the terminal in-memory drain), but the G06 df gate drops pair terms whose
+    // EXACT df is below the flush prune threshold right here -- without
+    // composing their strings or decoding their postings -- since process_term
+    // would prune them identically after paying for all of that. Everything
+    // else (string-keyed terms, out-of-order-fed pair terms) still reaches
+    // process_term's unchanged df gate.
     prepare_pair_terms_for_drain(/*evict_low_df_bigrams=*/false);
     const std::vector<std::string>& v = vocab();
     for (uint32_t id : sorted_ids()) {
@@ -1128,7 +1237,13 @@ Status SpimiTermBuffer::merge_runs(const std::function<void(TermPostings&&)>& fn
     // its df==1 bigrams are dropped by the flush-time df threshold regardless;
     // blooming them here would only inflate the filter (false-positive pressure
     // on hot survivors) and, at an explicit threshold of 1, wrongly drop terms
-    // the control build would materialize.
+    // the control build would materialize. The G06 drain-side df gate DOES apply
+    // (evict_low_df_bigrams=false selects its final-drain arm): never-spilled
+    // pair terms whose exact df is below the flush threshold are dropped
+    // unbloomed instead of being materialized into the run only for
+    // process_term to prune them after the merge. Pair terms materialized by an
+    // EARLIER spill flow through the runs untouched -- their per-run partial dfs
+    // only process_term can total, so it stays their gate.
     if (!touched_ids_.empty()) {
         Status s = spill_to_run(/*evict_low_df_bigrams=*/false);
         if (!s.ok() && spill_status_.ok()) {

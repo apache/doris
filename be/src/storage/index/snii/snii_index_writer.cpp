@@ -60,7 +60,20 @@ Status SniiIndexColumnWriter::init() {
     // config to 0 is rejected at flush (see IndexFileWriter::add_snii_index).
     if (_has_positions && config::snii_bigram_prune_min_df != 0) {
         const int64_t cap = config::snii_bigram_vocab_cap_bytes;
-        _term_buffer->configure_bigram_diet(cap > 0 ? static_cast<uint64_t>(cap) : 0);
+        // G06: mid-feed spill drains need a bigram df gate BEFORE the final doc
+        // count (and thus the exact flush threshold) exists. A fixed positive
+        // config IS the flush threshold; the auto formula (< 0) is monotonic in
+        // doc_count, so its 0-doc floor is a safe LOWER BOUND -- every mid-feed
+        // drop it allows is one the flush gate would repeat for a
+        // never-reappearing pair, and each is bloom-recorded anyway, so a
+        // reappearing pair stays correct (dropped at flush, reader falls back).
+        // The EXACT effective threshold is re-plumbed per flush by
+        // LogicalIndexWriter::build_blocks before the final drain.
+        const int32_t prune_conf = config::snii_bigram_prune_min_df;
+        const uint32_t drain_min_df =
+                prune_conf > 0 ? static_cast<uint32_t>(prune_conf)
+                               : ::doris::snii::format::default_phrase_bigram_prune_min_df(0);
+        _term_buffer->configure_bigram_diet(cap > 0 ? static_cast<uint64_t>(cap) : 0, drain_min_df);
     }
     _analyzer_config.analyzer_name = get_analyzer_name_from_properties(_index_meta->properties());
     _analyzer_config.parser_type = get_inverted_index_parser_type_from_string(

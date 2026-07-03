@@ -315,10 +315,38 @@ public:
     //       Ids already written to a spill run are NEVER evicted or recycled
     //       (the run records reference them; their vocab strings are immutable
     //       from first spill on).
+    //   (c) G06 DRAIN-SIDE DF GATE (when bigram_drain_min_df > 0): sinks the
+    //       flush-time phrase-bigram df prune (LogicalIndexWriter::process_term's
+    //       `df < bigram_prune_min_df` gate) into the buffer drain for PAIR-KEYED
+    //       bigram terms, so the Zipf low-df tail is dropped WITHOUT ever
+    //       composing its term strings or decoding its postings (on wikipedia
+    //       that tail's materialize+emit was ~1/3 of build CPU). See
+    //       prepare_pair_terms_for_drain for the exact drop rule and its
+    //       exactness guarantee. `bigram_drain_min_df` passed HERE governs
+    //       MID-FEED spill drains, which run before the final doc count (and
+    //       thus the exact flush threshold) exists -- pass the flush value when
+    //       the config fixes it, or a LOWER BOUND of it (e.g. the auto formula's
+    //       0-doc floor) otherwise; every mid-feed drop is bloom-recorded, so
+    //       even an over-estimate only ever over-drops safely (the G01 reader
+    //       fallback contract). The FINAL drain must gate with the EXACT
+    //       process_term threshold: set_bigram_drain_min_df below re-plumbs it
+    //       at flush (LogicalIndexWriter::build_blocks does this) before the
+    //       terminal drain runs. 0 (default) disables the gate entirely: every
+    //       live pair term materializes at drain, exactly the pre-G06 behavior.
     // Calling this on a BORROWED-vocab buffer latches InvalidArgument and is
     // ignored (the diet needs the owned intern table).
-    void configure_bigram_diet(uint64_t vocab_cap_bytes);
+    void configure_bigram_diet(uint64_t vocab_cap_bytes, uint32_t bigram_drain_min_df = 0);
     bool bigram_diet_configured() const { return bigram_diet_; }
+
+    // G06: (re)sets the drain-side phrase-bigram df gate to `min_df` -- the
+    // EXACT effective flush threshold process_term will gate with (0 disables
+    // the gate). LogicalIndexWriter::build_blocks calls this with its resolved
+    // bigram_prune_min_df right before draining the term source, so the final
+    // drain's drop set is byte-identical to what process_term would have pruned.
+    // Plain state update, safe on any buffer in any mode: the gate only ever
+    // examines pair-map entries, so a borrowed-vocab / no-pair-term buffer is
+    // unaffected regardless of the value.
+    void set_bigram_drain_min_df(uint32_t min_df) { bigram_drain_min_df_ = min_df; }
 
     // Ever-dropped bloom over evicted bigram terms; nullptr until the first
     // eviction (so the flush path probes nothing when the feature never fired).
@@ -395,13 +423,21 @@ private:
         uint32_t ntok = 0;                 // total tokens (entries) in the chain
         uint32_t cur_docid = 0;            // most-recent doc id: detects doc change AND
                                            // is the zigzag delta base for the next doc
-        uint8_t level = 0;                 // current slice level of w (packed here, not in w)
-        bool started = false;              // false until the first token is appended
-        bool sorted = true;                // false if a docid arrived out of ascending order
-        // G04: distinct-doc count SATURATED AT 2 -- all the vocab-cap eviction
-        // needs is "df == 1 vs df >= 2" (only the df==1 Zipf tail is evictable),
-        // so one byte in Term's padding replaces a full doc counter.
-        uint8_t ndocs2 = 0;
+        // G04/G06: EXACT count of new-doc GROUPS in the chain (one per new_doc
+        // tag, i.e. per maximal same-docid token run). Always an UPPER BOUND on
+        // the coalesced df (distinct docids), and EQUAL to it while `sorted`
+        // holds -- a non-decreasing docid feed cannot revisit a docid
+        // non-adjacently, so every group is a distinct doc. ndocs == 1 answers
+        // the G04 eviction's "df == 1 vs >= 2" question exactly even when
+        // unsorted (an overcount can never make a df>=2 term look like 1), and
+        // the G06 drain-side bigram df gate drops a pair term only when
+        // `sorted` is set, i.e. when this IS the df process_term would compute.
+        // Replaces the former u8 saturating-at-2 counter; the u32 lands in
+        // Term's padding, so sizeof(Term) is unchanged.
+        uint32_t ndocs = 0;
+        uint8_t level = 0;    // current slice level of w (packed here, not in w)
+        bool started = false; // false until the first token is appended
+        bool sorted = true;   // false if a docid arrived out of ascending order
         // G04 part (b of G01 phase-2 note): true for hidden phrase-bigram terms
         // when the diet is configured -- the chain then stores the new_doc tag
         // ONLY (no position payload; identical bytes to a positions-disabled
@@ -490,12 +526,17 @@ private:
     static uint64_t bigram_term_footprint(const std::string& s) {
         return s.capacity() + kBigramInternFixedOverheadBytes;
     }
-    // Is `id` evictable right now: live slot, current df == 1 (ndocs2 == 1),
+    // Is `id` evictable right now: live slot, current df == 1 (ndocs == 1),
     // never written to a spill run, and a non-sentinel phrase-bigram term.
     bool bigram_evictable(uint32_t id) const;
     // Evicts one eligible id: records the term in the ever-dropped bloom,
     // releases its slot/postings, erases it from the intern set, frees its vocab
-    // string and recycles the id. Bumps the eviction seam + the vocab epoch.
+    // string and recycles the id. Bumps the eviction seam (+ the vocab epoch for
+    // string-keyed terms). Eligibility is the caller's job: bigram_evictable
+    // (the df==1 cap sweep / spill rule) OR the G06 mid-feed df-gate drop
+    // (prepare_pair_terms_for_drain: a never-spilled pair term with exact
+    // df < the drain threshold -- possibly df >= 2 -- whose reappearance the
+    // bloom must cover).
     void evict_bigram_term(uint32_t id);
     // Bounded incremental sweep step (amortized, never stop-the-world): when the
     // bigram intern storage is over the cap (and the sweep is not paused after a
@@ -542,12 +583,40 @@ private:
     // drain_to_writer), BEFORE sorted_ids(): pair-keyed terms carry EMPTY vocab
     // strings, which would rank first en bloc and emit the run / stream out of
     // lexicographic order. For every live not-yet-materialized pair term this
-    // either EVICTS it (mid-feed spills only, df==1 -- same rule and bloom as
-    // the G04 string path) or MATERIALIZES its composed string; afterwards every
-    // id the sort can see ranks by its final on-disk bytes, so the emitted order
-    // is identical to the string-keyed build's. Flush-side df pruning and bloom
-    // drops stay in LogicalIndexWriter::process_term, unchanged.
+    // does exactly one of:
+    //   * EVICT it (mid-feed spills only, df==1 -- same rule and bloom as the
+    //     G04 string path);
+    //   * G06 DF-GATE DROP it (bigram_drain_min_df_ > 0 only): a pair term
+    //     whose EXACT df is provably below the flush prune threshold is dropped
+    //     WITHOUT materialization and WITHOUT emission -- the same no-trace
+    //     disposition process_term's df gate would give it (no dict entry, no
+    //     postings, no bloom membership; the reader's G01 pruned-segment
+    //     contract covers the miss). "Provably exact" means Term::sorted still
+    //     holds, so Term::ndocs == the coalesced df process_term would compute;
+    //     an out-of-order-fed term is NEVER dropped here (it materializes and
+    //     process_term gates it on the exact coalesced df). On MID-FEED spills
+    //     the drop additionally records the term in the ever-dropped bloom via
+    //     the full G04 eviction (the pair may reappear with these docids
+    //     missing) and therefore requires the eviction machinery (vocab cap
+    //     on); on the FINAL drain (terminal in-memory drain / the residual
+    //     spill inside merge_runs) nothing can reappear, so the drop skips the
+    //     bloom entirely and needs no cap.
+    //   * MATERIALIZE its composed string (everything else).
+    // Afterwards every id the sort can see ranks by its final on-disk bytes, so
+    // the emitted order is identical to the string-keyed build's. Flush-side df
+    // pruning and bloom drops stay in LogicalIndexWriter::process_term as the
+    // unchanged backstop for whatever still reaches it (string-keyed terms,
+    // spill-materialized pair terms, out-of-order-fed pair terms).
     void prepare_pair_terms_for_drain(bool evict_low_df_bigrams);
+    // Shared release tail for a live not-yet-materialized pair-keyed bigram
+    // term: un-accounts the fixed pair footprint, erases the pair-map entry and
+    // the reverse id -> pair-key mapping, releases the term's slot/postings and
+    // recycles the id. Deliberately does NOT touch the drop bloom: the G04
+    // eviction path blooms BEFORE calling this; the G06 final-drain df drop
+    // calls it alone (no bloom -- nothing reappears after the final drain, and
+    // blooming would only add false-positive pressure on surviving hot pairs).
+    // Never bumps vocab_epoch_ (the id's vocab string was empty and stays so).
+    void release_pair_term(uint32_t id, uint64_t pair_key);
 
     const std::vector<std::string>* vocab_; // active vocab (borrowed or &owned_)
     std::vector<std::string> owned_vocab_;  // owned mode: interned term strings
@@ -696,10 +765,15 @@ private:
     // ---- G04 bigram diet state (owned-vocab mode only) -----------------------
     bool bigram_diet_ = false;            // position suppression + (cap) eviction on
     uint64_t bigram_vocab_cap_bytes_ = 0; // 0 = no eviction (suppression only)
-    uint64_t bigram_intern_bytes_ = 0;    // live bigram intern storage (cap metric)
-    std::vector<uint32_t> free_ids_;      // evicted ids awaiting recycling
-    std::vector<uint8_t> id_in_run_;      // 1 = id written to some spill run (pinned);
-                                          // sized lazily at the first evict-enabled spill
+    // G06 drain-side phrase-bigram df gate (0 = off). Mid-feed spill drains see
+    // the configure_bigram_diet value (the flush threshold or a lower bound of
+    // it); the final drain sees the EXACT flush threshold, re-plumbed by
+    // LogicalIndexWriter::build_blocks via set_bigram_drain_min_df.
+    uint32_t bigram_drain_min_df_ = 0;
+    uint64_t bigram_intern_bytes_ = 0; // live bigram intern storage (cap metric)
+    std::vector<uint32_t> free_ids_;   // evicted ids awaiting recycling
+    std::vector<uint8_t> id_in_run_;   // 1 = id written to some spill run (pinned);
+                                       // sized lazily at the first evict-enabled spill
     std::unique_ptr<BigramDropFilter> bigram_drop_filter_; // created on first eviction
     uint32_t sweep_cursor_ = 0;              // next vocab id the incremental sweep examines
     uint64_t sweep_scanned_since_evict_ = 0; // fruitless-lap detector
@@ -763,6 +837,19 @@ void reset_bigram_vocab_cap_counters();
 uint64_t bigram_pair_map_hits();
 uint64_t bigram_pair_map_misses();
 void reset_bigram_pair_map_counters();
+
+// G06 drain-side df-gate seam: pair-keyed bigram terms dropped by
+// prepare_pair_terms_for_drain's df gate WITHOUT materialization -- final-drain
+// drops (no bloom) and mid-feed df-gate drops (bloomed via the G04 eviction)
+// both count; plain df==1 evictions (the pre-G06 G04 rule, taken before the
+// gate is consulted) do NOT. Like the pair-map seams above, the increment is
+// compiled ONLY under BE_TEST: the final drain executes it once per live pair
+// term (hundreds of millions per wikipedia segment, across concurrent
+// writers), where an always-on shared atomic would cache-line ping-pong.
+// Deterministic on the single-threaded build path; reset between tests. Not
+// part of the production API.
+uint64_t bigram_drain_df_drops();
+void reset_bigram_drain_df_drops();
 } // namespace testing
 
 } // namespace doris::snii::writer

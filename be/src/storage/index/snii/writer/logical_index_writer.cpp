@@ -719,6 +719,17 @@ Status LogicalIndexWriter::process_term(TermPostings& tp, BlockState* st) {
 Status LogicalIndexWriter::build_blocks() {
     BlockState st;
     if (term_source_ != nullptr) {
+        // G06: sink the flush-time phrase-bigram df gate into the buffer drain.
+        // bigram_prune_min_df_ is the SAME effective threshold process_term
+        // gates with below (already forced to 0 for non-positional configs and
+        // in legacy no-prune mode, which disables the gate), so a pair-keyed
+        // bigram term the drain drops -- provably-exact df below the gate -- is
+        // exactly a term process_term would have pruned AFTER paying its
+        // composed-string materialization, chain decode and emission.
+        // process_term keeps gating everything that still reaches it
+        // (string-keyed terms, spill-materialized pair terms whose df only the
+        // merge can total, out-of-order-fed pair terms).
+        term_source_->set_bigram_drain_min_df(bigram_prune_min_df_);
         Status streamed = Status::OK();
         // Drain the SPIMI buffer term-by-term; only one TermPostings is alive at a
         // time, so the input+output never fully coexist. The returned Status covers
