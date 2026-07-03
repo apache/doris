@@ -849,7 +849,8 @@ void ExecEnv::destroy() {
     SAFE_STOP(_stream_load_recorder_manager);
     // stop workload scheduler
     SAFE_STOP(_workload_sched_mgr);
-    // stop pipline step 2, cgroup execution
+    // Stop workload group execution threads before FragmentMgr. Running pipeline tasks can still
+    // report status through FragmentMgr's async thread pool.
     SAFE_STOP(_workload_group_manager);
 
     SAFE_STOP(_external_scan_context_mgr);
@@ -862,6 +863,11 @@ void ExecEnv::destroy() {
     _memtable_memory_limiter.reset();
     _delta_writer_v2_pool.reset();
     _load_stream_map_pool.reset();
+    // Workload group schedulers own the query pipeline, scan, and memtable flush queues.
+    // Release them after fragment/load resources have stopped submitting cleanup work.
+    if (_workload_group_manager) {
+        _workload_group_manager->destroy_schedulers();
+    }
     SAFE_STOP(_write_cooldown_meta_executors);
 
     // _id_manager must be destoried before tablet schema cache

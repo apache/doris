@@ -21,6 +21,7 @@
 #include <chrono> // IWYU pragma: keep
 #include <memory>
 #include <string>
+#include <vector>
 
 #include "common/logging.h"
 #include "exec/pipeline/pipeline_task.h"
@@ -38,6 +39,12 @@ PipelineTaskSPtr SubTaskQueue::try_take(bool is_steal) {
     return task;
 }
 
+std::queue<PipelineTaskSPtr> SubTaskQueue::take_all() {
+    std::queue<PipelineTaskSPtr> tasks;
+    tasks.swap(_queue);
+    return tasks;
+}
+
 ////////////////////  PriorityTaskQueue ////////////////////
 
 PriorityTaskQueue::PriorityTaskQueue() : _closed(false) {
@@ -49,10 +56,24 @@ PriorityTaskQueue::PriorityTaskQueue() : _closed(false) {
 }
 
 void PriorityTaskQueue::close() {
-    std::unique_lock<std::mutex> lock(_work_size_mutex);
-    _closed = true;
-    _wait_task.notify_all();
-    DorisMetrics::instance()->pipeline_task_queue_size->increment(-_total_task_size);
+    std::vector<std::queue<PipelineTaskSPtr>> tasks_to_release;
+    {
+        std::unique_lock<std::mutex> lock(_work_size_mutex);
+        _closed = true;
+        const auto total_task_size = _total_task_size.exchange(0);
+        _wait_task.notify_all();
+        DorisMetrics::instance()->pipeline_task_queue_size->increment(
+                -static_cast<int64_t>(total_task_size));
+        for (auto& sub_queue : _sub_queues) {
+            tasks_to_release.emplace_back(sub_queue.take_all());
+        }
+    }
+    for (auto& tasks : tasks_to_release) {
+        while (!tasks.empty()) {
+            tasks.front()->pop_out_runnable_queue();
+            tasks.pop();
+        }
+    }
 }
 
 PipelineTaskSPtr PriorityTaskQueue::_try_take_unprotected(bool is_steal) {
@@ -114,11 +135,11 @@ PipelineTaskSPtr PriorityTaskQueue::take(uint32_t timeout_ms) {
 }
 
 Status PriorityTaskQueue::push(PipelineTaskSPtr task) {
+    auto level = _compute_level(task->get_runtime_ns());
+    std::unique_lock<std::mutex> lock(_work_size_mutex);
     if (_closed) {
         return Status::InternalError("WorkTaskQueue closed");
     }
-    auto level = _compute_level(task->get_runtime_ns());
-    std::unique_lock<std::mutex> lock(_work_size_mutex);
 
     // update empty queue's  runtime, to avoid too high priority
     if (_sub_queues[level].empty() &&
@@ -126,6 +147,7 @@ Status PriorityTaskQueue::push(PipelineTaskSPtr task) {
         _sub_queues[level].adjust_runtime(_queue_level_min_vruntime);
     }
 
+    task->put_in_runnable_queue();
     _sub_queues[level].push_back(task);
     _total_task_size++;
     DorisMetrics::instance()->pipeline_task_queue_size->increment(1);
@@ -200,7 +222,6 @@ Status MultiCoreTaskQueue::push_back(PipelineTaskSPtr task) {
 
 Status MultiCoreTaskQueue::push_back(PipelineTaskSPtr task, int core_id) {
     DCHECK(core_id < _core_size);
-    task->put_in_runnable_queue();
     return _prio_task_queues[core_id].push(task);
 }
 
