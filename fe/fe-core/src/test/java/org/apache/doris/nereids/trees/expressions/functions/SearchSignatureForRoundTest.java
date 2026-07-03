@@ -28,6 +28,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.RoundBankers;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Truncate;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.FloatLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.LargeIntLiteral;
 import org.apache.doris.nereids.types.DecimalV3Type;
@@ -157,11 +158,43 @@ public class SearchSignatureForRoundTest {
     }
 
     @Test
+    void roundFloatLiteralStaysDouble() {
+        // FLOAT literal input (not wrapped in Cast) also stays on the DOUBLE path.
+        withOptIn(true, () ->
+                assertDoubleReturn(new Round(new FloatLiteral(3.14f), new IntegerLiteral(2))));
+    }
+
+    @Test
     void roundFloatWithConstScaleStaysDouble() {
         // FLOAT input keeps the original DOUBLE return path.
         withOptIn(true, () -> {
             SlotReference floatCol = new SlotReference("f", FloatType.INSTANCE);
             assertDoubleReturn(new Round(floatCol, new IntegerLiteral(2)));
+        });
+    }
+
+    @Test
+    void roundFloatWrappedInDoubleCastStaysDouble() {
+        withOptIn(true, () -> {
+            SlotReference floatCol = new SlotReference("f", FloatType.INSTANCE);
+            Cast wrapped = new Cast(floatCol, DoubleType.INSTANCE);
+            assertDoubleReturn(new Round(wrapped, new IntegerLiteral(2)));
+        });
+    }
+
+    @Test
+    void roundExplicitCastFloatToDoubleStaysDouble() {
+        withOptIn(true, () -> {
+            Cast explicit = new Cast(new FloatLiteral(3.14f), DoubleType.INSTANCE);
+            assertDoubleReturn(new Round(explicit, new IntegerLiteral(2)));
+        });
+    }
+
+    @Test
+    void roundDoubleWrappedInDoubleCastStillReroutes() {
+        withOptIn(true, () -> {
+            Cast noop = new Cast(DOUBLE_VAL, DoubleType.INSTANCE);
+            assertDecimalReturn(2, new Round(noop, new IntegerLiteral(2)));
         });
     }
 

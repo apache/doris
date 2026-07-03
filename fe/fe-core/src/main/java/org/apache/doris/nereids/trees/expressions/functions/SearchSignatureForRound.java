@@ -24,6 +24,7 @@ import org.apache.doris.nereids.rules.expression.rules.FoldConstantRuleOnFE;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.coercion.Int32OrLessType;
@@ -51,7 +52,7 @@ public interface SearchSignatureForRound extends ExplicitlyCastableSignature {
             if (arguments.size() == 1) {
                 return FunctionSignature.ret(DoubleType.INSTANCE).args(DoubleType.INSTANCE);
             } else if (arguments.size() == 2) {
-                if (arguments.get(0).getDataType().isDoubleType()
+                if (isNativeDoubleForDecimalReroute(arguments.get(0))
                         && isOptedIntoDecimalReroute()
                         && isNonNegativeIntegerLiteralAtMost(arguments.get(1),
                                 DOUBLE_DECIMAL_RESULT_MAX_SCALE)) {
@@ -62,6 +63,21 @@ public interface SearchSignatureForRound extends ExplicitlyCastableSignature {
             }
         }
         return ExplicitlyCastableSignature.super.searchSignature(signatures);
+    }
+
+    /**
+     * True iff arg 0 should participate in the DECIMAL reroute.
+     */
+    static boolean isNativeDoubleForDecimalReroute(Expression arg) {
+        if (!arg.getDataType().isDoubleType()) {
+            return false;
+        }
+        // prevent case like 'select round(cast(23900/293 as float), 2);'
+        if (arg instanceof Cast) {
+            DataType inner = arg.child(0).getDataType();
+            return inner.isDoubleType() || inner.isDecimalV3Type() || inner.isDecimalV2Type();
+        }
+        return true;
     }
 
     static boolean isOptedIntoDecimalReroute() {

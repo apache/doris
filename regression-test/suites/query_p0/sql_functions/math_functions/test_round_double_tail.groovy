@@ -63,6 +63,12 @@ suite("test_round_double_tail") {
     qt_round_overflow_1e16   """ select round(cast(1e16  as double), 2); """
     qt_round_overflow_1e300  """ select round(cast(1e300 as double), 2); """
 
+    sql """ select round(cast(23900/293 as float), 2); """
+    sql """ select round_bankers(cast(293 as float), 2); """
+    sql """ select ceil(cast(293 as float), 2); """
+    sql """ select floor(cast(293 as float), 2); """
+    sql """ select truncate(cast(293 as float), 2); """
+
     // Scale from a column also stays double.
     sql """ DROP TABLE IF EXISTS test_round_double_tail_scale_col; """
     sql """
