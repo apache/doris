@@ -113,12 +113,12 @@ suite("test_hive_orc_timestamp_timezone", "p0,external") {
                 select count(*)
                 from ${nestedTable}
                 where id = 0
-                  and cast(arr[0] as varchar) like '${expectedPrefix}%'
-                  and cast(map_keys(ts_map)[0] as varchar) like '${expectedPrefix}%'
-                  and cast(map_values(ts_map)[0] as varchar) like '${expectedPrefix}%'
+                  and cast(arr[1] as varchar) like '${expectedPrefix}%'
+                  and cast(map_keys(ts_map)[1] as varchar) like '${expectedPrefix}%'
+                  and cast(map_values(ts_map)[1] as varchar) like '${expectedPrefix}%'
                   and cast(element_at(row_value, 'col') as varchar) like '${expectedPrefix}%'
-                  and cast(map_keys(nested[0])[0] as varchar) like '${expectedPrefix}%'
-                  and cast(element_at(map_values(nested[0])[0], 'col')[0] as varchar)
+                  and cast(map_keys(nested[1])[1] as varchar) like '${expectedPrefix}%'
+                  and cast(element_at(map_values(nested[1])[1], 'col')[1] as varchar)
                         like '${expectedPrefix}%'
             """
             assertEquals("1", nestedCount[0][0].toString())
