@@ -132,4 +132,78 @@ suite("test_excluded_trigger_table_mtmv","mtmv") {
     waitingMTMVTaskFinishedByMvName(mvName)
      // should refresh
     order_qt_false_table "SELECT * FROM ${mvName}"
+
+    sql """drop materialized view if exists test_excluded_trigger_table_mtmv_partition_mv;"""
+    sql """drop table if exists test_excluded_trigger_table_mtmv_partition_num;"""
+    sql """drop table if exists test_excluded_trigger_table_mtmv_partition_user;"""
+
+    sql """
+        CREATE TABLE test_excluded_trigger_table_mtmv_partition_num (
+            user_id LARGEINT,
+            date DATE,
+            num INT
+        )
+        DUPLICATE KEY(user_id)
+        PARTITION BY RANGE(date) (
+            PARTITION p201701 VALUES [('2017-01-01'), ('2017-02-01')),
+            PARTITION p201702 VALUES [('2017-02-01'), ('2017-03-01'))
+        )
+        DISTRIBUTED BY HASH(user_id) BUCKETS 2
+        PROPERTIES ('replication_num' = '1');
+    """
+    sql """
+        INSERT INTO test_excluded_trigger_table_mtmv_partition_num VALUES
+            (1, '2017-01-15', 1),
+            (1, '2017-02-15', 2);
+    """
+    sql """
+        CREATE TABLE test_excluded_trigger_table_mtmv_partition_user (
+            user_id LARGEINT,
+            age INT
+        )
+        DUPLICATE KEY(user_id)
+        DISTRIBUTED BY HASH(user_id) BUCKETS 2
+        PROPERTIES ('replication_num' = '1');
+    """
+    sql """INSERT INTO test_excluded_trigger_table_mtmv_partition_user VALUES (1, 10);"""
+
+    sql """
+        CREATE MATERIALIZED VIEW test_excluded_trigger_table_mtmv_partition_mv
+        BUILD DEFERRED REFRESH AUTO ON MANUAL
+        PARTITION BY(date)
+        DISTRIBUTED BY RANDOM BUCKETS 2
+        PROPERTIES (
+            'replication_num' = '1',
+            'excluded_trigger_tables' = 'test_excluded_trigger_table_mtmv_partition_user'
+        )
+        AS
+        SELECT
+            test_excluded_trigger_table_mtmv_partition_user.user_id,
+            test_excluded_trigger_table_mtmv_partition_user.age,
+            test_excluded_trigger_table_mtmv_partition_num.date,
+            test_excluded_trigger_table_mtmv_partition_num.num
+        FROM test_excluded_trigger_table_mtmv_partition_user
+        JOIN test_excluded_trigger_table_mtmv_partition_num
+          ON test_excluded_trigger_table_mtmv_partition_user.user_id
+             = test_excluded_trigger_table_mtmv_partition_num.user_id;
+    """
+
+    sql """REFRESH MATERIALIZED VIEW test_excluded_trigger_table_mtmv_partition_mv COMPLETE"""
+    waitingMTMVTaskFinishedByMvName("test_excluded_trigger_table_mtmv_partition_mv")
+    order_qt_partition_exclude_init """
+        SELECT * FROM test_excluded_trigger_table_mtmv_partition_mv ORDER BY user_id, age, date, num
+    """
+
+    sql """INSERT INTO test_excluded_trigger_table_mtmv_partition_user VALUES (1, 9);"""
+    sql """REFRESH MATERIALIZED VIEW test_excluded_trigger_table_mtmv_partition_mv PARTITIONS"""
+    waitingMTMVTaskFinishedByMvName("test_excluded_trigger_table_mtmv_partition_mv")
+    order_qt_partition_exclude_not_change """
+        SELECT * FROM test_excluded_trigger_table_mtmv_partition_mv ORDER BY user_id, age, date, num
+    """
+
+    sql """REFRESH MATERIALIZED VIEW test_excluded_trigger_table_mtmv_partition_mv COMPLETE"""
+    waitingMTMVTaskFinishedByMvName("test_excluded_trigger_table_mtmv_partition_mv")
+    order_qt_partition_exclude_complete """
+        SELECT * FROM test_excluded_trigger_table_mtmv_partition_mv ORDER BY user_id, age, date, num
+    """
 }

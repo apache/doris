@@ -469,12 +469,13 @@ public class MTMV extends OlapTable {
         return refreshSnapshot;
     }
 
-    public boolean hasCompleteRefreshSnapshot() {
-        Set<String> partitionNames = getPartitionNames();
+    public boolean hasRefreshSnapshot() {
         readMvLock();
         try {
-            // A refresh baseline is complete only when every current MV partition has a snapshot.
-            return refreshSnapshot.getPartitionSnapshots().keySet().containsAll(partitionNames);
+            // IVM only needs to know whether a baseline has ever been built.
+            // A newly added MV partition legitimately has no PCT snapshot yet,
+            // but that must not block row-level incremental refresh.
+            return refreshSnapshot != null && !MapUtils.isEmpty(refreshSnapshot.getPartitionSnapshots());
         } finally {
             readMvUnlock();
         }

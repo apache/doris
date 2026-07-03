@@ -17,15 +17,19 @@
 
 package org.apache.doris.nereids.trees.plans.commands.info;
 
+import org.apache.doris.analysis.AllPartitionDesc;
+import org.apache.doris.analysis.SinglePartitionDesc;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.NameSpaceContext;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.TableProperty;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mtmv.MTMVPartitionInfo;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
+import org.apache.doris.mtmv.MTMVPartitionUtil;
 import org.apache.doris.mtmv.MTMVRefreshEnum.BuildMode;
 import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshMethod;
 import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshTrigger;
@@ -39,6 +43,8 @@ import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -52,6 +58,7 @@ import org.mockito.Mockito;
 public class RefreshMTMVInfoAnalyzeTest {
 
     private MockedStatic<Env> mockedEnvStatic;
+    private MockedStatic<MTMVPartitionUtil> mockedPartitionUtilStatic;
 
     private Env env;
     private InternalCatalog catalog;
@@ -60,6 +67,7 @@ public class RefreshMTMVInfoAnalyzeTest {
     private AccessControllerManager accessManager;
 
     private MTMV completeMtmv;
+    private MTMV completePartitionMtmv;
     private MTMV partitionMtmv;
     private MTMV ivmMtmv;
     private MTMV autoWithIvmMtmv;
@@ -75,6 +83,7 @@ public class RefreshMTMVInfoAnalyzeTest {
         accessManager = Mockito.mock(AccessControllerManager.class);
 
         completeMtmv = createMtmv(RefreshMethod.COMPLETE, MTMVPartitionType.SELF_MANAGE, false);
+        completePartitionMtmv = createMtmv(RefreshMethod.COMPLETE, MTMVPartitionType.FOLLOW_BASE_TABLE, false);
         partitionMtmv = createMtmv(RefreshMethod.PARTITIONS, MTMVPartitionType.FOLLOW_BASE_TABLE, false);
         ivmMtmv = createMtmv(RefreshMethod.INCREMENTAL, MTMVPartitionType.FOLLOW_BASE_TABLE, true);
         autoWithIvmMtmv = createMtmv(RefreshMethod.AUTO, MTMVPartitionType.FOLLOW_BASE_TABLE, true);
@@ -102,6 +111,15 @@ public class RefreshMTMVInfoAnalyzeTest {
         mockedEnvStatic.when(Env::getCurrentEnv).thenReturn(env);
         mockedEnvStatic.when(Env::getCurrentInternalCatalog).thenReturn(catalog);
 
+        mockedPartitionUtilStatic = Mockito.mockStatic(MTMVPartitionUtil.class);
+        SinglePartitionDesc p1 = Mockito.mock(SinglePartitionDesc.class);
+        SinglePartitionDesc p2 = Mockito.mock(SinglePartitionDesc.class);
+        Mockito.when(p1.getPartitionName()).thenReturn("p1");
+        Mockito.when(p2.getPartitionName()).thenReturn("p2");
+        mockedPartitionUtilStatic.when(() -> MTMVPartitionUtil.getPartitionDescsByRelatedTable(
+                Mockito.anyMap(), Mockito.any(MTMVPartitionInfo.class), Mockito.anyMap(), Mockito.anyList()))
+                .thenReturn(Lists.<AllPartitionDesc>newArrayList(p1, p2));
+
         Mockito.when(catalog.getDbOrDdlException(Mockito.anyString())).thenReturn(db);
     }
 
@@ -110,6 +128,9 @@ public class RefreshMTMVInfoAnalyzeTest {
         if (mockedEnvStatic != null) {
             mockedEnvStatic.close();
         }
+        if (mockedPartitionUtilStatic != null) {
+            mockedPartitionUtilStatic.close();
+        }
     }
 
     private void setupMvLookup(MTMV mtmv) throws Exception {
@@ -117,12 +138,19 @@ public class RefreshMTMVInfoAnalyzeTest {
                 .thenReturn(mtmv);
     }
 
-    private MTMV createMtmv(RefreshMethod method, MTMVPartitionType partitionType, boolean enableIvm) {
-        MTMV mtmv = new MTMV();
-        mtmv.setRefreshInfo(new MTMVRefreshInfo(
+    private MTMV createMtmv(RefreshMethod method, MTMVPartitionType partitionType, boolean enableIvm)
+            throws org.apache.doris.common.AnalysisException {
+        MTMV mtmv = Mockito.mock(MTMV.class);
+        MTMVPartitionInfo partitionInfo = Mockito.mock(MTMVPartitionInfo.class);
+        Mockito.when(partitionInfo.getPartitionType()).thenReturn(partitionType);
+        Mockito.when(partitionInfo.getPctTables()).thenReturn(Sets.newHashSet());
+        Mockito.when(mtmv.getRefreshInfo()).thenReturn(new MTMVRefreshInfo(
                 BuildMode.DEFERRED, method, new MTMVRefreshTriggerInfo(RefreshTrigger.MANUAL)));
-        mtmv.setMvPartitionInfo(new MTMVPartitionInfo(partitionType));
-        mtmv.getIvmInfo().setEnableIvm(enableIvm);
+        Mockito.when(mtmv.getMvPartitionInfo()).thenReturn(partitionInfo);
+        Mockito.when(mtmv.isIvm()).thenReturn(enableIvm);
+        Mockito.when(mtmv.getTableProperty()).thenReturn(new TableProperty(Maps.newHashMap()));
+        Mockito.when(mtmv.getMvProperties()).thenReturn(Maps.newHashMap());
+        Mockito.when(mtmv.getPartitionColumns()).thenReturn(Lists.newArrayList());
         return mtmv;
     }
 
@@ -214,13 +242,46 @@ public class RefreshMTMVInfoAnalyzeTest {
         Assertions.assertTrue(exception.getMessage().contains("PARTITIONS"));
     }
 
-    // Manual AUTO is not a concrete refresh type.
     @Test
-    public void testRefreshAutoOnIvmMVRejected() throws Exception {
+    public void testPartitionSpecOnCompleteMVAllowedForCompatibility() throws Exception {
+        setupMvLookup(completePartitionMtmv);
+        RefreshMTMVInfo info = createInfoWithPartitions(RefreshMode.PARTITIONS, false);
+        info.analyze(ctx);
+    }
+
+    @Test
+    public void testPartitionSpecOnPartitionsMVAllowedForCompatibility() throws Exception {
+        setupMvLookup(partitionMtmv);
+        RefreshMTMVInfo info = createInfoWithPartitions(RefreshMode.PARTITIONS, false);
+        info.analyze(ctx);
+    }
+
+    @Test
+    public void testRefreshAutoOnIvmMVAllowedForCompatibility() throws Exception {
         setupMvLookup(ivmMtmv);
         RefreshMTMVInfo info = createInfo(RefreshMode.AUTO);
-        AnalysisException exception = analyzeAndGetException(info);
-        Assertions.assertTrue(exception.getMessage().contains("AUTO"));
+        info.analyze(ctx);
+    }
+
+    @Test
+    public void testRefreshAutoOnCompleteMVAllowedForCompatibility() throws Exception {
+        setupMvLookup(completeMtmv);
+        RefreshMTMVInfo info = createInfo(RefreshMode.AUTO);
+        info.analyze(ctx);
+    }
+
+    @Test
+    public void testRefreshAutoOnPartitionsMVAllowedForCompatibility() throws Exception {
+        setupMvLookup(partitionMtmv);
+        RefreshMTMVInfo info = createInfo(RefreshMode.AUTO);
+        info.analyze(ctx);
+    }
+
+    @Test
+    public void testRefreshAutoOnAutoMVAllowedForCompatibility() throws Exception {
+        setupMvLookup(autoWithIvmMtmv);
+        RefreshMTMVInfo info = createInfo(RefreshMode.AUTO);
+        info.analyze(ctx);
     }
 
     // IVM-capable MV with REFRESH ... INCREMENTAL should succeed
