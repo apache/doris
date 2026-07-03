@@ -5,7 +5,32 @@
 
 ---
 
-# 🎯 最新一轮（2026-07-04）= **CI build 985672 失败分析：三刀实证生效；新第四刀 = SCAN plan 路径缺插件侧 doAs（待修）**
+# 🎯 最新一轮（2026-07-04 续）= **第四刀已落地并推送：iceberg `d5541bbb384` + paimon parity `58dff8c2790`（已推 origin，待 CI 实证 kerberos case 转绿）**
+
+> **第四刀实现**（对应下文分析）：
+> - **iceberg `d5541bbb384`**：数据路径 = 对象级 FileIO seam（`wrapTableForScan`：resolveTable 后把 loaded 表 ops 包成
+>   `IcebergAuthenticatedTableOperations`+`IcebergAuthenticatedFileIO`，factory 时刻 doAs 捕获 secured FS → 任意线程
+>   newStream 复用，worker 池/streaming lazy 消费全覆盖）；sys 路径 = 线程级 `executeAuthenticated` 包
+>   `planSystemTableScan` 全程**单一 scope**（`resolveSysTable` 内层 wrap 拆除；刻意不用对象级包装——FileScanTask 要
+>   Java 序列化给 BE JNI，wrapper 带 authenticator 不可序列化）。新 UT `IcebergScanPlanProviderKerberosScanIoTest`
+>   5 用例；两处修复点 mutation 逐一击杀；全模块 923 测 0 失败、checkstyle 0。
+> - **paimon `58dff8c2790`**（parity，无 kerberos e2e 闸）：`planSplits` helper 包 `scan.plan().splits()`（sys 表同咽喉点）；
+>   真表接线 UT + mutation 击杀；全模块 329 测 0 失败。
+> - **3-lens 对抗审查（bundled SDK 字节码级）= 0 confirmed**：唯一 high（$partitions 经 worker 池逃逸 doAs）被驳回——
+>   iceberg 1.10.1 `ParallelIterable` 任务推进只在消费线程，`newInputFile` factory 全在规划线程 doAs 内 eager 捕获
+>   kerberos DFSClient，worker 只用已捕获 FS 开流（与写路径 CI 实证机制一致）。
+> - **[FU-kerberos-scan-residual]（low/info，未修）**：① paimon `resolveScanTable` 的 `table.copy(scanOptions)`
+>   time-travel 快照/schema 读落在两 wrap 之间；② paimon `buildSchemaEvolutionParam` 的 SchemaManager 读在 scope 外
+>   （两者靠 paimon 非 UGI 键控 FS cache 的 wrapped-load 先行温热缓解；反面=冷首触会污染 cache）；③ iceberg
+>   kerberos×REST-vended 互斥是配置性非结构性（畸形同配会丢 vended 凭据）；④ kerberos 下 MetricsReporter 退化为
+>   default Logging（观测性）。
+> - **推送状态**：`25cd9d9f242..58dff8c2790` 已推 `origin/catalog-spi-10-iceberg`（PR #64689）。**⚠️ 下一步 = 盯 CI**：
+>   ① `test_iceberg_hadoop_catalog_kerberos` 转绿（第四刀唯一 e2e 实证）；② paimon 批量 case 应随 CI 环境恢复回绿
+>   （若再挂，先对失败签名：rpc 超时/not alive = 环境延续，非代码）。
+
+---
+
+# 🎯 上一轮（2026-07-04）= **CI build 985672 失败分析：三刀实证生效；第四刀根因定位（已修，见上）**
 
 > **① kerberos case（真代码问题，本 PR 相关）**：INSERT 已过（三刀 `8d352049394` **CI 实证生效**）；失败点前移到 INSERT 后
 > `select count(1)` 的 **plan 期 manifest-list 读**——`PluginDrivenScanNode.getSplits → onPluginClassLoader(只 pin TCCL、无 doAs)
