@@ -169,8 +169,8 @@ SpimiTermBuffer::SpimiTermBuffer(const std::vector<std::string>* vocab, bool has
           // never dereferenced), and binding unconditionally keeps both constructors
           // symmetric. Initialized in the member-init list (NOT the body): the functors
           // are NESTED types, whose default-constructibility is not yet established at
-          // the point the flat set's default ctor (whose noexcept spec inspects the
-          // functors) would be needed for a body assignment. The
+          // the point unordered_set's defaulted default ctor would be needed for a
+          // body assignment, so default-constructing intern_ is ill-formed. The
           // (bucket_count, hash, equal) constructor sidesteps that entirely.
           // owned_vocab_ is constructed before intern_ (declaration order) and the
           // buffer is non-movable, so &owned_vocab_ is stable for the buffer's life.
@@ -194,11 +194,10 @@ SpimiTermBuffer::SpimiTermBuffer(bool has_positions, size_t spill_threshold_byte
           // &owned_vocab_ so a stored term-id dereferences to its string for content
           // hashing and equality. Initialized in the member-init list (NOT the body):
           // the functors are NESTED types whose default-constructibility is not yet
-          // established where the flat set's default ctor (whose noexcept spec inspects
-          // the functors) would be needed for a body assignment, so the
-          // (bucket_count, hash, equal) constructor is used instead. owned_vocab_ is
-          // constructed before intern_ (declaration order) and the buffer is
-          // non-movable, so &owned_vocab_ is stable for the buffer's life.
+          // established where unordered_set's defaulted default ctor would be needed for
+          // a body assignment, so the (bucket_count, hash, equal) constructor is used
+          // instead. owned_vocab_ is constructed before intern_ (declaration order) and
+          // the buffer is non-movable, so &owned_vocab_ is stable for the buffer's life.
           intern_(0, OwnedVocabHash {&owned_vocab_}, OwnedVocabEq {&owned_vocab_}),
           has_positions_(has_positions),
           spill_threshold_bytes_(spill_threshold_bytes),
@@ -325,9 +324,7 @@ uint64_t SpimiTermBuffer::resident_bytes() const {
     // Owned-vocab machinery (all zero in borrowed mode): string headers by vector
     // capacity, heap payloads via the incrementally-maintained counter (credited
     // by intern_owned_term / materialize_pair_term, debited by evict_bigram_term),
-    // and the intern set's entries at a fixed per-entry estimate (kept at the
-    // pre-G10 node-set value so the gate-2 spill points are unchanged; see the
-    // constant's comment).
+    // and the intern set's nodes at a fixed per-entry estimate.
     b += static_cast<uint64_t>(owned_vocab_.capacity()) * sizeof(std::string);
     b += owned_vocab_heap_bytes_;
     b += static_cast<uint64_t>(intern_.size()) * kInternEntryEstimateBytes;
@@ -367,19 +364,19 @@ SpimiTermBuffer::Term& SpimiTermBuffer::term_slot(uint32_t term_id, bool* new_te
     return slots_[slot];
 }
 
-// Appends one varint to a term's chain, starting the chain lazily on first use.
-// G10 micro-opt: the lazy chain-start check is hoisted out of the per-byte loop
-// (it used to run inside a per-byte put_byte helper). Identical semantics: a
-// varint always encodes to >= 1 byte, so starting the chain before the encode
-// is indistinguishable from starting it on the first appended byte.
-void SpimiTermBuffer::put_varint(Term* t, uint64_t v) {
+// Appends one byte to a term's chain, starting the chain lazily on first use.
+void SpimiTermBuffer::put_byte(Term* t, uint8_t b) {
     if (t->head == kNoChain) {
         t->head = pool_.start_chain(&t->w, &t->level);
     }
+    pool_.append_byte(&t->w, &t->level, b);
+}
+
+void SpimiTermBuffer::put_varint(Term* t, uint64_t v) {
     uint8_t tmp[10];
     const size_t n = encode_varint64(v, tmp);
     for (size_t i = 0; i < n; ++i) {
-        pool_.append_byte(&t->w, &t->level, tmp[i]);
+        put_byte(t, tmp[i]);
     }
 }
 
@@ -679,11 +676,7 @@ void SpimiTermBuffer::add_bigram_token(uint32_t left_id, uint32_t right_id, uint
 // inserts the id into the intern set, and accounts bigram intern storage
 // against the G04 vocab cap. The string is stored BEFORE insert(term_id) so the
 // set functors can hash owned_vocab_[term_id]; the set stores only the id, so a
-// vocab reallocation never invalidates existing entries. G10 (flat set): an
-// insert may REHASH the whole table -- re-hashing every STORED id through the
-// functor -- which is safe because every stored id's string is live at every
-// insert (eviction removes an id from the set before clearing its string) and a
-// rehash relocates only the 4-byte id slots, never the strings themselves.
+// vocab reallocation never invalidates existing entries.
 uint32_t SpimiTermBuffer::intern_owned_term(std::string&& term_str) {
     uint32_t term_id;
     if (!free_ids_.empty()) {
@@ -1190,13 +1183,9 @@ void SpimiTermBuffer::evict_bigram_term(uint32_t id) {
     const uint64_t footprint = bigram_term_footprint(s);
     bigram_intern_bytes_ = bigram_intern_bytes_ > footprint ? bigram_intern_bytes_ - footprint : 0;
     // G08 symmetry: debit the heap payload intern_owned_term credited, BEFORE the
-    // swap below frees it (the intern_.erase debits its entry via intern_.size()).
+    // swap below frees it (the intern_.erase debits its node via intern_.size()).
     const uint64_t heap = StringHeapBytes(s);
     owned_vocab_heap_bytes_ = owned_vocab_heap_bytes_ > heap ? owned_vocab_heap_bytes_ - heap : 0;
-    // ORDER (G10 load-bearing): erase from the intern set while the string is
-    // still intact -- erase-by-key hashes owned_vocab_[id] through the functor to
-    // locate the slot (true for the old node set too; the flat set makes it worth
-    // stating). The erase tombstones one 4-byte slot and re-hashes nothing else.
     intern_.erase(id);
     release_term(id);
     std::string().swap(s); // free the string payload (capacity 0)
