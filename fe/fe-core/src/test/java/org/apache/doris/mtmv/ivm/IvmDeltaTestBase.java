@@ -171,8 +171,8 @@ abstract class IvmDeltaTestBase {
         ConnectContext connectContext = newConnectContext();
         JobContext jobContext = newJobContextForRoot(agg, connectContext);
         Plan normalizedPlan = new IvmNormalizeMtmv().rewriteRoot(agg, jobContext);
-        IvmNormalizeResult normalizeResult = jobContext.getCascadesContext().getIvmNormalizeResult().get();
-        return new PlanBundle(connectContext, normalizedPlan, normalizeResult);
+        IvmRewriteResult rewriteResult = jobContext.getCascadesContext().getIvmRewriteResult().get();
+        return new PlanBundle(connectContext, normalizedPlan, rewriteResult);
     }
 
     protected MTMV buildMtmvFromPlan(List<Slot> output) {
@@ -333,12 +333,12 @@ abstract class IvmDeltaTestBase {
     protected static final class PlanBundle {
         protected final ConnectContext connectContext;
         protected final Plan normalizedPlan;
-        protected final IvmNormalizeResult normalizeResult;
+        protected final IvmRewriteResult rewriteResult;
 
-        protected PlanBundle(ConnectContext connectContext, Plan normalizedPlan, IvmNormalizeResult normalizeResult) {
+        protected PlanBundle(ConnectContext connectContext, Plan normalizedPlan, IvmRewriteResult rewriteResult) {
             this.connectContext = connectContext;
             this.normalizedPlan = normalizedPlan;
-            this.normalizeResult = normalizeResult;
+            this.rewriteResult = rewriteResult;
         }
     }
 }

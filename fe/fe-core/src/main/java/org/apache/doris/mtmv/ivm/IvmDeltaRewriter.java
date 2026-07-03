@@ -60,6 +60,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableStreamScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -110,6 +111,18 @@ public class IvmDeltaRewriter {
     }
 
     /**
+     * Generates the incremental refresh query plan for the analyzer rule path.
+     */
+    public Plan generateIncrementalRefreshPlan(Plan normalizedPlan, IvmRewriteResult rewriteResult,
+            IvmRewriteContext rewriteContext, ConnectContext connectContext) {
+        IvmRefreshContext refreshContext = new IvmRefreshContext(
+                rewriteContext.getMtmv(), connectContext, rewriteResult);
+        Set<TableNameInfo> excluded = rewriteContext.getMtmv().getExcludedTriggerTables();
+        return generateMergedDeltaPlan(normalizedPlan, refreshContext,
+                scan -> isExcludedTriggerTable(scan, excluded), rewriteContext.isIncludeUpToDateStreams());
+    }
+
+    /**
      * Generates the merged delta plan (without INSERT wrapper) for EXPLAIN or execution.
      *
      * @param includeUpToDate if true, includes delta plans for up-to-date streams (EXPLAIN).
@@ -120,8 +133,8 @@ public class IvmDeltaRewriter {
             Predicate<LogicalOlapScan> isExcluded, boolean includeUpToDate) {
         // --- Step 0: strip result sink, check AGG ---
         Plan rootPlan = helper.stripResultSink(normalizedPlan);
-        IvmAggMeta aggMeta = ctx.getNormalizeResult() != null
-                ? ctx.getNormalizeResult().getAggMeta() : null;
+        IvmAggMeta aggMeta = ctx.getRewriteResult() != null
+                ? ctx.getRewriteResult().getAggMeta() : null;
         boolean isAgg = aggMeta != null;
 
         // --- Step 1 (AGG only): detach entire chain above+including AGG ---
