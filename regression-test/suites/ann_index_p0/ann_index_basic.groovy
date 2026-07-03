@@ -21,6 +21,14 @@
 suite ("ann_index_basic") {
 		sql "set enable_common_expr_pushdown=true;"
 
+		// Gate ordered qt_ checks on data being visible to the normal scan path.
+		// Right after INSERT the in-memory ANN index can already be queryable while the
+		// freshly-written raw column rows are briefly not (num_rows()==0), which makes
+		// index-free fallback queries (e.g. inner_product ASC) intermittently return empty.
+		def waitRowCount = { tbl, expected ->
+			awaitUntil(30) { (sql("select count(*) from ${tbl}")[0][0] as long) == expected }
+		}
+
 		// 1) Basic L2 ANN table: dim=3
 		sql "drop table if exists tbl_ann_l2"
 		sql """
@@ -44,6 +52,7 @@ suite ("ann_index_basic") {
 		(2, [0.5, 2.1, 2.9]),
 		(3, [10.0, 10.0, 10.0]);
 		"""
+		waitRowCount("tbl_ann_l2", 3)
 
 		// Query: l2 distance ascending (closest first)
 		qt_sql_l2_query "select id, l2_distance_approximate(embedding, [1.0,2.0,3.0]) as dist from tbl_ann_l2 order by dist limit 3;"
@@ -71,6 +80,7 @@ suite ("ann_index_basic") {
 		(2, [0.5, 0.6, 0.7, 0.8]),
 		(3, [1.0, 1.0, 1.0, 1.0]);
 		"""
+		waitRowCount("tbl_ann_ip", 3)
 
 		// Query: inner product descending (higher score first)
 		qt_sql_ip_query "select id from tbl_ann_ip order by inner_product_approximate(embedding, [0.1,0.2,0.3,0.4]) desc limit 3;"
@@ -111,6 +121,7 @@ suite ("ann_index_basic") {
                 values.add("(${i}, [${a}, ${b}, ${c}])")
         }
         sql "INSERT INTO tbl_ann_l2_large VALUES ${values.join(',')};"
+        waitRowCount("tbl_ann_l2_large", 50)
 
         // topn with small predicate (id < 5) -> selects 4/50 = 8% (<30%), should exercise "will not use ann index" path
         qt_sql_l2_small_pred "select id from tbl_ann_l2_large where id < 5 order by l2_distance_approximate(embedding, [1.0,2.0,3.0]) limit 5;"
@@ -137,6 +148,7 @@ suite ("ann_index_basic") {
         """
 
         sql "INSERT INTO ann_compound VALUES (1, [1.0,2.0,3.0], 'quick brown fox'), (2, [2.0,3.0,4.0], 'lazy dog fox'), (3, [10.0,10.0,10.0], 'unrelated text');"
+        waitRowCount("ann_compound", 3)
 
         qt_sql_compound "select id from ann_compound where txt match_any 'fox' order by l2_distance_approximate(embedding, [1.0,2.0,3.0]) limit 3;"
 }
