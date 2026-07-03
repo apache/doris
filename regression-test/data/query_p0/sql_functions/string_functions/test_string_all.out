@@ -1216,7 +1216,7 @@ Hello   World
 \N	\N
 
 -- !split_by_string_351 --
-[]	["hello"]
+[""]	["hello"]
 
 -- !split_by_string_352 --
 ["a", "", "b", "c"]

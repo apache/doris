@@ -23,6 +23,7 @@ suite("test_split_by_string") {
     qt_sql "select split_by_string('','');"
     qt_sql "select split_by_string('',',');"
     qt_sql "select split_by_string('','a');"
+    qt_issue_64803 "select split_by_string('', ','), split_by_string('', 'abc'), split_by_string('', '');"
 
     qt_sql "select split_by_string('a1b1c1d','1');"
     qt_sql "select split_by_string(',,,',',');"
@@ -171,6 +172,7 @@ suite("test_split_by_string") {
     qt_sql_alias "select split('','');"
     qt_sql_alias "select split('',',');"
     qt_sql_alias "select split('','a');"
+    qt_issue_64803_alias "select split('', ','), split('', 'abc'), split('', '');"
 
     qt_sql_alias "select split('a1b1c1d','1');"
     qt_sql_alias "select split(',,,',',');"

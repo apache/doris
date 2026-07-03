@@ -41,7 +41,6 @@ import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.types.ArrayType;
 
-import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 
 import java.io.UnsupportedEncodingException;
@@ -765,22 +764,19 @@ public class StringArithmetic {
      */
     @ExecFunction(name = "split_by_string")
     public static Expression splitByString(StringLikeLiteral first, StringLikeLiteral second) {
-        if (first.getValue().isEmpty()) {
-            return new ArrayLiteral(ImmutableList.of(), ArrayType.of(first.getDataType()));
-        }
         if (second.getValue().isEmpty()) {
             List<Literal> result = Lists.newArrayListWithExpectedSize(first.getValue().length());
             for (String resultStr : splitByGrapheme(first)) {
                 result.add(castStringLikeLiteral(first, resultStr));
             }
-            return new ArrayLiteral(result);
+            return new ArrayLiteral(result, ArrayType.of(first.getDataType()));
         }
         String[] result = first.getValue().split(Pattern.quote(second.getValue()), -1);
         List<Literal> items = new ArrayList<>();
         for (String s : result) {
             items.add(castStringLikeLiteral(first, s));
         }
-        return new ArrayLiteral(items);
+        return new ArrayLiteral(items, ArrayType.of(first.getDataType()));
     }
 
     /**
