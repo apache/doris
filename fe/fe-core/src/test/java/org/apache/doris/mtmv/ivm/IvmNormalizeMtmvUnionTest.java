@@ -99,18 +99,18 @@ class IvmNormalizeMtmvUnionTest extends IvmDeltaTestBase {
         return new IvmNormalizeMtmv().rewriteRoot(sink, jobContext);
     }
 
-    private IvmNormalizeResult getNormalizeResult(Plan unionPlan) {
+    private IvmRewriteResult getRewriteResult(Plan unionPlan) {
         ImmutableList<NamedExpression> exprs = ImmutableList.copyOf(unionPlan.getOutput());
         LogicalProject<?> project = new LogicalProject<>(exprs, unionPlan);
         LogicalResultSink<?> sink = new LogicalResultSink<>(exprs, project);
         ConnectContext ctx = newConnectContext();
         JobContext jobContext = newJobContextForRoot(sink, ctx);
         new IvmNormalizeMtmv().rewriteRoot(sink, jobContext);
-        return jobContext.getCascadesContext().getIvmNormalizeResult().get();
+        return jobContext.getCascadesContext().getIvmRewriteResult().get();
     }
 
     private boolean isUnionRowIdDeterministic(Plan unionPlan) {
-        IvmNormalizeResult result = getNormalizeResult(unionPlan);
+        IvmRewriteResult result = getRewriteResult(unionPlan);
         Plan normalized = result.getNormalizedPlan();
         Slot rowIdSlot = IvmUtil.findRowIdSlot(normalized.getOutput(), "test plan");
         return result.isDeterministic(rowIdSlot);

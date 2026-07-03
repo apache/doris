@@ -86,17 +86,17 @@ class IvmNormalizeMtmvJoinTest extends IvmDeltaTestBase {
         return new IvmNormalizeMtmv().rewriteRoot(sink, jobContext);
     }
 
-    private IvmNormalizeResult getNormalizeResult(Plan joinPlan) {
+    private IvmRewriteResult getRewriteResult(Plan joinPlan) {
         ImmutableList<NamedExpression> exprs = ImmutableList.copyOf(joinPlan.getOutput());
         LogicalProject<?> project = new LogicalProject<>(exprs, joinPlan);
         LogicalResultSink<?> sink = new LogicalResultSink<>(exprs, project);
         ConnectContext ctx = newConnectContext();
         JobContext jobContext = newJobContextForRoot(sink, ctx);
         new IvmNormalizeMtmv().rewriteRoot(sink, jobContext);
-        return jobContext.getCascadesContext().getIvmNormalizeResult().get();
+        return jobContext.getCascadesContext().getIvmRewriteResult().get();
     }
 
-    private IvmNormalizeResult getNormalizeResult(Plan joinPlan, ImmutableSet<TableNameInfo> excludedTriggerTables) {
+    private IvmRewriteResult getRewriteResult(Plan joinPlan, ImmutableSet<TableNameInfo> excludedTriggerTables) {
         ImmutableList<NamedExpression> exprs = ImmutableList.copyOf(joinPlan.getOutput());
         LogicalProject<?> project = new LogicalProject<>(exprs, joinPlan);
         LogicalResultSink<?> sink = new LogicalResultSink<>(exprs, project);
@@ -104,7 +104,7 @@ class IvmNormalizeMtmvJoinTest extends IvmDeltaTestBase {
         ctx.getStatementContext().setExcludedTriggerTables(excludedTriggerTables);
         JobContext jobContext = newJobContextForRoot(sink, ctx);
         new IvmNormalizeMtmv().rewriteRoot(sink, jobContext);
-        return jobContext.getCascadesContext().getIvmNormalizeResult().get();
+        return jobContext.getCascadesContext().getIvmRewriteResult().get();
     }
 
     private LogicalUnion buildUnionAll(Plan... children) {
@@ -134,7 +134,7 @@ class IvmNormalizeMtmvJoinTest extends IvmDeltaTestBase {
      * Helper: check if the composed join row_id (found in the normalized plan output) is deterministic.
      */
     private boolean isComposedRowIdDeterministic(Plan joinPlan) {
-        IvmNormalizeResult result = getNormalizeResult(joinPlan);
+        IvmRewriteResult result = getRewriteResult(joinPlan);
         Plan normalized = result.getNormalizedPlan();
         Slot rowIdSlot = IvmUtil.findRowIdSlot(normalized.getOutput(), "test plan");
         return result.isDeterministic(rowIdSlot);
@@ -264,7 +264,7 @@ class IvmNormalizeMtmvJoinTest extends IvmDeltaTestBase {
         LogicalJoin<?, ?> join = new LogicalJoin<>(JoinType.LEFT_OUTER_JOIN,
                 ImmutableList.of(), scanA, scanB, JoinReorderContext.EMPTY);
 
-        IvmNormalizeResult result = getNormalizeResult(join);
+        IvmRewriteResult result = getRewriteResult(join);
         Plan normalized = result.getNormalizedPlan();
 
         long rowIdCount = normalized.getOutput().stream()
@@ -283,7 +283,7 @@ class IvmNormalizeMtmvJoinTest extends IvmDeltaTestBase {
         LogicalJoin<?, ?> outerJoin = new LogicalJoin<>(JoinType.LEFT_OUTER_JOIN,
                 ImmutableList.of(), innerJoin, scanC, JoinReorderContext.EMPTY);
 
-        IvmNormalizeResult result = getNormalizeResult(outerJoin);
+        IvmRewriteResult result = getRewriteResult(outerJoin);
 
         Assertions.assertNotNull(result.getNormalizedPlan(),
                 "Root LEFT_OUTER_JOIN should allow inner joins in its children");
@@ -351,7 +351,7 @@ class IvmNormalizeMtmvJoinTest extends IvmDeltaTestBase {
         LogicalJoin<?, ?> join = new LogicalJoin<>(JoinType.LEFT_OUTER_JOIN,
                 ImmutableList.of(), scanA, union, JoinReorderContext.EMPTY);
 
-        IvmNormalizeResult result = getNormalizeResult(join,
+        IvmRewriteResult result = getRewriteResult(join,
                 ImmutableSet.of(new TableNameInfo("test_db", "b"), new TableNameInfo("test_db", "c")));
 
         Assertions.assertNotNull(result.getNormalizedPlan(),
@@ -365,7 +365,7 @@ class IvmNormalizeMtmvJoinTest extends IvmDeltaTestBase {
         LogicalJoin<?, ?> join = new LogicalJoin<>(JoinType.RIGHT_OUTER_JOIN,
                 ImmutableList.of(), scanA, scanB, JoinReorderContext.EMPTY);
 
-        IvmNormalizeResult result = getNormalizeResult(join);
+        IvmRewriteResult result = getRewriteResult(join);
         Plan normalized = result.getNormalizedPlan();
 
         long rowIdCount = normalized.getOutput().stream()
@@ -409,7 +409,7 @@ class IvmNormalizeMtmvJoinTest extends IvmDeltaTestBase {
         LogicalJoin<?, ?> join = new LogicalJoin<>(JoinType.RIGHT_OUTER_JOIN,
                 ImmutableList.of(), scanA, union, JoinReorderContext.EMPTY);
 
-        IvmNormalizeResult result = getNormalizeResult(join);
+        IvmRewriteResult result = getRewriteResult(join);
 
         Assertions.assertNotNull(result.getNormalizedPlan(),
                 "RIGHT_OUTER_JOIN should allow UNION ALL on retained side");
@@ -422,7 +422,7 @@ class IvmNormalizeMtmvJoinTest extends IvmDeltaTestBase {
         LogicalJoin<?, ?> join = new LogicalJoin<>(JoinType.FULL_OUTER_JOIN,
                 ImmutableList.of(), scanA, scanB, JoinReorderContext.EMPTY);
 
-        IvmNormalizeResult result = getNormalizeResult(join);
+        IvmRewriteResult result = getRewriteResult(join);
         Plan normalized = result.getNormalizedPlan();
 
         long rowIdCount = normalized.getOutput().stream()
@@ -511,7 +511,7 @@ class IvmNormalizeMtmvJoinTest extends IvmDeltaTestBase {
         Plan filter = new LogicalFilter<>(ImmutableSet.of(new EqualTo(
                 join.getOutput().get(0), join.getOutput().get(0))), join);
 
-        IvmNormalizeResult result = getNormalizeResult(filter);
+        IvmRewriteResult result = getRewriteResult(filter);
 
         Assertions.assertNotNull(result.getNormalizedPlan(),
                 "Filter above LEFT_OUTER_JOIN should keep outer join IVM routing");
@@ -527,7 +527,7 @@ class IvmNormalizeMtmvJoinTest extends IvmDeltaTestBase {
         LogicalJoin<?, ?> topJoin = new LogicalJoin<>(JoinType.INNER_JOIN,
                 ImmutableList.of(), outerJoin, scanC, JoinReorderContext.EMPTY);
 
-        IvmNormalizeResult result = getNormalizeResult(topJoin);
+        IvmRewriteResult result = getRewriteResult(topJoin);
 
         Assertions.assertNotNull(result.getNormalizedPlan(),
                 "LEFT_OUTER_JOIN below a linear parent join should be normalized");
@@ -543,7 +543,7 @@ class IvmNormalizeMtmvJoinTest extends IvmDeltaTestBase {
         LogicalJoin<?, ?> secondOuterJoin = new LogicalJoin<>(JoinType.LEFT_OUTER_JOIN,
                 ImmutableList.of(), firstOuterJoin, scanC, JoinReorderContext.EMPTY);
 
-        IvmNormalizeResult result = getNormalizeResult(secondOuterJoin);
+        IvmRewriteResult result = getRewriteResult(secondOuterJoin);
 
         Assertions.assertNotNull(result.getNormalizedPlan(),
                 "LEFT_OUTER_JOIN chain on retained side should be normalized");
@@ -561,7 +561,7 @@ class IvmNormalizeMtmvJoinTest extends IvmDeltaTestBase {
         LogicalJoin<?, ?> secondOuterJoin = new LogicalJoin<>(JoinType.LEFT_OUTER_JOIN,
                 ImmutableList.of(), projectedFirstJoin, scanC, JoinReorderContext.EMPTY);
 
-        IvmNormalizeResult result = getNormalizeResult(secondOuterJoin);
+        IvmRewriteResult result = getRewriteResult(secondOuterJoin);
 
         Assertions.assertNotNull(result.getNormalizedPlan(),
                 "LEFT_OUTER_JOIN chain should allow projects on the retained-side path");
@@ -631,7 +631,7 @@ class IvmNormalizeMtmvJoinTest extends IvmDeltaTestBase {
                 ImmutableList.of(groupSlot), ImmutableList.of(groupSlot, countAlias),
                 true, Optional.empty(), outerJoin);
 
-        IvmNormalizeResult result = getNormalizeResult(aggregate);
+        IvmRewriteResult result = getRewriteResult(aggregate);
 
         Assertions.assertNotNull(result.getAggMeta(),
                 "Root aggregate should keep aggregate IVM rewrite plan");
@@ -644,7 +644,7 @@ class IvmNormalizeMtmvJoinTest extends IvmDeltaTestBase {
         LogicalJoin<?, ?> join = new LogicalJoin<>(JoinType.INNER_JOIN,
                 ImmutableList.of(), scanA, scanB, JoinReorderContext.EMPTY);
 
-        IvmNormalizeResult result = getNormalizeResult(join);
+        IvmRewriteResult result = getRewriteResult(join);
         Map<Slot, Boolean> rowIdDet = result.getRowIdDeterminism();
         // 2 scan entries + 1 composed join entry = 3
         Assertions.assertEquals(3, rowIdDet.size(),
