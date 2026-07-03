@@ -109,7 +109,6 @@ import org.apache.doris.nereids.rules.implementation.LogicalWorkTableReferenceTo
 import org.apache.doris.nereids.rules.implementation.SplitAggMultiPhase;
 import org.apache.doris.nereids.rules.implementation.SplitAggMultiPhaseWithoutGbyKey;
 import org.apache.doris.nereids.rules.implementation.SplitAggWithoutDistinct;
-import org.apache.doris.nereids.rules.rewrite.CreatePartitionTopNFromWindow;
 import org.apache.doris.nereids.rules.rewrite.EliminateFilter;
 import org.apache.doris.nereids.rules.rewrite.EliminateOuterJoin;
 import org.apache.doris.nereids.rules.rewrite.MaxMinFilterPushDown;
@@ -170,7 +169,6 @@ public class RuleSet {
 
     public static final List<RuleFactory> PUSH_DOWN_FILTERS = ImmutableList.of(
             new MaxMinFilterPushDown(),
-            new CreatePartitionTopNFromWindow(),
             new PushDownFilterThroughProject(),
             new PushDownFilterThroughSort(),
             new PushDownFilterThroughVectorSearchTopN(),
