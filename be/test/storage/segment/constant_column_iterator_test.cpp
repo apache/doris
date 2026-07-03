@@ -48,7 +48,7 @@ TEST_F(ConstantColumnIteratorTest, ColumnReaderCreateWithConstValueReturnsConsta
     EXPECT_TRUE(reader->has_zone_map());
     EXPECT_EQ(FieldType::OLAP_FIELD_TYPE_BIGINT, reader->get_meta_type());
 
-    ZoneMap zone_map;
+    segment_v2::ZoneMap zone_map;
     st = reader->get_segment_zone_map(&zone_map);
     ASSERT_TRUE(st.ok()) << st;
     EXPECT_EQ(kValue, zone_map.min_value.get<TYPE_BIGINT>());

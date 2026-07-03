@@ -246,6 +246,8 @@ public class BindRelation extends OneAnalysisRuleFactory {
                 && unboundRelation.getScanParams().incrementalRead();
         if (isChangeRead) {
             table = new RowBinlogTableWrapper((OlapTable) table);
+        } else if (unboundRelation.getScanParams() != null) {
+            unboundRelation.getScanParams().validateOlapTable();
         }
         if (!CollectionUtils.isEmpty(partIds) && !unboundRelation.getIndexName().isPresent()) {
             scan = new LogicalOlapScan(unboundRelation.getRelationId(),
@@ -340,10 +342,13 @@ public class BindRelation extends OneAnalysisRuleFactory {
                     wrapper, qualifier, tabletIds, unboundRelation.getHints(),
                     unboundRelation.getTableSample(), ImmutableList.of());
         }
-        if (unboundRelation.getScanParams() != null && unboundRelation.getScanParams().isSnapshot()) {
-            scan = scan.withIsSnapshot(true);
-        } else if (unboundRelation.getScanParams() != null && unboundRelation.getScanParams().isReset()) {
-            scan = scan.withIsReset(true);
+        if (unboundRelation.getScanParams() != null) {
+            unboundRelation.getScanParams().validateOlapTableStream();
+            if (unboundRelation.getScanParams().isSnapshot()) {
+                scan = scan.withIsSnapshot(true);
+            } else if (unboundRelation.getScanParams().isReset()) {
+                scan = scan.withIsReset(true);
+            }
         }
         if (!tabletIds.isEmpty()) {
             // This tabletIds is set manually, so need to set specifiedTabletIds
@@ -498,7 +503,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
         validateTimeTravel(olapTable);
         long targetTso = resolveSnapshotTso(snapshot);
         if (olapTable.getKeysType() == KeysType.DUP_KEYS) {
-            return addCommitTsoFilter(scan, scan, targetTso, olapTable);
+            return addCommitTsoFilter(scan, targetTso, olapTable);
         }
         return buildMowTimeTravelUnion(scan, olapTable, targetTso, unboundRelation,
                 qualifier, partIds, tabletIds, cascadesContext);
@@ -529,12 +534,11 @@ public class BindRelation extends OneAnalysisRuleFactory {
 
     /**
      * Add Filter(__DORIS_COMMIT_TSO_COL__ &lt;= targetTso) on top of {@code child}. The tso slot is
-     * resolved from {@code scan} output; {@code child} must pass through the scan output slots.
+     * resolved from {@code child} output; {@code child} must pass through the scan output slots.
      */
-    private LogicalPlan addCommitTsoFilter(LogicalPlan child, LogicalOlapScan scan,
-            long targetTso, OlapTable olapTable) {
+    private LogicalPlan addCommitTsoFilter(LogicalPlan child, long targetTso, OlapTable olapTable) {
         Slot tsoSlot = null;
-        for (Slot slot : scan.getOutput()) {
+        for (Slot slot : child.getOutput()) {
             if (slot.getName().equals(Column.COMMIT_TSO_COL)) {
                 tsoSlot = slot;
                 break;
@@ -576,13 +580,10 @@ public class BindRelation extends OneAnalysisRuleFactory {
                 .filter(slot -> !(slot instanceof SlotReference)
                         || ((SlotReference) slot).isVisible())
                 .collect(Collectors.toList());
-        List<NamedExpression> visibleProjects = visibleOutput.stream()
-                .map(NamedExpression.class::cast).collect(Collectors.toList());
 
         // left: base survived rows at t1 = delete_sign=0 AND commit_tso<=t1, projected to visible.
         LogicalPlan left = checkAndAddDeleteSignFilter(baseScan, ConnectContext.get(), olapTable, true);
-        left = addCommitTsoFilter(left, baseScan, targetTso, olapTable);
-        left = new LogicalProject<>(visibleProjects, left);
+        left = projectFromOriginSlots(addCommitTsoFilter(left, targetTso, olapTable), visibleOutput);
 
         // right: binlog MIN_DELTA over tso>t1, keep UPDATE_BEFORE/DELETE rows (before image),
         // projected to the same visible schema. BE splits each change so UPDATE_BEFORE/DELETE rows
@@ -602,23 +603,13 @@ public class BindRelation extends OneAnalysisRuleFactory {
 
         LogicalPlan right = checkAndAddChangeScanFilter(binlogScan, StreamScanType.MIN_DELTA, Pair.of(targetTso, null),
                 true);
-        List<NamedExpression> rightProjects = new ArrayList<>(visibleOutput.size());
-        for (Slot vs : visibleOutput) {
-            Slot match = null;
-            for (Slot slot : binlogScan.getOutput()) {
-                if (slot.getName().equals(vs.getName())) {
-                    match = slot;
-                    break;
-                }
-            }
-            Preconditions.checkArgument(match != null,
-                    "column %s not found in row binlog schema", vs.getName());
-            rightProjects.add(match);
-        }
-        right = new LogicalProject<>(rightProjects, right);
+        right = projectFromOriginSlots(right, visibleOutput);
 
         // both children are bound; BindExpression aligns by position and fills the union output.
-        return new LogicalUnion(Qualifier.ALL, ImmutableList.of(left, right));
+        // buildNewOutputs() rebuilds the union output slots with empty qualifiers, so wrap the union
+        // in a subquery alias to restore the original catalog.db.table qualifier. Otherwise qualified
+        // references such as t.k / t.* fail to bind (the dup path keeps the original scan slots).
+        return new LogicalSubQueryAlias<>(qualifier, new LogicalUnion(Qualifier.ALL, ImmutableList.of(left, right)));
     }
 
     private Optional<LogicalPlan> handleMetaTable(TableIf table, UnboundRelation unboundRelation,
@@ -1055,5 +1046,20 @@ public class BindRelation extends OneAnalysisRuleFactory {
                     new BigIntLiteral(BinlogUtils.ROW_BINLOG_UPDATE_BEFORE))));
         }
         return new LogicalFilter<>(ImmutableSet.copyOf(conjuncts), plan);
+    }
+
+    private LogicalPlan projectFromOriginSlots(LogicalPlan plan, List<Slot> wantedSlots) {
+        Map<String, Slot> childSlotByName = new HashMap<>(plan.getOutput().size());
+        for (Slot slot : plan.getOutput()) {
+            childSlotByName.put(slot.getName(), slot);
+        }
+        List<NamedExpression> project = new ArrayList<>(wantedSlots.size());
+        for (Slot wanted : wantedSlots) {
+            Slot match = childSlotByName.get(wanted.getName());
+            Preconditions.checkArgument(match != null,
+                    "column %s not found in child output", wanted.getName());
+            project.add(new Alias(match, wanted.getName()));
+        }
+        return new LogicalProject<>(project, plan);
     }
 }

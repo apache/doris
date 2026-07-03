@@ -481,6 +481,30 @@ public class ExplainTableStreamPlanTest extends TestWithFeService {
         assertStreamScanCanBePlanned(ctx, "explain select * from test_stream.s_dup@reset()");
     }
 
+    @Test
+    public void testMowTimeTravelQualifiedColumnCanBind() {
+        // MOW time-travel goes through a union whose outputs are rebuilt with empty qualifiers.
+        // The union must be wrapped in a subquery alias so qualified columns still bind.
+        Assertions.assertDoesNotThrow(() -> PlanChecker.from(connectContext)
+                .analyze("select tbl_stream_base.k1, tbl_stream_base.k2 "
+                        + "from test_stream.tbl_stream_base for version as of 1001"));
+    }
+
+    @Test
+    public void testMowTimeTravelQualifiedStarCanBind() {
+        Assertions.assertDoesNotThrow(() -> PlanChecker.from(connectContext)
+                .analyze("select tbl_stream_base.* "
+                        + "from test_stream.tbl_stream_base for version as of 1001"));
+    }
+
+    @Test
+    public void testDupTimeTravelQualifiedColumnCanBind() {
+        // Dup path keeps the original scan slots (filter over scan), qualified refs already work.
+        Assertions.assertDoesNotThrow(() -> PlanChecker.from(connectContext)
+                .analyze("select tbl_dup_stream_base.k1, tbl_dup_stream_base.* "
+                        + "from test_stream.tbl_dup_stream_base for version as of 1001"));
+    }
+
     private void collectOlapScanNodes(PlanNode node, List<OlapScanNode> result) {
         if (node instanceof OlapScanNode) {
             result.add((OlapScanNode) node);

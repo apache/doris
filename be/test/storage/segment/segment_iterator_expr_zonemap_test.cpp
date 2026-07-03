@@ -357,8 +357,7 @@ TEST_F(SegmentIteratorExprZonemapTest, NewIteratorPrunesCommitTsoByReadOptionVal
     read_options.version = Version(7, 7);
     read_options.commit_tso = TsoRange(kCommitTso, kCommitTso);
     read_options.io_ctx.reader_type = ReaderType::READER_QUERY;
-    read_options.col_id_to_predicates.emplace(1,
-                                              make_commit_tso_gt_predicate(1, kCommitTso));
+    read_options.col_id_to_predicates.emplace(1, make_commit_tso_gt_predicate(1, kCommitTso));
 
     std::unique_ptr<RowwiseIterator> iter;
     auto st = segment->new_iterator(read_schema, read_options, &iter);

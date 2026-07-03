@@ -253,6 +253,7 @@ public class SummaryProfile {
             = ImmutableMap.<String, Integer>builder()
             .put(NEREIDS_GARBAGE_COLLECT_TIME, 1)
             .put(NEREIDS_PRELOAD_EXTERNAL_METADATA_TIME, 1)
+            .put(WAIT_CHANGE_VISIBLE_TIME, 1)
             .put(NEREIDS_LOCK_TABLE_TIME, 1)
             .put(NEREIDS_ANALYSIS_TIME, 1)
             .put(NEREIDS_REWRITE_TIME, 1)
@@ -602,6 +603,7 @@ public class SummaryProfile {
                 getPrettyTime(queryPlanFinishTime, parseSqlFinishTime, TUnit.TIME_MS));
         executionSummaryProfile.addInfoString(NEREIDS_PRELOAD_EXTERNAL_METADATA_TIME,
                 getPrettyNereidsPreloadExternalMetadataTime());
+        executionSummaryProfile.addInfoString(WAIT_CHANGE_VISIBLE_TIME, getPrettyWaitChangeVisibleEndTime());
         executionSummaryProfile.addInfoString(NEREIDS_LOCK_TABLE_TIME, getPrettyNereidsLockTableTime());
         executionSummaryProfile.addInfoString(NEREIDS_ANALYSIS_TIME, getPrettyNereidsAnalysisTime());
         executionSummaryProfile.addInfoString(NEREIDS_REWRITE_TIME, getPrettyNereidsRewriteTime());
@@ -1007,6 +1009,10 @@ public class SummaryProfile {
 
     public String getPrettyNereidsPreloadExternalMetadataTime() {
         return RuntimeProfile.printCounter(nereidsPreloadExternalMetadataTime, TUnit.TIME_MS);
+    }
+
+    public String getPrettyWaitChangeVisibleEndTime() {
+        return getPrettyTime(waitChangeVisibleEndTime, waitChangeVisibleStartTime, TUnit.TIME_MS);
     }
 
     public String getPrettyNereidsLockTableTime() {
