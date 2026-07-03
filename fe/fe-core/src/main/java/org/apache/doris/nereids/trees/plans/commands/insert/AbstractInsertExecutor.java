@@ -35,7 +35,6 @@ import org.apache.doris.planner.DataSink;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.Coordinator;
-import org.apache.doris.qe.NereidsCoordinator;
 import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.qe.QeProcessorImpl.QueryInfo;
 import org.apache.doris.qe.StmtExecutor;
@@ -75,8 +74,7 @@ public abstract class AbstractInsertExecutor {
     protected final boolean emptyInsert;
     protected long txnId = INVALID_TXN_ID;
     protected List<TableStreamUpdateInfo> streamUpdateInfos;
-    protected boolean needRegister;
-    protected boolean isRegistered = false;
+    protected final boolean needRegister;
 
     /**
      * Insert executor listener
@@ -124,34 +122,19 @@ public abstract class AbstractInsertExecutor {
     }
 
     /**
-     * Register the running job to LoadManager and ProgressManager.
-     * Should be called after beginTransaction() and before exec() to ensure:
-     * 1. tableId/userInfo/authInfo are set so SHOW LOAD auth check passes
-     * 2. transactionId is set after txn begins
-     * 3. Registration happens after plan validation, before actual execution
+     * Check if this executor should register a runtime observable load job.
+     * Follows Broker Load pattern: registration happens once after all initialization is complete.
      */
-    protected boolean registerRunningLoadJob() throws UserException {
-        if (!needRegister || isRegistered || txnId == INVALID_TXN_ID) {
-            return false;
-        }
-        try {
-            insertLoadJob.initRunning(table.getId(), ctx.getCurrentUserIdentity());
-            insertLoadJob.setTransactionId(txnId);
-            ctx.getEnv().getLoadManager().addLoadJob(insertLoadJob);
-            ctx.getEnv().getProgressManager().registerProgressSimple(String.valueOf(insertLoadJob.getId()));
-            if (coordinator instanceof NereidsCoordinator) {
-                ((NereidsCoordinator) coordinator).initLoadJobProgress();
-            }
-        } catch (UserException e) {
-            throw new UserException("Failed to register running INSERT load job for label " + labelName
-                    + ", jobId " + insertLoadJob.getId() + ", tableId " + table.getId() + ": " + e.getMessage(), e);
-        }
-        isRegistered = true;
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("Registered running InsertLoadJob: jobId={}, label={}, txnId={}, tableId={}",
-                    insertLoadJob.getId(), labelName, txnId, table.getId());
-        }
-        return true;
+    public boolean shouldRegister() {
+        return needRegister && jobId != -1 && txnId != INVALID_TXN_ID;
+    }
+
+    /**
+     * Get the insert load job for external registration.
+     * The job should be initialized and registered by InsertIntoTableCommand after transaction begins.
+     */
+    public InsertLoadJob getInsertLoadJob() {
+        return insertLoadJob;
     }
 
     public void registerListener(InsertExecutorListener listener) {

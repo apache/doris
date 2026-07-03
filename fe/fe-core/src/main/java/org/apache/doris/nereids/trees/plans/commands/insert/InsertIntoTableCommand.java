@@ -43,6 +43,7 @@ import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalTable;
 import org.apache.doris.dictionary.Dictionary;
+import org.apache.doris.load.loadv2.InsertLoadJob;
 import org.apache.doris.load.loadv2.LoadJob;
 import org.apache.doris.load.loadv2.LoadStatistic;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -92,6 +93,7 @@ import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectContext.ConnectType;
 import org.apache.doris.qe.Coordinator;
+import org.apache.doris.qe.NereidsCoordinator;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.system.Backend;
 import org.apache.doris.transaction.TransactionState;
@@ -375,8 +377,40 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
                             buildResult.planner.getFragments().get(0), buildResult.dataSink,
                             buildResult.physicalSink
                     );
-                    if (insertExecutor.registerRunningLoadJob()) {
-                        applyInsertPlanStatistic(buildResult.planner);
+                    // Register running job to LoadManager following Broker Load pattern:
+                    // Initialize once with all required information, then register.
+                    // This ensures SHOW LOAD can observe the job with complete metadata.
+                    if (insertExecutor.shouldRegister()) {
+                        try {
+                            InsertLoadJob loadJob = insertExecutor.getInsertLoadJob();
+                            // Initialize job with all required information (tableId, userInfo, txnId)
+                            loadJob.initRunning(insertExecutor.getTable().getId(),
+                                    ctx.getCurrentUserIdentity(),
+                                    insertExecutor.getTxnId());
+
+                            // Register to LoadManager
+                            ctx.getEnv().getLoadManager().addLoadJob(loadJob);
+
+                            // Register progress tracking
+                            ctx.getEnv().getProgressManager().registerProgressSimple(String.valueOf(loadJob.getId()));
+
+                            // Initialize job progress in coordinator
+                            if (insertExecutor.getCoordinator() instanceof NereidsCoordinator) {
+                                ((NereidsCoordinator) insertExecutor.getCoordinator()).initLoadJobProgress();
+                            }
+
+                            // Apply file statistics after job is registered
+                            applyInsertPlanStatistic(buildResult.planner);
+
+                            if (LOG.isDebugEnabled()) {
+                                LOG.debug("Registered running InsertLoadJob: jobId={}, label={}, txnId={}, tableId={}",
+                                        loadJob.getId(), insertExecutor.getLabelName(),
+                                        insertExecutor.getTxnId(), insertExecutor.getTable().getId());
+                            }
+                        } catch (Exception e) {
+                            throw new UserException("Failed to register running INSERT load job for label "
+                                    + insertExecutor.getLabelName() + ": " + e.getMessage(), e);
+                        }
                     }
                 }
                 newestTargetTableIf.readUnlock();

@@ -103,21 +103,22 @@ public class InsertLoadJob extends LoadJob {
     }
 
     /**
-     * Initialize the job for runtime registration before adding to LoadManager.
-     * This fills tableId, userInfo, and authorizationInfo so SHOW LOAD can perform auth check.
+     * Initialize the job for runtime observation before adding to LoadManager.
+     * This method should be called once with all necessary information, following the
+     * Broker Load pattern of "construct once, register once".
+     *
+     * @param tableId the target table id
+     * @param userInfo the user who initiated the insert
+     * @param transactionId the transaction id after beginTransaction()
+     * @throws MetaNotFoundException if table or database metadata not found
      */
-    public void initRunning(long tableId, UserIdentity userInfo) throws MetaNotFoundException {
+    public void initRunning(long tableId, UserIdentity userInfo, long transactionId) throws MetaNotFoundException {
         this.tableId = tableId;
         this.userInfo = userInfo;
+        this.transactionId = transactionId;
         this.authorizationInfo = gatherAuthInfo();
         this.createTimestamp = System.currentTimeMillis();
-    }
-
-    /**
-     * Update transactionId after transaction begins.
-     */
-    public void setTransactionId(long transactionId) {
-        this.transactionId = transactionId;
+        this.state = JobState.PENDING;  // Start with PENDING state, like Broker Load
     }
 
     public void markLoading() {

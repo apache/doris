@@ -66,8 +66,12 @@ public class LoadProcessor extends AbstractJobProcessor {
         // only we set is report success, then the backend would report the fragment status,
         // then we can not the fragment is finished, and we can return in the NereidsCoordinator::join
         coordinatorContext.queryOptions.setIsReportSuccess(true);
-        // the insert into statement isn't a job
         this.jobId = jobId;
+
+        // Try to initialize job progress. Following Broker Load pattern, the job may not be
+        // registered yet at construction time. If the job is not found, this call returns early
+        // and will be retried later via NereidsCoordinator.initLoadJobProgress() after the job
+        // is registered to LoadManager in InsertIntoTableCommand.
         initJobProgress();
 
         topFragmentTasks = Lists.newArrayList();
@@ -77,10 +81,18 @@ public class LoadProcessor extends AbstractJobProcessor {
         );
     }
 
+    /**
+     * Initialize job progress tracking with LoadManager and ProgressManager.
+     * This method is idempotent and can be called multiple times:
+     * - First call (in constructor): may return early if job not yet registered
+     * - Second call (via NereidsCoordinator.initLoadJobProgress()): performs actual initialization
+     * The jobProgressInitialized flag ensures initialization happens exactly once.
+     */
     public void initJobProgress() {
         if (jobProgressInitialized || jobId == -1) {
             return;
         }
+        // Job must be registered in LoadManager before we can initialize progress
         if (Env.getCurrentEnv().getLoadManager().getLoadJob(jobId) == null) {
             return;
         }

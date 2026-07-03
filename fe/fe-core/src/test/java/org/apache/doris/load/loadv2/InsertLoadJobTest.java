@@ -86,8 +86,7 @@ public class InsertLoadJobTest {
 
             InsertLoadJob insertLoadJob = new InsertLoadJob(1L, "label", 100L);
             long beforeInitTimestamp = System.currentTimeMillis();
-            insertLoadJob.initRunning(2L, userInfo);
-            insertLoadJob.setTransactionId(3L);
+            insertLoadJob.initRunning(2L, userInfo, 3L);
             insertLoadJob.markLoading();
 
             Assert.assertEquals(3L, insertLoadJob.getTransactionId());
