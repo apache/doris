@@ -19,9 +19,9 @@ import org.awaitility.Awaitility
 
 import static java.util.concurrent.TimeUnit.SECONDS
 
-// Verify that schema-change detection works with offset=latest (no snapshot, no JDBC baseline).
-// The schema baseline is established solely from the first pgoutput Relation event; subsequent
-// ADD/DROP are detected by diffing fresh Relation events against that baseline.
+// offset=latest — no snapshot, initial baseline from JDBC (prepareStreamSplit).
+// Verifies pre-latest data is skipped and subsequent ADD/DROP are correctly detected.
+// stored==null Relation-adoption branch covered by UT relationFirstAppearance_establishesBaselineNoDdl.
 suite("test_streaming_postgres_job_sc_latest",
         "p0,external,pg,external_docker,external_docker_pg,nondatalake") {
 
@@ -72,7 +72,7 @@ suite("test_streaming_postgres_job_sc_latest",
             sql """INSERT INTO ${pgSchema}.${table1} VALUES (1, 'before_latest')"""
         }
 
-        // Phase 1: start job with offset=latest — no snapshot, no JDBC baseline.
+        // Phase 1: start job with offset=latest — no snapshot, baseline from JDBC discovery.
         sql """CREATE JOB ${jobName}
                 ON STREAMING
                 FROM POSTGRES (
@@ -96,8 +96,8 @@ suite("test_streaming_postgres_job_sc_latest",
         def preExisting = sql "SELECT COUNT(*) FROM ${table1} WHERE id=1"
         assert preExisting[0][0] as int == 0 : "pre-latest data must not be synced"
 
-        // Phase 2: ADD column + INSERT. The first Relation establishes the baseline (no DDL);
-        // the ADD Relation is diffed against it and emits the ADD DDL.
+        // Phase 2: ADD column + INSERT. The initial baseline is from JDBC (prepareStreamSplit);
+        // the ADD Relation is diffed against that baseline and emits the ADD DDL.
         connect(pgUser, pgPassword, "jdbc:postgresql://${externalEnvIp}:${pgPort}/${pgDB}") {
             sql """ALTER TABLE ${pgSchema}.${table1} ADD COLUMN extra VARCHAR(50)"""
             sql """INSERT INTO ${pgSchema}.${table1} VALUES (2, 'after_add', 'extra_val')"""
