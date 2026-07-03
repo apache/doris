@@ -88,9 +88,28 @@ public:
 
     const std::string& expr_name() const override { return _expr_name; }
 
-    Status execute_column_impl(VExprContext*, const Block*, const Selector*, size_t,
-                               ColumnPtr&) const override {
-        return Status::InternalError("Int32ZoneMapExpr is only used by parquet scan tests");
+    Status execute_column_impl(VExprContext*, const Block* block, const Selector* selector,
+                               size_t count, ColumnPtr& result_column) const override {
+        DORIS_CHECK(block != nullptr);
+        DORIS_CHECK(selector == nullptr);
+        DORIS_CHECK(_column_id >= 0 && _column_id < static_cast<int>(block->columns()));
+        const auto& data_column = int32_data_column(*block->get_by_position(_column_id).column);
+        DORIS_CHECK(data_column.size() >= count);
+
+        auto result = ColumnUInt8::create(count, 0);
+        auto& result_data = result->get_data();
+        for (size_t row = 0; row < count; ++row) {
+            const auto value = data_column.get_element(row);
+            if (_op == Op::GE) {
+                result_data[row] = value >= _value;
+            } else if (_op == Op::GT) {
+                result_data[row] = value > _value;
+            } else {
+                result_data[row] = value < _value;
+            }
+        }
+        result_column = std::move(result);
+        return Status::OK();
     }
 
     bool can_evaluate_zonemap_filter() const override { return true; }
@@ -449,7 +468,8 @@ TEST_F(ParquetScanTest, PageIndexIntersectsMultipleFiltersAndBuildsSkipPlan) {
     auto file_schema = build_file_schema(*parquet_file_reader);
 
     format::FileScanRequest single_filter_request;
-    single_filter_request.local_positions.emplace(format::LocalColumnId(0), format::LocalIndex(0));
+    format::FileScanRequestBuilder single_filter_builder(&single_filter_request);
+    ASSERT_TRUE(single_filter_builder.add_predicate_column(format::LocalColumnId(0)).ok());
     single_filter_request.conjuncts.push_back(
             create_int32_zonemap_conjunct(0, Int32ZoneMapExpr::Op::GE, 32));
     format::parquet::RowGroupScanPlan single_filter_plan;
@@ -463,8 +483,9 @@ TEST_F(ParquetScanTest, PageIndexIntersectsMultipleFiltersAndBuildsSkipPlan) {
             count_range_rows(single_filter_plan.row_groups[0].selected_ranges);
 
     format::FileScanRequest intersect_request;
-    intersect_request.local_positions.emplace(format::LocalColumnId(0), format::LocalIndex(0));
-    intersect_request.local_positions.emplace(format::LocalColumnId(1), format::LocalIndex(1));
+    format::FileScanRequestBuilder intersect_builder(&intersect_request);
+    ASSERT_TRUE(intersect_builder.add_predicate_column(format::LocalColumnId(0)).ok());
+    ASSERT_TRUE(intersect_builder.add_predicate_column(format::LocalColumnId(1)).ok());
     intersect_request.conjuncts.push_back(
             create_int32_zonemap_conjunct(0, Int32ZoneMapExpr::Op::GE, 32));
     intersect_request.conjuncts.push_back(
@@ -791,8 +812,8 @@ TEST_F(ParquetScanTest, ProfileCountersReflectPageIndexAndRangeGapPruning) {
     std::vector<format::ColumnDefinition> schema;
     ASSERT_TRUE(reader->get_schema(&schema).ok());
     auto request = std::make_shared<format::FileScanRequest>();
-    request->non_predicate_columns = {field_projection(0)};
-    use_schema_order_positions(request.get(), schema);
+    format::FileScanRequestBuilder request_builder(request.get());
+    ASSERT_TRUE(request_builder.add_predicate_column(format::LocalColumnId(0)).ok());
     request->conjuncts.push_back(create_int32_zonemap_conjunct(0, Int32ZoneMapExpr::Op::GT, 63));
     ASSERT_TRUE(reader->open(request).ok());
 
