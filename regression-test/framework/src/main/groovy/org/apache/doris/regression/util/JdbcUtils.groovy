@@ -134,7 +134,7 @@ class JdbcUtils {
                             row.add(resultSet.getObject(i))
                         }
                     } else {
-                        row.add(resultSet.getObject(i))
+                        row.add(materializeObject(resultSet.getObject(i)))
                     }
                 }
                 rows.add(row)
@@ -153,7 +153,7 @@ class JdbcUtils {
                     try {
                         if (isPreparedStatement) {
                             // For prepared statements, use getObject to get the value
-                            row.add(resultSet.getObject(i))
+                            row.add(materializeObject(resultSet.getObject(i)))
                         } else {
                             int jdbcType = resultSet.metaData.getColumnType(i)
                             if (jdbcType == Types.TIME
@@ -177,7 +177,7 @@ class JdbcUtils {
                                 byte[] bytes = resultSet.getBytes(i)
                                 row.add(bytes == null ? null : bytesToHex(bytes))
                             } else {
-                                row.add(resultSet.getObject(i))
+                                row.add(materializeObject(resultSet.getObject(i)))
                             }
                         }
                     } catch (Throwable t) {
@@ -185,7 +185,7 @@ class JdbcUtils {
                             if(resultSet.getBytes(i) != null){
                                 row.add(new String(resultSet.getBytes(i)))
                             } else {
-                                row.add(resultSet.getObject(i))
+                                row.add(materializeObject(resultSet.getObject(i)))
                             }
                         } catch (Throwable t2) {
                             /**
@@ -195,7 +195,7 @@ class JdbcUtils {
                             at org.codehaus.groovy.vmplugin.v8.IndyInterface.fromCache(IndyInterface.java:321)
                             at org.apache.doris.regression.util.JdbcUtils$_toStringList_closure5.doCall(JdbcUtils.groovy:163)
                             */
-                            row.add(resultSet.getObject(i))
+                            row.add(materializeObject(resultSet.getObject(i)))
                         }
                     }
                 }
@@ -203,6 +203,127 @@ class JdbcUtils {
             }
             return [rows, resultSet.metaData]
         }
+    }
+
+    private static Object materializeObject(Object value) {
+        if (value instanceof java.sql.Array) {
+            return renderComplexValue(((java.sql.Array) value).getArray())
+        }
+        if (value instanceof java.sql.Struct) {
+            return renderComplexValue(((java.sql.Struct) value).getAttributes())
+        }
+        if (isArrowJsonStringContainer(value)) {
+            return renderComplexValue(value)
+        }
+        if (value instanceof byte[]) {
+            return bytesToHex((byte[]) value)
+        }
+        if (isGenericComplexContainer(value)) {
+            return renderComplexValue(value)
+        }
+        return value
+    }
+
+    private static boolean isGenericComplexContainer(Object value) {
+        return value != null && (value instanceof Map
+                || value.getClass().isArray()
+                || value instanceof Iterable)
+    }
+
+    private static boolean isArrowJsonStringContainer(Object value) {
+        if (value == null) {
+            return false
+        }
+        String className = value.getClass().getName()
+        return className.endsWith(".JsonStringHashMap") || className.endsWith(".JsonStringArrayList")
+    }
+
+    private static String renderComplexValue(Object value) {
+        if (value == null) {
+            return "null"
+        }
+        if (value instanceof java.sql.Array) {
+            return renderComplexValue(((java.sql.Array) value).getArray())
+        }
+        if (value instanceof java.sql.Struct) {
+            return renderComplexValue(((java.sql.Struct) value).getAttributes())
+        }
+        if (value instanceof Map) {
+            StringBuilder sb = new StringBuilder()
+            sb.append("{")
+            boolean first = true
+            ((Map<?, ?>) value).each { Object key, Object mapValue ->
+                if (!first) {
+                    sb.append(", ")
+                }
+                sb.append(renderComplexKey(key)).append(":").append(renderComplexValue(mapValue))
+                first = false
+            }
+            sb.append("}")
+            return sb.toString()
+        }
+        if (value instanceof byte[]) {
+            return bytesToHex((byte[]) value)
+        }
+        if (value.getClass().isArray()) {
+            StringBuilder sb = new StringBuilder()
+            sb.append("[")
+            int length = java.lang.reflect.Array.getLength(value)
+            for (int i = 0; i < length; i++) {
+                if (i > 0) {
+                    sb.append(", ")
+                }
+                sb.append(renderComplexValue(java.lang.reflect.Array.get(value, i)))
+            }
+            sb.append("]")
+            return sb.toString()
+        }
+        if (value instanceof Iterable) {
+            StringBuilder sb = new StringBuilder()
+            sb.append("[")
+            boolean first = true
+            ((Iterable<?>) value).each { Object item ->
+                if (!first) {
+                    sb.append(", ")
+                }
+                sb.append(renderComplexValue(item))
+                first = false
+            }
+            sb.append("]")
+            return sb.toString()
+        }
+        if (isStringLikeComplexValue(value)) {
+            return "\"" + escapeComplexString(value.toString()) + "\""
+        }
+        return value.toString()
+    }
+
+    private static String renderComplexKey(Object key) {
+        if (key == null) {
+            return "null"
+        }
+        if (isStringLikeComplexValue(key)) {
+            return "\"" + escapeComplexString(key.toString()) + "\""
+        }
+        return renderComplexValue(key)
+    }
+
+    private static boolean isStringLikeComplexValue(Object value) {
+        return value instanceof CharSequence
+                || isTextLikeObject(value)
+                || value instanceof java.time.temporal.TemporalAccessor
+                || value instanceof java.util.Date
+    }
+
+    private static boolean isTextLikeObject(Object value) {
+        return value != null && value.getClass().getName().endsWith(".Text")
+    }
+
+    private static String escapeComplexString(String value) {
+        if (value == null) {
+            return null
+        }
+        return value
     }
 
     // Detect if a JDBC column type is binary-like
