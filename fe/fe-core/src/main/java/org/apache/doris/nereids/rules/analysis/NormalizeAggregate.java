@@ -40,6 +40,7 @@ import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AnyValue;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.generator.Unnest;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
@@ -163,7 +164,8 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
         Set<Expression> groupingByExprs = Utils.fastToImmutableSet(aggregate.getGroupByExpressions());
 
         // collect all trivial-agg
-        List<NamedExpression> aggregateOutput = aggregate.getOutputExpressions();
+        List<NamedExpression> aggregateOutput = normalizeMultiColumnDistinctCount(
+                aggregate.getOutputExpressions());
         Map<AggregateFunction, Map<String, String>> aggFuncs =
                 CollectNonWindowedAggFuncsWithSessionVar.collect(aggregateOutput);
 
@@ -445,6 +447,28 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
 
         return new LogicalProject<>(topProjectsBuilder.build(),
                 having.get().withChildren(new LogicalProject<>(bottomProjectsBuilder.build(), newAggregate)));
+    }
+
+    private List<NamedExpression> normalizeMultiColumnDistinctCount(List<NamedExpression> aggregateOutput) {
+        // Multi-column distinct counts treat arguments as a set. Remove duplicates and canonicalize equivalent
+        // counts to the first argument order so the structural equality used below can share one aggregate result.
+        Map<ImmutableSet<Expression>, Count> distinctArgumentsToCount = new HashMap<>();
+        return ExpressionUtils.rewriteDownShortCircuit(aggregateOutput, expression -> {
+            if (!(expression instanceof Count)) {
+                return expression;
+            }
+            Count count = (Count) expression;
+            if (!count.isDistinct() || count.arity() <= 1) {
+                return count;
+            }
+            ImmutableSet<Expression> distinctArguments = ImmutableSet.copyOf(count.getDistinctArguments());
+            Count normalizedCount = distinctArgumentsToCount.get(distinctArguments);
+            if (normalizedCount == null) {
+                normalizedCount = count.withDistinctAndChildren(true, ImmutableList.copyOf(distinctArguments));
+                distinctArgumentsToCount.put(distinctArguments, normalizedCount);
+            }
+            return count.withDistinctAndChildren(true, normalizedCount.children());
+        });
     }
 
     private List<NamedExpression> normalizeOutput(List<NamedExpression> aggregateOutput,

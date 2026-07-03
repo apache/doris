@@ -36,6 +36,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.Statistics;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 
@@ -62,10 +63,10 @@ public class AggregateUtils {
 
     /**countDistinctMultiExprToCountIf*/
     public static Expression countDistinctMultiExprToCountIf(Count count) {
-        Set<Expression> arguments = ImmutableSet.copyOf(count.getArguments());
-        Expression countExpr = count.getArgument(arguments.size() - 1);
+        List<Expression> arguments = ImmutableList.copyOf(ImmutableSet.copyOf(count.getArguments()));
+        Expression countExpr = arguments.get(arguments.size() - 1);
         for (int i = arguments.size() - 2; i >= 0; --i) {
-            Expression argument = count.getArgument(i);
+            Expression argument = arguments.get(i);
             If ifNull = new If(new IsNull(argument), NullLiteral.INSTANCE, countExpr);
             countExpr = assignNullType(ifNull);
         }
