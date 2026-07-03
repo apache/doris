@@ -151,17 +151,26 @@ public class PropertyAnalyzerTest {
         properties.put(PropertyAnalyzer.PROPERTIES_FILE_CACHE_TTL_SECONDS, "0");
         Assert.assertEquals(0L, PropertyAnalyzer.analyzeTTL(properties));
 
-        long safeTtlSeconds = PropertyAnalyzer.getSafeFileCacheTtlSeconds();
-        long validLargeTtlSeconds = safeTtlSeconds - PropertyAnalyzer.FILE_CACHE_TTL_OVERFLOW_GUARD_SECONDS;
-        properties.put(PropertyAnalyzer.PROPERTIES_FILE_CACHE_TTL_SECONDS, String.valueOf(validLargeTtlSeconds));
-        Assert.assertEquals(validLargeTtlSeconds, PropertyAnalyzer.analyzeTTL(properties));
+        properties.put(PropertyAnalyzer.PROPERTIES_FILE_CACHE_TTL_SECONDS,
+                String.valueOf(PropertyAnalyzer.MAX_FILE_CACHE_TTL_SECONDS));
+        Assert.assertEquals(PropertyAnalyzer.MAX_FILE_CACHE_TTL_SECONDS, PropertyAnalyzer.analyzeTTL(properties));
+
+        properties.put(PropertyAnalyzer.PROPERTIES_FILE_CACHE_TTL_SECONDS,
+                String.valueOf(PropertyAnalyzer.MAX_FILE_CACHE_TTL_SECONDS + 1L));
+        try {
+            PropertyAnalyzer.analyzeTTL(properties);
+            Assert.fail("Expected an AnalysisException to be thrown");
+        } catch (AnalysisException e) {
+            Assert.assertTrue(e.getMessage().contains("please use "
+                    + PropertyAnalyzer.MAX_FILE_CACHE_TTL_SECONDS));
+        }
 
         properties.put(PropertyAnalyzer.PROPERTIES_FILE_CACHE_TTL_SECONDS, String.valueOf(Long.MAX_VALUE));
         try {
             PropertyAnalyzer.analyzeTTL(properties);
             Assert.fail("Expected an AnalysisException to be thrown");
         } catch (AnalysisException e) {
-            Assert.assertTrue(e.getMessage().contains("Values near Long.MAX_VALUE may overflow in BE"));
+            Assert.assertTrue(e.getMessage().contains("Larger values may overflow in BE"));
             Assert.assertTrue(e.getMessage().contains("please use"));
         }
 

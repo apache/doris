@@ -130,7 +130,7 @@ public class PropertyAnalyzer {
     public static final String PROPERTIES_INMEMORY = "in_memory";
 
     public static final String PROPERTIES_FILE_CACHE_TTL_SECONDS = "file_cache_ttl_seconds";
-    public static final long FILE_CACHE_TTL_OVERFLOW_GUARD_SECONDS = 86400L;
+    public static final long MAX_FILE_CACHE_TTL_SECONDS = Long.MAX_VALUE / 2L;
 
     // _auto_bucket can only set in create table stmt rewrite bucket and can not be changed
     public static final String PROPERTIES_AUTO_BUCKET = "_auto_bucket";
@@ -636,22 +636,17 @@ public class PropertyAnalyzer {
         } catch (NumberFormatException e) {
             throw invalidFileCacheTtlSecondsException(ttlSecondsStr);
         }
-        if (ttlSeconds < 0 || ttlSeconds > getSafeFileCacheTtlSeconds()) {
+        if (ttlSeconds < 0 || ttlSeconds > MAX_FILE_CACHE_TTL_SECONDS) {
             throw invalidFileCacheTtlSecondsException(ttlSecondsStr);
         }
         return ttlSeconds;
     }
 
-    public static long getSafeFileCacheTtlSeconds() {
-        long currentUnixSeconds = Math.floorDiv(System.currentTimeMillis(), 1000L);
-        return Long.MAX_VALUE - currentUnixSeconds - FILE_CACHE_TTL_OVERFLOW_GUARD_SECONDS;
-    }
-
     private static AnalysisException invalidFileCacheTtlSecondsException(String ttlSecondsStr) {
-        long safeTtlSeconds = getSafeFileCacheTtlSeconds();
         return new AnalysisException("The value " + ttlSecondsStr + " formats error or is out of range "
-                + "(0 <= integer <= " + safeTtlSeconds + "). Values near Long.MAX_VALUE may overflow in BE "
-                + "and change TTL cache to normal cache; please use " + safeTtlSeconds + " or a smaller value.");
+                + "(0 <= integer <= " + MAX_FILE_CACHE_TTL_SECONDS + "). Larger values may overflow in BE "
+                + "and change TTL cache to normal cache; please use " + MAX_FILE_CACHE_TTL_SECONDS
+                + " or a smaller value.");
     }
 
     public static int analyzePartitionRetentionCount(Map<String, String> properties) throws AnalysisException {
