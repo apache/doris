@@ -27,7 +27,6 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
-#include <unordered_set>
 #include <vector>
 
 #include "common/status.h"
@@ -37,6 +36,10 @@
 #include "storage/index/snii/writer/memory_reporter.h"
 
 namespace doris::snii::writer {
+
+// G11: compiled-in marker for the per-token prefetch candidate (the locality
+// bench keys its in-process A/B test off this).
+#define SNII_G11_PREFETCH 1
 
 class GlobalMemoryLimiter; // G09 process-wide build-RAM registry (see below)
 
@@ -366,7 +369,7 @@ public:
 
     // Fixed per-term overhead added to a bigram string's capacity when
     // accounting intern storage against the vocab cap: the std::string header in
-    // owned_vocab_, the intern-set node (or the G05 pair-map entry + reverse
+    // owned_vocab_, the intern-set entry (or the G05 pair-map entry + reverse
     // pair-key slot), and the 4 B slot/rank entries. An estimate (allocator
     // slack varies); deterministic so tests can reason about the cap exactly.
     // A G05 pair-keyed bigram term's WHOLE footprint is this constant (fixed
@@ -719,11 +722,16 @@ private:
     // is released.
     uint64_t owned_vocab_heap_bytes_ = 0;
 
-    // G08: fixed per-entry estimate for one intern-set node -- the 16 B
-    // next-ptr+id node, its malloc chunk rounding, and an amortized bucket-array
-    // share. An estimate (allocator/bucket geometry varies); deterministic so the
-    // accounting tests can reason about it, and ZERO for an empty set so an
-    // untouched (borrowed-mode) buffer charges nothing for it.
+    // G08: fixed per-entry estimate for one intern-set entry. Sized for the
+    // pre-G10 NODE-based set (16 B next-ptr+id node, its malloc chunk rounding,
+    // and an amortized bucket-array share) and deliberately UNCHANGED by the G10
+    // swap to the flat set: resident_bytes() feeds the gate-2 spill trigger, so
+    // keeping the constant keeps the resident-byte sequence -- and therefore
+    // every spill point and the drained output -- bit-identical to the prior
+    // build. For the flat set it OVER-approximates the real cost (~5 B per slot
+    // by capacity), which can only fire the gate earlier, never overshoot.
+    // Deterministic so the accounting tests can reason about it, and ZERO for an
+    // empty set so an untouched (borrowed-mode) buffer charges nothing for it.
     static constexpr uint64_t kInternEntryEstimateBytes = 48;
 
     // Heterogeneous (is_transparent) functors backing the owned-mode interning set.
@@ -811,7 +819,35 @@ private:
     // Keyed by term-id (NOT std::string) so the vocab string is stored exactly once
     // (in owned_vocab_); probed heterogeneously with a string_view so a repeat token
     // costs no temporary std::string.
-    std::unordered_set<uint32_t, OwnedVocabHash, OwnedVocabEq> intern_;
+    //
+    // G10/G11: a FLAT (open-addressing, SwissTable) set, not std::unordered_set.
+    // The node-based set chased one heap node per chained probe -- a cache miss
+    // per node through _M_find_before_node_tr (~7% of wiki-import CPU; the G11
+    // in-process locality bench measures the swap at -29% on the unigram add
+    // path, -14% on the whole feed) -- while the flat set probes a contiguous
+    // control-byte group. phmap honors the functors' heterogeneous probes:
+    // raw_hash_set templates find()/erase() on the key argument whenever BOTH
+    // Hash and Eq expose is_transparent (its KeyArgImpl is
+    // KeyArg<IsTransparent<Eq> && IsTransparent<Hash>>), and evaluates equality
+    // as eq(stored_id, probe) -- overloads OwnedVocabEq provides for all three
+    // key forms. phmap post-mixes the functor's hash (phmap_mix) identically on
+    // the insert, find and rehash paths, so content-equal key forms still
+    // resolve to the same slot group.
+    //
+    // SAFETY under the intern_owned_term invariant (ids hash owned_vocab_[id]):
+    //   * a REHASH (insert-triggered growth / tombstone compaction) re-hashes the
+    //     STORED ids -- dereferencing owned_vocab_[id] -- and moves only the
+    //     4-byte id slots, NEVER the strings. Every stored id's string is live at
+    //     every insert (evict_bigram_term erases the id BEFORE clearing its
+    //     string), so no rehash can read a freed string.
+    //   * erase(id) hashes owned_vocab_[id] to locate the slot (same ordering
+    //     requirement, already satisfied), then tombstones that one slot; no
+    //     other element moves or is re-hashed.
+    //   * flat-hash iterator/reference invalidation (every insert may invalidate
+    //     ALL of them, unlike unordered_set's stable nodes) is moot here: no code
+    //     iterates intern_ or holds an iterator/reference across a mutation --
+    //     both find() results are copied out (`term_id = *it`) immediately.
+    phmap::flat_hash_set<uint32_t, OwnedVocabHash, OwnedVocabEq> intern_;
 
     bool has_positions_;
     size_t spill_threshold_bytes_; // 0 => unlimited (no spilling)
@@ -928,6 +964,11 @@ private:
 // assertions (count == distinct terms). Process-global; reset between tests. Not part
 // of the production API.
 namespace testing {
+// G11 bench seam (honored under BE_TEST only): disables the add-path
+// prefetch hints so the locality bench can A/B them within ONE process.
+// Production builds prefetch unconditionally.
+void set_bench_disable_g11_prefetch(bool disabled);
+
 uint64_t vocab_string_materialization_count();
 void reset_vocab_string_materialization_count();
 

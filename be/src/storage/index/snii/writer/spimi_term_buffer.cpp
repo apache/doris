@@ -95,6 +95,22 @@ std::atomic<uint64_t> g_global_forced_spills {0};
 // at most one per cap-many spills, contention-free).
 std::atomic<uint64_t> g_run_compactions {0};
 
+// G11 bench seam: when set (BE_TEST paths only), the add-path prefetch hints
+// are skipped so the locality bench can A/B them in one process. Production
+// builds never read it (the hint compiles in unconditionally there).
+std::atomic<bool> g_bench_disable_g11_prefetch {false};
+
+// G11 add-path prefetch gate: always-on in production; toggleable under
+// BE_TEST for the in-process A/B bench. The branch is perfectly predicted, so
+// the bench's OFF arm measures the pre-G11 code path faithfully.
+inline bool g11_prefetch_enabled() {
+#ifdef BE_TEST
+    return !g_bench_disable_g11_prefetch.load(std::memory_order_relaxed);
+#else
+    return true;
+#endif
+}
+
 // Vocabulary ids examined per incremental sweep step. Small enough that a step
 // is noise on the per-token add path, large enough that the sweep's amortized
 // eviction rate (typically many eligible ids per step -- the over-cap
@@ -114,6 +130,9 @@ uint64_t StringHeapBytes(const std::string& s) {
 } // namespace
 
 namespace testing {
+void set_bench_disable_g11_prefetch(bool disabled) {
+    g_bench_disable_g11_prefetch.store(disabled, std::memory_order_relaxed);
+}
 uint64_t vocab_string_materialization_count() {
     return g_vocab_materializations.load(std::memory_order_relaxed);
 }
@@ -169,8 +188,8 @@ SpimiTermBuffer::SpimiTermBuffer(const std::vector<std::string>* vocab, bool has
           // never dereferenced), and binding unconditionally keeps both constructors
           // symmetric. Initialized in the member-init list (NOT the body): the functors
           // are NESTED types, whose default-constructibility is not yet established at
-          // the point unordered_set's defaulted default ctor would be needed for a
-          // body assignment, so default-constructing intern_ is ill-formed. The
+          // the point the flat set's default ctor (whose noexcept spec inspects the
+          // functors) would be needed for a body assignment. The
           // (bucket_count, hash, equal) constructor sidesteps that entirely.
           // owned_vocab_ is constructed before intern_ (declaration order) and the
           // buffer is non-movable, so &owned_vocab_ is stable for the buffer's life.
@@ -194,10 +213,11 @@ SpimiTermBuffer::SpimiTermBuffer(bool has_positions, size_t spill_threshold_byte
           // &owned_vocab_ so a stored term-id dereferences to its string for content
           // hashing and equality. Initialized in the member-init list (NOT the body):
           // the functors are NESTED types whose default-constructibility is not yet
-          // established where unordered_set's defaulted default ctor would be needed for
-          // a body assignment, so the (bucket_count, hash, equal) constructor is used
-          // instead. owned_vocab_ is constructed before intern_ (declaration order) and
-          // the buffer is non-movable, so &owned_vocab_ is stable for the buffer's life.
+          // established where the flat set's default ctor (whose noexcept spec inspects
+          // the functors) would be needed for a body assignment, so the
+          // (bucket_count, hash, equal) constructor is used instead. owned_vocab_ is
+          // constructed before intern_ (declaration order) and the buffer is
+          // non-movable, so &owned_vocab_ is stable for the buffer's life.
           intern_(0, OwnedVocabHash {&owned_vocab_}, OwnedVocabEq {&owned_vocab_}),
           has_positions_(has_positions),
           spill_threshold_bytes_(spill_threshold_bytes),
@@ -324,7 +344,9 @@ uint64_t SpimiTermBuffer::resident_bytes() const {
     // Owned-vocab machinery (all zero in borrowed mode): string headers by vector
     // capacity, heap payloads via the incrementally-maintained counter (credited
     // by intern_owned_term / materialize_pair_term, debited by evict_bigram_term),
-    // and the intern set's nodes at a fixed per-entry estimate.
+    // and the intern set's entries at a fixed per-entry estimate (kept at the
+    // pre-G10 node-set value so the gate-2 spill points are unchanged; see the
+    // constant's comment).
     b += static_cast<uint64_t>(owned_vocab_.capacity()) * sizeof(std::string);
     b += owned_vocab_heap_bytes_;
     b += static_cast<uint64_t>(intern_.size()) * kInternEntryEstimateBytes;
@@ -563,6 +585,11 @@ uint32_t SpimiTermBuffer::add_token_returning_id(std::string_view term, uint32_t
         term_id = intern_owned_term(std::string(term));
     } else {
         term_id = *it; // the set element IS the term-id
+        // G11: start the term's slot-index line fetch as soon as the intern
+        // probe resolves the id (see the pair-keyed path).
+        if (g11_prefetch_enabled()) {
+            __builtin_prefetch(slot_of_.data() + term_id);
+        }
     }
     accumulate(term_id, docid, pos);
     // G04: amortized vocab-cap sweep step. Hooked on the string path too so
@@ -621,6 +648,16 @@ void SpimiTermBuffer::add_bigram_token(uint32_t left_id, uint32_t right_id, uint
         }
         return;
     }
+    // G11: compute the pair key FIRST and prefetch the pair-map probe target
+    // (its ctrl + slot lines) so those DRAM fetches overlap the validation
+    // loads below (pair_of_[left_id] / pair_of_[right_id], themselves two
+    // scattered vocab-sized-array reads) instead of only starting once the
+    // probe executes. Pure hardware hint: no architectural side effects, the
+    // accumulated bytes are bit-identical.
+    const uint64_t pair_key = make_pair_key(left_id, right_id);
+    if (g11_prefetch_enabled()) {
+        bigram_pair_map_.prefetch(pair_key);
+    }
     // The ids must name two ALREADY-INTERNED UNIGRAMS: an out-of-range id has no
     // vocab string to materialize from, and a pair-term id as a constituent
     // would compose a nested synthetic term. Both are caller bugs -- latch and
@@ -643,7 +680,6 @@ void SpimiTermBuffer::add_bigram_token(uint32_t left_id, uint32_t right_id, uint
     // majority); a first-time pair interns a pair-map entry plus an EMPTY vocab
     // slot -- the composed string is deferred to spill/flush materialization,
     // and only for terms that must actually be emitted.
-    const uint64_t pair_key = make_pair_key(left_id, right_id);
     uint32_t term_id;
     auto it = bigram_pair_map_.find(pair_key);
     if (it == bigram_pair_map_.end()) {
@@ -664,6 +700,12 @@ void SpimiTermBuffer::add_bigram_token(uint32_t left_id, uint32_t right_id, uint
         g_bigram_pair_map_hits.fetch_add(1, std::memory_order_relaxed);
 #endif
         term_id = it->second;
+        // G11: start the term's slot-index line fetch the moment the id is
+        // known, ahead of accumulate()'s dependent slot_of_ -> slots_ -> arena
+        // chain walk.
+        if (g11_prefetch_enabled()) {
+            __builtin_prefetch(slot_of_.data() + term_id);
+        }
     }
     accumulate(term_id, docid, pos);
     // G04: amortized vocab-cap sweep step, identical to the string bigram path.
@@ -676,7 +718,11 @@ void SpimiTermBuffer::add_bigram_token(uint32_t left_id, uint32_t right_id, uint
 // inserts the id into the intern set, and accounts bigram intern storage
 // against the G04 vocab cap. The string is stored BEFORE insert(term_id) so the
 // set functors can hash owned_vocab_[term_id]; the set stores only the id, so a
-// vocab reallocation never invalidates existing entries.
+// vocab reallocation never invalidates existing entries. G10 (flat set): an
+// insert may REHASH the whole table -- re-hashing every STORED id through the
+// functor -- which is safe because every stored id's string is live at every
+// insert (eviction removes an id from the set before clearing its string) and a
+// rehash relocates only the 4-byte id slots, never the strings themselves.
 uint32_t SpimiTermBuffer::intern_owned_term(std::string&& term_str) {
     uint32_t term_id;
     if (!free_ids_.empty()) {
@@ -1183,9 +1229,13 @@ void SpimiTermBuffer::evict_bigram_term(uint32_t id) {
     const uint64_t footprint = bigram_term_footprint(s);
     bigram_intern_bytes_ = bigram_intern_bytes_ > footprint ? bigram_intern_bytes_ - footprint : 0;
     // G08 symmetry: debit the heap payload intern_owned_term credited, BEFORE the
-    // swap below frees it (the intern_.erase debits its node via intern_.size()).
+    // swap below frees it (the intern_.erase debits its entry via intern_.size()).
     const uint64_t heap = StringHeapBytes(s);
     owned_vocab_heap_bytes_ = owned_vocab_heap_bytes_ > heap ? owned_vocab_heap_bytes_ - heap : 0;
+    // ORDER (G10 load-bearing): erase from the intern set while the string is
+    // still intact -- erase-by-key hashes owned_vocab_[id] through the functor to
+    // locate the slot (true for the old node set too; the flat set makes it worth
+    // stating). The erase tombstones one 4-byte slot and re-hashes nothing else.
     intern_.erase(id);
     release_term(id);
     std::string().swap(s); // free the string payload (capacity 0)
