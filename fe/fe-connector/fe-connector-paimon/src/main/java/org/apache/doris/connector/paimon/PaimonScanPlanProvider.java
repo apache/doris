@@ -786,6 +786,9 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         return new PaimonScanRange.Builder()
                 .fileFormat(defaultFileFormat)
                 .paimonSplit(serializedSplit)
+                // FIX-READER-TYPE (3645dc94306): lockstep with encodeSplit above — PAIMON_CPP iff we
+                // native-serialized a DataSplit for the paimon-cpp reader, else PAIMON_JNI.
+                .cppReaderSplit(cppReader && isDataSplit)
                 .tableLocation(tableLocation)
                 .partitionValues(partitionValues)
                 .selfSplitWeight(splitWeight)
@@ -819,6 +822,9 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         return new PaimonScanRange.Builder()
                 .fileFormat(defaultFileFormat)
                 .paimonSplit(serializedSplit)
+                // FIX-READER-TYPE (3645dc94306): dataSplit is always a DataSplit here, so cpp-reader
+                // serialization (hence PAIMON_CPP) is chosen iff the flag is on — matches encodeSplit above.
+                .cppReaderSplit(cppReader)
                 .tableLocation(tableLocation)
                 .partitionValues(partitionValues)
                 .selfSplitWeight(computeSplitWeight(dataSplit))
