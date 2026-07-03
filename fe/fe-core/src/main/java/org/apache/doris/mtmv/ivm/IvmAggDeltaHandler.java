@@ -134,11 +134,11 @@ class IvmAggDeltaHandler {
             LogicalAggregate<? extends Plan> agg,
             IvmDeltaRewriteResult childResult,
             IvmRefreshContext context) {
-        IvmNormalizeResult normalizeResult = context.getNormalizeResult();
-        if (normalizeResult == null) {
+        IvmRewriteResult rewriteResult = context.getRewriteResult();
+        if (rewriteResult == null) {
             throw new AnalysisException("IVM agg delta rewrite requires normalize result");
         }
-        IvmAggMeta aggMeta = normalizeResult.getAggMeta();
+        IvmAggMeta aggMeta = rewriteResult.getAggMeta();
         if (aggMeta == null) {
             throw new AnalysisException("IVM agg delta rewrite requires aggregate metadata");
         }

@@ -25,22 +25,16 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
- * Holds IVM-related state produced during a Nereids run for an incremental MV.
- * Stored as Optional in CascadesContext — absent when IVM rewrite is not active.
- *
- * rowIdDeterminism: maps each injected row-id slot to whether it is deterministic.
- *   - deterministic (true):  MOW table — row-id = hash(unique keys), stable across refreshes
- *   - non-deterministic (false): DUP_KEYS table — row-id = random 128-bit per insert
- *
- * normalizedPlan: the plan tree after IvmNormalizeMtmv has injected row-id columns.
- *   Stored here so that IvmRefreshManager can retrieve it for external delta rewriting.
+ * Unified IVM rewrite state stored in CascadesContext.
  */
-public class IvmNormalizeResult {
+public class IvmRewriteResult {
     // insertion-ordered so row-ids appear in scan order
     private final Map<Slot, Boolean> rowIdDeterminism = new LinkedHashMap<>();
     private Plan normalizedPlan;
     private IvmAggMeta aggMeta;
     private IvmPlanSignature planSignature;
+    private boolean normalizeRewritten;
+    private boolean incrRefreshRewritten;
 
     public void addRowId(Slot rowIdSlot, boolean deterministic) {
         rowIdDeterminism.put(rowIdSlot, deterministic);
@@ -85,5 +79,21 @@ public class IvmNormalizeResult {
 
     public void setPlanSignature(IvmPlanSignature planSignature) {
         this.planSignature = planSignature;
+    }
+
+    public boolean isNormalizeRewritten() {
+        return normalizeRewritten;
+    }
+
+    public void setNormalizeRewritten(boolean normalizeRewritten) {
+        this.normalizeRewritten = normalizeRewritten;
+    }
+
+    public boolean isIncrRefreshRewritten() {
+        return incrRefreshRewritten;
+    }
+
+    public void setIncrRefreshRewritten(boolean incrRefreshRewritten) {
+        this.incrRefreshRewritten = incrRefreshRewritten;
     }
 }

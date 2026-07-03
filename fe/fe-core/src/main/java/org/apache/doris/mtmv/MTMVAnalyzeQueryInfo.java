@@ -17,7 +17,7 @@
 
 package org.apache.doris.mtmv;
 
-import org.apache.doris.mtmv.ivm.IvmNormalizeResult;
+import org.apache.doris.mtmv.ivm.IvmRewriteResult;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.info.ColumnDefinition;
 
@@ -30,8 +30,8 @@ public class MTMVAnalyzeQueryInfo {
     private List<ColumnDefinition> columnDefinitions;
     private List<String> keys;
     private Map<String, String> properties;
-    // set when IVM normalization is enabled; carries normalizedPlan + aggMeta
-    private IvmNormalizeResult ivmNormalizeResult;
+    // set when IVM rewrite is enabled; carries normalizedPlan + aggMeta
+    private IvmRewriteResult ivmRewriteResult;
 
     public MTMVAnalyzeQueryInfo(List<ColumnDefinition> columnDefinitions, List<String> keys,
             MTMVPartitionInfo mvPartitionInfo, MTMVRelation relation, Map<String, String> properties) {
@@ -58,20 +58,20 @@ public class MTMVAnalyzeQueryInfo {
         return relation;
     }
 
-    public IvmNormalizeResult getIvmNormalizeResult() {
-        return ivmNormalizeResult;
+    public IvmRewriteResult getIvmRewriteResult() {
+        return ivmRewriteResult;
     }
 
     public Map<String, String> getProperties() {
         return properties;
     }
 
-    public void setIvmNormalizeResult(IvmNormalizeResult ivmNormalizeResult) {
-        this.ivmNormalizeResult = ivmNormalizeResult;
+    public void setIvmRewriteResult(IvmRewriteResult ivmRewriteResult) {
+        this.ivmRewriteResult = ivmRewriteResult;
     }
 
     /** Convenience accessor — returns the normalized plan, or null if IVM is not active. */
     public Plan getIvmNormalizedPlan() {
-        return ivmNormalizeResult != null ? ivmNormalizeResult.getNormalizedPlan() : null;
+        return ivmRewriteResult != null ? ivmRewriteResult.getNormalizedPlan() : null;
     }
 }

@@ -120,25 +120,25 @@ class IvmDeltaRewriteHelper {
 
     /**
      * Checks if the snapshot side's row_id slot is non-deterministic.
-     * Returns true when normalizeResult or row_id slot is unavailable. Aggregate MV returns false because final
+     * Returns true when rewriteResult or row_id slot is unavailable. Aggregate MV returns false because final
      * delete rows use aggregate group-key row-id instead of child join row-id.
      */
     boolean needNonDetGuard(Plan snapshotSidePlan, IvmRefreshContext ctx) {
-        IvmNormalizeResult normalizeResult = ctx.getNormalizeResult();
-        if (normalizeResult == null) {
+        IvmRewriteResult rewriteResult = ctx.getRewriteResult();
+        if (rewriteResult == null) {
             return true;
         }
         // Aggregate MV delete rows are applied by the aggregate output row-id, which is rebuilt from group-by keys.
         // The child join row-id is only an intermediate input for aggregate state changes, so it does not need this
         // fallback guard even when the snapshot side row-id is non-deterministic.
-        if (normalizeResult.isAggMv()) {
+        if (rewriteResult.isAggMv()) {
             return false;
         }
         Slot rowIdSlot = IvmUtil.findRowIdSlotOrNull(snapshotSidePlan.getOutput());
         if (rowIdSlot == null) {
             return true;
         } else {
-            return !normalizeResult.isDeterministic(rowIdSlot);
+            return !rewriteResult.isDeterministic(rowIdSlot);
         }
     }
 

@@ -236,7 +236,7 @@ public class RefreshMTMVInfoAnalyzeTest {
     @Test
     public void testPartitionSpecOnIvmMVRejected() throws Exception {
         setupMvLookup(ivmMtmv);
-        RefreshMTMVInfo info = createInfoWithPartitions(RefreshMode.AUTO, false);
+        RefreshMTMVInfo info = createInfoWithPartitions(RefreshMode.INCREMENTAL, false);
         AnalysisException exception = analyzeAndGetException(info);
         Assertions.assertTrue(exception.getMessage().contains("partitionSpec"));
         Assertions.assertTrue(exception.getMessage().contains("PARTITIONS"));

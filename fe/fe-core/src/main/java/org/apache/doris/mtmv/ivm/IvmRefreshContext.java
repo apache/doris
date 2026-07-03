@@ -37,16 +37,16 @@ import java.util.Objects;
 public class IvmRefreshContext {
     private final MTMV mtmv;
     private final ConnectContext connectContext;
-    private final IvmNormalizeResult normalizeResult;
+    private final IvmRewriteResult rewriteResult;
 
     public IvmRefreshContext(MTMV mtmv, ConnectContext connectContext) {
         this(mtmv, connectContext, null);
     }
 
-    public IvmRefreshContext(MTMV mtmv, ConnectContext connectContext, IvmNormalizeResult normalizeResult) {
+    public IvmRefreshContext(MTMV mtmv, ConnectContext connectContext, IvmRewriteResult rewriteResult) {
         this.mtmv = Objects.requireNonNull(mtmv, "mtmv can not be null");
         this.connectContext = Objects.requireNonNull(connectContext, "connectContext can not be null");
-        this.normalizeResult = normalizeResult;
+        this.rewriteResult = rewriteResult;
     }
 
     public MTMV getMtmv() {
@@ -57,9 +57,9 @@ public class IvmRefreshContext {
         return connectContext;
     }
 
-    /** Returns the IVM normalize result captured during MV query normalization. */
-    public IvmNormalizeResult getNormalizeResult() {
-        return normalizeResult;
+    /** Returns the IVM rewrite result captured during MV query rewriting. */
+    public IvmRewriteResult getRewriteResult() {
+        return rewriteResult;
     }
 
     static TableNameInfo toTableNameInfo(LogicalOlapScan scan) {
@@ -94,12 +94,12 @@ public class IvmRefreshContext {
         IvmRefreshContext that = (IvmRefreshContext) o;
         return Objects.equals(mtmv, that.mtmv)
                 && Objects.equals(connectContext, that.connectContext)
-                && Objects.equals(normalizeResult, that.normalizeResult);
+                && Objects.equals(rewriteResult, that.rewriteResult);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(mtmv, connectContext, normalizeResult);
+        return Objects.hash(mtmv, connectContext, rewriteResult);
     }
 
     @Override

@@ -73,11 +73,11 @@ public class IvmPlanSignatureGenerator {
     public IvmPlanSignatureGenerator() {
     }
 
-    public IvmPlanSignature generate(IvmNormalizeResult normalizeResult) {
-        Plan normalizedPlan = normalizeResult.getNormalizedPlan();
+    public IvmPlanSignature generate(IvmRewriteResult rewriteResult) {
+        Plan normalizedPlan = rewriteResult.getNormalizedPlan();
         CanonicalNode root = CanonicalNode.node("ROOT")
                 .field("hiddenOutput", canonicalHiddenSlots(normalizedPlan.getOutput()))
-                .field("plan", canonicalPlan(normalizedPlan, normalizeResult));
+                .field("plan", canonicalPlan(normalizedPlan, rewriteResult));
         String canonical = HEADER + "\n" + root.encoded();
         // Test hook for simulating analyzed-plan layout drift without rebuilding a separate plan.
         String debugSalt = DebugPointUtil.getDebugParamOrDefault(DEBUG_POINT_SIGNATURE_SALT, "");
@@ -87,20 +87,20 @@ public class IvmPlanSignatureGenerator {
         return new IvmPlanSignature(canonical, sha256(canonical));
     }
 
-    private CanonicalNode canonicalPlan(Plan plan, IvmNormalizeResult normalizeResult) {
-        return plan.accept(canonicalPlanVisitor, normalizeResult);
+    private CanonicalNode canonicalPlan(Plan plan, IvmRewriteResult rewriteResult) {
+        return plan.accept(canonicalPlanVisitor, rewriteResult);
     }
 
-    private CanonicalNode canonicalProject(LogicalProject<?> project, IvmNormalizeResult normalizeResult) {
+    private CanonicalNode canonicalProject(LogicalProject<?> project, IvmRewriteResult rewriteResult) {
         return CanonicalNode.node("PROJECT")
                 .field("hiddenOutputs", canonicalHiddenNamedExpressions(project.getProjects()))
-                .field("child", canonicalPlan(project.child(), normalizeResult));
+                .field("child", canonicalPlan(project.child(), rewriteResult));
     }
 
-    private CanonicalNode canonicalAggregate(LogicalAggregate<?> agg, IvmNormalizeResult normalizeResult) {
+    private CanonicalNode canonicalAggregate(LogicalAggregate<?> agg, IvmRewriteResult rewriteResult) {
         return CanonicalNode.node("AGG")
                 .field("hiddenOutputs", canonicalHiddenNamedExpressions(agg.getOutputExpressions()))
-                .field("child", canonicalPlan(agg.child(), normalizeResult));
+                .field("child", canonicalPlan(agg.child(), rewriteResult));
     }
 
     private CanonicalNode canonicalScan(LogicalOlapScan scan) {
@@ -109,19 +109,19 @@ public class IvmPlanSignatureGenerator {
                 .field("table", tableIdentity(table, scan.getQualifier()));
     }
 
-    private CanonicalNode canonicalJoin(LogicalJoin<?, ?> join, IvmNormalizeResult normalizeResult) {
+    private CanonicalNode canonicalJoin(LogicalJoin<?, ?> join, IvmRewriteResult rewriteResult) {
         return CanonicalNode.node("JOIN")
                 .field("joinType", join.getJoinType().name())
-                .field("left", canonicalPlan(join.left(), normalizeResult))
-                .field("right", canonicalPlan(join.right(), normalizeResult));
+                .field("left", canonicalPlan(join.left(), rewriteResult))
+                .field("right", canonicalPlan(join.right(), rewriteResult));
     }
 
-    private CanonicalNode canonicalUnion(LogicalUnion union, IvmNormalizeResult normalizeResult) {
+    private CanonicalNode canonicalUnion(LogicalUnion union, IvmRewriteResult rewriteResult) {
         CanonicalList arms = CanonicalList.list();
         for (int i = 0; i < union.children().size(); i++) {
             arms.add(CanonicalNode.node("UNION_ARM")
                     .field("index", i)
-                    .field("plan", canonicalPlan(union.child(i), normalizeResult)));
+                    .field("plan", canonicalPlan(union.child(i), rewriteResult)));
         }
         return CanonicalNode.node("UNION")
                 .field("hiddenOutputs", canonicalHiddenNamedExpressions(union.getOutputs()))
@@ -384,65 +384,65 @@ public class IvmPlanSignatureGenerator {
         }
     }
 
-    private class CanonicalPlanVisitor extends PlanVisitor<CanonicalNode, IvmNormalizeResult> {
+    private class CanonicalPlanVisitor extends PlanVisitor<CanonicalNode, IvmRewriteResult> {
         @Override
-        public CanonicalNode visit(Plan plan, IvmNormalizeResult normalizeResult) {
+        public CanonicalNode visit(Plan plan, IvmRewriteResult rewriteResult) {
             throw new IllegalStateException("Unexpected plan node in IVM layout signature: "
                     + plan.getClass().getSimpleName());
         }
 
         @Override
         public CanonicalNode visitLogicalResultSink(LogicalResultSink<? extends Plan> sink,
-                IvmNormalizeResult normalizeResult) {
-            return sink.child().accept(this, normalizeResult);
+                IvmRewriteResult rewriteResult) {
+            return sink.child().accept(this, rewriteResult);
         }
 
         @Override
         public CanonicalNode visitLogicalOlapTableSink(LogicalOlapTableSink<? extends Plan> sink,
-                IvmNormalizeResult normalizeResult) {
-            return sink.child().accept(this, normalizeResult);
+                IvmRewriteResult rewriteResult) {
+            return sink.child().accept(this, rewriteResult);
         }
 
         @Override
         public CanonicalNode visitLogicalFilter(LogicalFilter<? extends Plan> filter,
-                IvmNormalizeResult normalizeResult) {
-            return filter.child().accept(this, normalizeResult);
+                IvmRewriteResult rewriteResult) {
+            return filter.child().accept(this, rewriteResult);
         }
 
         @Override
         public CanonicalNode visitLogicalProject(LogicalProject<? extends Plan> project,
-                IvmNormalizeResult normalizeResult) {
-            return canonicalProject(project, normalizeResult);
+                IvmRewriteResult rewriteResult) {
+            return canonicalProject(project, rewriteResult);
         }
 
         @Override
         public CanonicalNode visitLogicalOlapScan(LogicalOlapScan scan,
-                IvmNormalizeResult normalizeResult) {
+                IvmRewriteResult rewriteResult) {
             return canonicalScan(scan);
         }
 
         @Override
         public CanonicalNode visitLogicalJoin(LogicalJoin<? extends Plan, ? extends Plan> join,
-                IvmNormalizeResult normalizeResult) {
-            return canonicalJoin(join, normalizeResult);
+                IvmRewriteResult rewriteResult) {
+            return canonicalJoin(join, rewriteResult);
         }
 
         @Override
-        public CanonicalNode visitLogicalUnion(LogicalUnion union, IvmNormalizeResult normalizeResult) {
-            return canonicalUnion(union, normalizeResult);
+        public CanonicalNode visitLogicalUnion(LogicalUnion union, IvmRewriteResult rewriteResult) {
+            return canonicalUnion(union, rewriteResult);
         }
 
         @Override
         public CanonicalNode visitLogicalAggregate(LogicalAggregate<? extends Plan> agg,
-                IvmNormalizeResult normalizeResult) {
-            return canonicalAggregate(agg, normalizeResult);
+                IvmRewriteResult rewriteResult) {
+            return canonicalAggregate(agg, rewriteResult);
         }
 
         @Override
         public CanonicalNode visitLogicalRepeat(LogicalRepeat<? extends Plan> repeat,
-                IvmNormalizeResult normalizeResult) {
+                IvmRewriteResult rewriteResult) {
             return CanonicalNode.node("REPEAT")
-                    .field("child", canonicalPlan(repeat.child(), normalizeResult));
+                    .field("child", canonicalPlan(repeat.child(), rewriteResult));
         }
     }
 

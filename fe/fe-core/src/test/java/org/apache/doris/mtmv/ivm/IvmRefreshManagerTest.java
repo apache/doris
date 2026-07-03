@@ -72,7 +72,7 @@ public class IvmRefreshManagerTest {
     }
 
     @Test
-    public void testManagerThrowsHardFailureOnExecutorFailure() {
+    public void testManagerReturnsFallbackOnExecutorFailure() {
         MTMV mtmv = mockMtmv();
         Command cmd = Mockito.mock(Command.class);
         TestDeltaExecutor executor = new TestDeltaExecutor();
@@ -80,19 +80,19 @@ public class IvmRefreshManagerTest {
         TestIvmRefreshManager manager = new TestIvmRefreshManager(executor,
                 newContext(mtmv), makeCommands(cmd, mtmv));
 
-        IvmException exception = Assertions.assertThrows(IvmException.class,
-                () -> manager.doRefresh(mtmv));
+        IvmRefreshResult result = manager.doRefresh(mtmv);
 
+        Assertions.assertFalse(result.isSuccess());
         Assertions.assertEquals(IvmFailureReason.INCREMENTAL_EXECUTION_FAILED,
-                exception.getFailureReason());
+                result.getFailureReason());
         Assertions.assertTrue(executor.executeCalled);
     }
 
     @Test
-    public void testManagerKeepsKnownExecutionFailureReason() {
-        assertKnownExecutionFailureReason(IvmFailureReason.MIN_MAX_BOUNDARY_HIT,
+    public void testManagerReturnsFallbackWithKnownExecutionFailureReason() {
+        assertKnownExecutionFailureFallback(IvmFailureReason.MIN_MAX_BOUNDARY_HIT,
                 IvmFailureClassifier.MIN_MAX_BOUNDARY_MSG_PREFIX + ": deleted row may be current MIN value");
-        assertKnownExecutionFailureReason(IvmFailureReason.NON_DETERMINISTIC_ROW_ID,
+        assertKnownExecutionFailureFallback(IvmFailureReason.NON_DETERMINISTIC_ROW_ID,
                 IvmFailureClassifier.NON_DETERMINISTIC_ROW_ID_MSG_PREFIX + " in INNER_JOIN");
     }
 
@@ -351,12 +351,12 @@ public class IvmRefreshManagerTest {
         TestIvmRefreshManager manager = new TestIvmRefreshManager(executor,
                 newContext(mtmv), makeCommands(cmd, mtmv));
 
-        IvmException exception = Assertions.assertThrows(IvmException.class,
-                () -> manager.doRefresh(mtmv));
+        IvmRefreshResult result = manager.doRefresh(mtmv);
 
+        Assertions.assertFalse(result.isSuccess());
         // Execution failed: flag should remain true
         Assertions.assertEquals(IvmFailureReason.INCREMENTAL_EXECUTION_FAILED,
-                exception.getFailureReason());
+                result.getFailureReason());
         Assertions.assertTrue(ivmInfo.isRunningIvmRefresh());
         // Only one editlog write: the one that set the flag=true before execution
         Assertions.assertEquals(1, manager.persistCalls.size());
@@ -381,7 +381,7 @@ public class IvmRefreshManagerTest {
         Assertions.assertEquals(0, manager.persistCalls.size());
     }
 
-    private void assertKnownExecutionFailureReason(IvmFailureReason expectedReason, String detail) {
+    private void assertKnownExecutionFailureFallback(IvmFailureReason expectedReason, String detail) {
         MTMV mtmv = mockMtmv();
         Command cmd = Mockito.mock(Command.class);
         TestDeltaExecutor executor = new TestDeltaExecutor();
@@ -389,10 +389,10 @@ public class IvmRefreshManagerTest {
         TestIvmRefreshManager manager = new TestIvmRefreshManager(executor,
                 newContext(mtmv), makeCommands(cmd, mtmv));
 
-        IvmException exception = Assertions.assertThrows(IvmException.class,
-                () -> manager.doRefresh(mtmv));
+        IvmRefreshResult result = manager.doRefresh(mtmv);
 
-        Assertions.assertEquals(expectedReason, exception.getFailureReason());
+        Assertions.assertFalse(result.isSuccess());
+        Assertions.assertEquals(expectedReason, result.getFailureReason());
         Assertions.assertTrue(executor.executeCalled);
     }
 
@@ -411,9 +411,9 @@ public class IvmRefreshManagerTest {
     private static MTMVAnalyzeQueryInfo newQueryInfo(IvmPlanSignature signature) {
         MTMVAnalyzeQueryInfo queryInfo = new MTMVAnalyzeQueryInfo(
                 Collections.emptyList(), Collections.emptyList(), null, null, Collections.emptyMap());
-        IvmNormalizeResult normalizeResult = new IvmNormalizeResult();
-        normalizeResult.setPlanSignature(signature);
-        queryInfo.setIvmNormalizeResult(normalizeResult);
+        IvmRewriteResult rewriteResult = new IvmRewriteResult();
+        rewriteResult.setPlanSignature(signature);
+        queryInfo.setIvmRewriteResult(rewriteResult);
         return queryInfo;
     }
 
@@ -440,6 +440,7 @@ public class IvmRefreshManagerTest {
     private static class TestIvmRefreshManager extends IvmRefreshManager {
         private final IvmRefreshContext context;
         private final List<Command> commands;
+        private final TestDeltaExecutor deltaExecutor;
         private boolean throwOnBuild;
         private boolean throwIvmExceptionOnAnalyze;
         private boolean throwBinlogNotEnabledOnAnalyze;
@@ -450,6 +451,7 @@ public class IvmRefreshManagerTest {
         private TestIvmRefreshManager(IvmDeltaExecutor deltaExecutor,
                 IvmRefreshContext context, List<Command> commands) {
             super(deltaExecutor);
+            this.deltaExecutor = (TestDeltaExecutor) deltaExecutor;
             this.context = context;
             this.commands = commands;
         }
@@ -480,6 +482,25 @@ public class IvmRefreshManagerTest {
                         "binlog is not enabled for table: no_binlog");
             }
             return commands;
+        }
+
+        @Override
+        void executeInternalRefresh(IvmRefreshContext ctx) throws Exception {
+            List<Command> commands = analyzeDeltaCommands(ctx);
+            if (commands == null || commands.isEmpty()) {
+                return;
+            }
+            IvmInfo ivmInfo = ctx.getMtmv().getIvmInfo();
+            ivmInfo.setRunningIvmRefresh(true);
+            persistIvmInfo(ctx.getMtmv(), ivmInfo);
+            try {
+                deltaExecutor.execute(ctx, commands, 0);
+            } catch (RuntimeException e) {
+                throw new IvmException(IvmFailureClassifier.classifyExecutionFailure(e.getMessage())
+                        .orElse(IvmFailureReason.INCREMENTAL_EXECUTION_FAILED), e.getMessage());
+            }
+            ivmInfo.setRunningIvmRefresh(false);
+            persistIvmInfo(ctx.getMtmv(), ivmInfo);
         }
 
         @Override

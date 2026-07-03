@@ -62,6 +62,7 @@ import java.util.Set;
 class UpdateMvByPartitionCommandTest extends TestWithFeService {
     @Override
     protected void runBeforeAll() throws Exception {
+        Config.enable_table_stream = true;
         createDatabase("test");
         useDatabase("test");
         createTable("create table test.ivm_base (\n"

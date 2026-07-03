@@ -48,7 +48,7 @@ import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.task.AbstractTask;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
-import org.apache.doris.mtmv.ivm.IvmNormalizeResult;
+import org.apache.doris.mtmv.ivm.IvmRewriteResult;
 import org.apache.doris.mtmv.ivm.IvmUtil;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
@@ -597,9 +597,9 @@ public class MTMVPlanUtil {
                     (distribution == null || CollectionUtils.isEmpty(distribution.getCols())) ? Sets.newHashSet()
                             : Sets.newHashSet(distribution.getCols()),
                     simpleColumnDefinitions, properties);
-            Optional<IvmNormalizeResult> ivmNormalizeResult = planner.getCascadesContext().getIvmNormalizeResult();
+            Optional<IvmRewriteResult> ivmRewriteResult = planner.getCascadesContext().getIvmRewriteResult();
             keys = analyzeKeys(keys, properties, columns, isIvm, mvPartitionInfo, distribution,
-                    ivmNormalizeResult.orElse(null));
+                    ivmRewriteResult.orElse(null));
             properties = CreateTableInfo.addOlapHiddenColumns(
                     columns, isIvm ? KeysType.UNIQUE_KEYS : KeysType.DUP_KEYS,
                     isIvm, properties, false);
@@ -611,7 +611,7 @@ public class MTMVPlanUtil {
             MTMVAnalyzeQueryInfo queryInfo = new MTMVAnalyzeQueryInfo(columns, keys, mvPartitionInfo, relation,
                     properties);
             if (isIvm) {
-                ivmNormalizeResult.ifPresent(queryInfo::setIvmNormalizeResult);
+                ivmRewriteResult.ifPresent(queryInfo::setIvmRewriteResult);
             }
             return queryInfo;
         }
@@ -670,9 +670,9 @@ public class MTMVPlanUtil {
 
     private static List<String> analyzeKeys(List<String> keys, Map<String, String> properties,
             List<ColumnDefinition> columns, boolean isIvm, MTMVPartitionInfo mvPartitionInfo,
-            DistributionDescriptor distribution, IvmNormalizeResult ivmNormalizeResult) {
+            DistributionDescriptor distribution, IvmRewriteResult ivmRewriteResult) {
         if (isIvm) {
-            return analyzeIvmKeys(keys, columns, mvPartitionInfo, distribution, ivmNormalizeResult);
+            return analyzeIvmKeys(keys, columns, mvPartitionInfo, distribution, ivmRewriteResult);
         }
         boolean enableDuplicateWithoutKeysByDefault = false;
         try {
@@ -716,7 +716,7 @@ public class MTMVPlanUtil {
 
     private static List<String> analyzeIvmKeys(List<String> keys, List<ColumnDefinition> columns,
             MTMVPartitionInfo mvPartitionInfo, DistributionDescriptor distribution,
-            IvmNormalizeResult ivmNormalizeResult) {
+            IvmRewriteResult ivmRewriteResult) {
         Map<String, ColumnDefinition> columnMap = columns.stream()
                 .collect(Collectors.toMap(ColumnDefinition::getName, column -> column,
                         (left, right) -> left, () -> new TreeMap<>(String.CASE_INSENSITIVE_ORDER)));
@@ -751,7 +751,7 @@ public class MTMVPlanUtil {
         }
         LinkedHashSet<String> finalKeys = new LinkedHashSet<>(visibleKeys);
         addIvmFinalKey(finalKeys, Column.IVM_ROW_ID_COL);
-        validateIvmAggregateKeys(finalKeys, visibleColumns, ivmNormalizeResult);
+        validateIvmAggregateKeys(finalKeys, visibleColumns, ivmRewriteResult);
         validateIvmVisibleKeyPrefix(Lists.newArrayList(visibleKeys), visibleOutputNames, hasExplicitKeys);
         applyIvmPhysicalKeyLayout(columns, columnMap, Lists.newArrayList(visibleKeys), Lists.newArrayList(finalKeys));
         return Lists.newArrayList(finalKeys);
@@ -861,8 +861,8 @@ public class MTMVPlanUtil {
     }
 
     private static void validateIvmAggregateKeys(Set<String> keySet, List<ColumnDefinition> visibleColumns,
-            IvmNormalizeResult ivmNormalizeResult) {
-        if (ivmNormalizeResult == null || !ivmNormalizeResult.isAggMv()) {
+            IvmRewriteResult ivmRewriteResult) {
+        if (ivmRewriteResult == null || !ivmRewriteResult.isAggMv()) {
             return;
         }
         List<String> visibleKeys = keySet.stream()
@@ -872,7 +872,7 @@ public class MTMVPlanUtil {
             return;
         }
 
-        Plan normalizedPlan = Preconditions.checkNotNull(ivmNormalizeResult.getNormalizedPlan(),
+        Plan normalizedPlan = Preconditions.checkNotNull(ivmRewriteResult.getNormalizedPlan(),
                 "IVM aggregate key validation requires normalized plan");
         Map<String, Slot> visibleOutputSlotByColumn = buildVisibleOutputSlotByColumn(visibleColumns, normalizedPlan);
 

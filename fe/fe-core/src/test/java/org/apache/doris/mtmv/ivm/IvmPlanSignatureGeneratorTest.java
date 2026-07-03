@@ -243,7 +243,7 @@ class IvmPlanSignatureGeneratorTest extends IvmDeltaTestBase {
     @Test
     void testAggregateSignatureUsesNormalizedHiddenOutputsWithoutAggMeta() {
         PlanBundle bundle = normalizeAggPlan(buildGroupedAgg(buildMowScan(1, "t")));
-        IvmPlanSignature signature = bundle.normalizeResult.getPlanSignature();
+        IvmPlanSignature signature = bundle.rewriteResult.getPlanSignature();
 
         Assertions.assertFalse(signature.getCanonicalString().contains("AGG_META"));
         Assertions.assertFalse(signature.getCanonicalString().contains("aggType="));
@@ -319,14 +319,14 @@ class IvmPlanSignatureGeneratorTest extends IvmDeltaTestBase {
         ConnectContext ctx = newConnectContext();
         JobContext jobContext = newJobContextForRoot(root, ctx);
         new IvmNormalizeMtmv().rewriteRoot(root, jobContext);
-        IvmNormalizeResult normalizeResult = jobContext.getCascadesContext().getIvmNormalizeResult().get();
-        return normalizeResult.getPlanSignature();
+        IvmRewriteResult rewriteResult = jobContext.getCascadesContext().getIvmRewriteResult().get();
+        return rewriteResult.getPlanSignature();
     }
 
     private IvmPlanSignature signatureForNormalizedPlan(Plan normalizedPlan) {
-        IvmNormalizeResult normalizeResult = new IvmNormalizeResult();
-        normalizeResult.setNormalizedPlan(normalizedPlan);
-        return new IvmPlanSignatureGenerator().generate(normalizeResult);
+        IvmRewriteResult rewriteResult = new IvmRewriteResult();
+        rewriteResult.setNormalizedPlan(normalizedPlan);
+        return new IvmPlanSignatureGenerator().generate(rewriteResult);
     }
 
     private LogicalResultSink<?> buildScanRoot(Plan plan) {
