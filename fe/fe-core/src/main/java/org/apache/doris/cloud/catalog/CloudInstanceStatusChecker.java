@@ -329,14 +329,10 @@ public class CloudInstanceStatusChecker extends MasterDaemon {
                 LOG.info("warmup-vcg rebuild-finish vcgName={} srcCluster={} dstCluster={} "
                                 + "createdPeriodicJobId={} createdEventJobId={} oldJobIds={}",
                         virtualGroupInFe.getName(), srcCg, dstCg, jobIdPeriodic, jobIdEvent, jobIdsInMs);
-                LOG.info("virtual compute group {}, generate new jobIds periodic={}, event={}, and old jobIds {}",
-                        virtualGroupInFe, jobIdPeriodic, jobIdEvent, jobIdsInMs);
             } catch (AnalysisException e) {
                 LOG.warn("warmup-vcg rebuild-failed vcgName={} srcCluster={} dstCluster={} oldJobIds={} "
                                 + "failureReason={}",
                         virtualGroupInFe.getName(), srcCg, dstCg, jobIdsInMs, e.getMessage(), e);
-                LOG.warn("virtual compute err, name: {}, failed to generate file cache warm up jobs: {}",
-                        virtualGroupInFe.getName(), e.getMessage(), e);
                 return;
             }
             virtualGroupInFe.setNeedRebuildFileCache(false);

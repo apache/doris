@@ -425,24 +425,6 @@ public class CacheHotspotManager extends MasterDaemon {
         }
         computeGroupsInVcg.add(activeComputeGroup);
         computeGroupsInVcg.add(standbyComputeGroup);
-        List<Long> matchedJobIds = new ArrayList<>();
-
-        for (CloudWarmUpJob existingJob : runnableCloudWarmUpJobs.values()) {
-            if (existingJob.isDone() || !isTableLevelLoadEventWarmUpJob(existingJob)) {
-                continue;
-            }
-            if (!computeGroupsInVcg.contains(existingJob.getSrcClusterName())
-                    || !computeGroupsInVcg.contains(existingJob.getDstClusterName())) {
-                continue;
-            }
-            matchedJobIds.add(existingJob.getJobId());
-        }
-        if (!matchedJobIds.isEmpty()) {
-            LOG.info("warmup-vcg cancel-table-level vcgName={} activeComputeGroup={} standbyComputeGroup={} "
-                            + "subComputeGroups={} matchedJobIds={} cancelReason={}",
-                    virtualComputeGroupName, activeComputeGroup, standbyComputeGroup,
-                    subComputeGroups, matchedJobIds, cancelReason);
-        }
 
         for (CloudWarmUpJob existingJob : runnableCloudWarmUpJobs.values()) {
             if (existingJob.isDone() || !isTableLevelLoadEventWarmUpJob(existingJob)) {
@@ -531,7 +513,7 @@ public class CacheHotspotManager extends MasterDaemon {
     public boolean tryRegisterRunningJob(CloudWarmUpJob job) {
         if (job.isEventDriven()) {
             // Event-driven jobs do not require registration, always allow
-            LOG.info("warmup-lock register-skip jobId={} srcCluster={} dstCluster={} syncMode={} jobType={} "
+            LOG.debug("warmup-lock register-skip jobId={} srcCluster={} dstCluster={} syncMode={} jobType={} "
                             + "reason=event-driven",
                     job.getJobId(), job.getSrcClusterName(), job.getDstClusterName(),
                     job.getSyncMode(), job.getJobType());
@@ -545,12 +527,12 @@ public class CacheHotspotManager extends MasterDaemon {
         Long existingJobId = clusterToRunningJobId.putIfAbsent(clusterName, jobId);
         boolean success = (existingJobId == null) || (existingJobId == jobId);
         if (success) {
-            LOG.info("warmup-lock register jobId={} srcCluster={} dstCluster={} syncMode={} jobType={} "
+            LOG.debug("warmup-lock register jobId={} srcCluster={} dstCluster={} syncMode={} jobType={} "
                             + "existingJobId={} registerResult={}",
                     jobId, job.getSrcClusterName(), clusterName, job.getSyncMode(), job.getJobType(),
                     existingJobId, "success");
         } else {
-            LOG.debug("warmup-lock register jobId={} srcCluster={} dstCluster={} syncMode={} jobType={} "
+            LOG.info("warmup-lock register jobId={} srcCluster={} dstCluster={} syncMode={} jobType={} "
                             + "existingJobId={} registerResult={}",
                     jobId, job.getSrcClusterName(), clusterName, job.getSyncMode(), job.getJobType(),
                     existingJobId, "blocked");
@@ -574,7 +556,7 @@ public class CacheHotspotManager extends MasterDaemon {
     private boolean deregisterRunningJob(CloudWarmUpJob job) {
         if (job.isEventDriven()) {
             // Event-driven jobs are not registered, so nothing to deregister
-            LOG.info("warmup-lock deregister-skip jobId={} srcCluster={} dstCluster={} syncMode={} jobType={} "
+            LOG.debug("warmup-lock deregister-skip jobId={} srcCluster={} dstCluster={} syncMode={} jobType={} "
                             + "reason=event-driven",
                     job.getJobId(), job.getSrcClusterName(), job.getDstClusterName(),
                     job.getSyncMode(), job.getJobType());
@@ -1503,21 +1485,6 @@ public class CacheHotspotManager extends MasterDaemon {
     }
 
     public void cancelTableFilterJobsForClusterChange(String clusterName, String reason) {
-        List<Long> affectedJobIds = new ArrayList<>();
-        for (CloudWarmUpJob job : runnableCloudWarmUpJobs.values()) {
-            if (job.isDone() || !job.hasTableFilter()) {
-                continue;
-            }
-            if (!Objects.equals(clusterName, job.getSrcClusterName())
-                    && !Objects.equals(clusterName, job.getDstClusterName())) {
-                continue;
-            }
-            affectedJobIds.add(job.getJobId());
-        }
-        if (!affectedJobIds.isEmpty()) {
-            LOG.info("warmup-system-cancel triggerType=CLUSTER_CHANGE clusterName={} affectedJobIds={} reason={}",
-                    clusterName, affectedJobIds, reason);
-        }
         for (CloudWarmUpJob job : runnableCloudWarmUpJobs.values()) {
             if (job.isDone() || !job.hasTableFilter()) {
                 continue;
