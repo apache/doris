@@ -54,12 +54,7 @@ public class AliasUdf extends ScalarFunction implements ExplicitlyCastableSignat
      */
     public AliasUdf(String name, List<DataType> argTypes, Expression unboundFunction,
             List<String> parameters, Map<String, String> sessionVariables, Expression... arguments) {
-        super(name, arguments);
-        this.argTypes = argTypes;
-        this.hasVarArguments = false;
-        this.unboundFunction = unboundFunction;
-        this.parameters = parameters;
-        this.sessionVariables = sessionVariables;
+        this(name, argTypes, false, unboundFunction, parameters, sessionVariables, arguments);
     }
 
     /**

@@ -225,6 +225,7 @@ public class CreateFunctionCommand extends Command implements ForwardWithSync {
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
         analyze(ctx);
         if (SetType.GLOBAL.equals(setType)) {
+            // TODO: Register global table functions as normal/_outer pairs when global UDTFs are supported.
             Env.getCurrentEnv().getGlobalFunctionMgr().addFunction(function, ifNotExists);
         } else {
             String dbName = functionName.getDb();

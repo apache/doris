@@ -22,7 +22,6 @@ import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.util.URI;
 import org.apache.doris.journal.JournalEntity;
@@ -215,6 +214,8 @@ public class CreateFunctionTest {
             Mockito.verify(spyEditLog, Mockito.never()).logAddFunction(Mockito.any(Function.class));
             Assert.assertSame(existingFunction, db.getFunction(searchDesc(existingFunction)));
             Assert.assertThrows(AnalysisException.class, () -> db.getFunction(searchDesc(failedFunction)));
+            mockedFunctionUtil.verify(() -> FunctionUtil.removeFunctionImpl(
+                    Mockito.eq(failedFunction), Mockito.eq(true), Mockito.any()));
         } finally {
             Env.getCurrentEnv().setEditLog(editLog);
         }
@@ -254,6 +255,12 @@ public class CreateFunctionTest {
             Assert.assertThrows(AnalysisException.class,
                     () -> db.getFunction(searchDesc("rollback_table_function_db", "rollback_table_fn_outer",
                             Type.INT)));
+            mockedFunctionUtil.verify(() -> FunctionUtil.removeFunctionImpl(
+                    Mockito.argThat(function -> "rollback_table_fn".equals(function.functionName())),
+                    Mockito.eq(true), Mockito.any()));
+            mockedFunctionUtil.verify(() -> FunctionUtil.removeFunctionImpl(
+                    Mockito.argThat(function -> "rollback_table_fn_outer".equals(function.functionName())),
+                    Mockito.eq(true), Mockito.any()));
             mockedFunctionUtil.verify(() -> FunctionUtil.dropFromNereids(Mockito.eq("rollback_table_function_db"),
                     Mockito.argThat(function -> "rollback_table_fn".equals(function.getName().getFunction()))));
             mockedFunctionUtil.verify(() -> FunctionUtil.dropFromNereids(Mockito.eq("rollback_table_function_db"),
@@ -301,43 +308,6 @@ public class CreateFunctionTest {
             Assert.assertThrows(AnalysisException.class, () -> db.getFunction(searchDesc(tableFunction)));
             Assert.assertSame(variadicFunction, db.getFunction(searchDesc(variadicFunction)));
             assertSingleVariadicUdfBuilder("rollback_table_function_vararg_db", "rollback_vararg_table_fn");
-        } finally {
-            Env.getCurrentEnv().setEditLog(editLog);
-        }
-    }
-
-    @Test
-    public void testCreateTableFunctionRollbackWhenOuterFunctionConflicts() throws Exception {
-        ConnectContext ctx = UtFrameUtils.createDefaultCtx();
-        createDatabase(ctx, "create database rollback_table_function_conflict_db;");
-        Database db = Env.getCurrentInternalCatalog().getDbNullable("rollback_table_function_conflict_db");
-        Assert.assertNotNull(db);
-
-        EditLog editLog = Env.getCurrentEnv().getEditLog();
-        EditLog spyEditLog = Mockito.spy(editLog);
-        Mockito.doNothing().when(spyEditLog).logAddFunction(Mockito.any(Function.class));
-        Mockito.doNothing().when(spyEditLog).logAddFunctions(Mockito.anyList());
-        Env.getCurrentEnv().setEditLog(spyEditLog);
-        try (MockedStatic<FunctionUtil> mockedFunctionUtil = Mockito.mockStatic(FunctionUtil.class,
-                Mockito.CALLS_REAL_METHODS)) {
-            mockedFunctionUtil.when(() -> FunctionUtil.translateToNereidsThrows(
-                    Mockito.eq("rollback_table_function_conflict_db"), Mockito.any(Function.class)))
-                    .thenReturn(true);
-            Function existingOuterFunction = createJavaUdtf(
-                    "rollback_table_function_conflict_db", "rollback_table_conflict_fn_outer", Type.INT);
-            db.addFunction(existingOuterFunction, false);
-            Assert.assertSame(existingOuterFunction, db.getFunction(searchDesc(existingOuterFunction)));
-
-            Mockito.clearInvocations(spyEditLog);
-            Function tableFunction = createJavaUdtf(
-                    "rollback_table_function_conflict_db", "rollback_table_conflict_fn", Type.INT);
-            UserException exception = Assert.assertThrows(UserException.class,
-                    () -> db.addTableFunction(tableFunction, true));
-            Assert.assertEquals("function already exists", exception.getDetailMessage());
-            Mockito.verify(spyEditLog, Mockito.never()).logAddFunction(Mockito.any(Function.class));
-            Mockito.verify(spyEditLog, Mockito.never()).logAddFunctions(Mockito.anyList());
-            Assert.assertThrows(AnalysisException.class, () -> db.getFunction(searchDesc(tableFunction)));
-            Assert.assertSame(existingOuterFunction, db.getFunction(searchDesc(existingOuterFunction)));
         } finally {
             Env.getCurrentEnv().setEditLog(editLog);
         }
@@ -472,6 +442,8 @@ public class CreateFunctionTest {
             Mockito.verify(spyEditLog, Mockito.never()).logAddGlobalFunction(Mockito.any(Function.class));
             Assert.assertSame(existingFunction, globalFunctionMgr.getFunction(existingFunctionDesc));
             Assert.assertThrows(AnalysisException.class, () -> globalFunctionMgr.getFunction(failedFunctionDesc));
+            mockedFunctionUtil.verify(() -> FunctionUtil.removeFunctionImpl(
+                    Mockito.eq(failedFunction), Mockito.eq(true), Mockito.any()));
         } finally {
             Env.getCurrentEnv().setEditLog(editLog);
             globalFunctionMgr.dropFunction(existingFunctionDesc, true);

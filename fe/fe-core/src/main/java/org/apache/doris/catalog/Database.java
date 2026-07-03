@@ -777,24 +777,35 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
         Function outerFunction = function.clone();
         FunctionName name = outerFunction.getFunctionName();
         name.setFn(name.getFunction() + "_outer");
-        if (hasSameTableFunctionPair(function, outerFunction, ifNotExists)) {
+        List<Function> functionsToAdd = getTableFunctionsToAdd(function, outerFunction, ifNotExists);
+        if (functionsToAdd.isEmpty()) {
             return;
         }
-        addFunctions(ImmutableList.of(function, outerFunction), false, true);
+        addFunctions(functionsToAdd, false, functionsToAdd.size() > 1);
     }
 
-    private boolean hasSameTableFunctionPair(Function function, Function outerFunction, boolean ifNotExists)
+    private List<Function> getTableFunctionsToAdd(Function function, Function outerFunction, boolean ifNotExists)
             throws UserException {
         Function existingFunction = getExistingFunction(function);
         Function existingOuterFunction = getExistingFunction(outerFunction);
         if (existingFunction == null && existingOuterFunction == null) {
-            return false;
+            return ImmutableList.of(function, outerFunction);
         }
-        if (ifNotExists && existingFunction != null && existingOuterFunction != null
-                && existingFunction.isUDTFunction() && existingOuterFunction.isUDTFunction()) {
-            return true;
+        if (!ifNotExists) {
+            throw new UserException(getExistingFunctionMessage(existingFunction, existingOuterFunction));
         }
-        throw new UserException("function already exists");
+        return ImmutableList.of();
+    }
+
+    private String getExistingFunctionMessage(Function existingFunction, Function existingOuterFunction) {
+        List<String> existingFunctionNames = Lists.newArrayList();
+        if (existingFunction != null) {
+            existingFunctionNames.add(existingFunction.functionName());
+        }
+        if (existingOuterFunction != null) {
+            existingFunctionNames.add(existingOuterFunction.functionName());
+        }
+        return "function already exists: " + String.join(", ", existingFunctionNames);
     }
 
     private Function getExistingFunction(Function function) {
@@ -822,7 +833,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
                 FunctionUtil.dropFromNereids(this.getFullName(), getFunctionSearchDesc(function));
             }
             for (int i = addedFunctions.size() - 1; i >= 0; i--) {
-                FunctionUtil.removeFunctionImpl(addedFunctions.get(i), name2Function);
+                FunctionUtil.removeFunctionImpl(addedFunctions.get(i), true, name2Function);
             }
             throw e;
         }

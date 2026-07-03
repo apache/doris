@@ -139,9 +139,14 @@ public class FunctionUtil {
 
     public static boolean removeFunctionImpl(Function function,
             ConcurrentMap<String, ImmutableList<Function>> name2Function) throws UserException {
+        return removeFunctionImpl(function, false, name2Function);
+    }
+
+    public static boolean removeFunctionImpl(Function function, boolean ifExists,
+            ConcurrentMap<String, ImmutableList<Function>> name2Function) throws UserException {
         FunctionSearchDesc functionSearchDesc = new FunctionSearchDesc(function.getFunctionName(), function.getArgs(),
                 function.hasVarArgs());
-        return dropFunctionImpl(functionSearchDesc, false, name2Function);
+        return dropFunctionImpl(functionSearchDesc, ifExists, name2Function);
     }
 
     public static Function getFunction(FunctionSearchDesc function,

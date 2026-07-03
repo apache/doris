@@ -25,15 +25,15 @@ suite("test_create_function_rollback", "docker") {
     options.cloudMode = false
 
     docker(options) {
-        sql """DROP FUNCTION IF EXISTS doris_25021_fn(INT)"""
-        sql """DROP FUNCTION IF EXISTS doris_25021_fn(BIGINT)"""
-        sql """CREATE ALIAS FUNCTION doris_25021_fn(INT) WITH PARAMETER(x) AS add(x, 1)"""
+        sql """DROP FUNCTION IF EXISTS create_fn_rollback_fn(INT)"""
+        sql """DROP FUNCTION IF EXISTS create_fn_rollback_fn(BIGINT)"""
+        sql """CREATE ALIAS FUNCTION create_fn_rollback_fn(INT) WITH PARAMETER(x) AS add(x, 1)"""
 
         try {
             GetDebugPoint().enableDebugPointForAllFEs(
                     "FunctionUtil.translateToNereidsThrows.exception", [execute: 1])
             test {
-                sql """CREATE ALIAS FUNCTION doris_25021_fn(BIGINT) WITH PARAMETER(x) AS add(x, 1)"""
+                sql """CREATE ALIAS FUNCTION create_fn_rollback_fn(BIGINT) WITH PARAMETER(x) AS add(x, 1)"""
                 exception "debug point FunctionUtil.translateToNereidsThrows.exception"
             }
         } finally {
@@ -41,11 +41,11 @@ suite("test_create_function_rollback", "docker") {
         }
 
         test {
-            sql """CREATE ALIAS FUNCTION doris_25021_fn(INT) WITH PARAMETER(x) AS add(x, 1)"""
+            sql """CREATE ALIAS FUNCTION create_fn_rollback_fn(INT) WITH PARAMETER(x) AS add(x, 1)"""
             exception "function already exists"
         }
         test {
-            sql """DROP FUNCTION doris_25021_fn(BIGINT)"""
+            sql """DROP FUNCTION create_fn_rollback_fn(BIGINT)"""
             exception "function does not exist"
         }
     }
