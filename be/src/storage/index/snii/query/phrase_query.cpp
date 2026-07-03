@@ -177,14 +177,18 @@ Status TryTwoTermPhraseBigram(const LogicalIndexReader& idx, const std::vector<s
     }
 
     // Bigram dict MISS. When THIS segment's meta declares bigram df-pruning
-    // (G01), the miss is ambiguous -- the pair may have been pruned (df below the
-    // recorded threshold) rather than absent -- so fall back to the generic
-    // positions-verification phrase path (*handled stays false). The fallback is
-    // the full-fidelity implementation, and a pruned pair is low-df by
-    // definition, so its candidate set is small. Segments WITHOUT the meta field
+    // (G01 min and/or G15 max), the miss is ambiguous -- the pair may have been
+    // pruned (df below the min or above the max threshold) rather than absent
+    // -- so fall back to the generic positions-verification phrase path
+    // (*handled stays false). The fallback is the full-fidelity implementation.
+    // A min-pruned pair is low-df by definition, so its candidate set is small;
+    // a max-pruned (stopword-like) pair instead verifies positions over a
+    // LARGE unigram candidate set -- the deliberate G15 trade: those pairs'
+    // dict + posting bytes buy almost no selectivity, and the ratio config
+    // keeps the gate to near-ubiquitous pairs. Segments WITHOUT the meta field
     // keep the legacy contract: the writer materialized EVERY adjacent pair, so
     // miss == no adjacency == empty result.
-    if (idx.bigram_prune_min_df() > 0) {
+    if (idx.bigram_prune_min_df() > 0 || idx.bigram_prune_max_df() > 0) {
         SNII_QUERY_COUNT(bigram_fallbacks);
         return Status::OK();
     }

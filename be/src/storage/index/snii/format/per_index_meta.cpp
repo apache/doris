@@ -152,20 +152,28 @@ Status decode_section_refs(Slice payload, SectionRefs* out) {
     return Status::OK();
 }
 
-// kBigramPruneInfo payload: varint64 effective bigram_prune_min_df. The section
-// is OPTIONAL (emitted only when the writer pruned) and forward-extensible:
-// trailing payload bytes are IGNORED so a future writer can append fields
-// without a new section type.
-void encode_bigram_prune_info(uint64_t min_df, ByteSink* sink) {
+// kBigramPruneInfo payload: varint64 effective bigram_prune_min_df, then
+// (G15) varint64 effective bigram_prune_max_df -- both written whenever the
+// section is emitted (either gate active), 0 marking the inactive gate. The
+// section is OPTIONAL (emitted only when the writer pruned) and
+// forward-extensible: pre-G15 writers emitted only the min varint (decode
+// defaults max to 0), and trailing payload bytes past the known fields are
+// IGNORED so a future writer can append more without a new section type.
+void encode_bigram_prune_info(uint64_t min_df, uint64_t max_df, ByteSink* sink) {
     ByteSink payload;
     payload.put_varint64(min_df);
+    payload.put_varint64(max_df);
     SectionFramer::write(*sink, static_cast<uint8_t>(SectionType::kBigramPruneInfo),
                          payload.view());
 }
 
-Status decode_bigram_prune_info(Slice payload, uint64_t* min_df) {
+Status decode_bigram_prune_info(Slice payload, uint64_t* min_df, uint64_t* max_df) {
     ByteSource ps(payload);
     RETURN_IF_ERROR(ps.get_varint64(min_df));
+    *max_df = 0;
+    if (!ps.eof()) {
+        RETURN_IF_ERROR(ps.get_varint64(max_df));
+    }
     return Status::OK();
 }
 
@@ -280,8 +288,8 @@ Status PerIndexMetaBuilder::finish(ByteSink* sink) const {
     emit_embedded_section(sampled_term_index_, SectionType::kSampledTermIndexZstd, sink);
     emit_embedded_section(dict_block_directory_, SectionType::kDictBlockDirectoryZstd, sink);
     encode_section_refs(section_refs_, sink);
-    if (bigram_prune_min_df_ != 0) {
-        encode_bigram_prune_info(bigram_prune_min_df_, sink);
+    if (bigram_prune_min_df_ != 0 || bigram_prune_max_df_ != 0) {
+        encode_bigram_prune_info(bigram_prune_min_df_, bigram_prune_max_df_, sink);
     }
     for (const auto& extra : extra_sections_) {
         sink->put_bytes(Slice(extra));
@@ -315,7 +323,8 @@ Status PerIndexMetaReader::open(Slice block, PerIndexMetaReader* out) {
             FramedSection sec;
             ByteSource fs(frame);
             RETURN_IF_ERROR(SectionFramer::read(fs, &sec));
-            RETURN_IF_ERROR(decode_bigram_prune_info(sec.payload, &out->bigram_prune_min_df_));
+            RETURN_IF_ERROR(decode_bigram_prune_info(sec.payload, &out->bigram_prune_min_df_,
+                                                     &out->bigram_prune_max_df_));
         } else {
             dispatch_frame(type, frame, &out->sampled_term_index_, &out->sampled_term_index_zstd_,
                            &out->dict_block_directory_, &out->dict_block_directory_zstd_);

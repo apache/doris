@@ -61,13 +61,15 @@ std::vector<PostingDoc> one_position_docs(std::vector<uint32_t> docids) {
 // (bb,cc) at df == kThreshold (materialize side).
 Status build_boundary_index(MemoryFile* file, uint32_t bigram_prune_min_df,
                             reader::SniiSegmentReader* segment_reader,
-                            reader::LogicalIndexReader* index_reader) {
+                            reader::LogicalIndexReader* index_reader,
+                            uint64_t bigram_prune_max_df = 0) {
     writer::SniiIndexInput input;
     input.index_id = 3;
     input.index_suffix = "Body";
     input.config = format::IndexConfig::kDocsPositions;
     input.doc_count = kDocCount;
     input.bigram_prune_min_df = bigram_prune_min_df;
+    input.bigram_prune_max_df = bigram_prune_max_df;
     input.terms = {
             make_term("aa", one_position_docs({1, 2, 3})),
             make_term("bb", one_position_docs({1, 2, 3, 4, 5, 6})),
@@ -132,6 +134,97 @@ TEST(SniiBigramPruneWriter, ThresholdBoundaryIsDeterministic) {
     EXPECT_EQ(index_reader.bigram_prune_min_df(), kThreshold);
 }
 
+TEST(SniiBigramPruneWriter, MaxDfUpperBoundaryIsDeterministic) {
+    // G15 upper gate, min gate off (0) to isolate it: df == max must
+    // materialize (the gate drops strictly-above), df == max + 1 must be
+    // pruned -- exactly, every build -- and the meta must declare the applied
+    // max so the reader still falls back on the resulting dict miss.
+    MemoryFile file;
+    reader::SniiSegmentReader segment_reader;
+    reader::LogicalIndexReader index_reader;
+
+    wtesting::reset_bigram_prune_counters();
+    assert_ok(build_boundary_index(&file, /*bigram_prune_min_df=*/0, &segment_reader, &index_reader,
+                                   /*bigram_prune_max_df=*/3));
+
+    // (aa,bb) df 3 == max -> materialize; (bb,cc) df 4 > max -> pruned. The
+    // upper drop is counted by its OWN seam (never by the min-gate one); the
+    // sentinel (df 1) counts nowhere, as always.
+    EXPECT_EQ(wtesting::bigram_terms_max_pruned(), 1U);
+    EXPECT_EQ(wtesting::bigram_terms_pruned(), 0U);
+    EXPECT_EQ(wtesting::bigram_terms_materialized(), 1U);
+
+    format::DictEntry entry;
+    ASSERT_TRUE(lookup_term(index_reader, format::make_phrase_bigram_term("aa", "bb"), &entry));
+    EXPECT_EQ(entry.df, 3U);
+    EXPECT_FALSE(lookup_term(index_reader, format::make_phrase_bigram_term("bb", "cc"), &entry));
+    ASSERT_TRUE(lookup_term(index_reader, format::make_phrase_bigram_sentinel_term(), &entry));
+
+    // Max-only declaration: min stays 0, max lands in the meta (this is what
+    // keeps the reader's dict-miss fallback armed without the min gate).
+    EXPECT_EQ(index_reader.bigram_prune_min_df(), 0U);
+    EXPECT_EQ(index_reader.bigram_prune_max_df(), 3U);
+}
+
+TEST(SniiBigramPruneWriter, MinAndMaxGatesTogetherKeepOnlyMiddleBand) {
+    // Both gates armed at once (min == 4, max == 6): the df axis must split into
+    // exactly three bands -- df < 4 min-pruned, 4 <= df <= 6 materialized
+    // (BOTH boundaries inclusive-keep), df > 6 max-pruned -- each drop counted
+    // by its OWN seam, and the meta declaring BOTH applied thresholds.
+    constexpr uint32_t kMin = 4;
+    constexpr uint64_t kMax = 6;
+    writer::SniiIndexInput input;
+    input.index_id = 3;
+    input.index_suffix = "Body";
+    input.config = format::IndexConfig::kDocsPositions;
+    input.doc_count = kDocCount;
+    input.bigram_prune_min_df = kMin;
+    input.bigram_prune_max_df = kMax;
+    input.terms = {
+            make_term("aa", one_position_docs({1, 2, 3})),
+            make_term(format::make_phrase_bigram_sentinel_term(), one_position_docs({0})),
+            make_term(format::make_phrase_bigram_term("aa", "bb"),
+                      one_position_docs({1, 2, 3})), // df 3 <  min: LOW tail, pruned
+            make_term(format::make_phrase_bigram_term("bb", "cc"),
+                      one_position_docs({1, 2, 3, 4})), // df 4 == min: kept
+            make_term(format::make_phrase_bigram_term("cc", "dd"),
+                      one_position_docs({1, 2, 3, 4, 5, 6})), // df 6 == max: kept
+            make_term(format::make_phrase_bigram_term("dd", "ee"),
+                      one_position_docs({1, 2, 3, 4, 5, 6, 7})), // df 7 > max: HIGH tail, pruned
+    };
+    std::ranges::sort(input.terms,
+                      [](const writer::TermPostings& lhs, const writer::TermPostings& rhs) {
+                          return lhs.term < rhs.term;
+                      });
+
+    MemoryFile file;
+    wtesting::reset_bigram_prune_counters();
+    writer::SniiCompoundWriter writer(&file);
+    assert_ok(writer.add_logical_index(input));
+    assert_ok(writer.finish());
+
+    EXPECT_EQ(wtesting::bigram_terms_pruned(), 1U);       // (aa,bb) via the MIN gate
+    EXPECT_EQ(wtesting::bigram_terms_max_pruned(), 1U);   // (dd,ee) via the MAX gate
+    EXPECT_EQ(wtesting::bigram_terms_materialized(), 2U); // the middle band
+
+    reader::SniiSegmentReader segment_reader;
+    reader::LogicalIndexReader index_reader;
+    assert_ok(reader::SniiSegmentReader::open(&file, &segment_reader));
+    assert_ok(segment_reader.open_index(input.index_id, input.index_suffix, &index_reader));
+
+    format::DictEntry entry;
+    EXPECT_FALSE(lookup_term(index_reader, format::make_phrase_bigram_term("aa", "bb"), &entry));
+    ASSERT_TRUE(lookup_term(index_reader, format::make_phrase_bigram_term("bb", "cc"), &entry));
+    EXPECT_EQ(entry.df, kMin);
+    ASSERT_TRUE(lookup_term(index_reader, format::make_phrase_bigram_term("cc", "dd"), &entry));
+    EXPECT_EQ(entry.df, kMax);
+    EXPECT_FALSE(lookup_term(index_reader, format::make_phrase_bigram_term("dd", "ee"), &entry));
+    ASSERT_TRUE(lookup_term(index_reader, format::make_phrase_bigram_sentinel_term(), &entry));
+
+    EXPECT_EQ(index_reader.bigram_prune_min_df(), kMin);
+    EXPECT_EQ(index_reader.bigram_prune_max_df(), kMax);
+}
+
 TEST(SniiBigramPruneWriter, ThresholdZeroKeepsLegacyLayout) {
     MemoryFile file;
     reader::SniiSegmentReader segment_reader;
@@ -152,6 +245,7 @@ TEST(SniiBigramPruneWriter, ThresholdZeroKeepsLegacyLayout) {
     ASSERT_TRUE(lookup_term(index_reader, format::make_phrase_bigram_term("bb", "cc"), &entry));
     EXPECT_TRUE(entry.prx_len > 0 || !entry.prx_bytes.empty());
     EXPECT_EQ(index_reader.bigram_prune_min_df(), 0U);
+    EXPECT_EQ(index_reader.bigram_prune_max_df(), 0U);
 }
 
 TEST(SniiBigramPruneWriter, DocsOnlyConfigForcesThresholdOff) {
@@ -165,6 +259,7 @@ TEST(SniiBigramPruneWriter, DocsOnlyConfigForcesThresholdOff) {
     input.config = format::IndexConfig::kDocsOnly;
     input.doc_count = kDocCount;
     input.bigram_prune_min_df = kThreshold;
+    input.bigram_prune_max_df = kThreshold;
     input.terms = {make_term("aa", one_position_docs({1, 2, 3}))};
 
     writer::SniiCompoundWriter writer(&file);
@@ -176,6 +271,7 @@ TEST(SniiBigramPruneWriter, DocsOnlyConfigForcesThresholdOff) {
     assert_ok(reader::SniiSegmentReader::open(&file, &segment_reader));
     assert_ok(segment_reader.open_index(input.index_id, input.index_suffix, &index_reader));
     EXPECT_EQ(index_reader.bigram_prune_min_df(), 0U);
+    EXPECT_EQ(index_reader.bigram_prune_max_df(), 0U);
 }
 
 TEST(SniiBigramPruneWriter, DefaultThresholdFormula) {

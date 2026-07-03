@@ -64,9 +64,10 @@ struct Fixture {
     reader::LogicalIndexReader index_reader;
 };
 
-void build_fixture(Fixture* f, bool include_bigrams, uint32_t bigram_prune_min_df) {
+void build_fixture(Fixture* f, bool include_bigrams, uint32_t bigram_prune_min_df,
+                   uint64_t bigram_prune_max_df = 0) {
     assert_ok(build_reader(&f->file, &f->segment_reader, &f->index_reader, include_bigrams,
-                           bigram_prune_min_df));
+                           bigram_prune_min_df, bigram_prune_max_df));
 }
 
 std::vector<uint32_t> run_phrase(const reader::LogicalIndexReader& idx,
@@ -160,6 +161,109 @@ TEST(SniiPhraseBigramPrune, ColdPairFallsBackAndEqualsControl) {
         EXPECT_EQ(qinternal::query_test_counters().bigram_fallbacks, 1U);
         EXPECT_EQ(qinternal::query_test_counters().bigram_hits, 0U);
     }
+}
+
+// Verification-gate case 1c (G15): a near-ubiquitous pair (df above the max-df
+// upper bound) is pruned from the dict even though it clears every min gate;
+// its 2-term phrase reroutes through the fallback (seam: zero hits, one
+// fallback) and still EQUALS the unpruned control and the ground truth. The
+// meta declares ONLY the max -- that alone must arm the dict-miss fallback.
+TEST(SniiPhraseBigramPrune, MaxDfPrunedHotPairFallsBackAndEqualsControl) {
+    Fixture control, maxpruned, nobigram;
+    build_fixture(&control, true, 0);
+    build_fixture(&maxpruned, true, /*bigram_prune_min_df=*/0,
+                  /*bigram_prune_max_df=*/kFixtureDocs / 5);
+    build_fixture(&nobigram, false, 0);
+
+    EXPECT_EQ(maxpruned.index_reader.bigram_prune_min_df(), 0U);
+    EXPECT_EQ(maxpruned.index_reader.bigram_prune_max_df(), kFixtureDocs / 5);
+
+    // (repeat,repeat) df 9000 > 1800: pruned from the dict...
+    const std::vector<std::string> hot {"repeat", "repeat"};
+    bool found = false;
+    format::DictEntry entry;
+    uint64_t frq_base = 0;
+    uint64_t prx_base = 0;
+    assert_ok(maxpruned.index_reader.lookup(format::make_phrase_bigram_term("repeat", "repeat"),
+                                            &found, &entry, &frq_base, &prx_base));
+    EXPECT_FALSE(found);
+
+    // ... while the low-df pairs the MIN gate would have dropped all survive.
+    assert_ok(maxpruned.index_reader.lookup(format::make_phrase_bigram_term("failed", "ordinal"),
+                                            &found, &entry, &frq_base, &prx_base));
+    EXPECT_TRUE(found);
+
+    const std::vector<uint32_t> truth = run_phrase(nobigram.index_reader, hot);
+    EXPECT_EQ(truth, all_docids(kFixtureDocs));
+    EXPECT_EQ(run_phrase(control.index_reader, hot), truth);
+
+    reset_query_counters();
+    EXPECT_EQ(run_phrase(maxpruned.index_reader, hot), truth);
+    EXPECT_EQ(qinternal::query_test_counters().bigram_hits, 0U);
+    EXPECT_EQ(qinternal::query_test_counters().bigram_fallbacks, 1U);
+}
+
+// Verification-gate case 1d (G15): BOTH gates armed at once (min 2, max 1800)
+// split the fixture's bigram df axis into three bands -- (failed,ordinal) df 1
+// min-pruned, (order,ordinal) df 2 == min and (failed,order) df 3 kept,
+// (repeat,repeat) df 9000 max-pruned. Each pruned tail's 2-term phrase must
+// fall back (and equal the unpruned control), while the middle band still
+// answers DIRECTLY from its bigram posting (one hit, zero fallbacks).
+TEST(SniiPhraseBigramPrune, MinAndMaxGatesTogetherPruneBothTailsKeepMiddle) {
+    constexpr uint32_t kMin = 2;
+    constexpr uint64_t kMax = 1800;
+    Fixture control, banded;
+    build_fixture(&control, true, 0);
+    build_fixture(&banded, true, kMin, kMax);
+
+    EXPECT_EQ(banded.index_reader.bigram_prune_min_df(), kMin);
+    EXPECT_EQ(banded.index_reader.bigram_prune_max_df(), kMax);
+
+    // Dict state: both tails miss, the middle band (min and max boundaries
+    // included) survives.
+    bool found = false;
+    format::DictEntry entry;
+    uint64_t frq_base = 0;
+    uint64_t prx_base = 0;
+    assert_ok(banded.index_reader.lookup(format::make_phrase_bigram_term("failed", "ordinal"),
+                                         &found, &entry, &frq_base, &prx_base));
+    EXPECT_FALSE(found); // df 1 < min
+    assert_ok(banded.index_reader.lookup(format::make_phrase_bigram_term("order", "ordinal"),
+                                         &found, &entry, &frq_base, &prx_base));
+    EXPECT_TRUE(found); // df 2 == min: kept
+    assert_ok(banded.index_reader.lookup(format::make_phrase_bigram_term("failed", "order"), &found,
+                                         &entry, &frq_base, &prx_base));
+    EXPECT_TRUE(found); // df 3 in (min, max): kept
+    assert_ok(banded.index_reader.lookup(format::make_phrase_bigram_term("repeat", "repeat"),
+                                         &found, &entry, &frq_base, &prx_base));
+    EXPECT_FALSE(found); // df 9000 > max
+
+    // LOW tail: fallback engages and the answer equals the unpruned control.
+    const std::vector<std::string> low {"failed", "ordinal"};
+    const std::vector<uint32_t> low_truth = run_phrase(control.index_reader, low);
+    EXPECT_EQ(low_truth, (std::vector<uint32_t> {6000}));
+    reset_query_counters();
+    EXPECT_EQ(run_phrase(banded.index_reader, low), low_truth);
+    EXPECT_EQ(qinternal::query_test_counters().bigram_hits, 0U);
+    EXPECT_EQ(qinternal::query_test_counters().bigram_fallbacks, 1U);
+
+    // HIGH tail: same fallback contract, full-cardinality answer intact.
+    const std::vector<std::string> high {"repeat", "repeat"};
+    const std::vector<uint32_t> high_truth = run_phrase(control.index_reader, high);
+    EXPECT_EQ(high_truth, all_docids(kFixtureDocs));
+    reset_query_counters();
+    EXPECT_EQ(run_phrase(banded.index_reader, high), high_truth);
+    EXPECT_EQ(qinternal::query_test_counters().bigram_hits, 0U);
+    EXPECT_EQ(qinternal::query_test_counters().bigram_fallbacks, 1U);
+
+    // MIDDLE band: still a direct bigram hit, no fallback, equal results.
+    const std::vector<std::string> mid {"failed", "order"};
+    const std::vector<uint32_t> mid_truth = run_phrase(control.index_reader, mid);
+    EXPECT_EQ(mid_truth, (std::vector<uint32_t> {5000, 7000, 8000}));
+    reset_query_counters();
+    EXPECT_EQ(run_phrase(banded.index_reader, mid), mid_truth);
+    EXPECT_EQ(qinternal::query_test_counters().bigram_hits, 1U);
+    EXPECT_EQ(qinternal::query_test_counters().bigram_fallbacks, 0U);
 }
 
 // Verification-gate case 2: the surviving bigram is written DOCS-ONLY on the

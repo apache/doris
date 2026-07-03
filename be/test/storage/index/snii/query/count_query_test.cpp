@@ -62,9 +62,10 @@ struct Fixture {
     reader::LogicalIndexReader index_reader;
 };
 
-void build_fixture(Fixture* f, bool include_bigrams, uint32_t bigram_prune_min_df) {
+void build_fixture(Fixture* f, bool include_bigrams, uint32_t bigram_prune_min_df,
+                   uint64_t bigram_prune_max_df = 0) {
     assert_ok(build_reader(&f->file, &f->segment_reader, &f->index_reader, include_bigrams,
-                           bigram_prune_min_df));
+                           bigram_prune_min_df, bigram_prune_max_df));
 }
 
 uint64_t full_decode_term_count(const reader::LogicalIndexReader& idx, const std::string& term) {
@@ -174,6 +175,44 @@ TEST(SniiCountQuery, PrunedBigramFallsThrough) {
 
     // The generic path still owns the correct answer.
     EXPECT_EQ(full_decode_phrase_count(pruned.index_reader, {"failed", "order"}), 3U);
+}
+
+// Guard (G15): a MAX-pruned bigram is a dict miss on a segment whose meta
+// declares ONLY the upper threshold -- the count fast path must NOT claim the
+// pruned pair's (absent) df: it falls through untouched (seam 0) and the full
+// phrase execution keeps owning the 9000-doc answer. A pair still INSIDE the
+// band fastpaths as before on the same segment.
+TEST(SniiCountQuery, MaxPrunedBigramFallsThroughSurvivorStillFastpaths) {
+    constexpr uint64_t kMaxDf = 1800;
+    Fixture maxpruned;
+    build_fixture(&maxpruned, /*include_bigrams=*/true, /*bigram_prune_min_df=*/0, kMaxDf);
+    ASSERT_EQ(maxpruned.index_reader.bigram_prune_min_df(), 0U);
+    ASSERT_EQ(maxpruned.index_reader.bigram_prune_max_df(), kMaxDf);
+
+    reset_query_counters();
+    bool handled = true;
+    uint64_t count = 42;
+    // (repeat,repeat) df 9000 > 1800 was pruned: the dict miss is ambiguous, so
+    // no dict-only answer may be produced -- the outputs stay at the contract's
+    // zeroed defaults (never the pruned pair's 9000) and the seam stays cold.
+    assert_ok(count_only_two_term_phrase_bigram_df(maxpruned.index_reader, "repeat", "repeat",
+                                                   &handled, &count));
+    EXPECT_FALSE(handled);
+    EXPECT_EQ(count, 0U);
+    EXPECT_EQ(count_hits(), 0U);
+
+    // The generic phrase path still owns the correct full-cardinality answer.
+    EXPECT_EQ(full_decode_phrase_count(maxpruned.index_reader, {"repeat", "repeat"}), 9000U);
+
+    // (failed,order) df 3 <= 1800 survived the max-only prune: dict-df answer
+    // fires and equals the positional truth.
+    handled = false;
+    count = 0;
+    assert_ok(count_only_two_term_phrase_bigram_df(maxpruned.index_reader, "failed", "order",
+                                                   &handled, &count));
+    EXPECT_TRUE(handled);
+    EXPECT_EQ(count, 3U);
+    EXPECT_EQ(count_hits(), 1U);
 }
 
 // Guards: legacy dict miss (pair never materialized), a bigram-less segment,

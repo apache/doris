@@ -53,12 +53,23 @@ enum class SectionType : uint8_t {
     kTailMetaHeader = 8,
     kFeatureBits = 9,
     // OPTIONAL per-index meta section (G01): payload = varint64
-    // bigram_prune_min_df, the effective phrase-bigram df-prune threshold the
-    // writer applied to THIS index. Emitted only when pruning was active (> 0);
-    // absent == 0 == legacy semantics (every adjacent pair materialized, so a
-    // bigram dict miss means "no adjacency"). Readers that predate this section
-    // skip it (unknown optional type), keeping old binaries readable on new
-    // segments and new binaries on old segments.
+    // bigram_prune_min_df, then (G15) varint64 bigram_prune_max_df -- the
+    // effective phrase-bigram df-prune LOWER and UPPER bounds the writer
+    // applied to THIS index (absolute doc counts; 0 == that gate inactive).
+    // Emitted only when pruning was active (either bound > 0); absent == both
+    // 0 == legacy semantics (every adjacent pair materialized, so a bigram
+    // dict miss means "no adjacency"). Pre-G15 writers emitted only the min
+    // varint: decode defaults the missing max to 0, and trailing payload bytes
+    // past the known fields stay IGNORED for future extension. Readers that
+    // predate this section skip it (unknown optional type), keeping old
+    // binaries readable on new segments and new binaries on old segments.
+    // CAVEAT (version skew): a pre-G15 reader arms its dict-miss fallback off
+    // the min varint ALONE, so a segment written with only the max gate armed
+    // (min == 0, a non-default config) would answer 2-term phrases for its
+    // max-pruned pairs as EMPTY on such a binary. Tolerable only because no
+    // released reader predates G15 (SNII ships with both gates); any future
+    // field that widens the dict-miss-fallback trigger must instead arm one of
+    // the fields old readers already key on.
     kBigramPruneInfo = 10,
     // G13: zstd-compressed carriers for the two large embedded meta sub-sections
     // (they are highly compressible sorted string/offset tables and dominate the

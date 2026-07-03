@@ -19,6 +19,7 @@
 
 #include <glog/logging.h>
 
+#include <algorithm>
 #include <atomic>
 #include <filesystem>
 
@@ -63,6 +64,40 @@ uint32_t snii_effective_bigram_prune_min_df(uint32_t doc_count,
         return static_cast<uint32_t>(conf);
     }
     return doris::snii::format::default_phrase_bigram_prune_min_df(doc_count);
+}
+
+// Resolves the EFFECTIVE SNII phrase-bigram df-prune UPPER bound for one
+// segment index (G15): 0 (no upper gate) for non-positional configs and when
+// config::snii_bigram_prune_max_df_ratio is outside (0, 1); otherwise
+// ratio * doc_count, floored at 2 * effective_min_df when the min-df gate is
+// active so the two gates never overlap. A rounded-to-0 result (tiny segment,
+// no min floor) stays 0: recording 0 means "gate inactive" to the reader, so
+// pruning with it would break the dict-miss fallback contract. Resolved ONLY
+// here, at flush, where the final doc count is known -- the bound scales with
+// the doc count, so no mid-feed partial-df comparison against it is ever
+// valid.
+uint64_t snii_effective_bigram_prune_max_df(uint32_t doc_count, uint32_t effective_min_df,
+                                            doris::snii::format::IndexConfig index_config) {
+    if (!doris::snii::format::has_positions(index_config)) {
+        return 0;
+    }
+    const double ratio = config::snii_bigram_prune_max_df_ratio;
+    // Gate only for ratio in (0, 1): df can never exceed doc_count, so a
+    // ratio >= 1.0 is a provably-dead gate -- resolving it to 0 keeps the meta
+    // from arming the dict-miss fallback (turning fast "pair absent == empty"
+    // answers into pointless positions-verification fallbacks) for a bound
+    // that can never prune. The (0, 1) window also keeps ratio * doc_count
+    // below 2^32, so the uint64 cast below is always defined (an absurd ratio
+    // like 1e18, or NaN -- which fails the conjunction -- could otherwise
+    // overflow the cast into UB).
+    if (!(ratio > 0.0 && ratio < 1.0)) {
+        return 0;
+    }
+    auto max_df = static_cast<uint64_t>(ratio * doc_count);
+    if (effective_min_df > 0) {
+        max_df = std::max<uint64_t>(max_df, 2ULL * effective_min_df);
+    }
+    return max_df;
 }
 
 } // namespace
@@ -157,6 +192,8 @@ Status IndexFileWriter::add_snii_index(const TabletIndex* index_meta, uint32_t d
     input.term_source = term_buffer;
     input.mem_reporter = mem_reporter;
     input.bigram_prune_min_df = snii_effective_bigram_prune_min_df(doc_count, index_config);
+    input.bigram_prune_max_df =
+            snii_effective_bigram_prune_max_df(doc_count, input.bigram_prune_min_df, index_config);
     // G04: hand the flush the buffer's ever-dropped bloom so vocab-cap-evicted
     // bigram pairs that reappeared (incomplete postings) are dropped in addition
     // to the df threshold. Null when no eviction ever fired (zero probe cost).

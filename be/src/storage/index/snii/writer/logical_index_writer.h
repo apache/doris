@@ -116,6 +116,20 @@ struct SniiIndexInput {
     // resolves config::snii_bigram_prune_min_df + the doc-count formula into
     // this field; the core writer just applies it.
     uint32_t bigram_prune_min_df = 0;
+    // EFFECTIVE phrase-bigram df-prune UPPER bound (G15), an ABSOLUTE doc
+    // count. 0 (default) == no upper gate. > 0 (positions-capable configs only;
+    // ignored otherwise): a hidden phrase-bigram term (sentinel excluded) whose
+    // FINAL df EXCEEDS this is skipped at materialization exactly like a
+    // min-df-pruned term -- near-ubiquitous pairs pay dict + posting bytes for
+    // almost no selectivity. Recorded in kBigramPruneInfo alongside the min
+    // threshold, so the reader falls back on a dict miss when EITHER gate is
+    // declared. The caller (Doris adapter) resolves
+    // config::snii_bigram_prune_max_df_ratio * doc_count (floored at
+    // 2 * bigram_prune_min_df when the min gate is active) into this field; the
+    // core writer just applies it. Unlike the min gate it is NEVER sunk into
+    // the mid-feed drain: a partial df above a threshold derived from the
+    // still-growing doc count proves nothing about the final df/threshold pair.
+    uint64_t bigram_prune_max_df = 0;
     // G04: EVER-DROPPED bloom over bigram terms the SPIMI vocab-cap eviction
     // dropped mid-build (SpimiTermBuffer::bigram_dropped_filter(); the caller
     // wires it). When non-null AND pruning is active (bigram_prune_min_df > 0),
@@ -269,6 +283,10 @@ private:
     // non-positional configs (no bigrams are ever emitted there). Recorded into
     // the per-index meta by finish_meta when non-zero.
     uint32_t bigram_prune_min_df_;
+    // G15 effective bigram df-prune UPPER bound, absolute (0 == no upper gate).
+    // Forced to 0 for non-positional configs like the min threshold. Recorded
+    // into the per-index meta by finish_meta alongside it.
+    uint64_t bigram_prune_max_df_;
     // G04 ever-dropped bloom (borrowed from SniiIndexInput). Non-null ONLY when
     // pruning is active (see the SniiIndexInput field contract): probed once per
     // df-surviving bigram term in process_term.
@@ -332,12 +350,17 @@ FreqStats fuse_freq_stats_for_test(const std::vector<uint32_t>& freqs);
 //   bigram_terms_pruned       : the term was skipped entirely (pruning active
 //                               and final df < threshold): no dict entry, no
 //                               postings, no bloom membership, no stats.
-// The sentinel term counts toward NEITHER (it is never prunable). Process-
-// global; reset between tests. Not part of the production API.
+//   bigram_terms_max_pruned   : the term was skipped by the G15 UPPER gate
+//                               (final df > bigram_prune_max_df): same total
+//                               skip, counted separately from the min gate.
+// The sentinel term counts toward NONE of these (it is never prunable).
+// Process-global; reset between tests. Not part of the production API.
 void note_bigram_term_materialized();
 void note_bigram_term_pruned();
+void note_bigram_term_max_pruned();
 uint64_t bigram_terms_materialized();
 uint64_t bigram_terms_pruned();
+uint64_t bigram_terms_max_pruned();
 void reset_bigram_prune_counters();
 
 // G04 flush-side seam: bumped ONCE per bigram term that SURVIVED the df

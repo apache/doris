@@ -230,6 +230,7 @@ TEST(SniiPerIndexMeta, BigramPruneMinDfRoundTripsAndDefaultsToZero) {
     PerIndexMetaReader legacy;
     ASSERT_TRUE(PerIndexMetaReader::open(Slice(legacy_bytes), &legacy).ok());
     EXPECT_EQ(legacy.bigram_prune_min_df(), 0U);
+    EXPECT_EQ(legacy.bigram_prune_max_df(), 0U); // absent section: BOTH gates inactive
 
     // A non-zero threshold emits the optional framed section and round-trips
     // exactly, without disturbing the required sub-sections.
@@ -246,9 +247,68 @@ TEST(SniiPerIndexMeta, BigramPruneMinDfRoundTripsAndDefaultsToZero) {
     PerIndexMetaReader pruned;
     ASSERT_TRUE(PerIndexMetaReader::open(Slice(sink.buffer()), &pruned).ok());
     EXPECT_EQ(pruned.bigram_prune_min_df(), 640U);
+    // (min>0, max=0): a post-G15 writer with the upper gate disabled encodes an
+    // explicit 0 max varint; it must decode back as "max gate inactive".
+    EXPECT_EQ(pruned.bigram_prune_max_df(), 0U);
     EXPECT_TRUE(pruned.has_positions());
     ExpectStatsEq(pruned.stats(), SampleStats());
     ExpectRefsEq(pruned.section_refs(), SampleRefs());
+}
+
+TEST(SniiPerIndexMeta, BigramPruneMaxDfRoundTripsAndPreG15PayloadDefaultsToZero) {
+    // G15: both thresholds round-trip through the (single) kBigramPruneInfo
+    // section; a max-only declaration must still emit the section (the reader's
+    // dict-miss fallback keys on EITHER gate being non-zero).
+    PerIndexMetaBuilder builder(2, "body", PerIndexMetaBuilder::kHasPositions);
+    builder.set_stats(SampleStats());
+    builder.set_sampled_term_index(Slice(BuildSampled({"a"})));
+    builder.set_dict_block_directory(Slice(
+            BuildDict({{.offset = 0, .length = 1, .n_entries = 1, .flags = 0, .checksum = 0}})));
+    builder.set_section_refs(SampleRefs());
+    builder.set_bigram_prune_min_df(640);
+    builder.set_bigram_prune_max_df(1800);
+    ByteSink sink;
+    ASSERT_TRUE(builder.finish(&sink).ok());
+    PerIndexMetaReader both;
+    ASSERT_TRUE(PerIndexMetaReader::open(Slice(sink.buffer()), &both).ok());
+    EXPECT_EQ(both.bigram_prune_min_df(), 640U);
+    EXPECT_EQ(both.bigram_prune_max_df(), 1800U);
+
+    PerIndexMetaBuilder max_only_builder(3, "body", PerIndexMetaBuilder::kHasPositions);
+    max_only_builder.set_stats(SampleStats());
+    max_only_builder.set_sampled_term_index(Slice(BuildSampled({"a"})));
+    max_only_builder.set_dict_block_directory(Slice(
+            BuildDict({{.offset = 0, .length = 1, .n_entries = 1, .flags = 0, .checksum = 0}})));
+    max_only_builder.set_section_refs(SampleRefs());
+    max_only_builder.set_bigram_prune_max_df(1800);
+    ByteSink max_only_sink;
+    ASSERT_TRUE(max_only_builder.finish(&max_only_sink).ok());
+    PerIndexMetaReader max_only;
+    ASSERT_TRUE(PerIndexMetaReader::open(Slice(max_only_sink.buffer()), &max_only).ok());
+    EXPECT_EQ(max_only.bigram_prune_min_df(), 0U);
+    EXPECT_EQ(max_only.bigram_prune_max_df(), 1800U);
+
+    // Back-compat: a pre-G15 (G01..G13) writer framed ONLY the min varint.
+    // Splice such a section in verbatim via add_raw_section; decode must read
+    // the min and default the absent max to 0 instead of erroring.
+    PerIndexMetaBuilder legacy_builder(4, "body", PerIndexMetaBuilder::kHasPositions);
+    legacy_builder.set_stats(SampleStats());
+    legacy_builder.set_sampled_term_index(Slice(BuildSampled({"a"})));
+    legacy_builder.set_dict_block_directory(Slice(
+            BuildDict({{.offset = 0, .length = 1, .n_entries = 1, .flags = 0, .checksum = 0}})));
+    legacy_builder.set_section_refs(SampleRefs());
+    ByteSink old_payload;
+    old_payload.put_varint64(640);
+    ByteSink old_frame;
+    SectionFramer::write(old_frame, static_cast<uint8_t>(SectionType::kBigramPruneInfo),
+                         Slice(old_payload.buffer()));
+    legacy_builder.add_raw_section(Slice(old_frame.buffer()));
+    ByteSink legacy_sink;
+    ASSERT_TRUE(legacy_builder.finish(&legacy_sink).ok());
+    PerIndexMetaReader legacy;
+    ASSERT_TRUE(PerIndexMetaReader::open(Slice(legacy_sink.buffer()), &legacy).ok());
+    EXPECT_EQ(legacy.bigram_prune_min_df(), 640U);
+    EXPECT_EQ(legacy.bigram_prune_max_df(), 0U);
 }
 
 TEST(SniiPerIndexMeta, HeaderStartsWithMetaFormatVersion) {

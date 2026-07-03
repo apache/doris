@@ -1347,9 +1347,28 @@ DECLARE_mInt32(inverted_index_max_buffered_docs);
 // materialized (their 2-term phrases fall back to positions verification), and
 // surviving bigram postings are written docs+freq only (no positions).
 //   < 0 : auto -- max(64, segment_doc_count / 10000) per segment (default)
-//   = 0 : disable pruning; emit every bigram with positions (legacy layout)
+//   = 0 : disable MIN-df pruning. NOTE (G15): the full legacy layout (every
+//         bigram materialized with positions, dict miss == "no adjacency")
+//         additionally requires snii_bigram_prune_max_df_ratio to resolve to
+//         no gate; with the default ratio the upper gate stays active.
 //   > 0 : use this fixed min-df threshold
 DECLARE_mInt32(snii_bigram_prune_min_df);
+// SNII phrase-bigram df-prune UPPER bound (G15), as a fraction of the segment
+// doc count. A hidden adjacent-pair bigram term whose FINAL segment df exceeds
+// ratio * segment_doc_count is pruned from the bigram dict at flush --
+// near-ubiquitous (stopword-like) pairs pay dict + posting bytes for almost no
+// selectivity -- and its 2-term phrase queries fall back to the generic
+// positions-verification path, exactly like min-df-pruned pairs (the reader
+// falls back on any bigram dict miss once the meta declares either gate). The
+// resolved absolute threshold is floored at 2 * effective min-df when the
+// min-df gate is active, so the two gates never overlap; it is applied only at
+// flush, where the final df and final doc count are both known (a partial
+// mid-feed df can never prove the final df will exceed a doc-count-scaled
+// bound). Only a ratio in (0, 1) arms the gate: <= 0 disables it, and >= 1
+// resolves to no gate too (df never exceeds the doc count, so such a bound
+// could never prune -- recording it would only arm pointless dict-miss
+// fallbacks).
+DECLARE_mDouble(snii_bigram_prune_max_df_ratio);
 // SNII phrase-bigram vocabulary cap in bytes, PER index writer (G04 "bigram
 // diet" phase 2). The SPIMI intern table otherwise accumulates every distinct
 // hidden bigram string for the whole segment (the dominant import RSS

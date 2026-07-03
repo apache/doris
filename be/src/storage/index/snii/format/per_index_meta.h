@@ -113,11 +113,14 @@ public:
 
     void set_section_refs(const SectionRefs& refs);
 
-    // Effective phrase-bigram df-prune threshold applied by the writer (G01).
-    // Non-zero emits an OPTIONAL kBigramPruneInfo framed section (varint64);
-    // 0 (the default) emits nothing -- legacy segments carry no section and old
-    // readers skip the new one (unknown optional type).
+    // Effective phrase-bigram df-prune thresholds applied by the writer (G01
+    // min / G15 max, absolute doc counts). Either non-zero emits an OPTIONAL
+    // kBigramPruneInfo framed section carrying BOTH values (varint64 min then
+    // varint64 max); both 0 (the default) emits nothing -- legacy segments
+    // carry no section and old readers skip the new one (unknown optional
+    // type).
     void set_bigram_prune_min_df(uint64_t min_df) { bigram_prune_min_df_ = min_df; }
+    void set_bigram_prune_max_df(uint64_t max_df) { bigram_prune_max_df_ = max_df; }
 
     // Appends an arbitrary already-framed section verbatim. Used for forward-compat
     // optional sections; the reader skips unrecognized types.
@@ -136,6 +139,7 @@ private:
     std::vector<uint8_t> dict_block_directory_;
     SectionRefs section_refs_;
     uint64_t bigram_prune_min_df_ = 0;
+    uint64_t bigram_prune_max_df_ = 0;
     std::vector<std::vector<uint8_t>> extra_sections_;
 };
 
@@ -179,12 +183,15 @@ public:
     // length). True iff the index was built as docs-positions(+scoring) (tier>=T2).
     bool has_positions() const { return (flags_ & PerIndexMetaBuilder::kHasPositions) != 0; }
 
-    // Effective phrase-bigram df-prune threshold the writer applied (G01), from
-    // the OPTIONAL kBigramPruneInfo section. 0 == section absent == legacy
-    // semantics (every adjacent pair was materialized; a bigram dict miss means
-    // "no adjacency"). Non-zero declares this index bigram-df-pruned: a bigram
-    // dict miss must fall back to generic positions verification.
+    // Effective phrase-bigram df-prune thresholds the writer applied (G01 min /
+    // G15 max), from the OPTIONAL kBigramPruneInfo section. Both 0 == section
+    // absent == legacy semantics (every adjacent pair was materialized; a
+    // bigram dict miss means "no adjacency"). Either non-zero declares this
+    // index bigram-df-pruned: a bigram dict miss must fall back to generic
+    // positions verification. max is 0 on pre-G15 sections (single-varint
+    // payload) -- only the min gate was applied there.
     uint64_t bigram_prune_min_df() const { return bigram_prune_min_df_; }
+    uint64_t bigram_prune_max_df() const { return bigram_prune_max_df_; }
 
 private:
     uint64_t index_id_ = 0;
@@ -193,6 +200,7 @@ private:
     StatsBlock stats_;
     SectionRefs section_refs_;
     uint64_t bigram_prune_min_df_ = 0;
+    uint64_t bigram_prune_max_df_ = 0;
     // Captured frame Slices into the opened block: the raw sub-section frame, or
     // its kXxxZstd carrier frame when *_zstd_ is set (G13).
     Slice sampled_term_index_;

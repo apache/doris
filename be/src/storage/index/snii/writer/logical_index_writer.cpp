@@ -390,6 +390,10 @@ std::atomic<uint64_t>& bigram_pruned_counter() {
     static std::atomic<uint64_t> counter {0};
     return counter;
 }
+std::atomic<uint64_t>& bigram_max_pruned_counter() {
+    static std::atomic<uint64_t> counter {0};
+    return counter;
+}
 std::atomic<uint64_t>& bigram_bloom_dropped_counter() {
     static std::atomic<uint64_t> counter {0};
     return counter;
@@ -402,6 +406,9 @@ void note_bigram_term_materialized() {
 void note_bigram_term_pruned() {
     bigram_pruned_counter().fetch_add(1, std::memory_order_relaxed);
 }
+void note_bigram_term_max_pruned() {
+    bigram_max_pruned_counter().fetch_add(1, std::memory_order_relaxed);
+}
 void note_bigram_bloom_dropped() {
     bigram_bloom_dropped_counter().fetch_add(1, std::memory_order_relaxed);
 }
@@ -411,12 +418,16 @@ uint64_t bigram_terms_materialized() {
 uint64_t bigram_terms_pruned() {
     return bigram_pruned_counter().load(std::memory_order_relaxed);
 }
+uint64_t bigram_terms_max_pruned() {
+    return bigram_max_pruned_counter().load(std::memory_order_relaxed);
+}
 uint64_t bigram_bloom_dropped() {
     return bigram_bloom_dropped_counter().load(std::memory_order_relaxed);
 }
 void reset_bigram_prune_counters() {
     bigram_materialized_counter().store(0, std::memory_order_relaxed);
     bigram_pruned_counter().store(0, std::memory_order_relaxed);
+    bigram_max_pruned_counter().store(0, std::memory_order_relaxed);
     bigram_bloom_dropped_counter().store(0, std::memory_order_relaxed);
 }
 // Forwards to the real fused helper so pure boundary tests exercise production
@@ -437,6 +448,10 @@ LogicalIndexWriter::LogicalIndexWriter(const SniiIndexInput& in)
           // only ones that emit hidden phrase bigrams); force 0 otherwise so the
           // meta never (mis)declares pruning on a docs-only index.
           bigram_prune_min_df_(format::has_positions(in.config) ? in.bigram_prune_min_df : 0),
+          // G15 upper bound rides the same non-positional force-off: a docs-only
+          // index has no bigrams, and declaring pruning there would send every
+          // 2-term phrase-shaped miss down a pointless fallback branch.
+          bigram_prune_max_df_(format::has_positions(in.config) ? in.bigram_prune_max_df : 0),
           // The G04 bloom drop rides the SAME reader contract as the df prune (a
           // dict miss falls back only when the meta declares pruning), so it is
           // honored ONLY when the effective threshold is non-zero. NOTE: the
@@ -661,6 +676,19 @@ Status LogicalIndexWriter::process_term(TermPostings& tp, BlockState* st) {
             testing::note_bigram_term_pruned();
             return Status::OK();
         }
+        // G15: symmetric UPPER gate. A near-ubiquitous pair (final df above
+        // ratio * doc_count, resolved by the caller) pays dict + posting bytes
+        // for almost no selectivity, so it is dropped to the SAME dict-miss
+        // fallback. Unlike a min-df miss, the fallback for a pruned-HIGH pair
+        // verifies positions over a LARGE unigram candidate set -- the ratio
+        // must stay high enough that only stopword-like pairs cross it. Applied
+        // ONLY here (never in the mid-feed drain): df grows monotonically, but
+        // so does the doc-count-scaled threshold, so a partial df exceeding a
+        // partial threshold proves nothing about the final comparison.
+        if (bigram_prune_max_df_ > 0 && tp.docids.size() > bigram_prune_max_df_) {
+            testing::note_bigram_term_max_pruned();
+            return Status::OK();
+        }
         // G04: drop a df-surviving bigram the ever-dropped bloom MAY contain --
         // the vocab-cap eviction dropped (at least) one of its docids mid-build,
         // so the postings here are INCOMPLETE; materializing them would silently
@@ -851,10 +879,11 @@ Status LogicalIndexWriter::finish_meta(const SectionRefs& abs_refs, uint64_t dic
     builder.set_dict_block_directory(dir_sink.view());
     // The BSBF is a physical section (abs_refs.bsbf), not embedded in the meta.
     builder.set_section_refs(abs_refs);
-    // G01: declare the APPLIED bigram df-prune threshold (0 emits nothing --
-    // legacy segments stay byte-identical) so the reader's 2-term phrase path
-    // knows a bigram dict miss means "fall back", not "empty".
+    // G01/G15: declare the APPLIED bigram df-prune thresholds (both 0 emits
+    // nothing -- legacy segments stay byte-identical) so the reader's 2-term
+    // phrase path knows a bigram dict miss means "fall back", not "empty".
     builder.set_bigram_prune_min_df(bigram_prune_min_df_);
+    builder.set_bigram_prune_max_df(bigram_prune_max_df_);
     return builder.finish(out);
 }
 

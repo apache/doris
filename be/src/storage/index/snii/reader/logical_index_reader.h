@@ -123,13 +123,16 @@ public:
     const format::StatsBlock& stats() const { return meta_.stats(); }
     format::IndexTier tier() const { return tier_; }
     bool has_positions() const { return has_positions_; }
-    // Effective phrase-bigram df-prune threshold the writer applied to this index
-    // (G01), from the optional kBigramPruneInfo meta section. 0 == absent ==
-    // legacy segment: every adjacent pair was materialized, so a bigram dict miss
-    // means "no adjacency" (empty phrase result). Non-zero: low-df pairs were
-    // pruned at build, so the 2-term phrase bigram path must treat a dict miss as
-    // "fall back to generic positions verification".
+    // Effective phrase-bigram df-prune thresholds the writer applied to this
+    // index (G01 min / G15 max), from the optional kBigramPruneInfo meta
+    // section. Both 0 == absent == legacy segment: every adjacent pair was
+    // materialized, so a bigram dict miss means "no adjacency" (empty phrase
+    // result). Either non-zero: pairs were df-pruned at build (low-df below
+    // min, near-ubiquitous above max), so the 2-term phrase bigram path must
+    // treat a dict miss as "fall back to generic positions verification".
+    // max is 0 on every pre-G15 segment (single-varint section payload).
     uint64_t bigram_prune_min_df() const { return meta_.bigram_prune_min_df(); }
+    uint64_t bigram_prune_max_df() const { return meta_.bigram_prune_max_df(); }
     io::FileReader* reader() const { return reader_; }
     size_t memory_usage() const;
 

@@ -71,9 +71,9 @@ Status count_only_two_term_phrase_bigram_df(const LogicalIndexReader& idx, const
     RETURN_IF_ERROR(idx.lookup(format::make_phrase_bigram_term(left, right), &found, &entry,
                                &frq_base, &prx_base));
     if (!found) {
-        // Miss is ambiguous on G01-pruned segments and merely "empty" on legacy
-        // ones; both fall through so TryTwoTermPhraseBigram stays the single
-        // owner of the miss semantics.
+        // Miss is ambiguous on df-pruned segments (G01 min / G15 max) and
+        // merely "empty" on legacy ones; both fall through so
+        // TryTwoTermPhraseBigram stays the single owner of the miss semantics.
         return Status::OK();
     }
     // Docid membership IS the phrase answer for a materialized bigram (G01

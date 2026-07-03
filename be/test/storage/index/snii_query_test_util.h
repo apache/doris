@@ -169,9 +169,13 @@ inline void assert_ok(const Status& status) {
 // df below it are dropped at materialization, survivors are written docs-only,
 // and the per-index meta records the threshold (reader fallback gate). 0 (the
 // default) keeps the legacy layout byte-identical to the pre-G01 fixture.
+// `bigram_prune_max_df` != 0 additionally arms the G15 UPPER gate: bigram
+// terms with df strictly above it are dropped, and the meta records the max
+// (the reader fallback gate keys on either threshold being non-zero).
 inline Status build_reader(MemoryFile* file, reader::SniiSegmentReader* segment_reader,
                            reader::LogicalIndexReader* index_reader,
-                           bool include_phrase_bigrams = false, uint32_t bigram_prune_min_df = 0) {
+                           bool include_phrase_bigrams = false, uint32_t bigram_prune_min_df = 0,
+                           uint64_t bigram_prune_max_df = 0) {
     constexpr uint32_t kDocCount = 9000;
     auto failed_docs = docs_with_one_position(0, kDocCount, 0);
     auto order_docs = docs_with_one_position(0, kDocCount, 2);
@@ -220,6 +224,7 @@ inline Status build_reader(MemoryFile* file, reader::SniiSegmentReader* segment_
     input.config = format::IndexConfig::kDocsPositions;
     input.doc_count = kDocCount;
     input.bigram_prune_min_df = bigram_prune_min_df;
+    input.bigram_prune_max_df = bigram_prune_max_df;
     input.terms = {make_term("almost", std::move(almost_docs)),
                    make_term("123", std::move(numeric_tail_docs)),
                    make_term("driver", std::move(driver_docs)),

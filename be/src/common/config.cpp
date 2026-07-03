@@ -1299,8 +1299,15 @@ DEFINE_mDouble(inverted_index_ram_buffer_size, "512");
 // Normally we should not change this, it's useful for testing.
 DEFINE_mInt32(inverted_index_max_buffered_docs, "-1");
 // SNII phrase-bigram df-prune threshold: <0 auto (max(64, doc_count/10000)),
-// 0 disable (legacy: emit every bigram with positions), >0 fixed min-df.
+// 0 disable min-df pruning (full legacy layout ALSO needs
+// snii_bigram_prune_max_df_ratio outside (0, 1)), >0 fixed min-df.
 DEFINE_mInt32(snii_bigram_prune_min_df, "-1");
+// SNII phrase-bigram df-prune UPPER bound, as a fraction of the segment doc
+// count (G15): pairs whose final df exceeds ratio * doc_count are pruned from
+// the hidden bigram dict (their 2-term phrase queries fall back to the
+// positions path, same as min-df pruning); only a ratio in (0, 1) arms the
+// gate (<= 0 disables; >= 1 can never prune, so it resolves to no gate).
+DEFINE_mDouble(snii_bigram_prune_max_df_ratio, "0.2");
 // SNII per-writer bigram intern-vocabulary cap (bytes): df==1 bigram terms are
 // incrementally evicted (and bloom-recorded for the flush-time drop) once the
 // live bigram intern storage crosses this. 0 = uncapped. Effective only when

@@ -133,14 +133,15 @@ void feed_gate_stream(SpimiTermBuffer* buf, FeedPair&& feed_pair) {
     buf->add_token(make_phrase_bigram_sentinel_term(), 0, 0);
 }
 
-Status build_segment(MemoryFile* file, SpimiTermBuffer* buf, uint32_t threshold,
-                     uint32_t doc_count) {
+Status build_segment(MemoryFile* file, SpimiTermBuffer* buf, uint32_t threshold, uint32_t doc_count,
+                     uint64_t max_df = 0) {
     writer::SniiIndexInput input;
     input.index_id = 61;
     input.index_suffix = "Body";
     input.config = format::IndexConfig::kDocsPositions;
     input.doc_count = doc_count;
     input.bigram_prune_min_df = threshold;
+    input.bigram_prune_max_df = max_df;
     input.term_source = buf;
     input.bigram_ever_dropped = buf->bigram_dropped_filter();
     writer::SniiCompoundWriter writer(file);
@@ -436,4 +437,139 @@ TEST(SniiSpimiBigramDrainDfGate, MidFeedSpillDropsBloomAndFinalDrainDropsDoNot) 
         }
     }
     EXPECT_TRUE(saw_hot);
+}
+
+// (5) G15 MAX gate on the UNSPILLED direct final drain (term_source, zero
+// runs): the gate lives ONLY in process_term -- the drain (whose df-drop seam
+// counts min-gate drops) drops nothing -- and the strictly-greater boundary
+// holds: df == max materializes, df == max + 1 is pruned by the max seam. With
+// the min gate off (max-only mode, the production shape when
+// snii_bigram_prune_min_df == 0: the diet is never configured), bigram
+// positions were buffered, so the SURVIVOR keeps its positions -- max-only
+// pruning does not switch survivors to the min-mode docs-only layout.
+TEST(SniiSpimiBigramDrainDfGate, MaxGateAppliesAtUnspilledFinalDrain) {
+    constexpr uint64_t kMaxDf = 3;
+    SpimiTermBuffer buf(/*has_positions=*/true); // no spill, no diet
+    feed_pair_doc_ids(&buf, 0, "hot", "stop");
+    feed_pair_doc_ids(&buf, 1, "hot", "stop");
+    feed_pair_doc_ids(&buf, 2, "hot", "stop");
+    feed_pair_doc_ids(&buf, 3, "hot", "stop"); // df 4 == max + 1: PRUNED
+    feed_pair_doc_ids(&buf, 4, "mid", "band");
+    feed_pair_doc_ids(&buf, 5, "mid", "band");
+    feed_pair_doc_ids(&buf, 6, "mid", "band"); // df 3 == max: SURVIVES
+    buf.add_token(make_phrase_bigram_sentinel_term(), 0, 0);
+    ASSERT_TRUE(buf.status().ok());
+    ASSERT_EQ(buf.run_count_for_test(), 0U);
+
+    spimi_testing::reset_bigram_drain_df_drops();
+    spimi_testing::reset_bigram_prune_counters();
+    MemoryFile file;
+    assert_ok(build_segment(&file, &buf, /*threshold=*/0, /*doc_count=*/10, kMaxDf));
+
+    EXPECT_EQ(spimi_testing::bigram_drain_df_drops(), 0U); // max NEVER drops at drain
+    EXPECT_EQ(spimi_testing::bigram_terms_max_pruned(), 1U);
+    EXPECT_EQ(spimi_testing::bigram_terms_pruned(), 0U);
+    EXPECT_EQ(spimi_testing::bigram_terms_materialized(), 1U);
+
+    reader::SniiSegmentReader segment_reader;
+    reader::LogicalIndexReader index_reader;
+    assert_ok(reader::SniiSegmentReader::open(&file, &segment_reader));
+    assert_ok(segment_reader.open_index(61, "Body", &index_reader));
+    format::DictEntry entry;
+    EXPECT_FALSE(lookup_term(index_reader, make_phrase_bigram_term("hot", "stop"), &entry));
+    ASSERT_TRUE(lookup_term(index_reader, make_phrase_bigram_term("mid", "band"), &entry));
+    EXPECT_EQ(entry.df, kMaxDf);
+    // Max-only survivor keeps its (buffered) positions: legacy layout.
+    EXPECT_TRUE(entry.prx_len > 0 || !entry.prx_bytes.empty());
+    ASSERT_TRUE(lookup_term(index_reader, make_phrase_bigram_sentinel_term(), &entry));
+    EXPECT_EQ(index_reader.bigram_prune_min_df(), 0U);
+    EXPECT_EQ(index_reader.bigram_prune_max_df(), kMaxDf);
+}
+
+// (6) G15 MID-FEED SPILL SAFETY -- the partial-count trap regression. A pair
+// that covers 30% of every mid-feed prefix of the first half (ratio far above
+// the production 0.2) but whose FINAL df lands UNDER the flush-resolved
+// absolute bound (the doc count doubles in the pair-less second half) must
+// SURVIVE: the max gate is applied ONLY at process_term with the final
+// coalesced df -- no spill drain may compare a partial df against any
+// doc-count-scaled bound. A genuinely ubiquitous pair fed in EVERY doc is
+// still max-pruned at flush from its ACROSS-RUNS coalesced df, its drop
+// counted by the max seam alone (the drain's min-df seam stays 0), and the
+// spilled segment's bytes equal a no-spill control's.
+TEST(SniiSpimiBigramDrainDfGate, MidFeedHighRatioPairSurvivesFinalMaxGateAcrossSpill) {
+    constexpr uint32_t kMinGate = 2;
+    constexpr uint32_t kHalf = 5000;
+    constexpr uint32_t kFinalDocs = 10005;
+    constexpr uint64_t kMaxDf = kFinalDocs / 5;       // 2001, as ratio 0.2 resolves at flush
+    constexpr uint32_t kFrontLoadDf = kHalf / 10 * 3; // 1500: kMinGate <= 1500 <= kMaxDf
+
+    // Spilled build: production shape (diet on, min gate delivered up front for
+    // mid-feed drains; huge vocab cap so no G04 eviction muddies the water).
+    SpimiTermBuffer spilled(/*has_positions=*/true, /*spill_threshold_bytes=*/40 * 1024);
+    spilled.configure_bigram_diet(/*vocab_cap_bytes=*/uint64_t(1) << 40, kMinGate);
+    // Control: identical feed and diet, never spills.
+    SpimiTermBuffer control(/*has_positions=*/true);
+    control.configure_bigram_diet(/*vocab_cap_bytes=*/uint64_t(1) << 40, kMinGate);
+
+    for (SpimiTermBuffer* buf : {&spilled, &control}) {
+        for (uint32_t d = 0; d < kFinalDocs; ++d) {
+            if (d < kHalf && d % 10 < 3) {
+                // First half only, 30% density: partial ratio ~0.3 at EVERY
+                // mid-feed drain point, final ratio 1500/10005 ~ 0.15.
+                feed_pair_doc_ids(buf, d, "front", "load", 0);
+            }
+            // Ubiquitous pair: df == kFinalDocs > kMaxDf, spread across runs.
+            feed_pair_doc_ids(buf, d, "ubiq", "pair", 4);
+            // Wide filler unigrams (df ~10k >= 512: positions ride pos_pump
+            // through the writer's streaming drain) force gate-2 spills.
+            buf->add_token("word", d, 8);
+            buf->add_token("more", d, 9);
+        }
+        buf->add_token(make_phrase_bigram_sentinel_term(), 0, 0);
+        ASSERT_TRUE(buf->status().ok());
+        // No pair ever had df < kMinGate at a drain and the cap never evicted:
+        // nothing may be bloom-recorded (build_segment hands the writer a null
+        // ever-dropped filter either way, keeping the two builds comparable).
+        EXPECT_EQ(buf->bigram_dropped_filter(), nullptr);
+    }
+    ASSERT_GE(spilled.run_count_for_test(), 1U);
+    ASSERT_EQ(control.run_count_for_test(), 0U);
+
+    spimi_testing::reset_bigram_drain_df_drops();
+    spimi_testing::reset_bigram_prune_counters();
+    MemoryFile spilled_file;
+    assert_ok(build_segment(&spilled_file, &spilled, kMinGate, kFinalDocs, kMaxDf));
+    EXPECT_EQ(spimi_testing::bigram_terms_max_pruned(), 1U); // (ubiq,pair) at flush ONLY
+    EXPECT_EQ(spimi_testing::bigram_terms_pruned(), 0U);
+    EXPECT_EQ(spimi_testing::bigram_terms_materialized(), 1U); // (front,load)
+    EXPECT_EQ(spimi_testing::bigram_drain_df_drops(), 0U);
+
+    spimi_testing::reset_bigram_drain_df_drops();
+    spimi_testing::reset_bigram_prune_counters();
+    MemoryFile control_file;
+    assert_ok(build_segment(&control_file, &control, kMinGate, kFinalDocs, kMaxDf));
+    EXPECT_EQ(spimi_testing::bigram_terms_max_pruned(), 1U);
+    EXPECT_EQ(spimi_testing::bigram_terms_pruned(), 0U);
+    EXPECT_EQ(spimi_testing::bigram_drain_df_drops(), 0U);
+
+    EXPECT_EQ(file_bytes(&spilled_file), file_bytes(&control_file));
+
+    reader::SniiSegmentReader segment_reader;
+    reader::LogicalIndexReader index_reader;
+    assert_ok(reader::SniiSegmentReader::open(&spilled_file, &segment_reader));
+    assert_ok(segment_reader.open_index(61, "Body", &index_reader));
+    format::DictEntry entry;
+    // THE regression pin: the high-partial-ratio pair SURVIVED, df coalesced
+    // across every spill run.
+    ASSERT_TRUE(lookup_term(index_reader, make_phrase_bigram_term("front", "load"), &entry));
+    EXPECT_EQ(entry.df, kFrontLoadDf);
+    // Min-mode survivor layout (min gate active): docs-only, no positions.
+    EXPECT_EQ(entry.prx_len, 0U);
+    EXPECT_TRUE(entry.prx_bytes.empty());
+    // The truly ubiquitous pair was max-pruned from its final coalesced df.
+    EXPECT_FALSE(lookup_term(index_reader, make_phrase_bigram_term("ubiq", "pair"), &entry));
+    ASSERT_TRUE(lookup_term(index_reader, make_phrase_bigram_sentinel_term(), &entry));
+    // Both applied gates land in the meta (reader fallback stays armed).
+    EXPECT_EQ(index_reader.bigram_prune_min_df(), kMinGate);
+    EXPECT_EQ(index_reader.bigram_prune_max_df(), kMaxDf);
 }
