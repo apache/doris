@@ -35,6 +35,7 @@ import org.apache.doris.connector.metastore.spi.MetaStoreProviders;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.filesystem.properties.S3CompatibleFileSystemProperties;
 import org.apache.doris.filesystem.properties.StorageProperties;
+import org.apache.doris.kerberos.HadoopAuthenticator;
 
 import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.conf.Configuration;
@@ -129,6 +130,8 @@ public class IcebergConnector implements Connector {
     private static final String S3_SECRET_KEY = "s3.secret_key";
     private static final String S3_ENDPOINT = "s3.endpoint";
     private static final String S3_REGION = "s3.region";
+    // Catalog property key gating the plugin-side Kerberos authenticator (value matches AuthType.KERBEROS).
+    private static final String HADOOP_SECURITY_AUTHENTICATION = "hadoop.security.authentication";
     // Polaris REST catalog exposes its object-store base location under this key when the
     // "warehouse" property is a catalog name rather than an s3:// location.
     private static final String REST_DEFAULT_BASE_LOCATION = "default-base-location";
@@ -148,6 +151,12 @@ public class IcebergConnector implements Connector {
     // drops it. Inert pre-cutover (iceberg scans/writes do not route through the providers until P6.6).
     private final IcebergRewritableDeleteStash rewritableDeleteStash = new IcebergRewritableDeleteStash();
 
+    // Lazily-built plugin-side Kerberos authenticator (single-owner auth; see TcclPinningConnectorContext).
+    // null for a non-Kerberos catalog. Its doAs acts on the PLUGIN's UserGroupInformation copy — the one the
+    // plugin's HDFS FileSystem reads — not the app-loader copy the FE-injected authenticator logs in.
+    private volatile HadoopAuthenticator pluginAuth;
+    private volatile boolean pluginAuthComputed;
+
     public IcebergConnector(Map<String, String> properties, ConnectorContext context) {
         this.properties = Collections.unmodifiableMap(properties);
         // Pin the thread-context classloader to the plugin loader for the duration of every
@@ -155,8 +164,12 @@ public class IcebergConnector implements Connector {
         // the metadata / transaction / procedure ops below; wrapping it once here is what extends the
         // "TCCL pinned to the plugin loader" guard (already applied on the scan + catalog-build paths) to the
         // write/DDL/procedure commits, whose lazy iceberg-aws S3-client build otherwise ClassCasts
-        // ApacheHttpClientConfigurations across the app/child loader split.
-        this.context = new TcclPinningConnectorContext(context, getClass().getClassLoader());
+        // ApacheHttpClientConfigurations across the app/child loader split. For a Kerberos catalog it ALSO runs
+        // each op under a plugin-side UGI doAs (pluginAuthenticator): the plugin's FileSystem reads the plugin's
+        // own UserGroupInformation copy (hadoop bundled child-first), which the FE-injected app-side
+        // authenticator never logs in — so without this the DDL/read hits secured HDFS as SIMPLE auth.
+        this.context = new TcclPinningConnectorContext(context, getClass().getClassLoader(),
+                this::pluginAuthenticator);
         this.latestSnapshotCache = new IcebergLatestSnapshotCache(
                 resolveTableCacheTtlSecond(this.properties), DEFAULT_TABLE_CACHE_CAPACITY);
     }
@@ -703,6 +716,31 @@ public class IcebergConnector implements Connector {
             sp.toHadoopProperties().ifPresent(h -> merged.putAll(h.toHadoopConfigurationMap()));
         }
         return merged;
+    }
+
+    /**
+     * Lazily builds and memoizes the plugin-side Kerberos authenticator that {@link TcclPinningConnectorContext}
+     * runs each op under, so remote HDFS access uses the PLUGIN's own {@code UserGroupInformation} copy (the one
+     * the plugin's {@code FileSystem} reads). Returns {@code null} for a non-Kerberos catalog so the FE-injected
+     * auth path is preserved unchanged. The Kerberos keys ride the {@code hadoop.*} passthrough in
+     * {@link IcebergCatalogFactory#buildHadoopConfiguration}; {@link HadoopAuthenticator#getHadoopAuthenticator}
+     * resolves the plugin (child-first) copy of fe-kerberos, so its {@code doAs} logs in / acts on the plugin
+     * UGI. Construction is cheap — the keytab login is lazy in {@code getUGI()} on the first {@code doAs}.
+     */
+    private HadoopAuthenticator pluginAuthenticator() {
+        if (!pluginAuthComputed) {
+            synchronized (this) {
+                if (!pluginAuthComputed) {
+                    pluginAuth = "kerberos".equalsIgnoreCase(properties.get(HADOOP_SECURITY_AUTHENTICATION))
+                            ? HadoopAuthenticator.getHadoopAuthenticator(
+                                    IcebergCatalogFactory.buildHadoopConfiguration(
+                                            properties, buildStorageHadoopConfig()))
+                            : null;
+                    pluginAuthComputed = true;
+                }
+            }
+        }
+        return pluginAuth;
     }
 
     private Catalog buildCatalogAuthenticated(String flavor, Callable<Catalog> builder) {

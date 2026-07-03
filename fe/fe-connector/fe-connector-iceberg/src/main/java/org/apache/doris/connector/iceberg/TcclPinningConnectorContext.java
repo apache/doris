@@ -22,11 +22,13 @@ import org.apache.doris.connector.spi.ConnectorBrokerAddress;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorMetaInvalidator;
 import org.apache.doris.filesystem.properties.StorageProperties;
+import org.apache.doris.kerberos.HadoopAuthenticator;
 
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.Callable;
+import java.util.function.Supplier;
 
 /**
  * A {@link ConnectorContext} decorator that pins the thread-context classloader (TCCL) to the iceberg plugin
@@ -53,15 +55,31 @@ import java.util.concurrent.Callable;
  * <p>The pin is harmless for pure reads (it just runs the read under the plugin loader, exactly as the
  * catalog-build path already does) and idempotent when nested inside {@code buildCatalogAuthenticated}'s own
  * pin, which targets the same loader.
+ *
+ * <p>KERBEROS (single-owner auth): for a Kerberos catalog {@code pluginAuthenticator} supplies a plugin-side
+ * {@link HadoopAuthenticator} and the op runs inside its {@code doAs}. This is REQUIRED because the plugin
+ * bundles its own {@code hadoop-common} + {@code fe-kerberos} child-first, so the plugin's HDFS
+ * {@code FileSystem} reads a DIFFERENT {@code UserGroupInformation} copy than the one the FE-injected
+ * authenticator (built app-side by {@code IcebergFileSystemMetaStoreProperties}) logs in — the app-side
+ * {@code doAs} therefore never reaches the plugin FileSystem, which falls back to SIMPLE auth. The connector
+ * is the only party that knows which UGI copy its FileSystem uses, so it owns the auth: on the Kerberos path
+ * we run the plugin {@code doAs} and DELIBERATELY do NOT also call {@code delegate.executeAuthenticated}
+ * (which only authenticates the unused app-loader UGI — dead weight plus a redundant keytab login). The
+ * plugin {@code doAs} is an exact mirror of {@code HadoopExecutionAuthenticator.execute}
+ * ({@code hadoopAuthenticator.doAs(task::call)}), so exception semantics are unchanged. When the supplier
+ * returns {@code null} (non-Kerberos) the FE-injected path is preserved byte-for-byte.
  */
 final class TcclPinningConnectorContext implements ConnectorContext {
 
     private final ConnectorContext delegate;
     private final ClassLoader pluginClassLoader;
+    private final Supplier<HadoopAuthenticator> pluginAuthenticator;
 
-    TcclPinningConnectorContext(ConnectorContext delegate, ClassLoader pluginClassLoader) {
+    TcclPinningConnectorContext(ConnectorContext delegate, ClassLoader pluginClassLoader,
+            Supplier<HadoopAuthenticator> pluginAuthenticator) {
         this.delegate = Objects.requireNonNull(delegate, "delegate");
         this.pluginClassLoader = Objects.requireNonNull(pluginClassLoader, "pluginClassLoader");
+        this.pluginAuthenticator = Objects.requireNonNull(pluginAuthenticator, "pluginAuthenticator");
     }
 
     @Override
@@ -69,7 +87,14 @@ final class TcclPinningConnectorContext implements ConnectorContext {
         ClassLoader previous = Thread.currentThread().getContextClassLoader();
         try {
             Thread.currentThread().setContextClassLoader(pluginClassLoader);
-            return delegate.executeAuthenticated(task);
+            HadoopAuthenticator auth = pluginAuthenticator.get();
+            if (auth == null) {
+                // Non-Kerberos: keep the FE-injected auth path exactly as-is.
+                return delegate.executeAuthenticated(task);
+            }
+            // Kerberos: the connector is the sole authenticator. Run the op under the PLUGIN's UGI copy (the
+            // one the plugin's FileSystem reads); do NOT also invoke the FE-injected app-side authenticator.
+            return auth.doAs(task::call);
         } finally {
             Thread.currentThread().setContextClassLoader(previous);
         }

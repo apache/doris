@@ -17,11 +17,16 @@
 
 package org.apache.doris.connector.iceberg;
 
+import org.apache.doris.kerberos.HadoopAuthenticator;
+
+import org.apache.hadoop.security.UserGroupInformation;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.io.IOException;
 import java.net.URL;
 import java.net.URLClassLoader;
+import java.security.PrivilegedExceptionAction;
 
 /**
  * Verifies the split-brain guard {@link TcclPinningConnectorContext} adds to the iceberg write/DDL/procedure
@@ -42,7 +47,7 @@ public class TcclPinningConnectorContextTest {
         ClassLoader pluginLoader = isolatedLoader();
         ClassLoader callerLoader = isolatedLoader();
         RecordingConnectorContext delegate = new RecordingConnectorContext();
-        TcclPinningConnectorContext ctx = new TcclPinningConnectorContext(delegate, pluginLoader);
+        TcclPinningConnectorContext ctx = new TcclPinningConnectorContext(delegate, pluginLoader, () -> null);
 
         Thread thread = Thread.currentThread();
         ClassLoader saved = thread.getContextClassLoader();
@@ -71,7 +76,7 @@ public class TcclPinningConnectorContextTest {
         ClassLoader pluginLoader = isolatedLoader();
         ClassLoader callerLoader = isolatedLoader();
         TcclPinningConnectorContext ctx =
-                new TcclPinningConnectorContext(new RecordingConnectorContext(), pluginLoader);
+                new TcclPinningConnectorContext(new RecordingConnectorContext(), pluginLoader, () -> null);
 
         Thread thread = Thread.currentThread();
         ClassLoader saved = thread.getContextClassLoader();
@@ -94,7 +99,7 @@ public class TcclPinningConnectorContextTest {
         // executing it OUTSIDE the auth scope. It must not.
         RecordingConnectorContext delegate = new RecordingConnectorContext();
         delegate.failAuth = true;
-        TcclPinningConnectorContext ctx = new TcclPinningConnectorContext(delegate, isolatedLoader());
+        TcclPinningConnectorContext ctx = new TcclPinningConnectorContext(delegate, isolatedLoader(), () -> null);
 
         boolean[] taskRan = {false};
         Assertions.assertThrows(RuntimeException.class, () ->
@@ -108,11 +113,70 @@ public class TcclPinningConnectorContextTest {
     @Test
     public void delegatesNonAuthMethods() {
         RecordingConnectorContext delegate = new RecordingConnectorContext();
-        TcclPinningConnectorContext ctx = new TcclPinningConnectorContext(delegate, isolatedLoader());
+        TcclPinningConnectorContext ctx = new TcclPinningConnectorContext(delegate, isolatedLoader(), () -> null);
 
         Assertions.assertEquals("test", ctx.getCatalogName());
         ctx.loadHiveConfResources("a,b");
         Assertions.assertTrue(delegate.hiveConfResourcesCalled, "loadHiveConfResources must reach the delegate");
         Assertions.assertEquals("a,b", delegate.lastHiveConfResourcesArg);
+    }
+
+    @Test
+    public void kerberosRunsTaskInPluginDoAsAndBypassesDelegateAuth() throws Exception {
+        // Single-owner auth (Option A): a Kerberos catalog runs the op under the PLUGIN authenticator's doAs and
+        // must NOT ALSO invoke the FE-injected app-side authenticator (delegate.executeAuthenticated), which only
+        // authenticates the unused app-loader UGI copy. WHY it matters: the plugin's FileSystem reads the plugin
+        // UGI, so the plugin doAs is the only auth that reaches secured HDFS; the delegate wrap would be a dead,
+        // redundant keytab login. MUTATION: nesting inside the delegate (authCount == 1) or skipping the plugin
+        // doAs (doAsCount == 0) -> red.
+        ClassLoader pluginLoader = isolatedLoader();
+        ClassLoader callerLoader = isolatedLoader();
+        RecordingConnectorContext delegate = new RecordingConnectorContext();
+        RecordingAuthenticator auth = new RecordingAuthenticator();
+        TcclPinningConnectorContext ctx = new TcclPinningConnectorContext(delegate, pluginLoader, () -> auth);
+
+        Thread thread = Thread.currentThread();
+        ClassLoader saved = thread.getContextClassLoader();
+        thread.setContextClassLoader(callerLoader);
+        try {
+            ClassLoader[] seenDuringTask = new ClassLoader[1];
+            String result = ctx.executeAuthenticated(() -> {
+                seenDuringTask[0] = Thread.currentThread().getContextClassLoader();
+                return "ok";
+            });
+
+            Assertions.assertEquals("ok", result);
+            Assertions.assertEquals(1, auth.doAsCount, "the op must run inside the plugin authenticator's doAs");
+            Assertions.assertEquals(0, delegate.authCount,
+                    "single-owner: the FE-injected app-side authenticator must NOT be invoked on the Kerberos path");
+            Assertions.assertSame(pluginLoader, seenDuringTask[0],
+                    "the op must still run with the TCCL pinned to the plugin loader");
+            Assertions.assertSame(callerLoader, thread.getContextClassLoader(),
+                    "the caller's TCCL must be restored");
+        } finally {
+            thread.setContextClassLoader(saved);
+        }
+    }
+
+    /** Wiring-only {@link HadoopAuthenticator} double: records doAs calls and runs the action WITHOUT a UGI. */
+    private static final class RecordingAuthenticator implements HadoopAuthenticator {
+        int doAsCount;
+
+        @Override
+        public UserGroupInformation getUGI() {
+            throw new UnsupportedOperationException("wiring double: getUGI is unused (doAs is overridden)");
+        }
+
+        @Override
+        public <T> T doAs(PrivilegedExceptionAction<T> action) throws IOException {
+            doAsCount++;
+            try {
+                return action.run();
+            } catch (IOException | RuntimeException e) {
+                throw e;
+            } catch (Exception e) {
+                throw new IOException(e);
+            }
+        }
     }
 }
