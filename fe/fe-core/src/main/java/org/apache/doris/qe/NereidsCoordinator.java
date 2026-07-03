@@ -210,6 +210,10 @@ public class NereidsCoordinator extends Coordinator {
         return coordinatorContext.asLoadProcessor();
     }
 
+    public void initLoadJobProgress() {
+        coordinatorContext.asLoadProcessor().initJobProgress();
+    }
+
     @Override
     public void setTWorkloadGroups(List<TPipelineWorkloadGroup> tWorkloadGroups) {
         coordinatorContext.setWorkloadGroups(tWorkloadGroups);

@@ -47,6 +47,7 @@ public class LoadProcessor extends AbstractJobProcessor {
 
     public final LoadContext loadContext;
     public final long jobId;
+    private boolean jobProgressInitialized = false;
 
     // this latch is used to wait finish for load, for example, insert into statement
     // MarkedCountDownLatch:
@@ -67,6 +68,22 @@ public class LoadProcessor extends AbstractJobProcessor {
         coordinatorContext.queryOptions.setIsReportSuccess(true);
         // the insert into statement isn't a job
         this.jobId = jobId;
+        initJobProgress();
+
+        topFragmentTasks = Lists.newArrayList();
+
+        LOG.info("dispatch load job: {} to {}",
+                DebugUtil.printId(coordinatorContext.queryId), coordinatorContext.backends.get().keySet()
+        );
+    }
+
+    public void initJobProgress() {
+        if (jobProgressInitialized || jobId == -1) {
+            return;
+        }
+        if (Env.getCurrentEnv().getLoadManager().getLoadJob(jobId) == null) {
+            return;
+        }
         TUniqueId queryId = coordinatorContext.queryId;
         Env.getCurrentEnv().getLoadManager().initJobProgress(
                 jobId, queryId, coordinatorContext.instanceIds.get(),
@@ -75,12 +92,7 @@ public class LoadProcessor extends AbstractJobProcessor {
         Env.getCurrentEnv().getProgressManager().addTotalScanNums(
                 String.valueOf(jobId), coordinatorContext.scanRangeNum.get()
         );
-
-        topFragmentTasks = Lists.newArrayList();
-
-        LOG.info("dispatch load job: {} to {}",
-                DebugUtil.printId(queryId), coordinatorContext.backends.get().keySet()
-        );
+        jobProgressInitialized = true;
     }
 
     @Override

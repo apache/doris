@@ -375,6 +375,9 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
                             buildResult.planner.getFragments().get(0), buildResult.dataSink,
                             buildResult.physicalSink
                     );
+                    if (insertExecutor.registerRunningLoadJob()) {
+                        applyInsertPlanStatistic(buildResult.planner);
+                    }
                 }
                 newestTargetTableIf.readUnlock();
             } catch (Throwable e) {
@@ -684,12 +687,10 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
         // step 4
         BuildInsertExecutorResult build = executorFactoryRef.get().build();
 
-        // apply insert plan Statistic
-        applyInsertPlanStatistic(planner);
         return build;
     }
 
-    private void applyInsertPlanStatistic(FastInsertIntoValuesPlanner planner) {
+    private void applyInsertPlanStatistic(NereidsPlanner planner) {
         LoadJob loadJob = Env.getCurrentEnv().getLoadManager().getLoadJob(getJobId());
         if (loadJob == null) {
             return;

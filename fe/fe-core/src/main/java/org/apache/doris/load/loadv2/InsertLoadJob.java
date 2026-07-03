@@ -37,9 +37,9 @@ import org.apache.logging.log4j.Logger;
 import java.util.Set;
 
 /**
- * The class is performed to record the finished info of insert load job.
- * It is created after txn is visible which belongs to insert load job.
- * The state of insert load job is always finished, so it will never be scheduled by JobScheduler.
+ * The class is performed to record insert load job information.
+ * It can be registered while INSERT INTO SELECT is still running so SHOW LOAD can observe runtime progress,
+ * and later updated with the final transaction result.
  */
 public class InsertLoadJob extends LoadJob {
 
@@ -100,6 +100,29 @@ public class InsertLoadJob extends LoadJob {
         // Snapshot the current loadStatistic so it survives FE restarts.
         // loadStatistic itself is not annotated with @SerializedName and won't be persisted.
         this.jobDetailsJson = this.loadStatistic.toJson();
+    }
+
+    /**
+     * Initialize the job for runtime registration before adding to LoadManager.
+     * This fills tableId, userInfo, and authorizationInfo so SHOW LOAD can perform auth check.
+     */
+    public void initRunning(long tableId, UserIdentity userInfo) throws MetaNotFoundException {
+        this.tableId = tableId;
+        this.userInfo = userInfo;
+        this.authorizationInfo = gatherAuthInfo();
+        this.createTimestamp = System.currentTimeMillis();
+    }
+
+    /**
+     * Update transactionId after transaction begins.
+     */
+    public void setTransactionId(long transactionId) {
+        this.transactionId = transactionId;
+    }
+
+    public void markLoading() {
+        this.loadStartTimestamp = System.currentTimeMillis();
+        updateState(JobState.LOADING);
     }
 
     public AuthorizationInfo gatherAuthInfo() throws MetaNotFoundException {

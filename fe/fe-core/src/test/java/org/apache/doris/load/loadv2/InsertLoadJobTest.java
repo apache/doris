@@ -64,4 +64,40 @@ public class InsertLoadJobTest {
             Assert.assertEquals(Integer.valueOf(100), Deencapsulation.getField(insertLoadJob, "progress"));
         }
     }
+
+    @Test
+    public void testInitRunningSetTransactionIdAndMarkLoading() throws MetaNotFoundException {
+        try (MockedStatic<Env> envMockedStatic = Mockito.mockStatic(Env.class)) {
+            Env env = Mockito.mock(Env.class);
+            InternalCatalog catalog = Mockito.mock(InternalCatalog.class);
+            Database database = Mockito.mock(Database.class);
+            Table table = Mockito.mock(Table.class);
+
+            envMockedStatic.when(Env::getCurrentEnv).thenReturn(env);
+            envMockedStatic.when(Env::getCurrentInternalCatalog).thenReturn(catalog);
+
+            UserIdentity userInfo = UserIdentity.createAnalyzedUserIdentWithIp("test_user", "localhost");
+            Mockito.when(catalog.getDbOrMetaException(Mockito.anyLong())).thenReturn(database);
+            Mockito.when(catalog.getDb(Mockito.anyLong())).thenReturn(Optional.of(database));
+            Mockito.when(database.getFullName()).thenReturn("db1");
+            Mockito.when(database.getTableOrMetaException(Mockito.anyLong())).thenReturn(table);
+            Mockito.when(database.getTable(Mockito.anyLong())).thenReturn(Optional.of(table));
+            Mockito.when(table.getName()).thenReturn("table1");
+
+            InsertLoadJob insertLoadJob = new InsertLoadJob(1L, "label", 100L);
+            long beforeInitTimestamp = System.currentTimeMillis();
+            insertLoadJob.initRunning(2L, userInfo);
+            insertLoadJob.setTransactionId(3L);
+            insertLoadJob.markLoading();
+
+            Assert.assertEquals(3L, insertLoadJob.getTransactionId());
+            Assert.assertEquals(JobState.LOADING, insertLoadJob.getState());
+            Assert.assertEquals(userInfo, insertLoadJob.getUserInfo());
+            Assert.assertTrue(insertLoadJob.getCreateTimestamp() >= beforeInitTimestamp);
+            Assert.assertTrue(insertLoadJob.getEtlStartTimestamp() >= beforeInitTimestamp);
+            Assert.assertNotNull(Deencapsulation.getField(insertLoadJob, "authorizationInfo"));
+            Assert.assertEquals(1, insertLoadJob.getTableNamesForShow().size());
+            Assert.assertTrue(insertLoadJob.getTableNamesForShow().contains("table1"));
+        }
+    }
 }
