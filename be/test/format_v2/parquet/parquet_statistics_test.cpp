@@ -57,7 +57,6 @@ format::FileColumnPredicateFilter bloom_filter_with_predicate(
         const std::shared_ptr<ColumnPredicate>& predicate) {
     format::FileColumnPredicateFilter filter;
     filter.file_column_id = format::LocalColumnId(0);
-    filter.target = format::FileNestedPredicateTarget(filter.file_column_id);
     filter.predicates.push_back(predicate);
     return filter;
 }

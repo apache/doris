@@ -262,6 +262,87 @@ public class KafkaRoutineLoadJobTest {
     }
 
     @Test
+    public void testDisplayCustomPropertiesMasksKafkaSecrets() {
+        KafkaRoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob(1L, "kafka_routine_load_job", 1L,
+                1L, "127.0.0.1:9020", "topic1", UserIdentity.ADMIN);
+        Map<String, String> customProperties = Maps.newHashMap();
+        customProperties.put("security.protocol", "SASL_PLAINTEXT");
+        customProperties.put("sasl.username", "doris");
+        customProperties.put("sasl.password", "plain_secret");
+        customProperties.put("sasl.jaas.config", "username=\"doris\" password=\"jaas_secret\"");
+        customProperties.put("sasl.oauthbearer.client.secret", "oauth_client_secret");
+        customProperties.put("sasl.oauthbearer.client.credentials.client.secret", "oauth_alias_secret");
+        customProperties.put("sasl.oauthbearer.assertion.private.key.pem", "oauth_private_key_pem");
+        customProperties.put("sasl.oauthbearer.assertion.private.key.passphrase", "oauth_private_key_passphrase");
+        customProperties.put("ssl.keystore.password", "keystore_secret");
+        customProperties.put("ssl.keystore.key", "keystore_key_secret");
+        customProperties.put("ssl.key.pem", "key_pem_secret");
+        customProperties.put(KafkaConfiguration.AWS_ACCESS_KEY, "aws_access_key");
+        customProperties.put("aws.secret_key", "aws_secret");
+        customProperties.put("aws.session_key", "aws_session_secret");
+        customProperties.put("password", "bare_password_secret");
+        customProperties.put("secret_key", "bare_secret_key");
+        customProperties.put("session_token", "bare_session_token");
+        Deencapsulation.setField(routineLoadJob, "customProperties", customProperties);
+
+        String customPropertiesJson = routineLoadJob.customPropertiesJsonToString();
+        Map<String, String> showCreateCustomProperties = routineLoadJob.getCustomProperties();
+
+        Assert.assertFalse(customPropertiesJson.contains("plain_secret"));
+        Assert.assertFalse(customPropertiesJson.contains("jaas_secret"));
+        Assert.assertFalse(customPropertiesJson.contains("oauth_client_secret"));
+        Assert.assertFalse(customPropertiesJson.contains("oauth_alias_secret"));
+        Assert.assertFalse(customPropertiesJson.contains("oauth_private_key_pem"));
+        Assert.assertFalse(customPropertiesJson.contains("oauth_private_key_passphrase"));
+        Assert.assertFalse(customPropertiesJson.contains("keystore_secret"));
+        Assert.assertFalse(customPropertiesJson.contains("keystore_key_secret"));
+        Assert.assertFalse(customPropertiesJson.contains("key_pem_secret"));
+        Assert.assertFalse(customPropertiesJson.contains("aws_access_key"));
+        Assert.assertFalse(customPropertiesJson.contains("aws_secret"));
+        Assert.assertFalse(customPropertiesJson.contains("aws_session_secret"));
+        Assert.assertFalse(customPropertiesJson.contains("bare_password_secret"));
+        Assert.assertFalse(customPropertiesJson.contains("bare_secret_key"));
+        Assert.assertFalse(customPropertiesJson.contains("bare_session_token"));
+        Assert.assertTrue(customPropertiesJson.contains("\"sasl.password\":\"******\""));
+        Assert.assertTrue(customPropertiesJson.contains("\"sasl.jaas.config\":\"******\""));
+        Assert.assertTrue(customPropertiesJson.contains("\"sasl.oauthbearer.client.secret\":\"******\""));
+        Assert.assertTrue(customPropertiesJson.contains(
+                "\"sasl.oauthbearer.client.credentials.client.secret\":\"******\""));
+        Assert.assertTrue(customPropertiesJson.contains("\"sasl.oauthbearer.assertion.private.key.pem\":\"******\""));
+        Assert.assertTrue(customPropertiesJson.contains(
+                "\"sasl.oauthbearer.assertion.private.key.passphrase\":\"******\""));
+        Assert.assertTrue(customPropertiesJson.contains("\"ssl.keystore.password\":\"******\""));
+        Assert.assertTrue(customPropertiesJson.contains("\"ssl.keystore.key\":\"******\""));
+        Assert.assertTrue(customPropertiesJson.contains("\"ssl.key.pem\":\"******\""));
+        Assert.assertTrue(customPropertiesJson.contains("\"aws.access_key\":\"******\""));
+        Assert.assertTrue(customPropertiesJson.contains("\"aws.secret_key\":\"******\""));
+        Assert.assertTrue(customPropertiesJson.contains("\"aws.session_key\":\"******\""));
+        Assert.assertTrue(customPropertiesJson.contains("\"password\":\"******\""));
+        Assert.assertTrue(customPropertiesJson.contains("\"secret_key\":\"******\""));
+        Assert.assertTrue(customPropertiesJson.contains("\"session_token\":\"******\""));
+        Assert.assertEquals("******", showCreateCustomProperties.get("property.sasl.password"));
+        Assert.assertEquals("******", showCreateCustomProperties.get("property.sasl.jaas.config"));
+        Assert.assertEquals("******", showCreateCustomProperties.get("property.sasl.oauthbearer.client.secret"));
+        Assert.assertEquals("******",
+                showCreateCustomProperties.get("property.sasl.oauthbearer.client.credentials.client.secret"));
+        Assert.assertEquals("******",
+                showCreateCustomProperties.get("property.sasl.oauthbearer.assertion.private.key.pem"));
+        Assert.assertEquals("******",
+                showCreateCustomProperties.get("property.sasl.oauthbearer.assertion.private.key.passphrase"));
+        Assert.assertEquals("******", showCreateCustomProperties.get("property.ssl.keystore.password"));
+        Assert.assertEquals("******", showCreateCustomProperties.get("property.ssl.keystore.key"));
+        Assert.assertEquals("******", showCreateCustomProperties.get("property.ssl.key.pem"));
+        Assert.assertEquals("******", showCreateCustomProperties.get("property.aws.access_key"));
+        Assert.assertEquals("******", showCreateCustomProperties.get("property.aws.secret_key"));
+        Assert.assertEquals("******", showCreateCustomProperties.get("property.aws.session_key"));
+        Assert.assertEquals("******", showCreateCustomProperties.get("property.password"));
+        Assert.assertEquals("******", showCreateCustomProperties.get("property.secret_key"));
+        Assert.assertEquals("******", showCreateCustomProperties.get("property.session_token"));
+        Assert.assertEquals("doris", showCreateCustomProperties.get("property.sasl.username"));
+        Assert.assertEquals("plain_secret", customProperties.get("sasl.password"));
+    }
+
+    @Test
     public void testReadCommittedZeroRowsWithLagDelaysNextTask() throws UserException {
         RoutineLoadManager routineLoadManager = Mockito.mock(RoutineLoadManager.class);
         Env env = Mockito.mock(Env.class);

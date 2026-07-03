@@ -595,31 +595,16 @@ segment_v2::ZoneMap to_column_predicate_statistics(const ParquetColumnStatistics
     return predicate_statistics;
 }
 
-const ParquetColumnSchema* find_child_schema_by_local_id(const ParquetColumnSchema& column_schema,
-                                                         int32_t local_id) {
-    const auto child_it = std::ranges::find_if(
-            column_schema.children, [&](const std::unique_ptr<ParquetColumnSchema>& child) {
-                return child != nullptr && child->local_id == local_id;
-            });
-    return child_it == column_schema.children.end() ? nullptr : child_it->get();
-}
-
 const ParquetColumnSchema* resolve_predicate_leaf_schema(
         const std::vector<std::unique_ptr<ParquetColumnSchema>>& schema,
         const format::FileColumnPredicateFilter& column_filter) {
-    const auto file_column_id = column_filter.effective_file_column_id();
+    const auto file_column_id = column_filter.file_column_id;
     if (!file_column_id.is_valid() || file_column_id.value() >= static_cast<int>(schema.size())) {
         return nullptr;
     }
     const ParquetColumnSchema* column_schema = schema[file_column_id.value()].get();
     if (column_schema == nullptr) {
         return nullptr;
-    }
-    for (const auto child_local_id : column_filter.effective_file_child_id_path()) {
-        column_schema = find_child_schema_by_local_id(*column_schema, child_local_id);
-        if (column_schema == nullptr) {
-            return nullptr;
-        }
     }
     if (column_schema->kind != ParquetColumnSchemaKind::PRIMITIVE ||
         column_schema->leaf_column_id < 0 || column_schema->max_repetition_level > 0) {

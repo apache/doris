@@ -68,6 +68,7 @@ FileCacheStatistics diff_file_cache_statistics(const FileCacheStatistics& curren
                                                const FileCacheStatistics& previous);
 
 struct FileCacheProfileReporter {
+    RuntimeProfile* _profile = nullptr;
     RuntimeProfile::Counter* num_local_io_total = nullptr;
     RuntimeProfile::Counter* num_remote_io_total = nullptr;
     RuntimeProfile::Counter* num_peer_io_total = nullptr;
@@ -107,6 +108,18 @@ struct FileCacheProfileReporter {
     RuntimeProfile::Counter* segment_footer_index_local_io_timer = nullptr;
     RuntimeProfile::Counter* segment_footer_index_remote_io_timer = nullptr;
     RuntimeProfile::Counter* segment_footer_index_peer_io_timer = nullptr;
+
+    // Cross-CG / Same-CG peer read counters
+    RuntimeProfile::Counter* num_cross_cg_peer_io_total = nullptr;
+    RuntimeProfile::Counter* bytes_scanned_from_cross_cg_peer = nullptr;
+    RuntimeProfile::Counter* cross_cg_peer_io_timer = nullptr;
+    RuntimeProfile::Counter* num_same_cg_peer_io_total = nullptr;
+    RuntimeProfile::Counter* bytes_scanned_from_same_cg_peer = nullptr;
+    RuntimeProfile::Counter* same_cg_peer_io_timer = nullptr;
+    RuntimeProfile::Counter* num_peer_race_peer_win = nullptr;
+    RuntimeProfile::Counter* num_peer_race_s3_win = nullptr;
+    RuntimeProfile::Counter* num_peer_lazy_fetch = nullptr;
+    RuntimeProfile::Counter* peer_lazy_fetch_timer = nullptr;
 
     FileCacheProfileReporter(RuntimeProfile* profile);
     void update(const FileCacheStatistics* statistics) const;

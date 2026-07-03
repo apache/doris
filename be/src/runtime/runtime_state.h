@@ -617,6 +617,11 @@ public:
                _query_options.enable_aggregate_function_null_v2;
     }
 
+    bool enable_prune_nested_column() const {
+        return _query_options.__isset.enable_prune_nested_column &&
+               _query_options.enable_prune_nested_column;
+    }
+
     bool is_read_csv_empty_line_as_null() const {
         return _query_options.__isset.read_csv_empty_line_as_null &&
                _query_options.read_csv_empty_line_as_null;

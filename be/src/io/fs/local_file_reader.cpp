@@ -18,6 +18,7 @@
 #include "io/fs/local_file_reader.h"
 
 #include <bthread/bthread.h>
+#include <butil/iobuf.h>
 // IWYU pragma: no_include <bthread/errno.h>
 #include <bvar/bvar.h>
 #include <errno.h> // IWYU pragma: keep
@@ -190,6 +191,51 @@ Status LocalFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_
             *bytes_read += res;
         }
     }
+    DorisMetrics::instance()->local_bytes_read_total->increment(*bytes_read);
+    return Status::OK();
+}
+
+Status LocalFileReader::read_at_iobuf_impl(size_t offset, size_t bytes_req, butil::IOBuf* out,
+                                           size_t* bytes_read, const IOContext* /*io_ctx*/) {
+    TEST_SYNC_POINT_RETURN_WITH_VALUE("LocalFileReader::read_at_iobuf_impl",
+                                      Status::IOError("inject io error"));
+    if (out == nullptr || bytes_read == nullptr) {
+        return Status::InvalidArgument("read_at_iobuf requires non-null out and bytes_read");
+    }
+    if (closed()) [[unlikely]] {
+        return Status::InternalError("read closed file: ", _path.native());
+    }
+
+    if (offset > _file_size) {
+        return Status::InternalError(
+                "offset exceeds file size(offset: {}, file size: {}, path: {})", offset, _file_size,
+                _path.native());
+    }
+    bytes_req = std::min(bytes_req, _file_size - offset);
+    *bytes_read = 0;
+    if (bytes_req == 0) {
+        return Status::OK();
+    }
+
+    LIMIT_LOCAL_SCAN_IO(get_data_dir_path(), bytes_read);
+
+    butil::IOPortal portal;
+    while (bytes_req != 0) {
+        ssize_t res =
+                portal.pappend_from_file_descriptor(_fd, static_cast<off_t>(offset), bytes_req);
+        if (UNLIKELY(-1 == res && errno != EINTR)) {
+            return localfs_error(errno, fmt::format("failed to read {}", _path.native()));
+        }
+        if (UNLIKELY(res == 0)) {
+            return Status::InternalError("cannot read from {}: unexpected EOF", _path.native());
+        }
+        if (res > 0) {
+            offset += static_cast<size_t>(res);
+            bytes_req -= static_cast<size_t>(res);
+            *bytes_read += static_cast<size_t>(res);
+        }
+    }
+    out->append(portal);
     DorisMetrics::instance()->local_bytes_read_total->increment(*bytes_read);
     return Status::OK();
 }

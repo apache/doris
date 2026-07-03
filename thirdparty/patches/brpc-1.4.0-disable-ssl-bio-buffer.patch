@@ -1,0 +1,19 @@
+diff --git a/src/brpc/socket.cpp b/src/brpc/socket.cpp
+index e3878c19..d0dd4f4d 100644
+--- a/src/brpc/socket.cpp
++++ b/src/brpc/socket.cpp
+@@ -1889,7 +1889,13 @@ int Socket::SSLHandshake(int fd, bool server_mode) {
+         int rc = SSL_do_handshake(_ssl_session);
+         if (rc == 1) {
+             _ssl_state = SSL_CONNECTED;
+-            AddBIOBuffer(_ssl_session, fd, FLAGS_ssl_bio_buffer_size);
++            // Do not add BIO_f_buffer on SSL connections.
++            //
++            // brpc-1.4.0 flushes this buffered BIO after SSL_write(), but a
++            // non-fatal EAGAIN from BIO_flush() is not propagated as
++            // SSL_ERROR_WANT_WRITE. Large TLS responses may then be considered
++            // written while encrypted bytes are still buffered and never retried.
++            // Let OpenSSL's socket BIO surface WANT_WRITE to KeepWrite instead.
+             return 0;
+         }
+ 
