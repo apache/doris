@@ -105,6 +105,34 @@ suite("test_iceberg_position_deletes_sys_table", "p0,external") {
             (2, 'b', 10),
             (3, 'c', 20) AS t(id, name, p);
         DELETE FROM demo.${dbName}.pd_int_partitioned WHERE id = 2;
+        DROP TABLE IF EXISTS demo.${dbName}.pd_partition_evolution;
+        CREATE TABLE demo.${dbName}.pd_partition_evolution (
+            id INT,
+            name STRING,
+            p INT
+        ) USING iceberg
+        PARTITIONED BY (p)
+        TBLPROPERTIES (
+            'format-version'='2',
+            'write.delete.mode'='merge-on-read',
+            'write.update.mode'='merge-on-read',
+            'write.merge.mode'='merge-on-read',
+            'write.distribution-mode'='none',
+            'write.target-file-size-bytes'='134217728'
+        );
+        INSERT INTO demo.${dbName}.pd_partition_evolution
+        SELECT /*+ COALESCE(1) */ id, name, p FROM VALUES
+            (1, 'a', 10),
+            (2, 'b', 10),
+            (3, 'c', 20),
+            (4, 'd', 20) AS t(id, name, p);
+        DELETE FROM demo.${dbName}.pd_partition_evolution WHERE id = 2;
+        ALTER TABLE demo.${dbName}.pd_partition_evolution ADD PARTITION FIELD bucket(1, id);
+        INSERT INTO demo.${dbName}.pd_partition_evolution
+        SELECT /*+ COALESCE(1) */ id, name, p FROM VALUES
+            (5, 'e', 10),
+            (6, 'f', 10) AS t(id, name, p);
+        DELETE FROM demo.${dbName}.pd_partition_evolution WHERE id = 6;
         DROP TABLE IF EXISTS demo.${dbName}.pd_v3_unpartitioned;
         CREATE TABLE demo.${dbName}.pd_v3_unpartitioned (
             id INT,
@@ -172,7 +200,7 @@ suite("test_iceberg_position_deletes_sys_table", "p0,external") {
         ) USING iceberg
         TBLPROPERTIES ('format-version'='2');
         INSERT INTO demo.${dbName}.pd_no_deletes VALUES (1, 'a'), (2, 'b');
-    """, 300
+    """
 
     sql """switch ${catalogName}"""
     sql """use ${dbName}"""
@@ -195,11 +223,30 @@ suite("test_iceberg_position_deletes_sys_table", "p0,external") {
         return ((Number) rows[0][0]).longValue()
     }
 
+    def assertSparkDorisPositionDeletes = { String tableName, List<String> columns ->
+        String columnList = columns.join(", ")
+        String orderBy = "file_path, pos, delete_file_path"
+        List<List<Object>> sparkRows = spark_iceberg """
+                select ${columnList}
+                from demo.${dbName}.${tableName}.position_deletes
+                order by ${orderBy}
+                """
+        List<List<Object>> dorisRows = sql """
+                select ${columnList}
+                from ${tableName}\$position_deletes
+                order by ${orderBy}
+                """
+        assertSparkDorisResultEquals(sparkRows, dorisRows)
+    }
+
     List<String> v3ExtraColumns = ["content_offset", "content_size_in_bytes"]
+    List<String> commonCompareColumns = ["file_path", "pos", "spec_id", "delete_file_path"]
+    List<String> v3CompareColumns = commonCompareColumns + v3ExtraColumns
 
     assertPositionDeletesSchema("pd_unpartitioned", false)
     long unpartitionedCount = countRows("""select count(*) from pd_unpartitioned\$position_deletes""")
     assertTrue(unpartitionedCount > 0)
+    assertSparkDorisPositionDeletes("pd_unpartitioned", commonCompareColumns)
     assertEquals(unpartitionedCount, countRows("""select count(pos) from pd_unpartitioned\$position_deletes"""))
     assertEquals(unpartitionedCount, (long) sql(
             """select * from pd_unpartitioned\$position_deletes""").size())
@@ -214,18 +261,6 @@ suite("test_iceberg_position_deletes_sys_table", "p0,external") {
     assertEquals(unpartitionedCount, countRows(
             """select count(*) from pd_unpartitioned\$position_deletes where delete_file_path is not null"""))
     assertEquals(0L, countRows("""select count(*) from pd_unpartitioned\$position_deletes where pos < 0"""))
-    assertEquals(unpartitionedCount, countRows("""
-            select count(*) from iceberg_meta(
-                "table" = "${catalogName}.${dbName}.pd_unpartitioned",
-                "query_type" = "position_deletes")
-            """))
-    assertEquals(
-            sql("""select file_path, pos, delete_file_path from pd_unpartitioned\$position_deletes
-                    order by file_path, pos"""),
-            sql("""select file_path, pos, delete_file_path from iceberg_meta(
-                    "table" = "${catalogName}.${dbName}.pd_unpartitioned",
-                    "query_type" = "position_deletes")
-                    order by file_path, pos"""))
     List<List<Object>> unpartitionedRows = sql """select `row` from pd_unpartitioned\$position_deletes"""
     assertEquals(unpartitionedCount, (long) unpartitionedRows.size())
     assertTrue(unpartitionedRows.every { it[0] == null })
@@ -234,6 +269,7 @@ suite("test_iceberg_position_deletes_sys_table", "p0,external") {
     assertPositionDeletesSchema("pd_partitioned", true)
     long partitionedCount = countRows("""select count(*) from pd_partitioned\$position_deletes""")
     assertTrue(partitionedCount > 0)
+    assertSparkDorisPositionDeletes("pd_partitioned", commonCompareColumns)
     assertEquals(partitionedCount, countRows("""select count(pos) from pd_partitioned\$position_deletes"""))
     assertEquals(partitionedCount, (long) sql(
             """select * from pd_partitioned\$position_deletes""").size())
@@ -263,9 +299,34 @@ suite("test_iceberg_position_deletes_sys_table", "p0,external") {
     })
     assertEquals([[1, "a", 10], [3, "c", 20]], sql("""select * from pd_int_partitioned order by id"""))
 
+    assertPositionDeletesSchema("pd_partition_evolution", true)
+    long partitionEvolutionCount = countRows("""select count(*) from pd_partition_evolution\$position_deletes""")
+    assertEquals(2L, partitionEvolutionCount)
+    assertSparkDorisPositionDeletes("pd_partition_evolution", commonCompareColumns)
+    assertEquals(partitionEvolutionCount, countRows(
+            """select count(pos) from pd_partition_evolution\$position_deletes"""))
+    assertEquals(partitionEvolutionCount, countRows(
+            """select count(*) from pd_partition_evolution\$position_deletes where `partition` is not null"""))
+    List<List<Object>> partitionEvolutionRows = sql """
+            select spec_id, cast(`partition` as string)
+            from pd_partition_evolution\$position_deletes order by spec_id
+            """
+    assertEquals(2, partitionEvolutionRows.size())
+    assertEquals(0, ((Number) partitionEvolutionRows[0][0]).intValue())
+    assertEquals(1, ((Number) partitionEvolutionRows[1][0]).intValue())
+    String oldSpecPartition = partitionEvolutionRows[0][1].toString()
+    String newSpecPartition = partitionEvolutionRows[1][1].toString()
+    assertTrue(oldSpecPartition.contains("\"p\":10"))
+    assertTrue(oldSpecPartition.contains(":null"))
+    assertTrue(newSpecPartition.contains("\"p\":10"))
+    assertFalse(newSpecPartition.contains(":null"))
+    assertEquals([[1, "a", 10], [3, "c", 20], [4, "d", 20], [5, "e", 10]],
+            sql("""select * from pd_partition_evolution order by id"""))
+
     assertPositionDeletesSchema("pd_v3_unpartitioned", false, v3ExtraColumns)
     long v3UnpartitionedCount = countRows("""select count(*) from pd_v3_unpartitioned\$position_deletes""")
     assertEquals(1L, v3UnpartitionedCount)
+    assertSparkDorisPositionDeletes("pd_v3_unpartitioned", v3CompareColumns)
     assertEquals(v3UnpartitionedCount, countRows(
             """select count(pos) from pd_v3_unpartitioned\$position_deletes"""))
     assertEquals(v3UnpartitionedCount, countRows(
@@ -290,6 +351,7 @@ suite("test_iceberg_position_deletes_sys_table", "p0,external") {
     assertPositionDeletesSchema("pd_v3_partitioned", true, v3ExtraColumns)
     long v3PartitionedCount = countRows("""select count(*) from pd_v3_partitioned\$position_deletes""")
     assertEquals(1L, v3PartitionedCount)
+    assertSparkDorisPositionDeletes("pd_v3_partitioned", v3CompareColumns)
     assertEquals(v3PartitionedCount, countRows(
             """select count(pos) from pd_v3_partitioned\$position_deletes"""))
     assertEquals(v3PartitionedCount, countRows(
@@ -324,13 +386,6 @@ suite("test_iceberg_position_deletes_sys_table", "p0,external") {
     assertEquals(schemaChangeCount, countRows(
             """select count(*) from pd_schema_time_travel\$position_deletes where delete_file_path is not null"""))
     assertEquals(0L, countRows("""select count(*) from pd_schema_time_travel\$position_deletes where pos < 0"""))
-    assertEquals(
-            sql("""select file_path, pos, delete_file_path from pd_schema_time_travel\$position_deletes
-                    order by file_path, pos"""),
-            sql("""select file_path, pos, delete_file_path from iceberg_meta(
-                    "table" = "${catalogName}.${dbName}.pd_schema_time_travel",
-                    "query_type" = "position_deletes")
-                    order by file_path, pos"""))
     List<List<Object>> schemaChangeRows = sql """select `row` from pd_schema_time_travel\$position_deletes"""
     assertEquals(schemaChangeCount, (long) schemaChangeRows.size())
     assertTrue(schemaChangeRows.every { it[0] == null })
@@ -364,5 +419,6 @@ suite("test_iceberg_position_deletes_sys_table", "p0,external") {
             sql("""select * from pd_schema_time_travel for version as of ${afterSecondDeleteSnapshot} order by id"""))
 
     assertPositionDeletesSchema("pd_no_deletes", false)
+    assertSparkDorisPositionDeletes("pd_no_deletes", commonCompareColumns)
     assertEquals(0L, countRows("""select count(*) from pd_no_deletes\$position_deletes"""))
 }

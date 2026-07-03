@@ -68,6 +68,7 @@ import org.apache.doris.thrift.TTableFormatFileDesc;
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
+import com.google.gson.JsonObject;
 import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.iceberg.BaseFileScanTask;
 import org.apache.iceberg.BaseTable;
@@ -116,7 +117,6 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -425,6 +425,7 @@ public class IcebergScanNode extends FileQueryScanNode {
             TTableFormatFileDesc tableFormatFileDesc, TIcebergFileDesc fileDesc) {
         rangeDesc.setFormatType(icebergSplit.getPositionDeleteFileFormat());
         tableFormatFileDesc.setTableLevelRowCount(-1);
+        fileDesc.setContent(icebergSplit.getPositionDeleteContent());
 
         if (icebergSplit.getPartitionSpecId() != null) {
             fileDesc.setPartitionSpecId(icebergSplit.getPartitionSpecId());
@@ -975,7 +976,7 @@ public class IcebergScanNode extends FileQueryScanNode {
         IcebergSplit split = IcebergSplit.newPositionDeleteSysTableSplit(
                 locationPath, task.start(), task.length(), deleteFile.fileSizeInBytes(),
                 storagePropertiesMap, originalPath);
-        split.setTableFormatType(TableFormatType.ICEBERG_POSITION_DELETES);
+        split.setTableFormatType(TableFormatType.ICEBERG);
         split.setPositionDeleteFileFormat(getNativePositionDeleteFileFormat(deleteFile.format()));
         split.setPositionDeleteOriginalPath(originalPath);
         if (deleteFile.format() == FileFormat.PUFFIN) {
@@ -991,7 +992,8 @@ public class IcebergScanNode extends FileQueryScanNode {
         PartitionSpec partitionSpec = icebergTable.specs().get(deleteFile.specId());
         if (partitionSpec != null && partitionSpec.isPartitioned() && deleteFile.partition() != null) {
             split.setPartitionDataJson(getPartitionDataObjectJson(
-                    (PartitionData) deleteFile.partition(), partitionSpec));
+                    (PartitionData) deleteFile.partition(), partitionSpec,
+                    getPositionDeletesOutputPartitionFields()));
         }
         return split;
     }
@@ -1006,15 +1008,28 @@ public class IcebergScanNode extends FileQueryScanNode {
                 "Unsupported Iceberg position delete file format: " + fileFormat);
     }
 
-    private String getPartitionDataObjectJson(PartitionData partitionData, PartitionSpec partitionSpec) {
+    private List<NestedField> getPositionDeletesOutputPartitionFields() {
+        NestedField partitionField = icebergTable.schema().findField("partition");
+        Preconditions.checkNotNull(partitionField,
+                "Partition field not found in Iceberg position_deletes metadata table schema");
+        return partitionField.type().asNestedType().fields();
+    }
+
+    private String getPartitionDataObjectJson(PartitionData partitionData, PartitionSpec partitionSpec,
+            List<NestedField> outputPartitionFields) {
         List<String> partitionValues = IcebergUtils.getPartitionValues(
                 partitionData, partitionSpec, sessionVariable.getTimeZone());
         List<NestedField> partitionTypes = partitionData.getPartitionType().asNestedType().fields();
-        Map<String, Object> partitionJson = new LinkedHashMap<>();
+        Map<String, Object> partitionValueByName = new HashMap<>();
         List<PartitionField> fields = partitionSpec.fields();
         for (int i = 0; i < fields.size(); i++) {
-            partitionJson.put(fields.get(i).name(),
+            partitionValueByName.put(fields.get(i).name(),
                     getPartitionJsonValue(partitionTypes.get(i).type(), partitionValues.get(i)));
+        }
+        JsonObject partitionJson = new JsonObject();
+        for (NestedField outputPartitionField : outputPartitionFields) {
+            partitionJson.add(outputPartitionField.name(),
+                    GsonUtils.GSON.toJsonTree(partitionValueByName.get(outputPartitionField.name())));
         }
         return GsonUtils.GSON.toJson(partitionJson);
     }

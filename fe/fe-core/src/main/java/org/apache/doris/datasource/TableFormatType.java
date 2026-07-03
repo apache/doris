@@ -20,7 +20,6 @@ package org.apache.doris.datasource;
 public enum TableFormatType {
     HIVE("hive"),
     ICEBERG("iceberg"),
-    ICEBERG_POSITION_DELETES("iceberg_position_deletes"),
     HUDI("hudi"),
     PAIMON("paimon"),
     MAX_COMPUTE("max_compute"),

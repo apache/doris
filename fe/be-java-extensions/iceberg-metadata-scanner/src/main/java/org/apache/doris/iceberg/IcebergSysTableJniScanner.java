@@ -37,6 +37,7 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.TimeZone;
@@ -46,6 +47,7 @@ import java.util.TimeZone;
  */
 public class IcebergSysTableJniScanner extends JniScanner {
     private static final Logger LOG = LoggerFactory.getLogger(IcebergSysTableJniScanner.class);
+    private static final String HADOOP_OPTION_PREFIX = "hadoop.";
 
     private final ClassLoader classLoader;
     private final PreExecutionAuthenticator preExecutionAuthenticator;
@@ -63,9 +65,19 @@ public class IcebergSysTableJniScanner extends JniScanner {
         String[] requiredFields = params.get("required_fields").split(",");
         this.fields = selectSchema(scanTask.asFileScanTask().schema().asStruct(), requiredFields);
         this.timezone = params.getOrDefault("time_zone", TimeZone.getDefault().getID());
-        this.preExecutionAuthenticator = PreExecutionAuthenticatorCache.getAuthenticator(params);
+        this.preExecutionAuthenticator = PreExecutionAuthenticatorCache.getAuthenticator(getHadoopOptionParams(params));
         ColumnType[] requiredTypes = parseRequiredTypes(params.get("required_types").split("#"), requiredFields);
         initTableInfo(requiredTypes, requiredFields, batchSize);
+    }
+
+    static Map<String, String> getHadoopOptionParams(Map<String, String> params) {
+        Map<String, String> hadoopOptionParams = new HashMap<>();
+        for (Map.Entry<String, String> param : params.entrySet()) {
+            if (param.getKey().startsWith(HADOOP_OPTION_PREFIX)) {
+                hadoopOptionParams.put(param.getKey().substring(HADOOP_OPTION_PREFIX.length()), param.getValue());
+            }
+        }
+        return hadoopOptionParams;
     }
 
     @Override

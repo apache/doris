@@ -51,6 +51,7 @@ constexpr const char* kSpecIdColumn = "spec_id";
 constexpr const char* kDeleteFilePathColumn = "delete_file_path";
 constexpr const char* kContentOffsetColumn = "content_offset";
 constexpr const char* kContentSizeInBytesColumn = "content_size_in_bytes";
+constexpr int kPositionDeleteContent = 1;
 
 bool block_has_row(const Block& block, size_t row) {
     return block.columns() > 0 && row < block.rows();
@@ -113,9 +114,19 @@ Status IcebergPositionDeleteSysTableReader::_do_init_reader(ReaderInitContext* /
                 "file");
     }
     _delete_file_desc = &_iceberg_file_desc->delete_files[0];
-    _delete_file_kind = is_iceberg_deletion_vector(*_delete_file_desc)
-                                ? DeleteFileKind::DELETION_VECTOR
-                                : DeleteFileKind::POSITION_DELETE;
+    if (is_iceberg_deletion_vector(*_delete_file_desc)) {
+        _delete_file_kind = DeleteFileKind::DELETION_VECTOR;
+    } else if (_delete_file_desc->__isset.content &&
+               _delete_file_desc->content == kPositionDeleteContent) {
+        _delete_file_kind = DeleteFileKind::POSITION_DELETE;
+    } else if (!_delete_file_desc->__isset.content) {
+        return Status::InternalError(
+                "Iceberg position delete system table delete file misses content");
+    } else {
+        return Status::InternalError(
+                "Iceberg position delete system table does not support delete file content {}",
+                _delete_file_desc->content);
+    }
     _batch_size = _state->batch_size();
 
     if (_delete_file_kind == DeleteFileKind::DELETION_VECTOR) {
@@ -389,10 +400,10 @@ Status IcebergPositionDeleteSysTableReader::_append_partition_column(MutableColu
     }
 
     auto serde = slot.get_data_type_ptr()->get_serde();
-    Slice slice(_iceberg_file_desc->partition_data_json.data(),
-                _iceberg_file_desc->partition_data_json.size());
-    DataTypeSerDe::FormatOptions options;
-    RETURN_IF_ERROR(serde->deserialize_one_cell_from_json(*column, slice, options));
+    StringRef partition_data(_iceberg_file_desc->partition_data_json.data(),
+                             _iceberg_file_desc->partition_data_json.size());
+    DataTypeSerDe::FormatOptions options = DataTypeSerDe::get_default_format_options();
+    RETURN_IF_ERROR(serde->from_string(partition_data, *column, options));
     return Status::OK();
 }
 

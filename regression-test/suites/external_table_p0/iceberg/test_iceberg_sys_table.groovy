@@ -329,24 +329,11 @@ suite("test_iceberg_sys_table", "p0,external") {
               """
               exception "denied"
         }
-        test {
-              sql """
-                 select count(*) from iceberg_meta(
-                     "table" = "${catalog_name}.${db_name}.test_iceberg_systable_tbl1",
-                     "query_type" = "position_deletes")
-              """
-              exception "denied"
-        }
     }
     sql """grant select_priv on ${catalog_name}.${db_name}.test_iceberg_systable_tbl1 to ${user}"""
     connect(user, "${pwd}", context.config.jdbcUrl) {
         sql """select committed_at, snapshot_id, parent_id, operation from ${catalog_name}.${db_name}.test_iceberg_systable_tbl1\$snapshots"""
         sql """select file_path, pos from ${catalog_name}.${db_name}.test_iceberg_systable_tbl1\$position_deletes"""
-        sql """
-            select count(*) from iceberg_meta(
-                "table" = "${catalog_name}.${db_name}.test_iceberg_systable_tbl1",
-                "query_type" = "position_deletes")
-        """
     }
     try_sql("DROP USER ${user}")
 
