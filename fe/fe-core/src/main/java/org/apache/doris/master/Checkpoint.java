@@ -33,6 +33,7 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.HttpURLUtil;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.common.util.NetUtils;
+import org.apache.doris.httpv2.client.InternalHttpClientProvider;
 import org.apache.doris.httpv2.entity.ResponseBody;
 import org.apache.doris.httpv2.rest.RestApiStatusCode;
 import org.apache.doris.metric.MetricRepo;
@@ -297,7 +298,8 @@ public class Checkpoint extends MasterDaemon {
                              * this lagging node can never get the deleted journal.
                              */
                             idURL = "http://" + NetUtils.getHostPortInAccessibleFormat(host, port) + "/journal_id";
-                            conn = HttpURLUtil.getConnectionWithNodeIdent(idURL);
+                            conn = HttpURLUtil.getInternalConnectionWithNodeIdent(idURL,
+                                    InternalHttpClientProvider.Target.FE);
                             conn.setConnectTimeout(CONNECT_TIMEOUT_SECOND * 1000);
                             conn.setReadTimeout(READ_TIMEOUT_SECOND * 1000);
                             String idString = conn.getHeaderField("id");

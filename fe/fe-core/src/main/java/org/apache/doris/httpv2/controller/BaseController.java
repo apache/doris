@@ -30,6 +30,8 @@ import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.httpv2.HttpAuthManager;
 import org.apache.doris.httpv2.HttpAuthManager.SessionValue;
+import org.apache.doris.httpv2.client.InternalHttpClientProvider;
+import org.apache.doris.httpv2.client.InternalHttpClientProviderFactory;
 import org.apache.doris.httpv2.exception.UnauthorizedException;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
@@ -369,13 +371,9 @@ public class BaseController {
     }
 
     protected String getCurrentFrontendURL() {
-        if (Config.enable_https) {
-            // this could be the result of redirection.
-            return "https://" + NetUtils
-                    .getHostPortInAccessibleFormat(FrontendOptions.getLocalHostAddress(), Config.https_port);
-        } else {
-            return "http://" + NetUtils
-                    .getHostPortInAccessibleFormat(FrontendOptions.getLocalHostAddress(), Config.http_port);
-        }
+        String url = "http://" + NetUtils
+                .getHostPortInAccessibleFormat(FrontendOptions.getLocalHostAddress(), Config.http_port);
+        return InternalHttpClientProviderFactory.getProvider().normalizeInternalUrl(url,
+                InternalHttpClientProvider.Target.FE);
     }
 }

@@ -30,6 +30,7 @@ import org.apache.doris.common.proc.ProcService;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.ha.FrontendNodeType;
+import org.apache.doris.httpv2.client.InternalHttpClientProvider;
 import org.apache.doris.httpv2.controller.BaseController.ActionAuthorizationInfo;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.httpv2.rest.RestBaseController;
@@ -204,7 +205,7 @@ public class NodeAction extends RestBaseController {
                 Backend be = Env.getCurrentSystemInfo().getBackend(beIds.get(0));
                 String url = "http://" + NetUtils.getHostPortInAccessibleFormat(be.getHost(), be.getHttpPort())
                         + "/api/show_config";
-                String questResult = HttpUtils.doGet(url, null);
+                String questResult = HttpUtils.doInternalGet(url, null, InternalHttpClientProvider.Target.BE);
                 List<List<String>> configs = GsonUtils.GSON.fromJson(questResult, new TypeToken<List<List<String>>>() {
                 }.getType());
                 for (List<String> config : configs) {
@@ -374,9 +375,11 @@ public class NodeAction extends RestBaseController {
             String address = NetUtils.getHostPortInAccessibleFormat(hostPort.first, hostPort.second);
             configRequestDoneSignal.addMark(address, -1);
             String url = "http://" + address + questPath;
+            InternalHttpClientProvider.Target target = nodeType.equalsIgnoreCase("FE")
+                    ? InternalHttpClientProvider.Target.FE : InternalHttpClientProvider.Target.BE;
             httpExecutor.submit(
-                    new HttpConfigInfoTask(url, hostPort, authorization, nodeType, confNames, configRequestDoneSignal,
-                            configInfoTotal.get(i)));
+                    new HttpConfigInfoTask(url, hostPort, authorization, nodeType, target, confNames,
+                            configRequestDoneSignal, configInfoTotal.get(i)));
         }
         List<List<String>> resultConfigs = Lists.newArrayList();
         try {
@@ -419,17 +422,20 @@ public class NodeAction extends RestBaseController {
         private Pair<String, Integer> hostPort;
         private String authorization;
         private String nodeType;
+        private InternalHttpClientProvider.Target target;
         private List<String> confNames;
         private MarkedCountDownLatch<String, Integer> configRequestDoneSignal;
         private List<List<String>> config;
 
         public HttpConfigInfoTask(String url, Pair<String, Integer> hostPort, String authorization, String nodeType,
-                List<String> confNames, MarkedCountDownLatch<String, Integer> configRequestDoneSignal,
+                InternalHttpClientProvider.Target target, List<String> confNames,
+                MarkedCountDownLatch<String, Integer> configRequestDoneSignal,
                 List<List<String>> config) {
             this.url = url;
             this.hostPort = hostPort;
             this.authorization = authorization;
             this.nodeType = nodeType;
+            this.target = target;
             this.confNames = confNames;
             this.configRequestDoneSignal = configRequestDoneSignal;
             this.config = config;
@@ -439,8 +445,8 @@ public class NodeAction extends RestBaseController {
         public void run() {
             String configInfo;
             try {
-                configInfo = HttpUtils.doGet(url,
-                        ImmutableMap.<String, String>builder().put(AUTHORIZATION, authorization).build());
+                configInfo = HttpUtils.doInternalGet(url,
+                        ImmutableMap.<String, String>builder().put(AUTHORIZATION, authorization).build(), target);
                 List<List<String>> configs = GsonUtils.GSON.fromJson(configInfo, new TypeToken<List<List<String>>>() {
                 }.getType());
                 for (List<String> conf : configs) {
@@ -452,7 +458,8 @@ public class NodeAction extends RestBaseController {
                         .getHostPortInAccessibleFormat(hostPort.first, hostPort.second), -1);
             } catch (Exception e) {
                 LOG.warn("get config from {}:{} failed.", hostPort.first, hostPort.second, e);
-                configRequestDoneSignal.countDown();
+                configRequestDoneSignal.markedCountDown(NetUtils
+                        .getHostPortInAccessibleFormat(hostPort.first, hostPort.second), -1);
             }
         }
 
@@ -507,7 +514,7 @@ public class NodeAction extends RestBaseController {
             if (!nodeConfigs.getConfigs(true).isEmpty()) {
                 String url = concatFeSetConfigUrl(nodeConfigs, true);
                 try {
-                    String responsePersist = HttpUtils.doGet(url, header);
+                    String responsePersist = HttpUtils.doInternalGet(url, header, InternalHttpClientProvider.Target.FE);
                     parseFeSetConfigResponse(responsePersist, nodeConfigs.getHostPort(), failedTotal);
                 } catch (Exception e) {
                     addSetConfigErrNode(nodeConfigs.getConfigs(true), nodeConfigs.getHostPort(), e.getMessage(),
@@ -517,7 +524,7 @@ public class NodeAction extends RestBaseController {
             if (!nodeConfigs.getConfigs(false).isEmpty()) {
                 String url = concatFeSetConfigUrl(nodeConfigs, false);
                 try {
-                    String responseTemp = HttpUtils.doGet(url, header);
+                    String responseTemp = HttpUtils.doInternalGet(url, header, InternalHttpClientProvider.Target.FE);
                     parseFeSetConfigResponse(responseTemp, nodeConfigs.getHostPort(), failedTotal);
                 } catch (Exception e) {
                     addSetConfigErrNode(nodeConfigs.getConfigs(false), nodeConfigs.getHostPort(), e.getMessage(),
@@ -569,7 +576,8 @@ public class NodeAction extends RestBaseController {
     private String concatFeSetConfigUrl(NodeConfigs nodeConfigs, boolean isPersist) {
         StringBuilder sb = new StringBuilder();
         Pair<String, Integer> hostPort = nodeConfigs.getHostPort();
-        sb.append("http://").append(hostPort.first).append(":").append(hostPort.second).append("/api/_set_config");
+        sb.append("http://").append(NetUtils.getHostPortInAccessibleFormat(hostPort.first, hostPort.second))
+                .append("/api/_set_config");
         Map<String, String> configs = nodeConfigs.getConfigs(isPersist);
         boolean addAnd = false;
         for (Map.Entry<String, String> entry : configs.entrySet()) {
@@ -867,7 +875,8 @@ public class NodeAction extends RestBaseController {
     private String concatBeSetConfigUrl(String host, Integer port, String configName, String configValue,
             boolean isPersist) {
         StringBuilder stringBuffer = new StringBuilder();
-        stringBuffer.append("http://").append(host).append(":").append(port).append("/api/update_config").append("?")
+        stringBuffer.append("http://").append(NetUtils.getHostPortInAccessibleFormat(host, port))
+                .append("/api/update_config").append("?")
                 .append(configName).append("=").append(configValue);
         if (isPersist) {
             stringBuffer.append("&persist=true");
@@ -913,8 +922,9 @@ public class NodeAction extends RestBaseController {
         @Override
         public void run() {
             try {
-                String response = HttpUtils.doPost(url,
-                        ImmutableMap.<String, String>builder().put(AUTHORIZATION, authorization).build(), null);
+                String response = HttpUtils.doInternalPost(url,
+                        ImmutableMap.<String, String>builder().put(AUTHORIZATION, authorization).build(), null,
+                        InternalHttpClientProvider.Target.BE);
                 JsonObject jsonObject = JsonParser.parseString(response).getAsJsonObject();
                 String status = jsonObject.get("status").getAsString();
                 if (!status.equals("OK")) {
@@ -928,7 +938,10 @@ public class NodeAction extends RestBaseController {
                 LOG.warn("set be:{} config:{} failed.", NetUtils
                         .getHostPortInAccessibleFormat(hostPort.first, hostPort.second),
                         configName + "=" + configValue, e);
-                beSetConfigDoneSignal.countDown();
+                addFailedConfig(configName, configValue, NetUtils
+                        .getHostPortInAccessibleFormat(hostPort.first, hostPort.second), e.getMessage(), failed);
+                beSetConfigDoneSignal.markedCountDown(
+                        concatNodeConfig(hostPort.first, hostPort.second, configName, configValue), -1);
             }
         }
     }

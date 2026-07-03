@@ -44,6 +44,7 @@ import org.apache.doris.system.Backend;
 import org.apache.doris.system.BeSelectionPolicy;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TNetworkAddress;
+import org.apache.doris.tls.server.TlsProtocolSet;
 
 import com.google.common.base.Strings;
 import com.google.common.net.HostAndPort;
@@ -852,6 +853,11 @@ public class LoadAction extends RestBaseController {
 
         // Check if group commit forwarding is needed
         if (!Config.isCloudMode() || !groupCommit || !Config.enable_group_commit_streamload_be_forward) {
+            return selectRedirectBackend(request, groupCommit, tableId);
+        }
+        if (TlsProtocolSet.isHttpTlsActive()) {
+            LOG.warn("Group commit stream load BE forward is disabled under HTTP TLS, fall back to normal redirect,"
+                    + " db: {}, tbl: {}, label: {}", dbName, tableName, label);
             return selectRedirectBackend(request, groupCommit, tableId);
         }
 

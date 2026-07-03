@@ -19,6 +19,8 @@ package org.apache.doris.common.util;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cloud.security.SecurityChecker;
+import org.apache.doris.httpv2.client.InternalHttpClientProvider;
+import org.apache.doris.httpv2.client.InternalHttpClientProviderFactory;
 import org.apache.doris.system.SystemInfoService.HostInfo;
 
 import com.google.common.collect.Maps;
@@ -48,6 +50,27 @@ public class HttpURLUtil {
         }
     }
 
+    public static HttpURLConnection getInternalConnectionWithNodeIdent(String request,
+            InternalHttpClientProvider.Target target) throws IOException {
+        HttpURLConnection conn = getInternalConnection(request, target);
+        setNodeIdentHeaders(conn);
+        return conn;
+    }
+
+    public static HttpURLConnection getInternalConnection(String request,
+            InternalHttpClientProvider.Target target) throws IOException {
+        InternalHttpClientProvider provider = InternalHttpClientProviderFactory.getProvider();
+        String normalizedRequest = provider.normalizeInternalUrl(request, target);
+        try {
+            SecurityChecker.getInstance().startSSRFChecking(normalizedRequest);
+            return provider.openConnection(normalizedRequest, target);
+        } catch (Exception e) {
+            throw e instanceof IOException ? (IOException) e : new IOException(e);
+        } finally {
+            SecurityChecker.getInstance().stopSSRFChecking();
+        }
+    }
+
     public static Map<String, String> getNodeIdentHeaders() throws IOException {
         Map<String, String> headers = Maps.newHashMap();
         // Must use Env.getServingEnv() instead of getCurrentEnv(),
@@ -56,6 +79,12 @@ public class HttpURLUtil {
         headers.put(Env.CLIENT_NODE_HOST_KEY, selfNode.getHost());
         headers.put(Env.CLIENT_NODE_PORT_KEY, selfNode.getPort() + "");
         return headers;
+    }
+
+    private static void setNodeIdentHeaders(HttpURLConnection conn) throws IOException {
+        HostInfo selfNode = Env.getServingEnv().getSelfNode();
+        conn.setRequestProperty(Env.CLIENT_NODE_HOST_KEY, selfNode.getHost());
+        conn.setRequestProperty(Env.CLIENT_NODE_PORT_KEY, selfNode.getPort() + "");
     }
 
 }

@@ -21,6 +21,8 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.httpv2.client.InternalHttpClientProvider;
+import org.apache.doris.httpv2.client.InternalHttpClientProviderFactory;
 import org.apache.doris.httpv2.entity.ResponseBody;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.system.Frontend;
@@ -88,14 +90,32 @@ public class HttpUtils {
         return url.toString();
     }
 
+    public static String concatInternalUrl(Pair<String, Integer> ipPort, String path, Map<String, String> arguments,
+            InternalHttpClientProvider.Target target) {
+        return InternalHttpClientProviderFactory.getProvider().normalizeInternalUrl(concatUrl(ipPort, path, arguments),
+                target);
+    }
+
     public static String doGet(String url, Map<String, String> headers, int timeoutMs) throws IOException {
         HttpGet httpGet = new HttpGet(url);
         setRequestConfig(httpGet, headers, timeoutMs);
         return executeRequest(httpGet);
     }
 
+    public static String doInternalGet(String url, Map<String, String> headers, int timeoutMs,
+            InternalHttpClientProvider.Target target) throws IOException {
+        HttpGet httpGet = new HttpGet(normalizeInternalUrl(url, target));
+        setRequestConfig(httpGet, headers, timeoutMs);
+        return executeInternalRequest(httpGet, target);
+    }
+
     public static String doGet(String url, Map<String, String> headers) throws IOException {
         return doGet(url, headers, DEFAULT_TIME_OUT_MS);
+    }
+
+    public static String doInternalGet(String url, Map<String, String> headers,
+            InternalHttpClientProvider.Target target) throws IOException {
+        return doInternalGet(url, headers, DEFAULT_TIME_OUT_MS, target);
     }
 
     public static String doPost(String url, Map<String, String> headers, Object body) throws IOException {
@@ -108,6 +128,19 @@ public class HttpUtils {
 
         setRequestConfig(httpPost, headers, DEFAULT_TIME_OUT_MS);
         return executeRequest(httpPost);
+    }
+
+    public static String doInternalPost(String url, Map<String, String> headers, Object body,
+            InternalHttpClientProvider.Target target) throws IOException {
+        HttpPost httpPost = new HttpPost(normalizeInternalUrl(url, target));
+        if (Objects.nonNull(body)) {
+            String jsonString = GsonUtils.GSON.toJson(body);
+            StringEntity stringEntity = new StringEntity(jsonString, "UTF-8");
+            httpPost.setEntity(stringEntity);
+        }
+
+        setRequestConfig(httpPost, headers, DEFAULT_TIME_OUT_MS);
+        return executeInternalRequest(httpPost, target);
     }
 
     private static void setRequestConfig(HttpRequestBase request, Map<String, String> headers, int timeoutMs) {
@@ -129,9 +162,23 @@ public class HttpUtils {
         return HttpClientBuilder.create().build();
     }
 
+    public static CloseableHttpClient getInternalHttpClient(InternalHttpClientProvider.Target target) {
+        return InternalHttpClientProviderFactory.getProvider().getHttpClient(target);
+    }
+
     private static String executeRequest(HttpRequestBase request) throws IOException {
         CloseableHttpClient client = getHttpClient();
         return client.execute(request, httpResponse -> EntityUtils.toString(httpResponse.getEntity()));
+    }
+
+    private static String executeInternalRequest(HttpRequestBase request,
+            InternalHttpClientProvider.Target target) throws IOException {
+        CloseableHttpClient client = getInternalHttpClient(target);
+        return client.execute(request, httpResponse -> EntityUtils.toString(httpResponse.getEntity()));
+    }
+
+    public static String normalizeInternalUrl(String url, InternalHttpClientProvider.Target target) {
+        return InternalHttpClientProviderFactory.getProvider().normalizeInternalUrl(url, target);
     }
 
     static String parseResponse(String response) {
