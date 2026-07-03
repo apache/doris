@@ -83,7 +83,7 @@ class IvmDeltaRewriterTest extends IvmDeltaTestBase {
     }
 
     private IvmRefreshContext rewriteContext(Map<TableNameInfo, Long> streams) {
-        return new IvmRefreshContext(mockMtmv(), new ConnectContext(), new IvmNormalizeResult());
+        return new IvmRefreshContext(mockMtmv(), new ConnectContext(), new IvmRewriteResult());
     }
 
     private LogicalJoin<LogicalOlapScan, LogicalOlapScan> crossJoin(
@@ -103,7 +103,7 @@ class IvmDeltaRewriterTest extends IvmDeltaTestBase {
         MTMV mtmv = mockMtmv();
         LogicalOlapScan scan = buildScan();
         IvmRefreshContext ctx = new IvmRefreshContext(
-                mtmv, new ConnectContext(), new IvmNormalizeResult());
+                mtmv, new ConnectContext(), new IvmRewriteResult());
         List<Command> commands = new IvmDeltaRewriter().rewrite(buildScanPlan(scan), ctx);
 
         Assertions.assertEquals(1, commands.size());
@@ -115,7 +115,7 @@ class IvmDeltaRewriterTest extends IvmDeltaTestBase {
         MTMV mtmv = mockMtmv();
         LogicalOlapScan scan = buildScan();
         IvmRefreshContext ctx = new IvmRefreshContext(
-                mtmv, new ConnectContext(), new IvmNormalizeResult());
+                mtmv, new ConnectContext(), new IvmRewriteResult());
         List<Command> commands = new IvmDeltaRewriter().rewrite(buildProjectScanPlan(scan), ctx);
 
         Assertions.assertEquals(1, commands.size());
@@ -129,7 +129,7 @@ class IvmDeltaRewriterTest extends IvmDeltaTestBase {
         MTMV mtmv = buildMtmvFromPlan(bundle.normalizedPlan.getOutput());
 
         IvmRefreshContext ctx = new IvmRefreshContext(
-                mtmv, bundle.connectContext, bundle.normalizeResult);
+                mtmv, bundle.connectContext, bundle.rewriteResult);
         InsertIntoTableCommand command = (InsertIntoTableCommand) new IvmDeltaRewriter()
                 .rewrite(bundle.normalizedPlan, ctx).get(0);
         UnboundTableSink<?> sink = getSink(command);
@@ -162,7 +162,7 @@ class IvmDeltaRewriterTest extends IvmDeltaTestBase {
         MTMV mtmv = buildMtmvFromPlan(bundle.normalizedPlan.getOutput());
 
         IvmRefreshContext ctx = new IvmRefreshContext(
-                mtmv, bundle.connectContext, bundle.normalizeResult);
+                mtmv, bundle.connectContext, bundle.rewriteResult);
         InsertIntoTableCommand command = (InsertIntoTableCommand) new IvmDeltaRewriter()
                 .rewrite(bundle.normalizedPlan, ctx).get(0);
         UnboundTableSink<?> sink = getSink(command);
@@ -180,7 +180,7 @@ class IvmDeltaRewriterTest extends IvmDeltaTestBase {
         MTMV mtmv = mockMtmv();
         LogicalOlapScan scan = buildScan();
         IvmRefreshContext ctx = new IvmRefreshContext(
-                mtmv, new ConnectContext(), new IvmNormalizeResult());
+                mtmv, new ConnectContext(), new IvmRewriteResult());
         InsertIntoTableCommand command = (InsertIntoTableCommand) new IvmDeltaRewriter()
                 .rewrite(buildScanPlan(scan), ctx).get(0);
         UnboundTableSink<?> sink = getSink(command);
@@ -578,7 +578,7 @@ class IvmDeltaRewriterTest extends IvmDeltaTestBase {
 
         LogicalProject<?> plan = new LogicalProject<>(
                 ImmutableList.of(idSlot, nameSlot, rowIdAlias, dmlAlias, baseOpAlias), scan);
-        IvmRefreshContext ctx = new IvmRefreshContext(mockMtmv(), new ConnectContext(), new IvmNormalizeResult());
+        IvmRefreshContext ctx = new IvmRefreshContext(mockMtmv(), new ConnectContext(), new IvmRewriteResult());
 
         Plan fojPlan = new TestableApplyBinlogOrderRewrite().exposeApplyBinlogOrderRewrite(plan, ctx);
 

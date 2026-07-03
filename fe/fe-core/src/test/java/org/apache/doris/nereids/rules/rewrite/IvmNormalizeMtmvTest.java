@@ -30,7 +30,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.mtmv.ivm.IvmException;
 import org.apache.doris.mtmv.ivm.IvmFailureReason;
-import org.apache.doris.mtmv.ivm.IvmNormalizeResult;
+import org.apache.doris.mtmv.ivm.IvmRewriteResult;
 import org.apache.doris.mtmv.ivm.IvmUtil;
 import org.apache.doris.mtmv.ivm.agg.IvmAggFunctionKind;
 import org.apache.doris.mtmv.ivm.agg.IvmAggMeta;
@@ -127,10 +127,10 @@ class IvmNormalizeMtmvTest {
         Alias rowIdAlias = (Alias) project.getProjects().get(0);
         Assertions.assertInstanceOf(UuidNumeric.class, rowIdAlias.child());
 
-        // IvmNormalizeResult records non-deterministic for DUP_KEYS
-        IvmNormalizeResult normalizeResult = jobContext.getCascadesContext().getIvmNormalizeResult().get();
-        Assertions.assertEquals(1, normalizeResult.getRowIdDeterminism().size());
-        Assertions.assertFalse(normalizeResult.getRowIdDeterminism().values().iterator().next());
+        // IvmRewriteResult records non-deterministic for DUP_KEYS
+        IvmRewriteResult rewriteResult = jobContext.getCascadesContext().getIvmRewriteResult().get();
+        Assertions.assertEquals(1, rewriteResult.getRowIdDeterminism().size());
+        Assertions.assertFalse(rewriteResult.getRowIdDeterminism().values().iterator().next());
     }
 
     @Test
@@ -248,8 +248,8 @@ class IvmNormalizeMtmvTest {
 
         Assertions.assertInstanceOf(LogicalProject.class, result);
         Assertions.assertEquals(Column.IVM_ROW_ID_COL, result.getOutput().get(0).getName());
-        IvmNormalizeResult normalizeResult = jobContext.getCascadesContext().getIvmNormalizeResult().get();
-        Assertions.assertTrue(normalizeResult.getRowIdDeterminism().values().iterator().next());
+        IvmRewriteResult rewriteResult = jobContext.getCascadesContext().getIvmRewriteResult().get();
+        Assertions.assertTrue(rewriteResult.getRowIdDeterminism().values().iterator().next());
     }
 
     @Test
@@ -293,8 +293,8 @@ class IvmNormalizeMtmvTest {
         Assertions.assertEquals(
                 IvmUtil.buildRowIdHash(ImmutableList.of(aggScan.getOutput().get(0))).toSql(),
                 rowIdAlias.child().toSql());
-        IvmNormalizeResult normalizeResult = jobContext.getCascadesContext().getIvmNormalizeResult().get();
-        Assertions.assertTrue(normalizeResult.getRowIdDeterminism().values().iterator().next());
+        IvmRewriteResult rewriteResult = jobContext.getCascadesContext().getIvmRewriteResult().get();
+        Assertions.assertTrue(rewriteResult.getRowIdDeterminism().values().iterator().next());
     }
 
     @Test
@@ -333,8 +333,8 @@ class IvmNormalizeMtmvTest {
         Alias rowIdAlias = (Alias) project.getProjects().get(0);
         // Excluded MOW table should still compute deterministic row-id from unique key hash
         Assertions.assertInstanceOf(MurmurHash3128.class, rowIdAlias.child());
-        IvmNormalizeResult normalizeResult = jobContext.getCascadesContext().getIvmNormalizeResult().get();
-        Assertions.assertTrue(normalizeResult.getRowIdDeterminism().values().iterator().next());
+        IvmRewriteResult rewriteResult = jobContext.getCascadesContext().getIvmRewriteResult().get();
+        Assertions.assertTrue(rewriteResult.getRowIdDeterminism().values().iterator().next());
     }
 
     @Test
@@ -396,13 +396,13 @@ class IvmNormalizeMtmvTest {
     }
 
     @Test
-    void testNormalizedPlanStoredInIvmNormalizeResult() {
+    void testNormalizedPlanStoredInIvmRewriteResult() {
         JobContext jobContext = newJobContext(true);
         Plan result = new IvmNormalizeMtmv().rewriteRoot(scan, jobContext);
 
-        IvmNormalizeResult normalizeResult = jobContext.getCascadesContext().getIvmNormalizeResult().get();
-        Assertions.assertNotNull(normalizeResult.getNormalizedPlan());
-        Assertions.assertSame(result, normalizeResult.getNormalizedPlan());
+        IvmRewriteResult rewriteResult = jobContext.getCascadesContext().getIvmRewriteResult().get();
+        Assertions.assertNotNull(rewriteResult.getNormalizedPlan());
+        Assertions.assertSame(result, rewriteResult.getNormalizedPlan());
     }
 
     @Test
@@ -466,9 +466,9 @@ class IvmNormalizeMtmvTest {
         Alias rowIdAlias = (Alias) topProject.getProjects().get(0);
         Assertions.assertInstanceOf(MurmurHash3128.class, rowIdAlias.child());
 
-        // IvmNormalizeResult has aggMeta
-        IvmNormalizeResult normalizeResult = jobContext.getCascadesContext().getIvmNormalizeResult().get();
-        IvmAggMeta aggMeta = normalizeResult.getAggMeta();
+        // IvmRewriteResult has aggMeta
+        IvmRewriteResult rewriteResult = jobContext.getCascadesContext().getIvmRewriteResult().get();
+        IvmAggMeta aggMeta = rewriteResult.getAggMeta();
         Assertions.assertNotNull(aggMeta);
         Assertions.assertFalse(aggMeta.isScalarAgg());
         Assertions.assertEquals(1, aggMeta.getGroupKeySlots().size());
@@ -485,7 +485,7 @@ class IvmNormalizeMtmvTest {
         Assertions.assertNotNull(target.getHiddenStateSlot(IvmAggStateKey.COUNT));
 
         // Row-id determinism: grouped agg → deterministic
-        Assertions.assertTrue(normalizeResult.isDeterministic(rowIdAlias.toSlot()));
+        Assertions.assertTrue(rewriteResult.isDeterministic(rowIdAlias.toSlot()));
     }
 
     @Test
@@ -534,8 +534,8 @@ class IvmNormalizeMtmvTest {
         Assertions.assertEquals(BigInteger.ZERO, ((LargeIntLiteral) rowIdAlias.child()).getValue());
 
         // IvmAggMeta: scalar, no group keys
-        IvmNormalizeResult normalizeResult = jobContext.getCascadesContext().getIvmNormalizeResult().get();
-        IvmAggMeta aggMeta = normalizeResult.getAggMeta();
+        IvmRewriteResult rewriteResult = jobContext.getCascadesContext().getIvmRewriteResult().get();
+        IvmAggMeta aggMeta = rewriteResult.getAggMeta();
         Assertions.assertTrue(aggMeta.isScalarAgg());
         Assertions.assertTrue(aggMeta.getGroupKeySlots().isEmpty());
         Assertions.assertEquals(1, aggMeta.getAggTargets().size());
@@ -544,7 +544,7 @@ class IvmNormalizeMtmvTest {
         Assertions.assertTrue(aggMeta.getAggTargets().get(0).getExprArgs().isEmpty());
 
         // Row-id determinism: scalar agg → non-deterministic
-        Assertions.assertFalse(normalizeResult.getRowIdDeterminism().values().iterator().next());
+        Assertions.assertFalse(rewriteResult.getRowIdDeterminism().values().iterator().next());
     }
 
     @Test
@@ -565,8 +565,8 @@ class IvmNormalizeMtmvTest {
         JobContext jobContext = newJobContextForRoot(agg, true);
         Plan result = new IvmNormalizeMtmv().rewriteRoot(agg, jobContext);
 
-        IvmNormalizeResult normalizeResult = jobContext.getCascadesContext().getIvmNormalizeResult().get();
-        IvmAggMeta aggMeta = normalizeResult.getAggMeta();
+        IvmRewriteResult rewriteResult = jobContext.getCascadesContext().getIvmRewriteResult().get();
+        IvmAggMeta aggMeta = rewriteResult.getAggMeta();
         Assertions.assertEquals(3, aggMeta.getAggTargets().size());
 
         // ordinal 0: COUNT(*) → no hidden columns
@@ -612,7 +612,7 @@ class IvmNormalizeMtmvTest {
         JobContext jobContext = newJobContextForRoot(agg, true);
         new IvmNormalizeMtmv().rewriteRoot(agg, jobContext);
 
-        IvmAggMeta aggMeta = jobContext.getCascadesContext().getIvmNormalizeResult().get().getAggMeta();
+        IvmAggMeta aggMeta = jobContext.getCascadesContext().getIvmRewriteResult().get().getAggMeta();
         Assertions.assertEquals(IvmAggFunctionKind.COUNT, aggMeta.getAggTargets().get(0).getFunctionKind());
         Assertions.assertFalse(aggMeta.getAggTargets().get(0).isCountStar());
         Assertions.assertEquals(1, aggMeta.getAggTargets().get(0).getExprArgs().size());
@@ -667,7 +667,7 @@ class IvmNormalizeMtmvTest {
 
         // Normalization should succeed; no hidden MIN column — only hidden COUNT
         Assertions.assertInstanceOf(LogicalProject.class, result);
-        IvmAggMeta aggMeta = jobContext.getCascadesContext().getIvmNormalizeResult().get().getAggMeta();
+        IvmAggMeta aggMeta = jobContext.getCascadesContext().getIvmRewriteResult().get().getAggMeta();
         Assertions.assertNotNull(aggMeta);
         Assertions.assertEquals(1, aggMeta.getAggTargets().size());
         IvmAggTarget target = aggMeta.getAggTargets().get(0);
@@ -695,7 +695,7 @@ class IvmNormalizeMtmvTest {
         Plan result = new IvmNormalizeMtmv().rewriteRoot(agg, jobContext);
 
         Assertions.assertInstanceOf(LogicalProject.class, result);
-        IvmAggMeta aggMeta = jobContext.getCascadesContext().getIvmNormalizeResult().get().getAggMeta();
+        IvmAggMeta aggMeta = jobContext.getCascadesContext().getIvmRewriteResult().get().getAggMeta();
         Assertions.assertNotNull(aggMeta);
         Assertions.assertEquals(1, aggMeta.getAggTargets().size());
         IvmAggTarget target = aggMeta.getAggTargets().get(0);
@@ -725,7 +725,7 @@ class IvmNormalizeMtmvTest {
         Plan result = new IvmNormalizeMtmv().rewriteRoot(agg, jobContext);
 
         Assertions.assertInstanceOf(LogicalProject.class, result);
-        IvmAggMeta aggMeta = jobContext.getCascadesContext().getIvmNormalizeResult().get().getAggMeta();
+        IvmAggMeta aggMeta = jobContext.getCascadesContext().getIvmRewriteResult().get().getAggMeta();
         Assertions.assertNotNull(aggMeta);
         Assertions.assertEquals(2, aggMeta.getAggTargets().size());
 
@@ -759,7 +759,7 @@ class IvmNormalizeMtmvTest {
 
         // Normalization should succeed with zero agg targets
         Assertions.assertInstanceOf(LogicalProject.class, result);
-        IvmAggMeta aggMeta = jobContext.getCascadesContext().getIvmNormalizeResult().get().getAggMeta();
+        IvmAggMeta aggMeta = jobContext.getCascadesContext().getIvmRewriteResult().get().getAggMeta();
         Assertions.assertNotNull(aggMeta);
         Assertions.assertEquals(0, aggMeta.getAggTargets().size());
         Assertions.assertNotNull(aggMeta.getGroupCountSlot());
@@ -791,7 +791,7 @@ class IvmNormalizeMtmvTest {
 
         // Normalization should succeed
         Assertions.assertInstanceOf(LogicalProject.class, result);
-        IvmAggMeta aggMeta = jobContext.getCascadesContext().getIvmNormalizeResult().get().getAggMeta();
+        IvmAggMeta aggMeta = jobContext.getCascadesContext().getIvmRewriteResult().get().getAggMeta();
         Assertions.assertNotNull(aggMeta);
         Assertions.assertEquals(1, aggMeta.getAggTargets().size());
 
@@ -821,7 +821,7 @@ class IvmNormalizeMtmvTest {
         Plan result = new IvmNormalizeMtmv().rewriteRoot(agg, jobContext);
 
         Assertions.assertInstanceOf(LogicalProject.class, result);
-        IvmAggMeta aggMeta = jobContext.getCascadesContext().getIvmNormalizeResult().get().getAggMeta();
+        IvmAggMeta aggMeta = jobContext.getCascadesContext().getIvmRewriteResult().get().getAggMeta();
         Assertions.assertNotNull(aggMeta);
         Assertions.assertEquals(2, aggMeta.getAggTargets().size());
 

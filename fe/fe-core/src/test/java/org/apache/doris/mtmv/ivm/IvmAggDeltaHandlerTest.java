@@ -66,7 +66,7 @@ class IvmAggDeltaHandlerTest extends IvmDeltaTestBase {
     private AggRewriteResult rewriteAgg(LogicalAggregate<? extends Plan> agg) {
         PlanBundle bundle = normalizeAggPlan(agg);
         MTMV mtmv = buildMtmvFromPlan(bundle.normalizedPlan.getOutput());
-        IvmRefreshContext ctx = new IvmRefreshContext(mtmv, bundle.connectContext, bundle.normalizeResult);
+        IvmRefreshContext ctx = new IvmRefreshContext(mtmv, bundle.connectContext, bundle.rewriteResult);
         // Generate delta plans via the rewriter (handles stream fallback for test environments)
         InsertIntoTableCommand command = (InsertIntoTableCommand) new IvmDeltaRewriter()
                 .rewrite(bundle.normalizedPlan, ctx).get(0);
@@ -382,7 +382,7 @@ class IvmAggDeltaHandlerTest extends IvmDeltaTestBase {
     }
 
     @Test
-    void testAggMissingNormalizeResultThrows() {
+    void testAggMissingRewriteResultThrows() {
         LogicalAggregate<?> agg = buildGroupedAgg(buildScan());
         MTMV mtmv = buildMtmvFromPlan(agg.getOutput());
         IvmRefreshContext ctx = new IvmRefreshContext(mtmv, new ConnectContext(), null);

@@ -361,7 +361,7 @@ class IvmLinearDeltaHandlerTest extends IvmDeltaTestBase {
         IvmDeltaRewriteResult result = handler.exposeRewritePlan(join, dummyCtx());
 
         Assertions.assertNotNull(result.dmlFactorSlot);
-        // With null normalizeResult, conservative default adds a non-det guard (Project wrapping Join)
+        // With null rewriteResult, conservative default adds a non-det guard (Project wrapping Join)
         Assertions.assertInstanceOf(LogicalProject.class, result.plan);
     }
 
@@ -418,14 +418,14 @@ class IvmLinearDeltaHandlerTest extends IvmDeltaTestBase {
         LogicalProject<?> normalizedSnapshot = new LogicalProject<>(snapshotOutputs.build(), scanSnapshot);
         Slot rowIdSlot = normalizedSnapshot.getOutput().get(0); // the row_id slot
 
-        IvmNormalizeResult normalizeResult = new IvmNormalizeResult();
-        normalizeResult.addRowId(rowIdSlot, false); // non-deterministic
+        IvmRewriteResult rewriteResult = new IvmRewriteResult();
+        rewriteResult.addRowId(rowIdSlot, false); // non-deterministic
 
         LogicalJoin<?, ?> join = new LogicalJoin<>(JoinType.INNER_JOIN,
                 ImmutableList.of(), scanDelta, normalizedSnapshot, JoinReorderContext.EMPTY);
 
         IvmRefreshContext rewriteCtx = new IvmRefreshContext(mockMtmv(), new ConnectContext(),
-                normalizeResult);
+                rewriteResult);
         TestableIvmLinearDeltaHandler handler = new TestableIvmLinearDeltaHandler();
         IvmDeltaRewriteResult result = handler.exposeRewritePlan(join, rewriteCtx);
 
@@ -451,14 +451,14 @@ class IvmLinearDeltaHandlerTest extends IvmDeltaTestBase {
         LogicalProject<?> normalizedSnapshot = new LogicalProject<>(snapshotOutputs.build(), scanSnapshot);
         Slot rowIdSlot = normalizedSnapshot.getOutput().get(0);
 
-        IvmNormalizeResult normalizeResult = new IvmNormalizeResult();
-        normalizeResult.addRowId(rowIdSlot, true); // deterministic
+        IvmRewriteResult rewriteResult = new IvmRewriteResult();
+        rewriteResult.addRowId(rowIdSlot, true); // deterministic
 
         LogicalJoin<?, ?> join = new LogicalJoin<>(JoinType.INNER_JOIN,
                 ImmutableList.of(), scanDelta, normalizedSnapshot, JoinReorderContext.EMPTY);
 
         IvmRefreshContext rewriteCtx = new IvmRefreshContext(mockMtmv(), new ConnectContext(),
-                normalizeResult);
+                rewriteResult);
         TestableIvmLinearDeltaHandler handler = new TestableIvmLinearDeltaHandler();
         IvmDeltaRewriteResult result = handler.exposeRewritePlan(join, rewriteCtx);
 
@@ -480,14 +480,14 @@ class IvmLinearDeltaHandlerTest extends IvmDeltaTestBase {
         LogicalProject<?> normalizedSnapshot = new LogicalProject<>(snapshotOutputs.build(), scanSnapshot);
         Slot rowIdSlot = normalizedSnapshot.getOutput().get(0);
 
-        IvmNormalizeResult normalizeResult = new IvmNormalizeResult();
-        normalizeResult.addRowId(rowIdSlot, false);
+        IvmRewriteResult rewriteResult = new IvmRewriteResult();
+        rewriteResult.addRowId(rowIdSlot, false);
 
         LogicalJoin<?, ?> join = new LogicalJoin<>(JoinType.INNER_JOIN,
                 ImmutableList.of(), scanDelta, normalizedSnapshot, JoinReorderContext.EMPTY);
 
         IvmRefreshContext rewriteCtx = new IvmRefreshContext(mockMtmv(), new ConnectContext(),
-                normalizeResult);
+                rewriteResult);
         TestableIvmLinearDeltaHandler handler = new TestableIvmLinearDeltaHandler();
         IvmDeltaRewriteResult result = handler.exposeRewritePlan(join, rewriteCtx);
 
