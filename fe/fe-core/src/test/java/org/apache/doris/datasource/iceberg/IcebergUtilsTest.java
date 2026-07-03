@@ -25,6 +25,9 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.iceberg.source.IcebergTableQueryInfo;
 
 import com.google.common.collect.ImmutableMap;
+import org.apache.iceberg.DataFile;
+import org.apache.iceberg.DataFiles;
+import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.GenericPartitionFieldSummary;
 import org.apache.iceberg.HistoryEntry;
 import org.apache.iceberg.ManifestContent;
@@ -41,6 +44,7 @@ import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.expressions.Expression;
 import org.apache.iceberg.expressions.Expressions;
 import org.apache.iceberg.expressions.UnboundPredicate;
+import org.apache.iceberg.hadoop.HadoopTables;
 import org.apache.iceberg.hive.HiveCatalog;
 import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.types.Conversions;
@@ -48,7 +52,9 @@ import org.apache.iceberg.types.Types;
 import org.apache.iceberg.types.Types.LongType;
 import org.apache.iceberg.types.Types.StructType;
 import org.junit.Assert;
+import org.junit.Rule;
 import org.junit.Test;
+import org.junit.rules.TemporaryFolder;
 import org.mockito.Mockito;
 
 import java.lang.reflect.Field;
@@ -68,6 +74,10 @@ import java.util.Map;
 import java.util.Optional;
 
 public class IcebergUtilsTest {
+
+    @Rule
+    public TemporaryFolder tmp = new TemporaryFolder();
+
     @Test
     public void testParseTableName() {
         try {
@@ -710,5 +720,58 @@ public class IcebergUtilsTest {
         Assert.assertEquals(expectSnapshotId, queryInfo.getSnapshotId());
         Assert.assertEquals(expectSchemaId, queryInfo.getSchemaId());
         Assert.assertEquals(expectRef, queryInfo.getRef());
+    }
+
+    @Test
+    public void testGetFileFormatHonorsWriteFormatProperty() {
+        Table table = Mockito.mock(Table.class);
+        Mockito.when(table.properties()).thenReturn(ImmutableMap.of(IcebergUtils.WRITE_FORMAT, "ORC"));
+        Assert.assertEquals(FileFormat.ORC, IcebergUtils.getFileFormat(table));
+        // No snapshot lookup should be needed when properties are sufficient.
+        Mockito.verify(table, Mockito.never()).currentSnapshot();
+    }
+
+    @Test
+    public void testGetFileFormatHonorsDefaultFormatProperty() {
+        Table table = Mockito.mock(Table.class);
+        Mockito.when(table.properties()).thenReturn(
+                ImmutableMap.of(TableProperties.DEFAULT_FILE_FORMAT, "parquet"));
+        Assert.assertEquals(FileFormat.PARQUET, IcebergUtils.getFileFormat(table));
+        Mockito.verify(table, Mockito.never()).currentSnapshot();
+    }
+
+    @Test
+    public void testGetFileFormatFallsBackToParquetWhenNoSnapshotAndNoProperties() {
+        // Migrated tables without write-format / write.format.default and no snapshot
+        // must not throw and must default to parquet.
+        Table table = Mockito.mock(Table.class);
+        Mockito.when(table.properties()).thenReturn(ImmutableMap.of());
+        Mockito.when(table.currentSnapshot()).thenReturn(null);
+        Mockito.when(table.name()).thenReturn("test_no_snapshot_table");
+        Assert.assertEquals(FileFormat.PARQUET, IcebergUtils.getFileFormat(table));
+    }
+
+    @Test
+    public void testGetFileFormatInfersFromManifestEntryWhenPropertiesMissing() throws Exception {
+        java.io.File warehouse = tmp.newFolder("warehouse_orc");
+        String location = warehouse.toURI().toString() + "migrated_orc_tbl";
+
+        Schema schema = new Schema(
+                Types.NestedField.required(1, "id", Types.LongType.get()),
+                Types.NestedField.optional(2, "name", Types.StringType.get()));
+
+        HadoopTables tables = new HadoopTables(new org.apache.hadoop.conf.Configuration());
+        Table table = tables.create(schema, PartitionSpec.unpartitioned(),
+                ImmutableMap.of(), location);
+
+        DataFile dataFile = DataFiles.builder(PartitionSpec.unpartitioned())
+                .withPath(location + "/data/fake-0.orc")
+                .withFormat(FileFormat.ORC)
+                .withFileSizeInBytes(1024L)
+                .withRecordCount(1L)
+                .build();
+        table.newAppend().appendFile(dataFile).commit();
+
+        Assert.assertEquals(FileFormat.ORC, IcebergUtils.getFileFormat(table));
     }
 }
