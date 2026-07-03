@@ -1013,8 +1013,9 @@ public class IcebergNereidsUtilsTest {
     //
     // Post-flip an iceberg table is a PluginDrivenExternalTable (not an IcebergExternalTable), so the
     // IcebergRowIdInjector guard must recognize it by the neutral row-level-DML connector capability rather
-    // than instanceof Iceberg*, while still admitting the legacy class pre-flip. End-to-end pre-flip parity of
-    // the actual slot injection is covered by IcebergDDLAndDMLPlanTest; this isolates the guard predicate.
+    // than instanceof Iceberg*, while still admitting the legacy class pre-flip. The native pre-flip slot
+    // injection had end-to-end coverage in IcebergDDLAndDMLPlanTest, retired with the P6.6 iceberg cutover
+    // (the native path is no longer reachable); this isolates the guard predicate.
 
     /** A plugin-driven table whose connector declares the given row-level-DML capabilities. */
     private static PluginDrivenExternalTable pluginTableWithCapability(boolean supportsDelete, boolean supportsMerge) {

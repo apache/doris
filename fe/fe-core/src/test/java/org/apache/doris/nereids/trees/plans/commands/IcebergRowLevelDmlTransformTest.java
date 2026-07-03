@@ -68,7 +68,8 @@ import java.util.Set;
  * <p>Covers the genuinely new T07c logic: the registry table-type predicate, the frozen per-op label
  * prefixes (profile/txn parity), the O5-2 synthetic-column exclusion supplied to {@link WriteConstraintExtractor
  * via the iceberg-specific predicate}, and the dormant O5-2 {@code applyWriteConstraint} round-trip. The
- * synthesis/executor/sink delegation is exercised end-to-end by {@code IcebergDDLAndDMLPlanTest}.</p>
+ * synthesis/executor/sink delegation had native end-to-end coverage in {@code IcebergDDLAndDMLPlanTest},
+ * retired with the P6.6 iceberg cutover (the native arm is no longer reachable).</p>
  */
 public class IcebergRowLevelDmlTransformTest {
 

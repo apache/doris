@@ -64,9 +64,10 @@ import java.util.Optional;
  * {@code visitPhysicalIcebergMergeSink}) for the iceberg SPI cutover (commit-bridge S5d).
  *
  * <p>Pre-flip the target is a native {@code IcebergExternalTable} and the visitor builds the native
- * {@code IcebergDeleteSink} / {@code IcebergMergeSink} (byte-identical, covered end-to-end by
- * {@code IcebergDDLAndDMLPlanTest}; the native sink ctor loads vended credentials + the live iceberg table,
- * so it is not exercised at the translator unit level here). Post-flip the target is a
+ * {@code IcebergDeleteSink} / {@code IcebergMergeSink} (byte-identical; its native end-to-end test
+ * {@code IcebergDDLAndDMLPlanTest} was retired with the P6.6 iceberg cutover as the native arm is no longer
+ * reachable, and the native sink ctor loads vended credentials + the live iceberg table, so it is not
+ * exercised at the translator unit level here). Post-flip the target is a
  * {@link PluginDrivenExternalTable} and the visitor must route through the generic
  * {@link PluginDrivenTableSink} with the matching {@link WriteOperation}, so the connector's
  * {@code planWrite} emits its DELETE / MERGE BE sink dialect. These tests pin the plugin (post-flip) arm.</p>
