@@ -19,11 +19,13 @@
 
 #include <gen_cpp/Descriptors_types.h>
 #include <gen_cpp/segment_v2.pb.h>
+#include <glog/logging.h>
 #include <sys/types.h>
 
 #include <cstddef> // for size_t
 #include <cstdint> // for uint32_t
-#include <memory>  // for unique_ptr
+#include <map>
+#include <memory> // for unique_ptr
 #include <string>
 #include <utility>
 #include <vector>
@@ -371,7 +373,7 @@ public:
     virtual Status set_access_paths(const TColumnAccessPaths& all_access_paths,
                                     const TColumnAccessPaths& predicate_access_paths) {
         if (!predicate_access_paths.empty()) {
-            _reading_flag = ReadingFlag::READING_FOR_PREDICATE;
+            set_read_requirement_self(ReadRequirement::PREDICATE);
         }
         return Status::OK();
     }
@@ -380,33 +382,28 @@ public:
 
     const std::string& column_name() const { return _column_name; }
 
-    // Since there may be multiple paths with conflicts or overlaps,
-    // we need to define several reading flags:
+    // Per-iterator read requirement derived from nested access paths.
     //
-    // NORMAL_READING — Default value, indicating that the column should be read.
-    // SKIP_READING — The column should not be read.
-    // NEED_TO_READ — The column must be read.
-    // READING_FOR_PREDICATE — The column is required for predicate evaluation.
-    //
-    // For example, suppose there are two paths:
-    // - Path 1 specifies that column A needs to be read, so it is marked as NEED_TO_READ.
-    // - Path 2 specifies that the column should not be read, but since it is already marked as NEED_TO_READ,
-    //   it should not be changed to SKIP_READING.
-    enum class ReadingFlag : int {
-        NORMAL_READING,
-        SKIP_READING,
-        NEED_TO_READ,
-        READING_FOR_PREDICATE
-    };
-    void set_reading_flag(ReadingFlag flag) {
-        if (static_cast<int>(flag) > static_cast<int>(_reading_flag)) {
-            _reading_flag = flag;
-        }
+    // The ordering is intentional and used by set_read_requirement_self(): requirements are
+    // monotonic and a weaker requirement must not downgrade a stronger one.
+    // - NORMAL: no pruning decision has been made yet.
+    // - SKIP: this iterator should not be read.
+    // - LAZY_OUTPUT: materialize this iterator in the lazy phase after predicate filtering.
+    // - PREDICATE: read this iterator in the predicate phase. This must stay stronger than
+    //   LAZY_OUTPUT because parents may mark children as LAZY_OUTPUT after child set_access_paths()
+    //   has already promoted predicate-only children to PREDICATE.
+    enum class ReadRequirement : int { NORMAL, SKIP, LAZY_OUTPUT, PREDICATE };
+
+    // Set the read requirement on this iterator and all nested child iterators.
+    virtual void set_read_requirement(ReadRequirement requirement) {
+        set_read_requirement_self(requirement);
     }
 
-    ReadingFlag reading_flag() const { return _reading_flag; }
+    ReadRequirement read_requirement() const { return _read_requirement; }
 
-    virtual void set_need_to_read() { set_reading_flag(ReadingFlag::NEED_TO_READ); }
+    virtual void set_lazy_output_requirement() {
+        set_read_requirement(ReadRequirement::LAZY_OUTPUT);
+    }
 
     virtual void remove_pruned_sub_iterators() {};
 
@@ -423,26 +420,96 @@ public:
     static constexpr const char* ACCESS_NULL = "NULL";
 
     // Meta-only read modes:
-    // - OFFSET_ONLY: only read offset information (e.g., for array_size/map_size/string_length)
+    // - OFFSET_ONLY: read offsets while skipping actual child/string data. For nullable
+    //   complex columns, the parent null map is still materialized when needed.
     // - NULL_MAP_ONLY: only read null map (e.g., for IS NULL / IS NOT NULL predicates)
     // When these modes are enabled, actual content data is skipped.
-    enum class ReadMode : int { DEFAULT, OFFSET_ONLY, NULL_MAP_ONLY };
+    enum class MetaReadMode : int { DEFAULT, OFFSET_ONLY, NULL_MAP_ONLY };
 
-    bool read_offset_only() const { return _read_mode == ReadMode::OFFSET_ONLY; }
-    bool read_null_map_only() const { return _read_mode == ReadMode::NULL_MAP_ONLY; }
+    bool read_offset_only() const { return _meta_read_mode == MetaReadMode::OFFSET_ONLY; }
+    bool read_null_map_only() const { return _meta_read_mode == MetaReadMode::NULL_MAP_ONLY; }
+
+    // The current scanner phase. This is intentionally separate from ReadRequirement
+    // (why this iterator is needed) and MetaReadMode (what physical metadata to read).
+    enum class ReadPhase : int {
+        NORMAL,    // default full materialization without lazy read split
+        PREDICATE, // predicate evaluation before row filtering
+        LAZY       // post-filter lazy materialization
+    };
+
+    virtual void set_read_phase(ReadPhase mode) {
+        _read_phase = mode;
+        if (mode == ReadPhase::PREDICATE) {
+            _has_place_holder_column = false;
+        }
+    }
+
+    virtual bool need_to_read() const {
+        switch (_read_phase) {
+        case ReadPhase::NORMAL:
+            return _read_requirement != ReadRequirement::SKIP;
+        case ReadPhase::PREDICATE:
+            return _read_requirement == ReadRequirement::PREDICATE;
+        case ReadPhase::LAZY:
+            return _read_requirement == ReadRequirement::LAZY_OUTPUT;
+        default:
+            return false;
+        }
+    }
+
+    // Whether the current iterator itself should materialize meta columns, such as
+    // the null-map column or the offset column, into the destination column.
+    //
+    // Do not use the virtual need_to_read() here. Complex iterators override
+    // need_to_read() in LAZY mode to keep the parent iterator active when only a
+    // nested child still has data to materialize. That parent-level control-flow
+    // decision is different from materializing the parent's own offsets/null-map:
+    // if the parent was already read for predicate evaluation, LAZY mode should
+    // only fill the missing children and must not append parent meta again.
+    bool need_to_read_meta_columns() const { return ColumnIterator::need_to_read(); }
+
+    virtual void finalize_lazy_phase(MutableColumnPtr& dst) {
+        _recovery_from_place_holder_column(dst);
+    }
+
+    // Set only this iterator's requirement without modifying requirements of any nested child
+    // iterators. Use this when the parent/wrapper state must be updated while child requirements
+    // are decided independently.
+    virtual void set_read_requirement_self(ReadRequirement requirement) {
+        if (static_cast<int>(requirement) > static_cast<int>(_read_requirement)) {
+            _read_requirement = requirement;
+        }
+    }
+
+    // Whether this iterator or any nested iterator has data that must be materialized
+    // in lazy mode. Predicate-only branches are read before filtering and must not be
+    // re-read in the lazy phase. Meta-only access paths still become lazy targets when
+    // they appear only in all_access_paths, because OFFSET/NULL is the requested output.
+    virtual bool has_lazy_read_target() const {
+        return _read_requirement == ReadRequirement::LAZY_OUTPUT;
+    }
 
 protected:
-    // Checks sub access paths for OFFSET or NULL meta-only modes and
-    // updates _read_mode accordingly. Use the accessor helpers
-    // read_offset_only() / read_null_map_only() to query the current mode.
-    void _check_and_set_meta_read_mode(const TColumnAccessPaths& sub_all_access_paths);
+    void _convert_to_place_holder_column(MutableColumnPtr& dst, size_t count);
 
-    Result<TColumnAccessPaths> _get_sub_access_paths(const TColumnAccessPaths& access_paths);
+    void _recovery_from_place_holder_column(MutableColumnPtr& dst);
+
+    // Derive current-level meta-only read mode from access paths. Meta-only is valid only when
+    // this iterator had no data-read requirement before applying the current paths, and every
+    // visible path at this level is NULL/OFFSET metadata.
+    void _check_and_set_meta_read_mode(ReadRequirement requirement_before_access_path,
+                                       const TColumnAccessPaths& sub_all_access_paths);
+
+    Result<TColumnAccessPaths> _get_sub_access_paths(TColumnAccessPaths access_paths,
+                                                     bool is_predicate = false);
     ColumnIteratorOptions _opts;
 
-    ReadingFlag _reading_flag {ReadingFlag::NORMAL_READING};
-    ReadMode _read_mode = ReadMode::DEFAULT;
+    ReadRequirement _read_requirement {ReadRequirement::NORMAL};
+    MetaReadMode _meta_read_mode = MetaReadMode::DEFAULT;
+    ReadPhase _read_phase {ReadPhase::NORMAL};
     std::string _column_name;
+
+    bool _has_place_holder_column {false};
 };
 
 // This iterator is used to read column data from file
@@ -591,6 +658,11 @@ public:
         return _offset_iterator->read_by_rowids(rowids, count, dst);
     }
 
+    void set_read_requirement(ReadRequirement requirement) override {
+        set_read_requirement_self(requirement);
+        _offset_iterator->set_read_requirement(requirement);
+    }
+
     Status init_prefetcher(const SegmentPrefetchParams& params) override;
     void collect_prefetchers(
             std::map<PrefetcherInitMethod, std::vector<SegmentPrefetcher*>>& prefetchers,
@@ -636,9 +708,32 @@ public:
     Status set_access_paths(const TColumnAccessPaths& all_access_paths,
                             const TColumnAccessPaths& predicate_access_paths) override;
 
-    void set_need_to_read() override;
+    void set_lazy_output_requirement() override;
 
     void remove_pruned_sub_iterators() override;
+
+    void set_read_phase(ReadPhase mode) override;
+
+    bool need_to_read() const override {
+        switch (_read_phase) {
+        case ReadPhase::NORMAL:
+            return _read_requirement != ReadRequirement::SKIP;
+        case ReadPhase::PREDICATE:
+            return _read_requirement == ReadRequirement::PREDICATE;
+        case ReadPhase::LAZY:
+            // In lazy mode, read this map only when at least one key/value branch still
+            // has non-predicate data to materialize.
+            return has_lazy_read_target();
+        default:
+            return false;
+        }
+    }
+
+    void finalize_lazy_phase(MutableColumnPtr& dst) override;
+
+    void set_read_requirement(ReadRequirement requirement) override;
+
+    bool has_lazy_read_target() const override;
 
 private:
     std::shared_ptr<ColumnReader> _map_reader = nullptr;
@@ -680,7 +775,7 @@ public:
     Status set_access_paths(const TColumnAccessPaths& all_access_paths,
                             const TColumnAccessPaths& predicate_access_paths) override;
 
-    void set_need_to_read() override;
+    void set_lazy_output_requirement() override;
 
     void remove_pruned_sub_iterators() override;
 
@@ -688,6 +783,27 @@ public:
     void collect_prefetchers(
             std::map<PrefetcherInitMethod, std::vector<SegmentPrefetcher*>>& prefetchers,
             PrefetcherInitMethod init_method) override;
+
+    void set_read_phase(ReadPhase mode) override;
+
+    bool need_to_read() const override {
+        switch (_read_phase) {
+        case ReadPhase::NORMAL:
+            return _read_requirement != ReadRequirement::SKIP;
+        case ReadPhase::PREDICATE:
+            return _read_requirement == ReadRequirement::PREDICATE;
+        case ReadPhase::LAZY:
+            // In lazy mode, read this struct only when at least one nested branch still
+            // has non-predicate data to materialize.
+            return has_lazy_read_target();
+        default:
+            return false;
+        }
+    }
+
+    void finalize_lazy_phase(MutableColumnPtr& dst) override;
+    void set_read_requirement(ReadRequirement requirement) override;
+    bool has_lazy_read_target() const override;
 
 private:
     std::shared_ptr<ColumnReader> _struct_reader = nullptr;
@@ -727,7 +843,7 @@ public:
 
     Status set_access_paths(const TColumnAccessPaths& all_access_paths,
                             const TColumnAccessPaths& predicate_access_paths) override;
-    void set_need_to_read() override;
+    void set_lazy_output_requirement() override;
 
     void remove_pruned_sub_iterators() override;
 
@@ -735,6 +851,29 @@ public:
     void collect_prefetchers(
             std::map<PrefetcherInitMethod, std::vector<SegmentPrefetcher*>>& prefetchers,
             PrefetcherInitMethod init_method) override;
+
+    void set_read_phase(ReadPhase mode) override;
+
+    bool need_to_read() const override {
+        switch (_read_phase) {
+        case ReadPhase::NORMAL:
+            return _read_requirement != ReadRequirement::SKIP;
+        case ReadPhase::PREDICATE:
+            return _read_requirement == ReadRequirement::PREDICATE;
+        case ReadPhase::LAZY:
+            // In lazy mode, read this array only when its item branch still has
+            // non-predicate data to materialize.
+            return has_lazy_read_target();
+        default:
+            return false;
+        }
+    }
+
+    void finalize_lazy_phase(MutableColumnPtr& dst) override;
+
+    void set_read_requirement(ReadRequirement requirement) override;
+
+    bool has_lazy_read_target() const override;
 
 private:
     std::shared_ptr<ColumnReader> _array_reader = nullptr;

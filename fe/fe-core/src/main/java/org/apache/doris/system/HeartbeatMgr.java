@@ -306,6 +306,10 @@ public class HeartbeatMgr extends MasterDaemon {
                     copiedMasterInfo.setTabletReportInactiveDurationMs(reportInterval);
                     TCloudClusterInfo clusterInfo = new TCloudClusterInfo();
                     clusterInfo.setIsStandby(backend.isInStandbyCluster());
+                    String computeGroupId = backend.getCloudClusterId();
+                    if (computeGroupId != null && !computeGroupId.isEmpty()) {
+                        clusterInfo.setCloudComputeGroupId(computeGroupId);
+                    }
                     copiedMasterInfo.setCloudClusterInfo(clusterInfo);
                 }
                 THeartbeatResult result;

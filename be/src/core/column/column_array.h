@@ -37,7 +37,6 @@
 #include "core/field.h"
 #include "core/string_ref.h"
 #include "core/types.h"
-#include "util/defer_op.h"
 
 class SipHash;
 
@@ -216,14 +215,14 @@ public:
         return get_offsets()[i] - get_offsets()[i - 1];
     }
 
-    void for_each_subcolumn(ColumnCallback callback) override {
-        IColumn::WrappedPtr offsets_column(std::move(static_cast<ColumnOffsets::Ptr&>(offsets)));
-        Defer defer([&] {
-            static_cast<ColumnOffsets::Ptr&>(offsets) =
-                    cast_to_column<ColumnOffsets>(static_cast<const IColumn::Ptr&>(offsets_column));
-        });
-        callback(offsets_column);
-        callback(data);
+    void mutate_subcolumns() override {
+        mutate_subcolumn<ColumnOffsets>(offsets);
+        mutate_subcolumn(data);
+    }
+
+    void for_each_subcolumn(ColumnCallback callback) const override {
+        callback(*static_cast<const ColumnOffsets::Ptr&>(offsets));
+        callback(*static_cast<const IColumn::Ptr&>(data));
     }
 
     ColumnPtr convert_column_if_overflow() override {

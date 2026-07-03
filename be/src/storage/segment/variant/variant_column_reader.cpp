@@ -85,7 +85,7 @@ public:
             : _inner(std::move(inner)), _owner(std::move(owner)) {
         DCHECK(_inner != nullptr);
         set_column_name(_inner->column_name());
-        set_reading_flag(_inner->reading_flag());
+        set_read_requirement(_inner->read_requirement());
     }
 
     Status init(const ColumnIteratorOptions& opts) override { return _inner->init(opts); }
@@ -129,14 +129,35 @@ public:
     Status set_access_paths(const TColumnAccessPaths& all_access_paths,
                             const TColumnAccessPaths& predicate_access_paths) override {
         RETURN_IF_ERROR(_inner->set_access_paths(all_access_paths, predicate_access_paths));
-        set_reading_flag(_inner->reading_flag());
+        ColumnIterator::set_read_requirement_self(_inner->read_requirement());
         return Status::OK();
     }
 
-    void set_need_to_read() override {
-        _inner->set_need_to_read();
-        set_reading_flag(_inner->reading_flag());
+    void set_read_requirement(ReadRequirement requirement) override {
+        _inner->set_read_requirement(requirement);
+        ColumnIterator::set_read_requirement_self(_inner->read_requirement());
     }
+
+    void set_read_requirement_self(ReadRequirement requirement) override {
+        _inner->set_read_requirement_self(requirement);
+        ColumnIterator::set_read_requirement_self(_inner->read_requirement());
+    }
+
+    void set_lazy_output_requirement() override {
+        _inner->set_lazy_output_requirement();
+        ColumnIterator::set_read_requirement_self(_inner->read_requirement());
+    }
+
+    void set_read_phase(ReadPhase mode) override {
+        ColumnIterator::set_read_phase(mode);
+        _inner->set_read_phase(mode);
+    }
+
+    void finalize_lazy_phase(MutableColumnPtr& dst) override { _inner->finalize_lazy_phase(dst); }
+
+    bool has_lazy_read_target() const override { return _inner->has_lazy_read_target(); }
+
+    bool need_to_read() const override { return _inner->need_to_read(); }
 
     void remove_pruned_sub_iterators() override { _inner->remove_pruned_sub_iterators(); }
 

@@ -24,14 +24,18 @@
 #include <algorithm>
 #include <cstring>
 #include <exception>
+#include <limits>
 #include <mutex>
 #include <unordered_map>
 #include <utility>
 
 #include "common/check.h"
 #include "common/config.h"
+#include "io/cache/cached_remote_file_reader.h"
 #include "io/file_factory.h"
+#include "io/fs/buffered_reader.h"
 #include "io/fs/file_reader.h"
+#include "io/fs/tracing_file_reader.h"
 #include "storage/cache/page_cache.h"
 #include "util/slice.h"
 
@@ -89,6 +93,38 @@ std::vector<ParquetPageCacheReadPlanEntry> plan_page_cache_range_read(
         cursor += copy_size;
     }
     return plan;
+}
+
+std::vector<ParquetPageCacheRange> valid_prefetch_ranges(
+        const std::vector<ParquetPageCacheRange>& ranges) {
+    std::vector<ParquetPageCacheRange> valid_ranges;
+    valid_ranges.reserve(ranges.size());
+    for (const auto& range : ranges) {
+        if (range.offset < 0 || range.size <= 0 ||
+            range.offset > std::numeric_limits<int64_t>::max() - range.size) {
+            continue;
+        }
+        valid_ranges.push_back(range);
+    }
+    return valid_ranges;
+}
+
+size_t average_prefetch_range_size(const std::vector<ParquetPageCacheRange>& ranges) {
+    const auto valid_ranges = valid_prefetch_ranges(ranges);
+    if (valid_ranges.empty()) {
+        return 0;
+    }
+    size_t total_size = 0;
+    for (const auto& range : valid_ranges) {
+        total_size += static_cast<size_t>(range.size);
+    }
+    return total_size / valid_ranges.size();
+}
+
+bool should_use_merge_range_reader(const std::vector<ParquetPageCacheRange>& ranges,
+                                   size_t avg_io_size, bool is_in_memory_reader) {
+    return !is_in_memory_reader && !valid_prefetch_ranges(ranges).empty() &&
+           avg_io_size < io::MergeRangeFileReader::SMALL_IO;
 }
 
 } // namespace detail
@@ -172,15 +208,24 @@ public:
     DorisRandomAccessFile(io::FileReaderSPtr file_reader, io::IOContext* io_ctx,
                           bool enable_page_cache, std::string page_cache_file_key)
             : _file_reader(std::move(file_reader)),
+              _base_file_reader(_file_reader),
               _io_ctx(io_ctx),
               _enable_page_cache(enable_page_cache),
               _page_cache_file_key(std::move(page_cache_file_key)) {
         DORIS_CHECK(_file_reader != nullptr);
+        if (auto tracing_reader = std::dynamic_pointer_cast<io::TracingFileReader>(_file_reader)) {
+            _file_reader_stats = tracing_reader->stats();
+            _base_file_reader = tracing_reader->inner_reader();
+        }
+        DORIS_CHECK(_base_file_reader != nullptr);
         set_mode(arrow::io::FileMode::READ);
     }
 
     arrow::Status Close() override {
-        _closed = true;
+        if (!_closed) {
+            collect_active_merge_range_profile();
+            _closed = true;
+        }
         return arrow::Status::OK();
     }
 
@@ -251,6 +296,53 @@ public:
     void register_page_cache_ranges(std::vector<ParquetPageCacheRange> ranges) {
         std::lock_guard lock(_page_cache_mutex);
         _page_cache_ranges = std::move(ranges);
+    }
+
+    void prefetch_ranges(const std::vector<ParquetPageCacheRange>& ranges,
+                         const io::IOContext* io_ctx) {
+        auto cached_reader = cached_remote_file_reader();
+        if (cached_reader == nullptr) {
+            return;
+        }
+        const auto* prefetch_io_ctx = io_ctx != nullptr ? io_ctx : _io_ctx;
+        for (const auto& range : ranges) {
+            if (range.offset < 0 || range.size <= 0) {
+                continue;
+            }
+            cached_reader->prefetch_range(static_cast<size_t>(range.offset),
+                                          static_cast<size_t>(range.size), prefetch_io_ctx);
+        }
+    }
+
+    bool set_random_access_ranges(const std::vector<ParquetPageCacheRange>& ranges,
+                                  size_t avg_io_size, RuntimeProfile* profile,
+                                  int64_t merge_read_slice_size) {
+        reset_active_file_reader();
+        const auto valid_ranges = detail::valid_prefetch_ranges(ranges);
+        if (!detail::should_use_merge_range_reader(
+                    valid_ranges, avg_io_size,
+                    typeid_cast<io::InMemoryFileReader*>(_base_file_reader.get()) != nullptr)) {
+            return false;
+        }
+
+        std::vector<io::PrefetchRange> random_access_ranges;
+        random_access_ranges.reserve(valid_ranges.size());
+        for (const auto& range : valid_ranges) {
+            random_access_ranges.emplace_back(static_cast<size_t>(range.offset),
+                                              static_cast<size_t>(range.end_offset()));
+        }
+
+        // This mirrors the v1 parquet reader: when projected column chunks in a row group are
+        // small random IOs, make the actual ReadAt path range-aware. Arrow still drives decoding,
+        // but every page read below this point sees MergeRangeFileReader instead of the raw remote
+        // reader, so adjacent small requests can be coalesced and served from merge buffers.
+        // Example: a row group projects leaf chunks [1MB, 1.5MB) and [1.6MB, 2MB). Arrow later
+        // issues page reads inside those chunks; MergeRangeFileReader can fetch a wider slice once
+        // and satisfy the following ReadAt calls from its boxes, reducing remote request count.
+        _merge_range_active = true;
+        set_active_file_reader(std::make_shared<io::MergeRangeFileReader>(
+                profile, _base_file_reader, random_access_ranges, merge_read_slice_size));
+        return true;
     }
 
     ParquetPageCacheStats page_cache_stats() const {
@@ -359,11 +451,56 @@ private:
         ++_page_cache_stats.compressed_write_count;
     }
 
+    void set_active_file_reader(io::FileReaderSPtr reader) {
+        DORIS_CHECK(reader != nullptr);
+        _file_reader = _file_reader_stats != nullptr
+                               ? std::make_shared<io::TracingFileReader>(std::move(reader),
+                                                                         _file_reader_stats)
+                               : std::move(reader);
+    }
+
+    void reset_active_file_reader() {
+        collect_active_merge_range_profile();
+        _merge_range_active = false;
+        set_active_file_reader(_base_file_reader);
+    }
+
+    void collect_active_merge_range_profile() {
+        if (_merge_range_active && _file_reader != nullptr) {
+            // MergeRangeFileReader writes its MergedSmallIO counters only from
+            // collect_profile_before_close(). v2 replaces the active reader for every row group,
+            // so collect before overwriting it; Close() handles the final row group. Example:
+            // RG0 installs a merge reader, RG1 calls set_random_access_ranges() and resets the
+            // active reader first, so RG0's RequestIO/MergedIO counters must be flushed here.
+            _file_reader->collect_profile_before_close();
+        }
+    }
+
+    std::shared_ptr<io::CachedRemoteFileReader> cached_remote_file_reader() {
+        if (_merge_range_active) {
+            return nullptr;
+        }
+        auto reader = _file_reader;
+        if (reader == nullptr) {
+            return nullptr;
+        }
+        // FileReader::init wraps the physical reader with TracingFileReader when scan IO stats are
+        // enabled. Prefetch should target the physical cached reader below that tracing wrapper,
+        // otherwise v2 scans with profiling would silently lose prefetch.
+        if (auto tracing_reader = std::dynamic_pointer_cast<io::TracingFileReader>(reader)) {
+            reader = tracing_reader->inner_reader();
+        }
+        return std::dynamic_pointer_cast<io::CachedRemoteFileReader>(reader);
+    }
+
     io::FileReaderSPtr _file_reader;
+    io::FileReaderSPtr _base_file_reader;
+    io::FileReaderStats* _file_reader_stats = nullptr;
     io::IOContext* _io_ctx = nullptr;
     int64_t _pos = 0;
     bool _closed = false;
     bool _enable_page_cache = false;
+    bool _merge_range_active = false;
     std::string _page_cache_file_key;
     mutable std::mutex _page_cache_mutex;
     std::vector<ParquetPageCacheRange> _page_cache_ranges;
@@ -415,6 +552,20 @@ void ParquetFileContext::register_page_cache_ranges(std::vector<ParquetPageCache
     DORIS_CHECK(arrow_file != nullptr);
     static_cast<DorisRandomAccessFile*>(arrow_file.get())
             ->register_page_cache_ranges(std::move(ranges));
+}
+
+void ParquetFileContext::prefetch_ranges(const std::vector<ParquetPageCacheRange>& ranges,
+                                         const io::IOContext* io_ctx) {
+    DORIS_CHECK(arrow_file != nullptr);
+    static_cast<DorisRandomAccessFile*>(arrow_file.get())->prefetch_ranges(ranges, io_ctx);
+}
+
+bool ParquetFileContext::set_random_access_ranges(const std::vector<ParquetPageCacheRange>& ranges,
+                                                  size_t avg_io_size, RuntimeProfile* profile,
+                                                  int64_t merge_read_slice_size) {
+    DORIS_CHECK(arrow_file != nullptr);
+    return static_cast<DorisRandomAccessFile*>(arrow_file.get())
+            ->set_random_access_ranges(ranges, avg_io_size, profile, merge_read_slice_size);
 }
 
 ParquetPageCacheStats ParquetFileContext::page_cache_stats() const {

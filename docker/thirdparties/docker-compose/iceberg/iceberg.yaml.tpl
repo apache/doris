@@ -41,6 +41,8 @@ services:
       - AWS_ACCESS_KEY_ID=admin
       - AWS_SECRET_ACCESS_KEY=password
       - AWS_REGION=us-east-1
+    ports:
+      - ${SPARK_THRIFT_PORT}:10000
     entrypoint: /bin/sh /mnt/scripts/entrypoint.sh
     user: root
     networks:

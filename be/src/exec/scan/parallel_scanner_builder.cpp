@@ -31,6 +31,21 @@
 
 namespace doris {
 
+namespace {
+
+io::FileCacheStatistics take_initial_file_cache_stats(
+        std::unordered_map<int64_t, io::FileCacheStatistics>* preload_stats, int64_t tablet_id) {
+    auto it = preload_stats->find(tablet_id);
+    if (it == preload_stats->end()) {
+        return {};
+    }
+    auto stats = std::move(it->second);
+    preload_stats->erase(it);
+    return stats;
+}
+
+} // namespace
+
 Status ParallelScannerBuilder::build_scanners(std::list<ScannerSPtr>& scanners) {
     RETURN_IF_ERROR(_load());
     if (_scan_parallelism_by_per_segment) {
@@ -112,7 +127,9 @@ Status ParallelScannerBuilder::_build_scanners_by_rowid(std::list<ScannerSPtr>& 
                                 tablet, version, _key_ranges,
                                 {.rs_splits = std::move(partitial_read_source.rs_splits),
                                  .delete_predicates = entire_read_source.delete_predicates,
-                                 .delete_bitmap = entire_read_source.delete_bitmap}));
+                                 .delete_bitmap = entire_read_source.delete_bitmap},
+                                take_initial_file_cache_stats(&_tablet_preload_file_cache_stats,
+                                                              tablet->tablet_id())));
 
                         partitial_read_source = {};
                         split = RowSetSplits(reader->clone());
@@ -157,7 +174,9 @@ Status ParallelScannerBuilder::_build_scanners_by_rowid(std::list<ScannerSPtr>& 
                     _build_scanner(tablet, version, _key_ranges,
                                    {.rs_splits = std::move(partitial_read_source.rs_splits),
                                     .delete_predicates = entire_read_source.delete_predicates,
-                                    .delete_bitmap = entire_read_source.delete_bitmap}));
+                                    .delete_bitmap = entire_read_source.delete_bitmap},
+                                   take_initial_file_cache_stats(&_tablet_preload_file_cache_stats,
+                                                                 tablet->tablet_id())));
         }
     }
 
@@ -202,11 +221,13 @@ Status ParallelScannerBuilder::_build_scanners_by_per_segment(std::list<ScannerS
                 TabletReadSource partitial_read_source;
                 partitial_read_source.rs_splits.emplace_back(std::move(split));
 
-                scanners.emplace_back(
-                        _build_scanner(tablet, version, _key_ranges,
-                                       {.rs_splits = std::move(partitial_read_source.rs_splits),
-                                        .delete_predicates = entire_read_source.delete_predicates,
-                                        .delete_bitmap = entire_read_source.delete_bitmap}));
+                scanners.emplace_back(_build_scanner(
+                        tablet, version, _key_ranges,
+                        {.rs_splits = std::move(partitial_read_source.rs_splits),
+                         .delete_predicates = entire_read_source.delete_predicates,
+                         .delete_bitmap = entire_read_source.delete_bitmap},
+                        take_initial_file_cache_stats(&_tablet_preload_file_cache_stats,
+                                                      tablet->tablet_id())));
             }
         }
     }
@@ -234,8 +255,10 @@ Status ParallelScannerBuilder::_load() {
 
             auto beta_rowset = std::dynamic_pointer_cast<BetaRowset>(rowset);
             std::vector<uint32_t> segment_rows;
+            OlapReaderStatistics preload_stats;
             RETURN_IF_ERROR(beta_rowset->get_segment_num_rows(&segment_rows, enable_segment_cache,
-                                                              &_builder_stats));
+                                                              &preload_stats));
+            _tablet_preload_file_cache_stats[tablet_id].merge_from(preload_stats.file_cache_stats);
             auto segment_count = rowset->num_segments();
             for (int64_t i = 0; i != segment_count; i++) {
                 _all_segments_rows[rowset_id].emplace_back(segment_rows[i]);
@@ -253,11 +276,21 @@ Status ParallelScannerBuilder::_load() {
 
 std::shared_ptr<OlapScanner> ParallelScannerBuilder::_build_scanner(
         BaseTabletSPtr tablet, int64_t version, const std::vector<OlapScanRange*>& key_ranges,
-        TabletReadSource&& read_source) {
+        TabletReadSource&& read_source, io::FileCacheStatistics&& initial_file_cache_stats) {
     OlapScanner::Params params {
-            _state,  _scanner_profile.get(), key_ranges,   std::move(tablet),
-            version, std::move(read_source), _limit,       _is_preaggregation,
-            false,   TBinlogScanType::NONE,  std::nullopt, std::nullopt,
+            .state = _state,
+            .profile = _scanner_profile.get(),
+            .key_ranges = key_ranges,
+            .tablet = std::move(tablet),
+            .version = version,
+            .read_source = std::move(read_source),
+            .initial_file_cache_stats = std::move(initial_file_cache_stats),
+            .limit = _limit,
+            .aggregation = _is_preaggregation,
+            .read_row_binlog = false,
+            .binlog_scan_type = TBinlogScanType::NONE,
+            .start_tso = std::nullopt,
+            .end_tso = std::nullopt,
     };
     return OlapScanner::create_shared(_parent, std::move(params));
 }
