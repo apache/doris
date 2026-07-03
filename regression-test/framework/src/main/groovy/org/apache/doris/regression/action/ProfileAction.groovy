@@ -138,9 +138,12 @@ class ProfileAction implements SuiteAction {
         String profileText = ""
         long deadline = System.currentTimeMillis() + timeoutMs
         while (System.currentTimeMillis() <= deadline) {
-            profileText = profileFetcher.call()
-            if (isProfileReady(profileText, requiredContents)) {
-                return profileText
+            String currentProfileText = profileFetcher.call()
+            if (currentProfileText != null && !currentProfileText.isEmpty()) {
+                profileText = currentProfileText
+            }
+            if (isProfileReady(currentProfileText, requiredContents)) {
+                return currentProfileText
             }
             log.info("{} is not ready, required contents: {}", profileDescription, requiredContents)
             Thread.sleep(intervalMs)

@@ -23,13 +23,12 @@ import org.apache.doris.regression.action.ProfileAction
 def verifyProfileContent = { suiteContext, profileId, stmt, serialReadOnLimit ->
     def profileAction = new ProfileAction(suiteContext)
     String profileContent = profileAction.waitProfile({
-        def profileItem = profileAction.getProfileList().find {
-            it["Profile ID"]?.toString() == profileId
-        }
-        if (profileItem == null) {
+        try {
+            return profileAction.getProfile(profileId)
+        } catch (Exception e) {
+            logger.info("Profile ${profileId} is not available yet: ${e.getMessage()}")
             return ""
         }
-        return profileAction.getProfile(profileId)
     }, ["MaxScanConcurrency"], "Profile ${profileId}", 60000, 1000)
     if (!profileContent.contains("MaxScanConcurrency")) {
         logger.error("Profile of ${stmt} (${profileId}) does not contain MaxScanConcurrency, content:\n${profileContent}")
