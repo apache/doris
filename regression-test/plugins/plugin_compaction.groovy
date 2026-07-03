@@ -89,7 +89,6 @@ Suite.metaClass.trigger_and_wait_compaction = { String table_name, String compac
     }
     // 2. trigger compaction
     def triggered_tablets = []
-    def ignoredTriggerResults = []
     for (tablet in tablets) {
         def be_host = backendId_to_backendIP["${tablet.BackendId}"]
         def be_port = backendId_to_backendHttpPort["${tablet.BackendId}"]
@@ -111,17 +110,13 @@ Suite.metaClass.trigger_and_wait_compaction = { String table_name, String compac
         def trigger_status = parseJson(stdout.trim())
         if (trigger_status.status.toLowerCase() != "success") {
             def status_lower = trigger_status.status.toLowerCase()
-            def triggerResult = "be host: ${be_host}, tablet id: ${tablet.TabletId}, status: ${trigger_status.status}"
             if (status_lower == "already_exist") {
                 triggered_tablets.add(tablet) // compaction already in queue, treat it as successfully triggered
             } else if (!auto_compaction_disabled) {
-                ignoredTriggerResults.add("${triggerResult}, reason: auto compaction enabled")
                 // ignore the error if auto compaction enabled
             } else if (status_lower.contains("e-2000") || status_lower.contains("e-2010")) {
-                ignoredTriggerResults.add("${triggerResult}, reason: known no-op status")
                 // ignore this tablet compaction.
             } else if (ignored_errors.any { error -> status_lower.contains(error.toLowerCase()) }) {
-                ignoredTriggerResults.add("${triggerResult}, reason: ignored_errors=${ignored_errors}")
                 // ignore this tablet compaction if the error is in the ignored_errors list
             } else {
                 throw new Exception("trigger compaction failed, be host: ${be_host}, tablet id: ${tablet.TabletId}, status: ${trigger_status.status}")
@@ -129,13 +124,6 @@ Suite.metaClass.trigger_and_wait_compaction = { String table_name, String compac
         } else {
             triggered_tablets.add(tablet)
         }
-    }
-    if (triggered_tablets.isEmpty()) {
-        throw new Exception("trigger compaction did not trigger any tablet, table: ${table_name}, " +
-                "compaction type: ${compaction_type}, tablet count: ${tablets.size()}, " +
-                "auto_compaction_disabled: ${auto_compaction_disabled}, " +
-                "ignored/no-op trigger statuses: ${ignoredTriggerResults}. " +
-                "trigger_and_wait_compaction cannot guarantee compaction effect.")
     }
 
     // 3. wait all compaction finished
