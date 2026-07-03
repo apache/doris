@@ -28,6 +28,7 @@ import org.apache.doris.load.RoutineLoadDesc;
 import org.apache.doris.load.routineload.kafka.KafkaProgress;
 import org.apache.doris.load.routineload.kafka.KafkaRoutineLoadJob;
 import org.apache.doris.load.routineload.kafka.KafkaTaskInfo;
+import org.apache.doris.system.Backend;
 import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.thrift.BackendService;
 import org.apache.doris.transaction.BeginTransactionException;
@@ -210,5 +211,27 @@ public class RoutineLoadTaskSchedulerTest {
         private boolean isRenewCalledWithWriteLock() {
             return renewCalledWithWriteLock;
         }
+    }
+
+    @Test
+    public void testRoutineLoadTaskBackendAvailableExcludesDecommissionBackends() {
+        Assert.assertFalse(RoutineLoadTaskScheduler.isRoutineLoadTaskBackendAvailable(null));
+        Assert.assertFalse(RoutineLoadTaskScheduler.isRoutineLoadTaskBackendAvailable(
+                createBackend(false, false, false)));
+        Assert.assertFalse(RoutineLoadTaskScheduler.isRoutineLoadTaskBackendAvailable(
+                createBackend(true, true, false)));
+        Assert.assertFalse(RoutineLoadTaskScheduler.isRoutineLoadTaskBackendAvailable(
+                createBackend(true, false, true)));
+        Assert.assertTrue(RoutineLoadTaskScheduler.isRoutineLoadTaskBackendAvailable(
+                createBackend(true, false, false)));
+    }
+
+    private Backend createBackend(boolean alive, boolean decommissioning, boolean decommissioned) {
+        Backend backend = Mockito.mock(Backend.class);
+        Mockito.when(backend.isAlive()).thenReturn(alive);
+        Mockito.when(backend.isLoadAvailable()).thenReturn(alive);
+        Mockito.when(backend.isDecommissioning()).thenReturn(decommissioning);
+        Mockito.when(backend.isDecommissioned()).thenReturn(decommissioned);
+        return backend;
     }
 }

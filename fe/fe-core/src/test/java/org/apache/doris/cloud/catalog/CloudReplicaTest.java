@@ -56,10 +56,16 @@ public class CloudReplicaTest {
     private CloudSystemInfoService mockInfoService;
 
     private int savedRehashSeconds;
+    private boolean savedEnableCloudMultiReplica;
+    private int savedCloudReplicaNum;
+    private String savedCloudUniqueId;
 
     @BeforeEach
     public void setUp() {
         savedRehashSeconds = Config.rehash_tablet_after_be_dead_seconds;
+        savedEnableCloudMultiReplica = Config.enable_cloud_multi_replica;
+        savedCloudReplicaNum = Config.cloud_replica_num;
+        savedCloudUniqueId = Config.cloud_unique_id;
         Config.cloud_unique_id = "test_cloud_unique_id";
 
         mockEnv = Mockito.mock(Env.class);
@@ -76,6 +82,9 @@ public class CloudReplicaTest {
     public void tearDown() {
         envMockedStatic.close();
         Config.rehash_tablet_after_be_dead_seconds = savedRehashSeconds;
+        Config.enable_cloud_multi_replica = savedEnableCloudMultiReplica;
+        Config.cloud_replica_num = savedCloudReplicaNum;
+        Config.cloud_unique_id = savedCloudUniqueId;
     }
 
     private CloudReplica createReplica() {
@@ -84,11 +93,16 @@ public class CloudReplicaTest {
     }
 
     private Backend createBackend(long id, boolean alive, boolean decommissioned) {
+        return createBackend(id, alive, false, decommissioned);
+    }
+
+    private Backend createBackend(long id, boolean alive, boolean decommissioning, boolean decommissioned) {
         Backend be = Mockito.mock(Backend.class);
         Mockito.when(be.getId()).thenReturn(id);
         Mockito.when(be.isAlive()).thenReturn(alive);
+        Mockito.when(be.isDecommissioning()).thenReturn(decommissioning);
         Mockito.when(be.isDecommissioned()).thenReturn(decommissioned);
-        Mockito.when(be.isQueryAvailable()).thenReturn(alive && !decommissioned);
+        Mockito.when(be.isQueryAvailable()).thenReturn(alive);
         Mockito.when(be.getLastUpdateMs()).thenReturn(System.currentTimeMillis());
         return be;
     }
@@ -232,6 +246,81 @@ public class CloudReplicaTest {
         long pickedBeId = replica.getColocatedBeId(CLUSTER_ID_1);
         Assertions.assertEquals(1001L, pickedBeId,
                 "Should fall back to decommissioned BE when no normal alive BE");
+    }
+
+    @Test
+    public void testGetColocatedBeId_decommissioningBeExcludedFromNormalHashRing() throws ComputeGroupException {
+        setupColocateTable();
+
+        Backend be1 = createBackend(1001L, true, false);
+        Backend be2Decommissioning = createBackend(1002L, true, true, false);
+
+        Mockito.when(mockInfoService.getBackendsByClusterId(CLUSTER_ID_1))
+                .thenReturn(new ArrayList<>(Arrays.asList(be1, be2Decommissioning)));
+        Mockito.when(mockInfoService.getClusterNameByClusterId(CLUSTER_ID_1)).thenReturn(CLUSTER_NAME_1);
+
+        CloudReplica replica = createReplica();
+        long pickedBeId = replica.getColocatedBeId(CLUSTER_ID_1);
+
+        Assertions.assertEquals(1001L, pickedBeId,
+                "Should exclude decommissioning BE from normal colocate hash ring");
+    }
+
+    @Test
+    public void testHashReplicaToBe_decommissioningBeExcludedFromNormalHashRing() throws ComputeGroupException {
+        Backend be1 = createBackend(1001L, true, false);
+        Backend be2Decommissioning = createBackend(1002L, true, true, false);
+
+        Mockito.when(mockInfoService.getBackendsByClusterId(CLUSTER_ID_1))
+                .thenReturn(new ArrayList<>(Arrays.asList(be1, be2Decommissioning)));
+        Mockito.when(mockInfoService.getClusterNameByClusterId(CLUSTER_ID_1)).thenReturn(CLUSTER_NAME_1);
+
+        CloudReplica replica = createReplica();
+        long pickedBeId = replica.hashReplicaToBe(CLUSTER_ID_1, false);
+
+        Assertions.assertEquals(1001L, pickedBeId,
+                "Should exclude decommissioning BE from normal replica hash ring");
+    }
+
+    @Test
+    public void testGetBackendId_multiReplicaDecommissioningBeExcludedFromNormalHashRing()
+            throws ComputeGroupException {
+        Mockito.when(mockColocateIndex.isColocateTableNoLock(TABLE_ID)).thenReturn(false);
+        Config.enable_cloud_multi_replica = true;
+        Config.cloud_replica_num = 2;
+
+        Backend be1 = createBackend(1001L, true, false);
+        Backend be2Decommissioning = createBackend(1002L, true, true, false);
+
+        Mockito.when(mockInfoService.getBackendsByClusterId(CLUSTER_ID_1))
+                .thenReturn(new ArrayList<>(Arrays.asList(be1, be2Decommissioning)));
+        Mockito.when(mockInfoService.getClusterNameByClusterId(CLUSTER_ID_1)).thenReturn(CLUSTER_NAME_1);
+
+        CloudReplica replica = createReplica();
+        long pickedBeId = replica.getBackendIdWithClusterId(CLUSTER_ID_1);
+
+        Assertions.assertEquals(1001L, pickedBeId,
+                "Should exclude decommissioning BE from normal multi-replica hash ring");
+    }
+
+    @Test
+    public void testGetBackendId_decommissioningPrimaryBeTriggersRehash() throws ComputeGroupException {
+        Mockito.when(mockColocateIndex.isColocateTableNoLock(TABLE_ID)).thenReturn(false);
+
+        Backend be1 = createBackend(1001L, true, false);
+        Backend be2Decommissioning = createBackend(1002L, true, true, false);
+        Mockito.when(mockInfoService.getBackend(1002L)).thenReturn(be2Decommissioning);
+        Mockito.when(mockInfoService.getBackendsByClusterId(CLUSTER_ID_1))
+                .thenReturn(new ArrayList<>(Arrays.asList(be1, be2Decommissioning)));
+        Mockito.when(mockInfoService.getClusterNameByClusterId(CLUSTER_ID_1)).thenReturn(CLUSTER_NAME_1);
+
+        CloudReplica replica = createReplica();
+        replica.updateClusterToPrimaryBe(CLUSTER_ID_1, 1002L);
+
+        long pickedBeId = replica.getBackendIdWithClusterId(CLUSTER_ID_1);
+
+        Assertions.assertEquals(1001L, pickedBeId,
+                "Should rehash instead of returning cached decommissioning primary BE");
     }
 
     // ---------------------------------------------------------------

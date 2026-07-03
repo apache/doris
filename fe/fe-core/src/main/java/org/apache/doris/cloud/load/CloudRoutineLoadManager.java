@@ -54,7 +54,9 @@ public class CloudRoutineLoadManager extends RoutineLoadManager {
         return ((CloudSystemInfoService) Env.getCurrentSystemInfo())
                 .getBackendsByClusterName(routineLoadJob.getCloudCluster())
                 .stream()
-                .filter(Backend::isAlive)
+                .filter(backend -> backend.isLoadAvailable()
+                        && !backend.isDecommissioning()
+                        && !backend.isDecommissioned())
                 .map(Backend::getId)
                 .collect(Collectors.toList());
     }

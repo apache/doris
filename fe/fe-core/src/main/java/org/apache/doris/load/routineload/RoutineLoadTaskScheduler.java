@@ -310,8 +310,9 @@ public class RoutineLoadTaskScheduler extends MasterDaemon {
 
     private void submitTask(long beId, TRoutineLoadTask tTask) throws LoadException {
         Backend backend = Env.getCurrentSystemInfo().getBackend(beId);
-        if (backend == null) {
-            throw new LoadException("failed to send tasks to backend " + beId + " because not exist");
+        if (!isRoutineLoadTaskBackendAvailable(backend)) {
+            throw new LoadException("failed to send tasks to backend " + beId
+                    + " because backend is not available for routine load task");
         }
 
         TNetworkAddress address = new TNetworkAddress(backend.getHost(), backend.getBePort());
@@ -357,6 +358,13 @@ public class RoutineLoadTaskScheduler extends MasterDaemon {
                 ClientPool.backendPool.invalidateObject(address, client);
             }
         }
+    }
+
+    static boolean isRoutineLoadTaskBackendAvailable(Backend backend) {
+        return backend != null
+                && backend.isLoadAvailable()
+                && !backend.isDecommissioning()
+                && !backend.isDecommissioned();
     }
 
     // try to allocate a task to BE which has idle slot.

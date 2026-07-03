@@ -237,26 +237,18 @@ public class KafkaUtil {
             while (retryTimes < 3) {
                 List<Long> backendIds = new ArrayList<>();
                 for (Long beId : Env.getCurrentSystemInfo().getAllBackendIds(true)) {
-                    Backend backend = Env.getCurrentSystemInfo().getBackend(beId);
-                    if (backend != null && backend.isLoadAvailable()
-                            && !backend.isDecommissioned()
-                            && !failedBeIds.contains(beId)
-                            && !Env.getCurrentEnv().getRoutineLoadManager().isInBlacklist(beId)) {
-                        backendIds.add(beId);
+                    if (!Env.getCurrentEnv().getRoutineLoadManager().isInBlacklist(beId)) {
+                        addKafkaProxyBackendIfAvailable(backendIds, beId, failedBeIds);
                     }
                 }
                 // If there are no available backends, utilize the blacklist.
-                // Special scenarios include:
-                // 1. A specific job that connects to Kafka may time out for topic config or network error,
-                //    leaving only one backend operational.
-                // 2. If that sole backend is decommissioned, the aliveBackends list becomes empty.
-                // Hence, in such cases, it's essential to rely on the blacklist to obtain meta information.
+                // This fallback only reuses blacklisted BEs that are still load available and not decommissioning.
                 if (backendIds.isEmpty()) {
                     Map<Long, Long> blacklist = Env.getCurrentEnv().getRoutineLoadManager().getBlacklist();
                     for (Long beId : blacklist.keySet()) {
                         Backend backend = Env.getCurrentSystemInfo().getBackend(beId);
                         if (backend != null) {
-                            backendIds.add(beId);
+                            addKafkaProxyBackendIfAvailable(backendIds, beId, failedBeIds);
                         } else {
                             blacklist.remove(beId);
                             LOG.warn("remove stale backend {} from routine load blacklist when getting kafka meta",
@@ -327,6 +319,21 @@ public class KafkaUtil {
             long endTime = System.currentTimeMillis();
             MetricRepo.COUNTER_ROUTINE_LOAD_GET_META_LANTENCY.increase(endTime - startTime);
             MetricRepo.COUNTER_ROUTINE_LOAD_GET_META_COUNT.increase(1L);
+        }
+    }
+
+    static boolean isKafkaProxyBackendAvailable(Backend backend, boolean failed) {
+        return backend != null
+                && backend.isLoadAvailable()
+                && !backend.isDecommissioning()
+                && !backend.isDecommissioned()
+                && !failed;
+    }
+
+    static void addKafkaProxyBackendIfAvailable(List<Long> backendIds, long beId, Set<Long> failedBeIds) {
+        Backend backend = Env.getCurrentSystemInfo().getBackend(beId);
+        if (isKafkaProxyBackendAvailable(backend, failedBeIds.contains(beId))) {
+            backendIds.add(beId);
         }
     }
 }
