@@ -1757,6 +1757,7 @@ TEST_F(NewParquetReaderTest, PlannerNarrowsRowRangesByPageIndex) {
     ASSERT_EQ(file_schema.size(), 1);
 
     format::FileScanRequest request;
+    request.predicate_columns = {field_projection(0)};
     request.local_positions.emplace(format::LocalColumnId(0), format::LocalIndex(0));
     request.conjuncts.push_back(create_int32_greater_than_conjunct(0, 63));
 
