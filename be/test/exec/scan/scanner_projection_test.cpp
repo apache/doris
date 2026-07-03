@@ -147,6 +147,17 @@ ColumnWithTypeAndName make_nullable_int32_column(std::string name,
             std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>()), std::move(name)};
 }
 
+ColumnWithTypeAndName make_external_nullable_bool_column(std::string name,
+                                                         const std::vector<uint8_t>& values) {
+    auto owner = std::make_shared<std::vector<uint8_t>>(values);
+    auto nested = ColumnUInt8::create();
+    nested->insert_many_fix_len_data_with_owner(reinterpret_cast<const char*>(owner->data()),
+                                                owner->size(), owner);
+    auto null_map = ColumnUInt8::create(owner->size(), 0);
+    return {ColumnNullable::create(std::move(nested), std::move(null_map)),
+            std::make_shared<DataTypeNullable>(std::make_shared<DataTypeBool>()), std::move(name)};
+}
+
 std::vector<int32_t> int32_values(const Block& block, size_t column_id) {
     const auto& column = assert_cast<const ColumnInt32&>(*block.get_by_position(column_id).column);
     std::vector<int32_t> values;
@@ -172,6 +183,22 @@ std::vector<std::optional<int32_t>> nullable_int32_values(const Block& block, si
             assert_cast<const ColumnNullable&>(*block.get_by_position(column_id).column);
     const auto& nested = assert_cast<const ColumnInt32&>(nullable.get_nested_column());
     std::vector<std::optional<int32_t>> values;
+    values.reserve(nullable.size());
+    for (size_t i = 0; i < nullable.size(); ++i) {
+        if (nullable.is_null_at(i)) {
+            values.emplace_back(std::nullopt);
+        } else {
+            values.emplace_back(nested.get_element(i));
+        }
+    }
+    return values;
+}
+
+std::vector<std::optional<uint8_t>> nullable_bool_values(const Block& block, size_t column_id) {
+    const auto& nullable =
+            assert_cast<const ColumnNullable&>(*block.get_by_position(column_id).column);
+    const auto& nested = assert_cast<const ColumnUInt8&>(nullable.get_nested_column());
+    std::vector<std::optional<uint8_t>> values;
     values.reserve(nullable.size());
     for (size_t i = 0; i < nullable.size(); ++i) {
         if (nullable.is_null_at(i)) {
@@ -294,6 +321,23 @@ TEST_F(ScannerDirectProjectionTest, nullableDataColumnKeepsNullMapAfterConjunctF
     ASSERT_EQ(output.rows(), 3);
     EXPECT_EQ(nullable_int32_values(output, 0),
               (std::vector<std::optional<int32_t>> {10, std::nullopt, 40}));
+}
+
+TEST_F(ScannerDirectProjectionTest,
+       externalNullableBoolColumnKeepsNestedAndNullMapAfterConjunctFiltering) {
+    auto nullable_bool_type = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeBool>());
+    init_scanner({nullable_bool_type}, {MockSlotRef::create_mock_context(1, nullable_bool_type)},
+                 {make_filter_context({1, 0, 1, 1, 0, 1, 0, 1, 1, 0})});
+
+    Block output = filter_and_project(Block(
+            {make_int32_column("k", {1, 2, 3, 4, 5, 6, 7, 8, 9, 10}),
+             make_external_nullable_bool_column("is_valid", {1, 1, 1, 0, 1, 1, 1, 1, 0, 1})}));
+
+    ASSERT_EQ(output.rows(), 6);
+    const auto& nullable = assert_cast<const ColumnNullable&>(*output.get_by_position(0).column);
+    ASSERT_NO_THROW(nullable.sanity_check());
+    EXPECT_EQ(nullable_bool_values(output, 0),
+              (std::vector<std::optional<uint8_t>> {1, 1, 0, 1, 1, 0}));
 }
 
 TEST_F(ScannerDirectProjectionTest, nullableConjunctTreatsNullAsFilteredOut) {

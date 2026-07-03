@@ -82,6 +82,16 @@ public:
         // do nothing by default, but some column may need to check
     }
 
+    // Convert any borrowed external storage in this column tree into Doris-owned memory.
+    // This is a representation-only change: logical values and row count stay unchanged.
+    // Most column types do not borrow external storage themselves, but composite columns
+    // must forward the request to children so a shared Block can be made thread-safe before
+    // multiple pipeline tasks read it concurrently.
+    virtual void materialize_external_data() const {
+        const_cast<IColumn*>(this)->for_each_subcolumn(
+                [](WrappedPtr& subcolumn) { subcolumn->materialize_external_data(); });
+    }
+
     /** If column isn't constant, returns nullptr (or itself).
       * If column is constant, transforms constant to full column (if column type allows such transform) and return it.
       */

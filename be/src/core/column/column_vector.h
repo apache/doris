@@ -429,8 +429,7 @@ public:
 
     StringRef get_raw_data() const override {
         auto values = immutable_data();
-        return StringRef(reinterpret_cast<const char*>(values.data()),
-                         values.size() * sizeof(value_type));
+        return StringRef(reinterpret_cast<const char*>(values.data()), values.size());
     }
 
     bool structure_equals(const IColumn& rhs) const override {
@@ -519,6 +518,19 @@ public:
         }
     }
 
+    void materialize_external_data() const override {
+        if (!_has_external_data()) {
+            return;
+        }
+        // This is the boundary back to the traditional ColumnVector contract. The zero-copy path
+        // keeps at most one page-backed span. Any mutable access or append that cannot reuse that
+        // single page resource copies it into Doris-owned storage before continuing.
+        const auto old_size = data.size();
+        data.resize(old_size + _external_size);
+        memcpy(data.data() + old_size, _external_data, _external_size * sizeof(value_type));
+        _reset_external_data();
+    }
+
 private:
     bool _has_external_data() const { return _external_owner != nullptr; }
 
@@ -539,19 +551,6 @@ private:
         _external_owner.reset();
         _external_data = nullptr;
         _external_size = 0;
-    }
-
-    void materialize_external_data() const {
-        if (!_has_external_data()) {
-            return;
-        }
-        // This is the boundary back to the traditional ColumnVector contract. The zero-copy path
-        // keeps at most one page-backed span. Any mutable access or append that cannot reuse that
-        // single page resource copies it into Doris-owned storage before continuing.
-        const auto old_size = data.size();
-        data.resize(old_size + _external_size);
-        memcpy(data.data() + old_size, _external_data, _external_size * sizeof(value_type));
-        _reset_external_data();
     }
 
 protected:

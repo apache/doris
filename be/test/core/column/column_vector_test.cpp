@@ -467,8 +467,8 @@ TEST_F(ColumnVectorTest, raw_data_and_insert_indices_from_external_page) {
                                                 owner->size(), owner);
 
     const auto raw_data = source->get_raw_data();
-    ASSERT_EQ(raw_data.size, owner->size() * sizeof(int32_t));
-    EXPECT_EQ(std::memcmp(raw_data.data, owner->data(), raw_data.size), 0);
+    ASSERT_EQ(raw_data.size, owner->size());
+    EXPECT_EQ(std::memcmp(raw_data.data, owner->data(), raw_data.size * sizeof(int32_t)), 0);
 
     uint32_t indices[] = {2, 0, 3};
     auto result = ColumnInt32::create();

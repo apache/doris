@@ -22,6 +22,10 @@
 #include <memory>
 #include <vector>
 
+#include "core/block/block.h"
+#include "core/column/column_nullable.h"
+#include "core/data_type/data_type_nullable.h"
+#include "core/data_type/data_type_number.h"
 #include "exec/pipeline/dependency.h"
 #include "exec/spill/spill_file_manager.h"
 #include "runtime/runtime_profile.h"
@@ -247,6 +251,81 @@ TEST_F(MultiCastDataStreamerTest, MultiTest) {
                 output_blocks[1][i], ColumnHelper::create_block<DataTypeInt64>({i, i + 1, i + 2})));
         EXPECT_TRUE(ColumnHelper::block_equal(
                 output_blocks[2][i], ColumnHelper::create_block<DataTypeInt64>({i, i + 1, i + 2})));
+    }
+}
+
+TEST_F(MultiCastDataStreamerTest, PullAndFilterExternalNullableBoolForManyConsumers) {
+    constexpr int consumer_count = 5;
+    ObjectPool local_pool;
+    RuntimeProfile sink_profile("MultiCastDataStreamerExternalNullableBoolTest");
+    MultiCastDataStreamer streamer(&local_pool, consumer_count, 0);
+    streamer.set_sink_profile(&sink_profile);
+
+    std::vector<std::shared_ptr<Dependency>> read_deps;
+    std::vector<std::unique_ptr<RuntimeProfile>> read_profiles;
+    for (int i = 0; i < consumer_count; ++i) {
+        auto dep = Dependency::create_shared(1, 1, "ExternalNullableBoolReadDep", true);
+        read_deps.push_back(dep);
+        streamer.set_dep_by_sender_idx(i, dep.get());
+        read_profiles.push_back(
+                std::make_unique<RuntimeProfile>(fmt::format("source_profile_{}", i)));
+        streamer.set_source_profile(i, read_profiles.back().get());
+    }
+    auto write_dep = Dependency::create_shared(1, 1, "ExternalNullableBoolWriteDep", true);
+    streamer.set_write_dependency(write_dep.get());
+
+    auto ids = ColumnInt32::create();
+    for (int32_t i = 1; i <= 10; ++i) {
+        ids->insert_value(i);
+    }
+
+    auto bool_owner = std::make_shared<std::vector<uint8_t>>(
+            std::initializer_list<uint8_t> {1, 1, 1, 0, 1, 1, 1, 1, 0, 1});
+    const auto* external_bool_data = reinterpret_cast<const char*>(bool_owner->data());
+    auto nested_bool = ColumnUInt8::create();
+    nested_bool->insert_many_fix_len_data_with_owner(external_bool_data, bool_owner->size(),
+                                                     bool_owner);
+    auto null_map = ColumnUInt8::create(bool_owner->size(), 0);
+    auto nullable_bool = ColumnNullable::create(std::move(nested_bool), std::move(null_map));
+
+    Block input(
+            {{std::move(ids), std::make_shared<DataTypeInt32>(), "id"},
+             {std::move(nullable_bool),
+              std::make_shared<DataTypeNullable>(std::make_shared<DataTypeBool>()), "is_valid"}});
+    ASSERT_TRUE(streamer.push(&state, &input, true).ok());
+
+    const std::vector<std::vector<uint8_t>> filter_values = {{1, 1, 0, 0, 0, 0, 0, 0, 0, 0},
+                                                             {0, 0, 1, 1, 1, 0, 0, 0, 0, 0},
+                                                             {0, 0, 0, 0, 0, 1, 1, 1, 0, 0},
+                                                             {0, 0, 0, 0, 0, 0, 0, 0, 1, 1},
+                                                             {0, 0, 0, 0, 0, 1, 1, 1, 1, 1}};
+    const std::vector<std::vector<uint8_t>> expected_bool_values = {
+            {1, 1}, {1, 0, 1}, {1, 1, 1}, {0, 1}, {1, 1, 1, 0, 1}};
+
+    for (int consumer = 0; consumer < consumer_count; ++consumer) {
+        ASSERT_TRUE(read_deps[consumer]->ready());
+        Block block;
+        bool eos = false;
+        ASSERT_TRUE(streamer.pull(&state, consumer, &block, &eos).ok());
+        EXPECT_TRUE(eos);
+
+        const auto& pulled_nullable =
+                assert_cast<const ColumnNullable&>(*block.get_by_position(1).column);
+        ASSERT_NO_THROW(pulled_nullable.sanity_check());
+        EXPECT_NE(pulled_nullable.get_nested_column().get_raw_data().data, external_bool_data);
+
+        IColumn::Filter filter;
+        filter.insert(filter_values[consumer].begin(), filter_values[consumer].end());
+        Block::filter_block_internal(&block, std::vector<uint32_t> {0, 1}, filter);
+        const auto& nullable = assert_cast<const ColumnNullable&>(*block.get_by_position(1).column);
+        ASSERT_NO_THROW(nullable.sanity_check());
+        const auto& nested = assert_cast<const ColumnUInt8&>(nullable.get_nested_column());
+        ASSERT_EQ(nullable.size(), expected_bool_values[consumer].size());
+        ASSERT_EQ(nested.size(), expected_bool_values[consumer].size());
+        for (size_t i = 0; i < expected_bool_values[consumer].size(); ++i) {
+            EXPECT_FALSE(nullable.is_null_at(i));
+            EXPECT_EQ(nested.get_element(i), expected_bool_values[consumer][i]);
+        }
     }
 }
 
