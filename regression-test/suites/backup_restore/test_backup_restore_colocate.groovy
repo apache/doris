@@ -35,10 +35,16 @@ suite("test_backup_restore_colocate", "backup_restore,external") {
     }
 
     def checkColocateTabletHealth = { db_name ->
-        def result = showTabletHealth.call(db_name)
-        log.info(result as String)
-        assertNotNull(result)
-        assertTrue(result.ColocateMismatchNum as int == 0)
+        // After RESTORE creates a new colocate group, some tablets can transiently be
+        // COLOCATE_MISMATCH until the TabletScheduler clones them onto the group's
+        // BackendsPerBucketSeq. The group's cached IsStable flag can already be true
+        // while ColocateMismatchNum (read live) is still non-zero, so poll until it
+        // converges instead of asserting once. Still fails loud if it never heals.
+        awaitUntil(60) {
+            def result = showTabletHealth.call(db_name)
+            log.info(result as String)
+            result != null && (result.ColocateMismatchNum as int) == 0
+        }
     }
 
     def syncer = getSyncer()
@@ -371,10 +377,16 @@ suite("test_backup_restore_colocate_with_partition", "backup_restore") {
     }
 
     def checkColocateTabletHealth = { db_name ->
-        def result = showTabletHealth.call(db_name)
-        log.info(result as String)
-        assertNotNull(result)
-        assertTrue(result.ColocateMismatchNum as int == 0)
+        // After RESTORE creates a new colocate group, some tablets can transiently be
+        // COLOCATE_MISMATCH until the TabletScheduler clones them onto the group's
+        // BackendsPerBucketSeq. The group's cached IsStable flag can already be true
+        // while ColocateMismatchNum (read live) is still non-zero, so poll until it
+        // converges instead of asserting once. Still fails loud if it never heals.
+        awaitUntil(60) {
+            def result = showTabletHealth.call(db_name)
+            log.info(result as String)
+            result != null && (result.ColocateMismatchNum as int) == 0
+        }
     }
 
     def syncer = getSyncer()
