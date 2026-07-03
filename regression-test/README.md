@@ -94,9 +94,26 @@ under the License.
 
    Also read the [doris-compose](https://github.com/apache/doris/tree/master/docker/runtime/doris-compose) readme.
 
+10. Do not use raw `Thread.start` or `Thread.startDaemon` to run SQL in a case. Use the framework `thread` or `extraThread` helper and call `future.get()` to wait for completion, so exceptions are reported to the case that created the thread.
+
+    Problematic code:
+    ```
+    def t = Thread.start {
+        sql """insert into tbl values (1)"""
+    }
+    t.join()
+    ```
+
+    Correct code:
+    ```
+    def future = thread("insert-thread") {
+        sql """insert into tbl values (1)"""
+    }
+    future.get()
+    ```
+
 ## Compatibility case
 
 Refers to the resources or rules created on the initial cluster during FE testing or upgrade testing, which can still be used normally after the cluster restart or upgrade, such as permissions, UDF, etc.
 
 These cases need to be split into two files, `load.groovy` and `xxxx.groovy`, placed in a folder, and tagged with the `restart_fe` group label, [example](https://github.com/apache/doris/pull/37118).
-
