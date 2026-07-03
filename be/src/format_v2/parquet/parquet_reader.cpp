@@ -413,6 +413,7 @@ Status ParquetReader::open(std::shared_ptr<format::FileScanRequest> request) {
         }
     }
 
+    const auto num_fields = static_cast<int32_t>(_state->file_schema.size());
     for (const auto& col : request_snapshot->predicate_columns) {
         DORIS_CHECK(request_snapshot->local_positions.count(col.column_id()) > 0);
         const auto local_id = col.local_id();
