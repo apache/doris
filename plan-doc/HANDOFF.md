@@ -5,6 +5,24 @@
 
 ---
 
+# 🎯 最新一轮（2026-07-03 深夜）= **kerberos INSERT 三刀收口：temp() 补包装 `8d352049394`（待 CI 实证）**
+
+> **背景**：`test_iceberg_hadoop_catalog_kerberos` INSERT 连挂多轮。一刀 DDL doAs（`a46e420b871`，已生效——CI 里 DDL 全过）；
+> 二刀 FileIO 包装（`ba7d04fc8d8`）**上车后 CI（build 985573）原样再挂**——本轮根因分析（字节码级）：
+> `BaseTransaction.TransactionTableOperations.io()` 从不读传入 ops 的 io()，而是 `tempOps.io()`
+> （`tempOps = ops.temp(current)`，每次中间 commit 重建）；而 `IcebergAuthenticatedTableOperations.temp()`
+> 原样转发 delegate.temp() → hadoop catalog 下 `HadoopTableOperations$1.io()` 直通裸 HadoopFileIO →
+> worker 池 manifest 写从未穿过 doAs（985452 归档 fe.log 实证：`iceberg-worker-pool-8` 上
+> `DistributedFileSystem.create` SASL 拒）→ 二刀是 no-op。
+> **本轮修复** `8d352049394`：`temp()` 改为 `new IcebergAuthenticatedTableOperations(delegate.temp(m), io)`。
+> TDD 先红后绿（新 UT `IcebergAuthenticatedTableOperationsTest` 用 `Transactions.newTransaction(...).table().io()`
+> 纯公开 API 复现绕过机制）；全套 918 测 0 失败、checkstyle 0。
+> **⚠️ 待办**：推分支后**盯 External Regression 的该 case 转绿**（本地无 kerberos docker，e2e 只能 CI 实证）。
+> **模式教训（第 2 次栽同型坑）**：iceberg 内部有自己的路由/线程池（第一次 worker-pool TCCL，这次 temp() 路由）——
+> "边界包一层"式修复必须沿 iceberg 内部调用链（bytecode/源码）走到真正的消费点验证，别只验证包装层自身行为。
+
+---
+
 # 🎯 下一个 session 的任务 = **回主线（iceberg 翻闸：ENG-1 能力孪生审计）或补跑 meta-cache 翻闸回归**
 
 > **本轮（2026-07-01）已完成 = 三个手写连接器缓存全部上共享缓存框架（独立复制策略收官）**。
