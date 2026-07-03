@@ -338,7 +338,8 @@ public:
         data.push_back(value);
     }
 
-    Status filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) override {
+    Status filter_by_selector(const uint16_t* sel, size_t sel_size,
+                              IColumn* col_ptr) const override {
         const auto values = immutable_data();
         Self* output = assert_cast<Self*>(col_ptr);
         auto& res_data = output->get_data();
