@@ -1374,6 +1374,24 @@ DECLARE_mInt64(snii_bigram_vocab_cap_bytes);
 // global limiter (per-writer spilling only). Checked at index-writer creation:
 // a change applies to writers created afterwards.
 DECLARE_mInt64(snii_index_writer_global_memory_bytes);
+// G09 forced-spill floor: minimum reclaimable posting-arena bytes a SNII
+// writer must hold before a process-wide forced-spill request is honored, and
+// before the global limiter selects it as a spill victim. A forced spill
+// reclaims ONLY the posting arena -- the persistent vocab / pair-map
+// structures survive it -- so honoring below a real floor degenerates into a
+// storm of tiny runs whenever the budget is dominated by persistent bytes
+// (each run then costs a file, a sort and a merge-fd for near-zero memory
+// relief). The global budget therefore bounds SPILLABLE memory, not
+// persistent memory. Default 64 MiB.
+DECLARE_mInt64(snii_forced_spill_min_arena_bytes);
+// G09 run-file cap: maximum spill-run files one SNII writer may accumulate;
+// on the next spill past the cap, the existing runs are merge-compacted into
+// a single run first (term stream unchanged). Bounds the final k-way merge's
+// fan-in and, decisively, its simultaneously-open file descriptors -- every
+// run of a buffer is reopened and held open for the whole merge, so unbounded
+// run counts across ~100 concurrent writers can exhaust the BE nofile rlimit
+// ("Too many open files" at run reopen). 0 disables the cap. Default 64.
+DECLARE_mInt32(snii_spill_max_run_files_per_buffer);
 // dict path for chinese analyzer
 DECLARE_String(inverted_index_dict_path);
 DECLARE_Int32(inverted_index_read_buffer_size);

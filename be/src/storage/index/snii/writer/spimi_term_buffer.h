@@ -401,6 +401,35 @@ public:
         global_spill_requested_.store(true, std::memory_order_relaxed);
     }
 
+    // G09 forced-spill floor (config snii_forced_spill_min_arena_bytes): a
+    // pending process-wide forced-spill request is honored only once the
+    // reclaimable posting arena holds at least this much (never below one
+    // arena block, so a run is always writable). A request planted while the
+    // arena is below the floor is a NO-OP that stays PENDING -- it is NOT
+    // retried as a spill every token -- and is honored when the arena regrows
+    // past the floor. Without the floor, an unreachable global budget (the
+    // persistent vocab/pair structures of all writers alone exceeding it)
+    // re-flagged every buffer on every report and each honored with a single
+    // 32 KiB arena block: thousands of tiny runs per buffer, EMFILE at the
+    // k-way merge reopen, failed loads (the conc=16 wikipedia field storm).
+    static constexpr uint64_t kDefaultForcedSpillMinArenaBytes = 64ULL << 20; // 64 MiB
+    void set_forced_spill_min_arena_bytes(uint64_t bytes) { forced_spill_min_arena_bytes_ = bytes; }
+    uint64_t forced_spill_min_arena_bytes() const { return forced_spill_min_arena_bytes_; }
+
+    // G09 run-file cap (config snii_spill_max_run_files_per_buffer): when a
+    // new spill would grow the accumulated run-file count past this cap, the
+    // existing runs are first MERGE-COMPACTED into one (a k-way merge of the
+    // run files back into a single fresh run; term stream byte-identical, the
+    // old files deleted) so the buffer never holds more than the cap + 1 run
+    // files. Bounds both the final k-way merge's fan-in and -- decisively --
+    // its OPEN FILE DESCRIPTORS: every run of a buffer is (re)opened
+    // simultaneously and held open for the whole merge, so unbounded run
+    // counts across ~100 concurrent writers exhausted the BE nofile rlimit
+    // ('Too many open files' at run reopen). 0 disables the cap.
+    static constexpr size_t kDefaultMaxRunFilesPerBuffer = 64;
+    void set_max_run_files(size_t cap) { max_run_files_ = cap; }
+    size_t max_run_files() const { return max_run_files_; }
+
     // Number of DISTINCT terms accumulated so far (touched ids still resident).
     size_t unique_terms() const;
     uint64_t total_tokens() const { return total_tokens_; }
@@ -412,9 +441,11 @@ public:
     // this after draining to surface input-side validation errors.
     [[nodiscard]] Status status() const { return spill_status_; }
 
-    // TEST-ONLY: number of spill run files written so far (== 0 in pure in-memory
-    // mode). Lets tests assert that a gate-2 spill actually fired once the REAL
-    // resident size crossed the configured cap. Not part of the production API.
+    // TEST-ONLY: number of spill run files currently HELD (== 0 in pure
+    // in-memory mode). Lets tests assert that a gate-2 spill actually fired
+    // once the REAL resident size crossed the configured cap. NOTE: a G09
+    // run-cap merge-compaction (see set_max_run_files) collapses the list to
+    // ONE file, so the count is not monotonic. Not part of the production API.
     size_t run_count_for_test() const { return run_paths_.size(); }
 
     // TEST-ONLY: the REAL resident accumulator bytes the gate-2 trigger and the
@@ -528,6 +559,13 @@ private:
     // bigrams are already doomed by the flush-time df threshold and blooming
     // them would only add false-positive pressure.
     Status spill_to_run(bool evict_low_df_bigrams);
+    // G09 run-file cap enforcement (see set_max_run_files): merge-compacts the
+    // current run files into ONE fresh run (same term stream, ids ordered by
+    // the current string rank -- in-run ids' vocab strings are pinned, so the
+    // rank order over them never changes between spills), deletes the old
+    // files and replaces run_paths_ with the compacted one. Called by
+    // spill_to_run before opening a new run once the cap is reached.
+    Status compact_runs();
     // Writes all current terms (sorted) to an already-open RunWriter, draining.
     // Skips ids whose slot is gone (evicted mid-feed) and, when
     // `evict_low_df_bigrams`, evicts eligible df==1 bigrams instead of writing
@@ -815,6 +853,9 @@ private:
     // doubles as the buffer's registry identity.
     GlobalMemoryLimiter* global_limiter_ = nullptr;
     std::atomic<bool> global_spill_requested_ {false};
+    // G09 forced-spill floor / run-file cap (see the public setters above).
+    uint64_t forced_spill_min_arena_bytes_ = kDefaultForcedSpillMinArenaBytes;
+    size_t max_run_files_ = kDefaultMaxRunFilesPerBuffer;
 
     // Returns the live Term for `term_id`, claiming a pool slot on first touch.
     Term& term_slot(uint32_t term_id, bool* new_term);
@@ -936,6 +977,15 @@ void reset_bigram_drain_df_drops();
 // between tests. Not part of the production API.
 uint64_t global_forced_spills();
 void reset_global_forced_spills();
+
+// G09 run-file cap seam: merge-compactions of a buffer's accumulated spill
+// runs (each collapses the whole run list into one file). Always-on relaxed
+// atomic (a compaction is rare -- at most once per cap-many spills -- so
+// contention is a non-issue, unlike the per-token seams above). Deterministic
+// on the single-threaded build path; reset between tests. Not part of the
+// production API.
+uint64_t run_compactions();
+void reset_run_compactions();
 } // namespace testing
 
 } // namespace doris::snii::writer

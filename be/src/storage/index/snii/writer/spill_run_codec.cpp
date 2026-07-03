@@ -649,4 +649,81 @@ Status MergeRuns(const std::vector<std::string>& run_paths, const std::vector<st
     return Status::OK();
 }
 
+Status CompactRuns(const std::vector<std::string>& run_paths,
+                   const std::vector<uint32_t>& string_rank, bool has_positions,
+                   const std::string& out_path) {
+    // Same heap machinery as MergeRuns, but the output is a RUN (records keyed
+    // by term-id, ordered by string rank -- the exact invariant every run file
+    // carries), not a resolved term stream: no vocab strings are needed, and
+    // positions are always materialized because the run codec serializes
+    // positions_flat directly.
+    std::vector<std::unique_ptr<RunReader>> readers;
+    readers.reserve(run_paths.size());
+    std::priority_queue<HeapItem, std::vector<HeapItem>, HeapGreater> heap(
+            HeapGreater {&string_rank});
+    for (size_t i = 0; i < run_paths.size(); ++i) {
+        auto r = std::make_unique<RunReader>();
+        RETURN_IF_ERROR(r->open(run_paths[i], has_positions));
+        if (!r->exhausted()) {
+            if (r->current_id() >= string_rank.size()) {
+                return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                        "run term_id out of rank range");
+            }
+            heap.push({r->current_id(), i});
+        }
+        readers.push_back(std::move(r));
+    }
+
+    RunWriter w;
+    RETURN_IF_ERROR(w.open(out_path));
+    std::vector<size_t> matching; // run indices contributing the current term
+    while (!heap.empty()) {
+        const uint32_t id = heap.top().term_id;
+        TermPostings merged;
+        matching.clear();
+        uint64_t total_docs = 0;
+        uint64_t total_pos = 0;
+        while (!heap.empty() && heap.top().term_id == id) {
+            const size_t ri = heap.top().run;
+            heap.pop();
+            const RunReader* r = readers[ri].get();
+            total_docs += r->current().docids.size();
+            total_pos += r->current_pos_count();
+            matching.push_back(ri);
+        }
+        merged.docids.reserve(static_cast<size_t>(total_docs));
+        merged.freqs.reserve(static_cast<size_t>(total_docs));
+        if (has_positions) {
+            merged.positions_flat.reserve(static_cast<size_t>(total_pos));
+        }
+        // Concat (WITH boundary-doc coalescing) is deliberately the SAME
+        // append the final merge applies: coalescing the seam between two
+        // adjacent input runs here yields exactly what the final merge would
+        // have produced from the uncompacted pair, so compaction is invisible
+        // in the emitted term stream. A G04 position-suppressed term carries
+        // an empty position block in every run (a per-TERM property), so its
+        // compacted record is re-written with n_pos == 0.
+        for (size_t ri : matching) {
+            RunReader* r = readers[ri].get();
+            if (has_positions) {
+                RETURN_IF_ERROR(r->materialize_positions());
+            }
+            Concat(&merged, r->current(), has_positions);
+        }
+        RETURN_IF_ERROR(w.write_term(id, merged));
+        for (size_t ri : matching) {
+            RunReader* r = readers[ri].get();
+            RETURN_IF_ERROR(r->advance());
+            if (!r->exhausted()) {
+                if (r->current_id() >= string_rank.size()) {
+                    return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                            "run term_id out of rank range");
+                }
+                heap.push({r->current_id(), ri});
+            }
+        }
+    }
+    return w.close();
+}
+
 } // namespace doris::snii::writer

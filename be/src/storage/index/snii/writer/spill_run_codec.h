@@ -204,4 +204,21 @@ Status MergeRuns(const std::vector<std::string>& run_paths, const std::vector<st
                  const std::vector<uint32_t>& string_rank, bool has_positions,
                  const std::function<void(TermPostings&&)>& fn, bool allow_stream_positions = true);
 
+// G09 run-file cap support: k-way merges `run_paths` into ONE new run file at
+// `out_path`, keyed and ordered exactly like MergeRuns (heap on
+// string_rank[term_id]; per-term postings concatenated across runs in run
+// order, boundary docs coalesced -- the same Concat the final merge applies,
+// so compact-then-merge emits the identical term stream as merging the
+// originals). Positions are always fully materialized per term (the run codec
+// serializes positions_flat; no streaming pump), including per-term EMPTY
+// position blocks (G04 suppressed bigrams), which are re-written as n_pos == 0.
+// Every record's term-id must index string_rank (else Corruption). On error
+// `out_path` may hold a partial file the caller must delete; the input runs
+// are never modified. Opens run_paths.size() read fds + 1 write fd for the
+// call's duration -- the caller (SpimiTermBuffer::compact_runs) bounds that
+// fan-in with its run-count cap.
+Status CompactRuns(const std::vector<std::string>& run_paths,
+                   const std::vector<uint32_t>& string_rank, bool has_positions,
+                   const std::string& out_path);
+
 } // namespace doris::snii::writer

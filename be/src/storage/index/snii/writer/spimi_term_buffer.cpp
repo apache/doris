@@ -91,6 +91,10 @@ std::atomic<uint64_t> g_bigram_drain_df_drops {0};
 // (per-token path, concurrent writers -- same rationale as the pair-map seams).
 std::atomic<uint64_t> g_global_forced_spills {0};
 
+// G09 run-file cap seam: merge-compactions of a buffer's run list (always-on:
+// at most one per cap-many spills, contention-free).
+std::atomic<uint64_t> g_run_compactions {0};
+
 // Vocabulary ids examined per incremental sweep step. Small enough that a step
 // is noise on the per-token add path, large enough that the sweep's amortized
 // eviction rate (typically many eligible ids per step -- the over-cap
@@ -147,6 +151,12 @@ uint64_t global_forced_spills() {
 }
 void reset_global_forced_spills() {
     g_global_forced_spills.store(0, std::memory_order_relaxed);
+}
+uint64_t run_compactions() {
+    return g_run_compactions.load(std::memory_order_relaxed);
+}
+void reset_run_compactions() {
+    g_run_compactions.store(0, std::memory_order_relaxed);
 }
 } // namespace testing
 
@@ -224,11 +234,13 @@ void SpimiTermBuffer::attach_global_limiter(GlobalMemoryLimiter* limiter) {
     global_limiter_ = limiter;
     // Race-safe vs report: registration and every report run on the OWNER's
     // thread, strictly ordered; the registry serializes them against other
-    // buffers' calls internally. Register with the CURRENT resident total so
-    // the registry is exact from the first moment (a borrowed-vocab buffer
+    // buffers' calls internally. Register with the CURRENT resident total AND
+    // the current spillable arena bytes (the victim-selection key) so the
+    // registry is exact from the first moment (a borrowed-vocab buffer
     // already holds its vocab-sized slot index here).
     global_limiter_->register_buffer(&global_spill_requested_,
-                                     static_cast<int64_t>(resident_bytes()));
+                                     static_cast<int64_t>(resident_bytes()),
+                                     static_cast<int64_t>(pool_.arena_bytes()));
 }
 
 void SpimiTermBuffer::configure_bigram_diet(uint64_t vocab_cap_bytes,
@@ -275,14 +287,18 @@ void SpimiTermBuffer::report_arena_delta() {
         mem_reporter_->report(now - reported_resident_);
     }
     // G09: forward the same debounced total -- as an ABSOLUTE, self-healing
-    // value -- to the process-wide registry. This is the limiter's decision
-    // point: report() flags the largest registered buffers (possibly this one)
-    // while the global sum exceeds the budget. It only ever takes the registry
-    // mutex and flips advisory atomics; no lock is held here while spilling
-    // (any spill this buffer performs happens AFTER this returns, back in
+    // value -- to the process-wide registry, together with the current
+    // SPILLABLE arena bytes (the victim-selection key: only the arena is
+    // reclaimable by a forced spill; the persistent vocab/pair structures are
+    // not). This is the limiter's decision point: report() flags the
+    // largest-arena eligible buffers (possibly this one) while the global sum
+    // exceeds the budget. It only ever takes the registry mutex and flips
+    // advisory atomics; no lock is held here while spilling (any spill this
+    // buffer performs happens AFTER this returns, back in
     // maybe_spill_after_token, on this thread).
     if (global_limiter_ != nullptr) {
-        global_limiter_->report(&global_spill_requested_, now);
+        global_limiter_->report(&global_spill_requested_, now,
+                                static_cast<int64_t>(pool_.arena_bytes()));
     }
     reported_resident_ = now;
 }
@@ -454,21 +470,29 @@ void SpimiTermBuffer::maybe_spill_after_token() {
     const bool arena_worth_spilling =
             pool_.arena_bytes() >= std::max<uint64_t>(CompactPostingPool::kBlockSize, gate_cap / 4);
     const bool arena_near_limit = pool_.arena_bytes() >= kArenaSpillCap;
-    // G09: the process-wide limiter flagged this buffer (one of the largest
-    // registered consumers while the global total exceeded the budget).
-    // Honored HERE, on the owner's own thread -- never on the reporting thread
-    // that set the flag. The G08 anti-churn floor is deliberately BYPASSED
-    // (each victim's arena is below cap/4 by construction: it never reached
-    // its per-writer gate -- that is exactly why the global sum grew), but at
-    // least one allocated arena block is still required so the run has bytes
-    // to write; below that the request stays PENDING and is honored within
-    // one block's worth of tokens. A request that finds the owner already
-    // drained is never observed again -- an advisory no-op (the dtor
-    // un-registers) -- and a stale re-request after a spill costs at most one
-    // extra small run (double-spill is harmless, byte-identical output).
+    // G09: the process-wide limiter flagged this buffer (one of the
+    // largest-ARENA eligible consumers while the global total exceeded the
+    // budget). Honored HERE, on the owner's own thread -- never on the
+    // reporting thread that set the flag. The G08 anti-churn floor (cap/4) is
+    // deliberately BYPASSED (each victim's arena is below cap/4 by
+    // construction: it never reached its per-writer gate -- that is exactly
+    // why the global sum grew), but the FORCED-SPILL FLOOR
+    // (snii_forced_spill_min_arena_bytes, >= one arena block so a run is
+    // writable) still applies: a forced spill reclaims ONLY the arena, so
+    // honoring below the floor would cut a tiny run for near-zero relief.
+    // Below the floor the request is a NO-OP that stays PENDING -- it is NOT
+    // retried as a spill each token -- and is honored once the arena regrows
+    // past the floor (the limiter's victim selection applies the same floor,
+    // so a below-floor flag only arises from a floor/config race or a test
+    // seam). A request that finds the owner already drained is never observed
+    // again -- an advisory no-op (the dtor un-registers) -- and a stale
+    // re-request after a spill costs at most one extra floor-sized run
+    // (double-spill is harmless, byte-identical output).
     const bool global_requested = global_spill_requested_.load(std::memory_order_relaxed);
     const bool global_spill_now =
-            global_requested && pool_.arena_bytes() >= CompactPostingPool::kBlockSize;
+            global_requested &&
+            pool_.arena_bytes() >= std::max<uint64_t>(CompactPostingPool::kBlockSize,
+                                                      forced_spill_min_arena_bytes_);
     if (((over_cap && arena_worth_spilling) || global_spill_now || arena_near_limit) &&
         spill_status_.ok()) {
         if (global_requested) {
@@ -1356,7 +1380,47 @@ Status SpimiTermBuffer::drain_to_writer(RunWriter* w, bool evict_low_df_bigrams)
     return st;
 }
 
+Status SpimiTermBuffer::compact_runs() {
+    if (run_paths_.size() < 2) {
+        return Status::OK();
+    }
+    // The compaction keys its k-way heap on the same term-id -> lexicographic
+    // rank the per-spill sorts and the final merge use. Safe across spills:
+    // every id present in a run file is PINNED (never evicted/recycled --
+    // id_in_run_ / the pair-term materialize-at-spill rule), so its vocab
+    // string -- and therefore its rank order relative to every other in-run
+    // id -- is immutable from the moment it was first written.
+    ensure_string_rank();
+    const std::string out_path = MakeRunPath(resolve_temp_dir());
+    Status s = CompactRuns(run_paths_, string_rank_, has_positions_, out_path);
+    if (!s.ok()) {
+        std::remove(out_path.c_str()); // drop the partial output; inputs intact
+        return s;
+    }
+    // The compacted run REPLACES its inputs at the FRONT of the run order:
+    // it holds exactly runs [0..n) merged in run order, and any later run only
+    // covers strictly-later docids, so per-term run-order concatenation (the
+    // k-way merge invariant) is preserved.
+    for (const std::string& p : run_paths_) {
+        std::remove(p.c_str());
+    }
+    run_paths_.clear();
+    run_paths_.push_back(out_path);
+    g_run_compactions.fetch_add(1, std::memory_order_relaxed);
+    return Status::OK();
+}
+
 Status SpimiTermBuffer::spill_to_run(bool evict_low_df_bigrams) {
+    // G09 run-file cap: a buffer must never accumulate unbounded run files --
+    // the final k-way merge (re)opens ALL of them simultaneously and holds
+    // the fds for its whole duration, so unbounded runs across ~100
+    // concurrent writers exhausted the BE nofile rlimit ('Too many open
+    // files' at run reopen). At the cap, merge-compact the existing runs into
+    // one before cutting the new run: the merge fan-in (and its fd count) is
+    // bounded by cap + 1 per buffer.
+    if (max_run_files_ != 0 && run_paths_.size() >= max_run_files_) {
+        RETURN_IF_ERROR(compact_runs());
+    }
     const std::string dir = resolve_temp_dir();
     // Best-effort space pre-check: fail with a clear, early error rather than a
     // mid-write IoError that leaves a half-written run. Best-effort only (TOCTOU; on

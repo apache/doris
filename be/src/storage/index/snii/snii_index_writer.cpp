@@ -59,10 +59,22 @@ Status SniiIndexColumnWriter::init() {
     // on each writer's own thread; byte-identical output). Budget refreshed
     // from the mutable config at every writer init; 0 disables (no
     // registration, zero per-token overhead beyond the G08 path).
+    // G09 anti-storm knobs (see the config comments): the forced-spill floor
+    // gates both the owner-side honor (a request is a pending no-op until the
+    // reclaimable arena regrows past it) and the limiter's victim eligibility,
+    // and the run-file cap merge-compacts a writer's spill runs so the final
+    // k-way merge's fd fan-in stays bounded. Applied unconditionally -- the
+    // floor also protects test-seam requests, and the cap also bounds
+    // per-writer gate-2 runs when the global limiter is off.
+    _term_buffer->set_forced_spill_min_arena_bytes(
+            static_cast<uint64_t>(std::max<int64_t>(config::snii_forced_spill_min_arena_bytes, 0)));
+    _term_buffer->set_max_run_files(
+            static_cast<size_t>(std::max<int32_t>(config::snii_spill_max_run_files_per_buffer, 0)));
     const int64_t global_budget = config::snii_index_writer_global_memory_bytes;
     if (global_budget > 0) {
         auto* global_limiter = ::doris::snii::writer::GlobalMemoryLimiter::instance();
         global_limiter->set_budget_bytes(global_budget);
+        global_limiter->set_min_victim_arena_bytes(config::snii_forced_spill_min_arena_bytes);
         _term_buffer->attach_global_limiter(global_limiter);
     }
     // G04 bigram diet: whenever the G01 flush-time bigram df-prune WILL be
