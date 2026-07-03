@@ -122,8 +122,8 @@ public class MTMVTask extends AbstractTask {
             new Column("CompletedPartitions", ScalarType.createStringType()),
             new Column("Progress", ScalarType.createStringType()),
             new Column("LastQueryId", ScalarType.createStringType()),
-            new Column("IvmFallbackReason", ScalarType.createStringType()),
-            new Column("ComputeGroup", ScalarType.createStringType()));
+            new Column("ComputeGroup", ScalarType.createStringType()),
+            new Column("IvmFallbackReason", ScalarType.createStringType()));
 
     public static final ImmutableMap<String, Integer> COLUMN_TO_INDEX;
 
@@ -293,8 +293,14 @@ public class MTMVTask extends AbstractTask {
             // refresh fallback: incompatible MV definitions must fail directly.
             ensureQueryUsableIfNeeded(ctx, tableIfs);
             RefreshRequest request = resolveRefreshRequest();
+            List<RefreshAttemptType> attempts = buildAttempts(request);
+            try {
+                syncPartitionsIfNeeded(ctx, tableIfs);
+            } catch (PartitionPlanningException e) {
+                throw new JobException(e.getMessage(), e);
+            }
             boolean disablePartitionRefresh = false;
-            for (RefreshAttemptType attemptType : buildAttempts(request)) {
+            for (RefreshAttemptType attemptType : attempts) {
                 switch (attemptType) {
                     case IVM:
                         AttemptResultType ivmResult = executeIvmAttempt(request);
@@ -309,7 +315,7 @@ public class MTMVTask extends AbstractTask {
                         if (disablePartitionRefresh) {
                             break;
                         }
-                        if (executePartitionBasedRefresh(ctx, tableIfs, request)) {
+                        if (executePartitionBasedRefresh(tableIfs, request)) {
                             return;
                         }
                         break;
@@ -403,6 +409,10 @@ public class MTMVTask extends AbstractTask {
     }
 
     private List<RefreshAttemptType> buildAttempts(RefreshRequest request) {
+        if (taskContext.getTriggerMode() != MTMVTaskTriggerMode.MANUAL
+                && mtmv.isIvm() && !mtmv.hasRefreshSnapshot()) {
+            return Lists.newArrayList(RefreshAttemptType.COMPLETE);
+        }
         List<RefreshAttemptType> attempts = Lists.newArrayList();
         switch (request.refreshMode) {
             case AUTO:
@@ -436,8 +446,8 @@ public class MTMVTask extends AbstractTask {
         return attempts;
     }
 
-    private PartitionRefreshPlan planPartitionRefresh(ConnectContext ctx, List<TableIf> tableIfs,
-            RefreshRequest request) throws JobException, AnalysisException, DdlException {
+    private PartitionRefreshPlan planPartitionRefresh(List<TableIf> tableIfs, RefreshRequest request)
+            throws AnalysisException {
         if (mtmv.isIvm() && mtmv.getIvmInfo().isRunningIvmRefresh()) {
             // A failed IVM run may have written partial delta data. Only a
             // COMPLETE refresh can be used as recovery; PARTITIONS is skipped.
@@ -454,11 +464,6 @@ public class MTMVTask extends AbstractTask {
             return PartitionRefreshPlan.fallback(
                     "The partition method of this asynchronous materialized view "
                             + "does not support refreshing by partition");
-        }
-        try {
-            syncPartitionsIfNeeded(ctx, tableIfs);
-        } catch (PartitionPlanningException e) {
-            return PartitionRefreshPlan.fallback(e.getMessage());
         }
         MTMVRefreshContext context = buildRefreshContext(tableIfs);
         boolean fresh;
@@ -552,19 +557,23 @@ public class MTMVTask extends AbstractTask {
                     mtmv.getName(), getTaskId());
             return AttemptResultType.FALLBACK_TO_COMPLETE;
         }
+        if (ivmResult.getFailureReason() == IvmFailureReason.PLAN_SIGNATURE_MISMATCH) {
+            LOG.warn("IVM refresh fell back for mv={}, reason={}, detail={}, taskId={}. "
+                    + "Continuing with COMPLETE refresh.",
+                    mtmv.getName(), ivmResult.getFailureReason(),
+                    ivmResult.getDetailMessage(), getTaskId());
+            return AttemptResultType.FALLBACK_TO_COMPLETE;
+        }
         LOG.warn("IVM refresh fell back for mv={}, reason={}, detail={}, taskId={}. "
                 + "Continuing with partition-based refresh.",
                 mtmv.getName(), ivmResult.getFailureReason(),
                 ivmResult.getDetailMessage(), getTaskId());
-        if (ivmResult.getFailureReason() == IvmFailureReason.PLAN_SIGNATURE_MISMATCH) {
-            return AttemptResultType.FALLBACK_TO_COMPLETE;
-        }
         return AttemptResultType.FALLBACK_ALLOWED;
     }
 
-    private boolean executePartitionBasedRefresh(ConnectContext ctx, List<TableIf> tableIfs,
-            RefreshRequest request) throws JobException, AnalysisException, DdlException {
-        PartitionRefreshPlan partitionPlan = planPartitionRefresh(ctx, tableIfs, request);
+    private boolean executePartitionBasedRefresh(List<TableIf> tableIfs, RefreshRequest request)
+            throws JobException, AnalysisException {
+        PartitionRefreshPlan partitionPlan = planPartitionRefresh(tableIfs, request);
         if (!partitionPlan.canRefreshByPartitions) {
             if (request.allowFallback) {
                 LOG.warn("MTMV partition refresh fell back for mv={}, reason={}, taskId={}",
@@ -918,9 +927,9 @@ public class MTMVTask extends AbstractTask {
         trow.addToColumnValue(
                 new TCell().setStringVal(lastQueryId));
         trow.addToColumnValue(new TCell().setStringVal(
-                ivmFallbackReason == null ? FeConstants.null_string : ivmFallbackReason));
-        trow.addToColumnValue(new TCell().setStringVal(
                 computeGroup == null || computeGroup.isEmpty() ? FeConstants.null_string : computeGroup));
+        trow.addToColumnValue(new TCell().setStringVal(
+                ivmFallbackReason == null ? FeConstants.null_string : ivmFallbackReason));
         return trow;
     }
 
@@ -1006,12 +1015,6 @@ public class MTMVTask extends AbstractTask {
         if (mtmv.getRefreshInfo().getRefreshMethod() == RefreshMethod.COMPLETE) {
             return Lists.newArrayList(mtmv.getPartitionNames());
         }
-        // An incomplete baseline cannot be checked by isMTMVSync, because the current exclude rules may
-        // skip the changed base tables and incorrectly mark the MV as fresh. Rebuild it with a full refresh.
-        if (!mtmv.hasCompleteRefreshSnapshot()) {
-            return Lists.newArrayList(mtmv.getPartitionNames());
-        }
-        // check if data is fresh
         // We need to use a newly generated relationship and cannot retrieve it using mtmv.getRelation()
         // to avoid rebuilding the baseTable and causing a change in the tableId
         boolean fresh = MTMVPartitionUtil.isMTMVSync(context, relation.getBaseTablesOneLevelAndFromView(),
