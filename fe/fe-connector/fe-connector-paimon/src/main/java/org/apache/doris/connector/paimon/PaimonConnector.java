@@ -29,6 +29,7 @@ import org.apache.doris.connector.metastore.spi.JdbcDriverSupport;
 import org.apache.doris.connector.metastore.spi.MetaStoreProviders;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.filesystem.properties.StorageProperties;
+import org.apache.doris.kerberos.HadoopAuthenticator;
 
 import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.conf.Configuration;
@@ -98,9 +99,18 @@ public class PaimonConnector implements Connector {
     // Legacy default = Config.max_external_table_cache_num.
     static final int DEFAULT_TABLE_CACHE_CAPACITY = 1000;
 
+    // Catalog property key gating the plugin-side Kerberos authenticator (value matches AuthType.KERBEROS).
+    private static final String HADOOP_SECURITY_AUTHENTICATION = "hadoop.security.authentication";
+
     private final Map<String, String> properties;
     private final ConnectorContext context;
     private volatile Catalog catalog;
+
+    // Lazily-built plugin-side Kerberos authenticator (single-owner auth; see TcclPinningConnectorContext).
+    // null for a non-Kerberos catalog. Its doAs acts on the PLUGIN's UserGroupInformation copy — the one the
+    // plugin's HDFS FileSystem reads — not the app-loader copy the FE-injected authenticator logs in.
+    private volatile HadoopAuthenticator pluginAuth;
+    private volatile boolean pluginAuthComputed;
 
     // FIX-4: per-catalog (long-lived) cache of each table's latest snapshot id, sized by
     // meta.cache.paimon.table.ttl-second (<=0 disables -> always live, the no-cache catalog). getMetadata()
@@ -116,9 +126,40 @@ public class PaimonConnector implements Connector {
 
     public PaimonConnector(Map<String, String> properties, ConnectorContext context) {
         this.properties = properties;
-        this.context = context;
+        // Wrap the FE-injected context so every executeAuthenticated pins the TCCL to the plugin loader (the
+        // paimon plugin bundles paimon-core + hadoop child-first) and, for a Kerberos catalog, runs the op
+        // under a plugin-side UGI doAs (pluginAuthenticator): the plugin's FileSystem reads the plugin's own
+        // UserGroupInformation copy, which the FE-injected app-side authenticator never logs in — so without
+        // this a DDL/read against secured HDFS negotiates SIMPLE auth. See TcclPinningConnectorContext.
+        this.context = new TcclPinningConnectorContext(context, getClass().getClassLoader(),
+                this::pluginAuthenticator);
         this.latestSnapshotCache =
                 new PaimonLatestSnapshotCache(resolveTableCacheTtlSecond(properties), DEFAULT_TABLE_CACHE_CAPACITY);
+    }
+
+    /**
+     * Lazily builds and memoizes the plugin-side Kerberos authenticator that {@link TcclPinningConnectorContext}
+     * runs each op under, so remote HDFS access uses the PLUGIN's own {@code UserGroupInformation} copy (the one
+     * the plugin's {@code FileSystem} reads). Returns {@code null} for a non-Kerberos catalog so the FE-injected
+     * auth path is preserved unchanged. The Kerberos keys ride the {@code hadoop.*} passthrough in
+     * {@link PaimonCatalogFactory#buildHadoopConfiguration}; {@link HadoopAuthenticator#getHadoopAuthenticator}
+     * resolves the plugin (child-first) copy of fe-kerberos, so its {@code doAs} logs in / acts on the plugin
+     * UGI. Construction is cheap — the keytab login is lazy in {@code getUGI()} on the first {@code doAs}.
+     */
+    private HadoopAuthenticator pluginAuthenticator() {
+        if (!pluginAuthComputed) {
+            synchronized (this) {
+                if (!pluginAuthComputed) {
+                    pluginAuth = "kerberos".equalsIgnoreCase(properties.get(HADOOP_SECURITY_AUTHENTICATION))
+                            ? HadoopAuthenticator.getHadoopAuthenticator(
+                                    PaimonCatalogFactory.buildHadoopConfiguration(
+                                            properties, buildStorageHadoopConfig()))
+                            : null;
+                    pluginAuthComputed = true;
+                }
+            }
+        }
+        return pluginAuth;
     }
 
     /**
