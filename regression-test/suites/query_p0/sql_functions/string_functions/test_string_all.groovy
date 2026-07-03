@@ -1007,6 +1007,8 @@ suite("string_functions_all") {
     testFoldConst("SELECT SPLIT_BY_STRING('ṭṛì ḍḍumai ṭṛì', ' ');")
     qt_split_by_string_356 "SELECT SPLIT_BY_STRING('hello world', 'xyz');"
     testFoldConst("SELECT SPLIT_BY_STRING('hello world', 'xyz');")
+    qt_issue_64803_split_by_string "SELECT SPLIT_BY_STRING('', ','), SPLIT_BY_STRING('', 'abc'), SPLIT_BY_STRING('', '');"
+    testFoldConst("SELECT SPLIT_BY_STRING('', ','), SPLIT_BY_STRING('', 'abc'), SPLIT_BY_STRING('', '');")
 
     // SPLIT_PART tests
     qt_split_part_357 "SELECT SPLIT_PART('hello world', ' ', 1);"

@@ -1233,6 +1233,9 @@ Hello   World
 -- !split_by_string_356 --
 ["hello world"]
 
+-- !issue_64803_split_by_string --
+[""]	[""]	[]
+
 -- !split_part_357 --
 hello
 
