@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
+import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 
 /**
  * Marker interface for expressions that can convert NULL input into a non-NULL output.
@@ -49,6 +50,14 @@ public interface NullToNonNullFunction {
      * pre-aggregation on the base table cannot see those rows — resulting in wrong results.
      */
     static boolean canConvertNullToNonNull(Expression e) {
+        if (e instanceof AggregateFunction) {
+            // AggregateFunction is the container, not an argument.
+            // AlwaysNotNullable agg functions (Count, Sum0, etc.) have their own
+            // decomposition semantics (Count->sum0, etc.) that correctly handle
+            // null-extended rows from outer joins. The check targets expressions
+            // INSIDE aggregate function arguments (e.g. count(array(col))).
+            return false;
+        }
         return e instanceof NullToNonNullFunction
                 || (e instanceof AlwaysNotNullable
                         && !e.getInputSlots().isEmpty());
