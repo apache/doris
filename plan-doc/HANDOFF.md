@@ -5,7 +5,36 @@
 
 ---
 
-# 🎯 最新一轮（2026-07-03 深夜）= **kerberos INSERT 三刀收口：temp() 补包装 `8d352049394`（待 CI 实证）**
+# 🎯 最新一轮（2026-07-04）= **CI build 985672 失败分析：三刀实证生效；新第四刀 = SCAN plan 路径缺插件侧 doAs（待修）**
+
+> **① kerberos case（真代码问题，本 PR 相关）**：INSERT 已过（三刀 `8d352049394` **CI 实证生效**）；失败点前移到 INSERT 后
+> `select count(1)` 的 **plan 期 manifest-list 读**——`PluginDrivenScanNode.getSplits → onPluginClassLoader(只 pin TCCL、无 doAs)
+> → IcebergScanPlanProvider.planScan:299 → planScanInternal:498 → planCountPushdown:712 → SnapshotScan.planFiles
+> → ManifestLists.read(snap-*.avro) → DFSClient.open → SASL "Client cannot authenticate via:[TOKEN, KERBEROS]"`
+> （985672 归档 fe.log 01:22:54）。scan 路径从未包 executeAuthenticated——之前该 case 死在 INSERT、读路径从未被走到，
+> 是**新暴露**非新引入。sys-table 路径（同文件 :1572/:1594 context.executeAuthenticated）已是既有范式；
+> **master parity**：legacy `IcebergScanNode:477` `preExecutionAuthenticator.execute(() -> doGetSplits)`，
+> streaming 臂 :510/:524 亦包。**修法（第四刀）**：`planScan` 两 overload + `streamingSplitEstimate` + `streamSplits`
+> 包 `context.executeAuthenticated`；⚠️ `streamSplits` 返回的 `ConnectorSplitSource` 是 **lazy** 的——engine pump 线程
+> 消费 planFiles iterator，须在 split source 的逐批拉取处也包 doAs（镜像 master :510/:524），只包 streamSplits 入口不够。
+> UT 走 TcclPinningConnectorContextTest 同款接线断言（recording fake context）。paimon `PaimonScanPlanProvider.planScan`
+> 同型缺口（无 kerberos e2e 闸）= parity 候选，随四刀一起或单独 commit。
+>
+> **② paimon 8 case + hive_text_write 大面积失败 = CI 环境宿主资源饥饿，非本 PR（勿逐 case 修）**：
+> BE 内嵌 JVM GC Real≫User+Sys（Young GC 2s→30s 递增；GC(276) Real=218s/Sys=48s = 重度内存 reclaim/CPU 争抢）、
+> BE JVM 连 KDC 都 SocketTimeout、brpc 8062 从 01:53 瘫（send fragments rpc timeout）、FE 02:03:26 心跳判 dead
+> （BE 02:01:44 还在报 tablet=进程活着服务瘫）、02:26 流水线优雅重启 BE（be.out LSAN 泄漏报告=exit() 实证非 crash；
+> dmesg 无 OOM-kill）。**跨 PR 同签名实锤**：64923/65175/64891/64924/64854/65031 六个别人的 PR 在**各自不同 agent**
+> 上同窗口（07-03 晚 ~ 07-04 凌晨）挂同批 case（hive_text_write_insert + test_paimon_catalog/jdbc_catalog/... +
+> mv external_table + load_p0 连带）；本 PR 984925（07-03 10:57）paimon 全绿。**与 `2a5a6aff2d3`（paimon parity doAs）、
+> `c2d9631511c`（paimon reader-type）无关**（纯时间巧合；后者的 FORMAT_ORC file-scanner-v2 warning 只是 v1 回落噪音，
+> legacy 同行为）。处置：等环境恢复 retrigger / 向流水线维护者（onemorechance）反馈证据。
+>
+> 分析证据/日志：985672 归档 tarball（GC log、be.out、fe.log、regression log 时间线）+ TeamCity REST 跨 build 对比。
+
+---
+
+# 🎯 上一轮（2026-07-03 深夜）= **kerberos INSERT 三刀收口：temp() 补包装 `8d352049394`（CI 已实证 INSERT 过）**
 
 > **背景**：`test_iceberg_hadoop_catalog_kerberos` INSERT 连挂多轮。一刀 DDL doAs（`a46e420b871`，已生效——CI 里 DDL 全过）；
 > 二刀 FileIO 包装（`ba7d04fc8d8`）**上车后 CI（build 985573）原样再挂**——本轮根因分析（字节码级）：
