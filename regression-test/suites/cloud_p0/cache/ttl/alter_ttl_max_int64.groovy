@@ -19,9 +19,7 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite("test_ttl_max_int64") {
     sql """ use @regression_cluster_name1 """
-    long currentUnixSeconds = Math.floorDiv(System.currentTimeMillis(), 1000L)
-    long overflowGuardSeconds = 86400L
-    long safeLargeTtlSeconds = Long.MAX_VALUE - currentUnixSeconds - overflowGuardSeconds
+    long safeLargeTtlSeconds = Long.MAX_VALUE / 2L
     def ttlProperties = """ PROPERTIES("file_cache_ttl_seconds"="${safeLargeTtlSeconds}") """
     String[][] backends = sql """ show backends """
     String backendId;
