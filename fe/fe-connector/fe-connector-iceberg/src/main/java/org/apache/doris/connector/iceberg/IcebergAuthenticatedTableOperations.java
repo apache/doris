@@ -34,8 +34,12 @@ import java.util.Objects;
  *
  * <p>Only {@code io()} is altered; {@code current}/{@code refresh}/{@code commit} and the metadata/location seams
  * forward unchanged, so commit semantics (optimistic concurrency, metadata JSON write on the caller thread — which
- * is already inside the caller-thread {@code doAs}) are byte-for-byte the delegate's. {@code temp()} is forwarded
- * unwrapped: it is used only for caller-thread metadata staging, not the worker-pool manifest write path.
+ * is already inside the caller-thread {@code doAs}) are byte-for-byte the delegate's. {@code temp()} must ALSO
+ * wrap: {@code BaseTransaction.TransactionTableOperations} never reads {@code io()} from this instance — its
+ * {@code io()} returns {@code tempOps.io()} where {@code tempOps = ops.temp(current)} (rebuilt on every
+ * intermediate commit), and that is exactly where {@code SnapshotProducer} takes the manifest {@code OutputFile}
+ * from. Forwarding {@code temp()} unwrapped hands the raw FileIO to the worker-pool manifest writes and reopens
+ * the Kerberos SIMPLE-auth failure this class exists to fix.
  */
 final class IcebergAuthenticatedTableOperations implements TableOperations {
 
@@ -84,7 +88,9 @@ final class IcebergAuthenticatedTableOperations implements TableOperations {
 
     @Override
     public TableOperations temp(TableMetadata uncommittedMetadata) {
-        return delegate.temp(uncommittedMetadata);
+        // The delegate's temp ops (e.g. HadoopTableOperations.temp) expose the RAW FileIO; re-wrap so the
+        // transaction's tempOps — the io() source for worker-pool manifest writes — stays authenticated.
+        return new IcebergAuthenticatedTableOperations(delegate.temp(uncommittedMetadata), io);
     }
 
     @Override
