@@ -909,8 +909,14 @@ public class SchemaChangeJobV2 extends AlterJobV2 implements GsonPostProcessable
         if (Config.enable_abort_txn_by_checking_conflict_txn) {
             List<TransactionState> failedTxns = GlobalTransactionMgr.checkFailedTxns(unFinishedTxns);
             for (TransactionState txn : failedTxns) {
-                Env.getCurrentGlobalTransactionMgr()
-                        .abortTransaction(txn.getDbId(), txn.getTransactionId(), "Cancel by schema change");
+                try {
+                    Env.getCurrentGlobalTransactionMgr()
+                            .abortTransaction(txn.getDbId(), txn.getTransactionId(), "Cancel by schema change");
+                } catch (UserException e) {
+                    LOG.warn("failed to abort previous load txn {}, wait next round. schema change job: {}",
+                            txn.getTransactionId(), jobId, e);
+                    return false;
+                }
             }
         }
         return unFinishedTxns.isEmpty();
