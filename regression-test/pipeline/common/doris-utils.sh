@@ -662,6 +662,81 @@ _monitor_regression_log() {
 
 }
 
+_append_system_resource_snapshot() {
+    local output_file="$1"
+    local top_n="${SYSTEM_RESOURCE_MONITOR_TOP_N:-10}"
+    {
+        echo "==================== $(date '+%Y-%m-%d %H:%M:%S %z') ===================="
+        echo "[uptime]"
+        uptime || true
+        echo
+        echo "[free -h]"
+        free -h || true
+        echo
+        echo "[/proc/meminfo]"
+        grep -E '^(MemTotal|MemFree|MemAvailable|Buffers|Cached|SwapTotal|SwapFree|Slab|SReclaimable|SUnreclaim):' /proc/meminfo || true
+        echo
+        echo "[ps sorted by rss]"
+        ps -eo pid,ppid,rss,vsz,%mem,%cpu,comm,args --sort=-rss | head -n "$((top_n + 1))" || true
+        echo
+        echo "[ps sorted by cpu]"
+        ps -eo pid,ppid,rss,vsz,%mem,%cpu,comm,args --sort=-%cpu | head -n "$((top_n + 1))" || true
+        echo
+        if command -v top >/dev/null; then
+            echo "[top]"
+            COLUMNS=240 top -b -n 1 -w 240 | head -n "$((top_n + 7))" || true
+            echo
+        fi
+    } >>"${output_file}" 2>&1
+}
+
+start_system_resource_monitor() {
+    if [[ ! -d "${DORIS_HOME:-}" ]]; then return 1; fi
+    if [[ -n "${SYSTEM_RESOURCE_MONITOR_PID:-}" ]] && kill -0 "${SYSTEM_RESOURCE_MONITOR_PID}" 2>/dev/null; then
+        echo "INFO: system resource monitor already started, pid=${SYSTEM_RESOURCE_MONITOR_PID}"
+        return 0
+    fi
+
+    local interval="${SYSTEM_RESOURCE_MONITOR_INTERVAL_SECONDS:-60}"
+    local output_file="${DORIS_HOME}/be/log/system_resource_usage.log"
+    mkdir -p "$(dirname "${output_file}")"
+    echo "INFO: start system resource monitor, interval=${interval}s, output=${output_file}"
+    (
+        set +e
+        monitor_sleep_pid=""
+        monitor_cleanup() {
+            if [[ -n "${monitor_sleep_pid}" ]]; then
+                kill "${monitor_sleep_pid}" 2>/dev/null || true
+                wait "${monitor_sleep_pid}" 2>/dev/null || true
+            fi
+            exit 0
+        }
+        trap monitor_cleanup TERM INT
+        while true; do
+            _append_system_resource_snapshot "${output_file}"
+            sleep "${interval}" &
+            monitor_sleep_pid="$!"
+            wait "${monitor_sleep_pid}"
+            monitor_sleep_pid=""
+        done
+    ) &
+    SYSTEM_RESOURCE_MONITOR_PID="$!"
+    export SYSTEM_RESOURCE_MONITOR_PID
+}
+
+stop_system_resource_monitor() {
+    if [[ -z "${SYSTEM_RESOURCE_MONITOR_PID:-}" ]]; then return 0; fi
+    if kill -0 "${SYSTEM_RESOURCE_MONITOR_PID}" 2>/dev/null; then
+        kill "${SYSTEM_RESOURCE_MONITOR_PID}" 2>/dev/null || true
+        wait "${SYSTEM_RESOURCE_MONITOR_PID}" 2>/dev/null || true
+        echo "INFO: stop system resource monitor, pid=${SYSTEM_RESOURCE_MONITOR_PID}"
+    fi
+    if [[ -d "${DORIS_HOME:-}" ]]; then
+        _append_system_resource_snapshot "${DORIS_HOME}/be/log/system_resource_usage.log"
+    fi
+    unset SYSTEM_RESOURCE_MONITOR_PID
+}
+
 _redact_creds() {
     local expr="" v escaped
     for v in "${hwYunAk:-}" "${hwYunSk:-}" "${s3SourceAk:-}" "${s3SourceSk:-}" "${txYunAk:-}" "${txYunSk:-}"; do
