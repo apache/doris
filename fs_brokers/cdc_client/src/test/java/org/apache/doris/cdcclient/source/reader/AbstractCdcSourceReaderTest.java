@@ -17,6 +17,7 @@
 
 package org.apache.doris.cdcclient.source.reader;
 
+import org.apache.doris.cdcclient.source.deserialize.DebeziumJsonDeserializer;
 import org.apache.doris.cdcclient.source.reader.mysql.MySqlSourceReader;
 import org.apache.doris.cdcclient.source.reader.postgres.PostgresSourceReader;
 import org.apache.doris.job.cdc.request.JobBaseConfig;
@@ -24,6 +25,7 @@ import org.apache.doris.job.cdc.split.SnapshotSplit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -53,6 +55,19 @@ class AbstractCdcSourceReaderTest {
         reader.setTableSchemas(invalidSchemas);
 
         assertThrows(RuntimeException.class, reader::serializeTableSchemas);
+    }
+
+    @Test
+    void setTableSchemasKeepsReaderAndSerializerBaselineInSync() {
+        PostgresSourceReader reader = new PostgresSourceReader();
+        Map<TableId, TableChanges.TableChange> schemas = new HashMap<>();
+
+        reader.setTableSchemas(schemas);
+
+        DebeziumJsonDeserializer serializer =
+                (DebeziumJsonDeserializer) reader.getSerializer();
+        assertSame(schemas, reader.getTableSchemas());
+        assertSame(schemas, serializer.getTableSchemas());
     }
 
     @Test

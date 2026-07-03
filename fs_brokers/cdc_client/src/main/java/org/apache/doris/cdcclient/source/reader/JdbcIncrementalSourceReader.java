@@ -399,8 +399,7 @@ public abstract class JdbcIncrementalSourceReader extends AbstractCdcSourceReade
                     "No tableSchemas available for stream split, discovering via JDBC for job {}",
                     baseReq.getJobId());
             Map<TableId, TableChanges.TableChange> discovered = getTableSchemas(baseReq);
-            this.tableSchemas = new java.util.concurrent.ConcurrentHashMap<>(discovered);
-            this.serializer.setTableSchemas(this.tableSchemas);
+            setTableSchemas(new java.util.concurrent.ConcurrentHashMap<>(discovered));
             LOG.info(
                     "Discovered {} table schema(s) for job {}",
                     discovered.size(),

@@ -17,6 +17,8 @@
 
 package org.apache.doris.cdcclient.source.deserialize;
 
+import org.apache.doris.cdcclient.utils.SchemaChangeOperation;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -98,6 +100,10 @@ class PostgresSchemaChangeDeserializeTest {
 
         assertEquals(DeserializeResult.Type.SCHEMA_CHANGE, result.getType());
         assertEquals(1, result.getDdls().size());
+        assertEquals(
+                SchemaChangeOperation.Type.ADD,
+                result.getSchemaChanges().get(0).getType());
+        assertEquals("age", result.getSchemaChanges().get(0).getColumnName());
         String ddl = result.getDdls().get(0).toUpperCase();
         assertTrue(ddl.contains("ADD COLUMN"), ddl);
         assertTrue(ddl.contains("AGE"), ddl);
@@ -115,6 +121,10 @@ class PostgresSchemaChangeDeserializeTest {
 
         assertEquals(DeserializeResult.Type.SCHEMA_CHANGE, result.getType());
         assertEquals(1, result.getDdls().size());
+        assertEquals(
+                SchemaChangeOperation.Type.DROP,
+                result.getSchemaChanges().get(0).getType());
+        assertEquals("age", result.getSchemaChanges().get(0).getColumnName());
         String ddl = result.getDdls().get(0).toUpperCase();
         assertTrue(ddl.contains("DROP COLUMN"), ddl);
         assertTrue(ddl.contains("AGE"), ddl);

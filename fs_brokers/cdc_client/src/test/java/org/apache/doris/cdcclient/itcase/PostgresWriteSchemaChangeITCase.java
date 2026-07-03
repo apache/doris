@@ -176,7 +176,7 @@ class PostgresWriteSchemaChangeITCase {
     }
 
     @Test
-    void partialDdlFailureRetriesIdempotentlyBeforeCommittingOffset() throws Exception {
+    void partialDdlFailureRetriesWithMessageAndSchemaIdempotencyBeforeCommit() throws Exception {
         try (MockDorisServer mock = new MockDorisServer();
                 CdcClientWriteHarness harness =
                         CdcClientWriteHarness.postgres(
@@ -216,6 +216,9 @@ class PostgresWriteSchemaChangeITCase {
                     harness.continueBinlog(1, Duration.ofSeconds(90));
 
             assertThat(mock.executedDdls()).hasSize(4);
+            // The first schema query rejects the genuinely failed second DDL. On retry, the first
+            // DDL uses the known error text and the second uses Doris schema verification.
+            assertThat(mock.schemaRequestCount()).isEqualTo(2);
             assertThat(retriedRecords).isNotEmpty();
             JsonNode row = MAPPER.readTree(retriedRecords.get(retriedRecords.size() - 1));
             assertThat(row.get("age").asInt()).isEqualTo(30);

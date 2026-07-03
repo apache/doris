@@ -19,6 +19,7 @@ package org.apache.doris.cdcclient.source.deserialize;
 
 import org.apache.doris.cdcclient.common.Constants;
 import org.apache.doris.cdcclient.utils.SchemaChangeHelper;
+import org.apache.doris.cdcclient.utils.SchemaChangeOperation;
 
 import org.apache.flink.cdc.connectors.base.utils.SourceRecordUtils;
 import org.apache.flink.cdc.connectors.mysql.source.utils.RecordUtils;
@@ -105,6 +106,9 @@ public class PostgresDebeziumJsonDeserializer extends DebeziumJsonDeserializer {
 
         // No baseline yet: adopt the fresh schema as baseline, no DDL.
         if (stored == null || stored.getTable() == null) {
+            LOG.info(
+                    "[SCHEMA-CHANGE] Table {}: no baseline, adopting fresh schema as baseline (no DDL)",
+                    tableId.identifier());
             updatedSchemas.put(tableId, freshChange);
             return DeserializeResult.schemaChange(
                     Collections.emptyList(), updatedSchemas, Collections.emptyList());
@@ -145,7 +149,8 @@ public class PostgresDebeziumJsonDeserializer extends DebeziumJsonDeserializer {
         String db = context.get(Constants.DORIS_TARGET_DB);
         Set<String> excludedCols =
                 excludeColumnsCache.getOrDefault(tableId.table(), Collections.emptySet());
-        List<String> ddls = new ArrayList<>();
+        List<SchemaChangeOperation> schemaChanges = new ArrayList<>();
+        String targetTable = resolveTargetTable(tableId.table());
 
         for (String colName : dropped) {
             if (excludedCols.contains(colName)) {
@@ -155,9 +160,11 @@ public class PostgresDebeziumJsonDeserializer extends DebeziumJsonDeserializer {
                         colName);
                 continue;
             }
-            ddls.add(
-                    SchemaChangeHelper.buildDropColumnSql(
-                            db, resolveTargetTable(tableId.table()), colName));
+            schemaChanges.add(
+                    SchemaChangeOperation.dropColumn(
+                            targetTable,
+                            colName,
+                            SchemaChangeHelper.buildDropColumnSql(db, targetTable, colName)));
         }
 
         for (Column col : added) {
@@ -173,14 +180,12 @@ public class PostgresDebeziumJsonDeserializer extends DebeziumJsonDeserializer {
             // defaults before writing new rows to WAL, so subsequent DML carries the actual value.
             // Existing Doris rows are not backfilled and must remain valid with NULL in this
             // column.
-            ddls.add(
-                    SchemaChangeHelper.buildAddColumnSql(
-                            db,
-                            resolveTargetTable(tableId.table()),
+            schemaChanges.add(
+                    SchemaChangeOperation.addColumn(
+                            targetTable,
                             col.name(),
-                            colType,
-                            null,
-                            null));
+                            SchemaChangeHelper.buildAddColumnSql(
+                                    db, targetTable, col.name(), colType, null, null)));
         }
 
         LOG.info(
@@ -188,7 +193,10 @@ public class PostgresDebeziumJsonDeserializer extends DebeziumJsonDeserializer {
                 tableId.identifier(),
                 added.stream().map(Column::name).collect(Collectors.toList()),
                 dropped,
-                ddls);
-        return DeserializeResult.schemaChange(ddls, updatedSchemas, Collections.emptyList());
+                schemaChanges.stream()
+                        .map(SchemaChangeOperation::getSql)
+                        .collect(Collectors.toList()));
+        return DeserializeResult.schemaChange(
+                schemaChanges, updatedSchemas, Collections.emptyList());
     }
 }

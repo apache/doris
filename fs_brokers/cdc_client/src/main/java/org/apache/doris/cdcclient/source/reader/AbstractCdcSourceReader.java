@@ -68,6 +68,12 @@ public abstract class AbstractCdcSourceReader implements SourceReader {
 
     private final Map<String, Class<?>> splitKeyClassCache = new ConcurrentHashMap<>();
 
+    /** Keep the reader and deserializer on the same schema baseline. */
+    public void setTableSchemas(Map<TableId, TableChanges.TableChange> tableSchemas) {
+        this.tableSchemas = tableSchemas;
+        serializer.setTableSchemas(tableSchemas);
+    }
+
     @Override
     public synchronized void release(JobBaseConfig jobConfig) {
         // Stop the engine but keep source-side state (e.g. the PG replication slot) for another
@@ -171,8 +177,7 @@ public abstract class AbstractCdcSourceReader implements SourceReader {
             TableChanges.TableChange change = FlinkJsonTableChangeSerializer.fromDocument(doc, uc);
             map.put(tableId, change);
         }
-        this.tableSchemas = map;
-        this.serializer.setTableSchemas(map);
+        setTableSchemas(map);
         LOG.info("Loaded {} table schemas from JSON", map.size());
     }
 
@@ -214,11 +219,11 @@ public abstract class AbstractCdcSourceReader implements SourceReader {
             return;
         }
         if (tableSchemas == null) {
-            tableSchemas = new ConcurrentHashMap<>(updatedSchemas);
+            setTableSchemas(new ConcurrentHashMap<>(updatedSchemas));
         } else {
             tableSchemas.putAll(updatedSchemas);
+            setTableSchemas(tableSchemas);
         }
-        serializer.setTableSchemas(tableSchemas);
     }
 
     /**
