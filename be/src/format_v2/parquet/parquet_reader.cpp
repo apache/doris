@@ -336,6 +336,11 @@ Status ParquetReader::init(RuntimeState* state) {
         _state->scheduler.set_timezone(&state->timezone_obj());
         _state->scheduler.set_enable_strict_mode(_state->enable_strict_mode);
     }
+    int64_t merge_read_slice_size = -1;
+    if (state != nullptr && state->query_options().__isset.merge_read_slice_size) {
+        merge_read_slice_size = state->query_options().merge_read_slice_size;
+    }
+    _state->scheduler.set_merge_read_options(_profile, merge_read_slice_size);
     _state->scheduler.set_batch_size(_batch_size);
     // Open parquet file and parse metadata to get file schema.
     RETURN_IF_ERROR(_state->file_context.open(_tracing_file_reader, _io_ctx.get(),
