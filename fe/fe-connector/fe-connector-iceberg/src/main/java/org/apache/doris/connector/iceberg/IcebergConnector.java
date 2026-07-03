@@ -256,8 +256,17 @@ public class IcebergConnector implements Connector {
 
         // Load S3FileIO reflectively via CatalogUtil so this module needs no compile-time AWS SDK
         // dependency; the AWS SDK is resolved from the shared runtime classpath at execution time.
+        // Pin the TCCL to the plugin loader for the probe: iceberg-aws builds its S3 client lazily and
+        // resolves org.apache.iceberg.aws.ApacheHttpClientConfigurations via DynMethods (default loader =
+        // TCCL). This CREATE-CATALOG thread runs under the default 'app' TCCL, which would return the
+        // fe-core copy of the class and ClassCast against the child-loaded plugin copy the rest of the
+        // iceberg-aws stack uses — the SAME split-brain TcclPinningConnectorContext guards on the commit
+        // path. Unlike the metastore probe (which routes through executeAuthenticated), this path is not
+        // pinned by the context, so it must pin here.
         FileIO io = null;
+        ClassLoader previousTccl = Thread.currentThread().getContextClassLoader();
         try {
+            Thread.currentThread().setContextClassLoader(getClass().getClassLoader());
             io = CatalogUtil.loadFileIO("org.apache.iceberg.aws.s3.S3FileIO", ioProps, null);
             // exists() issues a HEAD: a 404 (missing object) returns false and is fine, but
             // endpoint/credential failures (e.g. 403) throw — which is what we want to catch.
@@ -268,6 +277,7 @@ public class IcebergConnector implements Connector {
                     context.getCatalogName(), e);
             return ConnectorTestResult.failure(storageFailureMessage(e));
         } finally {
+            Thread.currentThread().setContextClassLoader(previousTccl);
             if (io != null) {
                 try {
                     io.close();
