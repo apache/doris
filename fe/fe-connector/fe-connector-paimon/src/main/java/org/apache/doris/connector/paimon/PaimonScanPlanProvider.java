@@ -264,8 +264,9 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
     Table resolveTable(PaimonTableHandle paimonHandle) {
         // M-11: wrap the (possibly remote) reload in executeAuthenticated (D-052) so the scan path's
         // table resolution runs under the FE-injected Kerberos UGI, matching the metadata twin. The
-        // transient-table fast path issues no RPC; the FileIO split planning below is intentionally
-        // NOT wrapped (legacy did not wrap it either). When there is no context (offline unit tests
+        // transient-table fast path issues no RPC. The FileIO split planning is wrapped separately in
+        // planSplits (iceberg fourth-locus parity — the un-wrapped plan-time manifest read is exactly
+        // what failed SASL on iceberg's kerberos CI). When there is no context (offline unit tests
         // via the 2-arg ctor), resolve directly — same convention as getScanNodeProperties above.
         try {
             if (context == null) {
@@ -338,6 +339,32 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
         return planScanInternal(session, handle, columns, filter, countPushdown);
     }
 
+    /**
+     * Enumerate the read splits — {@code scan.plan()} reads paimon's snapshot/manifest files remotely —
+     * inside the auth context when present, the scan-side twin of {@link #resolveTable}'s wrap and the
+     * paimon mirror of iceberg's fourth Kerberos locus: on a Kerberos filesystem catalog the plugin bundles
+     * hadoop child-first, so the planning thread's FileIO reads the PLUGIN's UserGroupInformation copy,
+     * which only the plugin-side doAs ({@code TcclPinningConnectorContext}) logs in — un-wrapped, the
+     * plan-time manifest read hits secured HDFS as SIMPLE (iceberg CI proof:
+     * test_iceberg_hadoop_catalog_kerberos SELECT failing SASL at exactly this point). Paimon's shared
+     * manifest-reader pool reuses the FileSystem paimon cached at first (authenticated) touch — paimon's
+     * cache is not UGI-keyed — so the thread-level wrap carries to parallel manifest reads. No live paimon
+     * kerberos e2e gates this (parity/defence, same footing as the TcclPinningConnectorContext port); a
+     * {@code null} context (offline unit tests) plans directly.
+     */
+    private List<Split> planSplits(TableScan scan) {
+        if (context == null) {
+            return scan.plan().splits();
+        }
+        try {
+            return context.executeAuthenticated(() -> scan.plan().splits());
+        } catch (RuntimeException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to plan paimon splits, error message is:" + e.getMessage(), e);
+        }
+    }
+
     private List<ConnectorScanRange> planScanInternal(
             ConnectorSession session,
             ConnectorTableHandle handle,
@@ -376,7 +403,7 @@ public class PaimonScanPlanProvider implements ConnectorScanPlanProvider {
             readBuilder.withProjection(projected);
         }
         TableScan scan = readBuilder.newScan();
-        List<Split> paimonSplits = scan.plan().splits();
+        List<Split> paimonSplits = planSplits(scan);
 
         // Determine table location
         String tableLocation = getTableLocation(table);
