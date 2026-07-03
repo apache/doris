@@ -24,6 +24,7 @@ import org.apache.doris.job.cdc.split.SnapshotSplit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.junit.jupiter.api.Test;
@@ -37,10 +38,22 @@ import java.util.HashMap;
 import java.util.Map;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.debezium.relational.TableId;
+import io.debezium.relational.history.TableChanges;
 
 class AbstractCdcSourceReaderTest {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
+
+    @Test
+    void serializeTableSchemasPropagatesSerializationFailure() {
+        PostgresSourceReader reader = new PostgresSourceReader();
+        Map<TableId, TableChanges.TableChange> invalidSchemas = new HashMap<>();
+        invalidSchemas.put(new TableId(null, "public", "events"), null);
+        reader.setTableSchemas(invalidSchemas);
+
+        assertThrows(RuntimeException.class, reader::serializeTableSchemas);
+    }
 
     @Test
     void releaseStaysBaseImplSoReplicationSlotIsKept() throws Exception {

@@ -19,6 +19,7 @@ package org.apache.doris.cdcclient.itcase;
 
 import org.apache.doris.cdcclient.common.Env;
 import org.apache.doris.cdcclient.service.PipelineCoordinator;
+import org.apache.doris.cdcclient.source.reader.AbstractCdcSourceReader;
 import org.apache.doris.cdcclient.source.reader.SourceReader;
 import org.apache.doris.job.cdc.DataSourceConfigKeys;
 import org.apache.doris.job.cdc.request.FetchTableSplitsRequest;
@@ -32,12 +33,17 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
+import java.lang.reflect.Proxy;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
+
+import io.debezium.relational.Table;
+import io.debezium.relational.TableId;
+import io.debezium.relational.history.TableChanges;
 
 /**
  * Test driver for the from-to {@code writeRecords} path: drives the read + deserialize + streamload
@@ -62,6 +68,7 @@ final class CdcClientWriteHarness implements AutoCloseable {
     // Threaded across rounds, mirroring how FE persists and replays them.
     private String lastTableSchemas;
     private Map<String, String> lastBinlogOffset;
+    private boolean rebuildReaderOnNextWrite;
 
     private CdcClientWriteHarness(
             String jobId,
@@ -221,6 +228,33 @@ final class CdcClientWriteHarness implements AutoCloseable {
         runWrite(finishedSplitsMeta(splits, committedSnapshotOffsets()));
     }
 
+    /** Inject an invalid entry after the request baseline has been loaded. */
+    void injectUnserializableTableSchema() {
+        AbstractCdcSourceReader reader = (AbstractCdcSourceReader) openReader();
+        TableId tableId = new TableId(null, "public", "invalid_serialization_schema");
+        Table invalidTable =
+                (Table)
+                        Proxy.newProxyInstance(
+                                Table.class.getClassLoader(),
+                                new Class<?>[] {Table.class},
+                                (proxy, method, args) -> {
+                                    if ("id".equals(method.getName())) {
+                                        return tableId;
+                                    }
+                                    throw new IllegalStateException("injected schema serialization failure");
+                                });
+        reader.getTableSchemas()
+                .put(
+                        tableId,
+                        new TableChanges.TableChange(
+                                TableChanges.TableChangeType.ALTER, invalidTable));
+    }
+
+    /** Rebuild the cached reader on the next write while resuming from FE-persisted state. */
+    void rebuildReaderOnNextWrite() {
+        rebuildReaderOnNextWrite = true;
+    }
+
     /**
      * Enter the binlog phase straight from the configured non-snapshot startup mode
      * (latest/earliest/specific-offset/timestamp) with no preceding snapshot. The reader resolves
@@ -364,6 +398,8 @@ final class CdcClientWriteHarness implements AutoCloseable {
         req.setToken("test-token");
         req.setMaxInterval(3);
         req.setTaskTimeoutMs(60_000);
+        req.setRebuildReader(rebuildReaderOnNextWrite);
+        rebuildReaderOnNextWrite = false;
         req.setStreamLoadProps(new HashMap<>());
         return req;
     }

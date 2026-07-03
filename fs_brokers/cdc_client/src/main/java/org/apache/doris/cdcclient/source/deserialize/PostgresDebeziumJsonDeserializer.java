@@ -85,18 +85,6 @@ public class PostgresDebeziumJsonDeserializer extends DebeziumJsonDeserializer {
         if (!RecordUtils.isDataChangeRecord(record)) {
             return DeserializeResult.empty();
         }
-        // 3. DML. The baseline is always established by the table's preceding Relation event
-        //    (pgoutput sends R before a table's first DML on every replication connection; a DML
-        //    whose Relation was never seen is dropped inside Debezium as a NoopMessage and never
-        //    reaches here). A missing baseline is therefore unreachable; warn and still emit data.
-        TableId tableId = extractTableId(record);
-        TableChanges.TableChange stored = tableSchemas != null ? tableSchemas.get(tableId) : null;
-        if (stored == null || stored.getTable() == null) {
-            LOG.warn(
-                    "No schema baseline for table {} on DML; expected the preceding Relation event"
-                            + " to have established it. Emitting data without a baseline.",
-                    tableId.identifier());
-        }
         return super.deserialize(context, record);
     }
 

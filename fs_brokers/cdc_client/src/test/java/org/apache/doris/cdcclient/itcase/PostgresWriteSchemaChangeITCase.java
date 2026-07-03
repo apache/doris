@@ -18,6 +18,7 @@
 package org.apache.doris.cdcclient.itcase;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import org.apache.doris.cdcclient.common.Env;
 import org.apache.doris.job.cdc.split.SnapshotSplit;
@@ -37,6 +38,11 @@ import java.sql.DriverManager;
 import java.sql.Statement;
 import java.time.Duration;
 import java.util.List;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
@@ -119,6 +125,105 @@ class PostgresWriteSchemaChangeITCase {
             JsonNode row = MAPPER.readTree(binlog.get(binlog.size() - 1));
             assertThat(row.get("id").asInt()).isEqualTo(3);
             assertThat(row.get("age").asInt()).isEqualTo(30);
+        }
+    }
+
+    @Test
+    void schemaSerializationFailureDoesNotCommitOffset() throws Exception {
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try (MockDorisServer mock = new MockDorisServer();
+                CdcClientWriteHarness harness =
+                        CdcClientWriteHarness.postgres(
+                                jobId,
+                                POSTGRES.getHost(),
+                                POSTGRES.getMappedPort(PostgreSQLContainer.POSTGRESQL_PORT),
+                                POSTGRES.getUsername(),
+                                POSTGRES.getPassword(),
+                                POSTGRES.getDatabaseName(),
+                                "public",
+                                "t_user",
+                                "initial",
+                                "doris_target_db",
+                                mock)) {
+
+            List<SnapshotSplit> splits = harness.fetchAllSnapshotSplits("t_user");
+            harness.writeSnapshot(splits);
+            harness.enterBinlog(splits);
+            String committedOffsetBeforeSchemaChange = harness.committedOffset();
+
+            try (Connection conn = connect();
+                    Statement st = conn.createStatement()) {
+                st.execute("ALTER TABLE t_user ADD COLUMN age INT");
+                st.execute("INSERT INTO t_user (id, name, age) VALUES (3, 'carol', 30)");
+            }
+
+            mock.blockNextDdlResponse();
+            Future<List<String>> write =
+                    executor.submit(() -> harness.continueBinlog(1, Duration.ofSeconds(90)));
+            assertThat(mock.awaitBlockedDdlRequest(Duration.ofSeconds(30))).isTrue();
+            harness.injectUnserializableTableSchema();
+            mock.releaseBlockedDdlResponse();
+
+            assertThatThrownBy(() -> write.get(90, TimeUnit.SECONDS))
+                    .isInstanceOf(ExecutionException.class)
+                    .hasCauseInstanceOf(IllegalStateException.class);
+            assertThat(harness.executedDdls())
+                    .anySatisfy(ddl -> assertThat(ddl.toUpperCase()).contains("ADD COLUMN"));
+            assertThat(harness.committedOffset()).isEqualTo(committedOffsetBeforeSchemaChange);
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    void partialDdlFailureRetriesIdempotentlyBeforeCommittingOffset() throws Exception {
+        try (MockDorisServer mock = new MockDorisServer();
+                CdcClientWriteHarness harness =
+                        CdcClientWriteHarness.postgres(
+                                jobId,
+                                POSTGRES.getHost(),
+                                POSTGRES.getMappedPort(PostgreSQLContainer.POSTGRESQL_PORT),
+                                POSTGRES.getUsername(),
+                                POSTGRES.getPassword(),
+                                POSTGRES.getDatabaseName(),
+                                "public",
+                                "t_user",
+                                "initial",
+                                "doris_target_db",
+                                mock)) {
+
+            List<SnapshotSplit> splits = harness.fetchAllSnapshotSplits("t_user");
+            harness.writeSnapshot(splits);
+            harness.enterBinlog(splits);
+            String committedOffsetBeforeSchemaChange = harness.committedOffset();
+            mock.enablePartialDdlRetryScenario();
+
+            try (Connection conn = connect();
+                    Statement st = conn.createStatement()) {
+                st.execute("ALTER TABLE t_user ADD COLUMN age INT");
+                st.execute("ALTER TABLE t_user ADD COLUMN city VARCHAR(50)");
+                st.execute(
+                        "INSERT INTO t_user (id, name, age, city)"
+                                + " VALUES (3, 'carol', 30, 'beijing')");
+            }
+
+            assertThatThrownBy(() -> harness.continueBinlog(1, Duration.ofSeconds(90)))
+                    .isInstanceOf(Exception.class);
+            assertThat(harness.committedOffset()).isEqualTo(committedOffsetBeforeSchemaChange);
+
+            harness.rebuildReaderOnNextWrite();
+            List<String> retriedRecords =
+                    harness.continueBinlog(1, Duration.ofSeconds(90));
+
+            assertThat(mock.executedDdls()).hasSize(4);
+            assertThat(retriedRecords).isNotEmpty();
+            JsonNode row = MAPPER.readTree(retriedRecords.get(retriedRecords.size() - 1));
+            assertThat(row.get("age").asInt()).isEqualTo(30);
+            assertThat(row.get("city").asText()).isEqualTo("beijing");
+            assertThat(harness.committedOffset()).isNotEqualTo(committedOffsetBeforeSchemaChange);
+            JsonNode commit = MAPPER.readTree(harness.committedOffset());
+            String tableSchemas = commit.get("tableSchemas").asText();
+            assertThat(tableSchemas).contains("age").contains("city");
         }
     }
 

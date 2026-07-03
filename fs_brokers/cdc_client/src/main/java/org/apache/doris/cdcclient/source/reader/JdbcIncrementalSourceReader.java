@@ -1066,9 +1066,8 @@ public abstract class JdbcIncrementalSourceReader extends AbstractCdcSourceReade
                     nextRecord = element;
                     return true;
                 } else if (SourceRecordUtils.isSchemaChangeEvent(element)) {
-                    // PG: a pgoutput Relation message surfaced as a schema-change record; pass it
-                    // through so the deserializer can derive DDL. Do NOT advance the offset here —
-                    // schema records carry no usable source offset; the following DML advances it.
+                    // PostgresSchemaRecord is synthetic and has no source offset. Keep the current
+                    // stream offset; the following DML or heartbeat advances it.
                     nextRecord = element;
                     return true;
                 } else if (SourceRecordUtils.isDataChangeRecord(element)) {

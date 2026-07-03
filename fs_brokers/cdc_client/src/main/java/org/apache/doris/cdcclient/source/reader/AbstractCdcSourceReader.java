@@ -184,44 +184,27 @@ public abstract class AbstractCdcSourceReader implements SourceReader {
      * [{"i":"\"schema\".\"table\"","uc":false,"c":{...debeziumDoc...}},...]}.
      */
     @Override
-    public String serializeTableSchemas() {
+    public String serializeTableSchemas() throws IOException {
         if (tableSchemas == null || tableSchemas.isEmpty()) {
             return null;
         }
-        try {
-            DocumentWriter docWriter = DocumentWriter.defaultWriter();
-            ArrayNode result = OBJECT_MAPPER.createArrayNode();
-            for (Map.Entry<TableId, TableChanges.TableChange> e : tableSchemas.entrySet()) {
-                TableId tableId = e.getKey();
-                // useCatalogBeforeSchema: false when catalog is null but schema is set (e.g. PG)
-                boolean uc = SerializerUtils.shouldUseCatalogBeforeSchema(tableId);
-                ObjectNode entry = OBJECT_MAPPER.createObjectNode();
-                entry.put("i", tableId.toDoubleQuotedString());
-                entry.put("uc", uc);
-                // parse compact doc JSON into a JsonNode so "c" is a nested object, not a string
-                entry.set(
-                        "c",
-                        OBJECT_MAPPER.readTree(
-                                docWriter.write(TABLE_CHANGE_SERIALIZER.toDocument(e.getValue()))));
-                result.add(entry);
-            }
-            return OBJECT_MAPPER.writeValueAsString(result);
-        } catch (Exception e) {
-            // Return null so the current batch is not failed — data keeps flowing and
-            // schema persistence will be retried on the next DDL or feHadNoSchema batch.
-            // For PostgreSQL this is safe: WAL records carry afterSchema so the next DML
-            // will re-trigger schema-change detection and self-heal.
-            // WARNING: for MySQL (schema change not yet implemented), returning null here
-            // is dangerous — MySQL binlog has no inline schema, so loading a stale
-            // pre-DDL schema from FE on the next task would cause column mismatches
-            // (flink-cdc#732). When MySQL schema change is implemented, this must throw
-            // instead of returning null to prevent committing the offset with a stale schema.
-            LOG.error(
-                    "Failed to serialize tableSchemas, schema will not be persisted to FE"
-                            + " in this cycle. Will retry on next DDL or batch.",
-                    e);
-            return null;
+        DocumentWriter docWriter = DocumentWriter.defaultWriter();
+        ArrayNode result = OBJECT_MAPPER.createArrayNode();
+        for (Map.Entry<TableId, TableChanges.TableChange> e : tableSchemas.entrySet()) {
+            TableId tableId = e.getKey();
+            // useCatalogBeforeSchema: false when catalog is null but schema is set (e.g. PG)
+            boolean uc = SerializerUtils.shouldUseCatalogBeforeSchema(tableId);
+            ObjectNode entry = OBJECT_MAPPER.createObjectNode();
+            entry.put("i", tableId.toDoubleQuotedString());
+            entry.put("uc", uc);
+            // parse compact doc JSON into a JsonNode so "c" is a nested object, not a string
+            entry.set(
+                    "c",
+                    OBJECT_MAPPER.readTree(
+                            docWriter.write(TABLE_CHANGE_SERIALIZER.toDocument(e.getValue()))));
+            result.add(entry);
         }
+        return OBJECT_MAPPER.writeValueAsString(result);
     }
 
     /** Apply schema changes to in-memory tableSchemas and notify the serializer. */
