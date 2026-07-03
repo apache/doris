@@ -469,8 +469,7 @@ public:
 
     bool has_enough_capacity(const IColumn& src) const override { return false; }
 
-    void for_each_subcolumn(MutableColumnCallback callback) override;
-    void for_each_subcolumn(ColumnCallback callback) const override;
+    void for_each_subcolumn(ColumnCallback callback) override;
 
     // Do nothing, call try_insert instead
     void insert(const Field& field) override { try_insert(field); }

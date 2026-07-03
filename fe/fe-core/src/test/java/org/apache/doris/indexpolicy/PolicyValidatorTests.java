@@ -220,4 +220,18 @@ public class PolicyValidatorTests {
                 () -> validator.validate(props));
         Assertions.assertTrue(exception.getMessage().contains("enclosed in square brackets"));
     }
+
+    @Test
+    public void testCharReplaceCharFilterValidator_RejectsNonAsciiReplacement() {
+        CharReplaceCharFilterValidator validator = new CharReplaceCharFilterValidator();
+        Map<String, String> props = new HashMap<>();
+        props.put("type", "char_replace");
+        props.put("pattern", ".");
+        props.put("replacement", "é");
+
+        Exception exception = Assertions.assertThrows(DdlException.class,
+                () -> validator.validate(props));
+        Assertions.assertTrue(exception.getMessage()
+                .contains("'char_filter_replacement' must contain only ASCII characters"));
+    }
 }

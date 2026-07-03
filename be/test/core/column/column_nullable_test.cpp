@@ -21,15 +21,22 @@
 #include <gtest/gtest-test-part.h>
 #include <gtest/gtest.h>
 
+#include <atomic>
+#include <thread>
+
 #include "common/status.h"
+#include "core/block/block.h"
+#include "core/column/column_decimal.h"
 #include "core/column/column_nullable_test.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type.h"
+#include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/define_primitive_type.h"
 #include "core/field.h"
 #include "core/types.h"
 #include "testutil/column_helper.h"
+#include "util/hash_util.hpp"
 
 namespace doris {
 
@@ -106,7 +113,8 @@ TEST(ColumnNullableTest, PredicateTest) {
     EXPECT_FALSE(null_dst->has_null());
 
     uint16_t selector[] = {5, 8}; // both null
-    EXPECT_EQ(nullable_pred->filter_by_selector(selector, 2, null_dst.get()), Status::OK());
+    const IColumn& nullable_src = *nullable_pred;
+    EXPECT_EQ(nullable_src.filter_by_selector(selector, 2, null_dst.get()), Status::OK());
     // filter_by_selector must announce to update has_null to make below right.
     EXPECT_TRUE(null_dst->has_null());
 }
@@ -128,6 +136,221 @@ TEST(ColumnNullableTest, SharedCreatePreservesImmutableSubcolumns) {
     EXPECT_EQ(nullable_ref.get_null_map_column_ptr().get(), null_map_alias.get());
     EXPECT_EQ(nested_alias->size(), 1);
     EXPECT_EQ(null_map_alias->size(), 1);
+}
+
+TEST(ColumnNullableTest, UpdateCrc32cBatchKeepsBlockInsertable) {
+    auto nested = ColumnInt32::create();
+    nested->insert_value(1);
+    nested->insert_value(2);
+    nested->insert_value(3);
+    nested->insert_value(4);
+
+    auto null_map = ColumnUInt8::create();
+    null_map->insert_value(0);
+    null_map->insert_value(1);
+    null_map->insert_value(0);
+    null_map->insert_value(1);
+
+    ColumnPtr nullable = ColumnNullable::create(std::move(nested), std::move(null_map));
+    const auto& nullable_ref = assert_cast<const ColumnNullable&>(*nullable);
+    const auto* nested_before_hash = nullable_ref.get_nested_column_ptr().get();
+
+    auto nullable_type = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>());
+    Block block({ColumnWithTypeAndName(nullable, nullable_type, "v")});
+    ASSERT_TRUE(block.check_type_and_column().ok());
+
+    std::vector<uint32_t> hashes(block.rows(), 0);
+    nullable->update_crc32c_batch(hashes.data(), nullptr);
+
+    ASSERT_TRUE(block.check_type_and_column().ok());
+
+    const auto& nullable_after_hash =
+            assert_cast<const ColumnNullable&>(*block.get_by_position(0).column);
+    EXPECT_EQ(nullable_after_hash.get_nested_column_ptr().get(), nested_before_hash);
+
+    auto dst_block = block.clone_empty();
+    auto mutable_block = MutableBlock::create_unique(std::move(dst_block));
+    std::vector<uint32_t> indices = {0, 1, 2, 3};
+    ASSERT_TRUE(
+            mutable_block->add_rows(&block, indices.data(), indices.data() + indices.size()).ok());
+    EXPECT_EQ(mutable_block->rows(), block.rows());
+}
+
+TEST(ColumnNullableTest, UpdateCrc32cBatchDoesNotMutateSharedNestedColumn) {
+    auto nested_mut = ColumnInt32::create();
+    nested_mut->insert_value(10);
+    nested_mut->insert_value(20);
+    nested_mut->insert_value(30);
+    nested_mut->insert_value(40);
+    ColumnPtr nested = std::move(nested_mut);
+    ColumnPtr nested_alias = nested;
+
+    auto null_map_mut = ColumnUInt8::create();
+    null_map_mut->insert_value(0);
+    null_map_mut->insert_value(1);
+    null_map_mut->insert_value(0);
+    null_map_mut->insert_value(1);
+    ColumnPtr null_map = std::move(null_map_mut);
+
+    ColumnPtr nullable = ColumnNullable::create(nested, null_map);
+    const auto& nullable_ref = assert_cast<const ColumnNullable&>(*nullable);
+    EXPECT_EQ(nullable_ref.get_nested_column_ptr().get(), nested_alias.get());
+
+    auto expected_nested = nested->clone_resized(nested->size());
+    expected_nested->replace_column_null_data(
+            assert_cast<const ColumnUInt8&>(*null_map).get_data().data());
+    std::vector<uint32_t> expected_hashes(nullable->size(), 0);
+    expected_nested->update_crc32c_batch(expected_hashes.data(), nullptr);
+
+    std::vector<uint32_t> hashes(nullable->size(), 0);
+    nullable->update_crc32c_batch(hashes.data(), nullptr);
+    EXPECT_EQ(hashes, expected_hashes);
+
+    const auto& nullable_after_hash = assert_cast<const ColumnNullable&>(*nullable);
+    EXPECT_EQ(nullable_after_hash.get_nested_column_ptr().get(), nested_alias.get());
+    EXPECT_EQ(assert_cast<const ColumnInt32&>(*nested_alias).get_data()[1], 20);
+    EXPECT_EQ(
+            assert_cast<const ColumnInt32&>(nullable_after_hash.get_nested_column()).get_data()[1],
+            20);
+
+    auto nullable_type = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>());
+    Block block({ColumnWithTypeAndName(nullable, nullable_type, "v")});
+    ASSERT_TRUE(block.check_type_and_column().ok());
+
+    auto dst_block = block.clone_empty();
+    auto mutable_block = MutableBlock::create_unique(std::move(dst_block));
+    std::vector<uint32_t> indices = {3, 2, 1, 0};
+    ASSERT_TRUE(
+            mutable_block->add_rows(&block, indices.data(), indices.data() + indices.size()).ok());
+    EXPECT_EQ(mutable_block->rows(), block.rows());
+}
+
+TEST(ColumnNullableTest, UpdateCrc32cBatchHashesNullAsNestedDefaultForWideType) {
+    auto nested_mut = ColumnInt64::create();
+    nested_mut->insert_value(10);
+    nested_mut->insert_value(20);
+    nested_mut->insert_value(30);
+    nested_mut->insert_value(40);
+    ColumnPtr nested = std::move(nested_mut);
+
+    auto null_map_mut = ColumnUInt8::create();
+    null_map_mut->insert_value(0);
+    null_map_mut->insert_value(1);
+    null_map_mut->insert_value(0);
+    null_map_mut->insert_value(1);
+    ColumnPtr null_map = std::move(null_map_mut);
+
+    ColumnPtr nullable = ColumnNullable::create(nested, null_map);
+
+    auto expected_nested = nested->clone_resized(nested->size());
+    expected_nested->replace_column_null_data(
+            assert_cast<const ColumnUInt8&>(*null_map).get_data().data());
+    constexpr uint32_t seed = 0xDEADBEEF;
+    std::vector<uint32_t> expected_hashes(nullable->size(), seed);
+    expected_nested->update_crc32c_batch(expected_hashes.data(), nullptr);
+
+    std::vector<uint32_t> hashes(nullable->size(), seed);
+    nullable->update_crc32c_batch(hashes.data(), nullptr);
+
+    EXPECT_EQ(hashes, expected_hashes);
+    EXPECT_NE(hashes[1], HashUtil::crc32c_null(seed));
+    EXPECT_NE(hashes[3], HashUtil::crc32c_null(seed));
+}
+
+TEST(ColumnNullableTest, UpdateCrc32cBatchHashesNullAsDecimalDefault) {
+    auto nested_mut = ColumnDecimal64::create(0, 2);
+    nested_mut->insert_value(Decimal64(1010));
+    nested_mut->insert_value(Decimal64(2020));
+    nested_mut->insert_value(Decimal64(3030));
+    nested_mut->insert_value(Decimal64(4040));
+    ColumnPtr nested = std::move(nested_mut);
+
+    auto null_map_mut = ColumnUInt8::create();
+    null_map_mut->insert_value(0);
+    null_map_mut->insert_value(1);
+    null_map_mut->insert_value(0);
+    null_map_mut->insert_value(1);
+    ColumnPtr null_map = std::move(null_map_mut);
+
+    ColumnPtr nullable = ColumnNullable::create(nested, null_map);
+
+    auto expected_nested = nested->clone_resized(nested->size());
+    expected_nested->replace_column_null_data(
+            assert_cast<const ColumnUInt8&>(*null_map).get_data().data());
+    constexpr uint32_t seed = 0xDEADBEEF;
+    std::vector<uint32_t> expected_hashes(nullable->size(), seed);
+    expected_nested->update_crc32c_batch(expected_hashes.data(), nullptr);
+
+    std::vector<uint32_t> hashes(nullable->size(), seed);
+    nullable->update_crc32c_batch(hashes.data(), nullptr);
+
+    EXPECT_EQ(hashes, expected_hashes);
+    EXPECT_NE(hashes[1], HashUtil::crc32c_null(seed));
+    EXPECT_NE(hashes[3], HashUtil::crc32c_null(seed));
+}
+
+TEST(ColumnNullableTest, ConcurrentUpdateCrc32cBatchAndInsertIndicesFrom) {
+    constexpr int rows = 4096;
+    constexpr int hash_threads = 4;
+    constexpr int insert_threads = 4;
+    constexpr int iterations = 2000;
+
+    auto nested = ColumnInt32::create();
+    auto null_map = ColumnUInt8::create();
+    for (int i = 0; i < rows; ++i) {
+        nested->insert_value(i);
+        null_map->insert_value(i % 3 == 0);
+    }
+
+    ColumnPtr nullable = ColumnNullable::create(std::move(nested), std::move(null_map));
+    std::vector<uint32_t> indices(rows);
+    for (uint32_t i = 0; i < rows; ++i) {
+        indices[i] = rows - i - 1;
+    }
+
+    std::atomic<bool> start = false;
+    std::atomic<bool> stop = false;
+    std::atomic<int> failures = 0;
+    std::vector<std::thread> threads;
+
+    for (int t = 0; t < hash_threads; ++t) {
+        threads.emplace_back([&] {
+            while (!start.load(std::memory_order_acquire)) {
+            }
+            std::vector<uint32_t> hashes(rows);
+            for (int i = 0; i < iterations && !stop.load(std::memory_order_relaxed); ++i) {
+                std::ranges::fill(hashes, 0);
+                nullable->update_crc32c_batch(hashes.data(), nullptr);
+            }
+        });
+    }
+
+    for (int t = 0; t < insert_threads; ++t) {
+        threads.emplace_back([&] {
+            while (!start.load(std::memory_order_acquire)) {
+            }
+            for (int i = 0; i < iterations && !stop.load(std::memory_order_relaxed); ++i) {
+                auto dst = ColumnNullable::create(ColumnInt32::create(), ColumnUInt8::create());
+                try {
+                    dst->insert_indices_from(*nullable, indices.data(), indices.data() + rows);
+                    if (dst->size() != rows) {
+                        failures.fetch_add(1, std::memory_order_relaxed);
+                        stop.store(true, std::memory_order_relaxed);
+                    }
+                } catch (...) {
+                    failures.fetch_add(1, std::memory_order_relaxed);
+                    stop.store(true, std::memory_order_relaxed);
+                }
+            }
+        });
+    }
+
+    start.store(true, std::memory_order_release);
+    for (auto& thread : threads) {
+        thread.join();
+    }
+
+    EXPECT_EQ(failures.load(std::memory_order_relaxed), 0);
 }
 
 TEST(ColumnNullableTest, append_data_by_selector) {

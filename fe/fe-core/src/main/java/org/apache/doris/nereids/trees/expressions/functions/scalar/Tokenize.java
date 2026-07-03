@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
+import org.apache.doris.analysis.InvertedIndexUtil;
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.parser.NereidsParser;
@@ -72,7 +73,9 @@ public class Tokenize extends ScalarFunction
             return;
         }
         try {
-            new NereidsParser().parseProperties(properties);
+            InvertedIndexUtil.checkCharFilterProperties(new NereidsParser().parseProperties(properties));
+        } catch (org.apache.doris.common.AnalysisException e) {
+            throw new AnalysisException(e.getMessage(), e);
         } catch (Throwable e) {
             throw new AnalysisException("tokenize second argument must be properties format");
         }

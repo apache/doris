@@ -20,14 +20,22 @@ import groovy.json.JsonSlurper
 import groovy.json.StringEscapeUtils
 import org.apache.doris.regression.action.ProfileAction
 
-def verifyProfileContent = { suiteContext, stmt, serialReadOnLimit ->
+def verifyProfileContent = { suiteContext, profileId, stmt, serialReadOnLimit ->
     def profileAction = new ProfileAction(suiteContext)
-    String profileContent = profileAction.getProfileBySql(stmt, ["MaxScanConcurrency"])
-    logger.info("Profile content of ${stmt} is\n${profileContent}")
+    String profileContent = profileAction.waitProfile({
+        def profileItem = profileAction.getProfileList().find {
+            it["Profile ID"]?.toString() == profileId
+        }
+        if (profileItem == null) {
+            return ""
+        }
+        return profileAction.getProfile(profileId)
+    }, ["MaxScanConcurrency"], "Profile ${profileId}", 60000, 1000)
     if (!profileContent.contains("MaxScanConcurrency")) {
-        logger.error("Profile of ${stmt} does not contain MaxScanConcurrency, content:\n${profileContent}")
+        logger.error("Profile of ${stmt} (${profileId}) does not contain MaxScanConcurrency, content:\n${profileContent}")
         return false
     }
+    logger.info("Profile content of ${stmt} (${profileId}) is\n${profileContent}")
     // Check if the profile contains the expected content
     if (serialReadOnLimit) {
         return profileContent.contains("- MaxScanConcurrency: 1") == true
@@ -92,19 +100,23 @@ suite('adaptive_pipeline_task_serial_read_on_limit') {
     sql "set parallel_pipeline_task_num=1;"
 
     // With Limit, MaxScannerThreadNum = 1
-    sql "select * from adaptive_pipeline_task_serial_read_on_limit limit 10;"
-    assertTrue(verifyProfileContent(context, "select * from adaptive_pipeline_task_serial_read_on_limit limit 10;", true))
-    sql "select * from adaptive_pipeline_task_serial_read_on_limit limit 10000;"
-    assertTrue(verifyProfileContent(context, "select * from adaptive_pipeline_task_serial_read_on_limit limit 10000;", true))
+    def verifyQueryProfile = { stmt, serialReadOnLimit ->
+        sql stmt
+        String profileId = sql("select last_query_id()")[0][0].toString()
+        assertTrue(verifyProfileContent(context, profileId, stmt, serialReadOnLimit))
+    }
+
+    verifyQueryProfile("select * from adaptive_pipeline_task_serial_read_on_limit limit 10;", true)
+    verifyQueryProfile("select * from adaptive_pipeline_task_serial_read_on_limit limit 10000;", true)
     // With Limit, but bigger then adaptive_pipeline_task_serial_read_on_limit,  MaxScannerThreadNum = TabletNum
     sql "set adaptive_pipeline_task_serial_read_on_limit=9998;"
-    sql "select * from adaptive_pipeline_task_serial_read_on_limit limit 9999;"
-    assertTrue(verifyProfileContent(context, "select * from adaptive_pipeline_task_serial_read_on_limit limit 9999;", false))
+    verifyQueryProfile("select * from adaptive_pipeline_task_serial_read_on_limit limit 9999;", false)
     // With limit, but with predicates too. MaxScannerThreadNum = TabletNum
-    sql "select * from adaptive_pipeline_task_serial_read_on_limit where id > 10 limit 1;"
-    assertTrue(verifyProfileContent(context, "select * from adaptive_pipeline_task_serial_read_on_limit where id > 10 limit 1;", false))
+    verifyQueryProfile("select * from adaptive_pipeline_task_serial_read_on_limit where id > 10 limit 1;", false)
     // With large engough limit, but enable_adaptive_pipeline_task_serial_read_on_limit is false. MaxScannerThreadNum = TabletNum
     sql "set enable_adaptive_pipeline_task_serial_read_on_limit=false;"
-    sql """select "enable_adaptive_pipeline_task_serial_read_on_limit=false", * from adaptive_pipeline_task_serial_read_on_limit limit 1000000;"""
-    assertTrue(verifyProfileContent(context, "select \"enable_adaptive_pipeline_task_serial_read_on_limit=false\", * from adaptive_pipeline_task_serial_read_on_limit limit 1000000;", false))
+    verifyQueryProfile("""
+        select "enable_adaptive_pipeline_task_serial_read_on_limit=false", *
+        from adaptive_pipeline_task_serial_read_on_limit limit 1000000;
+    """, false)
 }

@@ -55,6 +55,7 @@ Schema& Schema::operator=(const Schema& other) {
 
 void Schema::_copy_from(const Schema& other) {
     _col_ids = other._col_ids;
+    _column_id_to_index = other._column_id_to_index;
     _num_key_columns = other._num_key_columns;
     _delete_sign_idx = other._delete_sign_idx;
     _has_sequence_col = other._has_sequence_col;
@@ -77,6 +78,11 @@ void Schema::_init(const std::vector<TabletColumnPtr>& cols, const std::vector<C
     _cols.resize(cols.size());
 
     std::unordered_set<uint32_t> col_id_set(col_ids.begin(), col_ids.end());
+    _column_id_to_index.assign(cols.size(), -1);
+    for (size_t i = 0; i < col_ids.size(); ++i) {
+        _column_id_to_index[col_ids[i]] = static_cast<int>(i);
+    }
+
     for (int cid = 0; cid < cols.size(); ++cid) {
         if (col_id_set.find(cid) == col_id_set.end()) {
             continue;

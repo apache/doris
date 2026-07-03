@@ -985,9 +985,9 @@ prepare_java_udf() {
     # custom_lib相关的case需要在fe启动前把编译好的jar放到 $DORIS_HOME/fe/custom_lib/
     install_java
     install_maven
-    OLD_JAVA_HOME=${JAVA_HOME}
-    JAVA_HOME="$(find /usr/lib/jvm -maxdepth 1 -type d -name 'java-8-*' | sed -n '1p')"
-    export JAVA_HOME
+    # Build with the ambient JDK (>=17 in CI): the regression framework is compiled with it,
+    # while run-regression-test.sh internally switches to JDK 8 only for the Java UDF module
+    # (which must stay Java 8 for the BE embedded JVM).
     bash "${DORIS_HOME}"/../run-regression-test.sh --clean
     if bash "${DORIS_HOME}"/../run-regression-test.sh --compile ||
         bash "${DORIS_HOME}"/../run-regression-test.sh --compile ||
@@ -996,8 +996,6 @@ prepare_java_udf() {
     else
         echo "ERROR: failed to compile java udf"
     fi
-    JAVA_HOME=${OLD_JAVA_HOME}
-    export JAVA_HOME
 
     if ls "${DORIS_HOME}"/fe/custom_lib/*.jar &&
         ls "${DORIS_HOME}"/be/custom_lib/*.jar; then
