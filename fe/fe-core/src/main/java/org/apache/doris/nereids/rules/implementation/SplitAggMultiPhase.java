@@ -116,15 +116,14 @@ public class SplitAggMultiPhase extends SplitAggBaseRule implements Implementati
         if (aggregate.supportAggregatePhase(AggregatePhase.THREE)) {
             Set<NamedExpression> localAggGroupBySet = AggregateUtils.getAllKeySet(aggregate);
             Map<AggregateFunction, Alias> middleAggFuncToAlias = new LinkedHashMap<>();
-            List<Expression> partitionExprs = Utils.fastToImmutableList(aggregate.getGroupByExpressions());
             Plan middleAgg = splitDeduplicateTwoPhase(aggregate, middleAggFuncToAlias,
-                    partitionExprs, localAggGroupBySet);
+                    aggregate.getGroupByExpressions(), localAggGroupBySet);
             builder.add(splitDistinctOnePhase(aggregate, middleAggFuncToAlias, middleAgg));
         }
         if (aggregate.supportAggregatePhase(AggregatePhase.TWO)) {
             Map<AggregateFunction, Alias> localAggFuncToAlias = new HashMap<>();
-            List<Expression> partitionExprs = Utils.fastToImmutableList(aggregate.getGroupByExpressions());
-            Plan localAgg = splitToOnePhase(aggregate, partitionExprs, localAggFuncToAlias);
+            Plan localAgg = splitToOnePhase(aggregate, Utils.fastToImmutableList(aggregate.getGroupByExpressions()),
+                    localAggFuncToAlias);
             builder.add(splitDistinctOnePhase(aggregate, localAggFuncToAlias, localAgg));
         }
         return builder.build();
@@ -159,21 +158,15 @@ public class SplitAggMultiPhase extends SplitAggBaseRule implements Implementati
     private List<Plan> splitToTwoPlusTwoPhase(LogicalAggregate<? extends Plan> aggregate) {
         ImmutableList.Builder<Plan> builder = ImmutableList.builder();
         Set<NamedExpression> localAggGroupBySet = AggregateUtils.getAllKeySet(aggregate);
-        // 2+2 lower shuffle: full partition = distinct (a-e) + gby (f-j), mark split for RequestPropertyDeriver
-        List<Expression> distinctExprs = Utils.fastToImmutableList(aggregate.getDistinctArguments());
-        List<Expression> gbyExprs = Utils.fastToImmutableList(aggregate.getGroupByExpressions());
-        List<Expression> partitionExprs = ImmutableList.<Expression>builder()
-                .addAll(gbyExprs)
-                .addAll(distinctExprs)
-                .build();
         if (aggregate.supportAggregatePhase(AggregatePhase.FOUR)) {
             Map<AggregateFunction, Alias> middleAggFunctionToAlias = new LinkedHashMap<>();
             Plan twoPhaseAgg = splitDeduplicateTwoPhase(aggregate, middleAggFunctionToAlias,
-                    partitionExprs, localAggGroupBySet);
+                    Utils.fastToImmutableList(localAggGroupBySet), localAggGroupBySet);
             builder.add(splitDistinctTwoPhase(aggregate, middleAggFunctionToAlias, twoPhaseAgg));
         }
         Map<AggregateFunction, Alias> localAggFunctionToAlias = new HashMap<>();
-        Plan onePhaseAgg = splitToOnePhase(aggregate, partitionExprs, localAggFunctionToAlias);
+        Plan onePhaseAgg = splitToOnePhase(aggregate, Utils.fastToImmutableList(localAggGroupBySet),
+                localAggFunctionToAlias);
         if (aggregate.supportAggregatePhase(AggregatePhase.THREE)) {
             builder.add(splitDistinctTwoPhase(aggregate, localAggFunctionToAlias, onePhaseAgg));
         }
@@ -236,7 +229,7 @@ public class SplitAggMultiPhase extends SplitAggBaseRule implements Implementati
         return new PhysicalHashAggregate<>(aggregate.getGroupByExpressions(), globalOutput,
                 Optional.ofNullable(aggregate.getGroupByExpressions()), inputToResultParamSecond,
                 AggregateUtils.maybeUsingStreamAgg(aggregate.getGroupByExpressions(), inputToResultParamSecond),
-                aggregate.getLogicalProperties(), aggregate.getSourceRepeat().isPresent(), child);
+                aggregate.getLogicalProperties(), child);
     }
 
     /**
@@ -264,7 +257,7 @@ public class SplitAggMultiPhase extends SplitAggBaseRule implements Implementati
         boolean maybeUsingStreamAgg = AggregateUtils.maybeUsingStreamAgg(localAggGroupBy, localParam);
         PhysicalHashAggregate<Plan> localAgg = new PhysicalHashAggregate<>(localAggGroupBy, localAggOutput,
                 Optional.empty(), localParam, maybeUsingStreamAgg,
-                null, logicalAgg.getSourceRepeat().isPresent(), logicalAgg.child());
+                null, logicalAgg.child());
         // add shuffle expr in project
         ImmutableList.Builder<NamedExpression> projections = ImmutableList.builderWithExpectedSize(
                 localAgg.getOutputs().size() + 1);
@@ -297,7 +290,7 @@ public class SplitAggMultiPhase extends SplitAggBaseRule implements Implementati
         PhysicalHashAggregate<Plan> secondPhaseAgg = new PhysicalHashAggregate<>(
                 secondPhaseAggGroupBy, secondPhaseAggOutput.build(),
                 Optional.of(secondPhaseAggGroupBy), secondParam, false,
-                null, logicalAgg.getSourceRepeat().isPresent(), physicalProject);
+                null, physicalProject);
 
         // 3. third phase agg
         List<Expression> thirdPhaseAggGroupBy = Utils.fastToImmutableList(logicalAgg.getGroupByExpressions());
@@ -311,7 +304,7 @@ public class SplitAggMultiPhase extends SplitAggBaseRule implements Implementati
         PhysicalHashAggregate<Plan> thirdPhaseAgg = new PhysicalHashAggregate<>(
                 thirdPhaseAggGroupBy, thirdPhaseAggOutput.build(),
                 Optional.empty(), thirdParam, false,
-                null, logicalAgg.getSourceRepeat().isPresent(), secondPhaseAgg);
+                null, secondPhaseAgg);
 
         // 4. fourth phase agg
         ImmutableList.Builder<NamedExpression> fourthPhaseAggOutput = ImmutableList.builderWithExpectedSize(
@@ -324,7 +317,7 @@ public class SplitAggMultiPhase extends SplitAggBaseRule implements Implementati
         fourthPhaseAggOutput.add(sumAliasFour);
         return new PhysicalHashAggregate<>(thirdPhaseAggGroupBy,
                 fourthPhaseAggOutput.build(), Optional.of(logicalAgg.getGroupByExpressions()), fourthParam,
-                false, logicalAgg.getLogicalProperties(), logicalAgg.getSourceRepeat().isPresent(), thirdPhaseAgg);
+                false, logicalAgg.getLogicalProperties(), thirdPhaseAgg);
     }
 
     private static AggregateFunction getAggregateFunction(AggregateFunction aggFunc, Slot child) {

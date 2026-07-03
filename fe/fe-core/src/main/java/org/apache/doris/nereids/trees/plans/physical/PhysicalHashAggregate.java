@@ -70,20 +70,18 @@ public class PhysicalHashAggregate<CHILD_TYPE extends Plan> extends PhysicalUnar
 
     private final boolean maybeUsingStream;
 
-    private final boolean hasSourceRepeat;
-
     public PhysicalHashAggregate(List<Expression> groupByExpressions, List<NamedExpression> outputExpressions,
             AggregateParam aggregateParam, boolean maybeUsingStream, LogicalProperties logicalProperties,
-            boolean hasSourceRepeat, CHILD_TYPE child) {
+            CHILD_TYPE child) {
         this(groupByExpressions, outputExpressions, Optional.empty(), aggregateParam,
-                maybeUsingStream, Optional.empty(), logicalProperties, hasSourceRepeat, child);
+                maybeUsingStream, Optional.empty(), logicalProperties, child);
     }
 
     public PhysicalHashAggregate(List<Expression> groupByExpressions, List<NamedExpression> outputExpressions,
             Optional<List<Expression>> partitionExpressions, AggregateParam aggregateParam,
-            boolean maybeUsingStream, LogicalProperties logicalProperties, boolean hasSourceRepeat, CHILD_TYPE child) {
+            boolean maybeUsingStream, LogicalProperties logicalProperties, CHILD_TYPE child) {
         this(groupByExpressions, outputExpressions, partitionExpressions, aggregateParam,
-                maybeUsingStream, Optional.empty(), logicalProperties, hasSourceRepeat, child);
+                maybeUsingStream, Optional.empty(), logicalProperties, child);
     }
 
     /**
@@ -96,8 +94,7 @@ public class PhysicalHashAggregate<CHILD_TYPE extends Plan> extends PhysicalUnar
      */
     public PhysicalHashAggregate(List<Expression> groupByExpressions, List<NamedExpression> outputExpressions,
             Optional<List<Expression>> partitionExpressions, AggregateParam aggregateParam, boolean maybeUsingStream,
-            Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
-            boolean hasSourceRepeat, CHILD_TYPE child) {
+            Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties, CHILD_TYPE child) {
         super(PlanType.PHYSICAL_HASH_AGGREGATE, groupExpression, logicalProperties, child);
         this.groupByExpressions = ImmutableList.copyOf(
                 Objects.requireNonNull(groupByExpressions, "groupByExpressions cannot be null"));
@@ -107,8 +104,8 @@ public class PhysicalHashAggregate<CHILD_TYPE extends Plan> extends PhysicalUnar
         this.partitionExpressions = Objects.requireNonNull(
                 partitionExpressions, "partitionExpressions cannot be null");
         this.aggregateParam = Objects.requireNonNull(aggregateParam, "aggregate param cannot be null");
+        // this.aggregateParam = aggregateParam;
         this.maybeUsingStream = maybeUsingStream;
-        this.hasSourceRepeat = hasSourceRepeat;
     }
 
     /**
@@ -122,7 +119,7 @@ public class PhysicalHashAggregate<CHILD_TYPE extends Plan> extends PhysicalUnar
     public PhysicalHashAggregate(List<Expression> groupByExpressions, List<NamedExpression> outputExpressions,
             Optional<List<Expression>> partitionExpressions, AggregateParam aggregateParam, boolean maybeUsingStream,
             Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
-            PhysicalProperties physicalProperties, Statistics statistics, boolean hasSourceRepeat, CHILD_TYPE child) {
+            PhysicalProperties physicalProperties, Statistics statistics, CHILD_TYPE child) {
         super(PlanType.PHYSICAL_HASH_AGGREGATE, groupExpression, logicalProperties, physicalProperties, statistics,
                 child);
         this.groupByExpressions = ImmutableList.copyOf(
@@ -134,7 +131,6 @@ public class PhysicalHashAggregate<CHILD_TYPE extends Plan> extends PhysicalUnar
                 partitionExpressions, "partitionExpressions cannot be null");
         this.aggregateParam = Objects.requireNonNull(aggregateParam, "aggregate param cannot be null");
         this.maybeUsingStream = maybeUsingStream;
-        this.hasSourceRepeat = hasSourceRepeat;
     }
 
     @Override
@@ -184,10 +180,6 @@ public class PhysicalHashAggregate<CHILD_TYPE extends Plan> extends PhysicalUnar
                 .addAll(outputExpressions)
                 .addAll(partitionExpressions.orElse(ImmutableList.of()))
                 .build();
-    }
-
-    public boolean hasSourceRepeat() {
-        return hasSourceRepeat;
     }
 
     @Override
@@ -262,13 +254,13 @@ public class PhysicalHashAggregate<CHILD_TYPE extends Plan> extends PhysicalUnar
         Preconditions.checkArgument(children.size() == 1);
         return new PhysicalHashAggregate<>(groupByExpressions, outputExpressions, partitionExpressions,
                 aggregateParam, maybeUsingStream, groupExpression, getLogicalProperties(),
-                physicalProperties, statistics, hasSourceRepeat, children.get(0));
+                physicalProperties, statistics, children.get(0));
     }
 
     @Override
     public PhysicalHashAggregate<CHILD_TYPE> withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new PhysicalHashAggregate<>(groupByExpressions, outputExpressions, partitionExpressions,
-                aggregateParam, maybeUsingStream, groupExpression, getLogicalProperties(), hasSourceRepeat, child());
+                aggregateParam, maybeUsingStream, groupExpression, getLogicalProperties(), child());
     }
 
     @Override
@@ -276,8 +268,7 @@ public class PhysicalHashAggregate<CHILD_TYPE extends Plan> extends PhysicalUnar
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
         return new PhysicalHashAggregate<>(groupByExpressions, outputExpressions, partitionExpressions,
-                aggregateParam, maybeUsingStream, groupExpression, logicalProperties.get(), hasSourceRepeat,
-                children.get(0));
+                aggregateParam, maybeUsingStream, groupExpression, logicalProperties.get(), children.get(0));
     }
 
     @Override
@@ -285,14 +276,14 @@ public class PhysicalHashAggregate<CHILD_TYPE extends Plan> extends PhysicalUnar
             Statistics statistics) {
         return new PhysicalHashAggregate<>(groupByExpressions, outputExpressions, partitionExpressions,
                 aggregateParam, maybeUsingStream, groupExpression, getLogicalProperties(),
-                physicalProperties, statistics, hasSourceRepeat, child());
+                physicalProperties, statistics, child());
     }
 
     @Override
     public PhysicalHashAggregate<CHILD_TYPE> withAggOutput(List<NamedExpression> newOutput) {
         return new PhysicalHashAggregate<>(groupByExpressions, newOutput, partitionExpressions,
                 aggregateParam, maybeUsingStream, Optional.empty(), getLogicalProperties(),
-                physicalProperties, statistics, hasSourceRepeat, child());
+                physicalProperties, statistics, child());
     }
 
     @Override
@@ -325,7 +316,7 @@ public class PhysicalHashAggregate<CHILD_TYPE extends Plan> extends PhysicalUnar
     public PhysicalHashAggregate<CHILD_TYPE> resetLogicalProperties() {
         return new PhysicalHashAggregate<>(groupByExpressions, outputExpressions, partitionExpressions,
                 aggregateParam, maybeUsingStream, groupExpression, null,
-                physicalProperties, statistics, hasSourceRepeat, child());
+                physicalProperties, statistics, child());
     }
 
     /**

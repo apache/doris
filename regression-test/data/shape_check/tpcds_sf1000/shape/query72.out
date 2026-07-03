@@ -46,9 +46,10 @@ PhysicalResultSink
 --------------------------------------PhysicalProject
 ----------------------------------------PhysicalOlapScan[promotion]
 ------------------------------PhysicalProject
---------------------------------PhysicalOlapScan[date_dim]
+--------------------------------PhysicalOlapScan[date_dim] apply RFs: RF8
 --------------------------PhysicalProject
-----------------------------PhysicalOlapScan[item]
+----------------------------PhysicalOlapScan[item] apply RFs: RF9
+----------------------PhysicalOlapScan[inventory] apply RFs: RF10
 ------------------PhysicalProject
 --------------------PhysicalOlapScan[warehouse]
 

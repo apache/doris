@@ -82,7 +82,7 @@ public abstract class SplitAggBaseRule {
         }
         return new PhysicalHashAggregate<>(localAggGroupBy, localAggOutput, Optional.ofNullable(partitionExpressions),
                 inputToBufferParam, AggregateUtils.maybeUsingStreamAgg(localAggGroupBy, inputToBufferParam),
-                Optional.empty(), null, aggregate.getSourceRepeat().isPresent(), child);
+                null, child);
     }
 
     /**
@@ -125,7 +125,7 @@ public abstract class SplitAggBaseRule {
         return new PhysicalHashAggregate<>(localAgg.getGroupByExpressions(), middleAggOutput,
                 Optional.ofNullable(partitionExpressions), bufferToResultParam,
                 AggregateUtils.maybeUsingStreamAgg(localAgg.getGroupByExpressions(), bufferToResultParam),
-                Optional.empty(), null, aggregate.getSourceRepeat().isPresent(), localAgg);
+                null, localAgg);
     }
 
     /**
@@ -167,8 +167,7 @@ public abstract class SplitAggBaseRule {
                 .addAll(aggFuncToAliasThird.values())
                 .build();
         Plan thirdAgg = new PhysicalHashAggregate<>(aggregate.getGroupByExpressions(), thirdAggOutput, thirdParam,
-                AggregateUtils.maybeUsingStreamAgg(aggregate.getGroupByExpressions(), thirdParam), null,
-                aggregate.getSourceRepeat().isPresent(), child);
+                AggregateUtils.maybeUsingStreamAgg(aggregate.getGroupByExpressions(), thirdParam), null, child);
 
         // fourth phase
         AggregateParam fourthParam = new AggregateParam(AggPhase.DISTINCT_GLOBAL, AggMode.BUFFER_TO_RESULT);
@@ -198,6 +197,6 @@ public abstract class SplitAggBaseRule {
         return new PhysicalHashAggregate<>(aggregate.getGroupByExpressions(), globalOutput,
                 Optional.ofNullable(aggregate.getGroupByExpressions()), fourthParam,
                 AggregateUtils.maybeUsingStreamAgg(aggregate.getGroupByExpressions(), fourthParam),
-                aggregate.getLogicalProperties(), aggregate.getSourceRepeat().isPresent(), thirdAgg);
+                aggregate.getLogicalProperties(), thirdAgg);
     }
 }
