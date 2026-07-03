@@ -67,8 +67,8 @@ suite("test_fe_cached_partition_version", 'docker') {
                 def result = sql_return_maparray """ select * from ${tbl} """
                 assertEquals(0, result.size())
 
-                insert_sql """INSERT INTO ${tbl} VALUES ('Shanghai', 1})""", 1
-                insert_sql """INSERT INTO ${tbl} VALUES ('Guangzhou', 1})""", 1
+                insert_sql """INSERT INTO ${tbl} VALUES ('Shanghai', 1)""", 1
+                insert_sql """INSERT INTO ${tbl} VALUES ('Guangzhou', 1)""", 1
                 result = sql_return_maparray """ select * from ${tbl} """
                 assertEquals(2, result.size())
 
@@ -79,7 +79,7 @@ suite("test_fe_cached_partition_version", 'docker') {
                 result = sql_return_maparray """ select * from ${tbl} where region = 'Shanghai' """
                 assertEquals(1, result.size())
 
-                insert_sql """INSERT INTO ${tbl} VALUES ('Shanghai', 1})""", 1
+                insert_sql """INSERT INTO ${tbl} VALUES ('Shanghai', 1)""", 1
                 result = sql_return_maparray """ select * from ${tbl} where region = 'Shanghai' """
                 // observer/follower cannot see update since large expiration
                 if (options.connectToFollower == true) {
@@ -96,7 +96,7 @@ suite("test_fe_cached_partition_version", 'docker') {
                     assertEquals(3, result.size())
                 }
 
-                insert_sql """INSERT INTO ${tbl} VALUES ('Beijing', 1})""", 1
+                insert_sql """INSERT INTO ${tbl} VALUES ('Beijing', 1)""", 1
                 result = sql_return_maparray """ select * from ${tbl} where region = 'Beijing' """
                 // observer/follower cannot see update since large expiration
                 if (options.connectToFollower == true) {
@@ -117,7 +117,7 @@ suite("test_fe_cached_partition_version", 'docker') {
                 // exceed 1s, which would make the immediate stale-cache check flaky.
                 sql """set global cloud_table_version_cache_ttl_ms=10000000"""
                 sql """set global cloud_partition_version_cache_ttl_ms=10000000"""
-                insert_sql """INSERT INTO ${tbl} VALUES ('Beijing', 1})""", 1
+                insert_sql """INSERT INTO ${tbl} VALUES ('Beijing', 1)""", 1
                 result = sql_return_maparray """ select * from ${tbl} where region = 'Beijing' """
                 // observer/follower cannot see update since cache expiration no reached
                 if (options.connectToFollower == true) {
@@ -138,7 +138,7 @@ suite("test_fe_cached_partition_version", 'docker') {
                 sql """set global cloud_table_version_cache_ttl_ms=1000"""
                 sql """set global cloud_partition_version_cache_ttl_ms=1000"""
                 Thread.sleep(1100) // wait version cache for expiration again
-                insert_sql """INSERT INTO ${tbl} VALUES ('Beijing', 1})""", 1
+                insert_sql """INSERT INTO ${tbl} VALUES ('Beijing', 1)""", 1
                 // refresh expiration, the insert will be seen since the version has expired
                 result = sql_return_maparray """ select * from ${tbl} where region = 'Beijing' """
                 assertEquals(3, result.size())
@@ -148,15 +148,15 @@ suite("test_fe_cached_partition_version", 'docker') {
                 assertEquals(6, result.size())
 
                 // test no expiration, disable cache partition version 
-                insert_sql """INSERT INTO ${tbl} VALUES ('Guangzhou', 1})""", 1
+                insert_sql """INSERT INTO ${tbl} VALUES ('Guangzhou', 1)""", 1
                 sql """set global cloud_table_version_cache_ttl_ms=0"""
                 sql """set global cloud_partition_version_cache_ttl_ms=0"""
                 result = sql_return_maparray """ select * from ${tbl} """
                 assertEquals(7, result.size())
 
-                insert_sql """INSERT INTO ${tbl} VALUES ('Shanghai', 1})""", 1
-                insert_sql """INSERT INTO ${tbl} VALUES ('Guangzhou', 1})""", 1
-                insert_sql """INSERT INTO ${tbl} VALUES ('Beijing', 1})""", 1
+                insert_sql """INSERT INTO ${tbl} VALUES ('Shanghai', 1)""", 1
+                insert_sql """INSERT INTO ${tbl} VALUES ('Guangzhou', 1)""", 1
+                insert_sql """INSERT INTO ${tbl} VALUES ('Beijing', 1)""", 1
                 // data present immediately without any cached versions
                 result = sql_return_maparray """ select * from ${tbl} """
                 assertEquals(10, result.size())
