@@ -67,7 +67,8 @@ suite("test_compaction_uniq_keys_with_delete_ck") {
             PROPERTIES (
                 "replication_num" = "1",
                 "enable_unique_key_merge_on_write" = "true",
-                "enable_mow_light_delete" = "true"
+                "enable_mow_light_delete" = "true",
+                "disable_auto_compaction" = "true"
             );
         """
 
