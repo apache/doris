@@ -82,6 +82,17 @@ final class TcclPinningConnectorContext implements ConnectorContext {
         this.pluginAuthenticator = Objects.requireNonNull(pluginAuthenticator, "pluginAuthenticator");
     }
 
+    /**
+     * The plugin-side Kerberos authenticator this context runs ops under, or {@code null} for a non-Kerberos
+     * catalog. Exposed so the write path ({@code IcebergConnectorTransaction}) can wrap the iceberg table's
+     * {@code FileIO} in the SAME single-owner {@code doAs}: manifest writes that iceberg fans onto its shared
+     * worker pool run OUTSIDE this context's caller-thread {@link #executeAuthenticated} scope, so they need the
+     * authenticator carried into the FileIO to reach secured HDFS.
+     */
+    HadoopAuthenticator getPluginAuthenticator() {
+        return pluginAuthenticator.get();
+    }
+
     @Override
     public <T> T executeAuthenticated(Callable<T> task) throws Exception {
         ClassLoader previous = Thread.currentThread().getContextClassLoader();

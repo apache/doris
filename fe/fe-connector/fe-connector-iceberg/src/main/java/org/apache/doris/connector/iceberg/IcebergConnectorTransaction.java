@@ -24,6 +24,7 @@ import org.apache.doris.connector.api.handle.WriteOperation;
 import org.apache.doris.connector.api.pushdown.ConnectorExpression;
 import org.apache.doris.connector.api.pushdown.ConnectorPredicate;
 import org.apache.doris.connector.spi.ConnectorContext;
+import org.apache.doris.kerberos.HadoopAuthenticator;
 import org.apache.doris.thrift.TFileContent;
 import org.apache.doris.thrift.TIcebergCommitData;
 
@@ -49,9 +50,11 @@ import org.apache.iceberg.Schema;
 import org.apache.iceberg.Snapshot;
 import org.apache.iceberg.SnapshotRef;
 import org.apache.iceberg.Table;
+import org.apache.iceberg.TableOperations;
 import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.TableScan;
 import org.apache.iceberg.Transaction;
+import org.apache.iceberg.Transactions;
 import org.apache.iceberg.expressions.Expression;
 import org.apache.iceberg.expressions.Expressions;
 import org.apache.iceberg.io.CloseableIterable;
@@ -205,7 +208,7 @@ public class IcebergConnectorTransaction implements ConnectorTransaction {
                     Table loaded = catalogOps.loadTable(db, tableName);
                     this.table = loaded;
                     applyBeginGuards(ctx, tableName);
-                    this.transaction = loaded.newTransaction();
+                    this.transaction = openTransaction(loaded);
                     return null;
                 });
             } catch (Exception e) {
@@ -216,6 +219,40 @@ public class IcebergConnectorTransaction implements ConnectorTransaction {
             // false) rather than wedging the transaction in a half-begun state.
             writeStarted = true;
         }
+    }
+
+    /**
+     * Opens the SDK transaction for {@code loaded}. On a Kerberos catalog the table's {@link FileIO} is wrapped
+     * in a plugin-side Kerberos {@code doAs} ({@link IcebergAuthenticatedFileIO}); otherwise this is byte-for-byte
+     * {@code loaded.newTransaction()}.
+     *
+     * <p><b>Why (worker-pool split-brain).</b> {@link #commit()} runs {@code transaction.commitTransaction()} under
+     * the caller-thread {@code doAs} ({@code context.executeAuthenticated}), but iceberg fans the parallel manifest
+     * WRITE ({@code SnapshotProducer.writeManifests}, every INSERT/UPDATE/DELETE/MERGE/REWRITE) onto its shared
+     * {@code ThreadPools.getWorkerPool()}. Those worker threads run OUTSIDE the caller {@code doAs} and — because
+     * Doris never sets a process-wide login user (per-instance {@code getUGIFromSubject} only) — hit secured HDFS
+     * with no Kerberos credentials ({@code Client cannot authenticate via:[TOKEN, KERBEROS]}). Pinning the pool's
+     * TCCL ({@code pinIcebergWorkerPoolToPluginClassLoader}) fixes the classloader half but not the UGI half.
+     *
+     * <p><b>How.</b> {@code SnapshotProducer} takes its manifest {@code OutputFile} from {@code ops.io()}. Building
+     * the transaction from ops whose {@code io()} is the auth-wrapping FileIO makes every manifest write capture the
+     * plugin Kerberos {@code FileSystem} at factory time, so the deferred stream I/O on the worker thread inherits
+     * it. The wrap mirrors {@code BaseTable.newTransaction()} exactly (same name + {@code MetricsReporter}); only
+     * {@code io()} differs. Non-Kerberos catalogs ({@code getPluginAuthenticator() == null}) keep the legacy path.
+     */
+    private Transaction openTransaction(Table loaded) {
+        HadoopAuthenticator auth = context instanceof TcclPinningConnectorContext
+                ? ((TcclPinningConnectorContext) context).getPluginAuthenticator()
+                : null;
+        if (auth == null || !(loaded instanceof HasTableOperations)) {
+            return loaded.newTransaction();
+        }
+        TableOperations realOps = ((HasTableOperations) loaded).operations();
+        FileIO authIo = new IcebergAuthenticatedFileIO(realOps.io(), auth);
+        TableOperations authOps = new IcebergAuthenticatedTableOperations(realOps, authIo);
+        return loaded instanceof BaseTable
+                ? Transactions.newTransaction(loaded.name(), authOps, ((BaseTable) loaded).reporter())
+                : Transactions.newTransaction(loaded.name(), authOps);
     }
 
     private void applyBeginGuards(IcebergWriteContext ctx, String tableName) {
