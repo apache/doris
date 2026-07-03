@@ -1405,7 +1405,7 @@ TEST_F(NewParquetReaderTest, EmptySelectionUpdatesProfileCounters) {
     auto request = std::make_shared<format::FileScanRequest>();
     request->predicate_columns = {field_projection(0)};
     request->non_predicate_columns = {field_projection(1)};
-    request->conjuncts.push_back(create_int32_greater_than_conjunct(0, 10));
+    request->conjuncts.push_back(create_int32_sum_greater_than_conjunct(0, 0, 10));
     use_schema_order_positions(request.get(), schema);
     ASSERT_TRUE(reader->open(request).ok());
 
