@@ -1363,6 +1363,17 @@ DECLARE_mInt32(snii_bigram_prune_min_df);
 // pruning is enabled (snii_bigram_prune_min_df != 0); 0 disables the cap
 // (unbounded vocabulary, pre-G04 behavior).
 DECLARE_mInt64(snii_bigram_vocab_cap_bytes);
+// PROCESS-WIDE budget in bytes for SNII index-build RAM, summed across every
+// live SNII segment writer of the BE (all tablets x all concurrent loads; G09).
+// The per-writer cap (inverted_index_ram_buffer_size) bounds ONE writer, but a
+// concurrent load keeps (tablets x concurrency) writers alive at once, none of
+// which may ever reach its own cap -- their SUM is what this bounds. When the
+// registered total exceeds the budget, the LARGEST writers are asked to spill
+// their posting buffers to disk early (async-safe advisory requests, honored
+// on each writer's own thread; output stays byte-identical). 0 disables the
+// global limiter (per-writer spilling only). Checked at index-writer creation:
+// a change applies to writers created afterwards.
+DECLARE_mInt64(snii_index_writer_global_memory_bytes);
 // dict path for chinese analyzer
 DECLARE_String(inverted_index_dict_path);
 DECLARE_Int32(inverted_index_read_buffer_size);

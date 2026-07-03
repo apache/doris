@@ -502,7 +502,8 @@ TEST(SniiSpimiTermBuffer, AscendingInputByteIdenticalAcrossDrains) {
 
 // FV-1 (deterministic op-count + functional): feeding 100 same-doc tokens issues
 // exactly TWO report() calls -- one ctor delta (the resident slot index) and one for
-// the first token's 32 KiB arena block -- and NEVER a zero-delta report. Before the
+// the first token (its 32 KiB arena block plus the G08-charged first-touch Term-slot /
+// touched-list growth, a few dozen bytes) -- and NEVER a zero-delta report. Before the
 // debounce, tokens 2..100 each issued report(0): 101 calls, 99 of them zero.
 TEST(SniiSpimiTermBufferTest, AccumulateIssuesNoZeroDeltaReport) {
     std::vector<int64_t> deltas;
@@ -514,11 +515,15 @@ TEST(SniiSpimiTermBufferTest, AccumulateIssuesNoZeroDeltaReport) {
         buf.add_token(0, /*docid=*/1, /*pos=*/0); // same term, same doc
     }
 
-    // 1 ctor report (slot index) + 1 first-token report (first 32 KiB arena block).
-    // The other 99 same-doc tokens leave resident unchanged -> debounced away.
+    // 1 ctor report (slot index) + 1 first-token report (first 32 KiB arena block +
+    // the one-term slot-pool/touched-list first-touch growth). The other 99 same-doc
+    // tokens leave resident unchanged -> debounced away.
     ASSERT_EQ(deltas.size(), 2U);
-    EXPECT_GT(deltas[0], 0);     // slot index resident bytes (vocab-sized)
-    EXPECT_EQ(deltas[1], 32768); // exactly one CompactPostingPool block (1 << 15)
+    EXPECT_GT(deltas[0], 0); // slot index resident bytes (vocab-sized)
+    // One CompactPostingPool block (1 << 15) dominates; the G08 slot-pool charge for
+    // the single touched term adds well under 128 B on top.
+    EXPECT_GE(deltas[1], 32768);
+    EXPECT_LT(deltas[1], 32768 + 128);
     for (int64_t d : deltas) {
         EXPECT_NE(d, 0) << "no zero-delta report() may be issued on the hot path";
     }
@@ -528,7 +533,8 @@ TEST(SniiSpimiTermBufferTest, AccumulateIssuesNoZeroDeltaReport) {
 // FV-2 (equivalence + count stability): the report() COUNT is independent of the
 // token count (100 vs 500 same-doc tokens both issue exactly 2 reports), and the
 // resulting unified total is byte-identical (resident = first arena block + slot
-// index, not a function of token count). The sum of issued deltas equals
+// index + first-touch slot-pool growth, not a function of token count). The sum
+// of issued deltas equals
 // current_bytes() -- the MemoryReporter self-balancing invariant the debounce
 // preserves. Snapshots are taken WHILE each buffer is live (before its dtor reports
 // the final balancing negative).
@@ -568,16 +574,19 @@ TEST(SniiSpimiTermBufferTest, ReportedTotalMatchesResidentRegardlessOfTokenCount
     EXPECT_EQ(cur100, cur500);
     ASSERT_GE(d100.size(), 2U);
     ASSERT_GE(d500.size(), 2U);
-    // Both: identical first 32 KiB arena block (the slot index cancels in this delta).
-    EXPECT_EQ(d100[1], 32768);
-    EXPECT_EQ(d500[1], 32768);
+    // Both: identical first-token delta -- one 32 KiB arena block plus the same
+    // G08 first-touch slot-pool/touched-list growth (the slot index cancels in
+    // this delta; the growth is token-count-independent, hence the equality).
+    EXPECT_EQ(d100[1], d500[1]);
+    EXPECT_GE(d100[1], 32768);
+    EXPECT_LT(d100[1], 32768 + 128);
     // Self-balancing: live current_bytes() == sum of every delta issued so far.
     int64_t sum100 = 0;
     for (size_t i = 0; i < count100; ++i) {
         sum100 += d100[i];
     }
     EXPECT_EQ(cur100, sum100);
-    EXPECT_EQ(cur100, 32768 + d100[0]); // arena block + slot index resident
+    EXPECT_EQ(cur100, d100[0] + d100[1]); // slot index + first-token resident
 }
 
 // FV-3 (REDLINE guard): the debounce skips report() ONLY -- it must NOT gate

@@ -19,6 +19,7 @@
 
 #include <parallel_hashmap/phmap.h>
 
+#include <atomic>
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -36,6 +37,8 @@
 #include "storage/index/snii/writer/memory_reporter.h"
 
 namespace doris::snii::writer {
+
+class GlobalMemoryLimiter; // G09 process-wide build-RAM registry (see below)
 
 // Heterogeneous probe key for a hidden phrase-bigram term (G01 part C): the
 // synthetic term make_phrase_bigram_term(left, right) addressed by its two
@@ -143,10 +146,10 @@ struct TermPostings {
 //     path. Existing callers that feed strings keep working unchanged.
 //
 // SPILL / K-WAY MERGE (out-of-core, bounds input RAM): when a non-zero
-// spill_threshold_bytes is set, the REAL resident accumulator size (the posting
-// arena + the vocab-sized slot index, pool_.arena_bytes() + slot_of_.capacity()*4)
-// is compared against the threshold as tokens arrive; once it crosses the
-// threshold the buffer SORTS its current terms,
+// spill_threshold_bytes is set, the REAL resident accumulator size (see
+// resident_bytes(): the posting arena PLUS every live vocab / pair-map / slot /
+// rank structure, G08) is compared against the threshold as tokens arrive; once
+// it crosses the threshold the buffer SORTS its current terms,
 // writes a self-describing sorted RUN to a temp file, and CLEARS memory. Each
 // run record is keyed by the TERM-ID (varint); the k-way merge orders runs by
 // the id's VOCAB STRING so the merged stream stays lexicographic. Because
@@ -184,14 +187,14 @@ public:
     // lifetime. add_token(term_id, ...) accumulates by id with no string work.
     // spill_threshold_bytes is the gate-2 internal buffer cap (e.g. 512 MiB),
     // sourced from config; == 0 means unlimited (pure in-memory, default). A
-    // positive value caps the REAL resident accumulator size (pool_.arena_bytes() +
-    // slot_of_.capacity()*4), triggering a spill when that crosses the cap -- NOT the
-    // old per-token estimate.
+    // positive value caps the REAL resident accumulator size (resident_bytes():
+    // arena + every live vocab/pair-map/slot/rank structure, G08), triggering a
+    // spill when that crosses the cap -- NOT the old per-token estimate.
     // `reporter` is the OPTIONAL writer-level build-RAM reporter (null off-Doris /
     // unit tests). When non-null, the accumulator reports its REAL resident-byte
-    // deltas -- pool_.arena_bytes() + slot_of_.capacity()*4 -- positive on grow,
-    // negative on every reset/free, exactly once. NEVER reports live_bytes_ (a gated
-    // estimate that feeds only the spill threshold).
+    // deltas -- resident_bytes() diffs -- positive on grow, negative on every
+    // reset/free, exactly once. NEVER reports live_bytes_ (a gated estimate that
+    // feeds only the spill threshold).
     explicit SpimiTermBuffer(const std::vector<std::string>* vocab, bool has_positions,
                              size_t spill_threshold_bytes = 0, MemoryReporter* reporter = nullptr);
 
@@ -375,6 +378,29 @@ public:
     // of the production API.
     size_t bigram_pair_terms_for_test() const { return bigram_pair_map_.size(); }
 
+    // G09: joins the PROCESS-WIDE build-RAM registry. Registers this buffer's
+    // current resident bytes with `limiter` and forwards every subsequent
+    // (debounced, see report_arena_delta) resident total to it; the destructor
+    // un-registers. When the registered sum across ALL of the process's live
+    // buffers exceeds the limiter's budget, the limiter may set this buffer's
+    // ADVISORY spill-request flag from ANOTHER thread; the flag is observed --
+    // and the forced spill run ON THIS BUFFER'S OWN THREAD -- by the next
+    // add_token's maybe_spill_after_token (see there for the honor rule).
+    // Call at most once, right after construction (extra calls are ignored);
+    // `limiter` must outlive this buffer. Null / never attached = the G08
+    // per-writer behavior, byte-identical.
+    void attach_global_limiter(GlobalMemoryLimiter* limiter);
+
+    // TEST-ONLY: G09 advisory-flag observability -- read the pending flag, and
+    // plant a request directly (what the limiter does cross-thread) so the
+    // owner-honors-at-next-token contract is testable without a registry.
+    bool global_spill_requested_for_test() const {
+        return global_spill_requested_.load(std::memory_order_relaxed);
+    }
+    void request_global_spill_for_test() {
+        global_spill_requested_.store(true, std::memory_order_relaxed);
+    }
+
     // Number of DISTINCT terms accumulated so far (touched ids still resident).
     size_t unique_terms() const;
     uint64_t total_tokens() const { return total_tokens_; }
@@ -390,6 +416,13 @@ public:
     // mode). Lets tests assert that a gate-2 spill actually fired once the REAL
     // resident size crossed the configured cap. Not part of the production API.
     size_t run_count_for_test() const { return run_paths_.size(); }
+
+    // TEST-ONLY: the REAL resident accumulator bytes the gate-2 trigger and the
+    // MemoryReporter see (resident_bytes()). Lets the G08 accounting tests assert
+    // coverage (>= the externally-measured pair-map/vector footprint) and
+    // monotonicity without widening access to the private accounting. Not part of
+    // the production API.
+    uint64_t resident_bytes_for_test() const { return resident_bytes(); }
 
     // Materializes all terms sorted lexicographically; each term's docids are
     // ascending. Convenience wrapper around for_each_term_sorted that keeps the
@@ -454,6 +487,16 @@ private:
     // Accumulates one already-validated token into the per-id Term.
     void accumulate(uint32_t term_id, uint32_t docid, uint32_t pos);
 
+    // Per-token gate-2 tail of accumulate(): reports the token's resident growth,
+    // then spills when the unified cap / local threshold fires with a worthwhile
+    // reclaimable arena (the G08 anti-churn floor), when the G09 process-wide
+    // limiter's advisory request flag is pending (honored here, on the owner's
+    // own thread; bypasses the G08 floor but requires one allocated arena block
+    // so a run is writable), or when the arena nears its hard 4 GiB offset
+    // limit. Every add path funnels through accumulate(), so every add path
+    // observes this gate.
+    void maybe_spill_after_token();
+
     // Decodes `t`'s compact chain into a TermPostings (the exact docids/freqs/
     // positions the writer consumes), sorting by docid first if `t.sorted` is false.
     // When `allow_stream_positions` is true (the in-memory drain path), a large
@@ -490,13 +533,21 @@ private:
     // `evict_low_df_bigrams`, evicts eligible df==1 bigrams instead of writing
     // them; every id actually written is marked in-run (never evictable after).
     Status drain_to_writer(class RunWriter* w, bool evict_low_df_bigrams);
-    // REAL resident accumulator bytes: pool_.arena_bytes() + slot_of_.capacity()*4.
-    // The single source of truth for both the gate-2 spill trigger and the spill
-    // space-precheck -- replaces the old gated live_bytes_ estimate.
+    // REAL resident accumulator bytes -- the single source of truth for the gate-2
+    // spill trigger and every MemoryReporter delta. G08: sums EVERY live input-side
+    // structure -- the posting arena (unigram AND bigram chains, docs+prx payload)
+    // plus the vocab-sized slot index, the Term slot pool + free/touched lists, the
+    // owned vocabulary (headers by capacity + string heap payloads via
+    // owned_vocab_heap_bytes_) and its intern set, the G05 pair map (capacity *
+    // slot size) + reverse pair-key slots, and the G04/rank bookkeeping arrays
+    // (free_ids_ / id_in_run_ / string_rank_). Replaces the pre-G05 arena +
+    // slot-index-only figure, which left the whole pair-key/vocab machinery
+    // invisible to the gate (the wikipedia ~20 GiB overshoot). Capacity, not size,
+    // throughout: the reserved tail is resident RSS and survives spills.
     uint64_t resident_bytes() const;
-    // Reports the signed change in REAL resident bytes (pool_.arena_bytes() +
-    // slot_of_.capacity()*4) to mem_reporter_ since the previous call, then caches the
-    // new total. Single-source diff: every grow/reset/free emits EXACTLY ONE delta
+    // Reports the signed change in REAL resident bytes (resident_bytes()) to
+    // mem_reporter_ since the previous call, then caches the new total.
+    // Single-source diff: every grow/reset/free emits EXACTLY ONE delta
     // (self-balancing -> impossible to double-count or miss a negative). No-op when
     // mem_reporter_ is null.
     void report_arena_delta();
@@ -621,6 +672,22 @@ private:
     const std::vector<std::string>* vocab_; // active vocab (borrowed or &owned_)
     std::vector<std::string> owned_vocab_;  // owned mode: interned term strings
 
+    // G08: running sum of the owned vocab strings' HEAP payloads (0 for SSO
+    // strings -- their bytes live inside the headers owned_vocab_.capacity()
+    // already charges; capacity+1 for heap strings). Maintained incrementally so
+    // resident_bytes() stays O(1): intern_owned_term and materialize_pair_term
+    // CREDIT a stored string, evict_bigram_term DEBITS it before freeing (the
+    // credit/debit symmetry), and the terminal drains zero it when owned_vocab_
+    // is released.
+    uint64_t owned_vocab_heap_bytes_ = 0;
+
+    // G08: fixed per-entry estimate for one intern-set node -- the 16 B
+    // next-ptr+id node, its malloc chunk rounding, and an amortized bucket-array
+    // share. An estimate (allocator/bucket geometry varies); deterministic so the
+    // accounting tests can reason about it, and ZERO for an empty set so an
+    // untouched (borrowed-mode) buffer charges nothing for it.
+    static constexpr uint64_t kInternEntryEstimateBytes = 48;
+
     // Heterogeneous (is_transparent) functors backing the owned-mode interning set.
     // The set stores ONLY 4-byte term-ids; each id's string lives EXACTLY ONCE in
     // owned_vocab_ (F03 single-store -- no second owned-string map key). Both functors
@@ -740,6 +807,15 @@ private:
     MemoryReporter* mem_reporter_ = nullptr;
     int64_t reported_resident_ = 0;
 
+    // ---- G09 process-wide limiter hookup (null / false = feature off) --------
+    // The registry this buffer joined via attach_global_limiter (borrowed; must
+    // outlive the buffer), and the ADVISORY forced-spill request flag the
+    // limiter sets from other threads (only ever under the registry mutex; the
+    // owner reads it relaxed on its own thread each token). The flag pointer
+    // doubles as the buffer's registry identity.
+    GlobalMemoryLimiter* global_limiter_ = nullptr;
+    std::atomic<bool> global_spill_requested_ {false};
+
     // Returns the live Term for `term_id`, claiming a pool slot on first touch.
     Term& term_slot(uint32_t term_id, bool* new_term);
 
@@ -850,6 +926,16 @@ void reset_bigram_pair_map_counters();
 // part of the production API.
 uint64_t bigram_drain_df_drops();
 void reset_bigram_drain_df_drops();
+
+// G09 process-wide limiter seam: spills that observed -- and cleared -- a
+// PENDING global forced-spill request at the moment they fired (whether or not
+// the per-writer gate would also have spilled that token; the request was
+// consumed either way). Incremented under BE_TEST only, matching the pair-map
+// seams' contention rationale (the check sits on the per-token path of every
+// concurrent writer). Deterministic on the single-threaded build path; reset
+// between tests. Not part of the production API.
+uint64_t global_forced_spills();
+void reset_global_forced_spills();
 } // namespace testing
 
 } // namespace doris::snii::writer

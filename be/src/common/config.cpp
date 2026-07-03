@@ -1306,6 +1306,10 @@ DEFINE_mInt32(snii_bigram_prune_min_df, "-1");
 // live bigram intern storage crosses this. 0 = uncapped. Effective only when
 // snii_bigram_prune_min_df != 0. Default 512 MiB.
 DEFINE_mInt64(snii_bigram_vocab_cap_bytes, "536870912");
+// Process-wide SNII index-build RAM budget across ALL live segment writers
+// (G09); the largest writers are asked to spill early once the sum crosses it.
+// 0 disables. Default 8 GiB.
+DEFINE_mInt64(snii_index_writer_global_memory_bytes, "8589934592");
 // dict path for chinese analyzer
 DEFINE_String(inverted_index_dict_path, "${DORIS_HOME}/dict");
 DEFINE_Int32(inverted_index_read_buffer_size, "4096");

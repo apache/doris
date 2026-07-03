@@ -27,6 +27,7 @@
 #include "storage/index/inverted/analyzer/analyzer.h"
 #include "storage/index/inverted/query/query_info.h"
 #include "storage/index/snii/format/phrase_bigram.h"
+#include "storage/index/snii/writer/global_memory_limiter.h"
 #include "storage/tablet/tablet_schema.h"
 
 namespace doris::segment_v2 {
@@ -51,6 +52,19 @@ Status SniiIndexColumnWriter::init() {
             std::make_unique<::doris::snii::writer::MemoryReporter>(nullptr, spill_threshold);
     _term_buffer = std::make_unique<::doris::snii::writer::SpimiTermBuffer>(
             _has_positions, spill_threshold, _memory_reporter.get());
+    // G09: join the PROCESS-WIDE build-RAM limiter. The per-writer cap above
+    // bounds one writer; a load keeps (tablets x concurrency) writers alive at
+    // once, none of which may ever reach it -- the global registry bounds their
+    // SUM by asking the largest buffers to spill early (advisory flags honored
+    // on each writer's own thread; byte-identical output). Budget refreshed
+    // from the mutable config at every writer init; 0 disables (no
+    // registration, zero per-token overhead beyond the G08 path).
+    const int64_t global_budget = config::snii_index_writer_global_memory_bytes;
+    if (global_budget > 0) {
+        auto* global_limiter = ::doris::snii::writer::GlobalMemoryLimiter::instance();
+        global_limiter->set_budget_bytes(global_budget);
+        _term_buffer->attach_global_limiter(global_limiter);
+    }
     // G04 bigram diet: whenever the G01 flush-time bigram df-prune WILL be
     // active (config != 0; <0 auto and >0 fixed both resolve to a threshold
     // >= 1 at flush), bigram positions are dead bytes and the intern vocabulary

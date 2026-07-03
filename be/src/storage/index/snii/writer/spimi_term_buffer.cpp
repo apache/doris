@@ -31,6 +31,7 @@
 
 #include "storage/index/snii/encoding/varint.h"
 #include "storage/index/snii/format/format_constants.h"
+#include "storage/index/snii/writer/global_memory_limiter.h"
 #include "storage/index/snii/writer/spill_run_codec.h"
 #include "storage/index/snii/writer/temp_dir.h"
 
@@ -84,12 +85,27 @@ std::atomic<uint64_t> g_bigram_pair_map_misses {0};
 // gated the pair-map seams above.
 std::atomic<uint64_t> g_bigram_drain_df_drops {0};
 
+// G09 seam: spills that consumed a pending process-wide forced-spill request
+// (the limiter flagged this buffer as one of the largest registered consumers
+// while the global total exceeded the budget). Incremented under BE_TEST only
+// (per-token path, concurrent writers -- same rationale as the pair-map seams).
+std::atomic<uint64_t> g_global_forced_spills {0};
+
 // Vocabulary ids examined per incremental sweep step. Small enough that a step
 // is noise on the per-token add path, large enough that the sweep's amortized
 // eviction rate (typically many eligible ids per step -- the over-cap
 // vocabulary is dominated by the df==1 tail) outpaces the one-term-per-add
 // intern growth that armed it.
 constexpr uint32_t kVocabSweepStride = 64;
+
+// G08: heap payload of one owned-vocab string -- 0 while it fits the SSO buffer
+// (those bytes live inside the 32 B header owned_vocab_.capacity() charges), else
+// the allocated buffer (capacity + NUL). The SSO capacity is probed from the
+// running stdlib so the classification is exact, not hardcoded.
+uint64_t StringHeapBytes(const std::string& s) {
+    static const size_t kSsoCapacity = std::string().capacity();
+    return s.capacity() > kSsoCapacity ? static_cast<uint64_t>(s.capacity()) + 1 : 0;
+}
 
 } // namespace
 
@@ -125,6 +141,12 @@ uint64_t bigram_drain_df_drops() {
 }
 void reset_bigram_drain_df_drops() {
     g_bigram_drain_df_drops.store(0, std::memory_order_relaxed);
+}
+uint64_t global_forced_spills() {
+    return g_global_forced_spills.load(std::memory_order_relaxed);
+}
+void reset_global_forced_spills() {
+    g_global_forced_spills.store(0, std::memory_order_relaxed);
 }
 } // namespace testing
 
@@ -175,6 +197,14 @@ SpimiTermBuffer::SpimiTermBuffer(bool has_positions, size_t spill_threshold_byte
 }
 
 SpimiTermBuffer::~SpimiTermBuffer() {
+    // G09: leave the process-wide registry FIRST. unregister_buffer removes the
+    // entry (and its bytes) under the registry mutex -- the same mutex every
+    // flag store is made under -- so once it returns, no other thread can touch
+    // global_spill_requested_ while this buffer dies.
+    if (global_limiter_ != nullptr) {
+        global_limiter_->unregister_buffer(&global_spill_requested_);
+        global_limiter_ = nullptr;
+    }
     // Balance the writer-level / Doris tracker on the error path: if the buffer is
     // destroyed while resident bytes were reported but not yet freed-and-reported
     // (e.g. a build aborts before draining), return them here so nothing leaks.
@@ -183,6 +213,22 @@ SpimiTermBuffer::~SpimiTermBuffer() {
         reported_resident_ = 0;
     }
     cleanup_runs();
+}
+
+void SpimiTermBuffer::attach_global_limiter(GlobalMemoryLimiter* limiter) {
+    // At-most-once: a re-attach would leave a stale registry entry behind (the
+    // dtor un-registers only the current limiter).
+    if (limiter == nullptr || global_limiter_ != nullptr) {
+        return;
+    }
+    global_limiter_ = limiter;
+    // Race-safe vs report: registration and every report run on the OWNER's
+    // thread, strictly ordered; the registry serializes them against other
+    // buffers' calls internally. Register with the CURRENT resident total so
+    // the registry is exact from the first moment (a borrowed-vocab buffer
+    // already holds its vocab-sized slot index here).
+    global_limiter_->register_buffer(&global_spill_requested_,
+                                     static_cast<int64_t>(resident_bytes()));
 }
 
 void SpimiTermBuffer::configure_bigram_diet(uint64_t vocab_cap_bytes,
@@ -205,15 +251,16 @@ void SpimiTermBuffer::configure_bigram_diet(uint64_t vocab_cap_bytes,
 }
 
 void SpimiTermBuffer::report_arena_delta() {
-    if (mem_reporter_ == nullptr) {
+    if (mem_reporter_ == nullptr && global_limiter_ == nullptr) {
         return;
     }
-    // Diff the REAL resident bytes (arena + slot index) against the last reported
+    // Diff the REAL resident bytes (resident_bytes()) against the last reported
     // total; emit the signed delta exactly once.
     const auto now = static_cast<int64_t>(resident_bytes());
     // Per-token zero-delta debounce: skip the locked fetch_add when resident is
     // unchanged (the common case -- arena_bytes() grows only ~every 32 KiB block and
-    // the borrowed-vocab slot index is fixed-capacity, so most tokens see delta==0). A
+    // the other charged structures grow by geometric capacity steps / per new term
+    // only, so most tokens see delta==0). A
     // delta==0 report() is a no-op (current_.fetch_add(0) plus a mirrored
     // consume_release(0)) and leaves reported_resident_ == now, so current_bytes(),
     // every over_cap() result, and the gate-2 spill timing stay bit-for-bit identical.
@@ -224,7 +271,19 @@ void SpimiTermBuffer::report_arena_delta() {
     if (now == reported_resident_) {
         return;
     }
-    mem_reporter_->report(now - reported_resident_);
+    if (mem_reporter_ != nullptr) {
+        mem_reporter_->report(now - reported_resident_);
+    }
+    // G09: forward the same debounced total -- as an ABSOLUTE, self-healing
+    // value -- to the process-wide registry. This is the limiter's decision
+    // point: report() flags the largest registered buffers (possibly this one)
+    // while the global sum exceeds the budget. It only ever takes the registry
+    // mutex and flips advisory atomics; no lock is held here while spilling
+    // (any spill this buffer performs happens AFTER this returns, back in
+    // maybe_spill_after_token, on this thread).
+    if (global_limiter_ != nullptr) {
+        global_limiter_->report(&global_spill_requested_, now);
+    }
     reported_resident_ = now;
 }
 
@@ -233,12 +292,38 @@ size_t SpimiTermBuffer::unique_terms() const {
 }
 
 uint64_t SpimiTermBuffer::resident_bytes() const {
-    // REAL resident accumulator bytes: the posting arena plus the vocab-sized slot
-    // index (capacity, since the reserved-but-unused tail is still resident RSS and
-    // survives spills -- spill_to_run does NOT free slot_of_). This is the gate-2
-    // spill trigger metric and the spill space-precheck figure -- NOT the old gated
-    // live_bytes_ estimate.
-    return pool_.arena_bytes() + static_cast<uint64_t>(slot_of_.capacity()) * sizeof(uint32_t);
+    // REAL resident accumulator bytes (G08). Pre-G05 this was arena + slot index
+    // only; the G05 pair-key machinery and the owned vocab / slot-pool / rank
+    // arrays were INVISIBLE to the gate-2 trigger and the MemoryReporter, so on
+    // wikipedia each writer peaked at [uncharged structures] + the full 512 MiB
+    // cap (~1.25 GiB x 16 writers = the observed ~20 GiB). Everything live is
+    // charged now, by CAPACITY (the reserved tail is resident RSS and survives
+    // spills -- spill_to_run frees only the arena). All O(1) field reads: this
+    // runs once per token via report_arena_delta.
+    uint64_t b = pool_.arena_bytes(); // posting chains: unigram + bigram, docs + prx payload
+    b += static_cast<uint64_t>(slot_of_.capacity()) * sizeof(uint32_t); // vocab-sized slot index
+    b += static_cast<uint64_t>(slots_.capacity()) * sizeof(Term);       // live Term pool
+    b += static_cast<uint64_t>(free_slots_.capacity()) * sizeof(uint32_t);
+    b += static_cast<uint64_t>(touched_ids_.capacity()) * sizeof(uint32_t);
+    // Owned-vocab machinery (all zero in borrowed mode): string headers by vector
+    // capacity, heap payloads via the incrementally-maintained counter (credited
+    // by intern_owned_term / materialize_pair_term, debited by evict_bigram_term),
+    // and the intern set's nodes at a fixed per-entry estimate.
+    b += static_cast<uint64_t>(owned_vocab_.capacity()) * sizeof(std::string);
+    b += owned_vocab_heap_bytes_;
+    b += static_cast<uint64_t>(intern_.size()) * kInternEntryEstimateBytes;
+    // G05 pair-key machinery: flat-map slots by CAPACITY (16 B pair + 1 control
+    // byte per slot; erase never shrinks it) and the vocab-sized reverse
+    // pair-key slots. On wikipedia these -- unbounded by the G04 cap, which can
+    // only evict the df==1 tail -- were the largest uncharged line.
+    b += static_cast<uint64_t>(bigram_pair_map_.capacity()) *
+         (sizeof(decltype(bigram_pair_map_)::value_type) + 1);
+    b += static_cast<uint64_t>(pair_of_.capacity()) * sizeof(uint64_t);
+    // G04 diet bookkeeping + the cached lexicographic rank.
+    b += static_cast<uint64_t>(free_ids_.capacity()) * sizeof(uint32_t);
+    b += static_cast<uint64_t>(id_in_run_.capacity()) * sizeof(uint8_t);
+    b += static_cast<uint64_t>(string_rank_.capacity()) * sizeof(uint32_t);
+    return b;
 }
 
 // Returns the live Term for `term_id`, claiming a pool slot on first touch (1 ==
@@ -329,29 +414,74 @@ void SpimiTermBuffer::accumulate(uint32_t term_id, uint32_t docid, uint32_t pos)
     ++t.ntok;
     ++total_tokens_;
 
-    // Gate-2 spill: trigger on REAL resident bytes (arena + slot index), NOT the old
-    // gated live_bytes_ estimate. arena_bytes() is monotonic per fill and reset to 0
-    // by spill_to_run()'s pool_.reset(), so the trigger self-rearms after each spill.
-    // The OTHER trigger is the hard arena safety stop (active even in unlimited mode):
-    // when the arena nears the 4 GiB uint32-offset limit -- without it, a single
-    // >4 GiB in-memory segment wraps alloc_run and silently corrupts data. A forced
-    // spill + final k-way merge stays byte-identical regardless of when it fires.
+    maybe_spill_after_token();
+}
+
+// Per-token gate-2 tail (extracted from accumulate, which every add path funnels
+// through -- so every add path observes this gate). Reports this token's REAL
+// resident growth FIRST so the writer's unified total (reporter_->current_bytes())
+// reflects it before the gate check (single-source diff; cheap: a subtraction +
+// relaxed atomic add), then evaluates the spill triggers:
+//   * Gate-2 (UNIFIED): with a reporter attached, trigger on the writer's TOTAL
+//     build RAM (arena + vocab/pair structures + dict) crossing the one
+//     configured cap -- the same total and cap every buffer of this writer
+//     shares, not a per-buffer threshold. Off Doris (no reporter) fall back to
+//     the local spill_threshold_bytes_ against resident_bytes().
+//   * G08 anti-churn floor: a gate-2 spill reclaims ONLY the posting arena
+//     (pool_.reset()); the vocab / pair-map / slot structures resident_bytes()
+//     now also charges SURVIVE it. Once those persistent bytes alone exceed the
+//     cap (wikipedia: the df>=2 pair map + owned vocab do), an unconditioned
+//     trigger would spill EVERY subsequent token -- one-block runs, k-way-merge
+//     and spill-fixed-cost blowup. Honor the cap only when at least a quarter of
+//     it is reclaimable arena: peak stays bounded at persistent + cap/4 and no
+//     run is smaller than cap/4, while the one-block minimum keeps small caps
+//     (tests, tiny configs) spilling on the first block exactly as before.
+//   * Hard arena safety stop, active even in unlimited mode and BYPASSING the
+//     floor: when the arena nears the 4 GiB uint32-offset limit, spill now --
+//     without it a single >4 GiB in-memory segment wraps alloc_run and silently
+//     corrupts data. A forced spill + final k-way merge stays byte-identical
+//     regardless of when it fires.
+// spill_to_run() resets the arena and reports its negative internally, so the
+// unified total drops (and the trigger self-rearms) after each spill.
+void SpimiTermBuffer::maybe_spill_after_token() {
     constexpr uint64_t kArenaSpillCap = 0xE0000000ULL; // 3.5 GiB, < UINT32_MAX margin
-    // Report this token's REAL resident growth FIRST so the writer's unified total
-    // (reporter_->current_bytes()) reflects it before the gate-2 check. Single-source
-    // diff: cheap (subtraction + relaxed atomic add; arena_bytes() is two field reads).
     report_arena_delta();
-    // Gate-2 spill (UNIFIED): when a reporter is attached, trigger on the writer's TOTAL
-    // build RAM (arena + slot index + dict) crossing the one configured cap -- the same
-    // total and cap every buffer of this writer shares, not a per-buffer threshold. Off
-    // Doris (no reporter) fall back to the local spill_threshold_bytes_. The hard arena
-    // safety stop (4 GiB uint32-offset limit) is always active. spill_to_run() resets the
-    // arena and reports its negative internally, so the unified total drops after a spill.
     const bool over_cap = mem_reporter_ != nullptr ? mem_reporter_->over_cap()
                                                    : (spill_threshold_bytes_ != 0 &&
                                                       resident_bytes() >= spill_threshold_bytes_);
+    const uint64_t gate_cap =
+            mem_reporter_ != nullptr ? mem_reporter_->cap_bytes() : spill_threshold_bytes_;
+    const bool arena_worth_spilling =
+            pool_.arena_bytes() >= std::max<uint64_t>(CompactPostingPool::kBlockSize, gate_cap / 4);
     const bool arena_near_limit = pool_.arena_bytes() >= kArenaSpillCap;
-    if ((over_cap || arena_near_limit) && spill_status_.ok()) {
+    // G09: the process-wide limiter flagged this buffer (one of the largest
+    // registered consumers while the global total exceeded the budget).
+    // Honored HERE, on the owner's own thread -- never on the reporting thread
+    // that set the flag. The G08 anti-churn floor is deliberately BYPASSED
+    // (each victim's arena is below cap/4 by construction: it never reached
+    // its per-writer gate -- that is exactly why the global sum grew), but at
+    // least one allocated arena block is still required so the run has bytes
+    // to write; below that the request stays PENDING and is honored within
+    // one block's worth of tokens. A request that finds the owner already
+    // drained is never observed again -- an advisory no-op (the dtor
+    // un-registers) -- and a stale re-request after a spill costs at most one
+    // extra small run (double-spill is harmless, byte-identical output).
+    const bool global_requested = global_spill_requested_.load(std::memory_order_relaxed);
+    const bool global_spill_now =
+            global_requested && pool_.arena_bytes() >= CompactPostingPool::kBlockSize;
+    if (((over_cap && arena_worth_spilling) || global_spill_now || arena_near_limit) &&
+        spill_status_.ok()) {
+        if (global_requested) {
+            // Consume the request BEFORE spilling: this spill releases exactly
+            // the arena a forced spill would, so it satisfies the request no
+            // matter which trigger won the OR above.
+            global_spill_requested_.store(false, std::memory_order_relaxed);
+#ifdef BE_TEST
+            // Seam under BE_TEST only: per-token path shared by every
+            // concurrent writer (same rationale as the pair-map seams).
+            g_global_forced_spills.fetch_add(1, std::memory_order_relaxed);
+#endif
+        }
         // Mid-feed spill: evict df==1 bigrams instead of writing them (a run
         // record would pin their vocab strings forever -- see drain_to_writer).
         spill_status_ = spill_to_run(/*evict_low_df_bigrams=*/true);
@@ -539,6 +669,9 @@ uint32_t SpimiTermBuffer::intern_owned_term(std::string&& term_str) {
         owned_vocab_.emplace_back(std::move(term_str));
         slot_of_.push_back(0); // vocab grows: new id starts with no live slot
     }
+    // G08: credit the stored string's heap payload (0 for SSO) -- the header is
+    // charged via owned_vocab_.capacity(). evict_bigram_term debits it (symmetry).
+    owned_vocab_heap_bytes_ += StringHeapBytes(owned_vocab_[term_id]);
     g_vocab_materializations.fetch_add(1, std::memory_order_relaxed);
     intern_.insert(term_id);
     if (bigram_diet_) {
@@ -603,6 +736,10 @@ void SpimiTermBuffer::materialize_pair_term(uint32_t id, uint64_t pair_key) {
     const uint32_t right_id = static_cast<uint32_t>(pair_key);
     owned_vocab_[id] =
             format::make_phrase_bigram_term(owned_vocab_[left_id], owned_vocab_[right_id]);
+    // G08: the composed string's heap payload becomes resident here (the pair term
+    // owned no string before). Debited only when owned_vocab_ itself is released
+    // at the terminal drain -- materialized strings are pinned until then.
+    owned_vocab_heap_bytes_ += StringHeapBytes(owned_vocab_[id]);
     if (bigram_diet_) {
         const uint64_t fixed = kBigramInternFixedOverheadBytes;
         bigram_intern_bytes_ = bigram_intern_bytes_ > fixed ? bigram_intern_bytes_ - fixed : 0;
@@ -1021,6 +1158,10 @@ void SpimiTermBuffer::evict_bigram_term(uint32_t id) {
     bigram_drop_filter_->insert(s);
     const uint64_t footprint = bigram_term_footprint(s);
     bigram_intern_bytes_ = bigram_intern_bytes_ > footprint ? bigram_intern_bytes_ - footprint : 0;
+    // G08 symmetry: debit the heap payload intern_owned_term credited, BEFORE the
+    // swap below frees it (the intern_.erase debits its node via intern_.size()).
+    const uint64_t heap = StringHeapBytes(s);
+    owned_vocab_heap_bytes_ = owned_vocab_heap_bytes_ > heap ? owned_vocab_heap_bytes_ - heap : 0;
     intern_.erase(id);
     release_term(id);
     std::string().swap(s); // free the string payload (capacity 0)
@@ -1127,20 +1268,31 @@ Status SpimiTermBuffer::drain_sorted(const std::function<void(TermPostings&&)>& 
         TermPostings tp = to_postings(v[id], std::move(term), allow_stream_positions);
         fn(std::move(tp));
     }
-    touched_ids_.clear();
     // Drop the arena + the slot pool (their bytes are fully decoded) and return the
     // freed chunks to the OS so the process peak reflects only what survives the
     // drain, not retained input-phase arena memory. The G05 pair map / reverse
     // pair-key slots are equally dead after a terminal drain (every pair term is
     // materialized into owned_vocab_, which the emitted strings copied from).
+    // G08: the terminal drain also releases every structure resident_bytes() now
+    // charges and that nothing consumes past this point -- the touched list, the
+    // cached rank, the G04 bookkeeping, and (owned mode; every emitted term COPIED
+    // its string above) the owned vocabulary + intern set. Only the drop bloom
+    // survives: the flush-time process_term backstop still probes it.
+    std::vector<uint32_t>().swap(touched_ids_);
     pool_.reset();
     std::vector<Term>().swap(slots_);
     std::vector<uint32_t>().swap(free_slots_);
     std::vector<uint32_t>().swap(slot_of_);
     phmap::flat_hash_map<uint64_t, uint32_t>().swap(bigram_pair_map_);
     std::vector<uint64_t>().swap(pair_of_);
+    std::vector<uint32_t>().swap(free_ids_);
+    std::vector<uint8_t>().swap(id_in_run_);
+    std::vector<uint32_t>().swap(string_rank_);
+    intern_ = decltype(intern_)(0, OwnedVocabHash {&owned_vocab_}, OwnedVocabEq {&owned_vocab_});
+    std::vector<std::string>().swap(owned_vocab_);
+    owned_vocab_heap_bytes_ = 0;
     TrimMalloc();
-    // Arena reset + slot_of_ freed: now real resident ~0, so this emits the final
+    // Everything charged is now freed: real resident ~0, so this emits the final
     // negative that returns every reported byte (no leak after the in-memory drain).
     report_arena_delta();
     return Status::OK();
@@ -1208,14 +1360,16 @@ Status SpimiTermBuffer::spill_to_run(bool evict_low_df_bigrams) {
     const std::string dir = resolve_temp_dir();
     // Best-effort space pre-check: fail with a clear, early error rather than a
     // mid-write IoError that leaves a half-written run. Best-effort only (TOCTOU; on
-    // tmpfs this reports RAM). resident_bytes() (arena + slot index) is the REAL
-    // resident figure about to drain -- a conservative over-estimate of the run size.
-    const uint64_t resident = resident_bytes();
+    // tmpfs this reports RAM). The ARENA -- not full resident_bytes(), which since
+    // G08 also charges vocab/pair structures a run never contains -- is what the
+    // run re-encodes, and its block slack makes it a conservative over-estimate of
+    // the run's on-disk size.
+    const uint64_t arena = pool_.arena_bytes();
     const uint64_t avail = temp_dir_available_bytes(dir);
-    if (avail < resident) {
+    if (avail < arena) {
         return Status::Error<ErrorCode::IO_ERROR, false>(
                 "spimi: insufficient temp space in '" + dir + "' to spill ~" +
-                std::to_string(resident) + " B (~" + std::to_string(avail) +
+                std::to_string(arena) + " B (~" + std::to_string(avail) +
                 " B free); set SNII_TEMP_DIR/TMPDIR to a larger disk");
     }
     const std::string path = MakeRunPath(dir);
@@ -1266,10 +1420,17 @@ Status SpimiTermBuffer::merge_runs(const std::function<void(TermPostings&&)>& fn
     std::vector<uint32_t>().swap(slot_of_);
     phmap::flat_hash_map<uint64_t, uint32_t>().swap(bigram_pair_map_);
     std::vector<uint64_t>().swap(pair_of_);
+    // G08: the touched list (cleared by the residual spill but capacity-retained)
+    // and the G04 bookkeeping are dead here too. The owned vocab, intern set and
+    // rank array must SURVIVE into MergeRuns (it keys the heap on them) -- they
+    // are released right after the merge below.
+    std::vector<uint32_t>().swap(touched_ids_);
+    std::vector<uint32_t>().swap(free_ids_);
+    std::vector<uint8_t>().swap(id_in_run_);
     TrimMalloc();
     // pool_ was already reset by the final spill_to_run -> drain_to_writer (reported
-    // there); this swap frees slot_of_, so report the remaining negative now. After a
-    // full spilled drain reported_resident_ returns to 0 (no leak).
+    // there); these swaps free the slot index + bookkeeping, so report the remaining
+    // negative now. The vocab-side remainder is reported after the merge.
     report_arena_delta();
     // The k-way merge keys its heap/gather on the term-id -> lexicographic rank array
     // instead of comparing vocab strings. Build it explicitly here (idempotent -- every
@@ -1279,6 +1440,16 @@ Status SpimiTermBuffer::merge_runs(const std::function<void(TermPostings&&)>& fn
     ensure_string_rank();
     Status s = MergeRuns(run_paths_, vocab(), string_rank_, has_positions_, fn,
                          allow_stream_positions);
+    // G08: the merge was the LAST consumer of the vocab strings, the intern set
+    // and the rank array (every emitted term copied its string). Release them and
+    // report the final negative so the post-drain resident (and the writer's
+    // unified total) reflects only what actually survives -- the drop bloom, which
+    // the flush-time process_term backstop still probes, stays.
+    intern_ = decltype(intern_)(0, OwnedVocabHash {&owned_vocab_}, OwnedVocabEq {&owned_vocab_});
+    std::vector<std::string>().swap(owned_vocab_);
+    owned_vocab_heap_bytes_ = 0;
+    std::vector<uint32_t>().swap(string_rank_);
+    report_arena_delta();
     // The merge churns one large coalesced TermPostings per term (the widest term's
     // arrays are tens of MiB) plus per-run reader windows; on completion glibc
     // retains those freed chunks in its arenas. Trim again so the post-merge resident
