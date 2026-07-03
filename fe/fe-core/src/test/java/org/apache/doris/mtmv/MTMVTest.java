@@ -22,6 +22,8 @@ import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MTMV;
+import org.apache.doris.catalog.MaterializedIndex;
+import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.PrimitiveType;
@@ -293,6 +295,23 @@ public class MTMVTest {
 
         Assert.assertEquals(oldSchemaChangeVersion, mtmv.getSchemaChangeVersion());
         Assert.assertFalse(mtmv.getRefreshSnapshot().getPartitionSnapshots().isEmpty());
+    }
+
+    @Test
+    public void testHasRefreshSnapshotAllowsIncompletePartitionSnapshot() {
+        MTMV mtmv = new MTMV();
+        mtmv.setBaseIndexId(1L);
+        mtmv.setIndexMeta(1L, "mv", Lists.newArrayList(new Column("k1", PrimitiveType.INT, true)),
+                0, 0, (short) 1, TStorageType.COLUMN, KeysType.DUP_KEYS);
+        SinglePartitionInfo partitionInfo = new SinglePartitionInfo();
+        mtmv.setPartitionInfo(partitionInfo);
+        mtmv.addPartition(new Partition(1L, "p1", new MaterializedIndex(), null));
+        mtmv.addPartition(new Partition(2L, "p2", new MaterializedIndex(), null));
+        MTMVRefreshSnapshot refreshSnapshot = new MTMVRefreshSnapshot();
+        refreshSnapshot.getPartitionSnapshots().put("p1", new MTMVRefreshPartitionSnapshot());
+        mtmv.setRefreshSnapshot(refreshSnapshot);
+
+        Assert.assertTrue(mtmv.hasRefreshSnapshot());
     }
 
     @Test
