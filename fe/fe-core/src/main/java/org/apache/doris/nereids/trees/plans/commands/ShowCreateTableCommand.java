@@ -152,10 +152,7 @@ public class ShowCreateTableCommand extends ShowCommand {
         // Fetch the catalog, database, and table metadata
         DatabaseIf db = ctx.getEnv().getCatalogMgr().getCatalogOrAnalysisException(tblNameInfo.getCtl())
                             .getDbOrMetaException(tblNameInfo.getDb());
-        TableIf table = resolveShowCreateTarget(db);
-        if (table instanceof IcebergSysExternalTable) {
-            table = ((IcebergSysExternalTable) table).getSourceTable();
-        }
+        TableIf table = redirectSysTableToSource(resolveShowCreateTarget(db));
 
         List<List<String>> rows = Lists.newArrayList();
 
@@ -204,6 +201,24 @@ public class ShowCreateTableCommand extends ShowCommand {
         } finally {
             table.readUnlock();
         }
+    }
+
+    /**
+     * F4/F13: redirects a system table ($snapshots/...) to its source base table so SHOW CREATE renders the
+     * base table's DDL (name / data columns / PARTITION BY) rather than the sys-table shell. The legacy
+     * {@link IcebergSysExternalTable} arm was already here; after the SPI cutover a sys table is a
+     * {@link PluginDrivenSysExternalTable}, so its arm was missing (an asymmetric omission: {@code validate()}
+     * already unwraps the {@code PluginDrivenSysExternalTable} to its source for the privilege check). Both
+     * are neutral sys-table types (not {@code Iceberg*}), so this stays iron-rule clean. Non-sys tables pass
+     * through unchanged.
+     */
+    static TableIf redirectSysTableToSource(TableIf table) {
+        if (table instanceof IcebergSysExternalTable) {
+            return ((IcebergSysExternalTable) table).getSourceTable();
+        } else if (table instanceof PluginDrivenSysExternalTable) {
+            return ((PluginDrivenSysExternalTable) table).getSourceTable();
+        }
+        return table;
     }
 
     private TableIf resolveShowCreateTarget(DatabaseIf db) throws AnalysisException {
