@@ -98,6 +98,13 @@ public:
     // Serialize the entire block and append it to sink.
     void finish(ByteSink* sink) const;
 
+    // G16 byte accounting, valid AFTER finish(): serialized entry-body bytes
+    // (uncompressed, prefix-coded, anchors included) split by term class.
+    // Measurement-only -- the writer aggregates these into the per-index
+    // section-stats log line; nothing on disk depends on them.
+    uint64_t entry_bytes_total() const { return entry_bytes_total_; }
+    uint64_t entry_bytes_bigram() const { return entry_bytes_bigram_; }
+
 private:
     bool is_anchor(uint32_t index) const { return index % anchor_interval_ == 0; }
 
@@ -111,6 +118,10 @@ private:
     std::vector<DictEntry> entries_;
     size_t entries_est_ = 0; // accumulated byte estimate for the entries section
     size_t n_anchors_ = 0;   // number of anchors
+    // G16 accounting, filled by finish() (which stays logically const: these
+    // never affect serialization).
+    mutable uint64_t entry_bytes_total_ = 0;
+    mutable uint64_t entry_bytes_bigram_ = 0;
 };
 
 // DICT block reader: on open, verifies the CRC and parses the header / anchor

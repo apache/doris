@@ -330,6 +330,27 @@ private:
     std::vector<uint64_t> term_hashes_;
     format::StatsBlock stats_;
     std::vector<uint8_t> bsbf_bytes_; // serialized block-split bloom XFilter section
+
+public:
+    // G16 per-index section-byte accounting (measurement-only; nothing on disk
+    // depends on it). Index [0] = unigram, [1] = hidden phrase-bigram. Posting
+    // bytes come from the built DictEntry fields (dd/freq/prx/prelude split);
+    // dict_entry_bytes is the UNCOMPRESSED serialized entry-body split from
+    // DictBlockBuilder -- inline entries' posting bytes therefore appear in
+    // BOTH dd/freq/prx and dict_entry_bytes (they physically live in the dict).
+    // Logged once per index at the end of build().
+    struct SectionStats {
+        uint64_t entries[2] {0, 0};
+        uint64_t dd_bytes[2] {0, 0};
+        uint64_t freq_bytes[2] {0, 0};
+        uint64_t prx_bytes[2] {0, 0};
+        uint64_t prelude_bytes[2] {0, 0};
+        uint64_t dict_entry_bytes[2] {0, 0};
+    };
+    const SectionStats& section_stats() const { return section_stats_; }
+
+private:
+    SectionStats section_stats_;
 };
 
 // TEST-ONLY observability seam (mirrors the reader-side decode-counter and the

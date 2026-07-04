@@ -24,6 +24,7 @@
 #include <span>
 #include <utility>
 
+#include "common/logging.h"
 #include "storage/index/snii/common/slice.h"
 #include "storage/index/snii/encoding/crc32c.h"
 #include "storage/index/snii/encoding/zstd_codec.h"
@@ -630,13 +631,30 @@ Status LogicalIndexWriter::build_entry(TermPostings& tp, uint64_t frq_base, uint
 
     if (e->df >= format::kSlimDfThreshold) {
         if (has_freq_ && !write_freq) testing::note_bigram_freq_elided();
-        return build_windowed_entry(tp, frq_base, prx_base, write_prx, write_freq, e);
+        RETURN_IF_ERROR(build_windowed_entry(tp, frq_base, prx_base, write_prx, write_freq, e));
+    } else {
+        // Slim/inline entries ALWAYS keep the freq region on a freq-capable index:
+        // their region metadata in the DictEntry is tier-conditioned (freq meta is
+        // present iff tier>=T2), so freq presence is not self-describing per entry.
+        // Only the windowed prelude (flags bit0) can declare a per-term freq drop.
+        RETURN_IF_ERROR(build_slim_entry(tp, frq_base, prx_base, write_prx, e));
     }
-    // Slim/inline entries ALWAYS keep the freq region on a freq-capable index:
-    // their region metadata in the DictEntry is tier-conditioned (freq meta is
-    // present iff tier>=T2), so freq presence is not self-describing per entry.
-    // Only the windowed prelude (flags bit0) can declare a per-term freq drop.
-    return build_slim_entry(tp, frq_base, prx_base, write_prx, e);
+    // G16 section accounting from the finished entry's own fields (no plumbing):
+    // windowed: frq span = [prelude][dd][freq]; slim pod: [dd][freq], prelude 0;
+    // inline: bytes live in frq_bytes/prx_bytes (also counted in dict bytes).
+    const size_t cls = format::is_phrase_bigram_term(tp.term) ? 1 : 0;
+    section_stats_.entries[cls]++;
+    if (e->kind == DictEntryKind::kInline) {
+        section_stats_.dd_bytes[cls] += e->inline_dd_disk_len;
+        section_stats_.freq_bytes[cls] += e->frq_bytes.size() - e->inline_dd_disk_len;
+        section_stats_.prx_bytes[cls] += e->prx_bytes.size();
+    } else {
+        section_stats_.prelude_bytes[cls] += e->prelude_len;
+        section_stats_.dd_bytes[cls] += e->frq_docs_len - e->prelude_len;
+        section_stats_.freq_bytes[cls] += e->frq_len - e->frq_docs_len;
+        section_stats_.prx_bytes[cls] += e->prx_len;
+    }
+    return Status::OK();
 }
 
 // Serializes the current open block, zstd-compresses it (the dict region is the
@@ -657,6 +675,9 @@ Status LogicalIndexWriter::flush_block(DictBlockBuilder* block, std::string firs
     rec.n_entries = block->n_entries();
     rec.checksum = crc32c(plain); // crc over UNCOMPRESSED block bytes
     rec.first_term = std::move(first_term);
+
+    section_stats_.dict_entry_bytes[0] += block->entry_bytes_total() - block->entry_bytes_bigram();
+    section_stats_.dict_entry_bytes[1] += block->entry_bytes_bigram();
 
     std::vector<uint8_t> comp;
     Status zs = zstd_compress(plain, kDictBlockZstdLevel, &comp);
@@ -871,6 +892,16 @@ Status LogicalIndexWriter::build(io::FileWriter* posting_out) {
         bsbf_bytes_ = bsink.take();
     }
     std::vector<uint64_t>().swap(term_hashes_); // release
+
+    const auto& ss = section_stats_;
+    LOG(INFO) << "SNII section stats idx=" << index_id_ << " suffix=" << index_suffix_
+              << " uni{n=" << ss.entries[0] << " dd=" << ss.dd_bytes[0]
+              << " freq=" << ss.freq_bytes[0] << " prx=" << ss.prx_bytes[0]
+              << " prelude=" << ss.prelude_bytes[0] << " dict=" << ss.dict_entry_bytes[0]
+              << "} bg{n=" << ss.entries[1] << " dd=" << ss.dd_bytes[1]
+              << " freq=" << ss.freq_bytes[1] << " prx=" << ss.prx_bytes[1]
+              << " prelude=" << ss.prelude_bytes[1] << " dict=" << ss.dict_entry_bytes[1]
+              << "} dict_region=" << dict_buf_.size() << " doc_count=" << doc_count_;
     return Status::OK();
 }
 

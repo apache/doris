@@ -23,6 +23,7 @@
 #include "storage/index/snii/encoding/byte_source.h"
 #include "storage/index/snii/encoding/crc32c.h"
 #include "storage/index/snii/encoding/varint.h"
+#include "storage/index/snii/format/phrase_bigram.h"      // is_phrase_bigram_term (G16 accounting)
 #include "storage/index/snii/format/sampled_term_index.h" // std_string_heap_bytes
 
 namespace doris::snii::format {
@@ -113,6 +114,8 @@ void DictBlockBuilder::finish(ByteSink* sink) const {
     std::vector<uint32_t> anchor_offsets;
     anchor_offsets.reserve(n_anchors_);
     std::string prev;
+    entry_bytes_total_ = 0;
+    entry_bytes_bigram_ = 0;
     for (uint32_t i = 0; i < n_entries_; ++i) {
         const bool anchor = is_anchor(i);
         if (anchor) {
@@ -121,7 +124,13 @@ void DictBlockBuilder::finish(ByteSink* sink) const {
         const std::string_view prev_term = anchor ? std::string_view {} : std::string_view(prev);
         // finish() is void and entry encoding into an in-memory ByteSink cannot fail;
         // explicitly discard the (now [[nodiscard]] Status) return.
+        const uint64_t before = body.size();
         static_cast<void>(encode_dict_entry(entries_[i], prev_term, tier_, &body));
+        const uint64_t encoded = body.size() - before;
+        entry_bytes_total_ += encoded;
+        if (is_phrase_bigram_term(entries_[i].term)) {
+            entry_bytes_bigram_ += encoded;
+        }
         prev = entries_[i].term;
     }
 
