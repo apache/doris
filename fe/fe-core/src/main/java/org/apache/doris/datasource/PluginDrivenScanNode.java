@@ -355,6 +355,18 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
             if (detailLevel == TExplainLevel.VERBOSE && !isBatchMode()) {
                 appendBackendScanRangeDetail(output, prefix);
             }
+            // F6/F7 (explain gap): the parent FileScanNode emits the "nested columns:" block (pruned type /
+            // sub path / all + predicate access paths) via printNestedColumns, which this override drops by
+            // not calling super, so the ENTIRE block vanished for every plugin FileScan connector (broader
+            // than iceberg). Re-emit it -- like the sibling inputSplitNum / partition / backend-detail lines --
+            // because nested-column-pruning visibility is universal FileScanNode info, not connector-specific.
+            // printNestedColumns is connector-agnostic here: this node is a PluginDrivenScanNode (never an
+            // IcebergScanNode), so it takes the generic name-join path (PlanNode:954/970) and the legacy
+            // iceberg field-id merge arms (PlanNode:949/965) stay dead -- the field-id-annotated access-path
+            // form (col(3).sub(5)) is deliberately NOT reproduced (cosmetic, tracked as FU-h10-deadcode; the
+            // BE still receives the id-form path). Emitted before the connector delegation so the FileScanNode
+            // body parts precede the connector's lines (matches legacy: base, then icebergPredicatePushdown).
+            printNestedColumns(output, prefix, getTupleDesc());
             // Delegate connector-specific EXPLAIN info to the SPI. Thread the native/total split counts
             // (FIX-E) the node accumulated in getSplits() into a copy of the props map via the synthetic
             // keys, so a connector that distinguishes native/JNI reads (paimon) can emit its
