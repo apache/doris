@@ -63,7 +63,6 @@ import org.apache.doris.nereids.trees.plans.commands.ForwardWithSync;
 import org.apache.doris.nereids.trees.plans.commands.NeedAuditEncryption;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.UnboundLogicalSink;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalIcebergTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTableSink;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -219,12 +218,10 @@ public class InsertOverwriteTableCommand extends Command implements NeedAuditEnc
             partitionNames = new ArrayList<>();
         }
 
-        // check branch: only iceberg supports INSERT OVERWRITE into a named branch. Pre-cutover this is
-        // the legacy PhysicalIcebergTableSink; post-cutover an iceberg table is plugin-driven, so admit it
-        // via the connector's supportsWriteBranch() capability — without which the branch would be silently
-        // dropped and the overwrite would land on the table's default ref.
-        if (branchName.isPresent() && !(physicalTableSink instanceof PhysicalIcebergTableSink)
-                && !pluginConnectorSupportsWriteBranch(targetTable)) {
+        // check branch: only iceberg supports INSERT OVERWRITE into a named branch. An iceberg table is
+        // plugin-driven, so admit it via the connector's supportsWriteBranch() capability — without which
+        // the branch would be silently dropped and the overwrite would land on the table's default ref.
+        if (branchName.isPresent() && !pluginConnectorSupportsWriteBranch(targetTable)) {
             throw new AnalysisException(
                     "Only support insert overwrite into iceberg table's branch");
         }

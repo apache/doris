@@ -65,9 +65,7 @@ import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalTable.DLAType;
 import org.apache.doris.datasource.hive.source.HiveScanNode;
 import org.apache.doris.datasource.hudi.source.HudiScanNode;
-import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergMergeOperation;
-import org.apache.doris.datasource.iceberg.IcebergSysExternalTable;
 import org.apache.doris.datasource.iceberg.source.IcebergScanNode;
 import org.apache.doris.datasource.lakesoul.LakeSoulExternalTable;
 import org.apache.doris.datasource.lakesoul.source.LakeSoulScanNode;
@@ -143,7 +141,6 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalHiveTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHudiScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalIcebergDeleteSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalIcebergMergeSink;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalIcebergTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalIntersect;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLazyMaterialize;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLazyMaterializeOlapScan;
@@ -201,7 +198,6 @@ import org.apache.doris.planner.ExchangeNode;
 import org.apache.doris.planner.GroupCommitBlockSink;
 import org.apache.doris.planner.HashJoinNode;
 import org.apache.doris.planner.HiveTableSink;
-import org.apache.doris.planner.IcebergTableSink;
 import org.apache.doris.planner.IntersectNode;
 import org.apache.doris.planner.JoinNodeBase;
 import org.apache.doris.planner.MaterializationNode;
@@ -576,20 +572,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     }
 
     @Override
-    public PlanFragment visitPhysicalIcebergTableSink(PhysicalIcebergTableSink<? extends Plan> icebergTableSink,
-                                                      PlanTranslatorContext context) {
-        PlanFragment rootFragment = icebergTableSink.child().accept(this, context);
-        rootFragment.setOutputPartition(DataPartition.UNPARTITIONED);
-        List<Expr> outputExprs = Lists.newArrayList();
-        icebergTableSink.getOutput().stream().map(Slot::getExprId)
-                .forEach(exprId -> outputExprs.add(context.findSlotRef(exprId)));
-        IcebergTableSink sink = new IcebergTableSink((IcebergExternalTable) icebergTableSink.getTargetTable());
-        rootFragment.setSink(sink);
-        sink.setOutputExprs(outputExprs);
-        return rootFragment;
-    }
-
-    @Override
     public PlanFragment visitPhysicalIcebergDeleteSink(PhysicalIcebergDeleteSink<? extends Plan> icebergDeleteSink,
                                                        PlanTranslatorContext context) {
         PlanFragment rootFragment = icebergDeleteSink.child().accept(this, context);
@@ -863,9 +845,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 default:
                     throw new RuntimeException("do not support DLA type " + ((HMSExternalTable) table).getDlaType());
             }
-        } else if (table instanceof IcebergExternalTable || table instanceof IcebergSysExternalTable) {
-            scanNode = new IcebergScanNode(context.nextPlanNodeId(), tupleDescriptor, false, sv,
-                    context.getScanContext());
         } else if (table instanceof LakeSoulExternalTable) {
             scanNode = new LakeSoulScanNode(context.nextPlanNodeId(), tupleDescriptor, false, sv,
                     context.getScanContext());

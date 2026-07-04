@@ -161,9 +161,8 @@ public class PhysicalConnectorTableSink<CHILD_TYPE extends Plan> extends Physica
     @Override
     public PhysicalProperties getRequirePhysicalProperties() {
         // Rewrite (compaction) writes must gather to a single writer to control the output file count;
-        // this neutral flag wins over the partition-shuffle / parallel-write arms below. Mirrors
-        // PhysicalIcebergTableSink's isUseGatherForIcebergRewrite short-circuit, but carried as a sink
-        // field (no ConnectContext access, no instanceof Iceberg).
+        // this neutral flag wins over the partition-shuffle / parallel-write arms below. Carried as a
+        // sink field (no ConnectContext access, no instanceof Iceberg).
         if (isRewrite) {
             return PhysicalProperties.GATHER;
         }

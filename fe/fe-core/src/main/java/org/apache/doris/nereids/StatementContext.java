@@ -317,9 +317,6 @@ public class StatementContext implements Closeable {
     private boolean isInsert = false;
     private Optional<Map<TableIf, Set<Expression>>> mvRefreshPredicates = Optional.empty();
 
-    // For Iceberg rewrite operations: control whether to use GATHER distribution
-    // When true, data will be collected to a single node to avoid generating too many small files
-    private boolean useGatherForIcebergRewrite = false;
     // The RAW data-file paths a distributed rewrite_data_files group must scope its scan to.
     // PluginDrivenScanNode reads it and pins it onto the connector scan handle
     // (metadata.applyRewriteFileScope), the engine-neutral rewrite scoping path.
@@ -1336,21 +1333,6 @@ public class StatementContext implements Closeable {
     public void setMvRefreshPredicates(
             Map<TableIf, Set<Expression>> mvRefreshPredicates) {
         this.mvRefreshPredicates = Optional.of(mvRefreshPredicates);
-    }
-
-    /**
-     * Set whether to use GATHER distribution for Iceberg rewrite operations.
-     * When enabled, data will be collected to a single node to minimize output files.
-     */
-    public void setUseGatherForIcebergRewrite(boolean useGather) {
-        this.useGatherForIcebergRewrite = useGather;
-    }
-
-    /**
-     * Check if GATHER distribution should be used for Iceberg rewrite operations.
-     */
-    public boolean isUseGatherForIcebergRewrite() {
-        return this.useGatherForIcebergRewrite;
     }
 
     /**

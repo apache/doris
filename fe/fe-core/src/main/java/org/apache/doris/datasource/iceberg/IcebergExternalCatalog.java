@@ -32,7 +32,6 @@ import org.apache.doris.datasource.property.metastore.AbstractIcebergProperties;
 import org.apache.doris.nereids.trees.plans.commands.info.AddPartitionFieldOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DropPartitionFieldOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ReplacePartitionFieldOp;
-import org.apache.doris.transaction.TransactionManagerFactory;
 
 import com.google.common.base.Preconditions;
 import org.apache.iceberg.catalog.Catalog;
@@ -126,7 +125,6 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
         initCatalog();
         initPreExecutionAuthenticator();
         IcebergMetadataOps ops = new IcebergMetadataOps(this, catalog);
-        transactionManager = TransactionManagerFactory.createIcebergTransactionManager(ops);
         threadPoolWithPreAuth = ThreadPoolManager.newDaemonFixedThreadPoolWithPreAuth(
                 ICEBERG_CATALOG_EXECUTOR_THREAD_NUM,
                 Integer.MAX_VALUE,
