@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.ExternalDatabase;
+import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.filesystem.DorisInputFile;
 import org.apache.doris.filesystem.DorisOutputFile;
 import org.apache.doris.filesystem.FileEntry;
@@ -82,7 +83,7 @@ public class IcebergMetadataOpTest {
 
     @Test
     public void testListTableNamesFiltersViewsWhenRestViewEnabled() {
-        IcebergExternalCatalog dorisCatalog = Mockito.mock(IcebergExternalCatalog.class);
+        HMSExternalCatalog dorisCatalog = Mockito.mock(HMSExternalCatalog.class);
         Catalog icebergCatalog = Mockito.mock(Catalog.class,
                 Mockito.withSettings().extraInterfaces(SupportsNamespaces.class, ViewCatalog.class));
 
@@ -112,7 +113,7 @@ public class IcebergMetadataOpTest {
     public void testPerformCreateTableRespectsCatalogDefaultFormatVersion() throws Exception {
         Map<String, String> catalogProps = new HashMap<>();
         catalogProps.put(CatalogProperties.TABLE_DEFAULT_PREFIX + TableProperties.FORMAT_VERSION, "3");
-        IcebergExternalCatalog dorisCatalog = mockHmsCatalog(catalogProps);
+        HMSExternalCatalog dorisCatalog = mockHmsCatalog(catalogProps);
         Catalog icebergCatalog = Mockito.mock(Catalog.class,
                 Mockito.withSettings().extraInterfaces(SupportsNamespaces.class));
         IcebergMetadataOps ops = new IcebergMetadataOps(dorisCatalog, icebergCatalog);
@@ -172,16 +173,11 @@ public class IcebergMetadataOpTest {
         Assert.assertFalse(fs.exists(tableLocation));
     }
 
-    private IcebergExternalCatalog mockHmsCatalog() {
-        return mockHmsCatalog(Collections.emptyMap());
-    }
-
-    private IcebergExternalCatalog mockHmsCatalog(Map<String, String> catalogProperties) {
-        IcebergExternalCatalog dorisCatalog = Mockito.mock(IcebergExternalCatalog.class);
+    private HMSExternalCatalog mockHmsCatalog(Map<String, String> catalogProperties) {
+        HMSExternalCatalog dorisCatalog = Mockito.mock(HMSExternalCatalog.class);
         Mockito.when(dorisCatalog.getExecutionAuthenticator()).thenReturn(new ExecutionAuthenticator() {
         });
         Mockito.when(dorisCatalog.getProperties()).thenReturn(catalogProperties);
-        Mockito.when(dorisCatalog.getIcebergCatalogType()).thenReturn(IcebergCatalogConstants.ICEBERG_HMS);
         Mockito.when(dorisCatalog.getCatalogProperty()).thenReturn(new CatalogProperty(null, Collections.emptyMap()));
         return dorisCatalog;
     }

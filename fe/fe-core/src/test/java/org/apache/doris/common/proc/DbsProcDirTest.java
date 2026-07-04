@@ -23,8 +23,8 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.datasource.InternalCatalog;
-import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
-import org.apache.doris.datasource.iceberg.IcebergExternalDatabase;
+import org.apache.doris.datasource.hive.HMSExternalCatalog;
+import org.apache.doris.datasource.hive.HMSExternalDatabase;
 import org.apache.doris.transaction.GlobalTransactionMgr;
 
 import com.google.common.collect.Lists;
@@ -185,10 +185,10 @@ public class DbsProcDirTest {
 
     @Test
     public void testListTableNameFailed() throws AnalysisException {
-        IcebergExternalCatalog ctlg = Mockito.mock(IcebergExternalCatalog.class);
+        HMSExternalCatalog ctlg = Mockito.mock(HMSExternalCatalog.class);
         Mockito.when(ctlg.getDbNames()).thenReturn(Lists.newArrayList("db1"));
 
-        IcebergExternalDatabase mockDb = Mockito.mock(IcebergExternalDatabase.class);
+        HMSExternalDatabase mockDb = Mockito.mock(HMSExternalDatabase.class);
         Mockito.when(mockDb.getId()).thenReturn(3L);
         Mockito.when(mockDb.getTables()).thenThrow(new RuntimeException("list table failed"));
         Mockito.doReturn(mockDb).when(ctlg).getDbNullable("db1");

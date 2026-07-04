@@ -22,6 +22,7 @@ import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.iceberg.source.IcebergTableQueryInfo;
 
 import com.google.common.collect.ImmutableMap;
@@ -71,30 +72,30 @@ public class IcebergUtilsTest {
     @Test
     public void testParseTableName() {
         try {
-            TestIcebergExternalCatalog c1 =
-                    new TestIcebergExternalCatalog(1, "name", null, new HashMap<>(), "");
+            Map<String, String> p1 = new HashMap<>();
+            ExternalCatalog c1 = Mockito.mock(ExternalCatalog.class);
+            Mockito.when(c1.getProperties()).thenReturn(p1);
+            Mockito.when(c1.getHadoopProperties()).thenReturn(new HashMap<>());
             HiveCatalog i1 = IcebergUtils.createIcebergHiveCatalog(c1, "i1");
             Assert.assertTrue(getListAllTables(i1));
 
-            TestIcebergExternalCatalog c2 =
-                    new TestIcebergExternalCatalog(1, "name", null,
-                            new HashMap<String, String>() {{
-                                    put("list-all-tables", "true");
-                                    put("type", "hms");
-                                    put("hive.metastore.uris", "http://127.1.1.0:9000");
-                                }},
-                            "");
+            Map<String, String> p2 = new HashMap<>();
+            p2.put("list-all-tables", "true");
+            p2.put("type", "hms");
+            p2.put("hive.metastore.uris", "http://127.1.1.0:9000");
+            ExternalCatalog c2 = Mockito.mock(ExternalCatalog.class);
+            Mockito.when(c2.getProperties()).thenReturn(p2);
+            Mockito.when(c2.getHadoopProperties()).thenReturn(new HashMap<>());
             HiveCatalog i2 = IcebergUtils.createIcebergHiveCatalog(c2, "i1");
             Assert.assertTrue(getListAllTables(i2));
 
-            TestIcebergExternalCatalog c3 =
-                    new TestIcebergExternalCatalog(1, "name", null,
-                            new HashMap<String, String>() {{
-                                    put("list-all-tables", "false");
-                                    put("type", "hms");
-                                    put("hive.metastore.uris", "http://127.1.1.0:9000");
-                                }},
-                        "");
+            Map<String, String> p3 = new HashMap<>();
+            p3.put("list-all-tables", "false");
+            p3.put("type", "hms");
+            p3.put("hive.metastore.uris", "http://127.1.1.0:9000");
+            ExternalCatalog c3 = Mockito.mock(ExternalCatalog.class);
+            Mockito.when(c3.getProperties()).thenReturn(p3);
+            Mockito.when(c3.getHadoopProperties()).thenReturn(new HashMap<>());
             HiveCatalog i3 = IcebergUtils.createIcebergHiveCatalog(c3, "i1");
             Assert.assertFalse(getListAllTables(i3));
         } catch (Exception e) {
