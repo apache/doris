@@ -5,7 +5,16 @@
 
 ---
 
-# 🎯 最新一轮（2026-07-04 续）= **第四刀已落地并推送：iceberg `d5541bbb384` + paimon parity `58dff8c2790`（已推 origin，待 CI 实证 kerberos case 转绿）**
+# 🎯 最新一轮（2026-07-04 夜）= **fe-core iceberg 移除全量分析完成（只分析未动码）：`plan-doc/fe-core-iceberg-removal-plan.md` v2 实证重写，待用户决策 Q1-Q5**
+
+> **做了什么**：39-agent 工作流（7 路清点 → 每个"可删"结论双镜头对抗反驳 + 12 条高风险死臂孪生抽查（12/12 COVERED）+ 8 存活集群移除路径设计（含 Trino 参照）+ 完备性复扫）。**v1 草稿记载失实已确认**（broker/fileio 并未删除）→ 计划文档全量重写为 v2。
+> **关键更正/新发现**：① 属性簇翻闸后仍活（`PluginDrivenExternalCatalog:147` initPreExecutionAuthenticator → MetastoreProperties Type.ICEBERG，每个插件 iceberg 目录都跑）；② `IcebergAws*Properties` 非死码（`IcebergRestProperties.addGlueRestCatalogProperties:345-361` 在 initNormalizeAndCheckProps 链上活，REST signing-name=glue|s3tables）；③ fileio/ 有配置注入反射活路（HMS-iceberg `io-impl` 透传 + p2 测试在用）；④ `ExternalCatalog.buildDbForInit:972` case ICEBERG 回放边缘（翻闸前 InitDatabaseLog 回放会构造原生 db）——删实体类前须改；⑤ IcebergExternalCatalog 常量被 IcebergUtils:1876/IcebergMetadataOps/IcebergScanNode:197 活读，删 flavor 前须搬常量；⑥ 原生 rewrite/ + action/ 是死孪生（插件走中立 ConnectorRewriteDriver）可删；⑦ v1 漏了整条目录外 sink/executor 死车道（LogicalIcebergTableSink/MergeSink、planner 三 sink、四 executor、IcebergTransactionManager+factory 方法）。
+> **依赖裁决**：iceberg-core 暂留（HMS-iceberg+DML 合成+vendored DeleteFileIndex 钉）；iceberg-aws/s3tables/s3-tables-catalog-for-iceberg 阶段二外科剥离后可摘；avro/s3-transfer-manager 保留（hudi/hadoop-aws 非 iceberg 消费者）。
+> **下一步 = 用户回答计划文档 §8 Q1-Q5（fileio 时机/iceberg-aws 极端配置/HMS-iceberg 走 Trino 式重定向还是等 hive 迁移/行级 DML 去 SDK 化/执行范围）后开删**。分析工作流归档（82 臂全清单等）：session scratchpad `ice/*.json`（易失）+ 本文档与计划文档已固化关键结论。
+
+---
+
+# 🎯 上一轮（2026-07-04 续）= **第四刀已落地并推送：iceberg `d5541bbb384` + paimon parity `58dff8c2790`（已推 origin，待 CI 实证 kerberos case 转绿）**
 
 > **第四刀实现**（对应下文分析）：
 > - **iceberg `d5541bbb384`**：数据路径 = 对象级 FileIO seam（`wrapTableForScan`：resolveTable 后把 loaded 表 ops 包成
