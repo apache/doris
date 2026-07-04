@@ -43,7 +43,6 @@ import org.apache.doris.datasource.hive.HMSExternalTable.DLAType;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergExternalDatabase;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
-import org.apache.doris.datasource.iceberg.IcebergHadoopExternalCatalog;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.rpc.RpcException;
@@ -52,8 +51,6 @@ import org.apache.doris.statistics.ColStatsMeta;
 import org.apache.doris.statistics.TableStatsMeta;
 import org.apache.doris.thrift.TStorageType;
 
-import com.google.common.collect.Maps;
-import org.apache.iceberg.CatalogProperties;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
@@ -305,9 +302,7 @@ class StatisticsUtilTest {
 
         // Test external table
         IcebergExternalDatabase icebergDatabase = new IcebergExternalDatabase(null, 1L, "", "");
-        Map<String, String> props = Maps.newHashMap();
-        props.put(CatalogProperties.WAREHOUSE_LOCATION, "s3://tmp");
-        IcebergExternalCatalog catalog = new IcebergHadoopExternalCatalog(0, "iceberg_ctl", "", props, "");
+        IcebergExternalCatalog catalog = Mockito.mock(IcebergExternalCatalog.class);
         IcebergExternalTable icebergTable = Mockito.spy(new IcebergExternalTable(0, "", "", catalog, icebergDatabase));
         Mockito.doReturn(true).when(icebergTable).autoAnalyzeEnabled();
         Assertions.assertFalse(StatisticsUtil.isLongTimeColumn(icebergTable, Pair.of("index", column.getName()), 0));

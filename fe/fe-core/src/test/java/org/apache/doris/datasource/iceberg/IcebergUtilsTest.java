@@ -71,13 +71,13 @@ public class IcebergUtilsTest {
     @Test
     public void testParseTableName() {
         try {
-            IcebergHMSExternalCatalog c1 =
-                    new IcebergHMSExternalCatalog(1, "name", null, new HashMap<>(), "");
+            TestIcebergExternalCatalog c1 =
+                    new TestIcebergExternalCatalog(1, "name", null, new HashMap<>(), "");
             HiveCatalog i1 = IcebergUtils.createIcebergHiveCatalog(c1, "i1");
             Assert.assertTrue(getListAllTables(i1));
 
-            IcebergHMSExternalCatalog c2 =
-                    new IcebergHMSExternalCatalog(1, "name", null,
+            TestIcebergExternalCatalog c2 =
+                    new TestIcebergExternalCatalog(1, "name", null,
                             new HashMap<String, String>() {{
                                     put("list-all-tables", "true");
                                     put("type", "hms");
@@ -87,8 +87,8 @@ public class IcebergUtilsTest {
             HiveCatalog i2 = IcebergUtils.createIcebergHiveCatalog(c2, "i1");
             Assert.assertTrue(getListAllTables(i2));
 
-            IcebergHMSExternalCatalog c3 =
-                    new IcebergHMSExternalCatalog(1, "name", null,
+            TestIcebergExternalCatalog c3 =
+                    new TestIcebergExternalCatalog(1, "name", null,
                             new HashMap<String, String>() {{
                                     put("list-all-tables", "false");
                                     put("type", "hms");

@@ -22,7 +22,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.datasource.doris.RemoteDorisExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
-import org.apache.doris.datasource.iceberg.IcebergHMSExternalCatalog;
+import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.metacache.ExternalMetaCache;
 import org.apache.doris.datasource.metacache.MetaCacheEntry;
 import org.apache.doris.datasource.metacache.MetaCacheEntryStats;
@@ -74,7 +74,7 @@ public class ExternalMetaCacheRouteResolverTest {
         Assert.assertFalse(hmsEngines.contains("default"));
 
         List<String> icebergEngines = metaCacheMgr.resolveCatalogEngineNamesForTest(
-                new IcebergHMSExternalCatalog(2L, "iceberg", null, Collections.emptyMap(), ""), 2L);
+                Mockito.mock(IcebergExternalCatalog.class), 2L);
         Assert.assertEquals(java.util.Collections.singletonList("iceberg"), icebergEngines);
 
         List<String> dorisEngines = metaCacheMgr.resolveCatalogEngineNamesForTest(

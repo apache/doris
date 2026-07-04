@@ -84,7 +84,7 @@ public class IcebergExternalTableBranchAndTagTest {
                 TableIdentifier.of(dbName, tblName),
             new Schema(Types.NestedField.required(1, "level", Types.StringType.get())));
         // init external table
-        catalog = Mockito.spy(new IcebergHadoopExternalCatalog(1L, "iceberg", null, map, null));
+        catalog = Mockito.spy(new TestIcebergExternalCatalog(1L, "iceberg", null, map, null));
         catalog.setInitializedForTest(true);
         // db = new IcebergExternalDatabase(catalog, 1L, dbName, dbName);
         db = Mockito.spy(new IcebergExternalDatabase(catalog, 1L, dbName, dbName));

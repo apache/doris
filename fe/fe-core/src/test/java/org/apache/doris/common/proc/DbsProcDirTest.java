@@ -23,8 +23,8 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergExternalDatabase;
-import org.apache.doris.datasource.iceberg.IcebergHadoopExternalCatalog;
 import org.apache.doris.transaction.GlobalTransactionMgr;
 
 import com.google.common.collect.Lists;
@@ -185,7 +185,7 @@ public class DbsProcDirTest {
 
     @Test
     public void testListTableNameFailed() throws AnalysisException {
-        IcebergHadoopExternalCatalog ctlg = Mockito.mock(IcebergHadoopExternalCatalog.class);
+        IcebergExternalCatalog ctlg = Mockito.mock(IcebergExternalCatalog.class);
         Mockito.when(ctlg.getDbNames()).thenReturn(Lists.newArrayList("db1"));
 
         IcebergExternalDatabase mockDb = Mockito.mock(IcebergExternalDatabase.class);

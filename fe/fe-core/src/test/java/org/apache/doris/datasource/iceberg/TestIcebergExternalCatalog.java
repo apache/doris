@@ -21,10 +21,21 @@ import org.apache.doris.datasource.CatalogProperty;
 
 import java.util.Map;
 
-public class IcebergS3TablesExternalCatalog extends IcebergExternalCatalog {
+/**
+ * Minimal concrete {@link IcebergExternalCatalog} for tests.
+ *
+ * <p>The concrete iceberg catalog flavor subclasses
+ * ({@code Iceberg{HMS,Glue,Hadoop,Jdbc,S3Tables,DLF,Rest}ExternalCatalog}) were removed as dead code
+ * after the iceberg SPI flip routed native iceberg catalogs through {@code PluginDrivenExternalCatalog}.
+ * The abstract base class stays (still live via the HMS-iceberg path) but cannot be instantiated
+ * directly, so tests that need a concrete {@code IcebergExternalCatalog} fixture use this trivial
+ * subclass. It reproduces the deleted flavors' empty constructor: populate {@code catalogProperty}
+ * from {@code resource} + {@code props} and nothing else.</p>
+ */
+public class TestIcebergExternalCatalog extends IcebergExternalCatalog {
 
-    public IcebergS3TablesExternalCatalog(long catalogId, String name, String resource, Map<String, String> props,
-                                          String comment) {
+    public TestIcebergExternalCatalog(long catalogId, String name, String resource, Map<String, String> props,
+            String comment) {
         super(catalogId, name, comment);
         catalogProperty = new CatalogProperty(resource, props);
     }
