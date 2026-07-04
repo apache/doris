@@ -29,7 +29,6 @@ import org.apache.doris.connector.api.write.ConnectorWritePartitionSpec;
 import org.apache.doris.connector.api.write.ConnectorWritePlanProvider;
 import org.apache.doris.datasource.PluginDrivenExternalCatalog;
 import org.apache.doris.datasource.PluginDrivenExternalTable;
-import org.apache.doris.datasource.iceberg.IcebergMergeOperation;
 import org.apache.doris.nereids.properties.DistributionSpecHash;
 import org.apache.doris.nereids.properties.DistributionSpecMerge;
 import org.apache.doris.nereids.properties.DistributionSpecMerge.IcebergPartitionField;
@@ -38,6 +37,7 @@ import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.commands.merge.MergeOperation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalIcebergMergeSink.InsertPartitionFieldResult;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.qe.ConnectContext;
@@ -207,7 +207,7 @@ public class PhysicalIcebergMergeSinkTest {
         // child's id slot, insertRandom=false, spec id carried.
         Column id = new Column("id", PrimitiveType.INT);
         SlotReference idSlot = new SlotReference("id", IntegerType.INSTANCE);
-        SlotReference opSlot = new SlotReference(IcebergMergeOperation.OPERATION_COLUMN, IntegerType.INSTANCE);
+        SlotReference opSlot = new SlotReference(MergeOperation.OPERATION_COLUMN, IntegerType.INSTANCE);
         SlotReference rowidSlot = new SlotReference(Column.ICEBERG_ROWID_COL, IntegerType.INSTANCE);
 
         PhysicalIcebergMergeSink<Plan> sink = pluginSink(
@@ -238,7 +238,7 @@ public class PhysicalIcebergMergeSinkTest {
         connectContext.getSessionVariable().enableIcebergMergePartitioning = false;
         Column id = new Column("id", PrimitiveType.INT);
         SlotReference idSlot = new SlotReference("id", IntegerType.INSTANCE);
-        SlotReference opSlot = new SlotReference(IcebergMergeOperation.OPERATION_COLUMN, IntegerType.INSTANCE);
+        SlotReference opSlot = new SlotReference(MergeOperation.OPERATION_COLUMN, IntegerType.INSTANCE);
         SlotReference rowidSlot = new SlotReference(Column.ICEBERG_ROWID_COL, IntegerType.INSTANCE);
         PluginDrivenExternalTable table = pluginTable(spec(11, field("identity", null, "id", "id", 1)),
                 ImmutableList.of(id), true);
@@ -263,7 +263,7 @@ public class PhysicalIcebergMergeSinkTest {
         // so this also pins that the absent-handle guard short-circuits before getWritePartitioning is trusted.
         Column id = new Column("id", PrimitiveType.INT);
         SlotReference idSlot = new SlotReference("id", IntegerType.INSTANCE);
-        SlotReference opSlot = new SlotReference(IcebergMergeOperation.OPERATION_COLUMN, IntegerType.INSTANCE);
+        SlotReference opSlot = new SlotReference(MergeOperation.OPERATION_COLUMN, IntegerType.INSTANCE);
         SlotReference rowidSlot = new SlotReference(Column.ICEBERG_ROWID_COL, IntegerType.INSTANCE);
         // No partition columns -> the insertPartitionExprIds path also yields nothing, so the connector spec is
         // the only partitioning signal, and the absent handle must suppress it.

@@ -19,7 +19,6 @@ package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.StructType;
-import org.apache.doris.datasource.iceberg.IcebergRowId;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;

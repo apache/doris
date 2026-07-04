@@ -21,13 +21,13 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.datasource.iceberg.IcebergMergeOperation;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.commands.delete.DeleteCommandContext;
+import org.apache.doris.nereids.trees.plans.commands.merge.MergeOperation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
@@ -79,7 +79,7 @@ public class IcebergUpdateCommandTest {
         boolean hasC1 = false;
         for (NamedExpression project : projects) {
             if (project instanceof UnboundAlias
-                    && project.toString().contains(IcebergMergeOperation.OPERATION_COLUMN)) {
+                    && project.toString().contains(MergeOperation.OPERATION_COLUMN)) {
                 hasOperation = true;
             }
             if (project instanceof UnboundSlot

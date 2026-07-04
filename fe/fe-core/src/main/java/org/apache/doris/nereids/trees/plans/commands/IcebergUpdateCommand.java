@@ -21,8 +21,6 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.ExternalTable;
-import org.apache.doris.datasource.iceberg.IcebergMergeOperation;
-import org.apache.doris.datasource.iceberg.IcebergNereidsUtils;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
@@ -33,6 +31,7 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.plans.commands.delete.DeleteCommandContext;
+import org.apache.doris.nereids.trees.plans.commands.merge.MergeOperation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalIcebergMergeSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
@@ -94,11 +93,11 @@ public class IcebergUpdateCommand {
             colNameToExpression.put(colNameParts.get(colNameParts.size() - 1), equalTo.right());
         }
         List<NamedExpression> updateColumns = buildUpdateSelectItems(colNameToExpression, columns, tableName);
-        LogicalPlan planWithRowId = IcebergNereidsUtils.injectRowIdColumn(logicalQuery);
+        LogicalPlan planWithRowId = RowLevelDmlRowIdUtils.injectRowIdColumn(logicalQuery);
         NamedExpression rowIdColumn = getRowIdColumnExpr(planWithRowId);
         NamedExpression operationColumn = new UnboundAlias(
-                new TinyIntLiteral(IcebergMergeOperation.UPDATE_OPERATION_NUMBER),
-                IcebergMergeOperation.OPERATION_COLUMN);
+                new TinyIntLiteral(MergeOperation.UPDATE_OPERATION_NUMBER),
+                MergeOperation.OPERATION_COLUMN);
         List<NamedExpression> projectItems = new ArrayList<>(2 + updateColumns.size());
         projectItems.add(operationColumn);
         projectItems.add(rowIdColumn);
@@ -121,7 +120,7 @@ public class IcebergUpdateCommand {
                 icebergTable.getBaseSchema(true), tableName);
 
         List<NamedExpression> outputExprs;
-        if (!IcebergNereidsUtils.hasUnboundPlan(queryPlan)) {
+        if (!RowLevelDmlRowIdUtils.hasUnboundPlan(queryPlan)) {
             outputExprs = queryPlan.getOutput().stream()
                     .map(NamedExpression.class::cast)
                     .collect(Collectors.toList());
@@ -143,8 +142,8 @@ public class IcebergUpdateCommand {
     }
 
     private NamedExpression getRowIdColumnExpr(LogicalPlan planWithRowId) {
-        if (!IcebergNereidsUtils.hasUnboundPlan(planWithRowId)) {
-            Optional<Slot> rowIdSlot = IcebergNereidsUtils.findRowIdSlot(planWithRowId.getOutput());
+        if (!RowLevelDmlRowIdUtils.hasUnboundPlan(planWithRowId)) {
+            Optional<Slot> rowIdSlot = RowLevelDmlRowIdUtils.findRowIdSlot(planWithRowId.getOutput());
             if (rowIdSlot.isPresent()) {
                 return (NamedExpression) rowIdSlot.get();
             }

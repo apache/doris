@@ -29,7 +29,6 @@ import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.PluginDrivenExternalCatalog;
 import org.apache.doris.datasource.PluginDrivenExternalTable;
-import org.apache.doris.datasource.iceberg.IcebergMergeOperation;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
 import org.apache.doris.nereids.properties.DistributionSpecMerge;
@@ -41,6 +40,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.delete.DeleteCommandContext;
+import org.apache.doris.nereids.trees.plans.commands.merge.MergeOperation;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.Statistics;
@@ -165,7 +165,7 @@ public class PhysicalIcebergMergeSink<CHILD_TYPE extends Plan> extends PhysicalB
         List<Slot> outputSlots = child().getOutput();
         for (Slot slot : outputSlots) {
             String name = slot.getName();
-            if (operationExprId == null && IcebergMergeOperation.OPERATION_COLUMN.equalsIgnoreCase(name)) {
+            if (operationExprId == null && MergeOperation.OPERATION_COLUMN.equalsIgnoreCase(name)) {
                 operationExprId = slot.getExprId();
             }
             if (rowIdExprId == null && Column.ICEBERG_ROWID_COL.equalsIgnoreCase(name)) {
@@ -259,7 +259,7 @@ public class PhysicalIcebergMergeSink<CHILD_TYPE extends Plan> extends PhysicalB
         List<Slot> dataSlots = new ArrayList<>();
         for (Slot slot : outputSlots) {
             String name = slot.getName();
-            if (IcebergMergeOperation.OPERATION_COLUMN.equalsIgnoreCase(name)) {
+            if (MergeOperation.OPERATION_COLUMN.equalsIgnoreCase(name)) {
                 continue;
             }
             if (Column.ICEBERG_ROWID_COL.equalsIgnoreCase(name)) {

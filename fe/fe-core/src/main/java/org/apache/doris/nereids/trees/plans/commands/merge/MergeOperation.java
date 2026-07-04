@@ -15,12 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.datasource.iceberg;
+package org.apache.doris.nereids.trees.plans.commands.merge;
 
 /**
  * Operation codes used for merge-style DML routing.
  */
-public final class IcebergMergeOperation {
+public final class MergeOperation {
     public static final String OPERATION_COLUMN = "operation";
 
     // Merge sink routing:
@@ -35,5 +35,5 @@ public final class IcebergMergeOperation {
     public static final byte UPDATE_INSERT_OPERATION_NUMBER = 4;
     public static final byte UPDATE_DELETE_OPERATION_NUMBER = 5;
 
-    private IcebergMergeOperation() {}
+    private MergeOperation() {}
 }

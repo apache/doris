@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.datasource.iceberg;
+package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;

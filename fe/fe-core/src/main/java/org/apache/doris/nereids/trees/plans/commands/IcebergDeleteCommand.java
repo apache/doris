@@ -20,14 +20,13 @@ package org.apache.doris.nereids.trees.plans.commands;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.ExternalTable;
-import org.apache.doris.datasource.iceberg.IcebergMergeOperation;
-import org.apache.doris.datasource.iceberg.IcebergNereidsUtils;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.plans.commands.delete.DeleteCommandContext;
+import org.apache.doris.nereids.trees.plans.commands.merge.MergeOperation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalIcebergDeleteSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
@@ -94,7 +93,7 @@ public class IcebergDeleteCommand {
 
         // Convert output to NamedExpression list
         List<NamedExpression> outputExprs;
-        if (!IcebergNereidsUtils.hasUnboundPlan(queryPlan)) {
+        if (!RowLevelDmlRowIdUtils.hasUnboundPlan(queryPlan)) {
             outputExprs = queryPlan.getOutput().stream()
                     .map(slot -> (NamedExpression) slot)
                     .collect(java.util.stream.Collectors.toList());
@@ -132,16 +131,16 @@ public class IcebergDeleteCommand {
     private LogicalPlan buildPositionDeletePlan(ConnectContext ctx, LogicalPlan logicalQuery,
                                                 ExternalTable icebergTable) {
         // Step 1: Inject $row_id metadata column into the scan
-        LogicalPlan planWithRowId = IcebergNereidsUtils.injectRowIdColumn(logicalQuery);
+        LogicalPlan planWithRowId = RowLevelDmlRowIdUtils.injectRowIdColumn(logicalQuery);
 
         // Step 2: Project operation + __DORIS_ICEBERG_ROWID_COL__
         Optional<Slot> rowIdSlot = Optional.empty();
-        if (!IcebergNereidsUtils.hasUnboundPlan(planWithRowId)) {
-            rowIdSlot = IcebergNereidsUtils.findRowIdSlot(planWithRowId.getOutput());
+        if (!RowLevelDmlRowIdUtils.hasUnboundPlan(planWithRowId)) {
+            rowIdSlot = RowLevelDmlRowIdUtils.findRowIdSlot(planWithRowId.getOutput());
         }
         NamedExpression operationColumn = new UnboundAlias(
-                new TinyIntLiteral(IcebergMergeOperation.DELETE_OPERATION_NUMBER),
-                IcebergMergeOperation.OPERATION_COLUMN);
+                new TinyIntLiteral(MergeOperation.DELETE_OPERATION_NUMBER),
+                MergeOperation.OPERATION_COLUMN);
         NamedExpression rowIdColumn = rowIdSlot.isPresent()
                 ? (NamedExpression) rowIdSlot.get()
                 : new UnboundSlot(Column.ICEBERG_ROWID_COL);

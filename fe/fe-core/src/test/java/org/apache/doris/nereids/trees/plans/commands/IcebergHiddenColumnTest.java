@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.datasource.iceberg;
+package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
@@ -23,8 +23,8 @@ import org.apache.doris.catalog.StructField;
 import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.Type;
 
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 import java.util.List;
 
@@ -37,32 +37,32 @@ public class IcebergHiddenColumnTest {
     public void testHiddenColumnStructType() {
         // 获取隐藏列类型
         Type rowIdType = IcebergRowId.getRowIdType();
-        Assert.assertTrue(rowIdType instanceof StructType);
+        Assertions.assertTrue(rowIdType instanceof StructType);
 
         StructType structType = (StructType) rowIdType;
         List<StructField> fields = structType.getFields();
-        Assert.assertEquals(4, fields.size());
+        Assertions.assertEquals(4, fields.size());
 
         // 验证字段名称（不带 $ 前缀）
-        Assert.assertEquals("file_path", fields.get(0).getName());
-        Assert.assertEquals("row_position", fields.get(1).getName());
-        Assert.assertEquals("partition_spec_id", fields.get(2).getName());
-        Assert.assertEquals("partition_data", fields.get(3).getName());
+        Assertions.assertEquals("file_path", fields.get(0).getName());
+        Assertions.assertEquals("row_position", fields.get(1).getName());
+        Assertions.assertEquals("partition_spec_id", fields.get(2).getName());
+        Assertions.assertEquals("partition_data", fields.get(3).getName());
 
         // 验证字段类型
-        Assert.assertTrue(fields.get(0).getType().isStringType());
-        Assert.assertTrue(fields.get(1).getType().isBigIntType());
-        Assert.assertTrue(fields.get(2).getType().isScalarType(PrimitiveType.INT));
-        Assert.assertTrue(fields.get(3).getType().isStringType());
+        Assertions.assertTrue(fields.get(0).getType().isStringType());
+        Assertions.assertTrue(fields.get(1).getType().isBigIntType());
+        Assertions.assertTrue(fields.get(2).getType().isScalarType(PrimitiveType.INT));
+        Assertions.assertTrue(fields.get(3).getType().isStringType());
     }
 
     @Test
     public void testIcebergRowIdColumnName() {
         // 验证常量定义
-        Assert.assertEquals("__DORIS_ICEBERG_ROWID_COL__", Column.ICEBERG_ROWID_COL);
+        Assertions.assertEquals("__DORIS_ICEBERG_ROWID_COL__", Column.ICEBERG_ROWID_COL);
 
         // 验证以 __DORIS_ 开头
-        Assert.assertTrue(Column.ICEBERG_ROWID_COL.startsWith(Column.HIDDEN_COLUMN_PREFIX));
+        Assertions.assertTrue(Column.ICEBERG_ROWID_COL.startsWith(Column.HIDDEN_COLUMN_PREFIX));
     }
 
     @Test
@@ -74,9 +74,9 @@ public class IcebergHiddenColumnTest {
 
         // 确保字段顺序正确（与 BE 一致）
         // 顺序：file_path, row_position, partition_spec_id, partition_data
-        Assert.assertEquals("file_path", fields.get(0).getName());
-        Assert.assertEquals("row_position", fields.get(1).getName());
-        Assert.assertEquals("partition_spec_id", fields.get(2).getName());
-        Assert.assertEquals("partition_data", fields.get(3).getName());
+        Assertions.assertEquals("file_path", fields.get(0).getName());
+        Assertions.assertEquals("row_position", fields.get(1).getName());
+        Assertions.assertEquals("partition_spec_id", fields.get(2).getName());
+        Assertions.assertEquals("partition_data", fields.get(3).getName());
     }
 }

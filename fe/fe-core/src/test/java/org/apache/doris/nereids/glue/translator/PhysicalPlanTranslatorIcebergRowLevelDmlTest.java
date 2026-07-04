@@ -34,11 +34,11 @@ import org.apache.doris.connector.api.write.ConnectorWritePlanProvider;
 import org.apache.doris.datasource.PluginDrivenExternalCatalog;
 import org.apache.doris.datasource.PluginDrivenExternalTable;
 import org.apache.doris.datasource.PluginDrivenMvccSnapshot;
-import org.apache.doris.datasource.iceberg.IcebergMergeOperation;
 import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.commands.merge.MergeOperation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalIcebergDeleteSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalIcebergMergeSink;
 import org.apache.doris.nereids.types.IntegerType;
@@ -119,7 +119,7 @@ public class PhysicalPlanTranslatorIcebergRowLevelDmlTest {
         PlanTranslatorContext context = new PlanTranslatorContext();
         TupleDescriptor tuple = context.generateTupleDesc();
         SlotReference dataSlot = registerSlot(context, tuple, "data");
-        SlotReference opSlot = registerSlot(context, tuple, IcebergMergeOperation.OPERATION_COLUMN);
+        SlotReference opSlot = registerSlot(context, tuple, MergeOperation.OPERATION_COLUMN);
         SlotReference rowidSlot = registerSlot(context, tuple, Column.ICEBERG_ROWID_COL);
 
         PlanFragment childFragment = Mockito.mock(PlanFragment.class);
@@ -169,7 +169,7 @@ public class PhysicalPlanTranslatorIcebergRowLevelDmlTest {
         PlanTranslatorContext context = new PlanTranslatorContext();
         TupleDescriptor tuple = context.generateTupleDesc();
         SlotReference dataSlot = registerSlot(context, tuple, "data");
-        SlotReference opSlot = registerSlot(context, tuple, IcebergMergeOperation.OPERATION_COLUMN);
+        SlotReference opSlot = registerSlot(context, tuple, MergeOperation.OPERATION_COLUMN);
         SlotReference rowidSlot = registerSlot(context, tuple, Column.ICEBERG_ROWID_COL);
 
         PlanFragment childFragment = Mockito.mock(PlanFragment.class);
@@ -186,7 +186,7 @@ public class PhysicalPlanTranslatorIcebergRowLevelDmlTest {
         translator.visitPhysicalIcebergMergeSink(sink, context);
 
         SlotDescriptor opDesc = context.findSlotRef(opSlot.getExprId()).getDesc();
-        Assertions.assertEquals(IcebergMergeOperation.OPERATION_COLUMN, opDesc.getMaterializedColumnName(),
+        Assertions.assertEquals(MergeOperation.OPERATION_COLUMN, opDesc.getMaterializedColumnName(),
                 "the plugin MERGE arm must materialize the synthetic operation column's BE col_name");
         SlotDescriptor rowidDesc = context.findSlotRef(rowidSlot.getExprId()).getDesc();
         Assertions.assertEquals(Column.ICEBERG_ROWID_COL, rowidDesc.getMaterializedColumnName(),

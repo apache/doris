@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.datasource.iceberg;
+package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.connector.api.Connector;
 import org.apache.doris.connector.api.handle.WriteOperation;
@@ -31,10 +31,10 @@ import java.util.EnumSet;
 import java.util.Set;
 
 /**
- * Unit tests for the row-id injection half of {@link IcebergNereidsUtils} (the SDK expression-conversion
+ * Unit tests for the row-id injection half of {@link RowLevelDmlRowIdUtils} (the SDK expression-conversion
  * half was removed together with its dead legacy callers).
  */
-public class IcebergNereidsUtilsTest {
+public class RowLevelDmlRowIdUtilsTest {
 
     // ==================== isRowIdInjectionTarget (row-id injection guard) ====================
 
@@ -63,7 +63,7 @@ public class IcebergNereidsUtilsTest {
         // (which would reject it). MUTATION: dropping the plugin arm makes this red (row-id injection
         // would never fire).
         Assertions.assertTrue(
-                IcebergNereidsUtils.isRowIdInjectionTarget(pluginTableWithCapability(true, false)));
+                RowLevelDmlRowIdUtils.isRowIdInjectionTarget(pluginTableWithCapability(true, false)));
     }
 
     @Test
@@ -72,7 +72,7 @@ public class IcebergNereidsUtilsTest {
         // ||supportsMerge()' mutation (return supportsDelete()) must die here. Without this case the delete-only
         // test above leaves that mutation surviving.
         Assertions.assertTrue(
-                IcebergNereidsUtils.isRowIdInjectionTarget(pluginTableWithCapability(false, true)));
+                RowLevelDmlRowIdUtils.isRowIdInjectionTarget(pluginTableWithCapability(false, true)));
     }
 
     @Test
@@ -80,14 +80,14 @@ public class IcebergNereidsUtilsTest {
         // A non-iceberg plugin-driven table (jdbc/es/trino/max_compute/paimon) declares neither capability,
         // so it is not a row-id-injection target — the guard must not inject into its scans.
         Assertions.assertFalse(
-                IcebergNereidsUtils.isRowIdInjectionTarget(pluginTableWithCapability(false, false)));
+                RowLevelDmlRowIdUtils.isRowIdInjectionTarget(pluginTableWithCapability(false, false)));
     }
 
     @Test
     public void isRowIdInjectionTargetRejectsUnrelatedExternalTable() {
         // Any other table type (e.g. an HMS/olap external table) is never a row-id-injection target.
         Assertions.assertFalse(
-                IcebergNereidsUtils.isRowIdInjectionTarget(Mockito.mock(ExternalTable.class)));
+                RowLevelDmlRowIdUtils.isRowIdInjectionTarget(Mockito.mock(ExternalTable.class)));
     }
 
     @Test
@@ -101,6 +101,6 @@ public class IcebergNereidsUtilsTest {
         PluginDrivenExternalTable table = Mockito.mock(PluginDrivenExternalTable.class);
         Mockito.when(table.getCatalog()).thenReturn(catalog);
 
-        Assertions.assertFalse(IcebergNereidsUtils.isRowIdInjectionTarget(table));
+        Assertions.assertFalse(RowLevelDmlRowIdUtils.isRowIdInjectionTarget(table));
     }
 }

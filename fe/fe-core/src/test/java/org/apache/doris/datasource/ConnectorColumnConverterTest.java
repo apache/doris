@@ -27,7 +27,7 @@ import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.connector.api.ConnectorColumn;
 import org.apache.doris.connector.api.ConnectorType;
-import org.apache.doris.datasource.iceberg.IcebergRowId;
+import org.apache.doris.nereids.trees.plans.commands.IcebergRowId;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;

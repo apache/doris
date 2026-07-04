@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.datasource.iceberg;
+package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.connector.api.Connector;
@@ -41,11 +41,11 @@ import java.util.Set;
 import javax.annotation.Nullable;
 
 /**
- * Utility class for Iceberg + Nereids integration.
+ * Row-id injection utilities for row-level DML (DELETE/UPDATE/MERGE) commands.
  * Provides shared helpers for row-id injection (the SDK expression-conversion half was removed together
  * with its dead legacy callers; the live conversion lives in the connector's IcebergPredicateConverter).
  */
-public class IcebergNereidsUtils {
+public class RowLevelDmlRowIdUtils {
 
     // ==================== Row-ID Injection Utilities ====================
 

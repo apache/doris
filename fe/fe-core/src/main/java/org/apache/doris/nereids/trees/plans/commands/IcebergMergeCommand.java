@@ -22,9 +22,6 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.ExternalTable;
-import org.apache.doris.datasource.iceberg.IcebergMergeOperation;
-import org.apache.doris.datasource.iceberg.IcebergNereidsUtils;
-import org.apache.doris.datasource.iceberg.IcebergRowId;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
@@ -50,6 +47,7 @@ import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.commands.delete.DeleteCommandContext;
 import org.apache.doris.nereids.trees.plans.commands.merge.MergeMatchedClause;
 import org.apache.doris.nereids.trees.plans.commands.merge.MergeNotMatchedClause;
+import org.apache.doris.nereids.trees.plans.commands.merge.MergeOperation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalIcebergMergeSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
@@ -172,7 +170,7 @@ public class IcebergMergeCommand {
 
     private List<Expression> buildDeleteProjection(Expression rowIdExpr, List<Column> columns) {
         List<Expression> projection = new ArrayList<>();
-        projection.add(new TinyIntLiteral(IcebergMergeOperation.DELETE_OPERATION_NUMBER));
+        projection.add(new TinyIntLiteral(MergeOperation.DELETE_OPERATION_NUMBER));
         projection.add(rowIdExpr);
         for (Column column : columns) {
             if (!column.isVisible() && !IcebergUtils.isIcebergRowLineageColumn(column)) {
@@ -197,7 +195,7 @@ public class IcebergMergeCommand {
             }
         }
         List<Expression> projection = new ArrayList<>();
-        projection.add(new TinyIntLiteral(IcebergMergeOperation.UPDATE_OPERATION_NUMBER));
+        projection.add(new TinyIntLiteral(MergeOperation.UPDATE_OPERATION_NUMBER));
         projection.add(rowIdExpr);
         for (Column column : columns) {
             if (IcebergUtils.isIcebergRowLineageColumn(column)) {
@@ -254,7 +252,7 @@ public class IcebergMergeCommand {
         }
 
         List<Expression> projection = new ArrayList<>();
-        projection.add(new TinyIntLiteral(IcebergMergeOperation.INSERT_OPERATION_NUMBER));
+        projection.add(new TinyIntLiteral(MergeOperation.INSERT_OPERATION_NUMBER));
         projection.add(new NullLiteral(rowIdType));
 
         int visibleIndex = 0;
@@ -329,8 +327,8 @@ public class IcebergMergeCommand {
         plan = injectRowIdColumn(plan, icebergTable);
 
         Expression rowIdExpr = getTargetRowIdSlot();
-        if (!IcebergNereidsUtils.hasUnboundPlan(plan)) {
-            Optional<Slot> rowIdSlot = IcebergNereidsUtils.findRowIdSlot(plan.getOutput());
+        if (!RowLevelDmlRowIdUtils.hasUnboundPlan(plan)) {
+            Optional<Slot> rowIdSlot = RowLevelDmlRowIdUtils.findRowIdSlot(plan.getOutput());
             if (rowIdSlot.isPresent()) {
                 rowIdExpr = rowIdSlot.get();
             }
@@ -365,7 +363,7 @@ public class IcebergMergeCommand {
         }
 
         List<String> colNames = new ArrayList<>();
-        colNames.add(IcebergMergeOperation.OPERATION_COLUMN);
+        colNames.add(MergeOperation.OPERATION_COLUMN);
         colNames.add(Column.ICEBERG_ROWID_COL);
         for (Column column : columns) {
             if (column.isVisible() || IcebergUtils.isIcebergRowLineageColumn(column)) {
@@ -385,7 +383,7 @@ public class IcebergMergeCommand {
         LogicalPlan projectPlan = buildMergeProjectPlan(ctx, icebergTable);
 
         List<NamedExpression> outputExprs;
-        if (!IcebergNereidsUtils.hasUnboundPlan(projectPlan)) {
+        if (!RowLevelDmlRowIdUtils.hasUnboundPlan(projectPlan)) {
             outputExprs = projectPlan.getOutput().stream()
                     .map(NamedExpression.class::cast)
                     .collect(ImmutableList.toImmutableList());
@@ -407,10 +405,10 @@ public class IcebergMergeCommand {
     }
 
     private LogicalPlan injectRowIdColumn(LogicalPlan plan, ExternalTable targetTable) {
-        if (IcebergNereidsUtils.hasUnboundPlan(plan)) {
+        if (RowLevelDmlRowIdUtils.hasUnboundPlan(plan)) {
             return plan;
         }
-        return IcebergNereidsUtils.injectRowIdColumn(plan, targetTable);
+        return RowLevelDmlRowIdUtils.injectRowIdColumn(plan, targetTable);
     }
 
     private Expression getTargetRowIdSlot() {
