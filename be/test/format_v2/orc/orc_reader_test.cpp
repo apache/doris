@@ -3721,50 +3721,6 @@ void write_multi_stripe_orc_struct_array_file(const std::string& file_path) {
     out.write(memory_stream.getData(), static_cast<std::streamsize>(memory_stream.getLength()));
 }
 
-void write_multi_stripe_orc_struct_string_file(const std::string& file_path) {
-    auto type = std::unique_ptr<::orc::Type>(::orc::Type::buildTypeFromString(
-            "struct<struct_col:struct<name:varchar(16)>,payload:string>"));
-
-    MemoryOutputStream memory_stream(4 * 1024 * 1024);
-    ::orc::WriterOptions options;
-    options.setCompression(::orc::CompressionKind_NONE);
-    options.setMemoryPool(::orc::getDefaultPool());
-    options.setStripeSize(1);
-    options.setDictionaryKeySizeThreshold(0);
-    auto writer = ::orc::createWriter(*type, &memory_stream, options);
-
-    auto add_batch = [&](std::string_view prefix) {
-        constexpr int64_t ROWS_PER_STRIPE = 200;
-        auto batch = writer->createRowBatch(ROWS_PER_STRIPE);
-        auto& struct_batch = dynamic_cast<::orc::StructVectorBatch&>(*batch);
-        auto& nested_struct = dynamic_cast<::orc::StructVectorBatch&>(*struct_batch.fields[0]);
-        auto& child_name = dynamic_cast<::orc::StringVectorBatch&>(*nested_struct.fields[0]);
-        auto& payload_batch = dynamic_cast<::orc::StringVectorBatch&>(*struct_batch.fields[1]);
-        std::vector<std::string> child_values;
-        std::vector<std::string> payloads;
-        child_values.reserve(ROWS_PER_STRIPE);
-        payloads.reserve(ROWS_PER_STRIPE);
-        for (int64_t row = 0; row < ROWS_PER_STRIPE; ++row) {
-            child_values.push_back(std::string(prefix) + "_" + std::to_string(1000 + row));
-            payloads.push_back(std::string(2048, static_cast<char>('a' + row % 26)));
-            set_string_value(child_name, row, child_values.back());
-            set_string_value(payload_batch, row, payloads.back());
-        }
-        struct_batch.numElements = ROWS_PER_STRIPE;
-        nested_struct.numElements = ROWS_PER_STRIPE;
-        child_name.numElements = ROWS_PER_STRIPE;
-        payload_batch.numElements = ROWS_PER_STRIPE;
-        writer->add(*batch);
-    };
-
-    add_batch("aaa");
-    add_batch("zzz");
-    writer->close();
-
-    std::ofstream out(file_path, std::ios::binary);
-    out.write(memory_stream.getData(), static_cast<std::streamsize>(memory_stream.getLength()));
-}
-
 void write_multi_stripe_orc_float_file(const std::string& file_path) {
     auto type = std::unique_ptr<::orc::Type>(
             ::orc::Type::buildTypeFromString("struct<float_col:float,payload:string>"));
@@ -5129,8 +5085,8 @@ TEST_F(NewOrcReaderTest, SargRuntimeFilterWrapperConjunctPrunesStripes) {
     request->predicate_columns = {field_projection(0)};
     auto impl = std::make_shared<NullableGreaterThanExpr<TYPE_INT>>(
             0, remove_nullable(schema[0].type), Field::create_field<TYPE_INT>(500), "id");
-    request->conjuncts.push_back(
-            VExprContext::create_shared(std::make_shared<RuntimeFilterWrapperExpr>(std::move(impl))));
+    request->conjuncts.push_back(VExprContext::create_shared(
+            std::make_shared<RuntimeFilterWrapperExpr>(std::move(impl))));
     ASSERT_TRUE(reader->open(request).ok());
 
     bool eof = false;
@@ -5142,7 +5098,8 @@ TEST_F(NewOrcReaderTest, SargRuntimeFilterWrapperConjunctPrunesStripes) {
         if (eof || rows == 0) {
             continue;
         }
-        const auto& ids_nullable = assert_cast<const ColumnNullable&>(*block.get_by_position(0).column);
+        const auto& ids_nullable =
+                assert_cast<const ColumnNullable&>(*block.get_by_position(0).column);
         const auto& ids = assert_cast<const ColumnInt32&>(ids_nullable.get_nested_column());
         for (size_t row = 0; row < rows; ++row) {
             result_ids.push_back(ids.get_element(row));
@@ -7259,8 +7216,8 @@ TEST_F(NewOrcReaderTest, SargTimestampInListConjunctPrunesStripes) {
 
     auto request = std::make_shared<format::FileScanRequest>();
     request->predicate_columns = {field_projection(1)};
-    request->conjuncts.push_back(VExprContext::create_shared(
-            std::make_shared<NullableInExpr<TYPE_DATETIMEV2>>(
+    request->conjuncts.push_back(
+            VExprContext::create_shared(std::make_shared<NullableInExpr<TYPE_DATETIMEV2>>(
                     0, remove_nullable(schema[1].type),
                     std::vector<Field> {Field::create_field<TYPE_DATETIMEV2>(
                             make_datetime_v2(2021, 1, 1, 0, 0, 0, 123000))},
@@ -7297,8 +7254,8 @@ TEST_F(NewOrcReaderTest, SargTimestampNotInListConjunctPrunesStripes) {
 
     auto request = std::make_shared<format::FileScanRequest>();
     request->predicate_columns = {field_projection(0)};
-    request->conjuncts.push_back(VExprContext::create_shared(
-            std::make_shared<NullableInExpr<TYPE_DATETIMEV2>>(
+    request->conjuncts.push_back(
+            VExprContext::create_shared(std::make_shared<NullableInExpr<TYPE_DATETIMEV2>>(
                     0, remove_nullable(schema[0].type),
                     std::vector<Field> {Field::create_field<TYPE_DATETIMEV2>(
                             make_datetime_v2(1970, 1, 1, 0, 0, 0, 123000))},

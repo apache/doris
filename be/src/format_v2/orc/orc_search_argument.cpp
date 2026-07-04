@@ -1405,7 +1405,8 @@ bool build_search_argument(const format::FileScanRequest& request, const ::orc::
         return true;
     case TExprOpcode::COMPOUND_NOT:
         builder->startNot();
-        DORIS_CHECK(build_search_argument(request, root_type, (*sarg_expr)->children()[0], builder));
+        DORIS_CHECK(
+                build_search_argument(request, root_type, (*sarg_expr)->children()[0], builder));
         builder->end();
         return true;
     case TExprOpcode::GE:
