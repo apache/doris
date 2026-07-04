@@ -141,13 +141,12 @@ Trino：目录配置=插件内 ConnectorFactory#create(props)，引擎零 per-co
 
 ---
 
-## 8. 待用户决策
+## 8. 用户决策（2026-07-04 已裁定）
 
-- **Q1（fileio/ 删除时机）**：静态死码，但 HMS-iceberg 目录上 `io-impl` 用户属性可反射指到它，且有 p2 回归在用。选项：A=现在删+改 p2 测试（接受该极端配置失效）；B=归入阶段四 6a 随 HMS 一起删。
-- **Q2（iceberg-aws 摘除的极端配置）**：摘 jar 后 HMS-iceberg 上手配 `io-impl=...S3FileIO` 反射失败。选项：A=接受（文档注明）；B=jar 降为 runtime 级暂留到 6a。
-- **Q3（HMS-iceberg 方向）**：6a 路 A（Trino 式重定向，新中立接缝）vs 路 B（等 hive 整体迁移）vs 本轮不动。
-- **Q4（行级 DML 去 SDK 化）**：6b 现在做（新增两个小中立 SPI 面，签字决策不变）vs 原样保留到第二个消费者出现。
-- **Q5（本次执行范围）**：仅阶段一 / 阶段一+二 / 一~三 / 全部排期。
+- **Q1+Q2（io-impl 极端配置）= A 接受失效**：fileio/ 4 文件并入阶段一删除（同步改掉在用的 p2 回归）；iceberg-aws 阶段二照常摘，文档注明 HMS-iceberg 上手配 `io-impl=...S3FileIO`/内部 FQCN 的极端配置不再支持。
+- **Q3（HMS-iceberg 方向）= B 随 hive 整体迁移**：不建 Trino 式重定向接缝；§6a 走路 B，iceberg-core 摘除时间表挂靠 hive 目录迁插件框架的进度。
+- **Q4（行级 DML 去 SDK 化）= A 现在做**：§6b 提前启动，签字的引擎侧留驻决策不变，只消除 SDK import；**设计先行**（见 Q5）。
+- **Q5（执行范围）= 继续只分析**：暂不动码。下一轮先产出行级 DML 去 SDK 化的详细设计（新增中立 SPI 面的精确形状、`StatementContext` 暂存句柄化、连接器侧下沉点、兼容与验收），设计签字后再按 阶段一 → 二 → 三 → 6b 的顺序动码。
 
 ## 9. 验收（每阶段）
 
