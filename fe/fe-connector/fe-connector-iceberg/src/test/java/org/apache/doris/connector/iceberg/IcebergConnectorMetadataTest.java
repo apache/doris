@@ -132,6 +132,22 @@ public class IcebergConnectorMetadataTest {
         Assertions.assertSame(handle, metadata.applyRewriteFileScope(null, handle, Collections.emptySet()));
     }
 
+    @Test
+    public void getTableCommentReadsCommentProperty() {
+        // F9/F12: the SPI default (ConnectorTableOps.getTableComment) returns "", so a flipped iceberg table's
+        // COMMENT clause / information_schema.tables.TABLE_COMMENT / SHOW TABLE STATUS Comment column would be
+        // blank. This override reads the native iceberg table's "comment" property, mirroring legacy
+        // IcebergExternalTable.getComment. MUTATION: dropping the override (SPI default "") -> comment always
+        // blank -> red.
+        Map<String, String> props = new HashMap<>();
+        props.put("comment", "sales fact");
+        Assertions.assertEquals("sales fact",
+                metadataWithTableProps(props).getTableComment(null, "db1", "t1"));
+        // Absent comment -> "" via getOrDefault (byte-identical to legacy properties().getOrDefault).
+        Assertions.assertEquals("",
+                metadataWithTableProps(new HashMap<>()).getTableComment(null, "db1", "t1"));
+    }
+
     /** A metadata over a single table {@code db1.t1} carrying the given iceberg table properties. */
     private static IcebergConnectorMetadata metadataWithTableProps(Map<String, String> tableProps) {
         RecordingIcebergCatalogOps ops = new RecordingIcebergCatalogOps();

@@ -125,6 +125,11 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
     private static final String TOTAL_RECORDS = "total-records";
     private static final String TOTAL_POSITION_DELETES = "total-position-deletes";
 
+    // Doris-level table property carrying a user comment. Local literal copy of the fe-core constant
+    // IcebergExternalTable.TABLE_COMMENT_PROP ("comment") — the connector cannot import fe-core. Read by
+    // getTableComment (F9/F12) so the flipped iceberg table's COMMENT clause is non-empty.
+    private static final String TABLE_COMMENT_PROP = "comment";
+
     private final IcebergCatalogOps catalogOps;
     private final Map<String, String> properties;
     // Every remote metadata READ is wrapped in context.executeAuthenticated(...) so the FE-injected
@@ -292,6 +297,19 @@ public class IcebergConnectorMetadata implements ConnectorMetadata {
             throw new DorisConnectorException("Failed to drop Iceberg view "
                     + dbName + "." + viewName + ": " + e.getMessage(), e);
         }
+    }
+
+    @Override
+    public String getTableComment(ConnectorSession session, String dbName, String tableName) {
+        // Mirror legacy IcebergExternalTable.getComment: return the native iceberg table's "comment"
+        // property (default ""). Wrap the remote load in the auth context like the other metadata reads.
+        // Without this override the SPI default (ConnectorTableOps.getTableComment) returns "", so a flipped
+        // iceberg table's COMMENT clause, information_schema.tables.TABLE_COMMENT, and SHOW TABLE STATUS
+        // Comment column would all be blank even though the raw comment key still appears in the SHOW CREATE
+        // PROPERTIES(...) block (F9/F12). Views render their comment through getViewDefinition / the view
+        // SHOW CREATE arm, so a view handle here (loadTable throws) falls back to "" via the caller's catch.
+        Table table = loadTable(new IcebergTableHandle(dbName, tableName));
+        return table.properties().getOrDefault(TABLE_COMMENT_PROP, "");
     }
 
     @Override
