@@ -14,10 +14,11 @@
 ### ✅ P0（DONE 本轮）= broker/ + helper 孤岛
 `iceberg/broker/{IcebergBrokerIO,BrokerInputFile,BrokerInputStream}` + `iceberg/helper/IcebergWriterHelper`(+其测试)。零外部引用（broker 无 io-impl 反射；fe-core helper 仅自测引用，连接器有独立同名类）。零前置。
 
-### P1 = fileio/（4 文件，需连带改 p2 回归）
+### ✅ P1（DONE `6a169f1dd98`）= fileio/（4 文件，连带改 p2 回归）
 `iceberg/fileio/{DelegateFileIO,DelegateInputFile,DelegateOutputFile,DelegateSeekableInputStream}`。**前置（用户 Q1=A 已裁定接受失效）**：改 `regression-test/suites/.../iceberg_on_hms_and_filesystem_and_dlf.groovy:481,488`（去掉 `io-impl=...DelegateFileIO` 用法）。反射透传路 `AbstractIcebergProperties:96 FILE_IO_IMPL → IcebergUtils.createIcebergHiveCatalog:1311-1321` 仍存在但接受其对内部 FQCN 失效。
 
-### P2 = DLF 子树（5 文件）
+### ✅ P2（DONE `b29e9ffcbde`）= DLF 子树（5 文件）
+> **实证纠正（Rule 7）**：计划原称 P3 的 `IcebergDLFExternalCatalog` 依赖本刀删的 `DLFCatalog`（故 P2→P3 排序）——核验 `IcebergDLFExternalCatalog` 不 import/引用任何 DLF 子树类（`extends IcebergExternalCatalog`，导入仅 HMSBaseProperties 等），**P2 与 P3 无此编译依赖、P2 自足**。中性化点亦纠正：`IcebergAliyunDLFMetaStoreProperties.initCatalog` 的死判定路径 = `AbstractIcebergProperties.initializeCatalog → IcebergExternalCatalog.initCatalog():78`（翻闸后原生 catalog 不再实例化），已改 throw UOE + 删 write-only baseProperties 字段（构造器保留 `AliyunDLFBaseProperties.of` 校验）。
 `iceberg/dlf/{DLFCatalog,DLFTableOperations,DLFCachedClientPool,dlf/client/DLFClientPool}` + `iceberg/HiveCompatibleCatalog`(fe-core 副本)。**前置**：`DLFCatalog` 是 NEEDS_PREP——唯一活外部编译边 = `IcebergAliyunDLFMetaStoreProperties.initCatalog():48-66` 的 `new DLFCatalog()`（该 override 死码，仅经死的 `IcebergExternalCatalog.initializeCatalog` 可达）→ 先把它中性化（throw UnsupportedOperationException / 去掉 DLFCatalog 引用），再一刀删 5 文件。**`IcebergAliyunDLFMetaStoreProperties` 留**（plugin 路径经 IcebergPropertiesFactory "dlf" 注册仍活）。连带删测试 `IcebergDLFExternalCatalogTest` + `IcebergAliyunDLFMetaStorePropertiesTest` 里的 DLFCatalog 断言。连接器 twin 已有（`IcebergConnector.createDlfCatalog` + fe-connector .../dlf/*）。
 
 ### P3 = catalog flavor 簇（`IcebergExternalCatalogFactory` + 6 flavor）

@@ -5,7 +5,19 @@
 
 ---
 
-# 🎯 最新一轮（2026-07-04 续）= **ENG-1 除连通性外剩余 5 条缺口批量修完（F4/F13·F9/F10/F12·F11·F6/F7·F14；直接动码不 recon + 末尾统一对抗 review；5 独立 commit）**
+# 🎯 最新一轮（2026-07-04 续）= **fe-core iceberg 死码删除 P1+P2（fileio/ + DLF 子树，2 独立 commit）**
+
+> **做了什么**（承接「删死码优先」裁定，按执行计划 `designs/fe-core-iceberg-removal-execution-plan.md` 刀序增量删；每刀先 grep 全调用方核验 DEAD、独立 commit+build+test+checkstyle+import-gate）：
+> - **P1 `6a169f1dd98`**（−727 行）：删 `iceberg/fileio/{DelegateFileIO,DelegateInputFile,DelegateOutputFile,DelegateSeekableInputStream}`。4 类仅经 `CatalogProperties.FILE_IO_IMPL` 配置串反射加载、全仓零活消费者（无默认接线、无 META-INF 服务注册）；连带去掉 p2 回归 groovy 两处 `io-impl=...DelegateFileIO`（用户 Q1=A 接受 io-impl 极端配置失效）+ 清 `IcebergFileSystemMetaStoreProperties` 指向已删类的悬垂注释。
+> - **P2 `b29e9ffcbde`**（−508 行）：删 `iceberg/dlf/{DLFCatalog,DLFTableOperations,client/DLFCachedClientPool,client/DLFClientPool}` + `iceberg/HiveCompatibleCatalog`（fe-core 副本）。DLF iceberg catalog 已由连接器承接（`IcebergConnector#createDlfCatalog` + metastore-spi `IcebergDlfMetaStoreProperties/Provider`）；唯一活编译边 `IcebergAliyunDLFMetaStoreProperties.initCatalog`（死判定=仅经 `AbstractIcebergProperties.initializeCatalog → IcebergExternalCatalog.initCatalog():78`，翻闸后原生 catalog 不再实例化）改 throw UOE、删 write-only `baseProperties` 字段（构造器保留 `AliyunDLFBaseProperties.of` 校验）。**该属性类留**=plugin 路径吃其鉴权/派生存储，属 P5 rewire；测试 `IcebergDLFExternalCatalogTest` 删、`IcebergAliyunDLFMetaStorePropertiesTest.testInitCatalog`→`testInitCatalogUnsupported`（assert UOE，钉 fail-loud）。
+> **每刀验收（Rule 12 实测）**：fe-core test-compile BUILD SUCCESS + 受影响属性测试全绿（P1 `IcebergFileSystemMetaStorePropertiesTest` 11/11、P2 `IcebergAliyunDLFMetaStorePropertiesTest` 5/5）+ checkstyle 0 + import-gate 净 + 全仓零悬垂引用。
+> **实证纠正执行计划（Rule 7）**：P2 段原称「`IcebergDLFExternalCatalog` 依赖本刀删的 DLFCatalog（故 P2→P3 排序）」= 过时；实证 `IcebergDLFExternalCatalog`（`extends IcebergExternalCatalog`）不 import/引用任何 DLF 子树类，**P2 与 P3 无此编译依赖、P2 自足**（已回填执行计划 §P2）。
+> **⚠️ 全部未 push**（[DEC-FLIP-1] 铁律：删死码/翻闸做最后原子提交再 push）。
+> **⏭ 下一 = P3 catalog flavor 簇**（见下文 🚀 段 + 执行计划 §P3）：先削 `IcebergMetadataOps` 里 `IcebergRestExternalCatalog` 死 instanceof 臂，再一刀删 `IcebergExternalCatalogFactory` + 6 flavor（须先核验 factory 零 caller）。
+
+---
+
+# 🎯 上一轮（2026-07-04）= **ENG-1 除连通性外剩余 5 条缺口批量修完（F4/F13·F9/F10/F12·F11·F6/F7·F14；直接动码不 recon + 末尾统一对抗 review；5 独立 commit）**
 
 > **做了什么**（用户 2026-07-04 裁定协议：照审计结论直接动码、不逐条 recon/写单独 design、末尾统一 review）：ENG-1 审计 16 条确认缺口里，除已修 F1、已接受 F8、留后续的连通性 F2/F3/F15/F16 外的 **5 条 low** 一次性修完。信源=报告 §三 + 任务清单 §5b（逐条已回填 DONE + 修法 + commit）+ 完成记录 `designs/ENG1-batch2-remaining-gaps-summary.md`。
 > **5 条 commit**：`cd7618ef53e`(F4/F13 SHOW CREATE sys 表 redirectSysTableToSource) · `c8b39f871e3`(F9/F10/F12 iceberg getTableComment) · `50e4a6bcb5d`(F6/F7 EXPLAIN nested columns 通用重发) · `50ad635d9b0`(F14 AWS 非 DEFAULT PROVIDER_CHAIN carrier，新 `AwsCredentialsProviderModes`) · `bc5c39157aa`(F11 元数据预热改 `SUPPORTS_METADATA_PRELOAD` 能力位)。**铁律全守**（无 fe-core if(iceberg)/instanceof/引擎名新 seam；连接器禁 import fe-core；F11/F14 走中立能力位/连接器自包含 twin）。
@@ -22,7 +34,7 @@
 >
 > **⚠️ 起步先读 recon 结论（2026-07-04 本轮实证，纠正 v2 部分过时判断）**：
 > - **去 SDK 化七刀已删掉一大批阶段一死码**：`rewrite/`、`action/`、四个 DML 执行器（Delete/Merge/Insert/Rewrite Executor）、`LogicalIcebergTableSink`、`PhysicalIcebergTableSink`、`IcebergTransaction`、`IcebergTransactionManager`、`IcebergApiSource`、`IcebergDmlCommandUtils`、helper 的两个 RewritableDeletePlan* 等**均已 GONE**（见 `af7e244c3fe`/`64b03892b20`/`bf326c04741`/`4e7220d81c7`）。**残留死执行器仅 `LogicalIcebergMergeSink` 一个还在**（LogicalIcebergTableSink 已删但 MergeSink 漏删=待清）。
-> - **逐文件三态分类 + 可执行刀序 = `plan-doc/tasks/designs/fe-core-iceberg-removal-execution-plan.md`**（本轮 5-agent 分类工作流 `wf_7f1358fa-35d` 逐调用方核验产出，20 DELETE_NOW / 18 NEEDS_PREP / 23 ALIVE_HMS）。**下个 session 起步先读它的刀序（P0-P5 + 阶段四）再动手。** 刀序：**✅P0=broker/+helper 已删（`b52703dc1b5`，772 行）** → P1 fileio/（连带改 p2 回归 groovy）→ P2 DLF 子树（先中性化 IcebergAliyunDLFMetaStoreProperties.initCatalog）→ P3 catalog flavor 簇（先削 Rest 死臂）→ P4 实体类（搬常量 + 修 buildDbForInit 回放 + 削 ~15 死 instanceof 臂，含本轮 F4 的 ShowCreateTableCommand IcebergSysExternalTable 臂）→ P5 属性/鉴权 rewire。**ALIVE_HMS 23 文件禁删**（`IcebergUtils`/`IcebergMetadataOps`/`source/`/cache/ 等，HMS-iceberg 经 `PhysicalPlanTranslator:825` DlaType.ICEBERG 活）——挂 hive 迁 SPI（阶段四）。
+> - **逐文件三态分类 + 可执行刀序 = `plan-doc/tasks/designs/fe-core-iceberg-removal-execution-plan.md`**（本轮 5-agent 分类工作流 `wf_7f1358fa-35d` 逐调用方核验产出，20 DELETE_NOW / 18 NEEDS_PREP / 23 ALIVE_HMS）。**下个 session 起步先读它的刀序（P0-P5 + 阶段四）再动手。** 刀序：**✅P0=broker/+helper（`b52703dc1b5`）→ ✅P1=fileio/（`6a169f1dd98`）→ ✅P2=DLF 子树+HiveCompatibleCatalog（`b29e9ffcbde`）已删** → **P3=catalog flavor 簇（先削 IcebergMetadataOps 里 IcebergRestExternalCatalog 死 instanceof 臂）◀ 下一** → P4 实体类（搬常量 + 修 buildDbForInit 回放 + 削 ~15 死 instanceof 臂，含本轮 F4 的 ShowCreateTableCommand IcebergSysExternalTable 臂）→ P5 属性/鉴权 rewire。**ALIVE_HMS 23 文件禁删**（`IcebergUtils`/`IcebergMetadataOps`/`source/`/cache/ 等，HMS-iceberg 经 `PhysicalPlanTranslator:825` DlaType.ICEBERG 活）——挂 hive 迁 SPI（阶段四）。
 > - **属性/鉴权（sub-task 2 = P5，最大一块）**：连接器 `fe-connector-metastore-iceberg` 承接类已存在（IcebergHms/Glue/Dlf/Rest/Jdbc/NoOp MetaStoreProperties+Provider），**但 rewire 是真活且非平凡**：核验确认翻闸后 plugin iceberg 仍经 `PluginDrivenExternalCatalog.initPreExecutionAuthenticator:147 → getMetastoreProperties()(Type.ICEBERG)` 建 kerberos 鉴权器 + `CatalogProperty.initStorageProperties:181 → VendedCredentialsFactory case ICEBERG + getDerivedStorageProperties`。**关键：HMS-iceberg 走 type=hms 从不吃 Type.ICEBERG → 属性簇只被 plugin 路径钉 → rewire 掉 plugin 路径即可删（自足，不受 HMS-iceberg 阻塞）**。但**连接器 metastore provider 尚不自建 authenticator（现依赖 fe-core context authenticator）→ 须先给它补 authenticator 构建（镜像 paimon），再改接线**——这是个功能增项+rewire，非纯删除，详见执行计划 §P5。
 >
 > **执行纪律（复用本仓铁律）**：删除/动码前必 grep 全调用方 + 区分 DEAD vs STILL-CONSUMED（信控制流不信注释）；每刀独立 commit + build + test + checkstyle 0 + import-gate 净；**NEEDS_PREP 文件先做前置（搬常量 / 修 buildDbForInit 回放 / 削死臂 / 改 p2 测试）再删**；用户已裁定 Q1+Q2=A（fileio/ 并入删、接受 io-impl 极端配置失效、同步改 p2 回归）、Q3=B（HMS-iceberg 随 hive 迁移，不建重定向接缝）。**iceberg-core 依赖 + HMS-iceberg 活代码是阶段四、挂 hive 迁移，短期删不掉。**
