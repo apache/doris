@@ -5,13 +5,23 @@
 
 ---
 
-# 🎯 最新一轮（2026-07-04 夜）= **fe-core iceberg 移除全量分析完成（只分析未动码）：`plan-doc/fe-core-iceberg-removal-plan.md` v2 实证重写，待用户决策 Q1-Q5**
+# 🎯 最新一轮（2026-07-04 深夜）= **行级 DML 去 SDK 化设计完成并四项裁定（APPROVED，未动码）：实证改判为死车道删除，设计 = `plan-doc/tasks/designs/iceberg-rowlevel-dml-desdk-design.md`**
+
+> **做了什么**：11-agent 研究工作流（4 路清点：fe-core DML 车道 82+ 引用点 / 连接器 SPI 面 / Trino master merge 模型（@280b81bbc4e）/ BE 契约 → 完备性批评家 → 6 路补盲：删除闭包双证明、HMS-DLA 共享面、测试面全图、鉴权包装逐 crossing、失败/KILL 生命周期、e2e pin 面）。产出设计文档并经用户四项裁定为 **APPROVED**。
+> **核心改判（已同步进移除计划 §6b/§8-Q6）**：原定四项中,操作码与行标识**已中立**（IcebergMergeOperation 纯常量、rowid 列经 getSyntheticWriteColumns 声明+中立注入,与 Trino 逐点同构,无需新 SPI）;表达式下沉与暂存句柄化的**目标是翻闸后死码**（转换函数仅剩死调用方,连接器自带 IcebergPredicateConverter 三模式;SDK 暂存两端皆死,中立替身 rewriteSourceFilePaths 已上线）→ 改判**死车道删除**。死码双证明：实例源 3 处全不可达 + GSON 读侧重映射/写侧只写 PluginDriven（保留死码零回滚价值）。
+> **用户四项裁定**：①接受改判为删除;②原生 INSERT 死车道并入同刀（IcebergTransaction 被两组死执行器共同钉住）;③4 个 SDK-free 小类现在搬 nereids 中立包（MergeOperation 改中立名,IcebergRowId/IcebergMetadataColumn 保名搬包）;④两个顺带活问题随本轮独立 commit 修：**rewrite 提交前 registerRewriteSourceFiles 的 planFiles 在 kerberos 裸奔**（镜像 commit():438 包 executeAuthenticated）+ **RowLevelDmlCommand.run 预执行窗口无回滚**（镜像 InsertIntoTableCommand:372-388 catch→onFail）。
+> **动码安全边界（设计 §4-§6 已固化,此处仅提醒）**：IcebergScanNode 是 **HMS-DLA 活类禁整删**（仅成员级手术）;测试面 12 直删+3 case 手术+**2 个 KEEP 测试须先搬出待删目录**（IcebergDeletePlanTest + isRowIdInjectionTarget 半）;错误消息/结果形状/隐藏列名 pin 面全在连接器侧,删 fe-core 死副本不影响;勿动 StatementContext 的 rewriteSourceFilePaths/rewriteSharedTransaction（活替身）。
+> **⏭ 下一 session 任务 = 按设计 §8 TODO 动码**（7 步,每步独立 commit：删 rewrite/action 死车道 → 删 DML 死臂闭包 → 删 INSERT 死车道 → 小类搬家 → import-control 门禁 → 两个 fix → 文档收尾）。研究工作流归档在 session scratchpad `ice-dml/*.json`（易失）,关键结论已全部固化进设计文档。
+
+---
+
+# 🎯 上一轮（2026-07-04 夜）= **fe-core iceberg 移除全量分析完成（只分析未动码）：`plan-doc/fe-core-iceberg-removal-plan.md` v2 实证重写，用户已裁定 Q1-Q5**
 
 > **做了什么**：39-agent 工作流（7 路清点 → 每个"可删"结论双镜头对抗反驳 + 12 条高风险死臂孪生抽查（12/12 COVERED）+ 8 存活集群移除路径设计（含 Trino 参照）+ 完备性复扫）。**v1 草稿记载失实已确认**（broker/fileio 并未删除）→ 计划文档全量重写为 v2。
 > **关键更正/新发现**：① 属性簇翻闸后仍活（`PluginDrivenExternalCatalog:147` initPreExecutionAuthenticator → MetastoreProperties Type.ICEBERG，每个插件 iceberg 目录都跑）；② `IcebergAws*Properties` 非死码（`IcebergRestProperties.addGlueRestCatalogProperties:345-361` 在 initNormalizeAndCheckProps 链上活，REST signing-name=glue|s3tables）；③ fileio/ 有配置注入反射活路（HMS-iceberg `io-impl` 透传 + p2 测试在用）；④ `ExternalCatalog.buildDbForInit:972` case ICEBERG 回放边缘（翻闸前 InitDatabaseLog 回放会构造原生 db）——删实体类前须改；⑤ IcebergExternalCatalog 常量被 IcebergUtils:1876/IcebergMetadataOps/IcebergScanNode:197 活读，删 flavor 前须搬常量；⑥ 原生 rewrite/ + action/ 是死孪生（插件走中立 ConnectorRewriteDriver）可删；⑦ v1 漏了整条目录外 sink/executor 死车道（LogicalIcebergTableSink/MergeSink、planner 三 sink、四 executor、IcebergTransactionManager+factory 方法）。
 > **依赖裁决**：iceberg-core 暂留（HMS-iceberg+DML 合成+vendored DeleteFileIndex 钉）；iceberg-aws/s3tables/s3-tables-catalog-for-iceberg 阶段二外科剥离后可摘；avro/s3-transfer-manager 保留（hudi/hadoop-aws 非 iceberg 消费者）。
 > **用户已裁定（2026-07-04，详见计划文档 §8）**：Q1+Q2=A（接受 io-impl 极端配置失效：fileio/ 并入阶段一删、iceberg-aws 阶段二照常摘）；Q3=B（HMS-iceberg 随 hive 整体迁移，不建重定向接缝）；Q4=A（行级 DML 去 SDK 化现在做，设计先行）；Q5=继续只分析。
-> **⏭ 下一 session 任务 = 行级 DML 去 SDK 化详细设计**（不动码）：中立 merge 操作码 + 行标识列抽象两个小 SPI 面的精确形状（参照 Trino getMergeRowIdColumnHandle/RowChangeParadigm/ConnectorMergeSink 操作码模型）、`StatementContext.java:323` 的 `List<FileScanTask>` 暂存句柄化、IcebergNereidsUtils SDK 表达式转换下沉连接器、兼容/验收标准。设计签字后按 阶段一 → 二 → 三 → 去SDK化 顺序动码。分析工作流归档（82 臂全清单等）在 session scratchpad `ice/*.json`（易失），关键结论已固化进计划文档。
+> **⏭ 该轮遗留的"下一步 = 行级 DML 去 SDK 化详细设计"已于 2026-07-04 深夜完成并改判（见顶部最新一轮）**。分析工作流归档（82 臂全清单等）在 session scratchpad `ice/*.json`（易失），关键结论已固化进计划文档。
 
 ---
 

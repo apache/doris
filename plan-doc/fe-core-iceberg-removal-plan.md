@@ -123,6 +123,8 @@ Doris 可借鉴的两条路：
 Trino 方案：引擎为所有连接器合成**一份通用 MERGE 计划**——`ConnectorMetadata#getMergeRowIdColumnHandle`（不透明行标识列）+ `RowChangeParadigm`（iceberg=DELETE_ROW_AND_INSERT_ROW）+ worker 侧 `ConnectorMergeSink` 吃统一的操作码行流；引擎不知道 iceberg 存在。
 Doris 对应改造（不必推翻签字决策，可先"去 iceberg SDK 化"）：把 IcebergMergeOperation 的操作码、IcebergRowId/IcebergMetadataColumn 的行标识抽象改为 fe-connector-api 中立类型（两个小增项：中立 merge 操作码枚举 + 行标识列描述，SPI 带默认实现），IcebergNereidsUtils 中 SDK 表达式转换下沉连接器；`StatementContext.java:323` 的 `List<FileScanTask>` 暂存改为不透明句柄。做完后该车道虽仍在 fe-core，但**不再 import org.apache.iceberg**——iceberg-core 摘除不再被它阻塞（只剩 6a）。
 
+> **⚠️ 2026-07-04 晚实证重裁定（11-agent 设计研究 + 用户已签，本节上段仅存历史设想）**：四项中——操作码与行标识**已是中立**（IcebergMergeOperation 纯常量零 SDK import；rowid 列已由连接器 `getSyntheticWriteColumns` 声明 + 引擎中立注入，全链零 SDK 类型）；表达式下沉与暂存句柄化的**目标代码是翻闸后死码**（`convertNereidsToIcebergExpression` 仅剩两个死调用方；SDK 暂存两端皆死，中立替身 `rewriteSourceFilePaths` 已端到端上线，连接器自带 `IcebergPredicateConverter` 三模式转换器）→ **改判为死车道删除**（旧 rewrite/action 17 文件 + DML 死类 + INSERT 死车道并入 + 存活共享文件成员级手术 + 4 个 SDK-free 小类搬中立包 + nereids/planner import 门禁），不新建 SPI。删除闭包/保留面/测试处置/顺带修复/验收全量清单 = **`plan-doc/tasks/designs/iceberg-rowlevel-dml-desdk-design.md`**（APPROVED，以其为准）。
+
 ### 6c. 目录属性/鉴权（远期收尾）
 Trino：目录配置=插件内 ConnectorFactory#create(props)，引擎零 per-connector 属性类。Doris 对应：initPreExecutionAuthenticator/vended 凭据的 Type.ICEBERG 分支改由连接器提供（现有 ConnectorContext#vendStorageCredentials 接缝已在），之后 MetastoreProperties 注销 Type.ICEBERG、删属性簇余量。
 
@@ -147,6 +149,7 @@ Trino：目录配置=插件内 ConnectorFactory#create(props)，引擎零 per-co
 - **Q3（HMS-iceberg 方向）= B 随 hive 整体迁移**：不建 Trino 式重定向接缝；§6a 走路 B，iceberg-core 摘除时间表挂靠 hive 目录迁插件框架的进度。
 - **Q4（行级 DML 去 SDK 化）= A 现在做**：§6b 提前启动，签字的引擎侧留驻决策不变，只消除 SDK import；**设计先行**（见 Q5）。
 - **Q5（执行范围）= 继续只分析**：暂不动码。下一轮先产出行级 DML 去 SDK 化的详细设计（新增中立 SPI 面的精确形状、`StatementContext` 暂存句柄化、连接器侧下沉点、兼容与验收），设计签字后再按 阶段一 → 二 → 三 → 6b 的顺序动码。
+- **Q6（2026-07-04 晚补裁，行级 DML 设计四项）**：①方向=接受实证改判，§6b 由"迁移/建 SPI"改为**死车道删除**；②闭包=原生 INSERT 死车道**并入**同一刀（旧事务类被 DML/INSERT 死执行器共同钉住）；③4 个 SDK-free 小类（操作码/行标识工厂/元数据列枚举/注入工具存活半）**现在搬**出 `datasource.iceberg` 到 nereids 中立包；④顺带发现的两个活问题（rewrite 提交前扫描 kerberos 裸奔、DML 预执行窗口无回滚）**随本轮各自独立 commit 修**。详见设计文档 §7。该刀实质 = 阶段一的 DML/INSERT/rewrite 部分 + 该车道的成员级死臂手术提前合并执行，与阶段一其余部分（fileio/、broker/ 等孤岛）不冲突。
 
 ## 9. 验收（每阶段）
 
