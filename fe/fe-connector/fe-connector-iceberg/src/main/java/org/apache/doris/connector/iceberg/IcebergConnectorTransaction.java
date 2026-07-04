@@ -372,20 +372,27 @@ public class IcebergConnectorTransaction implements ConnectorTransaction {
         }
         Set<String> wanted = new HashSet<>(dataFilePaths);
         Map<String, DataFile> matched = new HashMap<>();
-        TableScan scan = table.newScan();
-        if (startingSnapshotId >= 0) {
-            scan = scan.useSnapshot(startingSnapshotId);
-        }
-        try (CloseableIterable<FileScanTask> tasks = scan.planFiles()) {
-            for (FileScanTask task : tasks) {
-                DataFile file = task.file();
-                String path = file.path().toString();
-                if (wanted.contains(path)) {
-                    // planFiles() may split one data file across several tasks; dedupe by path.
-                    matched.putIfAbsent(path, file);
+        try {
+            // The pinned-snapshot re-scan reads the manifest list + manifests (remote IO), so it must run
+            // under the FE-injected auth context (Kerberos UGI), mirroring commit()'s manifest scan.
+            context.executeAuthenticated(() -> {
+                TableScan scan = table.newScan();
+                if (startingSnapshotId >= 0) {
+                    scan = scan.useSnapshot(startingSnapshotId);
                 }
-            }
-        } catch (IOException e) {
+                try (CloseableIterable<FileScanTask> tasks = scan.planFiles()) {
+                    for (FileScanTask task : tasks) {
+                        DataFile file = task.file();
+                        String path = file.path().toString();
+                        if (wanted.contains(path)) {
+                            // planFiles() may split one data file across several tasks; dedupe by path.
+                            matched.putIfAbsent(path, file);
+                        }
+                    }
+                }
+                return null;
+            });
+        } catch (Exception e) {
             throw new DorisConnectorException("Failed to resolve rewrite source files: " + e.getMessage(), e);
         }
         if (matched.size() != wanted.size()) {

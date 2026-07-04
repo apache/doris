@@ -1398,6 +1398,48 @@ public class IcebergConnectorTransactionTest {
     }
 
     @Test
+    public void registerRewriteSourceFilesRunsRederiveInsideAuthenticator() {
+        // The pinned-snapshot re-derive reads the manifest list + manifests (remote IO on kerberized HDFS /
+        // lazy-client S3), so it must run under executeAuthenticated like commit()'s manifest scan — a bare
+        // planFiles() here reproduces the scan-planning SASL rejection on kerberized deployments.
+        InMemoryCatalog catalog = freshCatalog();
+        TableIdentifier id = TableIdentifier.of("db1", "t1");
+        Table table = catalog.createTable(id, SCHEMA, PartitionSpec.unpartitioned(),
+                props("write.format.default", "parquet"));
+        table.newAppend().appendFile(dataFile(table.spec(), "s3://b/db1/t1/old1.parquet", 5L)).commit();
+        RecordingConnectorContext ctx = new RecordingConnectorContext();
+        IcebergConnectorTransaction txn = txnFor(opsReturning(catalog.loadTable(id)), ctx);
+        txn.beginWrite(SESSION, "db1", "t1", rewriteCtx());
+        int authAfterBegin = ctx.authCount;
+
+        txn.registerRewriteSourceFiles(new HashSet<>(Arrays.asList("s3://b/db1/t1/old1.parquet")));
+
+        Assertions.assertEquals(authAfterBegin + 1, ctx.authCount,
+                "the planFiles re-derive must run INSIDE executeAuthenticated");
+        Assertions.assertEquals(1, txn.getFilesToDeleteCount());
+    }
+
+    @Test
+    public void registerRewriteSourceFilesFailsLoudWhenAuthenticatorThrows() {
+        InMemoryCatalog catalog = freshCatalog();
+        TableIdentifier id = TableIdentifier.of("db1", "t1");
+        Table table = catalog.createTable(id, SCHEMA, PartitionSpec.unpartitioned(),
+                props("write.format.default", "parquet"));
+        table.newAppend().appendFile(dataFile(table.spec(), "s3://b/db1/t1/old1.parquet", 5L)).commit();
+        RecordingConnectorContext ctx = new RecordingConnectorContext();
+        IcebergConnectorTransaction txn = txnFor(opsReturning(catalog.loadTable(id)), ctx);
+        txn.beginWrite(SESSION, "db1", "t1", rewriteCtx());
+        // failAuth throws WITHOUT invoking the task, so a passing test proves the re-derive sits INSIDE the
+        // authenticator (nothing gets registered), not merely next to it.
+        ctx.failAuth = true;
+
+        Assertions.assertThrows(DorisConnectorException.class, () ->
+                txn.registerRewriteSourceFiles(new HashSet<>(Arrays.asList("s3://b/db1/t1/old1.parquet"))));
+        Assertions.assertEquals(0, txn.getFilesToDeleteCount(),
+                "no source files may be registered when the authenticator rejects");
+    }
+
+    @Test
     public void registerRewriteSourceFilesFailsLoudOnUnmatchedPath() {
         InMemoryCatalog catalog = freshCatalog();
         TableIdentifier id = TableIdentifier.of("db1", "t1");
