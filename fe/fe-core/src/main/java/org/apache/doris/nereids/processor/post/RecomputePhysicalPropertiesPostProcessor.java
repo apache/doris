@@ -43,7 +43,7 @@ public class RecomputePhysicalPropertiesPostProcessor extends PlanPostProcessor 
         List<PhysicalProperties> childrenOutputProperties = collectChildrenOutputProperties(rewritten);
         PhysicalProperties outputPhysicalProperties = rewritten.accept(
                 new ChildOutputPropertyDeriver(childrenOutputProperties),
-                new PlanContext(ctx.getConnectContext(), null));
+                new PlanContext(ctx.getConnectContext()));
 
         AbstractPhysicalPlan output = rewritten;
         if (!outputPhysicalProperties.equals(rewritten.getPhysicalProperties())) {
