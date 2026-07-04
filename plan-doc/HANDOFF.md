@@ -12,7 +12,26 @@
 > **唯一有正确性后果 = F1（medium，新发现，已本人 end-to-end 复核）**：CREATE 时 iceberg-v3 行级血缘保留列校验漏 catalog 级 format-version——`CreateTableInfo.getEffectiveIcebergFormatVersion:1163` 用 `instanceof IcebergExternalCatalog` 门控（翻闸后 false）→退回 emptyMap→表级无 format-version 时解析为 v2→v3 保留列校验 no-op；而连接器 `IcebergSchemaBuilder.buildTableProperties` 尊重 catalog 级 `table-default/override.format-version` 真按 v3 建表。后果：catalog 设 `table-default.format-version=3` 时 `CREATE TABLE t(_row_id BIGINT)` 静默建成 v3 表（master 分析期报错拒绝），读路径又追加同名隐藏血缘列→schema 冲突。**修法方向**：活路径复刻 catalog 级 format-version 解析 + v3 校验，或连接器 buildSchema 拒保留列名。
 > **其余 15 条**：F2/F3/F15/F16（hms/glue flavor 的 opt-in `test_connection` 元存储探测静默 no-op，IcebergConnector.testConnection `TYPE_REST`-only；默认 false）；F4/F13（SHOW CREATE `tbl$snapshots` 渲染 sys 壳非 base DDL，doRun 缺 PluginDrivenSysExternalTable unwrap 臂）；F6/F7（EXPLAIN VERBOSE nested columns 块消失，已跟踪 FU-h10-deadcode）；F9/F10/F12（iceberg getComment 恒空，连接器未 override getTableComment）；F11（iceberg 丢异步元数据预热，仅 jdbc 放开）；F14（AWS 非 DEFAULT PROVIDER_CHAIN 凭证静默丢，已跟踪 L-2）；F5/F8（info/已接受）。逐条见**任务清单 §5b**。
 > **✅ F1 已修（`6e14fecc21b`，用户裁定=前端复刻）**：`CreateTableInfo.getEffectiveIcebergFormatVersion` 门控扩为与 `paddingEngineName` 同型的 plugin-iceberg 平行臂（`PluginDrivenExternalCatalog && pluginCatalogTypeToEngine==ENGINE_ICEBERG`）→读 catalog 级 `table-default/override.format-version`。非新 seam（复用文件内既有引擎名判别，无新 import）。+5 UT（`CreateTableInfoEngineCatalogTest`）+ mutation 2/2 KILLED + 18 测绿 + checkstyle 0；**e2e flip-gated 未跑（登记 ENG-3）**。设计/完成记录=`designs/ENG1-F1-create-v3-rowlineage-catalog-formatversion-{design,summary}.md`。
-> **⏭ 下一步（待用户裁定优先级）**：**F2/F3/F15/F16 test_connection**（medium，hms/glue flavor opt-in 探测静默 no-op，opt-in 默认 false 缓解，可合并一刀；且推翻 removal-plan §4「FULLY 承接」）；其余 low（getComment 系列 F9/F10/F12、SHOW CREATE $sys F4/F13、预热 F11 等）可批量或随 P3(L-BATCH)；F5/F8/F14 已跟踪/已接受。之后 → ENG-3 flip-gated e2e 全跑 → 二签翻闸。**F1 之外本轮未再动码。**
+---
+
+# 🚀 下个 session 的任务（用户 2026-07-04 明确裁定）= **一次性修完 ENG-1 除「连通性探测」外的全部剩余缺口，直接动码不 recon，最后统一 review**
+
+> **执行协议（用户明确要求，覆盖默认 step-by-step 逐条纪律，省时）**：
+> 1. **直接按审计结论开始开发代码，不再 recon**——每条缺口的 master 行为 / 缺口 / failureScenario / **建议修法方向**已在报告 `plan-doc/reviews/P6.6-ENG1-capability-twin-audit-2026-07-04.md` §三逐条写死（+ 任务清单 §5b 摘要）；直接照修，**不再逐条 recon/写单独 design 文档**。
+> 2. **全部开发 + 测试完成后，一次性统一 review**（非逐条 clean-room；用多 agent 对抗审一次覆盖全批）。
+> 3. **仍必守（不因省时豁免）**：**用户铁律**（fe-core 不得新增 `if(iceberg)`/`instanceof Iceberg*`/`import IcebergUtils`/引擎名字符串判别新 seam；落 `ConnectorCapability`/中立 SPI/连接器侧——见下方 §铁律段）；每条仍要 **UT + mutation KILLED + checkstyle 0 + import-gate 净**；连接器禁 import fe-core。Rule 12 诚实：flip-gated e2e 标注未跑勿谎称已验。
+> 4. **提交**：可每条独立 commit 或合批（统一 review 后定）；末尾回填任务清单 §5b + HANDOFF。
+>
+> **本批范围 = 6 条缺口（排除连通性 F2/F3/F15/F16 + 已修 F1 + 已接受 F8）**。逐条修法方向（信源=报告 §三）：
+>
+> - **F4/F13（low，SHOW CREATE `tbl$snapshots` 渲染 sys 壳非 base DDL）**：`ShowCreateTableCommand.java:156` 的 `doRun` 补 `instanceof PluginDrivenSysExternalTable → getSourceTable()` 臂（与同文件 `validate():121-125` 已有的该臂**对称**，当前仅 doRun 漏）。`PluginDrivenSysExternalTable` 是中立插件类型、非 `Iceberg*`→不破铁律。
+> - **F6/F7/F5（low，EXPLAIN VERBOSE nested columns 块消失）**：活路径 `PluginDrivenScanNode.getNodeExplainString`（整体替换 FileScanNode body、从不调 `printNestedColumns`）+ `IcebergScanPlanProvider.appendExplainInfo`。修法=重发「nested columns」块（pruned type / all + predicate access-paths）。**必守 memory `catalog-spi-plugindriven-no-source-specific-code`**：通用 `PluginDrivenScanNode` 保持 connector-agnostic（无条件 emit 通用部分），**iceberg field-id 编号注解经连接器 `appendExplainInfo` 委派**（`PlanNode.java:949/965` 是 legacy 死臂、勿复活）。影响面比 iceberg 更广（所有 plugin FileScan 连接器都丢该块）。
+> - **F9/F10/F12（low，iceberg getComment 恒空）**：连接器侧修——`IcebergConnectorMetadata` override `getTableComment` 从 `table.properties().getOrDefault("comment","")` 取值（活路径 `PluginDrivenExternalTable.getComment`→SPI 默认 `ConnectorTableOps.getTableComment` 恒 ""）。**F10 连带**：连接器有值后核对转义——孪生 `PluginDrivenExternalTable.getComment(boolean)` 转义单引号 vs legacy `SqlUtils.escapeQuota` 转双引号，需对齐（当前值恒空故 moot，修 F9 后复核）。纯连接器代码、clean。
+> - **F11（low，iceberg 丢异步元数据预热）**：`PluginDrivenExternalTable.java:233-240` 的 `supportsExternalMetadataPreload` 当前仅对 catalog type `"jdbc"` 返回 true（字符串判别）。**修法走 `ConnectorCapability`**（新增如 `SUPPORTS_METADATA_PRELOAD`，iceberg 连接器声明、门控该方法）——**勿在 fe-core 里加 `type.equals("iceberg")` 字符串**（铁律）；参照已完成的 H-10/partition_operations 能力位范式。
+> - **F14（low，AWS 非 DEFAULT PROVIDER_CHAIN 凭证静默丢，最难一条）**：连接器 `S3CompatibleFileSystemProperties` 无 provider-mode 访问器→**结构性无 carrier**（报告判 EXPLICIT/ASSUME_ROLE 已孪生，唯非 DEFAULT PROVIDER_CHAIN 分支落回 SDK 默认链）。活路径 loci：`IcebergCatalogFactory.appendRestSigningProperties`/`appendS3TablesFileIOProperties`、`IcebergConnector.buildAwsCredentialsProvider`。修法=连接器侧加 provider-mode carrier（可能需扩连接器属性 SPI 面）。**若动手后判定结构性不可行/成本过高，回报用户裁量（Rule 12 fail loud），勿静默跳过。**
+>
+> **排除项（本批不做）**：F2/F3/F15/F16 test_connection 连通性探测（用户明确留后续；medium，opt-in 默认 false 缓解）；F1 已修（`6e14fecc21b`）；F8 已接受不改码（COVERED_BY_DESIGN / DV-013）。
+> **本批做完 → ENG-3 flip-gated e2e 全跑 → 二签翻闸**（连通性 4 条可在 e2e 前另起一轮补）。
 
 ---
 
@@ -201,7 +220,7 @@
 ## ⛔ 翻闸 gate（全绿才能二签翻闸最后原子提交）
 1. **P0 全清** ✅：B-1（云存储写 fs.s3a.* vs AWS_*）+ B-2（MTMV listPartitions 缺）。
 2. **关键 P1 关** ✅：H-1..H-10（破坏主力部署的回归）逐条修完，详见任务清单 §2。
-3. **ENG-1**：legacy iceberg instanceof 臂的能力孪生全量审计（H-10 是已实证漏写样本）。
+3. **ENG-1**：能力孪生全量审计 **✅ 已完成**（`fadf844f44c`，报告 `plan-doc/reviews/P6.6-ENG1-capability-twin-audit-2026-07-04.md`，16 条确认缺口）；**F1 已修**（`6e14fecc21b`）；**剩余缺口批量修 = 下个 session 任务**（见顶部 🚀 段，除连通性 F2/F3/F15/F16）。
 4. **ENG-3**：flip-gated e2e 全套实跑（DV/V3/MTMV/time-travel branch/vended 写/Kerberized HDFS/rewrite）。
 5. **用户二签**。
 > Medium `M-*`（P2，「翻闸窗口或紧随其后」）= 用户重排的**下一步工作**（见顶部 ⏭），非严格 flip-gate；逐条见任务清单 §3。
@@ -272,6 +291,7 @@ iceberg 逻辑落 `fe-connector` 经中立 SPI / ConnectorCapability。**legacy 
 - **上下文超 30% 即交接**。
 
 ## 📖 起步必读
+0. **顶部 🚀 段（下个 session 任务）** + **`plan-doc/reviews/P6.6-ENG1-capability-twin-audit-2026-07-04.md`** §三（本批修法信源，逐条 master 行为/缺口/failureScenario/建议修法方向）+ 任务清单 **§5b**（16 条缺口状态表）。**用户裁定：直接照审计结论动码、不再 recon，末尾统一 review。**
 1. **`plan-doc/tasks/P6.6-iceberg-flip-blockers-tasklist.md`**（master 任务清单）+ **`plan-doc/reviews/P6.6-iceberg-cleanroom-adversarial-review-2026-06-28.md`**（证据源，Medium 见 §四）。
 2. memory（仅列现存相关项）：`handoff-discipline-per-phase`、`clean-room-adversarial-review-pref`、`ask-user-explain-in-chinese-first`、`session-handoff-at-30pct-context`、`memory-keep-only-general-or-requested`、`doris-build-verify-gotchas`、`catalog-spi-fe-core-test-infra`、`catalog-spi-plugindriven-no-source-specific-code`、`catalog-spi-connector-session-tz-gotcha`、`catalog-spi-be-java-ext-shared-classpath`、`catalog-spi-h9-rewrite-where-rewrite-mode-done`。
 3. `plan-doc/tasks/designs/P6.6-C5-flip-readiness.md`（C 类 docker 清单 + 翻闸开关/持久化全景）。
