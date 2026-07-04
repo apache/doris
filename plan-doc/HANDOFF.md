@@ -5,25 +5,26 @@
 
 ---
 
-# 🎯 最新一轮（2026-07-05）= **iceberg 4 死实体类删除前置改造：搬常量 + 清 catalog-type + 清 table-type 死臂（第 1-3 刀 done）+ 纠正"删 MergeSink"错误**
+# 🎯 最新一轮（2026-07-05 续）= **iceberg 4 死实体类删除前置改造：第 4、5 刀 done + cut-6 前置实证完成，现停在删除复核关口**
 
-> **本轮范围** = 承接「删死码优先」，做原生 iceberg 4 个死实体类（`IcebergExternalTable`/`IcebergExternalDatabase`/`IcebergSysExternalTable`/`IcebergExternalCatalog` base）删除的**前置改造**。用户裁定：**先做前置、最后删除前留复核关口**；常量新家 = **新建 `IcebergCatalogConstants`**（非并入 IcebergUtils）。起步跑了 8-agent 侦察工作流（`wf_1eac5c97-58f`，journal 持久化）把 4 类 + 疑似死 sink 的每处引用映射清、逐处判活死、设计前置改。
+> **本轮范围** = 承接上一轮（cut 1-3 done），完成删原生 iceberg 4 死实体类（`IcebergExternalTable`/`IcebergExternalDatabase`/`IcebergSysExternalTable`/`IcebergExternalCatalog` base）前置的**第 4、5 刀**，并跑完 **cut-6 前置实证**，现**停在用户裁定的删除复核关口**（cut 6 待用户 sign-off）。用户裁定：先做前置、最后删除前留复核关口。
 >
-> **⚠️ Rule 7 纠正（重要）**：执行计划 + 旧 HANDOFF 写的"残留死执行器 `LogicalIcebergMergeSink` 漏删待清"**是错的**——它是 iceberg UPDATE/MERGE INTO 行级 DML 的**活逻辑 sink**（`IcebergUpdateCommand:133`/`IcebergMergeCommand:396` new 出 → BindExpression 绑 → ExpressionRewrite 重写 → RuleSet:229/275 注册规则转 `PhysicalIcebergMergeSink` → PhysicalPlanTranslator 走中立 PluginDrivenTableSink）。删它破 ~8 文件 + 孤儿化 386 行 PhysicalIcebergMergeSink。**本次删除工作不含任何 sink 删除**（已删的同名孪生是 INSERT 路径 `LogicalIcebergTableSink`，文档混淆）。执行计划 §残留死执行器已改。
+> **✅ 本轮完成 2 刀（均独立 commit + BUILD SUCCESS + checkstyle 0 + 测试全绿，未 push）**：
+> - **第 4 刀 `ac0cef5b9a4`（修 buildDbForInit 回放）**：`ExternalCatalog.buildDbForInit case ICEBERG` 由构造 `IcebergExternalDatabase` 改为 `PluginDrivenExternalDatabase`（对齐翻闸后运行时类型 + GSON remap；JDBC/TRINO/PLUGIN 三同胞 case 早已同签名构造），删去现已无用的 IcebergExternalDatabase import。**保留 case 标签**（删则 fall-through `default→return null` 在旧 InitCatalogLog(Type.ICEBERG) 回放崩 db init）；Type.ICEBERG 枚举保留供老镜像反序列化。验收：IcebergGsonCompatReplayTest 3/3。
+> - **第 5 刀 `96020c70e99`（迁测试脱死实体到活类型）**：跑 10-agent 对抗核验分类工作流（每 verdict 逐一驳斥核验、防悄悄丢活覆盖 Rule 9/12），把仍测**活逻辑**、当前经死实体类作载体的单测改挂活类型：**6 mock 改挂**（DbsProcDirTest/UserAuthenticationTest/StatementContextTest/StatisticsUtilTest/IcebergMetadataOpTest/IcebergUtilsTest → HMS*/PluginDriven*/mock(ExternalCatalog)）+ **IcebergSysTableResolverTest trim** 到活断言（保留测 SUPPORTED_SYS_TABLES 排除 position_deletes、删死路径 position_deletes 报错用例）+ **迁 IcebergUtils 分区助手两测**（testGetPartitionRange/testSortRange，fe-core 唯一覆盖 getPartitionRange/sortPartitionMap/mergeOverlapPartitions）到新文件 `IcebergUtilsPartitionRangeTest`。**顺带修好一处此前空跑的测试**（UserAuthenticationTest：旧 iceberg mock 不满足生产已收敛的 `instanceof PluginDrivenSysExternalTable`→换活类型后 getSourceTable 委派 + checkTblPriv 断言真正生效）。验收：9 测试类 69 测 0 失败。
 >
-> **✅ 已完成 3 刀（均独立 commit + BUILD SUCCESS(main+test) + checkstyle 0 + 相关测试全绿，未 push）**：
-> - **第 1 刀 `e6024ea632d`（搬常量）**：新建 `datasource.iceberg.IcebergCatalogConstants`，14 个仍被活代码读的常量（`EXTERNAL_CATALOG_NAME` + 7 catalog-type 串 + 3 manifest key + 3 manifest default）从待删 base 挪进去，改接全部读者（IcebergUtils/IcebergMetadataOps 同包 + 8 个 property/metastore/Iceberg* 换 import + 3 测试）。`ICEBERG_CATALOG_TYPE`/`ICEBERG_TABLE_CACHE_*`（零外部读者）随基类消失不搬。纯搬迁零行为变化。
-> - **第 2 刀 `816585ef2ab`（清 catalog-type 死臂）**：删 9 处恒 false 的 `instanceof IcebergExternalCatalog`——`IcebergMetadataOps`（createDatabase 属性守卫删 + `shouldCleanupManagedLocation()`→`return false`，空目录清理连接器已有孪生 `IcebergConnectorMetadata.cleanupEmptyManagedLocation:787/852`，随删 2 cleanup 测试）、`IcebergExternalMetaCache`(loadView→null + resolveMetadataOps)、`ExternalMetaCacheRouteResolver`、`ShowPartitionsCommand`、`CreateTableInfo`×3、`ShowCreateDatabaseCommand`。repo main 已零 `instanceof IcebergExternalCatalog`。
-> - **第 3 刀 `4b6381b6964`（清 table-type 死臂）**：删 Env 两大块 / BindRelation case / LogicalFileScan(computeIcebergOutput+prune) / StatisticsAutoCollector / StatisticsUtil / RefreshManager / InsertOverwriteTableCommand / ShowCreateTableCommand(含 redirectSysTableToSource 简化) / MaterializeProbeVisitor / UserAuthentication 的死臂 + `IcebergSysTable.createSysExternalTable` 改无条件 throw（类 ALIVE 不删，SUPPORTED_SYS_TABLES 仍被 HMSExternalTable:1245 读）+ 删 `IcebergUtils.showCreateView(IcebergExternalTable)` 孤儿重载。**保留** `TableType.ICEBERG_EXTERNAL_TABLE` 枚举。测试：删 IcebergSysTableResolverTest 原生路径测试 + LogicalFileScanTest computeOutput 改挂 PluginDrivenExternalTable。repo main 已零 `instanceof IcebergExternalTable/IcebergSysExternalTable`（仅剩注释）。
+> **⚠️ Rule 7 更正（cut 5 实证，纠正旧 HANDOFF/执行计划）**：旧 HANDOFF 说 `IcebergExternalTableBranchAndTagTest` 应"改挂 IcebergMetadataOps 活路径 + port getPartitionRange 覆盖"是**双重误判**——① 该测**零** getPartitionRange 引用（getPartitionRange 覆盖实在 `IcebergExternalTableTest`，已迁）；② 其测的 fe-core `IcebergMetadataOps` branch/tag 车道翻闸后**孤儿**（native 走连接器 `IcebergCatalogOps` 独立重实现、HMS 走 `HiveMetadataOps` 抛错，仅死的 `IcebergExternalCatalog:123` 接 dispatching metadataOps），连接器 `CatalogBackedIcebergCatalogOpsDdlTest`/`IcebergConnectorMetadataDdlTest` 已等价覆盖 → 该测随 cut 6 删、**不迁移**、零活覆盖损失。
 >
-> **⏭ 剩余（用户接手第 4、5 刀；删除前留复核关口）**（权威细节见执行计划 §P4 的"2026-07-04 recon 实证补充" + workflow journal `wf_1eac5c97-58f/journal.jsonl` 的 REPLAY/TESTS agent 结论）：
-> - **第 4 刀（用户做）**：`ExternalCatalog.buildDbForInit case ICEBERG` 改 `return new PluginDrivenExternalDatabase(...)`（**不可删 case**，否则 fall-through `return null` 在 InitDatabaseLog 回放崩；保留 InitCatalogLog/InitDatabaseLog.Type.ICEBERG 枚举供 GSON 老镜像反序列化）。
-> - **第 5 刀（用户做）**：迁仍测活逻辑的测试到活类型，避免悄悄丢覆盖。**已知需处理的 entity-构造测试**：IcebergExternalTableTest（测 IcebergExternalTable 本体，随 Cut 6 删）、IcebergExternalTableBranchAndTagTest（改挂 IcebergMetadataOps 活路径；port IcebergUtils.getPartitionRange 覆盖）、StatementContextTest、StatisticsUtilTest、UserAuthenticationTest、IcebergMetadataOpTest（残 2 处 `mock(IcebergExternalCatalog)` 换活类型）、IcebergSysTableResolverTest 残余（testPositionDeletes + newIcebergTable + class 字段随 Cut 6 删）。
-> - **⏸ 关口 → 第 6 刀（删 4 类，用户复核后）**：原子删 `IcebergExternalTable`/`IcebergExternalDatabase`/`IcebergSysExternalTable`/`IcebergExternalCatalog`(base) + `TestIcebergExternalCatalog` 夹具 + 纯死路径测试。
->   **⚠️ Cut 6 前必核实（recon 声称零 ALIVE 非常量用，删前实证不盲信）**：ALIVE 文件（尤其 `IcebergUtils`）里以 `IcebergExternalTable`/`IcebergSysExternalTable`/`IcebergExternalDatabase` **为参数或字段类型**的方法——若被 HMS 活路径（`source/IcebergScanNode` 等）调用则须先把签名改成 `ExternalTable`；若仅被死实体类自身调用则随类可删。逐个 grep 全调用方判 DEAD vs STILL-CONSUMED。
->   **📌 潜在能力孪生缺口（非本轮引入，登记 ENG-1 复查）**：第 3 刀从 `MaterializeProbeVisitor.SUPPORT_RELATION_TYPES` 删 `IcebergExternalTable.class` 后**未加 `PluginDrivenExternalTable.class`**——翻闸后 iceberg 表是否仍进 MTMV 物化候选存疑（若翻闸时已静默丢，删死码不改运行时行为，但值得 ENG-1 核；同理 RefreshManager 的 setIsValidRelatedTableCached 清缓存翻闸后无 PluginDriven 孪生）。
+> **✅ cut-6 前置实证 done（grep 全仓 code-vs-comment 分类）= cut 6 确认为干净原子删**：删 4 类后**零 ALIVE 代码引用会断编译**——main-src 仅剩 `GsonUtils.java` 3 处**字符串标签**（`registerCompatibleSubtype(PluginDriven*.class, "IcebergExternal*")` 老镜像升级 remap，字符串非类引用，删后照编）+ 各 ALIVE 文件过时**注释**（cosmetic）。`IcebergUtils`/`IcebergMetadataOps`/`source/`/cache/ **零**死类引用（HANDOFF 担心的"以死类为参/字段类型的活方法"早被 cut 1 搬常量 + cut 3 删 showCreateView 重载清掉）→**无须改任何 ALIVE 签名**。test-src 真实代码引用仅剩 3 文件随删。
 >
-> **⚠️ 全部未 push**（[DEC-FLIP-1] 铁律）。侦察全量结论（每处引用 file:line + 活死判定 + removalAction）在 workflow journal `wf_1eac5c97-58f/journal.jsonl`（8 agent result）+ 已固化进执行计划 §P4。
+> **⏸ 删除复核关口 → 第 6 刀（等用户 sign-off 后做）= 原子删 7 文件**：
+> - 4 实体类 `datasource/iceberg/{IcebergExternalTable,IcebergExternalDatabase,IcebergSysExternalTable,IcebergExternalCatalog}.java`
+> - 测试夹具 `test/.../iceberg/TestIcebergExternalCatalog.java`
+> - 2 纯死路径测试 `test/.../iceberg/{IcebergExternalTableTest,IcebergExternalTableBranchAndTagTest}.java`
+> - **留**：`GsonUtils` 3 字符串标签（老镜像升级 remap）、`IcebergGsonCompatReplayTest`（纯字符串标签，证升级路径）。可选 cosmetic：清 ALIVE 文件里提及旧类名的过时注释（不影响编译，可留后续）。
+> - **📌 ENG-1 遗留（非 cut-6 blocker）**：cut 3 从 `MaterializeProbeVisitor.SUPPORT_RELATION_TYPES` 删 `IcebergExternalTable.class` 后未加 `PluginDrivenExternalTable.class`（潜在 MTMV 物化孪生缺口）+ `RefreshManager` 同型 → 登记 ENG-1 核（删死码不改运行时行为）。
+>
+> **⚠️ 全部未 push**（[DEC-FLIP-1] 铁律）。cut-5 分类/执行工作流结论持久化在 `wf_4e9d5818-e50`（classify）/`wf_6186b19e-815`（apply）journal + 已固化进执行计划 §P4。
 
 ---
 
