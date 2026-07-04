@@ -5,9 +5,9 @@
 
 ---
 
-# 🎯 最新一轮（2026-07-05 续）= **iceberg 4 死实体类删除前置改造：第 4、5 刀 done + cut-6 前置实证完成，现停在删除复核关口**
+# 🎯 最新一轮（2026-07-05 续）= **iceberg 4 死实体类删除全完成（第 4、5、6 刀 done）= P4 DONE**
 
-> **本轮范围** = 承接上一轮（cut 1-3 done），完成删原生 iceberg 4 死实体类（`IcebergExternalTable`/`IcebergExternalDatabase`/`IcebergSysExternalTable`/`IcebergExternalCatalog` base）前置的**第 4、5 刀**，并跑完 **cut-6 前置实证**，现**停在用户裁定的删除复核关口**（cut 6 待用户 sign-off）。用户裁定：先做前置、最后删除前留复核关口。
+> **本轮范围** = 承接上一轮（cut 1-3 done），完成删原生 iceberg 4 死实体类（`IcebergExternalTable`/`IcebergExternalDatabase`/`IcebergSysExternalTable`/`IcebergExternalCatalog` base）的**第 4、5 刀前置 + 用户 sign-off 后第 6 刀原子删**。**至此整条 P4（删 4 实体类簇）= DONE**（下一 = P5 属性/鉴权 rewire，或回翻闸主线，见文末 🚀/🎯 段）。
 >
 > **✅ 本轮完成 2 刀（均独立 commit + BUILD SUCCESS + checkstyle 0 + 测试全绿，未 push）**：
 > - **第 4 刀 `ac0cef5b9a4`（修 buildDbForInit 回放）**：`ExternalCatalog.buildDbForInit case ICEBERG` 由构造 `IcebergExternalDatabase` 改为 `PluginDrivenExternalDatabase`（对齐翻闸后运行时类型 + GSON remap；JDBC/TRINO/PLUGIN 三同胞 case 早已同签名构造），删去现已无用的 IcebergExternalDatabase import。**保留 case 标签**（删则 fall-through `default→return null` 在旧 InitCatalogLog(Type.ICEBERG) 回放崩 db init）；Type.ICEBERG 枚举保留供老镜像反序列化。验收：IcebergGsonCompatReplayTest 3/3。
@@ -17,12 +17,18 @@
 >
 > **✅ cut-6 前置实证 done（grep 全仓 code-vs-comment 分类）= cut 6 确认为干净原子删**：删 4 类后**零 ALIVE 代码引用会断编译**——main-src 仅剩 `GsonUtils.java` 3 处**字符串标签**（`registerCompatibleSubtype(PluginDriven*.class, "IcebergExternal*")` 老镜像升级 remap，字符串非类引用，删后照编）+ 各 ALIVE 文件过时**注释**（cosmetic）。`IcebergUtils`/`IcebergMetadataOps`/`source/`/cache/ **零**死类引用（HANDOFF 担心的"以死类为参/字段类型的活方法"早被 cut 1 搬常量 + cut 3 删 showCreateView 重载清掉）→**无须改任何 ALIVE 签名**。test-src 真实代码引用仅剩 3 文件随删。
 >
-> **⏸ 删除复核关口 → 第 6 刀（等用户 sign-off 后做）= 原子删 7 文件**：
+> **✅ 第 6 刀 `1ca3617a51a`（原子删 7 文件，-1822 行，用户 2026-07-05 sign-off 后执行）**：
 > - 4 实体类 `datasource/iceberg/{IcebergExternalTable,IcebergExternalDatabase,IcebergSysExternalTable,IcebergExternalCatalog}.java`
 > - 测试夹具 `test/.../iceberg/TestIcebergExternalCatalog.java`
 > - 2 纯死路径测试 `test/.../iceberg/{IcebergExternalTableTest,IcebergExternalTableBranchAndTagTest}.java`
-> - **留**：`GsonUtils` 3 字符串标签（老镜像升级 remap）、`IcebergGsonCompatReplayTest`（纯字符串标签，证升级路径）。可选 cosmetic：清 ALIVE 文件里提及旧类名的过时注释（不影响编译，可留后续）。
-> - **📌 ENG-1 遗留（非 cut-6 blocker）**：cut 3 从 `MaterializeProbeVisitor.SUPPORT_RELATION_TYPES` 删 `IcebergExternalTable.class` 后未加 `PluginDrivenExternalTable.class`（潜在 MTMV 物化孪生缺口）+ `RefreshManager` 同型 → 登记 ENG-1 核（删死码不改运行时行为）。
+> - **留**：`GsonUtils` 3 字符串标签（老镜像升级 remap）、`IcebergGsonCompatReplayTest`（纯字符串标签，证升级路径）。
+> - **验收（Rule 12 实测）**：fe-core main+test BUILD SUCCESS；12 smoke 测试类 89 测 0 失败（含 **IcebergGsonCompatReplayTest 3/3** = 证删老类后老 iceberg 镜像仍正确反序列化为 PluginDriven，升级兼容成立 + IcebergUtilsPartitionRangeTest 2/0 = 迁移覆盖存活）；checkstyle 0；连接器零 import 死类（连接器对旧类名引用全为 parity 注释）。
+>
+> **📌 遗留（登记，非本轮 blocker）**：
+> - **cosmetic**：ALIVE 文件（MaterializeProbeVisitor/LogicalFileScan/ShowCreateTableCommand/… + 连接器 parity 注释）里仍有提及已删旧类名的**过时注释**，不影响编译，留后续清理。
+> - **ENG-1**：cut 3 从 `MaterializeProbeVisitor.SUPPORT_RELATION_TYPES` 删 `IcebergExternalTable.class` 后未加 `PluginDrivenExternalTable.class`（潜在 MTMV 物化孪生缺口）+ `RefreshManager` 同型 → 值得 ENG-1 核（删死码不改运行时行为）。
+>
+> **⏭ 下一步（用户定优先级）**：① **P5 = 属性/鉴权 rewire + 属性簇删除**（执行计划 §P5，最大一块；须先给连接器 metastore provider 补 authenticator 构建镜像 paimon 再改接线，非纯删除）；或 ② 回**翻闸主线**（连通性 F2/F3/F15/F16 → ENG-3 flip-gated e2e → 二签）。P4 删除与翻闸主线正交。
 >
 > **⚠️ 全部未 push**（[DEC-FLIP-1] 铁律）。cut-5 分类/执行工作流结论持久化在 `wf_4e9d5818-e50`（classify）/`wf_6186b19e-815`（apply）journal + 已固化进执行计划 §P4。
 
