@@ -5,34 +5,24 @@
 
 ---
 
-# 🎯 最新一轮（2026-07-04）= **ENG-1 能力孪生审计完成（94-agent 对抗审计，只分析未动码；报告=`plan-doc/reviews/P6.6-ENG1-capability-twin-audit-2026-07-04.md`）**
+# 🎯 最新一轮（2026-07-04 续）= **ENG-1 除连通性外剩余 5 条缺口批量修完（F4/F13·F9/F10/F12·F11·F6/F7·F14；直接动码不 recon + 末尾统一对抗 review；5 独立 commit）**
 
-> **做了什么**：翻闸后运行时类型 `PluginDriven*`，legacy iceberg `instanceof` 臂全求值 false，正确性逐点靠人工「能力孪生臂」（H-10 已实证漏写一次）。本轮全量审计其覆盖面：**清点 297 派发点**（95 共享 fe-core 文件 529 iceberg 引用点 + 4 legacy 类覆写面 IcebergExternalTable/Catalog/Database/SysExternalTable + 40 组件文件家族 + 补盲扫描 TVF/反射/GSON label/thrift/其余 fe 模块）→ 每点取 master（`git show master`）vs branch 活路径双侧对照 → MISSING_TWIN 候选送**三镜对抗驳斥**（reachability/wrong-lane/twin-hunt，2/3 UPHOLD 才保留）→ 文档交叉核对（Rule 7）→ 完备性批评家补盲。工作流因两次撞消费额度、经断点续跑（缓存回放）完成，0 error。
-> **裁定**：**236 COVERED / 13 COVERED_BY_DESIGN / 27 OUT_OF_SCOPE_HMS_DLA（HMS-DLA 未翻闸 lane）/ 3 DEAD_BOTH / 18 MISSING_TWIN → 归并 16 条确认缺口**（medium×4、low×10、info×2；**无 high、无正确性/数据丢失级**）。2 条疑似被驳回，3 处文档结论与代码冲突（均代码支持审计）。
-> **唯一有正确性后果 = F1（medium，新发现，已本人 end-to-end 复核）**：CREATE 时 iceberg-v3 行级血缘保留列校验漏 catalog 级 format-version——`CreateTableInfo.getEffectiveIcebergFormatVersion:1163` 用 `instanceof IcebergExternalCatalog` 门控（翻闸后 false）→退回 emptyMap→表级无 format-version 时解析为 v2→v3 保留列校验 no-op；而连接器 `IcebergSchemaBuilder.buildTableProperties` 尊重 catalog 级 `table-default/override.format-version` 真按 v3 建表。后果：catalog 设 `table-default.format-version=3` 时 `CREATE TABLE t(_row_id BIGINT)` 静默建成 v3 表（master 分析期报错拒绝），读路径又追加同名隐藏血缘列→schema 冲突。**修法方向**：活路径复刻 catalog 级 format-version 解析 + v3 校验，或连接器 buildSchema 拒保留列名。
-> **其余 15 条**：F2/F3/F15/F16（hms/glue flavor 的 opt-in `test_connection` 元存储探测静默 no-op，IcebergConnector.testConnection `TYPE_REST`-only；默认 false）；F4/F13（SHOW CREATE `tbl$snapshots` 渲染 sys 壳非 base DDL，doRun 缺 PluginDrivenSysExternalTable unwrap 臂）；F6/F7（EXPLAIN VERBOSE nested columns 块消失，已跟踪 FU-h10-deadcode）；F9/F10/F12（iceberg getComment 恒空，连接器未 override getTableComment）；F11（iceberg 丢异步元数据预热，仅 jdbc 放开）；F14（AWS 非 DEFAULT PROVIDER_CHAIN 凭证静默丢，已跟踪 L-2）；F5/F8（info/已接受）。逐条见**任务清单 §5b**。
-> **✅ F1 已修（`6e14fecc21b`，用户裁定=前端复刻）**：`CreateTableInfo.getEffectiveIcebergFormatVersion` 门控扩为与 `paddingEngineName` 同型的 plugin-iceberg 平行臂（`PluginDrivenExternalCatalog && pluginCatalogTypeToEngine==ENGINE_ICEBERG`）→读 catalog 级 `table-default/override.format-version`。非新 seam（复用文件内既有引擎名判别，无新 import）。+5 UT（`CreateTableInfoEngineCatalogTest`）+ mutation 2/2 KILLED + 18 测绿 + checkstyle 0；**e2e flip-gated 未跑（登记 ENG-3）**。设计/完成记录=`designs/ENG1-F1-create-v3-rowlineage-catalog-formatversion-{design,summary}.md`。
+> **做了什么**（用户 2026-07-04 裁定协议：照审计结论直接动码、不逐条 recon/写单独 design、末尾统一 review）：ENG-1 审计 16 条确认缺口里，除已修 F1、已接受 F8、留后续的连通性 F2/F3/F15/F16 外的 **5 条 low** 一次性修完。信源=报告 §三 + 任务清单 §5b（逐条已回填 DONE + 修法 + commit）+ 完成记录 `designs/ENG1-batch2-remaining-gaps-summary.md`。
+> **5 条 commit**：`cd7618ef53e`(F4/F13 SHOW CREATE sys 表 redirectSysTableToSource) · `c8b39f871e3`(F9/F10/F12 iceberg getTableComment) · `50e4a6bcb5d`(F6/F7 EXPLAIN nested columns 通用重发) · `50ad635d9b0`(F14 AWS 非 DEFAULT PROVIDER_CHAIN carrier，新 `AwsCredentialsProviderModes`) · `bc5c39157aa`(F11 元数据预热改 `SUPPORTS_METADATA_PRELOAD` 能力位)。**铁律全守**（无 fe-core if(iceberg)/instanceof/引擎名新 seam；连接器禁 import fe-core；F11/F14 走中立能力位/连接器自包含 twin）。
+> **验收（Rule 12 实测）**：8 测试类全绿 + 广义 fe-core 回归 19 类 0 fail；**mutation 7/7 KILLED**（每缺口各对应测试转红）；checkstyle 0（api/fe-core/iceberg/jdbc）；import-gate 净。**统一对抗 review**（5 维度×驳斥，`.claude/wf-eng1-batch2-review.js`）抓出 **F14 真 bug**（`S3_MODE_KEYS` 漏 `iceberg.rest.credentials_provider_type` 别名 + providerFor 4 模式漏测）已修+re-verify 绿；1 nit（F4 死臂无测）驳回。
+> **两个有意偏离（Rule 7 记录，非缺陷）**：**F10** 保留共享 twin 单引号转义（消费者单引号包裹→合法 SQL；legacy `SqlUtils.escapeQuota` 双引号含 `'` 会坏 SQL；无引号 comment 字节相同→选正确性+外科不动共享码）；**F6/F7** iceberg field-id 编号注解 `col(3).sub(5)` 不复刻（cosmetic、FU-h10-deadcode、SlotDescriptor 不能越界给连接器；BE 仍收编号形，查询无影响）。**F14 STS base 凭证**仍走默认链（assume-role 已孪生，非 F14 焦点）。
+> **e2e flip-gated 全未跑**（本轮无集群）：F14 credential、F6/F7 EXPLAIN、F9 SHOW CREATE/information_schema、F4 SHOW CREATE、F11 preload 均翻闸后 e2e → 登记 **ENG-3**。
 ---
 
-# 🚀 下个 session 的任务（用户 2026-07-04 明确裁定）= **一次性修完 ENG-1 除「连通性探测」外的全部剩余缺口，直接动码不 recon，最后统一 review**
+# 🚀 下个 session 的任务 = **连通性 4 条（F2/F3/F15/F16）→ ENG-3 flip-gated e2e 全跑 → 用户二签翻闸**
 
-> **执行协议（用户明确要求，覆盖默认 step-by-step 逐条纪律，省时）**：
-> 1. **直接按审计结论开始开发代码，不再 recon**——每条缺口的 master 行为 / 缺口 / failureScenario / **建议修法方向**已在报告 `plan-doc/reviews/P6.6-ENG1-capability-twin-audit-2026-07-04.md` §三逐条写死（+ 任务清单 §5b 摘要）；直接照修，**不再逐条 recon/写单独 design 文档**。
-> 2. **全部开发 + 测试完成后，一次性统一 review**（非逐条 clean-room；用多 agent 对抗审一次覆盖全批）。
-> 3. **仍必守（不因省时豁免）**：**用户铁律**（fe-core 不得新增 `if(iceberg)`/`instanceof Iceberg*`/`import IcebergUtils`/引擎名字符串判别新 seam；落 `ConnectorCapability`/中立 SPI/连接器侧——见下方 §铁律段）；每条仍要 **UT + mutation KILLED + checkstyle 0 + import-gate 净**；连接器禁 import fe-core。Rule 12 诚实：flip-gated e2e 标注未跑勿谎称已验。
-> 4. **提交**：可每条独立 commit 或合批（统一 review 后定）；末尾回填任务清单 §5b + HANDOFF。
+> ENG-1 现状：16 确认缺口中 **F1(medium)+本批 5 条 low 全修完**，仅剩 **连通性 F2/F3/F15/F16（medium，opt-in `test_connection=true`，默认 false 缓解）** 与 F5(info 死 import，Rule 3 不删) / F8(接受偏差)。翻闸 gate 3(ENG-1) 除连通性外已清。
 >
-> **本批范围 = 6 条缺口（排除连通性 F2/F3/F15/F16 + 已修 F1 + 已接受 F8）**。逐条修法方向（信源=报告 §三）：
+> **① 连通性 F2/F3/F15/F16（下一，medium）**：hms/glue-flavor iceberg 的 opt-in `test_connection` 元存储探测静默 no-op（`IcebergConnector.testConnection` 元存储探测 `TYPE_REST`-only；hms/glue flavor 无 round-trip）。信源=报告 §三 F2/F3。修法方向=在 `IcebergConnector.testConnection` 为 hms/glue flavor 补 HMS thrift / Glue GetDatabases 探测（连接器侧，勿破铁律）。**与 removal-plan §4「test_connection FULLY 承接」冲突→代码支持审计**。
+> **② ENG-3 flip-gated e2e 全套实跑**（有集群时）：DV/V3、MTMV、time-travel branch/tag、vended 写、Kerberized HDFS、rewrite_data_files、3 级 namespace + 本批 5 条的 e2e 项（F14 credential/F6-F7 EXPLAIN/F9 comment/F4 SHOW CREATE/F11 preload）。
+> **③ 用户二签 → 翻闸最后原子提交**（含 GSON 迁移 `e68eb5c00c9`）。
 >
-> - **F4/F13（low，SHOW CREATE `tbl$snapshots` 渲染 sys 壳非 base DDL）**：`ShowCreateTableCommand.java:156` 的 `doRun` 补 `instanceof PluginDrivenSysExternalTable → getSourceTable()` 臂（与同文件 `validate():121-125` 已有的该臂**对称**，当前仅 doRun 漏）。`PluginDrivenSysExternalTable` 是中立插件类型、非 `Iceberg*`→不破铁律。
-> - **F6/F7/F5（low，EXPLAIN VERBOSE nested columns 块消失）**：活路径 `PluginDrivenScanNode.getNodeExplainString`（整体替换 FileScanNode body、从不调 `printNestedColumns`）+ `IcebergScanPlanProvider.appendExplainInfo`。修法=重发「nested columns」块（pruned type / all + predicate access-paths）。**必守 memory `catalog-spi-plugindriven-no-source-specific-code`**：通用 `PluginDrivenScanNode` 保持 connector-agnostic（无条件 emit 通用部分），**iceberg field-id 编号注解经连接器 `appendExplainInfo` 委派**（`PlanNode.java:949/965` 是 legacy 死臂、勿复活）。影响面比 iceberg 更广（所有 plugin FileScan 连接器都丢该块）。
-> - **F9/F10/F12（low，iceberg getComment 恒空）**：连接器侧修——`IcebergConnectorMetadata` override `getTableComment` 从 `table.properties().getOrDefault("comment","")` 取值（活路径 `PluginDrivenExternalTable.getComment`→SPI 默认 `ConnectorTableOps.getTableComment` 恒 ""）。**F10 连带**：连接器有值后核对转义——孪生 `PluginDrivenExternalTable.getComment(boolean)` 转义单引号 vs legacy `SqlUtils.escapeQuota` 转双引号，需对齐（当前值恒空故 moot，修 F9 后复核）。纯连接器代码、clean。
-> - **F11（low，iceberg 丢异步元数据预热）**：`PluginDrivenExternalTable.java:233-240` 的 `supportsExternalMetadataPreload` 当前仅对 catalog type `"jdbc"` 返回 true（字符串判别）。**修法走 `ConnectorCapability`**（新增如 `SUPPORTS_METADATA_PRELOAD`，iceberg 连接器声明、门控该方法）——**勿在 fe-core 里加 `type.equals("iceberg")` 字符串**（铁律）；参照已完成的 H-10/partition_operations 能力位范式。
-> - **F14（low，AWS 非 DEFAULT PROVIDER_CHAIN 凭证静默丢，最难一条）**：连接器 `S3CompatibleFileSystemProperties` 无 provider-mode 访问器→**结构性无 carrier**（报告判 EXPLICIT/ASSUME_ROLE 已孪生，唯非 DEFAULT PROVIDER_CHAIN 分支落回 SDK 默认链）。活路径 loci：`IcebergCatalogFactory.appendRestSigningProperties`/`appendS3TablesFileIOProperties`、`IcebergConnector.buildAwsCredentialsProvider`。修法=连接器侧加 provider-mode carrier（可能需扩连接器属性 SPI 面）。**若动手后判定结构性不可行/成本过高，回报用户裁量（Rule 12 fail loud），勿静默跳过。**
->
-> **排除项（本批不做）**：F2/F3/F15/F16 test_connection 连通性探测（用户明确留后续；medium，opt-in 默认 false 缓解）；F1 已修（`6e14fecc21b`）；F8 已接受不改码（COVERED_BY_DESIGN / DV-013）。
-> **本批做完 → ENG-3 flip-gated e2e 全跑 → 二签翻闸**（连通性 4 条可在 e2e 前另起一轮补）。
-
+> **⚠️ 未 push**：本批 5 commit 及其前全部翻闸/review fix 均未 push（[DEC-FLIP-1] 铁律：翻闸做成最后原子提交，先修完 review + e2e + 二签再 push）。
 ---
 
 # 🎯 上一轮（2026-07-05）= **行级 DML 去 SDK 化七步全部完成（设计 Status=DONE，7 个独立 commit）**
@@ -220,7 +210,7 @@
 ## ⛔ 翻闸 gate（全绿才能二签翻闸最后原子提交）
 1. **P0 全清** ✅：B-1（云存储写 fs.s3a.* vs AWS_*）+ B-2（MTMV listPartitions 缺）。
 2. **关键 P1 关** ✅：H-1..H-10（破坏主力部署的回归）逐条修完，详见任务清单 §2。
-3. **ENG-1**：能力孪生全量审计 **✅ 已完成**（`fadf844f44c`，报告 `plan-doc/reviews/P6.6-ENG1-capability-twin-audit-2026-07-04.md`，16 条确认缺口）；**F1 已修**（`6e14fecc21b`）；**剩余缺口批量修 = 下个 session 任务**（见顶部 🚀 段，除连通性 F2/F3/F15/F16）。
+3. **ENG-1**：能力孪生全量审计 **✅ 已完成**（`fadf844f44c`，16 条确认缺口）；**F1 已修**（`6e14fecc21b`）；**本批 5 条 low 已修完**（`cd7618ef53e`/`c8b39f871e3`/`50e4a6bcb5d`/`50ad635d9b0`/`bc5c39157aa`，统一对抗 review 已过，见顶部 🎯 段 + 任务清单 §5b）；**仅剩连通性 F2/F3/F15/F16（medium，opt-in）= 下个 session 首任务**。
 4. **ENG-3**：flip-gated e2e 全套实跑（DV/V3/MTMV/time-travel branch/vended 写/Kerberized HDFS/rewrite）。
 5. **用户二签**。
 > Medium `M-*`（P2，「翻闸窗口或紧随其后」）= 用户重排的**下一步工作**（见顶部 ⏭），非严格 flip-gate；逐条见任务清单 §3。
