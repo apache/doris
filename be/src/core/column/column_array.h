@@ -199,7 +199,7 @@ public:
 
     Offsets64& ALWAYS_INLINE get_offsets() { return offsets->get_data(); }
 
-    Offsets64View ALWAYS_INLINE get_offsets() const { return offsets->get_data(); }
+    Offsets64View ALWAYS_INLINE get_offsets() const { return offsets->get_data_with_padding(); }
 
     bool has_equal_offsets(const ColumnArray& other) const;
 

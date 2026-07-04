@@ -159,6 +159,25 @@ ColumnWithTypeAndName make_external_nullable_bool_column(std::string name,
             std::make_shared<DataTypeNullable>(std::make_shared<DataTypeBool>()), std::move(name)};
 }
 
+ColumnWithTypeAndName make_external_nullable_bool_column(std::string name,
+                                                         const std::vector<uint8_t>& values,
+                                                         const std::vector<uint8_t>& null_map,
+                                                         const char** external_data,
+                                                         const char** external_null_map) {
+    auto owner = std::make_shared<std::vector<uint8_t>>(values);
+    *external_data = reinterpret_cast<const char*>(owner->data());
+    auto nested = ColumnUInt8::create();
+    nested->insert_many_fix_len_data_with_owner(*external_data, owner->size(), owner);
+
+    auto null_owner = std::make_shared<std::vector<uint8_t>>(null_map);
+    *external_null_map = reinterpret_cast<const char*>(null_owner->data());
+    auto null_map_column = ColumnUInt8::create();
+    null_map_column->insert_many_fix_len_data_with_owner(*external_null_map, null_owner->size(),
+                                                         null_owner);
+    return {ColumnNullable::create(std::move(nested), std::move(null_map_column)),
+            std::make_shared<DataTypeNullable>(std::make_shared<DataTypeBool>()), std::move(name)};
+}
+
 std::vector<int32_t> int32_values(const Block& block, size_t column_id) {
     const auto& column = assert_cast<const ColumnInt32&>(*block.get_by_position(column_id).column);
     std::vector<int32_t> values;
@@ -341,6 +360,27 @@ TEST_F(ScannerDirectProjectionTest, externalNullableBoolAllPassKeepsExternalPage
     EXPECT_EQ(nullable_bool_values(output, 0), (std::vector<std::optional<uint8_t>> {1, 0, 1, 1}));
 }
 
+TEST_F(ScannerDirectProjectionTest, externalNullableBoolAllPassKeepsExternalNullMap) {
+    auto nullable_bool_type = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeBool>());
+    init_scanner({nullable_bool_type}, {MockSlotRef::create_mock_context(1, nullable_bool_type)},
+                 {make_filter_context({1, 1, 1, 1})});
+
+    const char* external_data = nullptr;
+    const char* external_null_map = nullptr;
+    Block output = filter_and_project(
+            Block({make_int32_column("k", {1, 2, 3, 4}),
+                   make_external_nullable_bool_column("is_valid", {1, 0, 1, 1}, {0, 1, 0, 0},
+                                                      &external_data, &external_null_map)}));
+
+    ASSERT_EQ(output.rows(), 4);
+    const auto& nullable = assert_cast<const ColumnNullable&>(*output.get_by_position(0).column);
+    ASSERT_NO_THROW(nullable.sanity_check());
+    EXPECT_EQ(nullable.get_nested_column().get_raw_data().data, external_data);
+    EXPECT_EQ(nullable.get_null_map_column().get_raw_data().data, external_null_map);
+    EXPECT_EQ(nullable_bool_values(output, 0),
+              (std::vector<std::optional<uint8_t>> {1, std::nullopt, 1, 1}));
+}
+
 TEST_F(ScannerDirectProjectionTest, externalNullableBoolPartialFilterMaterializesAndKeepsNullMap) {
     auto nullable_bool_type = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeBool>());
     init_scanner({nullable_bool_type}, {MockSlotRef::create_mock_context(1, nullable_bool_type)},
@@ -358,6 +398,26 @@ TEST_F(ScannerDirectProjectionTest, externalNullableBoolPartialFilterMaterialize
     EXPECT_NE(nullable.get_nested_column().get_raw_data().data, external_data);
     EXPECT_EQ(nullable_bool_values(output, 0),
               (std::vector<std::optional<uint8_t>> {1, 1, 0, 1, 1, 0}));
+}
+
+TEST_F(ScannerDirectProjectionTest, externalNullableBoolPartialFilterMaterializesExternalNullMap) {
+    auto nullable_bool_type = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeBool>());
+    init_scanner({nullable_bool_type}, {MockSlotRef::create_mock_context(1, nullable_bool_type)},
+                 {make_filter_context({1, 0, 1, 1, 0, 1})});
+
+    const char* external_data = nullptr;
+    const char* external_null_map = nullptr;
+    Block output = filter_and_project(Block(
+            {make_int32_column("k", {1, 2, 3, 4, 5, 6}),
+             make_external_nullable_bool_column("is_valid", {1, 1, 0, 1, 0, 1}, {0, 1, 0, 0, 1, 0},
+                                                &external_data, &external_null_map)}));
+
+    ASSERT_EQ(output.rows(), 4);
+    const auto& nullable = assert_cast<const ColumnNullable&>(*output.get_by_position(0).column);
+    ASSERT_NO_THROW(nullable.sanity_check());
+    EXPECT_NE(nullable.get_nested_column().get_raw_data().data, external_data);
+    EXPECT_NE(nullable.get_null_map_column().get_raw_data().data, external_null_map);
+    EXPECT_EQ(nullable_bool_values(output, 0), (std::vector<std::optional<uint8_t>> {1, 0, 1, 1}));
 }
 
 TEST_F(ScannerDirectProjectionTest, nullableConjunctTreatsNullAsFilteredOut) {

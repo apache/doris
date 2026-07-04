@@ -685,7 +685,7 @@ ColumnArrayDataOffsets filter_number_return_new(const Filter& filt, ssize_t resu
 
     filter_arrays_impl<typename PrimitiveTypeTraits<T>::CppType, IColumn::Offset64>(
             assert_cast<const ColumnVector<T>&, TypeCheckOnRelease::DISABLE>(*src_data).get_data(),
-            src_offsets->get_data(), res_elems, res_offsets, filt, result_size_hint);
+            src_offsets->get_data_with_padding(), res_elems, res_offsets, filt, result_size_hint);
 
     return ColumnArrayDataOffsets {.data = std::move(dst_data), .offsets = std::move(dst_offset)};
 }
@@ -711,7 +711,7 @@ ColumnArrayDataOffsets filter_string_return_new(const Filter& filt, ssize_t resu
     const auto& src_string = assert_cast<const ColumnString&>(*src_data);
     const ColumnString::Chars& src_chars = src_string.get_chars();
     const auto& src_string_offsets = src_string.get_offsets();
-    const auto& offsets = src_offsets->get_data();
+    const auto offsets = src_offsets->get_data_with_padding();
 
     auto dst_data = src_data->clone_empty();
     ColumnString::Chars& res_chars = assert_cast<ColumnString&>(*dst_data).get_chars();
@@ -777,7 +777,7 @@ ColumnArrayDataOffsets filter_generic_return_new(const Filter& filt, ssize_t res
                                        .offsets = ColumnOffsets::create()};
     }
 
-    const auto& offsets = src_offsets->get_data();
+    const auto offsets = src_offsets->get_data_with_padding();
     Filter nested_filt(offsets.back());
     ssize_t nested_result_size_hint = 0;
     for (size_t i = 0; i < size; ++i) {

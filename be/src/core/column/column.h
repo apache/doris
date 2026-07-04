@@ -76,7 +76,7 @@ public:
     bool empty() const { return _size == 0; }
 
     const T* begin() const { return _data; }
-    const T* end() const { return _data + _size; }
+    const T* end() const { return _size == 0 ? _data : _data + _size; }
 
     // Keep PODArray-compatible signed indexing for existing offsets code that
     // intentionally reads offsets[-1] from the zero-padded prefix.

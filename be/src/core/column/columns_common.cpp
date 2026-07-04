@@ -23,7 +23,6 @@
 #include <string.h>
 
 #include <boost/iterator/iterator_facade.hpp>
-#include <span>
 
 #include "core/column/column.h"
 #include "core/column/column_array.h" // IWYU pragma: keep
@@ -143,7 +142,7 @@ struct NoResultOffsetsBuilder {
 };
 
 template <typename T, typename OT, typename ResultOffsetsBuilder>
-void filter_arrays_impl_generic(std::span<const T> src_elems, std::span<const OT> src_offsets,
+void filter_arrays_impl_generic(PODArrayView<T> src_elems, PODArrayView<OT> src_offsets,
                                 PaddedPODArray<T>& res_elems, PaddedPODArray<OT>* res_offsets,
                                 const IColumn::Filter& filt, ssize_t result_size_hint) {
     const size_t size = src_offsets.size();
@@ -311,26 +310,16 @@ template <typename T, typename OT>
 void filter_arrays_impl(const PaddedPODArray<T>& src_elems, const PaddedPODArray<OT>& src_offsets,
                         PaddedPODArray<T>& res_elems, PaddedPODArray<OT>& res_offsets,
                         const IColumn::Filter& filt, ssize_t result_size_hint) {
-    return filter_arrays_impl<T, OT>(std::span<const T>(src_elems.data(), src_elems.size()),
-                                     std::span<const OT>(src_offsets.data(), src_offsets.size()),
+    return filter_arrays_impl<T, OT>(PODArrayView<T>(src_elems), PODArrayView<OT>(src_offsets),
                                      res_elems, res_offsets, filt, result_size_hint);
-}
-
-template <typename T, typename OT>
-void filter_arrays_impl(std::span<const T> src_elems, std::span<const OT> src_offsets,
-                        PaddedPODArray<T>& res_elems, PaddedPODArray<OT>& res_offsets,
-                        const IColumn::Filter& filt, ssize_t result_size_hint) {
-    return filter_arrays_impl_generic<T, OT, ResultOffsetsBuilder<OT>>(
-            src_elems, src_offsets, res_elems, &res_offsets, filt, result_size_hint);
 }
 
 template <typename T, typename OT>
 void filter_arrays_impl(PODArrayView<T> src_elems, PODArrayView<OT> src_offsets,
                         PaddedPODArray<T>& res_elems, PaddedPODArray<OT>& res_offsets,
                         const IColumn::Filter& filt, ssize_t result_size_hint) {
-    return filter_arrays_impl<T, OT>(std::span<const T>(src_elems.data(), src_elems.size()),
-                                     std::span<const OT>(src_offsets.data(), src_offsets.size()),
-                                     res_elems, res_offsets, filt, result_size_hint);
+    return filter_arrays_impl_generic<T, OT, ResultOffsetsBuilder<OT>>(
+            src_elems, src_offsets, res_elems, &res_offsets, filt, result_size_hint);
 }
 
 template <typename T, typename OT>
@@ -345,28 +334,17 @@ void filter_arrays_impl_only_data(const PaddedPODArray<T>& src_elems,
                                   const PaddedPODArray<OT>& src_offsets,
                                   PaddedPODArray<T>& res_elems, const IColumn::Filter& filt,
                                   ssize_t result_size_hint) {
-    return filter_arrays_impl_only_data<T, OT>(
-            std::span<const T>(src_elems.data(), src_elems.size()),
-            std::span<const OT>(src_offsets.data(), src_offsets.size()), res_elems, filt,
-            result_size_hint);
-}
-
-template <typename T, typename OT>
-void filter_arrays_impl_only_data(std::span<const T> src_elems, std::span<const OT> src_offsets,
-                                  PaddedPODArray<T>& res_elems, const IColumn::Filter& filt,
-                                  ssize_t result_size_hint) {
-    return filter_arrays_impl_generic<T, OT, NoResultOffsetsBuilder<OT>>(
-            src_elems, src_offsets, res_elems, nullptr, filt, result_size_hint);
+    return filter_arrays_impl_only_data<T, OT>(PODArrayView<T>(src_elems),
+                                               PODArrayView<OT>(src_offsets), res_elems, filt,
+                                               result_size_hint);
 }
 
 template <typename T, typename OT>
 void filter_arrays_impl_only_data(PODArrayView<T> src_elems, PODArrayView<OT> src_offsets,
                                   PaddedPODArray<T>& res_elems, const IColumn::Filter& filt,
                                   ssize_t result_size_hint) {
-    return filter_arrays_impl_only_data<T, OT>(
-            std::span<const T>(src_elems.data(), src_elems.size()),
-            std::span<const OT>(src_offsets.data(), src_offsets.size()), res_elems, filt,
-            result_size_hint);
+    return filter_arrays_impl_generic<T, OT, NoResultOffsetsBuilder<OT>>(
+            src_elems, src_offsets, res_elems, nullptr, filt, result_size_hint);
 }
 
 template <typename T, typename OT>
@@ -382,18 +360,12 @@ size_t filter_arrays_impl_only_data(PaddedPODArray<T>& data, PaddedPODArray<OT>&
             const PaddedPODArray<TYPE>&, const PaddedPODArray<OFFTYPE>&, PaddedPODArray<TYPE>&, \
             PaddedPODArray<OFFTYPE>&, const IColumn::Filter&, ssize_t);                         \
     template void filter_arrays_impl<TYPE, OFFTYPE>(                                            \
-            std::span<const TYPE>, std::span<const OFFTYPE>, PaddedPODArray<TYPE>&,             \
-            PaddedPODArray<OFFTYPE>&, const IColumn::Filter&, ssize_t);                         \
-    template void filter_arrays_impl<TYPE, OFFTYPE>(                                            \
             PODArrayView<TYPE>, PODArrayView<OFFTYPE>, PaddedPODArray<TYPE>&,                   \
             PaddedPODArray<OFFTYPE>&, const IColumn::Filter&, ssize_t);                         \
     template size_t filter_arrays_impl<TYPE, OFFTYPE>(                                          \
             PaddedPODArray<TYPE>&, PaddedPODArray<OFFTYPE>&, const IColumn::Filter&);           \
     template void filter_arrays_impl_only_data<TYPE, OFFTYPE>(                                  \
             const PaddedPODArray<TYPE>&, const PaddedPODArray<OFFTYPE>&, PaddedPODArray<TYPE>&, \
-            const IColumn::Filter&, ssize_t);                                                   \
-    template void filter_arrays_impl_only_data<TYPE, OFFTYPE>(                                  \
-            std::span<const TYPE>, std::span<const OFFTYPE>, PaddedPODArray<TYPE>&,             \
             const IColumn::Filter&, ssize_t);                                                   \
     template void filter_arrays_impl_only_data<TYPE, OFFTYPE>(                                  \
             PODArrayView<TYPE>, PODArrayView<OFFTYPE>, PaddedPODArray<TYPE>&,                   \

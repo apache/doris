@@ -446,6 +446,14 @@ public:
 
     ImmContainer get_data() const { return immutable_data(); }
 
+    PODArrayView<value_type> get_data_with_padding() const {
+        // Only internal columns that are known to be backed by Doris-owned PaddedPODArray should use
+        // this accessor. Page-backed zero-copy data has no left padding, so offsets code must not use
+        // it for external buffers that need offsets[-1].
+        DCHECK(!_has_external_data());
+        return data;
+    }
+
     ImmContainer immutable_data() const {
         if (_has_external_data()) {
             return {_external_data, _external_size};

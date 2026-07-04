@@ -15,11 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "core/column/column_array.h"
+
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 #include <gtest/gtest.h>
 
 #include "core/column/column.h"
+#include "core/column/column_vector.h"
 #include "core/column/common_column_test.h"
 #include "core/types.h"
 #include "exprs/function/function_test_util.h"
@@ -543,6 +546,41 @@ TEST_F(ColumnArrayTest, FilterInplaceTest) {
 TEST_F(ColumnArrayTest, FilterTest) {
     // filter with result_size_hint
     assert_filter_with_result_hint_callback(array_columns, serdes);
+}
+
+TEST_F(ColumnArrayTest, FilterExternalFixedLengthDataKeepsOffsetPrefix) {
+    auto owner = std::make_shared<std::vector<int64_t>>(
+            std::initializer_list<int64_t> {10, 11, 20, 21, 22, 40, 41, 42});
+    auto nested = ColumnInt64::create();
+    nested->insert_many_fix_len_data_with_owner(reinterpret_cast<const char*>(owner->data()),
+                                                owner->size(), owner);
+
+    auto offsets = ColumnArray::ColumnOffsets::create();
+    offsets->get_data().push_back(2);
+    offsets->get_data().push_back(5);
+    offsets->get_data().push_back(5);
+    offsets->get_data().push_back(8);
+    auto array = ColumnArray::create(std::move(nested), std::move(offsets));
+
+    // This exercises the return-new numeric array filter path with read-only views from both
+    // the external nested data and the offsets column. Offsets deliberately need the
+    // PaddedPODArray zero prefix because the implementation reads offsets[i - 1].
+    IColumn::Filter filter {1, 1, 1, 1};
+    auto filtered = array->filter(filter, filter.size());
+    const auto& filtered_array = assert_cast<const ColumnArray&>(*filtered);
+    const auto filtered_offsets = filtered_array.get_offsets();
+    EXPECT_EQ(filtered_offsets.size(), 4);
+    EXPECT_EQ(filtered_offsets[0], 2);
+    EXPECT_EQ(filtered_offsets[1], 5);
+    EXPECT_EQ(filtered_offsets[2], 5);
+    EXPECT_EQ(filtered_offsets[3], 8);
+
+    const auto nested_values =
+            assert_cast<const ColumnInt64&>(filtered_array.get_data()).get_data();
+    ASSERT_EQ(nested_values.size(), owner->size());
+    for (size_t i = 0; i < owner->size(); ++i) {
+        EXPECT_EQ(nested_values[i], (*owner)[i]);
+    }
 }
 
 // HASH Interfaces

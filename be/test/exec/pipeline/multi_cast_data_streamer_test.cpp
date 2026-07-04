@@ -308,6 +308,69 @@ TEST_F(MultiCastDataStreamerTest, PullAndFilterExternalNullableBoolForManyConsum
     }
 }
 
+TEST_F(MultiCastDataStreamerTest, FilterOneConsumerKeepsSiblingExternalPage) {
+    auto ids = ColumnInt32::create();
+    for (int32_t i = 1; i <= 6; ++i) {
+        ids->insert_value(i);
+    }
+
+    auto bool_owner = std::make_shared<std::vector<uint8_t>>(
+            std::initializer_list<uint8_t> {1, 0, 1, 1, 0, 1});
+    const auto* external_bool_data = reinterpret_cast<const char*>(bool_owner->data());
+    auto nested_bool = ColumnUInt8::create();
+    nested_bool->insert_many_fix_len_data_with_owner(external_bool_data, bool_owner->size(),
+                                                     bool_owner);
+    auto nullable_bool = ColumnNullable::create(std::move(nested_bool),
+                                                ColumnUInt8::create(bool_owner->size(), 0));
+
+    Block input(
+            {{std::move(ids), std::make_shared<DataTypeInt32>(), "id"},
+             {std::move(nullable_bool),
+              std::make_shared<DataTypeNullable>(std::make_shared<DataTypeBool>()), "is_valid"}});
+    ASSERT_TRUE(multi_cast_data_streamer->push(&state, &input, true).ok());
+
+    Block first_consumer;
+    Block second_consumer;
+    bool eos = false;
+    ASSERT_TRUE(multi_cast_data_streamer->pull(&state, 0, &first_consumer, &eos).ok());
+    EXPECT_TRUE(eos);
+    eos = false;
+    ASSERT_TRUE(multi_cast_data_streamer->pull(&state, 1, &second_consumer, &eos).ok());
+    EXPECT_TRUE(eos);
+
+    const auto& first_nullable_before =
+            assert_cast<const ColumnNullable&>(*first_consumer.get_by_position(1).column);
+    const auto& second_nullable_before =
+            assert_cast<const ColumnNullable&>(*second_consumer.get_by_position(1).column);
+    EXPECT_EQ(first_nullable_before.get_nested_column().get_raw_data().data, external_bool_data);
+    EXPECT_EQ(second_nullable_before.get_nested_column().get_raw_data().data, external_bool_data);
+
+    // Filtering one shared consumer must materialize only that consumer's column. The sibling block
+    // should remain a read-only view of the scanner page and keep the zero-copy pointer.
+    IColumn::Filter filter {1, 0, 1, 0, 1, 0};
+    Block::filter_block_internal(&first_consumer, std::vector<uint32_t> {0, 1}, filter);
+    const auto& first_nullable_after =
+            assert_cast<const ColumnNullable&>(*first_consumer.get_by_position(1).column);
+    const auto& first_nested_after =
+            assert_cast<const ColumnUInt8&>(first_nullable_after.get_nested_column());
+    EXPECT_NE(first_nested_after.get_raw_data().data, external_bool_data);
+    ASSERT_EQ(first_nested_after.size(), 3);
+    EXPECT_EQ(first_nested_after.get_element(0), 1);
+    EXPECT_EQ(first_nested_after.get_element(1), 1);
+    EXPECT_EQ(first_nested_after.get_element(2), 0);
+
+    const auto& second_nullable_after =
+            assert_cast<const ColumnNullable&>(*second_consumer.get_by_position(1).column);
+    const auto& second_nested_after =
+            assert_cast<const ColumnUInt8&>(second_nullable_after.get_nested_column());
+    EXPECT_EQ(second_nested_after.get_raw_data().data, external_bool_data);
+    ASSERT_EQ(second_nested_after.size(), bool_owner->size());
+    for (size_t i = 0; i < bool_owner->size(); ++i) {
+        EXPECT_FALSE(second_nullable_after.is_null_at(i));
+        EXPECT_EQ(second_nested_after.get_element(i), (*bool_owner)[i]);
+    }
+}
+
 TEST_F(MultiCastDataStreamerTest, SpillTest) {
     state.set_enable_spill(true);
     auto exchg_node_buffer_size_bytes = config::exchg_node_buffer_size_bytes;

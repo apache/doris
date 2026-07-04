@@ -139,7 +139,7 @@ public:
 
     ColumnArray::Offsets64& ALWAYS_INLINE get_offsets() { return offsets_column->get_data(); }
     ColumnArray::Offsets64View ALWAYS_INLINE get_offsets() const {
-        return offsets_column->get_data();
+        return offsets_column->get_data_with_padding();
     }
     COffsets& get_offsets_column() { return *offsets_column; }
     const COffsets& get_offsets_column() const { return *offsets_column; }
