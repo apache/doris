@@ -5,23 +5,16 @@
 
 ---
 
-# 🎯 最新一轮（2026-07-04/05）= **去 SDK 化七步已完成前三刀（删除全部落地并各自独立 commit）：`af7e244c3fe`(1/7 rewrite/action) + `64b03892b20`(2/7 DML 死臂) + `bf326c04741`(3/7 INSERT 车道)**
+# 🎯 最新一轮（2026-07-05）= **行级 DML 去 SDK 化七步全部完成（设计 Status=DONE，7 个独立 commit）**
 
-> **做了什么**：按设计 §8 TODO 执行 1-3 步，每步 recon（多 agent 实证圈边界）→ 手术 → fe-core test-compile + 相关套件 + checkstyle 全绿 → 独立 commit。三刀合计 -11,000+ 行；nereids/planner 的行级 DML/rewrite/INSERT 车道已零 `org.apache.iceberg` import。
-> **执行中固化的偏差/发现（都已进 commit message，无悬置）**：
-> - ① gather 旗（useGatherForIcebergRewrite）从 TODO-1 顺延到第 3 刀（消费者 PhysicalIcebergTableSink 届时才死，先删破编译）；
-> - ② 三个 Iceberg*Command 删执行半被迫**去 Command 化**（run/getExplainPlan 是 Command/Explainable 抽象契约强制的——删方法必须摘 extends/implements + super() + accept/stmtType；synthesize 只调合成方法，安全）；
-> - ③ 第 3 刀闭包比设计大 12 处（SinkVisitor 默认方法、RuleSet 双注册、ExpressionRewrite 内嵌规则、TurnOffPageCache/ShuffleKeyPruner/RequestPropertyDeriver 三 override、PlanType/RuleType 死枚举〔已验无 ordinal 持久化，删除安全〕、InsertInto/Overwrite 的 @branch 守卫 iceberg 析取、IcebergExternalCatalog:129 装配线）——recon agent 全部找齐并已删；
-> - ④ **UnboundIcebergTableSink 保留（铁律豁免）但本刀后无任何构造点**（三个 UnboundTableSinkCreator 死臂 + BindSink 绑定规则全删）——设计如此，非遗漏；
-> - ⑤ IcebergNereidsUtilsTest 瘦身**留在原包**（isRowIdInjectionTarget 是 package-private，跨包抽不动）——**第 4 步搬 utils 类时须连测试一起搬**；
-> - ⑥ 测试面额外手术（设计未列）：IcebergDelete/Update/MergeCommandTest 的 executeWith* case（Merge 整文件删）、ConnectorExecuteActionTest 守护死路由的 stale case、CommitDataSerializerTest legacy 对比改写为直接 feed 断言。
-> **验证口径（Rule 12）**：单测/编译/checkstyle 全绿（每刀 commit message 有明细）；**docker e2e（4 dml 套件 + action/ 8 套件等）未跑**——死码删除理论零行为差，整刀收尾后须跑或显式标注 flip-gated。
-> **⏭ 下一 session = 继续设计 §8 TODO 第 4-7 步**（每步独立 commit）：
-> 1. **步骤 4 小类搬中立包**（§7-Q3 落地形状）：IcebergMergeOperation→`nereids.trees.plans.commands.merge.MergeOperation`（改名）；IcebergNereidsUtils 存活半→`RowLevelDmlRowIdUtils`；IcebergRowId/IcebergMetadataColumn 保名搬 `nereids.trees.plans.commands`；~20 处 import + 2 个保留 UT（PhysicalPlanTranslatorIcebergRowLevelDmlTest:37、PhysicalIcebergMergeSinkTest:32）+ **IcebergNereidsUtilsTest 随搬改名 RowLevelDmlRowIdUtilsTest**（见偏差⑤）。纯移动 commit 不夹语义。
-> 2. **步骤 5 门禁**：import-control.xml 增 nereids/planner 禁 org.apache.iceberg；grep 验收两目录为空 + 零 datasource.iceberg 活 import（死臂残余登记豁免清单）。
-> 3. **步骤 6 两个独立 fix**：① `IcebergConnectorTransaction.registerRewriteSourceFiles`(:361-397) planFiles 段包 `context.executeAuthenticated`（镜像 commit():438）+UT+mutation；② `RowLevelDmlCommand.run` :98-102 窗口 catch(Throwable)→executor.onFail（镜像 InsertIntoTableCommand:372-388）+UT。
-> 4. **步骤 7 文档收尾**：更新 `fe-core-iceberg-removal-plan.md` §6b + 设计 Status→DONE + HANDOFF。
-> **整刀验收（设计 §8 末）**：grep 验收 + gate 套件全绿 + docker e2e 跑或标注。
+> **七步 commit 全谱**：`af7e244c3fe`(1/7 rewrite/action 死车道) + `64b03892b20`(2/7 DML 死臂闭包) + `bf326c04741`(3/7 INSERT 死车道并入) + `4e7220d81c7`(4/7 四小类搬中立包) + `255bcaf52a2`(5/7 checkstyle 门禁) + `e5972dfc8a2`(6a/7 rewrite re-derive 补 doAs) + `890b8698e6f`(6b/7 DML 预执行窗口补回滚) + 本文档轮 commit（7/7）。前三刀 -11,000+ 行；设计=`plan-doc/tasks/designs/iceberg-rowlevel-dml-desdk-design.md`（Status=DONE，完成记录在其头部）；removal-plan §6b 已补落地记录。
+> **本轮（4-7 步）要点**：
+> - **4/7 搬包**：IcebergMergeOperation→`nereids.trees.plans.commands.merge.MergeOperation`（改名）、IcebergNereidsUtils 存活半→`commands.RowLevelDmlRowIdUtils`（改名）、IcebergRowId/IcebergMetadataColumn 保名进 `commands`；实际涟漪比设计多 3 个测试文件 + IcebergExternalTable 补 import；IcebergHiddenColumnTest/IcebergMetadataColumnTest 随类搬包时被 nereids 测试包 ImportControl（禁 JUnit4）强制 **JUnit4→5 机械转换**（断言逐条不变）。
+> - **5/7 门禁**：nereids（含 fe-sql-parser）/planner 两 subpackage 禁 `org.apache.iceberg`；**mutation 击杀验证**（注入 SDK import → checkstyle FAILURE → 回滚双绿）。**豁免清单 = 19 处 datasource.iceberg import/14 文件 + 3 测试**（明细在 commit message）：legacy 豁免臂 + 翻闸后死 instanceof 臂 + **活 IcebergUtils 引用**（isIcebergRowLineageColumn v3 行谱系 ×3 + 常量读 ×2——设计"活 import 归零"的说法过于乐观，此面登记待后续中立化，非本刀回归）。
+> - **6a/7**（连接器侧）：registerRewriteSourceFiles 的 pinned-snapshot planFiles re-derive 包 `context.executeAuthenticated`（镜像 commit():438）；新增 2 接线 UT（authCount 递增 + failAuth 证 seam 在 authenticator 内）+ mutation 击杀。
+> - **6b/7**（fe-core）：begin→finalize 窗口抽 `beginTransactionAndFinalizeSink` 包 catch(Throwable)→onFail（镜像 InsertIntoTableCommand:372-388）；`BaseExternalTableInsertExecutor.onFail` protected→public（调用方在父包）；新 RowLevelDmlCommandTest 3 case + mutation 击杀。
+> **整刀验收（Rule 12 口径）**：nereids/planner 零 `org.apache.iceberg` import 且 checkstyle 上锁；13 个 gate 套件 137 测 0 失败（PhysicalPlanTranslatorIcebergRowLevelDml/PhysicalIcebergMergeSink/AdmissionGate/PluginDrivenTableSink/PluginDrivenExternalTable/WriteConstraintExtractor/两 Converter/IcebergDeletePlan/GsonCompatReplay/RowLevelDmlCommand/RowLevelDmlRowIdUtils/IcebergRowLevelDmlTransform）；**docker e2e（dml 4 套件 + action/ 8 套件）flip-gated 未跑**（死码删除理论零行为差；6a kerberos e2e 也 flip-gated——rewrite 车道翻闸后才活）。
+> **⏭ 下一 session（按用户 07-01 既定顺序回翻闸主线）**：**ENG-1 能力孪生审计**（任务清单 §5 + review 报告 §七；见下文 🎯 段）。备选并行项：① 有集群时补跑 flip-gated 回归（meta-cache 两回归 + 类加载冒烟 + `iceberg_branch_complex_queries`/`partition_operations`）；② 盯 PR #64689 CI 的 `test_iceberg_hadoop_catalog_kerberos`（第四刀实证）；③ removal-plan 阶段一余量（fileio/、broker/ 等孤岛死码刀，正交可独立做）。
 
 ---
 

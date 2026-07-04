@@ -1,6 +1,8 @@
 # 行级 DML 去 SDK 化设计（实证重裁定：死车道删除，非新建 SPI）
 
-> Status: **APPROVED（用户 2026-07-04 已裁定 §7 全部四项）— 按 §8 TODO 动码**
+> Status: **DONE（2026-07-05，§8 全七步已落地，逐步独立 commit）**
+> 完成记录：`af7e244c3fe`(1/7) `64b03892b20`(2/7) `bf326c04741`(3/7) `4e7220d81c7`(4/7 搬包) `255bcaf52a2`(5/7 门禁+mutation 击杀) `e5972dfc8a2`(6a/7 rewrite doAs) `890b8698e6f`(6b/7 DML 回滚)。整刀验收：nereids/planner 零 `org.apache.iceberg` import 且 checkstyle 上锁；13 个 gate 套件 137 测 0 失败；docker e2e flip-gated 未跑。执行偏差固化于各 commit message（含 4/7 两个随搬测试 JUnit4→5 机械转换、5/7 的 19 处 datasource.iceberg 残留豁免清单——其中活 IcebergUtils 引用面与本设计 §7-Q3"活 import 归零"预期不符，登记待后续中立化）。
+> （原状态：APPROVED（用户 2026-07-04 已裁定 §7 全部四项）— 按 §8 TODO 动码）
 > 裁定结果：Q1=接受改判为删除；Q2=INSERT 死车道并入本刀；Q3=四个 SDK-free 小类**现在搬**中立包；Q4=两个顺带活问题随本轮各自独立 commit 修。
 > 生成：2026-07-04。方法：11-agent 研究工作流（4 路并行清点：fe-core DML 车道 / 连接器 SPI 面 / Trino merge 模型 / BE 契约 → 完备性批评家 → 6 路补盲），全部结论带 file:line 实证。
 > 上游：`plan-doc/fe-core-iceberg-removal-plan.md` §6b（行级 DML 计划合成）+ §8 Q4=A（去 SDK 化现在做，设计先行）、Q5（设计签字后动码）。
