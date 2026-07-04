@@ -69,15 +69,14 @@ struct OrcReaderScanState;
 //   普通路径 : 先 decode 完请求列，再由 Doris row-level filter 裁 block
 //              当前不在 reader 层单独做 predicate-first lazy materialization
 //
-// 3 类 filter 串行 AND（_build_keep_filter）：
-//   1. column_predicate_filters  : 单列 ColumnPredicate（zonemap-friendly，可转 SARG）
-//   2. conjuncts                 : file-local SQL VExpr 表达式
-//   3. delete_conjuncts          : Iceberg/Hudi delete 标记（不转 SARG）
+// 2 类 filter 串行 AND（_build_keep_filter）：
+//   1. conjuncts        : file-local SQL VExpr 表达式
+//   2. delete_conjuncts : Iceberg/Hudi delete 标记（不转 SARG）
 //
 // 三层 pruning（粒度从粗到细）：
-//   1. Stripe-level   : SARG (ORC 库内) + Doris zonemap (本 reader) 双闸取交集
+//   1. Stripe-level   : SARG (ORC 库内)
 //   2. Row group-level: ORC 库内部用 SARG + row group statistics（不可见）
-//   3. Row-level      : 3 类 filter 行级精确（_build_keep_filter）
+//   3. Row-level      : 2 类 filter 行级精确（_build_keep_filter）
 //
 // 虚拟列（OrcReader 自己生成的列）：
 //   __file_row_position : 当前行在文件里的物理行号（BIGINT）
@@ -96,6 +95,8 @@ public:
     // 6 个生命周期方法（实现 format::FileReader 接口）
     Status init(RuntimeState* state) override; // 打开 ORC 文件，建 ORC Reader 对象
     Status get_schema(std::vector<format::ColumnDefinition>* const file_schema) const override;
+    std::unique_ptr<format::TableColumnMapper> create_column_mapper(
+            format::TableColumnMapperOptions options) const override;
     Status open(std::shared_ptr<format::FileScanRequest> request) override; // 配置投影/SARG/pruning
     Status get_block(Block* file_block, size_t* rows, bool* eof) override; // 读一批
     Status get_aggregate_result(const format::FileAggregateRequest& request,
@@ -157,8 +158,8 @@ private:
     // ============ open() 阶段配置 ============
     // _configure_row_reader_projection  简单 include vs 复杂 includeTypes
     // _can_apply_orc_lazy_callback      判断本次请求能否在 ORC lazy callback 内完整过滤
-    // _init_search_argument_from_local_filters  file-local filters → ORC SARG
-    // _select_stripe_ranges_by_statistics   双闸 stripe pruning（SARG + Doris zonemap）
+    // _init_search_argument_from_local_filters  file-local conjuncts → ORC SARG
+    // _select_stripe_ranges_by_statistics   SARG stripe pruning
     // _apply_current_stripe_range / _advance_to_next_stripe_range
     //                                  stripe pruning 后剩下的可能是不连续区间，要分段读
     // _create_row_reader               实际创建 ORC RowReader（含 lazy callback 注入）
@@ -218,26 +219,19 @@ private:
     Status _fill_global_rowid_column(Block* file_block, size_t rows,
                                      const std::vector<size_t>* selected_rows = nullptr) const;
 
-    // ============ open() 阶段的护栏检查 ============
-    // 早期发现非法 request（列号越界、predicate 是 null 等），避免运行时崩溃。
-    Status _validate_column_predicate_filters() const;
-
-    // ============ Filter 子系统（3 类 filter 的执行 + ORC lazy 决策）============
+    // ============ Filter 子系统（2 类 filter 的执行 + ORC lazy 决策）============
     //
     // _can_filter_with_decoded_columns
     //     给定一组已 decode 的列，能不能跑所有 row-level filter？
     //     仅用于判断 ORC lazy callback 能否安全运行全部 filter。
     //     row-level filter 引用的所有列都已 decode → callback 可用
-    //     有 nested struct target path 的 column_predicate → 不行（需要嵌套 decode）
-    //
     // _filter_has_row_level_predicates
     //     有任何 row-level filter？没有的话直接跳过整套 filter 流程
     //
     // _build_keep_filter
     //     row-level filter 串行 AND 入口，按顺序：
-    //       1. _execute_column_predicate_filters  (Doris ColumnPredicate)
-    //       2. _execute_conjuncts                 (file-local VExpr)
-    //       3. _execute_delete_conjuncts          (Iceberg/Hudi delete)
+    //       1. _execute_conjuncts         (file-local VExpr)
+    //       2. _execute_delete_conjuncts  (Iceberg/Hudi delete)
     //
     // _filter_block / _filter_block_with_keep_filter
     //     旧路径：全列 decode 完后整 block 一次裁齐
@@ -253,8 +247,6 @@ private:
     bool _filter_has_row_level_predicates() const;
     Status _build_keep_filter(Block* file_block, size_t rows, IColumn::Filter* keep_filter) const;
     Status _filter_block(Block* file_block, size_t* rows) const;
-    Status _execute_column_predicate_filters(Block* file_block, size_t rows,
-                                             IColumn::Filter* keep_filter) const;
     Status _execute_conjuncts(Block* file_block, size_t rows, IColumn::Filter* keep_filter) const;
     Status _execute_delete_conjuncts(Block* file_block, size_t rows,
                                      IColumn::Filter* keep_filter) const;

@@ -2227,6 +2227,26 @@ TEST(ColumnMapperLocalizeFiltersTest, ColumnPredicatesUseOnlyExistingLocalPositi
     EXPECT_EQ(mapper.filter_entries().at(GlobalIndex(0)).local_index(), LocalIndex(0));
 }
 
+TEST(ColumnMapperLocalizeFiltersTest, OrcMapperDoesNotEmitColumnPredicateFilters) {
+    const auto int_type = i32();
+    const std::vector<ColumnDefinition> table_schema = {name_col("id", int_type)};
+    const std::vector<ColumnDefinition> file_schema = {name_col("id", int_type, 0)};
+
+    OrcColumnMapper mapper({.mode = TableColumnMappingMode::BY_NAME});
+    ASSERT_TRUE(mapper.create_mapping(table_schema, {}, file_schema).ok());
+
+    TableColumnPredicates predicates;
+    predicates[GlobalIndex(0)] = {create_comparison_predicate<PredicateType::GT>(
+            0, "id", int_type, Field::create_field<TYPE_INT>(10), false)};
+
+    FileScanRequest request;
+    request.non_predicate_columns.push_back(LocalColumnIndex::top_level(LocalColumnId(0)));
+    request.local_positions.emplace(LocalColumnId(0), LocalIndex(0));
+
+    ASSERT_TRUE(mapper.localize_filters({}, predicates, &request).ok());
+    EXPECT_TRUE(request.column_predicate_filters.empty());
+}
+
 TEST(ColumnMapperLocalizeFiltersTest, NestedFilterOnlyChildMergesIntoPredicateProjection) {
     const auto int_type = i32();
     const auto string_type = str();

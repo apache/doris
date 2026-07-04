@@ -28,7 +28,6 @@
 #include <cmath>
 #include <cstdint>
 #include <cstring>
-#include <limits>
 #include <list>
 #include <map>
 #include <memory>
@@ -71,13 +70,12 @@
 #include "exprs/vexpr_context.h"
 #include "exprs/vliteral.h"
 #include "exprs/vslot_ref.h"
+#include "format_v2/column_mapper.h"
 #include "format_v2/orc/orc_search_argument.h"
 #include "io/fs/file_reader.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_profile.h"
 #include "storage/index/zone_map/zone_map_index.h"
-#include "storage/predicate/column_predicate.h"
-#include "storage/predicate/predicate_literal_provider.h"
 #include "storage/utils.h"
 #include "util/slice.h"
 #include "util/timezone_utils.h"
@@ -965,64 +963,6 @@ Status find_projected_minmax_leaf(const ::orc::Type& root_type,
     return find_projected_minmax_leaf_in_type(*column_type, projection, leaf_type);
 }
 
-bool predicate_can_evaluate_orc_zone_map(const ::orc::Type& type,
-                                         const ColumnPredicate& predicate) {
-    if (type.getKind() != ::orc::TypeKind::DECIMAL) {
-        return true;
-    }
-    if (predicate.type() == PredicateType::IS_NULL ||
-        predicate.type() == PredicateType::IS_NOT_NULL) {
-        return true;
-    }
-    const auto* literal_provider = dynamic_cast<const ColumnPredicateLiteralProvider*>(&predicate);
-    if (literal_provider == nullptr) {
-        return true;
-    }
-    const auto literal_type_info = literal_provider->predicate_literal_type_info();
-    return literal_type_info.has_value() &&
-           literal_type_info->scale == cast_set<uint32_t>(decimal_scale_for_orc_type(type));
-}
-
-const ::orc::Type* resolve_predicate_type(const ::orc::Type& root_type,
-                                          const format::FileColumnPredicateFilter& column_filter) {
-    const auto file_column_id = column_filter.file_column_id;
-    if (file_column_id.value() < 0 ||
-        file_column_id.value() >= static_cast<int32_t>(root_type.getSubtypeCount())) {
-        return nullptr;
-    }
-    return root_type.getSubtype(static_cast<uint64_t>(file_column_id.value()));
-}
-
-bool stripe_excludes_filter(const ::orc::Type& root_type, const ::orc::StripeStatistics& statistics,
-                            const format::FileColumnPredicateFilter& column_filter) {
-    const auto* predicate_type = resolve_predicate_type(root_type, column_filter);
-    if (predicate_type == nullptr) {
-        return false;
-    }
-    const auto* column_statistics =
-            statistics.getColumnStatistics(cast_set<uint32_t>(predicate_type->getColumnId()));
-    if (column_statistics == nullptr) {
-        return false;
-    }
-
-    segment_v2::ZoneMap zone_map;
-    if (!build_zone_map_from_orc_statistics(*predicate_type, *column_statistics, &zone_map)) {
-        return false;
-    }
-    for (const auto& predicate : column_filter.predicates) {
-        if (predicate == nullptr || !predicate->support_zonemap()) {
-            continue;
-        }
-        if (!predicate_can_evaluate_orc_zone_map(*predicate_type, *predicate)) {
-            continue;
-        }
-        if (!predicate->evaluate_and(zone_map)) {
-            return true;
-        }
-    }
-    return false;
-}
-
 } // namespace
 
 class OrcReader::OrcFilterImpl final : public ::orc::ORCFilter {
@@ -1478,17 +1418,21 @@ Status OrcReader::get_schema(std::vector<format::ColumnDefinition>* const file_s
     return Status::OK();
 }
 
+std::unique_ptr<format::TableColumnMapper> OrcReader::create_column_mapper(
+        format::TableColumnMapperOptions options) const {
+    return std::make_unique<format::OrcColumnMapper>(std::move(options));
+}
+
 // 阶段 3：open(FileScanRequest) —— 最复杂的一步
 //
-// 8 步流程：
+// 7 步流程：
 //   1. fallback 计算 local_positions（如果上层没传）
 //   2. 收集 read_columns，去重排序
-//   3. _validate_*：护栏检查（早期发现非法 request）
-//   4. _can_apply_orc_lazy_callback：判断本次请求能否在 ORC callback 阶段完整过滤
-//   5. _configure_row_reader_projection：simple include vs nested includeTypes
-//   6. _init_search_argument_from_local_filters：file-local filters → ORC SARG
-//   7. _select_stripe_ranges_by_statistics：双闸 stripe pruning
-//   8. _create_row_reader：实际创建 ORC RowReader（含 lazy callback 注入）
+//   3. _can_apply_orc_lazy_callback：判断本次请求能否在 ORC callback 阶段完整过滤
+//   4. _configure_row_reader_projection：simple include vs nested includeTypes
+//   5. _init_search_argument_from_local_filters：file-local conjuncts → ORC SARG
+//   6. _select_stripe_ranges_by_statistics：SARG stripe pruning
+//   7. _create_row_reader：实际创建 ORC RowReader（含 lazy callback 注入）
 Status OrcReader::open(std::shared_ptr<format::FileScanRequest> request) {
     if (_state == nullptr || _state->reader == nullptr || _state->root_type == nullptr) {
         return Status::Uninitialized("OrcReader is not open");
@@ -1532,21 +1476,19 @@ Status OrcReader::open(std::shared_ptr<format::FileScanRequest> request) {
             std::unique(_state->read_columns.begin(), _state->read_columns.end()),
             _state->read_columns.end());
 
-    // 步骤 3：护栏（防御性检查，不合法 request 早期失败）
-    RETURN_IF_ERROR(_validate_column_predicate_filters());
-    // 步骤 4：是否启用 ORC lazy callback（ORC 库内部 column reader 跳行）
+    // 步骤 3：是否启用 ORC lazy callback（ORC 库内部 column reader 跳行）
     _state->orc_lazy_read_enabled = _can_apply_orc_lazy_callback();
 
-    // 步骤 5：投影配置
+    // 步骤 4：投影配置
     RETURN_IF_ERROR(_configure_row_reader_projection());
     RETURN_IF_ERROR(set_orc_reader_timezone(_state->timezone, &_state->row_reader_options));
     _state->row_reader_options.setEnableLazyDecoding(_state->orc_lazy_read_enabled);
     _state->row_reader_options.setUseTightNumericVector(false);
 
-    // 步骤 6：SARG 构造（TableColumnMapper 已经把 table filter localize 成 file filter）
+    // 步骤 5：SARG 构造（TableColumnMapper 已经把 table filter localize 成 file conjunct）
     RETURN_IF_ERROR(_init_search_argument_from_local_filters());
 
-    // 步骤 7：双闸 stripe pruning（ORC SARG + Doris zonemap 取交集）
+    // 步骤 6：SARG stripe pruning
     RETURN_IF_ERROR(_select_stripe_ranges_by_statistics());
     if (_state->stripe_pruning_applied && _state->selected_stripe_ranges.empty()) {
         // 全部 stripe 被裁掉，直接 EOF（连 RowReader 都不建）
@@ -1555,7 +1497,7 @@ Status OrcReader::open(std::shared_ptr<format::FileScanRequest> request) {
     }
     _apply_current_stripe_range();
 
-    // 步骤 8：实际创建 RowReader（如果 ORC lazy 开了，会同时注入 filter callback）
+    // 步骤 7：实际创建 RowReader（如果 ORC lazy 开了，会同时注入 filter callback）
     RETURN_IF_ERROR(_create_row_reader());
     _eof = _state->reader->getNumberOfRows() == 0;
     return Status::OK();
@@ -1679,7 +1621,7 @@ Status OrcReader::_configure_row_reader_projection() {
     return Status::OK();
 }
 
-// _init_search_argument_from_local_filters —— 把 file-local filters（除 delete）转成 ORC SARG
+// _init_search_argument_from_local_filters —— 把 file-local conjuncts 转成 ORC SARG
 //
 // SARG (SearchArgument) 是 ORC 库自己的谓词表达，用于 stripe / row group pruning。
 // 顶层结构：AND(所有能转的 子句)
@@ -1688,10 +1630,6 @@ Status OrcReader::_configure_row_reader_projection() {
 //   TableColumnMapper::localize_filters 负责 table schema → file-local schema 的表达式定位；
 //   这里只做 ORC-specific lowering：用 file-local slot / nested target 结合 ORC type id
 //   生成 SearchArgument。SearchArgument 依赖 ORC C++ 类型，不放进通用 mapper。
-//
-// 两类来源都 try 一遍：
-//   1. conjuncts             VExpr 表达式
-//   2. column_predicate_filters  Doris ColumnPredicate
 //
 // build_orc_search_argument 返回 bool：
 //   true  这个 子句 转成功并加到 builder 了
@@ -1705,7 +1643,7 @@ Status OrcReader::_configure_row_reader_projection() {
 // delete_conjuncts 不进 SARG：因为 Iceberg delete 引用 row_position 虚拟列，
 // 文件统计里没有这个列的 min/max，无法做 stripe pruning。
 Status OrcReader::_init_search_argument_from_local_filters() {
-    if (_request->conjuncts.empty() && _request->column_predicate_filters.empty()) {
+    if (_request->conjuncts.empty()) {
         return Status::OK();
     }
 
@@ -1713,18 +1651,12 @@ Status OrcReader::_init_search_argument_from_local_filters() {
         auto builder = ::orc::SearchArgumentFactory::newBuilder();
         bool has_pushdown = false;
         builder->startAnd();
-        // 来源 1: conjuncts
         for (const auto& conjunct : _request->conjuncts) {
             if (conjunct == nullptr) {
                 continue;
             }
             has_pushdown = build_orc_search_argument(*_request, *_state->root_type,
                                                      conjunct->root(), builder) ||
-                           has_pushdown;
-        }
-        // 来源 2: column_predicate_filters
-        for (const auto& column_filter : _request->column_predicate_filters) {
-            has_pushdown = build_orc_search_argument(*_state->root_type, column_filter, builder) ||
                            has_pushdown;
         }
         if (!has_pushdown) {
@@ -1738,20 +1670,10 @@ Status OrcReader::_init_search_argument_from_local_filters() {
     return Status::OK();
 }
 
-// _select_stripe_ranges_by_statistics —— stripe 级 pruning（双闸取交集）
+// _select_stripe_ranges_by_statistics —— stripe 级 SARG pruning
 //
-// 两道闸门一起决定 stripe 是否保留：
-//   闸 1：ORC 库自己用 SARG 评估（getNeedReadStripes API）
-//        基于 ORC 文件内 row group statistics
-//   闸 2：Doris 自己用 ColumnPredicate + ZoneMap 再评估一次
-//        基于 ORC 文件 stripe statistics，但用 Doris 的 zonemap 判断逻辑
-//
-// 任一闸门说"drop" → 整 stripe 跳过。两个都说"keep" → 保留。
-//
-// 为什么要双闸：
-//   1. ORC SARG 表达力有限（不支持 Bloom / Bitmap / 大 IN list 等 Doris 谓词）
-//   2. ColumnPredicate 这条路径覆盖 SARG 转不了的谓词
-//   3. 双闸取交集，能裁的 stripe 更多
+// ORC 库用 SearchArgument 评估 stripe/row-group statistics，getNeedReadStripes()
+// 返回每个 stripe 是否需要读取。没转上 SARG 的 conjunct 仍在 row-level filter 兜底。
 //
 // pruning 后剩下的 stripe 可能不连续（如 [1, 3, 4]），合并成连续段：
 //   selected_stripe_ranges = [(1, 2), (3, 5)]
@@ -1761,23 +1683,20 @@ Status OrcReader::_select_stripe_ranges_by_statistics() {
     _state->current_stripe_range = 0;
     _state->stripe_pruning_applied = false;
     const bool has_search_argument = _state->row_reader_options.getSearchArgument() != nullptr;
-    if (_request->column_predicate_filters.empty() && !has_search_argument) {
+    if (!has_search_argument) {
         return Status::OK();
     }
 
     const auto stripe_count = _state->reader->getNumberOfStripes();
-    const auto stripe_statistics_count = _state->reader->getNumberOfStripeStatistics();
     if (stripe_count == 0) {
         return Status::OK();
     }
 
     std::vector<int> sarg_needed_stripes;
-    if (has_search_argument) {
-        try {
-            sarg_needed_stripes = _state->reader->getNeedReadStripes(_state->row_reader_options);
-        } catch (const std::exception& e) {
-            return Status::InternalError("Failed to evaluate ORC search argument: {}", e.what());
-        }
+    try {
+        sarg_needed_stripes = _state->reader->getNeedReadStripes(_state->row_reader_options);
+    } catch (const std::exception& e) {
+        return Status::InternalError("Failed to evaluate ORC search argument: {}", e.what());
     }
 
     std::vector<uint64_t> selected_stripes;
@@ -1789,25 +1708,6 @@ Status OrcReader::_select_stripe_ranges_by_statistics() {
         bool drop = false;
         if (stripe_index < sarg_needed_stripes.size() && sarg_needed_stripes[stripe_index] == 0) {
             drop = true;
-        }
-        if (stripe_index < stripe_statistics_count) {
-            std::unique_ptr<::orc::StripeStatistics> stripe_statistics;
-            try {
-                stripe_statistics = _state->reader->getStripeStatistics(stripe_index);
-            } catch (const std::exception&) {
-                stripe_statistics.reset();
-            }
-            if (stripe_statistics != nullptr) {
-                if (!drop) {
-                    for (const auto& column_filter : _request->column_predicate_filters) {
-                        if (stripe_excludes_filter(*_state->root_type, *stripe_statistics,
-                                                   column_filter)) {
-                            drop = true;
-                            break;
-                        }
-                    }
-                }
-            }
         }
         if (!drop) {
             selected_stripes.push_back(stripe_index);
@@ -2038,7 +1938,7 @@ Status OrcReader::_filter_orc_batch(::orc::ColumnVectorBatch& data, uint16_t* se
     RETURN_IF_ERROR(_decode_columns(*struct_batch, _request->predicate_columns, size, &filter_block,
                                     &decoded_columns));
 
-    // 步骤 3：跑 3 类 filter（顺序：column_predicate → conjuncts → delete）
+    // 步骤 3：跑 row-level filter（顺序：conjuncts → delete）
     IColumn::Filter keep_filter(size, 1);
     RETURN_IF_ERROR(_build_keep_filter(&filter_block, size, &keep_filter));
 
@@ -2660,44 +2560,15 @@ Status OrcReader::_fill_global_rowid_column(Block* file_block, size_t rows,
     return Status::OK();
 }
 
-Status OrcReader::_validate_column_predicate_filters() const {
-    const auto num_fields = static_cast<int32_t>(_state->root_type->getSubtypeCount());
-    for (const auto& column_filter : _request->column_predicate_filters) {
-        const auto file_column_id = column_filter.file_column_id;
-        if (!file_column_id.is_valid() || file_column_id.value() >= num_fields) {
-            return Status::InvalidArgument("Invalid ORC filter top-level field id {}",
-                                           file_column_id.value());
-        }
-        if (!_request->local_positions.contains(file_column_id)) {
-            return Status::InvalidArgument(
-                    "ORC filter column {} is missing from scan column positions",
-                    file_column_id.value());
-        }
-        if (std::find(_state->read_columns.begin(), _state->read_columns.end(), file_column_id) ==
-            _state->read_columns.end()) {
-            return Status::InvalidArgument("ORC filter column {} is not selected for reading",
-                                           file_column_id.value());
-        }
-        for (const auto& predicate : column_filter.predicates) {
-            if (predicate == nullptr) {
-                return Status::InvalidArgument("ORC column predicate is null");
-            }
-        }
-    }
-    return Status::OK();
-}
-
 // _can_filter_with_decoded_columns —— 判断 ORC lazy callback 能否执行全部 filter
 //
 // 给定 ORC callback 已能看到的列 (= predicate_columns)，能不能跑全部 row-level filter？
 // 能跑 → ORC lazy callback 可启用，ORC FOLLOWERS phase 可按 sel[] 跳行 decode
 // 不能跑 → 关闭 ORC lazy，普通路径全列 decode 完后再过滤
 //
-// 3 类 filter 的判断逻辑：
-//   column_predicate  : nested struct target path 的不能 lazy（要嵌套 decode）；
-//                       file_column_id 必须已 decode
-//   conjuncts         : 表达式引用的所有 slot 必须都 decode
-//   delete_conjuncts  : 同上；只有引用 predicate_columns 时才能进 ORC lazy callback
+// 2 类 filter 的判断逻辑：
+//   conjuncts        : 表达式引用的所有 slot 必须都 decode
+//   delete_conjuncts : 同上；只有引用 predicate_columns 时才能进 ORC lazy callback
 bool OrcReader::_can_filter_with_decoded_columns(
         const std::set<format::LocalColumnId>& decoded_columns) const {
     // expr_can_run：递归收集表达式引用的所有 slot column_id，检查是不是都 decode 了
@@ -2723,19 +2594,11 @@ bool OrcReader::_can_filter_with_decoded_columns(
         return true;
     };
 
-    // 1. column_predicate_filters
-    for (const auto& column_filter : _request->column_predicate_filters) {
-        if (!decoded_columns.contains(column_filter.file_column_id)) {
-            return false;
-        }
-    }
-    // 2. conjuncts
     for (const auto& conjunct : _request->conjuncts) {
         if (!expr_can_run(conjunct)) {
             return false;
         }
     }
-    // 3. delete_conjuncts
     for (const auto& delete_conjunct : _request->delete_conjuncts) {
         if (!expr_can_run(delete_conjunct)) {
             return false;
@@ -2746,16 +2609,14 @@ bool OrcReader::_can_filter_with_decoded_columns(
 
 // 是否有任何 row-level filter？没有就跳过整套过滤流程
 bool OrcReader::_filter_has_row_level_predicates() const {
-    return !_request->column_predicate_filters.empty() || !_request->conjuncts.empty() ||
-           !_request->delete_conjuncts.empty();
+    return !_request->conjuncts.empty() || !_request->delete_conjuncts.empty();
 }
 
-// _build_keep_filter —— 3 类 row-level filter 串行 AND 入口
+// _build_keep_filter —— row-level filter 串行 AND 入口
 //
-// 3 类来源（详见 file_reader.h FileScanRequest）：
-//   1. column_predicate_filters  Doris ColumnPredicate 形态（zonemap-friendly + Bloom/Bitmap/HybridSet）
-//   2. conjuncts                 file-local SQL VExpr 表达式
-//   3. delete_conjuncts          Iceberg/Hudi 表层删除（不参与 SARG，row-level 兜底）
+// 2 类来源（详见 file_reader.h FileScanRequest）：
+//   1. conjuncts        file-local SQL VExpr 表达式
+//   2. delete_conjuncts Iceberg/Hudi 表层删除（不参与 SARG，row-level 兜底）
 //
 // 串行 AND 模型：每类 filter 跑完后，结果跟 keep_filter 做 &= 合并。
 // 任一行被任一 filter 标 0 → 整行丢掉。
@@ -2771,7 +2632,6 @@ Status OrcReader::_build_keep_filter(Block* file_block, size_t rows,
         return Status::OK();
     }
 
-    RETURN_IF_ERROR(_execute_column_predicate_filters(file_block, rows, keep_filter));
     RETURN_IF_ERROR(_execute_conjuncts(file_block, rows, keep_filter));
     RETURN_IF_ERROR(_execute_delete_conjuncts(file_block, rows, keep_filter));
     return Status::OK();
@@ -2822,57 +2682,6 @@ void OrcReader::_filter_decoded_columns(
                 position,
                 file_block->get_by_position(position).column->filter(keep_filter, selected_rows));
     }
-}
-
-// Only top-level decoded columns can execute ColumnPredicate directly here.
-// Nested filters still participate through SARG/stripe pruning and row fallback.
-Status OrcReader::_execute_column_predicate_filters(Block* file_block, size_t rows,
-                                                    IColumn::Filter* keep_filter) const {
-    DORIS_CHECK(file_block != nullptr);
-    DORIS_CHECK(keep_filter != nullptr);
-    if (_request->column_predicate_filters.empty()) {
-        return Status::OK();
-    }
-    DORIS_CHECK(rows <= std::numeric_limits<uint16_t>::max());
-
-    std::vector<uint16_t> selection(rows);
-    for (size_t row = 0; row < rows; ++row) {
-        selection[row] = static_cast<uint16_t>(row);
-    }
-    uint16_t selected_rows = static_cast<uint16_t>(rows);
-    for (const auto& column_filter : _request->column_predicate_filters) {
-        const auto position_it = _request->local_positions.find(column_filter.file_column_id);
-        DORIS_CHECK(position_it != _request->local_positions.end());
-        const auto block_position = position_it->second;
-        DORIS_CHECK(block_position.value() < file_block->columns());
-        const auto& column_with_type = file_block->get_by_position(block_position.value());
-        if (!orc_column_predicate_can_execute_on_decoded_column(column_filter,
-                                                                column_with_type.type)) {
-            continue;
-        }
-        for (const auto& predicate : column_filter.predicates) {
-            DORIS_CHECK(predicate != nullptr);
-            if (selected_rows == 0) {
-                break;
-            }
-            RETURN_IF_CATCH_EXCEPTION({
-                selected_rows = predicate->evaluate(*column_with_type.column, selection.data(),
-                                                    selected_rows);
-            });
-        }
-    }
-
-    if (selected_rows == rows) {
-        return Status::OK();
-    }
-    IColumn::Filter predicate_filter(rows, 0);
-    for (uint16_t selection_idx = 0; selection_idx < selected_rows; ++selection_idx) {
-        predicate_filter[selection[selection_idx]] = 1;
-    }
-    for (size_t row = 0; row < rows; ++row) {
-        (*keep_filter)[row] &= predicate_filter[row];
-    }
-    return Status::OK();
 }
 
 Status OrcReader::_execute_conjuncts(Block* file_block, size_t rows,

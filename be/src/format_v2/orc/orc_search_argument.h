@@ -19,7 +19,6 @@
 
 #include <memory>
 
-#include "core/data_type/data_type.h"
 #include "exprs/vexpr_fwd.h"
 #include "format_v2/file_reader.h"
 
@@ -36,12 +35,5 @@ namespace doris::format::orc {
 bool build_orc_search_argument(const format::FileScanRequest& request, const ::orc::Type& root_type,
                                const VExprSPtr& expr,
                                std::unique_ptr<::orc::SearchArgumentBuilder>& builder);
-
-bool build_orc_search_argument(const ::orc::Type& root_type,
-                               const format::FileColumnPredicateFilter& column_filter,
-                               std::unique_ptr<::orc::SearchArgumentBuilder>& builder);
-
-bool orc_column_predicate_can_execute_on_decoded_column(
-        const format::FileColumnPredicateFilter& column_filter, const DataTypePtr& decoded_type);
 
 } // namespace doris::format::orc

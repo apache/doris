@@ -278,6 +278,16 @@ public:
     using TableColumnMapper::TableColumnMapper;
 };
 
+// ORC uses file-local conjuncts both for row-level filtering and for ORC SearchArgument pruning.
+// column_predicate_filters are Parquet-only pruning hints in the v2 path.
+class OrcColumnMapper final : public TableColumnMapper {
+public:
+    using TableColumnMapper::TableColumnMapper;
+
+protected:
+    bool enable_column_predicate_filters() const override { return false; }
+};
+
 // Mapper for readers that always materialize every required file column before filtering. The
 // table-to-file schema mapping is still generic, but the FileScanRequest layout is simpler:
 // predicate_columns and column_predicate_filters are not populated.

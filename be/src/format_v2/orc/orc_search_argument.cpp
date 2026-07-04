@@ -45,21 +45,9 @@
 #include "exprs/vliteral.h"
 #include "exprs/vslot_ref.h"
 #include "exprs/vtopn_pred.h"
-#include "storage/predicate/column_predicate.h"
-#include "storage/predicate/predicate_literal_provider.h"
 
 namespace doris::format::orc {
 namespace {
-
-const ::orc::Type* resolve_predicate_type(const ::orc::Type& root_type,
-                                          const format::FileColumnPredicateFilter& column_filter) {
-    const auto file_column_id = column_filter.file_column_id;
-    if (file_column_id.value() < 0 ||
-        file_column_id.value() >= static_cast<int32_t>(root_type.getSubtypeCount())) {
-        return nullptr;
-    }
-    return root_type.getSubtype(static_cast<uint64_t>(file_column_id.value()));
-}
 
 // SARG conversion is intentionally conservative: only direct slots,
 // struct_element chains, and whitelisted schema-evolution casts become ORC
@@ -541,26 +529,6 @@ std::optional<OrcSargColumn> sarg_column_for_slot_or_safe_cast(
     return column;
 }
 
-std::optional<OrcSargColumn> sarg_column_for_column_filter(
-        const ::orc::Type& root_type, const format::FileColumnPredicateFilter& column_filter) {
-    if (!column_filter.file_column_id.is_valid()) {
-        return std::nullopt;
-    }
-    const auto* orc_type = resolve_predicate_type(root_type, column_filter);
-    if (orc_type == nullptr) {
-        return std::nullopt;
-    }
-    const auto predicate_type = predicate_type_for_orc_type(*orc_type);
-    if (!predicate_type.has_value()) {
-        return std::nullopt;
-    }
-    return OrcSargColumn {
-            .column_id = orc_type->getColumnId(),
-            .predicate_type = *predicate_type,
-            .orc_type = orc_type,
-    };
-}
-
 // Literal conversion preserves ORC PredicateDataType rules. Unsupported
 // literal/type pairs simply make the surrounding predicate non-SARGable.
 std::optional<::orc::Literal> make_long_literal(const Field& field) {
@@ -750,67 +718,6 @@ std::optional<::orc::Literal> make_decimal_literal(const ::orc::Type& orc_type,
                           cast_set<int>(precision), cast_set<int>(scale));
 }
 
-std::optional<::orc::Literal> make_decimal_literal(
-        const ::orc::Type& orc_type, const ColumnPredicateLiteralTypeInfo& literal_type_info,
-        const Field& field) {
-    if (orc_type.getKind() != ::orc::TypeKind::DECIMAL) {
-        return std::nullopt;
-    }
-
-    Int128 decimal_value = 0;
-    switch (field.get_type()) {
-    case TYPE_DECIMALV2:
-        decimal_value = binary_cast<DecimalV2Value, Int128>(field.get<TYPE_DECIMALV2>());
-        break;
-    case TYPE_DECIMAL32:
-        decimal_value = static_cast<Int128>(field.get<TYPE_DECIMAL32>().value);
-        break;
-    case TYPE_DECIMAL64:
-        decimal_value = static_cast<Int128>(field.get<TYPE_DECIMAL64>().value);
-        break;
-    case TYPE_DECIMAL128I:
-        decimal_value = field.get<TYPE_DECIMAL128I>().value;
-        break;
-    default:
-        return std::nullopt;
-    }
-
-    const auto precision = literal_type_info.precision == 0
-                                   ? cast_set<uint32_t>(orc_type.getPrecision())
-                                   : literal_type_info.precision;
-    return ::orc::Literal(::orc::Int128(static_cast<uint64_t>(decimal_value >> 64),
-                                        static_cast<uint64_t>(decimal_value)),
-                          cast_set<int>(precision), cast_set<int>(literal_type_info.scale));
-}
-
-bool column_predicate_can_execute_on_decoded_column(
-        const format::FileColumnPredicateFilter& column_filter, const DataTypePtr& decoded_type) {
-    const auto nested_type = remove_nullable(decoded_type);
-    if (nested_type == nullptr || !is_decimal(nested_type->get_primitive_type())) {
-        return true;
-    }
-    for (const auto& predicate : column_filter.predicates) {
-        if (predicate == nullptr) {
-            return false;
-        }
-        if (predicate->type() == PredicateType::IS_NULL ||
-            predicate->type() == PredicateType::IS_NOT_NULL) {
-            continue;
-        }
-        const auto* literal_provider =
-                dynamic_cast<const ColumnPredicateLiteralProvider*>(predicate.get());
-        if (literal_provider == nullptr) {
-            return false;
-        }
-        const auto literal_type_info = literal_provider->predicate_literal_type_info();
-        if (!literal_type_info.has_value() ||
-            literal_type_info->scale != cast_set<uint32_t>(nested_type->get_scale())) {
-            return false;
-        }
-    }
-    return true;
-}
-
 std::optional<::orc::Literal> make_orc_literal(const OrcSargColumn& sarg_column,
                                                const Field& field) {
     switch (sarg_column.predicate_type) {
@@ -827,22 +734,9 @@ std::optional<::orc::Literal> make_orc_literal(const OrcSargColumn& sarg_column,
     case ::orc::PredicateDataType::TIMESTAMP:
         return make_timestamp_literal(field);
     case ::orc::PredicateDataType::DECIMAL:
-        // ColumnPredicate does not currently carry decimal scale/precision.
         return std::nullopt;
     }
     return std::nullopt;
-}
-
-std::optional<::orc::Literal> make_orc_literal(
-        const OrcSargColumn& sarg_column, const Field& field,
-        const std::optional<ColumnPredicateLiteralTypeInfo>& literal_type_info) {
-    if (sarg_column.predicate_type != ::orc::PredicateDataType::DECIMAL) {
-        return make_orc_literal(sarg_column, field);
-    }
-    if (sarg_column.orc_type == nullptr || !literal_type_info.has_value()) {
-        return std::nullopt;
-    }
-    return make_decimal_literal(*sarg_column.orc_type, *literal_type_info, field);
 }
 
 std::optional<::orc::Literal> make_orc_literal(const OrcSargColumn& sarg_column,
@@ -1446,56 +1340,6 @@ void build_comparison_predicate(const format::FileScanRequest& request,
     }
 }
 
-bool build_column_comparison_predicate(const OrcSargColumn& column,
-                                       const ColumnPredicate& predicate,
-                                       std::unique_ptr<::orc::SearchArgumentBuilder>& builder) {
-    if (!PredicateTypeTraits::is_comparison(predicate.type())) {
-        return false;
-    }
-    const auto* literal_provider = dynamic_cast<const ColumnPredicateLiteralProvider*>(&predicate);
-    if (literal_provider == nullptr) {
-        return false;
-    }
-    const auto field = literal_provider->predicate_value();
-    if (!field.has_value()) {
-        return false;
-    }
-    const auto literal =
-            make_orc_literal(column, *field, literal_provider->predicate_literal_type_info());
-    if (!literal.has_value()) {
-        return false;
-    }
-
-    switch (predicate.type()) {
-    case PredicateType::GE:
-        builder->startNot();
-        build_less_than(column, *literal, builder);
-        builder->end();
-        return true;
-    case PredicateType::GT:
-        builder->startNot();
-        build_less_than_equals(column, *literal, builder);
-        builder->end();
-        return true;
-    case PredicateType::LE:
-        build_less_than_equals(column, *literal, builder);
-        return true;
-    case PredicateType::LT:
-        build_less_than(column, *literal, builder);
-        return true;
-    case PredicateType::EQ:
-        build_equals(column, *literal, builder);
-        return true;
-    case PredicateType::NE:
-        builder->startNot();
-        build_equals(column, *literal, builder);
-        builder->end();
-        return true;
-    default:
-        return false;
-    }
-}
-
 void build_in_predicate(const format::FileScanRequest& request, const ::orc::Type& root_type,
                         const VExprSPtr& expr,
                         std::unique_ptr<::orc::SearchArgumentBuilder>& builder) {
@@ -1508,48 +1352,6 @@ void build_in_predicate(const format::FileScanRequest& request, const ::orc::Typ
         return;
     }
     builder->in(sarg_column.column_id, sarg_column.predicate_type, literals);
-}
-
-bool build_column_in_predicate(const OrcSargColumn& column, const ColumnPredicate& predicate,
-                               std::unique_ptr<::orc::SearchArgumentBuilder>& builder) {
-    if (!PredicateTypeTraits::is_list(predicate.type())) {
-        return false;
-    }
-    const auto* literal_provider = dynamic_cast<const ColumnPredicateLiteralProvider*>(&predicate);
-    if (literal_provider == nullptr) {
-        return false;
-    }
-
-    std::vector<Field> fields;
-    if (!literal_provider->predicate_values(&fields)) {
-        return false;
-    }
-    std::vector<::orc::Literal> literals;
-    literals.reserve(fields.size());
-    for (const auto& field : fields) {
-        auto literal =
-                make_orc_literal(column, field, literal_provider->predicate_literal_type_info());
-        if (!literal.has_value()) {
-            return false;
-        }
-        literals.push_back(*literal);
-    }
-    if (literals.empty()) {
-        return false;
-    }
-
-    if (predicate.type() == PredicateType::NOT_IN_LIST) {
-        builder->startNot();
-    }
-    if (literals.size() == 1) {
-        build_equals(column, literals.front(), builder);
-    } else {
-        builder->in(column.column_id, column.predicate_type, literals);
-    }
-    if (predicate.type() == PredicateType::NOT_IN_LIST) {
-        builder->end();
-    }
-    return true;
 }
 
 void build_is_null(const format::FileScanRequest& request, const ::orc::Type& root_type,
@@ -1569,56 +1371,6 @@ void build_null_safe_equal(const format::FileScanRequest& request, const ::orc::
     }
     const auto comparison = *sarg_comparison_for_null_safe_equal_literal(request, root_type, expr);
     build_equals(comparison, builder);
-}
-
-bool build_column_null_predicate(const OrcSargColumn& column, const ColumnPredicate& predicate,
-                                 std::unique_ptr<::orc::SearchArgumentBuilder>& builder) {
-    switch (predicate.type()) {
-    case PredicateType::IS_NULL:
-        builder->isNull(column.column_id, column.predicate_type);
-        return true;
-    case PredicateType::IS_NOT_NULL:
-        builder->startNot();
-        builder->isNull(column.column_id, column.predicate_type);
-        builder->end();
-        return true;
-    default:
-        return false;
-    }
-}
-
-bool build_column_predicate_search_argument(
-        const OrcSargColumn& column, const ColumnPredicate& predicate,
-        std::unique_ptr<::orc::SearchArgumentBuilder>& builder) {
-    if (predicate.opposite()) {
-        return false;
-    }
-    if (build_column_comparison_predicate(column, predicate, builder)) {
-        return true;
-    }
-    if (build_column_in_predicate(column, predicate, builder)) {
-        return true;
-    }
-    return build_column_null_predicate(column, predicate, builder);
-}
-
-bool build_search_argument(const ::orc::Type& root_type,
-                           const format::FileColumnPredicateFilter& column_filter,
-                           std::unique_ptr<::orc::SearchArgumentBuilder>& builder) {
-    const auto column = sarg_column_for_column_filter(root_type, column_filter);
-    if (!column.has_value()) {
-        return false;
-    }
-
-    bool has_pushdown = false;
-    for (const auto& predicate : column_filter.predicates) {
-        if (predicate == nullptr) {
-            continue;
-        }
-        has_pushdown = build_column_predicate_search_argument(*column, *predicate, builder) ||
-                       has_pushdown;
-    }
-    return has_pushdown;
 }
 
 bool build_search_argument(const format::FileScanRequest& request, const ::orc::Type& root_type,
@@ -1698,17 +1450,6 @@ bool build_orc_search_argument(const format::FileScanRequest& request, const ::o
                                const VExprSPtr& expr,
                                std::unique_ptr<::orc::SearchArgumentBuilder>& builder) {
     return build_search_argument(request, root_type, expr, builder);
-}
-
-bool build_orc_search_argument(const ::orc::Type& root_type,
-                               const format::FileColumnPredicateFilter& column_filter,
-                               std::unique_ptr<::orc::SearchArgumentBuilder>& builder) {
-    return build_search_argument(root_type, column_filter, builder);
-}
-
-bool orc_column_predicate_can_execute_on_decoded_column(
-        const format::FileColumnPredicateFilter& column_filter, const DataTypePtr& decoded_type) {
-    return column_predicate_can_execute_on_decoded_column(column_filter, decoded_type);
 }
 
 } // namespace doris::format::orc

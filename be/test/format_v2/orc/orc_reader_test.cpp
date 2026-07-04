@@ -36,7 +36,6 @@
 #include <utility>
 #include <vector>
 
-#include "common/compare.h"
 #include "core/assert_cast.h"
 #include "core/block/block.h"
 #include "core/column/column_array.h"
@@ -67,7 +66,6 @@
 #include "io/io_common.h"
 #include "runtime/runtime_profile.h"
 #include "runtime/runtime_state.h"
-#include "storage/predicate/predicate_creator.h"
 #include "storage/utils.h"
 
 namespace doris {
@@ -205,41 +203,6 @@ private:
     const std::string _cname;
 };
 
-template <PrimitiveType Type>
-class ZoneMapOnlyGreaterThanPredicate final : public ColumnPredicate {
-public:
-    using ValueType = typename PrimitiveTypeTraits<Type>::CppType;
-
-    ZoneMapOnlyGreaterThanPredicate(uint32_t column_id, const std::string& column_name,
-                                    const ValueType& value)
-            : ColumnPredicate(column_id, column_name, Type), _value(value) {}
-
-    ZoneMapOnlyGreaterThanPredicate(const ZoneMapOnlyGreaterThanPredicate& other,
-                                    uint32_t column_id)
-            : ColumnPredicate(other, column_id), _value(other._value) {}
-
-    PredicateType type() const override { return PredicateType::GT; }
-
-    std::shared_ptr<ColumnPredicate> clone(uint32_t column_id) const override {
-        return std::make_shared<ZoneMapOnlyGreaterThanPredicate>(*this, column_id);
-    }
-
-    bool evaluate_and(const segment_v2::ZoneMap& zone_map) const override {
-        if (!zone_map.has_not_null) {
-            return false;
-        }
-        return Compare::greater(zone_map.max_value.template get<Type>(), _value);
-    }
-
-protected:
-    uint16_t _evaluate_inner(const IColumn& column, uint16_t* sel, uint16_t size) const override {
-        return size;
-    }
-
-private:
-    const ValueType _value;
-};
-
 constexpr int64_t ROW_COUNT = 5;
 constexpr int64_t PRIMITIVE_ROW_COUNT = 3;
 constexpr int64_t COMPLEX_ROW_COUNT = 3;
@@ -312,6 +275,45 @@ private:
     const int _column_id;
     const int32_t _value;
     const std::string _expr_name = "NullableInt32GreaterThanExpr";
+};
+
+class NullableInt32LessThanExpr final : public VExpr {
+public:
+    NullableInt32LessThanExpr(int column_id, int32_t value)
+            : VExpr(std::make_shared<DataTypeUInt8>(), false),
+              _column_id(column_id),
+              _value(value) {
+        _node_type = TExprNodeType::BINARY_PRED;
+        _opcode = TExprOpcode::LT;
+        const auto int_type = std::make_shared<DataTypeInt32>();
+        add_child(TableSlotRef::create_shared(column_id, column_id, -1, make_nullable(int_type),
+                                              "id"));
+        add_child(TableLiteral::create_shared(int_type, Field::create_field<TYPE_INT>(value)));
+    }
+
+    Status execute_column_impl(VExprContext* context, const Block* block, const Selector* selector,
+                               size_t count, ColumnPtr& result_column) const override {
+        const auto& nullable_column =
+                assert_cast<const ColumnNullable&>(*block->get_by_position(_column_id).column);
+        const auto& input = assert_cast<const ColumnInt32&>(nullable_column.get_nested_column());
+        auto result = ColumnUInt8::create();
+        auto& result_data = result->get_data();
+        result_data.resize(count);
+        for (size_t row = 0; row < count; ++row) {
+            const size_t input_row = selector == nullptr ? row : (*selector)[row];
+            result_data[row] =
+                    !nullable_column.is_null_at(input_row) && input.get_element(input_row) < _value;
+        }
+        result_column = std::move(result);
+        return Status::OK();
+    }
+
+    const std::string& expr_name() const override { return _expr_name; }
+
+private:
+    const int _column_id;
+    const int32_t _value;
+    const std::string _expr_name = "NullableInt32LessThanExpr";
 };
 
 class NullableInt32EqualsExpr final : public VExpr {
@@ -2374,6 +2376,59 @@ private:
     const std::string _expr_name;
 };
 
+template <PrimitiveType Primitive>
+class NullableInExpr final : public VExpr {
+public:
+    using ColumnType = typename PrimitiveTypeTraits<Primitive>::ColumnType;
+    using ValueType = typename PrimitiveTypeTraits<Primitive>::CppType;
+
+    NullableInExpr(int column_id, DataTypePtr type, std::vector<Field> values,
+                   std::string column_name, bool not_in = false)
+            : VExpr(std::make_shared<DataTypeUInt8>(), false),
+              _column_id(column_id),
+              _not_in(not_in) {
+        _node_type = TExprNodeType::IN_PRED;
+        _opcode = not_in ? TExprOpcode::FILTER_NOT_IN : TExprOpcode::FILTER_IN;
+        add_child(TableSlotRef::create_shared(column_id, column_id, -1, make_nullable(type),
+                                              column_name));
+        _values.reserve(values.size());
+        for (const auto& value : values) {
+            _values.push_back(value.get<Primitive>());
+            add_child(TableLiteral::create_shared(type, value));
+        }
+    }
+
+    Status execute_column_impl(VExprContext* context, const Block* block, const Selector* selector,
+                               size_t count, ColumnPtr& result_column) const override {
+        const auto& nullable_column =
+                assert_cast<const ColumnNullable&>(*block->get_by_position(_column_id).column);
+        const auto& input = assert_cast<const ColumnType&>(nullable_column.get_nested_column());
+        auto result = ColumnUInt8::create();
+        auto& result_data = result->get_data();
+        result_data.resize(count);
+        for (size_t row = 0; row < count; ++row) {
+            const size_t input_row = selector == nullptr ? row : (*selector)[row];
+            if (nullable_column.is_null_at(input_row)) {
+                result_data[row] = 0;
+                continue;
+            }
+            const auto value = input.get_element(input_row);
+            const auto contains = std::find(_values.begin(), _values.end(), value) != _values.end();
+            result_data[row] = _not_in ? !contains : contains;
+        }
+        result_column = std::move(result);
+        return Status::OK();
+    }
+
+    const std::string& expr_name() const override { return _expr_name; }
+
+private:
+    const int _column_id;
+    const bool _not_in;
+    std::vector<ValueType> _values;
+    const std::string _expr_name = "NullableInExpr";
+};
+
 class NullableDecimalCastToStringGreaterThanExpr final : public VExpr {
 public:
     NullableDecimalCastToStringGreaterThanExpr(int column_id, DataTypePtr slot_type,
@@ -4087,11 +4142,8 @@ TEST_F(NewOrcReaderTest, AggregatePushdownUsesPrunedStripes) {
 
     auto request = std::make_shared<format::FileScanRequest>();
     request->predicate_columns = {field_projection(0)};
-    format::FileColumnPredicateFilter column_filter;
-    column_filter.file_column_id = format::LocalColumnId(0);
-    column_filter.predicates.push_back(create_comparison_predicate<PredicateType::GT>(
-            0, "id", schema[0].type, Field::create_field<TYPE_INT>(500), false));
-    request->column_predicate_filters.push_back(std::move(column_filter));
+    request->conjuncts.push_back(
+            VExprContext::create_shared(std::make_shared<NullableInt32GreaterThanExpr>(0, 500)));
     ASSERT_TRUE(reader->open(request).ok());
 
     format::FileAggregateRequest count_request;
@@ -4854,7 +4906,7 @@ TEST_F(NewOrcReaderTest, DeletePredicateFiltersRowPositions) {
     EXPECT_EQ(reader->reader_statistics().orc_lazy_read_filtered_rows, 2);
 }
 
-TEST_F(NewOrcReaderTest, ColumnPredicatePrunesStripesByStatistics) {
+TEST_F(NewOrcReaderTest, SargConjunctPrunesStripesByStatistics) {
     const auto multi_stripe_file_path = (_test_dir / "multi_stripe.orc").string();
     write_multi_stripe_orc_int_file(multi_stripe_file_path);
     ASSERT_EQ(get_orc_stripe_count(multi_stripe_file_path), 2);
@@ -4869,11 +4921,8 @@ TEST_F(NewOrcReaderTest, ColumnPredicatePrunesStripesByStatistics) {
 
     auto request = std::make_shared<format::FileScanRequest>();
     request->predicate_columns = {field_projection(0)};
-    format::FileColumnPredicateFilter column_filter;
-    column_filter.file_column_id = format::LocalColumnId(0);
-    column_filter.predicates.push_back(create_comparison_predicate<PredicateType::GT>(
-            0, "id", schema[0].type, Field::create_field<TYPE_INT>(500), false));
-    request->column_predicate_filters.push_back(std::move(column_filter));
+    request->conjuncts.push_back(
+            VExprContext::create_shared(std::make_shared<NullableInt32GreaterThanExpr>(0, 500)));
     ASSERT_TRUE(reader->open(request).ok());
 
     bool eof = false;
@@ -4901,8 +4950,7 @@ TEST_F(NewOrcReaderTest, ColumnPredicatePrunesStripesByStatistics) {
 }
 
 TEST_F(NewOrcReaderTest, ClosePublishesReaderStatisticsToRuntimeProfile) {
-    const auto multi_stripe_file_path =
-            (_test_dir / "profile_column_predicate_pruning.orc").string();
+    const auto multi_stripe_file_path = (_test_dir / "profile_sarg_pruning.orc").string();
     write_multi_stripe_orc_int_file(multi_stripe_file_path);
     ASSERT_EQ(get_orc_stripe_count(multi_stripe_file_path), 2);
 
@@ -4920,11 +4968,8 @@ TEST_F(NewOrcReaderTest, ClosePublishesReaderStatisticsToRuntimeProfile) {
 
     auto request = std::make_shared<format::FileScanRequest>();
     request->predicate_columns = {field_projection(0)};
-    format::FileColumnPredicateFilter column_filter;
-    column_filter.file_column_id = format::LocalColumnId(0);
-    column_filter.predicates.push_back(create_comparison_predicate<PredicateType::GT>(
-            0, "id", schema[0].type, Field::create_field<TYPE_INT>(500), false));
-    request->column_predicate_filters.push_back(std::move(column_filter));
+    request->conjuncts.push_back(
+            VExprContext::create_shared(std::make_shared<NullableInt32GreaterThanExpr>(0, 500)));
     ASSERT_TRUE(reader->open(request).ok());
 
     bool eof = false;
@@ -4974,43 +5019,6 @@ TEST_F(NewOrcReaderTest, ClosePublishesReaderStatisticsToRuntimeProfile) {
     EXPECT_EQ(profile.get_counter("FileNum")->value(), 1);
     EXPECT_EQ(profile.get_counter("ReadRowCount")->value(),
               static_cast<int64_t>(file_reader_stats.read_rows));
-}
-
-TEST_F(NewOrcReaderTest, ColumnPredicateUsesTargetWhenCompatibilityFieldsAreUnset) {
-    const auto multi_stripe_file_path = (_test_dir / "target_only_column_predicate.orc").string();
-    write_multi_stripe_orc_int_file(multi_stripe_file_path);
-    ASSERT_EQ(get_orc_stripe_count(multi_stripe_file_path), 2);
-
-    auto reader = create_reader_for_path(multi_stripe_file_path);
-    RuntimeState state {TQueryOptions(), TQueryGlobals()};
-    ASSERT_TRUE(reader->init(&state).ok());
-
-    std::vector<format::ColumnDefinition> schema;
-    ASSERT_TRUE(reader->get_schema(&schema).ok());
-    ASSERT_EQ(schema.size(), 2);
-
-    auto request = std::make_shared<format::FileScanRequest>();
-    request->predicate_columns = {field_projection(0)};
-    format::FileColumnPredicateFilter column_filter;
-    column_filter.file_column_id = format::LocalColumnId(0);
-    column_filter.predicates.push_back(create_comparison_predicate<PredicateType::GT>(
-            0, "id", schema[0].type, Field::create_field<TYPE_INT>(500), false));
-    request->column_predicate_filters.push_back(std::move(column_filter));
-    ASSERT_TRUE(reader->open(request).ok());
-
-    bool eof = false;
-    size_t result_rows = 0;
-    while (!eof) {
-        Block block = build_file_block({schema[0]});
-        size_t rows = 0;
-        ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
-        result_rows += rows;
-    }
-
-    EXPECT_EQ(result_rows, 200);
-    EXPECT_EQ(reader->reader_statistics().filtered_row_groups, 1);
-    EXPECT_EQ(reader->reader_statistics().filtered_row_groups_by_min_max, 1);
-    EXPECT_EQ(reader->reader_statistics().filtered_group_rows, 200);
 }
 
 TEST_F(NewOrcReaderTest, SargConjunctPrunesStripes) {
@@ -7236,9 +7244,8 @@ TEST_F(NewOrcReaderTest, SargDecimalCastToStringDoesNotPruneStripes) {
     EXPECT_EQ(reader->reader_statistics().filtered_group_rows, 0);
 }
 
-TEST_F(NewOrcReaderTest, ColumnPredicateTimestampBuildsSargAndPrunesStripes) {
-    const auto multi_stripe_file_path =
-            (_test_dir / "column_predicate_sarg_timestamp.orc").string();
+TEST_F(NewOrcReaderTest, SargTimestampInListConjunctPrunesStripes) {
+    const auto multi_stripe_file_path = (_test_dir / "sarg_timestamp_in.orc").string();
     write_multi_stripe_orc_sarg_types_file(multi_stripe_file_path);
     ASSERT_EQ(get_orc_stripe_count(multi_stripe_file_path), 2);
 
@@ -7250,97 +7257,14 @@ TEST_F(NewOrcReaderTest, ColumnPredicateTimestampBuildsSargAndPrunesStripes) {
     ASSERT_TRUE(reader->get_schema(&schema).ok());
     ASSERT_EQ(schema.size(), 4);
 
-    const auto literal = Field::create_field<TYPE_DATETIMEV2>(make_datetime_v2(2020, 1, 1));
     auto request = std::make_shared<format::FileScanRequest>();
     request->predicate_columns = {field_projection(1)};
-    format::FileColumnPredicateFilter column_filter;
-    column_filter.file_column_id = format::LocalColumnId(1);
-    column_filter.predicates.push_back(create_comparison_predicate<PredicateType::GT>(
-            0, "timestamp_col", schema[1].type, literal, false));
-    request->column_predicate_filters.push_back(std::move(column_filter));
-    ASSERT_TRUE(reader->open(request).ok());
-
-    bool eof = false;
-    size_t result_rows = 0;
-    while (!eof) {
-        Block block = build_file_block({schema[1]});
-        size_t rows = 0;
-        ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
-        result_rows += rows;
-    }
-
-    EXPECT_EQ(result_rows, 200);
-    EXPECT_EQ(reader->reader_statistics().filtered_row_groups, 1);
-    EXPECT_EQ(reader->reader_statistics().filtered_row_groups_by_min_max, 1);
-    EXPECT_EQ(reader->reader_statistics().filtered_group_rows, 200);
-}
-
-TEST_F(NewOrcReaderTest, ColumnPredicateTimestampPrunesStripesByDorisStatistics) {
-    const auto multi_stripe_file_path =
-            (_test_dir / "column_predicate_stats_timestamp.orc").string();
-    write_multi_stripe_orc_sarg_types_file(multi_stripe_file_path);
-    ASSERT_EQ(get_orc_stripe_count(multi_stripe_file_path), 2);
-
-    auto reader = create_reader_for_path(multi_stripe_file_path);
-    RuntimeState state {TQueryOptions(), TQueryGlobals()};
-    ASSERT_TRUE(reader->init(&state).ok());
-
-    std::vector<format::ColumnDefinition> schema;
-    ASSERT_TRUE(reader->get_schema(&schema).ok());
-    ASSERT_EQ(schema.size(), 4);
-
-    const auto literal = make_datetime_v2(2020, 1, 1);
-    auto request = std::make_shared<format::FileScanRequest>();
-    request->predicate_columns = {field_projection(1)};
-    format::FileColumnPredicateFilter column_filter;
-    column_filter.file_column_id = format::LocalColumnId(1);
-    column_filter.predicates.push_back(
-            std::make_shared<ZoneMapOnlyGreaterThanPredicate<TYPE_DATETIMEV2>>(0, "timestamp_col",
-                                                                               literal));
-    request->column_predicate_filters.push_back(std::move(column_filter));
-    ASSERT_TRUE(reader->open(request).ok());
-
-    bool eof = false;
-    size_t result_rows = 0;
-    while (!eof) {
-        Block block = build_file_block({schema[1]});
-        size_t rows = 0;
-        auto status = reader->get_block(&block, &rows, &eof);
-        ASSERT_TRUE(status.ok()) << status.to_string();
-        result_rows += rows;
-    }
-
-    EXPECT_EQ(result_rows, 200);
-    EXPECT_EQ(reader->reader_statistics().filtered_row_groups, 1);
-    EXPECT_EQ(reader->reader_statistics().filtered_row_groups_by_min_max, 1);
-    EXPECT_EQ(reader->reader_statistics().filtered_group_rows, 200);
-}
-
-TEST_F(NewOrcReaderTest, ColumnPredicateTimestampInListBuildsSargAndPrunesStripes) {
-    const auto multi_stripe_file_path =
-            (_test_dir / "column_predicate_sarg_timestamp_in.orc").string();
-    write_multi_stripe_orc_sarg_types_file(multi_stripe_file_path);
-    ASSERT_EQ(get_orc_stripe_count(multi_stripe_file_path), 2);
-
-    auto reader = create_reader_for_path(multi_stripe_file_path);
-    RuntimeState state {TQueryOptions(), TQueryGlobals()};
-    ASSERT_TRUE(reader->init(&state).ok());
-
-    std::vector<format::ColumnDefinition> schema;
-    ASSERT_TRUE(reader->get_schema(&schema).ok());
-    ASSERT_EQ(schema.size(), 4);
-
-    auto value_set = build_set<TYPE_DATETIMEV2>();
-    auto literal = make_datetime_v2(2021, 1, 1, 0, 0, 0, 123000);
-    value_set->insert(&literal);
-
-    auto request = std::make_shared<format::FileScanRequest>();
-    request->predicate_columns = {field_projection(1)};
-    format::FileColumnPredicateFilter column_filter;
-    column_filter.file_column_id = format::LocalColumnId(1);
-    column_filter.predicates.push_back(create_in_list_predicate<PredicateType::IN_LIST>(
-            0, "timestamp_col", schema[1].type, value_set, false));
-    request->column_predicate_filters.push_back(std::move(column_filter));
+    request->conjuncts.push_back(VExprContext::create_shared(
+            std::make_shared<NullableInExpr<TYPE_DATETIMEV2>>(
+                    0, remove_nullable(schema[1].type),
+                    std::vector<Field> {Field::create_field<TYPE_DATETIMEV2>(
+                            make_datetime_v2(2021, 1, 1, 0, 0, 0, 123000))},
+                    "timestamp_col")));
     ASSERT_TRUE(reader->open(request).ok());
 
     bool eof = false;
@@ -7358,9 +7282,8 @@ TEST_F(NewOrcReaderTest, ColumnPredicateTimestampInListBuildsSargAndPrunesStripe
     EXPECT_EQ(reader->reader_statistics().filtered_group_rows, 200);
 }
 
-TEST_F(NewOrcReaderTest, ColumnPredicateTimestampNotInListBuildsSargAndPrunesStripes) {
-    const auto multi_stripe_file_path =
-            (_test_dir / "column_predicate_sarg_timestamp_not_in.orc").string();
+TEST_F(NewOrcReaderTest, SargTimestampNotInListConjunctPrunesStripes) {
+    const auto multi_stripe_file_path = (_test_dir / "sarg_timestamp_not_in.orc").string();
     write_two_stripe_constant_timestamp_file(multi_stripe_file_path, 0, 1609459200);
     ASSERT_EQ(get_orc_stripe_count(multi_stripe_file_path), 2);
 
@@ -7372,17 +7295,14 @@ TEST_F(NewOrcReaderTest, ColumnPredicateTimestampNotInListBuildsSargAndPrunesStr
     ASSERT_TRUE(reader->get_schema(&schema).ok());
     ASSERT_EQ(schema.size(), 2);
 
-    auto value_set = build_set<TYPE_DATETIMEV2>();
-    auto literal = make_datetime_v2(1970, 1, 1, 0, 0, 0, 123000);
-    value_set->insert(&literal);
-
     auto request = std::make_shared<format::FileScanRequest>();
     request->predicate_columns = {field_projection(0)};
-    format::FileColumnPredicateFilter column_filter;
-    column_filter.file_column_id = format::LocalColumnId(0);
-    column_filter.predicates.push_back(create_in_list_predicate<PredicateType::NOT_IN_LIST>(
-            0, "timestamp_col", schema[0].type, value_set, false));
-    request->column_predicate_filters.push_back(std::move(column_filter));
+    request->conjuncts.push_back(VExprContext::create_shared(
+            std::make_shared<NullableInExpr<TYPE_DATETIMEV2>>(
+                    0, remove_nullable(schema[0].type),
+                    std::vector<Field> {Field::create_field<TYPE_DATETIMEV2>(
+                            make_datetime_v2(1970, 1, 1, 0, 0, 0, 123000))},
+                    "timestamp_col", true)));
     ASSERT_TRUE(reader->open(request).ok());
 
     bool eof = false;
@@ -7400,127 +7320,7 @@ TEST_F(NewOrcReaderTest, ColumnPredicateTimestampNotInListBuildsSargAndPrunesStr
     EXPECT_EQ(reader->reader_statistics().filtered_group_rows, 200);
 }
 
-TEST_F(NewOrcReaderTest, ColumnPredicateDecimalBuildsSargAndPrunesStripes) {
-    const auto multi_stripe_file_path = (_test_dir / "column_predicate_sarg_decimal.orc").string();
-    write_multi_stripe_orc_sarg_types_file(multi_stripe_file_path);
-    ASSERT_EQ(get_orc_stripe_count(multi_stripe_file_path), 2);
-
-    auto reader = create_reader_for_path(multi_stripe_file_path);
-    RuntimeState state {TQueryOptions(), TQueryGlobals()};
-    ASSERT_TRUE(reader->init(&state).ok());
-
-    std::vector<format::ColumnDefinition> schema;
-    ASSERT_TRUE(reader->get_schema(&schema).ok());
-    ASSERT_EQ(schema.size(), 4);
-
-    auto request = std::make_shared<format::FileScanRequest>();
-    request->predicate_columns = {field_projection(2)};
-    format::FileColumnPredicateFilter column_filter;
-    column_filter.file_column_id = format::LocalColumnId(2);
-    column_filter.predicates.push_back(create_comparison_predicate<PredicateType::GT>(
-            0, "decimal_col", schema[2].type, Field::create_field<TYPE_DECIMAL128I>(50000), false));
-    request->column_predicate_filters.push_back(std::move(column_filter));
-    ASSERT_TRUE(reader->open(request).ok());
-
-    bool eof = false;
-    size_t result_rows = 0;
-    while (!eof) {
-        Block block = build_file_block({schema[2]});
-        size_t rows = 0;
-        ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
-        result_rows += rows;
-    }
-
-    EXPECT_EQ(result_rows, 200);
-    EXPECT_EQ(reader->reader_statistics().filtered_row_groups, 1);
-    EXPECT_EQ(reader->reader_statistics().filtered_row_groups_by_min_max, 1);
-    EXPECT_EQ(reader->reader_statistics().filtered_group_rows, 200);
-}
-
-TEST_F(NewOrcReaderTest, ColumnPredicateDecimalPrunesStripesByDorisStatistics) {
-    const auto multi_stripe_file_path = (_test_dir / "column_predicate_stats_decimal.orc").string();
-    write_multi_stripe_orc_sarg_types_file(multi_stripe_file_path);
-    ASSERT_EQ(get_orc_stripe_count(multi_stripe_file_path), 2);
-
-    auto reader = create_reader_for_path(multi_stripe_file_path);
-    RuntimeState state {TQueryOptions(), TQueryGlobals()};
-    ASSERT_TRUE(reader->init(&state).ok());
-
-    std::vector<format::ColumnDefinition> schema;
-    ASSERT_TRUE(reader->get_schema(&schema).ok());
-    ASSERT_EQ(schema.size(), 4);
-
-    auto request = std::make_shared<format::FileScanRequest>();
-    request->predicate_columns = {field_projection(2)};
-    format::FileColumnPredicateFilter column_filter;
-    column_filter.file_column_id = format::LocalColumnId(2);
-    column_filter.predicates.push_back(
-            std::make_shared<ZoneMapOnlyGreaterThanPredicate<TYPE_DECIMAL128I>>(
-                    0, "decimal_col", Decimal128V3(50000)));
-    request->column_predicate_filters.push_back(std::move(column_filter));
-    ASSERT_TRUE(reader->open(request).ok());
-
-    bool eof = false;
-    size_t result_rows = 0;
-    while (!eof) {
-        Block block = build_file_block({schema[2]});
-        size_t rows = 0;
-        auto status = reader->get_block(&block, &rows, &eof);
-        ASSERT_TRUE(status.ok()) << status.to_string();
-        result_rows += rows;
-    }
-
-    EXPECT_EQ(result_rows, 200);
-    EXPECT_EQ(reader->reader_statistics().filtered_row_groups, 1);
-    EXPECT_EQ(reader->reader_statistics().filtered_row_groups_by_min_max, 1);
-    EXPECT_EQ(reader->reader_statistics().filtered_group_rows, 200);
-}
-
-TEST_F(NewOrcReaderTest, ColumnPredicateDecimalDifferentScaleBuildsSargAndPrunesStripes) {
-    const auto multi_stripe_file_path =
-            (_test_dir / "column_predicate_sarg_decimal_different_scale.orc").string();
-    write_multi_stripe_orc_sarg_types_file(multi_stripe_file_path);
-    ASSERT_EQ(get_orc_stripe_count(multi_stripe_file_path), 2);
-
-    auto reader = create_reader_for_path(multi_stripe_file_path);
-    RuntimeState state {TQueryOptions(), TQueryGlobals()};
-    ASSERT_TRUE(reader->init(&state).ok());
-
-    std::vector<format::ColumnDefinition> schema;
-    ASSERT_TRUE(reader->get_schema(&schema).ok());
-    ASSERT_EQ(schema.size(), 4);
-
-    auto request = std::make_shared<format::FileScanRequest>();
-    request->predicate_columns = {field_projection(2)};
-    request->conjuncts.push_back(
-            VExprContext::create_shared(std::make_shared<NullableDecimalGreaterThanExpr>(
-                    0, remove_nullable(schema[2].type), std::make_shared<DataTypeDecimal128>(14, 4),
-                    Field::create_field<TYPE_DECIMAL128I>(Decimal128V3(5000000)),
-                    Decimal128V3(50000), "decimal_col")));
-    format::FileColumnPredicateFilter column_filter;
-    column_filter.file_column_id = format::LocalColumnId(2);
-    column_filter.predicates.push_back(create_comparison_predicate<PredicateType::GT>(
-            0, "decimal_col", std::make_shared<DataTypeDecimal128>(14, 4),
-            Field::create_field<TYPE_DECIMAL128I>(Decimal128V3(5000000)), false));
-    request->column_predicate_filters.push_back(std::move(column_filter));
-    ASSERT_TRUE(reader->open(request).ok());
-
-    bool eof = false;
-    size_t result_rows = 0;
-    while (!eof) {
-        Block block = build_file_block({schema[2]});
-        size_t rows = 0;
-        ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
-        result_rows += rows;
-    }
-
-    EXPECT_EQ(result_rows, 200);
-    EXPECT_EQ(reader->reader_statistics().filtered_row_groups, 1);
-    EXPECT_EQ(reader->reader_statistics().filtered_row_groups_by_min_max, 1);
-    EXPECT_EQ(reader->reader_statistics().filtered_group_rows, 200);
-}
-
-TEST_F(NewOrcReaderTest, ColumnPredicatePruningPreservesRowPosition) {
+TEST_F(NewOrcReaderTest, SargConjunctPruningPreservesRowPosition) {
     const auto multi_stripe_file_path = (_test_dir / "row_position_after_pruning.orc").string();
     write_multi_stripe_orc_int_file(multi_stripe_file_path);
     ASSERT_EQ(get_orc_stripe_count(multi_stripe_file_path), 2);
@@ -7542,11 +7342,8 @@ TEST_F(NewOrcReaderTest, ColumnPredicatePruningPreservesRowPosition) {
     request->local_positions = {
             {format::LocalColumnId(row_position_column_id), format::LocalIndex(0)},
             {format::LocalColumnId(0), format::LocalIndex(1)}};
-    format::FileColumnPredicateFilter column_filter;
-    column_filter.file_column_id = format::LocalColumnId(0);
-    column_filter.predicates.push_back(create_comparison_predicate<PredicateType::GT>(
-            0, "id", schema[0].type, Field::create_field<TYPE_INT>(500), false));
-    request->column_predicate_filters.push_back(std::move(column_filter));
+    request->conjuncts.push_back(
+            VExprContext::create_shared(std::make_shared<NullableInt32GreaterThanExpr>(1, 500)));
     ASSERT_TRUE(reader->open(request).ok());
 
     bool eof = false;
@@ -7577,7 +7374,7 @@ TEST_F(NewOrcReaderTest, ColumnPredicatePruningPreservesRowPosition) {
     EXPECT_EQ(result_ids.back(), 1199);
 }
 
-TEST_F(NewOrcReaderTest, ColumnPredicateReadsNonAdjacentStripeRangesAfterPruning) {
+TEST_F(NewOrcReaderTest, SargConjunctReadsNonAdjacentStripeRangesAfterPruning) {
     const auto multi_stripe_file_path = (_test_dir / "non_adjacent_stripes.orc").string();
     write_multi_stripe_orc_int_file(multi_stripe_file_path, {1, 1000, 201});
     ASSERT_EQ(get_orc_stripe_count(multi_stripe_file_path), 3);
@@ -7592,11 +7389,8 @@ TEST_F(NewOrcReaderTest, ColumnPredicateReadsNonAdjacentStripeRangesAfterPruning
 
     auto request = std::make_shared<format::FileScanRequest>();
     request->predicate_columns = {field_projection(0)};
-    format::FileColumnPredicateFilter column_filter;
-    column_filter.file_column_id = format::LocalColumnId(0);
-    column_filter.predicates.push_back(create_comparison_predicate<PredicateType::LT>(
-            0, "id", schema[0].type, Field::create_field<TYPE_INT>(500), false));
-    request->column_predicate_filters.push_back(std::move(column_filter));
+    request->conjuncts.push_back(
+            VExprContext::create_shared(std::make_shared<NullableInt32LessThanExpr>(0, 500)));
     ASSERT_TRUE(reader->open(request).ok());
 
     bool eof = false;
@@ -7626,7 +7420,7 @@ TEST_F(NewOrcReaderTest, ColumnPredicateReadsNonAdjacentStripeRangesAfterPruning
     EXPECT_EQ(reader->reader_statistics().filtered_group_rows, 200);
 }
 
-TEST_F(NewOrcReaderTest, ColumnPredicateReturnsEofWhenAllStripesArePruned) {
+TEST_F(NewOrcReaderTest, SargConjunctReturnsEofWhenAllStripesArePruned) {
     const auto multi_stripe_file_path = (_test_dir / "all_pruned_stripes.orc").string();
     write_multi_stripe_orc_int_file(multi_stripe_file_path);
     ASSERT_EQ(get_orc_stripe_count(multi_stripe_file_path), 2);
@@ -7641,11 +7435,8 @@ TEST_F(NewOrcReaderTest, ColumnPredicateReturnsEofWhenAllStripesArePruned) {
 
     auto request = std::make_shared<format::FileScanRequest>();
     request->predicate_columns = {field_projection(0)};
-    format::FileColumnPredicateFilter column_filter;
-    column_filter.file_column_id = format::LocalColumnId(0);
-    column_filter.predicates.push_back(create_comparison_predicate<PredicateType::GT>(
-            0, "id", schema[0].type, Field::create_field<TYPE_INT>(5000), false));
-    request->column_predicate_filters.push_back(std::move(column_filter));
+    request->conjuncts.push_back(
+            VExprContext::create_shared(std::make_shared<NullableInt32GreaterThanExpr>(0, 5000)));
     ASSERT_TRUE(reader->open(request).ok());
 
     Block block = build_file_block(schema);
