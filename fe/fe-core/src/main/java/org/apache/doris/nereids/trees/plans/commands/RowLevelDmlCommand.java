@@ -32,6 +32,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Throwables;
 
 import java.util.concurrent.Callable;
 
@@ -95,11 +96,8 @@ public class RowLevelDmlCommand {
                     return null;
                 }
 
-                insertExecutor.beginTransaction();
-                applyWriteConstraintIfPresent(transform, insertExecutor, planner.getAnalyzedPlan(), table);
-                transform.finalizeSink(insertExecutor, op, fragment, dataSink, physicalSink);
-                insertExecutor.getCoordinator().setTxnId(insertExecutor.getTxnId());
-                stmtExecutor.setCoord(insertExecutor.getCoordinator());
+                beginTransactionAndFinalizeSink(transform, op, insertExecutor, stmtExecutor,
+                        planner.getAnalyzedPlan(), table, fragment, dataSink, physicalSink);
                 insertExecutor.executeSingleInsert(stmtExecutor);
                 return null;
             });
@@ -118,6 +116,31 @@ public class RowLevelDmlCommand {
             return transform.synthesize(ctx, args, op);
         } finally {
             ctx.setSyntheticWriteColTargetTableId(previousTargetTableId);
+        }
+    }
+
+    /**
+     * The begin→finalize window, guarded like {@code InsertIntoTableCommand}'s prepare step:
+     * {@code beginTransaction} registers the transaction with the connector transaction manager and the
+     * global external-transaction registry, but the executor's own failure handling only takes over at
+     * {@code executeSingleInsert} — a throw from the constraint/finalize/coordinator steps in between
+     * would otherwise leak both registrations until FE restart.
+     */
+    @VisibleForTesting
+    static void beginTransactionAndFinalizeSink(RowLevelDmlTransform transform, RowLevelDmlOp op,
+            BaseExternalTableInsertExecutor insertExecutor, StmtExecutor stmtExecutor, Plan analyzedPlan,
+            TableIf table, PlanFragment fragment, DataSink dataSink, PhysicalSink<?> physicalSink) {
+        try {
+            insertExecutor.beginTransaction();
+            applyWriteConstraintIfPresent(transform, insertExecutor, analyzedPlan, table);
+            transform.finalizeSink(insertExecutor, op, fragment, dataSink, physicalSink);
+            insertExecutor.getCoordinator().setTxnId(insertExecutor.getTxnId());
+            stmtExecutor.setCoord(insertExecutor.getCoordinator());
+        } catch (Throwable e) {
+            // the abortTxn in onFail need to acquire table write lock
+            insertExecutor.onFail(e);
+            Throwables.throwIfInstanceOf(e, RuntimeException.class);
+            throw new IllegalStateException(e.getMessage(), e);
         }
     }
 

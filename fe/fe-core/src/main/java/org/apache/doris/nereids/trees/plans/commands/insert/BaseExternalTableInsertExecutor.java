@@ -159,7 +159,7 @@ public abstract class BaseExternalTableInsertExecutor extends AbstractInsertExec
     }
 
     @Override
-    protected void onFail(Throwable t) {
+    public void onFail(Throwable t) {
         errMsg = Util.getRootCauseMessage(t);
         String queryId = DebugUtil.printId(ctx.queryId());
         // if any throwable being thrown during insert operation, first we should abort this txn
