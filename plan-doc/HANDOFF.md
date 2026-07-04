@@ -5,13 +5,33 @@
 
 ---
 
-# 🎯 最新一轮（2026-07-04 深夜）= **行级 DML 去 SDK 化设计完成并四项裁定（APPROVED，未动码）：实证改判为死车道删除，设计 = `plan-doc/tasks/designs/iceberg-rowlevel-dml-desdk-design.md`**
+# 🎯 最新一轮（2026-07-04/05）= **去 SDK 化七步已完成前三刀（删除全部落地并各自独立 commit）：`af7e244c3fe`(1/7 rewrite/action) + `64b03892b20`(2/7 DML 死臂) + `bf326c04741`(3/7 INSERT 车道)**
+
+> **做了什么**：按设计 §8 TODO 执行 1-3 步，每步 recon（多 agent 实证圈边界）→ 手术 → fe-core test-compile + 相关套件 + checkstyle 全绿 → 独立 commit。三刀合计 -11,000+ 行；nereids/planner 的行级 DML/rewrite/INSERT 车道已零 `org.apache.iceberg` import。
+> **执行中固化的偏差/发现（都已进 commit message，无悬置）**：
+> - ① gather 旗（useGatherForIcebergRewrite）从 TODO-1 顺延到第 3 刀（消费者 PhysicalIcebergTableSink 届时才死，先删破编译）；
+> - ② 三个 Iceberg*Command 删执行半被迫**去 Command 化**（run/getExplainPlan 是 Command/Explainable 抽象契约强制的——删方法必须摘 extends/implements + super() + accept/stmtType；synthesize 只调合成方法，安全）；
+> - ③ 第 3 刀闭包比设计大 12 处（SinkVisitor 默认方法、RuleSet 双注册、ExpressionRewrite 内嵌规则、TurnOffPageCache/ShuffleKeyPruner/RequestPropertyDeriver 三 override、PlanType/RuleType 死枚举〔已验无 ordinal 持久化，删除安全〕、InsertInto/Overwrite 的 @branch 守卫 iceberg 析取、IcebergExternalCatalog:129 装配线）——recon agent 全部找齐并已删；
+> - ④ **UnboundIcebergTableSink 保留（铁律豁免）但本刀后无任何构造点**（三个 UnboundTableSinkCreator 死臂 + BindSink 绑定规则全删）——设计如此，非遗漏；
+> - ⑤ IcebergNereidsUtilsTest 瘦身**留在原包**（isRowIdInjectionTarget 是 package-private，跨包抽不动）——**第 4 步搬 utils 类时须连测试一起搬**；
+> - ⑥ 测试面额外手术（设计未列）：IcebergDelete/Update/MergeCommandTest 的 executeWith* case（Merge 整文件删）、ConnectorExecuteActionTest 守护死路由的 stale case、CommitDataSerializerTest legacy 对比改写为直接 feed 断言。
+> **验证口径（Rule 12）**：单测/编译/checkstyle 全绿（每刀 commit message 有明细）；**docker e2e（4 dml 套件 + action/ 8 套件等）未跑**——死码删除理论零行为差，整刀收尾后须跑或显式标注 flip-gated。
+> **⏭ 下一 session = 继续设计 §8 TODO 第 4-7 步**（每步独立 commit）：
+> 1. **步骤 4 小类搬中立包**（§7-Q3 落地形状）：IcebergMergeOperation→`nereids.trees.plans.commands.merge.MergeOperation`（改名）；IcebergNereidsUtils 存活半→`RowLevelDmlRowIdUtils`；IcebergRowId/IcebergMetadataColumn 保名搬 `nereids.trees.plans.commands`；~20 处 import + 2 个保留 UT（PhysicalPlanTranslatorIcebergRowLevelDmlTest:37、PhysicalIcebergMergeSinkTest:32）+ **IcebergNereidsUtilsTest 随搬改名 RowLevelDmlRowIdUtilsTest**（见偏差⑤）。纯移动 commit 不夹语义。
+> 2. **步骤 5 门禁**：import-control.xml 增 nereids/planner 禁 org.apache.iceberg；grep 验收两目录为空 + 零 datasource.iceberg 活 import（死臂残余登记豁免清单）。
+> 3. **步骤 6 两个独立 fix**：① `IcebergConnectorTransaction.registerRewriteSourceFiles`(:361-397) planFiles 段包 `context.executeAuthenticated`（镜像 commit():438）+UT+mutation；② `RowLevelDmlCommand.run` :98-102 窗口 catch(Throwable)→executor.onFail（镜像 InsertIntoTableCommand:372-388）+UT。
+> 4. **步骤 7 文档收尾**：更新 `fe-core-iceberg-removal-plan.md` §6b + 设计 Status→DONE + HANDOFF。
+> **整刀验收（设计 §8 末）**：grep 验收 + gate 套件全绿 + docker e2e 跑或标注。
+
+---
+
+# 🎯 上一轮（2026-07-04 深夜）= **行级 DML 去 SDK 化设计完成并四项裁定（APPROVED）：实证改判为死车道删除，设计 = `plan-doc/tasks/designs/iceberg-rowlevel-dml-desdk-design.md`**
 
 > **做了什么**：11-agent 研究工作流（4 路清点：fe-core DML 车道 82+ 引用点 / 连接器 SPI 面 / Trino master merge 模型（@280b81bbc4e）/ BE 契约 → 完备性批评家 → 6 路补盲：删除闭包双证明、HMS-DLA 共享面、测试面全图、鉴权包装逐 crossing、失败/KILL 生命周期、e2e pin 面）。产出设计文档并经用户四项裁定为 **APPROVED**。
 > **核心改判（已同步进移除计划 §6b/§8-Q6）**：原定四项中,操作码与行标识**已中立**（IcebergMergeOperation 纯常量、rowid 列经 getSyntheticWriteColumns 声明+中立注入,与 Trino 逐点同构,无需新 SPI）;表达式下沉与暂存句柄化的**目标是翻闸后死码**（转换函数仅剩死调用方,连接器自带 IcebergPredicateConverter 三模式;SDK 暂存两端皆死,中立替身 rewriteSourceFilePaths 已上线）→ 改判**死车道删除**。死码双证明：实例源 3 处全不可达 + GSON 读侧重映射/写侧只写 PluginDriven（保留死码零回滚价值）。
 > **用户四项裁定**：①接受改判为删除;②原生 INSERT 死车道并入同刀（IcebergTransaction 被两组死执行器共同钉住）;③4 个 SDK-free 小类现在搬 nereids 中立包（MergeOperation 改中立名,IcebergRowId/IcebergMetadataColumn 保名搬包）;④两个顺带活问题随本轮独立 commit 修：**rewrite 提交前 registerRewriteSourceFiles 的 planFiles 在 kerberos 裸奔**（镜像 commit():438 包 executeAuthenticated）+ **RowLevelDmlCommand.run 预执行窗口无回滚**（镜像 InsertIntoTableCommand:372-388 catch→onFail）。
 > **动码安全边界（设计 §4-§6 已固化,此处仅提醒）**：IcebergScanNode 是 **HMS-DLA 活类禁整删**（仅成员级手术）;测试面 12 直删+3 case 手术+**2 个 KEEP 测试须先搬出待删目录**（IcebergDeletePlanTest + isRowIdInjectionTarget 半）;错误消息/结果形状/隐藏列名 pin 面全在连接器侧,删 fe-core 死副本不影响;勿动 StatementContext 的 rewriteSourceFilePaths/rewriteSharedTransaction（活替身）。
-> **⏭ 下一 session 任务 = 按设计 §8 TODO 动码**（7 步,每步独立 commit：删 rewrite/action 死车道 → 删 DML 死臂闭包 → 删 INSERT 死车道 → 小类搬家 → import-control 门禁 → 两个 fix → 文档收尾）。研究工作流归档在 session scratchpad `ice-dml/*.json`（易失）,关键结论已全部固化进设计文档。
+> **⏭ 该轮的"按设计 §8 TODO 动码"前三步已于 2026-07-04/05 完成（见顶部最新一轮），剩 4-7 步。**研究工作流归档在 session scratchpad `ice-dml/*.json`（易失）,关键结论已全部固化进设计文档。
 
 ---
 
