@@ -38,6 +38,12 @@
 - **搬常量**：`IcebergExternalCatalog` 的常量被活文件读 → 搬到 IcebergUtils / 新常量类，repoint `IcebergUtils:1876-1881`、`IcebergMetadataOps:122/124/255/492`、`AbstractIcebergProperties:177-182`、各 `Iceberg*MetaStoreProperties`。
 - **修回放**：`ExternalCatalog.buildDbForInit case ICEBERG:972-973` 改 `return new PluginDrivenExternalDatabase(...)`（对齐 GSON remap；不可只删 case → 否则 fall through null 崩 db init）。
 - **削死臂**（翻闸后恒 false，逐个删）：`IcebergExternalTable` → Env:4489-4500/4887-4898、RefreshManager:243-244、BindRelation:621-622、LogicalFileScan:213-221/263、StatisticsAutoCollector:152、StatisticsUtil:1001、InsertOverwriteTableCommand:323、MaterializeProbeVisitor:62（去 `IcebergExternalTable.class` 成员）、`IcebergUtils.showCreateView(IcebergExternalTable)`；`IcebergSysExternalTable` → Env:4492-4493/4890-4891、UserAuthentication:57-58、ShowCreateTableCommand:119-120/216-217、LogicalFileScan:263、`systable/IcebergSysTable.createSysExternalTable:80`。**⚠️ ShowCreateTableCommand 的 IcebergSysExternalTable 臂 = 本轮 F4 helper `redirectSysTableToSource` 里那条**（删臂时同步简化 helper）。
+> **⚠️ 2026-07-04 recon 实证补充（纠正上面几条的过时行号/漏项，信控制流不信本文档旧行号）**：
+> - **搬常量落地**：用户裁定新家 = **新建 `datasource.iceberg.IcebergCatalogConstants`**（不并入 IcebergUtils）。搬的是**有外部读者**的 14 个常量（`EXTERNAL_CATALOG_NAME` + 7 类型串 + 3 manifest key + 3 manifest default）；`ICEBERG_CATALOG_TYPE` / `ICEBERG_TABLE_CACHE_*` 零外部读者、随基类消失不搬。实际读者 = `IcebergUtils`/`IcebergMetadataOps`（同包）+ 8 个 `property/metastore/Iceberg*` + 3 测试（换 import 到 IcebergCatalogConstants）；连接器 `IcebergConnectorProperties:57` 是注释非代码，不动。
+> - **删基类还牵连 9 处活文件里的 `instanceof IcebergExternalCatalog` 死臂**（原「搬常量」严重低估）：`IcebergMetadataOps`（createDatabase 属性守卫 + `shouldCleanupManagedLocation()`→`return false`；后者的空目录清理连接器已有孪生 `IcebergConnectorMetadata.cleanupEmptyManagedLocation`，收敛安全）、`IcebergExternalMetaCache`（loadView + resolveMetadataOps 臂）、`ExternalMetaCacheRouteResolver`、`ShowPartitionsCommand`、`CreateTableInfo`(×3)、`ShowCreateDatabaseCommand`。
+> - **`IcebergSysTable`（`datasource/systable`，ALIVE_HMS，`SUPPORTED_SYS_TABLES` 被 `HMSExternalTable:1245` 读）不删** —— 但其 `createSysExternalTable` 方法体硬引用两个待删类，改成**无条件 throw**（保留唯一活调用方 HMS 源一贯的抛出行为）。
+> - **保留**：`TableType.ICEBERG_EXTERNAL_TABLE` 枚举常量（`PluginDrivenExternalTable` 调 `.toEngineName()`）、`InitCatalogLog/InitDatabaseLog.Type.ICEBERG` 枚举（GSON 回放）、`GsonUtils` 字符串别名。
+> - **实际刀序（6 刀，删除前留用户复核关口）**：①搬常量→②清 catalog-type 死臂→③清 table-type 死臂 + 改 IcebergSysTable + 删孤儿 showCreateView 重载→④修 buildDbForInit 回放→⑤迁 ~11 个仍测活逻辑的测试→⑥原子删 4 类 + 测试夹具 + 纯死路径测试。
 
 ### P5 = 属性/鉴权 rewire + 属性簇删除（sub-task 2，最大一块）
 **核心**：翻闸后 plugin iceberg catalog 仍经 fe-core 属性簇建鉴权/凭据：
@@ -49,5 +55,5 @@
 ### 阶段四（远期，禁删至 hive 迁 SPI）= ALIVE_HMS 23 文件 + iceberg-core
 `IcebergUtils`/`IcebergMetadataOps`/`IcebergExternalMetaCache`/`source/`(6)/cache/(2)/`Iceberg{Snapshot,MvccSnapshot,Partition,PartitionInfo,ManifestEntryKey,SchemaCacheKey/Value,SnapshotCacheValue,TableCacheValue}`/`DorisTypeToIcebergType`/`IcebergVendedCredentialsProvider`(注:plugin 路径活,P5 后可能降级)/`IcebergMetricsReporter`。挂 hive→SPI（Q3=B）。
 
-## 残留死执行器（P3/P4 顺带）
-`LogicalIcebergMergeSink`（TableSink 已删、MergeSink 漏删）——去 SDK 化遗漏，随 sink 死臂清。
+## ~~残留死执行器~~ —— 已实证纠正（Rule 7，2026-07-04 本轮 recon）：**`LogicalIcebergMergeSink` 是活代码，禁删**
+> 原写「MergeSink 漏删=待清」**是错的**。核验真实代码：`LogicalIcebergMergeSink` 是 iceberg `UPDATE`/`MERGE INTO` 行级 DML 的**活逻辑 sink** —— 由 `IcebergUpdateCommand:133` / `IcebergMergeCommand:396` `new` 出，经 `BindExpression.bindIcebergMergeSink` 绑定、`ExpressionRewrite.LogicalIcebergMergeSinkRewrite` 重写、`RuleSet:229/275` 注册的 `LogicalIcebergMergeSinkToPhysicalIcebergMergeSink` 转成 `PhysicalIcebergMergeSink`、`PhysicalPlanTranslator.visitPhysicalIcebergMergeSink` 翻译走中立 `PluginDrivenTableSink`。这是「行级 DML 去 SDK 化」刻意保留的那套。删它会破 ~8 文件 + 孤儿化 386 行 `PhysicalIcebergMergeSink`。**已删的同名孪生是 INSERT 路径的 `LogicalIcebergTableSink` + BE planner 同名类（`bf326c04741`），文档把两者搞混。P4 不含任何 sink 删除。**

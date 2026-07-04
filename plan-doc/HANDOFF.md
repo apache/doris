@@ -5,7 +5,26 @@
 
 ---
 
-# 🎯 最新一轮（2026-07-04 续）= **fe-core iceberg 死码删除 P3（catalog flavor 簇 + factory，2 独立 commit）**
+# 🎯 最新一轮（2026-07-05）= **iceberg 4 个死实体类删除的前置改造起步：搬常量 `e6024ea632d`（第 1 刀 done）+ 纠正"删 MergeSink"错误**
+
+> **本轮范围** = 承接「删死码优先」，做原生 iceberg 4 个死实体类（`IcebergExternalTable`/`IcebergExternalDatabase`/`IcebergSysExternalTable`/`IcebergExternalCatalog` base）删除的**前置改造**。用户裁定：**先做前置、最后删除前留复核关口**；常量新家 = **新建 `IcebergCatalogConstants`**（非并入 IcebergUtils）。起步跑了 8-agent 侦察工作流（`wf_1eac5c97-58f`，journal 持久化）把 4 类 + 疑似死 sink 的每处引用映射清、逐处判活死、设计前置改。
+>
+> **⚠️ Rule 7 纠正（重要）**：执行计划 + 旧 HANDOFF 写的"残留死执行器 `LogicalIcebergMergeSink` 漏删待清"**是错的**——它是 iceberg UPDATE/MERGE INTO 行级 DML 的**活逻辑 sink**（`IcebergUpdateCommand:133`/`IcebergMergeCommand:396` new 出 → BindExpression 绑 → ExpressionRewrite 重写 → RuleSet:229/275 注册规则转 `PhysicalIcebergMergeSink` → PhysicalPlanTranslator 走中立 PluginDrivenTableSink）。删它破 ~8 文件 + 孤儿化 386 行 PhysicalIcebergMergeSink。**本次删除工作不含任何 sink 删除**（已删的同名孪生是 INSERT 路径 `LogicalIcebergTableSink`，文档混淆）。执行计划 §残留死执行器已改。
+>
+> **✅ 第 1 刀 `e6024ea632d`（搬常量）done**：新建 `datasource.iceberg.IcebergCatalogConstants`，把 14 个仍被活代码读的常量（`EXTERNAL_CATALOG_NAME` + 7 catalog-type 串 + 3 manifest key + 3 manifest default）从待删 base 挪进去，改接全部读者（IcebergUtils/IcebergMetadataOps 同包 + 8 个 property/metastore/Iceberg* 换 import + 3 测试）。`ICEBERG_CATALOG_TYPE`/`ICEBERG_TABLE_CACHE_*`（零外部读者）随基类消失不搬。纯搬迁零行为变化。验收：BUILD SUCCESS（main+test）+ 110 测 0 fail + checkstyle 0 + 无连接器改动。
+>
+> **⏭ 剩余刀序（删除前留关口）= 前置 2→5 逐刀独立 commit，然后停在删除前让用户复核**（权威细节见执行计划 §P4 的"2026-07-04 recon 实证补充"；下个 session 起步先读它 + workflow journal）：
+> - **第 2 刀**：清 9 处死 `instanceof IcebergExternalCatalog`（catalog-type 死臂）——`IcebergMetadataOps`（createDatabase 属性守卫删 + `shouldCleanupManagedLocation()`→`return false`；其空目录清理连接器已有孪生 `IcebergConnectorMetadata.cleanupEmptyManagedLocation:787/852`，收敛安全，随删 2 个测试 testDropTableCleansEmptyTableLocation/testDropDbCleansEmptyNamespaceLocation）、`IcebergExternalMetaCache`(loadView+resolveMetadataOps)、`ExternalMetaCacheRouteResolver`、`ShowPartitionsCommand`、`CreateTableInfo`(×3)、`ShowCreateDatabaseCommand`(同时引用 base+IcebergExternalDatabase)。
+> - **第 3 刀**：清 table-type 死臂（`Env` :4487-4516/:4885-4914 两大块、`BindRelation` case、`LogicalFileScan`(computeIcebergOutput+supportPruneNestedColumn)、`StatisticsAutoCollector`、`StatisticsUtil`、`RefreshManager`、`InsertOverwriteTableCommand`、`ShowCreateTableCommand`〔F4 redirectSysTableToSource 简化〕、`MaterializeProbeVisitor`、`UserAuthentication`）+ 把 `systable/IcebergSysTable.createSysExternalTable` 改无条件 throw（保留 HMS 源一贯抛出；类本身 ALIVE 不删，SUPPORTED_SYS_TABLES 被 HMSExternalTable:1245 读）+ 删 `IcebergUtils.showCreateView(IcebergExternalTable)` 孤儿重载。**保留** `TableType.ICEBERG_EXTERNAL_TABLE` 枚举（PluginDrivenExternalTable 用）。
+> - **第 4 刀**：`ExternalCatalog.buildDbForInit case ICEBERG` 改 `return new PluginDrivenExternalDatabase(...)`（不可删 case，否则 fall-through null 崩；保留 InitCatalogLog/InitDatabaseLog.Type.ICEBERG 枚举供 GSON 回放）。
+> - **第 5 刀**：迁 ~11 个仍测活逻辑的测试到活类型（IcebergExternalTableBranchAndTagTest 挂 IcebergMetadataOps；port IcebergUtils.getPartitionRange 覆盖等），避免悄悄丢覆盖。
+> - **⏸ 关口**：第 5 刀后停，用户复核 → **第 6 刀（原子删 4 类 + TestIcebergExternalCatalog 夹具 + 纯死路径测试 IcebergExternalTableTest + 改 IcebergSysTableResolverTest）**。
+>
+> **⚠️ 全部未 push**（[DEC-FLIP-1] 铁律）。侦察全量结论（每处引用 file:line + 活死判定 + removalAction）在 workflow journal `wf_1eac5c97-58f/journal.jsonl`（8 agent result）+ 已固化进执行计划 §P4。
+
+---
+
+# 🎯 上一轮（2026-07-04 续）= **fe-core iceberg 死码删除 P3（catalog flavor 簇 + factory，2 独立 commit）**
 
 > **做了什么**（承接「删死码优先」裁定，按执行计划 `designs/fe-core-iceberg-removal-execution-plan.md` §P3 刀序；先 5-agent 逐 test-file 核验 fixture 处置 + 末尾 3-lens 对抗核验删除安全）：一刀删掉翻闸后不再实例化的 iceberg catalog flavor 全簇（原生 iceberg catalog 现建成 `PluginDrivenExternalCatalog`）。
 > - **前置 `c051ff2c3d2`**：削 `IcebergMetadataOps` 两处死 `instanceof IcebergRestExternalCatalog` 臂（`listNestedNamespaces` REST 嵌套 namespace 递归臂 + `isViewCatalogEnabled` REST view-enabled 臂）+ 净化无用 import。**死判定实证**：`IcebergMetadataOps` 仅两处活构造边——`IcebergExternalCatalog:127`（翻闸后 base 不实例化=死）与 `HMSExternalCatalog:246`（活；`dorisCatalog` 恒 `HMSExternalCatalog`，从不是 Rest flavor）→两臂恒 false，删臂对活 HMS 路径行为逐字不变。REST 嵌套/view-enabled 的**活路径已由连接器 `IcebergCatalogOps` 承接并测**（`CatalogBackedIcebergCatalogOpsTest` 注释明写镜像 legacy gate）→无能力孪生缺口。
