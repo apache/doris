@@ -257,14 +257,20 @@ private:
     // max_freq, so no second sum/max scan). `write_prx` is the PER-TERM positions
     // switch: has_prx_ for normal terms, false for phrase-bigram terms in
     // prune mode (G01 docs-only bigrams) -- the entry then carries no .prx span
-    // (prx_len == 0) while the dd/freq regions stay identical.
+    // (prx_len == 0) while the dd/freq regions stay identical. `write_freq` is
+    // the PER-TERM freq switch (G16): has_freq_ for normal terms, false for
+    // prune-mode bigrams, whose freq bytes no query path ever reads. Honored on
+    // the WINDOWED path only (the prelude flags self-describe freq presence);
+    // slim/inline entries keep freq because their DictEntry region metadata is
+    // tier-conditioned, not per-entry.
     Status build_entry(TermPostings& tp, uint64_t frq_base, uint64_t prx_base, const FreqStats& fs,
-                       bool write_prx, format::DictEntry* e);
+                       bool write_prx, bool write_freq, format::DictEntry* e);
     // Builds a windowed (df >= kSlimDfThreshold) entry: multi-window + two-level
     // prelude. The term's [prx span][frq span] is appended to the posting region
-    // (prx span empty when !write_prx; the per-term prelude is self-describing).
+    // (prx span empty when !write_prx, freq-block empty when !write_freq; the
+    // per-term prelude is self-describing).
     Status build_windowed_entry(TermPostings& tp, uint64_t frq_base, uint64_t prx_base,
-                                bool write_prx, format::DictEntry* e);
+                                bool write_prx, bool write_freq, format::DictEntry* e);
     // Builds a slim (df < kSlimDfThreshold) entry: single window, inline or
     // pod_ref, no prelude.
     Status build_slim_entry(TermPostings& tp, uint64_t frq_base, uint64_t prx_base, bool write_prx,
@@ -361,6 +367,12 @@ void note_bigram_term_max_pruned();
 uint64_t bigram_terms_materialized();
 uint64_t bigram_terms_pruned();
 uint64_t bigram_terms_max_pruned();
+// G16 seam: bumped ONCE per WINDOWED entry built with its freq region elided
+// (write_freq == false on a freq-capable index, i.e. a prune-mode bigram whose
+// df crossed the windowed threshold). Slim/inline bigrams keep freq and never
+// count here. Reset together with the prune counters.
+void note_bigram_freq_elided();
+uint64_t bigram_freqs_elided();
 void reset_bigram_prune_counters();
 
 // G04 flush-side seam: bumped ONCE per bigram term that SURVIVED the df

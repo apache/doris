@@ -19,6 +19,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <numeric>
 #include <string>
 #include <vector>
 
@@ -26,8 +27,10 @@
 #include "storage/index/snii/format/dict_entry.h"
 #include "storage/index/snii/format/format_constants.h"
 #include "storage/index/snii/format/phrase_bigram.h"
+#include "storage/index/snii/query/internal/docid_posting_reader.h"
 #include "storage/index/snii/reader/logical_index_reader.h"
 #include "storage/index/snii/reader/snii_segment_reader.h"
+#include "storage/index/snii/reader/windowed_posting.h"
 #include "storage/index/snii/writer/logical_index_writer.h"
 #include "storage/index/snii/writer/snii_compound_writer.h"
 #include "storage/index/snii_query_test_util.h"
@@ -283,4 +286,136 @@ TEST(SniiBigramPruneWriter, DefaultThresholdFormula) {
     EXPECT_EQ(format::default_phrase_bigram_prune_min_df(649999), 64U);
     EXPECT_EQ(format::default_phrase_bigram_prune_min_df(650000), 65U);
     EXPECT_EQ(format::default_phrase_bigram_prune_min_df(10'000'000), 1000U);
+}
+
+// G16: a prune-mode bigram whose df crosses the windowed threshold writes NO
+// freq-block -- its frq span is exactly the docs-only prefix [prelude][dd-block]
+// (frq_docs_len == frq_len), the prelude flags declare has_freq=false, and the
+// per-window freq locators/crcs vanish with it. A same-df unigram keeps its
+// freq suffix untouched. The docid-only read path (the ONLY consumer of pair
+// postings) must decode the freq-less posting identically. Slim survivors are
+// covered by the boundary tests above and KEEP freq (their DictEntry region
+// metadata is tier-conditioned, not per-entry) -- the elision seam counts
+// windowed entries only.
+TEST(SniiBigramPruneWriter, WindowedSurvivorDropsFreqBlock) {
+    wtesting::reset_bigram_prune_counters();
+    constexpr uint32_t kDf = format::kSlimDfThreshold + 300; // windowed on both terms
+    std::vector<uint32_t> ids(kDf);
+    std::iota(ids.begin(), ids.end(), 1U);
+
+    writer::SniiIndexInput input;
+    input.index_id = 3;
+    input.index_suffix = "Body";
+    input.config = format::IndexConfig::kDocsPositions;
+    input.doc_count = 2 * kDf;
+    input.bigram_prune_min_df = kThreshold; // prune mode ON
+    input.terms = {
+            make_term("aa", one_position_docs(ids)),
+            make_term(format::make_phrase_bigram_sentinel_term(), one_position_docs({0})),
+            make_term(format::make_phrase_bigram_term("aa", "bb"), one_position_docs(ids)),
+    };
+    std::ranges::sort(input.terms,
+                      [](const writer::TermPostings& lhs, const writer::TermPostings& rhs) {
+                          return lhs.term < rhs.term;
+                      });
+
+    MemoryFile file;
+    writer::SniiCompoundWriter writer(&file);
+    assert_ok(writer.add_logical_index(input));
+    assert_ok(writer.finish());
+    reader::SniiSegmentReader segment_reader;
+    reader::LogicalIndexReader idx;
+    assert_ok(reader::SniiSegmentReader::open(&file, &segment_reader));
+    assert_ok(segment_reader.open_index(input.index_id, input.index_suffix, &idx));
+
+    bool found = false;
+    format::DictEntry bigram_entry;
+    uint64_t frq_base = 0;
+    uint64_t prx_base = 0;
+    assert_ok(idx.lookup(format::make_phrase_bigram_term("aa", "bb"), &found, &bigram_entry,
+                         &frq_base, &prx_base));
+    ASSERT_TRUE(found);
+    EXPECT_TRUE(bigram_entry.has_sb);                           // windowed, not slim
+    EXPECT_EQ(bigram_entry.prx_len, 0U);                        // G01 diet
+    EXPECT_EQ(bigram_entry.frq_docs_len, bigram_entry.frq_len); // G16: no freq-block
+    EXPECT_EQ(wtesting::bigram_freqs_elided(), 1U);             // sentinel is slim: no count
+
+    format::DictEntry unigram_entry;
+    uint64_t uni_frq_base = 0;
+    uint64_t uni_prx_base = 0;
+    assert_ok(idx.lookup("aa", &found, &unigram_entry, &uni_frq_base, &uni_prx_base));
+    ASSERT_TRUE(found);
+    EXPECT_TRUE(unigram_entry.has_sb);
+    EXPECT_LT(unigram_entry.frq_docs_len, unigram_entry.frq_len); // unigram keeps freq
+
+    std::vector<uint32_t> docids;
+    assert_ok(query::internal::read_docid_posting(idx, bigram_entry, frq_base, prx_base, &docids));
+    ASSERT_EQ(docids.size(), kDf);
+    EXPECT_EQ(docids.front(), 1U);
+    EXPECT_EQ(docids.back(), kDf);
+
+    // A want_freq read of the elided entry must fail with the SEMANTIC guard
+    // error, not a deep region-decode corruption. This also pins the prelude
+    // flags: had the writer declared has_freq=true over an empty freq-block,
+    // the guard would pass and the failure (if any) would read differently.
+    reader::DecodedPosting decoded;
+    Status st =
+            reader::read_windowed_posting(idx, bigram_entry, frq_base, prx_base,
+                                          /*want_positions=*/false, /*want_freq=*/true, &decoded);
+    ASSERT_FALSE(st.ok());
+    EXPECT_NE(st.to_string().find("freqs requested but prelude has none"), std::string::npos)
+            << st.to_string();
+}
+
+// Legacy mode (threshold 0) must keep the pre-G01 layout for WINDOWED bigrams
+// too: positions AND freq both present. Pins the write_freq predicate to the
+// same min-df escape hatch as write_prx (the G16 review found no test asserted
+// legacy freq presence).
+TEST(SniiBigramPruneWriter, LegacyWindowedBigramKeepsFreqAndPrx) {
+    constexpr uint32_t kDf = format::kSlimDfThreshold + 300;
+    std::vector<uint32_t> ids(kDf);
+    std::iota(ids.begin(), ids.end(), 1U);
+
+    writer::SniiIndexInput input;
+    input.index_id = 3;
+    input.index_suffix = "Body";
+    input.config = format::IndexConfig::kDocsPositions;
+    input.doc_count = 2 * kDf;
+    input.bigram_prune_min_df = 0; // legacy: no pruning, full layout
+    input.terms = {
+            make_term("aa", one_position_docs(ids)),
+            make_term(format::make_phrase_bigram_sentinel_term(), one_position_docs({0})),
+            make_term(format::make_phrase_bigram_term("aa", "bb"), one_position_docs(ids)),
+    };
+    std::ranges::sort(input.terms,
+                      [](const writer::TermPostings& lhs, const writer::TermPostings& rhs) {
+                          return lhs.term < rhs.term;
+                      });
+
+    MemoryFile file;
+    writer::SniiCompoundWriter writer(&file);
+    assert_ok(writer.add_logical_index(input));
+    assert_ok(writer.finish());
+    reader::SniiSegmentReader segment_reader;
+    reader::LogicalIndexReader idx;
+    assert_ok(reader::SniiSegmentReader::open(&file, &segment_reader));
+    assert_ok(segment_reader.open_index(input.index_id, input.index_suffix, &idx));
+
+    bool found = false;
+    format::DictEntry entry;
+    uint64_t frq_base = 0;
+    uint64_t prx_base = 0;
+    assert_ok(idx.lookup(format::make_phrase_bigram_term("aa", "bb"), &found, &entry, &frq_base,
+                         &prx_base));
+    ASSERT_TRUE(found);
+    EXPECT_TRUE(entry.has_sb);
+    EXPECT_GT(entry.prx_len, 0U);                 // legacy keeps positions
+    EXPECT_LT(entry.frq_docs_len, entry.frq_len); // legacy keeps freq
+
+    reader::DecodedPosting decoded;
+    assert_ok(reader::read_windowed_posting(idx, entry, frq_base, prx_base,
+                                            /*want_positions=*/true, /*want_freq=*/true, &decoded));
+    ASSERT_EQ(decoded.docids.size(), kDf);
+    ASSERT_EQ(decoded.freqs.size(), kDf);
+    EXPECT_EQ(decoded.freqs.front(), 1U);
 }

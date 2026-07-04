@@ -398,6 +398,10 @@ std::atomic<uint64_t>& bigram_bloom_dropped_counter() {
     static std::atomic<uint64_t> counter {0};
     return counter;
 }
+std::atomic<uint64_t>& bigram_freq_elided_counter() {
+    static std::atomic<uint64_t> counter {0};
+    return counter;
+}
 } // namespace
 
 void note_bigram_term_materialized() {
@@ -412,6 +416,9 @@ void note_bigram_term_max_pruned() {
 void note_bigram_bloom_dropped() {
     bigram_bloom_dropped_counter().fetch_add(1, std::memory_order_relaxed);
 }
+void note_bigram_freq_elided() {
+    bigram_freq_elided_counter().fetch_add(1, std::memory_order_relaxed);
+}
 uint64_t bigram_terms_materialized() {
     return bigram_materialized_counter().load(std::memory_order_relaxed);
 }
@@ -424,11 +431,15 @@ uint64_t bigram_terms_max_pruned() {
 uint64_t bigram_bloom_dropped() {
     return bigram_bloom_dropped_counter().load(std::memory_order_relaxed);
 }
+uint64_t bigram_freqs_elided() {
+    return bigram_freq_elided_counter().load(std::memory_order_relaxed);
+}
 void reset_bigram_prune_counters() {
     bigram_materialized_counter().store(0, std::memory_order_relaxed);
     bigram_pruned_counter().store(0, std::memory_order_relaxed);
     bigram_max_pruned_counter().store(0, std::memory_order_relaxed);
     bigram_bloom_dropped_counter().store(0, std::memory_order_relaxed);
+    bigram_freq_elided_counter().store(0, std::memory_order_relaxed);
 }
 // Forwards to the real fused helper so pure boundary tests exercise production
 // code (not a test-local re-implementation).
@@ -506,16 +517,21 @@ Status LogicalIndexWriter::validate_term(const TermPostings& tp, uint64_t total_
 // enc=windowed + has_sb. frq_docs_len = prelude_len + dd_block_len is the
 // contiguous docs-only prefix, which stays INSIDE the frq span.
 Status LogicalIndexWriter::build_windowed_entry(TermPostings& tp, uint64_t frq_base,
-                                                uint64_t prx_base, bool write_prx, DictEntry* e) {
+                                                uint64_t prx_base, bool write_prx, bool write_freq,
+                                                DictEntry* e) {
     // The prx span starts here: pass 1 streams each .prx window straight into
     // the posting sink, so prx_off_delta is measured against the live
     // posting-sink size. write_prx == false (G01 docs-only bigram) streams no
     // prx bytes at all and leaves the entry's prx locator zeroed; the per-term
     // prelude records has_prx=false so the layout stays self-describing.
+    // write_freq == false (G16 docs-only bigram) additionally drops the
+    // freq-block and the per-window freq locators/crcs from the prelude; the
+    // prelude flags record has_freq=false, so frq_len == frq_docs_len and a
+    // want_freq read of such an entry fails closed in region decode.
     const uint64_t prx_off = posting_size();
     WindowedPosting wp;
     RETURN_IF_ERROR(
-            BuildWindowedPosting(tp, has_freq_, write_prx, encoded_norms_, posting_out_, &wp));
+            BuildWindowedPosting(tp, write_freq, write_prx, encoded_norms_, posting_out_, &wp));
     // wp.prx_total_len bytes were just streamed straight to the posting sink (0
     // when !has_prx). docids/freqs are now fully encoded into wp; release the
     // source arrays before the (potentially large) wp blocks are appended to
@@ -523,7 +539,7 @@ Status LogicalIndexWriter::build_windowed_entry(TermPostings& tp, uint64_t frq_b
     std::vector<uint32_t>().swap(tp.docids);
     std::vector<uint32_t>().swap(tp.freqs);
     std::vector<uint8_t> prelude;
-    RETURN_IF_ERROR(BuildPrelude(wp.windows, has_freq_, write_prx, &prelude));
+    RETURN_IF_ERROR(BuildPrelude(wp.windows, write_freq, write_prx, &prelude));
 
     e->kind = DictEntryKind::kPodRef;
     e->enc = DictEntryEnc::kWindowed;
@@ -605,15 +621,21 @@ Status LogicalIndexWriter::build_slim_entry(TermPostings& tp, uint64_t frq_base,
 // and record off_delta relative to frq_base/prx_base (the posting-region size
 // captured when the block opened; both bases hold that same value).
 Status LogicalIndexWriter::build_entry(TermPostings& tp, uint64_t frq_base, uint64_t prx_base,
-                                       const FreqStats& fs, bool write_prx, DictEntry* e) {
+                                       const FreqStats& fs, bool write_prx, bool write_freq,
+                                       DictEntry* e) {
     e->term = tp.term;
     e->df = static_cast<uint32_t>(tp.docids.size());
     e->ttf_delta = fs.total_freq; // reused fused total (was SumOf(tp.freqs))
     e->max_freq = fs.max_freq;    // reused fused max (was MaxOf(tp.freqs))
 
     if (e->df >= format::kSlimDfThreshold) {
-        return build_windowed_entry(tp, frq_base, prx_base, write_prx, e);
+        if (has_freq_ && !write_freq) testing::note_bigram_freq_elided();
+        return build_windowed_entry(tp, frq_base, prx_base, write_prx, write_freq, e);
     }
+    // Slim/inline entries ALWAYS keep the freq region on a freq-capable index:
+    // their region metadata in the DictEntry is tier-conditioned (freq meta is
+    // present iff tier>=T2), so freq presence is not self-describing per entry.
+    // Only the windowed prelude (flags bit0) can declare a per-term freq drop.
     return build_slim_entry(tp, frq_base, prx_base, write_prx, e);
 }
 
@@ -707,6 +729,14 @@ Status LogicalIndexWriter::process_term(TermPostings& tp, BlockState* st) {
     // bigram tails), so their .prx spans are pure dead bytes. Legacy mode
     // (threshold 0) keeps writing positions, byte-identical to pre-G01 output.
     const bool write_prx = has_prx_ && !(is_bigram && bigram_prune_min_df_ > 0);
+    // G16: prune-mode bigram postings also drop their freq region. NO query
+    // path reads pair freqs (the 2-term hit path answers from df/docids, the
+    // 3+-term chain reads docids only, and scoring can never target a hidden
+    // marker term), so the bytes are write-only. Same legacy escape hatch as
+    // write_prx: threshold 0 keeps the byte-identical pre-G01 layout. Applied
+    // on the WINDOWED path only -- see build_entry for the slim-format
+    // constraint.
+    const bool write_freq = has_freq_ && !(is_bigram && bigram_prune_min_df_ > 0);
 
     // ONE fused term-level scan of freqs: total + max in a single pass, reused by
     // validate (position-count budget), stats, and the DictEntry
@@ -732,7 +762,7 @@ Status LogicalIndexWriter::process_term(TermPostings& tp, BlockState* st) {
     }
 
     DictEntry e;
-    RETURN_IF_ERROR(build_entry(tp, st->frq_base, st->prx_base, fs, write_prx, &e));
+    RETURN_IF_ERROR(build_entry(tp, st->frq_base, st->prx_base, fs, write_prx, write_freq, &e));
     // `e` is not used after this point, so move it into the block to avoid a
     // per-term DictEntry copy (two vector heap allocations for inline entries).
     st->block->add_entry(std::move(e));

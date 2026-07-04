@@ -157,6 +157,15 @@ Status windowed_window_range(const LogicalIndexReader& idx, const DictEntry& ent
     out->dd_len = meta.dd_disk_len;
 
     if (want_freq) {
+        // Symmetric to the positions guard below: a G16 freq-elided posting
+        // (prune-mode bigram) declares has_freq=false in its prelude flags.
+        // Without this check the failure would surface deep in region decode
+        // as a generic corruption error; no production path requests freqs on
+        // a hidden bigram term, so this is a fail-closed diagnostic.
+        if (!prelude.has_freq()) {
+            return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                    "windowed_posting: freqs requested but prelude has none");
+        }
         RETURN_IF_ERROR(InBounds(meta.freq_off, meta.freq_disk_len, g.freq_block_len));
         out->freq_off = g.freq_block_off + meta.freq_off;
         out->freq_len = meta.freq_disk_len;
@@ -248,6 +257,12 @@ Status read_windowed_posting(const LogicalIndexReader& idx, const DictEntry& ent
     if (want_positions && !prelude.has_prx()) {
         return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
                 "windowed_posting: positions requested but prelude has none");
+    }
+    // G16 freq-elided postings (prune-mode bigrams) declare has_freq=false;
+    // fail with the semantic error instead of a deep region-decode corruption.
+    if (want_freq && !prelude.has_freq()) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                "windowed_posting: freqs requested but prelude has none");
     }
     BlockGeometry g;
     RETURN_IF_ERROR(ResolveBlocks(idx, entry, frq_base, prelude, &g));
