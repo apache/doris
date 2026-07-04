@@ -17,13 +17,20 @@
 
 #pragma once
 
+#include <cstddef>
+#include <cstdint>
 #include <memory>
 #include <string>
+#include <vector>
 
 #include "common/status.h"
-#include "format/generic_reader.h"
+#include "core/data_type/data_type.h"
 #include "format_v2/table_reader.h"
 #include "gen_cpp/PlanNodes_types.h"
+
+namespace doris {
+class SlotDescriptor;
+} // namespace doris
 
 namespace doris::format::iceberg {
 
@@ -37,10 +44,39 @@ public:
     std::string debug_string() const override;
 
 private:
-    Status _open_reader();
+    enum class DeleteFileKind {
+        POSITION_DELETE,
+        DELETION_VECTOR,
+    };
+
+    struct ReadColumn {
+        std::string name;
+        DataTypePtr type;
+    };
+
+    Status _init_split();
+    Status _init_position_delete_reader();
+    Status _init_deletion_vector_reader();
+    Status _append_position_delete_block(Block* output_block, const Block& delete_block,
+                                         size_t delete_rows, size_t* appended_rows);
+    Status _append_deletion_vector_block(Block* block, size_t* read_rows, bool* eof);
+    Status _append_sys_column(MutableColumnPtr& column, const SlotDescriptor& slot,
+                              const Block* delete_block, size_t source_row, uint64_t dv_pos);
+    Status _append_partition_column(MutableColumnPtr& column, const SlotDescriptor& slot);
+    Block _create_delete_block() const;
+    bool _output_column_requested(const std::string& name) const;
+    void _init_read_columns();
+    std::vector<ColumnDefinition> _build_delete_file_projected_columns() const;
+    const std::string& _delete_file_output_path() const;
 
     TFileRangeDesc _current_range;
-    std::unique_ptr<GenericReader> _reader;
+    const TIcebergFileDesc* _iceberg_file_desc = nullptr;
+    const TIcebergDeleteFileDesc* _delete_file_desc = nullptr;
+    DeleteFileKind _delete_file_kind = DeleteFileKind::POSITION_DELETE;
+    std::unique_ptr<format::TableReader> _position_reader;
+    std::vector<ReadColumn> _read_columns;
+    std::vector<uint64_t> _dv_positions;
+    size_t _next_dv_position = 0;
     bool _has_split = false;
 };
 
