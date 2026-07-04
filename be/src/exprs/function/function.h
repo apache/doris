@@ -526,6 +526,24 @@ public:
         return function->can_evaluate_zonemap_filter(function_arguments);
     }
 
+    ZoneMapFilterResult evaluate_dictionary_filter(
+            const DictionaryEvalContext& ctx, const VExprSPtrs& function_arguments) const override {
+        return function->evaluate_dictionary_filter(ctx, function_arguments);
+    }
+
+    bool can_evaluate_dictionary_filter(const VExprSPtrs& function_arguments) const override {
+        return function->can_evaluate_dictionary_filter(function_arguments);
+    }
+
+    ZoneMapFilterResult evaluate_bloom_filter(const BloomFilterEvalContext& ctx,
+                                              const VExprSPtrs& function_arguments) const override {
+        return function->evaluate_bloom_filter(ctx, function_arguments);
+    }
+
+    bool can_evaluate_bloom_filter(const VExprSPtrs& function_arguments) const override {
+        return function->can_evaluate_bloom_filter(function_arguments);
+    }
+
 private:
     std::shared_ptr<IFunction> function;
     DataTypes arguments;

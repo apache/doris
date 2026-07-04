@@ -393,6 +393,30 @@ TEST(ExprZonemapFilterTest, ComparisonDictionaryAndBloomUseEqualityLiterals) {
     EXPECT_FALSE(not_equals.can_evaluate_bloom_filter({slot, make_int_literal(3)}));
 }
 
+TEST(ExprZonemapFilterTest, DefaultFunctionForwardsDictionaryAndBloomEvaluation) {
+    auto type = int_type();
+    auto slot = make_slot(0, type);
+    auto equals = SimpleFunctionFactory::instance().get_function(
+            "eq", ColumnsWithTypeAndName {{nullptr, type, "slot"}, {nullptr, type, "literal"}},
+            std::make_shared<DataTypeUInt8>());
+    ASSERT_NE(equals, nullptr);
+
+    EXPECT_TRUE(equals->can_evaluate_dictionary_filter({slot, make_int_literal(2)}));
+    auto dictionary_ctx = make_dictionary_context({int_field(1), int_field(3)}, type);
+    EXPECT_EQ(ZoneMapFilterResult::kNoMatch,
+              equals->evaluate_dictionary_filter(dictionary_ctx, {slot, make_int_literal(2)}));
+    EXPECT_EQ(ZoneMapFilterResult::kMayMatch,
+              equals->evaluate_dictionary_filter(dictionary_ctx, {slot, make_int_literal(3)}));
+
+    EXPECT_TRUE(equals->can_evaluate_bloom_filter({slot, make_int_literal(2)}));
+    auto bloom_filter = make_int_bloom_filter({1, 3});
+    auto bloom_ctx = make_bloom_filter_context(bloom_filter.get(), type);
+    EXPECT_EQ(ZoneMapFilterResult::kNoMatch,
+              equals->evaluate_bloom_filter(bloom_ctx, {slot, make_int_literal(2)}));
+    EXPECT_EQ(ZoneMapFilterResult::kMayMatch,
+              equals->evaluate_bloom_filter(bloom_ctx, {slot, make_int_literal(3)}));
+}
+
 TEST(ExprZonemapFilterTest, MissingSlotTypeCountsUnsupportedZonemapEvalOnce) {
     auto type = int_type();
     auto slot = make_slot(0, type);
