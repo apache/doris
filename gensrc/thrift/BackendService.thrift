@@ -128,6 +128,8 @@ struct TStreamLoadRecord {
     18: required i64 finish_time
     19: optional string comment
     20: optional string first_error_msg
+    21: optional i64 begin_txn_time_ms
+    22: optional i64 stream_load_put_time_ms
 }
 
 struct TStreamLoadRecordResult {

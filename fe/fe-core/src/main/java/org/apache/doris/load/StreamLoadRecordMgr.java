@@ -36,6 +36,7 @@ import org.apache.doris.plugin.audit.StreamLoadAuditEvent;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.BackendService;
+import org.apache.doris.thrift.TLoadJob;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TStreamLoadRecord;
 import org.apache.doris.thrift.TStreamLoadRecordResult;
@@ -44,6 +45,7 @@ import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.gson.JsonObject;
 import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -208,6 +210,85 @@ public class StreamLoadRecordMgr extends MasterDaemon {
         }
     }
 
+    /**
+     * Map a StreamLoadRecord to a TLoadJob row for information_schema.load_jobs.
+     * Stream Load records are historical completion records, so PROGRESS is always "100%"
+     * and JOB_ID / CREATE_TIME / ETL_* / TRANSACTION_ID / ERROR_TABLETS are empty strings.
+     * Details without a first-class load_jobs column go into TASK_INFO and JOB_DETAILS as JSON.
+     */
+    static TLoadJob streamLoadRecordToLoadJob(StreamLoadRecord record) {
+        TLoadJob tJob = new TLoadJob();
+        tJob.setJobId("");
+        tJob.setLabel(record.getLabel());
+        tJob.setState(record.getStatus());
+        tJob.setProgress("100%");
+        tJob.setType("STREAM_LOAD");
+        tJob.setEtlInfo("");
+
+        JsonObject taskInfo = new JsonObject();
+        taskInfo.addProperty("Db", record.getDb());
+        taskInfo.addProperty("Table", record.getTable());
+        taskInfo.addProperty("ClientIp", record.getClientIp());
+        tJob.setTaskInfo(taskInfo.toString());
+
+        tJob.setErrorMsg(record.getMessage());
+        tJob.setCreateTime("");
+        tJob.setEtlStartTime("");
+        tJob.setEtlFinishTime("");
+        tJob.setLoadStartTime(record.getStartTime());
+        tJob.setLoadFinishTime(record.getFinishTime());
+        tJob.setUrl(record.getUrl());
+
+        JsonObject jobDetails = new JsonObject();
+        jobDetails.addProperty("TotalRows", record.getTotalRows());
+        jobDetails.addProperty("LoadedRows", record.getLoadedRows());
+        jobDetails.addProperty("FilteredRows", record.getFilteredRows());
+        jobDetails.addProperty("UnselectedRows", record.getUnselectedRows());
+        jobDetails.addProperty("LoadBytes", record.getLoadBytes());
+        jobDetails.addProperty("BeginTxnTimeMs", record.getBeginTxnTimeMs());
+        jobDetails.addProperty("StreamLoadPutTimeMs", record.getStreamLoadPutTimeMs());
+        tJob.setJobDetails(jobDetails.toString());
+
+        tJob.setTransactionId("");
+        tJob.setErrorTablets("");
+        tJob.setUser(record.getUser());
+        tJob.setComment(record.getComment());
+        tJob.setFirstErrorMsg(record.getFirstErrorMsg());
+        return tJob;
+    }
+
+    /**
+     * Return Stream Load records as TLoadJob rows for information_schema.load_jobs.
+     * Keep the same table-level LOAD privilege check call used by SHOW STREAM LOAD.
+     */
+    public List<TLoadJob> getStreamLoadJobsForLoadJobs(long dbId, String dbName) {
+        List<TLoadJob> streamLoadJobs = Lists.newArrayList();
+
+        readLock();
+        try {
+            if (!dbIdToLabelToStreamLoadRecord.containsKey(dbId)) {
+                return streamLoadJobs;
+            }
+
+            for (StreamLoadRecord record : dbIdToLabelToStreamLoadRecord.get(dbId).values()) {
+                try {
+                    if (!Env.getCurrentEnv().getAccessManager()
+                            .checkTblPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME,
+                                    record.getDb(), record.getTable(), PrivPredicate.LOAD)) {
+                        continue;
+                    }
+                    streamLoadJobs.add(streamLoadRecordToLoadJob(record));
+                } catch (Exception e) {
+                    LOG.debug("Skip stream load record in information_schema.load_jobs, db: {}, label: {}",
+                            dbName, record.getLabel(), e);
+                }
+            }
+            return streamLoadJobs;
+        } finally {
+            readUnlock();
+        }
+    }
+
     public void clearStreamLoadRecord() {
         writeLock();
         if (streamLoadRecordHeap.size() > 0 || dbIdToLabelToStreamLoadRecord.size() > 0) {
@@ -313,6 +394,10 @@ public class StreamLoadRecordMgr extends MasterDaemon {
                                     String.valueOf(streamLoadItem.getFilteredRows()),
                                     String.valueOf(streamLoadItem.getUnselectedRows()),
                                     String.valueOf(streamLoadItem.getLoadBytes()),
+                                    streamLoadItem.isSetBeginTxnTimeMs()
+                                            ? String.valueOf(streamLoadItem.getBeginTxnTimeMs()) : "",
+                                    streamLoadItem.isSetStreamLoadPutTimeMs()
+                                            ? String.valueOf(streamLoadItem.getStreamLoadPutTimeMs()) : "",
                                     startTime, finishTime, streamLoadItem.getUser(), streamLoadItem.getComment(),
                                     String.valueOf(streamLoadItem.getFirstErrorMsg()));
 
