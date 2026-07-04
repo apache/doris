@@ -363,6 +363,24 @@ public class PartitionPrunerTest extends TestWithFeService {
         Assertions.assertTrue(result.hasPartitionPredicate);
     }
 
+    @Test
+    public void testPruneWithResultFallsBackWhenSortedRangesMissSnapshotPartition() throws AnalysisException {
+        Map<String, PartitionItem> idToPartitions = ImmutableMap.of(
+                "p1", createListPartitionItem("1"),
+                "p2", createListPartitionItem("2"),
+                "p3", createListPartitionItem("3"));
+        SortedPartitionRanges<String> sortedPartitionRanges = SortedPartitionRanges.build(ImmutableMap.of(
+                "p1", createListPartitionItem("1"),
+                "p2", createListPartitionItem("2")));
+
+        PartitionPruneResult<String> result = PartitionPruner.pruneWithResult(
+                ImmutableList.of(slotA), new EqualTo(slotA, Literal.of(3)), idToPartitions, cascadesContext,
+                PartitionTableType.EXTERNAL, Optional.of(sortedPartitionRanges));
+
+        Assertions.assertEquals(ImmutableList.of("p3"), result.partitions);
+        Assertions.assertTrue(result.hasPartitionPredicate);
+    }
+
     private ListPartitionItem createListPartitionItem(String... values) throws AnalysisException {
         ImmutableList.Builder<PartitionKey> partitionKeys = ImmutableList.builder();
         for (String value : values) {

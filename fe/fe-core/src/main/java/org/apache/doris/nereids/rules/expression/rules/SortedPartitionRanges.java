@@ -20,26 +20,33 @@ package org.apache.doris.nereids.rules.expression.rules;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.nereids.util.Utils;
 
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Range;
 
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 
 /** SortedPartitionRanges */
 public class SortedPartitionRanges<K> {
     public final List<PartitionItemAndRange<K>> sortedPartitions;
     public final List<PartitionItemAndId<K>> defaultPartitions;
+    public final Set<K> partitionIds;
 
     /** SortedPartitionRanges */
     public SortedPartitionRanges(
-            List<PartitionItemAndRange<K>> sortedPartitions, List<PartitionItemAndId<K>> defaultPartitions) {
+            List<PartitionItemAndRange<K>> sortedPartitions, List<PartitionItemAndId<K>> defaultPartitions,
+            Set<K> partitionIds) {
         this.sortedPartitions = Utils.fastToImmutableList(
                 Objects.requireNonNull(sortedPartitions, "sortedPartitions bounds can not be null")
         );
         this.defaultPartitions = Utils.fastToImmutableList(
                 Objects.requireNonNull(defaultPartitions, "defaultPartitions bounds can not be null")
+        );
+        this.partitionIds = ImmutableSet.copyOf(
+                Objects.requireNonNull(partitionIds, "partitionIds can not be null")
         );
     }
 
@@ -82,7 +89,7 @@ public class SortedPartitionRanges<K> {
             return span1.upperEndpoint().compareTo(span2.upperEndpoint());
         });
 
-        return new SortedPartitionRanges<>(sortedRanges, defaultPartitions);
+        return new SortedPartitionRanges<>(sortedRanges, defaultPartitions, partitionMap.keySet());
     }
 
     /** PartitionItemAndRange */

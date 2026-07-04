@@ -204,18 +204,18 @@ public class PartitionPruner extends DefaultExpressionRewriter<Void> {
         if (sortedPartitionRanges.isPresent()) {
             RangeSet<MultiColumnBound> predicateRanges = partitionPredicate.accept(
                     new PartitionPredicateToRange(partitionSlots), null);
-            if (predicateRanges != null) {
+            SortedPartitionRanges<K> ranges = sortedPartitionRanges.get();
+            if (predicateRanges != null && ranges.partitionIds.equals(idToPartitions.keySet())) {
                 Pair<List<K>, Boolean> res = binarySearchFiltering(
-                        sortedPartitionRanges.get(), partitionSlots, partitionPredicate, cascadesContext,
+                        ranges, partitionSlots, partitionPredicate, cascadesContext,
                         expandThreshold, predicateRanges
                 );
-                List<K> selectedPartitions = keepPartitionsInSnapshot(res.first, idToPartitions);
-                boolean hasPartitionPredicate = hasEffectivePartitionPredicate(selectedPartitions, idToPartitions.size());
+                boolean hasPartitionPredicate = hasEffectivePartitionPredicate(res.first, idToPartitions.size());
                 if (res.second) {
-                    return new PartitionPruneResult<>(selectedPartitions, Optional.of(originalPartitionPredicate),
+                    return new PartitionPruneResult<>(res.first, Optional.of(originalPartitionPredicate),
                             hasPartitionPredicate);
                 } else {
-                    return new PartitionPruneResult<>(selectedPartitions, Optional.empty(), hasPartitionPredicate);
+                    return new PartitionPruneResult<>(res.first, Optional.empty(), hasPartitionPredicate);
                 }
             }
         }
@@ -235,17 +235,6 @@ public class PartitionPruner extends DefaultExpressionRewriter<Void> {
     private static <K extends Comparable<K>> boolean hasEffectivePartitionPredicate(
             List<K> selectedPartitions, int totalPartitions) {
         return selectedPartitions.size() != totalPartitions;
-    }
-
-    private static <K extends Comparable<K>> List<K> keepPartitionsInSnapshot(
-            List<K> selectedPartitions, Map<K, PartitionItem> idToPartitions) {
-        Builder<K> partitions = ImmutableList.builder();
-        for (K partition : selectedPartitions) {
-            if (idToPartitions.containsKey(partition)) {
-                partitions.add(partition);
-            }
-        }
-        return partitions.build();
     }
 
     /**
