@@ -43,7 +43,7 @@
 > - **删基类还牵连 9 处活文件里的 `instanceof IcebergExternalCatalog` 死臂**（原「搬常量」严重低估）：`IcebergMetadataOps`（createDatabase 属性守卫 + `shouldCleanupManagedLocation()`→`return false`；后者的空目录清理连接器已有孪生 `IcebergConnectorMetadata.cleanupEmptyManagedLocation`，收敛安全）、`IcebergExternalMetaCache`（loadView + resolveMetadataOps 臂）、`ExternalMetaCacheRouteResolver`、`ShowPartitionsCommand`、`CreateTableInfo`(×3)、`ShowCreateDatabaseCommand`。
 > - **`IcebergSysTable`（`datasource/systable`，ALIVE_HMS，`SUPPORTED_SYS_TABLES` 被 `HMSExternalTable:1245` 读）不删** —— 但其 `createSysExternalTable` 方法体硬引用两个待删类，改成**无条件 throw**（保留唯一活调用方 HMS 源一贯的抛出行为）。
 > - **保留**：`TableType.ICEBERG_EXTERNAL_TABLE` 枚举常量（`PluginDrivenExternalTable` 调 `.toEngineName()`）、`InitCatalogLog/InitDatabaseLog.Type.ICEBERG` 枚举（GSON 回放）、`GsonUtils` 字符串别名。
-> - **实际刀序（6 刀，删除前留用户复核关口）**：①搬常量→②清 catalog-type 死臂→③清 table-type 死臂 + 改 IcebergSysTable + 删孤儿 showCreateView 重载→④修 buildDbForInit 回放→⑤迁 ~11 个仍测活逻辑的测试→⑥原子删 4 类 + 测试夹具 + 纯死路径测试。
+> - **实际刀序（6 刀，删除前留用户复核关口）**：**✅①搬常量 `e6024ea632d`** → **✅②清 catalog-type 死臂 `816585ef2ab`** → **✅③清 table-type 死臂 + 改 IcebergSysTable + 删孤儿 showCreateView 重载 `4b6381b6964`** → ④修 buildDbForInit 回放（用户接手）→ ⑤迁仍测活逻辑的测试（用户接手）→ ⏸关口 → ⑥原子删 4 类 + 测试夹具 + 纯死路径测试。**⚠️⑥删前必核实 ALIVE 文件（尤其 IcebergUtils）里以死类为参数/字段类型的方法：HMS 活路径调用→改签名 ExternalTable；仅死类自调→随删。MaterializeProbeVisitor 删 IcebergExternalTable.class 后未加 PluginDrivenExternalTable.class = 潜在 MTMV 物化孪生缺口，登记 ENG-1。**
 
 ### P5 = 属性/鉴权 rewire + 属性簇删除（sub-task 2，最大一块）
 **核心**：翻闸后 plugin iceberg catalog 仍经 fe-core 属性簇建鉴权/凭据：
