@@ -18,11 +18,8 @@
 package org.apache.doris.datasource.property.metastore;
 
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
-import org.apache.doris.datasource.iceberg.dlf.DLFCatalog;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 
-import com.aliyun.datalake.metastore.common.DataLakeConfig;
-import org.apache.hadoop.conf.Configuration;
 import org.apache.iceberg.catalog.Catalog;
 
 import java.util.List;
@@ -30,13 +27,12 @@ import java.util.Map;
 
 public class IcebergAliyunDLFMetaStoreProperties extends AbstractIcebergProperties {
 
-    private AliyunDLFBaseProperties baseProperties;
-
-
     protected IcebergAliyunDLFMetaStoreProperties(Map<String, String> props) {
         super(props);
         super.initNormalizeAndCheckProps();
-        baseProperties = AliyunDLFBaseProperties.of(origProps);
+        // Validate DLF base properties (e.g. endpoint / region) at construction time; the parsed
+        // value is no longer retained because native fe-core catalog construction was removed.
+        AliyunDLFBaseProperties.of(origProps);
     }
 
     @Override
@@ -47,21 +43,11 @@ public class IcebergAliyunDLFMetaStoreProperties extends AbstractIcebergProperti
     @Override
     public Catalog initCatalog(String catalogName, Map<String, String> catalogProps,
                                List<StorageProperties> storagePropertiesList) {
-        DLFCatalog dlfCatalog = new DLFCatalog();
-        // @see com.aliyun.datalake.metastore.hive.common.utils.ConfigUtils
-        Configuration conf = new Configuration();
-        conf.set(DataLakeConfig.CATALOG_ACCESS_KEY_ID, baseProperties.dlfAccessKey);
-        conf.set(DataLakeConfig.CATALOG_ACCESS_KEY_SECRET, baseProperties.dlfSecretKey);
-        conf.set(DataLakeConfig.CATALOG_ENDPOINT, baseProperties.dlfEndpoint);
-        conf.set(DataLakeConfig.CATALOG_REGION_ID, baseProperties.dlfRegion);
-        conf.set(DataLakeConfig.CATALOG_SECURITY_TOKEN, baseProperties.dlfSessionToken);
-        conf.set(DataLakeConfig.CATALOG_USER_ID, baseProperties.dlfUid);
-        conf.set(DataLakeConfig.CATALOG_ID, baseProperties.dlfCatalogId);
-        conf.set(DataLakeConfig.CATALOG_PROXY_MODE, baseProperties.dlfProxyMode);
-        conf.set("hive.metastore.type", "dlf");
-        conf.set("type", "hms");
-        dlfCatalog.setConf(conf);
-        dlfCatalog.initialize(catalogName, catalogProps);
-        return dlfCatalog;
+        // Native fe-core DLF Iceberg catalog construction has been removed. After the catalog-SPI
+        // flip, DLF Iceberg catalogs are built by the plugin connector
+        // (fe-connector-iceberg IcebergConnector#createDlfCatalog); this legacy path is dead and
+        // only reachable via the (also dead) native IcebergExternalCatalog. Fail loud if invoked.
+        throw new UnsupportedOperationException(
+                "Native fe-core DLF Iceberg catalog construction is no longer supported");
     }
 }

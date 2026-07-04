@@ -17,11 +17,9 @@
 
 package org.apache.doris.datasource.property.metastore;
 
-import org.apache.doris.datasource.iceberg.dlf.DLFCatalog;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.foundation.property.StoragePropertiesException;
 
-import org.apache.iceberg.catalog.Catalog;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -45,7 +43,7 @@ public class IcebergAliyunDLFMetaStorePropertiesTest {
     }
 
     @Test
-    void testInitCatalog() {
+    void testInitCatalogUnsupported() {
         Map<String, String> props = new HashMap<>();
         props.put("dlf.access_key", "ak");
         props.put("dlf.secret_key", "sk");
@@ -57,10 +55,11 @@ public class IcebergAliyunDLFMetaStorePropertiesTest {
 
         IcebergAliyunDLFMetaStoreProperties properties =
                 new IcebergAliyunDLFMetaStoreProperties(props);
-        // Replace DLFCatalog with a mock
-        Catalog catalog = properties.initCatalog("test_catalog", props,
-                Collections.singletonList(StorageProperties.createPrimary(props)));
-        Assertions.assertEquals(DLFCatalog.class, catalog.getClass());
+        // Native fe-core DLF catalog construction was removed with the catalog-SPI flip; DLF
+        // Iceberg catalogs are now built by the plugin connector. initCatalog must fail loud.
+        Assertions.assertThrows(UnsupportedOperationException.class,
+                () -> properties.initCatalog("test_catalog", props,
+                        Collections.singletonList(StorageProperties.createPrimary(props))));
     }
 
     @Test
