@@ -998,6 +998,7 @@ build_flatbuffers() {
     "${BUILD_SYSTEM}" -j "${PARALLEL}"
 
     cp flatc ../../../installed/bin/flatc
+    rm -rf ../../../installed/include/flatbuffers
     cp -r ../include/flatbuffers ../../../installed/include/flatbuffers
     cp libflatbuffers.a ../../../installed/lib/libflatbuffers.a
 }
@@ -1087,7 +1088,9 @@ build_arrow() {
         ldflags="-L${TP_LIB_DIR}"
     fi
 
-    LDFLAGS="${ldflags}" \
+    CPPFLAGS="-I${TP_INCLUDE_DIR}" \
+        CXXFLAGS="-I${TP_INCLUDE_DIR}" \
+        LDFLAGS="${ldflags}" \
         "${CMAKE_CMD}" -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
         -DCMAKE_CXX_STANDARD="${TP_CXX_STANDARD}" \
         -G "${GENERATOR}" -DARROW_PARQUET=ON -DARROW_IPC=ON -DARROW_BUILD_SHARED=OFF \

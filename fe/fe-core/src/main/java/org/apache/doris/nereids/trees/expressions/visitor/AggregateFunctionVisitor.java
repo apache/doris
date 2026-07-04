@@ -156,15 +156,15 @@ public interface AggregateFunctionVisitor<R, C> {
     }
 
     default R visitBoolAnd(BoolAnd boolAnd, C context) {
-        return visitAggregateFunction(boolAnd, context);
+        return visitNullableAggregateFunction(boolAnd, context);
     }
 
     default R visitBoolOr(BoolOr boolOr, C context) {
-        return visitAggregateFunction(boolOr, context);
+        return visitNullableAggregateFunction(boolOr, context);
     }
 
     default R visitBoolXor(BoolXor boolXor, C context) {
-        return visitAggregateFunction(boolXor, context);
+        return visitNullableAggregateFunction(boolXor, context);
     }
 
     default R visitCollectList(CollectList collectList, C context) {

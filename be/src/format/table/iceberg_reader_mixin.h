@@ -343,9 +343,6 @@ protected:
     // id -> block column name
     std::unordered_map<int, std::string> _id_to_block_column_name;
 
-    // File column names used during init
-    std::vector<std::string> _file_col_names;
-
     std::function<std::shared_ptr<segment_v2::RowIdColumnIteratorV2>()>
             _create_topn_row_id_column_iterator;
 
@@ -365,10 +362,14 @@ protected:
 
 template <typename BaseReader>
 Status IcebergReaderMixin<BaseReader>::_init_row_filters() {
-    // COUNT(*) short-circuit
+    // COUNT(*) short-circuit. A table-level row count of 0 (e.g. an all-deleted table read with
+    // ignore_iceberg_dangling_delete, where total-records == total-position-deletes) is still a
+    // valid pushed-down count, so accept >= 0 -- matching FileScanner and the Paimon readers. FE
+    // sends -1 when there is no table-level count; using > 0 here would drop a genuine 0 into the
+    // delete-applying path below and never produce the intended CountReader(0).
     if (this->_push_down_agg_type == TPushAggOp::type::COUNT &&
         this->get_scan_range().table_format_params.__isset.table_level_row_count &&
-        this->get_scan_range().table_format_params.table_level_row_count > 0) {
+        this->get_scan_range().table_format_params.table_level_row_count >= 0) {
         return Status::OK();
     }
 

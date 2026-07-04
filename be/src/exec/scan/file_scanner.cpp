@@ -1109,8 +1109,31 @@ Status FileScanner::_get_next_reader() {
                 _cur_reader = std::move(mc_reader);
             } else if (range.__isset.table_format_params &&
                        range.table_format_params.table_format_type == "paimon") {
-                if (_state->query_options().__isset.enable_paimon_cpp_reader &&
-                    _state->query_options().enable_paimon_cpp_reader) {
+                const auto& paimon_params = range.table_format_params.paimon_params;
+                bool use_paimon_cpp_reader = false;
+                if (paimon_params.__isset.reader_type) {
+                    switch (paimon_params.reader_type) {
+                    case TPaimonReaderType::PAIMON_CPP:
+                        use_paimon_cpp_reader = true;
+                        break;
+                    case TPaimonReaderType::PAIMON_JNI:
+                        break;
+                    case TPaimonReaderType::PAIMON_NATIVE:
+                        return Status::InternalError(
+                                "invalid PAIMON_NATIVE reader_type for paimon FORMAT_JNI split, "
+                                "possibly caused by FE/BE protocol mismatch");
+                    default:
+                        return Status::InternalError(
+                                "unknown paimon reader_type for paimon FORMAT_JNI split, possibly "
+                                "caused by FE/BE protocol mismatch");
+                    }
+                } else {
+                    // TODO: Remove this fallback after all FE versions set TPaimonReaderType.
+                    use_paimon_cpp_reader =
+                            _state->query_options().__isset.enable_paimon_cpp_reader &&
+                            _state->query_options().enable_paimon_cpp_reader;
+                }
+                if (use_paimon_cpp_reader) {
                     auto cpp_reader = PaimonCppReader::create_unique(_file_slot_descs, _state,
                                                                      _profile, range, _params);
                     if (!_is_load && !_push_down_conjuncts.empty()) {
@@ -1802,7 +1825,6 @@ Status FileScanner::_init_expr_ctxes() {
         if (is_file_slot) {
             _is_file_slot.emplace(slot_id);
             _file_slot_descs.emplace_back(it->second);
-            _file_col_names.push_back(it->second->col_name());
         }
 
         _column_descs.push_back(col_desc);

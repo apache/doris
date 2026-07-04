@@ -388,4 +388,52 @@ public class StmtExecutorTest extends TestWithFeService {
                 "ParsedStatement should be a LogicalPlanAdapter after parseByNereids(), but was: "
                         + (parsedStatement == null ? "null" : parsedStatement.getClass().getName()));
     }
+
+    @Test
+    public void testShouldDisableCloudVersionCacheOnRetryForE230() {
+        String originalCloudUniqueId = Config.cloud_unique_id;
+        String originalDeployMode = Config.deploy_mode;
+        long originalPartitionTtl = connectContext.getSessionVariable().cloudPartitionVersionCacheTtlMs;
+        long originalTableTtl = connectContext.getSessionVariable().cloudTableVersionCacheTtlMs;
+        try {
+            Config.cloud_unique_id = "test-cloud-id";
+            StmtExecutor executor = new StmtExecutor(connectContext, "select 1");
+
+            connectContext.getSessionVariable().cloudPartitionVersionCacheTtlMs = 1000L;
+            connectContext.getSessionVariable().cloudTableVersionCacheTtlMs = 1000L;
+            Assertions.assertTrue(executor.shouldDisableCloudVersionCacheOnRetry(
+                    "errCode = 2, detailMessage = E-230 versions are already compacted"));
+            Assertions.assertFalse(executor.shouldDisableCloudVersionCacheOnRetry(
+                    "errCode = 2, detailMessage = some other error"));
+            // null error message must not trigger the disable.
+            Assertions.assertFalse(executor.shouldDisableCloudVersionCacheOnRetry(null));
+
+            // Non-cloud mode must never disable the version cache, even on E-230.
+            Config.cloud_unique_id = "";
+            Config.deploy_mode = "";
+            Assertions.assertFalse(executor.shouldDisableCloudVersionCacheOnRetry(
+                    "errCode = 2, detailMessage = E-230 versions are already compacted"));
+            Config.cloud_unique_id = "test-cloud-id";
+
+            connectContext.getSessionVariable().cloudPartitionVersionCacheTtlMs = 0L;
+            connectContext.getSessionVariable().cloudTableVersionCacheTtlMs = 1000L;
+            Assertions.assertTrue(executor.shouldDisableCloudVersionCacheOnRetry(
+                    "errCode = 2, detailMessage = E-230 versions are already compacted"));
+
+            connectContext.getSessionVariable().cloudPartitionVersionCacheTtlMs = 1000L;
+            connectContext.getSessionVariable().cloudTableVersionCacheTtlMs = 0L;
+            Assertions.assertTrue(executor.shouldDisableCloudVersionCacheOnRetry(
+                    "errCode = 2, detailMessage = E-230 versions are already compacted"));
+
+            connectContext.getSessionVariable().cloudPartitionVersionCacheTtlMs = 0L;
+            connectContext.getSessionVariable().cloudTableVersionCacheTtlMs = 0L;
+            Assertions.assertFalse(executor.shouldDisableCloudVersionCacheOnRetry(
+                    "errCode = 2, detailMessage = E-230 versions are already compacted"));
+        } finally {
+            Config.cloud_unique_id = originalCloudUniqueId;
+            Config.deploy_mode = originalDeployMode;
+            connectContext.getSessionVariable().cloudPartitionVersionCacheTtlMs = originalPartitionTtl;
+            connectContext.getSessionVariable().cloudTableVersionCacheTtlMs = originalTableTtl;
+        }
+    }
 }

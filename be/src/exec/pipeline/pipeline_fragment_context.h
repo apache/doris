@@ -229,6 +229,9 @@ private:
     std::atomic<int> _total_tasks = 0;
 
     std::unique_ptr<RuntimeProfile> _fragment_level_profile;
+    // This is used by loading process to report Fragment exec status to FE, FE need fragment status to
+    // check if the loading process is finished. And during the report, BE will send the loading message to FE,
+    // for example the loading error, commit rows num etc.
     bool _is_report_success = false;
 
     std::unique_ptr<RuntimeState> _runtime_state;
@@ -245,10 +248,6 @@ private:
 
     std::function<void(RuntimeState*, Status*)> _call_back;
     std::atomic_bool _is_fragment_instance_closed = false;
-
-    // If this is set to false, and '_is_report_success' is false as well,
-    // This executor will not report status to FE on being cancelled.
-    bool _is_report_on_cancel;
 
     // 0 indicates reporting is in progress or not required
     std::atomic_bool _disable_period_report = true;
