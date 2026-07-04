@@ -265,8 +265,12 @@ void LayoutWindowRegions(const FrqRegionMeta& dd_meta, const std::vector<uint8_t
 // independent).
 Status BuildWindowedPosting(TermPostings& tp, bool has_freq, bool has_prx,
                             const std::vector<uint8_t>& norms, io::FileWriter* posting_out,
-                            WindowedPosting* out) {
-    const uint32_t unit = AdaptiveWindowDocs(static_cast<uint32_t>(tp.docids.size()));
+                            WindowedPosting* out, uint32_t window_docs_override = 0) {
+    // window_docs_override > 0 (G16-e docs-only bigrams) replaces the df-based
+    // adaptive sizing; 0 keeps the byte-identical adaptive layout.
+    const uint32_t unit = window_docs_override > 0
+                                  ? window_docs_override
+                                  : AdaptiveWindowDocs(static_cast<uint32_t>(tp.docids.size()));
     const size_t n = tp.docids.size();
     const std::span<const uint32_t> all_docs(tp.docids);
     const std::span<const uint32_t> all_freqs(tp.freqs);
@@ -532,9 +536,15 @@ Status LogicalIndexWriter::build_windowed_entry(TermPostings& tp, uint64_t frq_b
     // prelude flags record has_freq=false, so frq_len == frq_docs_len and a
     // want_freq read of such an entry fails closed in region decode.
     const uint64_t prx_off = posting_size();
+    // G16-e: docs-only (prune-mode) bigrams use much larger windows -- their
+    // 2-term hit path reads the full docs-only prefix (never window-narrowed),
+    // and bigger dd regions give the per-region zstd a real context. Legacy
+    // bigrams (write_prx) keep the adaptive sizing (byte-identical output).
+    const uint32_t window_docs =
+            (!write_prx && format::is_phrase_bigram_term(tp.term)) ? format::kBigramWindowDocs : 0;
     WindowedPosting wp;
-    RETURN_IF_ERROR(
-            BuildWindowedPosting(tp, write_freq, write_prx, encoded_norms_, posting_out_, &wp));
+    RETURN_IF_ERROR(BuildWindowedPosting(tp, write_freq, write_prx, encoded_norms_, posting_out_,
+                                         &wp, window_docs));
     // wp.prx_total_len bytes were just streamed straight to the posting sink (0
     // when !has_prx). docids/freqs are now fully encoded into wp; release the
     // source arrays before the (potentially large) wp blocks are appended to

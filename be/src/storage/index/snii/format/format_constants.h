@@ -156,6 +156,14 @@ inline constexpr uint32_t kDefaultInlineThreshold = 256; // slim encoded bytes â
 // kAdaptiveWindowDocs-sized windows instead of kFrqBaseUnit-sized ones.
 inline constexpr uint32_t kAdaptiveWindowDfThreshold = 8192; // df >= this -> larger windows
 inline constexpr uint32_t kAdaptiveWindowDocs = 1024;        // larger window size (4 * base unit)
+// G16-e: prune-mode (docs-only) phrase-bigram terms split into much larger
+// windows. Their 2-term hit path always reads the FULL docs-only prefix (no
+// window narrowing), and larger dd regions give the per-region zstd a real
+// compression context (a 1024-doc region is ~hundreds of bytes -- too small
+// for zstd to amortize). 64 * base unit; readers accept any whole multiple of
+// kFrqBaseUnit up to the 16M-doc window cap. Legacy-mode bigrams (positions
+// kept) stay on the adaptive sizing, preserving byte-identical legacy output.
+inline constexpr uint32_t kBigramWindowDocs = 16384;
 inline constexpr uint32_t kDefaultTargetDictBlockBytes = 64 * 1024;
 // G13: embedded meta sub-sections (SampledTermIndex / DictBlockDirectory frames)
 // at or above this raw size are emitted zstd-compressed (kSampledTermIndexZstd /

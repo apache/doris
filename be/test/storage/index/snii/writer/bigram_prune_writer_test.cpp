@@ -349,6 +349,11 @@ TEST(SniiBigramPruneWriter, WindowedSurvivorDropsFreqBlock) {
     EXPECT_TRUE(unigram_entry.has_sb);
     EXPECT_LT(unigram_entry.frq_docs_len, unigram_entry.frq_len); // unigram keeps freq
 
+    // G16-e: the docs-only bigram uses kBigramWindowDocs-sized windows -- at
+    // this df it collapses to ONE window, so its prelude is strictly smaller
+    // than the unigram's (4 x 256-doc adaptive windows at the same df).
+    EXPECT_LT(bigram_entry.prelude_len, unigram_entry.prelude_len);
+
     std::vector<uint32_t> docids;
     assert_ok(query::internal::read_docid_posting(idx, bigram_entry, frq_base, prx_base, &docids));
     ASSERT_EQ(docids.size(), kDf);
