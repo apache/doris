@@ -1160,7 +1160,14 @@ public class CreateTableInfo {
     private int getEffectiveIcebergFormatVersion() {
         CatalogIf catalog = Strings.isNullOrEmpty(ctlName) ? null
                 : Env.getCurrentEnv().getCatalogMgr().getCatalog(ctlName);
-        if (catalog instanceof IcebergExternalCatalog) {
+        // After the SPI cutover an iceberg catalog is a PluginDrivenExternalCatalog, so the legacy
+        // instanceof IcebergExternalCatalog is false; add the parallel plugin-iceberg arm (mirrors
+        // paddingEngineName) so catalog-level table-default/override.format-version is still consulted.
+        // Without it the version resolves to 2 and validateIcebergRowLineageColumns is silently no-op'd,
+        // while the connector honors the catalog-level format-version and creates a v3 table.
+        if (catalog instanceof IcebergExternalCatalog
+                || (catalog instanceof PluginDrivenExternalCatalog
+                    && ENGINE_ICEBERG.equals(pluginCatalogTypeToEngine((PluginDrivenExternalCatalog) catalog)))) {
             return IcebergUtils.getEffectiveIcebergFormatVersion(properties, catalog.getProperties());
         }
         return IcebergUtils.getEffectiveIcebergFormatVersion(properties, Collections.emptyMap());
