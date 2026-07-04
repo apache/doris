@@ -474,6 +474,11 @@ TEST(SniiBigramPruneWriter, WriteFreqOffDropsUnigramFreqLayout) {
     EXPECT_TRUE(uni.has_sb);
     EXPECT_EQ(uni.frq_docs_len, uni.frq_len); // no freq-block
     EXPECT_GT(uni.prx_len, 0U);               // positions kept
+    // G16-f: the freq-dropped index also elides the per-entry ttf/max_freq
+    // stats (block header kNoTermStats); df stays for the count fastpath.
+    EXPECT_EQ(uni.ttf_delta, 0U);
+    EXPECT_EQ(uni.max_freq, 0U);
+    EXPECT_EQ(uni.df, kDf);
 
     // Phrase-fallback-shaped read (positions without freq) decodes fully.
     reader::DecodedPosting decoded;

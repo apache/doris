@@ -793,7 +793,11 @@ Status LogicalIndexWriter::process_term(TermPostings& tp, BlockState* st) {
         const uint64_t base = posting_size();
         st->frq_base = base;
         st->prx_base = base;
-        st->block = std::make_unique<DictBlockBuilder>(tier_, has_prx_, st->frq_base, st->prx_base);
+        // G16-f: a freq-dropped index also omits the per-entry ttf/max_freq
+        // stats (BM25-only); the block header flag makes it self-describing.
+        st->block = std::make_unique<DictBlockBuilder>(tier_, has_prx_, st->frq_base, st->prx_base,
+                                                       /*anchor_interval=*/16,
+                                                       /*term_stats=*/has_freq_);
         st->block_first_term = tp.term;
     }
 

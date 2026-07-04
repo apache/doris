@@ -59,9 +59,10 @@ size_t estimate_entry_bytes(const DictEntry& e) {
 // ---- DictBlockBuilder ----
 
 DictBlockBuilder::DictBlockBuilder(IndexTier tier, bool has_positions, uint64_t frq_base,
-                                   uint64_t prx_base, uint32_t anchor_interval)
+                                   uint64_t prx_base, uint32_t anchor_interval, bool term_stats)
         : tier_(tier),
           has_positions_(has_positions),
+          term_stats_(term_stats),
           frq_base_(frq_base),
           prx_base_(prx_base),
           anchor_interval_(anchor_interval == 0 ? 1 : anchor_interval) {}
@@ -104,7 +105,8 @@ void DictBlockBuilder::finish(ByteSink* sink) const {
     // header.
     body.put_varint64(static_cast<uint64_t>(n_entries_));
     body.put_u8(kDictBlockFormatVer);
-    body.put_u8(has_positions_ ? dict_block_flags::kHasPositions : 0U);
+    body.put_u8(static_cast<uint8_t>((has_positions_ ? dict_block_flags::kHasPositions : 0U) |
+                                     (term_stats_ ? 0U : dict_block_flags::kNoTermStats)));
     body.put_varint64(frq_base_);
     if (has_positions_) {
         body.put_varint64(prx_base_);
@@ -125,7 +127,7 @@ void DictBlockBuilder::finish(ByteSink* sink) const {
         // finish() is void and entry encoding into an in-memory ByteSink cannot fail;
         // explicitly discard the (now [[nodiscard]] Status) return.
         const uint64_t before = body.size();
-        static_cast<void>(encode_dict_entry(entries_[i], prev_term, tier_, &body));
+        static_cast<void>(encode_dict_entry(entries_[i], prev_term, tier_, &body, term_stats_));
         const uint64_t encoded = body.size() - before;
         entry_bytes_total_ += encoded;
         if (is_phrase_bigram_term(entries_[i].term)) {
@@ -211,6 +213,7 @@ Status DictBlockReader::open(Slice block, IndexTier tier, bool has_positions,
                 "dict_block: unsupported entry_format_ver");
     }
     RETURN_IF_ERROR(check_flags(flags, has_positions));
+    out->term_stats_ = (flags & dict_block_flags::kNoTermStats) == 0;
     RETURN_IF_ERROR(src.get_varint64(&out->frq_base_));
     if (has_positions) {
         RETURN_IF_ERROR(src.get_varint64(&out->prx_base_));
@@ -262,7 +265,8 @@ Status DictBlockReader::open(Slice block, IndexTier tier, bool has_positions,
         // Anchor entries are encoded with prev_term="" and can be decoded independently to retrieve their term.
         ByteSource e_src(covered.subslice(off, anchor_table_begin - off));
         DictEntry probe;
-        RETURN_IF_ERROR(decode_dict_entry(&e_src, std::string_view {}, tier, &probe));
+        RETURN_IF_ERROR(decode_dict_entry(&e_src, std::string_view {}, tier, &probe,
+                                          (flags & dict_block_flags::kNoTermStats) == 0));
         out->anchor_terms_[i] = std::move(probe.term);
     }
     return Status::OK();
@@ -319,7 +323,8 @@ Status DictBlockReader::decode_all(std::vector<DictEntry>* out) const {
         std::string prev; // first entry of a segment is an anchor (prev_term="")
         while (!src.eof()) {
             DictEntry e;
-            RETURN_IF_ERROR(decode_dict_entry(&src, std::string_view(prev), tier_, &e));
+            RETURN_IF_ERROR(decode_dict_entry(&src, std::string_view(prev), tier_, &e,
+                                              term_stats_));
             prev = e.term;
             out->push_back(std::move(e));
         }
@@ -358,7 +363,8 @@ Status DictBlockReader::scan_from_anchor(size_t anchor_idx, std::string_view tar
         RETURN_IF_ERROR(
                 decode_dict_entry_key(&src, std::string_view(prev), &e, &body_start, &entry_total));
         if (e.term == target) {
-            RETURN_IF_ERROR(decode_dict_entry_rest(&src, tier_, body_start, entry_total, &e));
+            RETURN_IF_ERROR(
+                    decode_dict_entry_rest(&src, tier_, body_start, entry_total, &e, term_stats_));
             *found = true;
             *out = std::move(e);
             return Status::OK();
@@ -449,7 +455,8 @@ Status DictBlockReader::visit_prefix_range(std::string_view prefix,
             continue;
         }
         // Accepted: materialize the body and hand the entry to the visitor.
-        RETURN_IF_ERROR(decode_dict_entry_rest(&src, tier_, body_start, entry_total, &e));
+        RETURN_IF_ERROR(
+                decode_dict_entry_rest(&src, tier_, body_start, entry_total, &e, term_stats_));
         prev = e.term; // copy the key before the entry is moved into on_hit
         bool stop = false;
         RETURN_IF_ERROR(on_hit(std::move(e), &stop));

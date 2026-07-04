@@ -73,9 +73,11 @@ void write_term_key(const DictEntry& e, std::string_view prev, ByteSink* sink) {
     sink->put_bytes(Slice(suffix));
 }
 
-void write_stats(const DictEntry& e, IndexTier tier, ByteSink* sink) {
+void write_stats(const DictEntry& e, IndexTier tier, bool term_stats, ByteSink* sink) {
     sink->put_varint32(e.df);
-    if (!tier_has_stats(tier)) return;
+    // G16-f: term_stats == false (freq-dropped index, block header flag) omits
+    // the ttf_delta/max_freq varints -- BM25-only fields, dead without freq.
+    if (!tier_has_stats(tier) || !term_stats) return;
     sink->put_varint64(e.ttf_delta);
     sink->put_varint64(e.max_freq);
 }
@@ -131,10 +133,11 @@ void write_inline(const DictEntry& e, IndexTier tier, ByteSink* sink) {
     sink->put_bytes(Slice(e.prx_bytes));
 }
 
-void write_body(const DictEntry& e, std::string_view prev, IndexTier tier, ByteSink* sink) {
+void write_body(const DictEntry& e, std::string_view prev, IndexTier tier, bool term_stats,
+                ByteSink* sink) {
     write_term_key(e, prev, sink);
     sink->put_u8(pack_flags(e));
-    write_stats(e, tier, sink);
+    write_stats(e, tier, term_stats, sink);
     if (e.kind == DictEntryKind::kInline) {
         write_inline(e, tier, sink);
     } else {
@@ -160,9 +163,9 @@ Status read_term_key(ByteSource* src, std::string_view prev, DictEntry* out) {
     return Status::OK();
 }
 
-Status read_stats(ByteSource* src, IndexTier tier, DictEntry* out) {
+Status read_stats(ByteSource* src, IndexTier tier, bool term_stats, DictEntry* out) {
     RETURN_IF_ERROR(src->get_varint32(&out->df));
-    if (!tier_has_stats(tier)) return Status::OK();
+    if (!tier_has_stats(tier) || !term_stats) return Status::OK();
     RETURN_IF_ERROR(src->get_varint64(&out->ttf_delta));
     RETURN_IF_ERROR(src->get_varint64(&out->max_freq));
     return Status::OK();
@@ -273,7 +276,7 @@ Status read_entry_len(ByteSource* src, uint64_t* total) {
 } // namespace
 
 Status encode_dict_entry(const DictEntry& entry, std::string_view prev_term, IndexTier tier,
-                         ByteSink* sink) {
+                         ByteSink* sink, bool term_stats) {
     if (sink == nullptr)
         return Status::Error<ErrorCode::INVALID_ARGUMENT, false>("dict_entry: sink is null");
 
@@ -283,7 +286,7 @@ Status encode_dict_entry(const DictEntry& entry, std::string_view prev_term, Ind
     // CRC is not repeated at the entry level, to keep slim/inline low-frequency
     // terms maximally compact (spec §DICT block/§dict entry).
     ByteSink body;
-    write_body(entry, prev_term, tier, &body);
+    write_body(entry, prev_term, tier, term_stats, &body);
     sink->put_varint64(static_cast<uint64_t>(body.size()));
     sink->put_bytes(body.view());
     return Status::OK();
@@ -305,7 +308,7 @@ Status decode_dict_entry_key(ByteSource* src, std::string_view prev_term, DictEn
 }
 
 Status decode_dict_entry_rest(ByteSource* src, IndexTier tier, size_t body_start,
-                              uint64_t entry_total, DictEntry* out) {
+                              uint64_t entry_total, DictEntry* out, bool term_stats) {
     if (src == nullptr || out == nullptr) {
         return Status::Error<ErrorCode::INVALID_ARGUMENT, false>("dict_entry: src / out is null");
     }
@@ -315,7 +318,7 @@ Status decode_dict_entry_rest(ByteSource* src, IndexTier tier, size_t body_start
     uint8_t flags = 0;
     RETURN_IF_ERROR(src->get_u8(&flags));
     apply_flags(flags, out);
-    RETURN_IF_ERROR(read_stats(src, tier, out));
+    RETURN_IF_ERROR(read_stats(src, tier, term_stats, out));
     RETURN_IF_ERROR(read_locator(src, tier, out));
 
     // The body must consume exactly entry_len bytes; otherwise the structure is
@@ -343,11 +346,11 @@ Status skip_dict_entry_body(ByteSource* src, size_t body_start, uint64_t entry_t
 }
 
 Status decode_dict_entry(ByteSource* src, std::string_view prev_term, IndexTier tier,
-                         DictEntry* out) {
+                         DictEntry* out, bool term_stats) {
     size_t body_start = 0;
     uint64_t entry_total = 0;
     RETURN_IF_ERROR(decode_dict_entry_key(src, prev_term, out, &body_start, &entry_total));
-    return decode_dict_entry_rest(src, tier, body_start, entry_total, out);
+    return decode_dict_entry_rest(src, tier, body_start, entry_total, out, term_stats);
 }
 
 Status skip_dict_entry(ByteSource* src) {

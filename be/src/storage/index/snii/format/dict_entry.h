@@ -113,15 +113,19 @@ struct DictEntry {
 
 // Encodes an entry into sink (appending) using the layout above, with front
 // coding relative to prev_term. tier determines whether optional fields are
-// written.
+// written. term_stats == false (G16-f: freq-dropped indexes, declared by the
+// block header's kNoTermStats flag) omits the ttf_delta/max_freq varints --
+// they serve only BM25 scoring, dead on an index that dropped freq; df stays.
+// Region metadata (freq/prx locators) remains tier-conditioned.
 Status encode_dict_entry(const DictEntry& entry, std::string_view prev_term, IndexTier tier,
-                         ByteSink* sink);
+                         ByteSink* sink, bool term_stats = true);
 
 // Decodes one entry from the current position of src; term is reconstructed
 // from prev_term + suffix. Verifies the trailing CRC; out-of-range / CRC
-// mismatch / invalid prefix_len all return Corruption.
+// mismatch / invalid prefix_len all return Corruption. term_stats must match
+// the writer's choice (the dict block header flag carries it).
 Status decode_dict_entry(ByteSource* src, std::string_view prev_term, IndexTier tier,
-                         DictEntry* out);
+                         DictEntry* out, bool term_stats = true);
 
 // Skips one entry using only entry_len (does not parse internal fields or
 // verify CRC).
@@ -150,7 +154,7 @@ Status decode_dict_entry_key(ByteSource* src, std::string_view prev_term, DictEn
 // body-decode counter seam (see dict_entry_body_decode_count) at its top so
 // tests can assert how many entry bodies a scan actually materialized.
 Status decode_dict_entry_rest(ByteSource* src, IndexTier tier, size_t body_start,
-                              uint64_t entry_total, DictEntry* out);
+                              uint64_t entry_total, DictEntry* out, bool term_stats = true);
 
 // Skips the remaining body bytes after decode_dict_entry_key, advancing src to
 // the next entry without parsing flags/stats/locator. advance = entry_total -
