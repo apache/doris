@@ -25,6 +25,9 @@ import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hive.conf.HiveConf;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import software.amazon.awssdk.auth.credentials.AnonymousCredentialsProvider;
+import software.amazon.awssdk.auth.credentials.EnvironmentVariableCredentialsProvider;
+import software.amazon.awssdk.auth.credentials.WebIdentityTokenFileCredentialsProvider;
 
 import java.util.Arrays;
 import java.util.Collections;
@@ -474,6 +477,41 @@ public class IcebergCatalogFactoryTest {
     }
 
     @Test
+    public void appendRestSigningGlueProviderChainPinsNonDefaultProvider() {
+        // F14: glue/s3tables signing with NO static creds and NO role -> PROVIDER_CHAIN. A non-DEFAULT
+        // s3.credentials_provider_type must pin client.credentials-provider to that provider class (was silently
+        // dropped). MUTATION: dropping the else branch -> the key is absent -> red.
+        Map<String, String> opts = new HashMap<>();
+        IcebergCatalogFactory.appendRestProperties(opts,
+                props("iceberg.rest.signing-name", "glue", "s3.credentials_provider_type", "anonymous"),
+                Optional.of(new FakeS3CompatibleStorageProperties("S3").region("us-east-1")));
+        Assertions.assertEquals(AnonymousCredentialsProvider.class.getName(),
+                opts.get("client.credentials-provider"));
+
+        // DEFAULT / absent -> nothing emitted (SDK default chain, the common case).
+        Map<String, String> defaultOpts = new HashMap<>();
+        IcebergCatalogFactory.appendRestProperties(defaultOpts,
+                props("iceberg.rest.signing-name", "glue"),
+                Optional.of(new FakeS3CompatibleStorageProperties("S3").region("us-east-1")));
+        Assertions.assertNull(defaultOpts.get("client.credentials-provider"),
+                "DEFAULT/absent provider mode must emit no client.credentials-provider");
+    }
+
+    @Test
+    public void appendRestSigningOtherNameProviderChainPinsNonDefaultProvider() {
+        // F14: a non-glue/s3tables signing-name with NO explicit iceberg.rest.* creds falls to PROVIDER_CHAIN;
+        // iceberg.rest.credentials_provider_type pins the provider class. MUTATION: dropping the else -> absent.
+        Map<String, String> opts = new HashMap<>();
+        IcebergCatalogFactory.appendRestProperties(opts,
+                props("iceberg.rest.signing-name", "custom",
+                        "iceberg.rest.credentials_provider_type", "web-identity"),
+                Optional.of(new FakeS3CompatibleStorageProperties("S3")));
+        Assertions.assertEquals(WebIdentityTokenFileCredentialsProvider.class.getName(),
+                opts.get("client.credentials-provider"));
+        Assertions.assertNull(opts.get("rest.access-key-id"), "no explicit rest creds were supplied");
+    }
+
+    @Test
     public void appendRestNoSigningBlockWhenSigningNameAbsent() {
         // WHY: the entire signing block is gated on a non-blank signing-name. MUTATION: emitting rest.signing-name
         // (even empty) without the gate -> red.
@@ -728,6 +766,20 @@ public class IcebergCatalogFactoryTest {
         Assertions.assertEquals("eid", opts.get("client.assume-role.external-id"));
         Assertions.assertEquals("us-west-2", opts.get("client.region"));
         Assertions.assertNull(opts.get("s3.access-key-id"), "no static creds were supplied");
+    }
+
+    @Test
+    public void buildS3TablesCatalogPropertiesEmitsProviderChainWhenNoStaticNoRole() {
+        // F14: s3tables FileIO with NO static creds and NO role -> PROVIDER_CHAIN. A non-DEFAULT
+        // s3.credentials_provider_type pins client.credentials-provider (mirrors legacy putCredentialsProvider).
+        // MUTATION: dropping the else branch in appendS3TablesFileIOProperties -> the key is absent -> red.
+        Map<String, String> opts = IcebergCatalogFactory.buildS3TablesCatalogProperties(
+                props("iceberg.catalog.type", "s3tables", "warehouse", "arn:aws:s3tables:us-west-2:1:bucket/b",
+                        "s3.credentials_provider_type", "ENV"),
+                Optional.of(new FakeS3CompatibleStorageProperties("S3").region("us-west-2")));
+        Assertions.assertEquals(EnvironmentVariableCredentialsProvider.class.getName(),
+                opts.get("client.credentials-provider"));
+        Assertions.assertNull(opts.get("client.factory"), "no role -> no assume-role block");
     }
 
     @Test

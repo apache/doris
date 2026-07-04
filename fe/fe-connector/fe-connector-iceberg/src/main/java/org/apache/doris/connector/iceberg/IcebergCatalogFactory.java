@@ -214,17 +214,22 @@ public final class IcebergCatalogFactory {
      * rest/hadoop/jdbc/glue: the {@code s3.*} dialect always, then ONLY the credential-type addition.
      * {@code EXPLICIT} (static AK/SK present) adds NOTHING — the static keys suffice and, per legacy
      * {@code getCredentialType}, EXPLICIT precedes ASSUME_ROLE so a role ARN is ignored when static creds are set.
-     * {@code ASSUME_ROLE} (role ARN, no static) adds the assume-role block. {@code PROVIDER_CHAIN} would set
-     * {@code client.credentials-provider} for a non-DEFAULT mode in legacy; the connector cannot resolve that
-     * (the documented gap), so nothing is emitted. PURE.
+     * {@code ASSUME_ROLE} (role ARN, no static) adds the assume-role block. {@code PROVIDER_CHAIN} sets
+     * {@code client.credentials-provider} to the non-DEFAULT provider class the user selected (F14; DEFAULT ->
+     * nothing, SDK default chain). PURE.
      */
-    private static void appendS3TablesFileIOProperties(Map<String, String> opts, S3CompatibleFileSystemProperties s3) {
+    private static void appendS3TablesFileIOProperties(Map<String, String> opts, S3CompatibleFileSystemProperties s3,
+            Map<String, String> props) {
         putS3FileIODialect(opts, s3);
         if (s3.hasStaticCredentials()) {
             return;
         }
         if (s3.hasAssumeRole()) {
             appendAssumeRoleProperties(opts, s3);
+        } else {
+            // F14: PROVIDER_CHAIN — pin the non-DEFAULT provider class (mirrors legacy putCredentialsProvider).
+            putIfNotBlank(opts, AwsClientProperties.CLIENT_CREDENTIALS_PROVIDER,
+                    AwsCredentialsProviderModes.classNameFor(props, AwsCredentialsProviderModes.S3_MODE_KEYS));
         }
     }
 
@@ -364,7 +369,7 @@ public final class IcebergCatalogFactory {
     public static Map<String, String> buildS3TablesCatalogProperties(Map<String, String> props,
             Optional<S3CompatibleFileSystemProperties> chosenS3) {
         Map<String, String> opts = buildBaseCatalogProperties(props);
-        chosenS3.ifPresent(s3 -> appendS3TablesFileIOProperties(opts, s3));
+        chosenS3.ifPresent(s3 -> appendS3TablesFileIOProperties(opts, s3, props));
         return opts;
     }
 
@@ -465,17 +470,26 @@ public final class IcebergCatalogFactory {
                     putRestExplicitCredentials(opts, s3.getAccessKey(), s3.getSecretKey(), s3.getSessionToken());
                 } else if (s3.hasAssumeRole()) {
                     appendAssumeRoleProperties(opts, s3);
+                } else {
+                    // F14: PROVIDER_CHAIN — pin the non-DEFAULT provider class the user selected via
+                    // s3.credentials_provider_type (mirrors legacy putCredentialsProvider). DEFAULT/blank ->
+                    // null -> nothing emitted (SDK default chain, the common case).
+                    putIfNotBlank(opts, AwsClientProperties.CLIENT_CREDENTIALS_PROVIDER,
+                            AwsCredentialsProviderModes.classNameFor(props, AwsCredentialsProviderModes.S3_MODE_KEYS));
                 }
-                // else PROVIDER_CHAIN: the non-DEFAULT provider class needs fe-core
-                // AwsCredentialsProviderFactory.getV2ClassName (the connector cannot import it); DEFAULT is a
-                // no-op, so the common case is unaffected. Documented GAP (P6.6 docker gate).
             }
         } else {
-            // other signing-name: explicit iceberg.rest.* credentials, else provider chain (gap, as above).
-            putRestExplicitCredentials(opts,
-                    firstNonBlank(props, IcebergConnectorProperties.REST_ACCESS_KEY_ID),
-                    firstNonBlank(props, IcebergConnectorProperties.REST_SECRET_ACCESS_KEY),
-                    firstNonBlank(props, IcebergConnectorProperties.REST_SESSION_TOKEN));
+            // other signing-name: explicit iceberg.rest.* credentials, else the non-DEFAULT provider chain (F14).
+            String restAccessKey = firstNonBlank(props, IcebergConnectorProperties.REST_ACCESS_KEY_ID);
+            String restSecretKey = firstNonBlank(props, IcebergConnectorProperties.REST_SECRET_ACCESS_KEY);
+            if (StringUtils.isNotBlank(restAccessKey) && StringUtils.isNotBlank(restSecretKey)) {
+                putRestExplicitCredentials(opts, restAccessKey, restSecretKey,
+                        firstNonBlank(props, IcebergConnectorProperties.REST_SESSION_TOKEN));
+            } else {
+                putIfNotBlank(opts, AwsClientProperties.CLIENT_CREDENTIALS_PROVIDER,
+                        AwsCredentialsProviderModes.classNameFor(
+                                props, IcebergConnectorProperties.REST_CREDENTIALS_PROVIDER_TYPE));
+            }
         }
     }
 

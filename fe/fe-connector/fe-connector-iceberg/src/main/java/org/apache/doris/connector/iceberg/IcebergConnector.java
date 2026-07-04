@@ -654,7 +654,7 @@ public class IcebergConnector implements Connector {
     private S3TablesClient buildS3TablesClient(S3CompatibleFileSystemProperties s3) {
         S3TablesClientBuilder builder = S3TablesClient.builder()
                 .region(Region.of(s3.getRegion()))
-                .credentialsProvider(buildAwsCredentialsProvider(s3));
+                .credentialsProvider(buildAwsCredentialsProvider(s3, properties));
         String endpoint = properties.get(S3TablesProperties.S3TABLES_ENDPOINT);
         if (StringUtils.isNotBlank(endpoint)) {
             builder.endpointOverride(URI.create(endpoint));
@@ -671,13 +671,14 @@ public class IcebergConnector implements Connector {
      * {@link StsAssumeRoleCredentialsProvider} (role session name {@code aws-sdk-java-v2-fe}, optional external
      * id); otherwise the SDK default chain ({@link DefaultCredentialsProvider}).
      *
-     * <p>DEVIATION (UT-invisible, P6.6 docker gate): legacy resolves the non-DEFAULT {@code PROVIDER_CHAIN}
-     * provider modes through fe-core {@code AwsCredentialsProviderFactory.createV2}, which the connector may not
-     * import; both the no-credential case and the STS base credentials therefore fall back to
-     * {@link DefaultCredentialsProvider} (the common instance-profile / env case is unaffected). Same family as
-     * the documented REST/glue {@code PROVIDER_CHAIN} gap.
+     * <p>F14: the no-credential (PROVIDER_CHAIN) case resolves the non-DEFAULT provider the user selected via
+     * {@code s3.credentials_provider_type} through {@link AwsCredentialsProviderModes} — a self-contained twin of
+     * legacy {@code AwsCredentialsProviderFactory.createV2} (the connector cannot import fe-core). {@code DEFAULT}
+     * (and blank / unknown) still yields {@link DefaultCredentialsProvider}. The STS base credentials for the
+     * ASSUME_ROLE path stay on the default chain (matching the already-twinned assume-role case).
      */
-    private static AwsCredentialsProvider buildAwsCredentialsProvider(S3CompatibleFileSystemProperties s3) {
+    private static AwsCredentialsProvider buildAwsCredentialsProvider(
+            S3CompatibleFileSystemProperties s3, Map<String, String> props) {
         if (s3.hasStaticCredentials()) {
             if (StringUtils.isBlank(s3.getSessionToken())) {
                 return StaticCredentialsProvider.create(
@@ -701,7 +702,8 @@ public class IcebergConnector implements Connector {
                     })
                     .build();
         }
-        return DefaultCredentialsProvider.create();
+        // F14: PROVIDER_CHAIN — the non-DEFAULT provider the user selected (DEFAULT -> DefaultCredentialsProvider).
+        return AwsCredentialsProviderModes.providerFor(props, AwsCredentialsProviderModes.S3_MODE_KEYS);
     }
 
     /**
