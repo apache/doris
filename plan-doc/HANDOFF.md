@@ -14,15 +14,23 @@
 > **e2e flip-gated 全未跑**（本轮无集群）：F14 credential、F6/F7 EXPLAIN、F9 SHOW CREATE/information_schema、F4 SHOW CREATE、F11 preload 均翻闸后 e2e → 登记 **ENG-3**。
 ---
 
-# 🚀 下个 session 的任务 = **连通性 4 条（F2/F3/F15/F16）→ ENG-3 flip-gated e2e 全跑 → 用户二签翻闸**
+# 🚀 下个 session 的任务（用户 2026-07-04 再裁定：**删死码优先**）= **fe-core iceberg 死码删除 + 属性/鉴权迁移到连接器 metastore-spi**
 
-> ENG-1 现状：16 确认缺口中 **F1(medium)+本批 5 条 low 全修完**，仅剩 **连通性 F2/F3/F15/F16（medium，opt-in `test_connection=true`，默认 false 缓解）** 与 F5(info 死 import，Rule 3 不删) / F8(接受偏差)。翻闸 gate 3(ENG-1) 除连通性外已清。
+> **用户裁定**：翻闸主线（连通性 F2/F3/F15/F16 → ENG-3 e2e → 二签，见文末）**往后放**；先做**删除代码**——正交于翻闸，可独立推进。权威设计 = `plan-doc/fe-core-iceberg-removal-plan.md` v2（§阶段一死码 + §4 属性簇 + §6c 鉴权 + §8 用户已裁定 Q1+Q2=A/Q3=B）。**两件事**：
+> 1. **删除所有已可删的死码**（阶段一余量）；
+> 2. **属性/鉴权迁移**——fe-core iceberg 属性簇改走连接器已有的承接模块。
 >
-> **① 连通性 F2/F3/F15/F16（下一，medium）**：hms/glue-flavor iceberg 的 opt-in `test_connection` 元存储探测静默 no-op（`IcebergConnector.testConnection` 元存储探测 `TYPE_REST`-only；hms/glue flavor 无 round-trip）。信源=报告 §三 F2/F3。修法方向=在 `IcebergConnector.testConnection` 为 hms/glue flavor 补 HMS thrift / Glue GetDatabases 探测（连接器侧，勿破铁律）。**与 removal-plan §4「test_connection FULLY 承接」冲突→代码支持审计**。
-> **② ENG-3 flip-gated e2e 全套实跑**（有集群时）：DV/V3、MTMV、time-travel branch/tag、vended 写、Kerberized HDFS、rewrite_data_files、3 级 namespace + 本批 5 条的 e2e 项（F14 credential/F6-F7 EXPLAIN/F9 comment/F4 SHOW CREATE/F11 preload）。
-> **③ 用户二签 → 翻闸最后原子提交**（含 GSON 迁移 `e68eb5c00c9`）。
+> **⚠️ 起步先读 recon 结论（2026-07-04 本轮实证，纠正 v2 部分过时判断）**：
+> - **去 SDK 化七刀已删掉一大批阶段一死码**：`rewrite/`、`action/`、四个 DML 执行器（Delete/Merge/Insert/Rewrite Executor）、`LogicalIcebergTableSink`、`PhysicalIcebergTableSink`、`IcebergTransaction`、`IcebergTransactionManager`、`IcebergApiSource`、`IcebergDmlCommandUtils`、helper 的两个 RewritableDeletePlan* 等**均已 GONE**（见 `af7e244c3fe`/`64b03892b20`/`bf326c04741`/`4e7220d81c7`）。**残留死执行器仅 `LogicalIcebergMergeSink` 一个还在**（LogicalIcebergTableSink 已删但 MergeSink 漏删=待清）。
+> - **逐文件三态分类 + 可执行刀序 = `plan-doc/tasks/designs/fe-core-iceberg-removal-execution-plan.md`**（本轮 5-agent 分类工作流 `wf_7f1358fa-35d` 逐调用方核验产出，20 DELETE_NOW / 18 NEEDS_PREP / 23 ALIVE_HMS）。**下个 session 起步先读它的刀序（P0-P5 + 阶段四）再动手。** 刀序：**✅P0=broker/+helper 已删（`b52703dc1b5`，772 行）** → P1 fileio/（连带改 p2 回归 groovy）→ P2 DLF 子树（先中性化 IcebergAliyunDLFMetaStoreProperties.initCatalog）→ P3 catalog flavor 簇（先削 Rest 死臂）→ P4 实体类（搬常量 + 修 buildDbForInit 回放 + 削 ~15 死 instanceof 臂，含本轮 F4 的 ShowCreateTableCommand IcebergSysExternalTable 臂）→ P5 属性/鉴权 rewire。**ALIVE_HMS 23 文件禁删**（`IcebergUtils`/`IcebergMetadataOps`/`source/`/cache/ 等，HMS-iceberg 经 `PhysicalPlanTranslator:825` DlaType.ICEBERG 活）——挂 hive 迁 SPI（阶段四）。
+> - **属性/鉴权（sub-task 2 = P5，最大一块）**：连接器 `fe-connector-metastore-iceberg` 承接类已存在（IcebergHms/Glue/Dlf/Rest/Jdbc/NoOp MetaStoreProperties+Provider），**但 rewire 是真活且非平凡**：核验确认翻闸后 plugin iceberg 仍经 `PluginDrivenExternalCatalog.initPreExecutionAuthenticator:147 → getMetastoreProperties()(Type.ICEBERG)` 建 kerberos 鉴权器 + `CatalogProperty.initStorageProperties:181 → VendedCredentialsFactory case ICEBERG + getDerivedStorageProperties`。**关键：HMS-iceberg 走 type=hms 从不吃 Type.ICEBERG → 属性簇只被 plugin 路径钉 → rewire 掉 plugin 路径即可删（自足，不受 HMS-iceberg 阻塞）**。但**连接器 metastore provider 尚不自建 authenticator（现依赖 fe-core context authenticator）→ 须先给它补 authenticator 构建（镜像 paimon），再改接线**——这是个功能增项+rewire，非纯删除，详见执行计划 §P5。
 >
-> **⚠️ 未 push**：本批 5 commit 及其前全部翻闸/review fix 均未 push（[DEC-FLIP-1] 铁律：翻闸做成最后原子提交，先修完 review + e2e + 二签再 push）。
+> **执行纪律（复用本仓铁律）**：删除/动码前必 grep 全调用方 + 区分 DEAD vs STILL-CONSUMED（信控制流不信注释）；每刀独立 commit + build + test + checkstyle 0 + import-gate 净；**NEEDS_PREP 文件先做前置（搬常量 / 修 buildDbForInit 回放 / 削死臂 / 改 p2 测试）再删**；用户已裁定 Q1+Q2=A（fileio/ 并入删、接受 io-impl 极端配置失效、同步改 p2 回归）、Q3=B（HMS-iceberg 随 hive 迁移，不建重定向接缝）。**iceberg-core 依赖 + HMS-iceberg 活代码是阶段四、挂 hive 迁移，短期删不掉。**
+---
+
+# 🎯 翻闸主线（往后放，但仍需完成才能翻闸二签）= 连通性 4 条 → ENG-3 e2e → 二签
+
+> ENG-1 除连通性外已全清（F1 + 本批 5 条 low）。剩 **连通性 F2/F3/F15/F16（medium，opt-in `test_connection`，默认 false）**：hms/glue-flavor iceberg 的 `test_connection` 元存储探测静默 no-op（`IcebergConnector.testConnection` `TYPE_REST`-only）→ 修法=连接器侧为 hms/glue flavor 补 HMS thrift/Glue GetDatabases 探测（信源报告 §三 F2/F3）。之后 **ENG-3 flip-gated e2e 全跑 → 用户二签 → 翻闸最后原子提交（含 GSON 迁移 `e68eb5c00c9`）**。**全部翻闸/review/删死码工作均未 push**（[DEC-FLIP-1]：翻闸做成最后原子提交再 push）。
 ---
 
 # 🎯 上一轮（2026-07-05）= **行级 DML 去 SDK 化七步全部完成（设计 Status=DONE，7 个独立 commit）**
