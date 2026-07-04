@@ -31,7 +31,6 @@ import org.apache.doris.connector.api.pushdown.ConnectorPredicate;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.PluginDrivenExternalCatalog;
 import org.apache.doris.datasource.PluginDrivenExternalTable;
-import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -112,16 +111,8 @@ public class IcebergRowLevelDmlTransformTest {
     }
 
     @Test
-    public void handlesLegacyIcebergExternalTable() {
-        // Pre-flip parity: the legacy concrete iceberg table type is admitted unconditionally.
-        Assertions.assertTrue(transform.handles(Mockito.mock(IcebergExternalTable.class)));
-        Assertions.assertFalse(transform.handles(Mockito.mock(TableIf.class)));
-        Assertions.assertFalse(transform.handles(null));
-    }
-
-    @Test
     public void handlesPluginDrivenTableByRowLevelDmlCapability() {
-        // Post-flip: an iceberg table presents as PluginDrivenExternalTable; it is admitted via the
+        // An iceberg table presents as PluginDrivenExternalTable; it is admitted via the
         // neutral connector capability (supportsDelete || supportsMerge), NOT a concrete iceberg cast.
         Assertions.assertTrue(transform.handles(pluginTable(true, false)));
         Assertions.assertTrue(transform.handles(pluginTable(false, true)));
@@ -129,6 +120,9 @@ public class IcebergRowLevelDmlTransformTest {
         // A plugin connector with neither capability (e.g. jdbc/es/paimon today) must NOT be admitted,
         // else its row-level DML would route through the iceberg synthesis path.
         Assertions.assertFalse(transform.handles(pluginTable(false, false)));
+        // Non-plugin table types and null are never admitted.
+        Assertions.assertFalse(transform.handles(Mockito.mock(TableIf.class)));
+        Assertions.assertFalse(transform.handles(null));
     }
 
     /**
@@ -229,11 +223,9 @@ public class IcebergRowLevelDmlTransformTest {
 
     @Test
     public void setupConflictDetectionPluginArmIsNoOp() {
-        // Post-flip: the plugin arm runs the conflict filter ONLY through the SPI path
-        // (applyWriteConstraintIfPresent), so setupConflictDetection short-circuits before the legacy native
-        // 3-hop. It must NOT touch the executor (the legacy arm would cast it to Iceberg{Delete,Merge}Executor
-        // and call setConflictDetectionFilter). MUTATION: dropping the early return -> the (IcebergExternalTable)
-        // table cast CCEs on a plugin table -> assertDoesNotThrow fails.
+        // The conflict filter runs ONLY through the SPI path (applyWriteConstraintIfPresent), so
+        // setupConflictDetection is a no-op that must NOT touch the executor (the retired native arm cast
+        // it to Iceberg{Delete,Merge}Executor and called setConflictDetectionFilter).
         BaseExternalTableInsertExecutor executor = Mockito.mock(PluginDrivenInsertExecutor.class);
         PluginDrivenExternalTable table = Mockito.mock(PluginDrivenExternalTable.class);
         Plan analyzedPlan = Mockito.mock(Plan.class);
@@ -245,9 +237,8 @@ public class IcebergRowLevelDmlTransformTest {
 
     @Test
     public void finalizeSinkPluginArmRoutesToConnectorFinalize() {
-        // Post-flip: finalize goes through the connector's single transaction model (no rewritable-delete
-        // overlay); the shell routes to PluginDrivenInsertExecutor.finalizeRowLevelDmlSink. MUTATION: dropping
-        // the plugin arm -> the (IcebergDeleteExecutor) executor cast CCEs on a PluginDrivenInsertExecutor.
+        // Finalize goes through the connector's single transaction model (no rewritable-delete
+        // overlay); the shell routes to PluginDrivenInsertExecutor.finalizeRowLevelDmlSink.
         PluginDrivenInsertExecutor executor = Mockito.mock(PluginDrivenInsertExecutor.class);
         PlanFragment fragment = Mockito.mock(PlanFragment.class);
         DataSink sink = Mockito.mock(DataSink.class);
@@ -268,7 +259,7 @@ public class IcebergRowLevelDmlTransformTest {
 
     @Test
     public void extractWriteConstraintKeepsRegularTargetColumn() {
-        TableIf target = Mockito.mock(IcebergExternalTable.class);
+        TableIf target = Mockito.mock(PluginDrivenExternalTable.class);
         Mockito.when(target.getId()).thenReturn(TARGET_ID);
         Optional<ConnectorPredicate> result = transform.extractWriteConstraint(filterOver(target, "id"), target);
         Assertions.assertTrue(result.isPresent());
@@ -278,7 +269,7 @@ public class IcebergRowLevelDmlTransformTest {
     public void extractWriteConstraintExcludesRowIdColumn() {
         // Load-bearing: the synthetic $row_id slot has originalTable == target, so the origin-table check alone
         // would keep it; only the iceberg ICEBERG_EXCLUSION predicate drops it (closes T07b critic BLOCKER).
-        TableIf target = Mockito.mock(IcebergExternalTable.class);
+        TableIf target = Mockito.mock(PluginDrivenExternalTable.class);
         Mockito.when(target.getId()).thenReturn(TARGET_ID);
         Plan plan = filterOver(target, Column.ICEBERG_ROWID_COL);
         Assertions.assertFalse(transform.extractWriteConstraint(plan, target).isPresent());
@@ -286,7 +277,7 @@ public class IcebergRowLevelDmlTransformTest {
 
     @Test
     public void extractWriteConstraintExcludesMetadataColumn() {
-        TableIf target = Mockito.mock(IcebergExternalTable.class);
+        TableIf target = Mockito.mock(PluginDrivenExternalTable.class);
         Mockito.when(target.getId()).thenReturn(TARGET_ID);
         // "$partition_spec_id" is an IcebergMetadataColumn -> excluded.
         Plan plan = filterOver(target, "$partition_spec_id");

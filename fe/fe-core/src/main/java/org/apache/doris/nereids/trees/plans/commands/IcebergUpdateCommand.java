@@ -17,46 +17,27 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
-import org.apache.doris.analysis.StmtType;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.ExternalTable;
-import org.apache.doris.datasource.iceberg.IcebergConflictDetectionFilterUtils;
-import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergMergeOperation;
 import org.apache.doris.datasource.iceberg.IcebergNereidsUtils;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
-import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
-import org.apache.doris.nereids.trees.plans.Explainable;
-import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.delete.DeleteCommandContext;
-import org.apache.doris.nereids.trees.plans.commands.insert.IcebergMergeExecutor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalIcebergMergeSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalEmptyRelation;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalIcebergMergeSink;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalSink;
-import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
-import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.nereids.util.Utils;
-import org.apache.doris.planner.DataSink;
-import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.QueryState;
-import org.apache.doris.qe.StmtExecutor;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
@@ -66,11 +47,12 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.Callable;
 import java.util.stream.Collectors;
 
 /**
- * UPDATE command for Iceberg tables.
+ * Merge-plan synthesizer for UPDATE on Iceberg tables, invoked via
+ * IcebergRowLevelDmlTransform.synthesize. The legacy Command execution half
+ * was removed as dead post-cutover code.
  *
  * UPDATE operations are implemented as a single scan + merge sink:
  *   1. Scan rows matching WHERE condition with row_id injected
@@ -78,7 +60,7 @@ import java.util.stream.Collectors;
  *   3. Merge sink writes position deletes and new data files
  *   4. RowDelta commits delete + insert atomically
  */
-public class IcebergUpdateCommand extends Command implements ForwardWithSync, Explainable {
+public class IcebergUpdateCommand {
 
     private final List<EqualTo> assignments;
     private final List<String> nameParts;
@@ -95,99 +77,11 @@ public class IcebergUpdateCommand extends Command implements ForwardWithSync, Ex
             List<EqualTo> assignments,
             LogicalPlan logicalQuery,
             DeleteCommandContext deleteCtx) {
-        super(PlanType.UPDATE_COMMAND);
         this.nameParts = Utils.copyRequiredList(nameParts);
         this.assignments = Utils.copyRequiredList(assignments);
         this.tableAlias = tableAlias;
         this.logicalQuery = logicalQuery;
         this.deleteCtx = deleteCtx != null ? deleteCtx : new DeleteCommandContext();
-    }
-
-    @Override
-    public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
-        // Check if target table is Iceberg table
-        List<String> qualifiedTableName = RelationUtil.getQualifierName(ctx, nameParts);
-        TableIf table = RelationUtil.getTable(qualifiedTableName, ctx.getEnv(), Optional.empty());
-
-        if (!(table instanceof IcebergExternalTable)) {
-            throw new AnalysisException("UPDATE command can only be used on Iceberg tables. "
-                    + "Table " + Util.getTempTableDisplayName(table.getName()) + " is not an Iceberg table.");
-        }
-
-        IcebergExternalTable icebergTable = (IcebergExternalTable) table;
-        IcebergDmlCommandUtils.checkUpdateMode(icebergTable);
-
-        // Verify table format version (must be v2+ for update support)
-        // org.apache.iceberg.Table icebergTableObj = icebergTable.getIcebergTable();
-        // String formatVersionStr = icebergTableObj.properties().get("format-version");
-        // int formatVersion = formatVersionStr != null ? Integer.parseInt(formatVersionStr) : 1;
-        // if (formatVersion < 2) {
-        //     throw new AnalysisException("Iceberg table UPDATE requires format version >= 2. "
-        //             + "Current format version: " + formatVersion);
-        // }
-
-        long previousTargetTableId = ctx.getSyntheticWriteColTargetTableId();
-        ctx.setSyntheticWriteColTargetTableId(icebergTable.getId());
-        try {
-            // UPDATE is implemented as a single merge plan (delete + insert in one scan)
-            LogicalPlan mergePlan = buildMergePlan(ctx, logicalQuery, assignments, icebergTable);
-            executeMergePlan(ctx, executor, icebergTable, mergePlan);
-        } finally {
-            ctx.setSyntheticWriteColTargetTableId(previousTargetTableId);
-        }
-    }
-
-    private boolean executeMergePlan(ConnectContext ctx, StmtExecutor executor,
-                                     IcebergExternalTable icebergTable,
-                                     LogicalPlan logicalPlan) throws Exception {
-        return executeWithExternalTableBatchModeDisabled(ctx, () -> {
-            LogicalPlanAdapter logicalPlanAdapter =
-                    new LogicalPlanAdapter(logicalPlan, ctx.getStatementContext());
-            NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
-            planner.plan(logicalPlanAdapter, ctx.getSessionVariable().toThrift());
-            executor.setPlanner(planner);
-            executor.checkBlockRules();
-            Optional<org.apache.iceberg.expressions.Expression> conflictFilter =
-                    IcebergConflictDetectionFilterUtils.buildConflictDetectionFilter(
-                            planner.getAnalyzedPlan(), icebergTable);
-
-            PhysicalSink<?> physicalSink = getPhysicalMergeSink(planner);
-            PlanFragment fragment = planner.getFragments().get(0);
-            DataSink dataSink = fragment.getSink();
-            boolean emptyInsert = childIsEmptyRelation(physicalSink);
-            String label = String.format("iceberg_update_merge_%x_%x", ctx.queryId().hi, ctx.queryId().lo);
-
-            IcebergMergeExecutor insertExecutor =
-                    new IcebergMergeExecutor(ctx, icebergTable, label, planner, emptyInsert, -1L);
-            insertExecutor.setConflictDetectionFilter(conflictFilter);
-
-            if (insertExecutor.isEmptyInsert()) {
-                return true;
-            }
-
-            insertExecutor.beginTransaction();
-            insertExecutor.finalizeSinkForMerge(fragment, dataSink, physicalSink);
-            insertExecutor.getCoordinator().setTxnId(insertExecutor.getTxnId());
-            executor.setCoord(insertExecutor.getCoordinator());
-            insertExecutor.executeSingleInsert(executor);
-            return ctx.getState().getStateType() != QueryState.MysqlStateType.ERR;
-        });
-    }
-
-    @VisibleForTesting
-    static <T> T executeWithExternalTableBatchModeDisabled(
-            ConnectContext ctx, Callable<T> action) throws Exception {
-        boolean previousEnableExternalTableBatchMode =
-                ctx.getSessionVariable().enableExternalTableBatchMode;
-        // disable batch mode for iceberg scan node get all splits.
-        // IcebergRewritableDeletePlanner.collect for map<data file -> list<delete file>>
-        ctx.getSessionVariable().enableExternalTableBatchMode = false;
-        try {
-            return action.call();
-        } finally {
-            ctx.getSessionVariable().enableExternalTableBatchMode =
-                    previousEnableExternalTableBatchMode;
-        }
     }
 
     @VisibleForTesting
@@ -281,52 +175,6 @@ public class IcebergUpdateCommand extends Command implements ForwardWithSync, Ex
                     + String.join(", ", colNameToExpression.keySet()));
         }
         return selectItems;
-    }
-
-    private PhysicalSink<?> getPhysicalMergeSink(NereidsPlanner planner) {
-        Optional<PhysicalSink<?>> plan = planner.getPhysicalPlan()
-                .<PhysicalSink<?>>collect(PhysicalSink.class::isInstance).stream().findAny();
-        if (!plan.isPresent()) {
-            throw new AnalysisException("UPDATE command must contain target table");
-        }
-        PhysicalSink<?> sink = plan.get();
-        if (!(sink instanceof PhysicalIcebergMergeSink)) {
-            throw new AnalysisException("UPDATE merge plan must use Iceberg merge sink");
-        }
-        return sink;
-    }
-
-    private boolean childIsEmptyRelation(PhysicalSink<?> sink) {
-        return sink.children() != null && sink.children().size() == 1
-                && sink.child(0) instanceof PhysicalEmptyRelation;
-    }
-
-    @Override
-    public Plan getExplainPlan(ConnectContext ctx) {
-        List<String> qualifiedTableName = RelationUtil.getQualifierName(ctx, nameParts);
-        TableIf table = RelationUtil.getTable(qualifiedTableName, ctx.getEnv(), Optional.empty());
-        if (!(table instanceof IcebergExternalTable)) {
-            throw new AnalysisException("Table must be IcebergExternalTable in UPDATE command");
-        }
-        IcebergExternalTable icebergTable = (IcebergExternalTable) table;
-        IcebergDmlCommandUtils.checkUpdateMode(icebergTable);
-        long previousTargetTableId = ctx.getSyntheticWriteColTargetTableId();
-        ctx.setSyntheticWriteColTargetTableId(table.getId());
-        try {
-            return buildMergePlan(ctx, logicalQuery, assignments, icebergTable);
-        } finally {
-            ctx.setSyntheticWriteColTargetTableId(previousTargetTableId);
-        }
-    }
-
-    @Override
-    public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
-        return visitor.visitCommand(this, context);
-    }
-
-    @Override
-    public StmtType stmtType() {
-        return StmtType.UPDATE;
     }
 
     public DeleteCommandContext getDeleteCtx() {

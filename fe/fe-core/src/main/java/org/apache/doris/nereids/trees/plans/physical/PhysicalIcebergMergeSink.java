@@ -29,7 +29,6 @@ import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.PluginDrivenExternalCatalog;
 import org.apache.doris.datasource.PluginDrivenExternalTable;
-import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergMergeOperation;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
@@ -47,11 +46,6 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.Statistics;
 
 import com.google.common.collect.ImmutableList;
-import org.apache.iceberg.PartitionField;
-import org.apache.iceberg.PartitionSpec;
-import org.apache.iceberg.Schema;
-import org.apache.iceberg.Table;
-import org.apache.iceberg.types.Types;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -277,72 +271,18 @@ public class PhysicalIcebergMergeSink<CHILD_TYPE extends Plan> extends PhysicalB
     }
 
     /**
-     * Dual-mode partition-field resolution for the merge-write distribution. Pre-flip (legacy
-     * {@link IcebergExternalTable}) walks the native iceberg {@code PartitionSpec} via
-     * {@link #buildInsertPartitionFields} (byte-identical to legacy). Post-flip
-     * ({@link PluginDrivenExternalTable}) asks the connector for its engine-neutral
-     * {@link ConnectorWritePartitionSpec} and reconstructs the same result via
+     * Partition-field resolution for the merge-write distribution: asks the connector for its
+     * engine-neutral {@link ConnectorWritePartitionSpec} and reconstructs the legacy result via
      * {@link #reconstructPartitionFields}, preserving the three legacy parities (hard-fail clear on an
      * unresolvable source column, the non-identity pre-pass over all fields, and the spec-id carry).
-     *
-     * <p>This sink is a legacy-exempt class, so the {@code instanceof IcebergExternalTable} pre-flip
-     * branch is permitted here; the post-flip branch routes entirely through neutral connector SPI
-     * (no {@code instanceof Iceberg*}, no native types).</p>
+     * Routes entirely through neutral connector SPI (no {@code instanceof Iceberg*}, no native types).
      */
     private InsertPartitionFieldResult getIcebergPartitioning(
             List<DistributionSpecMerge.IcebergPartitionField> insertPartitionFields,
             ExternalTable table,
             Map<String, ExprId> columnExprIdMap) {
-        if (table instanceof IcebergExternalTable) {
-            return buildInsertPartitionFields(insertPartitionFields, (IcebergExternalTable) table, columnExprIdMap);
-        }
         return buildInsertPartitionFieldsFromConnector(
                 insertPartitionFields, (PluginDrivenExternalTable) table, columnExprIdMap);
-    }
-
-    private InsertPartitionFieldResult buildInsertPartitionFields(
-            List<DistributionSpecMerge.IcebergPartitionField> insertPartitionFields,
-            IcebergExternalTable icebergTable,
-            Map<String, ExprId> columnExprIdMap) {
-        Table table = icebergTable.getIcebergTable();
-        if (table == null) {
-            return new InsertPartitionFieldResult(false, false, null);
-        }
-        PartitionSpec spec = table.spec();
-        if (spec == null || !spec.isPartitioned()) {
-            return new InsertPartitionFieldResult(false, false, null);
-        }
-        Schema schema = table.schema();
-        boolean hasNonIdentity = false;
-        for (PartitionField field : spec.fields()) {
-            if (!field.transform().isIdentity()) {
-                hasNonIdentity = true;
-                break;
-            }
-        }
-        if (schema == null) {
-            return new InsertPartitionFieldResult(false, hasNonIdentity, spec.specId());
-        }
-        for (PartitionField field : spec.fields()) {
-            Types.NestedField sourceField = schema.findField(field.sourceId());
-            if (sourceField == null) {
-                insertPartitionFields.clear();
-                return new InsertPartitionFieldResult(false, hasNonIdentity, spec.specId());
-            }
-            ExprId exprId = columnExprIdMap.get(sourceField.name());
-            if (exprId == null) {
-                insertPartitionFields.clear();
-                return new InsertPartitionFieldResult(false, hasNonIdentity, spec.specId());
-            }
-            String transform = field.transform().toString();
-            Integer param = parseTransformParam(transform);
-            insertPartitionFields.add(new DistributionSpecMerge.IcebergPartitionField(
-                    transform, exprId, param, field.name(), field.sourceId()));
-        }
-        if (insertPartitionFields.isEmpty()) {
-            return new InsertPartitionFieldResult(false, hasNonIdentity, spec.specId());
-        }
-        return new InsertPartitionFieldResult(true, hasNonIdentity, spec.specId());
     }
 
     /**
@@ -376,8 +316,8 @@ public class PhysicalIcebergMergeSink<CHILD_TYPE extends Plan> extends PhysicalB
 
     /**
      * Reconstructs the legacy {@link InsertPartitionFieldResult} from a connector's engine-neutral
-     * {@link ConnectorWritePartitionSpec}, byte-for-byte equivalent to the native walk in
-     * {@link #buildInsertPartitionFields}. Pure (no native types, no I/O) so the three parities are
+     * {@link ConnectorWritePartitionSpec}, byte-for-byte equivalent to the retired native
+     * {@code PartitionSpec} walk. Pure (no native types, no I/O) so the three parities are
      * pinned deterministically:
      * <ul>
      *   <li><b>P1 hard-fail clear:</b> a field with a {@code null} source column name, or one whose name
@@ -428,19 +368,6 @@ public class PhysicalIcebergMergeSink<CHILD_TYPE extends Plan> extends PhysicalB
             return new InsertPartitionFieldResult(false, hasNonIdentity, spec.getSpecId());
         }
         return new InsertPartitionFieldResult(true, hasNonIdentity, spec.getSpecId());
-    }
-
-    private Integer parseTransformParam(String transform) {
-        int start = transform.indexOf('[');
-        int end = transform.indexOf(']');
-        if (start < 0 || end <= start) {
-            return null;
-        }
-        try {
-            return Integer.parseInt(transform.substring(start + 1, end));
-        } catch (NumberFormatException e) {
-            return null;
-        }
     }
 
     // Package-private (not private) so the same-package parity test can assert on the reconstructed

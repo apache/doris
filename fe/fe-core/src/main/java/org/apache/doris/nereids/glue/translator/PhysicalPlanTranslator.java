@@ -201,8 +201,6 @@ import org.apache.doris.planner.ExchangeNode;
 import org.apache.doris.planner.GroupCommitBlockSink;
 import org.apache.doris.planner.HashJoinNode;
 import org.apache.doris.planner.HiveTableSink;
-import org.apache.doris.planner.IcebergDeleteSink;
-import org.apache.doris.planner.IcebergMergeSink;
 import org.apache.doris.planner.IcebergTableSink;
 import org.apache.doris.planner.IntersectNode;
 import org.apache.doris.planner.JoinNodeBase;
@@ -596,20 +594,12 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                                                        PlanTranslatorContext context) {
         PlanFragment rootFragment = icebergDeleteSink.child().accept(this, context);
         rootFragment.setOutputPartition(DataPartition.UNPARTITIONED);
-        // Post-flip the DELETE target is a PluginDrivenExternalTable: route through the connector's
+        // The DELETE target is a PluginDrivenExternalTable: route through the connector's
         // PluginDrivenTableSink with WriteOperation.DELETE so the connector's planWrite emits its
         // TIcebergDeleteSink dialect. No output-expr / materialized-name loop is needed: the row id reaches
         // BE as the __DORIS_ICEBERG_ROWID_COL__ block column (a real hidden column), and viceberg_delete_sink
-        // resolves it by block-name, not by output-expr name. Pre-flip the native IcebergDeleteSink path is
-        // byte-identical.
-        if (icebergDeleteSink.getTargetTable() instanceof PluginDrivenExternalTable) {
-            rootFragment.setSink(buildPluginRowLevelDmlSink(icebergDeleteSink, WriteOperation.DELETE));
-        } else {
-            IcebergDeleteSink sink = new IcebergDeleteSink(
-                    (IcebergExternalTable) icebergDeleteSink.getTargetTable(),
-                    icebergDeleteSink.getDeleteContext());
-            rootFragment.setSink(sink);
-        }
+        // resolves it by block-name, not by output-expr name.
+        rootFragment.setSink(buildPluginRowLevelDmlSink(icebergDeleteSink, WriteOperation.DELETE));
         return rootFragment;
     }
 
@@ -618,12 +608,11 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                                                       PlanTranslatorContext context) {
         PlanFragment rootFragment = icebergMergeSink.child().accept(this, context);
         rootFragment.setOutputPartition(DataPartition.UNPARTITIONED);
-        // The slot-name loop runs for BOTH the native and the plugin arm. BE's viceberg_merge_sink resolves
-        // the operation / row-id columns by the output-expr names (TPlanFragment.output_exprs), which are the
-        // sink-input slots' col_names — independent of the sink dialect. The synthesized operation column has
-        // no backing Column, so its slot col_name is empty unless we materialize the label here; this must
-        // happen before either sink is built (the connector receives only ConnectorColumns + table metadata
-        // and cannot recover the slot hint).
+        // BE's viceberg_merge_sink resolves the operation / row-id columns by the output-expr names
+        // (TPlanFragment.output_exprs), which are the sink-input slots' col_names — independent of the sink
+        // dialect. The synthesized operation column has no backing Column, so its slot col_name is empty
+        // unless we materialize the label here; this must happen before the sink is built (the connector
+        // receives only ConnectorColumns + table metadata and cannot recover the slot hint).
         List<Expr> outputExprs = Lists.newArrayList();
         for (Slot slot : icebergMergeSink.getOutput()) {
             SlotRef slotRef = Objects.requireNonNull(context.findSlotRef(slot.getExprId()),
@@ -641,18 +630,10 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             outputExprs.add(slotRef);
         }
         rootFragment.setOutputExprs(outputExprs);
-        // Post-flip the MERGE/UPDATE target is a PluginDrivenExternalTable: route through the connector's
+        // The MERGE/UPDATE target is a PluginDrivenExternalTable: route through the connector's
         // PluginDrivenTableSink with WriteOperation.MERGE so the connector's planWrite emits its
-        // TIcebergMergeSink dialect (which threads its own sort_fields). Pre-flip the native IcebergMergeSink
-        // path is byte-identical.
-        if (icebergMergeSink.getTargetTable() instanceof PluginDrivenExternalTable) {
-            rootFragment.setSink(buildPluginRowLevelDmlSink(icebergMergeSink, WriteOperation.MERGE));
-        } else {
-            IcebergMergeSink sink = new IcebergMergeSink(
-                    (IcebergExternalTable) icebergMergeSink.getTargetTable(),
-                    icebergMergeSink.getDeleteContext());
-            rootFragment.setSink(sink);
-        }
+        // TIcebergMergeSink dialect (which threads its own sort_fields).
+        rootFragment.setSink(buildPluginRowLevelDmlSink(icebergMergeSink, WriteOperation.MERGE));
         return rootFragment;
     }
 

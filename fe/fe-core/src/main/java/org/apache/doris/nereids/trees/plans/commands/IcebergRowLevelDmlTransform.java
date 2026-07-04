@@ -29,16 +29,12 @@ import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.PluginDrivenExternalCatalog;
 import org.apache.doris.datasource.PluginDrivenExternalTable;
 import org.apache.doris.datasource.WriteConstraintExtractor;
-import org.apache.doris.datasource.iceberg.IcebergConflictDetectionFilterUtils;
-import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergMetadataColumn;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.insert.BaseExternalTableInsertExecutor;
-import org.apache.doris.nereids.trees.plans.commands.insert.IcebergDeleteExecutor;
-import org.apache.doris.nereids.trees.plans.commands.insert.IcebergMergeExecutor;
 import org.apache.doris.nereids.trees.plans.commands.insert.PluginDrivenInsertExecutor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalIcebergDeleteSink;
@@ -76,9 +72,8 @@ public class IcebergRowLevelDmlTransform implements RowLevelDmlTransform {
 
     @Override
     public boolean handles(TableIf table) {
-        return table instanceof IcebergExternalTable
-                || (table instanceof PluginDrivenExternalTable
-                        && pluginConnectorSupportsRowLevelDml((PluginDrivenExternalTable) table));
+        return table instanceof PluginDrivenExternalTable
+                && pluginConnectorSupportsRowLevelDml((PluginDrivenExternalTable) table);
     }
 
     /**
@@ -91,9 +86,8 @@ public class IcebergRowLevelDmlTransform implements RowLevelDmlTransform {
      * admits "supports any row-level DML"; per-op validity (e.g. UPDATE against a delete-only connector) is
      * enforced later in {@link #checkMode}.</p>
      *
-     * <p>Dormant until the C5 cutover: today only the iceberg connector declares these capabilities (every
-     * other SPI connector inherits the {@code ConnectorWriteOps} default {@code false}), and iceberg is not
-     * yet in {@code SPI_READY_TYPES} — so no live table presents as a {@link PluginDrivenExternalTable} here.</p>
+     * <p>Today only the iceberg connector declares these capabilities (every other SPI connector inherits
+     * the {@code ConnectorWriteOps} default {@code false}).</p>
      */
     private static boolean pluginConnectorSupportsRowLevelDml(PluginDrivenExternalTable table) {
         PluginDrivenExternalCatalog catalog = (PluginDrivenExternalCatalog) table.getCatalog();
@@ -103,34 +97,15 @@ public class IcebergRowLevelDmlTransform implements RowLevelDmlTransform {
 
     @Override
     public void checkMode(TableIf table, RowLevelDmlOp op) {
-        if (table instanceof PluginDrivenExternalTable) {
-            checkPluginMode((PluginDrivenExternalTable) table, op);
-            return;
-        }
-        IcebergExternalTable icebergTable = (IcebergExternalTable) table;
-        switch (op) {
-            case DELETE:
-                IcebergDmlCommandUtils.checkDeleteMode(icebergTable);
-                break;
-            case UPDATE:
-                IcebergDmlCommandUtils.checkUpdateMode(icebergTable);
-                break;
-            default:
-                IcebergDmlCommandUtils.checkMergeMode(icebergTable);
-                break;
-        }
+        checkPluginMode((PluginDrivenExternalTable) table, op);
     }
 
     /**
-     * Post-cutover {@link #checkMode}: route the copy-on-write rejection through the connector's neutral
+     * {@link #checkMode} body: route the copy-on-write rejection through the connector's neutral
      * {@code validateRowLevelDmlMode} SPI, so the iceberg property knowledge and the message stay in the
      * connector. A connector {@link DorisConnectorException} is surfaced as the analysis-time
      * {@link AnalysisException} the legacy native path threw, preserving the user-facing message and the
      * exception type.
-     *
-     * <p>Dormant until the C5 cutover: today no live table presents as a {@link PluginDrivenExternalTable}
-     * here (iceberg is not yet in {@code SPI_READY_TYPES}), so the legacy {@code IcebergDmlCommandUtils} arm
-     * still runs.</p>
      */
     private static void checkPluginMode(PluginDrivenExternalTable table, RowLevelDmlOp op) {
         PluginDrivenExternalCatalog catalog = (PluginDrivenExternalCatalog) table.getCatalog();
@@ -181,19 +156,12 @@ public class IcebergRowLevelDmlTransform implements RowLevelDmlTransform {
     @Override
     public BaseExternalTableInsertExecutor newExecutor(ConnectContext ctx, TableIf table, String label,
             NereidsPlanner planner, boolean emptyInsert, RowLevelDmlOp op) {
-        if (table instanceof PluginDrivenExternalTable) {
-            // Post-flip: the connector-driven executor opens an SPI ConnectorTransaction (non-null), which
-            // activates the neutral O5-2 conflict path in RowLevelDmlCommand.applyWriteConstraintIfPresent. The
-            // op rides the sink's WriteOperation (set by the translator), so one executor serves DELETE/MERGE;
-            // no InsertCommandContext is needed for a row-level write (mirrors IcebergDeleteExecutor's empty ctx).
-            return new PluginDrivenInsertExecutor(ctx, (PluginDrivenExternalTable) table, label, planner,
-                    Optional.empty(), emptyInsert, -1L);
-        }
-        IcebergExternalTable icebergTable = (IcebergExternalTable) table;
-        if (op == RowLevelDmlOp.DELETE) {
-            return new IcebergDeleteExecutor(ctx, icebergTable, label, planner, emptyInsert, -1L);
-        }
-        return new IcebergMergeExecutor(ctx, icebergTable, label, planner, emptyInsert, -1L);
+        // The connector-driven executor opens an SPI ConnectorTransaction (non-null), which activates the
+        // neutral O5-2 conflict path in RowLevelDmlCommand.applyWriteConstraintIfPresent. The op rides the
+        // sink's WriteOperation (set by the translator), so one executor serves DELETE/MERGE; no
+        // InsertCommandContext is needed for a row-level write.
+        return new PluginDrivenInsertExecutor(ctx, (PluginDrivenExternalTable) table, label, planner,
+                Optional.empty(), emptyInsert, -1L);
     }
 
     @Override
@@ -243,42 +211,21 @@ public class IcebergRowLevelDmlTransform implements RowLevelDmlTransform {
     @Override
     public void setupConflictDetection(BaseExternalTableInsertExecutor executor, Plan analyzedPlan, TableIf table,
             RowLevelDmlOp op) {
-        if (table instanceof PluginDrivenExternalTable) {
-            // Post-flip: the conflict filter is supplied through the neutral SPI path
-            // (RowLevelDmlCommand.applyWriteConstraintIfPresent -> extractWriteConstraint ->
-            // ConnectorTransaction.applyWriteConstraint), converted to a native iceberg Expression lazily at
-            // commit. The legacy native 3-hop below is skipped: it casts to the legacy Iceberg{Delete,Merge}-
-            // Executor, which the plugin arm (a PluginDrivenInsertExecutor) is not. Running ONLY the SPI path
-            // avoids double-filtering; the SPI converter is byte-verified equivalent to legacy, the residual
-            // divergence only widening the filter -> at worst a harmless extra OCC retry (see [DEC-S5]).
-            return;
-        }
-        Optional<org.apache.iceberg.expressions.Expression> conflictFilter =
-                IcebergConflictDetectionFilterUtils.buildConflictDetectionFilter(
-                        analyzedPlan, (IcebergExternalTable) table);
-        if (op == RowLevelDmlOp.DELETE) {
-            ((IcebergDeleteExecutor) executor).setConflictDetectionFilter(conflictFilter);
-        } else {
-            ((IcebergMergeExecutor) executor).setConflictDetectionFilter(conflictFilter);
-        }
+        // No-op: the conflict filter is supplied through the neutral SPI path
+        // (RowLevelDmlCommand.applyWriteConstraintIfPresent -> extractWriteConstraint ->
+        // ConnectorTransaction.applyWriteConstraint), converted to a native iceberg Expression lazily at
+        // commit. Running ONLY the SPI path avoids double-filtering; the SPI converter is byte-verified
+        // equivalent to the retired native filter builder, the residual divergence only widening the
+        // filter -> at worst a harmless extra OCC retry (see [DEC-S5]).
     }
 
     @Override
     public void finalizeSink(BaseExternalTableInsertExecutor executor, RowLevelDmlOp op, PlanFragment fragment,
             DataSink sink, PhysicalSink<?> physicalSink) {
-        if (executor instanceof PluginDrivenInsertExecutor) {
-            // Post-flip: finalize through the connector's single transaction model (bind tx -> bindDataSink ->
-            // planWrite), which supplies rewritable_delete_file_sets itself via the scan-time stash. NO manual
-            // overlay (the legacy arms below append it on top of super.finalizeSink) -> exactly one finalize,
-            // no double-overlay.
-            ((PluginDrivenInsertExecutor) executor).finalizeRowLevelDmlSink(fragment, sink, physicalSink);
-            return;
-        }
-        if (op == RowLevelDmlOp.DELETE) {
-            ((IcebergDeleteExecutor) executor).finalizeSinkForDelete(fragment, sink, physicalSink);
-        } else {
-            ((IcebergMergeExecutor) executor).finalizeSinkForMerge(fragment, sink, physicalSink);
-        }
+        // Finalize through the connector's single transaction model (bind tx -> bindDataSink -> planWrite),
+        // which supplies rewritable_delete_file_sets itself via the scan-time stash -> exactly one finalize,
+        // no double-overlay.
+        ((PluginDrivenInsertExecutor) executor).finalizeRowLevelDmlSink(fragment, sink, physicalSink);
     }
 
     @Override
