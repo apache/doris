@@ -1307,7 +1307,10 @@ DEFINE_mInt32(snii_bigram_prune_min_df, "-1");
 // the hidden bigram dict (their 2-term phrase queries fall back to the
 // positions path, same as min-df pruning); only a ratio in (0, 1) arms the
 // gate (<= 0 disables; >= 1 can never prune, so it resolves to no gate).
-DEFINE_mDouble(snii_bigram_prune_max_df_ratio, "0.2");
+// 0.25 keeps the 20-25% df band on the bigram fastpath (bench: "united
+// states" sits at 21.2% df in wikipedia; pruning it costs a 2.7x cold-phrase
+// cliff, keeping the whole band costs +0.85% table size on textbench).
+DEFINE_mDouble(snii_bigram_prune_max_df_ratio, "0.25");
 // SNII per-writer bigram intern-vocabulary cap (bytes): df==1 bigram terms are
 // incrementally evicted (and bloom-recorded for the flush-time drop) once the
 // live bigram intern storage crosses this. 0 = uncapped. Effective only when
