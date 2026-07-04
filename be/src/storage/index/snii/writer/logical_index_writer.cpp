@@ -58,8 +58,6 @@ namespace {
 // the filter via Parquet OptimalNumOfBytes; L0 keeps the probe in memory and L1
 // keeps the per-query cost at one 32-byte block.
 constexpr double kBsbfFpp = 0.01;
-// Zstd "auto" sentinel for window builders (raw for tiny payloads).
-constexpr int kAutoZstd = -1;
 // Force-raw level for .frq dd/freq regions. Their plaintext is PFOR-bit-packed
 // doc-deltas/freqs -- already high-entropy, so zstd shrinks ~30 MB of input by
 // <0.1 MiB while burning ~0.4s CPU (and an extra crc pass over the compressed
@@ -69,13 +67,11 @@ constexpr int kRawFrqRegion = 0;
 // Windows per super-block in the two-level prelude directory (design section
 // 5).
 constexpr uint32_t kPreludeGroupSize = 64;
-// zstd level for whole-DICT-block compression. Level 3 (zstd default)
-// compresses the 64KiB front-coded term-key + entry-meta + inline-posting
-// blocks ~40% at ~120 MiB/s encode / ~600 MiB/s decode -- a large size win for
-// a small build-CPU cost, and a per-lookup decode (~0.1ms/64KiB) that is
-// dominated by the S3 round trip it shrinks. Higher levels gain <1% here for
-// materially more CPU.
-constexpr int kDictBlockZstdLevel = 3;
+// zstd level for whole-DICT-block compression comes from
+// SniiIndexInput::dict_block_zstd_level (default 3: ~40% on the 64KiB
+// front-coded blocks at ~120 MiB/s encode / ~600 MiB/s decode; higher levels
+// trade import CPU for size, decode speed unchanged). G16-h made it (and the
+// .prx auto level) caller-tunable.
 
 using format::FrqRegionMeta;
 
@@ -137,9 +133,10 @@ Status EncodeRegionsInto(WindowScratch* sc, std::span<const uint32_t> docids,
 // materialization: the writer indexes straight into the term's flat positions
 // buffer.
 Status MakePrxWindow(std::span<const uint32_t> positions_flat, std::span<const uint32_t> freqs,
-                     std::vector<uint8_t>* out) {
+                     int prx_zstd_level, std::vector<uint8_t>* out) {
     ByteSink sink;
-    RETURN_IF_ERROR(format::build_prx_window_flat(positions_flat, freqs, kAutoZstd, &sink));
+    // Negative level == prx auto mode at |level| (G16-h); -3 == the historic auto.
+    RETURN_IF_ERROR(format::build_prx_window_flat(positions_flat, freqs, -prx_zstd_level, &sink));
     *out = sink.take();
     return Status::OK();
 }
@@ -265,7 +262,8 @@ void LayoutWindowRegions(const FrqRegionMeta& dd_meta, const std::vector<uint8_t
 // independent).
 Status BuildWindowedPosting(TermPostings& tp, bool has_freq, bool has_prx,
                             const std::vector<uint8_t>& norms, io::FileWriter* posting_out,
-                            WindowedPosting* out, uint32_t window_docs_override = 0) {
+                            WindowedPosting* out, uint32_t window_docs_override = 0,
+                            int prx_zstd_level = 3) {
     // window_docs_override > 0 (G16-e docs-only bigrams) replaces the df-based
     // adaptive sizing; 0 keeps the byte-identical adaptive layout.
     const uint32_t unit = window_docs_override > 0
@@ -327,7 +325,8 @@ Status BuildWindowedPosting(TermPostings& tp, bool has_freq, bool has_prx,
                 }
                 sc.prx_sink.clear();
                 RETURN_IF_ERROR(
-                        format::build_prx_window_flat(pos_span, freqs, kAutoZstd, &sc.prx_sink));
+                        format::build_prx_window_flat(pos_span, freqs, -prx_zstd_level,
+                                                      &sc.prx_sink));
                 m.prx_off = out->prx_total_len;
                 m.prx_len = static_cast<uint64_t>(sc.prx_sink.size());
                 RETURN_IF_ERROR(posting_out->append(sc.prx_sink.view()));
@@ -484,6 +483,8 @@ LogicalIndexWriter::LogicalIndexWriter(const SniiIndexInput& in)
           target_dict_block_bytes_(in.target_dict_block_bytes != 0
                                            ? in.target_dict_block_bytes
                                            : format::kDefaultTargetDictBlockBytes),
+          dict_block_zstd_level_(in.dict_block_zstd_level),
+          prx_zstd_level_(in.prx_zstd_level),
           // No independent dict cap: the dict spills via the writer's UNIFIED
           // gate-2 cap (in.mem_reporter->over_cap()); UINT64_MAX disables the local
           // per-buffer cap.
@@ -544,7 +545,7 @@ Status LogicalIndexWriter::build_windowed_entry(TermPostings& tp, uint64_t frq_b
             (!write_prx && format::is_phrase_bigram_term(tp.term)) ? format::kBigramWindowDocs : 0;
     WindowedPosting wp;
     RETURN_IF_ERROR(BuildWindowedPosting(tp, write_freq, write_prx, encoded_norms_, posting_out_,
-                                         &wp, window_docs));
+                                         &wp, window_docs, prx_zstd_level_));
     // wp.prx_total_len bytes were just streamed straight to the posting sink (0
     // when !has_prx). docids/freqs are now fully encoded into wp; release the
     // source arrays before the (potentially large) wp blocks are appended to
@@ -596,7 +597,7 @@ Status LogicalIndexWriter::build_slim_entry(TermPostings& tp, uint64_t frq_base,
     AppendBytes(&frq_win, freq_bytes);
     std::vector<uint8_t> prx_win;
     if (write_prx) {
-        RETURN_IF_ERROR(MakePrxWindow(tp.positions_flat, tp.freqs, &prx_win));
+        RETURN_IF_ERROR(MakePrxWindow(tp.positions_flat, tp.freqs, prx_zstd_level_, &prx_win));
     }
 
     e->enc = DictEntryEnc::kSlim;
@@ -695,7 +696,7 @@ Status LogicalIndexWriter::flush_block(DictBlockBuilder* block, std::string firs
     section_stats_.dict_entry_bytes[1] += block->entry_bytes_bigram();
 
     std::vector<uint8_t> comp;
-    Status zs = zstd_compress(plain, kDictBlockZstdLevel, &comp);
+    Status zs = zstd_compress(plain, dict_block_zstd_level_, &comp);
     if (zs.ok() && comp.size() < plain.size()) {
         rec.flags = format::block_ref_flags::kZstd;
         rec.uncomp_len = static_cast<uint64_t>(plain.size());

@@ -1374,6 +1374,9 @@ DECLARE_mDouble(snii_bigram_prune_max_df_ratio);
 // default (false) drops the layout; scoring-config indexes always keep freq.
 // Write-side only; segments are self-describing either way.
 DECLARE_mBool(snii_positions_index_write_freq);
+// G16-h: zstd levels for dict blocks / prx windows (default 3 = historical).
+DECLARE_mInt32(snii_dict_block_zstd_level);
+DECLARE_mInt32(snii_prx_zstd_level);
 // G16-d: target SNII dict block size in bytes; 0 = format default (64 KiB).
 // Bigger blocks -> better per-block zstd on the dict region, larger cold
 // fetch+decompress unit per dict-block miss. Write side only.

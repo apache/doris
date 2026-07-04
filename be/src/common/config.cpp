@@ -1318,6 +1318,14 @@ DEFINE_mDouble(snii_bigram_prune_max_df_ratio, "0.25");
 // freq regardless. Applies at segment build (write side only); existing
 // segments keep whatever layout they were written with (self-describing).
 DEFINE_mBool(snii_positions_index_write_freq, "false");
+// G16-h: zstd levels for the SNII dict-block compression and the .prx window
+// auto mode. Level 9 (vs the historical 3) shrinks the two largest compressed
+// sections -- textbench: index -457 MB (0.918x -> 0.891x V3) -- for an import
+// CPU cost inside the run-to-run variance band; zstd decode speed does not
+// depend on the level, and warm/cold benches measured no query change.
+// Write side only; segments self-describe their compression.
+DEFINE_mInt32(snii_dict_block_zstd_level, "9");
+DEFINE_mInt32(snii_prx_zstd_level, "9");
 // G16-d: target SNII dict block size in bytes; 0 uses the format default
 // (64 KiB). Larger blocks compress better under the per-block zstd (the dict
 // is the dominant physical section on high-cardinality corpora) at the cost

@@ -89,6 +89,11 @@ struct SniiIndexInput {
     // Per-doc 1-byte encoded norm (length doc_count); only consumed when the
     // config has scoring. May be empty otherwise.
     std::vector<uint8_t> encoded_norms;
+    // G16-h: zstd levels for the dict-block whole-block compression and the
+    // .prx window auto mode (both default 3 == the historical constants).
+    // Higher levels trade import CPU for size; decode speed is unaffected.
+    int dict_block_zstd_level = 3;
+    int prx_zstd_level = 3;
     // G16-c: whether freq-capable (tier>=T2) postings lay out freq regions at
     // all. Freq bytes serve ONLY BM25 scoring (want_freq=true lives solely in
     // scoring_query), so the CALLER resolves the policy -- the Doris adapter
@@ -315,6 +320,9 @@ private:
     const std::vector<uint8_t>& encoded_norms_;
 
     uint32_t target_dict_block_bytes_;
+    // G16-h: zstd levels (dict whole-block / prx auto mode), from SniiIndexInput.
+    int dict_block_zstd_level_ = 3;
+    int prx_zstd_level_ = 3;
     // The DICT region (zstd-compressed blocks) is staged here as blocks flush. It must
     // land contiguously AFTER the posting region (which streams concurrently to the
     // output), so it cannot stream directly; the orchestrator streams it into the

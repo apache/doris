@@ -321,10 +321,11 @@ void write_zstd_compressed(Slice plain, Slice compressed, ByteSink* sink) {
     sink->put_fixed32(crc);
 }
 
-Status write_auto_pfor_or_zstd(Slice pfor_payload, Slice plain_payload, ByteSink* sink) {
+Status write_auto_pfor_or_zstd(Slice pfor_payload, Slice plain_payload, int zstd_level,
+                               ByteSink* sink) {
     if (plain_payload.size() >= kAutoZstdMinBytes) {
         std::vector<uint8_t> compressed;
-        RETURN_IF_ERROR(zstd_compress(plain_payload, kDefaultZstdLevel, &compressed));
+        RETURN_IF_ERROR(zstd_compress(plain_payload, zstd_level, &compressed));
         if (zstd_frame_size(plain_payload.size(), compressed.size()) <
             pfor_frame_size(pfor_payload.size())) {
             write_zstd_compressed(plain_payload, Slice(compressed), sink);
@@ -347,7 +348,8 @@ Status write_auto_pfor_or_zstd(Slice pfor_payload, Slice plain_payload, ByteSink
 // bytes when materialized, and an exact (not estimated) size so the 512-threshold
 // codec choice never drifts.
 Status build_prx_window_auto_from_flat(std::span<const uint32_t> positions_flat,
-                                       std::span<const uint32_t> freqs, ByteSink* sink) {
+                                       std::span<const uint32_t> freqs, int zstd_level,
+                                       ByteSink* sink) {
     std::vector<uint32_t> deltas;
     RETURN_IF_ERROR(compute_flat_deltas(positions_flat, freqs, &deltas));
     ByteSink payload;
@@ -356,7 +358,7 @@ Status build_prx_window_auto_from_flat(std::span<const uint32_t> positions_flat,
         ByteSink plain;
         encode_payload_from_deltas(freqs, deltas, &plain);
         testing::note_prx_raw_build();
-        return write_auto_pfor_or_zstd(payload.view(), plain.view(), sink);
+        return write_auto_pfor_or_zstd(payload.view(), plain.view(), zstd_level, sink);
     }
     write_pfor(payload.view(), sink);
     return Status::OK();
@@ -802,7 +804,11 @@ Status build_prx_window(std::span<const std::vector<uint32_t>> per_doc_positions
         freqs.push_back(static_cast<uint32_t>(doc.size()));
         flat.insert(flat.end(), doc.begin(), doc.end());
     }
-    return build_prx_window_auto_from_flat(flat, freqs, sink);
+    // G16-h: level < -1 is auto mode at zstd level |level| (-1 stays the default).
+    const int auto_level = zstd_level_or_negative_for_auto == -1
+                                   ? kDefaultZstdLevel
+                                   : -zstd_level_or_negative_for_auto;
+    return build_prx_window_auto_from_flat(flat, freqs, auto_level, sink);
 }
 
 Status build_prx_window_flat(std::span<const uint32_t> positions_flat,
@@ -822,7 +828,11 @@ Status build_prx_window_flat(std::span<const uint32_t> positions_flat,
     // Auto mode: single-encode path (shared with build_prx_window) -- derive deltas
     // once, emit PFOR, and only materialize the raw plaintext when it is large
     // enough to attempt zstd. Byte-identical to the prior double-encode.
-    return build_prx_window_auto_from_flat(positions_flat, freqs, sink);
+    // G16-h: level < -1 is auto mode at zstd level |level| (-1 stays the default).
+    const int auto_level = zstd_level_or_negative_for_auto == -1
+                                   ? kDefaultZstdLevel
+                                   : -zstd_level_or_negative_for_auto;
+    return build_prx_window_auto_from_flat(positions_flat, freqs, auto_level, sink);
 }
 
 Status read_prx_window(ByteSource* source, std::vector<std::vector<uint32_t>>* per_doc_positions) {
