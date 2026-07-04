@@ -20,6 +20,9 @@ package org.apache.doris.datasource.iceberg;
 import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.MapType;
+import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.StructField;
+import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
@@ -101,6 +104,38 @@ public class IcebergMetadataOpsValidationTest {
                 Types.ListType.ofOptional(2, Types.IntegerType.get()));
         assertUserException(() -> invokeValidateForModifyComplexColumn(column, currentCol),
                 "Cannot change int to smallint in nested types");
+    }
+
+    @Test
+    public void testValidateForModifyComplexColumnAllowsNestedDecimalPrecisionPromotion() throws Throwable {
+        Column column = new Column("struct_col",
+                new StructType(new StructField("d", ScalarType.createDecimalV3Type(10, 3))), true);
+        NestedField currentCol = Types.NestedField.required(1, "struct_col",
+                Types.StructType.of(Types.NestedField.optional(2, "d",
+                        Types.DecimalType.of(5, 3))));
+        invokeValidateForModifyComplexColumn(column, currentCol);
+    }
+
+    @Test
+    public void testValidateForModifyComplexColumnRejectsNestedDecimalPrecisionNarrowing() {
+        Column column = new Column("struct_col",
+                new StructType(new StructField("d", ScalarType.createDecimalV3Type(5, 3))), true);
+        NestedField currentCol = Types.NestedField.required(1, "struct_col",
+                Types.StructType.of(Types.NestedField.optional(2, "d",
+                        Types.DecimalType.of(10, 3))));
+        assertUserException(() -> invokeValidateForModifyComplexColumn(column, currentCol),
+                "Cannot change decimalv3(10,3) to decimalv3(5,3) in nested types");
+    }
+
+    @Test
+    public void testValidateForModifyComplexColumnRejectsNestedDecimalScaleChange() {
+        Column column = new Column("struct_col",
+                new StructType(new StructField("d", ScalarType.createDecimalV3Type(10, 4))), true);
+        NestedField currentCol = Types.NestedField.required(1, "struct_col",
+                Types.StructType.of(Types.NestedField.optional(2, "d",
+                        Types.DecimalType.of(5, 3))));
+        assertUserException(() -> invokeValidateForModifyComplexColumn(column, currentCol),
+                "Cannot change decimalv3(5,3) to decimalv3(10,4) in nested types");
     }
 
     @Test

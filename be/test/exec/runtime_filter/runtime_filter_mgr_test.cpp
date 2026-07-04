@@ -20,12 +20,37 @@
 #include <glog/logging.h>
 #include <gtest/gtest.h>
 
+#include <string>
+
 #include "exec/pipeline/thrift_builder.h"
 #include "exec/runtime_filter/runtime_filter_producer.h"
 #include "runtime/query_context.h"
 #include "testutil/mock/mock_runtime_state.h"
 
 namespace doris {
+namespace {
+
+RuntimeFilterPublishTarget make_publish_target(int index) {
+    RuntimeFilterPublishTarget target;
+    target.addr.set_hostname("host" + std::to_string(index));
+    target.addr.set_port(9000 + index);
+    target.fragment_ids.push_back(index);
+    return target;
+}
+
+std::vector<int32_t> flatten_fragment_ids(
+        const std::vector<std::vector<RuntimeFilterPublishTarget>>& slices) {
+    std::vector<int32_t> fragment_ids;
+    for (const auto& slice : slices) {
+        for (const auto& target : slice) {
+            fragment_ids.insert(fragment_ids.end(), target.fragment_ids.begin(),
+                                target.fragment_ids.end());
+        }
+    }
+    return fragment_ids;
+}
+
+} // namespace
 
 class RuntimeFilterMgrTest : public testing::Test {
 public:
@@ -184,6 +209,91 @@ TEST_F(RuntimeFilterMgrTest, TestRuntimeFilterMergeControllerEntity) {
                         .build();
         EXPECT_TRUE(entity->init(ctx, param).ok());
     }
+}
+
+TEST_F(RuntimeFilterMgrTest, SplitRuntimeFilterPublishTargets) {
+    std::vector<RuntimeFilterPublishTarget> targets;
+    for (int i = 0; i < 10; ++i) {
+        targets.push_back(make_publish_target(i));
+    }
+
+    auto slices = split_runtime_filter_publish_targets(targets, 3);
+    ASSERT_EQ(slices.size(), 3);
+    EXPECT_EQ(slices[0].size(), 4);
+    EXPECT_EQ(slices[1].size(), 3);
+    EXPECT_EQ(slices[2].size(), 3);
+    EXPECT_EQ(flatten_fragment_ids(slices), (std::vector<int32_t> {0, 1, 2, 3, 4, 5, 6, 7, 8, 9}));
+
+    slices = split_runtime_filter_publish_targets(targets, 20);
+    ASSERT_EQ(slices.size(), targets.size());
+    for (const auto& slice : slices) {
+        EXPECT_EQ(slice.size(), 1);
+    }
+
+    slices = split_runtime_filter_publish_targets(targets, 1);
+    ASSERT_EQ(slices.size(), 1);
+    EXPECT_EQ(slices[0].size(), targets.size());
+}
+
+TEST_F(RuntimeFilterMgrTest, CalculateTreePublishFanout) {
+    constexpr int64_t MB = 1024L * 1024L;
+    constexpr int64_t max_send_bytes = 256L * MB;
+    constexpr size_t target_count = 48;
+
+    EXPECT_EQ(calculate_tree_publish_fanout(1L * MB, target_count, max_send_bytes), 0);
+    EXPECT_EQ(calculate_tree_publish_fanout(4L * MB, target_count, max_send_bytes), 0);
+    EXPECT_EQ(calculate_tree_publish_fanout(8L * MB, target_count, max_send_bytes), 32);
+    EXPECT_EQ(calculate_tree_publish_fanout(16L * MB, target_count, max_send_bytes), 16);
+    EXPECT_EQ(calculate_tree_publish_fanout(32L * MB, target_count, max_send_bytes), 8);
+    EXPECT_EQ(calculate_tree_publish_fanout(64L * MB, target_count, max_send_bytes), 4);
+    EXPECT_EQ(calculate_tree_publish_fanout(128L * MB, target_count, max_send_bytes), 2);
+
+    EXPECT_EQ(calculate_tree_publish_fanout(4L * MB, target_count, 0), 0);
+    EXPECT_EQ(calculate_tree_publish_fanout(256L * MB, target_count, max_send_bytes), 1);
+    EXPECT_EQ(calculate_tree_publish_fanout(1L * MB, 1024, max_send_bytes), 256);
+}
+
+TEST_F(RuntimeFilterMgrTest, BuildRuntimeFilterPublishTasks) {
+    PPublishFilterRequestV2 base_request;
+    base_request.set_filter_id(10);
+    base_request.mutable_query_id()->set_hi(1);
+    base_request.mutable_query_id()->set_lo(2);
+    base_request.set_filter_type(PFilterType::BLOOM_FILTER);
+    base_request.set_tree_publish_fanout(2);
+    base_request.set_publish_rpc_timeout_ms(3000);
+    base_request.add_fragment_ids(999);
+    auto* stale_forward_target = base_request.add_forward_targets();
+    stale_forward_target->mutable_target_addr()->set_hostname("stale");
+    stale_forward_target->mutable_target_addr()->set_port(1);
+    stale_forward_target->add_fragment_ids(999);
+
+    std::vector<RuntimeFilterPublishTarget> targets;
+    for (int i = 0; i < 5; ++i) {
+        targets.push_back(make_publish_target(i));
+    }
+
+    auto tasks = build_runtime_filter_publish_tasks(base_request, targets, 2);
+    ASSERT_EQ(tasks.size(), 2);
+
+    EXPECT_EQ(tasks[0].receiver.addr.hostname(), "host0");
+    EXPECT_EQ(tasks[0].request.fragment_ids_size(), 1);
+    EXPECT_EQ(tasks[0].request.fragment_ids(0), 0);
+    ASSERT_EQ(tasks[0].request.forward_targets_size(), 2);
+    EXPECT_EQ(tasks[0].request.forward_targets(0).target_addr().hostname(), "host1");
+    EXPECT_EQ(tasks[0].request.forward_targets(0).fragment_ids(0), 1);
+    EXPECT_EQ(tasks[0].request.forward_targets(1).target_addr().hostname(), "host2");
+    EXPECT_EQ(tasks[0].request.forward_targets(1).fragment_ids(0), 2);
+
+    EXPECT_EQ(tasks[1].receiver.addr.hostname(), "host3");
+    EXPECT_EQ(tasks[1].request.fragment_ids_size(), 1);
+    EXPECT_EQ(tasks[1].request.fragment_ids(0), 3);
+    ASSERT_EQ(tasks[1].request.forward_targets_size(), 1);
+    EXPECT_EQ(tasks[1].request.forward_targets(0).target_addr().hostname(), "host4");
+    EXPECT_EQ(tasks[1].request.forward_targets(0).fragment_ids(0), 4);
+
+    EXPECT_EQ(tasks[0].request.filter_id(), base_request.filter_id());
+    EXPECT_EQ(tasks[0].request.tree_publish_fanout(), 2);
+    EXPECT_EQ(tasks[0].request.publish_rpc_timeout_ms(), 3000);
 }
 
 } // namespace doris

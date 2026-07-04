@@ -18,13 +18,19 @@
 #include <gen_cpp/PlanNodes_types.h>
 #include <gtest/gtest.h>
 
+#include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "common/object_pool.h"
+#include "core/data_type/data_type_number.h"
+#include "core/data_type/data_type_string.h"
 #include "cpp/sync_point.h"
 #include "exec/operator/file_scan_operator.h"
 #include "exec/scan/file_scanner.h"
+#include "exec/scan/split_source_connector.h"
+#include "format_v2/table/hive_reader.h"
 #include "io/fs/local_file_system.h"
 #include "load/group_commit/wal/wal_manager.h"
 #include "runtime/cluster_info.h"
@@ -398,6 +404,114 @@ TEST_F(VfileScannerExceptionTest, fallback_scan_bytes_follow_file_type) {
                                            ->io_context()
                                            ->scan_bytes_from_remote_storage());
     WARN_IF_ERROR(remote_scanner->close(&_runtime_state), "fail to close scanner");
+}
+
+TEST(HiveReaderPositionMappingTest, PositionMappingUsesColumnIdxsForFileSlots) {
+    TQueryOptions query_options;
+    query_options.hive_parquet_use_column_names = false;
+    RuntimeState runtime_state(query_options, TQueryGlobals());
+    TFileScanRangeParams params;
+    params.__set_format_type(TFileFormatType::FORMAT_PARQUET);
+    params.__set_column_idxs({2, 0});
+    format::ProjectedColumnBuildContext context {
+            .scan_params = &params,
+            .runtime_state = &runtime_state,
+    };
+    format::hive::HiveReader reader;
+
+    TFileScanSlotInfo id_slot;
+    id_slot.__set_is_file_slot(true);
+    format::ColumnDefinition id_column {
+            .identifier = Field::create_field<TYPE_STRING>("id"),
+            .name = "id",
+            .type = std::make_shared<DataTypeInt32>(),
+    };
+
+    TFileScanSlotInfo name_slot;
+    name_slot.__set_is_file_slot(true);
+    format::ColumnDefinition name_column {
+            .identifier = Field::create_field<TYPE_STRING>("name"),
+            .name = "name",
+            .type = std::make_shared<DataTypeString>(),
+    };
+
+    ASSERT_TRUE(reader.annotate_projected_column(id_slot, &context, &id_column).ok());
+    ASSERT_TRUE(id_column.has_identifier_field_id());
+    EXPECT_EQ(id_column.get_identifier_position(), 2);
+    EXPECT_EQ(context.next_file_column_idx, 1);
+
+    ASSERT_TRUE(reader.annotate_projected_column(name_slot, &context, &name_column).ok());
+    ASSERT_TRUE(name_column.has_identifier_field_id());
+    EXPECT_EQ(name_column.get_identifier_position(), 0);
+    EXPECT_EQ(context.next_file_column_idx, 2);
+    ASSERT_TRUE(reader.validate_projected_columns(context).ok());
+}
+
+TEST(HiveReaderPositionMappingTest, PositionMappingDoesNotConsumePartitionSlots) {
+    TQueryOptions query_options;
+    query_options.hive_parquet_use_column_names = false;
+    RuntimeState runtime_state(query_options, TQueryGlobals());
+    TFileScanRangeParams params;
+    params.__set_format_type(TFileFormatType::FORMAT_PARQUET);
+    params.__set_column_idxs({3});
+    format::ProjectedColumnBuildContext context {
+            .scan_params = &params,
+            .runtime_state = &runtime_state,
+    };
+    format::hive::HiveReader reader;
+
+    TFileScanSlotInfo partition_slot;
+    partition_slot.__set_is_file_slot(false);
+    partition_slot.__set_category(TColumnCategory::PARTITION_KEY);
+    format::ColumnDefinition partition_column {
+            .identifier = Field::create_field<TYPE_STRING>("year"),
+            .name = "year",
+            .type = std::make_shared<DataTypeInt32>(),
+    };
+
+    TFileScanSlotInfo value_slot;
+    value_slot.__set_is_file_slot(true);
+    format::ColumnDefinition value_column {
+            .identifier = Field::create_field<TYPE_STRING>("value"),
+            .name = "value",
+            .type = std::make_shared<DataTypeInt32>(),
+    };
+
+    ASSERT_TRUE(reader.annotate_projected_column(partition_slot, &context, &partition_column).ok());
+    ASSERT_TRUE(partition_column.has_identifier_name());
+    EXPECT_EQ(partition_column.get_identifier_name(), "year");
+    EXPECT_EQ(context.next_file_column_idx, 0);
+
+    ASSERT_TRUE(reader.annotate_projected_column(value_slot, &context, &value_column).ok());
+    ASSERT_TRUE(value_column.has_identifier_field_id());
+    EXPECT_EQ(value_column.get_identifier_position(), 3);
+    EXPECT_EQ(context.next_file_column_idx, 1);
+    ASSERT_TRUE(reader.validate_projected_columns(context).ok());
+}
+
+TEST(HiveReaderPositionMappingTest, PositionMappingFailsWhenColumnIdxsMissing) {
+    TQueryOptions query_options;
+    query_options.hive_parquet_use_column_names = false;
+    RuntimeState runtime_state(query_options, TQueryGlobals());
+    TFileScanRangeParams params;
+    params.__set_format_type(TFileFormatType::FORMAT_PARQUET);
+    format::ProjectedColumnBuildContext context {
+            .scan_params = &params,
+            .runtime_state = &runtime_state,
+    };
+    format::hive::HiveReader reader;
+
+    TFileScanSlotInfo value_slot;
+    value_slot.__set_is_file_slot(true);
+    format::ColumnDefinition value_column {
+            .identifier = Field::create_field<TYPE_STRING>("value"),
+            .name = "value",
+            .type = std::make_shared<DataTypeInt32>(),
+    };
+
+    auto status = reader.annotate_projected_column(value_slot, &context, &value_column);
+    EXPECT_FALSE(status.ok());
+    EXPECT_EQ(context.next_file_column_idx, 0);
 }
 
 } // namespace doris

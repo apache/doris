@@ -102,7 +102,8 @@ suite("test_hive_read_parquet_complex_type", "p0,external") {
                 INTO OUTFILE "${uri}"
                 FORMAT AS ${format}
                 PROPERTIES (
-                    "hadoop.username" = "${hdfsUserName}"
+                    "hadoop.username" = "${hdfsUserName}",
+                    "enable_int96_timestamps" = "true"
                 );
             """
             logger.info("outfile success path: " + res[0][3]);

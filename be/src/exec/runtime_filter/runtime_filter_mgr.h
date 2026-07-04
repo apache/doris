@@ -23,6 +23,7 @@
 #include <gen_cpp/internal_service.pb.h>
 #include <glog/logging.h>
 
+#include <cstddef>
 #include <cstdint>
 #include <map>
 #include <memory>
@@ -35,8 +36,9 @@
 #include "util/uid_util.h"
 
 namespace butil {
+class IOBuf;
 class IOBufAsZeroCopyInputStream;
-}
+} // namespace butil
 
 namespace doris {
 class PPublishFilterRequestV2;
@@ -54,6 +56,30 @@ class RuntimeProfile;
 template <typename Response>
 class HandleErrorBrpcCallback;
 class SyncSizeCallback;
+
+struct RuntimeFilterPublishTarget {
+    PNetworkAddress addr;
+    std::vector<int32_t> fragment_ids;
+};
+
+struct RuntimeFilterPublishTask {
+    RuntimeFilterPublishTarget receiver;
+    PPublishFilterRequestV2 request;
+};
+
+std::vector<std::vector<RuntimeFilterPublishTarget>> split_runtime_filter_publish_targets(
+        const std::vector<RuntimeFilterPublishTarget>& targets, int fanout);
+
+std::vector<RuntimeFilterPublishTask> build_runtime_filter_publish_tasks(
+        const PPublishFilterRequestV2& base_request,
+        const std::vector<RuntimeFilterPublishTarget>& targets, int fanout);
+
+int calculate_tree_publish_fanout(int64_t serialized_filter_size, size_t target_count,
+                                  int64_t max_send_bytes);
+
+Status forward_runtime_filter(const PPublishFilterRequestV2& request,
+                              const butil::IOBuf& request_attachment,
+                              std::weak_ptr<QueryContext> query_ctx);
 
 struct LocalMergeContext {
     std::shared_ptr<RuntimeFilterMerger> merger;
@@ -190,7 +216,8 @@ private:
                            const int producer_size);
 
     Status _send_rf_to_target(GlobalMergeContext& cnt_val, std::weak_ptr<QueryContext> ctx,
-                              int64_t merge_time, PUniqueId query_id, int execution_timeout);
+                              int64_t merge_time, PUniqueId query_id, int execution_timeout,
+                              const TQueryOptions& query_options);
 
     // protect _filter_map
     AnnotatedSharedMutex _filter_map_mutex;

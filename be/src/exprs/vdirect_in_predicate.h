@@ -46,7 +46,7 @@ public:
     // materialization and slot-IN rewrite that would otherwise rebuild child-typed literals from
     // dictionary codes.
     VDirectInPredicate(const TExprNode& node, const std::shared_ptr<HybridSetBase>& filter,
-                       bool hybrid_set_values_match_child_type)
+                       bool hybrid_set_values_match_child_type = true)
             : VExpr(node),
               _filter(filter),
               _hybrid_set_values_match_child_type(hybrid_set_values_match_child_type),
@@ -96,6 +96,13 @@ public:
     bool can_evaluate_zonemap_filter() const override {
         return _zonemap_materialized &&
                std::dynamic_pointer_cast<VSlotRef>(get_child(0)) != nullptr;
+    }
+
+    Status clone_node(VExprSPtr* cloned_expr) const override {
+        DORIS_CHECK(cloned_expr != nullptr);
+        *cloned_expr = VDirectInPredicate::create_shared(clone_texpr_node(), _filter,
+                                                         _hybrid_set_values_match_child_type);
+        return Status::OK();
     }
 
     bool get_slot_in_expr(VExprSPtr& new_root) const {
