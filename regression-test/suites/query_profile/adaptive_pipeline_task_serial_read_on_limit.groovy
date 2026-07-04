@@ -102,6 +102,7 @@ suite('adaptive_pipeline_task_serial_read_on_limit') {
     def verifyQueryProfile = { stmt, serialReadOnLimit ->
         sql stmt
         String profileId = sql("select last_query_id()")[0][0].toString()
+        logger.info("Captured last_query_id() for statement [${stmt}]: ${profileId}")
         assertTrue(verifyProfileContent(context, profileId, stmt, serialReadOnLimit))
     }
 
