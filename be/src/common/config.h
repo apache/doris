@@ -1374,6 +1374,10 @@ DECLARE_mDouble(snii_bigram_prune_max_df_ratio);
 // default (false) drops the layout; scoring-config indexes always keep freq.
 // Write-side only; segments are self-describing either way.
 DECLARE_mBool(snii_positions_index_write_freq);
+// G16-d: target SNII dict block size in bytes; 0 = format default (64 KiB).
+// Bigger blocks -> better per-block zstd on the dict region, larger cold
+// fetch+decompress unit per dict-block miss. Write side only.
+DECLARE_mInt32(snii_target_dict_block_bytes);
 // SNII phrase-bigram vocabulary cap in bytes, PER index writer (G04 "bigram
 // diet" phase 2). The SPIMI intern table otherwise accumulates every distinct
 // hidden bigram string for the whole segment (the dominant import RSS

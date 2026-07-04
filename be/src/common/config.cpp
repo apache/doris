@@ -1318,6 +1318,12 @@ DEFINE_mDouble(snii_bigram_prune_max_df_ratio, "0.25");
 // freq regardless. Applies at segment build (write side only); existing
 // segments keep whatever layout they were written with (self-describing).
 DEFINE_mBool(snii_positions_index_write_freq, "false");
+// G16-d: target SNII dict block size in bytes; 0 uses the format default
+// (64 KiB). Larger blocks compress better under the per-block zstd (the dict
+// is the dominant physical section on high-cardinality corpora) at the cost
+// of a larger fetch+decompress unit per cold dict-block miss. Write side
+// only; the block size is self-described by the on-disk directory.
+DEFINE_mInt32(snii_target_dict_block_bytes, "0");
 // SNII per-writer bigram intern-vocabulary cap (bytes): df==1 bigram terms are
 // incrementally evicted (and bloom-recorded for the flush-time drop) once the
 // live bigram intern storage crosses this. 0 = uncapped. Effective only when

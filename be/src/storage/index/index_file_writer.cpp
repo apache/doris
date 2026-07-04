@@ -208,6 +208,10 @@ Status IndexFileWriter::add_snii_index(const TabletIndex* index_meta, uint32_t d
     // G16-c: freq regions serve only BM25 scoring; a plain positions index
     // drops them unless the escape hatch asks for the full T2 layout.
     input.write_freq = snii_effective_write_freq(index_config);
+    // G16-d: dict block size experiment knob; <= 0 keeps the format default.
+    if (config::snii_target_dict_block_bytes > 0) {
+        input.target_dict_block_bytes = static_cast<uint32_t>(config::snii_target_dict_block_bytes);
+    }
     // G04: hand the flush the buffer's ever-dropped bloom so vocab-cap-evicted
     // bigram pairs that reappeared (incomplete postings) are dropped in addition
     // to the df threshold. Null when no eviction ever fired (zero probe cost).
