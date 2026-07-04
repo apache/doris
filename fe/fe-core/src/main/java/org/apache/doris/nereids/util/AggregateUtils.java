@@ -89,14 +89,40 @@ public class AggregateUtils {
                 && param.aggPhase.isLocal();
     }
 
-    /**hasUnknownStatistics*/
+    /**
+     * Check whether any expression in the collection has unknown statistics.
+     * Statistics are considered unknown if they are null, isUnKnown(), or cannot be estimated.
+     * Note: when returning false, hotValue may still be unknown; use hasUnknownStatistics(..., true)
+     * if hot value presence is required.
+     *
+     * @param expressions expressions to check (e.g. group-by expressions)
+     * @param inputStatistics input statistics
+     * @return true if any expression has unknown statistics
+     */
     public static boolean hasUnknownStatistics(Collection<Expression> expressions, Statistics inputStatistics) {
+        return hasUnknownStatistics(expressions, inputStatistics, false);
+    }
+
+    /**
+     * Check whether any expression has unknown statistics, optionally requiring hot values.
+     * When requireHotValues is true, expressions without hotValues are also treated as unknown.
+     *
+     * @param expressions expressions to check
+     * @param inputStatistics input statistics
+     * @param requireHotValues if true, treat missing hotValues as unknown
+     * @return true if any expression has unknown statistics (or missing hot values when requireHotValues)
+     */
+    public static boolean hasUnknownStatistics(Collection<Expression> expressions,
+            Statistics inputStatistics, boolean requireHotValues) {
         for (Expression gbyExpr : expressions) {
             ColumnStatistic colStats = inputStatistics.findColumnStatistics(gbyExpr);
             if (colStats == null) {
                 colStats = ExpressionEstimation.estimate(gbyExpr, inputStatistics);
             }
             if (colStats == null || colStats.isUnKnown()) {
+                return true;
+            }
+            if (requireHotValues && colStats.hotValues == null) {
                 return true;
             }
         }

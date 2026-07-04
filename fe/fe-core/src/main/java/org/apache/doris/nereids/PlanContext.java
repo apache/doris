@@ -54,6 +54,17 @@ public class PlanContext {
         }
     }
 
+    /**
+     * Constructor for plan-only context usage.
+     */
+    public PlanContext(ConnectContext connectContext) {
+        this.connectContext = connectContext;
+        this.childrenStats = new ArrayList<>(0);
+        this.planStats = null;
+        this.arity = 0;
+        this.isStatsReliable = true;
+    }
+
     public SessionVariable getSessionVariable() {
         return connectContext.getSessionVariable();
     }

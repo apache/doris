@@ -17,6 +17,7 @@
 
 package org.apache.doris.job.extensions.insert.streaming;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.datasource.jdbc.client.JdbcClient;
 import org.apache.doris.job.cdc.DataSourceConfigKeys;
 import org.apache.doris.job.common.DataSourceType;
@@ -25,6 +26,7 @@ import org.apache.doris.job.util.StreamingJobUtils;
 
 import org.apache.commons.lang3.StringUtils;
 
+import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -44,6 +46,8 @@ public class PostgresResourceValidator {
 
     public static void validate(Map<String, String> sourceProperties, String jobId, List<String> tableNames)
             throws JobException {
+        // PG truncates an over-long db name, so the slot lookup never matches it; reject up front.
+        checkDatabaseNameLength(sourceProperties.get(DataSourceConfigKeys.DATABASE));
         String slotName = resolveSlotName(sourceProperties, jobId);
         String publicationName = resolvePublicationName(sourceProperties, jobId);
         // Pattern-match ownership: name equals the default = Doris-owned (auto); otherwise user.
@@ -121,6 +125,19 @@ public class PostgresResourceValidator {
     private static String resolvePublicationName(Map<String, String> config, String jobId) {
         String name = config.get(DataSourceConfigKeys.PUBLICATION_NAME);
         return StringUtils.isNotBlank(name) ? name : DataSourceConfigKeys.defaultPublicationName(jobId);
+    }
+
+    private static void checkDatabaseNameLength(String database) throws JobException {
+        if (StringUtils.isBlank(database)) {
+            return;
+        }
+        // PG measures the identifier limit in bytes (NAMEDATALEN-1), so compare encoded bytes.
+        int bytes = database.getBytes(StandardCharsets.UTF_8).length;
+        if (bytes > Config.streaming_pg_max_identifier_length) {
+            throw new JobException("database name '" + database + "' is " + bytes + " bytes, exceeding "
+                    + Config.streaming_pg_max_identifier_length + "; PostgreSQL truncates it and the"
+                    + " replication-slot lookup would fail.");
+        }
     }
 
     private static boolean publicationExists(Connection conn, String publicationName) throws Exception {
