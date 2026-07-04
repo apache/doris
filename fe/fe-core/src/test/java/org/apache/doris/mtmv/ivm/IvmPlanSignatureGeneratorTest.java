@@ -18,6 +18,7 @@
 package org.apache.doris.mtmv.ivm;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.nereids.jobs.JobContext;
@@ -40,14 +41,17 @@ import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalResultSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
 import org.apache.doris.nereids.util.PlanConstructor;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.thrift.TPartialUpdateNewRowPolicy;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -97,6 +101,28 @@ class IvmPlanSignatureGeneratorTest extends IvmDeltaTestBase {
         IvmPlanSignature withFilter = signatureForPlan(buildScanRoot(filter));
 
         Assertions.assertEquals(withoutFilter.getSha256(), withFilter.getSha256());
+    }
+
+    @Test
+    void testOlapTableSinkDoesNotChangeSignature() {
+        LogicalOlapScan scan = buildMowScan(1, "t");
+        LogicalProject<?> project = buildRowIdProject(scan,
+                ImmutableList.of(scan.getOutput().get(0), scan.getOutput().get(1)));
+        IvmPlanSignature withoutSink = signatureForNormalizedPlan(project);
+
+        LogicalOlapTableSink<Plan> sink = new LogicalOlapTableSink<>(
+                new Database(),
+                scan.getTable(),
+                scan.getTable().getBaseSchema(),
+                ImmutableList.of(),
+                ImmutableList.copyOf(project.getOutput()),
+                false,
+                TPartialUpdateNewRowPolicy.APPEND,
+                DMLCommandType.NONE,
+                project);
+        IvmPlanSignature withSink = signatureForNormalizedPlan(sink);
+
+        Assertions.assertEquals(withoutSink.getSha256(), withSink.getSha256());
     }
 
     @Test
@@ -324,9 +350,7 @@ class IvmPlanSignatureGeneratorTest extends IvmDeltaTestBase {
     }
 
     private IvmPlanSignature signatureForNormalizedPlan(Plan normalizedPlan) {
-        IvmRewriteResult rewriteResult = new IvmRewriteResult();
-        rewriteResult.setNormalizedPlan(normalizedPlan);
-        return new IvmPlanSignatureGenerator().generate(rewriteResult);
+        return new IvmPlanSignatureGenerator().generate(normalizedPlan);
     }
 
     private LogicalResultSink<?> buildScanRoot(Plan plan) {
