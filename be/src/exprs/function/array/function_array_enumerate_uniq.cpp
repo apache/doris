@@ -161,7 +161,7 @@ public:
         }
 
         auto dst_nested_column = ColumnInt64::create();
-        ColumnInt64::Container& dst_values = dst_nested_column->get_data();
+        ColumnInt64::Container& dst_values = dst_nested_column->get_data_mutable();
         dst_values.resize(offsets.back());
 
         if (arguments.size() == 1) {

@@ -153,7 +153,7 @@ void validate_numeric_test(MutableColumnPtr& test_col_data) {
                            Field::create_field<T>((typename PrimitiveTypeTraits<T>::CppType)3)};
     }
     auto null_map_column = ColumnUInt8::create();
-    null_map_column->get_data().resize_fill(nested_column->size(), 0);
+    null_map_column->get_data_mutable().resize_fill(nested_column->size(), 0);
 
     auto offsets_column = ColumnArray::ColumnOffsets::create();
     offsets_column->insert(Field::create_field<TYPE_UINT64>(3));
@@ -395,7 +395,7 @@ TEST(AggGroupArrayIntersectTest, string_test) {
     nested_column->insert_data("b", 1);
     nested_column->insert_data("c", 1);
     auto null_map_column = ColumnUInt8::create();
-    null_map_column->get_data().resize_fill(nested_column->size(), 0);
+    null_map_column->get_data_mutable().resize_fill(nested_column->size(), 0);
 
     auto offsets_column = ColumnArray::ColumnOffsets::create();
     offsets_column->insert(Field::create_field<TYPE_UINT64>(3));

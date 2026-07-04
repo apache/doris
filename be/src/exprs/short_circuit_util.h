@@ -142,7 +142,13 @@ struct MutableColumnNullViewScalar {
             data_column = assert_cast<ColumnType*>(column_ptr.get());
         }
 
-        return MutableColumnNullViewScalar {.data = data_column->get_data(), .null_map = null_map};
+        if constexpr (is_decimal(PType)) {
+            return MutableColumnNullViewScalar {.data = data_column->get_data(),
+                                                .null_map = null_map};
+        } else {
+            return MutableColumnNullViewScalar {.data = data_column->get_data_mutable(),
+                                                .null_map = null_map};
+        }
     }
 
     void insert_from(const ColumnNullConstViewScalar<PType>& from, const Selector& selector) {

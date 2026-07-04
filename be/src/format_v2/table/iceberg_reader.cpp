@@ -687,7 +687,8 @@ Status IcebergTableReader::_materialize_row_lineage_row_id(Block* table_block, s
             table_block->get_by_position(column_idx).column->convert_to_full_column_if_const());
     auto* nullable_column = assert_cast<ColumnNullable*>(column.get());
     auto& null_map = nullable_column->get_null_map_data();
-    auto& data = assert_cast<ColumnInt64&>(*nullable_column->get_nested_column_ptr()).get_data();
+    auto& data =
+            assert_cast<ColumnInt64&>(*nullable_column->get_nested_column_ptr()).get_data_mutable();
     DORIS_CHECK(null_map.size() == row_position_column.size());
     DORIS_CHECK(data.size() == row_position_column.size());
     for (size_t row = 0; row < row_position_column.size(); ++row) {
@@ -759,7 +760,8 @@ Status IcebergTableReader::_materialize_row_lineage_last_updated_sequence_number
             table_block->get_by_position(column_idx).column->convert_to_full_column_if_const());
     auto* nullable_column = assert_cast<ColumnNullable*>(column.get());
     auto& null_map = nullable_column->get_null_map_data();
-    auto& data = assert_cast<ColumnInt64&>(*nullable_column->get_nested_column_ptr()).get_data();
+    auto& data =
+            assert_cast<ColumnInt64&>(*nullable_column->get_nested_column_ptr()).get_data_mutable();
     DORIS_CHECK(null_map.size() == table_block->rows());
     DORIS_CHECK(data.size() == table_block->rows());
     for (size_t row = 0; row < table_block->rows(); ++row) {

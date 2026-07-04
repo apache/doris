@@ -230,8 +230,9 @@ Status AnnTopNRuntime::evaluate_vector_ann_search(segment_v2::AnnIndexIterator* 
 
     size_t num_results = ann_query_params.row_ids->size();
     auto result_column_float = ColumnFloat32::create(num_results);
+    auto& result_data = result_column_float->get_data_mutable();
     for (size_t i = 0; i < num_results; ++i) {
-        result_column_float->get_data()[i] = ann_query_params.distance[i];
+        result_data[i] = ann_query_params.distance[i];
     }
     result_column = std::move(result_column_float);
     row_ids = ann_query_params.row_ids;

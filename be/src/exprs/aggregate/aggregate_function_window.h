@@ -71,7 +71,7 @@ public:
     }
 
     void insert_result_into(ConstAggregateDataPtr place, IColumn& to) const override {
-        assert_cast<ColumnInt64&, TypeCheckOnRelease::DISABLE>(to).get_data().push_back(
+        assert_cast<ColumnInt64&, TypeCheckOnRelease::DISABLE>(to).get_data_mutable().push_back(
                 doris::WindowFunctionRowNumber::data(place).count);
     }
 
@@ -80,8 +80,9 @@ public:
     void insert_result_into_range(ConstAggregateDataPtr __restrict place, IColumn& to,
                                   const size_t start, const size_t end) const override {
         auto& column = assert_cast<ColumnInt64&, TypeCheckOnRelease::DISABLE>(to);
+        auto& result_data = column.get_data_mutable();
         for (size_t i = start; i < end; ++i) {
-            column.get_data()[i] = (doris::WindowFunctionRowNumber::data(place).count);
+            result_data[i] = (doris::WindowFunctionRowNumber::data(place).count);
         }
     }
 
@@ -127,7 +128,7 @@ public:
     }
 
     void insert_result_into(ConstAggregateDataPtr place, IColumn& to) const override {
-        assert_cast<ColumnInt64&, TypeCheckOnRelease::DISABLE>(to).get_data().push_back(
+        assert_cast<ColumnInt64&, TypeCheckOnRelease::DISABLE>(to).get_data_mutable().push_back(
                 data(place).rank);
     }
 
@@ -136,8 +137,9 @@ public:
     void insert_result_into_range(ConstAggregateDataPtr __restrict place, IColumn& to,
                                   const size_t start, const size_t end) const override {
         auto& column = assert_cast<ColumnInt64&, TypeCheckOnRelease::DISABLE>(to);
+        auto& result_data = column.get_data_mutable();
         for (size_t i = start; i < end; ++i) {
-            column.get_data()[i] = (doris::WindowFunctionRank::data(place).rank);
+            result_data[i] = (doris::WindowFunctionRank::data(place).rank);
         }
     }
 
@@ -180,7 +182,7 @@ public:
     }
 
     void insert_result_into(ConstAggregateDataPtr place, IColumn& to) const override {
-        assert_cast<ColumnInt64&, TypeCheckOnRelease::DISABLE>(to).get_data().push_back(
+        assert_cast<ColumnInt64&, TypeCheckOnRelease::DISABLE>(to).get_data_mutable().push_back(
                 data(place).rank);
     }
 
@@ -189,8 +191,9 @@ public:
     void insert_result_into_range(ConstAggregateDataPtr __restrict place, IColumn& to,
                                   const size_t start, const size_t end) const override {
         auto& column = assert_cast<ColumnInt64&, TypeCheckOnRelease::DISABLE>(to);
+        auto& result_data = column.get_data_mutable();
         for (size_t i = start; i < end; ++i) {
-            column.get_data()[i] = (doris::WindowFunctionDenseRank::data(place).rank);
+            result_data[i] = (doris::WindowFunctionDenseRank::data(place).rank);
         }
     }
 
@@ -247,7 +250,7 @@ public:
 
     void insert_result_into(ConstAggregateDataPtr place, IColumn& to) const override {
         auto percent_rank = _cal_percent(data(place).rank, data(place).partition_size);
-        assert_cast<ColumnFloat64&, TypeCheckOnRelease::DISABLE>(to).get_data().push_back(
+        assert_cast<ColumnFloat64&, TypeCheckOnRelease::DISABLE>(to).get_data_mutable().push_back(
                 percent_rank);
     }
 
@@ -256,9 +259,10 @@ public:
     void insert_result_into_range(ConstAggregateDataPtr __restrict place, IColumn& to,
                                   const size_t start, const size_t end) const override {
         auto& column = assert_cast<ColumnFloat64&, TypeCheckOnRelease::DISABLE>(to);
+        auto& result_data = column.get_data_mutable();
         auto percent_rank = _cal_percent(data(place).rank, data(place).partition_size);
         for (size_t i = start; i < end; ++i) {
-            column.get_data()[i] = percent_rank;
+            result_data[i] = percent_rank;
         }
     }
 
@@ -312,7 +316,7 @@ public:
 
     void insert_result_into(ConstAggregateDataPtr place, IColumn& to) const override {
         auto cume_dist = (double)data(place).numerator * 1.0 / (double)data(place).denominator;
-        assert_cast<ColumnFloat64&, TypeCheckOnRelease::DISABLE>(to).get_data().push_back(
+        assert_cast<ColumnFloat64&, TypeCheckOnRelease::DISABLE>(to).get_data_mutable().push_back(
                 cume_dist);
     }
 
@@ -321,9 +325,10 @@ public:
     void insert_result_into_range(ConstAggregateDataPtr __restrict place, IColumn& to,
                                   const size_t start, const size_t end) const override {
         auto& column = assert_cast<ColumnFloat64&, TypeCheckOnRelease::DISABLE>(to);
+        auto& result_data = column.get_data_mutable();
         auto cume_dist = (double)data(place).numerator * 1.0 / (double)data(place).denominator;
         for (size_t i = start; i < end; ++i) {
-            column.get_data()[i] = cume_dist;
+            result_data[i] = cume_dist;
         }
     }
 
@@ -377,7 +382,7 @@ public:
     void reset(AggregateDataPtr place) const override { WindowFunctionNTile::data(place).rows = 0; }
 
     void insert_result_into(ConstAggregateDataPtr place, IColumn& to) const override {
-        assert_cast<ColumnInt64&, TypeCheckOnRelease::DISABLE>(to).get_data().push_back(
+        assert_cast<ColumnInt64&, TypeCheckOnRelease::DISABLE>(to).get_data_mutable().push_back(
                 WindowFunctionNTile::data(place).bucket_index);
     }
 
@@ -386,8 +391,9 @@ public:
     void insert_result_into_range(ConstAggregateDataPtr __restrict place, IColumn& to,
                                   const size_t start, const size_t end) const override {
         auto& column = assert_cast<ColumnInt64&, TypeCheckOnRelease::DISABLE>(to);
+        auto& result_data = column.get_data_mutable();
         for (size_t i = start; i < end; ++i) {
-            column.get_data()[i] = WindowFunctionNTile::data(place).bucket_index;
+            result_data[i] = WindowFunctionNTile::data(place).bucket_index;
         }
     }
 

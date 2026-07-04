@@ -142,7 +142,7 @@ public:
     }
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
-        assert_cast<ColumnFloat64&, TypeCheckOnRelease::DISABLE>(to).get_data().push_back(
+        assert_cast<ColumnFloat64&, TypeCheckOnRelease::DISABLE>(to).get_data_mutable().push_back(
                 this->data(place).get());
     }
 };

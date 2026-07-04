@@ -202,12 +202,12 @@ public:
                                         get_name());
         }
         auto res = ColumnUInt8::create();
-        ColumnUInt8::Container& vec_res = res->get_data();
+        ColumnUInt8::Container& vec_res = res->get_data_mutable();
         vec_res.resize(input_rows_count);
 
         ColumnUInt8::MutablePtr col_null_map_to;
         col_null_map_to = ColumnUInt8::create(input_rows_count, false);
-        auto& vec_null_map_to = col_null_map_to->get_data();
+        auto& vec_null_map_to = col_null_map_to->get_data_mutable();
 
         const ColumnWithTypeAndName& left_arg = block.get_by_position(arguments[0]);
         const auto& [unpacked_column, col_const] = unpack_if_const(left_arg.column);

@@ -39,6 +39,7 @@
 #include "core/column/column_decimal.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
+#include "core/column/column_vector.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_nullable.h"
@@ -57,6 +58,18 @@ template <typename, typename>
 struct DefaultHash;
 
 namespace doris {
+
+template <typename ColumnType>
+decltype(auto) array_distinct_writable_data(ColumnType& column) {
+    return column.get_data();
+}
+
+template <PrimitiveType T>
+auto& array_distinct_writable_data(ColumnVector<T>& column) {
+    // array_distinct appends into a result nested column. Only fixed-length vectors can share a
+    // page-backed buffer, so they must detach through the mutable accessor before writes.
+    return column.get_data_mutable();
+}
 
 class FunctionArrayDistinct : public IFunction {
 public:
@@ -113,7 +126,7 @@ public:
         if (auto* dest_nested_nullable_col =
                     check_and_get_column<ColumnNullable>(dest_nested_column)) {
             dest_nested_column = dest_nested_nullable_col->get_nested_column_ptr().get();
-            dest_null_map = &dest_nested_nullable_col->get_null_map_column().get_data();
+            dest_null_map = &dest_nested_nullable_col->get_null_map_column().get_data_mutable();
         }
 
         auto res_val = _execute_by_type(*src_nested_column, src_offsets, *dest_nested_column,
@@ -147,7 +160,7 @@ private:
         const auto src_datas = src_data_concrete->get_data();
 
         auto& dest_data_concrete = reinterpret_cast<ColumnType&>(dest_column);
-        PaddedPODArray<NestType>& dest_datas = dest_data_concrete.get_data();
+        auto& dest_datas = array_distinct_writable_data(dest_data_concrete);
 
         using Set = phmap::flat_hash_set<ElementNativeType, DefaultHash<ElementNativeType>>;
         Set set;

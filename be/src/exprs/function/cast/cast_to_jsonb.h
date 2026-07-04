@@ -50,7 +50,7 @@ struct ConvertImplGenericFromJsonb {
             col_to->reserve(size);
 
             ColumnUInt8::MutablePtr col_null_map_to = ColumnUInt8::create(size, 0);
-            ColumnUInt8::Container* vec_null_map_to = &col_null_map_to->get_data();
+            ColumnUInt8::Container* vec_null_map_to = &col_null_map_to->get_data_mutable();
             const bool is_complex = is_complex_type(data_type_to->get_primitive_type());
             const bool is_dst_string = is_string_type(data_type_to->get_primitive_type());
             for (size_t i = 0; i < size; ++i) {
@@ -172,7 +172,7 @@ struct ParseJsonbFromString {
                                      ColumnPtr& column_result) {
         auto col_to = ColumnString::create();
         auto col_null = ColumnBool::create(size, 0);
-        auto& vec_null_map_to = col_null->get_data();
+        auto& vec_null_map_to = col_null->get_data_mutable();
 
         for (size_t i = 0; i < size; ++i) {
             Status st = parse_json(col_from.get_data_at(i), *col_to);

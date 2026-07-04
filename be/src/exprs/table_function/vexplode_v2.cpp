@@ -257,7 +257,7 @@ int VExplodeV2TableFunction::get_value(MutableColumnPtr& column, int max_step) {
                     if (detail.nested_nullmap_data) {
                         size_t old_size = nullmap_column->size();
                         nullmap_column->resize(old_size + max_step);
-                        memcpy(nullmap_column->get_data().data() + old_size,
+                        memcpy(nullmap_column->get_data_mutable().data() + old_size,
                                detail.nested_nullmap_data + pos, max_step * sizeof(UInt8));
                     } else {
                         nullmap_column->insert_many_defaults(max_step);
@@ -269,7 +269,7 @@ int VExplodeV2TableFunction::get_value(MutableColumnPtr& column, int max_step) {
                     if (detail.nested_nullmap_data) {
                         size_t old_size = nullmap_column->size();
                         nullmap_column->resize(old_size + current_insert_num);
-                        memcpy(nullmap_column->get_data().data() + old_size,
+                        memcpy(nullmap_column->get_data_mutable().data() + old_size,
                                detail.nested_nullmap_data + pos,
                                current_insert_num * sizeof(UInt8));
                     } else {

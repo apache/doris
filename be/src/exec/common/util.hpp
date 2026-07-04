@@ -272,7 +272,7 @@ inline ColumnPtr change_null_to_true(ColumnPtr&& column, const ColumnPtr& argume
     auto mutable_column = IColumn::mutate(std::move(column));
     if (auto* nullable = check_and_get_column<ColumnNullable>(*mutable_column)) {
         auto* __restrict data = assert_cast<ColumnUInt8*>(nullable->get_nested_column_ptr().get())
-                                        ->get_data()
+                                        ->get_data_mutable()
                                         .data();
         NullMap& null_map = nullable->get_null_map_data();
         for (size_t i = 0; i < rows; ++i) {
@@ -285,7 +285,8 @@ inline ColumnPtr change_null_to_true(ColumnPtr&& column, const ColumnPtr& argume
     if (argument && argument->has_null()) {
         const auto* __restrict null_map =
                 assert_cast<const ColumnNullable*>(argument.get())->get_null_map_data().data();
-        auto* __restrict data = assert_cast<ColumnUInt8*>(mutable_column.get())->get_data().data();
+        auto* __restrict data =
+                assert_cast<ColumnUInt8*>(mutable_column.get())->get_data_mutable().data();
         for (size_t i = 0; i < rows; ++i) {
             data[i] |= null_map[i];
         }

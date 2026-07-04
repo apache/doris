@@ -489,7 +489,7 @@ Status VerticalBlockReader::_unique_key_next_block(Block* block, bool* eof) {
                     reinterpret_cast<ColumnUInt8*>(delete_filter_column.get());
             delete_filter_data_column->resize(block_rows);
 
-            auto* __restrict filter_data = delete_filter_data_column->get_data().data();
+            auto* __restrict filter_data = delete_filter_data_column->get_data_mutable().data();
             auto* __restrict delete_data =
                     reinterpret_cast<ColumnInt8*>(target_columns[delete_sign_idx].get())
                             ->get_data()
@@ -642,7 +642,7 @@ void VerticalBlockReader::_prepare_sparse_columns(MutableColumns& columns, size_
             if (supports_replace[col_idx]) {
                 // Fixed-width types: pre-fill with NULL for sparse optimization
                 size_t new_size = nullable_col->size() + actual_rows;
-                nullable_col->get_null_map_column().get_data().resize_fill(new_size, 1);
+                nullable_col->get_null_map_column().get_data_mutable().resize_fill(new_size, 1);
                 nullable_col->get_nested_column().resize(new_size);
             } else {
                 // Variable-length types: just reserve space

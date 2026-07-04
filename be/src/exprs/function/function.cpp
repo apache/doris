@@ -72,7 +72,7 @@ ColumnPtr wrap_in_nullable(const ColumnPtr& src, const Block& block, const Colum
             }
 
             NullMap& result_null_map =
-                    assert_cast<ColumnUInt8&>(*mutable_result_null_map_column).get_data();
+                    assert_cast<ColumnUInt8&>(*mutable_result_null_map_column).get_data_mutable();
             const NullMapView src_null_map =
                     assert_cast<const ColumnUInt8&>(*null_map_column).get_data();
 

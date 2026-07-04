@@ -89,8 +89,8 @@ public:
 
         auto col_offsets_inner = ColumnArray::ColumnOffsets::create();
         auto col_offsets_outer = ColumnArray::ColumnOffsets::create();
-        auto& offsets_inner = col_offsets_inner->get_data();
-        auto& offsets_outer = col_offsets_outer->get_data();
+        auto& offsets_inner = col_offsets_inner->get_data_mutable();
+        auto& offsets_outer = col_offsets_outer->get_data_mutable();
         offsets_inner.reserve(src_offsets.size()); // assume the actual size to be equal or larger
         offsets_outer.reserve(src_offsets.size());
 

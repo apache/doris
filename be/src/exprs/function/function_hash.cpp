@@ -133,7 +133,7 @@ struct MurmurHash3Impl {
 
     static Status empty_apply(IColumn& icolumn, size_t input_rows_count) {
         ColumnVector<ReturnType>& vec_to = assert_cast<ColumnVector<ReturnType>&>(icolumn);
-        vec_to.get_data().assign(
+        vec_to.get_data_mutable().assign(
                 input_rows_count,
                 static_cast<typename PrimitiveTypeTraits<ReturnType>::CppType>(emtpy_value));
         return Status::OK();
@@ -161,7 +161,7 @@ struct MurmurHash3Impl {
                 to_column.insert_many_defaults(input_rows_count);
             }
         }
-        auto& col_to_data = to_column.get_data();
+        auto& col_to_data = to_column.get_data_mutable();
         if (const auto* col_from = check_and_get_column<ColumnString>(column)) {
             const typename ColumnString::Chars& data = col_from->get_chars();
             const typename ColumnString::Offsets& offsets = col_from->get_offsets();
@@ -235,7 +235,7 @@ struct MurmurHash3128Impl {
             // the same result column and update the saved state in place.
             to_column.insert_many_defaults(input_rows_count);
         }
-        auto& col_to_data = to_column.get_data();
+        auto& col_to_data = to_column.get_data_mutable();
         return execute_murmur_hash3_128_column<first>(column, input_rows_count, col_to_data, name);
     }
 };
@@ -307,7 +307,7 @@ struct XxHashImpl {
 
     static Status empty_apply(IColumn& icolumn, size_t input_rows_count) {
         ColumnVector<ReturnType>& vec_to = assert_cast<ColumnVector<ReturnType>&>(icolumn);
-        vec_to.get_data().assign(
+        vec_to.get_data_mutable().assign(
                 input_rows_count,
                 static_cast<typename PrimitiveTypeTraits<ReturnType>::CppType>(emtpy_value));
         return Status::OK();
@@ -330,7 +330,7 @@ struct XxHashImpl {
         if constexpr (first) {
             to_column.insert_many_defaults(input_rows_count);
         }
-        auto& col_to_data = to_column.get_data();
+        auto& col_to_data = to_column.get_data_mutable();
         if (const auto* col_from = check_and_get_column<ColumnString>(column)) {
             const typename ColumnString::Chars& data = col_from->get_chars();
             const typename ColumnString::Offsets& offsets = col_from->get_offsets();

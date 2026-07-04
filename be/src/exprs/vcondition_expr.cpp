@@ -26,6 +26,19 @@
 
 namespace doris {
 
+namespace {
+
+template <typename ColumnType>
+auto& mutable_column_data(ColumnType* column) {
+    if constexpr (requires(ColumnType& typed_column) { typed_column.get_data_mutable(); }) {
+        return column->get_data_mutable();
+    } else {
+        return column->get_data();
+    }
+}
+
+} // namespace
+
 Status VConditionExpr::prepare(RuntimeState* state, const RowDescriptor& desc,
                                VExprContext* context) {
     RETURN_IF_ERROR_OR_PREPARED(VExpr::prepare(state, desc, context));
@@ -238,7 +251,7 @@ Status VectorizedIfExpr::execute_for_null_then_else(Block& block,
             } else { // if(cond, not_nullable, NULL)
                 const auto& null_map_data = cond_col->get_data();
                 auto negated_null_map = ColumnUInt8::create();
-                auto& negated_null_map_data = negated_null_map->get_data();
+                auto& negated_null_map_data = negated_null_map->get_data_mutable();
                 negated_null_map_data.resize(size);
 
                 for (size_t i = 0; i < size; ++i) {
@@ -377,17 +390,21 @@ Status VectorizedIfExpr::execute_for_null_condition(Block& block, const ColumnNu
     if (const auto* nullable = check_and_get_column<ColumnNullable>(*arg_cond.column)) {
         DCHECK(remove_nullable(arg_cond.type)->get_primitive_type() == PrimitiveType::TYPE_BOOLEAN);
 
-        // update nested column by null map
-        const auto* __restrict null_map = nullable->get_null_map_data().data();
-        auto* __restrict nested_bool_data =
-                ((ColumnUInt8&)(nullable->get_nested_column())).get_data().data();
+        // Nullable condition treats NULL as false. Build an adjusted condition column instead of
+        // mutating the input nested column, because scan-backed fixed-length columns may be shared.
         auto rows = nullable->size();
+        const auto* __restrict null_map = nullable->get_null_map_data().data();
+        const auto* __restrict nested_bool_data =
+                assert_cast<const ColumnUInt8&>(nullable->get_nested_column()).get_data().data();
+        auto adjusted_condition = ColumnUInt8::create();
+        auto& adjusted_condition_data = adjusted_condition->get_data_mutable();
+        adjusted_condition_data.resize(rows);
         for (size_t i = 0; i < rows; i++) {
-            nested_bool_data[i] &= !null_map[i];
+            adjusted_condition_data[i] = nested_bool_data[i] && !null_map[i];
         }
         auto column_size = block.columns();
         block.insert(
-                {nullable->get_nested_column_ptr(), remove_nullable(arg_cond.type), arg_cond.name});
+                {std::move(adjusted_condition), remove_nullable(arg_cond.type), arg_cond.name});
 
         handled = true;
         return _execute_impl_internal(block, {column_size, arguments[1], arguments[2]}, result,
@@ -552,14 +569,16 @@ void insert_result_data(MutableColumnPtr& result_column, ColumnPtr& argument_col
                         const size_t input_rows_count) {
     if (result_column->size() == 0 && input_rows_count) {
         result_column->resize(input_rows_count);
-        auto* __restrict result_raw_data =
-                assert_cast<ColumnType*>(result_column.get())->get_data().data();
+        auto* result_column_ptr = assert_cast<ColumnType*>(result_column.get());
+        auto& result_data = mutable_column_data(result_column_ptr);
+        auto* __restrict result_raw_data = result_data.data();
         for (int i = 0; i < input_rows_count; i++) {
             result_raw_data[i] = {};
         }
     }
-    auto* __restrict result_raw_data =
-            assert_cast<ColumnType*>(result_column.get())->get_data().data();
+    auto* result_column_ptr = assert_cast<ColumnType*>(result_column.get());
+    auto& result_data = mutable_column_data(result_column_ptr);
+    auto* __restrict result_raw_data = result_data.data();
     auto* __restrict column_raw_data =
             assert_cast<const ColumnType*>(argument_column.get())->get_data().data();
 
@@ -684,14 +703,14 @@ Status VectorizedCoalesceExpr::execute_column_impl(VExprContext* context, const 
     auto return_type = std::make_shared<DataTypeUInt8>();
     auto null_map = ColumnUInt8::create(input_rows_count,
                                         1); //if null_map_data==1, the current row should be null
-    auto* __restrict null_map_data = null_map->get_data().data();
+    auto* __restrict null_map_data = null_map->get_data_mutable().data();
 
     auto is_not_null = [](const ColumnPtr& column, size_t size) -> ColumnUInt8::MutablePtr {
         if (const auto* nullable = check_and_get_column<ColumnNullable>(*column)) {
             /// Return the negated null map.
             auto res_column = ColumnUInt8::create(size);
             const auto* __restrict src_data = nullable->get_null_map_data().data();
-            auto* __restrict res_data = res_column->get_data().data();
+            auto* __restrict res_data = res_column->get_data_mutable().data();
 
             for (size_t i = 0; i < size; ++i) {
                 res_data[i] = !src_data[i];
@@ -719,7 +738,7 @@ Status VectorizedCoalesceExpr::execute_column_impl(VExprContext* context, const 
 
         auto res_column = is_not_null(original_columns[i], input_rows_count);
 
-        auto& res_map = res_column->get_data();
+        const auto res_map = res_column->get_data();
         auto* __restrict res = res_map.data();
 
         // Here it's SIMD thought the compiler automatically

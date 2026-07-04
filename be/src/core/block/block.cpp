@@ -976,7 +976,7 @@ Status Block::filter_block(Block* block, const std::vector<uint32_t>& columns_to
 
         auto* concrete_column = assert_cast<ColumnUInt8*>(mutable_holder.get());
         const auto* __restrict null_map = nullable_column->get_null_map_data().data();
-        IColumn::Filter& filter = concrete_column->get_data();
+        IColumn::Filter& filter = concrete_column->get_data_mutable();
         auto* __restrict filter_data = filter.data();
 
         const size_t size = filter.size();

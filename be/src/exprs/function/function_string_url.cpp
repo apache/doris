@@ -101,7 +101,7 @@ public:
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
         auto null_map = ColumnUInt8::create(input_rows_count, 0);
-        auto& null_map_data = null_map->get_data();
+        auto& null_map_data = null_map->get_data_mutable();
         DCHECK_GE(3, arguments.size());
         auto res = ColumnString::create();
         auto& res_offsets = res->get_offsets();

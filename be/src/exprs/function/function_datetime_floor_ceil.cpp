@@ -161,7 +161,7 @@ public:
                         uint32_t result, size_t input_rows_count) const override {
         // Handle null map manually - update result null map from input null maps upfront
         auto result_null_map_column = ColumnUInt8::create(input_rows_count, 0);
-        NullMap& result_null_map = result_null_map_column->get_data();
+        NullMap& result_null_map = result_null_map_column->get_data_mutable();
 
         ColumnPtr argument_columns[3];
         bool col_const[3];
@@ -199,9 +199,10 @@ public:
                 argument_columns[0].get()); // datetime or date column
         auto col_to = ColumnVector<PType>::create();
         col_to->resize(input_rows_count);
+        auto& col_to_data = col_to->get_data_mutable();
 
         if constexpr (ArgNum == 1) {
-            Core::vector(sources->get_data(), col_to->get_data(), result_null_map, context);
+            Core::vector(sources->get_data(), col_to_data, result_null_map, context);
         } else if constexpr (ArgNum == 2) {
             const IColumn& delta_column = *argument_columns[1];
             if (col_const[1]) {
@@ -214,25 +215,25 @@ public:
                     if (period < 1 && !period_is_null) [[unlikely]] {
                         throw_out_of_bound_int(Flag::name, period);
                     }
-                    Core::vector_const_period(sources->get_data(), period, col_to->get_data(),
+                    Core::vector_const_period(sources->get_data(), period, col_to_data,
                                               result_null_map, context);
                 } else {
                     // time_round(datetime, const(origin))
                     Core::vector_const_anchor(sources->get_data(),
-                                              (*argument_columns[1])[0].get<PType>(),
-                                              col_to->get_data(), result_null_map, context);
+                                              (*argument_columns[1])[0].get<PType>(), col_to_data,
+                                              result_null_map, context);
                 }
             } else {
                 if (const auto* delta_vec_column0 =
                             check_and_get_column<ColumnVector<PType>>(delta_column)) {
                     // time_round(datetime, origin)
                     Core::vector_vector_anchor(sources->get_data(), delta_vec_column0->get_data(),
-                                               col_to->get_data(), result_null_map, context);
+                                               col_to_data, result_null_map, context);
                 } else {
                     const auto* delta_vec_column1 = assert_cast<const ColumnInt32*>(&delta_column);
                     // time_round(datetime, period)
                     Core::vector_vector_period(sources->get_data(), delta_vec_column1->get_data(),
-                                               col_to->get_data(), result_null_map, context);
+                                               col_to_data, result_null_map, context);
                 }
             }
         } else { // 3 arg, time_round(datetime, period, origin)
@@ -245,7 +246,7 @@ public:
                 if (period < 1 && !period_is_null) [[unlikely]] {
                     throw_out_of_bound_int(Flag::name, period);
                 }
-                Core::vector_const_const(sources->get_data(), period, origin, col_to->get_data(),
+                Core::vector_const_const(sources->get_data(), period, origin, col_to_data,
                                          result_null_map, context);
             } else if (col_const[1] && !col_const[2]) {
                 const auto* arg2_column =
@@ -258,14 +259,14 @@ public:
                     throw_out_of_bound_int(Flag::name, period);
                 }
                 Core::vector_const_vector(sources->get_data(), period, arg2_column->get_data(),
-                                          col_to->get_data(), result_null_map, context);
+                                          col_to_data, result_null_map, context);
             } else if (!col_const[1] && col_const[2]) {
                 const auto* arg1_column =
                         assert_cast<const ColumnInt32*>(argument_columns[1].get());
                 // time_round(datetime, period, const(origin))
                 Core::vector_vector_const(sources->get_data(), arg1_column->get_data(),
-                                          (*argument_columns[2])[0].get<PType>(),
-                                          col_to->get_data(), result_null_map, context);
+                                          (*argument_columns[2])[0].get<PType>(), col_to_data,
+                                          result_null_map, context);
             } else {
                 const auto* arg1_column =
                         assert_cast<const ColumnInt32*>(argument_columns[1].get());
@@ -273,8 +274,8 @@ public:
                         assert_cast<const ColumnVector<PType>*>(argument_columns[2].get());
                 // time_round(datetime, period, origin)
                 Core::vector_vector_vector(sources->get_data(), arg1_column->get_data(),
-                                           arg2_column->get_data(), col_to->get_data(),
-                                           result_null_map, context);
+                                           arg2_column->get_data(), col_to_data, result_null_map,
+                                           context);
             }
         }
 

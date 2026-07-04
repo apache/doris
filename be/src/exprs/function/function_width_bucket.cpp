@@ -99,6 +99,7 @@ private:
         const auto& min_value_column_concrete = assert_cast<const ColumnType&>(min_value_column);
         const auto& max_value_column_concrete = assert_cast<const ColumnType&>(max_value_column);
         auto& nested_column_concrete = *nested_column;
+        auto& nested_column_data = nested_column_concrete.get_data_mutable();
 
         size_t input_rows_count = expr_column.size();
 
@@ -109,12 +110,12 @@ private:
             if (expr_column_concrete.get_data()[i] < min_value) {
                 continue;
             } else if (expr_column_concrete.get_data()[i] >= max_value) {
-                nested_column_concrete.get_data()[i] = num_buckets + 1;
+                nested_column_data[i] = num_buckets + 1;
             } else {
                 if ((max_value - min_value) / num_buckets == 0) {
                     continue;
                 }
-                nested_column_concrete.get_data()[i] =
+                nested_column_data[i] =
                         (int64_t)(1 +
                                   (expr_column_concrete.get_data()[i] - min_value) / average_value);
             }

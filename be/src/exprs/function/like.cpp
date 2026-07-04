@@ -525,7 +525,7 @@ Status FunctionLikeBase::execute_impl(FunctionContext* context, Block& block,
     }
     // result column
     auto res = ColumnUInt8::create();
-    ColumnUInt8::Container& vec_res = res->get_data();
+    ColumnUInt8::Container& vec_res = res->get_data_mutable();
     // set default value to 0, and match functions only need to set 1/true
     vec_res.resize_fill(input_rows_count);
     auto* state = reinterpret_cast<LikeState*>(

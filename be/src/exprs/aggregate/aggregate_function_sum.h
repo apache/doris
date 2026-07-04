@@ -151,7 +151,14 @@ public:
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
         auto& column = assert_cast<ColVecResult&>(to);
-        column.get_data().push_back(this->data(place).get());
+        auto& column_data = [&]() -> decltype(auto) {
+            if constexpr (requires { column.get_data_mutable(); }) {
+                return column.get_data_mutable();
+            } else {
+                return column.get_data();
+            }
+        }();
+        column_data.push_back(this->data(place).get());
     }
 
     void serialize_to_column(const std::vector<AggregateDataPtr>& places, size_t offset,

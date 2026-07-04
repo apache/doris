@@ -58,7 +58,7 @@ struct StPoint {
 
         auto res = ColumnString::create();
         auto null_map = ColumnUInt8::create(size, 0);
-        auto& null_map_data = null_map->get_data();
+        auto& null_map_data = null_map->get_data_mutable();
         GeoPoint point;
         std::string buf;
         for (int row = 0; row < size; ++row) {
@@ -101,7 +101,7 @@ struct StAsText {
 
         auto res = ColumnString::create();
         auto null_map = ColumnUInt8::create(size, 0);
-        auto& null_map_data = null_map->get_data();
+        auto& null_map_data = null_map->get_data_mutable();
 
         std::unique_ptr<GeoShape> shape;
         for (int row = 0; row < size; ++row) {
@@ -136,7 +136,7 @@ struct StX {
 
         auto res = ColumnFloat64::create();
         auto null_map = ColumnUInt8::create(size, 0);
-        auto& null_map_data = null_map->get_data();
+        auto& null_map_data = null_map->get_data_mutable();
         res->reserve(size);
 
         GeoPoint point;
@@ -174,7 +174,7 @@ struct StY {
         auto res = ColumnFloat64::create();
         res->reserve(size);
         auto null_map = ColumnUInt8::create(size, 0);
-        auto& null_map_data = null_map->get_data();
+        auto& null_map_data = null_map->get_data_mutable();
 
         GeoPoint point;
         for (int row = 0; row < size; ++row) {
@@ -213,7 +213,7 @@ struct StDistanceSphere {
         auto res = ColumnFloat64::create();
         res->reserve(size);
         auto null_map = ColumnUInt8::create(size, 0);
-        auto& null_map_data = null_map->get_data();
+        auto& null_map_data = null_map->get_data_mutable();
         for (int row = 0; row < size; ++row) {
             double distance = 0;
             if (!GeoPoint::ComputeDistance(x_lng.value_at(row), x_lat.value_at(row),
@@ -249,7 +249,7 @@ struct StAngleSphere {
         auto res = ColumnFloat64::create();
         res->reserve(size);
         auto null_map = ColumnUInt8::create(size, 0);
-        auto& null_map_data = null_map->get_data();
+        auto& null_map_data = null_map->get_data_mutable();
 
         for (int row = 0; row < size; ++row) {
             double angle = 0;
@@ -283,7 +283,7 @@ struct StAngle {
         auto res = ColumnFloat64::create();
         res->reserve(size);
         auto null_map = ColumnUInt8::create(size, 0);
-        auto& null_map_data = null_map->get_data();
+        auto& null_map_data = null_map->get_data_mutable();
 
         GeoPoint point1;
         GeoPoint point2;
@@ -343,7 +343,7 @@ struct StAzimuth {
         auto res = ColumnFloat64::create();
         res->reserve(size);
         auto null_map = ColumnUInt8::create(size, 0);
-        auto& null_map_data = null_map->get_data();
+        auto& null_map_data = null_map->get_data_mutable();
         GeoPoint point1;
         GeoPoint point2;
         for (int row = 0; row < size; ++row) {
@@ -385,7 +385,7 @@ struct StAreaSquareMeters {
         auto res = ColumnFloat64::create();
         res->reserve(size);
         auto null_map = ColumnUInt8::create(size, 0);
-        auto& null_map_data = null_map->get_data();
+        auto& null_map_data = null_map->get_data_mutable();
         std::unique_ptr<GeoShape> shape;
 
         for (int row = 0; row < size; ++row) {
@@ -425,7 +425,7 @@ struct StAreaSquareKm {
         auto res = ColumnFloat64::create();
         res->reserve(size);
         auto null_map = ColumnUInt8::create(size, 0);
-        auto& null_map_data = null_map->get_data();
+        auto& null_map_data = null_map->get_data_mutable();
 
         std::unique_ptr<GeoShape> shape;
 
@@ -472,7 +472,7 @@ struct StCircle {
         auto res = ColumnString::create();
 
         auto null_map = ColumnUInt8::create(size, 0);
-        auto& null_map_data = null_map->get_data();
+        auto& null_map_data = null_map->get_data_mutable();
 
         GeoCircle circle;
         std::string buf;
@@ -514,7 +514,7 @@ struct StRelationFunction {
 
         auto res = ColumnUInt8::create(size, 0);
         auto null_map = ColumnUInt8::create(size, 0);
-        auto& null_map_data = null_map->get_data();
+        auto& null_map_data = null_map->get_data_mutable();
 
         for (int row = 0; row < size; ++row) {
             auto lhs_value = left_col.value_at(row);
@@ -530,7 +530,7 @@ struct StRelationFunction {
                 continue;
             }
             auto relation_value = Func::evaluate(shape1.get(), shape2.get());
-            res->get_data()[row] = relation_value;
+            res->get_data_mutable()[row] = relation_value;
         }
         block.replace_by_position(result,
                                   ColumnNullable::create(std::move(res), std::move(null_map)));
@@ -606,7 +606,7 @@ struct StGeoFromText {
         const auto size = geo->size();
         auto res = ColumnString::create();
         auto null_map = ColumnUInt8::create(size, 0);
-        auto& null_map_data = null_map->get_data();
+        auto& null_map_data = null_map->get_data_mutable();
         GeoParseStatus status;
         std::string buf;
         for (int row = 0; row < size; ++row) {
@@ -651,7 +651,7 @@ struct StGeoFromWkb {
         const auto size = geo->size();
         auto res = ColumnString::create();
         auto null_map = ColumnUInt8::create(size, 0);
-        auto& null_map_data = null_map->get_data();
+        auto& null_map_data = null_map->get_data_mutable();
         GeoParseStatus status;
         std::string buf;
         for (int row = 0; row < size; ++row) {
@@ -684,7 +684,7 @@ struct StAsBinary {
         auto col = block.get_by_position(arguments[0]).column;
         const auto size = col->size();
         auto null_map = ColumnUInt8::create(size, 0);
-        auto& null_map_data = null_map->get_data();
+        auto& null_map_data = null_map->get_data_mutable();
         std::unique_ptr<GeoShape> shape;
 
         for (int row = 0; row < size; ++row) {
@@ -724,7 +724,7 @@ struct StLength {
         auto res = ColumnFloat64::create();
         res->reserve(size);
         auto null_map = ColumnUInt8::create(size, 0);
-        auto& null_map_data = null_map->get_data();
+        auto& null_map_data = null_map->get_data_mutable();
 
         std::unique_ptr<GeoShape> shape;
         for (int row = 0; row < size; ++row) {
@@ -758,7 +758,7 @@ struct StGeometryType {
         const auto size = col->size();
         auto res = ColumnString::create();
         auto null_map = ColumnUInt8::create(size, 0);
-        auto& null_map_data = null_map->get_data();
+        auto& null_map_data = null_map->get_data_mutable();
 
         std::unique_ptr<GeoShape> shape;
         for (int row = 0; row < size; ++row) {
@@ -798,7 +798,7 @@ struct StDistance {
         auto res = ColumnFloat64::create();
         res->reserve(size);
         auto null_map = ColumnUInt8::create(size, 0);
-        auto& null_map_data = null_map->get_data();
+        auto& null_map_data = null_map->get_data_mutable();
 
         if (left_const) {
             const_vector(left_column, right_column, res, null_map_data, size);
@@ -934,7 +934,7 @@ struct StNumGeometries {
         res->reserve(size);
 
         auto null_map = ColumnUInt8::create(size, 0);
-        auto& null_map_data = null_map->get_data();
+        auto& null_map_data = null_map->get_data_mutable();
 
         for (int row = 0; row < size; ++row) {
             auto value = col.value_at(row);
@@ -980,11 +980,11 @@ public:
 
         auto nested_data = ColumnString::create();
         auto offsets_col = ColumnArray::ColumnOffsets::create();
-        auto& offsets = offsets_col->get_data();
+        auto& offsets = offsets_col->get_data_mutable();
         offsets.reserve(size);
 
         auto null_map = ColumnUInt8::create(size, 0);
-        auto& null_map_data = null_map->get_data();
+        auto& null_map_data = null_map->get_data_mutable();
 
         size_t current_offset = 0;
         std::string buf;
@@ -1051,7 +1051,7 @@ struct StNumPoints {
         res->reserve(size);
 
         auto null_map = ColumnUInt8::create(size, 0);
-        auto& null_map_data = null_map->get_data();
+        auto& null_map_data = null_map->get_data_mutable();
 
         for (int row = 0; row < size; ++row) {
             auto value = col.value_at(row);

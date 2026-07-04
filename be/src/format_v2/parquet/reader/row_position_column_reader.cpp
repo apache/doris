@@ -54,7 +54,7 @@ Status RowPositionColumnReader::read(int64_t rows, MutableColumnPtr& column, int
         return Status::InvalidArgument("Invalid parquet row position read rows {}", rows);
     }
     auto* vector_column = assert_cast<ColumnInt64*>(column.get());
-    auto& data = vector_column->get_data();
+    auto& data = vector_column->get_data_mutable();
     const auto old_size = data.size();
     data.resize(old_size + rows);
     for (int64_t row = 0; row < rows; ++row) {

@@ -73,12 +73,13 @@ private:
         char* pos = begin;
 
         auto null_map = ColumnUInt8::create(vec_in.size(), 0);
+        auto& null_map_data = null_map->get_data_mutable();
         size_t src_size =
                 std::min(sizeof(typename PrimitiveTypeTraits<ArgPType>::CppType), (unsigned long)4);
         for (size_t i = 0; i < vec_in.size(); ++i) {
             auto value = vec_in[i];
             if (value < IPV4_MIN_NUM_VALUE || value > IPV4_MAX_NUM_VALUE) {
-                null_map->get_data()[i] = 1;
+                null_map_data[i] = 1;
             } else {
                 format_ipv4(reinterpret_cast<const unsigned char*>(&vec_in[i]), src_size, pos);
             }
@@ -149,11 +150,11 @@ ColumnPtr convert_to_ipv4(ColumnPtr column, NullMapView null_map = {}) {
 
     if constexpr (exception_mode == IPConvertExceptionMode::Null) {
         col_null_map_to = ColumnUInt8::create(column_size, false);
-        vec_null_map_to = &col_null_map_to->get_data();
+        vec_null_map_to = &col_null_map_to->get_data_mutable();
     }
 
     auto col_res = ToColumn::create(column_size, 0);
-    auto& vec_res = col_res->get_data();
+    auto& vec_res = col_res->get_data_mutable();
 
     const ColumnString::Chars& vec_src = column_string->get_chars();
     const ColumnString::Offsets& offsets_src = column_string->get_offsets();
@@ -259,6 +260,7 @@ void process_ipv6_column(const ColumnPtr& column, size_t input_rows_count,
                          ColumnUInt8::MutablePtr& null_map, unsigned char* ipv6_address_data) {
     auto* begin = reinterpret_cast<char*>(vec_res.data());
     auto* pos = begin;
+    auto& null_map_data = null_map->get_data_mutable();
 
     const auto* col = assert_cast<const T*>(column.get());
 
@@ -283,7 +285,7 @@ void process_ipv6_column(const ColumnPtr& column, size_t input_rows_count,
         }
 
         if (is_empty) {
-            null_map->get_data()[i] = 1;
+            null_map_data[i] = 1;
         } else {
             if constexpr (std::is_same_v<T, ColumnIPv6>) {
                 // ipv6 is little-endian byte order storage in doris
@@ -353,7 +355,7 @@ ColumnPtr convert_to_ipv6(const StringColumnType& string_column, NullMapView nul
 
     if constexpr (exception_mode == IPConvertExceptionMode::Null) {
         col_null_map_to = ColumnUInt8::create(column_size, false);
-        vec_null_map_to = &col_null_map_to->get_data();
+        vec_null_map_to = &col_null_map_to->get_data_mutable();
     }
 
     auto column_create = [](size_t column_size) -> typename ToColumn::MutablePtr {
@@ -373,7 +375,7 @@ ColumnPtr convert_to_ipv6(const StringColumnType& string_column, NullMapView nul
             vec_res.resize(col_size * IPV6_BINARY_LENGTH);
             return (vec_res);
         } else {
-            auto& vec_res = col_res->get_data();
+            auto& vec_res = col_res->get_data_mutable();
             vec_res.resize(col_size);
             return (vec_res);
         }
@@ -570,7 +572,7 @@ public:
         const ColumnPtr& addr_column = addr_column_with_type_and_name.column;
         const auto* str_addr_column = assert_cast<const ColumnString*>(addr_column.get());
         auto col_res = ColumnUInt8::create(input_rows_count, 0);
-        auto& col_res_data = col_res->get_data();
+        auto& col_res_data = col_res->get_data_mutable();
 
         for (size_t i = 0; i < input_rows_count; ++i) {
             if constexpr (std::is_same_v<Type, IPv4>) {
@@ -608,7 +610,7 @@ public:
     void execute_impl_with_ip(size_t input_rows_count, bool addr_const, bool cidr_const,
                               const ColumnString* str_cidr_column, const ColumnPtr addr_column,
                               ColumnUInt8* col_res) const {
-        auto& col_res_data = col_res->get_data();
+        auto& col_res_data = col_res->get_data_mutable();
         const auto& ip_data = assert_cast<const ColumnType*>(addr_column.get())->get_data();
         for (size_t i = 0; i < input_rows_count; ++i) {
             auto addr_idx = index_check_const(i, addr_const);
@@ -692,7 +694,7 @@ public:
         } else if (data_type_with_name.second->get_primitive_type() == TYPE_IPV6 &&
                    cidr._address.as_v6()) {
             auto cidr_range_ipv6_col = ColumnIPv6::create(2, 0);
-            auto& cidr_range_ipv6_data = cidr_range_ipv6_col->get_data();
+            auto& cidr_range_ipv6_data = cidr_range_ipv6_col->get_data_mutable();
             apply_cidr_mask(reinterpret_cast<const char*>(cidr._address.as_v6()),
                             reinterpret_cast<char*>(&cidr_range_ipv6_data[0]),
                             reinterpret_cast<char*>(&cidr_range_ipv6_data[1]), cidr._prefix);
@@ -762,7 +764,7 @@ public:
                 unpack_if_const(cidr_column_with_type_and_name.column);
 
         auto col_res = ColumnUInt8::create(input_rows_count, 0);
-        auto& col_res_data = col_res->get_data();
+        auto& col_res_data = col_res->get_data_mutable();
 
         if (addr_column_with_type_and_name.type->get_primitive_type() == TYPE_IPV4) {
             execute_impl_with_ip<PrimitiveType::TYPE_IPV4, ColumnIPv4>(
@@ -830,8 +832,8 @@ public:
         auto col_lower_range_output = ColumnIPv4::create(input_rows_count, 0);
         auto col_upper_range_output = ColumnIPv4::create(input_rows_count, 0);
 
-        ColumnIPv4::Container& vec_lower_range_output = col_lower_range_output->get_data();
-        ColumnIPv4::Container& vec_upper_range_output = col_upper_range_output->get_data();
+        ColumnIPv4::Container& vec_lower_range_output = col_lower_range_output->get_data_mutable();
+        ColumnIPv4::Container& vec_upper_range_output = col_upper_range_output->get_data_mutable();
 
         static constexpr UInt8 max_cidr_mask = IPV4_BINARY_LENGTH * 8;
 
@@ -936,8 +938,8 @@ public:
                                   bool is_cidr_const = false) {
         auto col_res_lower_range = ColumnIPv6::create(input_rows_count, 0);
         auto col_res_upper_range = ColumnIPv6::create(input_rows_count, 0);
-        auto& vec_res_lower_range = col_res_lower_range->get_data();
-        auto& vec_res_upper_range = col_res_upper_range->get_data();
+        auto& vec_res_lower_range = col_res_lower_range->get_data_mutable();
+        auto& vec_res_upper_range = col_res_upper_range->get_data_mutable();
 
         static constexpr UInt8 max_cidr_mask = IPV6_BINARY_LENGTH * 8;
 
@@ -1003,7 +1005,7 @@ public:
 
         size_t col_size = col_in->size();
         auto col_res = ColumnUInt8::create(col_size, 0);
-        auto& col_res_data = col_res->get_data();
+        auto& col_res_data = col_res->get_data_mutable();
 
         for (size_t i = 0; i < col_size; ++i) {
             auto ipv4_in = col_in->get_data_at(i);
@@ -1043,7 +1045,7 @@ public:
 
         size_t col_size = col_in->size();
         auto col_res = ColumnUInt8::create(col_size, 0);
-        auto& col_res_data = col_res->get_data();
+        auto& col_res_data = col_res->get_data_mutable();
 
         for (size_t i = 0; i < col_size; ++i) {
             auto ipv4_in = col_in->get_data_at(i);
@@ -1129,8 +1131,8 @@ public:
 
         auto col_res = ColumnVector<PType>::create(input_rows_count, 0);
         auto res_null_map = ColumnUInt8::create(input_rows_count, 0);
-        auto& col_res_data = col_res->get_data();
-        auto& res_null_map_data = res_null_map->get_data();
+        auto& col_res_data = col_res->get_data_mutable();
+        auto& res_null_map_data = res_null_map->get_data_mutable();
 
         for (size_t i = 0; i < input_rows_count; ++i) {
             if (addr_null_map.data() && addr_null_map[i]) {
@@ -1212,7 +1214,7 @@ public:
         const auto* ipv4_addr_column = assert_cast<const ColumnIPv4*>(ipv4_column.get());
         const auto& ipv4_column_data = ipv4_addr_column->get_data();
         auto col_res = ColumnIPv6::create(input_rows_count, 0);
-        auto& col_res_data = col_res->get_data();
+        auto& col_res_data = col_res->get_data_mutable();
 
         for (size_t i = 0; i < input_rows_count; ++i) {
             auto ipv4_idx = index_check_const(i, ipv4_const);
@@ -1345,8 +1347,8 @@ public:
         // result is nullable column
         auto col_res_nested = ColumnIPv6::create(input_rows_count, 0);
         auto col_res_null_map = ColumnUInt8::create(input_rows_count, 1);
-        auto& col_res_data = col_res_nested->get_data();
-        auto& res_null_map_data = col_res_null_map->get_data();
+        auto& col_res_data = col_res_nested->get_data_mutable();
+        auto& res_null_map_data = col_res_null_map->get_data_mutable();
 
         for (size_t i = 0; i < input_rows_count; ++i) {
             IPv6 ipv6 = 0;

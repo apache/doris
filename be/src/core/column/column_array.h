@@ -197,7 +197,7 @@ public:
     ColumnOffsets& get_offsets_column() { return *offsets; }
     const ColumnOffsets& get_offsets_column() const { return *offsets; }
 
-    Offsets64& ALWAYS_INLINE get_offsets() { return offsets->get_data(); }
+    Offsets64& ALWAYS_INLINE get_offsets() { return offsets->get_data_mutable(); }
 
     Offsets64View ALWAYS_INLINE get_offsets() const { return offsets->get_data_with_padding(); }
 

@@ -58,16 +58,17 @@ private:
         const ColumnFloat64* col =
                 assert_cast<const ColumnFloat64*>(block.get_by_position(arguments[0]).column.get());
         auto dst = ColumnFloat64::create();
-        auto& dst_data = dst->get_data();
+        auto& dst_data = dst->get_data_mutable();
         dst_data.resize(input_rows_count);
 
         execute_in_iterations(col->get_data().data(), dst_data.data(), input_rows_count);
 
         auto result_null_map = ColumnUInt8::create(input_rows_count, 0);
+        auto& result_null_map_data = result_null_map->get_data_mutable();
 
         for (size_t i = 0; i < input_rows_count; i++) {
             if (Impl::is_invalid_input(col->get_data()[i])) [[unlikely]] {
-                result_null_map->get_data().data()[i] = 1;
+                result_null_map_data[i] = 1;
             }
         }
 

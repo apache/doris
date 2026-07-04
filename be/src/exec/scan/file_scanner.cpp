@@ -746,7 +746,7 @@ Status FileScanner::_convert_to_output_block(Block* block) {
     int ctx_idx = 0;
     size_t rows = _src_block_ptr->rows();
     auto filter_column = ColumnUInt8::create(rows, 1);
-    auto& filter_map = filter_column->get_data();
+    auto& filter_map = filter_column->get_data_mutable();
 
     // After convert, the column_ptr should be copied into output block.
     // Can not use block->insert() because it may cause use_count() non-zero bug

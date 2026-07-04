@@ -414,7 +414,7 @@ ColumnPtr ColumnVector<T>::filter(const IColumn::Filter& filt, ssize_t result_si
     column_match_filter_size(size, filt.size());
 
     auto res = this->create();
-    Container& res_data = res->get_data();
+    Container& res_data = res->get_data_mutable();
 
     res_data.reserve(result_size_hint > 0 ? result_size_hint : size);
 
@@ -556,7 +556,7 @@ MutableColumnPtr ColumnVector<T>::permute(const IColumn::Permutation& perm, size
     }
 
     auto res = this->create(limit);
-    typename Self::Container& res_data = res->get_data();
+    typename Self::Container& res_data = res->get_data_mutable();
     for (size_t i = 0; i < limit; ++i) res_data[i] = values[perm[i]];
 
     return res;

@@ -686,7 +686,7 @@ public:
     DataTypePtr get_return_type() const override { return std::make_shared<DataTypeUInt8>(); }
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
-        auto& output = assert_cast<ColumnUInt8&>(to).get_data();
+        auto& output = assert_cast<ColumnUInt8&>(to).get_data_mutable();
         if (!this->data(place).conditions_in_pattern.any()) {
             output.push_back(false);
             return;
@@ -733,7 +733,7 @@ public:
     DataTypePtr get_return_type() const override { return std::make_shared<DataTypeInt64>(); }
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
-        auto& output = assert_cast<ColumnInt64&>(to).get_data();
+        auto& output = assert_cast<ColumnInt64&>(to).get_data_mutable();
         if (!this->data(place).conditions_in_pattern.any()) {
             output.push_back(0);
             return;

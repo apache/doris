@@ -416,7 +416,7 @@ private:
         if (!left_is_const && !right_is_const) {
             auto col_res = ColumnUInt8::create();
 
-            ColumnUInt8::Container& vec_res = col_res->get_data();
+            ColumnUInt8::Container& vec_res = col_res->get_data_mutable();
             vec_res.resize(col_left->get_data().size());
             NumComparisonImpl<typename PrimitiveTypeTraits<PT>::CppType,
                               typename PrimitiveTypeTraits<PT>::CppType,
@@ -427,7 +427,7 @@ private:
         } else if (!left_is_const && right_is_const) {
             auto col_res = ColumnUInt8::create();
 
-            ColumnUInt8::Container& vec_res = col_res->get_data();
+            ColumnUInt8::Container& vec_res = col_res->get_data_mutable();
             vec_res.resize(col_left->size());
             NumComparisonImpl<typename PrimitiveTypeTraits<PT>::CppType,
                               typename PrimitiveTypeTraits<PT>::CppType,
@@ -438,7 +438,7 @@ private:
         } else if (left_is_const && !right_is_const) {
             auto col_res = ColumnUInt8::create();
 
-            ColumnUInt8::Container& vec_res = col_res->get_data();
+            ColumnUInt8::Container& vec_res = col_res->get_data_mutable();
             vec_res.resize(col_right->size());
             NumComparisonImpl<typename PrimitiveTypeTraits<PT>::CppType,
                               typename PrimitiveTypeTraits<PT>::CppType,
@@ -517,7 +517,7 @@ private:
         using StringImpl = StringComparisonImpl<Op<TYPE_INT>>;
 
         auto c_res = ColumnUInt8::create();
-        ColumnUInt8::Container& vec_res = c_res->get_data();
+        ColumnUInt8::Container& vec_res = c_res->get_data_mutable();
         vec_res.resize(c0->size());
 
         if (c0_string && c1_string) {
@@ -547,7 +547,7 @@ private:
         DCHECK(!(c0_const && c1_const));
 
         auto c_res = ColumnUInt8::create();
-        ColumnUInt8::Container& vec_res = c_res->get_data();
+        ColumnUInt8::Container& vec_res = c_res->get_data_mutable();
         vec_res.resize(c0->size());
 
         if (c0_const) {

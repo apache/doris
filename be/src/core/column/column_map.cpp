@@ -660,7 +660,7 @@ Status ColumnMap::deduplicate_keys(bool recursive) {
 
     auto new_offsets = COffsets::create();
     new_offsets->reserve(rows);
-    auto& new_offsets_data = new_offsets->get_data();
+    auto& new_offsets_data = new_offsets->get_data_mutable();
 
     IColumn::Filter filter(inner_rows, 1);
     Offset64 offset = 0;

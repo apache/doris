@@ -147,8 +147,10 @@ void ProcessHashTableProbe<JoinOpType>::build_side_output_column(MutableColumns&
         // resize mark column and fill with true
         auto& mark_column = assert_cast<ColumnNullable&>(*mcol[_parent->_mark_column_id]);
         mark_column.resize(size);
-        auto* null_map = mark_column.get_null_map_column().get_data().data();
-        auto* data = assert_cast<ColumnUInt8&>(mark_column.get_nested_column()).get_data().data();
+        auto* null_map = mark_column.get_null_map_column().get_data_mutable().data();
+        auto* data = assert_cast<ColumnUInt8&>(mark_column.get_nested_column())
+                             .get_data_mutable()
+                             .data();
         std::fill(null_map, null_map + size, 0);
         std::fill(data, data + size, 1);
     }
@@ -460,7 +462,7 @@ void ProcessHashTableProbe<JoinOpType>::process_direct_return(HashTableType& has
                                                               Block* output_block,
                                                               uint32_t probe_rows) {
     _probe_indexs.resize(probe_rows);
-    auto* probe_indexs_data = _probe_indexs.get_data().data();
+    auto* probe_indexs_data = _probe_indexs.get_data_mutable().data();
     for (uint32_t i = 0; i < probe_rows; i++) {
         probe_indexs_data[i] = i;
     }
@@ -516,9 +518,9 @@ Status ProcessHashTableProbe<JoinOpType>::process(HashTableType& hash_table_ctx,
             auto [new_probe_idx, new_build_idx, new_current_offset, picking_null_keys] =
                     hash_table_ctx.hash_table->find_null_aware_with_other_conjuncts(
                             hash_table_ctx.keys, hash_table_ctx.bucket_nums.data(), probe_index,
-                            build_index, probe_rows, _probe_indexs.get_data().data(),
-                            _build_indexs.get_data().data(), _null_flags.data(), _picking_null_keys,
-                            null_map);
+                            build_index, probe_rows, _probe_indexs.get_data_mutable().data(),
+                            _build_indexs.get_data_mutable().data(), _null_flags.data(),
+                            _picking_null_keys, null_map);
             probe_index = new_probe_idx;
             build_index = new_build_idx;
             current_offset = new_current_offset;
@@ -540,8 +542,9 @@ Status ProcessHashTableProbe<JoinOpType>::process(HashTableType& hash_table_ctx,
         auto [new_probe_idx, new_build_idx, new_current_offset] =
                 hash_table_ctx.hash_table->template find_batch<JoinOpType>(
                         hash_table_ctx.keys, hash_table_ctx.bucket_nums.data(), probe_index,
-                        build_index, cast_set<int32_t>(probe_rows), _probe_indexs.get_data().data(),
-                        _probe_visited, _build_indexs.get_data().data(), null_map,
+                        build_index, cast_set<int32_t>(probe_rows),
+                        _probe_indexs.get_data_mutable().data(), _probe_visited,
+                        _build_indexs.get_data_mutable().data(), null_map,
                         _have_other_join_conjunct, is_mark_join,
                         !_parent->_mark_join_conjuncts.empty());
         probe_index = new_probe_idx;
@@ -727,7 +730,7 @@ Status ProcessHashTableProbe<JoinOpType>::do_mark_join_conjuncts(Block* output_b
             std::move(output_block->get_by_position(_parent->_mark_column_id).column));
     auto* mark_column = assert_cast<ColumnNullable*>(mark_column_mutable.get());
     IColumn::Filter& filter =
-            assert_cast<ColumnUInt8&>(mark_column->get_nested_column()).get_data();
+            assert_cast<ColumnUInt8&>(mark_column->get_nested_column()).get_data_mutable();
     auto& null_map_column = mark_column->get_null_map_column();
     output_block->replace_by_position(_parent->_mark_column_id, std::move(mark_column_mutable));
     RETURN_IF_ERROR(VExprContext::execute_conjuncts(_parent->_mark_join_conjuncts, output_block,
@@ -790,7 +793,7 @@ Status ProcessHashTableProbe<JoinOpType>::do_mark_join_conjuncts(Block* output_b
     }
 
     auto filter_column = ColumnUInt8::create(row_count, 0);
-    auto* __restrict filter_map = filter_column->get_data().data();
+    auto* __restrict filter_map = filter_column->get_data_mutable().data();
     for (size_t i = 0; i != row_count; ++i) {
         if constexpr (is_right_half_join) {
             const auto& build_index = _build_indexs.get_element(i);
@@ -875,10 +878,10 @@ Status ProcessHashTableProbe<JoinOpType>::do_other_join_conjuncts(Block* output_
     }
 
     auto filter_column = ColumnUInt8::create();
-    filter_column->get_data() = std::move(other_conjunct_filter);
+    filter_column->get_data_mutable() = std::move(other_conjunct_filter);
     auto result_column_id = output_block->columns();
     output_block->insert({std::move(filter_column), std::make_shared<DataTypeUInt8>(), ""});
-    uint8_t* __restrict filter_column_ptr =
+    const uint8_t* __restrict filter_column_ptr =
             assert_cast<ColumnUInt8&>(
                     output_block->get_by_position(result_column_id).column->assert_mutable_ref())
                     .get_data()
@@ -887,7 +890,7 @@ Status ProcessHashTableProbe<JoinOpType>::do_other_join_conjuncts(Block* output_
     if constexpr (JoinOpType == TJoinOp::LEFT_OUTER_JOIN ||
                   JoinOpType == TJoinOp::FULL_OUTER_JOIN) {
         auto new_filter_column = ColumnUInt8::create(row_count);
-        auto* __restrict filter_map = new_filter_column->get_data().data();
+        auto* __restrict filter_map = new_filter_column->get_data_mutable().data();
 
         // process equal-conjuncts-matched tuples that are newly generated
         // in this run if there are any.
@@ -917,7 +920,7 @@ Status ProcessHashTableProbe<JoinOpType>::do_other_join_conjuncts(Block* output_
                          JoinOpType == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN ||
                          JoinOpType == TJoinOp::LEFT_SEMI_JOIN) {
         auto new_filter_column = ColumnUInt8::create(row_count);
-        auto* __restrict filter_map = new_filter_column->get_data().data();
+        auto* __restrict filter_map = new_filter_column->get_data_mutable().data();
 
         for (size_t i = 0; i < row_count; ++i) {
             bool not_matched_before = _parent->_last_probe_match != _probe_indexs.get_element(i);
@@ -1023,7 +1026,7 @@ Status ProcessHashTableProbe<
                 mark_column->resize(block_size);
                 auto* null_map = mark_column->get_null_map_data().data();
                 auto* data = assert_cast<ColumnUInt8&>(mark_column->get_nested_column())
-                                     .get_data()
+                                     .get_data_mutable()
                                      .data();
                 for (size_t i = 0; i != block_size; ++i) {
                     const auto build_index = _build_indexs.get_element(i);

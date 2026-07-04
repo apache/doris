@@ -3416,8 +3416,7 @@ auto assert_column_vector_clone_resized_callback = [](auto x,
 };
 
 template <PrimitiveType PType>
-auto assert_column_vector_serialize_vec_callback = [](auto x,
-                                                      const MutableColumnPtr& source_column) {
+void assert_column_vector_serialize_vec_callback(auto x, const MutableColumnPtr& source_column) {
     using T = decltype(x);
     using ColumnVecType = std::conditional_t<
             std::is_same_v<T, ColumnString>, ColumnString,
@@ -3468,7 +3467,7 @@ auto assert_column_vector_serialize_vec_callback = [](auto x,
         ColumnVecType* col_vec_target = nullptr;
 
         auto null_col = ColumnUInt8::create(rows, 0);
-        auto& null_map = null_col->get_data();
+        auto& null_map = null_col->get_data_mutable();
         if (test_null_map) {
             std::vector<size_t> null_positions(rows);
             std::iota(null_positions.begin(), null_positions.end(), 0);
@@ -3550,7 +3549,7 @@ auto assert_column_vector_serialize_vec_callback = [](auto x,
     };
     test_func(true);
     test_func(false);
-};
+}
 
 template <PrimitiveType PType>
 auto assert_sort_column_callback = [](auto x, const MutableColumnPtr& source_column) {

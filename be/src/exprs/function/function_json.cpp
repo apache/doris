@@ -157,9 +157,10 @@ public:
         }
 
         auto col_to = ColumnInt32::create();
-        auto& vec_to = col_to->get_data();
+        auto& vec_to = col_to->get_data_mutable();
         size_t size = col_from.size();
         vec_to.resize(size);
+        auto& null_map_data = null_map->get_data_mutable();
 
         // parser can be reused for performance
 
@@ -170,7 +171,7 @@ public:
             JsonBinaryValue jsonb_value;
             for (size_t i = 0; i < input_rows_count; ++i) {
                 if (has_input_null_map && input_null_map[i]) {
-                    null_map->get_data()[i] = 1;
+                    null_map_data[i] = 1;
                     vec_to[i] = 0;
                     continue;
                 }
@@ -187,7 +188,7 @@ public:
             DCHECK(input_type == PrimitiveType::TYPE_JSONB);
             for (size_t i = 0; i < input_rows_count; ++i) {
                 if (has_input_null_map && input_null_map[i]) {
-                    null_map->get_data()[i] = 1;
+                    null_map_data[i] = 1;
                     vec_to[i] = 0;
                     continue;
                 }
@@ -251,12 +252,13 @@ public:
 
         auto col_to = ColumnString::create();
         col_to->reserve(input_rows_count);
+        auto& null_map_data = null_map->get_data_mutable();
 
         // parser can be reused for performance
         rapidjson::Document document;
         for (size_t i = 0; i < input_rows_count; ++i) {
             if (col_from.is_null_at(i)) {
-                null_map->get_data()[i] = 1;
+                null_map_data[i] = 1;
                 col_to->insert_data(nullptr, 0);
                 continue;
             }

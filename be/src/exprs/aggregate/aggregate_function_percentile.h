@@ -196,7 +196,7 @@ public:
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
         auto& col = assert_cast<ColumnFloat64&>(to);
-        col.get_data().push_back(this->data(place).get());
+        col.get_data_mutable().push_back(this->data(place).get());
     }
 };
 
@@ -227,7 +227,7 @@ public:
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
         auto& col = assert_cast<ColumnFloat64&>(to);
-        col.get_data().push_back(this->data(place).get());
+        col.get_data_mutable().push_back(this->data(place).get());
     }
 };
 
@@ -259,7 +259,7 @@ public:
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
         auto& col = assert_cast<ColumnFloat64&>(to);
-        col.get_data().push_back(this->data(place).get());
+        col.get_data_mutable().push_back(this->data(place).get());
     }
 };
 
@@ -293,7 +293,7 @@ public:
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
         auto& col = assert_cast<ColumnFloat64&>(to);
-        col.get_data().push_back(this->data(place).get());
+        col.get_data_mutable().push_back(this->data(place).get());
     }
 };
 
@@ -399,7 +399,7 @@ struct PercentileState {
     double get() const { return vec_counts.empty() ? 0 : vec_counts[0].terminate(vec_quantile[0]); }
 
     void insert_result_into(IColumn& to) const {
-        auto& column_data = assert_cast<ColumnFloat64&>(to).get_data();
+        auto& column_data = assert_cast<ColumnFloat64&>(to).get_data_mutable();
         for (int i = 0; i < vec_counts.size(); ++i) {
             column_data.push_back(vec_counts[i].terminate(vec_quantile[i]));
         }
@@ -494,7 +494,7 @@ struct PercentileExactState {
     }
 
     void insert_result_into(IColumn& to) const {
-        auto& column_data = assert_cast<ColumnFloat64&>(to).get_data();
+        auto& column_data = assert_cast<ColumnFloat64&>(to).get_data_mutable();
         if (!inited_flag || levels.empty()) {
             return;
         }

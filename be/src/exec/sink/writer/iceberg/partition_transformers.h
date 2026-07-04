@@ -228,7 +228,7 @@ public:
 
         //3) do partition routing
         auto col_res = ColumnInt32::create();
-        ColumnInt32::Container& out_data = col_res->get_data();
+        ColumnInt32::Container& out_data = col_res->get_data_mutable();
         out_data.resize(in_data.size());
         const int* end_in = in_data.data() + in_data.size();
         const Int32* __restrict p_in = in_data.data();
@@ -285,7 +285,7 @@ public:
 
         //3) do partition routing
         auto col_res = ColumnInt64::create();
-        ColumnInt64::Container& out_data = col_res->get_data();
+        ColumnInt64::Container& out_data = col_res->get_data_mutable();
         out_data.resize(in_data.size());
         const Int64* end_in = in_data.data() + in_data.size();
         const Int64* __restrict p_in = in_data.data();
@@ -403,7 +403,7 @@ public:
 
         //3) do partition routing
         auto col_res = ColumnInt32::create();
-        ColumnInt32::Container& out_data = col_res->get_data();
+        ColumnInt32::Container& out_data = col_res->get_data_mutable();
         out_data.resize(in_data.size());
         const int* end_in = in_data.data() + in_data.size();
         const Int32* __restrict p_in = in_data.data();
@@ -464,7 +464,7 @@ public:
 
         //3) do partition routing
         auto col_res = ColumnInt32::create();
-        ColumnInt32::Container& out_data = col_res->get_data();
+        ColumnInt32::Container& out_data = col_res->get_data_mutable();
         out_data.resize(in_data.size());
         const Int64* end_in = in_data.data() + in_data.size();
         const Int64* __restrict p_in = in_data.data();
@@ -527,7 +527,7 @@ public:
 
         //3) do partition routing
         auto col_res = ColumnInt32::create();
-        ColumnInt32::Container& out_data = col_res->get_data();
+        ColumnInt32::Container& out_data = col_res->get_data_mutable();
         out_data.resize(in_data.size());
 
         const auto* __restrict p_in = reinterpret_cast<const T::NativeType*>(in_data.data());
@@ -601,7 +601,7 @@ public:
 
         //3) do partition routing
         auto col_res = ColumnInt32::create();
-        ColumnInt32::Container& out_data = col_res->get_data();
+        ColumnInt32::Container& out_data = col_res->get_data_mutable();
         out_data.resize(in_data.size());
         const auto* end_in = in_data.data() + in_data.size();
 
@@ -667,7 +667,7 @@ public:
 
         //3) do partition routing
         auto col_res = ColumnInt32::create();
-        ColumnInt32::Container& out_data = col_res->get_data();
+        ColumnInt32::Container& out_data = col_res->get_data_mutable();
         out_data.resize(in_data.size());
         const auto* end_in = in_data.data() + in_data.size();
 
@@ -749,7 +749,7 @@ public:
         const auto& offsets = str_col->get_offsets();
 
         size_t offset_size = offsets.size();
-        ColumnInt32::Container& out_data = col_res->get_data();
+        ColumnInt32::Container& out_data = col_res->get_data_mutable();
         out_data.resize(offset_size);
         auto* __restrict p_out = out_data.data();
 
@@ -807,7 +807,7 @@ public:
 
         //3) do partition routing
         auto col_res = ColumnInt32::create();
-        ColumnInt32::Container& out_data = col_res->get_data();
+        ColumnInt32::Container& out_data = col_res->get_data_mutable();
         out_data.resize(in_data.size());
 
         const auto* end_in = in_data.data() + in_data.size();
@@ -876,7 +876,7 @@ public:
 
         //3) do partition routing
         auto col_res = ColumnInt32::create();
-        ColumnInt32::Container& out_data = col_res->get_data();
+        ColumnInt32::Container& out_data = col_res->get_data_mutable();
         out_data.resize(in_data.size());
 
         const auto* end_in = in_data.data() + in_data.size();
@@ -945,7 +945,7 @@ public:
 
         //3) do partition routing
         auto col_res = ColumnInt32::create();
-        ColumnInt32::Container& out_data = col_res->get_data();
+        ColumnInt32::Container& out_data = col_res->get_data_mutable();
         out_data.resize(in_data.size());
 
         const auto* end_in = in_data.data() + in_data.size();
@@ -1014,7 +1014,7 @@ public:
 
         //3) do partition routing
         auto col_res = ColumnInt32::create();
-        ColumnInt32::Container& out_data = col_res->get_data();
+        ColumnInt32::Container& out_data = col_res->get_data_mutable();
         out_data.resize(in_data.size());
 
         const auto* end_in = in_data.data() + in_data.size();
@@ -1083,7 +1083,7 @@ public:
 
         //3) do partition routing
         auto col_res = ColumnInt32::create();
-        ColumnInt32::Container& out_data = col_res->get_data();
+        ColumnInt32::Container& out_data = col_res->get_data_mutable();
         out_data.resize(in_data.size());
 
         const auto* end_in = in_data.data() + in_data.size();
@@ -1157,7 +1157,7 @@ public:
 
         //3) do partition routing
         auto col_res = ColumnInt32::create();
-        ColumnInt32::Container& out_data = col_res->get_data();
+        ColumnInt32::Container& out_data = col_res->get_data_mutable();
         out_data.resize(in_data.size());
 
         const auto* end_in = in_data.data() + in_data.size();
@@ -1230,7 +1230,7 @@ public:
 
         //3) do partition routing
         auto col_res = ColumnInt32::create();
-        ColumnInt32::Container& out_data = col_res->get_data();
+        ColumnInt32::Container& out_data = col_res->get_data_mutable();
         out_data.resize(in_data.size());
 
         const auto* end_in = in_data.data() + in_data.size();

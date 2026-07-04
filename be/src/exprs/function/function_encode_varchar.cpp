@@ -82,7 +82,7 @@ public:
         }
 
         auto col_res = PrimitiveTypeTraits<ReturnType>::ColumnType::create(input_rows_count, 0);
-        auto& col_res_data = col_res->get_data();
+        auto& col_res_data = col_res->get_data_mutable();
 
         for (size_t i = 0; i < input_rows_count; ++i) {
             const char* str_ptr = col_str->get_data_at(i).data;

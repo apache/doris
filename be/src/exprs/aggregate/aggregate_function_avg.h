@@ -229,7 +229,7 @@ public:
         if constexpr (is_decimal(T)) {
             column.get_data().push_back(this->data(place).template result<ResultType>(multiplier));
         } else {
-            column.get_data().push_back(this->data(place).template result<ResultType>());
+            column.get_data_mutable().push_back(this->data(place).template result<ResultType>());
         }
     }
 

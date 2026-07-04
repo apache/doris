@@ -96,7 +96,7 @@ ColumnNullable::ColumnNullable(SharedTag, ColumnPtr nested_column_, ColumnPtr nu
         auto merged_null_map = null_map_->clone_empty();
         auto merged_null_map_ptr = assert_mutable_null_map(std::move(merged_null_map));
         merged_null_map_ptr->insert_range_from(*null_map_, 0, null_map_->size());
-        auto& merged_null_map_data = merged_null_map_ptr->get_data();
+        auto& merged_null_map_data = merged_null_map_ptr->get_data_mutable();
         const auto& nested_null_map_data = nullable_nested->get_null_map_data();
         DCHECK_EQ(merged_null_map_data.size(), nested_null_map_data.size());
         for (size_t i = 0; i != merged_null_map_data.size(); ++i) {
@@ -237,15 +237,16 @@ MutableColumnPtr ColumnNullable::clone_resized(size_t new_size) const {
     auto new_null_map = ColumnUInt8::create();
 
     if (new_size > 0) {
-        new_null_map->get_data().resize(new_size);
+        auto& new_null_map_data = new_null_map->get_data_mutable();
+        new_null_map_data.resize(new_size);
 
         size_t count = std::min(size(), new_size);
-        memcpy(new_null_map->get_data().data(), get_null_map_data().data(),
+        memcpy(new_null_map_data.data(), get_null_map_data().data(),
                count * sizeof(get_null_map_data()[0]));
 
         /// If resizing to bigger one, set all new values to NULLs.
         if (new_size > count) {
-            memset(&new_null_map->get_data()[count], 1, new_size - count);
+            memset(&new_null_map_data[count], 1, new_size - count);
         }
     }
 

@@ -147,7 +147,7 @@ public:
                                      ->get_nested_type();
 
                 // need to union nullmap from all columns
-                VectorizedUtils::update_null_map(outside_null_map->get_data(),
+                VectorizedUtils::update_null_map(outside_null_map->get_data_mutable(),
                                                  column_array_nullmap->get_data());
             }
 

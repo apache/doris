@@ -208,7 +208,11 @@ public:
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
         auto& column = assert_cast<ColVecResult&>(to);
-        column.get_data().push_back(this->data(place).get());
+        if constexpr (is_decimal(TResult)) {
+            column.get_data().push_back(this->data(place).get());
+        } else {
+            column.get_data_mutable().push_back(this->data(place).get());
+        }
     }
 
 private:

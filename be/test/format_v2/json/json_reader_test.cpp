@@ -259,7 +259,7 @@ public:
         const auto& data = assert_cast<const ColumnInt32&>(nullable.get_nested_column());
 
         auto result = ColumnUInt8::create();
-        auto& result_data = result->get_data();
+        auto& result_data = result->get_data_mutable();
         result_data.resize(count);
         for (size_t row = 0; row < count; ++row) {
             const auto source_row = selector == nullptr ? row : (*selector)[row];

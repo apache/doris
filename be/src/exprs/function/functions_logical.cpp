@@ -54,7 +54,7 @@ template <class Op>
 void vector_const(const IColumn* left, const ColumnConst* right, IColumn* res, size_t rows) {
     const auto* __restrict l_datas = assert_cast<const ColumnUInt8*>(left)->get_data().data();
     auto r_data = (uint8_t)right->get_bool(0);
-    auto* __restrict res_datas = assert_cast<ColumnUInt8*>(res)->get_data().data();
+    auto* __restrict res_datas = assert_cast<ColumnUInt8*>(res)->get_data_mutable().data();
 
     for (size_t i = 0; i < rows; ++i) {
         res_datas[i] = Op::apply(l_datas[i], r_data);
@@ -65,7 +65,7 @@ template <class Op>
 void vector_vector(const IColumn* left, const IColumn* right, IColumn* res, size_t rows) {
     const auto* __restrict l_datas = assert_cast<const ColumnUInt8*>(left)->get_data().data();
     const auto* __restrict r_datas = assert_cast<const ColumnUInt8*>(right)->get_data().data();
-    auto* __restrict res_datas = assert_cast<ColumnUInt8*>(res)->get_data().data();
+    auto* __restrict res_datas = assert_cast<ColumnUInt8*>(res)->get_data_mutable().data();
 
     for (size_t i = 0; i < rows; ++i) {
         res_datas[i] = Op::apply(l_datas[i], r_datas[i]);
@@ -90,8 +90,8 @@ void vector_const_null(const IColumn* left, const ColumnConst* right, IColumn* r
     const auto* __restrict l_nulls =
             assert_cast<const ColumnUInt8*>(null_column_ptr.get())->get_data().data();
 
-    auto* __restrict res_datas = assert_cast<ColumnUInt8*>(res)->get_data().data();
-    auto* __restrict res_nulls = assert_cast<ColumnUInt8*>(nulls)->get_data().data();
+    auto* __restrict res_datas = assert_cast<ColumnUInt8*>(res)->get_data_mutable().data();
+    auto* __restrict res_nulls = assert_cast<ColumnUInt8*>(nulls)->get_data_mutable().data();
 
     auto r_data_ptr = right->get_data_at(0);
 
@@ -124,8 +124,8 @@ void vector_vector_null(const IColumn* left, const IColumn* right, IColumn* res,
     const auto* __restrict r_nulls =
             assert_cast<const ColumnUInt8*>(r_nulls_ptr.get())->get_data().data();
 
-    auto* __restrict res_datas = assert_cast<ColumnUInt8*>(res)->get_data().data();
-    auto* __restrict res_nulls = assert_cast<ColumnUInt8*>(nulls)->get_data().data();
+    auto* __restrict res_datas = assert_cast<ColumnUInt8*>(res)->get_data_mutable().data();
+    auto* __restrict res_nulls = assert_cast<ColumnUInt8*>(nulls)->get_data_mutable().data();
 
     for (size_t i = 0; i < rows; ++i) {
         res_nulls[i] = Op::apply_null(l_datas[i], l_nulls[i], r_datas[i], r_nulls[i]);
@@ -257,7 +257,7 @@ bool functionUnaryExecuteType(Block& block, const ColumnNumbers& arguments, size
                 block.get_by_position(arguments[0]).column.get())) {
         auto col_res = ColumnUInt8::create();
 
-        typename ColumnUInt8::Container& vec_res = col_res->get_data();
+        typename ColumnUInt8::Container& vec_res = col_res->get_data_mutable();
         vec_res.resize(col->get_data().size());
         UnaryOperationImpl<T, Impl<T>>::vector(col->get_data(), vec_res);
 

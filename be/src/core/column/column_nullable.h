@@ -414,7 +414,7 @@ public:
                 assert_cast<ColumnUInt8*, TypeCheckOnRelease::DISABLE>(null_map.get()));
     }
     ColumnUInt8& get_null_map_column() { return *_null_map; }
-    NullMap& get_null_map_data() { return get_null_map_column().get_data(); }
+    NullMap& get_null_map_data() { return get_null_map_column().get_data_mutable(); }
 
     // push not null value wouldn't change the nullity. no need to update _has_null
     void push_false_to_nullmap(size_t num) { get_null_map_column().insert_many_vals(0, num); }

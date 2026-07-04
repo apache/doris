@@ -158,7 +158,7 @@ public:
         auto view2 = ColumnArrayView<TYPE_FLOAT>::create(col2);
 
         auto dst = ColumnType::create(input_rows_count);
-        auto& dst_data = dst->get_data();
+        auto& dst_data = dst->get_data_mutable();
 
         for (size_t row = 0; row < input_rows_count; ++row) {
             auto a1 = view1[row];

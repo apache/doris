@@ -92,7 +92,7 @@ public:
     }
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
-        assert_cast<ColumnInt64&>(to).get_data().push_back(data(place).count);
+        assert_cast<ColumnInt64&>(to).get_data_mutable().push_back(data(place).count);
     }
 
     void serialize_to_column(const std::vector<AggregateDataPtr>& places, size_t offset,
@@ -242,10 +242,10 @@ public:
             auto& null_column = assert_cast<ColumnNullable&>(to);
             null_column.get_null_map_data().push_back(0);
             assert_cast<ColumnInt64&>(null_column.get_nested_column())
-                    .get_data()
+                    .get_data_mutable()
                     .push_back(data(place).count);
         } else {
-            assert_cast<ColumnInt64&>(to).get_data().push_back(data(place).count);
+            assert_cast<ColumnInt64&>(to).get_data_mutable().push_back(data(place).count);
         }
     }
 

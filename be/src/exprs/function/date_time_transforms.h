@@ -681,7 +681,7 @@ public:
         ColumnString::Offsets& res_offsets = res_col->get_offsets();
 
         auto null_map = ColumnUInt8::create();
-        auto& null_map_data = null_map->get_data();
+        auto& null_map_data = null_map->get_data_mutable();
         null_map_data.resize_fill(input_rows_count, 0);
 
         res_offsets.reserve(input_rows_count);

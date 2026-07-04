@@ -49,6 +49,19 @@ class FunctionContext;
 
 namespace doris {
 
+template <typename ColumnType>
+decltype(auto) bitmap_variadic_writable_data(ColumnType& column) {
+    return column.get_data();
+}
+
+template <PrimitiveType T>
+auto& bitmap_variadic_writable_data(ColumnVector<T>& column) {
+    // Bitmap variadic functions can return either bitmap complex columns or fixed-length count
+    // columns. Only fixed-length ColumnVector may wrap an external page and needs explicit detach
+    // before result writes.
+    return column.get_data_mutable();
+}
+
 // currently only bitmap_or and bitmap_or_count will call this function,
 // other bitmap functions will use default implementation for nulls
 #define BITMAP_OR_NULLABLE(nullable, input_rows_count, res, op)                                \
@@ -72,7 +85,7 @@ namespace doris {
             int nullable_cols_count = 0;                                                          \
             ColumnUInt8::value_type* __restrict res_nulls_data = nullptr;                         \
             if (res_nulls) {                                                                      \
-                res_nulls_data = assert_cast<ColumnUInt8*>(res_nulls)->get_data().data();         \
+                res_nulls_data = assert_cast<ColumnUInt8*>(res_nulls)->get_data_mutable().data(); \
             }                                                                                     \
             if (auto* nullable = check_and_get_column<ColumnNullable>(*argument_columns[0])) {    \
                 null_map_datas[nullable_cols_count++] = nullable->get_null_map_data().data();     \
@@ -241,7 +254,7 @@ public:
 
         col_res = ColVecResult::create();
 
-        auto& vec_res = col_res->get_data();
+        auto& vec_res = bitmap_variadic_writable_data(*col_res);
         vec_res.resize(input_rows_count);
 
         RETURN_IF_ERROR(Impl::vector_vector(argument_columns.data(), argument_size,

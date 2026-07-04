@@ -58,11 +58,11 @@ private:
         const size_t size = src_data.size();
 
         auto dst = ColumnFloat64::create();
-        auto& dst_data = dst->get_data();
+        auto& dst_data = dst->get_data_mutable();
         dst_data.resize(size);
 
         auto null_column = ColumnUInt8::create();
-        auto& null_map = null_column->get_data();
+        auto& null_map = null_column->get_data_mutable();
         null_map.resize(size);
 
         execute_in_iterations(col->get_data().data(), dst_data.data(), null_map, size);

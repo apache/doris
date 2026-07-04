@@ -96,7 +96,7 @@ public:
             fixed_length_column->resize(fixed_length_column->size() + result_size);
             data = fixed_length_column->get_data().data();
         } else {
-            auto& column_data = assert_cast<ColumnInt8&>(*doris_column).get_data();
+            auto& column_data = assert_cast<ColumnInt8&>(*doris_column).get_data_mutable();
             data_index = column_data.size();
             column_data.resize(data_index + _type_length * result_size);
             data = reinterpret_cast<uint8_t*>(column_data.data());

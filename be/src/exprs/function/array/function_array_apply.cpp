@@ -140,7 +140,7 @@ private:
                               const ColumnConst& cmp) const {
         T rhs_val = *reinterpret_cast<const T*>(cmp.get_data_at(0).data);
         auto column_filter = ColumnUInt8::create(src_column.size(), 0);
-        auto& column_filter_data = column_filter->get_data();
+        auto& column_filter_data = column_filter->get_data_mutable();
         const char* src_column_data_ptr = nullptr;
         const uint8_t* null_map_data = nullptr;
         if (!is_column_nullable(src_column)) {
@@ -161,7 +161,7 @@ private:
         const IColumn::Filter& filter = column_filter_data;
         ColumnPtr filtered = src_column.filter(filter, src_column.size());
         auto column_offsets = ColumnArray::ColumnOffsets::create(src_offsets.size());
-        ColumnArray::Offsets64& dst_offsets = column_offsets->get_data();
+        ColumnArray::Offsets64& dst_offsets = column_offsets->get_data_mutable();
         size_t in_pos = 0;
         size_t out_pos = 0;
         for (size_t i = 0; i < src_offsets.size(); ++i) {

@@ -632,7 +632,7 @@ Status OlapTableBlockConvertor::_fill_auto_inc_cols(Block* block, size_t rows) {
 
     size_t null_value_count = 0;
     auto dst_column = ColumnInt64::create();
-    ColumnInt64::Container& dst_values = dst_column->get_data();
+    ColumnInt64::Container& dst_values = dst_column->get_data_mutable();
 
     ColumnPtr src_column_ptr = block->get_by_position(idx).column;
     if (const auto* const_column = check_and_get_column<ColumnConst>(src_column_ptr.get())) {
@@ -686,7 +686,7 @@ Status OlapTableBlockConvertor::_fill_auto_inc_cols(Block* block, size_t rows) {
 
 Status OlapTableBlockConvertor::_partial_update_fill_auto_inc_cols(Block* block, size_t rows) {
     auto dst_column = ColumnInt64::create();
-    ColumnInt64::Container& dst_values = dst_column->get_data();
+    ColumnInt64::Container& dst_values = dst_column->get_data_mutable();
     size_t null_value_count = rows;
     std::vector<std::pair<int64_t, size_t>> res;
     RETURN_IF_ERROR(_auto_inc_id_buffer->sync_request_ids(null_value_count, &res));

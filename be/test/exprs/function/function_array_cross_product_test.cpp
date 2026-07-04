@@ -44,8 +44,8 @@ ColumnPtr create_array_column(const FloatRows& rows) {
     auto data = NestedColumnType::create();
     auto offsets = ColumnArray::ColumnOffsets::create();
 
-    auto& data_values = data->get_data();
-    auto& offset_values = offsets->get_data();
+    auto& data_values = data->get_data_mutable();
+    auto& offset_values = offsets->get_data_mutable();
     size_t offset = 0;
     for (const auto& row : rows) {
         for (const auto value : row) {
@@ -222,17 +222,17 @@ TEST(function_array_cross_product_test, invalid_dimension) {
 
 TEST(function_array_cross_product_test, null_element_returns_error) {
     auto data = ColumnFloat32::create();
-    auto& data_values = data->get_data();
+    auto& data_values = data->get_data_mutable();
     data_values.push_back(1.0F);
     data_values.push_back(2.0F);
     data_values.push_back(3.0F);
     auto null_map = ColumnUInt8::create();
-    auto& null_values = null_map->get_data();
+    auto& null_values = null_map->get_data_mutable();
     null_values.push_back(0);
     null_values.push_back(1);
     null_values.push_back(0);
     auto offsets = ColumnArray::ColumnOffsets::create();
-    offsets->get_data().push_back(3);
+    offsets->get_data_mutable().push_back(3);
     auto lhs = ColumnArray::create(ColumnNullable::create(std::move(data), std::move(null_map)),
                                    std::move(offsets));
 
@@ -246,7 +246,7 @@ TEST(function_array_cross_product_test, null_element_returns_error) {
 
 TEST(function_array_cross_product_test, top_null_array_returns_null) {
     auto lhs_nested_data = ColumnFloat32::create();
-    auto& lhs_nested_values = lhs_nested_data->get_data();
+    auto& lhs_nested_values = lhs_nested_data->get_data_mutable();
     lhs_nested_values.push_back(1.0F);
     lhs_nested_values.push_back(0.0F);
     lhs_nested_values.push_back(0.0F);
@@ -254,7 +254,7 @@ TEST(function_array_cross_product_test, top_null_array_returns_null) {
     lhs_nested_values.push_back(9.0F);
     lhs_nested_values.push_back(9.0F);
     auto lhs_nested_null_map = ColumnUInt8::create();
-    auto& lhs_nested_null_map_data = lhs_nested_null_map->get_data();
+    auto& lhs_nested_null_map_data = lhs_nested_null_map->get_data_mutable();
     lhs_nested_null_map_data.push_back(0);
     lhs_nested_null_map_data.push_back(0);
     lhs_nested_null_map_data.push_back(0);
@@ -262,14 +262,14 @@ TEST(function_array_cross_product_test, top_null_array_returns_null) {
     lhs_nested_null_map_data.push_back(1);
     lhs_nested_null_map_data.push_back(0);
     auto lhs_offsets = ColumnArray::ColumnOffsets::create();
-    lhs_offsets->get_data().push_back(3);
-    lhs_offsets->get_data().push_back(6);
+    lhs_offsets->get_data_mutable().push_back(3);
+    lhs_offsets->get_data_mutable().push_back(6);
     auto lhs_nested = ColumnArray::create(
             ColumnNullable::create(std::move(lhs_nested_data), std::move(lhs_nested_null_map)),
             std::move(lhs_offsets));
     auto lhs_null_map = ColumnUInt8::create();
-    lhs_null_map->get_data().push_back(0);
-    lhs_null_map->get_data().push_back(1);
+    lhs_null_map->get_data_mutable().push_back(0);
+    lhs_null_map->get_data_mutable().push_back(1);
     auto lhs = ColumnNullable::create(std::move(lhs_nested), std::move(lhs_null_map));
 
     Block block;

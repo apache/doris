@@ -88,7 +88,7 @@ inline void serialize_and_deserialize_pb_test() {
     // int
     {
         auto vec = ColumnInt32::create();
-        auto& data = vec->get_data();
+        auto& data = vec->get_data_mutable();
         for (int i = 0; i < 1024; ++i) {
             data.push_back(i);
         }
@@ -181,7 +181,7 @@ inline void serialize_and_deserialize_pb_test() {
     // ipv4
     {
         auto vec = ColumnIPv4 ::create();
-        auto& data = vec->get_data();
+        auto& data = vec->get_data_mutable();
         for (int i = 0; i < 1024; ++i) {
             data.push_back(i);
         }
@@ -191,7 +191,7 @@ inline void serialize_and_deserialize_pb_test() {
     // ipv6
     {
         auto vec = ColumnIPv6::create();
-        auto& data = vec->get_data();
+        auto& data = vec->get_data_mutable();
         for (int i = 0; i < 1024; ++i) {
             data.push_back(i);
         }

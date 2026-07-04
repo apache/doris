@@ -143,7 +143,7 @@ public:
         }
 
         auto result_null_map_column = ColumnUInt8::create(input_rows_count, 0);
-        NullMap& result_null_map = result_null_map_column->get_data();
+        NullMap& result_null_map = result_null_map_column->get_data_mutable();
 
         ColumnPtr argument_columns[3];
         bool col_const[3];

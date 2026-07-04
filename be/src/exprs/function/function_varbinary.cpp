@@ -76,7 +76,7 @@ public:
 
                 // if empty string or decode failed, may return NULL
                 if (outlen == 0) {
-                    null_map->get_data()[i] = 1;
+                    null_map->get_data_mutable()[i] = 1;
                     continue;
                 }
                 VarBinaryOP::check_and_insert_data(col_res->get_data()[i], dst,

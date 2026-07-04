@@ -118,7 +118,7 @@ struct PopData : BaseData<T> {
 
     void insert_result_into(IColumn& to) const {
         auto& col = assert_cast<ColumnFloat64&>(to);
-        col.get_data().push_back(this->get_pop_result());
+        col.get_data_mutable().push_back(this->get_pop_result());
     }
 };
 
@@ -131,7 +131,7 @@ struct SampData : BaseData<T> {
         if (this->count == 1 || this->count == 0) {
             col.insert_default();
         } else {
-            col.get_data().push_back(this->get_samp_result());
+            col.get_data_mutable().push_back(this->get_samp_result());
         }
     }
 };

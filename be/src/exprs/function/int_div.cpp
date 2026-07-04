@@ -188,7 +188,8 @@ struct DivideIntegralImpl {
         DCHECK(column_left_ptr != nullptr);
 
         auto null_map = ColumnUInt8::create(column_left->size(), 0);
-        apply(column_left_ptr->get_data(), b, column_result->get_data(), null_map->get_data());
+        apply(column_left_ptr->get_data(), b, column_result->get_data_mutable(),
+              null_map->get_data_mutable());
         return ColumnNullable::create(std::move(column_result), std::move(null_map));
     }
 
@@ -199,8 +200,8 @@ struct DivideIntegralImpl {
 
         auto null_map = ColumnUInt8::create(column_right->size(), 0);
         const auto b = column_right_ptr->get_data();
-        auto& c = column_result->get_data();
-        auto& n = null_map->get_data();
+        auto& c = column_result->get_data_mutable();
+        auto& n = null_map->get_data_mutable();
         size_t size = b.size();
         for (size_t i = 0; i < size; ++i) {
             c[i] = apply(a, b[i], n[i]);
@@ -218,8 +219,8 @@ struct DivideIntegralImpl {
         auto null_map = ColumnUInt8::create(column_result->size(), 0);
         const auto a = column_left_ptr->get_data();
         const auto b = column_right_ptr->get_data();
-        auto& c = column_result->get_data();
-        auto& n = null_map->get_data();
+        auto& c = column_result->get_data_mutable();
+        auto& n = null_map->get_data_mutable();
         size_t size = a.size();
         for (size_t i = 0; i < size; ++i) {
             c[i] = apply(a[i], b[i], n[i]);

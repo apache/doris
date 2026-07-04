@@ -108,7 +108,7 @@ struct StrToDate {
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                           uint32_t result, size_t input_rows_count) {
         auto result_null_map_column = ColumnUInt8::create(input_rows_count, 0);
-        NullMap& result_null_map = result_null_map_column->get_data();
+        NullMap& result_null_map = result_null_map_column->get_data_mutable();
 
         ColumnPtr argument_columns[2];
         bool col_const[2];
@@ -144,12 +144,12 @@ struct StrToDate {
         if (block.get_by_position(result).type->get_primitive_type() == TYPE_DATEV2) {
             auto res_column = ColumnDateV2::create(input_rows_count);
             if (col_const[1]) {
-                execute_impl_const_right<TYPE_DATEV2>(context, ldata, loffsets,
-                                                      specific_char_column->get_data_at(0),
-                                                      result_null_map, res_column->get_data());
+                execute_impl_const_right<TYPE_DATEV2>(
+                        context, ldata, loffsets, specific_char_column->get_data_at(0),
+                        result_null_map, res_column->get_data_mutable());
             } else {
                 execute_impl<TYPE_DATEV2>(context, ldata, loffsets, rdata, roffsets,
-                                          result_null_map, res_column->get_data());
+                                          result_null_map, res_column->get_data_mutable());
             }
             res = std::move(res_column);
         } else {
@@ -157,12 +157,12 @@ struct StrToDate {
 
             auto res_column = ColumnDateTimeV2::create(input_rows_count);
             if (col_const[1]) {
-                execute_impl_const_right<TYPE_DATETIMEV2>(context, ldata, loffsets,
-                                                          specific_char_column->get_data_at(0),
-                                                          result_null_map, res_column->get_data());
+                execute_impl_const_right<TYPE_DATETIMEV2>(
+                        context, ldata, loffsets, specific_char_column->get_data_at(0),
+                        result_null_map, res_column->get_data_mutable());
             } else {
                 execute_impl<TYPE_DATETIMEV2>(context, ldata, loffsets, rdata, roffsets,
-                                              result_null_map, res_column->get_data());
+                                              result_null_map, res_column->get_data_mutable());
             }
             res = std::move(res_column);
         }
@@ -261,7 +261,7 @@ struct MakeDateImpl {
 
         // Handle null map manually - update result null map from input null maps upfront
         auto result_null_map_column = ColumnBool::create(input_rows_count, 0);
-        NullMap& result_null_map = result_null_map_column->get_data();
+        NullMap& result_null_map = result_null_map_column->get_data_mutable();
 
         ColumnPtr argument_columns[2];
         bool col_const[2];
@@ -293,10 +293,10 @@ struct MakeDateImpl {
         auto res_column = ColumnDateV2::create(input_rows_count);
         if (col_const[1]) {
             execute_impl_right_const(year_col->get_data(), dayofyear_col->get_element(0),
-                                     result_null_map, res_column->get_data());
+                                     result_null_map, res_column->get_data_mutable());
         } else {
             execute_impl(year_col->get_data(), dayofyear_col->get_data(), result_null_map,
-                         res_column->get_data());
+                         res_column->get_data_mutable());
         }
 
         // Wrap result in nullable column only if input has nullable arguments
@@ -377,7 +377,8 @@ struct MakeTimeImpl {
         DCHECK_EQ(arguments.size(), 3);
         auto res_col = ColumnTimeV2::create(input_rows_count);
         auto res_null_map = ColumnUInt8::create(input_rows_count, 0);
-        auto& res_data = res_col->get_data();
+        auto& res_data = res_col->get_data_mutable();
+        auto& res_null_map_data = res_null_map->get_data_mutable();
 
         ColumnPtr arg_col[3];
         bool is_const[3];
@@ -395,7 +396,7 @@ struct MakeTimeImpl {
                 double sec = sec_col->get_element(index_check_const(i, is_const[2]));
                 if (!check_and_set_time_value(hour, minute, sec)) {
                     res_data[i] = 0;
-                    res_null_map->get_data()[i] = 1;
+                    res_null_map_data[i] = 1;
                     continue;
                 }
                 execute_single(hour, minute, sec, res_data, i);
@@ -408,7 +409,7 @@ struct MakeTimeImpl {
                 double sec = static_cast<double>(sec_data[index_check_const(i, is_const[2])]);
                 if (!check_and_set_time_value(hour, minute, sec)) {
                     res_data[i] = 0;
-                    res_null_map->get_data()[i] = 1;
+                    res_null_map_data[i] = 1;
                     continue;
                 }
                 execute_single(hour, minute, sec, res_data, i);
@@ -538,7 +539,7 @@ private:
                                          ColumnType& result_column, size_t input_rows_count,
                                          const cctz::time_zone& timezone) {
         const auto data = static_cast<const ColumnType*>(datetime_column.get())->get_data();
-        auto& res = result_column.get_data();
+        auto& res = result_column.get_data_mutable();
         for (size_t i = 0; i < input_rows_count; ++i) {
             auto dt = data[i];
             // datetime_trunc only raise only when dt invalid which is impossible. so we dont throw error better.
@@ -586,7 +587,7 @@ public:
 
         // Handle null map manually - update result null map from input null map upfront
         auto result_null_map_column = ColumnUInt8::create(input_rows_count, 0);
-        NullMap& result_null_map = result_null_map_column->get_data();
+        NullMap& result_null_map = result_null_map_column->get_data_mutable();
 
         // Update result null map from input null map using standard approach
         bool col_const = is_column_const(*argument_column);
@@ -607,12 +608,13 @@ public:
         if (block.get_by_position(result).type->get_primitive_type() == PrimitiveType::TYPE_DATE) {
             auto column_date = ColumnDate::create(input_rows_count);
             _execute<VecDateTimeValue>(input_rows_count, data_col->get_data(), result_null_map,
-                                       column_date->get_data());
+                                       column_date->get_data_mutable());
             res_column = std::move(column_date);
         } else {
             auto column_datev2 = ColumnDateV2::create(input_rows_count);
             _execute<DateV2Value<DateV2ValueType>>(input_rows_count, data_col->get_data(),
-                                                   result_null_map, column_datev2->get_data());
+                                                   result_null_map,
+                                                   column_datev2->get_data_mutable());
             res_column = std::move(column_datev2);
         }
 
@@ -685,7 +687,7 @@ struct UnixTimeStampImpl {
                                size_t input_rows_count) {
         auto col_result = ColumnType::create();
         col_result->resize(1);
-        col_result->get_data()[0] = context->state()->timestamp_ms() / 1000;
+        col_result->get_data_mutable()[0] = context->state()->timestamp_ms() / 1000;
         auto col_const = ColumnConst::create(std::move(col_result), input_rows_count);
         block.replace_by_position(result, std::move(col_const));
         return Status::OK();
@@ -722,7 +724,7 @@ struct UnixTimeStampDateImpl {
                       std::is_same_v<DateType, DataTypeDateTime>) {
             const auto* col_source = assert_cast<const typename DateType::ColumnType*>(col.get());
             auto col_result = ResultColumnType::create();
-            auto& col_result_data = col_result->get_data();
+            auto& col_result_data = col_result->get_data_mutable();
             col_result->resize(input_rows_count);
 
             for (int i = 0; i < input_rows_count; i++) {
@@ -736,7 +738,7 @@ struct UnixTimeStampDateImpl {
         } else if constexpr (std::is_same_v<DateType, DataTypeDateV2>) {
             const auto* col_source = assert_cast<const ColumnDateV2*>(col.get());
             auto col_result = ResultColumnType::create();
-            auto& col_result_data = col_result->get_data();
+            auto& col_result_data = col_result->get_data_mutable();
             col_result->resize(input_rows_count);
 
             for (int i = 0; i < input_rows_count; i++) {
@@ -796,7 +798,7 @@ struct UnixTimeStampStrImpl {
                                size_t input_rows_count) {
         // Handle null map manually
         auto result_null_map_column = ColumnUInt8::create(input_rows_count, 0);
-        NullMap& result_null_map = result_null_map_column->get_data();
+        NullMap& result_null_map = result_null_map_column->get_data_mutable();
 
         ColumnPtr col_left = nullptr, col_right = nullptr;
         bool source_const = false, format_const = false;
@@ -965,8 +967,8 @@ public:
         const auto& arg_col = block.get_by_position(arguments[0]).column;
         const auto& column_data = assert_cast<const ColumnDateTimeV2&>(*arg_col);
         auto res_col = ColumnInt64::create();
-        auto& res_data = res_col->get_data();
-        res_col->get_data().resize_fill(input_rows_count, 0);
+        auto& res_data = res_col->get_data_mutable();
+        res_data.resize_fill(input_rows_count, 0);
         for (int i = 0; i < input_rows_count; i++) {
             StringRef source = column_data.get_data_at(i);
             const auto& dt =
@@ -1013,7 +1015,7 @@ public:
                         uint32_t result, size_t input_rows_count) const override {
         // Handle null map manually - update result null map from input null maps upfront
         auto result_null_map_column = ColumnUInt8::create(input_rows_count, 0);
-        NullMap& result_null_map = result_null_map_column->get_data();
+        NullMap& result_null_map = result_null_map_column->get_data_mutable();
 
         ColumnPtr argument_column = block.get_by_position(arguments[0]).column;
         auto null_map = VectorizedUtils::get_null_map(argument_column);
@@ -1049,7 +1051,7 @@ struct LastDayImpl {
         const auto is_nullable = block.get_by_position(result).type->is_nullable();
         auto data_col = assert_cast<const ColumnType*>(argument_column.get());
         auto res_column = ResultColumnType::create(input_rows_count);
-        execute_straight(input_rows_count, data_col->get_data(), res_column->get_data(),
+        execute_straight(input_rows_count, data_col->get_data(), res_column->get_data_mutable(),
                          result_null_map);
 
         if (is_nullable) {
@@ -1122,7 +1124,7 @@ struct ToMondayImpl {
         const auto is_nullable = block.get_by_position(result).type->is_nullable();
         auto data_col = assert_cast<const ColumnType*>(argument_column.get());
         auto res_column = ResultColumnType::create(input_rows_count);
-        execute_straight(input_rows_count, data_col->get_data(), res_column->get_data(),
+        execute_straight(input_rows_count, data_col->get_data(), res_column->get_data_mutable(),
                          result_null_map);
 
         if (is_nullable) {
@@ -1258,10 +1260,10 @@ struct FromIso8601DateV2 {
                           uint32_t result, size_t input_rows_count) {
         const auto* src_column_ptr = block.get_by_position(arguments[0]).column.get();
         auto result_null_map_column = ColumnUInt8::create(input_rows_count, 0);
-        NullMap& result_null_map = result_null_map_column->get_data();
+        NullMap& result_null_map = result_null_map_column->get_data_mutable();
 
         ColumnDateV2::MutablePtr res = ColumnDateV2::create(input_rows_count);
-        auto& result_data = res->get_data();
+        auto& result_data = res->get_data_mutable();
 
         static const std::tuple<std::vector<int>, int, std::string> ISO_STRING_FORMAT[] = {
                 {{

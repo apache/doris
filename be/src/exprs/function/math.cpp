@@ -105,7 +105,7 @@ private:
     Status execute_unary(Block& block, const ColumnNumbers& arguments, uint32_t result,
                          size_t input_rows_count) const {
         auto res_col = ColumnFloat64::create(input_rows_count);
-        auto& res_data = res_col->get_data();
+        auto& res_data = res_col->get_data_mutable();
 
         const auto& col_data =
                 assert_cast<const ColumnFloat64*>(block.get_by_position(arguments[0]).column.get())
@@ -124,7 +124,7 @@ private:
         auto [col_x, is_const_x] = unpack_if_const(block.get_by_position(arguments[1]).column);
 
         auto result_column = ColumnFloat64::create(input_rows_count);
-        auto& result_data = result_column->get_data();
+        auto& result_data = result_column->get_data_mutable();
 
         if (is_const_y) {
             auto y_val = assert_cast<const ColumnFloat64*>(col_y.get())->get_element(0);
@@ -455,8 +455,8 @@ private:
 
         auto result_column = ColumnInt64::create(input_rows_count);
         auto result_null_map = ColumnUInt8::create(input_rows_count, 0);
-        auto& result_data = result_column->get_data();
-        auto& result_null_map_data = result_null_map->get_data();
+        auto& result_data = result_column->get_data_mutable();
+        auto& result_null_map_data = result_null_map->get_data_mutable();
 
         const auto& src_data = data_col->get_data();
         for (size_t i = 0; i < input_rows_count; ++i) {
@@ -632,8 +632,8 @@ private:
         if constexpr (Impl::is_nullable) {
             auto null_map = ColumnUInt8::create(column_left->size(), 0);
             const auto a = column_left_ptr->get_data();
-            auto& c = column_result->get_data();
-            auto& n = null_map->get_data();
+            auto& c = column_result->get_data_mutable();
+            auto& n = null_map->get_data_mutable();
             size_t size = a.size();
             for (size_t i = 0; i < size; ++i) {
                 c[i] = Impl::apply(a[i], column_right_ptr->template get_value<Impl::type>(), n[i]);
@@ -641,7 +641,7 @@ private:
             return ColumnNullable::create(std::move(column_result), std::move(null_map));
         } else {
             const auto a = column_left_ptr->get_data();
-            auto& c = column_result->get_data();
+            auto& c = column_result->get_data_mutable();
             size_t size = a.size();
             for (size_t i = 0; i < size; ++i) {
                 c[i] = Impl::apply(a[i], column_right_ptr->template get_value<Impl::type>());
@@ -659,8 +659,8 @@ private:
         if constexpr (Impl::is_nullable) {
             auto null_map = ColumnUInt8::create(column_right->size(), 0);
             const auto b = column_right_ptr->get_data();
-            auto& c = column_result->get_data();
-            auto& n = null_map->get_data();
+            auto& c = column_result->get_data_mutable();
+            auto& n = null_map->get_data_mutable();
             size_t size = b.size();
             for (size_t i = 0; i < size; ++i) {
                 c[i] = Impl::apply(column_left_ptr->template get_value<Impl::type>(), b[i], n[i]);
@@ -668,7 +668,7 @@ private:
             return ColumnNullable::create(std::move(column_result), std::move(null_map));
         } else {
             const auto b = column_right_ptr->get_data();
-            auto& c = column_result->get_data();
+            auto& c = column_result->get_data_mutable();
             size_t size = b.size();
             for (size_t i = 0; i < size; ++i) {
                 c[i] = Impl::apply(column_left_ptr->template get_value<Impl::type>(), b[i]);
@@ -688,8 +688,8 @@ private:
             auto null_map = ColumnUInt8::create(column_result->size(), 0);
             const auto a = column_left_ptr->get_data();
             const auto b = column_right_ptr->get_data();
-            auto& c = column_result->get_data();
-            auto& n = null_map->get_data();
+            auto& c = column_result->get_data_mutable();
+            auto& n = null_map->get_data_mutable();
             size_t size = a.size();
             for (size_t i = 0; i < size; ++i) {
                 c[i] = Impl::apply(a[i], b[i], n[i]);
@@ -698,7 +698,7 @@ private:
         } else {
             const auto a = column_left_ptr->get_data();
             const auto b = column_right_ptr->get_data();
-            auto& c = column_result->get_data();
+            auto& c = column_result->get_data_mutable();
             size_t size = a.size();
             for (size_t i = 0; i < size; ++i) {
                 c[i] = Impl::apply(a[i], b[i]);
@@ -731,8 +731,8 @@ public:
         auto result_column = ColumnFloat64::create(input_rows_count);
         auto result_null_map_column = ColumnUInt8::create(input_rows_count, 0);
 
-        auto& result_data = result_column->get_data();
-        NullMap& result_null_map = result_null_map_column->get_data();
+        auto& result_data = result_column->get_data_mutable();
+        NullMap& result_null_map = result_null_map_column->get_data_mutable();
 
         ColumnPtr argument_columns[3];
         bool col_const[3];
@@ -889,7 +889,7 @@ private:
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
         auto dst = DataTypeBool::ColumnType::create();
-        auto& dst_data = dst->get_data();
+        auto& dst_data = dst->get_data_mutable();
         dst_data.resize(input_rows_count);
         const auto* column = block.get_by_position(arguments[0]).column.get();
         if (const auto* col_f64 = check_and_get_column<ColumnFloat64>(column)) {

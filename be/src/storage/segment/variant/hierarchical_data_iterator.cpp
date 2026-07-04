@@ -603,8 +603,9 @@ Status HierarchicalDataIterator::_init_null_map_and_clear_columns(MutableColumnP
     }
     if (_path.get_parts().empty()) {
         // update nullmap for root column, since the original nullmap is from the whole variant column
-        auto& dst_map_data =
-                assert_cast<ColumnNullable&>(*variant->get_root()).get_null_map_column().get_data();
+        auto& dst_map_data = assert_cast<ColumnNullable&>(*variant->get_root())
+                                     .get_null_map_column()
+                                     .get_data_mutable();
         for (size_t i = 0; i < variant->get_root()->size(); ++i) {
             StringRef ref = variant->get_root()->get_data_at(i);
             if (ref.size == 0) {

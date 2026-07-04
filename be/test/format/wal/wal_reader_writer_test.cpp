@@ -78,7 +78,7 @@ void covert_block_to_pb(
 
 void generate_block(PBlock& pblock, int row_index) {
     auto vec = ColumnInt32::create();
-    auto& data = vec->get_data();
+    auto& data = vec->get_data_mutable();
     for (int i = 0; i < block_rows; ++i) {
         data.push_back(i + row_index);
     }

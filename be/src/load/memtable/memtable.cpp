@@ -600,7 +600,7 @@ void MemTable::_aggregate_for_flexible_partial_update_without_seq_col(
                     ->get_data();
     auto& delete_signs =
             assert_cast<ColumnInt8*>(mutable_block.mutable_columns()[_delete_sign_col_idx].get())
-                    ->get_data();
+                    ->get_data_mutable();
     std::shared_ptr<RowInBlock> row_with_delete_sign {nullptr};
     std::shared_ptr<RowInBlock> row_without_delete_sign {nullptr};
 

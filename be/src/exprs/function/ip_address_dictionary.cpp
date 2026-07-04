@@ -77,7 +77,7 @@ ColumnPtr IPAddressDictionary::get_column(const std::string& attribute_name,
     const auto rows = key_column->size();
     MutableColumnPtr res_column = attribute_type->create_column();
     ColumnUInt8::MutablePtr res_null = ColumnUInt8::create(rows, false);
-    auto& res_null_map = res_null->get_data();
+    auto& res_null_map = res_null->get_data_mutable();
     const auto& value_data = _values_data[attribute_index(attribute_name)];
 
     if (key_type->get_primitive_type() == TYPE_IPV6) {

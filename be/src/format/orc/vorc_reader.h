@@ -432,7 +432,7 @@ private:
                                          cvb->toString());
         }
         auto* cvb_data = data->data.data();
-        auto& column_data = static_cast<ColumnVector<PType>&>(*data_column).get_data();
+        auto& column_data = static_cast<ColumnVector<PType>&>(*data_column).get_data_mutable();
         auto origin_size = column_data.size();
         column_data.resize(origin_size + num_values);
         for (int i = 0; i < num_values; ++i) {
@@ -575,7 +575,8 @@ private:
                                          cvb->toString());
         }
         date_day_offset_dict& date_dict = date_day_offset_dict::get();
-        auto& column_data = static_cast<ColumnVector<DorisColumnType>&>(*data_column).get_data();
+        auto& column_data =
+                static_cast<ColumnVector<DorisColumnType>&>(*data_column).get_data_mutable();
         auto origin_size = column_data.size();
         column_data.resize(origin_size + num_values);
         UInt8* __restrict filter_data;
@@ -627,7 +628,7 @@ private:
                     "Wrong data type for timestamp_tz column '{}', expected {}", col_name,
                     cvb->toString());
         }
-        auto& column_data = assert_cast<ColumnTimeStampTz&>(*data_column).get_data();
+        auto& column_data = assert_cast<ColumnTimeStampTz&>(*data_column).get_data_mutable();
         auto origin_size = column_data.size();
         column_data.resize(origin_size + num_values);
         UInt8* __restrict filter_data;

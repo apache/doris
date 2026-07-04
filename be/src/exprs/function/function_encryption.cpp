@@ -196,13 +196,13 @@ struct EncryptionAndDecryptTwoImpl {
 
         auto& result_data = result_column->get_chars();
         auto& result_offset = result_column->get_offsets();
+        auto& result_null_map = result_null_map_column->get_data_mutable();
         result_offset.resize(input_rows_count);
 
         if (col_const[1] && col_const[2]) {
             vector_const(assert_cast<const ColumnString*>(argument_columns[0].get()),
                          argument_columns[1]->get_data_at(0), argument_columns[2]->get_data_at(0),
-                         input_rows_count, result_data, result_offset,
-                         result_null_map_column->get_data());
+                         input_rows_count, result_data, result_offset, result_null_map);
         } else {
             std::vector<const ColumnString::Offsets*> offsets_list(argument_size);
             std::vector<const ColumnString::Chars*> chars_list(argument_size);
@@ -212,7 +212,7 @@ struct EncryptionAndDecryptTwoImpl {
                 chars_list[i] = &col_str->get_chars();
             }
             vector_vector(offsets_list, chars_list, input_rows_count, result_data, result_offset,
-                          result_null_map_column->get_data());
+                          result_null_map);
         }
         block.get_by_position(result).column =
                 ColumnNullable::create(std::move(result_column), std::move(result_null_map_column));
@@ -313,20 +313,10 @@ struct EncryptionAndDecryptMultiImpl {
 
         auto& result_data = result_column->get_chars();
         auto& result_offset = result_column->get_offsets();
+        auto& result_null_map = result_null_map_column->get_data_mutable();
         result_offset.resize(input_rows_count);
 
-        if ((arg_num == 5) && col_const[1] && col_const[2] && col_const[3] && col_const[4]) {
-            vector_const(assert_cast<const ColumnString*>(argument_columns[0].get()),
-                         argument_columns[1]->get_data_at(0), argument_columns[2]->get_data_at(0),
-                         argument_columns[3]->get_data_at(0), input_rows_count, result_data,
-                         result_offset, result_null_map_column->get_data(),
-                         argument_columns[4]->get_data_at(0));
-        } else if ((arg_num == 4) && col_const[1] && col_const[2] && col_const[3]) {
-            vector_const(assert_cast<const ColumnString*>(argument_columns[0].get()),
-                         argument_columns[1]->get_data_at(0), argument_columns[2]->get_data_at(0),
-                         argument_columns[3]->get_data_at(0), input_rows_count, result_data,
-                         result_offset, result_null_map_column->get_data(), StringRef());
-        } else {
+        auto execute_vector_vector = [&]() {
             std::vector<const ColumnString::Offsets*> offsets_list(argument_size);
             std::vector<const ColumnString::Chars*> chars_list(argument_size);
             for (size_t i = 0; i < argument_size; ++i) {
@@ -335,7 +325,29 @@ struct EncryptionAndDecryptMultiImpl {
                 chars_list[i] = &col_str->get_chars();
             }
             vector_vector(offsets_list, chars_list, input_rows_count, result_data, result_offset,
-                          result_null_map_column->get_data());
+                          result_null_map);
+        };
+
+        if constexpr (arg_num == 5) {
+            if (col_const[1] && col_const[2] && col_const[3] && col_const[4]) {
+                vector_const(assert_cast<const ColumnString*>(argument_columns[0].get()),
+                             argument_columns[1]->get_data_at(0),
+                             argument_columns[2]->get_data_at(0),
+                             argument_columns[3]->get_data_at(0), input_rows_count, result_data,
+                             result_offset, result_null_map, argument_columns[4]->get_data_at(0));
+            } else {
+                execute_vector_vector();
+            }
+        } else {
+            if (col_const[1] && col_const[2] && col_const[3]) {
+                vector_const(assert_cast<const ColumnString*>(argument_columns[0].get()),
+                             argument_columns[1]->get_data_at(0),
+                             argument_columns[2]->get_data_at(0),
+                             argument_columns[3]->get_data_at(0), input_rows_count, result_data,
+                             result_offset, result_null_map, StringRef());
+            } else {
+                execute_vector_vector();
+            }
         }
         block.get_by_position(result).column =
                 ColumnNullable::create(std::move(result_column), std::move(result_null_map_column));

@@ -198,13 +198,13 @@ size_t HashJoinBuildSinkLocalState::get_reserve_mem_size(RuntimeState* state, bo
                     auto [column, is_const] = unpack_if_const(block.safe_get_by_position(i).column);
                     assert_cast<ColumnNullable*>(column->assert_mutable().get())
                             ->get_null_map_column()
-                            .get_data()
+                            .get_data_mutable()
                             .data()[0] = 1;
                 }
             }
 
             null_map_val = ColumnUInt8::create();
-            null_map_val->get_data().assign(build_block_rows, (uint8_t)0);
+            null_map_val->get_data_mutable().assign(build_block_rows, (uint8_t)0);
 
             // Get the key column that needs to be built
             Status st = _extract_join_column(block, null_map_val, raw_ptrs, _build_col_ids);
@@ -566,7 +566,7 @@ Status HashJoinBuildSinkLocalState::_extract_join_column(Block& block,
             const auto& col_nested = nullable->get_nested_column();
             const auto& col_nullmap = nullable->get_null_map_data();
             DCHECK(null_map);
-            VectorizedUtils::update_null_map(null_map->get_data(), col_nullmap);
+            VectorizedUtils::update_null_map(null_map->get_data_mutable(), col_nullmap);
             raw_ptrs[i] = &col_nested;
         } else {
             raw_ptrs[i] = column;
@@ -601,7 +601,7 @@ Status HashJoinBuildSinkLocalState::process_build_block(RuntimeState* state, Blo
             auto [column, is_const] = unpack_if_const(block.safe_get_by_position(i).column);
             assert_cast<ColumnNullable*>(column->assert_mutable().get())
                     ->get_null_map_column()
-                    .get_data()
+                    .get_data_mutable()
                     .data()[0] = 1;
         }
     }
@@ -609,7 +609,7 @@ Status HashJoinBuildSinkLocalState::process_build_block(RuntimeState* state, Blo
     _set_build_side_has_external_nullmap(block, _build_col_ids);
     if (_build_side_has_external_nullmap) {
         null_map_val = ColumnUInt8::create();
-        null_map_val->get_data().assign((size_t)rows, (uint8_t)0);
+        null_map_val->get_data_mutable().assign((size_t)rows, (uint8_t)0);
     }
 
     // Get the key column that needs to be built
@@ -617,6 +617,7 @@ Status HashJoinBuildSinkLocalState::process_build_block(RuntimeState* state, Blo
 
     RETURN_IF_ERROR(_hash_table_init(state, raw_ptrs));
 
+    auto* null_map_data = null_map_val ? &null_map_val->get_data_mutable() : nullptr;
     Status st = std::visit(
             Overload {[&](std::monostate& arg, auto join_op) -> Status {
                           throw Exception(Status::FatalError("FATAL: uninited hash table"));
@@ -627,8 +628,7 @@ Status HashJoinBuildSinkLocalState::process_build_block(RuntimeState* state, Blo
                           ProcessHashTableBuild<HashTableCtxType> hash_table_build_process(
                                   rows, raw_ptrs, this, state->batch_size(), state);
                           auto st = hash_table_build_process.template run<JoinOpType::value>(
-                                  arg, null_map_val ? &null_map_val->get_data() : nullptr,
-                                  &_shared_state->_has_null_in_build_side,
+                                  arg, null_map_data, &_shared_state->_has_null_in_build_side,
                                   p._short_circuit_for_null_in_build_side,
                                   p._have_other_join_conjunct);
                           COUNTER_SET(_memory_used_counter,

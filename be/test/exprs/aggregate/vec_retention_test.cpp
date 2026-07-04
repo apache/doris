@@ -54,7 +54,7 @@ ColumnArray& retention_result_array(IColumn& column) {
 ColumnUInt8::Container& retention_result_data(IColumn& column) {
     auto& array = retention_result_array(column);
     auto& nested = assert_cast<ColumnNullable&>(array.get_data());
-    return assert_cast<ColumnUInt8&>(nested.get_nested_column()).get_data();
+    return assert_cast<ColumnUInt8&>(nested.get_nested_column()).get_data_mutable();
 }
 } // namespace
 

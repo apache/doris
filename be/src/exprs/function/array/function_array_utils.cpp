@@ -78,8 +78,8 @@ ColumnArrayMutableData create_mutable_data(const IColumn* nested_col, bool is_nu
         dst.nested_col = dst.array_nested_col.get();
     }
     dst.offsets_col = ColumnArray::ColumnOffsets::create();
-    dst.offsets_ptr =
-            &reinterpret_cast<ColumnArray::ColumnOffsets*>(dst.offsets_col.get())->get_data();
+    dst.offsets_ptr = &reinterpret_cast<ColumnArray::ColumnOffsets*>(dst.offsets_col.get())
+                               ->get_data_mutable();
     return dst;
 }
 

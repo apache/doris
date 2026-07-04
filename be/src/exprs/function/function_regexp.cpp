@@ -287,7 +287,7 @@ public:
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
         auto result_data_column = ColumnInt32::create(input_rows_count);
-        auto& result_data = result_data_column->get_data();
+        auto& result_data = result_data_column->get_data_mutable();
 
         ColumnPtr argument_columns[2];
 
@@ -397,14 +397,14 @@ public:
         if (col_const[1] && col_const[2]) {
             Impl::execute_impl_const_args(context, argument_columns, options_value,
                                           input_rows_count, result_data, result_offset,
-                                          result_null_map->get_data());
+                                          result_null_map->get_data_mutable());
         } else {
             // the options have check in FE, so is always const, and get idx of 0
             if (argument_size == 4) {
                 options_value = block.get_by_position(arguments[3]).column->get_data_at(0);
             }
             Impl::execute_impl(context, argument_columns, options_value, input_rows_count,
-                               result_data, result_offset, result_null_map->get_data());
+                               result_data, result_offset, result_null_map->get_data_mutable());
         }
 
         block.get_by_position(result).column =
@@ -810,19 +810,19 @@ public:
             if (col_const[1]) {
                 Impl::execute_impl_const_args(context, argument_columns, input_rows_count,
                                               result_data, result_offset,
-                                              result_null_map->get_data());
+                                              result_null_map->get_data_mutable());
             } else {
                 Impl::execute_impl(context, argument_columns, input_rows_count, result_data,
-                                   result_offset, result_null_map->get_data());
+                                   result_offset, result_null_map->get_data_mutable());
             }
         } else {
             if (col_const[1] && col_const[2]) {
                 Impl::execute_impl_const_args(context, argument_columns, input_rows_count,
                                               result_data, result_offset,
-                                              result_null_map->get_data());
+                                              result_null_map->get_data_mutable());
             } else {
                 Impl::execute_impl(context, argument_columns, input_rows_count, result_data,
-                                   result_offset, result_null_map->get_data());
+                                   result_offset, result_null_map->get_data_mutable());
             }
         }
 

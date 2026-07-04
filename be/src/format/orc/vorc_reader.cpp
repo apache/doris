@@ -1878,7 +1878,7 @@ Status OrcReader::_decode_int32_column(const std::string& col_name,
     } else if (dynamic_cast<const orc::EncodedStringVectorBatch*>(cvb) != nullptr) {
         const auto* data = static_cast<const orc::EncodedStringVectorBatch*>(cvb);
         const auto* cvb_data = data->index.data();
-        auto& column_data = static_cast<ColumnInt32&>(*data_column).get_data();
+        auto& column_data = static_cast<ColumnInt32&>(*data_column).get_data_mutable();
         auto origin_size = column_data.size();
         column_data.resize(origin_size + num_values);
         for (int i = 0; i < num_values; ++i) {

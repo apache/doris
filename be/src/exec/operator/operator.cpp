@@ -363,7 +363,8 @@ Status OperatorXBase::do_projections(RuntimeState* state, Block* origin_block,
                 // Nullable promotion appends non-null values into the nested column, so the
                 // null map must grow to the appended nested size instead of being reset to this
                 // batch's row count. Reused output columns may already contain rows.
-                null_column.get_null_map_column().get_data().resize_fill(origin_size + rows, 0);
+                null_column.get_null_map_column().get_data_mutable().resize_fill(origin_size + rows,
+                                                                                 0);
                 DCHECK_EQ(null_column.get_nested_column().size(),
                           null_column.get_null_map_column().size());
                 bytes_usage += null_column.allocated_bytes();

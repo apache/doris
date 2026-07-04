@@ -208,7 +208,7 @@ struct ExecuteImpl {
         auto* dest_nullable_col = assert_cast<ColumnNullable*>(dest_nested_column);
         auto& dest_column_string =
                 assert_cast<ColumnString&>(*(dest_nullable_col->get_nested_column_ptr()));
-        dest_nested_null_map = &dest_nullable_col->get_null_map_column().get_data();
+        dest_nested_null_map = &dest_nullable_col->get_null_map_data();
         RE2::Options opts;
         opts.set_never_nl(false);
         opts.set_dot_nl(true);

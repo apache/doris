@@ -90,7 +90,7 @@ struct AggregateFunctionBinary final
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
         const auto& data = this->data(place);
-        auto& dst = static_cast<ColVecResult&>(to).get_data();
+        auto& dst = static_cast<ColVecResult&>(to).get_data_mutable();
         dst.push_back(data.get());
     }
 };

@@ -780,20 +780,20 @@ public:
                 const auto& col1_inside_const =
                         assert_cast<const ColumnVector<Transform::ArgPType>&>(
                                 nest_col1_const->get_data_column());
-                Op::vector_constant(sources->get_data(), res_col->get_data(),
+                Op::vector_constant(sources->get_data(), res_col->get_data_mutable(),
                                     Op::get_element(col1_inside_const, 0), nullmap0_ptr,
                                     nullmap1_ptr);
             } else { // vector-vector
                 const auto& concrete_col1 =
                         assert_cast<const ColumnVector<Transform::ArgPType>&>(*nest_col1);
-                Op::vector_vector(sources->get_data(), concrete_col1, res_col->get_data(),
+                Op::vector_vector(sources->get_data(), concrete_col1, res_col->get_data_mutable(),
                                   nullmap0_ptr, nullmap1_ptr);
             }
 
             // update result nullmap with inputs
             if (result_nullable) {
                 auto null_map = ColumnBool::create(input_rows_count, 0);
-                NullMap& result_null_map = null_map->get_data();
+                NullMap& result_null_map = null_map->get_data_mutable();
                 if (nullmap0) {
                     VectorizedUtils::update_null_map(result_null_map, *nullmap0);
                 }
@@ -814,13 +814,13 @@ public:
             const ColumnPtr nested_col1 = remove_nullable(col1);
             const auto& concrete_col1 =
                     assert_cast<const ColumnVector<Transform::ArgPType>&>(*nested_col1);
-            Op::constant_vector(col0_inside_const.get_data()[0], res_col->get_data(), concrete_col1,
-                                nullmap0_ptr, nullmap1_ptr);
+            Op::constant_vector(col0_inside_const.get_data()[0], res_col->get_data_mutable(),
+                                concrete_col1, nullmap0_ptr, nullmap1_ptr);
 
             // update result nullmap with inputs
             if (result_nullable) {
                 auto null_map = ColumnBool::create(input_rows_count, 0);
-                NullMap& result_null_map = null_map->get_data();
+                NullMap& result_null_map = null_map->get_data_mutable();
                 if (nullmap0) {
                     VectorizedUtils::update_null_map(result_null_map, *nullmap0, true);
                 }
@@ -908,19 +908,19 @@ public:
                 rconst = true;
                 const auto& col1_inside_const =
                         assert_cast<const IntervalColumnType&>(nest_col1_const->get_data_column());
-                Op::vector_constant(sources->get_data(), res_col->get_data(),
+                Op::vector_constant(sources->get_data(), res_col->get_data_mutable(),
                                     Op::get_element(col1_inside_const, 0), nullmap0_ptr,
                                     nullmap1_ptr);
             } else { // vector-vector
                 const auto& concrete_col1 = assert_cast<const IntervalColumnType&>(*nest_col1);
-                Op::vector_vector(sources->get_data(), concrete_col1, res_col->get_data(),
+                Op::vector_vector(sources->get_data(), concrete_col1, res_col->get_data_mutable(),
                                   nullmap0_ptr, nullmap1_ptr);
             }
 
             // update result nullmap with inputs
             if (result_nullable) {
                 auto null_map = ColumnBool::create(input_rows_count, 0);
-                NullMap& result_null_map = null_map->get_data();
+                NullMap& result_null_map = null_map->get_data_mutable();
                 if (nullmap0) {
                     VectorizedUtils::update_null_map(result_null_map, *nullmap0);
                 }
@@ -940,13 +940,13 @@ public:
                     sources_const->get_data_column());
             const ColumnPtr nested_col1 = remove_nullable(col1);
             const auto& concrete_col1 = assert_cast<const IntervalColumnType&>(*nested_col1);
-            Op::constant_vector(col0_inside_const.get_data()[0], res_col->get_data(), concrete_col1,
-                                nullmap0_ptr, nullmap1_ptr);
+            Op::constant_vector(col0_inside_const.get_data()[0], res_col->get_data_mutable(),
+                                concrete_col1, nullmap0_ptr, nullmap1_ptr);
 
             // update result nullmap with inputs
             if (result_nullable) {
                 auto null_map = ColumnBool::create(input_rows_count, 0);
-                NullMap& result_null_map = null_map->get_data();
+                NullMap& result_null_map = null_map->get_data_mutable();
                 if (nullmap0) {
                     VectorizedUtils::update_null_map(result_null_map, *nullmap0, true);
                 }
@@ -1191,7 +1191,7 @@ struct TimeToSecImpl {
         const auto& arg_col = block.get_by_position(arguments[0]).column;
         const auto& column_data = assert_cast<const ColumnTimeV2&>(*arg_col);
 
-        auto& res_data = res_col->get_data();
+        auto& res_data = res_col->get_data_mutable();
         for (int i = 0; i < input_rows_count; ++i) {
             res_data[i] =
                     cast_set<int, int64_t, false>(static_cast<int64_t>(column_data.get_element(i)) /
@@ -1211,7 +1211,7 @@ struct SecToTimeImpl {
         const auto& arg_col = block.get_by_position(arguments[0]).column;
 
         auto res_col = ColumnTimeV2::create(input_rows_count);
-        auto& res_data = res_col->get_data();
+        auto& res_data = res_col->get_data_mutable();
         if (const auto* int_column_ptr = check_and_get_column<ColumnInt32>(arg_col.get())) {
             for (int i = 0; i < input_rows_count; ++i) {
                 res_data[i] = TimeValue::from_seconds_with_limit(int_column_ptr->get_element(i));
@@ -1261,7 +1261,7 @@ struct TimestampToDateTime : IFunction {
                         uint32_t result, size_t input_rows_count) const override {
         // Handle null map manually
         auto result_null_map_column = ColumnUInt8::create(input_rows_count, 0);
-        NullMap& result_null_map = result_null_map_column->get_data();
+        NullMap& result_null_map = result_null_map_column->get_data_mutable();
 
         ColumnPtr argument_column = block.get_by_position(arguments[0]).column;
         auto null_map = VectorizedUtils::get_null_map(argument_column);
@@ -1274,9 +1274,9 @@ struct TimestampToDateTime : IFunction {
 
         const auto& column_data = assert_cast<const ColumnInt64&>(*argument_column);
         auto res_col = ColumnDateTimeV2::create();
-        res_col->get_data().resize_fill(input_rows_count,
-                                        ColumnDateTimeV2::value_type::DEFAULT_VALUE);
-        auto& res_data = res_col->get_data();
+        res_col->get_data_mutable().resize_fill(input_rows_count,
+                                                ColumnDateTimeV2::value_type::DEFAULT_VALUE);
+        auto& res_data = res_col->get_data_mutable();
         const cctz::time_zone& time_zone = context->state()->timezone_obj();
 
         for (size_t i = 0; i < input_rows_count; ++i) {
@@ -1628,7 +1628,7 @@ public:
         ColumnPtr col = block.get_by_position(arguments[0]).column;
         const auto& arg = assert_cast<const ColumnDateTimeV2&>(*col.get());
         ColumnTimeV2::MutablePtr res = ColumnTimeV2::create(input_rows_count);
-        auto& res_data = res->get_data();
+        auto& res_data = res->get_data_mutable();
         for (int i = 0; i < arg.size(); i++) {
             const auto& v = arg.get_element(i);
             // the arg is datetimev2 type, it's store as uint64, so we need to get arg's hour minute second part
@@ -1668,14 +1668,17 @@ public:
         auto& res_offsets = res_col->get_offsets();
 
         if (type_str == DATE_NAME) {
-            execute_format_type<DateFormatImpl>(res_data, res_offsets, res_null_map->get_data(),
-                                                input_rows_count, right_col);
+            execute_format_type<DateFormatImpl>(res_data, res_offsets,
+                                                res_null_map->get_data_mutable(), input_rows_count,
+                                                right_col);
         } else if (type_str == DATETIME_NAME) {
-            execute_format_type<DateTimeFormatImpl>(res_data, res_offsets, res_null_map->get_data(),
+            execute_format_type<DateTimeFormatImpl>(res_data, res_offsets,
+                                                    res_null_map->get_data_mutable(),
                                                     input_rows_count, right_col);
         } else if (type_str == TIME_NAME) {
-            execute_format_type<TimeFormatImpl>(res_data, res_offsets, res_null_map->get_data(),
-                                                input_rows_count, right_col);
+            execute_format_type<TimeFormatImpl>(res_data, res_offsets,
+                                                res_null_map->get_data_mutable(), input_rows_count,
+                                                right_col);
         } else {
             return Status::InvalidArgument(
                     "Function GET_FORMAT only support DATE, DATETIME or TIME");

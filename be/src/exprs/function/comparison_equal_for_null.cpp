@@ -192,7 +192,7 @@ public:
 
             if (left_nullable) {
                 auto res_column = std::move(*temporary_block.get_by_position(2).column).mutate();
-                auto& res_map = assert_cast<ColumnUInt8*>(res_column.get())->get_data();
+                auto& res_map = assert_cast<ColumnUInt8*>(res_column.get())->get_data_mutable();
                 const auto& left_null_map = left_column->get_null_map_data();
                 const auto& right_null_map = right_column->get_null_map_data();
 
@@ -233,7 +233,8 @@ public:
                     std::move(*temporary_block.get_by_position(2).column).mutate().get());
             auto& null_map = res_nullable_column->get_null_map_data();
             auto& res_nested_col =
-                    assert_cast<ColumnUInt8&>(res_nullable_column->get_nested_column()).get_data();
+                    assert_cast<ColumnUInt8&>(res_nullable_column->get_nested_column())
+                            .get_data_mutable();
 
             // Input of eq_for_null:
             // Left: [1, 1, 1, 1](ColumnConst(ColumnInt32))

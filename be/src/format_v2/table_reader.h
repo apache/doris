@@ -1219,7 +1219,7 @@ protected:
         auto result = ColumnStruct::create(std::move(mutable_child_columns));
         if (mapping.table_type->is_nullable()) {
             auto null_map = ColumnUInt8::create();
-            auto& null_map_data = null_map->get_data();
+            auto& null_map_data = null_map->get_data_mutable();
             null_map_data.resize(rows);
             if (has_parent_null_map) {
                 DORIS_CHECK(parent_null_map.size() == rows);
@@ -1253,7 +1253,7 @@ protected:
                                           IColumn::mutate(std::move(offsets_column)));
         if (mapping.table_type->is_nullable()) {
             auto null_map = ColumnUInt8::create();
-            auto& null_map_data = null_map->get_data();
+            auto& null_map_data = null_map->get_data_mutable();
             null_map_data.resize(rows);
             if (has_parent_null_map) {
                 DORIS_CHECK(parent_null_map.size() == rows);
@@ -1307,7 +1307,7 @@ protected:
                                         IColumn::mutate(std::move(offsets_column)));
         if (mapping.table_type->is_nullable()) {
             auto null_map = ColumnUInt8::create();
-            auto& null_map_data = null_map->get_data();
+            auto& null_map_data = null_map->get_data_mutable();
             null_map_data.resize(rows);
             if (has_parent_null_map) {
                 DORIS_CHECK(parent_null_map.size() == rows);

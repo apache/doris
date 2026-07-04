@@ -91,7 +91,7 @@ template <typename Data>
 struct AggregateFunctionHLLUnionAggImpl : Data {
     void insert_result_into(IColumn& to) const {
         ColumnInt64& column = assert_cast<ColumnInt64&>(to);
-        column.get_data().emplace_back(this->get_cardinality());
+        column.get_data_mutable().emplace_back(this->get_cardinality());
     }
 
     static DataTypePtr get_return_type() { return std::make_shared<DataTypeInt64>(); }

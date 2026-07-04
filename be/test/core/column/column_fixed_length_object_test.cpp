@@ -76,8 +76,9 @@ TEST(ColumnFixedLenghtObjectTest, UpdateHashWithValue) {
 
     auto column2 = ColumnInt64::create();
     column2->resize(count);
+    auto& column2_data = column2->get_data_mutable();
     for (size_t i = 0; i != count; ++i) {
-        column2->get_data()[i] = i;
+        column2_data[i] = i;
     }
 
     SipHash hash2;

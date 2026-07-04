@@ -164,7 +164,7 @@ public:
         const auto* sources = assert_cast<const ColumnVector<FromType>*>(
                 block.get_by_position(arguments[0]).column.get());
         auto col_to = ColumnVector<ToType>::create();
-        Op::vector(sources->get_data(), col_to->get_data());
+        Op::vector(sources->get_data(), col_to->get_data_mutable());
         block.replace_by_position(result, std::move(col_to));
 
         return Status::OK();

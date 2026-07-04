@@ -278,7 +278,7 @@ public:
                 } else if (auto target_nullable_column =
                                    check_and_get_column<ColumnNullable>(*target_column)) {
                     const auto target_null_map = target_nullable_column->get_null_map_data();
-                    VectorizedUtils::update_null_map(null_map->get_data(), target_null_map);
+                    VectorizedUtils::update_null_map(null_map->get_data_mutable(), target_null_map);
 
                     auto& target_str_column = assert_cast<const ColumnString&>(
                             target_nullable_column->get_nested_column());
@@ -302,7 +302,7 @@ public:
                     assert_cast<const ColumnInt32&>(pos_null_column->get_nested_column());
             const auto pos_null_map = pos_null_column->get_null_map_data();
             auto null_map = ColumnUInt8::create(input_rows_count, false);
-            auto& res_null_map = null_map->get_data();
+            auto& res_null_map = null_map->get_data_mutable();
 
             for (size_t i = 0; i < input_rows_count; ++i) {
                 auto pos = pos_column.get_element(i);
@@ -323,7 +323,7 @@ public:
             auto& pos_column =
                     assert_cast<const ColumnInt32&>(*block.get_by_position(arguments[0]).column);
             auto null_map = ColumnUInt8::create(input_rows_count, false);
-            auto& res_null_map = null_map->get_data();
+            auto& res_null_map = null_map->get_data_mutable();
 
             for (size_t i = 0; i < input_rows_count; ++i) {
                 auto pos = pos_column.get_element(i);
@@ -412,7 +412,7 @@ public:
         auto& res_offset = res->get_offsets();
         res_offset.resize(input_rows_count);
 
-        VectorizedUtils::update_null_map(null_map->get_data(), null_list[0]);
+        VectorizedUtils::update_null_map(null_map->get_data_mutable(), null_list[0]);
         fmt::memory_buffer buffer;
         std::vector<std::string_view> views;
 
@@ -595,7 +595,7 @@ public:
             if (const auto* col2 = check_and_get_column<ColumnInt32>(*argument_ptr[1])) {
                 RETURN_IF_ERROR(vector_vector(col1->get_chars(), col1->get_offsets(),
                                               col2->get_data(), res->get_chars(),
-                                              res->get_offsets(), null_map->get_data()));
+                                              res->get_offsets(), null_map->get_data_mutable()));
                 block.replace_by_position(
                         result, ColumnNullable::create(std::move(res), std::move(null_map)));
                 return Status::OK();
@@ -604,11 +604,11 @@ public:
                 DCHECK(check_and_get_column<ColumnInt32>(col2_const->get_data_column()));
                 int repeat = col2_const->get_int(0);
                 if (repeat <= 0) {
-                    null_map->get_data().resize_fill(input_rows_count, 0);
+                    null_map->get_data_mutable().resize_fill(input_rows_count, 0);
                     res->insert_many_defaults(input_rows_count);
                 } else {
                     vector_const(col1->get_chars(), col1->get_offsets(), repeat, res->get_chars(),
-                                 res->get_offsets(), null_map->get_data());
+                                 res->get_offsets(), null_map->get_data_mutable());
                 }
                 block.replace_by_position(
                         result, ColumnNullable::create(std::move(res), std::move(null_map)));
@@ -784,7 +784,7 @@ public:
             std::tie(col[i], col_const[i]) =
                     unpack_if_const(block.get_by_position(arguments[i]).column);
         }
-        auto& null_map_data = null_map->get_data();
+        auto& null_map_data = null_map->get_data_mutable();
         auto& res_offsets = res->get_offsets();
         auto& res_chars = res->get_chars();
         res_offsets.resize(input_rows_count);

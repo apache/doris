@@ -52,7 +52,7 @@ struct HLLCardinality {
     static constexpr auto name = "hll_cardinality";
 
     static void vector(const std::vector<HyperLogLog>& data, ColumnInt64::MutablePtr& col_res) {
-        auto& res = col_res->get_data();
+        auto& res = col_res->get_data_mutable();
         auto size = res.size();
         for (int i = 0; i < size; ++i) {
             res[i] = data[i].estimate_cardinality();
@@ -61,7 +61,7 @@ struct HLLCardinality {
 
     static void vector_nullable(const std::vector<HyperLogLog>& data, NullMapView nullmap,
                                 ColumnInt64::MutablePtr& col_res) {
-        auto& res = col_res->get_data();
+        auto& res = col_res->get_data_mutable();
         auto size = res.size();
         for (int i = 0; i < size; ++i) {
             if (nullmap[i]) {
@@ -146,7 +146,7 @@ public:
                         uint32_t result, size_t input_rows_count) const override {
         auto res_null_map = ColumnUInt8::create(input_rows_count, 0);
         auto res_data_column = ColumnHLL::create();
-        auto& null_map = res_null_map->get_data();
+        auto& null_map = res_null_map->get_data_mutable();
         auto& res = res_data_column->get_data();
 
         auto& argument_column = block.get_by_position(arguments[0]).column;

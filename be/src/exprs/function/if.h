@@ -59,6 +59,14 @@ public:
         }
     }
 
+    static auto& get_result_data(ColVecT& column) {
+        if constexpr (is_decimal(PType)) {
+            return column.get_data();
+        } else {
+            return column.get_data_mutable();
+        }
+    }
+
     static ColumnPtr execute_if(const ArrayCond& cond, const ColumnPtr& then_col,
                                 const ColumnPtr& else_col, int result_scale) {
         if (const auto* col_then = check_and_get_column<ColVecT>(then_col.get())) {
@@ -92,7 +100,7 @@ private:
 #ifdef __ARM_NEON
         if constexpr (can_use_neon_opt()) {
             auto col_res = create_column(cond, result_scale);
-            auto res = col_res->get_data().data();
+            auto res = get_result_data(*col_res).data();
             neon_execute<is_const_a, is_const_b>(cond.data(), res, a.data(), b.data(), cond.size());
             return col_res;
         }
@@ -105,7 +113,7 @@ private:
     static ColumnPtr native_execute(ArrayCond cond, Array a, Array b, int result_scale) {
         size_t size = cond.size();
         auto col_res = create_column(cond, result_scale);
-        auto& res = col_res->get_data();
+        auto& res = get_result_data(*col_res);
         for (size_t i = 0; i < size; ++i) {
             res[i] = cond[i] ? a[index_check_const<is_const_a>(i)]
                              : b[index_check_const<is_const_b>(i)];

@@ -153,8 +153,8 @@ const char* DataTypeNumberBase<T>::deserialize(const char* buf, MutableColumnPtr
 
     // column data
     auto mem_size = real_have_saved_num * sizeof(typename PrimitiveTypeTraits<T>::CppType);
-    auto& container =
-            assert_cast<typename PrimitiveTypeTraits<T>::ColumnType*>(origin_column)->get_data();
+    auto& container = assert_cast<typename PrimitiveTypeTraits<T>::ColumnType*>(origin_column)
+                              ->get_data_mutable();
     container.resize(real_have_saved_num);
     if (mem_size <= SERIALIZED_MEM_SIZE_LIMIT) {
         memcpy(container.data(), buf, mem_size);

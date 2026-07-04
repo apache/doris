@@ -241,9 +241,9 @@ TEST(VRowDistributionTest, GenerateRowsDistributionWhereClauseUInt8ColumnFilters
 
     auto input_block = ColumnHelper::create_block<DataTypeInt32>({1, 25, 2});
     auto filter_col_mut = ColumnUInt8::create();
-    filter_col_mut->get_data().push_back(1);
-    filter_col_mut->get_data().push_back(0);
-    filter_col_mut->get_data().push_back(1);
+    filter_col_mut->get_data_mutable().push_back(1);
+    filter_col_mut->get_data_mutable().push_back(0);
+    filter_col_mut->get_data_mutable().push_back(1);
     ColumnPtr filter_col = std::move(filter_col_mut);
     input_block.insert({filter_col, std::make_shared<DataTypeUInt8>(), "f"});
 

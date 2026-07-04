@@ -90,7 +90,7 @@ public:
         const auto* col_pos = assert_cast<const ColumnInt32*>(argument_columns[2].get());
 
         ColumnInt32::MutablePtr col_res = ColumnInt32::create();
-        auto& vec_res = col_res->get_data();
+        auto& vec_res = col_res->get_data_mutable();
         vec_res.resize(block.rows());
 
         const bool is_ascii = col_left->is_ascii() && col_right->is_ascii();
@@ -226,7 +226,7 @@ public:
         auto const_null_map = ColumnUInt8::create(input_rows_count, 0);
         auto res = ColumnString::create();
 
-        auto& null_map_data = null_map->get_data();
+        auto& null_map_data = null_map->get_data_mutable();
         auto& res_offsets = res->get_offsets();
         auto& res_chars = res->get_chars();
         res_offsets.resize(input_rows_count);
@@ -241,8 +241,7 @@ public:
                 // Danger: Here must dispose the null map data first! Because
                 // argument_columns[i]=nullable->get_nested_column_ptr(); will release the mem
                 // of column nullable mem of null map
-                VectorizedUtils::update_null_map(null_map->get_data(),
-                                                 nullable->get_null_map_data());
+                VectorizedUtils::update_null_map(null_map_data, nullable->get_null_map_data());
                 argument_columns[i] = nullable->get_nested_column_ptr();
             }
         }
@@ -603,8 +602,8 @@ public:
                 make_bool_variant(left_const), make_bool_variant(right_const));
 
         // all elements in dest_nested_column are not null
-        dest_nullable_col.get_null_map_column().get_data().resize_fill(dest_nested_column->size(),
-                                                                       false);
+        dest_nullable_col.get_null_map_column().get_data_mutable().resize_fill(
+                dest_nested_column->size(), false);
         block.replace_by_position(result, std::move(dest_column_ptr));
 
         return Status::OK();
@@ -756,7 +755,7 @@ public:
         }
 
         auto dest_column_ptr = ColumnInt32::create(input_rows_count);
-        auto& dest_column_data = dest_column_ptr->get_data();
+        auto& dest_column_data = dest_column_ptr->get_data_mutable();
 
         if constexpr (type == FunctionCountSubStringType::TWO_ARGUMENTS) {
             const auto& src_column_string = assert_cast<const ColumnString&>(*argument_columns[0]);

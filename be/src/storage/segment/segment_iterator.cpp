@@ -3256,7 +3256,7 @@ void SegmentIterator::_output_index_result_column(const VExprContextSPtrs& expr_
             const auto& result_bitmap = inverted_index_result_bitmap_for_expr.second;
             const auto& index_result_bitmap = result_bitmap.get_data_bitmap();
             auto index_result_column = ColumnUInt8::create();
-            ColumnUInt8::Container& vec_match_pred = index_result_column->get_data();
+            ColumnUInt8::Container& vec_match_pred = index_result_column->get_data_mutable();
             vec_match_pred.resize(select_size);
             std::fill(vec_match_pred.begin(), vec_match_pred.end(), 0);
 
@@ -3268,10 +3268,10 @@ void SegmentIterator::_output_index_result_column(const VExprContextSPtrs& expr_
             ColumnUInt8::Container* null_map_data = nullptr;
             if (has_null_bitmap && expr_returns_nullable) {
                 null_map_column = ColumnUInt8::create();
-                auto& null_map_vec = null_map_column->get_data();
+                auto& null_map_vec = null_map_column->get_data_mutable();
                 null_map_vec.resize(select_size);
                 std::fill(null_map_vec.begin(), null_map_vec.end(), 0);
-                null_map_data = &null_map_column->get_data();
+                null_map_data = &null_map_column->get_data_mutable();
             }
 
             roaring::BulkContext bulk_context;

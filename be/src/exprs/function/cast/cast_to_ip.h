@@ -89,7 +89,7 @@ public:
                 block.get_by_position(arguments[0]).column.get());
         const auto size = col_from->size();
         auto col_to = DataTypeIPv6::ColumnType::create(size);
-        auto& to_data = col_to->get_data();
+        auto& to_data = col_to->get_data_mutable();
         const auto& from_data = col_from->get_data();
         CastParameters params;
         params.is_strict = (AllMode == CastModeType::StrictMode);

@@ -76,7 +76,7 @@ public:
 
         // 2. compute result
         auto result_column = ColumnUInt8::create(nested_column_size, 0);
-        auto* __restrict result_column_data = result_column->get_data().data();
+        auto* __restrict result_column_data = result_column->get_data_mutable().data();
         ColumnPtr result_offset_column = first_col_array.get_offsets_ptr();
         const auto* __restrict nested_column_data =
                 assert_cast<const ColumnUInt8&>(*nested_column).get_data().data();

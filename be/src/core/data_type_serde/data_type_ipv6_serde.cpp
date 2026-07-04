@@ -111,7 +111,7 @@ Status DataTypeIPv6SerDe::write_column_to_pb(const IColumn& column, PValues& res
 }
 
 Status DataTypeIPv6SerDe::read_column_from_pb(IColumn& column, const PValues& arg) const {
-    auto& col_data = assert_cast<ColumnIPv6&>(column).get_data();
+    auto& col_data = assert_cast<ColumnIPv6&>(column).get_data_mutable();
     auto old_column_size = column.size();
     col_data.resize(old_column_size + arg.bytes_value_size());
     for (int i = 0; i < arg.bytes_value_size(); ++i) {
@@ -142,7 +142,7 @@ Status DataTypeIPv6SerDe::write_column_to_arrow(const IColumn& column, const Nul
 Status DataTypeIPv6SerDe::read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array,
                                                  int64_t start, int64_t end,
                                                  const cctz::time_zone& ctz) const {
-    auto& col_data = assert_cast<ColumnIPv6&>(column).get_data();
+    auto& col_data = assert_cast<ColumnIPv6&>(column).get_data_mutable();
     const auto* concrete_array = assert_cast<const arrow::StringArray*>(arrow_array);
     std::shared_ptr<arrow::Buffer> buffer = concrete_array->value_data();
 
@@ -225,7 +225,7 @@ Status DataTypeIPv6SerDe::from_string_batch(const ColumnString& str, ColumnNulla
     column.resize(size);
 
     auto& column_to = assert_cast<ColumnType&>(column.get_nested_column());
-    auto& vec_to = column_to.get_data();
+    auto& vec_to = column_to.get_data_mutable();
     auto& null_map = column.get_null_map_data();
 
     CastParameters params;
@@ -243,7 +243,7 @@ Status DataTypeIPv6SerDe::from_string_strict_mode_batch(const ColumnString& str,
     column.resize(size);
 
     auto& column_to = assert_cast<ColumnType&>(column);
-    auto& vec_to = column_to.get_data();
+    auto& vec_to = column_to.get_data_mutable();
     CastParameters params;
     params.is_strict = true;
     for (size_t i = 0; i < size; ++i) {

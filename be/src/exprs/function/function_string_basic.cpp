@@ -84,22 +84,25 @@ public:
 private:
     static void scalar_vector(const StringRef str, const ColumnString& vec1, ColumnInt8& res) {
         size_t size = vec1.size();
+        auto& res_data = res.get_data_mutable();
         for (size_t i = 0; i < size; ++i) {
-            res.get_data()[i] = str.compare(vec1.get_data_at(i));
+            res_data[i] = str.compare(vec1.get_data_at(i));
         }
     }
 
     static void vector_scalar(const ColumnString& vec0, const StringRef str, ColumnInt8& res) {
         size_t size = vec0.size();
+        auto& res_data = res.get_data_mutable();
         for (size_t i = 0; i < size; ++i) {
-            res.get_data()[i] = vec0.get_data_at(i).compare(str);
+            res_data[i] = vec0.get_data_at(i).compare(str);
         }
     }
 
     static void vector_vector(const ColumnString& vec0, const ColumnString& vec1, ColumnInt8& res) {
         size_t size = vec0.size();
+        auto& res_data = res.get_data_mutable();
         for (size_t i = 0; i < size; ++i) {
-            res.get_data()[i] = vec0.get_data_at(i).compare(vec1.get_data_at(i));
+            res_data[i] = vec0.get_data_at(i).compare(vec1.get_data_at(i));
         }
     }
 };
@@ -150,7 +153,7 @@ struct Substr2Impl {
                                const ColumnNumbers& arguments, uint32_t result,
                                size_t input_rows_count) {
         auto col_len = ColumnInt32::create(input_rows_count);
-        auto& strlen_data = col_len->get_data();
+        auto& strlen_data = col_len->get_data_mutable();
 
         ColumnPtr str_col;
         bool str_const;
@@ -270,8 +273,8 @@ public:
         size_t num_columns_without_result = block.columns();
 
         // params1 = max(arg[1], -len(arg))
-        auto& index_data = params1->get_data();
-        auto& strlen_data = params2->get_data();
+        auto& index_data = params1->get_data_mutable();
+        auto& strlen_data = params2->get_data_mutable();
 
         auto str_col =
                 block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
@@ -311,12 +314,13 @@ struct NullOrEmptyImpl {
         auto column = block.get_by_position(arguments[0]).column;
         if (auto* nullable = check_and_get_column<const ColumnNullable>(*column)) {
             column = nullable->get_nested_column_ptr();
-            VectorizedUtils::update_null_map(res_map->get_data(), nullable->get_null_map_data());
+            VectorizedUtils::update_null_map(res_map->get_data_mutable(),
+                                             nullable->get_null_map_data());
         }
         auto str_col = assert_cast<const ColumnString*>(column.get());
         const auto& offsets = str_col->get_offsets();
 
-        auto& res_map_data = res_map->get_data();
+        auto& res_map_data = res_map->get_data_mutable();
         for (int i = 0; i < input_rows_count; ++i) {
             int size = offsets[i] - offsets[i - 1];
             res_map_data[i] |= (size == 0);

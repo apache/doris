@@ -162,7 +162,7 @@ Status DataTypeNumberSerDe<T>::read_column_from_pb(IColumn& column, const PValue
     auto old_column_size = column.size();
     if constexpr (T == TYPE_BOOLEAN) {
         column.resize(old_column_size + arg.uint32_value_size());
-        auto& data = assert_cast<ColumnType&>(column).get_data();
+        auto& data = assert_cast<ColumnType&>(column).get_data_mutable();
         for (int i = 0; i < arg.uint32_value_size(); ++i) {
             data[old_column_size + i] =
                     cast_set<typename PrimitiveTypeTraits<T>::CppType, uint32_t, false>(
@@ -170,13 +170,13 @@ Status DataTypeNumberSerDe<T>::read_column_from_pb(IColumn& column, const PValue
         }
     } else if constexpr (T == TYPE_DATEV2 || T == TYPE_IPV4) {
         column.resize(old_column_size + arg.uint32_value_size());
-        auto& data = assert_cast<ColumnType&>(column).get_data();
+        auto& data = assert_cast<ColumnType&>(column).get_data_mutable();
         for (int i = 0; i < arg.uint32_value_size(); ++i) {
             data[old_column_size + i] = arg.uint32_value(i);
         }
     } else if constexpr (T == TYPE_TINYINT || T == TYPE_SMALLINT) {
         column.resize(old_column_size + arg.int32_value_size());
-        auto& data = reinterpret_cast<ColumnType&>(column).get_data();
+        auto& data = reinterpret_cast<ColumnType&>(column).get_data_mutable();
         for (int i = 0; i < arg.int32_value_size(); ++i) {
             data[old_column_size + i] =
                     cast_set<typename PrimitiveTypeTraits<T>::CppType, int32_t, false>(
@@ -184,50 +184,50 @@ Status DataTypeNumberSerDe<T>::read_column_from_pb(IColumn& column, const PValue
         }
     } else if constexpr (T == TYPE_INT) {
         column.resize(old_column_size + arg.int32_value_size());
-        auto& data = reinterpret_cast<ColumnType&>(column).get_data();
+        auto& data = reinterpret_cast<ColumnType&>(column).get_data_mutable();
         for (int i = 0; i < arg.int32_value_size(); ++i) {
             data[old_column_size + i] = arg.int32_value(i);
         }
     } else if constexpr (T == TYPE_DATETIMEV2) {
         column.resize(old_column_size + arg.uint64_value_size());
-        auto& data = reinterpret_cast<ColumnType&>(column).get_data();
+        auto& data = reinterpret_cast<ColumnType&>(column).get_data_mutable();
         for (int i = 0; i < arg.uint64_value_size(); ++i) {
             data[old_column_size + i] =
                     binary_cast<UInt64, DateV2Value<DateTimeV2ValueType>>(arg.uint64_value(i));
         }
     } else if constexpr (T == TYPE_TIMESTAMPTZ) {
         column.resize(old_column_size + arg.uint64_value_size());
-        auto& data = reinterpret_cast<ColumnType&>(column).get_data();
+        auto& data = reinterpret_cast<ColumnType&>(column).get_data_mutable();
         for (int i = 0; i < arg.uint64_value_size(); ++i) {
             data[old_column_size + i] = binary_cast<UInt64, TimestampTzValue>(arg.uint64_value(i));
         }
     } else if constexpr (T == TYPE_DATE || T == TYPE_DATETIME) {
         column.resize(old_column_size + arg.int64_value_size());
-        auto& data = reinterpret_cast<ColumnType&>(column).get_data();
+        auto& data = reinterpret_cast<ColumnType&>(column).get_data_mutable();
         for (int i = 0; i < arg.int64_value_size(); ++i) {
             data[old_column_size + i] = binary_cast<Int64, VecDateTimeValue>(arg.int64_value(i));
         }
     } else if constexpr (T == TYPE_BIGINT) {
         column.resize(old_column_size + arg.int64_value_size());
-        auto& data = reinterpret_cast<ColumnType&>(column).get_data();
+        auto& data = reinterpret_cast<ColumnType&>(column).get_data_mutable();
         for (int i = 0; i < arg.int64_value_size(); ++i) {
             data[old_column_size + i] = arg.int64_value(i);
         }
     } else if constexpr (T == TYPE_FLOAT) {
         column.resize(old_column_size + arg.float_value_size());
-        auto& data = reinterpret_cast<ColumnType&>(column).get_data();
+        auto& data = reinterpret_cast<ColumnType&>(column).get_data_mutable();
         for (int i = 0; i < arg.float_value_size(); ++i) {
             data[old_column_size + i] = arg.float_value(i);
         }
     } else if constexpr (T == TYPE_DOUBLE || T == TYPE_TIMEV2) {
         column.resize(old_column_size + arg.double_value_size());
-        auto& data = reinterpret_cast<ColumnType&>(column).get_data();
+        auto& data = reinterpret_cast<ColumnType&>(column).get_data_mutable();
         for (int i = 0; i < arg.double_value_size(); ++i) {
             data[old_column_size + i] = arg.double_value(i);
         }
     } else if constexpr (T == TYPE_LARGEINT) {
         column.resize(old_column_size + arg.bytes_value_size());
-        auto& data = reinterpret_cast<ColumnType&>(column).get_data();
+        auto& data = reinterpret_cast<ColumnType&>(column).get_data_mutable();
         for (int i = 0; i < arg.bytes_value_size(); ++i) {
             data[old_column_size + i] = *(int128_t*)(arg.bytes_value(i).c_str());
         }

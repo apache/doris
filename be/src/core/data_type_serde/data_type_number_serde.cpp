@@ -80,8 +80,8 @@ Status read_number_decoded_values(IColumn& column, const DecodedColumnView& view
     if (view.values == nullptr && decoded_column_view_has_non_null_value(view)) {
         return Status::Corruption("Decoded value buffer is null for {}", column.get_name());
     }
-    auto& data =
-            assert_cast<typename PrimitiveTypeTraits<DorisType>::ColumnType&>(column).get_data();
+    auto& data = assert_cast<typename PrimitiveTypeTraits<DorisType>::ColumnType&>(column)
+                         .get_data_mutable();
     const auto old_size = data.size();
     const auto* values = decoded_values_as<SourceType>(view);
     for (int64_t row = 0; row < view.row_count; ++row) {
@@ -109,8 +109,8 @@ Status read_logical_integer_decoded_values_as(IColumn& column, const DecodedColu
     if (view.values == nullptr && decoded_column_view_has_non_null_value(view)) {
         return Status::Corruption("Decoded value buffer is null for {}", column.get_name());
     }
-    auto& data =
-            assert_cast<typename PrimitiveTypeTraits<DorisType>::ColumnType&>(column).get_data();
+    auto& data = assert_cast<typename PrimitiveTypeTraits<DorisType>::ColumnType&>(column)
+                         .get_data_mutable();
     const auto old_size = data.size();
     const auto* values = decoded_values_as<SourceType>(view);
     for (int64_t row = 0; row < view.row_count; ++row) {
@@ -406,7 +406,7 @@ Status DataTypeNumberSerDe<T>::read_column_from_arrow(IColumn& column,
                                                       int64_t start, int64_t end,
                                                       const cctz::time_zone& ctz) const {
     auto row_count = end - start;
-    auto& col_data = static_cast<ColumnType&>(column).get_data();
+    auto& col_data = static_cast<ColumnType&>(column).get_data_mutable();
 
     // now uint8 for bool
     if constexpr (T == TYPE_BOOLEAN) {
@@ -633,7 +633,7 @@ Status DataTypeNumberSerDe<T>::deserialize_column_from_jsonb(IColumn& column,
         if (!cast_to_basic_number()) {
             return JsonbCast::report_error(jsonb_value, T);
         }
-        auto& data = assert_cast<ColumnType&>(column).get_data();
+        auto& data = assert_cast<ColumnType&>(column).get_data_mutable();
         data.push_back(to);
         return Status::OK();
     }
@@ -650,7 +650,7 @@ Status DataTypeNumberSerDe<T>::deserialize_column_from_jsonb_vector(
         const bool is_strict = castParms.is_strict;
 
         auto& null_map = column_to.get_null_map_data();
-        auto& data = assert_cast<ColumnType&>(column_to.get_nested_column()).get_data();
+        auto& data = assert_cast<ColumnType&>(column_to.get_nested_column()).get_data_mutable();
 
         null_map.resize_fill(size, false);
         data.resize(size);
@@ -1011,7 +1011,7 @@ Status DataTypeNumberSerDe<T>::from_string_batch(const ColumnString& str, Column
     column.resize(size);
 
     auto& column_to = assert_cast<ColumnType&>(column.get_nested_column());
-    auto& vec_to = column_to.get_data();
+    auto& vec_to = column_to.get_data_mutable();
     auto& null_map = column.get_null_map_data();
 
     size_t current_offset = 0;
@@ -1043,7 +1043,7 @@ Status DataTypeNumberSerDe<T>::from_string_strict_mode_batch(
     const IColumn::Offsets* offsets = &str.get_offsets();
 
     auto& column_to = assert_cast<ColumnType&>(column);
-    auto& vec_to = column_to.get_data();
+    auto& vec_to = column_to.get_data_mutable();
     CastParameters params;
     params.is_strict = true;
     for (size_t i = 0; i < size; ++i) {

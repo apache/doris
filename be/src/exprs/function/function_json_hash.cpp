@@ -71,7 +71,7 @@ public:
                         uint32_t result, size_t size) const override {
         auto input_column = block.get_by_position(arguments[0]).column;
         auto to_column = ColumnInt64::create(size);
-        auto& to_column_data = to_column->get_data();
+        auto& to_column_data = to_column->get_data_mutable();
 
         const auto& input_jsonb_column = assert_cast<const ColumnString&>(*input_column);
 

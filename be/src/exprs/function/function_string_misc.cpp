@@ -746,7 +746,7 @@ public:
         }
 
         // validate utf8
-        auto* null_map_data = null_map->get_data().data();
+        auto* null_map_data = null_map->get_data_mutable().data();
         for (size_t i = 0; i < input_rows_count; ++i) {
             if (!validate_utf8((const char*)(&res_data[res_offset[i - 1]]),
                                res_offset[i] - res_offset[i - 1])) {
@@ -848,7 +848,7 @@ private:
     template <bool column_const>
     void _execute_impl(const ColumnString* text_col, StringRef& pattern, int gram_num,
                        ColumnFloat64& res, size_t size) const {
-        auto& res_data = res.get_data();
+        auto& res_data = res.get_data_mutable();
         res_data.resize_fill(size, 0);
         // If the length of the pattern is less than gram_num, return 0.
         if (pattern.size < gram_num) {
@@ -1479,7 +1479,7 @@ public:
         }
 
         auto res_col = ColumnInt64::create();
-        auto& res_data = res_col->get_data();
+        auto& res_data = res_col->get_data_mutable();
         res_data.resize_fill(input_rows_count, 0);
 
         for (size_t i = 0; i < input_rows_count; ++i) {

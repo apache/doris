@@ -91,7 +91,7 @@ Status AggregatePythonUDAFData::add_batch(AggregateDataPtr* places, size_t place
     }
 
     auto places_col = ColumnInt64::create(num_rows);
-    auto& places_data = places_col->get_data();
+    auto& places_data = places_col->get_data_mutable();
 
     // Fill places column with place IDs for the slice [start, end)
     for (size_t i = start; i < end; ++i) {

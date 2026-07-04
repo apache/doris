@@ -79,7 +79,7 @@ public:
         size_t argument_size = arguments.size();
         std::vector<ColumnPtr> argument_columns(argument_size);
         auto result_data_column = ColumnInt8::create(input_rows_count, 1);
-        auto& res_data = result_data_column->get_data();
+        auto& res_data = result_data_column->get_data_mutable();
 
         // maybe most user is bit_test(column, const), so only handle this case
         if (argument_size == 2) {

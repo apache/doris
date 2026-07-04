@@ -2339,7 +2339,7 @@ TEST_F(ColumnReaderTest, OffsetCalculateOffsetsUsesPageSentinelForLastOffset) {
     // first_storage_offset = 10
     // placeholder real next_storage_offset will be fetched from page sentinel (15)
     ColumnArray::ColumnOffsets column_offsets;
-    auto& data = column_offsets.get_data();
+    auto& data = column_offsets.get_data_mutable();
     data.push_back(100); // index 0: first_column_offset
     data.push_back(10);  // index 1: first_storage_offset
     data.push_back(12);  // index 2: placeholder storage offset for middle element

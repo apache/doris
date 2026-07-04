@@ -53,6 +53,18 @@ class FunctionContext;
 
 namespace doris {
 
+template <typename ColumnType>
+decltype(auto) array_difference_writable_data(ColumnType& column) {
+    return column.get_data();
+}
+
+template <PrimitiveType T>
+auto& array_difference_writable_data(ColumnVector<T>& column) {
+    // Numeric array_difference writes a freshly created result column. Fixed-length vectors need
+    // the explicit mutable accessor; decimal columns continue using their owned container.
+    return column.get_data_mutable();
+}
+
 class FunctionArrayDifference : public IFunction {
 public:
     static constexpr auto name = "array_difference";
@@ -159,7 +171,7 @@ private:
             res_nested = ColVecResult::create();
         }
         auto size = nested_column.size();
-        typename ColVecResult::Container& res_values = res_nested->get_data();
+        auto& res_values = array_difference_writable_data(*res_nested);
         res_values.resize(size);
 
         size_t pos = 0;
@@ -169,7 +181,7 @@ private:
         }
         if (nested_null_map) {
             auto null_map_col = ColumnUInt8::create(size, 0);
-            auto& null_map_col_data = null_map_col->get_data();
+            auto& null_map_col_data = null_map_col->get_data_mutable();
             auto nested_colum_data = static_cast<const ColumnUInt8*>(nested_null_map.get());
             VectorizedUtils::update_null_map(null_map_col_data, nested_colum_data->get_data());
             for (size_t row = 0; row < offsets.size(); ++row) {

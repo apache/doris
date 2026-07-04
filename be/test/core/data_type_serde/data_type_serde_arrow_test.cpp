@@ -117,7 +117,7 @@ std::shared_ptr<Block> create_test_block(std::vector<PrimitiveType> cols, int ro
         switch (cols[i]) {
         case TYPE_BOOLEAN: {
             auto vec = ColumnVector<TYPE_BOOLEAN>::create();
-            auto& data = vec->get_data();
+            auto& data = vec->get_data_mutable();
             for (int i = 0; i < row_num; ++i) {
                 data.push_back(i % 2);
             }
@@ -146,7 +146,7 @@ std::shared_ptr<Block> create_test_block(std::vector<PrimitiveType> cols, int ro
                 }
             } else {
                 auto vec = ColumnVector<TYPE_INT>::create();
-                auto& data = vec->get_data();
+                auto& data = vec->get_data_mutable();
                 for (int i = 0; i < row_num; ++i) {
                     data.push_back(i);
                 }
@@ -243,7 +243,7 @@ std::shared_ptr<Block> create_test_block(std::vector<PrimitiveType> cols, int ro
         } break;
         case TYPE_DATEV2: {
             auto column_vector_date_v2 = ColumnVector<TYPE_DATEV2>::create();
-            auto& date_v2_data = column_vector_date_v2->get_data();
+            auto& date_v2_data = column_vector_date_v2->get_data_mutable();
             for (int i = 0; i < row_num; ++i) {
                 DateV2Value<DateV2ValueType> value;
                 value.from_date_int64(20210501);
@@ -257,7 +257,7 @@ std::shared_ptr<Block> create_test_block(std::vector<PrimitiveType> cols, int ro
         case TYPE_DATE: // int64
         {
             auto column_vector_date = ColumnVector<TYPE_DATE>::create();
-            auto& date_data = column_vector_date->get_data();
+            auto& date_data = column_vector_date->get_data_mutable();
             for (int i = 0; i < row_num; ++i) {
                 VecDateTimeValue value;
                 value.from_date_int64(20210501);
@@ -270,7 +270,7 @@ std::shared_ptr<Block> create_test_block(std::vector<PrimitiveType> cols, int ro
         case TYPE_DATETIME: // int64
         {
             auto column_vector_datetime = ColumnVector<TYPE_DATETIME>::create();
-            auto& datetime_data = column_vector_datetime->get_data();
+            auto& datetime_data = column_vector_datetime->get_data_mutable();
             for (int i = 0; i < row_num; ++i) {
                 VecDateTimeValue value;
                 value.from_date_int64(20210501080910);
@@ -378,7 +378,7 @@ std::shared_ptr<Block> create_test_block(std::vector<PrimitiveType> cols, int ro
         } break;
         case TYPE_IPV4: {
             auto vec = ColumnIPv4::create();
-            auto& data = vec->get_data();
+            auto& data = vec->get_data_mutable();
             for (int i = 0; i < row_num; ++i) {
                 data.push_back(i);
             }
@@ -388,7 +388,7 @@ std::shared_ptr<Block> create_test_block(std::vector<PrimitiveType> cols, int ro
         } break;
         case TYPE_IPV6: {
             auto vec = ColumnIPv6::create();
-            auto& data = vec->get_data();
+            auto& data = vec->get_data_mutable();
             for (int i = 0; i < row_num; ++i) {
                 data.push_back(i);
             }
@@ -398,7 +398,7 @@ std::shared_ptr<Block> create_test_block(std::vector<PrimitiveType> cols, int ro
         } break;
         case TYPE_LARGEINT: {
             auto vec = ColumnInt128::create();
-            auto& data = vec->get_data();
+            auto& data = vec->get_data_mutable();
             for (int i = 0; i < row_num; ++i) {
                 data.push_back(__int128_t(i));
             }

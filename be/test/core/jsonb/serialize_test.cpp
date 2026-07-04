@@ -181,43 +181,43 @@ static void build_all_row_store_types_block(Block& block, TabletSchema& schema) 
     // ---- numeric scalars ----
     {
         auto col = ColumnUInt8::create();
-        col->get_data() = {0, 1, 0};
+        col->get_data_mutable() = {0, 1, 0};
         add("c_bool", std::make_shared<DataTypeUInt8>(), std::move(col));
     }
     {
         auto col = ColumnInt8::create();
-        col->get_data() = {-1, 0, 127};
+        col->get_data_mutable() = {-1, 0, 127};
         add("c_tinyint", std::make_shared<DataTypeInt8>(), std::move(col));
     }
     {
         auto col = ColumnInt16::create();
-        col->get_data() = {-32000, 0, 32000};
+        col->get_data_mutable() = {-32000, 0, 32000};
         add("c_smallint", std::make_shared<DataTypeInt16>(), std::move(col));
     }
     {
         auto col = ColumnInt32::create();
-        col->get_data() = {-1, 0, 1024};
+        col->get_data_mutable() = {-1, 0, 1024};
         add("c_int", std::make_shared<DataTypeInt32>(), std::move(col));
     }
     {
         auto col = ColumnInt64::create();
-        col->get_data() = {-1, 0, 1L << 40};
+        col->get_data_mutable() = {-1, 0, 1L << 40};
         add("c_bigint", std::make_shared<DataTypeInt64>(), std::move(col));
     }
     {
         auto col = ColumnInt128::create();
-        col->get_data() = {static_cast<Int128>(-1), static_cast<Int128>(0),
-                           static_cast<Int128>(1) << 100};
+        col->get_data_mutable() = {static_cast<Int128>(-1), static_cast<Int128>(0),
+                                   static_cast<Int128>(1) << 100};
         add("c_largeint", std::make_shared<DataTypeInt128>(), std::move(col));
     }
     {
         auto col = ColumnFloat32::create();
-        col->get_data() = {-1.5f, 0.0f, 3.14f};
+        col->get_data_mutable() = {-1.5f, 0.0f, 3.14f};
         add("c_float", std::make_shared<DataTypeFloat32>(), std::move(col));
     }
     {
         auto col = ColumnFloat64::create();
-        col->get_data() = {-1.5, 0.0, 3.14};
+        col->get_data_mutable() = {-1.5, 0.0, 3.14};
         add("c_double", std::make_shared<DataTypeFloat64>(), std::move(col));
     }
 
@@ -229,7 +229,7 @@ static void build_all_row_store_types_block(Block& block, TabletSchema& schema) 
             v.unchecked_set_time(y, m, d, 0, 0, 0, 0);
             return *reinterpret_cast<UInt32*>(&v);
         };
-        col->get_data() = {pack(2022, 6, 6), pack(2024, 12, 31), pack(2026, 5, 20)};
+        col->get_data_mutable() = {pack(2022, 6, 6), pack(2024, 12, 31), pack(2026, 5, 20)};
         add("c_datev2", std::make_shared<DataTypeDateV2>(), std::move(col));
     }
     {
@@ -239,13 +239,13 @@ static void build_all_row_store_types_block(Block& block, TabletSchema& schema) 
             v.unchecked_set_time(y, mo, d, h, mi, s, 0);
             return *reinterpret_cast<UInt64*>(&v);
         };
-        col->get_data() = {pack(2022, 6, 6, 12, 0, 0), pack(2024, 12, 31, 23, 59, 59),
-                           pack(2026, 5, 20, 1, 2, 3)};
+        col->get_data_mutable() = {pack(2022, 6, 6, 12, 0, 0), pack(2024, 12, 31, 23, 59, 59),
+                                   pack(2026, 5, 20, 1, 2, 3)};
         add("c_datetimev2", std::make_shared<DataTypeDateTimeV2>(0), std::move(col));
     }
     {
         auto col = ColumnTimeV2::create();
-        col->get_data() = {0.0, 1500000.0, 3600000000.0};
+        col->get_data_mutable() = {0.0, 1500000.0, 3600000000.0};
         add("c_timev2", std::make_shared<DataTypeTimeV2>(0), std::move(col));
     }
 
@@ -294,15 +294,15 @@ static void build_all_row_store_types_block(Block& block, TabletSchema& schema) 
     // ---- IPs ----
     {
         auto col = ColumnIPv4::create();
-        col->get_data() = {static_cast<IPv4>(0), static_cast<IPv4>(0x7f000001),
-                           static_cast<IPv4>(0xc0a80101)};
+        col->get_data_mutable() = {static_cast<IPv4>(0), static_cast<IPv4>(0x7f000001),
+                                   static_cast<IPv4>(0xc0a80101)};
         add("c_ipv4", std::make_shared<DataTypeIPv4>(), std::move(col));
     }
     {
         auto col = ColumnIPv6::create();
-        col->get_data() = {static_cast<IPv6>(0), static_cast<IPv6>(1),
-                           (static_cast<IPv6>(0x1234567890abcdefULL) << 64) |
-                                   static_cast<IPv6>(0xfedcba0987654321ULL)};
+        col->get_data_mutable() = {static_cast<IPv6>(0), static_cast<IPv6>(1),
+                                   (static_cast<IPv6>(0x1234567890abcdefULL) << 64) |
+                                           static_cast<IPv6>(0xfedcba0987654321ULL)};
         add("c_ipv6", std::make_shared<DataTypeIPv6>(), std::move(col));
     }
 
@@ -923,7 +923,7 @@ TEST(BlockSerializeTest, JsonbBlock) {
     // int
     {
         auto vec = ColumnInt32::create();
-        auto& data = vec->get_data();
+        auto& data = vec->get_data_mutable();
         for (int i = 0; i < 1024; ++i) {
             data.push_back(i);
         }
@@ -1021,7 +1021,7 @@ TEST(BlockSerializeTest, JsonbBlock) {
     // fill with datev2
     {
         auto column_vector_date_v2 = ColumnDateV2::create();
-        auto& date_v2_data = column_vector_date_v2->get_data();
+        auto& date_v2_data = column_vector_date_v2->get_data_mutable();
         for (int i = 0; i < 1024; ++i) {
             DateV2Value<DateV2ValueType> value;
             value.unchecked_set_time(2022, 6, 6, 0, 0, 0, 0);

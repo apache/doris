@@ -445,7 +445,7 @@ public:
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
         auto& value_data = this->data(place).get();
         auto& column = assert_cast<ColVecResult&>(to);
-        column.get_data().push_back(value_data.cardinality());
+        column.get_data_mutable().push_back(value_data.cardinality());
     }
 
     void reset(AggregateDataPtr __restrict place) const override { this->data(place).reset(); }

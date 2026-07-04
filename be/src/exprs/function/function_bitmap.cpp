@@ -366,7 +366,7 @@ public:
                         uint32_t result, size_t input_rows_count) const override {
         auto res_null_map = ColumnUInt8::create(input_rows_count, 0);
         auto res_data_column = ColumnBitmap::create();
-        auto& null_map = res_null_map->get_data();
+        auto& null_map = res_null_map->get_data_mutable();
         auto& res = res_data_column->get_data();
 
         ColumnPtr& argument_column = block.get_by_position(arguments[0]).column;
@@ -517,9 +517,9 @@ public:
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
         auto res_data_column = ColumnInt64::create();
-        auto& res = res_data_column->get_data();
+        auto& res = res_data_column->get_data_mutable();
         auto data_null_map = ColumnUInt8::create(input_rows_count, 0);
-        auto& null_map = data_null_map->get_data();
+        auto& null_map = data_null_map->get_data_mutable();
 
         auto column = block.get_by_position(arguments[0]).column;
         if (auto* nullable = check_and_get_column<const ColumnNullable>(*column)) {
@@ -684,7 +684,7 @@ ColumnPtr handle_bitmap_op_count_null_value(ColumnPtr& src, const Block& block,
     auto* nullable = assert_cast<ColumnNullable*>(mutable_src.get());
     auto* src_not_nullable_mutable = &nullable->get_nested_column();
     auto* __restrict count_data =
-            assert_cast<ColumnInt64*>(src_not_nullable_mutable)->get_data().data();
+            assert_cast<ColumnInt64*>(src_not_nullable_mutable)->get_data_mutable().data();
 
     for (const auto& arg : args) {
         const ColumnWithTypeAndName& elem = block.get_by_position(arg);
@@ -780,7 +780,7 @@ public:
         using ColVecResult = ColumnVector<ResultDataType::PType>;
 
         typename ColVecResult::MutablePtr col_res = ColVecResult::create();
-        auto& vec_res = col_res->get_data();
+        auto& vec_res = col_res->get_data_mutable();
         vec_res.resize(block.rows());
 
         const auto& left = block.get_by_position(arguments[0]);
@@ -1168,6 +1168,7 @@ public:
         DCHECK_EQ(arguments.size(), 3);
         auto res_null_map = ColumnUInt8::create(input_rows_count, 0);
         auto res_data_column = ColumnBitmap::create(input_rows_count);
+        auto& res_null_map_data = res_null_map->get_data_mutable();
 
         bool col_const[3];
         ColumnPtr argument_columns[3];
@@ -1187,11 +1188,11 @@ public:
 
         if (col_const[1] && col_const[2]) {
             Impl::vector_scalars(bitmap_column->get_data(), offset_column->get_element(0),
-                                 limit_column->get_element(0), res_null_map->get_data(),
-                                 input_rows_count, res_data_column->get_data());
+                                 limit_column->get_element(0), res_null_map_data, input_rows_count,
+                                 res_data_column->get_data());
         } else {
             Impl::vector3(bitmap_column->get_data(), offset_column->get_data(),
-                          limit_column->get_data(), res_null_map->get_data(), input_rows_count,
+                          limit_column->get_data(), res_null_map_data, input_rows_count,
                           res_data_column->get_data());
         }
 
@@ -1226,12 +1227,13 @@ public:
         ColumnNullable* dest_nested_nullable_col =
                 reinterpret_cast<ColumnNullable*>(dest_nested_column);
         dest_nested_column = dest_nested_nullable_col->get_nested_column_ptr().get();
-        auto& dest_nested_null_map = dest_nested_nullable_col->get_null_map_column().get_data();
+        auto& dest_nested_null_map = dest_nested_nullable_col->get_null_map_data();
 
         auto& arg_col = block.get_by_position(arguments[0]).column;
         auto bitmap_col = assert_cast<const ColumnBitmap*>(arg_col.get());
         const auto& bitmap_col_data = bitmap_col->get_data();
-        auto& nested_column_data = assert_cast<ColumnInt64*>(dest_nested_column)->get_data();
+        auto& nested_column_data =
+                assert_cast<ColumnInt64*>(dest_nested_column)->get_data_mutable();
         auto& dest_offsets = dest_array_column_ptr->get_offsets();
         dest_offsets.reserve(input_rows_count);
 

@@ -1311,17 +1311,18 @@ Status MapFileColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t
             RETURN_IF_ERROR(_offsets_iterator->_peek_one_offset(&ns));
             // overwrite with sentinel
             assert_cast<ColumnOffset64&, TypeCheckOnRelease::DISABLE>(*next_starts_col)
-                    .get_data()[i] = ns;
+                    .get_data_mutable()[i] = ns;
         }
     }
 
     // 5. compute sizes and append offsets prefix-sum
-    auto& starts_data = assert_cast<ColumnOffset64&>(*starts_col).get_data();
-    auto& next_starts_data = assert_cast<ColumnOffset64&>(*next_starts_col).get_data();
+    auto& starts_data = assert_cast<ColumnOffset64&>(*starts_col).get_data_mutable();
+    auto& next_starts_data = assert_cast<ColumnOffset64&>(*next_starts_col).get_data_mutable();
     std::vector<size_t> sizes(count, 0);
     size_t acc = base;
+    auto& offsets_data = offsets.get_data_mutable();
     if (read_meta_columns) {
-        offsets.get_data().reserve(offsets.get_data().size() + count);
+        offsets_data.reserve(offsets_data.size() + count);
     }
     for (size_t i = 0; i < count; ++i) {
         auto sz = static_cast<size_t>(next_starts_data[i] - starts_data[i]);
@@ -1331,7 +1332,7 @@ Status MapFileColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t
         sizes[i] = sz;
         acc += sz;
         if (read_meta_columns) {
-            offsets.get_data().push_back(acc);
+            offsets_data.push_back(acc);
         }
     }
 
@@ -1970,7 +1971,7 @@ Status OffsetFileColumnIterator::_calculate_offsets(ssize_t start,
     RETURN_IF_ERROR(_peek_one_offset(&next_storage_offset));
 
     // calculate real offsets
-    auto& offsets_data = column_offsets.get_data();
+    auto& offsets_data = column_offsets.get_data_mutable();
     ordinal_t first_column_offset = offsets_data[start - 1]; // -1 is valid
     ordinal_t first_storage_offset = offsets_data[start];
     DCHECK(next_storage_offset >= first_storage_offset);

@@ -70,7 +70,7 @@ public:
                         uint32_t result, size_t input_rows_count) const override {
         auto res_col = ResultColumnType::create();
         auto null_map = ColumnUInt8::create();
-        auto& null_map_data = null_map->get_data();
+        auto& null_map_data = null_map->get_data_mutable();
         res_col->reserve(input_rows_count);
         null_map_data.resize_fill(input_rows_count, 0);
 

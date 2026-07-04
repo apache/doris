@@ -140,7 +140,8 @@ struct RangeImplUtil {
         IColumn* dest_nested_column = &dest_array_column_ptr->get_data();
         auto* dest_nested_nullable_col = assert_cast<ColumnNullable*>(dest_nested_column);
         dest_nested_column = dest_nested_nullable_col->get_nested_column_ptr().get();
-        auto& dest_nested_null_map = dest_nested_nullable_col->get_null_map_column().get_data();
+        auto& dest_nested_null_map =
+                dest_nested_nullable_col->get_null_map_column().get_data_mutable();
 
         auto args_null_map = ColumnUInt8::create(input_rows_count, 0);
         ColumnPtr argument_columns[3];
@@ -162,8 +163,9 @@ struct RangeImplUtil {
         dest_nested_null_map.reserve(input_rows_count);
 
         RETURN_IF_ERROR(vector(start_column->get_data(), end_column->get_data(),
-                               step_column->get_data(), args_null_map->get_data(),
-                               nested_column->get_data(), dest_nested_null_map, dest_offsets));
+                               step_column->get_data(), args_null_map->get_data_mutable(),
+                               nested_column->get_data_mutable(), dest_nested_null_map,
+                               dest_offsets));
 
         block.get_by_position(result).column =
                 ColumnNullable::create(std::move(dest_array_column_ptr), std::move(args_null_map));

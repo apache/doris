@@ -35,6 +35,18 @@
 
 namespace doris {
 
+template <typename ColumnType>
+decltype(auto) totype_writable_data(ColumnType& column) {
+    return column.get_data();
+}
+
+template <PrimitiveType T>
+auto& totype_writable_data(ColumnVector<T>& column) {
+    // Type-conversion helpers may produce either complex columns or fixed-length vectors. Only the
+    // latter can be backed by a zero-copy page and must detach before writing result values.
+    return column.get_data_mutable();
+}
+
 // support string->complex/primary
 // support primary/complex->primary/complex
 // support primary -> string
@@ -103,8 +115,8 @@ private:
         if constexpr (Impl::PrimitiveTypeImpl == PrimitiveType::TYPE_STRING) {
             if (const ColumnString* col = check_and_get_column<ColumnString>(column.get())) {
                 auto col_res = Impl::ReturnColumnType::create();
-                RETURN_IF_ERROR(
-                        Impl::vector(col->get_chars(), col->get_offsets(), col_res->get_data()));
+                auto& col_res_data = totype_writable_data(*col_res);
+                RETURN_IF_ERROR(Impl::vector(col->get_chars(), col->get_offsets(), col_res_data));
                 block.replace_by_position(result, std::move(col_res));
                 return Status::OK();
             }
@@ -112,7 +124,8 @@ private:
             if (const auto* col =
                         check_and_get_column<ColumnVector<Impl::PrimitiveTypeImpl>>(column.get())) {
                 auto col_res = Impl::ReturnColumnType::create();
-                RETURN_IF_ERROR(Impl::vector(col->get_data(), col_res->get_data()));
+                auto& col_res_data = totype_writable_data(*col_res);
+                RETURN_IF_ERROR(Impl::vector(col->get_data(), col_res_data));
                 block.replace_by_position(result, std::move(col_res));
                 return Status::OK();
             }
@@ -120,14 +133,16 @@ private:
             if (const auto* col = check_and_get_column<ColumnComplexType<Impl::PrimitiveTypeImpl>>(
                         column.get())) {
                 auto col_res = Impl::ReturnColumnType::create();
-                RETURN_IF_ERROR(Impl::vector(col->get_data(), col_res->get_data()));
+                auto& col_res_data = totype_writable_data(*col_res);
+                RETURN_IF_ERROR(Impl::vector(col->get_data(), col_res_data));
                 block.replace_by_position(result, std::move(col_res));
                 return Status::OK();
             }
         } else if constexpr (Impl::PrimitiveTypeImpl == PrimitiveType::TYPE_VARBINARY) {
             if (const auto* col = check_and_get_column<ColumnVarbinary>(column.get())) {
                 auto col_res = Impl::ReturnColumnType::create();
-                RETURN_IF_ERROR(Impl::vector(col->get_data(), col_res->get_data()));
+                auto& col_res_data = totype_writable_data(*col_res);
+                RETURN_IF_ERROR(Impl::vector(col->get_data(), col_res_data));
                 block.replace_by_position(result, std::move(col_res));
                 return Status::OK();
             }
@@ -174,7 +189,7 @@ public:
         typename ColVecResult::MutablePtr col_res = nullptr;
 
         col_res = ColVecResult::create();
-        auto& vec_res = col_res->get_data();
+        auto& vec_res = totype_writable_data(*col_res);
         vec_res.resize(block.rows());
 
         if (auto col_left = check_and_get_column<ColVecLeft>(lcol.get())) {
@@ -241,7 +256,7 @@ private:
         using ColVecResult = ColumnVector<ResultDataType::PType>;
         typename ColVecResult::MutablePtr col_res = ColVecResult::create();
 
-        auto& vec_res = col_res->get_data();
+        auto& vec_res = totype_writable_data(*col_res);
         vec_res.resize(block.rows());
 
         if (const auto* col_left = check_and_get_column<ColVecLeft>(lcol.get())) {
@@ -348,23 +363,21 @@ public:
         typename ColVecResult::MutablePtr col_res = nullptr;
 
         col_res = ColVecResult::create();
-        auto& vec_res = col_res->get_data();
+        auto& vec_res = totype_writable_data(*col_res);
         vec_res.resize(block.rows());
+        auto& null_map_data = null_map->get_data_mutable();
 
         if (auto col_left = check_and_get_column<ColVecLeft>(argument_columns[0].get())) {
             if (auto col_right = check_and_get_column<ColVecRight>(argument_columns[1].get())) {
                 if (col_const[0]) {
                     Impl<LeftDataType, RightDataType, ResultDateType, ReturnType>::scalar_vector(
-                            col_left->get_data()[0], col_right->get_data(), vec_res,
-                            null_map->get_data());
+                            col_left->get_data()[0], col_right->get_data(), vec_res, null_map_data);
                 } else if (col_const[1]) {
                     Impl<LeftDataType, RightDataType, ResultDateType, ReturnType>::vector_scalar(
-                            col_left->get_data(), col_right->get_data()[0], vec_res,
-                            null_map->get_data());
+                            col_left->get_data(), col_right->get_data()[0], vec_res, null_map_data);
                 } else {
                     Impl<LeftDataType, RightDataType, ResultDateType, ReturnType>::vector_vector(
-                            col_left->get_data(), col_right->get_data(), vec_res,
-                            null_map->get_data());
+                            col_left->get_data(), col_right->get_data(), vec_res, null_map_data);
                 }
 
                 block.get_by_position(result).column =
@@ -400,6 +413,7 @@ public:
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
         auto null_map = ColumnUInt8::create(input_rows_count, 0);
+        auto& null_map_data = null_map->get_data_mutable();
         ColumnPtr argument_columns[2];
         bool col_const[2];
         for (int i = 0; i < 2; ++i) {
@@ -424,24 +438,25 @@ public:
             auto& res_offsets = res->get_offsets();
             if (col_const[0]) {
                 Impl::scalar_vector(context, specific_str_column->get_data_at(0), rdata, roffsets,
-                                    res_data, res_offsets, null_map->get_data());
+                                    res_data, res_offsets, null_map_data);
             } else if (col_const[1]) {
                 Impl::vector_scalar(context, ldata, loffsets, specific_char_column->get_data_at(0),
-                                    res_data, res_offsets, null_map->get_data());
+                                    res_data, res_offsets, null_map_data);
             } else {
                 Impl::vector_vector(context, ldata, loffsets, rdata, roffsets, res_data,
-                                    res_offsets, null_map->get_data());
+                                    res_offsets, null_map_data);
             }
         } else {
+            auto& res_data = totype_writable_data(*res);
             if (col_const[0]) {
                 Impl::scalar_vector(context, specific_str_column->get_data_at(0), rdata, roffsets,
-                                    res->get_data(), null_map->get_data());
+                                    res_data, null_map_data);
             } else if (col_const[1]) {
                 Impl::vector_scalar(context, ldata, loffsets, specific_char_column->get_data_at(0),
-                                    res->get_data(), null_map->get_data());
+                                    res_data, null_map_data);
             } else {
-                Impl::vector_vector(context, ldata, loffsets, rdata, roffsets, res->get_data(),
-                                    null_map->get_data());
+                Impl::vector_vector(context, ldata, loffsets, rdata, roffsets, res_data,
+                                    null_map_data);
             }
         }
 
@@ -470,6 +485,7 @@ public:
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
         auto null_map = ColumnUInt8::create(input_rows_count, 0);
+        auto& null_map_data = null_map->get_data_mutable();
 
         auto& col_ptr = block.get_by_position(arguments[0]).column;
 
@@ -478,10 +494,10 @@ public:
             if constexpr (std::is_same_v<typename Impl::ReturnType, DataTypeString>) {
                 RETURN_IF_ERROR(Impl::vector(col->get_chars(), col->get_offsets(),
                                              col_res->get_chars(), col_res->get_offsets(),
-                                             null_map->get_data()));
+                                             null_map_data));
             } else if (std::is_same_v<typename Impl::ReturnType, DataTypeVarbinary>) {
                 RETURN_IF_ERROR(Impl::vector(col->get_chars(), col->get_offsets(), col_res.get(),
-                                             null_map->get_data()));
+                                             null_map_data));
             } else {
                 return Status::RuntimeError("Illegal returntype {} of argument of function {}",
                                             col_res->get_name(), get_name());
@@ -521,7 +537,7 @@ public:
 
         if constexpr (is_allow_null) {
             auto null_map = ColumnUInt8::create(input_rows_count, 0);
-            auto& null_map_data = null_map->get_data();
+            auto& null_map_data = null_map->get_data_mutable();
             if constexpr (Impl::PrimitiveTypeImpl == PrimitiveType::TYPE_STRING) {
                 if (const auto* col = assert_cast<const ColumnString*>(col_ptr.get())) {
                     auto col_res = Impl::ColumnType::create();

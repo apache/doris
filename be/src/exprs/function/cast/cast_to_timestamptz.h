@@ -74,7 +74,7 @@ public:
                         .get_data();
 
         auto col_to = ColumnTimeStampTz::create(input_rows_count);
-        auto& col_to_data = col_to->get_data();
+        auto& col_to_data = col_to->get_data_mutable();
         const auto& local_time_zone = context->state()->timezone_obj();
 
         const auto dt_scale = block.get_by_position(arguments[0]).type->get_scale();
@@ -113,9 +113,9 @@ public:
                         .get_data();
 
         auto col_to = ColumnTimeStampTz::create(input_rows_count);
-        auto& col_to_data = col_to->get_data();
+        auto& col_to_data = col_to->get_data_mutable();
         auto col_null = ColumnBool::create(input_rows_count, 0);
-        auto& col_null_map = col_null->get_data();
+        auto& col_null_map = col_null->get_data_mutable();
         const auto& local_time_zone = context->state()->timezone_obj();
 
         const auto dt_scale = block.get_by_position(arguments[0]).type->get_scale();
@@ -150,7 +150,7 @@ public:
                         .get_data();
 
         auto col_to = ColumnTimeStampTz::create(input_rows_count);
-        auto& col_to_data = col_to->get_data();
+        auto& col_to_data = col_to->get_data_mutable();
         const auto& local_time_zone = context->state()->timezone_obj();
 
         const auto from_scale = block.get_by_position(arguments[0]).type->get_scale();
@@ -188,9 +188,9 @@ public:
                         .get_data();
 
         auto col_to = ColumnTimeStampTz::create(input_rows_count);
-        auto& col_to_data = col_to->get_data();
+        auto& col_to_data = col_to->get_data_mutable();
         auto col_null = ColumnBool::create(input_rows_count, 0);
-        auto& col_null_map = col_null->get_data();
+        auto& col_null_map = col_null->get_data_mutable();
 
         const auto from_scale = block.get_by_position(arguments[0]).type->get_scale();
         const auto to_scale = block.get_by_position(result).type->get_scale();

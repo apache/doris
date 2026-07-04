@@ -62,8 +62,8 @@ public:
     ColumnArrayMutableData to_mutable_data() const {
         ColumnArrayMutableData dst;
         dst.offsets_col = ColumnArray::ColumnOffsets::create();
-        dst.offsets_ptr =
-                &reinterpret_cast<ColumnArray::ColumnOffsets*>(dst.offsets_col.get())->get_data();
+        dst.offsets_ptr = &reinterpret_cast<ColumnArray::ColumnOffsets*>(dst.offsets_col.get())
+                                   ->get_data_mutable();
         dst.array_nested_col =
                 ColumnNullable::create(nested_col->clone_empty(), ColumnUInt8::create());
         auto* nullable_col = reinterpret_cast<ColumnNullable*>(dst.array_nested_col.get());

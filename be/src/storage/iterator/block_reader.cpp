@@ -925,8 +925,9 @@ Status BlockReader::_unique_key_next_block(Block* block, bool* eof) {
         auto delete_filter_column = IColumn::mutate(std::move(_delete_filter_column));
         reinterpret_cast<ColumnUInt8*>(delete_filter_column.get())->resize(target_block_row);
 
-        auto* __restrict filter_data =
-                reinterpret_cast<ColumnUInt8*>(delete_filter_column.get())->get_data().data();
+        auto* __restrict filter_data = reinterpret_cast<ColumnUInt8*>(delete_filter_column.get())
+                                               ->get_data_mutable()
+                                               .data();
         auto* __restrict delete_data =
                 reinterpret_cast<ColumnInt8*>(target_columns[delete_sign_idx].get())
                         ->get_data()

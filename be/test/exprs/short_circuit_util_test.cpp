@@ -158,7 +158,7 @@ TEST(ShortCircuitUtilTest, MutableColumnNullViewScalar_insert_from) {
     auto src_view = ColumnNullConstViewScalar<TYPE_INT>::create(src_col);
 
     MutableColumnPtr dst_col = ColumnInt32::create();
-    assert_cast<ColumnInt32*>(dst_col.get())->get_data().resize(5);
+    assert_cast<ColumnInt32*>(dst_col.get())->get_data_mutable().resize(5);
     auto dst_view = MutableColumnNullViewScalar<TYPE_INT>::create(dst_col);
 
     // Use selector to specify insert positions
@@ -178,7 +178,7 @@ TEST(ShortCircuitUtilTest, MutableColumnNullViewScalar_insert_from_const) {
     EXPECT_TRUE(src_view.is_const);
 
     MutableColumnPtr dst_col = ColumnInt32::create();
-    assert_cast<ColumnInt32*>(dst_col.get())->get_data().resize(3);
+    assert_cast<ColumnInt32*>(dst_col.get())->get_data_mutable().resize(3);
     auto dst_view = MutableColumnNullViewScalar<TYPE_INT>::create(dst_col);
 
     Selector selector = {0, 1, 2};

@@ -342,7 +342,7 @@ public:
                               IColumn* col_ptr) const override {
         const auto values = immutable_data();
         Self* output = assert_cast<Self*>(col_ptr);
-        auto& res_data = output->get_data();
+        auto& res_data = output->get_data_mutable();
         DCHECK(res_data.empty())
                 << "filter_by_selector requires the destination column to be empty";
         res_data.resize(sel_size);
@@ -438,13 +438,15 @@ public:
         return typeid(rhs) == typeid(ColumnVector<T>);
     }
 
-    /** More efficient methods of manipulation - to manipulate with data directly. */
-    Container& get_data() {
+    /** More efficient methods of manipulation. */
+    ImmContainer get_data() const { return immutable_data(); }
+
+    Container& get_data_mutable() {
+        // External page-backed data is exposed only through read-only views. Mutable callers must
+        // make the ownership transition explicit so shared readers can keep the zero-copy page.
         materialize_external_data();
         return data;
     }
-
-    ImmContainer get_data() const { return immutable_data(); }
 
     PODArrayView<value_type> get_data_with_padding() const {
         // Only internal columns that are known to be backed by Doris-owned PaddedPODArray should use

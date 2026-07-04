@@ -74,8 +74,9 @@ public:
                 }
                 auto origin_size = target->size();
                 target->resize(origin_size + max_step);
-                std::iota(target->get_data().data() + origin_size,
-                          target->get_data().data() + origin_size + max_step, _cur_offset);
+                auto* target_data = target->get_data_mutable().data();
+                std::iota(target_data + origin_size, target_data + origin_size + max_step,
+                          _cur_offset);
             }
         }
         forward(max_step);

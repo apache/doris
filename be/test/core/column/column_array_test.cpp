@@ -556,10 +556,11 @@ TEST_F(ColumnArrayTest, FilterExternalFixedLengthDataKeepsOffsetPrefix) {
                                                 owner->size(), owner);
 
     auto offsets = ColumnArray::ColumnOffsets::create();
-    offsets->get_data().push_back(2);
-    offsets->get_data().push_back(5);
-    offsets->get_data().push_back(5);
-    offsets->get_data().push_back(8);
+    auto& offset_values = offsets->get_data_mutable();
+    offset_values.push_back(2);
+    offset_values.push_back(5);
+    offset_values.push_back(5);
+    offset_values.push_back(8);
     auto array = ColumnArray::create(std::move(nested), std::move(offsets));
 
     // This exercises the return-new numeric array filter path with read-only views from both
@@ -653,7 +654,7 @@ TEST_F(ColumnArrayTest, SharedCreateValidatesOffsetsAndDataSize) {
     EXPECT_ANY_THROW({ auto array_column = ColumnArray::create(data); });
 
     auto bad_offsets_mut = ColumnArray::ColumnOffsets::create();
-    bad_offsets_mut->get_data().push_back(1);
+    bad_offsets_mut->get_data_mutable().push_back(1);
     ColumnPtr bad_offsets = std::move(bad_offsets_mut);
     EXPECT_ANY_THROW({ auto array_column = ColumnArray::create(data, bad_offsets); });
 
@@ -661,7 +662,7 @@ TEST_F(ColumnArrayTest, SharedCreateValidatesOffsetsAndDataSize) {
     EXPECT_ANY_THROW({ auto array_column = ColumnArray::create(data, wrong_offsets); });
 
     auto good_offsets_mut = ColumnArray::ColumnOffsets::create();
-    good_offsets_mut->get_data().push_back(2);
+    good_offsets_mut->get_data_mutable().push_back(2);
     ColumnPtr good_offsets = std::move(good_offsets_mut);
     auto array_column = ColumnArray::create(data, good_offsets);
     EXPECT_EQ(array_column->get_data_ptr().get(), data.get());

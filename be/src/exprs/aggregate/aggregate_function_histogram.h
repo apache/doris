@@ -126,7 +126,7 @@ struct AggregateFunctionHistogramData {
                 assert_cast<ColumnString&>(to).insert_data(element.second.c_str(),
                                                            element.second.length());
             } else {
-                assert_cast<ColVecType&>(to).get_data().push_back(element.second);
+                assert_cast<ColVecType&>(to).get_data_mutable().push_back(element.second);
             }
         }
     }

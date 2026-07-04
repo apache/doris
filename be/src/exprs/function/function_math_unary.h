@@ -61,7 +61,7 @@ private:
         const size_t size = src_data.size();
 
         auto dst = ColumnFloat64::create();
-        auto& dst_data = dst->get_data();
+        auto& dst_data = dst->get_data_mutable();
         dst_data.resize(size);
 
         execute_in_iterations(col->get_data().data(), dst_data.data(), size);

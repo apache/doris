@@ -212,7 +212,7 @@ private:
             }
 
             auto c_res = ColumnUInt8::create(c0->size());
-            ColumnUInt8::Container& vec_res = c_res->get_data();
+            ColumnUInt8::Container& vec_res = c_res->get_data_mutable();
 
             if (c0_is_const) {
                 const ColumnConst* c0_const = check_and_get_column_const<ColVecA>(c0.get());

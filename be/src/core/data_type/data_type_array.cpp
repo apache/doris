@@ -123,7 +123,7 @@ const char* DataTypeArray::deserialize(const char* buf, MutableColumnPtr* column
 
     // offsets
     auto offsets_column = std::move(*data_column->get_offsets_ptr()).mutate();
-    auto& offsets = assert_cast<ColumnArray::ColumnOffsets&>(*offsets_column).get_data();
+    auto& offsets = assert_cast<ColumnArray::ColumnOffsets&>(*offsets_column).get_data_mutable();
     offsets.resize(real_have_saved_num);
     memcpy(offsets.data(), buf, sizeof(ColumnArray::Offset64) * real_have_saved_num);
     buf += sizeof(ColumnArray::Offset64) * real_have_saved_num;

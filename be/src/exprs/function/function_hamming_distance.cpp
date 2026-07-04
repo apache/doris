@@ -71,7 +71,7 @@ public:
         const auto* right_str_col = assert_cast<const ColumnString*>(right_nested);
 
         auto res_col = ResultColumnType::create(input_rows_count);
-        auto& res_data = res_col->get_data();
+        auto& res_data = res_col->get_data_mutable();
 
         NullMapView left_null_map;
         NullMapView right_null_map;
@@ -101,7 +101,7 @@ public:
         }
 
         auto null_col = ColumnUInt8::create(input_rows_count, 0);
-        auto& null_map = null_col->get_data();
+        auto& null_map = null_col->get_data_mutable();
         if (left_const) {
             if (has_left_null_map && left_null_map[0]) {
                 std::fill(null_map.begin(), null_map.end(), 1);

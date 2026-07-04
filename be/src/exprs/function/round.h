@@ -466,7 +466,7 @@ struct Dispatcher {
             const auto* const col = assert_cast<const ColumnVector<T>*>(col_general);
             auto col_res = ColumnVector<T>::create();
 
-            typename ColumnVector<T>::Container& vec_res = col_res->get_data();
+            typename ColumnVector<T>::Container& vec_res = col_res->get_data_mutable();
             vec_res.resize(col->get_data().size());
 
             if (!vec_res.empty()) {
@@ -580,7 +580,7 @@ struct Dispatcher {
                       T == TYPE_TIMEV2) {
             const auto* col = assert_cast<const ColumnVector<T>*>(col_general);
             auto col_res = ColumnVector<T>::create();
-            typename ColumnVector<T>::Container& vec_res = col_res->get_data();
+            typename ColumnVector<T>::Container& vec_res = col_res->get_data_mutable();
             vec_res.resize(input_row_count);
 
             for (size_t i = 0; i < input_row_count; ++i) {
@@ -772,7 +772,7 @@ struct Dispatcher {
                     assert_cast<const ColumnVector<T>&>(const_col_general->get_data_column());
             const auto& general_val = data_col_general.get_data()[0];
             auto col_res = ColumnVector<T>::create(input_rows_count);
-            typename ColumnVector<T>::Container& vec_res = col_res->get_data();
+            typename ColumnVector<T>::Container& vec_res = col_res->get_data_mutable();
 
             for (size_t i = 0; i < input_rows_count; ++i) {
                 const Int16 scale_arg = col_scale_i32.get_data()[i];

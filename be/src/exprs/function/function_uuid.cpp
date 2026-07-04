@@ -67,9 +67,9 @@ public:
                 assert_cast<const ColumnString&>(*block.get_by_position(arguments[0]).column);
 
         auto result_column = ColumnInt128::create(input_rows_count);
-        auto& result_data = result_column->get_data();
+        auto& result_data = result_column->get_data_mutable();
         auto null_column = ColumnUInt8::create(input_rows_count);
-        auto& null_map = null_column->get_data();
+        auto& null_map = null_column->get_data_mutable();
 
         for (int row = 0; row < input_rows_count; row++) {
             auto str = arg_column.get_data_at(row);

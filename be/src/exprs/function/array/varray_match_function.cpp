@@ -95,13 +95,15 @@ public:
         // result is nullable bool column for every array column
         auto result_data_column = ColumnUInt8::create(input_rows_count, 1);
         auto result_null_column = ColumnUInt8::create(input_rows_count, 0);
+        auto& result_data = result_data_column->get_data_mutable();
+        auto& result_null_map = result_null_column->get_data_mutable();
 
         // iterate over all arrays with bool elements
         for (int row = 0; row < input_rows_count; ++row) {
             if (array_null_map && array_null_map[row]) {
                 // current array is null, this is always null
-                result_null_column->get_data()[row] = 1;
-                result_data_column->get_data()[row] = 0;
+                result_null_map[row] = 1;
+                result_data[row] = 0;
             } else {
                 // we should calculate the bool result for current array
                 // has_null in current array
@@ -118,8 +120,8 @@ public:
                         } // default is MATCH_ALL
                     }
                 }
-                result_null_column->get_data()[row] = has_null_elem && res_for_array == MATCH_ALL;
-                result_data_column->get_data()[row] = res_for_array;
+                result_null_map[row] = has_null_elem && res_for_array == MATCH_ALL;
+                result_data[row] = res_for_array;
             }
         }
 

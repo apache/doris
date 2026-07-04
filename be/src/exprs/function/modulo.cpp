@@ -385,8 +385,8 @@ struct ModNumericImpl {
 
         auto null_map = ColumnUInt8::create(column_left->size(), 0);
         const auto a = column_left_ptr->get_data();
-        auto& c = column_result->get_data();
-        auto& n = null_map->get_data();
+        auto& c = column_result->get_data_mutable();
+        auto& n = null_map->get_data_mutable();
         if constexpr (requires { Impl::apply(a, b, c, n); }) {
             Impl::apply(a, b, c, n);
         } else {
@@ -405,8 +405,8 @@ struct ModNumericImpl {
 
         auto null_map = ColumnUInt8::create(column_right->size(), 0);
         const auto b = column_right_ptr->get_data();
-        auto& c = column_result->get_data();
-        auto& n = null_map->get_data();
+        auto& c = column_result->get_data_mutable();
+        auto& n = null_map->get_data_mutable();
         if constexpr (requires { Impl::apply(a, b, c, n); }) {
             Impl::apply(a, b, c, n);
         } else {
@@ -428,8 +428,8 @@ struct ModNumericImpl {
         auto null_map = ColumnUInt8::create(column_result->size(), 0);
         const auto a = column_left_ptr->get_data();
         const auto b = column_right_ptr->get_data();
-        auto& c = column_result->get_data();
-        auto& n = null_map->get_data();
+        auto& c = column_result->get_data_mutable();
+        auto& n = null_map->get_data_mutable();
         if constexpr (requires { Impl::apply(a, b, c, n); }) {
             Impl::apply(a, b, c, n);
         } else {
@@ -685,7 +685,7 @@ struct ModDecimalImpl {
         auto null_map = ColumnUInt8::create(column_left->size(), 0);
         const auto& a = column_left_ptr->get_data().data();
         const auto& c = column_result->get_data().data();
-        auto& n = null_map->get_data();
+        auto& n = null_map->get_data_mutable();
         auto sz = column_left->size();
         if (check_overflow_for_decimal) {
             for (size_t i = 0; i < sz; ++i) {
@@ -716,7 +716,7 @@ struct ModDecimalImpl {
         auto null_map = ColumnUInt8::create(column_left->size(), 0);
         const auto& a = column_left_ptr->get_data().data();
         const auto& c = column_result->get_data().data();
-        auto& n = null_map->get_data();
+        auto& n = null_map->get_data_mutable();
         auto sz = column_left->size();
         if (check_overflow_for_decimal) {
             for (size_t i = 0; i < sz; ++i) {
@@ -747,7 +747,7 @@ struct ModDecimalImpl {
         auto null_map = ColumnUInt8::create(column_right->size(), 0);
         const auto& b = column_right_ptr->get_data().data();
         const auto& c = column_result->get_data().data();
-        auto& n = null_map->get_data();
+        auto& n = null_map->get_data_mutable();
         auto sz = column_right->size();
         if (check_overflow_for_decimal) {
             for (size_t i = 0; i < sz; ++i) {
@@ -779,7 +779,7 @@ struct ModDecimalImpl {
         auto null_map = ColumnUInt8::create(column_right->size(), 0);
         const auto& b = column_right_ptr->get_data().data();
         const auto& c = column_result->get_data().data();
-        auto& n = null_map->get_data();
+        auto& n = null_map->get_data_mutable();
         auto sz = column_right->size();
         if (check_overflow_for_decimal) {
             for (size_t i = 0; i < sz; ++i) {
@@ -815,7 +815,7 @@ struct ModDecimalImpl {
         const auto& a = column_left_ptr->get_data().data();
         const auto& b = column_right_ptr->get_data().data();
         const auto& c = column_result->get_data().data();
-        auto& n = null_map->get_data();
+        auto& n = null_map->get_data_mutable();
         auto sz = column_right->size();
         if (check_overflow_for_decimal) {
             for (size_t i = 0; i < sz; ++i) {
@@ -850,7 +850,7 @@ struct ModDecimalImpl {
         const auto& a = column_left_ptr->get_data().data();
         const auto& b = column_right_ptr->get_data().data();
         const auto& c = column_result->get_data().data();
-        auto& n = null_map->get_data();
+        auto& n = null_map->get_data_mutable();
         auto sz = column_right->size();
         if (check_overflow_for_decimal) {
             for (size_t i = 0; i < sz; ++i) {

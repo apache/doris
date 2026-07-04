@@ -222,10 +222,10 @@ public:
         switch (col_schema->parquet_schema.type) {
         case tparquet::Type::type::BOOLEAN: {
             auto physical_col = ColumnUInt8::create();
-            physical_col->get_data().data();
             physical_col->resize(2);
-            physical_col->get_data()[0] = *reinterpret_cast<const bool*>(encoded_min.data());
-            physical_col->get_data()[1] = *reinterpret_cast<const bool*>(encoded_max.data());
+            auto& data = physical_col->get_data_mutable();
+            data[0] = *reinterpret_cast<const bool*>(encoded_min.data());
+            data[1] = *reinterpret_cast<const bool*>(encoded_max.data());
             physical_column = std::move(physical_col);
             break;
         }
@@ -233,8 +233,9 @@ public:
             auto physical_col = ColumnInt32::create();
             physical_col->resize(2);
 
-            physical_col->get_data()[0] = *reinterpret_cast<const int32_t*>(encoded_min.data());
-            physical_col->get_data()[1] = *reinterpret_cast<const int32_t*>(encoded_max.data());
+            auto& data = physical_col->get_data_mutable();
+            data[0] = *reinterpret_cast<const int32_t*>(encoded_min.data());
+            data[1] = *reinterpret_cast<const int32_t*>(encoded_max.data());
 
             physical_column = std::move(physical_col);
             break;
@@ -242,24 +243,27 @@ public:
         case tparquet::Type::type::INT64: {
             auto physical_col = ColumnInt64::create();
             physical_col->resize(2);
-            physical_col->get_data()[0] = *reinterpret_cast<const int64_t*>(encoded_min.data());
-            physical_col->get_data()[1] = *reinterpret_cast<const int64_t*>(encoded_max.data());
+            auto& data = physical_col->get_data_mutable();
+            data[0] = *reinterpret_cast<const int64_t*>(encoded_min.data());
+            data[1] = *reinterpret_cast<const int64_t*>(encoded_max.data());
             physical_column = std::move(physical_col);
             break;
         }
         case tparquet::Type::type::FLOAT: {
             auto physical_col = ColumnFloat32::create();
             physical_col->resize(2);
-            physical_col->get_data()[0] = *reinterpret_cast<const float*>(encoded_min.data());
-            physical_col->get_data()[1] = *reinterpret_cast<const float*>(encoded_max.data());
+            auto& data = physical_col->get_data_mutable();
+            data[0] = *reinterpret_cast<const float*>(encoded_min.data());
+            data[1] = *reinterpret_cast<const float*>(encoded_max.data());
             physical_column = std::move(physical_col);
             break;
         }
         case tparquet::Type::type::DOUBLE: {
             auto physical_col = ColumnFloat64 ::create();
             physical_col->resize(2);
-            physical_col->get_data()[0] = *reinterpret_cast<const double*>(encoded_min.data());
-            physical_col->get_data()[1] = *reinterpret_cast<const double*>(encoded_max.data());
+            auto& data = physical_col->get_data_mutable();
+            data[0] = *reinterpret_cast<const double*>(encoded_min.data());
+            data[1] = *reinterpret_cast<const double*>(encoded_max.data());
             physical_column = std::move(physical_col);
             break;
         }
@@ -276,7 +280,7 @@ public:
             DCHECK(col_schema->parquet_schema.type_length == encoded_min.length());
             DCHECK(col_schema->parquet_schema.type_length == encoded_max.length());
 
-            auto ptr = physical_col->get_data().data();
+            auto ptr = physical_col->get_data_mutable().data();
             memcpy(ptr, encoded_min.data(), encoded_min.length());
             memcpy(ptr + encoded_min.length(), encoded_max.data(), encoded_max.length());
             physical_column = std::move(physical_col);
@@ -288,7 +292,7 @@ public:
             DCHECK(sizeof(ParquetInt96) == encoded_min.length());
             DCHECK(sizeof(ParquetInt96) == encoded_max.length());
 
-            auto ptr = physical_col->get_data().data();
+            auto ptr = physical_col->get_data_mutable().data();
             memcpy(ptr, encoded_min.data(), encoded_min.length());
             memcpy(ptr + encoded_min.length(), encoded_max.data(), encoded_max.length());
             physical_column = std::move(physical_col);

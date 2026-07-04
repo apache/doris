@@ -64,6 +64,17 @@ struct MapStringEqual {
     }
 };
 
+template <typename Column>
+decltype(auto) get_writable_key_data(Column& column) {
+    // Map keys can be fixed-length ColumnVector values or Decimal values. Only ColumnVector may be
+    // backed by scanner pages, so it needs explicit materialization before appending a key.
+    if constexpr (requires { column.get_data_mutable(); }) {
+        return column.get_data_mutable();
+    } else {
+        return column.get_data();
+    }
+}
+
 std::string nested_function_name(const std::string& name) {
     if (name == "sum_map") {
         return "sum";
@@ -338,7 +349,7 @@ private:
         if constexpr (is_string_type(KeyType)) {
             typed_column.insert_data(key.data(), key.size());
         } else {
-            typed_column.get_data().push_back(key);
+            get_writable_key_data(typed_column).push_back(key);
         }
     }
 

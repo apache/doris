@@ -59,7 +59,7 @@ public:
         }
 
         auto dst_column = ColumnInt64::create(input_rows_count);
-        auto& dst_data = dst_column->get_data();
+        auto& dst_data = dst_column->get_data_mutable();
 
         if (left_const && map_column) {
             for (size_t i = 0; i < input_rows_count; i++) {

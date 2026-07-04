@@ -286,7 +286,7 @@ Status VExprContext::execute_conjuncts(const VExprContextSPtrs& conjuncts, const
                                      null_map.size(), rows);
     }
 
-    auto* final_null_map = null_map.get_data().data();
+    auto* final_null_map = null_map.get_data_mutable().data();
     auto* final_filter_ptr = filter.data();
 
     for (const auto& conjunct : conjuncts) {

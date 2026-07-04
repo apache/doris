@@ -216,7 +216,7 @@ public:
 
         const ColumnString* col_from_string = nullptr;
         if (const auto* nullable_col = check_and_get_column<ColumnNullable>(col_from.get())) {
-            VectorizedUtils::update_null_map(null_map->get_data(),
+            VectorizedUtils::update_null_map(null_map->get_data_mutable(),
                                              nullable_col->get_null_map_data(), col_from_is_const);
             col_from_string =
                     assert_cast<const ColumnString*>(nullable_col->get_nested_column_ptr().get());
@@ -281,7 +281,7 @@ public:
 
         col_to->reserve(input_rows_count);
 
-        auto& null_map_data = null_map->get_data();
+        auto& null_map_data = null_map->get_data_mutable();
 
         // parser can be reused for performance
         JsonBinaryValue jsonb_value;
@@ -421,9 +421,10 @@ public:
                       std::is_same_v<typename Impl::ReturnType, DataTypeJsonb>) {
             auto& res_data = res->get_chars();
             auto& res_offsets = res->get_offsets();
-            RETURN_IF_ERROR(Impl::vector_vector_v2(
-                    context, ldata, loffsets, data_null_map, jsonb_data_const, jsonb_path_columns,
-                    path_null_maps, path_const, res_data, res_offsets, null_map->get_data()));
+            RETURN_IF_ERROR(Impl::vector_vector_v2(context, ldata, loffsets, data_null_map,
+                                                   jsonb_data_const, jsonb_path_columns,
+                                                   path_null_maps, path_const, res_data,
+                                                   res_offsets, null_map->get_data_mutable()));
         } else {
             // not support other extract type for now (e.g. int, double, ...)
             DORIS_CHECK_EQ(jsonb_path_columns.size(), 1);
@@ -446,20 +447,21 @@ public:
                     return create_all_null_result();
                 }
 
-                RETURN_IF_ERROR(Impl::scalar_vector(context, jsonb_data_column->get_data_at(0),
-                                                    rdata, roffsets, path_null_maps[0],
-                                                    res->get_data(), null_map->get_data()));
+                RETURN_IF_ERROR(Impl::scalar_vector(
+                        context, jsonb_data_column->get_data_at(0), rdata, roffsets,
+                        path_null_maps[0], res->get_data_mutable(), null_map->get_data_mutable()));
             } else if (path_const[0]) {
                 if (path_null_maps[0].data() && path_null_maps[0][0]) {
                     return create_all_null_result();
                 }
                 RETURN_IF_ERROR(Impl::vector_scalar(context, ldata, loffsets, data_null_map,
                                                     jsonb_path_columns[0]->get_data_at(0),
-                                                    res->get_data(), null_map->get_data()));
+                                                    res->get_data_mutable(),
+                                                    null_map->get_data_mutable()));
             } else {
-                RETURN_IF_ERROR(Impl::vector_vector(context, ldata, loffsets, data_null_map, rdata,
-                                                    roffsets, path_null_maps[0], res->get_data(),
-                                                    null_map->get_data()));
+                RETURN_IF_ERROR(Impl::vector_vector(
+                        context, ldata, loffsets, data_null_map, rdata, roffsets, path_null_maps[0],
+                        res->get_data_mutable(), null_map->get_data_mutable()));
             }
         }
 
@@ -522,7 +524,7 @@ public:
         }
 
         auto null_map = ColumnUInt8::create(input_rows_count, 0);
-        NullMap& res_null_map = null_map->get_data();
+        NullMap& res_null_map = null_map->get_data_mutable();
 
         auto dst_arr = ColumnArray::create(
                 ColumnNullable::create(ColumnString::create(), ColumnUInt8::create()),
@@ -706,7 +708,7 @@ public:
         NullMap* result_null_map = nullptr;
         if (data_null_map.data() || path_null_map.data()) {
             result_null_map_column = ColumnUInt8::create(input_rows_count, 0);
-            result_null_map = &result_null_map_column->get_data();
+            result_null_map = &result_null_map_column->get_data_mutable();
 
             if (data_null_map.data()) {
                 VectorizedUtils::update_null_map(*result_null_map, data_null_map, jsonb_data_const);
@@ -733,16 +735,16 @@ public:
             if (data_null_map.data() && data_null_map[0]) {
                 return create_all_null_result();
             }
-            scalar_vector(context, data_col->get_data_at(0), rdata, roffsets, res->get_data(),
-                          result_null_map_view, is_invalid_json_path);
+            scalar_vector(context, data_col->get_data_at(0), rdata, roffsets,
+                          res->get_data_mutable(), result_null_map_view, is_invalid_json_path);
         } else if (path_const) {
             if (path_null_map.data() && path_null_map[0]) {
                 return create_all_null_result();
             }
-            vector_scalar(context, ldata, loffsets, path_col->get_data_at(0), res->get_data(),
-                          result_null_map_view, is_invalid_json_path);
+            vector_scalar(context, ldata, loffsets, path_col->get_data_at(0),
+                          res->get_data_mutable(), result_null_map_view, is_invalid_json_path);
         } else {
-            vector_vector(context, ldata, loffsets, rdata, roffsets, res->get_data(),
+            vector_vector(context, ldata, loffsets, rdata, roffsets, res->get_data_mutable(),
                           result_null_map_view, is_invalid_json_path);
         }
         if (is_invalid_json_path) {
@@ -1370,7 +1372,7 @@ struct JsonbLengthUtil {
         if (is_const) {
             if (path_column->is_null_at(0)) {
                 for (size_t i = 0; i < input_rows_count; ++i) {
-                    null_map->get_data()[i] = 1;
+                    null_map->get_data_mutable()[i] = 1;
                     res->insert_data(nullptr, 0);
                 }
 
@@ -1389,7 +1391,7 @@ struct JsonbLengthUtil {
         for (size_t i = 0; i < input_rows_count; ++i) {
             if (jsonb_data_column->is_null_at(i) || path_column->is_null_at(i) ||
                 (jsonb_data_column->get_data_at(i).size == 0)) {
-                null_map->get_data()[i] = 1;
+                null_map->get_data_mutable()[i] = 1;
                 res->insert_data(nullptr, 0);
                 continue;
             }
@@ -1410,7 +1412,7 @@ struct JsonbLengthUtil {
             auto find_result = doc->getValue()->findValue(path);
             const auto* value = find_result.value;
             if (UNLIKELY(!value)) {
-                null_map->get_data()[i] = 1;
+                null_map->get_data_mutable()[i] = 1;
                 res->insert_data(nullptr, 0);
                 continue;
             }
@@ -1483,7 +1485,7 @@ struct JsonbContainsUtil {
         if (is_const) {
             if (path_column->is_null_at(0)) {
                 for (size_t i = 0; i < input_rows_count; ++i) {
-                    null_map->get_data()[i] = 1;
+                    null_map->get_data_mutable()[i] = 1;
                     res->insert_data(nullptr, 0);
                 }
 
@@ -1502,7 +1504,7 @@ struct JsonbContainsUtil {
         for (size_t i = 0; i < input_rows_count; ++i) {
             if (jsonb_data1_column->is_null_at(i) || jsonb_data2_column->is_null_at(i) ||
                 path_column->is_null_at(i)) {
-                null_map->get_data()[i] = 1;
+                null_map->get_data_mutable()[i] = 1;
                 res->insert_data(nullptr, 0);
                 continue;
             }
@@ -1521,7 +1523,7 @@ struct JsonbContainsUtil {
             auto jsonb_value2 = jsonb_data2_column->get_data_at(i);
 
             if (jsonb_value1.size == 0 || jsonb_value2.size == 0) {
-                null_map->get_data()[i] = 1;
+                null_map->get_data_mutable()[i] = 1;
                 res->insert_data(nullptr, 0);
                 continue;
             }
@@ -1537,7 +1539,7 @@ struct JsonbContainsUtil {
             const auto* value1 = find_result.value;
             const JsonbValue* value2 = doc2->getValue();
             if (!value1 || !value2) {
-                null_map->get_data()[i] = 1;
+                null_map->get_data_mutable()[i] = 1;
                 res->insert_data(nullptr, 0);
                 continue;
             }
@@ -2442,7 +2444,7 @@ private:
         for (size_t i = 0; i < input_rows_count; ++i) {
             // an error occurs if the json_doc argument is not a valid json document.
             if (json_null_check(i)) {
-                null_map->get_data()[i] = 1;
+                null_map->get_data_mutable()[i] = 1;
                 result_col->insert_data("", 0);
                 continue;
             }
@@ -2461,7 +2463,7 @@ private:
             }
 
             if (one_null_check(i) || search_null_check(i)) {
-                null_map->get_data()[i] = 1;
+                null_map->get_data_mutable()[i] = 1;
                 result_col->insert_data("", 0);
                 continue;
             }
@@ -2493,7 +2495,7 @@ private:
             }
             if (matches.empty()) {
                 // returns NULL if the search_str is not found in the document.
-                null_map->get_data()[i] = 1;
+                null_map->get_data_mutable()[i] = 1;
                 result_col->insert_data("", 0);
                 continue;
             }

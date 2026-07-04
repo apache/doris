@@ -125,7 +125,7 @@ void serialize_and_deserialize_mysql_test(bool dry_run) {
             tslot.__set_slotType(type_desc->to_thrift());
             {
                 auto vec = ColumnVector<TYPE_BOOLEAN>::create();
-                auto& data = vec->get_data();
+                auto& data = vec->get_data_mutable();
                 for (int i = 0; i < row_num; ++i) {
                     data.push_back(i % 2);
                 }
@@ -151,7 +151,7 @@ void serialize_and_deserialize_mysql_test(bool dry_run) {
                 }
             } else {
                 auto vec = ColumnVector<TYPE_INT>::create();
-                auto& data = vec->get_data();
+                auto& data = vec->get_data_mutable();
                 for (int i = 0; i < row_num; ++i) {
                     data.push_back(i);
                 }
@@ -207,7 +207,7 @@ void serialize_and_deserialize_mysql_test(bool dry_run) {
             tslot.__set_slotType(type_desc->to_thrift());
             {
                 auto column_vector_date_v2 = ColumnVector<TYPE_DATEV2>::create();
-                auto& date_v2_data = column_vector_date_v2->get_data();
+                auto& date_v2_data = column_vector_date_v2->get_data_mutable();
                 for (int i = 0; i < row_num; ++i) {
                     DateV2Value<DateV2ValueType> value;
                     value.unchecked_set_time(2022, 6, 6, 0, 0, 0, 0);
@@ -223,7 +223,7 @@ void serialize_and_deserialize_mysql_test(bool dry_run) {
             tslot.__set_slotType(type_desc->to_thrift());
             {
                 auto column_vector_date = ColumnVector<TYPE_DATE>::create();
-                auto& date_data = column_vector_date->get_data();
+                auto& date_data = column_vector_date->get_data_mutable();
                 for (int i = 0; i < row_num; ++i) {
                     VecDateTimeValue value;
                     value.from_date_int64(20210501);
@@ -238,7 +238,7 @@ void serialize_and_deserialize_mysql_test(bool dry_run) {
             tslot.__set_slotType(type_desc->to_thrift());
             {
                 auto column_vector_datetime = ColumnVector<TYPE_DATETIME>::create();
-                auto& datetime_data = column_vector_datetime->get_data();
+                auto& datetime_data = column_vector_datetime->get_data_mutable();
                 for (int i = 0; i < row_num; ++i) {
                     VecDateTimeValue value;
                     value.from_date_int64(20210501080910);
@@ -254,7 +254,7 @@ void serialize_and_deserialize_mysql_test(bool dry_run) {
             tslot.__set_slotType(type_desc->to_thrift());
             {
                 auto column_vector_ipv4 = ColumnVector<TYPE_IPV4>::create();
-                auto& ipv4_data = column_vector_ipv4->get_data();
+                auto& ipv4_data = column_vector_ipv4->get_data_mutable();
                 for (int i = 0; i < row_num; ++i) {
                     IPv4Value ipv4_value;
                     bool res = ipv4_value.from_string("192.168.0." + std::to_string(i));
@@ -270,7 +270,7 @@ void serialize_and_deserialize_mysql_test(bool dry_run) {
             tslot.__set_slotType(type_desc->to_thrift());
             {
                 auto column_vector_ipv6 = ColumnVector<TYPE_IPV6>::create();
-                auto& ipv6_data = column_vector_ipv6->get_data();
+                auto& ipv6_data = column_vector_ipv6->get_data_mutable();
                 for (int i = 0; i < row_num; ++i) {
                     IPv6Value ipv6_value;
                     bool res = ipv6_value.from_string("2001:2000:3080:1351::" + std::to_string(i));

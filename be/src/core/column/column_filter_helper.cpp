@@ -24,13 +24,13 @@ ColumnFilterHelper::ColumnFilterHelper(IColumn& column_)
           _null_map_column(_column.get_null_map_column()) {}
 
 void ColumnFilterHelper::resize_fill(size_t size, doris::UInt8 value) {
-    _value_column.get_data().resize_fill(size, value);
-    _null_map_column.get_data().resize_fill(size, 0);
+    _value_column.get_data_mutable().resize_fill(size, value);
+    _null_map_column.get_data_mutable().resize_fill(size, 0);
 }
 
 void ColumnFilterHelper::insert_value(doris::UInt8 value) {
-    _value_column.get_data().push_back(value);
-    _null_map_column.get_data().push_back(0);
+    _value_column.get_data_mutable().push_back(value);
+    _null_map_column.get_data_mutable().push_back(0);
 }
 
 void ColumnFilterHelper::reserve(size_t size) {

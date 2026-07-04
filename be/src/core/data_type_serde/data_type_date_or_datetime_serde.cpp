@@ -192,7 +192,7 @@ Status DataTypeDateSerDe<T>::_read_column_from_arrow(IColumn& column,
                                                      const arrow::Array* arrow_array, int64_t start,
                                                      int64_t end,
                                                      const cctz::time_zone& ctz) const {
-    auto& col_data = static_cast<ColumnVector<T>&>(column).get_data();
+    auto& col_data = static_cast<ColumnVector<T>&>(column).get_data_mutable();
     int64_t divisor = 1;
     int64_t multiplier = 1;
     if (arrow_array->type()->id() == arrow::Type::DATE64) {
@@ -330,6 +330,8 @@ Status DataTypeDateSerDe<T>::from_string_batch(
     auto& col_nullmap = col_res.get_null_map_column();
     size_t row = col_str.size();
     col_res.resize(row);
+    auto& values = col_data.get_data_mutable();
+    auto& nulls = col_nullmap.get_data_mutable();
 
     CastParameters params {.status = Status::OK(), .is_strict = false};
     for (size_t i = 0; i < row; ++i) {
@@ -343,12 +345,12 @@ Status DataTypeDateSerDe<T>::from_string_batch(
                     ? DatelikeTargetType::DATE_TIME
                     : DatelikeTargetType::DATE > (str, res, options.timezone, params))
                 [[unlikely]] {
-            col_nullmap.get_data()[i] = true;
+            nulls[i] = true;
             //TODO: we should set `for` functions who need it then skip to set default value for null rows.
-            col_data.get_data()[i] = VecDateTimeValue::FIRST_DAY;
+            values[i] = VecDateTimeValue::FIRST_DAY;
         } else {
-            col_nullmap.get_data()[i] = false;
-            col_data.get_data()[i] = res;
+            nulls[i] = false;
+            values[i] = res;
         }
     }
     return Status::OK();
@@ -362,6 +364,7 @@ Status DataTypeDateSerDe<T>::from_string_strict_mode_batch(
     size_t row = col_str.size();
     col_res.resize(row);
     auto& col_data = assert_cast<ColumnType&>(col_res);
+    auto& values = col_data.get_data_mutable();
 
     CastParameters params {.status = Status::OK(), .is_strict = true};
     for (size_t i = 0; i < row; ++i) {
@@ -381,7 +384,7 @@ Status DataTypeDateSerDe<T>::from_string_strict_mode_batch(
             return params.status;
         }
 
-        col_data.get_data()[i] = res;
+        values[i] = res;
     }
     return Status::OK();
 }
@@ -479,6 +482,8 @@ Status DataTypeDateSerDe<T>::from_int_batch(const typename IntDataType::ColumnTy
     auto& col_nullmap = target_col.get_null_map_column();
     col_data.resize(int_col.size());
     col_nullmap.resize(int_col.size());
+    auto& values = col_data.get_data_mutable();
+    auto& nulls = col_nullmap.get_data_mutable();
 
     CastParameters params {.status = Status::OK(), .is_strict = false};
     for (size_t i = 0; i < int_col.size(); ++i) {
@@ -488,11 +493,11 @@ Status DataTypeDateSerDe<T>::from_int_batch(const typename IntDataType::ColumnTy
                        : DatelikeTargetType::DATE > (int_col.get_element(i), val, params))
                 [[likely]] {
             // did cast_to_type in `from_integer`
-            col_data.get_data()[i] = val;
-            col_nullmap.get_data()[i] = false;
+            values[i] = val;
+            nulls[i] = false;
         } else {
-            col_nullmap.get_data()[i] = true;
-            col_data.get_data()[i] = VecDateTimeValue::FIRST_DAY;
+            nulls[i] = true;
+            values[i] = VecDateTimeValue::FIRST_DAY;
         }
     }
     return Status::OK();
@@ -504,6 +509,7 @@ Status DataTypeDateSerDe<T>::from_int_strict_mode_batch(
         const typename IntDataType::ColumnType& int_col, IColumn& target_col) const {
     auto& col_data = assert_cast<ColumnType&>(target_col);
     col_data.resize(int_col.size());
+    auto& values = col_data.get_data_mutable();
 
     CastParameters params {.status = Status::OK(), .is_strict = true};
     for (size_t i = 0; i < int_col.size(); ++i) {
@@ -518,7 +524,7 @@ Status DataTypeDateSerDe<T>::from_int_strict_mode_batch(
             return params.status;
         }
 
-        col_data.get_data()[i] = val;
+        values[i] = val;
     }
     return Status::OK();
 }
@@ -531,6 +537,8 @@ Status DataTypeDateSerDe<T>::from_float_batch(const typename FloatDataType::Colu
     auto& col_nullmap = target_col.get_null_map_column();
     col_data.resize(float_col.size());
     col_nullmap.resize(float_col.size());
+    auto& values = col_data.get_data_mutable();
+    auto& nulls = col_nullmap.get_data_mutable();
 
     CastParameters params {.status = Status::OK(), .is_strict = false};
     for (size_t i = 0; i < float_col.size(); ++i) {
@@ -539,11 +547,11 @@ Status DataTypeDateSerDe<T>::from_float_batch(const typename FloatDataType::Colu
             IsDatetime ? DatelikeTargetType::DATE_TIME
                        : DatelikeTargetType::DATE > (float_col.get_data()[i], val, 0, params))
                 [[likely]] {
-            col_data.get_data()[i] = val;
-            col_nullmap.get_data()[i] = false;
+            values[i] = val;
+            nulls[i] = false;
         } else {
-            col_nullmap.get_data()[i] = true;
-            col_data.get_data()[i] = VecDateTimeValue::FIRST_DAY;
+            nulls[i] = true;
+            values[i] = VecDateTimeValue::FIRST_DAY;
         }
     }
     return Status::OK();
@@ -555,6 +563,7 @@ Status DataTypeDateSerDe<T>::from_float_strict_mode_batch(
         const typename FloatDataType::ColumnType& float_col, IColumn& target_col) const {
     auto& col_data = assert_cast<ColumnType&>(target_col);
     col_data.resize(float_col.size());
+    auto& values = col_data.get_data_mutable();
 
     CastParameters params {.status = Status::OK(), .is_strict = true};
     for (size_t i = 0; i < float_col.size(); ++i) {
@@ -569,7 +578,7 @@ Status DataTypeDateSerDe<T>::from_float_strict_mode_batch(
             return params.status;
         }
 
-        col_data.get_data()[i] = val;
+        values[i] = val;
     }
     return Status::OK();
 }
@@ -582,6 +591,8 @@ Status DataTypeDateSerDe<T>::from_decimal_batch(
     auto& col_nullmap = target_col.get_null_map_column();
     col_data.resize(decimal_col.size());
     col_nullmap.resize(decimal_col.size());
+    auto& values = col_data.get_data_mutable();
+    auto& nulls = col_nullmap.get_data_mutable();
 
     CastParameters params {.status = Status::OK(), .is_strict = false};
     for (size_t i = 0; i < decimal_col.size(); ++i) {
@@ -592,11 +603,11 @@ Status DataTypeDateSerDe<T>::from_decimal_batch(
                                                      decimal_col.get_fractional_part(i),
                                                      decimal_col.get_scale(), val, params))
                 [[likely]] {
-            col_data.get_data()[i] = val;
-            col_nullmap.get_data()[i] = false;
+            values[i] = val;
+            nulls[i] = false;
         } else {
-            col_nullmap.get_data()[i] = true;
-            col_data.get_data()[i] = VecDateTimeValue::FIRST_DAY;
+            nulls[i] = true;
+            values[i] = VecDateTimeValue::FIRST_DAY;
         }
     }
     return Status::OK();
@@ -608,6 +619,7 @@ Status DataTypeDateSerDe<T>::from_decimal_strict_mode_batch(
         const typename DecimalDataType::ColumnType& decimal_col, IColumn& target_col) const {
     auto& col_data = assert_cast<ColumnType&>(target_col);
     col_data.resize(decimal_col.size());
+    auto& values = col_data.get_data_mutable();
 
     CastParameters params {.status = Status::OK(), .is_strict = true};
     for (size_t i = 0; i < decimal_col.size(); ++i) {
@@ -624,7 +636,7 @@ Status DataTypeDateSerDe<T>::from_decimal_strict_mode_batch(
             return params.status;
         }
 
-        col_data.get_data()[i] = val;
+        values[i] = val;
     }
     return Status::OK();
 }

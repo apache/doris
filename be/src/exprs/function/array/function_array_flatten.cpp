@@ -64,7 +64,7 @@ public:
 
         auto result_column_offsets = src_column_array_ptr->get_offsets_column().clone();
         auto* offsets = assert_cast<ColumnArray::ColumnOffsets*>(result_column_offsets.get())
-                                ->get_data()
+                                ->get_data_mutable()
                                 .data();
 
         while (src_data_type_array->get_nested_type()->get_primitive_type() == TYPE_ARRAY) {
