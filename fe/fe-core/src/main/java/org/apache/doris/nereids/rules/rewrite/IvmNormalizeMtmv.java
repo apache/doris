@@ -210,7 +210,7 @@ public class IvmNormalizeMtmv extends DefaultPlanRewriter<IvmNormalizeMtmv.Norma
         statementContext = jobContext.getCascadesContext().getStatementContext();
         Plan result = plan.accept(this, NormalizeContext.ROOT);
         rewriteResult.setNormalizedPlan(result);
-        rewriteResult.setPlanSignature(new IvmPlanSignatureGenerator().generate(rewriteResult));
+        rewriteResult.setPlanSignature(new IvmPlanSignatureGenerator().generate(result));
         return result;
     }
 
