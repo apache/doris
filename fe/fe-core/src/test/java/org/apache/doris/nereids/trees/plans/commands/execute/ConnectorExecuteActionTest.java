@@ -44,7 +44,6 @@ import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.PluginDrivenExternalCatalog;
 import org.apache.doris.datasource.PluginDrivenExternalTable;
 import org.apache.doris.datasource.SessionContext;
-import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
@@ -81,8 +80,7 @@ import java.util.Optional;
  * (D-062 §2). These tests pin that the dispatch threads the catalog's session/handle into
  * {@code getProcedureOps().execute(...)}, wraps the engine-neutral {@link ConnectorProcedureResult} back
  * into a {@code ResultSet}, surfaces the connector's {@link DorisConnectorException} as a
- * {@code UserException} (so the command shell adds the legacy "Failed to execute action:" prefix), and that
- * the legacy {@code IcebergExternalTable} routing is untouched (dormant pre-cutover).
+ * {@code UserException} (so the command shell adds the legacy "Failed to execute action:" prefix).
  */
 public class ConnectorExecuteActionTest {
 
@@ -446,17 +444,6 @@ public class ConnectorExecuteActionTest {
             Assertions.assertDoesNotThrow(() -> action.validate(tableName, user));
             Mockito.verifyNoInteractions(f.procedureOps);
         }
-    }
-
-    // -------- legacy routing must be untouched (dormant pre-cutover) --------
-
-    @Test
-    public void createActionStillRoutesIcebergExternalTableToLegacyFactory() throws Exception {
-        IcebergExternalTable legacyTable = Mockito.mock(IcebergExternalTable.class);
-        ExecuteAction action = ExecuteActionFactory.createAction("rollback_to_snapshot",
-                new HashMap<>(), Optional.empty(), Optional.empty(), legacyTable);
-        Assertions.assertFalse(action instanceof ConnectorExecuteAction,
-                "An IcebergExternalTable must still route to the legacy fe-core action factory (P6.7 removes it)");
     }
 
     // -------- helpers --------

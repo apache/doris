@@ -485,25 +485,6 @@ public class IcebergScanNode extends FileQueryScanNode {
         }
     }
 
-    /**
-     * Get FileScanTasks from StatementContext for rewrite operations.
-     * This allows setting file scan tasks before the plan is generated.
-     */
-    private List<FileScanTask> getFileScanTasksFromContext() {
-        ConnectContext ctx = ConnectContext.get();
-        Preconditions.checkNotNull(ctx);
-        Preconditions.checkNotNull(ctx.getStatementContext());
-
-        // Get the rewrite file scan tasks from statement context
-        List<FileScanTask> tasks = ctx.getStatementContext().getAndClearIcebergRewriteFileScanTasks();
-        if (tasks != null && !tasks.isEmpty()) {
-            LOG.info("Retrieved {} file scan tasks from context for table {}",
-                    tasks.size(), icebergTable.name());
-            return new ArrayList<>(tasks);
-        }
-        return null;
-    }
-
     @Override
     public void startSplit(int numBackends) throws UserException {
         try {
@@ -924,17 +905,6 @@ public class IcebergScanNode extends FileQueryScanNode {
         }
 
         List<Split> splits = new ArrayList<>();
-
-        // Use custom file scan tasks if available (for rewrite operations)
-        List<FileScanTask> customFileScanTasks = getFileScanTasksFromContext();
-        if (customFileScanTasks != null) {
-            for (FileScanTask task : customFileScanTasks) {
-                splits.add(createIcebergSplit(task));
-            }
-            selectedPartitionNum = partitionMapInfos.size();
-            recordManifestCacheProfile();
-            return splits;
-        }
 
         // Normal table scan planning
         TableScan scan = createTableScan();

@@ -24,8 +24,6 @@ import org.apache.doris.connector.api.procedure.ConnectorProcedureOps;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.PluginDrivenExternalCatalog;
 import org.apache.doris.datasource.PluginDrivenExternalTable;
-import org.apache.doris.datasource.iceberg.IcebergExternalTable;
-import org.apache.doris.datasource.iceberg.action.IcebergExecuteActionFactory;
 import org.apache.doris.nereids.trees.expressions.Expression;
 
 import java.util.Map;
@@ -55,18 +53,12 @@ public class ExecuteActionFactory {
             Optional<Expression> whereCondition,
             TableIf table) throws DdlException {
 
-        // Plugin-driven (connector SPI) tables route to the connector's ConnectorProcedureOps. iceberg becomes a
-        // PluginDrivenExternalTable only after entering SPI_READY_TYPES (P6.6), so this branch is dormant until
-        // the cutover; the legacy IcebergExternalTable branch below stays live (removed in P6.7).
+        // Plugin-driven (connector SPI) tables route to the connector's ConnectorProcedureOps.
         if (table instanceof PluginDrivenExternalTable) {
             return new ConnectorExecuteAction(actionType, properties,
                     partitionNamesInfo, whereCondition, (PluginDrivenExternalTable) table);
         }
-        // Delegate to specific table engine factories
-        if (table instanceof IcebergExternalTable) {
-            return IcebergExecuteActionFactory.createAction(actionType, properties,
-                    partitionNamesInfo, whereCondition, (IcebergExternalTable) table);
-        } else if (table instanceof ExternalTable) {
+        if (table instanceof ExternalTable) {
             // Handle other external table types in the future
             throw new DdlException("Execute actions are not supported for table type: "
                     + table.getClass().getSimpleName());
@@ -94,9 +86,6 @@ public class ExecuteActionFactory {
                 return new String[0];
             }
             return procedureOps.getSupportedProcedures().toArray(new String[0]);
-        }
-        if (table instanceof IcebergExternalTable) {
-            return IcebergExecuteActionFactory.getSupportedActions();
         }
         // Add support for other table types in the future
         return new String[0];
