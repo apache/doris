@@ -108,5 +108,19 @@ public enum ConnectorCapability {
      * passthrough connectors (e.g. JDBC, ES) and connectors that do not carry nested field ids must NOT
      * declare it.</p>
      */
-    SUPPORTS_NESTED_COLUMN_PRUNE
+    SUPPORTS_NESTED_COLUMN_PRUNE,
+    /**
+     * Indicates the connector's external metadata (schema / partitions / snapshot) can be pre-warmed
+     * asynchronously by the planner before it takes the internal read lock, rather than loaded lazily
+     * during binding.
+     *
+     * <p>{@code PluginDrivenExternalTable.supportsExternalMetadataPreload} returns true for a plugin-driven
+     * table only when its connector declares this (replacing the legacy engine-name {@code "jdbc"} gate), so
+     * {@code StatementContext.registerExternalTableForPreload} admits the table into the async pre-load pass
+     * (itself opt-in via the {@code enable_preload_external_metadata} session variable, default off). It is a
+     * pure planning/lock-latency optimization with no correctness effect: connectors whose metadata reads are
+     * cheap or not yet validated for concurrent pre-warming (e.g. ES) simply do not declare it and fall back
+     * to synchronous load at binding time.</p>
+     */
+    SUPPORTS_METADATA_PRELOAD
 }

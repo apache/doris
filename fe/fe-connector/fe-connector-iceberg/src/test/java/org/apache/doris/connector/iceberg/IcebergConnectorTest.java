@@ -113,6 +113,20 @@ public class IcebergConnectorTest {
     }
 
     @Test
+    public void declaresMetadataPreloadCapability() {
+        // WHY (F11): legacy IcebergExternalTable.supportsExternalMetadataPreload returns true so the planner
+        // async pre-warms schema/snapshot before taking the read lock. Post-cutover PluginDrivenExternalTable
+        // reproduces this ONLY when the connector declares SUPPORTS_METADATA_PRELOAD (replacing the legacy
+        // engine-name "jdbc" gate). MUTATION: dropping the capability -> flipped iceberg degrades to synchronous
+        // bind-time metadata load (longer lock hold on slow metastores) -> red. (Inert pre-cutover; iceberg not
+        // yet in SPI_READY_TYPES, so getCapabilities does not touch the catalog.)
+        IcebergConnector connector = new IcebergConnector(Collections.emptyMap(), new RecordingConnectorContext());
+        Assertions.assertTrue(
+                connector.getCapabilities().contains(ConnectorCapability.SUPPORTS_METADATA_PRELOAD),
+                "iceberg must declare SUPPORTS_METADATA_PRELOAD so post-flip async metadata pre-load survives");
+    }
+
+    @Test
     public void declaresColumnAutoAnalyzeAndTopNLazyMaterializeCapabilities() {
         // WHY: legacy IcebergExternalTable is in StatisticsUtil.supportAutoAnalyze's whitelist and is forced to
         // FULL analyze, and IcebergExternalTable.class is in MaterializeProbeVisitor's lazy-top-N supported set.

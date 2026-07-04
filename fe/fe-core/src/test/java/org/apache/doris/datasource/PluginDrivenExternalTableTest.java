@@ -221,6 +221,20 @@ public class PluginDrivenExternalTableTest {
     }
 
     @Test
+    public void supportsExternalMetadataPreloadReflectsConnectorCapability() {
+        // F11: async metadata pre-load is gated on the connector-declared SUPPORTS_METADATA_PRELOAD capability
+        // (replacing the legacy engine-name "jdbc" string). MUTATION: hard-coding true/false, or restoring the
+        // engine-name gate, -> the capability no longer drives it.
+        Assertions.assertTrue(pluginTableWithCapabilities(
+                EnumSet.of(ConnectorCapability.SUPPORTS_METADATA_PRELOAD)).supportsExternalMetadataPreload());
+        Assertions.assertFalse(pluginTableWithCapabilities(
+                EnumSet.noneOf(ConnectorCapability.class)).supportsExternalMetadataPreload());
+        // Independent of the other capabilities.
+        Assertions.assertFalse(pluginTableWithCapabilities(
+                EnumSet.of(ConnectorCapability.SUPPORTS_NESTED_COLUMN_PRUNE)).supportsExternalMetadataPreload());
+    }
+
+    @Test
     public void capabilityHelpersReturnFalseWhenConnectorAbsent() {
         // MUTATION: dropping the null-connector guard NPEs here — a catalog with no connector (read-only /
         // not-yet-initialized) must degrade to "capability absent", never crash planning.
@@ -234,6 +248,7 @@ public class PluginDrivenExternalTableTest {
         Assertions.assertFalse(table.supportsShowCreateDdl());
         Assertions.assertFalse(table.supportsView());
         Assertions.assertFalse(table.supportsNestedColumnPrune());
+        Assertions.assertFalse(table.supportsExternalMetadataPreload());
     }
 
     @Test

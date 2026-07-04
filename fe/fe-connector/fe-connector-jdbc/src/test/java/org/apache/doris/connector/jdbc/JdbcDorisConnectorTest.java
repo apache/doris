@@ -17,6 +17,7 @@
 
 package org.apache.doris.connector.jdbc;
 
+import org.apache.doris.connector.api.ConnectorCapability;
 import org.apache.doris.connector.api.ConnectorContractValidator;
 import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.DorisConnectorException;
@@ -86,6 +87,19 @@ class JdbcDorisConnectorTest {
         connector.close();
         Assertions.assertThrows(DorisConnectorException.class,
                 () -> connector.getWritePlanProvider());
+    }
+
+    @Test
+    void testDeclaresMetadataPreloadCapability() {
+        // F11: PluginDrivenExternalTable.supportsExternalMetadataPreload is now capability-driven (replacing
+        // the legacy engine-name "jdbc" gate). jdbc must keep declaring SUPPORTS_METADATA_PRELOAD so jdbc
+        // tables retain async metadata pre-load. MUTATION: dropping it from getCapabilities() -> jdbc loses
+        // async pre-load after F11 -> red.
+        JdbcDorisConnector connector = new JdbcDorisConnector(minimalProps(), testContext());
+        Assertions.assertTrue(
+                connector.getCapabilities().contains(ConnectorCapability.SUPPORTS_METADATA_PRELOAD),
+                "jdbc must keep SUPPORTS_METADATA_PRELOAD so async metadata pre-load survives the F11 "
+                        + "capability conversion");
     }
 
     @Test

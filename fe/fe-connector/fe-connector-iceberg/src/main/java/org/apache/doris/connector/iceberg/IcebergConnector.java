@@ -503,12 +503,18 @@ public class IcebergConnector implements Connector {
         // avoidance). Correct only because the connector also carries per-field ids down its column tree
         // (parseSchema withUniqueId + IcebergTypeMapping withChildrenFieldIds), which the BE field-id scan
         // path matches nested leaves by; without them a nested leaf reads NULL. Inert pre-cutover (P6.6).
+        // SUPPORTS_METADATA_PRELOAD: legacy IcebergExternalTable.supportsExternalMetadataPreload returns true so
+        // the planner async pre-warms schema/snapshot before taking the read lock; the generic plugin-driven
+        // path reproduces this ONLY under this capability (PluginDrivenExternalTable.supportsExternalMetadataPreload),
+        // so post-cutover iceberg keeps async pre-load instead of degrading to synchronous bind-time load. Pure
+        // lock-latency optimization, opt-in via enable_preload_external_metadata. Inert pre-cutover (P6.6).
         return EnumSet.of(ConnectorCapability.SUPPORTS_MVCC_SNAPSHOT,
                 ConnectorCapability.SUPPORTS_COLUMN_AUTO_ANALYZE,
                 ConnectorCapability.SUPPORTS_TOPN_LAZY_MATERIALIZE,
                 ConnectorCapability.SUPPORTS_SHOW_CREATE_DDL,
                 ConnectorCapability.SUPPORTS_VIEW,
-                ConnectorCapability.SUPPORTS_NESTED_COLUMN_PRUNE);
+                ConnectorCapability.SUPPORTS_NESTED_COLUMN_PRUNE,
+                ConnectorCapability.SUPPORTS_METADATA_PRELOAD);
     }
 
     private Catalog getOrCreateCatalog() {

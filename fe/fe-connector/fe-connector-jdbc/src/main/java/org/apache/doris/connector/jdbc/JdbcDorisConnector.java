@@ -96,8 +96,12 @@ public class JdbcDorisConnector implements Connector {
 
     @Override
     public Set<ConnectorCapability> getCapabilities() {
+        // SUPPORTS_METADATA_PRELOAD: preserves the legacy engine-name "jdbc" gate of
+        // PluginDrivenExternalTable.supportsExternalMetadataPreload (F11) now that it is capability-driven, so
+        // jdbc tables keep async metadata pre-load.
         return EnumSet.of(
-                ConnectorCapability.SUPPORTS_PASSTHROUGH_QUERY
+                ConnectorCapability.SUPPORTS_PASSTHROUGH_QUERY,
+                ConnectorCapability.SUPPORTS_METADATA_PRELOAD
         );
     }
 

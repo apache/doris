@@ -235,8 +235,13 @@ public class PluginDrivenExternalTable extends ExternalTable {
         if (!(catalog instanceof PluginDrivenExternalCatalog)) {
             return false;
         }
-        // Keep plugin-driven preload limited to JDBC until other connector types are validated.
-        return "jdbc".equalsIgnoreCase(((PluginDrivenExternalCatalog) catalog).getType());
+        // F11: gate async metadata pre-load on the connector-declared SUPPORTS_METADATA_PRELOAD capability
+        // (replacing the legacy engine-name "jdbc" string, per the iron rule). jdbc and iceberg both declare
+        // it; connectors not yet validated for concurrent pre-warming (e.g. ES) do not, and fall back to
+        // synchronous load at binding time. Pure planning/lock-latency optimization, no correctness effect.
+        Connector connector = ((PluginDrivenExternalCatalog) catalog).getConnector();
+        return connector != null
+                && connector.getCapabilities().contains(ConnectorCapability.SUPPORTS_METADATA_PRELOAD);
     }
 
     @Override
