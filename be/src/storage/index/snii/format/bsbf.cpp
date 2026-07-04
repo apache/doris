@@ -127,11 +127,15 @@ uint32_t bsbf_optimal_num_bytes(uint32_t ndv, double fpp) {
         num_bits = static_cast<uint32_t>(m);
     }
     if (num_bits < (kBsbfMinBytes << 3)) num_bits = kBsbfMinBytes << 3;
-    if (num_bits & (num_bits - 1)) { // next power of 2
-        uint32_t p = 1;
-        while (p < num_bits) p <<= 1;
-        num_bits = p;
-    }
+    // G16-g: round up to the 32-byte block only, NOT to the next power of 2.
+    // The block index is fastrange ((h >> 32) * num_blocks >> 32, bsbf.h),
+    // which is uniform for ANY block count -- the old power-of-2 rounding was
+    // a sizing convention, not an addressing requirement, and cost up to ~2x
+    // bitset bytes (e.g. a 31M-term segment: 40.3 MB optimal -> 64 MB rounded)
+    // while silently over-delivering on fpp. Exact sizing keeps the fpp at
+    // the kBsbfFpp design point.
+    const uint32_t block_bits = kBsbfBytesPerBlock << 3;
+    num_bits = (num_bits + block_bits - 1) / block_bits * block_bits;
     if (num_bits > (kBsbfMaxBytes << 3)) num_bits = kBsbfMaxBytes << 3;
     return num_bits >> 3;
 }
@@ -221,9 +225,12 @@ Status BsbfHeader::parse(Slice h, uint64_t section_base, BsbfHeader* out) {
                 "bsbf: header crc mismatch");
     const uint32_t nb = load_le32(p + 8);
     const uint32_t nblk = load_le32(p + 12);
-    if (nb < kBsbfMinBytes || nb > kBsbfMaxBytes || (nb & (nb - 1)) != 0)
+    // G16-g: num_bytes only needs 32-byte block alignment -- the fastrange
+    // block index is uniform for any block count. Power-of-2 sizes (all
+    // pre-G16-g filters) remain valid as a subset.
+    if (nb < kBsbfMinBytes || nb > kBsbfMaxBytes || nb % kBsbfBytesPerBlock != 0)
         return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
-                "bsbf: num_bytes out of range or not power of 2");
+                "bsbf: num_bytes out of range or not block-aligned");
     if (nblk != nb / kBsbfBytesPerBlock)
         return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
                 "bsbf: num_blocks mismatch");
