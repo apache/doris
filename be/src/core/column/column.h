@@ -462,7 +462,8 @@ public:
      *  // nullable -> predict_column
      *  // string (dictionary) -> column_dictionary
      */
-    virtual Status filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) {
+    virtual Status filter_by_selector(const uint16_t* sel, size_t sel_size,
+                                      IColumn* col_ptr) const {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "Method filter_by_selector is not supported for {}, only "
                                "column_nullable, column_dictionary and predict_column support",
@@ -573,10 +574,27 @@ public:
 
     /// If the column contains subcolumns (such as Array, Nullable, etc), do callback on them.
     /// Shallow: doesn't do recursive calls; don't do call for itself.
-    using ColumnCallback = std::function<void(WrappedPtr&)>;
-    using ImutableColumnCallback = std::function<void(const IColumn&)>;
-    virtual void for_each_subcolumn(ColumnCallback) {}
+    using ColumnCallback = std::function<void(const IColumn&)>;
+    virtual void for_each_subcolumn(ColumnCallback) const {}
 
+protected:
+    virtual void mutate_subcolumns() {}
+
+    static void mutate_subcolumn(WrappedPtr& subcolumn) {
+        static_cast<IColumn::Ptr&>(subcolumn) =
+                std::move(*static_cast<const IColumn::Ptr&>(subcolumn)).mutate();
+    }
+
+    template <typename ColumnType>
+    static void mutate_subcolumn(typename ColumnType::WrappedPtr& subcolumn) {
+        auto mutated = std::move(*static_cast<const typename ColumnType::Ptr&>(subcolumn)).mutate();
+        auto typed_mutated = ColumnType::cast_to_column_mutptr(
+                assert_cast<ColumnType*, TypeCheckOnRelease::DISABLE>(mutated.get()));
+        mutated = nullptr;
+        static_cast<typename ColumnType::Ptr&>(subcolumn) = std::move(typed_mutated);
+    }
+
+public:
     /// Columns have equal structure.
     /// If true - you can use "compare_at", "insert_from", etc. methods.
     virtual bool structure_equals(const IColumn&) const {
@@ -590,10 +608,7 @@ public:
     // exclusive nodes are reused through the COW fast path.
     MutablePtr mutate() const&& {
         MutablePtr res = shallow_mutate();
-        res->for_each_subcolumn([](WrappedPtr& subcolumn) {
-            static_cast<IColumn::Ptr&>(subcolumn) =
-                    std::move(*static_cast<const IColumn::Ptr&>(subcolumn)).mutate();
-        });
+        res->mutate_subcolumns();
         return res;
     }
 
@@ -604,10 +619,7 @@ public:
     static MutablePtr mutate(Ptr ptr) {
         MutablePtr res = ptr->shallow_mutate(); /// Now use_count is 2.
         ptr.reset();                            /// Reset use_count to 1.
-        res->for_each_subcolumn([](WrappedPtr& subcolumn) {
-            static_cast<IColumn::Ptr&>(subcolumn) =
-                    std::move(*static_cast<const IColumn::Ptr&>(subcolumn)).mutate();
-        });
+        res->mutate_subcolumns();
         return res;
     }
 

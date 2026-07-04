@@ -409,6 +409,7 @@ DEFINE_String(storage_page_cache_limit, "20%");
 // Shard size for page cache, the value must be power of two.
 // It's recommended to set it to a value close to the number of BE cores in order to reduce lock contentions.
 DEFINE_Int32(storage_page_cache_shard_size, "256");
+DEFINE_mInt32(file_cache_mem_storage_shard_num, "1024");
 // Percentage for index page cache
 // all storage page cache will be divided into data_page_cache and index_page_cache
 DEFINE_Int32(index_page_cache_percentage, "10");
@@ -649,8 +650,10 @@ DEFINE_mInt64(load_error_log_reserve_hours, "48");
 DEFINE_mInt64(load_error_log_limit_bytes, "209715200");
 
 DEFINE_Int32(brpc_heavy_work_pool_threads, "-1");
+DEFINE_Int32(brpc_peer_fetch_pool_threads, "-1");
 DEFINE_Int32(brpc_light_work_pool_threads, "-1");
 DEFINE_Int32(brpc_heavy_work_pool_max_queue_size, "-1");
+DEFINE_Int32(brpc_peer_fetch_pool_max_queue_size, "-1");
 DEFINE_Int32(brpc_light_work_pool_max_queue_size, "-1");
 DEFINE_mBool(enable_bthread_transmit_block, "true");
 DEFINE_Int32(brpc_arrow_flight_work_pool_threads, "-1");
@@ -1090,6 +1093,9 @@ DEFINE_String(tmp_file_dir, "tmp");
 
 DEFINE_Int32(min_s3_file_system_thread_num, "16");
 DEFINE_Int32(max_s3_file_system_thread_num, "64");
+
+DEFINE_Int32(min_peer_race_s3_thread_num, "0");
+DEFINE_Int32(max_peer_race_s3_thread_num, "32"); // aligned with default max_concurrent_peer_races
 
 DEFINE_Bool(enable_time_lut, "true");
 

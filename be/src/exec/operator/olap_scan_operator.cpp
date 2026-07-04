@@ -224,6 +224,8 @@ Status OlapScanLocalState::_init_profile() {
     _lazy_read_seek_timer = ADD_TIMER(_segment_profile, "LazyReadSeekTime");
     _lazy_read_seek_counter = ADD_COUNTER(_segment_profile, "LazyReadSeekCount", TUnit::UNIT);
 
+    _lazy_read_pruned_timer = ADD_TIMER(_segment_profile, "LazyReadPrunedTime");
+
     _output_col_timer = ADD_TIMER(_segment_profile, "OutputColumnTime");
 
     _stats_filtered_counter = ADD_COUNTER(_segment_profile, "RowsStatsFiltered", TUnit::UNIT);
@@ -777,7 +779,6 @@ Status OlapScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
             for (auto& split : _read_sources[scan_range_idx].rs_splits) {
                 split.rs_reader = split.rs_reader->clone();
             }
-
             auto scanner = OlapScanner::create_shared(
                     this, OlapScanner::Params {
                                   state(),
@@ -786,6 +787,7 @@ Status OlapScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
                                   _tablets[scan_range_idx].tablet,
                                   version,
                                   _read_sources[scan_range_idx],
+                                  {},
                                   p._limit,
                                   p._olap_scan_node.is_preaggregation,
                                   read_row_binlog,
@@ -1006,16 +1008,6 @@ Status OlapScanLocalState::open(RuntimeState* state) {
             RETURN_IF_ERROR(virtual_column_expr_ctx->open(state));
 
             _slot_id_to_virtual_column_expr[slot_desc->id()] = virtual_column_expr_ctx;
-            _slot_id_to_col_type[slot_desc->id()] = slot_desc->get_data_type_ptr();
-            int col_pos = p.intermediate_row_desc().get_column_id(slot_desc->id());
-            if (col_pos < 0) {
-                return Status::InternalError(
-                        "Invalid virtual slot, can not find its information. Slot desc:\n{}\nRow "
-                        "desc:\n{}",
-                        slot_desc->debug_string(), p.row_desc().debug_string());
-            } else {
-                _slot_id_to_index_in_block[slot_desc->id()] = col_pos;
-            }
         }
     }
 

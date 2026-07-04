@@ -36,6 +36,7 @@ import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.AliasFunction;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.RowBinlogTableWrapper;
 import org.apache.doris.catalog.TableIf;
@@ -2608,7 +2609,13 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             // push sort to scan opt
             if (sortNode.getChild(0) instanceof OlapScanNode) {
                 OlapScanNode scanNode = ((OlapScanNode) sortNode.getChild(0));
-                if (checkPushSort(sortNode, scanNode.getOlapTable())) {
+                // When the offset is set, the pushed scan limit is limit + offset. If that overflows the
+                // long range it would wrap to a negative limit, so skip the whole push-sort-to-scan
+                // optimization (do not push the sort info either); the sort node still applies the real
+                // limit/offset. Sort info and sort limit are always pushed together.
+                boolean limitOverflows = sortNode.getOffset() > 0
+                        && Utils.addOverflows(sortNode.getLimit(), sortNode.getOffset());
+                if (checkPushSort(sortNode, scanNode.getOlapTable()) && !limitOverflows) {
                     SortInfo sortInfo = sortNode.getSortInfo();
                     scanNode.setSortInfo(sortInfo);
                     if (sortNode.getOffset() > 0) {
@@ -3002,6 +3009,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                     .collect(Collectors.toSet());
             requiredWithVirtualColumns.addAll(virtualColumnInputSlotIds);
         }
+        if (scanNode instanceof OlapScanNode) {
+            preserveExtraStorageKeySlots((OlapScanNode) scanNode, requiredWithVirtualColumns);
+        }
         // Find the smallest column, for count(*) or other situation that slot is empty after prune
         SlotDescriptor smallest = getSmallestSlot(scanNode.getTupleDesc().getSlots());
         scanNode.getTupleDesc().getSlots().removeIf(s -> !requiredWithVirtualColumns.contains(s.getId()));
@@ -3019,6 +3029,35 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             }
             context.removeScanFromStatsUnknownColumnsMap(scanNode);
         }
+    }
+
+    private void preserveExtraStorageKeySlots(OlapScanNode scanNode, Set<SlotId> requiredSlotIds) {
+        if (!shouldPreserveStorageKeySlots(scanNode)) {
+            return;
+        }
+        for (SlotDescriptor slot : scanNode.getTupleDesc().getSlots()) {
+            Column column = slot.getColumn();
+            if (column == null || !column.isKey()) {
+                // OLAP scan tuples follow the storage schema, where key columns form the prefix.
+                break;
+            }
+            if (!requiredSlotIds.contains(slot.getId())) {
+                scanNode.getExtraKeyColumnSlotIds().add(slot.getId().asInt());
+                requiredSlotIds.add(slot.getId());
+            }
+        }
+    }
+
+    private boolean shouldPreserveStorageKeySlots(OlapScanNode scanNode) {
+        if (scanNode.isIncrementalScan()) {
+            return false;
+        }
+        long selectedIndexId = scanNode.getSelectedIndexId() == -1
+                ? scanNode.getOlapTable().getBaseIndexId()
+                : scanNode.getSelectedIndexId();
+        KeysType keysType = scanNode.getOlapTable().getIndexMetaByIndexId(selectedIndexId).getKeysType();
+        return keysType == KeysType.AGG_KEYS
+                || (keysType == KeysType.UNIQUE_KEYS && !scanNode.getOlapTable().getEnableUniqueKeyMergeOnWrite());
     }
 
     /**

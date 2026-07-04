@@ -436,9 +436,8 @@ public class PhysicalOlapScan extends PhysicalCatalogRelation implements OlapSca
                 selectedIndexId, selectedTabletIds, selectedPartitionIds, hasPartitionPredicate,
                 distributionSpec, preAggStatus, baseOutputs, groupExpression, getLogicalProperties(),
                 getPhysicalProperties(), statistics, tableSample, operativeSlots, virtualColumns, scoreOrderKeys,
-                scoreLimit,
-                scoreRangeInfo, annOrderKeys, annLimit, tableAlias, partitionPrunablePredicates, incrementalScan,
-                scanParams));
+                scoreLimit, scoreRangeInfo, annOrderKeys, annLimit, tableAlias, partitionPrunablePredicates,
+                incrementalScan, scanParams));
     }
 
     @Override
