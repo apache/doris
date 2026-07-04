@@ -28,6 +28,7 @@ import org.apache.doris.regression.util.JdbcUtils
 class ProfileAction implements SuiteAction {
     private static final long DEFAULT_PROFILE_WAIT_TIMEOUT_MS = 30000
     private static final long DEFAULT_PROFILE_WAIT_INTERVAL_MS = 500
+    private static final String PROFILE_LIST_COMPLETE = "COMPLETE"
     private static final String PROFILE_COMPLETE = "Profile Completion State: COMPLETE"
 
     private String tag
@@ -148,20 +149,32 @@ class ProfileAction implements SuiteAction {
             log.info("{} is not ready, required contents: {}", profileDescription, requiredContents)
             Thread.sleep(intervalMs)
         }
-        return profileText
+        throw new IllegalStateException("${profileDescription} is not ready after ${timeoutMs} ms, "
+                + "required contents: ${requiredContents}, last profile:\n${profileText}")
     }
 
     String getProfileBySql(String sqlPattern, List<String> requiredContents = [],
             long timeoutMs = DEFAULT_PROFILE_WAIT_TIMEOUT_MS, long intervalMs = DEFAULT_PROFILE_WAIT_INTERVAL_MS) {
         String profileId = ""
         String profileText = ""
+        Throwable lastException = null
         long deadline = System.currentTimeMillis() + timeoutMs
         while (System.currentTimeMillis() <= deadline) {
             for (final def profileItem in getProfileList()) {
                 if (profileItem["Sql Statement"].toString().contains(sqlPattern)) {
                     profileId = profileItem["Profile ID"].toString()
-                    long remainingMs = Math.max(1, deadline - System.currentTimeMillis())
-                    profileText = getProfile(profileId, requiredContents, remainingMs, intervalMs)
+                    if (profileItem["Profile Completion State"]?.toString() != PROFILE_LIST_COMPLETE) {
+                        break
+                    }
+                    try {
+                        profileText = getProfile(profileId)
+                        lastException = null
+                    } catch (Throwable t) {
+                        lastException = t
+                        log.info("Profile {} with sql pattern {} is not available yet: {}",
+                                profileId, sqlPattern, t.getMessage())
+                        break
+                    }
                     if (isProfileReady(profileText, requiredContents)) {
                         return profileText
                     }
@@ -179,7 +192,12 @@ class ProfileAction implements SuiteAction {
         if (profileId == "") {
             throw new IllegalStateException("Missing profile with sql pattern: " + sqlPattern)
         }
-        return profileText
+        String message = "Profile ${profileId} with sql pattern ${sqlPattern} is not ready after ${timeoutMs} ms, "
+                + "required contents: ${requiredContents}"
+        if (lastException != null) {
+            message += ", last error: ${lastException.getMessage()}"
+        }
+        throw new IllegalStateException("${message}, last profile:\n${profileText}")
     }
 
     @Override

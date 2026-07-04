@@ -29,7 +29,7 @@ def fetchProfile = { masterHTTPAddr, id ->
 }
 
 // ref https://github.com/apache/doris/blob/3525a03815814f66ec78aa2ad6bbd9225b0e7a6b/regression-test/suites/load_p0/broker_load/test_s3_load.groovy
-suite('s3_load_profile_test') {
+suite('s3_load_profile_test', 'nonConcurrent') {
     setFeConfigTemporary(["profile_waiting_time_for_spill_seconds": 60]) {
         sql "set enable_profile=true;"
         sql "set profile_level=2;"
