@@ -5,7 +5,17 @@
 
 ---
 
-# 🎯 最新一轮（2026-07-05）= **行级 DML 去 SDK 化七步全部完成（设计 Status=DONE，7 个独立 commit）**
+# 🎯 最新一轮（2026-07-04）= **ENG-1 能力孪生审计完成（94-agent 对抗审计，只分析未动码；报告=`plan-doc/reviews/P6.6-ENG1-capability-twin-audit-2026-07-04.md`）**
+
+> **做了什么**：翻闸后运行时类型 `PluginDriven*`，legacy iceberg `instanceof` 臂全求值 false，正确性逐点靠人工「能力孪生臂」（H-10 已实证漏写一次）。本轮全量审计其覆盖面：**清点 297 派发点**（95 共享 fe-core 文件 529 iceberg 引用点 + 4 legacy 类覆写面 IcebergExternalTable/Catalog/Database/SysExternalTable + 40 组件文件家族 + 补盲扫描 TVF/反射/GSON label/thrift/其余 fe 模块）→ 每点取 master（`git show master`）vs branch 活路径双侧对照 → MISSING_TWIN 候选送**三镜对抗驳斥**（reachability/wrong-lane/twin-hunt，2/3 UPHOLD 才保留）→ 文档交叉核对（Rule 7）→ 完备性批评家补盲。工作流因两次撞消费额度、经断点续跑（缓存回放）完成，0 error。
+> **裁定**：**236 COVERED / 13 COVERED_BY_DESIGN / 27 OUT_OF_SCOPE_HMS_DLA（HMS-DLA 未翻闸 lane）/ 3 DEAD_BOTH / 18 MISSING_TWIN → 归并 16 条确认缺口**（medium×4、low×10、info×2；**无 high、无正确性/数据丢失级**）。2 条疑似被驳回，3 处文档结论与代码冲突（均代码支持审计）。
+> **唯一有正确性后果 = F1（medium，新发现，已本人 end-to-end 复核）**：CREATE 时 iceberg-v3 行级血缘保留列校验漏 catalog 级 format-version——`CreateTableInfo.getEffectiveIcebergFormatVersion:1163` 用 `instanceof IcebergExternalCatalog` 门控（翻闸后 false）→退回 emptyMap→表级无 format-version 时解析为 v2→v3 保留列校验 no-op；而连接器 `IcebergSchemaBuilder.buildTableProperties` 尊重 catalog 级 `table-default/override.format-version` 真按 v3 建表。后果：catalog 设 `table-default.format-version=3` 时 `CREATE TABLE t(_row_id BIGINT)` 静默建成 v3 表（master 分析期报错拒绝），读路径又追加同名隐藏血缘列→schema 冲突。**修法方向**：活路径复刻 catalog 级 format-version 解析 + v3 校验，或连接器 buildSchema 拒保留列名。
+> **其余 15 条**：F2/F3/F15/F16（hms/glue flavor 的 opt-in `test_connection` 元存储探测静默 no-op，IcebergConnector.testConnection `TYPE_REST`-only；默认 false）；F4/F13（SHOW CREATE `tbl$snapshots` 渲染 sys 壳非 base DDL，doRun 缺 PluginDrivenSysExternalTable unwrap 臂）；F6/F7（EXPLAIN VERBOSE nested columns 块消失，已跟踪 FU-h10-deadcode）；F9/F10/F12（iceberg getComment 恒空，连接器未 override getTableComment）；F11（iceberg 丢异步元数据预热，仅 jdbc 放开）；F14（AWS 非 DEFAULT PROVIDER_CHAIN 凭证静默丢，已跟踪 L-2）；F5/F8（info/已接受）。逐条见**任务清单 §5b**。
+> **⏭ 下一步（待用户裁定优先级）**：**先修 F1**（唯一正确性缺口，走 step-by-step-fix：recon→design→impl→test+mutation→clean-room→独立 commit）；F2/F3/F15/F16 test_connection（medium，opt-in 缓解，可合并一刀）；其余 low 可批量或随 P3(L-BATCH)。之后 → ENG-3 flip-gated e2e 全跑 → 二签翻闸。**本轮只分析未动码，工作树无新改动。**
+
+---
+
+# 🎯 上一轮（2026-07-05）= **行级 DML 去 SDK 化七步全部完成（设计 Status=DONE，7 个独立 commit）**
 
 > **七步 commit 全谱**：`af7e244c3fe`(1/7 rewrite/action 死车道) + `64b03892b20`(2/7 DML 死臂闭包) + `bf326c04741`(3/7 INSERT 死车道并入) + `4e7220d81c7`(4/7 四小类搬中立包) + `255bcaf52a2`(5/7 checkstyle 门禁) + `e5972dfc8a2`(6a/7 rewrite re-derive 补 doAs) + `890b8698e6f`(6b/7 DML 预执行窗口补回滚) + 本文档轮 commit（7/7）。前三刀 -11,000+ 行；设计=`plan-doc/tasks/designs/iceberg-rowlevel-dml-desdk-design.md`（Status=DONE，完成记录在其头部）；removal-plan §6b 已补落地记录。
 > **本轮（4-7 步）要点**：
