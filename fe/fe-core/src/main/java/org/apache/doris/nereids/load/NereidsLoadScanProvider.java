@@ -81,19 +81,11 @@ public class NereidsLoadScanProvider {
         this.partialUpdateInputColumns = partialUpdateInputColumns;
     }
 
-    private boolean isParquetOrOrc(TFileFormatType fileFormatType) {
-        return fileFormatType == TFileFormatType.FORMAT_PARQUET || fileFormatType == TFileFormatType.FORMAT_ORC;
-    }
-
-    private boolean shouldUseTargetTypeForFileSlot(TFileFormatType fileFormatType, Type targetType) {
-        return isParquetOrOrc(fileFormatType) && targetType != null && targetType.isComplexType();
-    }
-
-    private boolean isParquetOrOrcComplexTargetColumn(TFileFormatType fileFormatType, Column tblColumn) {
-        return isParquetOrOrc(fileFormatType) && tblColumn != null && tblColumn.getType().isComplexType();
-    }
-
-    private Optional<String> getDirectRenameSourceColumn(Expression expression) {
+    /**
+     * Check if a column expression is a direct rename mapping (e.g., target_col = source_col).
+     * Returns the source column name if it's a simple rename, empty otherwise.
+     */
+    private Optional<String> extractDirectRenameSource(Expression expression) {
         if (!(expression instanceof UnboundSlot)) {
             return Optional.empty();
         }
@@ -104,14 +96,26 @@ public class NereidsLoadScanProvider {
         return Optional.of(slot.getName());
     }
 
-    private Map<String, Type> inferParquetOrOrcComplexRenameSourceTypes(
+    /**
+     * Infer source column types for complex type columns that use rename mapping.
+     * For file formats that natively support complex types (currently Parquet/ORC),
+     * when a complex target column uses direct rename mapping (target = source),
+     * we need to preserve the complex type in the source slot instead of casting to VARCHAR.
+     *
+     * @return Map from source column name to its inferred complex type
+     */
+    private Map<String, Type> inferComplexTypeRenameMapping(
             TFileFormatType fileFormatType, Table tbl, List<NereidsImportColumnDesc> columnExprs)
             throws AnalysisException {
         Map<String, Type> sourceColumnToType = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
-        if (!isParquetOrOrc(fileFormatType)) {
+
+        // Only Parquet/ORC natively support complex types
+        if (fileFormatType != TFileFormatType.FORMAT_PARQUET
+                && fileFormatType != TFileFormatType.FORMAT_ORC) {
             return sourceColumnToType;
         }
 
+        // Build set of file column names
         Set<String> fileColumnNames = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
         for (NereidsImportColumnDesc importColumnDesc : columnExprs) {
             if (importColumnDesc.isColumn()) {
@@ -119,23 +123,31 @@ public class NereidsLoadScanProvider {
             }
         }
 
+        // Analyze column mapping expressions
         for (NereidsImportColumnDesc importColumnDesc : columnExprs) {
             if (importColumnDesc.isColumn()) {
                 continue;
             }
+
             Column tblColumn = tbl.getColumn(importColumnDesc.getColumnName());
-            if (!isParquetOrOrcComplexTargetColumn(fileFormatType, tblColumn)) {
+            if (tblColumn == null || !tblColumn.getType().isComplexType()) {
                 continue;
             }
-            Optional<String> sourceColumnName = getDirectRenameSourceColumn(importColumnDesc.getExpr());
+
+            // Complex type columns only support direct mapping or simple rename
+            Optional<String> sourceColumnName = extractDirectRenameSource(importColumnDesc.getExpr());
             if (!sourceColumnName.isPresent() || !fileColumnNames.contains(sourceColumnName.get())) {
-                throw new AnalysisException("Parquet/orc complex type load only supports direct column mapping "
-                        + "or rename column mapping. column: " + tblColumn.getName());
+                throw new AnalysisException(
+                        "Complex type load only supports direct column mapping or simple rename mapping. "
+                        + "column: " + tblColumn.getName());
             }
+
+            // Check for type conflicts when multiple targets map to the same source
             Type existingType = sourceColumnToType.get(sourceColumnName.get());
             if (existingType != null && !existingType.equals(tblColumn.getType())) {
-                throw new AnalysisException("Parquet/orc complex type rename column mapping requires the same "
-                        + "target type for source column: " + sourceColumnName.get());
+                throw new AnalysisException(
+                        "Multiple complex columns with different types cannot map to the same source column: "
+                        + sourceColumnName.get());
             }
             sourceColumnToType.put(sourceColumnName.get(), tblColumn.getType());
         }
@@ -408,7 +420,7 @@ public class NereidsLoadScanProvider {
         }
 
         TFileFormatType fileFormatType = fileGroup.getFileFormatProperties().getFileFormatType();
-        Map<String, Type> complexRenameSourceTypes = inferParquetOrOrcComplexRenameSourceTypes(
+        Map<String, Type> complexRenameSourceTypes = inferComplexTypeRenameMapping(
                 fileFormatType, tbl, copiedColumnExprs);
 
         // create scan SlotReferences
@@ -428,11 +440,15 @@ public class NereidsLoadScanProvider {
                 realColName = tblColumn.getName();
             }
             if (importColumnDesc.getExpr() != null) {
-                if (isParquetOrOrcComplexTargetColumn(fileFormatType, tblColumn)
-                        && !getDirectRenameSourceColumn(importColumnDesc.getExpr())
+                // Complex type columns only support direct mapping or simple rename
+                if (tblColumn != null && tblColumn.getType().isComplexType()
+                        && (fileFormatType == TFileFormatType.FORMAT_PARQUET
+                                || fileFormatType == TFileFormatType.FORMAT_ORC)
+                        && !extractDirectRenameSource(importColumnDesc.getExpr())
                                 .map(complexRenameSourceTypes::containsKey).orElse(false)) {
-                    throw new AnalysisException("Parquet/orc complex type load only supports direct column mapping "
-                            + "or rename column mapping. column: " + realColName);
+                    throw new AnalysisException(
+                            "Complex type load only supports direct column mapping or simple rename mapping. "
+                            + "column: " + realColName);
                 }
                 if (tblColumn.getGeneratedColumnInfo() == null && !context.exprMap.containsKey(realColName)) {
                     context.exprMap.put(realColName, importColumnDesc.getExpr());
@@ -442,16 +458,20 @@ public class NereidsLoadScanProvider {
                 Type inferredType = complexRenameSourceTypes.get(realColName);
                 Type targetType = tblColumn == null ? inferredType : tblColumn.getType();
                 if (inferredType != null && targetType != null && !inferredType.equals(targetType)) {
-                    throw new AnalysisException("Parquet/orc complex type rename column mapping requires the same "
-                            + "target type for source column: " + realColName);
+                    throw new AnalysisException(
+                            "Multiple complex columns with different types cannot map to the same source column: "
+                            + realColName);
                 } else if (targetType == null) {
                     targetType = colToType.get(realColName);
                 }
-                // Use real column type for arrow/native format. For parquet/orc complex table columns,
-                // keep the nested source slot type and let BE cast from the file schema to the target type.
-                if (fileFormatType == TFileFormatType.FORMAT_ARROW
+                // Use real column type for arrow/native format, or for complex types in Parquet/ORC.
+                // For complex columns in Parquet/ORC, keep the nested type and let BE cast from file schema.
+                boolean useTargetType = fileFormatType == TFileFormatType.FORMAT_ARROW
                         || fileFormatType == TFileFormatType.FORMAT_NATIVE
-                        || shouldUseTargetTypeForFileSlot(fileFormatType, targetType)) {
+                        || (targetType != null && targetType.isComplexType()
+                                && (fileFormatType == TFileFormatType.FORMAT_PARQUET
+                                        || fileFormatType == TFileFormatType.FORMAT_ORC));
+                if (useTargetType) {
                     slotColumn = new Column(realColName, targetType, true);
                 } else {
                     if (fileGroupInfo.getUniqueKeyUpdateMode() == TUniqueKeyUpdateMode.UPDATE_FLEXIBLE_COLUMNS
