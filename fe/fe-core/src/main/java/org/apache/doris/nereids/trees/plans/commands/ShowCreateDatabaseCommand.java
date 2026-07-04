@@ -30,8 +30,6 @@ import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.PluginDrivenExternalCatalog;
 import org.apache.doris.datasource.PluginDrivenExternalDatabase;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
-import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
-import org.apache.doris.datasource.iceberg.IcebergExternalDatabase;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -94,12 +92,6 @@ public class ShowCreateDatabaseCommand extends ShowCommand {
                     .append(" LOCATION '")
                     .append(db.getLocationUri())
                     .append("'");
-        } else if (catalog instanceof IcebergExternalCatalog) {
-            IcebergExternalDatabase db = (IcebergExternalDatabase) catalog.getDbOrAnalysisException(databaseName);
-            sb.append("CREATE DATABASE `").append(databaseName).append("`")
-                .append(" LOCATION '")
-                .append(db.getLocation())
-                .append("'");
         } else if (catalog instanceof PluginDrivenExternalCatalog) {
             // Post-cutover an iceberg (and any plugin-driven) catalog surfaces databases as
             // PluginDrivenExternalDatabase; render LOCATION from the connector's getDatabase SPI (the

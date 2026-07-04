@@ -231,13 +231,6 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
                 ErrorReport.reportDdlException(ErrorCode.ERR_DB_CREATE_EXISTS, dbName);
             }
         }
-        if (!properties.isEmpty() && dorisCatalog instanceof IcebergExternalCatalog) {
-            String icebergCatalogType = ((IcebergExternalCatalog) dorisCatalog).getIcebergCatalogType();
-            if (!IcebergCatalogConstants.ICEBERG_HMS.equals(icebergCatalogType)) {
-                throw new DdlException(
-                    "Not supported: create database with properties for iceberg catalog type: " + icebergCatalogType);
-            }
-        }
         nsCatalog.createNamespace(getNamespace(dbName), properties);
         return false;
     }
@@ -468,10 +461,10 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     }
 
     private boolean shouldCleanupManagedLocation() {
-        // Only cleanup HMS-Iceberg location
-        return dorisCatalog instanceof IcebergExternalCatalog
-                && IcebergCatalogConstants.ICEBERG_HMS.equals(
-                        ((IcebergExternalCatalog) dorisCatalog).getIcebergCatalogType());
+        // Native HMS-flavor iceberg managed-location cleanup moved to the connector
+        // (IcebergConnectorMetadata.cleanupEmptyManagedLocation). Post-cutover this ops instance only ever
+        // backs an HMSExternalCatalog (an hms catalog holding iceberg tables), which never cleaned up here.
+        return false;
     }
 
     @VisibleForTesting
