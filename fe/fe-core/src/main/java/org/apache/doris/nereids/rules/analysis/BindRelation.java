@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.analysis.TableScanParams;
-import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.catalog.AggStateType;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
@@ -49,7 +48,6 @@ import org.apache.doris.datasource.PluginDrivenExternalTable;
 import org.apache.doris.datasource.doris.RemoteDorisExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalTable.DLAType;
-import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.systable.SysTableResolver;
 import org.apache.doris.nereids.CTEContext;
 import org.apache.doris.nereids.CascadesContext;
@@ -618,35 +616,6 @@ public class BindRelation extends OneAnalysisRuleFactory {
                                 unboundRelation.getTableSnapshot(),
                                 Optional.ofNullable(unboundRelation.getScanParams()), Optional.empty());
                     }
-                case ICEBERG_EXTERNAL_TABLE:
-                    IcebergExternalTable icebergExternalTable = (IcebergExternalTable) table;
-                    if (Config.enable_query_iceberg_views && icebergExternalTable.isView()) {
-                        Optional<TableSnapshot> tableSnapshot = unboundRelation.getTableSnapshot();
-                        if (tableSnapshot.isPresent()) {
-                            // iceberg view not supported with snapshot time/version travel
-                            // note that enable_fallback_to_original_planner should be set with false
-                            // or else this exception will not be thrown
-                            // because legacy planner will retry and thrown other exception
-                            throw new UnsupportedOperationException(
-                                "iceberg view not supported with snapshot time/version travel");
-                        }
-                        isView = true;
-                        String icebergCatalog = icebergExternalTable.getCatalog().getName();
-                        String icebergDb = icebergExternalTable.getDatabase().getFullName();
-                        String ddlSql = icebergExternalTable.getViewText();
-                        Plan icebergViewPlan = parseAndAnalyzeExternalView(icebergExternalTable,
-                                icebergCatalog, icebergDb, ddlSql, cascadesContext);
-                        return new LogicalSubQueryAlias<>(qualifiedTableName, icebergViewPlan);
-                    }
-                    if (icebergExternalTable.isView()) {
-                        throw new UnsupportedOperationException(
-                            "please set enable_query_iceberg_views=true to enable query iceberg views");
-                    }
-                    return new LogicalFileScan(unboundRelation.getRelationId(), (ExternalTable) table,
-                        qualifierWithoutTableName, ImmutableList.of(),
-                        unboundRelation.getTableSample(),
-                        unboundRelation.getTableSnapshot(),
-                        Optional.ofNullable(unboundRelation.getScanParams()), Optional.empty());
                 case PAIMON_EXTERNAL_TABLE:
                 case MAX_COMPUTE_EXTERNAL_TABLE:
                 case TRINO_CONNECTOR_EXTERNAL_TABLE:

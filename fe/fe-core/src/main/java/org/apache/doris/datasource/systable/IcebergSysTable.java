@@ -18,8 +18,6 @@
 package org.apache.doris.datasource.systable;
 
 import org.apache.doris.datasource.ExternalTable;
-import org.apache.doris.datasource.iceberg.IcebergExternalTable;
-import org.apache.doris.datasource.iceberg.IcebergSysExternalTable;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 
 import org.apache.iceberg.MetadataTableType;
@@ -73,10 +71,10 @@ public class IcebergSysTable extends NativeSysTable {
         if (!supported) {
             throw new AnalysisException("SysTable " + tableName + " is not supported yet");
         }
-        if (!(sourceTable instanceof IcebergExternalTable)) {
-            throw new IllegalArgumentException(
-                    "Expected IcebergExternalTable but got " + sourceTable.getClass().getSimpleName());
-        }
-        return new IcebergSysExternalTable((IcebergExternalTable) sourceTable, getSysTableName());
+        // Post-cutover the native IcebergExternalTable this used to wrap is gone; the only live source
+        // reaching here is HMSExternalTable (HMS-iceberg), for which this path already always threw.
+        throw new IllegalArgumentException(
+                "Iceberg system tables are not supported for source table type: "
+                        + sourceTable.getClass().getSimpleName());
     }
 }

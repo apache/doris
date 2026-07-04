@@ -20,7 +20,6 @@ package org.apache.doris.nereids.trees.plans.logical;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.datasource.PluginDrivenExternalTable;
-import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
@@ -39,6 +38,10 @@ public class LogicalFileScanTest {
 
     @Test
     public void testComputeOutputIncludesInvisibleRowLineageColumnsForIcebergTable() {
+        // Post-cutover a native iceberg table is a PluginDrivenExternalTable, so computeOutput() flows through
+        // computePluginDrivenOutput() (row-lineage columns are surfaced by the connector via getFullSchema); the
+        // legacy exact-class IcebergExternalTable arm is gone. Assert the invisible v3 row-lineage columns still
+        // reach the plan output.
         Column rowIdColumn = new Column(IcebergUtils.ICEBERG_ROW_ID_COL, Type.BIGINT, true);
         rowIdColumn.setIsVisible(false);
         Column lastUpdatedSequenceNumberColumn =
@@ -49,7 +52,7 @@ public class LogicalFileScanTest {
                 rowIdColumn,
                 lastUpdatedSequenceNumberColumn);
 
-        IcebergExternalTable table = Mockito.mock(IcebergExternalTable.class);
+        PluginDrivenExternalTable table = Mockito.mock(PluginDrivenExternalTable.class);
         Mockito.when(table.initSelectedPartitions(Mockito.any())).thenReturn(SelectedPartitions.NOT_PRUNED);
         Mockito.when(table.getFullSchema()).thenReturn(schema);
         Mockito.when(table.getName()).thenReturn("iceberg_tbl");

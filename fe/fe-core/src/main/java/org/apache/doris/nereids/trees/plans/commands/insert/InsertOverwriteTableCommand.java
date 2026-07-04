@@ -32,7 +32,6 @@ import org.apache.doris.datasource.PluginDrivenExternalTable;
 import org.apache.doris.datasource.doris.RemoteDorisExternalTable;
 import org.apache.doris.datasource.doris.RemoteOlapTable;
 import org.apache.doris.datasource.hive.HMSExternalTable;
-import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.insertoverwrite.AbstractInsertOverwriteManager;
 import org.apache.doris.insertoverwrite.InsertOverwriteUtil;
 import org.apache.doris.insertoverwrite.RemoteInsertOverwriteManager;
@@ -320,7 +319,6 @@ public class InsertOverwriteTableCommand extends Command implements NeedAuditEnc
             return true;
         } else {
             return targetTable instanceof HMSExternalTable
-                    || targetTable instanceof IcebergExternalTable
                     || (targetTable instanceof PluginDrivenExternalTable
                             && pluginConnectorSupportsInsertOverwrite((PluginDrivenExternalTable) targetTable));
         }

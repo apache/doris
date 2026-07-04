@@ -1865,12 +1865,6 @@ public class IcebergUtils {
         return formatVersion;
     }
 
-    public static String showCreateView(IcebergExternalTable icebergExternalTable) {
-        return String.format("CREATE VIEW `%s` AS ", icebergExternalTable.getName())
-                +
-                icebergExternalTable.getViewText();
-    }
-
     public static boolean isManifestCacheEnabled(ExternalCatalog catalog) {
         CacheSpec spec = CacheSpec.fromProperties(catalog.getProperties(), CacheSpec.propertySpecBuilder()
                 .enable(IcebergCatalogConstants.ICEBERG_MANIFEST_CACHE_ENABLE,

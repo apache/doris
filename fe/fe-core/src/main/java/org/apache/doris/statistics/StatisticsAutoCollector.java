@@ -27,7 +27,6 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.datasource.PluginDrivenExternalTable;
-import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.persist.TableStatsDeletionLog;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisMethod;
 import org.apache.doris.statistics.AnalysisInfo.JobType;
@@ -147,9 +146,6 @@ public class StatisticsAutoCollector extends MasterDaemon {
                 || table.getDataSize(true) >= StatisticsUtil.getHugeTableLowerBoundSizeInBytes())
                 ? AnalysisMethod.SAMPLE : AnalysisMethod.FULL;
         if (StatisticsUtil.enablePartitionAnalyze() && table.isPartitionedTable()) {
-            analysisMethod = AnalysisMethod.FULL;
-        }
-        if (table instanceof IcebergExternalTable) { // IcebergExternalTable table only support full analyze now
             analysisMethod = AnalysisMethod.FULL;
         }
         if (table instanceof PluginDrivenExternalTable

@@ -106,8 +106,6 @@ import org.apache.doris.datasource.PluginDrivenSysExternalTable;
 import org.apache.doris.datasource.SplitSourceManager;
 import org.apache.doris.datasource.hive.HiveTransactionMgr;
 import org.apache.doris.datasource.hive.event.MetastoreEventsProcessor;
-import org.apache.doris.datasource.iceberg.IcebergExternalTable;
-import org.apache.doris.datasource.iceberg.IcebergSysExternalTable;
 import org.apache.doris.deploy.DeployManager;
 import org.apache.doris.deploy.impl.LocalFileDeployManager;
 import org.apache.doris.dictionary.DictionaryManager;
@@ -4484,36 +4482,6 @@ public class Env {
         } else if (table.getType() == TableType.JDBC) {
             addTableComment(table, sb);
             sb.append("\n-- Internal JDBC tables are deprecated. Please use JDBC Catalog instead.");
-        } else if (table.getType() == TableType.ICEBERG_EXTERNAL_TABLE) {
-            addTableComment(table, sb);
-            IcebergExternalTable icebergExternalTable;
-            if (table instanceof IcebergExternalTable) {
-                icebergExternalTable = (IcebergExternalTable) table;
-            } else if (table instanceof IcebergSysExternalTable) {
-                icebergExternalTable = ((IcebergSysExternalTable) table).getSourceTable();
-            } else {
-                throw new RuntimeException("Unexpected Iceberg table type: " + table.getClass().getSimpleName());
-            }
-            if (icebergExternalTable.hasSortOrder()) {
-                sb.append("\n").append(icebergExternalTable.getSortOrderSql());
-            }
-            if (table instanceof IcebergExternalTable) {
-                String partitionSpecSql = icebergExternalTable.getPartitionSpecSql();
-                if (!partitionSpecSql.isEmpty()) {
-                    sb.append("\n").append(partitionSpecSql);
-                }
-            }
-            sb.append("\nLOCATION '").append(icebergExternalTable.location()).append("'");
-            sb.append("\nPROPERTIES (");
-            Iterator<Entry<String, String>> iterator = icebergExternalTable.properties().entrySet().iterator();
-            while (iterator.hasNext()) {
-                Entry<String, String> prop = iterator.next();
-                sb.append("\n  \"").append(prop.getKey()).append("\" = \"").append(prop.getValue()).append("\"");
-                if (iterator.hasNext()) {
-                    sb.append(",");
-                }
-            }
-            sb.append("\n)");
         } else if (table.getType() == TableType.PLUGIN_EXTERNAL_TABLE) {
             addTableComment(table, sb);
         }
@@ -4882,36 +4850,6 @@ public class Env {
         } else if (table.getType() == TableType.JDBC) {
             addTableComment(table, sb);
             sb.append("\n-- Internal JDBC tables are deprecated. Please use JDBC Catalog instead.");
-        } else if (table.getType() == TableType.ICEBERG_EXTERNAL_TABLE) {
-            addTableComment(table, sb);
-            IcebergExternalTable icebergExternalTable;
-            if (table instanceof IcebergExternalTable) {
-                icebergExternalTable = (IcebergExternalTable) table;
-            } else if (table instanceof IcebergSysExternalTable) {
-                icebergExternalTable = ((IcebergSysExternalTable) table).getSourceTable();
-            } else {
-                throw new RuntimeException("Unexpected Iceberg table type: " + table.getClass().getSimpleName());
-            }
-            if (icebergExternalTable.hasSortOrder()) {
-                sb.append("\n").append(icebergExternalTable.getSortOrderSql());
-            }
-            if (table instanceof IcebergExternalTable) {
-                String partitionSpecSql = icebergExternalTable.getPartitionSpecSql();
-                if (!partitionSpecSql.isEmpty()) {
-                    sb.append("\n").append(partitionSpecSql);
-                }
-            }
-            sb.append("\nLOCATION '").append(icebergExternalTable.location()).append("'");
-            sb.append("\nPROPERTIES (");
-            Iterator<Entry<String, String>> iterator = icebergExternalTable.properties().entrySet().iterator();
-            while (iterator.hasNext()) {
-                Entry<String, String> prop = iterator.next();
-                sb.append("\n  \"").append(prop.getKey()).append("\" = \"").append(prop.getValue()).append("\"");
-                if (iterator.hasNext()) {
-                    sb.append(",");
-                }
-            }
-            sb.append("\n)");
         } else if (table.getType() == TableType.PLUGIN_EXTERNAL_TABLE) {
             addTableComment(table, sb);
             boolean isSysTable = table instanceof PluginDrivenSysExternalTable;

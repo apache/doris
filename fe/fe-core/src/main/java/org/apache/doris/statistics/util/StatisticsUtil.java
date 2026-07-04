@@ -57,7 +57,6 @@ import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.PluginDrivenExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalTable.DLAType;
-import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IPv4Literal;
 import org.apache.doris.nereids.trees.expressions.literal.IPv6Literal;
@@ -994,11 +993,6 @@ public class StatisticsUtil {
 
         // Support OLAP table
         if (table instanceof OlapTable) {
-            return true;
-        }
-
-        // Support Iceberg table
-        if (table instanceof IcebergExternalTable) {
             return true;
         }
 

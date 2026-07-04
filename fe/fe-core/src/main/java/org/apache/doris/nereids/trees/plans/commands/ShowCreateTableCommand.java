@@ -36,9 +36,6 @@ import org.apache.doris.datasource.PluginDrivenExternalTable;
 import org.apache.doris.datasource.PluginDrivenSysExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HiveMetaStoreClientHelper;
-import org.apache.doris.datasource.iceberg.IcebergExternalTable;
-import org.apache.doris.datasource.iceberg.IcebergSysExternalTable;
-import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.datasource.systable.SysTable;
 import org.apache.doris.datasource.systable.SysTableResolver;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -116,9 +113,7 @@ public class ShowCreateTableCommand extends ShowCommand {
         }
 
         String authTableName;
-        if (tableIf instanceof IcebergSysExternalTable) {
-            authTableName = ((IcebergSysExternalTable) tableIf).getSourceTable().getName();
-        } else if (tableIf instanceof PluginDrivenSysExternalTable) {
+        if (tableIf instanceof PluginDrivenSysExternalTable) {
             // P6.5-T06: after the SPI cutover a sys table ($snapshots/...) is a PluginDrivenSysExternalTable;
             // authorize SHOW CREATE against its source table (mirrors the IcebergSysExternalTable branch above
             // and UserAuthentication), so a user holding SHOW on db.tbl can SHOW CREATE db.tbl$snapshots.
@@ -163,12 +158,6 @@ public class ShowCreateTableCommand extends ShowCommand {
                         HiveMetaStoreClientHelper.showCreateTable((HMSExternalTable) table)));
                 return new ShowResultSet(META_DATA, rows);
             }
-            if ((table.getType() == Table.TableType.ICEBERG_EXTERNAL_TABLE)
-                    && ((IcebergExternalTable) table).isView()) {
-                rows.add(Arrays.asList(table.getName(),
-                        IcebergUtils.showCreateView(((IcebergExternalTable) table))));
-                return new ShowResultSet(META_DATA, rows);
-            }
             if (table instanceof PluginDrivenExternalTable && ((PluginDrivenExternalTable) table).isView()) {
                 // Flipped iceberg view: reproduce the legacy ICEBERG_EXTERNAL_TABLE view arm above on the
                 // neutral plugin path (only iceberg declares SUPPORTS_VIEW). Render the same bytes as
@@ -204,18 +193,13 @@ public class ShowCreateTableCommand extends ShowCommand {
     }
 
     /**
-     * F4/F13: redirects a system table ($snapshots/...) to its source base table so SHOW CREATE renders the
-     * base table's DDL (name / data columns / PARTITION BY) rather than the sys-table shell. The legacy
-     * {@link IcebergSysExternalTable} arm was already here; after the SPI cutover a sys table is a
-     * {@link PluginDrivenSysExternalTable}, so its arm was missing (an asymmetric omission: {@code validate()}
-     * already unwraps the {@code PluginDrivenSysExternalTable} to its source for the privilege check). Both
-     * are neutral sys-table types (not {@code Iceberg*}), so this stays iron-rule clean. Non-sys tables pass
-     * through unchanged.
+     * Redirects a system table ($snapshots/...) to its source base table so SHOW CREATE renders the base
+     * table's DDL (name / data columns / PARTITION BY) rather than the sys-table shell. Post-cutover a sys
+     * table is a {@link PluginDrivenSysExternalTable} (a neutral sys-table type, not {@code Iceberg*}), so
+     * this stays iron-rule clean. Non-sys tables pass through unchanged.
      */
     static TableIf redirectSysTableToSource(TableIf table) {
-        if (table instanceof IcebergSysExternalTable) {
-            return ((IcebergSysExternalTable) table).getSourceTable();
-        } else if (table instanceof PluginDrivenSysExternalTable) {
+        if (table instanceof PluginDrivenSysExternalTable) {
             return ((PluginDrivenSysExternalTable) table).getSourceTable();
         }
         return table;
