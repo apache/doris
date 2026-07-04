@@ -210,14 +210,14 @@ suite("test_s3_load_parquet_orc_complex_type", "load_p0") {
             "(c_int, tmp_array, tmp_map, tmp_struct) SET (c_array = tmp_array, c_map = tmp_map, c_struct = tmp_struct)")
     submitS3LoadAndExpectCancelled.call(renameParquetTable, "${s3BasePath}/rename_parquet", "parquet",
             "(c_int, tmp_array, tmp_map, tmp_struct) SET (c_array = tmp_struct.f1)",
-            "Parquet/orc complex type load only supports direct column mapping or rename column mapping")
+            "direct column mapping or simple rename mapping")
     submitS3LoadAndExpectCancelled.call(renameOrcTable, "${s3BasePath}/rename_orc", "orc",
             "(c_int, tmp_array, tmp_map, tmp_struct) SET (c_array = tmp_struct.f1)",
-            "Parquet/orc complex type load only supports direct column mapping or rename column mapping")
+            "direct column mapping or simple rename mapping")
     submitS3LoadAndExpectCancelled.call(scalarParquetTable, "${s3BasePath}/scalar_parquet", "parquet",
-            "(c_int, tmp_array) SET (c_array = tmp_array)", "complex column types")
+            "(c_int, tmp_array) SET (c_array = tmp_array)", "require complex file columns")
     submitS3LoadAndExpectCancelled.call(scalarOrcTable, "${s3BasePath}/scalar_orc", "orc",
-            "(c_int, tmp_array) SET (c_array = tmp_array)", "complex column types")
+            "(c_int, tmp_array) SET (c_array = tmp_array)", "require complex file columns")
 
     qt_parquet_count """ SELECT COUNT(*) FROM ${parquetTable} """
     order_qt_parquet_nested """
