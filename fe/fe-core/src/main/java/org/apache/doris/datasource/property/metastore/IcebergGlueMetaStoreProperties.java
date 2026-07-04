@@ -17,7 +17,7 @@
 
 package org.apache.doris.datasource.property.metastore;
 
-import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
+import org.apache.doris.datasource.iceberg.IcebergCatalogConstants;
 import org.apache.doris.datasource.property.storage.S3Properties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 
@@ -48,7 +48,7 @@ public class IcebergGlueMetaStoreProperties extends AbstractIcebergProperties {
 
     @Override
     public String getIcebergCatalogType() {
-        return IcebergExternalCatalog.ICEBERG_GLUE;
+        return IcebergCatalogConstants.ICEBERG_GLUE;
     }
 
     @Override

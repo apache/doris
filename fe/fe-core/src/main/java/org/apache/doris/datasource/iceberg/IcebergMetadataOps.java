@@ -116,9 +116,9 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         nsCatalog = (SupportsNamespaces) catalog;
         this.executionAuthenticator = dorisCatalog.getExecutionAuthenticator();
 
-        if (dorisCatalog.getProperties().containsKey(IcebergExternalCatalog.EXTERNAL_CATALOG_NAME)) {
+        if (dorisCatalog.getProperties().containsKey(IcebergCatalogConstants.EXTERNAL_CATALOG_NAME)) {
             externalCatalogName =
-                Optional.of(dorisCatalog.getProperties().get(IcebergExternalCatalog.EXTERNAL_CATALOG_NAME));
+                Optional.of(dorisCatalog.getProperties().get(IcebergCatalogConstants.EXTERNAL_CATALOG_NAME));
         }
     }
 
@@ -233,7 +233,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         }
         if (!properties.isEmpty() && dorisCatalog instanceof IcebergExternalCatalog) {
             String icebergCatalogType = ((IcebergExternalCatalog) dorisCatalog).getIcebergCatalogType();
-            if (!IcebergExternalCatalog.ICEBERG_HMS.equals(icebergCatalogType)) {
+            if (!IcebergCatalogConstants.ICEBERG_HMS.equals(icebergCatalogType)) {
                 throw new DdlException(
                     "Not supported: create database with properties for iceberg catalog type: " + icebergCatalogType);
             }
@@ -470,7 +470,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     private boolean shouldCleanupManagedLocation() {
         // Only cleanup HMS-Iceberg location
         return dorisCatalog instanceof IcebergExternalCatalog
-                && IcebergExternalCatalog.ICEBERG_HMS.equals(
+                && IcebergCatalogConstants.ICEBERG_HMS.equals(
                         ((IcebergExternalCatalog) dorisCatalog).getIcebergCatalogType());
     }
 

@@ -1873,12 +1873,12 @@ public class IcebergUtils {
 
     public static boolean isManifestCacheEnabled(ExternalCatalog catalog) {
         CacheSpec spec = CacheSpec.fromProperties(catalog.getProperties(), CacheSpec.propertySpecBuilder()
-                .enable(IcebergExternalCatalog.ICEBERG_MANIFEST_CACHE_ENABLE,
-                        IcebergExternalCatalog.DEFAULT_ICEBERG_MANIFEST_CACHE_ENABLE)
-                .ttl(IcebergExternalCatalog.ICEBERG_MANIFEST_CACHE_TTL_SECOND,
-                        IcebergExternalCatalog.DEFAULT_ICEBERG_MANIFEST_CACHE_TTL_SECOND)
-                .capacity(IcebergExternalCatalog.ICEBERG_MANIFEST_CACHE_CAPACITY,
-                        IcebergExternalCatalog.DEFAULT_ICEBERG_MANIFEST_CACHE_CAPACITY)
+                .enable(IcebergCatalogConstants.ICEBERG_MANIFEST_CACHE_ENABLE,
+                        IcebergCatalogConstants.DEFAULT_ICEBERG_MANIFEST_CACHE_ENABLE)
+                .ttl(IcebergCatalogConstants.ICEBERG_MANIFEST_CACHE_TTL_SECOND,
+                        IcebergCatalogConstants.DEFAULT_ICEBERG_MANIFEST_CACHE_TTL_SECOND)
+                .capacity(IcebergCatalogConstants.ICEBERG_MANIFEST_CACHE_CAPACITY,
+                        IcebergCatalogConstants.DEFAULT_ICEBERG_MANIFEST_CACHE_CAPACITY)
                 .build());
         return CacheSpec.isCacheEnabled(spec.isEnable(), spec.getTtlSecond(), spec.getCapacity());
     }

@@ -74,7 +74,7 @@ public class IcebergExternalTableBranchAndTagTest {
         tempDirectory = Files.createTempDirectory("");
         map.put("warehouse", "file://" + tempDirectory.toString());
         map.put("type", "hadoop");
-        map.put("iceberg.catalog.type", IcebergExternalCatalog.ICEBERG_HADOOP);
+        map.put("iceberg.catalog.type", IcebergCatalogConstants.ICEBERG_HADOOP);
         icebergCatalog =
                 (HadoopCatalog) CatalogUtil.buildIcebergCatalog("iceberg_catalog", map, new Configuration());
         map.put("type", "iceberg");

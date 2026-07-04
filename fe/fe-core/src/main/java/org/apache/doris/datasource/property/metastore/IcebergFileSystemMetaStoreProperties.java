@@ -18,7 +18,7 @@
 package org.apache.doris.datasource.property.metastore;
 
 import org.apache.doris.catalog.HdfsResource;
-import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
+import org.apache.doris.datasource.iceberg.IcebergCatalogConstants;
 import org.apache.doris.datasource.property.storage.HdfsProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.kerberos.HadoopExecutionAuthenticator;
@@ -38,7 +38,7 @@ public class IcebergFileSystemMetaStoreProperties extends AbstractIcebergPropert
 
     @Override
     public String getIcebergCatalogType() {
-        return IcebergExternalCatalog.ICEBERG_HADOOP;
+        return IcebergCatalogConstants.ICEBERG_HADOOP;
     }
 
     public IcebergFileSystemMetaStoreProperties(Map<String, String> props) {

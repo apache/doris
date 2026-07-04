@@ -18,7 +18,7 @@
 package org.apache.doris.datasource.property.metastore;
 
 import org.apache.doris.common.UserException;
-import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
+import org.apache.doris.datasource.iceberg.IcebergCatalogConstants;
 import org.apache.doris.datasource.property.common.IcebergAwsClientCredentialsProperties;
 import org.apache.doris.datasource.property.storage.S3Properties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
@@ -108,7 +108,7 @@ public class IcebergS3TablesMetaStorePropertiesTest {
         IcebergS3TablesMetaStoreProperties metaProps = new IcebergS3TablesMetaStoreProperties(props);
         metaProps.initNormalizeAndCheckProps();
 
-        Assertions.assertEquals(IcebergExternalCatalog.ICEBERG_S3_TABLES, metaProps.getIcebergCatalogType());
+        Assertions.assertEquals(IcebergCatalogConstants.ICEBERG_S3_TABLES, metaProps.getIcebergCatalogType());
 
         Map<String, String> catalogProps = new HashMap<>();
         buildS3CatalogProperties(metaProps, catalogProps);

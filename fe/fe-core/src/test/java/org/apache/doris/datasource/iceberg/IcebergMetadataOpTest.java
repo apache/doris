@@ -238,7 +238,7 @@ public class IcebergMetadataOpTest {
         Mockito.when(dorisCatalog.getExecutionAuthenticator()).thenReturn(new ExecutionAuthenticator() {
         });
         Mockito.when(dorisCatalog.getProperties()).thenReturn(catalogProperties);
-        Mockito.when(dorisCatalog.getIcebergCatalogType()).thenReturn(IcebergExternalCatalog.ICEBERG_HMS);
+        Mockito.when(dorisCatalog.getIcebergCatalogType()).thenReturn(IcebergCatalogConstants.ICEBERG_HMS);
         Mockito.when(dorisCatalog.getCatalogProperty()).thenReturn(new CatalogProperty(null, Collections.emptyMap()));
         return dorisCatalog;
     }

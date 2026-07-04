@@ -45,23 +45,9 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
 
     private static final Logger LOG = LogManager.getLogger(IcebergExternalCatalog.class);
     public static final String ICEBERG_CATALOG_TYPE = "iceberg.catalog.type";
-    public static final String ICEBERG_REST = "rest";
-    public static final String ICEBERG_HMS = "hms";
-    public static final String ICEBERG_HADOOP = "hadoop";
-    public static final String ICEBERG_GLUE = "glue";
-    public static final String ICEBERG_DLF = "dlf";
-    public static final String ICEBERG_JDBC = "jdbc";
-    public static final String ICEBERG_S3_TABLES = "s3tables";
-    public static final String EXTERNAL_CATALOG_NAME = "external_catalog.name";
     public static final String ICEBERG_TABLE_CACHE_ENABLE = "meta.cache.iceberg.table.enable";
     public static final String ICEBERG_TABLE_CACHE_TTL_SECOND = "meta.cache.iceberg.table.ttl-second";
     public static final String ICEBERG_TABLE_CACHE_CAPACITY = "meta.cache.iceberg.table.capacity";
-    public static final String ICEBERG_MANIFEST_CACHE_ENABLE = "meta.cache.iceberg.manifest.enable";
-    public static final String ICEBERG_MANIFEST_CACHE_TTL_SECOND = "meta.cache.iceberg.manifest.ttl-second";
-    public static final String ICEBERG_MANIFEST_CACHE_CAPACITY = "meta.cache.iceberg.manifest.capacity";
-    public static final boolean DEFAULT_ICEBERG_MANIFEST_CACHE_ENABLE = false;
-    public static final long DEFAULT_ICEBERG_MANIFEST_CACHE_CAPACITY = 1024;
-    public static final long DEFAULT_ICEBERG_MANIFEST_CACHE_TTL_SECOND = 48 * 60 * 60;
     protected String icebergCatalogType;
     protected Catalog catalog;
 
@@ -94,12 +80,15 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
         CacheSpec.checkLongProperty(catalogProperty.getOrDefault(ICEBERG_TABLE_CACHE_CAPACITY, null),
                 0L, ICEBERG_TABLE_CACHE_CAPACITY);
 
-        CacheSpec.checkBooleanProperty(catalogProperty.getOrDefault(ICEBERG_MANIFEST_CACHE_ENABLE, null),
-                ICEBERG_MANIFEST_CACHE_ENABLE);
-        CacheSpec.checkLongProperty(catalogProperty.getOrDefault(ICEBERG_MANIFEST_CACHE_TTL_SECOND, null),
-                -1L, ICEBERG_MANIFEST_CACHE_TTL_SECOND);
-        CacheSpec.checkLongProperty(catalogProperty.getOrDefault(ICEBERG_MANIFEST_CACHE_CAPACITY, null),
-                0L, ICEBERG_MANIFEST_CACHE_CAPACITY);
+        CacheSpec.checkBooleanProperty(
+                catalogProperty.getOrDefault(IcebergCatalogConstants.ICEBERG_MANIFEST_CACHE_ENABLE, null),
+                IcebergCatalogConstants.ICEBERG_MANIFEST_CACHE_ENABLE);
+        CacheSpec.checkLongProperty(
+                catalogProperty.getOrDefault(IcebergCatalogConstants.ICEBERG_MANIFEST_CACHE_TTL_SECOND, null),
+                -1L, IcebergCatalogConstants.ICEBERG_MANIFEST_CACHE_TTL_SECOND);
+        CacheSpec.checkLongProperty(
+                catalogProperty.getOrDefault(IcebergCatalogConstants.ICEBERG_MANIFEST_CACHE_CAPACITY, null),
+                0L, IcebergCatalogConstants.ICEBERG_MANIFEST_CACHE_CAPACITY);
         catalogProperty.checkMetaStoreAndStorageProperties(AbstractIcebergProperties.class);
     }
 

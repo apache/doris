@@ -17,7 +17,7 @@
 
 package org.apache.doris.datasource.property.metastore;
 
-import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
+import org.apache.doris.datasource.iceberg.IcebergCatalogConstants;
 import org.apache.doris.datasource.metacache.CacheSpec;
 import org.apache.doris.datasource.property.common.IcebergAwsAssumeRoleProperties;
 import org.apache.doris.datasource.property.storage.AbstractS3CompatibleProperties;
@@ -174,12 +174,12 @@ public abstract class AbstractIcebergProperties extends MetastoreProperties {
         // default enable io manifest cache if the meta.cache.manifest is enabled
         if (!hasIoManifestCacheEnabled) {
             CacheSpec manifestCacheSpec = CacheSpec.fromProperties(catalogProps, CacheSpec.propertySpecBuilder()
-                    .enable(IcebergExternalCatalog.ICEBERG_MANIFEST_CACHE_ENABLE,
-                            IcebergExternalCatalog.DEFAULT_ICEBERG_MANIFEST_CACHE_ENABLE)
-                    .ttl(IcebergExternalCatalog.ICEBERG_MANIFEST_CACHE_TTL_SECOND,
-                            IcebergExternalCatalog.DEFAULT_ICEBERG_MANIFEST_CACHE_TTL_SECOND)
-                    .capacity(IcebergExternalCatalog.ICEBERG_MANIFEST_CACHE_CAPACITY,
-                            IcebergExternalCatalog.DEFAULT_ICEBERG_MANIFEST_CACHE_CAPACITY)
+                    .enable(IcebergCatalogConstants.ICEBERG_MANIFEST_CACHE_ENABLE,
+                            IcebergCatalogConstants.DEFAULT_ICEBERG_MANIFEST_CACHE_ENABLE)
+                    .ttl(IcebergCatalogConstants.ICEBERG_MANIFEST_CACHE_TTL_SECOND,
+                            IcebergCatalogConstants.DEFAULT_ICEBERG_MANIFEST_CACHE_TTL_SECOND)
+                    .capacity(IcebergCatalogConstants.ICEBERG_MANIFEST_CACHE_CAPACITY,
+                            IcebergCatalogConstants.DEFAULT_ICEBERG_MANIFEST_CACHE_CAPACITY)
                     .build());
             if (CacheSpec.isCacheEnabled(manifestCacheSpec.isEnable(),
                     manifestCacheSpec.getTtlSecond(),

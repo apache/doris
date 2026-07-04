@@ -17,7 +17,7 @@
 
 package org.apache.doris.datasource.property.metastore;
 
-import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
+import org.apache.doris.datasource.iceberg.IcebergCatalogConstants;
 import org.apache.doris.datasource.property.common.AwsCredentialsProviderMode;
 import org.apache.doris.datasource.property.common.IcebergAwsClientCredentialsProperties;
 import org.apache.doris.datasource.property.storage.S3Properties;
@@ -193,7 +193,7 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
 
     @Override
     public String getIcebergCatalogType() {
-        return IcebergExternalCatalog.ICEBERG_REST;
+        return IcebergCatalogConstants.ICEBERG_REST;
     }
 
     @Override
