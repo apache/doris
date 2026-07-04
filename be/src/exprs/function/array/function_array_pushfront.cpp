@@ -72,12 +72,12 @@ public:
         const UInt8* array_null_map = nullptr;
         if (const auto* nullable_array = check_and_get_column<ColumnNullable>(src_column.get())) {
             array_column = static_cast<const ColumnArray*>(&nullable_array->get_nested_column());
-            array_null_map = nullable_array->get_null_map_column().get_data().data();
+            array_null_map = nullable_array->get_null_map_data().data();
         } else {
             array_column = static_cast<const ColumnArray*>(src_column.get());
         }
         auto& src_nested_data_col = array_column->get_data();
-        auto& src_offset_col = array_column->get_offsets();
+        const auto src_offset_col = array_column->get_offsets();
 
         auto right_column =
                 block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();

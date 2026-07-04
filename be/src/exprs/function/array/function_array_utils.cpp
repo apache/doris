@@ -46,7 +46,7 @@ bool extract_column_array_info(const IColumn& src, ColumnArrayExecutionData& dat
     }
 
     // extract array offsets and nested column
-    data.offsets_ptr = &data.array_col->get_offsets();
+    data.offsets = data.array_col->get_offsets();
     data.nested_col = data.array_col->get_data_ptr();
     // extract nested column is nullable
     if (const auto* nullable = check_and_get_column<ColumnNullable>(data.nested_col.get())) {
@@ -90,9 +90,9 @@ MutableColumnPtr assemble_column_array(ColumnArrayMutableData& data) {
 void slice_array(ColumnArrayMutableData& dst, ColumnArrayExecutionData& src,
                  const IColumn& offset_column, const IColumn* length_column) {
     size_t cur = 0;
-    for (size_t row = 0; row < src.offsets_ptr->size(); ++row) {
-        size_t off = (*src.offsets_ptr)[row - 1];
-        size_t len = (*src.offsets_ptr)[row] - off;
+    for (size_t row = 0; row < src.offsets.size(); ++row) {
+        size_t off = src.offsets[row - 1];
+        size_t len = src.offsets[row] - off;
         Int64 start = offset_column.get_int(row);
         if (len == 0 || start == 0) {
             dst.offsets_ptr->push_back(cur);

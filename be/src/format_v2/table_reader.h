@@ -1157,12 +1157,18 @@ protected:
         return result;
     }
 
-    static const IColumn* _nested_column_if_nullable(const ColumnPtr& column,
-                                                     const NullMap** null_map) {
+    static const IColumn* _nested_column_if_nullable(const ColumnPtr& column, NullMapView* null_map,
+                                                     bool* has_null_map) {
         DORIS_CHECK(column.get() != nullptr);
+        if (has_null_map != nullptr) {
+            *has_null_map = false;
+        }
         if (const auto* nullable_column = check_and_get_column<ColumnNullable>(*column)) {
             if (null_map != nullptr) {
-                *null_map = &nullable_column->get_null_map_data();
+                *null_map = nullable_column->get_null_map_data();
+            }
+            if (has_null_map != nullptr) {
+                *has_null_map = true;
             }
             return &nullable_column->get_nested_column();
         }
@@ -1176,9 +1182,10 @@ protected:
         const auto* table_type =
                 assert_cast<const DataTypeStruct*>(remove_nullable(mapping.table_type).get());
         const auto full_file_column = file_column->convert_to_full_column_if_const();
-        const NullMap* parent_null_map = nullptr;
-        const auto* nested_file_column =
-                _nested_column_if_nullable(full_file_column, &parent_null_map);
+        NullMapView parent_null_map;
+        bool has_parent_null_map = false;
+        const auto* nested_file_column = _nested_column_if_nullable(
+                full_file_column, &parent_null_map, &has_parent_null_map);
         const auto* file_struct = assert_cast<const ColumnStruct*>(nested_file_column);
         DORIS_CHECK(table_type->get_elements().size() == mapping.child_mappings.size());
 
@@ -1214,9 +1221,9 @@ protected:
             auto null_map = ColumnUInt8::create();
             auto& null_map_data = null_map->get_data();
             null_map_data.resize(rows);
-            if (parent_null_map != nullptr) {
-                DORIS_CHECK(parent_null_map->size() == rows);
-                null_map_data.assign(parent_null_map->begin(), parent_null_map->end());
+            if (has_parent_null_map) {
+                DORIS_CHECK(parent_null_map.size() == rows);
+                null_map_data.assign(parent_null_map.begin(), parent_null_map.end());
             } else {
                 std::fill(null_map_data.begin(), null_map_data.end(), 0);
             }
@@ -1232,9 +1239,10 @@ protected:
                                              ColumnPtr* column) {
         DORIS_CHECK(mapping.child_mappings.size() == 1);
         const auto full_file_column = file_column->convert_to_full_column_if_const();
-        const NullMap* parent_null_map = nullptr;
-        const auto* nested_file_column =
-                _nested_column_if_nullable(full_file_column, &parent_null_map);
+        NullMapView parent_null_map;
+        bool has_parent_null_map = false;
+        const auto* nested_file_column = _nested_column_if_nullable(
+                full_file_column, &parent_null_map, &has_parent_null_map);
         const auto* file_array = assert_cast<const ColumnArray*>(nested_file_column);
         ColumnPtr nested_column = file_array->get_data_ptr();
         const auto& element_mapping = mapping.child_mappings[0];
@@ -1247,9 +1255,9 @@ protected:
             auto null_map = ColumnUInt8::create();
             auto& null_map_data = null_map->get_data();
             null_map_data.resize(rows);
-            if (parent_null_map != nullptr) {
-                DORIS_CHECK(parent_null_map->size() == rows);
-                null_map_data.assign(parent_null_map->begin(), parent_null_map->end());
+            if (has_parent_null_map) {
+                DORIS_CHECK(parent_null_map.size() == rows);
+                null_map_data.assign(parent_null_map.begin(), parent_null_map.end());
             } else {
                 std::fill(null_map_data.begin(), null_map_data.end(), 0);
             }
@@ -1264,9 +1272,10 @@ protected:
                                            const ColumnPtr& file_column, const size_t rows,
                                            ColumnPtr* column) {
         const auto full_file_column = file_column->convert_to_full_column_if_const();
-        const NullMap* parent_null_map = nullptr;
-        const auto* nested_file_column =
-                _nested_column_if_nullable(full_file_column, &parent_null_map);
+        NullMapView parent_null_map;
+        bool has_parent_null_map = false;
+        const auto* nested_file_column = _nested_column_if_nullable(
+                full_file_column, &parent_null_map, &has_parent_null_map);
         const auto* file_map = assert_cast<const ColumnMap*>(nested_file_column);
         ColumnPtr key_column = file_map->get_keys_ptr();
         ColumnPtr value_column = file_map->get_values_ptr();
@@ -1300,9 +1309,9 @@ protected:
             auto null_map = ColumnUInt8::create();
             auto& null_map_data = null_map->get_data();
             null_map_data.resize(rows);
-            if (parent_null_map != nullptr) {
-                DORIS_CHECK(parent_null_map->size() == rows);
-                null_map_data.assign(parent_null_map->begin(), parent_null_map->end());
+            if (has_parent_null_map) {
+                DORIS_CHECK(parent_null_map.size() == rows);
+                null_map_data.assign(parent_null_map.begin(), parent_null_map.end());
             } else {
                 std::fill(null_map_data.begin(), null_map_data.end(), 0);
             }

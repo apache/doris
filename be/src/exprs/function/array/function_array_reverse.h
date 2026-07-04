@@ -44,9 +44,9 @@ struct ArrayReverseImpl {
         ColumnArrayMutableData dst = create_mutable_data(src.nested_col.get(), is_nullable);
         dst.offsets_ptr->reserve(input_rows_count);
 
-        auto res_val = _execute_internal(*src.nested_col, *src.offsets_ptr, *dst.nested_col,
-                                         *dst.offsets_ptr, src.nested_nullmap_data,
-                                         dst.nested_nullmap_data);
+        auto res_val =
+                _execute_internal(*src.nested_col, src.offsets, *dst.nested_col, *dst.offsets_ptr,
+                                  src.nested_nullmap_data, dst.nested_nullmap_data);
         if (!res_val) {
             return Status::RuntimeError(
                     fmt::format("execute failed or unsupported types for function {}({})",
@@ -58,9 +58,9 @@ struct ArrayReverseImpl {
         return Status::OK();
     }
 
-    static bool _execute_internal(const IColumn& src_column,
-                                  const ColumnArray::Offsets64& src_offsets, IColumn& dest_column,
-                                  ColumnArray::Offsets64& dest_offsets, const UInt8* src_null_map,
+    static bool _execute_internal(const IColumn& src_column, IColumn::Offsets64View src_offsets,
+                                  IColumn& dest_column, ColumnArray::Offsets64& dest_offsets,
+                                  const UInt8* src_null_map,
                                   ColumnUInt8::Container* dest_null_map) {
         size_t prev_src_offset = 0;
 

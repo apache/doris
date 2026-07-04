@@ -44,8 +44,8 @@ struct IntersectAction {
     void apply(Map& map, const size_t arg_idx, const size_t row_idx,
                const ColumnArrayExecutionData& param) {
         current_null_flag = false;
-        size_t start_off = (*param.offsets_ptr)[row_idx - 1];
-        size_t end_off = (*param.offsets_ptr)[row_idx];
+        size_t start_off = param.offsets[row_idx - 1];
+        size_t end_off = param.offsets[row_idx];
         for (size_t off = start_off; off < end_off; ++off) {
             if (param.nested_nullmap_data && param.nested_nullmap_data[off]) {
                 current_null_flag = true;

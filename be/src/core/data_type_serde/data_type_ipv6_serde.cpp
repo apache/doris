@@ -34,7 +34,7 @@ Status DataTypeIPv6SerDe::write_column_to_mysql_binary(const IColumn& column,
                                                        MysqlRowBinaryBuffer& result,
                                                        int64_t row_idx, bool col_const,
                                                        const FormatOptions& options) const {
-    auto& data = assert_cast<const ColumnIPv6&>(column).get_data();
+    const auto& data = assert_cast<const ColumnIPv6&>(column).get_data();
     auto col_index = index_check_const(row_idx, col_const);
     IPv6Value ipv6_val(data[col_index]);
     if (UNLIKELY(0 != result.push_ipv6(ipv6_val))) {
@@ -120,7 +120,7 @@ Status DataTypeIPv6SerDe::read_column_from_pb(IColumn& column, const PValues& ar
     return Status::OK();
 }
 
-Status DataTypeIPv6SerDe::write_column_to_arrow(const IColumn& column, const NullMap* null_map,
+Status DataTypeIPv6SerDe::write_column_to_arrow(const IColumn& column, const NullMapView* null_map,
                                                 arrow::ArrayBuilder* array_builder, int64_t start,
                                                 int64_t end, const cctz::time_zone& ctz) const {
     const auto& col_data = assert_cast<const ColumnIPv6&>(column).get_data();
@@ -171,7 +171,7 @@ Status DataTypeIPv6SerDe::read_column_from_arrow(IColumn& column, const arrow::A
 }
 
 Status DataTypeIPv6SerDe::write_column_to_orc(const std::string& timezone, const IColumn& column,
-                                              const NullMap* null_map,
+                                              const NullMapView* null_map,
                                               orc::ColumnVectorBatch* orc_col_batch, int64_t start,
                                               int64_t end, Arena& arena,
                                               const FormatOptions& options) const {

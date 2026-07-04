@@ -345,7 +345,7 @@ void ColumnMap::update_hash_with_value(size_t n, SipHash& hash) const {
 
 void ColumnMap::update_xxHash_with_value(size_t start, size_t end, uint64_t& hash,
                                          const uint8_t* __restrict null_data) const {
-    auto& offsets = get_offsets();
+    const auto& offsets = get_offsets();
     if (null_data) {
         for (size_t i = start; i < end; ++i) {
             if (null_data[i] == 0) {
@@ -376,7 +376,7 @@ void ColumnMap::update_xxHash_with_value(size_t start, size_t end, uint64_t& has
 
 void ColumnMap::update_crc_with_value(size_t start, size_t end, uint32_t& hash,
                                       const uint8_t* __restrict null_data) const {
-    auto& offsets = get_offsets();
+    const auto& offsets = get_offsets();
     if (null_data) {
         for (size_t i = start; i < end; ++i) {
             if (null_data[i] == 0) {
@@ -731,7 +731,7 @@ size_t ColumnMap::byte_size() const {
 
 size_t ColumnMap::allocated_bytes() const {
     return keys_column->allocated_bytes() + values_column->allocated_bytes() +
-           get_offsets().allocated_bytes();
+           offsets_column->allocated_bytes();
 }
 
 bool ColumnMap::has_enough_capacity(const IColumn& src) const {

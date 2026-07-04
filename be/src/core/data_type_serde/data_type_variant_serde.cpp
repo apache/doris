@@ -43,7 +43,7 @@ namespace {
 
 template <typename BuilderType>
 Status write_variant_column_to_arrow_impl(const IColumn& column, const ColumnVariant& var,
-                                          const NullMap* null_map, BuilderType& builder,
+                                          const NullMapView* null_map, BuilderType& builder,
                                           int64_t start, int64_t end, const cctz::time_zone& ctz) {
     DataTypeSerDe::FormatOptions options;
     options.timezone = &ctz;
@@ -150,7 +150,8 @@ Status DataTypeVariantSerDe::deserialize_column_from_json_vector(
     return Status::OK();
 }
 
-Status DataTypeVariantSerDe::write_column_to_arrow(const IColumn& column, const NullMap* null_map,
+Status DataTypeVariantSerDe::write_column_to_arrow(const IColumn& column,
+                                                   const NullMapView* null_map,
                                                    arrow::ArrayBuilder* array_builder,
                                                    int64_t start, int64_t end,
                                                    const cctz::time_zone& ctz) const {
@@ -174,7 +175,7 @@ void DataTypeVariantSerDe::to_string(const IColumn& column, size_t row_num, Buff
 }
 
 Status DataTypeVariantSerDe::write_column_to_orc(const std::string& timezone, const IColumn& column,
-                                                 const NullMap* null_map,
+                                                 const NullMapView* null_map,
                                                  orc::ColumnVectorBatch* orc_col_batch,
                                                  int64_t start, int64_t end, Arena& arena,
                                                  const FormatOptions& options) const {

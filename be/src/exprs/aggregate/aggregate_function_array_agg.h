@@ -384,9 +384,9 @@ public:
                 auto& vec = assert_cast<ColVecType&, TypeCheckOnRelease::DISABLE>(
                                     col_null->get_nested_column())
                                     .get_data();
-                auto& vec_src = assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(
-                                        col_src.get_nested_column())
-                                        .get_data();
+                const auto vec_src = assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(
+                                             col_src.get_nested_column())
+                                             .get_data();
                 vec.push_back(vec_src[i]);
             }
             to_arr.get_offsets().push_back(to_nested_col.size());

@@ -77,7 +77,7 @@ public:
         if constexpr (arg_nullable) {
             auto& nullable_col =
                     assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(*columns[0]);
-            auto& nullable_map = nullable_col.get_null_map_data();
+            const auto nullable_map = nullable_col.get_null_map_data();
             if (!nullable_map[row_num]) {
                 auto& col = assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(
                         nullable_col.get_nested_column());

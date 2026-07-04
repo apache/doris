@@ -67,7 +67,7 @@ Status SimpleEqualityDelete::filter_data_block(
     }
     auto column = column_and_type.column->convert_to_full_column_if_const();
     if (const auto* nullable = check_and_get_column<ColumnNullable>(column.get())) {
-        const NullMap& null_map = nullable->get_null_map_data();
+        const auto null_map = nullable->get_null_map_data();
         _hybrid_set->find_batch_nullable(*remove_nullable(column), rows, null_map, *_single_filter);
         if (_hybrid_set->contain_null()) {
             auto* filter_data = _single_filter->data();

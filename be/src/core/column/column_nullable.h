@@ -43,6 +43,7 @@ class Arena;
 class ColumnSorter;
 
 using NullMap = ColumnUInt8::Container;
+using NullMapView = PODArrayView<ColumnUInt8::value_type>;
 using ConstNullMapPtr = const NullMap*;
 
 /// Class that specifies nullable columns. A nullable column represents
@@ -405,7 +406,7 @@ public:
     // return the column that represents the byte map. if want use null_map, just call this.
     const ColumnUInt8::Ptr& get_null_map_column_ptr() const { return _null_map; }
     const ColumnUInt8& get_null_map_column() const { return *_null_map; }
-    const NullMap& get_null_map_data() const { return get_null_map_column().get_data(); }
+    NullMapView get_null_map_data() const { return get_null_map_column().get_data(); }
 
     ColumnUInt8::MutablePtr get_null_map_column_ptr() {
         auto null_map = _null_map->assert_mutable();

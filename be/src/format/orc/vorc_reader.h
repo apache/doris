@@ -679,7 +679,7 @@ private:
                                              const std::vector<orc::ColumnVectorBatch*>* batch_vec);
 
     MutableColumnPtr _convert_dict_column_to_string_column(const ColumnInt32* dict_column,
-                                                           const NullMap* null_map,
+                                                           const NullMapView* null_map,
                                                            orc::ColumnVectorBatch* cvb,
                                                            const orc::Type* orc_column_typ);
     int64_t get_remaining_rows() const { return _remaining_rows; }

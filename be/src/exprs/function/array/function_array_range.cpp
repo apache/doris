@@ -21,6 +21,7 @@
 #include <boost/iterator/iterator_facade.hpp>
 #include <cstddef>
 #include <memory>
+#include <span>
 #include <utility>
 
 #include "common/status.h"
@@ -170,9 +171,8 @@ struct RangeImplUtil {
     }
 
 private:
-    static Status vector(const PaddedPODArray<SourceDataType>& start,
-                         const PaddedPODArray<SourceDataType>& end,
-                         const PaddedPODArray<Int32>& step, NullMap& args_null_map,
+    static Status vector(std::span<const SourceDataType> start, std::span<const SourceDataType> end,
+                         std::span<const Int32> step, NullMap& args_null_map,
                          PaddedPODArray<SourceDataType>& nested_column,
                          PaddedPODArray<UInt8>& dest_nested_null_map,
                          ColumnArray::Offsets64& dest_offsets) {

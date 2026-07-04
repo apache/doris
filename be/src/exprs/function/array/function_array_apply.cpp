@@ -82,7 +82,7 @@ public:
                     fmt::format("unsupported types for function {}({})", get_name(),
                                 block.get_by_position(arguments[0]).type->get_name()));
         }
-        const auto& src_offsets = src_column_array->get_offsets();
+        const auto src_offsets = src_column_array->get_offsets();
         const auto* src_nested_column = &src_column_array->get_data();
         DCHECK(src_nested_column != nullptr);
 
@@ -136,7 +136,7 @@ private:
 
     // need exception safety
     template <typename T, ApplyOp op>
-    ColumnPtr _apply_internal(const IColumn& src_column, const ColumnArray::Offsets64& src_offsets,
+    ColumnPtr _apply_internal(const IColumn& src_column, IColumn::Offsets64View src_offsets,
                               const ColumnConst& cmp) const {
         T rhs_val = *reinterpret_cast<const T*>(cmp.get_data_at(0).data);
         auto column_filter = ColumnUInt8::create(src_column.size(), 0);
@@ -177,7 +177,7 @@ private:
 
     template <ApplyOp OP>
     void dispatch_array_scalar(DataTypePtr nested_type, const IColumn& src_column,
-                               const ColumnArray::Offsets64& src_offsets, const ColumnConst& cmp,
+                               IColumn::Offsets64View src_offsets, const ColumnConst& cmp,
                                ColumnPtr* dst) const {
         auto call = [&](const auto& type) -> bool {
             using DispatchType = std::decay_t<decltype(type)>;
@@ -196,7 +196,7 @@ private:
     }
     // need exception safety
     Status _execute(const IColumn& nested_src, DataTypePtr nested_type,
-                    const ColumnArray::Offsets64& offsets, const std::string& condition,
+                    IColumn::Offsets64View offsets, const std::string& condition,
                     const ColumnConst& rhs_value_column, ColumnPtr* dst) const {
         if (condition == "=") {
             dispatch_array_scalar<ApplyOp::EQ>(nested_type, nested_src, offsets, rhs_value_column,

@@ -59,7 +59,7 @@ struct HLLCardinality {
         }
     }
 
-    static void vector_nullable(const std::vector<HyperLogLog>& data, const NullMap& nullmap,
+    static void vector_nullable(const std::vector<HyperLogLog>& data, NullMapView nullmap,
                                 ColumnInt64::MutablePtr& col_res) {
         auto& res = col_res->get_data();
         auto size = res.size();
@@ -226,7 +226,7 @@ struct HLLHash {
     }
 
     template <typename ColumnType>
-    static void vector_nullable(const ColumnType* col, const NullMap& nullmap,
+    static void vector_nullable(const ColumnType* col, NullMapView nullmap,
                                 MutableColumnPtr& col_res) {
         if constexpr (std::is_same_v<ColumnType, ColumnString>) {
             const ColumnString::Chars& data = col->get_chars();

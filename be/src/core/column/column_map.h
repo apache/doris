@@ -138,7 +138,7 @@ public:
     }
 
     ColumnArray::Offsets64& ALWAYS_INLINE get_offsets() { return offsets_column->get_data(); }
-    const ColumnArray::Offsets64& ALWAYS_INLINE get_offsets() const {
+    ColumnArray::Offsets64View ALWAYS_INLINE get_offsets() const {
         return offsets_column->get_data();
     }
     COffsets& get_offsets_column() { return *offsets_column; }

@@ -216,11 +216,12 @@ using DORIS_NUMERIC_ARROW_BUILDER =
                 >;
 
 template <PrimitiveType T>
-Status DataTypeNumberSerDe<T>::write_column_to_arrow(const IColumn& column, const NullMap* null_map,
+Status DataTypeNumberSerDe<T>::write_column_to_arrow(const IColumn& column,
+                                                     const NullMapView* null_map,
                                                      arrow::ArrayBuilder* array_builder,
                                                      int64_t start, int64_t end,
                                                      const cctz::time_zone& ctz) const {
-    auto& col_data = assert_cast<const ColumnType&>(column).get_data();
+    const auto& col_data = assert_cast<const ColumnType&>(column).get_data();
     using ARROW_BUILDER_TYPE = typename TypeMapLookup<
             std::conditional_t<
                     T == TYPE_DATEV2, uint32_t,
@@ -706,7 +707,7 @@ Status DataTypeNumberSerDe<T>::write_column_to_mysql_binary(const IColumn& colum
                                                             int64_t row_idx, bool col_const,
                                                             const FormatOptions& options) const {
     int buf_ret = 0;
-    auto& data = assert_cast<const ColumnType&>(column).get_data();
+    const auto& data = assert_cast<const ColumnType&>(column).get_data();
     const auto col_index = index_check_const(row_idx, col_const);
     if constexpr (T == TYPE_TINYINT) {
         buf_ret = result.push_tinyint(data[col_index]);
@@ -756,11 +757,12 @@ Status DataTypeNumberSerDe<T>::write_column_to_mysql_binary(const IColumn& colum
 
 template <PrimitiveType T>
 Status DataTypeNumberSerDe<T>::write_column_to_orc(const std::string& timezone,
-                                                   const IColumn& column, const NullMap* null_map,
+                                                   const IColumn& column,
+                                                   const NullMapView* null_map,
                                                    orc::ColumnVectorBatch* orc_col_batch,
                                                    int64_t start, int64_t end, Arena& arena,
                                                    const FormatOptions& options) const {
-    auto& col_data = assert_cast<const ColumnType&>(column).get_data();
+    const auto& col_data = assert_cast<const ColumnType&>(column).get_data();
 
     if constexpr (T == TYPE_LARGEINT) { // largeint
         auto* cur_batch = dynamic_cast<orc::StringVectorBatch*>(orc_col_batch);
@@ -1218,7 +1220,8 @@ void value_to_string(const typename PrimitiveTypeTraits<T>::CppType value, Buffe
 template <PrimitiveType T>
 void DataTypeNumberSerDe<T>::to_string(const IColumn& column, size_t row_num, BufferWritable& bw,
                                        const FormatOptions& options) const {
-    auto& data = assert_cast<const ColumnType&, TypeCheckOnRelease::DISABLE>(column).get_data();
+    const auto& data =
+            assert_cast<const ColumnType&, TypeCheckOnRelease::DISABLE>(column).get_data();
     if constexpr (is_timestamptz_type(T) || is_date_type(T) || is_time_type(T) || is_ip(T)) {
         if (_nesting_level > 1) {
             bw.write('"');
@@ -1236,7 +1239,8 @@ template <PrimitiveType T>
 bool DataTypeNumberSerDe<T>::write_column_to_presto_text(const IColumn& column, BufferWritable& bw,
                                                          int64_t row_idx,
                                                          const FormatOptions& options) const {
-    auto& data = assert_cast<const ColumnType&, TypeCheckOnRelease::DISABLE>(column).get_data();
+    const auto& data =
+            assert_cast<const ColumnType&, TypeCheckOnRelease::DISABLE>(column).get_data();
     value_to_string<T>(data[row_idx], bw, get_scale(), options);
     return true;
 }
@@ -1245,7 +1249,8 @@ template <PrimitiveType T>
 bool DataTypeNumberSerDe<T>::write_column_to_hive_text(const IColumn& column, BufferWritable& bw,
                                                        int64_t row_idx,
                                                        const FormatOptions& options) const {
-    auto& data = assert_cast<const ColumnType&, TypeCheckOnRelease::DISABLE>(column).get_data();
+    const auto& data =
+            assert_cast<const ColumnType&, TypeCheckOnRelease::DISABLE>(column).get_data();
     if constexpr (is_date_type(T) || is_timestamptz_type(T) || is_time_type(T) || is_ip(T)) {
         if (_nesting_level > 1) {
             bw.write('"');
@@ -1267,7 +1272,7 @@ bool DataTypeNumberSerDe<T>::write_column_to_hive_text(const IColumn& column, Bu
 template <PrimitiveType T>
 void DataTypeNumberSerDe<T>::to_string_batch(const IColumn& column, ColumnString& column_to,
                                              const FormatOptions& options) const {
-    auto& data = assert_cast<const ColumnType&>(column).get_data();
+    const auto& data = assert_cast<const ColumnType&>(column).get_data();
     const size_t size = column.size();
     const auto maybe_reserve_size = CastToString::string_length<T>;
     column_to.get_chars().reserve(size * maybe_reserve_size);

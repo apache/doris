@@ -283,7 +283,7 @@ struct FunctionMultiMatchAnyImpl {
     static Status vector_vector(const ColumnString::Chars& haystack_data,
                                 const ColumnString::Offsets& haystack_offsets,
                                 const IColumn& needles_data,
-                                const ColumnArray::Offsets64& needles_offsets,
+                                ColumnArray::Offsets64View needles_offsets,
                                 PaddedPODArray<ResultType>& res, PaddedPODArray<UInt64>& offsets,
                                 bool allow_hyperscan, size_t max_hyperscan_regexp_length,
                                 size_t max_hyperscan_regexp_total_length) {

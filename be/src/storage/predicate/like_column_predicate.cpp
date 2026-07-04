@@ -47,7 +47,7 @@ uint16_t LikeColumnPredicate::_evaluate_inner(const IColumn& column, uint16_t* s
     uint16_t new_size = 0;
     if (is_column_nullable(column)) {
         auto* nullable_col = assert_cast<const ColumnNullable*>(&column);
-        auto& null_map_data = nullable_col->get_null_map_column().get_data();
+        const auto null_map_data = nullable_col->get_null_map_column().get_data();
         auto& nested_col = nullable_col->get_nested_column();
         if (nested_col.is_column_dictionary()) {
             auto* nested_col_ptr = assert_cast<const ColumnDictI32*>(&nested_col);

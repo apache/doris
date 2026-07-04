@@ -231,11 +231,11 @@ Status FunctionAnyArityLogical<Impl, Name>::execute_impl(FunctionContext* contex
 
 template <PrimitiveType A, typename Op>
 struct UnaryOperationImpl {
-    using ArrayA = typename ColumnVector<A>::Container;
     using ArrayC = typename ColumnVector<Op::ResultType>::Container;
 
+    template <typename ArrayA>
     static void NO_INLINE vector(const ArrayA& a, ArrayC& c) {
-        std::transform(a.cbegin(), a.cend(), c.begin(), [](const auto x) { return Op::apply(x); });
+        std::transform(a.begin(), a.end(), c.begin(), [](const auto x) { return Op::apply(x); });
     }
 };
 

@@ -368,7 +368,7 @@ void ColumnArray::update_hash_with_value(size_t n, SipHash& hash) const {
 // for every array row calculate xxHash
 void ColumnArray::update_xxHash_with_value(size_t start, size_t end, uint64_t& hash,
                                            const uint8_t* __restrict null_data) const {
-    auto& offsets_column = get_offsets();
+    const auto& offsets_column = get_offsets();
     if (null_data) {
         for (size_t i = start; i < end; ++i) {
             if (null_data[i] == 0) {
@@ -399,7 +399,7 @@ void ColumnArray::update_xxHash_with_value(size_t start, size_t end, uint64_t& h
 // for every array row calculate crcHash
 void ColumnArray::update_crc_with_value(size_t start, size_t end, uint32_t& hash,
                                         const uint8_t* __restrict null_data) const {
-    auto& offsets_column = get_offsets();
+    const auto& offsets_column = get_offsets();
     if (null_data) {
         for (size_t i = start; i < end; ++i) {
             if (null_data[i] == 0) {
@@ -573,7 +573,7 @@ size_t ColumnArray::byte_size() const {
 }
 
 size_t ColumnArray::allocated_bytes() const {
-    return get_data().allocated_bytes() + get_offsets().allocated_bytes();
+    return get_data().allocated_bytes() + get_offsets_column().allocated_bytes();
 }
 
 bool ColumnArray::has_enough_capacity(const IColumn& src) const {
@@ -583,8 +583,8 @@ bool ColumnArray::has_enough_capacity(const IColumn& src) const {
 }
 
 bool ColumnArray::has_equal_offsets(const ColumnArray& other) const {
-    const Offsets64& offsets1 = get_offsets();
-    const Offsets64& offsets2 = other.get_offsets();
+    const auto& offsets1 = get_offsets();
+    const auto& offsets2 = other.get_offsets();
     return offsets1.size() == offsets2.size() &&
            (offsets1.empty() ||
             0 == memcmp(offsets1.data(), offsets2.data(), sizeof(offsets1[0]) * offsets1.size()));

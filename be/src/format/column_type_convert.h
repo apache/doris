@@ -183,7 +183,7 @@ public:
         IColumn* to_col = get_mutable_inner_col(dst_col);
 
         size_t rows = from_col->size();
-        auto& src_data = static_cast<const SrcColumnType*>(from_col.get())->get_data();
+        const auto& src_data = static_cast<const SrcColumnType*>(from_col.get())->get_data();
         size_t start_idx = to_col->size();
         to_col->resize(start_idx + rows);
         auto& data = static_cast<DstColumnType&>(*to_col).get_data();
@@ -235,7 +235,7 @@ public:
         }
 
         size_t rows = from_col->size();
-        auto& src_data = static_cast<const SrcColumnType*>(from_col.get())->get_data();
+        const auto& src_data = static_cast<const SrcColumnType*>(from_col.get())->get_data();
         size_t start_idx = to_col->size();
         to_col->resize(start_idx + rows);
         auto& data = static_cast<DstColumnType&>(*to_col).get_data();
@@ -266,7 +266,7 @@ public:
         IColumn* to_col = get_mutable_inner_col(dst_col);
 
         size_t rows = from_col->size();
-        auto& src_data = static_cast<const SrcColumnType*>(from_col.get())->get_data();
+        const auto& src_data = static_cast<const SrcColumnType*>(from_col.get())->get_data();
         auto& string_col = static_cast<ColumnString&>(*to_col);
         for (int i = 0; i < rows; ++i) {
             std::string value = src_data[i] != 0 ? "TRUE" : "FALSE";
@@ -293,7 +293,7 @@ public:
 
         size_t rows = from_col->size();
         size_t start_idx = to_col->size();
-        auto& src_data = static_cast<const SrcColumnType*>(from_col.get())->get_data();
+        const auto& src_data = static_cast<const SrcColumnType*>(from_col.get())->get_data();
         auto& string_col = static_cast<ColumnString&>(*to_col);
         for (int i = 0; i < rows; ++i) {
             if constexpr (SrcPrimitiveType == TYPE_FLOAT || SrcPrimitiveType == TYPE_DOUBLE) {
@@ -336,7 +336,7 @@ public:
         IColumn* to_col = get_mutable_inner_col(dst_col);
 
         size_t rows = from_col->size();
-        auto& src_data = static_cast<const SrcColumnType*>(from_col.get())->get_data();
+        const auto& src_data = static_cast<const SrcColumnType*>(from_col.get())->get_data();
         auto& string_col = static_cast<ColumnString&>(*to_col);
         for (int i = 0; i < rows; ++i) {
             std::string value = src_data[i].to_string(_scale);
@@ -357,7 +357,7 @@ public:
         IColumn* to_col = get_mutable_inner_col(dst_col);
 
         size_t rows = from_col->size();
-        auto& src_data = static_cast<const SrcColumnType*>(from_col.get())->get_data();
+        const auto& src_data = static_cast<const SrcColumnType*>(from_col.get())->get_data();
         auto& string_col = static_cast<ColumnString&>(*to_col);
         char buf[50];
         for (int i = 0; i < rows; ++i) {
@@ -698,7 +698,7 @@ public:
         IColumn* to_col = get_mutable_inner_col(dst_col);
 
         size_t rows = from_col->size();
-        auto& src_data = static_cast<const SrcColumnType*>(from_col.get())->get_data();
+        const auto& src_data = static_cast<const SrcColumnType*>(from_col.get())->get_data();
         size_t start_idx = to_col->size();
         to_col->resize(start_idx + rows);
         auto& data = static_cast<DstColumnType&>(*to_col).get_data();
@@ -741,7 +741,7 @@ public:
         }
 
         size_t rows = from_col->size();
-        auto& src_data = static_cast<const SrcColumnType*>(from_col.get())->get_data();
+        const auto& src_data = static_cast<const SrcColumnType*>(from_col.get())->get_data();
         size_t start_idx = to_col->size();
         to_col->resize(start_idx + rows);
         auto& data = static_cast<DstColumnType&>(*to_col).get_data();
@@ -822,7 +822,7 @@ public:
         IColumn* to_col = get_mutable_inner_col(dst_col);
 
         size_t rows = from_col->size();
-        auto& src_data = static_cast<const SrcColumnType*>(from_col.get())->get_data();
+        const auto& src_data = static_cast<const SrcColumnType*>(from_col.get())->get_data();
         size_t start_idx = to_col->size();
         to_col->resize(start_idx + rows);
         auto& data = static_cast<DstColumnType&>(*to_col).get_data();
@@ -907,7 +907,7 @@ public:
         IColumn* to_col = get_mutable_inner_col(dst_col);
 
         size_t rows = from_col->size();
-        auto& src_data = static_cast<const SrcColumnType*>(from_col.get())->get_data();
+        const auto& src_data = static_cast<const SrcColumnType*>(from_col.get())->get_data();
         size_t start_idx = to_col->size();
         to_col->resize(start_idx + rows);
         auto& data = static_cast<DstColumnType&>(*to_col).get_data();

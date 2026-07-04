@@ -168,7 +168,7 @@ void primary_to_direct_mapping(Method* context, const ColumnRawPtrs& key_columns
                                               ->get_nested_column_ptr()
                                               ->get_raw_data()
                                               .data;
-        const NullMap& null_map =
+        const auto null_map =
                 assert_cast<const ColumnNullable*>(key_columns[0])->get_null_map_data();
         // skip first mocked row
         for (size_t i = 1; i < num_rows; i++) {

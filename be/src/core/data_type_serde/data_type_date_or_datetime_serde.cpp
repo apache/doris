@@ -145,11 +145,12 @@ Status DataTypeDateTimeSerDe::read_column_from_arrow(IColumn& column,
 }
 
 template <PrimitiveType T>
-Status DataTypeDateSerDe<T>::write_column_to_arrow(const IColumn& column, const NullMap* null_map,
+Status DataTypeDateSerDe<T>::write_column_to_arrow(const IColumn& column,
+                                                   const NullMapView* null_map,
                                                    arrow::ArrayBuilder* array_builder,
                                                    int64_t start, int64_t end,
                                                    const cctz::time_zone& ctz) const {
-    auto& col_data = static_cast<const ColumnVector<T>&>(column).get_data();
+    const auto& col_data = static_cast<const ColumnVector<T>&>(column).get_data();
     auto& string_builder = assert_cast<arrow::StringBuilder&>(*array_builder);
     for (size_t i = start; i < end; ++i) {
         char buf[64];
@@ -271,7 +272,7 @@ Status DataTypeDateSerDe<T>::write_column_to_mysql_binary(const IColumn& column,
 
 template <PrimitiveType T>
 Status DataTypeDateSerDe<T>::write_column_to_orc(const std::string& timezone, const IColumn& column,
-                                                 const NullMap* null_map,
+                                                 const NullMapView* null_map,
                                                  orc::ColumnVectorBatch* orc_col_batch,
                                                  int64_t start, int64_t end, Arena& arena,
                                                  const FormatOptions& options) const {

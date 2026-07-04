@@ -33,12 +33,12 @@ public:
     void reset() {
         map_nullmap_data = nullptr;
         map_col = nullptr;
-        offsets_ptr = nullptr;
+        offsets = {};
     }
 
     const UInt8* map_nullmap_data = nullptr;
     const ColumnMap* map_col = nullptr;
-    const ColumnArray::Offsets64* offsets_ptr = nullptr;
+    IColumn::Offsets64View offsets;
 };
 
 class VExplodeMapTableFunction : public TableFunction {

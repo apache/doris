@@ -43,15 +43,14 @@ template <PrimitiveType PType>
 struct NumericElementView {
     using ColumnType = typename PrimitiveTypeTraits<PType>::ColumnType;
     using ElementType = typename ColumnType::value_type;
-    const typename ColumnType::Container& data;
+    const ColumnType& column;
 
-    NumericElementView(const IColumn& column)
-            : data(assert_cast<const ColumnType&>(column).get_data()) {}
+    NumericElementView(const IColumn& column) : column(assert_cast<const ColumnType&>(column)) {}
 
-    ElementType get_element(size_t idx) const { return data[idx]; }
-    const ElementType* get_data() const { return data.data(); }
-    ElementType operator[](size_t idx) const { return data[idx]; }
-    size_t size() const { return data.size(); }
+    ElementType get_element(size_t idx) const { return column.get_data()[idx]; }
+    const ElementType* get_data() const { return column.get_data().data(); }
+    ElementType operator[](size_t idx) const { return column.get_data()[idx]; }
+    size_t size() const { return column.get_data().size(); }
 };
 
 struct StringElementView {
@@ -108,17 +107,20 @@ using ColumnElementView = std::conditional_t<is_string_type(PType), detail::Stri
 template <PrimitiveType PType>
 struct ColumnView {
     const ColumnElementView<PType> data;
-    const NullMap* null_map;
+    NullMapView null_map;
+    bool has_null_map;
     const bool is_const;
     const size_t count;
 
     static ColumnView create(const ColumnPtr& column_ptr) {
         const auto& [from_data_column, is_const] = unpack_if_const(column_ptr);
-        const NullMap* null_map = nullptr;
+        NullMapView null_map;
+        bool has_null_map = false;
         const IColumn* data = nullptr;
         if (const auto* nullable_column =
                     check_and_get_column<ColumnNullable>(from_data_column.get())) {
-            null_map = &nullable_column->get_null_map_data();
+            null_map = nullable_column->get_null_map_data();
+            has_null_map = true;
             data = nullable_column->get_nested_column_ptr().get();
         } else {
             data = from_data_column.get();
@@ -126,13 +128,14 @@ struct ColumnView {
 
         return ColumnView {.data = ColumnElementView<PType>(*data),
                            .null_map = null_map,
+                           .has_null_map = has_null_map,
                            .is_const = is_const,
                            .count = column_ptr->size()};
     }
 
     bool is_null_at(size_t idx) const {
-        if (null_map != nullptr) {
-            return (*null_map)[is_const ? 0 : idx];
+        if (has_null_map) {
+            return null_map[is_const ? 0 : idx];
         }
         return false;
     }

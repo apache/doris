@@ -23,6 +23,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
 
 #include "common/cast_set.h"
@@ -53,7 +54,7 @@ Status VRowDistribution::_save_missing_values(
         const Block& input_block,
         std::vector<std::vector<std::string>>& col_strs, // non-const ref for move
         int col_size, Block* block, const std::vector<uint32_t>& filter,
-        const std::vector<const NullMap*>& col_null_maps) {
+        const std::vector<std::optional<NullMapView>>& col_null_maps) {
     // de-duplication for new partitions but save all rows.
     RETURN_IF_ERROR(
             _batching_block->add_rows(&input_block, filter.data(), filter.data() + filter.size()));
@@ -63,8 +64,8 @@ Status VRowDistribution::_save_missing_values(
         for (int col = 0; col < col_size; ++col) {
             TNullableStringLiteral node;
             // OlapTableBlockConvertor::_validate_data() materializes destination slots so won't be const.
-            const auto* null_map = col_null_maps[col]; // null map for this col
-            node.__set_is_null((null_map && (*null_map)[filter[row]])
+            const auto& null_map = col_null_maps[col]; // null map for this col
+            node.__set_is_null((null_map.has_value() && (*null_map)[filter[row]])
                                        ? true
                                        : node.is_null); // if not, dont change(default false)
             if (!node.is_null) {
@@ -380,7 +381,7 @@ Status VRowDistribution::_deal_missing_map(const Block& input_block, Block* bloc
     int part_col_num = cast_set<int>(part_exprs.size());
     // the two vectors are in column-first-order
     std::vector<std::vector<std::string>> col_strs;
-    std::vector<const NullMap*> col_null_maps;
+    std::vector<std::optional<NullMapView>> col_null_maps;
     col_strs.resize(part_col_num);
     col_null_maps.reserve(part_col_num);
 
@@ -393,10 +394,10 @@ Status VRowDistribution::_deal_missing_map(const Block& input_block, Block* bloc
         const auto& [range_left_col, col_const] =
                 unpack_if_const(block->get_by_position(partition_cols_idx[i]).column);
         if (range_left_col->is_nullable()) {
-            col_null_maps.push_back(&(
-                    assert_cast<const ColumnNullable*>(range_left_col.get())->get_null_map_data()));
+            col_null_maps.emplace_back(
+                    assert_cast<const ColumnNullable*>(range_left_col.get())->get_null_map_data());
         } else {
-            col_null_maps.push_back(nullptr);
+            col_null_maps.emplace_back(std::nullopt);
         }
         for (auto row : _missing_map) {
             col_strs[i].push_back(return_type->to_string(

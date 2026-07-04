@@ -28,6 +28,7 @@
 #include <experimental/bits/simd.h>
 #endif
 #include <memory>
+#include <span>
 #include <type_traits>
 #include <utility>
 
@@ -169,7 +170,7 @@ public:
         for (int i = 0; i < arguments.size(); ++i) {
             ColumnPtr& col = block.get_by_position(arguments[i]).column;
             col_const[i] = is_column_const(*col);
-            const NullMap* null_map = VectorizedUtils::get_null_map(col);
+            auto null_map = VectorizedUtils::get_null_map(col);
             if (null_map) {
                 VectorizedUtils::update_null_map(result_null_map, *null_map, col_const[i]);
             }
@@ -295,9 +296,8 @@ template <typename Flag, PrimitiveType PType>
 struct DateTimeFloorCeilCore {
     using DateValueType = typename PrimitiveTypeTraits<PType>::CppType;
 
-    static void vector(const PaddedPODArray<DateValueType>& dates,
-                       PaddedPODArray<DateValueType>& res, const NullMap& result_null_map,
-                       FunctionContext* context) {
+    static void vector(std::span<const DateValueType> dates, PaddedPODArray<DateValueType>& res,
+                       const NullMap& result_null_map, FunctionContext* context) {
         for (int i = 0; i < dates.size(); ++i) {
             if (result_null_map[i]) {
                 continue;
@@ -308,8 +308,8 @@ struct DateTimeFloorCeilCore {
         }
     }
 
-    static void vector_const_anchor(const PaddedPODArray<DateValueType>& dates,
-                                    DateValueType origin_date, PaddedPODArray<DateValueType>& res,
+    static void vector_const_anchor(std::span<const DateValueType> dates, DateValueType origin_date,
+                                    PaddedPODArray<DateValueType>& res,
                                     const NullMap& result_null_map, FunctionContext* context) {
         for (int i = 0; i < dates.size(); ++i) {
             if (result_null_map[i]) {
@@ -321,7 +321,7 @@ struct DateTimeFloorCeilCore {
         }
     }
 
-    static void vector_const_period(const PaddedPODArray<DateValueType>& dates, Int32 period,
+    static void vector_const_period(std::span<const DateValueType> dates, Int32 period,
                                     PaddedPODArray<DateValueType>& res,
                                     const NullMap& result_null_map, FunctionContext* context) {
         // expand codes for const input periods
@@ -355,7 +355,7 @@ struct DateTimeFloorCeilCore {
 #undef EXPANDER
     }
 
-    static void vector_const_const(const PaddedPODArray<DateValueType>& dates, const Int32 period,
+    static void vector_const_const(std::span<const DateValueType> dates, const Int32 period,
                                    DateValueType origin_date, PaddedPODArray<DateValueType>& res,
                                    const NullMap& result_null_map, FunctionContext* context) {
         if (auto cast_date = origin_date; cast_date == DateValueType::FIRST_DAY) {
@@ -402,8 +402,8 @@ struct DateTimeFloorCeilCore {
 #undef EXPANDER
     }
 
-    static void vector_const_vector(const PaddedPODArray<DateValueType>& dates, const Int32 period,
-                                    const PaddedPODArray<DateValueType>& origin_dates,
+    static void vector_const_vector(std::span<const DateValueType> dates, const Int32 period,
+                                    std::span<const DateValueType> origin_dates,
                                     PaddedPODArray<DateValueType>& res,
                                     const NullMap& result_null_map, FunctionContext* context) {
         for (int i = 0; i < dates.size(); ++i) {
@@ -418,8 +418,8 @@ struct DateTimeFloorCeilCore {
         }
     }
 
-    static void vector_vector_const(const PaddedPODArray<DateValueType>& dates,
-                                    const PaddedPODArray<Int32>& periods, DateValueType origin_date,
+    static void vector_vector_const(std::span<const DateValueType> dates,
+                                    std::span<const Int32> periods, DateValueType origin_date,
                                     PaddedPODArray<DateValueType>& res,
                                     const NullMap& result_null_map, FunctionContext* context) {
         for (int i = 0; i < dates.size(); ++i) {
@@ -438,8 +438,8 @@ struct DateTimeFloorCeilCore {
         }
     }
 
-    static void vector_vector_anchor(const PaddedPODArray<DateValueType>& dates,
-                                     const PaddedPODArray<DateValueType>& origin_dates,
+    static void vector_vector_anchor(std::span<const DateValueType> dates,
+                                     std::span<const DateValueType> origin_dates,
                                      PaddedPODArray<DateValueType>& res,
                                      const NullMap& result_null_map, FunctionContext* context) {
         // time_round(datetime, origin)
@@ -453,8 +453,8 @@ struct DateTimeFloorCeilCore {
         }
     }
 
-    static void vector_vector_period(const PaddedPODArray<DateValueType>& dates,
-                                     const PaddedPODArray<Int32>& periods,
+    static void vector_vector_period(std::span<const DateValueType> dates,
+                                     std::span<const Int32> periods,
                                      PaddedPODArray<DateValueType>& res,
                                      const NullMap& result_null_map, FunctionContext* context) {
         // time_round(datetime, period)
@@ -471,9 +471,9 @@ struct DateTimeFloorCeilCore {
         }
     }
 
-    static void vector_vector_vector(const PaddedPODArray<DateValueType>& dates,
-                                     const PaddedPODArray<Int32>& periods,
-                                     const PaddedPODArray<DateValueType>& origin_dates,
+    static void vector_vector_vector(std::span<const DateValueType> dates,
+                                     std::span<const Int32> periods,
+                                     std::span<const DateValueType> origin_dates,
                                      PaddedPODArray<DateValueType>& res,
                                      const NullMap& result_null_map, FunctionContext* context) {
         // time_round(datetime, period, origin)

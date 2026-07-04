@@ -527,7 +527,7 @@ private:
     template <typename ColumnType>
     void _execute_column_comparison(const IColumn& map_entry_column, const UInt8* map_entry_nullmap,
                                     const IColumn& search_column, const UInt8* search_nullmap,
-                                    const ColumnArray::Offsets64& map_offsets,
+                                    ColumnArray::Offsets64View map_offsets,
                                     const UInt8* map_row_nullmap, bool search_is_const,
                                     ColumnUInt8& result_matches) const {
         auto& result_data = result_matches.get_data();
@@ -553,7 +553,7 @@ private:
     void _dispatch_column_comparison(PrimitiveType type, const IColumn& map_entry_column,
                                      const UInt8* map_entry_nullmap, const IColumn& search_column,
                                      const UInt8* search_nullmap,
-                                     const ColumnArray::Offsets64& map_offsets,
+                                     ColumnArray::Offsets64View map_offsets,
                                      const UInt8* map_row_nullmap, bool search_is_const,
                                      ColumnUInt8& result_matches) const {
         auto call = [&](const auto& type) -> bool {

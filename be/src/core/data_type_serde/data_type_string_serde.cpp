@@ -332,7 +332,7 @@ void DataTypeStringSerDeBase<ColumnType>::read_one_cell_from_jsonb(IColumn& colu
 template <typename ColumnType>
 template <typename BuilderType>
 Status DataTypeStringSerDeBase<ColumnType>::write_column_to_arrow_impl(const IColumn& column,
-                                                                       const NullMap* null_map,
+                                                                       const NullMapView* null_map,
                                                                        BuilderType& builder,
                                                                        int64_t start,
                                                                        int64_t end) const {
@@ -352,7 +352,7 @@ Status DataTypeStringSerDeBase<ColumnType>::write_column_to_arrow_impl(const ICo
 
 template <typename ColumnType>
 Status DataTypeStringSerDeBase<ColumnType>::write_column_to_arrow(
-        const IColumn& column, const NullMap* null_map, arrow::ArrayBuilder* array_builder,
+        const IColumn& column, const NullMapView* null_map, arrow::ArrayBuilder* array_builder,
         int64_t start, int64_t end, const cctz::time_zone& ctz) const {
     if (array_builder->type()->id() == arrow::Type::LARGE_STRING) {
         auto& builder = assert_cast<arrow::LargeStringBuilder&>(*array_builder);
@@ -473,7 +473,7 @@ Status DataTypeStringSerDeBase<ColumnType>::read_column_from_decoded_values(
 
 template <typename ColumnType>
 Status DataTypeStringSerDeBase<ColumnType>::write_column_to_orc(
-        const std::string& timezone, const IColumn& column, const NullMap* null_map,
+        const std::string& timezone, const IColumn& column, const NullMapView* null_map,
         orc::ColumnVectorBatch* orc_col_batch, int64_t start, int64_t end, Arena& arena,
         const FormatOptions& options) const {
     auto* cur_batch = dynamic_cast<orc::StringVectorBatch*>(orc_col_batch);

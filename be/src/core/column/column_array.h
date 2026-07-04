@@ -87,6 +87,7 @@ public:
     // offsets of array is 64bit wise
     using Offset64 = IColumn::Offset64;
     using Offsets64 = IColumn::Offsets64;
+    using Offsets64View = IColumn::Offsets64View;
 
 private:
     // please use IColumn::Offset if we really need 32bit offset, otherwise use ColumnArray::Offset64
@@ -198,7 +199,7 @@ public:
 
     Offsets64& ALWAYS_INLINE get_offsets() { return offsets->get_data(); }
 
-    const Offsets64& ALWAYS_INLINE get_offsets() const { return offsets->get_data(); }
+    Offsets64View ALWAYS_INLINE get_offsets() const { return offsets->get_data(); }
 
     bool has_equal_offsets(const ColumnArray& other) const;
 

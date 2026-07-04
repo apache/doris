@@ -26,6 +26,7 @@
 
 #include <cstdint>
 #include <functional>
+#include <optional>
 #include <string>
 #include <unordered_set>
 #include <vector>
@@ -166,7 +167,7 @@ private:
     Status _save_missing_values(const Block& input_block,
                                 std::vector<std::vector<std::string>>& col_strs, int col_size,
                                 Block* block, const std::vector<uint32_t>& filter,
-                                const std::vector<const NullMap*>& col_null_maps);
+                                const std::vector<std::optional<NullMapView>>& col_null_maps);
 
     void _get_tablet_ids(Block* block, int32_t index_idx, std::vector<int64_t>& tablet_ids);
 

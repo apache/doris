@@ -119,8 +119,8 @@ public:
     void process_row(size_t row_idx) override {
         TableFunction::process_row(row_idx);
         if (!_detail.array_nullmap_data || !_detail.array_nullmap_data[row_idx]) {
-            _array_offset = row_idx == 0 ? 0 : (*_detail.offsets_ptr)[row_idx - 1];
-            _cur_size = (*_detail.offsets_ptr)[row_idx] - _array_offset;
+            _array_offset = row_idx == 0 ? 0 : _detail.offsets[row_idx - 1];
+            _cur_size = _detail.offsets[row_idx] - _array_offset;
         }
     }
 
@@ -169,7 +169,7 @@ public:
                                    BlockFastPathContext* ctx) override {
         // NOTE: process_init() must be called before this to fill `_detail`.
         ctx->array_nullmap_data = _detail.array_nullmap_data;
-        ctx->offsets_ptr = _detail.offsets_ptr;
+        ctx->offsets = _detail.offsets;
         ctx->nested_col = _detail.nested_col;
         ctx->nested_nullmap_data = _detail.nested_nullmap_data;
         return Status::OK();

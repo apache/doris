@@ -270,7 +270,7 @@ struct MakeDateImpl {
         for (int i = 0; i < 2; ++i) {
             const ColumnPtr& col = block.get_by_position(arguments[i]).column;
             col_const[i] = is_column_const(*col);
-            const NullMap* null_map = VectorizedUtils::get_null_map(col);
+            auto null_map = VectorizedUtils::get_null_map(col);
             if (null_map) {
                 VectorizedUtils::update_null_map(result_null_map, *null_map, col_const[i]);
             }
@@ -311,8 +311,8 @@ struct MakeDateImpl {
     }
 
 private:
-    static void execute_impl(const PaddedPODArray<Int32>& year_data,
-                             const PaddedPODArray<Int32>& dayofyear_data,
+    template <typename YearArray, typename DayOfYearArray>
+    static void execute_impl(const YearArray& year_data, const DayOfYearArray& dayofyear_data,
                              const NullMap& result_null_map, PaddedPODArray<DateValueType>& res) {
         auto len = year_data.size();
         res.resize(len);
@@ -331,7 +331,8 @@ private:
         }
     }
 
-    static void execute_impl_right_const(const PaddedPODArray<Int32>& year_data, Int32 dayofyear,
+    template <typename YearArray>
+    static void execute_impl_right_const(const YearArray& year_data, Int32 dayofyear,
                                          const NullMap& result_null_map,
                                          PaddedPODArray<DateValueType>& res) {
         auto len = year_data.size();
@@ -536,7 +537,7 @@ private:
     static void execute_impl_right_const(const ColumnPtr& datetime_column,
                                          ColumnType& result_column, size_t input_rows_count,
                                          const cctz::time_zone& timezone) {
-        auto& data = static_cast<const ColumnType*>(datetime_column.get())->get_data();
+        const auto data = static_cast<const ColumnType*>(datetime_column.get())->get_data();
         auto& res = result_column.get_data();
         for (size_t i = 0; i < input_rows_count; ++i) {
             auto dt = data[i];
@@ -589,7 +590,7 @@ public:
 
         // Update result null map from input null map using standard approach
         bool col_const = is_column_const(*argument_column);
-        const NullMap* input_null_map = VectorizedUtils::get_null_map(argument_column);
+        auto input_null_map = VectorizedUtils::get_null_map(argument_column);
         if (input_null_map) {
             VectorizedUtils::update_null_map(result_null_map, *input_null_map, col_const);
         }
@@ -627,8 +628,8 @@ public:
     }
 
 private:
-    template <typename DateValueType>
-    void _execute(size_t input_rows_count, const PaddedPODArray<Int32>& data_col,
+    template <typename DateValueType, typename DataArray>
+    void _execute(size_t input_rows_count, const DataArray& data_col,
                   const NullMap& result_null_map, PaddedPODArray<DateValueType>& res_data) const {
         for (int i = 0; i < input_rows_count; i++) {
             // Skip processing if result should be null (determined upfront)
@@ -805,9 +806,9 @@ struct UnixTimeStampStrImpl {
                 unpack_if_const(block.get_by_position(arguments[1]).column);
 
         // Update result null map from input null maps
-        const NullMap* null_map_left =
+        auto null_map_left =
                 VectorizedUtils::get_null_map(block.get_by_position(arguments[0]).column);
-        const NullMap* null_map_right =
+        auto null_map_right =
                 VectorizedUtils::get_null_map(block.get_by_position(arguments[1]).column);
         if (null_map_left) {
             VectorizedUtils::update_null_map(result_null_map, *null_map_left, source_const);
@@ -1015,7 +1016,7 @@ public:
         NullMap& result_null_map = result_null_map_column->get_data();
 
         ColumnPtr argument_column = block.get_by_position(arguments[0]).column;
-        const NullMap* null_map = VectorizedUtils::get_null_map(argument_column);
+        auto null_map = VectorizedUtils::get_null_map(argument_column);
         if (null_map) {
             VectorizedUtils::update_null_map(result_null_map, *null_map);
         }
@@ -1061,8 +1062,8 @@ struct LastDayImpl {
         return Status::OK();
     }
 
-    static void execute_straight(size_t input_rows_count,
-                                 const PaddedPODArray<DateValueType>& data_col,
+    template <typename DateArray>
+    static void execute_straight(size_t input_rows_count, const DateArray& data_col,
                                  PaddedPODArray<ResultDateValueType>& res_data,
                                  const NullMap& null_map) {
         for (size_t i = 0; i < input_rows_count; i++) {
@@ -1134,8 +1135,8 @@ struct ToMondayImpl {
         return Status::OK();
     }
 
-    static void execute_straight(size_t input_rows_count,
-                                 const PaddedPODArray<DateValueType>& data_col,
+    template <typename DateArray>
+    static void execute_straight(size_t input_rows_count, const DateArray& data_col,
                                  PaddedPODArray<ResultDateValueType>& res_data,
                                  const NullMap& null_map) {
         for (size_t i = 0; i < input_rows_count; i++) {

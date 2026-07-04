@@ -334,8 +334,9 @@ struct DivideFloatingImpl {
         return {std::make_shared<DataTypeFloat64>(), std::make_shared<DataTypeFloat64>()};
     }
 
-    static void apply(const typename ColumnType::Container& a, ArgB b,
-                      typename ColumnType::Container& c, PaddedPODArray<UInt8>& null_map) {
+    template <typename ArrayLike>
+    static void apply(const ArrayLike& a, ArgB b, typename ColumnType::Container& c,
+                      PaddedPODArray<UInt8>& null_map) {
         size_t size = c.size();
         UInt8 is_null = b == 0;
         memset(null_map.data(), is_null, size);
@@ -376,7 +377,7 @@ struct DivideFloatingImpl {
         DCHECK(column_right_ptr != nullptr);
 
         auto null_map = ColumnUInt8::create(column_right->size(), 0);
-        auto& b = column_right_ptr->get_data();
+        const auto b = column_right_ptr->get_data();
         auto& c = column_result->get_data();
         auto& n = null_map->get_data();
         size_t size = b.size();
@@ -394,8 +395,8 @@ struct DivideFloatingImpl {
         DCHECK(column_left_ptr != nullptr && column_right_ptr != nullptr);
 
         auto null_map = ColumnUInt8::create(column_result->size(), 0);
-        auto& a = column_left_ptr->get_data();
-        auto& b = column_right_ptr->get_data();
+        const auto a = column_left_ptr->get_data();
+        const auto b = column_right_ptr->get_data();
         auto& c = column_result->get_data();
         auto& n = null_map->get_data();
         size_t size = a.size();

@@ -137,8 +137,8 @@ void UDFTableFunction::process_row(size_t row_idx) {
     TableFunction::process_row(row_idx);
     if (!_array_column_detail.array_nullmap_data ||
         !_array_column_detail.array_nullmap_data[row_idx]) {
-        _array_offset = (*_array_column_detail.offsets_ptr)[row_idx - 1];
-        _cur_size = (*_array_column_detail.offsets_ptr)[row_idx] - _array_offset;
+        _array_offset = _array_column_detail.offsets[row_idx - 1];
+        _cur_size = _array_column_detail.offsets[row_idx] - _array_offset;
     }
     // so when it's NULL of row_idx, will not update _cur_size
     // it's will be _cur_size == 0, and means current_empty.

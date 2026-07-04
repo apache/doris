@@ -99,7 +99,7 @@ public:
 
     void read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const override;
 
-    Status write_column_to_arrow(const IColumn& column, const NullMap* null_map,
+    Status write_column_to_arrow(const IColumn& column, const NullMapView* null_map,
                                  arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,
                                  const cctz::time_zone& ctz) const override {
         const auto& col = assert_cast<const ColumnQuantileState&>(column);
@@ -135,7 +135,7 @@ public:
                                     const FormatOptions& options) const override;
 
     Status write_column_to_orc(const std::string& timezone, const IColumn& column,
-                               const NullMap* null_map, orc::ColumnVectorBatch* orc_col_batch,
+                               const NullMapView* null_map, orc::ColumnVectorBatch* orc_col_batch,
                                int64_t start, int64_t end, Arena& arena,
                                const FormatOptions& options) const override {
         auto& col_data = assert_cast<const ColumnQuantileState&>(column);

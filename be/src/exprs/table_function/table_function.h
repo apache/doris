@@ -36,7 +36,7 @@ public:
 
     struct BlockFastPathContext {
         const UInt8* array_nullmap_data = nullptr;
-        const IColumn::Offsets64* offsets_ptr = nullptr;
+        IColumn::Offsets64View offsets;
         ColumnPtr nested_col = nullptr;
         const UInt8* nested_nullmap_data = nullptr;
         bool generate_row_index = false;

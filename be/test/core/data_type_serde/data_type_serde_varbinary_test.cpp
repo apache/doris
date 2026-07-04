@@ -236,12 +236,13 @@ TEST_F(DataTypeVarbinarySerDeTest, ArrowBinaryAndStringWithNullsAndInvalidType) 
 
     // null map: second row null
     NullMap nulls = {0, 1, 0};
+    NullMapView nulls_view(nulls);
     cctz::time_zone tz;
 
     // BinaryBuilder path + nulls
     {
         auto builder = std::make_shared<arrow::BinaryBuilder>();
-        auto st = serde.write_column_to_arrow(*col, &nulls, builder.get(), 0, vals.size(), tz);
+        auto st = serde.write_column_to_arrow(*col, &nulls_view, builder.get(), 0, vals.size(), tz);
         EXPECT_TRUE(st.ok()) << st.to_string();
         std::shared_ptr<arrow::Array> arr;
         ASSERT_TRUE(builder->Finish(&arr).ok());
@@ -327,8 +328,9 @@ TEST_F(DataTypeVarbinarySerDeTest, OrcWriteStartEndNullMapIgnoredAndEmptyRange) 
 
     // Provide a null_map but implementation ignores it; ensure data still written.
     NullMap nulls = {0, 1, 0};
-    auto st = serde.write_column_to_orc("UTC", *col, &nulls, batch.get(), /*start=*/1, /*end=*/3,
-                                        arena, format_options);
+    NullMapView nulls_view(nulls);
+    auto st = serde.write_column_to_orc("UTC", *col, &nulls_view, batch.get(), /*start=*/1,
+                                        /*end=*/3, arena, format_options);
     EXPECT_TRUE(st.ok()) << st.to_string();
     EXPECT_EQ(batch->numElements, 2);
     // rows 1 and 2 are filled

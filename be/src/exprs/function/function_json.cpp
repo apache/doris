@@ -139,10 +139,12 @@ public:
 
         auto null_map = ColumnUInt8::create(input_rows_count, 0);
 
-        const ColumnUInt8::Container* input_null_map = nullptr;
+        NullMapView input_null_map;
+        bool has_input_null_map = false;
         const ColumnString* col_from_string = nullptr;
         if (const auto* nullable = check_and_get_column<ColumnNullable>(col_from)) {
-            input_null_map = &nullable->get_null_map_data();
+            input_null_map = nullable->get_null_map_data();
+            has_input_null_map = true;
             col_from_string =
                     check_and_get_column<ColumnString>(*nullable->get_nested_column_ptr());
         } else {
@@ -167,7 +169,7 @@ public:
             input_type == PrimitiveType::TYPE_STRING) {
             JsonBinaryValue jsonb_value;
             for (size_t i = 0; i < input_rows_count; ++i) {
-                if (input_null_map && (*input_null_map)[i]) {
+                if (has_input_null_map && input_null_map[i]) {
                     null_map->get_data()[i] = 1;
                     vec_to[i] = 0;
                     continue;
@@ -184,7 +186,7 @@ public:
         } else {
             DCHECK(input_type == PrimitiveType::TYPE_JSONB);
             for (size_t i = 0; i < input_rows_count; ++i) {
-                if (input_null_map && (*input_null_map)[i]) {
+                if (has_input_null_map && input_null_map[i]) {
                     null_map->get_data()[i] = 1;
                     vec_to[i] = 0;
                     continue;

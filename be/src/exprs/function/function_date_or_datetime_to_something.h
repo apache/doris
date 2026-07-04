@@ -32,7 +32,8 @@ struct Transformer {
     using FromType = typename PrimitiveTypeTraits<FromPType>::CppType;
     using ToType = typename PrimitiveTypeTraits<ToPType>::CppType;
     using CppType = typename PrimitiveTypeTraits<FromPType>::CppType;
-    static void vector(const PaddedPODArray<FromType>& vec_from, PaddedPODArray<ToType>& vec_to) {
+    template <typename FromArray>
+    static void vector(const FromArray& vec_from, PaddedPODArray<ToType>& vec_to) {
         size_t size = vec_from.size();
         vec_to.resize(size);
 
@@ -64,7 +65,8 @@ struct TransformerYear {
     using FromType = typename PrimitiveTypeTraits<FromPType>::CppType;
     using ToType = typename PrimitiveTypeTraits<ToPType>::CppType;
 
-    static void vector(const PaddedPODArray<FromType>& vec_from, PaddedPODArray<ToType>& vec_to) {
+    template <typename FromArray>
+    static void vector(const FromArray& vec_from, PaddedPODArray<ToType>& vec_to) {
         size_t size = vec_from.size();
         vec_to.resize(size);
 

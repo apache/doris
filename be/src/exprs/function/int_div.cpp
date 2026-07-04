@@ -130,7 +130,7 @@ struct DivideIntegralImpl {
         }
     }
 
-    static void apply(const typename ColumnType::Container& a, Arg b,
+    static void apply(typename ColumnType::ImmContainer a, Arg b,
                       typename PrimitiveTypeTraits<ResultType>::ColumnType::Container& c,
                       PaddedPODArray<UInt8>& null_map) {
         size_t size = c.size();
@@ -198,7 +198,7 @@ struct DivideIntegralImpl {
         DCHECK(column_right_ptr != nullptr);
 
         auto null_map = ColumnUInt8::create(column_right->size(), 0);
-        auto& b = column_right_ptr->get_data();
+        const auto b = column_right_ptr->get_data();
         auto& c = column_result->get_data();
         auto& n = null_map->get_data();
         size_t size = b.size();
@@ -216,8 +216,8 @@ struct DivideIntegralImpl {
         DCHECK(column_left_ptr != nullptr && column_right_ptr != nullptr);
 
         auto null_map = ColumnUInt8::create(column_result->size(), 0);
-        auto& a = column_left_ptr->get_data();
-        auto& b = column_right_ptr->get_data();
+        const auto a = column_left_ptr->get_data();
+        const auto b = column_right_ptr->get_data();
         auto& c = column_result->get_data();
         auto& n = null_map->get_data();
         size_t size = a.size();

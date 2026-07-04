@@ -96,8 +96,8 @@ constexpr int ALTER_TABLE_BATCH_SIZE = 4064;
 namespace {
 
 bool nullable_column_contains_null(const ColumnPtr& column) {
-    const auto* null_map = VectorizedUtils::get_null_map(column);
-    DORIS_CHECK(null_map != nullptr);
+    auto null_map = VectorizedUtils::get_null_map(column);
+    DORIS_CHECK(null_map);
     if (is_column_const(*column)) {
         return (*null_map)[0];
     }
@@ -113,10 +113,10 @@ bool nullable_column_contains_null(const ColumnPtr& column) {
 
 bool nullable_columns_have_different_null_maps(const ColumnPtr& lhs_column,
                                                const ColumnPtr& rhs_column) {
-    const auto* lhs_null_map = VectorizedUtils::get_null_map(lhs_column);
-    const auto* rhs_null_map = VectorizedUtils::get_null_map(rhs_column);
-    DORIS_CHECK(lhs_null_map != nullptr);
-    DORIS_CHECK(rhs_null_map != nullptr);
+    auto lhs_null_map = VectorizedUtils::get_null_map(lhs_column);
+    auto rhs_null_map = VectorizedUtils::get_null_map(rhs_column);
+    DORIS_CHECK(lhs_null_map);
+    DORIS_CHECK(rhs_null_map);
 
     const bool lhs_is_single = is_column_const(*lhs_column);
     const bool rhs_is_single = is_column_const(*rhs_column);

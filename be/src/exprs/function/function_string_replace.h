@@ -328,11 +328,12 @@ struct SubReplaceImpl {
     }
 
 private:
-    template <bool origin_str_const, bool new_str_const, bool start_const, bool len_const>
+    template <bool origin_str_const, bool new_str_const, bool start_const, bool len_const,
+              typename StartArray, typename LengthArray>
     static void vector_ascii(const ColumnString* data_column, const ColumnString* mask_column,
-                             const PaddedPODArray<Int32>& args_start,
-                             const PaddedPODArray<Int32>& args_length, NullMap& args_null_map,
-                             ColumnString* result_column, size_t input_rows_count) {
+                             const StartArray& args_start, const LengthArray& args_length,
+                             NullMap& args_null_map, ColumnString* result_column,
+                             size_t input_rows_count) {
         ColumnString::Chars& res_chars = result_column->get_chars();
         ColumnString::Offsets& res_offsets = result_column->get_offsets();
         for (size_t row = 0; row < input_rows_count; ++row) {
@@ -355,11 +356,12 @@ private:
         }
     }
 
-    template <bool origin_str_const, bool new_str_const, bool start_const, bool len_const>
+    template <bool origin_str_const, bool new_str_const, bool start_const, bool len_const,
+              typename StartArray, typename LengthArray>
     static void vector_utf8(const ColumnString* data_column, const ColumnString* mask_column,
-                            const PaddedPODArray<Int32>& args_start,
-                            const PaddedPODArray<Int32>& args_length, NullMap& args_null_map,
-                            ColumnString* result_column, size_t input_rows_count) {
+                            const StartArray& args_start, const LengthArray& args_length,
+                            NullMap& args_null_map, ColumnString* result_column,
+                            size_t input_rows_count) {
         ColumnString::Chars& res_chars = result_column->get_chars();
         ColumnString::Offsets& res_offsets = result_column->get_offsets();
 

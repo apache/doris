@@ -69,7 +69,7 @@ private:
     static constexpr size_t INITIAL_SIZE_DEGREE = 5;
 
 public:
-    using NullMapType = PaddedPODArray<UInt8>;
+    using NullMapType = NullMapView;
     static constexpr auto name = "array_enumerate_uniq";
     static FunctionPtr create() { return std::make_shared<FunctionArrayEnumerateUniq>(); }
     String get_name() const override { return name; }
@@ -117,7 +117,8 @@ public:
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
         ColumnRawPtrs data_columns(arguments.size());
-        const ColumnArray::Offsets64* offsets = nullptr;
+        ColumnArray::Offsets64View offsets;
+        bool has_offsets = false;
         ColumnPtr src_offsets;
         Columns src_columns; // to keep ownership
 
@@ -135,12 +136,13 @@ public:
                                     cur_column->get_name(), get_name()));
             }
 
-            const ColumnArray::Offsets64& cur_offsets = array->get_offsets();
-            if (i == 0) {
+            const auto cur_offsets = array->get_offsets();
+            if (!has_offsets) {
                 first_column_array = array;
-                offsets = &cur_offsets;
+                offsets = cur_offsets;
                 src_offsets = array->get_offsets_ptr();
-            } else if (*offsets != cur_offsets) {
+                has_offsets = true;
+            } else if (offsets != cur_offsets) {
                 return Status::RuntimeError(fmt::format(
                         "lengths of all arrays of function {} must be equal.", get_name()));
             }
@@ -148,17 +150,19 @@ public:
             data_columns[i] = array_data;
         }
 
-        const NullMapType* null_map = nullptr;
+        NullMapType null_map;
+        bool has_null_map = false;
         if (arguments.size() == 1 &&
             (nullptr != check_and_get_column<ColumnNullable>(data_columns[0]))) {
             const auto* nullable = check_and_get_column<ColumnNullable>(data_columns[0]);
             data_columns[0] = nullable->get_nested_column_ptr().get();
-            null_map = &nullable->get_null_map_column().get_data();
+            null_map = nullable->get_null_map_data();
+            has_null_map = true;
         }
 
         auto dst_nested_column = ColumnInt64::create();
         ColumnInt64::Container& dst_values = dst_nested_column->get_data();
-        dst_values.resize(offsets->back());
+        dst_values.resize(offsets.back());
 
         if (arguments.size() == 1) {
             DataTypePtr src_column_type = block.get_by_position(arguments[0]).type;
@@ -171,13 +175,14 @@ public:
 
             auto call = [&](const auto& type) -> bool {
                 using DispatchType = std::decay_t<decltype(type)>;
-                _execute_number<typename DispatchType::ColumnType>(data_columns, *offsets, null_map,
-                                                                   dst_values);
+                _execute_number<typename DispatchType::ColumnType>(
+                        data_columns, offsets, has_null_map ? &null_map : nullptr, dst_values);
                 return true;
             };
 
             if (is_string_type(nested_type->get_primitive_type())) {
-                _execute_string(data_columns, *offsets, null_map, dst_values);
+                _execute_string(data_columns, offsets, has_null_map ? &null_map : nullptr,
+                                dst_values);
             } else if (!dispatch_switch_scalar(nested_type->get_primitive_type(), call)) {
                 return Status::RuntimeError(fmt::format(
                         "execute failed or unsupported types for function {}({})", get_name(),
@@ -185,7 +190,7 @@ public:
             }
         } else {
             _execute_by_hash<MethodSerialized<PHHashMap<StringRef, Int64>>, false>(
-                    data_columns, *offsets, nullptr, dst_values);
+                    data_columns, offsets, nullptr, dst_values);
         }
 
         ColumnPtr nested_column = dst_nested_column->get_ptr();
@@ -209,8 +214,8 @@ public:
 
 private:
     template <typename HashTableContext, bool is_nullable>
-    void _execute_by_hash(const ColumnRawPtrs& columns, const ColumnArray::Offsets64& offsets,
-                          [[maybe_unused]] const NullMap* null_map,
+    void _execute_by_hash(const ColumnRawPtrs& columns, ColumnArray::Offsets64View offsets,
+                          [[maybe_unused]] const NullMapType* null_map,
                           ColumnInt64::Container& dst_values) const {
         HashTableContext ctx;
         ctx.init_serialized_keys(columns, static_cast<uint32_t>(columns[0]->size()),
@@ -242,7 +247,7 @@ private:
     }
 
     template <typename ColumnType>
-    void _execute_number(const ColumnRawPtrs& columns, const ColumnArray::Offsets64& offsets,
+    void _execute_number(const ColumnRawPtrs& columns, ColumnArray::Offsets64View offsets,
                          const NullMapType* null_map, ColumnInt64::Container& dst_values) const {
         using NestType = typename ColumnType::value_type;
         using ElementNativeType = typename NativeType<NestType>::Type;
@@ -256,7 +261,7 @@ private:
         }
     }
 
-    void _execute_string(const ColumnRawPtrs& columns, const ColumnArray::Offsets64& offsets,
+    void _execute_string(const ColumnRawPtrs& columns, ColumnArray::Offsets64View offsets,
                          const NullMapType* null_map, ColumnInt64::Container& dst_values) const {
         using HashMethod = MethodStringNoCache<PHHashMap<StringRef, Int64>>;
         if (null_map != nullptr) {

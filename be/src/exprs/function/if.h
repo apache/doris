@@ -42,12 +42,12 @@ template <PrimitiveType PType>
 struct NumIfImpl {
 private:
     using Type = typename PrimitiveTypeTraits<PType>::CppType;
-    using ArrayCond = PaddedPODArray<UInt8>;
-    using Array = PaddedPODArray<Type>;
+    using ArrayCond = PODArrayView<UInt8>;
     using ColVecT = typename PrimitiveTypeTraits<PType>::ColumnType;
+    using Array = PODArrayView<Type>;
 
 public:
-    static const Array& get_data_from_column_const(const ColumnConst* column) {
+    static Array get_data_from_column_const(const ColumnConst* column) {
         return assert_cast<const ColVecT&>(column->get_data_column()).get_data();
     }
 
@@ -88,8 +88,7 @@ public:
 
 private:
     template <bool is_const_a, bool is_const_b>
-    static ColumnPtr execute_impl(const ArrayCond& cond, const Array& a, const Array& b,
-                                  int result_scale) {
+    static ColumnPtr execute_impl(ArrayCond cond, Array a, Array b, int result_scale) {
 #ifdef __ARM_NEON
         if constexpr (can_use_neon_opt()) {
             auto col_res = create_column(cond, result_scale);
@@ -103,8 +102,7 @@ private:
 
     // res[i] = cond[i] ? a[i] : b[i];
     template <bool is_const_a, bool is_const_b>
-    static ColumnPtr native_execute(const ArrayCond& cond, const Array& a, const Array& b,
-                                    int result_scale) {
+    static ColumnPtr native_execute(ArrayCond cond, Array a, Array b, int result_scale) {
         size_t size = cond.size();
         auto col_res = create_column(cond, result_scale);
         auto& res = col_res->get_data();

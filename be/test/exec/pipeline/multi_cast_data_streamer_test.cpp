@@ -255,25 +255,6 @@ TEST_F(MultiCastDataStreamerTest, MultiTest) {
 }
 
 TEST_F(MultiCastDataStreamerTest, PullAndFilterExternalNullableBoolForManyConsumers) {
-    constexpr int consumer_count = 5;
-    ObjectPool local_pool;
-    RuntimeProfile sink_profile("MultiCastDataStreamerExternalNullableBoolTest");
-    MultiCastDataStreamer streamer(&local_pool, consumer_count, 0);
-    streamer.set_sink_profile(&sink_profile);
-
-    std::vector<std::shared_ptr<Dependency>> read_deps;
-    std::vector<std::unique_ptr<RuntimeProfile>> read_profiles;
-    for (int i = 0; i < consumer_count; ++i) {
-        auto dep = Dependency::create_shared(1, 1, "ExternalNullableBoolReadDep", true);
-        read_deps.push_back(dep);
-        streamer.set_dep_by_sender_idx(i, dep.get());
-        read_profiles.push_back(
-                std::make_unique<RuntimeProfile>(fmt::format("source_profile_{}", i)));
-        streamer.set_source_profile(i, read_profiles.back().get());
-    }
-    auto write_dep = Dependency::create_shared(1, 1, "ExternalNullableBoolWriteDep", true);
-    streamer.set_write_dependency(write_dep.get());
-
     auto ids = ColumnInt32::create();
     for (int32_t i = 1; i <= 10; ++i) {
         ids->insert_value(i);
@@ -292,27 +273,24 @@ TEST_F(MultiCastDataStreamerTest, PullAndFilterExternalNullableBoolForManyConsum
             {{std::move(ids), std::make_shared<DataTypeInt32>(), "id"},
              {std::move(nullable_bool),
               std::make_shared<DataTypeNullable>(std::make_shared<DataTypeBool>()), "is_valid"}});
-    ASSERT_TRUE(streamer.push(&state, &input, true).ok());
+    ASSERT_TRUE(multi_cast_data_streamer->push(&state, &input, true).ok());
 
     const std::vector<std::vector<uint8_t>> filter_values = {{1, 1, 0, 0, 0, 0, 0, 0, 0, 0},
                                                              {0, 0, 1, 1, 1, 0, 0, 0, 0, 0},
-                                                             {0, 0, 0, 0, 0, 1, 1, 1, 0, 0},
-                                                             {0, 0, 0, 0, 0, 0, 0, 0, 1, 1},
-                                                             {0, 0, 0, 0, 0, 1, 1, 1, 1, 1}};
-    const std::vector<std::vector<uint8_t>> expected_bool_values = {
-            {1, 1}, {1, 0, 1}, {1, 1, 1}, {0, 1}, {1, 1, 1, 0, 1}};
+                                                             {0, 0, 0, 0, 0, 1, 1, 1, 0, 0}};
+    const std::vector<std::vector<uint8_t>> expected_bool_values = {{1, 1}, {1, 0, 1}, {1, 1, 1}};
 
-    for (int consumer = 0; consumer < consumer_count; ++consumer) {
-        ASSERT_TRUE(read_deps[consumer]->ready());
+    for (int consumer = 0; consumer < cast_sender_count; ++consumer) {
+        ASSERT_TRUE(deps[consumer]->ready());
         Block block;
         bool eos = false;
-        ASSERT_TRUE(streamer.pull(&state, consumer, &block, &eos).ok());
+        ASSERT_TRUE(multi_cast_data_streamer->pull(&state, consumer, &block, &eos).ok());
         EXPECT_TRUE(eos);
 
         const auto& pulled_nullable =
                 assert_cast<const ColumnNullable&>(*block.get_by_position(1).column);
         ASSERT_NO_THROW(pulled_nullable.sanity_check());
-        EXPECT_NE(pulled_nullable.get_nested_column().get_raw_data().data, external_bool_data);
+        EXPECT_EQ(pulled_nullable.get_nested_column().get_raw_data().data, external_bool_data);
 
         IColumn::Filter filter;
         filter.insert(filter_values[consumer].begin(), filter_values[consumer].end());
@@ -322,6 +300,7 @@ TEST_F(MultiCastDataStreamerTest, PullAndFilterExternalNullableBoolForManyConsum
         const auto& nested = assert_cast<const ColumnUInt8&>(nullable.get_nested_column());
         ASSERT_EQ(nullable.size(), expected_bool_values[consumer].size());
         ASSERT_EQ(nested.size(), expected_bool_values[consumer].size());
+        EXPECT_NE(nested.get_raw_data().data, external_bool_data);
         for (size_t i = 0; i < expected_bool_values[consumer].size(); ++i) {
             EXPECT_FALSE(nullable.is_null_at(i));
             EXPECT_EQ(nested.get_element(i), expected_bool_values[consumer][i]);

@@ -234,7 +234,7 @@ public:
     static Status vector_vector(const ColumnString::Chars& haystack_data,
                                 const ColumnString::Offsets& haystack_offsets,
                                 const IColumn& needles_data,
-                                const ColumnArray::Offsets64& needles_offsets,
+                                ColumnArray::Offsets64View needles_offsets,
                                 PaddedPODArray<Int32>& vec_res,
                                 PaddedPODArray<UInt64>& offsets_res) {
         size_t prev_haystack_offset = 0;

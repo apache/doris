@@ -18,6 +18,7 @@
 #include <cstddef>
 #include <cstring>
 #include <numeric>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -121,7 +122,7 @@ public:
 private:
     template <bool is_ascii, bool str_const, bool pos_const>
     void scalar_search(const StringRef& ldata, const ColumnString* col_right,
-                       const PaddedPODArray<Int32>& posdata, PaddedPODArray<Int32>& res,
+                       std::span<const Int32> posdata, PaddedPODArray<Int32>& res,
                        size_t size) const {
         res.resize(size);
         StringRef substr(ldata.data, ldata.size);
@@ -136,7 +137,7 @@ private:
 
     template <bool is_ascii, bool str_const, bool pos_const>
     void vector_search(const ColumnString* col_left, const ColumnString* col_right,
-                       const PaddedPODArray<Int32>& posdata, PaddedPODArray<Int32>& res,
+                       std::span<const Int32> posdata, PaddedPODArray<Int32>& res,
                        size_t size) const {
         res.resize(size);
         StringSearch search;

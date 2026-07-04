@@ -159,9 +159,9 @@ Status FunctionMatchBase::execute_impl(FunctionContext* context, Block& block,
     ColumnUInt8::Container& vec_res = res->get_data();
     // set default value to 0, and match functions only need to set 1/true
     vec_res.resize_fill(input_rows_count);
+    const auto array_offsets = array_col ? array_col->get_offsets() : ColumnArray::Offsets64View();
     RETURN_IF_ERROR(execute_match(context, column_name, match_query_str, input_rows_count, values,
-                                  analyzer_ctx, (array_col ? &(array_col->get_offsets()) : nullptr),
-                                  vec_res));
+                                  analyzer_ctx, array_offsets, vec_res));
     block.replace_by_position(result, std::move(res));
 
     return Status::OK();
@@ -227,7 +227,7 @@ std::vector<TermInfo> FunctionMatchBase::analyse_query_str_token(
 inline std::vector<TermInfo> FunctionMatchBase::analyse_data_token(
         const std::string& column_name, const InvertedIndexAnalyzerCtx* analyzer_ctx,
         const ColumnString* string_col, int32_t current_block_row_idx,
-        const ColumnArray::Offsets64* array_offsets, int32_t& current_src_array_offset) const {
+        ColumnArray::Offsets64View array_offsets, int32_t& current_src_array_offset) const {
     std::vector<TermInfo> data_tokens;
     if (analyzer_ctx == nullptr) {
         return data_tokens;
@@ -237,8 +237,8 @@ inline std::vector<TermInfo> FunctionMatchBase::analyse_data_token(
     const bool should_tokenize =
             analyzer_ctx->should_tokenize() && analyzer_ctx->analyzer != nullptr;
 
-    if (array_offsets) {
-        for (auto next_src_array_offset = (*array_offsets)[current_block_row_idx];
+    if (array_offsets.data()) {
+        for (auto next_src_array_offset = array_offsets[current_block_row_idx];
              current_src_array_offset < next_src_array_offset; ++current_src_array_offset) {
             const auto& str_ref = string_col->get_data_at(current_src_array_offset);
             if (!should_tokenize) {
@@ -286,7 +286,7 @@ Status FunctionMatchAny::execute_match(FunctionContext* context, const std::stri
                                        const std::string& match_query_str, size_t input_rows_count,
                                        const ColumnString* string_col,
                                        const InvertedIndexAnalyzerCtx* analyzer_ctx,
-                                       const ColumnArray::Offsets64* array_offsets,
+                                       ColumnArray::Offsets64View array_offsets,
                                        ColumnUInt8::Container& result) const {
     RETURN_IF_ERROR(check(context, name));
 
@@ -326,7 +326,7 @@ Status FunctionMatchAll::execute_match(FunctionContext* context, const std::stri
                                        const std::string& match_query_str, size_t input_rows_count,
                                        const ColumnString* string_col,
                                        const InvertedIndexAnalyzerCtx* analyzer_ctx,
-                                       const ColumnArray::Offsets64* array_offsets,
+                                       ColumnArray::Offsets64View array_offsets,
                                        ColumnUInt8::Container& result) const {
     RETURN_IF_ERROR(check(context, name));
 
@@ -372,7 +372,7 @@ Status FunctionMatchPhrase::execute_match(FunctionContext* context, const std::s
                                           const std::string& match_query_str,
                                           size_t input_rows_count, const ColumnString* string_col,
                                           const InvertedIndexAnalyzerCtx* analyzer_ctx,
-                                          const ColumnArray::Offsets64* array_offsets,
+                                          ColumnArray::Offsets64View array_offsets,
                                           ColumnUInt8::Container& result) const {
     RETURN_IF_ERROR(check(context, name));
 
@@ -433,7 +433,7 @@ Status FunctionMatchPhrase::execute_match(FunctionContext* context, const std::s
 Status FunctionMatchPhrasePrefix::execute_match(
         FunctionContext* context, const std::string& column_name,
         const std::string& match_query_str, size_t input_rows_count, const ColumnString* string_col,
-        const InvertedIndexAnalyzerCtx* analyzer_ctx, const ColumnArray::Offsets64* array_offsets,
+        const InvertedIndexAnalyzerCtx* analyzer_ctx, ColumnArray::Offsets64View array_offsets,
         ColumnUInt8::Container& result) const {
     RETURN_IF_ERROR(check(context, name));
 
@@ -492,7 +492,7 @@ Status FunctionMatchRegexp::execute_match(FunctionContext* context, const std::s
                                           const std::string& match_query_str,
                                           size_t input_rows_count, const ColumnString* string_col,
                                           const InvertedIndexAnalyzerCtx* analyzer_ctx,
-                                          const ColumnArray::Offsets64* array_offsets,
+                                          ColumnArray::Offsets64View array_offsets,
                                           ColumnUInt8::Container& result) const {
     RETURN_IF_ERROR(check(context, name));
 
@@ -561,7 +561,7 @@ Status FunctionMatchRegexp::execute_match(FunctionContext* context, const std::s
 Status FunctionMatchPhraseEdge::execute_match(
         FunctionContext* context, const std::string& column_name,
         const std::string& match_query_str, size_t input_rows_count, const ColumnString* string_col,
-        const InvertedIndexAnalyzerCtx* analyzer_ctx, const ColumnArray::Offsets64* array_offsets,
+        const InvertedIndexAnalyzerCtx* analyzer_ctx, ColumnArray::Offsets64View array_offsets,
         ColumnUInt8::Container& result) const {
     RETURN_IF_ERROR(check(context, name));
 

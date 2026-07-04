@@ -42,7 +42,7 @@ namespace doris {
 template <PrimitiveType PType>
 class FunctionArrayCumSum : public IFunction {
 public:
-    using NullMapType = PaddedPODArray<UInt8>;
+    using NullMapType = NullMapView;
 
     static constexpr auto name = "array_cum_sum";
 
@@ -125,7 +125,7 @@ public:
                                 block.get_by_position(arguments[0]).type->get_name()));
         }
 
-        const auto& src_offsets = src_column_array->get_offsets();
+        const auto src_offsets = src_column_array->get_offsets();
         const auto* src_nested_column = &src_column_array->get_data();
         DCHECK(src_nested_column != nullptr);
 
@@ -135,7 +135,7 @@ public:
         // get null map
         const auto* src_nested_nullable_col = assert_cast<const ColumnNullable*>(src_nested_column);
         src_nested_column = src_nested_nullable_col->get_nested_column_ptr().get();
-        const NullMapType& src_null_map = src_nested_nullable_col->get_null_map_column().get_data();
+        const auto src_null_map = src_nested_nullable_col->get_null_map_column().get_data();
 
         ColumnPtr res_nested_ptr;
         auto res_val = _execute_by_type(src_nested_type, *src_nested_column, src_offsets,
@@ -155,8 +155,8 @@ public:
 
 private:
     bool _execute_by_type(DataTypePtr src_nested_type, const IColumn& src_column,
-                          const ColumnArray::Offsets64& src_offsets,
-                          const NullMapType& src_null_map, ColumnPtr& res_nested_ptr) const {
+                          IColumn::Offsets64View src_offsets, NullMapType src_null_map,
+                          ColumnPtr& res_nested_ptr) const {
         bool res = false;
         switch (src_nested_type->get_primitive_type()) {
         case TYPE_BOOLEAN:
@@ -218,8 +218,8 @@ private:
     }
 
     template <PrimitiveType Element, PrimitiveType Result>
-    bool _execute_number(const IColumn& src_column, const ColumnArray::Offsets64& src_offsets,
-                         const NullMapType& src_null_map, ColumnPtr& res_nested_ptr) const {
+    bool _execute_number(const IColumn& src_column, IColumn::Offsets64View src_offsets,
+                         NullMapType src_null_map, ColumnPtr& res_nested_ptr) const {
         if constexpr (is_decimalv3(Element) &&
                       (TYPE_DECIMAL128I != Result && TYPE_DECIMAL256 != Result)) {
             return false;
@@ -266,8 +266,8 @@ private:
     }
 
     template <PrimitiveType Result>
-    void _compute_cum_sum(const auto& src_datas, const ColumnArray::Offsets64& src_offsets,
-                          const NullMapType& src_null_map, auto& res_datas) const {
+    void _compute_cum_sum(const auto& src_datas, IColumn::Offsets64View src_offsets,
+                          NullMapType src_null_map, auto& res_datas) const {
         size_t prev_offset = 0;
         for (auto cur_offset : src_offsets) {
             // [1, null, 2, 3] -> [1, 1, 3, 6]

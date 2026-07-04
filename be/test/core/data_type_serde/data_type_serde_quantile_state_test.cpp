@@ -202,9 +202,10 @@ TEST(QuantileStateSerdeTest, ArrowMysqlAndToStringPaths) {
     NullMap null_map;
     null_map.push_back(0);
     null_map.push_back(1);
+    NullMapView null_map_view(null_map);
     EXPECT_TRUE(quantile_state_serde
-                        ->write_column_to_arrow(*column_quantile_state, &null_map, &builder, 0, 2,
-                                                cctz::utc_time_zone())
+                        ->write_column_to_arrow(*column_quantile_state, &null_map_view, &builder, 0,
+                                                2, cctz::utc_time_zone())
                         .ok());
     std::shared_ptr<arrow::Array> array;
     ASSERT_TRUE(builder.Finish(&array).ok());

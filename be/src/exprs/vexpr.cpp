@@ -1142,7 +1142,7 @@ Status VExpr::execute_filter(VExprContext* context, const Block* block,
     } else if (const auto* nullable_column = check_and_get_column<ColumnNullable>(*filter_column)) {
         // nullable(bool)
         const ColumnPtr& nested_column = nullable_column->get_nested_column_ptr();
-        const IColumn::Filter& filter = assert_cast<const ColumnUInt8&>(*nested_column).get_data();
+        const auto filter = assert_cast<const ColumnUInt8&>(*nested_column).get_data();
         const auto* __restrict filter_data = filter.data();
         const auto* __restrict null_map_data = nullable_column->get_null_map_data().data();
 
@@ -1162,7 +1162,7 @@ Status VExpr::execute_filter(VExprContext* context, const Block* block,
         }
     } else {
         // bool
-        const IColumn::Filter& filter = assert_cast<const ColumnUInt8&>(*filter_column).get_data();
+        const auto filter = assert_cast<const ColumnUInt8&>(*filter_column).get_data();
         const auto* __restrict filter_data = filter.data();
 
         for (size_t i = 0; i < rows; ++i) {

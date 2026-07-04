@@ -103,11 +103,11 @@ Status VExplodeTableFunction::prepare_block_fast_path(Block* /*block*/, RuntimeS
     if (!support_block_fast_path()) {
         return Status::NotSupported("vexplode doesn't support block fast path in current mode");
     }
-    if (_detail.offsets_ptr == nullptr || _detail.nested_col.get() == nullptr) {
+    if (_detail.offsets.data() == nullptr || _detail.nested_col.get() == nullptr) {
         return Status::InternalError("vexplode block fast path not initialized");
     }
     ctx->array_nullmap_data = _detail.array_nullmap_data;
-    ctx->offsets_ptr = _detail.offsets_ptr;
+    ctx->offsets = _detail.offsets;
     ctx->nested_col = _detail.nested_col;
     ctx->nested_nullmap_data = _detail.nested_nullmap_data;
     return Status::OK();
@@ -118,8 +118,8 @@ void VExplodeTableFunction::process_row(size_t row_idx) {
     TableFunction::process_row(row_idx);
 
     if (!_detail.array_nullmap_data || !_detail.array_nullmap_data[row_idx]) {
-        _array_offset = (*_detail.offsets_ptr)[row_idx - 1];
-        _cur_size = (*_detail.offsets_ptr)[row_idx] - _array_offset;
+        _array_offset = _detail.offsets[row_idx - 1];
+        _cur_size = _detail.offsets[row_idx] - _array_offset;
     }
 }
 

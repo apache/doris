@@ -60,7 +60,7 @@ private:
         const ColumnPtr& column = argument.column;
 
         const auto* col = assert_cast<const ColumnType*>(column.get());
-        const typename ColumnType::Container& vec_in = col->get_data();
+        const auto vec_in = col->get_data();
         auto col_res = ColumnString::create();
 
         ColumnString::Chars& vec_res = col_res->get_chars();
@@ -139,7 +139,7 @@ static inline bool try_parse_ipv4(const char* pos, Int64& result_value) {
 }
 
 template <IPConvertExceptionMode exception_mode, typename ToColumn>
-ColumnPtr convert_to_ipv4(ColumnPtr column, const PaddedPODArray<UInt8>* null_map = nullptr) {
+ColumnPtr convert_to_ipv4(ColumnPtr column, NullMapView null_map = {}) {
     const auto* column_string = assert_cast<const ColumnString*>(column.get());
 
     size_t column_size = column_string->size();
@@ -160,7 +160,7 @@ ColumnPtr convert_to_ipv4(ColumnPtr column, const PaddedPODArray<UInt8>* null_ma
     size_t prev_offset = 0;
 
     for (size_t i = 0; i < vec_res.size(); ++i) {
-        if (null_map && (*null_map)[i]) {
+        if (null_map.data() && null_map[i]) {
             if constexpr (exception_mode == IPConvertExceptionMode::Throw) {
                 throw Exception(
                         ErrorCode::INVALID_ARGUMENT,
@@ -234,16 +234,16 @@ public:
         ColumnPtr column =
                 block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
         ColumnPtr null_map_column;
-        const NullMap* null_map = nullptr;
+        NullMapView null_map;
         if (const auto* column_nullable = check_and_get_column<ColumnNullable>(column.get())) {
             column = column_nullable->get_nested_column_ptr();
             null_map_column = column_nullable->get_null_map_column_ptr();
-            null_map = &column_nullable->get_null_map_data();
+            null_map = column_nullable->get_null_map_data();
         }
 
         auto col_res = convert_to_ipv4<exception_mode, ColumnInt64>(column, null_map);
 
-        if (null_map && exception_mode == IPConvertExceptionMode::Null) {
+        if (null_map.data() && exception_mode == IPConvertExceptionMode::Null) {
             block.replace_by_position(
                     result, ColumnNullable::create(std::move(col_res), std::move(null_map_column)));
         } else {
@@ -345,8 +345,7 @@ public:
 namespace detail {
 template <IPConvertExceptionMode exception_mode, typename ToColumn = ColumnIPv6,
           typename StringColumnType>
-ColumnPtr convert_to_ipv6(const StringColumnType& string_column,
-                          const PaddedPODArray<UInt8>* null_map = nullptr) {
+ColumnPtr convert_to_ipv6(const StringColumnType& string_column, NullMapView null_map = {}) {
     const size_t column_size = string_column.size();
 
     ColumnUInt8::MutablePtr col_null_map_to;
@@ -414,7 +413,7 @@ ColumnPtr convert_to_ipv6(const StringColumnType& string_column,
             src_value = string_buffer.c_str();
         }
 
-        if (null_map && (*null_map)[i]) {
+        if (null_map.data() && null_map[i]) {
             if (exception_mode == IPConvertExceptionMode::Throw) {
                 throw Exception(
                         ErrorCode::INVALID_ARGUMENT,
@@ -489,7 +488,7 @@ ColumnPtr convert_to_ipv6(const StringColumnType& string_column,
 } // namespace detail
 
 template <IPConvertExceptionMode exception_mode, typename ToColumn = ColumnIPv6>
-ColumnPtr convert_to_ipv6(ColumnPtr column, const PaddedPODArray<UInt8>* null_map = nullptr) {
+ColumnPtr convert_to_ipv6(ColumnPtr column, NullMapView null_map = {}) {
     const auto* column_input_string = assert_cast<const ColumnString*>(column.get());
     auto result = detail::convert_to_ipv6<exception_mode, ToColumn>(*column_input_string, null_map);
     return result;
@@ -529,17 +528,17 @@ public:
         ColumnPtr column =
                 block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
         ColumnPtr null_map_column;
-        const NullMap* null_map = nullptr;
+        NullMapView null_map;
 
         if (const auto* column_nullable = check_and_get_column<ColumnNullable>(column.get())) {
             column = column_nullable->get_nested_column_ptr();
             null_map_column = column_nullable->get_null_map_column_ptr();
-            null_map = &column_nullable->get_null_map_data();
+            null_map = column_nullable->get_null_map_data();
         }
 
         auto col_res = convert_to_ipv6<exception_mode, ColumnString>(column, null_map);
 
-        if (null_map && exception_mode == IPConvertExceptionMode::Null) {
+        if (null_map.data() && exception_mode == IPConvertExceptionMode::Null) {
             block.replace_by_position(
                     result, ColumnNullable::create(std::move(col_res), std::move(null_map_column)));
         } else {
@@ -826,8 +825,8 @@ public:
         const auto* col_ip_column = assert_cast<const ColumnIPv4*>(ip_column_ptr.get());
         const auto* col_cidr_column = assert_cast<const ColumnInt16*>(cidr_column_ptr.get());
 
-        const typename ColumnIPv4::Container& vec_ip_input = col_ip_column->get_data();
-        const ColumnInt16::Container& vec_cidr_input = col_cidr_column->get_data();
+        const auto vec_ip_input = col_ip_column->get_data();
+        const auto vec_cidr_input = col_cidr_column->get_data();
         auto col_lower_range_output = ColumnIPv4::create(input_rows_count, 0);
         auto col_upper_range_output = ColumnIPv4::create(input_rows_count, 0);
 
@@ -918,8 +917,7 @@ public:
             col_res = execute_impl(*ipv6_addr_column, *cidr_col, input_rows_count, add_col_const,
                                    col_const);
         } else if (is_string_type(addr_column_with_type_and_name.type->get_primitive_type())) {
-            ColumnPtr col_ipv6 =
-                    convert_to_ipv6<IPConvertExceptionMode::Throw>(addr_column, nullptr);
+            ColumnPtr col_ipv6 = convert_to_ipv6<IPConvertExceptionMode::Throw>(addr_column);
             const auto* ipv6_addr_column = assert_cast<const ColumnIPv6*>(col_ipv6.get());
             col_res = execute_impl(*ipv6_addr_column, *cidr_col, input_rows_count, add_col_const,
                                    col_const);
@@ -1117,14 +1115,14 @@ public:
         const auto& addr_column_with_type_and_name = block.get_by_position(arguments[0]);
         const ColumnPtr& addr_column = addr_column_with_type_and_name.column;
         const ColumnString* str_addr_column = nullptr;
-        const NullMap* addr_null_map = nullptr;
+        NullMapView addr_null_map;
 
         if (addr_column_with_type_and_name.type->is_nullable()) {
             const auto* addr_column_nullable =
                     assert_cast<const ColumnNullable*>(addr_column.get());
             str_addr_column = assert_cast<const ColumnString*>(
                     addr_column_nullable->get_nested_column_ptr().get());
-            addr_null_map = &addr_column_nullable->get_null_map_data();
+            addr_null_map = addr_column_nullable->get_null_map_data();
         } else {
             str_addr_column = assert_cast<const ColumnString*>(addr_column.get());
         }
@@ -1135,7 +1133,7 @@ public:
         auto& res_null_map_data = res_null_map->get_data();
 
         for (size_t i = 0; i < input_rows_count; ++i) {
-            if (addr_null_map && (*addr_null_map)[i]) {
+            if (addr_null_map.data() && addr_null_map[i]) {
                 if constexpr (exception_mode == IPConvertExceptionMode::Throw) {
                     throw Exception(ErrorCode::INVALID_ARGUMENT,
                                     "The arguments of function {} must be String, not NULL",

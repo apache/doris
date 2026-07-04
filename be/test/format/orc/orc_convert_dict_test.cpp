@@ -121,8 +121,9 @@ TEST_F(OrcReaderConvertDictTest, ConvertDictColumnToStringColumnWithNulls) {
     auto _reader = OrcReader::create_unique(params, range, 4064, "", nullptr, nullptr, true);
 
     // Execute conversion
+    NullMapView null_map_view(null_map);
     auto result_column = _reader->_convert_dict_column_to_string_column(
-            dict_column.get(), &null_map, string_batch.get(), orc_type_ptr.get());
+            dict_column.get(), &null_map_view, string_batch.get(), orc_type_ptr.get());
 
     // Validate results
     auto* string_column = assert_cast<const ColumnString*>(result_column.get());
@@ -215,8 +216,9 @@ TEST_F(OrcReaderConvertDictTest, ConvertDictColumnToStringColumnMixed) {
     TFileRangeDesc range;
     auto _reader = OrcReader::create_unique(params, range, 4064, "", nullptr, nullptr, true);
     // Execute conversion
+    NullMapView null_map_view(null_map);
     auto result_column = _reader->_convert_dict_column_to_string_column(
-            dict_column.get(), &null_map, string_batch.get(), orc_type_ptr.get());
+            dict_column.get(), &null_map_view, string_batch.get(), orc_type_ptr.get());
 
     // Validate results
     auto* string_column = assert_cast<const ColumnString*>(result_column.get());

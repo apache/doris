@@ -277,7 +277,7 @@ public:
                     }
                 } else if (auto target_nullable_column =
                                    check_and_get_column<ColumnNullable>(*target_column)) {
-                    auto& target_null_map = target_nullable_column->get_null_map_data();
+                    const auto target_null_map = target_nullable_column->get_null_map_data();
                     VectorizedUtils::update_null_map(null_map->get_data(), target_null_map);
 
                     auto& target_str_column = assert_cast<const ColumnString&>(
@@ -300,7 +300,7 @@ public:
                            *block.get_by_position(arguments[0]).column)) {
             auto& pos_column =
                     assert_cast<const ColumnInt32&>(pos_null_column->get_nested_column());
-            auto& pos_null_map = pos_null_column->get_null_map_data();
+            const auto pos_null_map = pos_null_column->get_null_map_data();
             auto null_map = ColumnUInt8::create(input_rows_count, false);
             auto& res_null_map = null_map->get_data();
 
@@ -379,7 +379,7 @@ public:
         size_t argument_size = arguments.size();
         std::vector<const Offsets*> offsets_list(argument_size);
         std::vector<const Chars*> chars_list(argument_size);
-        std::vector<const ColumnUInt8::Container*> null_list(argument_size);
+        std::vector<NullMapView> null_list(argument_size);
 
         std::vector<ColumnPtr> argument_columns(argument_size);
         std::vector<ColumnPtr> argument_null_columns(argument_size);
@@ -392,11 +392,11 @@ public:
                 // Danger: Here must dispose the null map data first! Because
                 // argument_columns[i]=nullable->get_nested_column_ptr(); will release the mem
                 // of column nullable mem of null map
-                null_list[i] = &nullable->get_null_map_data();
+                null_list[i] = nullable->get_null_map_data();
                 argument_null_columns[i] = nullable->get_null_map_column_ptr();
                 argument_columns[i] = nullable->get_nested_column_ptr();
             } else {
-                null_list[i] = &const_null_map->get_data();
+                null_list[i] = const_null_map->get_data();
             }
 
             if (is_column<ColumnArray>(argument_columns[i].get())) {
@@ -412,7 +412,7 @@ public:
         auto& res_offset = res->get_offsets();
         res_offset.resize(input_rows_count);
 
-        VectorizedUtils::update_null_map(null_map->get_data(), *null_list[0]);
+        VectorizedUtils::update_null_map(null_map->get_data(), null_list[0]);
         fmt::memory_buffer buffer;
         std::vector<std::string_view> views;
 
@@ -455,8 +455,8 @@ private:
                         fmt::memory_buffer& buffer, std::vector<std::string_view>& views,
                         const std::vector<const Offsets*>& offsets_list,
                         const std::vector<const Chars*>& chars_list,
-                        const std::vector<const ColumnUInt8::Container*>& null_list,
-                        Chars& res_data, Offsets& res_offset) const {
+                        const std::vector<NullMapView>& null_list, Chars& res_data,
+                        Offsets& res_offset) const {
         // Get array nested column
         const UInt8* array_nested_null_map = nullptr;
         ColumnPtr array_nested_column = nullptr;
@@ -477,13 +477,13 @@ private:
         const auto& src_string_offsets = string_column.get_offsets();
         const auto& src_array_offsets = array_column.get_offsets();
         size_t current_src_array_offset = 0;
-        auto& array_nullmap = *null_list[1];
+        const auto array_nullmap = null_list[1];
 
         // Concat string in array
         for (size_t i = 0; i < input_rows_count; ++i) {
             auto& sep_offsets = *offsets_list[0];
             auto& sep_chars = *chars_list[0];
-            auto& sep_nullmap = *null_list[0];
+            const auto sep_nullmap = null_list[0];
 
             if (sep_nullmap[i]) {
                 res_offset[i] = res_data.size();
@@ -531,13 +531,13 @@ private:
                          fmt::memory_buffer& buffer, std::vector<std::string_view>& views,
                          const std::vector<const Offsets*>& offsets_list,
                          const std::vector<const Chars*>& chars_list,
-                         const std::vector<const ColumnUInt8::Container*>& null_list,
-                         Chars& res_data, Offsets& res_offset) const {
+                         const std::vector<NullMapView>& null_list, Chars& res_data,
+                         Offsets& res_offset) const {
         // Concat string
         for (size_t i = 0; i < input_rows_count; ++i) {
             auto& sep_offsets = *offsets_list[0];
             auto& sep_chars = *chars_list[0];
-            auto& sep_nullmap = *null_list[0];
+            const auto sep_nullmap = null_list[0];
             if (sep_nullmap[i]) {
                 res_offset[i] = res_data.size();
                 continue;
@@ -552,7 +552,7 @@ private:
             for (size_t j = 1; j < argument_size; ++j) {
                 auto& current_offsets = *offsets_list[j];
                 auto& current_chars = *chars_list[j];
-                auto& current_nullmap = *null_list[j];
+                const auto current_nullmap = null_list[j];
                 int size = current_offsets[i] - current_offsets[i - 1];
                 const char* ptr =
                         reinterpret_cast<const char*>(&current_chars[current_offsets[i - 1]]);
@@ -621,7 +621,7 @@ public:
     }
 
     Status vector_vector(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
-                         const ColumnInt32::Container& repeats, ColumnString::Chars& res_data,
+                         ColumnInt32::ImmContainer repeats, ColumnString::Chars& res_data,
                          ColumnString::Offsets& res_offsets,
                          ColumnUInt8::Container& null_map) const {
         size_t input_row_size = offsets.size();
@@ -933,7 +933,7 @@ private:
 
     template <bool all_ascii, bool str_const>
     static void execute_const_len_const_pad(const ColumnString& strcol,
-                                            const ColumnInt32::Container& col_len_data,
+                                            ColumnInt32::ImmContainer col_len_data,
                                             const ColumnString& padcol,
                                             ColumnString::Offsets& res_offsets,
                                             ColumnString::Chars& res_chars,
@@ -968,9 +968,8 @@ private:
     }
 
     template <bool str_const>
-    static void execute_general(const ColumnString& strcol,
-                                const ColumnInt32::Container& col_len_data, bool len_const,
-                                const ColumnString& padcol, bool pad_const,
+    static void execute_general(const ColumnString& strcol, ColumnInt32::ImmContainer col_len_data,
+                                bool len_const, const ColumnString& padcol, bool pad_const,
                                 ColumnString::Offsets& res_offsets, ColumnString::Chars& res_chars,
                                 ColumnUInt8::Container& null_map_data, size_t input_rows_count) {
         using PadChars = PaddingChars<true>;

@@ -88,13 +88,13 @@ public:
         const ColumnNullable* col_nullable = nullptr;
         const ColumnUInt8* col_nullmap = nullptr;
         const ColumnFloat64* col = nullptr;
-        const NullMap* nullmap = nullptr;
+        NullMapView nullmap;
         if constexpr (is_nullable) {
             col_nullable = assert_cast<const ColumnNullable*>(column.get());
             col_nullmap = col_nullable->get_null_map_column_ptr().get();
             col = assert_cast<const ColumnFloat64*>(col_nullable->get_nested_column_ptr().get());
 
-            nullmap = &col_nullmap->get_data();
+            nullmap = col_nullmap->get_data();
         } else {
             col = assert_cast<const ColumnFloat64*>(column.get());
         }
@@ -104,7 +104,7 @@ public:
         size_t size = col->size();
         for (size_t i = 0; i < size; ++i) {
             if constexpr (is_nullable) {
-                if ((*nullmap)[i]) {
+                if (nullmap[i]) {
                     res_data[i].clear();
                     continue;
                 }

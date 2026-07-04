@@ -528,7 +528,7 @@ struct BinImpl {
         return std::string(result + index, max_bits - index);
     }
 
-    static Status vector(const ColumnInt64::Container& data, ColumnString::Chars& res_data,
+    static Status vector(ColumnInt64::ImmContainer data, ColumnString::Chars& res_data,
                          ColumnString::Offsets& res_offsets) {
         res_offsets.resize(data.size());
         size_t input_size = res_offsets.size();
@@ -631,7 +631,7 @@ private:
 
         if constexpr (Impl::is_nullable) {
             auto null_map = ColumnUInt8::create(column_left->size(), 0);
-            auto& a = column_left_ptr->get_data();
+            const auto a = column_left_ptr->get_data();
             auto& c = column_result->get_data();
             auto& n = null_map->get_data();
             size_t size = a.size();
@@ -640,7 +640,7 @@ private:
             }
             return ColumnNullable::create(std::move(column_result), std::move(null_map));
         } else {
-            auto& a = column_left_ptr->get_data();
+            const auto a = column_left_ptr->get_data();
             auto& c = column_result->get_data();
             size_t size = a.size();
             for (size_t i = 0; i < size; ++i) {
@@ -658,7 +658,7 @@ private:
 
         if constexpr (Impl::is_nullable) {
             auto null_map = ColumnUInt8::create(column_right->size(), 0);
-            auto& b = column_right_ptr->get_data();
+            const auto b = column_right_ptr->get_data();
             auto& c = column_result->get_data();
             auto& n = null_map->get_data();
             size_t size = b.size();
@@ -667,7 +667,7 @@ private:
             }
             return ColumnNullable::create(std::move(column_result), std::move(null_map));
         } else {
-            auto& b = column_right_ptr->get_data();
+            const auto b = column_right_ptr->get_data();
             auto& c = column_result->get_data();
             size_t size = b.size();
             for (size_t i = 0; i < size; ++i) {
@@ -686,8 +686,8 @@ private:
 
         if constexpr (Impl::is_nullable) {
             auto null_map = ColumnUInt8::create(column_result->size(), 0);
-            auto& a = column_left_ptr->get_data();
-            auto& b = column_right_ptr->get_data();
+            const auto a = column_left_ptr->get_data();
+            const auto b = column_right_ptr->get_data();
             auto& c = column_result->get_data();
             auto& n = null_map->get_data();
             size_t size = a.size();
@@ -696,8 +696,8 @@ private:
             }
             return ColumnNullable::create(std::move(column_result), std::move(null_map));
         } else {
-            auto& a = column_left_ptr->get_data();
-            auto& b = column_right_ptr->get_data();
+            const auto a = column_left_ptr->get_data();
+            const auto b = column_right_ptr->get_data();
             auto& c = column_result->get_data();
             size_t size = a.size();
             for (size_t i = 0; i < size; ++i) {

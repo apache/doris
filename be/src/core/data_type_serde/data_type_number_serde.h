@@ -111,7 +111,7 @@ public:
 
     void read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const override;
 
-    Status write_column_to_arrow(const IColumn& column, const NullMap* null_map,
+    Status write_column_to_arrow(const IColumn& column, const NullMapView* null_map,
                                  arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,
                                  const cctz::time_zone& ctz) const override;
     Status read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int64_t start,
@@ -124,7 +124,7 @@ public:
                                         int64_t row_idx, bool col_const,
                                         const FormatOptions& options) const override;
     Status write_column_to_orc(const std::string& timezone, const IColumn& column,
-                               const NullMap* null_map, orc::ColumnVectorBatch* orc_col_batch,
+                               const NullMapView* null_map, orc::ColumnVectorBatch* orc_col_batch,
                                int64_t start, int64_t end, Arena& arena,
                                const FormatOptions& options) const override;
 
@@ -252,7 +252,7 @@ Status DataTypeNumberSerDe<T>::write_column_to_pb(const IColumn& column, PValues
         }
         return Status::OK();
     }
-    auto& data = col->get_data();
+    const auto& data = col->get_data();
     if constexpr (T == TYPE_BOOLEAN) {
         ptype->set_id(PGenericType::UINT8);
         auto* values = result.mutable_uint32_value();
@@ -262,7 +262,8 @@ Status DataTypeNumberSerDe<T>::write_column_to_pb(const IColumn& column, PValues
         ptype->set_id(PGenericType::UINT32);
         auto* values = result.mutable_uint32_value();
         values->Reserve(row_count);
-        values->Add((uint32_t*)data.begin() + start, (uint32_t*)data.begin() + end);
+        const auto* raw_data = reinterpret_cast<const uint32_t*>(data.data());
+        values->Add(raw_data + start, raw_data + end);
     } else if constexpr (T == TYPE_IPV4) {
         ptype->set_id(PGenericType::UINT32);
         auto* values = result.mutable_uint32_value();
@@ -272,7 +273,8 @@ Status DataTypeNumberSerDe<T>::write_column_to_pb(const IColumn& column, PValues
         ptype->set_id(PGenericType::UINT64);
         auto* values = result.mutable_uint64_value();
         values->Reserve(row_count);
-        values->Add((uint64_t*)data.begin() + start, (uint64_t*)data.begin() + end);
+        const auto* raw_data = reinterpret_cast<const uint64_t*>(data.data());
+        values->Add(raw_data + start, raw_data + end);
     } else if constexpr (T == TYPE_TINYINT) {
         ptype->set_id(PGenericType::INT8);
         auto* values = result.mutable_int32_value();
@@ -292,7 +294,8 @@ Status DataTypeNumberSerDe<T>::write_column_to_pb(const IColumn& column, PValues
         ptype->set_id(PGenericType::INT64);
         auto* values = result.mutable_int64_value();
         values->Reserve(row_count);
-        values->Add((int64_t*)data.begin() + start, (int64_t*)data.begin() + end);
+        const auto* raw_data = reinterpret_cast<const int64_t*>(data.data());
+        values->Add(raw_data + start, raw_data + end);
     } else if constexpr (T == TYPE_BIGINT) {
         ptype->set_id(PGenericType::INT64);
         auto* values = result.mutable_int64_value();

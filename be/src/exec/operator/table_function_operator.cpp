@@ -194,12 +194,12 @@ Status TableFunctionLocalState::_prepare_block_fast_path(RuntimeState* state) {
 
     RETURN_IF_ERROR(
             _fns[0]->prepare_block_fast_path(_child_block.get(), state, &_block_fast_path_ctx));
-    if (_block_fast_path_ctx.offsets_ptr == nullptr ||
+    if (_block_fast_path_ctx.offsets.data() == nullptr ||
         _block_fast_path_ctx.nested_col.get() == nullptr) {
         return Status::InternalError("block fast path context is invalid");
     }
 
-    const auto child_rows = cast_set<int64_t>(_block_fast_path_ctx.offsets_ptr->size());
+    const auto child_rows = cast_set<int64_t>(_block_fast_path_ctx.offsets.size());
     if (child_rows != cast_set<int64_t>(_child_block->rows())) {
         return Status::InternalError("block fast path offsets size mismatch");
     }
@@ -212,7 +212,7 @@ Status TableFunctionLocalState::_prepare_block_fast_path(RuntimeState* state) {
 }
 
 bool TableFunctionLocalState::_has_contiguous_block_fast_path_suffix() const {
-    const auto& offsets = *_block_fast_path_ctx.offsets_ptr;
+    const auto offsets = _block_fast_path_ctx.offsets;
     const auto child_rows = cast_set<int64_t>(offsets.size());
     int64_t child_row = _block_fast_path_row;
     uint64_t in_row_offset = _block_fast_path_in_row_offset;
@@ -262,7 +262,7 @@ Status TableFunctionLocalState::_get_expanded_block_block_fast_path(
         return Status::OK();
     }
 
-    const auto& offsets = *_block_fast_path_ctx.offsets_ptr;
+    const auto offsets = _block_fast_path_ctx.offsets;
     const auto child_rows = cast_set<int64_t>(offsets.size());
 
     int64_t child_row = _block_fast_path_row;

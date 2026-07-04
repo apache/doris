@@ -98,10 +98,10 @@ Status execute_cross_product(const std::string& func_name, ColumnPtr lhs, Column
 void expect_array_rows(const Block& block, const FloatRows& expected) {
     auto result_col_holder = block.get_by_position(2).column->convert_to_full_column_if_const();
     const IColumn* result_col = result_col_holder.get();
-    const ColumnUInt8::Container* result_null_map = nullptr;
+    NullMapView result_null_map;
     if (result_col->is_nullable()) {
         const auto& nullable_col = assert_cast<const ColumnNullable&>(*result_col);
-        result_null_map = &nullable_col.get_null_map_data();
+        result_null_map = nullable_col.get_null_map_data();
         result_col = nullable_col.get_nested_column_ptr().get();
     }
     const auto& array_col = assert_cast<const ColumnArray&>(*result_col);
@@ -116,7 +116,7 @@ void expect_array_rows(const Block& block, const FloatRows& expected) {
     size_t offset = 0;
     ASSERT_EQ(expected.size(), offsets.size());
     for (size_t row = 0; row < expected.size(); ++row) {
-        if (result_null_map && (*result_null_map)[row]) {
+        if (result_null_map.data() && result_null_map[row]) {
             offset = offsets[row];
             continue;
         }

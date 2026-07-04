@@ -3244,7 +3244,7 @@ Status OrcReader::_convert_dict_cols_to_string_cols(
                 const ColumnPtr& nested_column = nullable_column->get_nested_column_ptr();
                 const auto* dict_column = assert_cast<const ColumnInt32*>(nested_column.get());
                 DCHECK(dict_column);
-                const NullMap& null_map = nullable_column->get_null_map_data();
+                const auto null_map = nullable_column->get_null_map_data();
 
                 MutableColumnPtr string_column;
                 if (batch_vec != nullptr) {
@@ -3285,7 +3285,7 @@ Status OrcReader::_convert_dict_cols_to_string_cols(
 //  Then it can avoid checking null_map. However, currently when inert materialization is enabled,
 //  the filter column will not be filtered first, but will be filtered together at the end.
 MutableColumnPtr OrcReader::_convert_dict_column_to_string_column(
-        const ColumnInt32* dict_column, const NullMap* null_map, orc::ColumnVectorBatch* cvb,
+        const ColumnInt32* dict_column, const NullMapView* null_map, orc::ColumnVectorBatch* cvb,
         const orc::Type* orc_column_type) {
     SCOPED_RAW_TIMER(&_statistics.decode_value_time);
     auto res = ColumnString::create();

@@ -25,6 +25,7 @@
 #include <cmath>
 #include <cstdint>
 #include <memory>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -337,8 +338,8 @@ struct PercentileState {
         }
     }
 
-    void add(typename PrimitiveTypeTraits<T>::CppType source,
-             const PaddedPODArray<Float64>& quantiles, const NullMap& null_maps, int64_t arg_size) {
+    void add(typename PrimitiveTypeTraits<T>::CppType source, std::span<const Float64> quantiles,
+             NullMapView null_maps, int64_t arg_size) {
         if (!inited_flag) {
             vec_counts.resize(arg_size);
             vec_quantile.resize(arg_size, -1);
@@ -358,7 +359,7 @@ struct PercentileState {
         }
     }
 
-    void add_batch(const PaddedPODArray<typename PrimitiveTypeTraits<T>::CppType>& source,
+    void add_batch(std::span<const typename PrimitiveTypeTraits<T>::CppType> source,
                    const Float64& q) {
         if (!inited_flag) {
             inited_flag = true;
@@ -420,7 +421,7 @@ struct PercentileExactState {
     }
 
     void add_many_range(const ValueType* data, size_t count,
-                        const PaddedPODArray<Float64>& quantiles_data, const NullMap& null_maps,
+                        std::span<const Float64> quantiles_data, NullMapView null_maps,
                         size_t start, int64_t arg_size) {
         if (!inited_flag) {
             _set_many_levels(quantiles_data, null_maps, start, arg_size);
@@ -549,7 +550,7 @@ private:
         levels.permutation.push_back(0);
     }
 
-    void _set_many_levels(const PaddedPODArray<Float64>& quantiles_data, const NullMap& null_maps,
+    void _set_many_levels(std::span<const Float64> quantiles_data, NullMapView null_maps,
                           size_t start, int64_t arg_size) {
         DCHECK(levels.empty());
         size_t size = cast_set<size_t>(arg_size);
@@ -627,8 +628,10 @@ public:
                 assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(*columns[0]);
         const auto& quantile =
                 assert_cast<const ColumnFloat64&, TypeCheckOnRelease::DISABLE>(*columns[1]);
-        AggregateFunctionPercentile::data(place).add(sources.get_data()[row_num],
-                                                     quantile.get_data(), NullMap(1, 0), 1);
+        const NullMap no_nulls(1, 0);
+        AggregateFunctionPercentile::data(place).add(
+                sources.get_data()[row_num], quantile.get_data(),
+                NullMapView(no_nulls.data(), no_nulls.size()), 1);
     }
 
     void add_batch_single_place(size_t batch_size, AggregateDataPtr place, const IColumn** columns,
@@ -690,10 +693,10 @@ public:
                 assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(*columns[0]);
         const auto& quantile_array =
                 assert_cast<const ColumnArray&, TypeCheckOnRelease::DISABLE>(*columns[1]);
-        const auto& offset_column_data = quantile_array.get_offsets();
-        const auto& null_maps = assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(
-                                        quantile_array.get_data())
-                                        .get_null_map_data();
+        const auto offset_column_data = quantile_array.get_offsets();
+        const auto null_maps = assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(
+                                       quantile_array.get_data())
+                                       .get_null_map_data();
         const auto& nested_column = assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(
                                             quantile_array.get_data())
                                             .get_nested_column();
@@ -836,10 +839,10 @@ public:
                 assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(*columns[0]);
         const auto& quantile_array =
                 assert_cast<const ColumnArray&, TypeCheckOnRelease::DISABLE>(*columns[1]);
-        const auto& offset_column_data = quantile_array.get_offsets();
-        const auto& null_maps = assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(
-                                        quantile_array.get_data())
-                                        .get_null_map_data();
+        const auto offset_column_data = quantile_array.get_offsets();
+        const auto null_maps = assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(
+                                       quantile_array.get_data())
+                                       .get_null_map_data();
         const auto& nested_column = assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(
                                             quantile_array.get_data())
                                             .get_nested_column();
@@ -857,10 +860,10 @@ public:
                 assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(*columns[0]);
         const auto& quantile_array =
                 assert_cast<const ColumnArray&, TypeCheckOnRelease::DISABLE>(*columns[1]);
-        const auto& offset_column_data = quantile_array.get_offsets();
-        const auto& null_maps = assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(
-                                        quantile_array.get_data())
-                                        .get_null_map_data();
+        const auto offset_column_data = quantile_array.get_offsets();
+        const auto null_maps = assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(
+                                       quantile_array.get_data())
+                                       .get_null_map_data();
         const auto& nested_column = assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(
                                             quantile_array.get_data())
                                             .get_nested_column();

@@ -675,9 +675,9 @@ struct DateTimeOp {
     }
 
     // execute on the null value's nested value may cause false positive exception, so use nullmaps to skip them.
-    static void vector_vector(const PaddedPODArray<ValueType0>& vec_from0,
+    static void vector_vector(PODArrayView<ValueType0> vec_from0,
                               const IntervalColumnType& vec_from1, PaddedPODArray<ToType>& vec_to,
-                              const NullMap* nullmap0, const NullMap* nullmap1) {
+                              const NullMapView* nullmap0, const NullMapView* nullmap1) {
         for (size_t i = 0; i < vec_from0.size(); ++i) {
             if ((nullmap0 && (*nullmap0)[i]) || (nullmap1 && (*nullmap1)[i])) [[unlikely]] {
                 continue;
@@ -686,9 +686,9 @@ struct DateTimeOp {
         }
     }
 
-    static void vector_constant(const PaddedPODArray<ValueType0>& vec_from,
-                                PaddedPODArray<ToType>& vec_to, const ValueType1& delta,
-                                const NullMap* nullmap0, const NullMap* nullmap1) {
+    static void vector_constant(PODArrayView<ValueType0> vec_from, PaddedPODArray<ToType>& vec_to,
+                                const ValueType1& delta, const NullMapView* nullmap0,
+                                const NullMapView* nullmap1) {
         if (nullmap1 && (*nullmap1)[0]) [[unlikely]] {
             return;
         }
@@ -702,8 +702,8 @@ struct DateTimeOp {
     }
 
     static void constant_vector(const ValueType0& from, PaddedPODArray<ToType>& vec_to,
-                                const IntervalColumnType& delta, const NullMap* nullmap0,
-                                const NullMap* nullmap1) {
+                                const IntervalColumnType& delta, const NullMapView* nullmap0,
+                                const NullMapView* nullmap1) {
         if (nullmap0 && (*nullmap0)[0]) [[unlikely]] {
             return;
         }
@@ -757,10 +757,12 @@ public:
         //ATTN: those null maps may be nullmap of ColumnConst(only 1 row)
         // src column is always datelike type.
         ColumnPtr& col0 = block.get_by_position(arguments[0]).column;
-        const NullMap* nullmap0 = VectorizedUtils::get_null_map(col0);
+        auto nullmap0 = VectorizedUtils::get_null_map(col0);
         // the second column may be delta column(xx_add/sub) or datelike column(xxx_diff)
         ColumnPtr& col1 = block.get_by_position(arguments[1]).column;
-        const NullMap* nullmap1 = VectorizedUtils::get_null_map(col1);
+        auto nullmap1 = VectorizedUtils::get_null_map(col1);
+        const auto* nullmap0_ptr = nullmap0 ? &*nullmap0 : nullptr;
+        const auto* nullmap1_ptr = nullmap1 ? &*nullmap1 : nullptr;
 
         // if null wrapped, extract nested column as src_nested_col
         const ColumnPtr src_nested_col = remove_nullable(col0);
@@ -779,12 +781,13 @@ public:
                         assert_cast<const ColumnVector<Transform::ArgPType>&>(
                                 nest_col1_const->get_data_column());
                 Op::vector_constant(sources->get_data(), res_col->get_data(),
-                                    Op::get_element(col1_inside_const, 0), nullmap0, nullmap1);
+                                    Op::get_element(col1_inside_const, 0), nullmap0_ptr,
+                                    nullmap1_ptr);
             } else { // vector-vector
                 const auto& concrete_col1 =
                         assert_cast<const ColumnVector<Transform::ArgPType>&>(*nest_col1);
-                Op::vector_vector(sources->get_data(), concrete_col1, res_col->get_data(), nullmap0,
-                                  nullmap1);
+                Op::vector_vector(sources->get_data(), concrete_col1, res_col->get_data(),
+                                  nullmap0_ptr, nullmap1_ptr);
             }
 
             // update result nullmap with inputs
@@ -812,7 +815,7 @@ public:
             const auto& concrete_col1 =
                     assert_cast<const ColumnVector<Transform::ArgPType>&>(*nested_col1);
             Op::constant_vector(col0_inside_const.get_data()[0], res_col->get_data(), concrete_col1,
-                                nullmap0, nullmap1);
+                                nullmap0_ptr, nullmap1_ptr);
 
             // update result nullmap with inputs
             if (result_nullable) {
@@ -881,10 +884,12 @@ public:
         //ATTN: those null maps may be nullmap of ColumnConst(only 1 row)
         // src column is always datelike type.
         ColumnPtr& col0 = block.get_by_position(arguments[0]).column;
-        const NullMap* nullmap0 = VectorizedUtils::get_null_map(col0);
+        auto nullmap0 = VectorizedUtils::get_null_map(col0);
         // the second column may be delta column(xx_add/sub) or datelike column(xxx_diff)
         ColumnPtr& col1 = block.get_by_position(arguments[1]).column;
-        const NullMap* nullmap1 = VectorizedUtils::get_null_map(col1);
+        auto nullmap1 = VectorizedUtils::get_null_map(col1);
+        const auto* nullmap0_ptr = nullmap0 ? &*nullmap0 : nullptr;
+        const auto* nullmap1_ptr = nullmap1 ? &*nullmap1 : nullptr;
 
         // if null wrapped, extract nested column as src_nested_col
         const ColumnPtr src_nested_col = remove_nullable(col0);
@@ -904,11 +909,12 @@ public:
                 const auto& col1_inside_const =
                         assert_cast<const IntervalColumnType&>(nest_col1_const->get_data_column());
                 Op::vector_constant(sources->get_data(), res_col->get_data(),
-                                    Op::get_element(col1_inside_const, 0), nullmap0, nullmap1);
+                                    Op::get_element(col1_inside_const, 0), nullmap0_ptr,
+                                    nullmap1_ptr);
             } else { // vector-vector
                 const auto& concrete_col1 = assert_cast<const IntervalColumnType&>(*nest_col1);
-                Op::vector_vector(sources->get_data(), concrete_col1, res_col->get_data(), nullmap0,
-                                  nullmap1);
+                Op::vector_vector(sources->get_data(), concrete_col1, res_col->get_data(),
+                                  nullmap0_ptr, nullmap1_ptr);
             }
 
             // update result nullmap with inputs
@@ -935,7 +941,7 @@ public:
             const ColumnPtr nested_col1 = remove_nullable(col1);
             const auto& concrete_col1 = assert_cast<const IntervalColumnType&>(*nested_col1);
             Op::constant_vector(col0_inside_const.get_data()[0], res_col->get_data(), concrete_col1,
-                                nullmap0, nullmap1);
+                                nullmap0_ptr, nullmap1_ptr);
 
             // update result nullmap with inputs
             if (result_nullable) {
@@ -1258,7 +1264,7 @@ struct TimestampToDateTime : IFunction {
         NullMap& result_null_map = result_null_map_column->get_data();
 
         ColumnPtr argument_column = block.get_by_position(arguments[0]).column;
-        const NullMap* null_map = VectorizedUtils::get_null_map(argument_column);
+        auto null_map = VectorizedUtils::get_null_map(argument_column);
         if (null_map) {
             VectorizedUtils::update_null_map(result_null_map, *null_map);
         }

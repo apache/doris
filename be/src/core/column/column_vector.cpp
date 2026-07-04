@@ -460,6 +460,11 @@ ColumnPtr ColumnVector<T>::filter(const IColumn::Filter& filt, ssize_t result_si
 
 template <PrimitiveType T>
 size_t ColumnVector<T>::filter(const IColumn::Filter& filter) {
+    return this->filter(IColumn::FilterView(filter.data(), filter.size()));
+}
+
+template <PrimitiveType T>
+size_t ColumnVector<T>::filter(IColumn::FilterView filter) {
     materialize_external_data();
     size_t size = data.size();
     column_match_filter_size(size, filter.size());

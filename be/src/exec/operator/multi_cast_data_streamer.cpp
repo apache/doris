@@ -42,13 +42,6 @@
 namespace doris {
 MultiCastBlock::MultiCastBlock(Block* block, int un_finish_copy, size_t mem_size)
         : _un_finish_copy(un_finish_copy), _mem_size(mem_size) {
-    // MultiCast shares the same ColumnPtr tree with several source operators. Fixed-length scan
-    // columns may still point at one page-owned external span, and some expression read paths
-    // lazily materialize that span through legacy get_data() APIs. Do that once before sharing so
-    // consumers never race on representation changes inside a logically immutable column.
-    for (const auto& column : block->get_columns()) {
-        column->materialize_external_data();
-    }
     _block = Block::create_unique(block->get_columns_with_type_and_name());
     block->clear();
 }

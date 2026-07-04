@@ -997,8 +997,8 @@ Status Block::filter_block(Block* block, const std::vector<uint32_t>& columns_to
             }
         }
     } else {
-        const IColumn::Filter& filter =
-                assert_cast<const doris::ColumnUInt8&>(*filter_column).get_data();
+        const auto filter_view = assert_cast<const doris::ColumnUInt8&>(*filter_column).get_data();
+        const IColumn::Filter filter(filter_view.data(), filter_view.data() + filter_view.size());
         RETURN_IF_CATCH_EXCEPTION(filter_block_internal(block, columns_to_filter, filter));
     }
 

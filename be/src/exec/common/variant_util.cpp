@@ -440,18 +440,20 @@ Status cast_column(const ColumnWithTypeAndName& arg, const DataTypePtr& type, Co
 ColumnPtr jsonb_root_to_json_string_column(const IColumn& root) {
     auto root_column = root.convert_to_full_column_if_const();
     const IColumn* jsonb_column = root_column.get();
-    const NullMap* null_map = nullptr;
+    NullMapView null_map;
+    bool has_null_map = false;
     if (root_column->is_nullable()) {
         const auto& nullable = assert_cast<const ColumnNullable&>(*root_column);
         jsonb_column = &nullable.get_nested_column();
-        null_map = &nullable.get_null_map_data();
+        null_map = nullable.get_null_map_data();
+        has_null_map = true;
     }
 
     const auto& column = assert_cast<const ColumnString&>(*jsonb_column);
     auto result = ColumnString::create();
     result->reserve(column.size());
     for (size_t i = 0; i < column.size(); ++i) {
-        if (null_map != nullptr && (*null_map)[i]) {
+        if (has_null_map && null_map[i]) {
             result->insert_default();
             continue;
         }

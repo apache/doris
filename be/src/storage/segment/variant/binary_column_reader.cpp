@@ -240,12 +240,12 @@ void CombineMultipleBinaryColumnIterator::_collect_sparse_data_from_buckets(
 
     std::vector<const ColumnString*> src_paths(_binary_column_data.size());
     std::vector<const ColumnString*> src_values(_binary_column_data.size());
-    std::vector<const ColumnArray::Offsets64*> src_offsets(_binary_column_data.size());
+    std::vector<IColumn::Offsets64View> src_offsets(_binary_column_data.size());
     for (size_t i = 0; i != _binary_column_data.size(); ++i) {
         const auto& src_map = assert_cast<const ColumnMap&>(*_binary_column_data[i]);
         src_paths[i] = assert_cast<const ColumnString*>(&src_map.get_keys());
         src_values[i] = assert_cast<const ColumnString*>(&src_map.get_values());
-        src_offsets[i] = &src_map.get_offsets();
+        src_offsets[i] = src_map.get_offsets();
     }
 
     size_t num_rows = _binary_column_data[0]->size();
@@ -255,8 +255,8 @@ void CombineMultipleBinaryColumnIterator::_collect_sparse_data_from_buckets(
         // Save each path bucket and index to be able find corresponding value later.
         std::vector<std::tuple<std::string_view, size_t, size_t>> all_paths;
         for (size_t bucket = 0; bucket != _binary_column_data.size(); ++bucket) {
-            size_t offset_start = (*src_offsets[bucket])[ssize_t(i) - 1];
-            size_t offset_end = (*src_offsets[bucket])[ssize_t(i)];
+            size_t offset_start = src_offsets[bucket][ssize_t(i) - 1];
+            size_t offset_end = src_offsets[bucket][ssize_t(i)];
 
             // collect all paths.
             for (size_t j = offset_start; j != offset_end; ++j) {

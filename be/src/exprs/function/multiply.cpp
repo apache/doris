@@ -66,7 +66,7 @@ struct MultiplyIntegralImpl {
         const auto* column_left_ptr = assert_cast<const ColumnType*>(column_left.get());
         auto column_result = ColumnType::create(column_left->size());
 
-        auto& a = column_left_ptr->get_data();
+        const auto a = column_left_ptr->get_data();
         auto& c = column_result->get_data();
         size_t size = a.size();
         for (size_t i = 0; i < size; ++i) {
@@ -80,7 +80,7 @@ struct MultiplyIntegralImpl {
         auto column_result = ColumnType::create(column_right->size());
         DCHECK(column_right_ptr != nullptr);
 
-        auto& b = column_right_ptr->get_data();
+        const auto b = column_right_ptr->get_data();
         auto& c = column_result->get_data();
         size_t size = b.size();
         for (size_t i = 0; i < size; ++i) {
@@ -95,8 +95,8 @@ struct MultiplyIntegralImpl {
 
         auto column_result = ColumnType::create(column_left->size());
 
-        auto& a = column_left_ptr->get_data();
-        auto& b = column_right_ptr->get_data();
+        const auto a = column_left_ptr->get_data();
+        const auto b = column_right_ptr->get_data();
         auto& c = column_result->get_data();
         size_t size = a.size();
         for (size_t i = 0; i < size; ++i) {
@@ -269,7 +269,7 @@ struct MultiplyDecimalImpl {
                 ColumnDecimal<ResultType>::create(column_right->size(), res_data_type.get_scale());
 
         bool need_adjust_scale = scale_diff_multiplier.value > 1;
-        auto& b = column_right_ptr->get_data();
+        const auto b = column_right_ptr->get_data();
         auto& c = column_result->get_data();
         std::visit(
                 [&](auto need_adjust_scale, auto check_overflow_for_decimal) {
@@ -297,7 +297,7 @@ struct MultiplyDecimalImpl {
                 ColumnDecimal<ResultType>::create(column_right->size(), res_data_type.get_scale());
 
         bool need_adjust_scale = scale_diff_multiplier.value() > 1;
-        auto& b = column_right_ptr->get_data();
+        const auto b = column_right_ptr->get_data();
         auto& c = column_result->get_data();
         std::visit(
                 [&](auto need_adjust_scale, auto check_overflow_for_decimal) {

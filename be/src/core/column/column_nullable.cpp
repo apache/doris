@@ -463,7 +463,7 @@ Status ColumnNullable::filter_by_selector(const uint16_t* sel, size_t sel_size,
     RETURN_IF_ERROR(get_nested_column().filter_by_selector(sel, sel_size, nested_column.get()));
     DCHECK(res_nullmap.empty());
     res_nullmap.resize(sel_size);
-    auto& cur_nullmap = get_null_map_column().get_data();
+    const auto& cur_nullmap = get_null_map_column().get_data();
     for (size_t i = 0; i < sel_size; i++) {
         res_nullmap[i] = cur_nullmap[sel[i]];
     }
@@ -637,7 +637,7 @@ bool ColumnNullable::has_enough_capacity(const IColumn& src) const {
 template <bool negative>
 void ColumnNullable::apply_null_map_impl(const ColumnUInt8& map) {
     NullMap& arr1 = get_null_map_data();
-    const NullMap& arr2 = map.get_data();
+    const auto& arr2 = map.get_data();
 
     if (arr1.size() != arr2.size()) {
         throw doris::Exception(ErrorCode::INTERNAL_ERROR,

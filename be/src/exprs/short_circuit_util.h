@@ -27,10 +27,11 @@
 namespace doris {
 
 // Used to store a column along with its null_map and whether it is a const column.
-// If the input column is not nullable, then null_map will be nullptr.
+// If the input column is not nullable, has_null_map will be false and null_map is empty.
 struct ColumnNullConstView {
     const IColumn& column;
-    const NullMap* null_map;
+    NullMapView null_map;
+    const bool has_null_map;
     const bool is_const;
 
     static ColumnNullConstView create(const ColumnPtr& column_ptr) {
@@ -39,11 +40,14 @@ struct ColumnNullConstView {
         if (const auto* nullable_column =
                     check_and_get_column<ColumnNullable>(from_data_column.get())) {
             return ColumnNullConstView {.column = nullable_column->get_nested_column(),
-                                        .null_map = &nullable_column->get_null_map_data(),
+                                        .null_map = nullable_column->get_null_map_data(),
+                                        .has_null_map = true,
                                         .is_const = is_const};
         } else {
-            return ColumnNullConstView {
-                    .column = *from_data_column, .null_map = nullptr, .is_const = is_const};
+            return ColumnNullConstView {.column = *from_data_column,
+                                        .null_map = {},
+                                        .has_null_map = false,
+                                        .is_const = is_const};
         }
     }
 };
@@ -53,26 +57,32 @@ template <PrimitiveType PType>
 struct ColumnNullConstViewScalar {
     using ColumnType = typename PrimitiveTypeTraits<PType>::ColumnType;
     using ArrayType = typename ColumnType::Container;
+    using ArrayView = PODArrayView<typename ColumnType::value_type>;
 
-    const ArrayType& data;
-    const NullMap* null_map;
+    ArrayView data;
+    NullMapView null_map;
+    const bool has_null_map;
     const bool is_const;
 
     static ColumnNullConstViewScalar create(const ColumnPtr& column_ptr) {
         const auto& [from_data_column, is_const] = unpack_if_const(column_ptr);
-        const NullMap* null_map = nullptr;
-        const ArrayType* data = nullptr;
+        NullMapView null_map;
+        bool has_null_map = false;
+        ArrayView data;
         if (const auto* nullable_column =
                     check_and_get_column<ColumnNullable>(from_data_column.get())) {
-            null_map = &nullable_column->get_null_map_data();
+            null_map = nullable_column->get_null_map_data();
+            has_null_map = true;
             const auto& nested_from_column = nullable_column->get_nested_column();
-            data = &(assert_cast<const ColumnType&>(nested_from_column).get_data());
+            data = assert_cast<const ColumnType&>(nested_from_column).get_data();
         } else {
-            data = &(assert_cast<const ColumnType&>(*from_data_column).get_data());
+            data = assert_cast<const ColumnType&>(*from_data_column).get_data();
         }
 
-        return ColumnNullConstViewScalar {
-                .data = *data, .null_map = null_map, .is_const = is_const};
+        return ColumnNullConstViewScalar {.data = data,
+                                          .null_map = null_map,
+                                          .has_null_map = has_null_map,
+                                          .is_const = is_const};
     }
 };
 
@@ -93,8 +103,8 @@ struct MutableColumnNullView {
     void insert_from(const ColumnNullConstView& from, size_t i) {
         auto index = index_check_const(i, from.is_const);
         column.insert_from(from.column, index);
-        if (null_map != nullptr && from.null_map != nullptr) {
-            null_map->push_back((*from.null_map)[index]);
+        if (null_map != nullptr && from.has_null_map) {
+            null_map->push_back(from.null_map[index]);
         } else if (null_map != nullptr) {
             // from is not nullable, so insert 0
             null_map->push_back(0);
@@ -116,6 +126,7 @@ template <PrimitiveType PType>
 struct MutableColumnNullViewScalar {
     using ColumnType = typename PrimitiveTypeTraits<PType>::ColumnType;
     using ArrayType = typename ColumnType::Container;
+    using ArrayView = PODArrayView<typename ColumnType::value_type>;
 
     ArrayType& data;
     NullMap* null_map;
@@ -139,7 +150,7 @@ struct MutableColumnNullViewScalar {
         const auto& from_data = from.data;
 
         auto* result_null_map_data = null_map;
-        const auto* from_null_map_data = from.null_map;
+        const auto* from_null_map_data = from.has_null_map ? &from.null_map : nullptr;
 
         if (from.is_const) {
             insert_into_result<true>(result_data, from_data, result_null_map_data,
@@ -151,8 +162,9 @@ struct MutableColumnNullViewScalar {
     }
 
     template <bool is_const>
-    static void insert_into_result(ArrayType& result_data, const ArrayType& from_data,
-                                   NullMap* result_null_map_data, const NullMap* from_null_map_data,
+    static void insert_into_result(ArrayType& result_data, ArrayView from_data,
+                                   NullMap* result_null_map_data,
+                                   const NullMapView* from_null_map_data,
                                    const Selector& selector) {
         insert_with_selector<is_const>(result_data, from_data, selector);
         if (result_null_map_data != nullptr && from_null_map_data != nullptr) {
@@ -418,8 +430,8 @@ struct ConditionColumnView : ColumnNullConstViewScalar<TYPE_BOOLEAN>, ConditionC
 
     template <typename NullFunc, typename TrueFunc, typename FalseFunc>
     void for_each(NullFunc& null_func, TrueFunc& true_func, FalseFunc& false_func) const {
-        if (this->null_map != nullptr) {
-            const auto& null_map_data = *(this->null_map);
+        if (this->has_null_map) {
+            const auto null_map_data = this->null_map;
             auto update = [&](size_t i, size_t self_index, size_t executor_index) {
                 if (null_map_data[i]) {
                     null_func(self_index, executor_index);
@@ -468,8 +480,8 @@ struct ConditionColumnNullView : ColumnNullConstView, ConditionColumnViewHelper 
 
     template <typename NullFunc, typename NotNullFunc>
     void for_each(NullFunc& null_func, NotNullFunc& not_null_func) const {
-        if (this->null_map != nullptr) {
-            const auto& null_map_data = *(this->null_map);
+        if (this->has_null_map) {
+            const auto null_map_data = this->null_map;
             auto update = [&](size_t i, size_t self_index, size_t executor_index) {
                 if (null_map_data[i]) {
                     null_func(self_index, executor_index);

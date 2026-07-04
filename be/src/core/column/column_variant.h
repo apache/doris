@@ -592,7 +592,7 @@ public:
         return column_map.get_offsets();
     }
 
-    const ColumnArray::Offsets64& ALWAYS_INLINE serialized_sparse_column_offsets() const {
+    ColumnArray::Offsets64View ALWAYS_INLINE serialized_sparse_column_offsets() const {
         const auto& column_map = assert_cast<const ColumnMap&>(*serialized_sparse_column);
         return column_map.get_offsets();
     }
@@ -602,7 +602,7 @@ public:
         return column_map.get_offsets();
     }
 
-    const ColumnArray::Offsets64& ALWAYS_INLINE serialized_doc_value_column_offsets() const {
+    ColumnArray::Offsets64View ALWAYS_INLINE serialized_doc_value_column_offsets() const {
         const auto& column_map = assert_cast<const ColumnMap&>(*serialized_doc_value_column);
         return column_map.get_offsets();
     }

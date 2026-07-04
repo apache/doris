@@ -146,14 +146,13 @@ private:
     }
 
     template <PrimitiveType Element, PrimitiveType Result>
-    ColumnPtr _execute_number_expanded(const ColumnArray::Offsets64& offsets,
-                                       const IColumn& nested_column,
+    ColumnPtr _execute_number_expanded(IColumn::Offsets64View offsets, const IColumn& nested_column,
                                        ColumnPtr nested_null_map) const {
         using ColVecType = typename PrimitiveTypeTraits<Element>::ColumnType;
         using ColVecResult = typename PrimitiveTypeTraits<Result>::ColumnType;
         typename ColVecResult::MutablePtr res_nested = nullptr;
 
-        const auto& src_data = reinterpret_cast<const ColVecType&>(nested_column).get_data();
+        const auto src_data = reinterpret_cast<const ColVecType&>(nested_column).get_data();
         if constexpr (is_decimal(Result)) {
             res_nested = ColVecResult::create(0, src_data.get_scale());
         } else {
@@ -194,7 +193,7 @@ private:
         // check array nested column type and get data
         auto left_column = arg.column->convert_to_full_column_if_const();
         const auto& array_column = reinterpret_cast<const ColumnArray&>(*left_column);
-        const auto& offsets = array_column.get_offsets();
+        const auto offsets = array_column.get_offsets();
         DCHECK(offsets.size() == input_rows_count);
 
         ColumnPtr nested_column = nullptr;

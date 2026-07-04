@@ -450,7 +450,7 @@ Status DataTypeDateTimeV2SerDe::deserialize_one_cell_from_json(IColumn& column, 
 }
 
 Status DataTypeDateTimeV2SerDe::write_column_to_arrow(const IColumn& column,
-                                                      const NullMap* null_map,
+                                                      const NullMapView* null_map,
                                                       arrow::ArrayBuilder* array_builder,
                                                       int64_t start, int64_t end,
                                                       const cctz::time_zone& ctz) const {
@@ -608,7 +608,8 @@ Status DataTypeDateTimeV2SerDe::write_column_to_mysql_binary(const IColumn& colu
 }
 
 Status DataTypeDateTimeV2SerDe::write_column_to_orc(const std::string& timezone,
-                                                    const IColumn& column, const NullMap* null_map,
+                                                    const IColumn& column,
+                                                    const NullMapView* null_map,
                                                     orc::ColumnVectorBatch* orc_col_batch,
                                                     int64_t start, int64_t end, Arena& arena,
                                                     const FormatOptions& options) const {

@@ -285,8 +285,8 @@ public:
 private:
     template <typename T>
     static void search_hash_set_check_null(InState* in_state, size_t input_rows_count,
-                                           ColumnUInt8::Container& vec_res,
-                                           const ColumnUInt8::Container& null_map, T* col_ptr) {
+                                           ColumnUInt8::Container& vec_res, NullMapView null_map,
+                                           T* col_ptr) {
         if constexpr (!negative) {
             in_state->hybrid_set->find_batch_nullable(*col_ptr, input_rows_count, null_map,
                                                       vec_res);

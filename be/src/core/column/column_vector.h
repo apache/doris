@@ -425,11 +425,13 @@ public:
 
     ColumnPtr filter(const IColumn::Filter& filt, ssize_t result_size_hint) const override;
     size_t filter(const IColumn::Filter& filter) override;
+    size_t filter(IColumn::FilterView filter);
     MutableColumnPtr permute(const IColumn::Permutation& perm, size_t limit) const override;
 
     StringRef get_raw_data() const override {
         auto values = immutable_data();
-        return StringRef(reinterpret_cast<const char*>(values.data()), values.size());
+        return StringRef(reinterpret_cast<const char*>(values.data()),
+                         values.size() * sizeof(value_type));
     }
 
     bool structure_equals(const IColumn& rhs) const override {
@@ -442,10 +444,7 @@ public:
         return data;
     }
 
-    const Container& get_data() const {
-        materialize_external_data();
-        return data;
-    }
+    ImmContainer get_data() const { return immutable_data(); }
 
     ImmContainer immutable_data() const {
         if (_has_external_data()) {
@@ -518,19 +517,6 @@ public:
         }
     }
 
-    void materialize_external_data() const override {
-        if (!_has_external_data()) {
-            return;
-        }
-        // This is the boundary back to the traditional ColumnVector contract. The zero-copy path
-        // keeps at most one page-backed span. Any mutable access or append that cannot reuse that
-        // single page resource copies it into Doris-owned storage before continuing.
-        const auto old_size = data.size();
-        data.resize(old_size + _external_size);
-        memcpy(data.data() + old_size, _external_data, _external_size * sizeof(value_type));
-        _reset_external_data();
-    }
-
 private:
     bool _has_external_data() const { return _external_owner != nullptr; }
 
@@ -547,20 +533,33 @@ private:
         _external_size = external_size;
     }
 
-    void _reset_external_data() const {
+    void _reset_external_data() {
         _external_owner.reset();
         _external_data = nullptr;
         _external_size = 0;
+    }
+
+    void materialize_external_data() {
+        if (!_has_external_data()) {
+            return;
+        }
+        // This is the boundary back to the traditional ColumnVector contract. The zero-copy path
+        // keeps at most one page-backed span. Any mutable access or append that cannot reuse that
+        // single page resource copies it into Doris-owned storage before continuing.
+        const auto old_size = data.size();
+        data.resize(old_size + _external_size);
+        memcpy(data.data() + old_size, _external_data, _external_size * sizeof(value_type));
+        _reset_external_data();
     }
 
 protected:
     uint32_t _zlib_crc32_hash(uint32_t hash, size_t idx) const;
     uint32_t _crc32c_hash_value(uint32_t hash, const value_type& value) const;
     uint32_t _crc32c_hash(uint32_t hash, size_t idx) const;
-    mutable Container data;
-    mutable std::shared_ptr<void> _external_owner;
-    mutable const value_type* _external_data = nullptr;
-    mutable size_t _external_size = 0;
+    Container data;
+    std::shared_ptr<void> _external_owner;
+    const value_type* _external_data = nullptr;
+    size_t _external_size = 0;
 };
 
 using ColumnUInt8 = ColumnVector<TYPE_BOOLEAN>;

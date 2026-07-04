@@ -89,7 +89,7 @@ public:
 
             const auto& nullable_col = assert_cast<const ColumnNullable&>(column);
             _nested->evaluate_and(nullable_col.get_nested_column(), sel, size, flags);
-            const auto& nullmap = nullable_col.get_null_map_data();
+            const auto nullmap = nullable_col.get_null_map_data();
             for (uint16_t i = 0; i < size; ++i) {
                 flags[i] |= (original_flags[i] && nullmap[sel[i]]);
             }

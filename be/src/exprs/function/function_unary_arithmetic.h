@@ -40,7 +40,8 @@ struct UnaryOperationImpl {
     using ArrayA = typename ColVecA::Container;
     using ArrayC = typename ColVecC::Container;
 
-    static void NO_INLINE vector(const ArrayA& a, ArrayC& c) {
+    template <typename ArrayLike>
+    static void NO_INLINE vector(const ArrayLike& a, ArrayC& c) {
         size_t size = a.size();
         for (size_t i = 0; i < size; ++i) c[i] = Op::apply(a[i]);
     }

@@ -154,7 +154,7 @@ private:
         }
     }
 
-    void _update_batch(const ColumnPtr& column, const NullMap& nullmap, size_t start) {
+    void _update_batch(const ColumnPtr& column, NullMapView nullmap, size_t start) {
         const auto size = column->size();
         if constexpr (std::is_same_v<T, std::string>) {
             if (column->is_column_string64()) {
