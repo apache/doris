@@ -158,12 +158,12 @@ Status windowed_window_range(const LogicalIndexReader& idx, const DictEntry& ent
 
     if (want_freq) {
         // Symmetric to the positions guard below: a G16 freq-elided posting
-        // (prune-mode bigram) declares has_freq=false in its prelude flags.
-        // Without this check the failure would surface deep in region decode
-        // as a generic corruption error; no production path requests freqs on
-        // a hidden bigram term, so this is a fail-closed diagnostic.
+        // (freq-dropped index or prune-mode bigram) declares has_freq=false in
+        // its prelude flags. INVALID_ARGUMENT and not FILE_CORRUPTED: the
+        // Doris segment iterator silently downgrades the corruption code to a
+        // non-index evaluation, which would mask this by-design layout.
         if (!prelude.has_freq()) {
-            return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+            return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
                     "windowed_posting: freqs requested but prelude has none");
         }
         RETURN_IF_ERROR(InBounds(meta.freq_off, meta.freq_disk_len, g.freq_block_len));
@@ -258,10 +258,12 @@ Status read_windowed_posting(const LogicalIndexReader& idx, const DictEntry& ent
         return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
                 "windowed_posting: positions requested but prelude has none");
     }
-    // G16 freq-elided postings (prune-mode bigrams) declare has_freq=false;
-    // fail with the semantic error instead of a deep region-decode corruption.
+    // G16 freq-elided postings (freq-dropped index or prune-mode bigram)
+    // declare has_freq=false; fail with the semantic error instead of a deep
+    // region-decode corruption. INVALID_ARGUMENT so the Doris segment
+    // iterator's corruption downgrade never masks this by-design layout.
     if (want_freq && !prelude.has_freq()) {
-        return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+        return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
                 "windowed_posting: freqs requested but prelude has none");
     }
     BlockGeometry g;

@@ -23,6 +23,7 @@
 #include <string>
 #include <vector>
 
+#include "common/config.h"
 #include "common/status.h"
 #include "storage/index/snii/format/dict_entry.h"
 #include "storage/index/snii/format/format_constants.h"
@@ -418,4 +419,107 @@ TEST(SniiBigramPruneWriter, LegacyWindowedBigramKeepsFreqAndPrx) {
     ASSERT_EQ(decoded.docids.size(), kDf);
     ASSERT_EQ(decoded.freqs.size(), kDf);
     EXPECT_EQ(decoded.freqs.front(), 1U);
+}
+
+// G16-c: write_freq == false drops the freq layout for UNIGRAMS too (freq
+// serves only BM25 scoring, which the Doris adapter resolves as unreachable
+// for plain positions indexes). Windowed unigrams self-describe via the
+// prelude flags; slim pod / inline unigrams carry a zero-length freq region
+// (value-driven: frq_docs_len == frq_len / frq_bytes == [dd]). Positions stay
+// intact -- the phrase fallback (want_positions=true, want_freq=false) must
+// decode identically.
+TEST(SniiBigramPruneWriter, WriteFreqOffDropsUnigramFreqLayout) {
+    constexpr uint32_t kDf = format::kSlimDfThreshold + 300; // windowed
+    std::vector<uint32_t> ids(kDf);
+    std::iota(ids.begin(), ids.end(), 1U);
+
+    writer::SniiIndexInput input;
+    input.index_id = 3;
+    input.index_suffix = "Body";
+    input.config = format::IndexConfig::kDocsPositions;
+    input.doc_count = 2 * kDf;
+    input.bigram_prune_min_df = kThreshold;
+    input.write_freq = false; // G16-c drop
+    input.terms = {
+            make_term("aa", one_position_docs(ids)),          // windowed unigram
+            make_term("zz", one_position_docs({1, 2, 3, 4})), // slim unigram
+            make_term(format::make_phrase_bigram_sentinel_term(), one_position_docs({0})),
+            make_term(format::make_phrase_bigram_term("aa", "bb"), one_position_docs(ids)),
+    };
+    std::ranges::sort(input.terms,
+                      [](const writer::TermPostings& lhs, const writer::TermPostings& rhs) {
+                          return lhs.term < rhs.term;
+                      });
+
+    MemoryFile file;
+    writer::SniiCompoundWriter writer(&file);
+    assert_ok(writer.add_logical_index(input));
+    assert_ok(writer.finish());
+    reader::SniiSegmentReader segment_reader;
+    reader::LogicalIndexReader idx;
+    assert_ok(reader::SniiSegmentReader::open(&file, &segment_reader));
+    assert_ok(segment_reader.open_index(input.index_id, input.index_suffix, &idx));
+
+    bool found = false;
+    format::DictEntry uni;
+    uint64_t frq_base = 0;
+    uint64_t prx_base = 0;
+    assert_ok(idx.lookup("aa", &found, &uni, &frq_base, &prx_base));
+    ASSERT_TRUE(found);
+    EXPECT_TRUE(uni.has_sb);
+    EXPECT_EQ(uni.frq_docs_len, uni.frq_len); // no freq-block
+    EXPECT_GT(uni.prx_len, 0U);               // positions kept
+
+    // Phrase-fallback-shaped read (positions without freq) decodes fully.
+    reader::DecodedPosting decoded;
+    assert_ok(reader::read_windowed_posting(idx, uni, frq_base, prx_base,
+                                            /*want_positions=*/true, /*want_freq=*/false,
+                                            &decoded));
+    ASSERT_EQ(decoded.docids.size(), kDf);
+    ASSERT_EQ(decoded.positions.size(), kDf);
+    EXPECT_TRUE(decoded.freqs.empty());
+
+    // A scoring-shaped read fails with the semantic guard error.
+    Status st =
+            reader::read_windowed_posting(idx, uni, frq_base, prx_base,
+                                          /*want_positions=*/false, /*want_freq=*/true, &decoded);
+    ASSERT_FALSE(st.ok());
+    EXPECT_NE(st.to_string().find("freqs requested but prelude has none"), std::string::npos);
+
+    // Slim unigram: zero-length freq region, docs-only prefix == whole span.
+    format::DictEntry slim;
+    uint64_t sfrq = 0;
+    uint64_t sprx = 0;
+    assert_ok(idx.lookup("zz", &found, &slim, &sfrq, &sprx));
+    ASSERT_TRUE(found);
+    EXPECT_FALSE(slim.has_sb);
+    if (slim.kind == format::DictEntryKind::kInline) {
+        EXPECT_EQ(slim.frq_bytes.size(), slim.inline_dd_disk_len);
+    } else {
+        EXPECT_EQ(slim.frq_docs_len, slim.frq_len);
+    }
+    std::vector<uint32_t> slim_docids;
+    assert_ok(query::internal::read_docid_posting(idx, slim, sfrq, sprx, &slim_docids));
+    EXPECT_EQ(slim_docids.size(), 4U);
+}
+
+namespace doris::segment_v2 {
+// Production freq policy resolver (index_file_writer.cpp) -- declared here so
+// the UT drives the actual decision line the Doris adapter uses.
+bool snii_effective_write_freq(doris::snii::format::IndexConfig index_config);
+} // namespace doris::segment_v2
+
+// G16-c: the adapter-level policy line. A scoring config ALWAYS keeps freq; a
+// plain positions config follows the escape-hatch BE config (default false ==
+// drop). This is the only live control of the production freq layout, so pin
+// all three states.
+TEST(SniiBigramPruneWriter, EffectiveWriteFreqResolver) {
+    const bool saved = doris::config::snii_positions_index_write_freq;
+    doris::config::snii_positions_index_write_freq = false;
+    EXPECT_FALSE(doris::segment_v2::snii_effective_write_freq(format::IndexConfig::kDocsPositions));
+    EXPECT_TRUE(doris::segment_v2::snii_effective_write_freq(
+            format::IndexConfig::kDocsPositionsScoring));
+    doris::config::snii_positions_index_write_freq = true;
+    EXPECT_TRUE(doris::segment_v2::snii_effective_write_freq(format::IndexConfig::kDocsPositions));
+    doris::config::snii_positions_index_write_freq = saved;
 }

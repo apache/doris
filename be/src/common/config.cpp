@@ -1311,6 +1311,13 @@ DEFINE_mInt32(snii_bigram_prune_min_df, "-1");
 // states" sits at 21.2% df in wikipedia; pruning it costs a 2.7x cold-phrase
 // cliff, keeping the whole band costs +0.85% table size on textbench).
 DEFINE_mDouble(snii_bigram_prune_max_df_ratio, "0.25");
+// G16-c: whether plain positions-tier (non-scoring) SNII indexes lay out freq
+// regions. Freq bytes serve ONLY BM25 scoring, which the Doris integration
+// does not reach yet (scoring_query has no production caller), so the default
+// drops them (textbench: -2.2 GB index). Scoring-config indexes always write
+// freq regardless. Applies at segment build (write side only); existing
+// segments keep whatever layout they were written with (self-describing).
+DEFINE_mBool(snii_positions_index_write_freq, "false");
 // SNII per-writer bigram intern-vocabulary cap (bytes): df==1 bigram terms are
 // incrementally evicted (and bloom-recorded for the flush-time drop) once the
 // live bigram intern storage crosses this. 0 = uncapped. Effective only when

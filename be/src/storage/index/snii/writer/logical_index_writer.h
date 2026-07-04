@@ -89,6 +89,16 @@ struct SniiIndexInput {
     // Per-doc 1-byte encoded norm (length doc_count); only consumed when the
     // config has scoring. May be empty otherwise.
     std::vector<uint8_t> encoded_norms;
+    // G16-c: whether freq-capable (tier>=T2) postings lay out freq regions at
+    // all. Freq bytes serve ONLY BM25 scoring (want_freq=true lives solely in
+    // scoring_query), so the CALLER resolves the policy -- the Doris adapter
+    // passes has_scoring(config) || config::snii_positions_index_write_freq,
+    // i.e. plain kDocsPositions indexes drop freq unless the escape hatch is
+    // set. Defaults to true so the core library and existing callers keep the
+    // full T2 layout unless they opt out. The drop is value-driven on disk
+    // (windowed prelude flags bit0; slim/inline zero-length freq regions), so
+    // readers need no index-level flag. Ignored for docs-only configs.
+    bool write_freq = true;
     // Lexicographically sorted terms with ascending-docid postings. Used when
     // `term_source` is null (callers that already hold a materialized vector,
     // e.g. unit tests). The writer reads but does not retain these.
@@ -389,9 +399,11 @@ uint64_t bigram_terms_materialized();
 uint64_t bigram_terms_pruned();
 uint64_t bigram_terms_max_pruned();
 // G16 seam: bumped ONCE per WINDOWED entry built with its freq region elided
-// (write_freq == false on a freq-capable index, i.e. a prune-mode bigram whose
-// df crossed the windowed threshold). Slim/inline bigrams keep freq and never
-// count here. Reset together with the prune counters.
+// as a PER-TERM decision (prune-mode bigram on a freq-writing index). When the
+// whole index drops freq (G16-c write_freq=false -> has_freq_=false) nothing
+// counts here -- there is no per-term elision to observe. Slim/inline bigrams
+// keep freq on freq-writing indexes and never count. Reset with the prune
+// counters.
 void note_bigram_freq_elided();
 uint64_t bigram_freqs_elided();
 void reset_bigram_prune_counters();

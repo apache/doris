@@ -1369,6 +1369,11 @@ DECLARE_mInt32(snii_bigram_prune_min_df);
 // could never prune -- recording it would only arm pointless dict-miss
 // fallbacks).
 DECLARE_mDouble(snii_bigram_prune_max_df_ratio);
+// G16-c: whether plain positions-tier (non-scoring) SNII indexes lay out freq
+// regions. Freq serves ONLY BM25 scoring (no production caller yet), so the
+// default (false) drops the layout; scoring-config indexes always keep freq.
+// Write-side only; segments are self-describing either way.
+DECLARE_mBool(snii_positions_index_write_freq);
 // SNII phrase-bigram vocabulary cap in bytes, PER index writer (G04 "bigram
 // diet" phase 2). The SPIMI intern table otherwise accumulates every distinct
 // hidden bigram string for the whole segment (the dominant import RSS

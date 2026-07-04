@@ -102,6 +102,17 @@ uint64_t snii_effective_bigram_prune_max_df(uint32_t doc_count, uint32_t effecti
 
 } // namespace
 
+// Resolves whether one segment index lays out freq regions (G16-c). Freq
+// serves ONLY BM25 scoring: a scoring config always keeps it; a plain
+// positions config keeps it only when the escape-hatch config asks for the
+// full T2 layout. NOT in the anonymous namespace on purpose -- the UT covers
+// this production policy line directly (a flipped operator or inverted flag
+// here would otherwise stay green: no BE test drives add_snii_index).
+bool snii_effective_write_freq(doris::snii::format::IndexConfig index_config) {
+    return doris::snii::format::has_scoring(index_config) ||
+           config::snii_positions_index_write_freq;
+}
+
 IndexFileWriter::IndexFileWriter(io::FileSystemSPtr fs, std::string index_path_prefix,
                                  std::string rowset_id, int64_t seg_id,
                                  InvertedIndexStorageFormatPB storage_format,
@@ -194,6 +205,9 @@ Status IndexFileWriter::add_snii_index(const TabletIndex* index_meta, uint32_t d
     input.bigram_prune_min_df = snii_effective_bigram_prune_min_df(doc_count, index_config);
     input.bigram_prune_max_df =
             snii_effective_bigram_prune_max_df(doc_count, input.bigram_prune_min_df, index_config);
+    // G16-c: freq regions serve only BM25 scoring; a plain positions index
+    // drops them unless the escape hatch asks for the full T2 layout.
+    input.write_freq = snii_effective_write_freq(index_config);
     // G04: hand the flush the buffer's ever-dropped bloom so vocab-cap-evicted
     // bigram pairs that reappeared (incomplete postings) are dropped in addition
     // to the df threshold. Null when no eviction ever fired (zero probe cost).

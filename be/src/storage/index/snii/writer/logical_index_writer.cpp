@@ -454,7 +454,9 @@ LogicalIndexWriter::LogicalIndexWriter(const SniiIndexInput& in)
           index_suffix_(in.index_suffix),
           tier_(format::tier_of(in.config)),
           has_prx_(format::has_positions(in.config)),
-          has_freq_(format::tier_of(in.config) >= format::IndexTier::kT2),
+          // G16-c: the caller can drop freq layout entirely (in.write_freq ==
+          // false) on a freq-capable tier -- see SniiIndexInput::write_freq.
+          has_freq_(format::tier_of(in.config) >= format::IndexTier::kT2 && in.write_freq),
           has_norms_(format::has_scoring(in.config)),
           // Bigram df-pruning only makes sense for positions-capable configs (the
           // only ones that emit hidden phrase bigrams); force 0 otherwise so the
@@ -633,10 +635,13 @@ Status LogicalIndexWriter::build_entry(TermPostings& tp, uint64_t frq_base, uint
         if (has_freq_ && !write_freq) testing::note_bigram_freq_elided();
         RETURN_IF_ERROR(build_windowed_entry(tp, frq_base, prx_base, write_prx, write_freq, e));
     } else {
-        // Slim/inline entries ALWAYS keep the freq region on a freq-capable index:
-        // their region metadata in the DictEntry is tier-conditioned (freq meta is
-        // present iff tier>=T2), so freq presence is not self-describing per entry.
-        // Only the windowed prelude (flags bit0) can declare a per-term freq drop.
+        // On a freq-WRITING index (has_freq_), slim/inline entries always keep
+        // the freq region: their DictEntry region metadata is tier-conditioned
+        // (freq meta fields present iff tier>=T2), so a per-TERM drop is not
+        // flag-describable there -- only the windowed prelude (flags bit0) is.
+        // A per-INDEX drop (G16-c write_freq=false -> has_freq_=false) removes
+        // freq for ALL shapes value-driven: slim/inline then carry a
+        // zero-length freq region (frq span == docs-only prefix).
         RETURN_IF_ERROR(build_slim_entry(tp, frq_base, prx_base, write_prx, e));
     }
     // G16 section accounting from the finished entry's own fields (no plumbing):

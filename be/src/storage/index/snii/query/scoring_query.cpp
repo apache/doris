@@ -166,6 +166,16 @@ Status DecodeSlim(const LogicalIndexReader& idx, const DictEntry& entry, uint64_
     Slice dd_region = window.subslice(0, static_cast<size_t>(dd_len));
     RETURN_IF_ERROR(format::decode_dd_region(dd_region, entry.dd_meta,
                                              /*win_base=*/0, docids));
+    // G16-c freq-dropped segments (write_freq == false) carry a zero-length
+    // freq region on slim/inline entries. Fail with the SEMANTIC error and NOT
+    // with INVERTED_INDEX_FILE_CORRUPTED: the Doris segment iterator silently
+    // downgrades that code to a non-index evaluation, which would mask a
+    // by-design layout as data corruption once BM25 runs over mixed segments.
+    if (window.size() == static_cast<size_t>(dd_len) && !docids->empty()) {
+        return Status::Error<ErrorCode::INVALID_ARGUMENT, false>(
+                "scoring_query: freqs requested but the slim entry has no freq region "
+                "(freq-dropped positions index)");
+    }
     Slice freq_region = window.subslice(static_cast<size_t>(dd_len),
                                         window.size() - static_cast<size_t>(dd_len));
     return format::decode_freq_region(freq_region, entry.freq_meta, docids->size(), freqs);

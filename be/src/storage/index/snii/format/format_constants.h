@@ -91,7 +91,8 @@ enum class SectionType : uint8_t {
 // norms+stats.
 enum class IndexConfig : uint8_t {
     kDocsOnly = 0,             // docid only: term/match filtering
-    kDocsPositions = 1,        // docid+freq+positions: MATCH_PHRASE
+    kDocsPositions = 1,        // docid+positions (+freq only when the caller keeps
+                               // it -- SniiIndexInput::write_freq, G16-c): MATCH_PHRASE
     kDocsPositionsScoring = 2, // + norms + stats: phrase + BM25
     kPositionsOffsets = 3,     // reserved (highlight/RAG), not implemented in this release
 };
