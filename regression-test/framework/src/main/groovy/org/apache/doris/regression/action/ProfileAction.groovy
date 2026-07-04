@@ -93,11 +93,11 @@ class ProfileAction implements SuiteAction {
         if (profileText == null || profileText.isEmpty()) {
             return false
         }
-        if (requiredContents != null && !requiredContents.isEmpty()
-                && requiredContents.every { profileText.contains(it) }) {
-            return true
+        if (!profileText.contains(PROFILE_COMPLETE)) {
+            return false
         }
-        return profileText.contains(PROFILE_COMPLETE)
+        return requiredContents == null || requiredContents.isEmpty()
+                || requiredContents.every { profileText.contains(it) }
     }
 
     String getProfile(String profileId) {
