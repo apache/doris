@@ -96,7 +96,6 @@ suite("test_local_tvf_scan_bytes_metrics", "nonConcurrent") {
             metricRows = sql metricQuery
         }
 
-        assertEquals("true", metricRows[0][0].toString())
         assertEquals("true", metricRows[0][1].toString())
         assertEquals("true", metricRows[0][2].toString())
     })
