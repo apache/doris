@@ -64,6 +64,9 @@ constexpr double kBsbfFpp = 0.01;
 // bytes) at 5M. We force raw here and keep zstd only on .prx (which compresses
 // ~77%). Output stays self-describing: the region meta records zstd=false.
 constexpr int kRawFrqRegion = 0;
+// G16-i: auto raw-vs-zstd (choose smaller) for dd regions of docs-only bigram
+// windows -- see the EncodeRegionsInto call in BuildWindowedPosting.
+constexpr int kAutoZstdRegion = -1;
 // Windows per super-block in the two-level prelude directory (design section
 // 5).
 constexpr uint32_t kPreludeGroupSize = 64;
@@ -114,10 +117,11 @@ struct WindowScratch {
 // sinks.
 Status EncodeRegionsInto(WindowScratch* sc, std::span<const uint32_t> docids,
                          std::span<const uint32_t> freqs, uint64_t win_base, bool has_freq,
-                         FrqRegionMeta* dd_meta, FrqRegionMeta* freq_meta) {
+                         FrqRegionMeta* dd_meta, FrqRegionMeta* freq_meta,
+                         int dd_zstd_level = kRawFrqRegion) {
     sc->dd_sink.clear();
     RETURN_IF_ERROR(
-            format::build_dd_region(docids, win_base, kRawFrqRegion, &sc->dd_sink, dd_meta));
+            format::build_dd_region(docids, win_base, dd_zstd_level, &sc->dd_sink, dd_meta));
     if (has_freq) {
         sc->freq_sink.clear();
         RETURN_IF_ERROR(format::build_freq_region(freqs, kRawFrqRegion, &sc->freq_sink, freq_meta));
@@ -349,8 +353,15 @@ Status BuildWindowedPosting(TermPostings& tp, bool has_freq, bool has_prx,
         const auto docs = all_docs.subspan(start, len);
         const auto freqs = all_freqs.subspan(start, len);
         FrqRegionMeta dd_meta, freq_meta;
-        RETURN_IF_ERROR(
-                EncodeRegionsInto(&sc, docs, freqs, win_base, has_freq, &dd_meta, &freq_meta));
+        // G16-i: docs-only bigram windows (window_docs_override > 0) try zstd on
+        // the dd region (choose-smaller; FrqRegionMeta.zstd self-describes).
+        // Ultra-dense pair postings carry highly repetitive PFOR delta patterns
+        // that raw encoding leaves ~3 bits/doc on the table; unigram dd stays
+        // force-raw (measured: zstd shrinks ~30MB of PFOR input by <0.1MB).
+        RETURN_IF_ERROR(EncodeRegionsInto(&sc, docs, freqs, win_base, has_freq, &dd_meta,
+                                          &freq_meta,
+                                          window_docs_override > 0 ? kAutoZstdRegion
+                                                                   : kRawFrqRegion));
         LayoutWindowRegions(dd_meta, sc.dd_sink.buffer(), freq_meta, sc.freq_sink.buffer(),
                             has_freq, out, &out->windows[wi]);
         win_base = out->windows[wi].last_docid;

@@ -86,7 +86,11 @@ struct DictEntry {
 
     // term stats.
     uint32_t df = 0;
-    uint64_t ttf_delta = 0; // only when tier>=T2
+    uint64_t ttf_delta = 0; // only when tier>=T2 AND the block carries term stats
+    // G16-f: false when decoded from a kNoTermStats block (freq-dropped index):
+    // ttf_delta/max_freq above are then meaningless defaults, NOT real zeros.
+    // Consumers that need them (stats provider / BM25) must check this flag.
+    bool term_stats_present = true;
     uint64_t max_freq = 0;  // only when tier>=T2
 
     // pod_ref locator.

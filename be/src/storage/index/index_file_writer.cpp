@@ -208,9 +208,13 @@ Status IndexFileWriter::add_snii_index(const TabletIndex* index_meta, uint32_t d
     // G16-c: freq regions serve only BM25 scoring; a plain positions index
     // drops them unless the escape hatch asks for the full T2 layout.
     input.write_freq = snii_effective_write_freq(index_config);
-    // G16-h: zstd levels, clamped to zstd's sane range.
+    // G16-h: zstd levels. dict blocks accept zstd's full sane range; the prx
+    // level floor is 3 because the writer passes -level into the prx builders
+    // and -1 is the historic "auto at default level 3" sentinel -- a
+    // configured level 1 would silently resolve to 3 anyway (levels 1-2 buy
+    // nothing over 3 on these payloads).
     input.dict_block_zstd_level = std::clamp(config::snii_dict_block_zstd_level, 1, 19);
-    input.prx_zstd_level = std::clamp(config::snii_prx_zstd_level, 1, 19);
+    input.prx_zstd_level = std::clamp(config::snii_prx_zstd_level, 3, 19);
     // G16-d: dict block size experiment knob; <= 0 keeps the format default.
     if (config::snii_target_dict_block_bytes > 0) {
         input.target_dict_block_bytes = static_cast<uint32_t>(config::snii_target_dict_block_bytes);

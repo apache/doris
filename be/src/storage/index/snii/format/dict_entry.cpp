@@ -165,7 +165,8 @@ Status read_term_key(ByteSource* src, std::string_view prev, DictEntry* out) {
 
 Status read_stats(ByteSource* src, IndexTier tier, bool term_stats, DictEntry* out) {
     RETURN_IF_ERROR(src->get_varint32(&out->df));
-    if (!tier_has_stats(tier) || !term_stats) return Status::OK();
+    out->term_stats_present = tier_has_stats(tier) && term_stats;
+    if (!out->term_stats_present) return Status::OK();
     RETURN_IF_ERROR(src->get_varint64(&out->ttf_delta));
     RETURN_IF_ERROR(src->get_varint64(&out->max_freq));
     return Status::OK();
