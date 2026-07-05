@@ -5,9 +5,15 @@
 
 ---
 
-# 🎯 当前状态（2026-07-06）= **P7.1 起步 recon + 逐 task 拆解 + 唯一阻塞决策已裁定；下一步 = 按 P7.1-T01…T11 写代码（尚无代码改动）**
+# 🎯 当前状态（2026-07-06）= **P7.1 进行中：recon+拆解+决策已定，T01（TRUNCATE SPI seam）已实现+全绿+提交；下一步 = T02→T04 插件写客户端**
 
-> **本轮（P7.1 recon + 拆解 session）做了什么**：对 P7.1 范围做 code-grounded recon（3 并行 agent + 直读 HEAD，~225k subagent token）核清 4 件事并**校正了 spec**：(1) 通用 DDL 桥 = `PluginDrivenExternalCatalog`（非独立 MetadataOps，逐条 override + 内联 cache/editlog 钩子，连接器只实现纯 SPI）；(2) **TRUNCATE 是硬缺口**（SPI 无 `truncateTable`、桥未 override）；(3) shared converter `CreateTableInfoToConnectorRequestConverter` 逐字拷 properties（✅ 不 parse）但**丢每列默认值**（恒 null，破坏 hive 列默认值 + DLF guard）+ 丢 LIST/RANGE partition value 定义；(4) stats/partition 写 4 法**仅 HMSTransaction 消费**→**推 P7.3**（本阶段加进来即死代码），rename **hive 今天不支持**→保持 SPI default throw。产出 **`tasks/P7-hive-migration.md` 末尾 P7.1 逐 task 拆解（T01–T11）+ recon 结论块**。**唯一阻塞决策 OQ-HIVE-CFG 已由用户裁定 = 方案 A**（fe-core 建连接器时把 `hive_default_file_format`/`enable_create_hive_bucket_table` 两个全局 Config 值注入为连接器属性默认，插件只读属性、零行为回归）。**本轮无代码改动**（仅文档 + 决策）。
+> **本轮（P7.1 recon + 拆解 + T01 session）做了什么**：
+> 1. **P7.1 code-grounded recon**（3 并行 agent + 直读 HEAD，~225k subagent token）核清并**校正 spec** 4 件事：(1) 通用 DDL 桥 = `PluginDrivenExternalCatalog`（非独立 MetadataOps，逐条 override + 内联 cache/editlog，连接器只实现纯 SPI）；(2) **TRUNCATE 硬缺口**（SPI 无 `truncateTable`、桥未 override）；(3) shared converter 逐字拷 properties（✅ 不 parse）但**丢每列默认值**（恒 null → 破坏 hive 列默认值 + DLF guard）+ 丢 LIST/RANGE partition value；(4) stats/partition 写 4 法**仅 HMSTransaction 消费**→推 P7.3，rename **hive 今天不支持**→保持 SPI default throw。
+> 2. 产出 **`tasks/P7-hive-migration.md` 末尾 P7.1 逐 task 拆解（T01–T11）+ recon 结论块**。
+> 3. **决策 OQ-HIVE-CFG 用户裁定 = 方案 A**（fe-core 建连接器时注入两个全局 Config 值为属性默认，插件只读属性、零行为回归）。
+> 4. **T01 已实现并全绿提交（`c0222977ebd`）**：加 `ConnectorTableOps.truncateTable(session, handle, partitions)` default-throw seam + `PluginDrivenExternalCatalog.truncateTable`（remote 解析 → `metadata.truncateTable` → `TruncateTableInfo` editlog + `refreshTableInternal` 缓存刷新，仿 legacy `afterTruncateTable`）+ `replayTruncateTable`（follower 缓存刷新）。compile SUCCESS + checkstyle 0（fe-connector-api,fe-core）+ import-gate 净。**尚无连接器 override truncate（等 T07），翻闸前行为不变。**
+>
+> **T02–T11 未动**（下一 session 接手；T03 类型映射/转换器移植最精细，故留新 context 谨慎做，不在长 session 尾仓促）。
 
 > **整条 catalog-SPI 主线阶段链均已合入 upstream `branch-catalog-spi`**：
 > P0 #63582 · P1 #63641 · P2 trino #64096 · P3 hudi(hybrid) #64143 · P4 maxcompute #64300 · P5 paimon 迁移+翻闸 #64446 + 删 legacy #64653 · P3b kerberos→fe-kerberos #64655 · **P6 iceberg #64688（本轮收官）**。
@@ -36,7 +42,7 @@
 
 ## P7.1 执行要点（下个 session 开场）
 
-1. **先读** spec 末尾「P7.1 逐 task 拆解」块（recon 结论 + T01–T11）。按 **T01(truncate SPI seam+桥 override) → T02(hms 写 DTO) → T03(hms converter，HiveUtil 等价插件侧) → T04(HmsClient 写方法 DDL-only) → T05(HiveConnectorMetadata DB DDL) → T06(createTable) → T07(dropTable+truncate；rename 保持 default throw) → T08(shared converter 带列默认值) → T09(config 注入=方案A) → T10(连接器单测) → T11(守门+交接)** 顺序推。**信 HEAD 控制流不信 spec 行号。**
+1. **先读** spec 末尾「P7.1 逐 task 拆解」块 + 「T03 移植指针」块（recon 存档，勿再 recon）。**T01 已完成**（truncate SPI seam + 桥 override，`c0222977ebd`）。**从 T02 起接**：T02(hms 写 DTO) → T03(hms converter，HiveUtil 等价插件侧，**最精细**，指针见 spec) → T04(HmsClient 写方法 DDL-only) → T05(HiveConnectorMetadata DB DDL) → T06(createTable) → T07(dropTable+truncate override；rename 保持 default throw) → T08(shared converter 带列默认值) → T09(config 注入=方案A) → T10(连接器单测) → T11(守门+交接)。**信 HEAD 控制流不信 spec 行号。** T02+T03+T04 = 一个自洽单元（插件写客户端），可合并一次 commit。
 2. **本阶段范围 = 仅 DDL 写路径**：create/drop db+table + truncate。**stats/partition 写 4 法（updateTableStatistics/updatePartitionStatistics/addPartitions/dropPartition）推 P7.3**（仅 HMSTransaction 消费，本阶段加即死代码）。**rename 不实现**（hive 今天不支持，保持 SPI default throw）。**no-property-parsing**：file_format 默认/owner/bucket-gate/DLF-guard/transactional-reject 全插件侧（`ConnectorSession.getUser()`+`getCatalogProperties()`+`ConnectorColumn.defaultValue` 已够，无须扩 SPI，除 truncate seam + T08 列默认值 carrier）。
 3. **OQ-HIVE-CFG 已裁定 = 方案 A**（T09）：fe-core 组装 `hms` 连接器属性处，把 `Config.hive_default_file_format`/`Config.enable_create_hive_bucket_table` 当前值注入为属性默认（仅用户未显式设时），**插件只读属性、不碰 `common.Config`**。注入 locus 待 recon。
 4. **勿重议的已定决策**：**D-004** event→fe-connector-hms；**D-005** tableFormatType；**D-020** per-table SPI provider；**D-019** hudi live cutover 并入 P7；事务桥接 `PluginDrivenTransaction`。后续子阶段 OQ-* 到 recon 后再用户签字（中文讲背景+示例+推荐、不引任务代号）。
