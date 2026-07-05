@@ -172,7 +172,8 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
         return ConnectorFactory.createConnector(catalogType,
                 catalogProperty.getProperties(),
                 new DefaultConnectorContext(name, id, this::getExecutionAuthenticator,
-                        () -> catalogProperty.getStoragePropertiesMap()));
+                        () -> catalogProperty.getStoragePropertiesMap(),
+                        catalogProperty::getEffectiveRawStorageProperties));
     }
 
     @Override

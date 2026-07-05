@@ -180,34 +180,9 @@ public class CatalogProperty {
             synchronized (this) {
                 if (storagePropertiesMap == null) {
                     try {
-                        boolean checkStorageProperties = true;
                         MetastoreProperties msp = getMetastoreProperties();
-                        AbstractVendedCredentialsProvider provider =
-                                VendedCredentialsFactory.getProviderType(msp);
-                        if (provider != null) {
-                            checkStorageProperties = !provider.isVendedCredentialsEnabled(msp);
-                        } else if (msp != null) {
-                            // Non-provider backends signal vended credentials via the metastore-props gate
-                            // (e.g. a Paimon REST catalog skips the static storage map): SDK-free replacement
-                            // of the former VendedCredentialsFactory PAIMON case. Iceberg still routes through
-                            // its provider above, so its behavior is unchanged. The null guard preserves the
-                            // pre-change "build the static map" behavior when there is no metastore.
-                            checkStorageProperties = !msp.isVendedCredentialsEnabled();
-                        }
-                        if (checkStorageProperties) {
-                            Map<String, String> storageProps = getProperties();
-                            // Derived storage defaults: from the metastore props when present; otherwise (an SPI
-                            // catalog with no fe-core MetastoreProperties — e.g. a native iceberg catalog whose
-                            // property cluster moved to the connector) from the neutral hdfs:// warehouse bridge.
-                            Map<String, String> derived = msp != null
-                                    ? msp.getDerivedStorageProperties()
-                                    : deriveHdfsDefaultFsFromWarehouse(storageProps);
-                            if (MapUtils.isNotEmpty(derived)) {
-                                // Merge into a copy: derived props are defaults (an explicit user key wins
-                                // via putIfAbsent), and the persisted getProperties() map is never mutated.
-                                storageProps = new HashMap<>(storageProps);
-                                derived.forEach(storageProps::putIfAbsent);
-                            }
+                        if (shouldBuildStaticStorage(msp)) {
+                            Map<String, String> storageProps = mergeDerivedStorageDefaults(msp);
                             this.orderedStoragePropertiesList = StorageProperties.createAll(storageProps);
                             this.storagePropertiesMap = orderedStoragePropertiesList.stream()
                                     .collect(Collectors.toMap(StorageProperties::getType, Function.identity()));
@@ -222,6 +197,70 @@ public class CatalogProperty {
                     }
                 }
             }
+        }
+    }
+
+    /**
+     * Whether fe-core should build the static storage map for this catalog: {@code true} unless the
+     * connector supplies per-table vended credentials (a REST/vended catalog whose static storage map is
+     * empty by design). Provider-backed metastores (iceberg) route through the {@link VendedCredentialsFactory}
+     * provider; non-provider backends (e.g. a Paimon REST catalog) signal vended credentials through the
+     * metastore-props gate. The null guard preserves the "build the static map" behavior when there is no
+     * metastore. Verbatim extraction of the former inline gate — the single source of truth shared by
+     * {@link #initStorageProperties} (the fe-core parse) and {@link #getEffectiveRawStorageProperties} (the
+     * fe-filesystem bind), so the two paths never diverge.
+     */
+    private boolean shouldBuildStaticStorage(MetastoreProperties msp) {
+        AbstractVendedCredentialsProvider provider = VendedCredentialsFactory.getProviderType(msp);
+        if (provider != null) {
+            return !provider.isVendedCredentialsEnabled(msp);
+        } else if (msp != null) {
+            return !msp.isVendedCredentialsEnabled();
+        }
+        return true;
+    }
+
+    /**
+     * The catalog's persisted user props merged with derived storage defaults: from the metastore props when
+     * present; otherwise (an SPI catalog with no fe-core {@link MetastoreProperties} — e.g. a native iceberg
+     * catalog whose property cluster moved to the connector) from the neutral {@code hdfs://} warehouse
+     * bridge. Derived props are defaults (an explicit user key wins via {@code putIfAbsent}) and the persisted
+     * {@link #getProperties()} map is never mutated. This is the exact map {@link #initStorageProperties}
+     * feeds to {@link StorageProperties#createAll}.
+     */
+    private Map<String, String> mergeDerivedStorageDefaults(MetastoreProperties msp) {
+        Map<String, String> storageProps = getProperties();
+        Map<String, String> derived = msp != null
+                ? msp.getDerivedStorageProperties()
+                : deriveHdfsDefaultFsFromWarehouse(storageProps);
+        if (MapUtils.isNotEmpty(derived)) {
+            storageProps = new HashMap<>(storageProps);
+            derived.forEach(storageProps::putIfAbsent);
+        }
+        return storageProps;
+    }
+
+    /**
+     * The effective raw storage property map for a plugin catalog to bind directly through fe-filesystem
+     * (design S2), letting {@code ConnectorContext.getStorageProperties()} hand the connector typed
+     * fe-filesystem storage without the redundant fe-core {@link StorageProperties#createAll} round-trip.
+     * Returns the same map {@link #initStorageProperties} would parse — user props plus derived defaults
+     * (warehouse -> fs.defaultFS) — honoring the vended gate (empty when the connector supplies vended
+     * credentials, so no static storage is bound). Byte-identical to
+     * {@code getStoragePropertiesMap().values().iterator().next().getOrigProps()} (createAll passes the map
+     * through unmutated), so the bound typed StorageProperties, and the BE {@code location.*} map derived from
+     * them, are unchanged. The returned map must be treated as read-only by callers.
+     */
+    public Map<String, String> getEffectiveRawStorageProperties() {
+        // synchronized(this) so the vended-gate metastore read and the persisted-props read form a single
+        // consistent snapshot, matching the atomicity of the fe-core parse path (initStorageProperties builds
+        // under the same monitor, mutually exclusive with modifyCatalogProps/addProperty/deleteProperty).
+        // Without it a concurrent ALTER of a derivation-feeding key (e.g. warehouse) could tear the derived
+        // defaults against the user props. The critical section is a small map copy + pure derivation and
+        // takes no foreign lock, so it is deadlock-free and contention-free at scan-planning frequency.
+        synchronized (this) {
+            MetastoreProperties msp = getMetastoreProperties();
+            return shouldBuildStaticStorage(msp) ? mergeDerivedStorageDefaults(msp) : Collections.emptyMap();
         }
     }
 

@@ -78,6 +78,11 @@ public class DefaultConnectorContext implements ConnectorContext {
     // (FIX-URI-NORMALIZE). Invoked at scan time only (catalog fully initialized). Empty for ctors
     // that do not wire it — those callers (non-plugin catalogs) never invoke normalizeStorageUri.
     private final Supplier<Map<StorageProperties.Type, StorageProperties>> storagePropertiesSupplier;
+    // Supplies the catalog's effective raw storage map (persisted props + derived defaults, empty when the
+    // connector supplies vended credentials) for direct fe-filesystem binding in getStorageProperties()
+    // (design S2): no fe-core StorageProperties parse on the connector storage path. Empty for ctors that do
+    // not wire it (non-plugin / 2-3-4-arg) — those yield an empty storage list, correct parity.
+    private final Supplier<Map<String, String>> rawStoragePropsSupplier;
 
     private final ConnectorHttpSecurityHook httpSecurityHook = new ConnectorHttpSecurityHook() {
         @Override
@@ -103,11 +108,20 @@ public class DefaultConnectorContext implements ConnectorContext {
     public DefaultConnectorContext(String catalogName, long catalogId,
             Supplier<ExecutionAuthenticator> authSupplier,
             Supplier<Map<StorageProperties.Type, StorageProperties>> storagePropertiesSupplier) {
+        this(catalogName, catalogId, authSupplier, storagePropertiesSupplier, Collections::emptyMap);
+    }
+
+    public DefaultConnectorContext(String catalogName, long catalogId,
+            Supplier<ExecutionAuthenticator> authSupplier,
+            Supplier<Map<StorageProperties.Type, StorageProperties>> storagePropertiesSupplier,
+            Supplier<Map<String, String>> rawStoragePropsSupplier) {
         this.catalogName = Objects.requireNonNull(catalogName, "catalogName");
         this.catalogId = catalogId;
         this.authSupplier = Objects.requireNonNull(authSupplier, "authSupplier");
         this.storagePropertiesSupplier =
                 Objects.requireNonNull(storagePropertiesSupplier, "storagePropertiesSupplier");
+        this.rawStoragePropsSupplier =
+                Objects.requireNonNull(rawStoragePropsSupplier, "rawStoragePropsSupplier");
         this.environment = buildEnvironment();
     }
 
@@ -225,18 +239,14 @@ public class DefaultConnectorContext implements ConnectorContext {
 
     @Override
     public List<org.apache.doris.filesystem.properties.StorageProperties> getStorageProperties() {
-        // Hand the connector the catalog's storage bound as typed fe-filesystem StorageProperties
-        // (design D-003): the connector derives its Hadoop/HiveConf config and BE creds from these
-        // without importing fe-core or any provider. Source the catalog raw map from the existing
-        // storage supplier's getOrigProps() (every parsed StorageProperties carries the full catalog
-        // map -- StorageProperties.createAll passes it through), then bind it via the live
-        // plugin-loaded FileSystemPluginManager. An empty supplier (non-plugin ctor / REST-vended /
-        // credential-less warehouse) yields an empty list -- no static storage, correct parity.
-        Map<StorageProperties.Type, StorageProperties> typed = storagePropertiesSupplier.get();
-        if (typed == null || typed.isEmpty()) {
-            return Collections.emptyList();
-        }
-        Map<String, String> rawCatalogProps = typed.values().iterator().next().getOrigProps();
+        // Bind the catalog's raw storage map directly via fe-filesystem (design S2): hand the connector its
+        // storage as typed fe-filesystem StorageProperties (from which it derives its Hadoop/HiveConf config
+        // and BE creds without importing fe-core), sourcing the raw map straight from the catalog's raw
+        // storage supplier -- no fe-core StorageProperties.createAll round-trip via getOrigProps(). The raw
+        // supplier already merges the catalog's derived storage defaults (warehouse -> fs.defaultFS) and
+        // honors the vended gate (empty for a REST/vended catalog). An empty map (non-plugin ctor /
+        // REST-vended / credential-less warehouse) yields an empty list -- no static storage, correct parity.
+        Map<String, String> rawCatalogProps = rawStoragePropsSupplier.get();
         if (rawCatalogProps == null || rawCatalogProps.isEmpty()) {
             return Collections.emptyList();
         }
