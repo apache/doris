@@ -30,6 +30,8 @@ import org.apache.doris.connector.metastore.spi.MetaStoreProviders;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.filesystem.properties.StorageProperties;
 import org.apache.doris.kerberos.HadoopAuthenticator;
+import org.apache.doris.kerberos.KerberosAuthSpec;
+import org.apache.doris.kerberos.KerberosAuthenticationConfig;
 
 import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.conf.Configuration;
@@ -50,6 +52,7 @@ import java.util.Collections;
 import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -141,25 +144,63 @@ public class PaimonConnector implements Connector {
      * Lazily builds and memoizes the plugin-side Kerberos authenticator that {@link TcclPinningConnectorContext}
      * runs each op under, so remote HDFS access uses the PLUGIN's own {@code UserGroupInformation} copy (the one
      * the plugin's {@code FileSystem} reads). Returns {@code null} for a non-Kerberos catalog so the FE-injected
-     * auth path is preserved unchanged. The Kerberos keys ride the {@code hadoop.*} passthrough in
-     * {@link PaimonCatalogFactory#buildHadoopConfiguration}; {@link HadoopAuthenticator#getHadoopAuthenticator}
-     * resolves the plugin (child-first) copy of fe-kerberos, so its {@code doAs} logs in / acts on the plugin
-     * UGI. Construction is cheap — the keytab login is lazy in {@code getUGI()} on the first {@code doAs}.
+     * auth path is preserved unchanged. Construction is cheap — the keytab login is lazy in {@code getUGI()} on
+     * the first {@code doAs}.
      */
     private HadoopAuthenticator pluginAuthenticator() {
         if (!pluginAuthComputed) {
             synchronized (this) {
                 if (!pluginAuthComputed) {
-                    pluginAuth = "kerberos".equalsIgnoreCase(properties.get(HADOOP_SECURITY_AUTHENTICATION))
-                            ? HadoopAuthenticator.getHadoopAuthenticator(
-                                    PaimonCatalogFactory.buildHadoopConfiguration(
-                                            properties, buildStorageHadoopConfig()))
-                            : null;
+                    pluginAuth = buildPluginAuthenticator(properties, buildStorageHadoopConfig());
                     pluginAuthComputed = true;
                 }
             }
         }
         return pluginAuth;
+    }
+
+    /**
+     * Resolves the plugin-side Kerberos authenticator for the catalog, or {@code null} for a non-Kerberos
+     * catalog. Two Kerberos sources are covered, in precedence order:
+     * <ol>
+     *   <li><b>Storage</b> Kerberos — the raw {@code hadoop.security.authentication=kerberos} passthrough
+     *       (HDFS / data-lake login), built from the storage Hadoop configuration. Unchanged prior behavior;
+     *       when storage is Kerberos this single login also carries the HMS metastore RPC (same UGI). The
+     *       Kerberos keys ride the {@code hadoop.*} passthrough in
+     *       {@link PaimonCatalogFactory#buildHadoopConfiguration}; {@link HadoopAuthenticator#getHadoopAuthenticator}
+     *       resolves the plugin (child-first) copy of fe-kerberos, so its {@code doAs} acts on the plugin UGI.</li>
+     *   <li><b>HMS-metastore</b> Kerberos with non-Kerberos storage — a secured Hive Metastore whose data
+     *       storage is simple (e.g. a Kerberized HMS over S3). Legacy fe-core served this from the fe-core
+     *       {@code PaimonHMSMetaStoreProperties} HMS authenticator (delivered via {@code DefaultConnectorContext});
+     *       once the fe-core pre-execution authenticator is retired (design S6) the connector must own it,
+     *       mirroring {@code IcebergConnector.buildPluginAuthenticator}: the HMS client principal/keytab facts
+     *       ({@link HmsMetaStoreProperties#kerberos()}) feed a
+     *       {@link KerberosAuthenticationConfig}, so the {@code doAs} logs in the same client identity fe-core
+     *       used. The HMS <em>service</em> principal / SASL settings ride the catalog's own HiveConf, not the
+     *       login.</li>
+     * </ol>
+     * Package-visible + static for direct unit testing (mirrors {@code IcebergConnector.buildPluginAuthenticator}).
+     */
+    static HadoopAuthenticator buildPluginAuthenticator(Map<String, String> properties,
+            Map<String, String> storageHadoopConfig) {
+        if ("kerberos".equalsIgnoreCase(properties.get(HADOOP_SECURITY_AUTHENTICATION))) {
+            return HadoopAuthenticator.getHadoopAuthenticator(
+                    PaimonCatalogFactory.buildHadoopConfiguration(properties, storageHadoopConfig));
+        }
+        if (PaimonConnectorProperties.HMS.equals(PaimonCatalogFactory.resolveFlavor(properties))) {
+            HmsMetaStoreProperties hms =
+                    (HmsMetaStoreProperties) MetaStoreProviders.bind(properties, storageHadoopConfig);
+            Optional<KerberosAuthSpec> spec = hms.kerberos();
+            if (spec.isPresent() && spec.get().hasCredentials()) {
+                Configuration conf =
+                        PaimonCatalogFactory.buildHadoopConfiguration(properties, storageHadoopConfig);
+                conf.set("hadoop.security.authentication", "kerberos");
+                conf.set("hive.metastore.sasl.enabled", "true");
+                return HadoopAuthenticator.getHadoopAuthenticator(
+                        new KerberosAuthenticationConfig(spec.get().getPrincipal(), spec.get().getKeytab(), conf));
+            }
+        }
+        return null;
     }
 
     /**
