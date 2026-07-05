@@ -37,6 +37,7 @@
 #include "storage/index/snii/query/internal/docid_conjunction.h"
 #include "storage/index/snii/query/internal/docid_posting_reader.h"
 #include "storage/index/snii/query/internal/docid_set_ops.h"
+#include "storage/index/snii/query/internal/docid_union.h"
 #include "storage/index/snii/query/internal/position_math.h"
 #include "storage/index/snii/query/internal/query_test_counters.h"
 #include "storage/index/snii/query/prefix_query.h"
@@ -1023,8 +1024,16 @@ Status EmitPhraseStreaming(const std::vector<TermPlan>& plans,
                                         candidates, docids);
 }
 
+// candidate_prefilter (optional): an ascending docid set the phrase must ALSO
+// lie in. When provided, the leading-term conjunction is intersected with it so
+// only docs in the prefilter get their positions read. Docs outside the
+// prefilter cannot contribute (the caller guarantees the final answer is a
+// subset), so this is result-preserving while cutting the position decode --
+// used by phrase-prefix to restrict the huge leading-phrase candidate set to
+// the docs that also carry some tail expansion.
 Status BuildPhraseExecutionState(const LogicalIndexReader& idx, io::BatchRangeFetcher* round1,
-                                 std::vector<TermPlan>* plans, PhraseExecutionState* state) {
+                                 std::vector<TermPlan>* plans, PhraseExecutionState* state,
+                                 const std::vector<uint32_t>* candidate_prefilter = nullptr) {
     if (round1->pending() > 0) {
         RETURN_IF_ERROR(round1->fetch());
     }
@@ -1034,8 +1043,16 @@ Status BuildPhraseExecutionState(const LogicalIndexReader& idx, io::BatchRangeFe
     state->owners.clear();
     state->candidates.clear();
     std::vector<DocidSource> doc_sources;
-    RETURN_IF_ERROR(internal::build_docid_only_conjunction(idx, *round1, *plans, &state->candidates,
-                                                           &doc_sources));
+    if (candidate_prefilter != nullptr) {
+        if (candidate_prefilter->empty()) {
+            return Status::OK();
+        }
+        RETURN_IF_ERROR(internal::filter_docids_by_conjunction(
+                idx, *round1, *plans, *candidate_prefilter, &state->candidates, &doc_sources));
+    } else {
+        RETURN_IF_ERROR(internal::build_docid_only_conjunction(idx, *round1, *plans,
+                                                               &state->candidates, &doc_sources));
+    }
     if (state->candidates.empty()) {
         return Status::OK();
     }
@@ -1188,7 +1205,8 @@ Status CollectSingleTermExpectedTailPositions(std::vector<PosSource>& srcs,
 
 Status CollectExpectedTailPositions(const LogicalIndexReader& idx,
                                     const std::vector<ResolvedQueryTerm>& exact_terms,
-                                    ExpectedTailPositionSet* out) {
+                                    ExpectedTailPositionSet* out,
+                                    const std::vector<uint32_t>* candidate_prefilter = nullptr) {
     out->clear();
     io::BatchRangeFetcher round1(idx.reader());
     std::vector<TermPlan> plans;
@@ -1196,7 +1214,7 @@ Status CollectExpectedTailPositions(const LogicalIndexReader& idx,
                                                   /*need_positions=*/false));
 
     PhraseExecutionState state;
-    RETURN_IF_ERROR(BuildPhraseExecutionState(idx, &round1, &plans, &state));
+    RETURN_IF_ERROR(BuildPhraseExecutionState(idx, &round1, &plans, &state, candidate_prefilter));
     if (state.candidates.empty()) {
         return Status::OK();
     }
@@ -1236,6 +1254,15 @@ bool contains_any_position(const ExpectedTailPositionSet& expected,
 // kLinearFanInMax (docid_set_ops), tightened because each cursor here also holds
 // decoded PRX rather than plain docids.
 constexpr size_t kMaxTailMergeBatch = 32;
+
+// Phrase-prefix only reads the residual tails' docid union to prefilter the
+// leading-phrase candidate set when the smallest leading term's df reaches this
+// -- i.e. when the leading candidate set is large enough that decoding all its
+// positions dwarfs an extra docid-only union read. Below it the direct path
+// (decode positions for the whole, small candidate set) is cheaper. 1<<16 is a
+// "large term" scale (roughly a segment's worth); tuned to skip small/selective
+// leading phrases while catching common ones like "GET images" (100M+ df).
+constexpr uint32_t kPrefixLeadingPrefilterMinDf = 1u << 16;
 
 // Merged multi-tail verification for ONE resident-capped group of prefix
 // expansions (`tails`, already truncated by max_expansions upstream). This
@@ -1503,8 +1530,53 @@ Status phrase_prefix_query(const LogicalIndexReader& idx, const std::vector<std:
     // Position-verify the residual expansions (multi-leading-term phrases, and
     // single-leading tails whose bigram pair was pruned/ambiguous).
     if (!verify_hits.empty()) {
+        // Narrow the leading-phrase candidate set to docs that ALSO carry some
+        // residual tail before decoding positions. The leading phrase can be
+        // ultra-common (e.g. "GET images" = 127M docs) while the answer is
+        // selective (its tails match 2.8M) -- decoding positions for the full
+        // 127M candidate set is the dominant cost. Reading the tails' docid
+        // union first (docid-only: few range reads, the SNII I/O strength) and
+        // passing it as a prefilter is result-preserving -- the answer is a
+        // subset of (leading candidates INTERSECT tail-union) -- and collapses
+        // the position decode to the intersection. Gated on a LARGE leading
+        // phrase: the tail-union read only pays off when the leading candidate
+        // set (bounded by the smallest leading term df) dwarfs the tail union,
+        // so a small/selective leading phrase keeps the direct path (no extra
+        // read). kPrefixLeadingPrefilterMinDf is that threshold.
+        uint32_t min_lead_df = std::numeric_limits<uint32_t>::max();
+        for (const ResolvedQueryTerm& t : exact_terms) {
+            min_lead_df = std::min(min_lead_df, t.entry.df);
+        }
+        // Sum of the residual tail dfs is an upper bound on the tail union size.
+        // The prefilter only narrows (and thus pays for its docid read) when the
+        // tail union is SMALLER than the leading candidate set -- i.e. the tails
+        // are selective. A broad tail prefix (e.g. "co*" in a log corpus where
+        // most docs carry some co-word) unions to ~everything: intersecting it
+        // saves no position decode while costing a full docid read. Gate on
+        // sum(tail_df) < min_lead_df so only a common-leading + selective-tail
+        // shape (e.g. "GET images sp*") takes the prefilter.
+        uint64_t tail_df_sum = 0;
+        for (const LogicalIndexReader::PrefixHit& hit : verify_hits) {
+            tail_df_sum += hit.entry.df;
+        }
+        const std::vector<uint32_t>* prefilter = nullptr;
+        std::vector<uint32_t> tail_union;
+        if (min_lead_df >= kPrefixLeadingPrefilterMinDf && tail_df_sum < min_lead_df) {
+            std::vector<internal::ResolvedDocidPosting> tail_postings;
+            tail_postings.reserve(verify_hits.size());
+            for (const LogicalIndexReader::PrefixHit& hit : verify_hits) {
+                tail_postings.push_back({hit.entry, hit.frq_base, hit.prx_base});
+            }
+            RETURN_IF_ERROR(internal::build_docid_union(idx, tail_postings, &tail_union));
+            if (tail_union.empty()) {
+                *docids = std::move(acc);
+                return Status::OK();
+            }
+            prefilter = &tail_union;
+        }
+
         ExpectedTailPositionSet expected;
-        RETURN_IF_ERROR(CollectExpectedTailPositions(idx, exact_terms, &expected));
+        RETURN_IF_ERROR(CollectExpectedTailPositions(idx, exact_terms, &expected, prefilter));
         if (!expected.docs.empty()) {
             // Hoist the expected-docid projection out of the per-tail loop: it
             // depends only on the (const) expected set and is ascending because
