@@ -78,6 +78,27 @@ Status ByteSource::get_varint32(uint32_t* v) {
     return Status::OK();
 }
 
+Status ByteSource::skip_varints(size_t count) {
+    const uint8_t* const begin = s_.data();
+    const uint8_t* const end = begin + s_.size();
+    const uint8_t* p = begin + pos_;
+    // Each varint ends at the first byte whose continuation bit (0x80) is clear.
+    // Scanning for `count` such terminators skips the values with one branch per
+    // byte -- no shift/accumulate/store and no per-value bounds Status.
+    for (size_t k = 0; k < count; ++k) {
+        while (p < end && (*p & 0x80) != 0) {
+            ++p;
+        }
+        if (p >= end) {
+            return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
+                    "byte_source: varint skip past end");
+        }
+        ++p; // consume the terminator byte
+    }
+    pos_ = static_cast<size_t>(p - begin);
+    return Status::OK();
+}
+
 Status ByteSource::get_zigzag(int64_t* v) {
     uint64_t tmp;
     RETURN_IF_ERROR(get_varint64(&tmp));

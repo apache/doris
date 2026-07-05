@@ -696,18 +696,25 @@ Status decode_payload_csr_selective(Slice plain, std::span<const uint32_t> doc_o
                     "prx: position count exceeds sane cap");
         }
         const bool selected = next_doc < doc_ordinals.size() && doc_ordinals[next_doc] == d;
+        if (!selected) {
+            // Skip this doc's position deltas without decoding them -- the CSR
+            // layout is sequential so we must advance past them, but only the
+            // candidate (selected) docs' positions are ever used. With a sparse
+            // candidate set (the common phrase / phrase-prefix case after docid
+            // narrowing) most docs in a window are skipped, so this avoids the
+            // dominant varint-decode cost.
+            RETURN_IF_ERROR(src.skip_varints(pos_count));
+            continue;
+        }
         uint32_t prev = 0;
         for (uint32_t i = 0; i < pos_count; ++i) {
             uint32_t delta = 0;
             RETURN_IF_ERROR(src.get_varint32(&delta));
-            if (!selected) continue;
             prev = (i == 0) ? delta : prev + delta;
             pos_flat->push_back(prev);
         }
-        if (selected) {
-            pos_off->push_back(static_cast<uint32_t>(pos_flat->size()));
-            ++next_doc;
-        }
+        pos_off->push_back(static_cast<uint32_t>(pos_flat->size()));
+        ++next_doc;
     }
     if (!src.eof())
         return Status::Error<ErrorCode::INVERTED_INDEX_FILE_CORRUPTED, false>(
@@ -805,9 +812,8 @@ Status build_prx_window(std::span<const std::vector<uint32_t>> per_doc_positions
         flat.insert(flat.end(), doc.begin(), doc.end());
     }
     // G16-h: level < -1 is auto mode at zstd level |level| (-1 stays the default).
-    const int auto_level = zstd_level_or_negative_for_auto == -1
-                                   ? kDefaultZstdLevel
-                                   : -zstd_level_or_negative_for_auto;
+    const int auto_level = zstd_level_or_negative_for_auto == -1 ? kDefaultZstdLevel
+                                                                 : -zstd_level_or_negative_for_auto;
     return build_prx_window_auto_from_flat(flat, freqs, auto_level, sink);
 }
 
@@ -829,9 +835,8 @@ Status build_prx_window_flat(std::span<const uint32_t> positions_flat,
     // once, emit PFOR, and only materialize the raw plaintext when it is large
     // enough to attempt zstd. Byte-identical to the prior double-encode.
     // G16-h: level < -1 is auto mode at zstd level |level| (-1 stays the default).
-    const int auto_level = zstd_level_or_negative_for_auto == -1
-                                   ? kDefaultZstdLevel
-                                   : -zstd_level_or_negative_for_auto;
+    const int auto_level = zstd_level_or_negative_for_auto == -1 ? kDefaultZstdLevel
+                                                                 : -zstd_level_or_negative_for_auto;
     return build_prx_window_auto_from_flat(positions_flat, freqs, auto_level, sink);
 }
 

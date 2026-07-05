@@ -36,6 +36,12 @@ public:
     Status get_fixed64(uint64_t* v);
     Status get_varint32(uint32_t* v);
     Status get_varint64(uint64_t* v);
+    // Advances past `count` LEB128 varints WITHOUT decoding their values -- just
+    // scans continuation bytes. Cheaper than get_varint* per value when the
+    // decoded value is unused (e.g. skipping a non-selected doc's position
+    // deltas in a CSR window, where the vast majority of docs in a window are
+    // not in the candidate set). Returns Corruption on truncation.
+    Status skip_varints(size_t count);
     Status get_zigzag(int64_t* v);
     Status get_bytes(size_t n, Slice* out);
 

@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <iterator>
 #include "storage/index/snii/encoding/byte_source.h"
 
 #include <gtest/gtest.h>
@@ -59,4 +60,49 @@ TEST(SniiByteSource, OverrunFails) {
     ByteSource src(Slice(one, 1));
     uint32_t a;
     EXPECT_FALSE(src.get_fixed32(&a).ok());
+}
+
+// skip_varints must advance the cursor EXACTLY as decoding the same varints
+// would -- across 1..5-byte encodings and back-to-back values -- so a CSR
+// selective decode can skip non-candidate docs' position deltas losslessly.
+TEST(SniiByteSource, SkipVarintsAdvancesLikeDecode) {
+    ByteSink s;
+    const uint64_t vals[] = {0, 1, 127, 128, 300, 16384, 0xFFFFFFFFULL, 42, 1u << 21, 5};
+    for (uint64_t v : vals) s.put_varint64(v);
+    s.put_u8(0xAB); // sentinel after the varints
+
+    // Decode-advance reference: consume all values, record end position.
+    ByteSource ref(s.view());
+    for (size_t i = 0; i < std::size(vals); ++i) {
+        uint64_t v = 0;
+        ASSERT_TRUE(ref.get_varint64(&v).ok());
+        EXPECT_EQ(v, vals[i]);
+    }
+    const size_t decoded_pos = ref.position();
+
+    // Skip-advance: skipping the same count must land at the identical position.
+    ByteSource skp(s.view());
+    ASSERT_TRUE(skp.skip_varints(std::size(vals)).ok());
+    EXPECT_EQ(skp.position(), decoded_pos);
+    uint8_t sentinel = 0;
+    ASSERT_TRUE(skp.get_u8(&sentinel).ok());
+    EXPECT_EQ(sentinel, 0xAB);
+
+    // Partial skip then decode the rest interleaves correctly.
+    ByteSource mix(s.view());
+    ASSERT_TRUE(mix.skip_varints(3).ok()); // skip 0,1,127
+    uint64_t v = 0;
+    ASSERT_TRUE(mix.get_varint64(&v).ok());
+    EXPECT_EQ(v, 128U); // 4th value decoded intact
+}
+
+TEST(SniiByteSource, SkipVarintsTruncationFails) {
+    // A dangling continuation byte (high bit set, no terminator) must error, not
+    // run off the buffer.
+    uint8_t buf[2] = {0x80, 0x80};
+    ByteSource src(Slice(buf, 2));
+    EXPECT_FALSE(src.skip_varints(1).ok());
+    // Zero-count skip is a no-op and always succeeds.
+    ByteSource empty(Slice(buf, 0));
+    EXPECT_TRUE(empty.skip_varints(0).ok());
 }
