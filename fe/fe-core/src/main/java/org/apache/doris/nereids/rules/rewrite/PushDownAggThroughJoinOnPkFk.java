@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.functions.agg.AnyValue;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Project;
@@ -216,6 +217,9 @@ public class PushDownAggThroughJoinOnPkFk implements RewriteRuleFactory {
             // 2. Count: the count is from primary plan,
             //             we need to replace the slot in the count with the corresponding slot
             //             from foreign plan
+            // 3. AnyValue: EliminateGroupByKey may wrap an FD-redundant group-by key
+            //             with any_value(), keep it in the output and replace inner slot
+            //             with the corresponding foreign plan slot
             if (expression instanceof Slot && primaryPlan.getOutput().contains(expression)) {
                 if (primaryToForeignDeps.containsKey(expression)) {
                     expression = primaryToForeignDeps.getOrDefault(expression, expression.toSlot());
@@ -228,6 +232,18 @@ public class PushDownAggThroughJoinOnPkFk implements RewriteRuleFactory {
                     && expression.child(0).arity() > 0
                     && expression.child(0).child(0) instanceof Slot) {
                 // count(slot) can be rewritten by circle deps
+                Slot slot = (Slot) expression.child(0).child(0);
+                if (primaryToForeignDeps.containsKey(slot)) {
+                    expression = (NamedExpression) expression.rewriteUp(e ->
+                            e instanceof Slot
+                                    ? primaryToForeignDeps.getOrDefault((Slot) e, (Slot) e)
+                                    : e);
+                }
+            }
+            if (expression instanceof Alias
+                    && expression.child(0) instanceof AnyValue
+                    && expression.child(0).child(0) instanceof Slot) {
+                // any_value(pk) can be rewritten to any_value(fk)
                 Slot slot = (Slot) expression.child(0).child(0);
                 if (primaryToForeignDeps.containsKey(slot)) {
                     expression = (NamedExpression) expression.rewriteUp(e ->

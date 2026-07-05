@@ -675,18 +675,13 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         cascadesContext -> cascadesContext.rewritePlanContainsTypes(LogicalAggregate.class)
                                 || cascadesContext.rewritePlanContainsTypes(LogicalJoin.class)
                                 || cascadesContext.rewritePlanContainsTypes(LogicalUnion.class),
-                        custom(RuleType.ELIMINATE_GROUP_BY_KEY, EliminateGroupByKey::new),
+                        // PushDownAggThroughJoinOnPkFk must run before EliminateGroupByKey,
+                        // because EliminateGroupByKey wraps FD-redundant group-by keys with
+                        // ANY_VALUE and rewrites ExprIds, which PushDownAggThroughJoinOnPkFk
+                        // cannot fully handle (especially for non-PK/FK primary table columns).
                         topDown(new PushDownAggThroughJoinOnPkFk()),
+                        custom(RuleType.ELIMINATE_GROUP_BY_KEY, EliminateGroupByKey::new),
                         topDown(new PullUpJoinFromUnionAll())
-                ),
-                topic("init join", bottomUp(ImmutableList.of(new InitJoinOrder()))),
-                topic("Eager aggregation",
-                        cascadesContext -> cascadesContext.rewritePlanContainsTypes(
-                                LogicalAggregate.class, LogicalJoin.class
-                        ),
-                        costBased(topDown(new PushDownAggWithDistinctThroughJoinOneSide())),
-                        custom(RuleType.PUSH_DOWN_AGG_THROUGH_JOIN, PushDownAggregation::new),
-                        topDown(new PushCountIntoUnionAll())
                 ),
                 topic("Limit optimization",
                         cascadesContext -> cascadesContext.rewritePlanContainsTypes(LogicalLimit.class)
