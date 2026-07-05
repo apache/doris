@@ -63,7 +63,7 @@ public class PluginDrivenMvccTableFactoryTest {
         PluginDrivenExternalDatabase db = new PluginDrivenExternalDatabase();
         // jdbc/es/max_compute/trino-connector advertise no MVCC capability.
         PluginDrivenExternalCatalog catalog = catalogWithCapabilities(
-                ConnectorCapability.SUPPORTS_FILTER_PUSHDOWN);
+                ConnectorCapability.SUPPORTS_VIEW);
 
         ExternalTable table = db.buildTableInternal("rt", "lt", 1L, catalog, db);
 

@@ -18,8 +18,8 @@
 package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.datasource.iceberg.IcebergExternalDatabase;
-import org.apache.doris.datasource.iceberg.IcebergExternalTable;
+import org.apache.doris.datasource.ExternalDatabase;
+import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -44,15 +44,21 @@ import java.util.Optional;
  */
 public class LogicalIcebergDeleteSink<CHILD_TYPE extends Plan> extends LogicalTableSink<CHILD_TYPE>
         implements Sink, PropagateFuncDeps {
-    private final IcebergExternalDatabase database;
-    private final IcebergExternalTable targetTable;
+    private final ExternalDatabase database;
+    private final ExternalTable targetTable;
     private final DeleteCommandContext deleteContext;
 
     /**
-     * Constructor
+     * Constructor.
+     *
+     * <p>{@code database}/{@code targetTable} are typed to the generic {@link ExternalDatabase}/
+     * {@link ExternalTable} (not the concrete iceberg types): pre-flip the synthesis passes the legacy
+     * {@code IcebergExternalTable}, post-flip it passes a {@code PluginDrivenExternalTable} for the same
+     * iceberg table. Every consumer ({@code ExplainCommand}, the implementation rule, the translator) only
+     * uses the generic {@code getId()}/schema API, so the widening is byte-identical pre-flip.</p>
      */
-    public LogicalIcebergDeleteSink(IcebergExternalDatabase database,
-                                   IcebergExternalTable targetTable,
+    public LogicalIcebergDeleteSink(ExternalDatabase database,
+                                   ExternalTable targetTable,
                                    List<Column> cols,
                                    List<NamedExpression> outputExprs,
                                    DeleteCommandContext deleteContext,
@@ -85,11 +91,11 @@ public class LogicalIcebergDeleteSink<CHILD_TYPE extends Plan> extends LogicalTa
                 deleteContext, Optional.empty(), Optional.empty(), child());
     }
 
-    public IcebergExternalDatabase getDatabase() {
+    public ExternalDatabase getDatabase() {
         return database;
     }
 
-    public IcebergExternalTable getTargetTable() {
+    public ExternalTable getTargetTable() {
         return targetTable;
     }
 

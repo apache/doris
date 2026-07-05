@@ -109,7 +109,6 @@ public class ExpressionRewrite implements RewriteRuleFactory {
                 new LogicalResultSinkRewrite().build(),
                 new LogicalFileSinkRewrite().build(),
                 new LogicalHiveTableSinkRewrite().build(),
-                new LogicalIcebergTableSinkRewrite().build(),
                 new LogicalIcebergMergeSinkRewrite().build(),
                 new LogicalConnectorTableSinkRewrite().build(),
                 new LogicalOlapTableSinkRewrite().build(),
@@ -506,14 +505,6 @@ public class ExpressionRewrite implements RewriteRuleFactory {
         @Override
         public Rule build() {
             return logicalHiveTableSink().thenApply(ExpressionRewrite.this::applyRewriteToSink)
-                    .toRule(RuleType.REWRITE_SINK_EXPRESSION);
-        }
-    }
-
-    private class LogicalIcebergTableSinkRewrite extends OneRewriteRuleFactory {
-        @Override
-        public Rule build() {
-            return logicalIcebergTableSink().thenApply(ExpressionRewrite.this::applyRewriteToSink)
                     .toRule(RuleType.REWRITE_SINK_EXPRESSION);
         }
     }

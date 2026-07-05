@@ -273,11 +273,11 @@ suite("iceberg_branch_tag_operate", "p0,external") {
     sql """ alter table ${table_name} drop tag if exists t3 """
     test {
         sql """ select * from ${table_name}@tag(t2) """
-        exception "does not have tag named t2"
+        exception "can't find snapshot by tag: t2"
     }
     test {
         sql """ select * from ${table_name}@tag(t3) """
-        exception "does not have tag named t3"
+        exception "can't find snapshot by tag: t3"
     }
 
     // drop branch success, then read
@@ -285,10 +285,10 @@ suite("iceberg_branch_tag_operate", "p0,external") {
     sql """ alter table ${table_name} drop branch if exists b3 """
     test {
         sql """ select * from ${table_name}@branch(b2) """
-        exception "does not have branch named b2"
+        exception "can't find branch: b2"
     }
     test {
         sql """ select * from ${table_name}@branch(b3) """
-        exception "does not have branch named b3"
+        exception "can't find branch: b3"
     }
 }

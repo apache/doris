@@ -21,7 +21,6 @@ import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.doris.RemoteDorisExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
-import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
@@ -60,10 +59,6 @@ public class ExternalMetaCacheRouteResolver {
     }
 
     private void addBuiltinRoutes(Set<ExternalMetaCache> resolved, CatalogIf<?> catalog) {
-        if (catalog instanceof IcebergExternalCatalog) {
-            resolved.add(registry.resolve(ENGINE_ICEBERG));
-            return;
-        }
         if (catalog instanceof RemoteDorisExternalCatalog) {
             resolved.add(registry.resolve(ENGINE_DORIS));
             return;

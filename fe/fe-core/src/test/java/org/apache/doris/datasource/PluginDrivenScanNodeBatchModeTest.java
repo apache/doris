@@ -17,13 +17,21 @@
 
 package org.apache.doris.datasource;
 
+import org.apache.doris.analysis.SlotDescriptor;
+import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.PartitionItem;
+import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.connector.api.Connector;
+import org.apache.doris.connector.api.scan.ConnectorScanPlanProvider;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
+import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.thrift.TPushAggOp;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
@@ -40,11 +48,12 @@ import java.util.Map;
  * exact OOM/latency risk this fix removes). The connector {@code fileNum > 0} check is folded into
  * the {@code supportsBatchScan} input.</p>
  *
- * <p><b>Coverage scope:</b> these tests pin the PURE static gate only. The wiring method
- * {@code computeBatchMode} — including its {@code scanProvider != null} null-guard (SF-1), which
- * maps a provider-less connector to {@code supportsBatchScan=false} — is NOT exercised here
- * (constructing a {@code PluginDrivenScanNode} needs a harness this module lacks). That null-guard
- * and the async {@code startSplit} path are live-only / DV-019 gaps.</p>
+ * <p><b>Coverage scope:</b> the original tests pin the PURE static {@code shouldUseBatchMode} gate. The
+ * FIX-M3 tests additionally drive {@code computeBatchMode}'s streaming-flavor dispatch + {@code
+ * numApproximateSplits} on a {@code CALLS_REAL_METHODS} mock (connector/desc fields injected). Still NOT
+ * exercised here: the partition-flavor {@code computeBatchMode} branch's {@code scanProvider != null}
+ * null-guard, and BOTH async {@code startSplit} pumps (partition + streaming) — these need a live harness
+ * this module lacks (DV-019 gaps), covered by flip-gated e2e.</p>
  */
 public class PluginDrivenScanNodeBatchModeTest {
 
@@ -125,5 +134,70 @@ public class PluginDrivenScanNodeBatchModeTest {
         // The main success case: a large pruned partition set on a file-bearing, sloted, pruned table.
         Assertions.assertTrue(
                 PluginDrivenScanNode.shouldUseBatchMode(pruned(THRESHOLD + 5), true, true, THRESHOLD));
+    }
+
+    // --- FIX-M3 streaming (file-count) batch flavor: computeBatchMode dispatch + numApproximateSplits ---
+    // Driven on a CALLS_REAL_METHODS mock (no constructor — see class note), with the connector/desc fields
+    // injected and getPushDownAggNoGroupingOp stubbed, so the real computeBatchMode wiring runs.
+
+    /** A node whose connector exposes the given provider, with a single-slot desc + non-count agg. */
+    private static PluginDrivenScanNode streamingNode(ConnectorScanPlanProvider provider) {
+        PluginDrivenScanNode node = Mockito.mock(PluginDrivenScanNode.class, Mockito.CALLS_REAL_METHODS);
+        Connector connector = Mockito.mock(Connector.class);
+        Mockito.when(connector.getScanPlanProvider()).thenReturn(provider);
+        Deencapsulation.setField(node, "connector", connector);
+        // hasSlots = true (the streaming gate requires output slots). getSlots() returns ArrayList (concrete).
+        TupleDescriptor desc = Mockito.mock(TupleDescriptor.class);
+        ArrayList<SlotDescriptor> slots = new ArrayList<>();
+        slots.add(Mockito.mock(SlotDescriptor.class));
+        Mockito.when(desc.getSlots()).thenReturn(slots);
+        Deencapsulation.setField(node, "desc", desc);
+        // Non-count agg so countPushdown=false; sessionVariable needed by the partition fallback arg eval.
+        Mockito.doReturn(TPushAggOp.NONE).when(node).getPushDownAggNoGroupingOp();
+        SessionVariable sv = Mockito.mock(SessionVariable.class);
+        Mockito.when(sv.getNumPartitionsInBatchMode()).thenReturn(THRESHOLD);
+        Deencapsulation.setField(node, "sessionVariable", sv);
+        return node;
+    }
+
+    @Test
+    public void testComputeBatchModePrefersStreamingWhenEstimateNonNegative() {
+        // A connector that returns a non-negative streamingSplitEstimate enters the streaming flavor of batch
+        // mode (before the partition-count flavor). MUTATION: dropping the `estimate >= 0` block -> falls through
+        // to the partition path (false here) -> red.
+        ConnectorScanPlanProvider provider = Mockito.mock(ConnectorScanPlanProvider.class);
+        Mockito.when(provider.streamingSplitEstimate(Mockito.any(), Mockito.any(), Mockito.any(),
+                Mockito.anyBoolean())).thenReturn(50L);
+        PluginDrivenScanNode node = streamingNode(provider);
+
+        Assertions.assertTrue(node.isBatchMode());
+        Assertions.assertTrue((Boolean) Deencapsulation.getField(node, "streamingBatch"));
+        Assertions.assertEquals(50L, (long) (Long) Deencapsulation.getField(node, "streamingSplitEstimate"));
+        // numApproximateSplits then reports the streamed estimate (not the partition count).
+        Assertions.assertEquals(50, node.numApproximateSplits());
+    }
+
+    @Test
+    public void testComputeBatchModeFallsBackToPartitionPathWhenNoStreaming() {
+        // A connector that declines streaming (estimate < 0) must NOT set the streaming flag; the node falls
+        // back to the partition-count gate (false here: no pruned partitions, supportsBatchScan false). MUTATION:
+        // setting streamingBatch unconditionally -> the flag would be true -> red.
+        ConnectorScanPlanProvider provider = Mockito.mock(ConnectorScanPlanProvider.class);
+        Mockito.when(provider.streamingSplitEstimate(Mockito.any(), Mockito.any(), Mockito.any(),
+                Mockito.anyBoolean())).thenReturn(-1L);
+        PluginDrivenScanNode node = streamingNode(provider);
+
+        Assertions.assertFalse(node.isBatchMode());
+        Assertions.assertFalse((Boolean) Deencapsulation.getField(node, "streamingBatch"));
+    }
+
+    @Test
+    public void testNumApproximateSplitsStreamingCapsAtIntMax() {
+        // A pathologically large matched-file count must clamp to Integer.MAX_VALUE, never overflow to a
+        // negative split count (FileQueryScanNode rejects negative). MUTATION: dropping the cap -> negative -> red.
+        PluginDrivenScanNode node = Mockito.mock(PluginDrivenScanNode.class, Mockito.CALLS_REAL_METHODS);
+        Deencapsulation.setField(node, "streamingBatch", true);
+        Deencapsulation.setField(node, "streamingSplitEstimate", (long) Integer.MAX_VALUE + 100L);
+        Assertions.assertEquals(Integer.MAX_VALUE, node.numApproximateSplits());
     }
 }

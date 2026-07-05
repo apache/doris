@@ -63,12 +63,12 @@ suite("test_iceberg_create_table", "p0,external") {
 
         test {
             sql """ create table ${db1}.${tb1} (id int) engine = hive """
-            exception "java.sql.SQLException: errCode = 2, detailMessage = Iceberg type catalog can only use `iceberg` engine."
+            exception "This catalog can only use `iceberg` engine"
         }
 
         test {
             sql """ create table ${db1}.${tb1} (id int) engine = jdbc """
-            exception "java.sql.SQLException: errCode = 2, detailMessage = Iceberg type catalog can only use `iceberg` engine."
+            exception "This catalog can only use `iceberg` engine"
         }
 
         sql """ create table ${db1}.${tb1} (id int) engine = iceberg """
