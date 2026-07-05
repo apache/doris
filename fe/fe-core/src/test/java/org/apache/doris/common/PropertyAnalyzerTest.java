@@ -45,6 +45,8 @@ import org.junit.rules.ExpectedException;
 
 import java.time.Instant;
 import java.time.ZoneId;
+import java.time.ZoneOffset;
+import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.HashMap;
 import java.util.List;
@@ -523,5 +525,75 @@ public class PropertyAnalyzerTest {
         } catch (AnalysisException e) {
             Assert.fail();
         }
+    }
+
+    @Test
+    public void testStorageCooldownTimeWithTzOffset() throws AnalysisException {
+        // A known UTC instant: 2027-06-15 12:30:00 UTC
+        ZonedDateTime zdt = ZonedDateTime.of(2027, 6, 15, 12, 30, 0, 0, ZoneOffset.UTC);
+        long expectedMillis = zdt.toInstant().toEpochMilli();
+
+        // +00:00 suffix — must be parsed as an instant via TZ_FORMATTER
+        String cooldownStr = "2027-06-15 12:30:00+00:00";
+        Map<String, String> properties = Maps.newHashMap();
+        properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM, "SSD");
+        properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_COOLDOWN_TIME, cooldownStr);
+        DataProperty dp = PropertyAnalyzer.analyzeDataProperty(properties,
+                new DataProperty(TStorageMedium.SSD));
+        Assert.assertEquals("TZ offset +00:00 should parse as exact UTC instant",
+                expectedMillis, dp.getCooldownTimeMs());
+
+        // -05:00 offset — same instant, different representation
+        String cooldownStr2 = "2027-06-15 07:30:00-05:00";
+        Map<String, String> properties2 = Maps.newHashMap();
+        properties2.put(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM, "SSD");
+        properties2.put(PropertyAnalyzer.PROPERTIES_STORAGE_COOLDOWN_TIME, cooldownStr2);
+        DataProperty dp2 = PropertyAnalyzer.analyzeDataProperty(properties2,
+                new DataProperty(TStorageMedium.SSD));
+        Assert.assertEquals("TZ offset -05:00 should parse as same UTC instant",
+                expectedMillis, dp2.getCooldownTimeMs());
+    }
+
+    @Test
+    public void testStorageCooldownTimeWithTzOffsetFractionalSeconds() throws AnalysisException {
+        // A known UTC instant with fractional seconds: 2027-06-15 12:30:00.123456 UTC
+        ZonedDateTime zdt = ZonedDateTime.of(2027, 6, 15, 12, 30, 0, 123456000, ZoneOffset.UTC);
+        long expectedMillis = zdt.toInstant().toEpochMilli();
+
+        // TIMESTAMPTZ(6) style string with +00:00 suffix
+        String cooldownStr = "2027-06-15 12:30:00.123456+00:00";
+        Map<String, String> properties = Maps.newHashMap();
+        properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM, "SSD");
+        properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_COOLDOWN_TIME, cooldownStr);
+        DataProperty dp = PropertyAnalyzer.analyzeDataProperty(properties,
+                new DataProperty(TStorageMedium.SSD));
+        Assert.assertEquals("Fractional seconds with TZ offset should parse correctly",
+                expectedMillis, dp.getCooldownTimeMs());
+
+        // TIMESTAMPTZ(0) — no fractional seconds, with +00:00
+        String cooldownStr2 = "2027-06-15 12:30:00+00:00";
+        Map<String, String> properties2 = Maps.newHashMap();
+        properties2.put(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM, "SSD");
+        properties2.put(PropertyAnalyzer.PROPERTIES_STORAGE_COOLDOWN_TIME, cooldownStr2);
+        DataProperty dp2 = PropertyAnalyzer.analyzeDataProperty(properties2,
+                new DataProperty(TStorageMedium.SSD));
+        Assert.assertEquals("No fractional seconds (precision 0) should still parse",
+                ZonedDateTime.of(2027, 6, 15, 12, 30, 0, 0, ZoneOffset.UTC)
+                        .toInstant().toEpochMilli(),
+                dp2.getCooldownTimeMs());
+    }
+
+    @Test
+    public void testStorageCooldownTimeInvalidTzFormat() throws AnalysisException {
+        // A value that looks like it has a TZ offset but is malformed
+        // (missing minutes in offset) — should fall back to MAX_COOLDOWN_TIME_MS
+        // instead of throwing an exception.
+        Map<String, String> properties = Maps.newHashMap();
+        properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM, "SSD");
+        properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_COOLDOWN_TIME, "2027-06-15 12:30:00+00");
+        DataProperty dp = PropertyAnalyzer.analyzeDataProperty(properties,
+                new DataProperty(TStorageMedium.SSD));
+        Assert.assertEquals("Malformed TZ offset should fall back to MAX",
+                DataProperty.MAX_COOLDOWN_TIME_MS, dp.getCooldownTimeMs());
     }
 }

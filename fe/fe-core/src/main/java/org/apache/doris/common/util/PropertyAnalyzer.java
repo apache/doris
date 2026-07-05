@@ -64,6 +64,11 @@ import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.time.ZonedDateTime;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeFormatterBuilder;
+import java.time.format.DateTimeParseException;
+import java.time.temporal.ChronoField;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -72,6 +77,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 public class PropertyAnalyzer {
@@ -237,6 +243,17 @@ public class PropertyAnalyzer {
     public static final String ENABLE_UNIQUE_KEY_MERGE_ON_WRITE = "enable_unique_key_merge_on_write";
     public static final String ENABLE_UNIQUE_KEY_SKIP_BITMAP_COLUMN = "enable_unique_key_skip_bitmap_column";
     private static final Logger LOG = LogManager.getLogger(PropertyAnalyzer.class);
+    /** Formatter for cooldown/baseTime strings that carry an explicit timezone
+     *  offset (e.g. "+00:00").  Accepts optional fractional seconds up to
+     *  nanosecond precision so that TIMESTAMPTZ(p) values with 0 ≤ p ≤ 6
+     *  are parsed correctly. */
+    private static final DateTimeFormatter TZ_FORMATTER = new DateTimeFormatterBuilder()
+            .appendPattern("yyyy-MM-dd HH:mm:ss")
+            .appendFraction(ChronoField.NANO_OF_SECOND, 0, 6, true)
+            .appendOffset("+HH:MM", "+00:00")
+            .toFormatter();
+    /** Precompiled pattern matching a trailing timezone offset "±HH:MM". */
+    private static final Pattern TZ_OFFSET_PATTERN = Pattern.compile("[+-]\\d{2}:\\d{2}$");
     public static final String COMMA_SEPARATOR = ",";
     private static final double MAX_FPP = 0.05;
     private static final double MIN_FPP = 0.0001;
@@ -409,10 +426,24 @@ public class PropertyAnalyzer {
                 }
             } else if (key.equalsIgnoreCase(PROPERTIES_STORAGE_COOLDOWN_TIME)) {
                 try {
-                    DateLiteral dateLiteral = DateLiteralUtils.createDateLiteral(value,
-                            ScalarType.getDefaultDateType(Type.DATETIME));
-                    cooldownTimestamp = dateLiteral.unixTimestamp(TimeUtils.getTimeZone());
-                } catch (AnalysisException e) {
+                    // A value with an explicit timezone offset (e.g.
+                    // "2027-01-01 00:00:00+00:00" or, for TIMESTAMPTZ(6),
+                    // "2027-01-01 00:00:00.000000+00:00") represents an
+                    // unambiguous UTC instant. Parse it directly as a
+                    // ZonedDateTime and convert to epoch millis, bypassing
+                    // the DATETIME-based DateLiteralUtils.createDateLiteral()
+                    // path which uses Instant.now() for the initial offset
+                    // computation and produces incorrect results across DST
+                    // boundaries.
+                    if (TZ_OFFSET_PATTERN.matcher(value).find()) {
+                        cooldownTimestamp = TZ_FORMATTER.parse(value, ZonedDateTime::from)
+                                .toInstant().toEpochMilli();
+                    } else {
+                        DateLiteral dateLiteral = DateLiteralUtils.createDateLiteral(value,
+                                ScalarType.getDefaultDateType(Type.DATETIME));
+                        cooldownTimestamp = dateLiteral.unixTimestamp(TimeUtils.getTimeZone());
+                    }
+                } catch (AnalysisException | DateTimeParseException e) {
                     LOG.warn("dateLiteral failed, use max cool down time", e);
                     cooldownTimestamp = DataProperty.MAX_COOLDOWN_TIME_MS;
                 }
