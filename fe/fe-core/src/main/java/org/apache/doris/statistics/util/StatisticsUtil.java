@@ -54,9 +54,9 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.datasource.PluginDrivenExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalTable.DLAType;
-import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IPv4Literal;
 import org.apache.doris.nereids.trees.expressions.literal.IPv6Literal;
@@ -996,8 +996,11 @@ public class StatisticsUtil {
             return true;
         }
 
-        // Support Iceberg table
-        if (table instanceof IcebergExternalTable) {
+        // Support flipped plugin-driven external tables whose connector declares column auto-analyze
+        // (post-cutover iceberg/paimon). Additive to the legacy arms above so pre-cutover behavior is
+        // unchanged; the capability replaces the legacy iceberg-class discrimination once flipped.
+        if (table instanceof PluginDrivenExternalTable
+                && ((PluginDrivenExternalTable) table).supportsColumnAutoAnalyze()) {
             return true;
         }
 

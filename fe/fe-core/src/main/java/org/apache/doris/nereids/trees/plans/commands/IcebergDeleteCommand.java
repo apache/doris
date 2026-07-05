@@ -17,53 +17,32 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
-import org.apache.doris.analysis.StmtType;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.TableIf;
-import org.apache.doris.common.util.Util;
-import org.apache.doris.datasource.iceberg.IcebergConflictDetectionFilterUtils;
-import org.apache.doris.datasource.iceberg.IcebergExternalDatabase;
-import org.apache.doris.datasource.iceberg.IcebergExternalTable;
-import org.apache.doris.datasource.iceberg.IcebergMergeOperation;
-import org.apache.doris.datasource.iceberg.IcebergNereidsUtils;
-import org.apache.doris.nereids.NereidsPlanner;
+import org.apache.doris.datasource.ExternalDatabase;
+import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
-import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
-import org.apache.doris.nereids.trees.plans.Explainable;
-import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.delete.DeleteCommandContext;
-import org.apache.doris.nereids.trees.plans.commands.insert.IcebergDeleteExecutor;
+import org.apache.doris.nereids.trees.plans.commands.merge.MergeOperation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalIcebergDeleteSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalEmptyRelation;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalIcebergDeleteSink;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalSink;
-import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
-import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.nereids.util.Utils;
-import org.apache.doris.planner.DataSink;
-import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.StmtExecutor;
 
-import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 import java.util.Optional;
-import java.util.concurrent.Callable;
 
 /**
- * DELETE command for Iceberg tables.
+ * DELETE plan synthesizer for Iceberg tables, invoked by
+ * IcebergRowLevelDmlTransform.synthesize via {@link #completeQueryPlan}.
  *
- * This command converts DELETE operations to INSERT operations that generate
+ * It rewrites a DELETE into an insert-shaped plan that generates
  * position DeleteFile entries instead of data files.
  *
  * Example:
@@ -73,8 +52,10 @@ import java.util.concurrent.Callable;
  *   1. Scan rows matching the WHERE condition
  *   2. Generate DeleteFile containing the matching rows
  *   3. Commit the DeleteFile to Iceberg table using RowDelta API
+ *
+ * The legacy Command execution half was removed as dead post-cutover code.
  */
-public class IcebergDeleteCommand extends Command implements ForwardWithSync, Explainable {
+public class IcebergDeleteCommand {
 
     protected final List<String> nameParts;
     protected final String tableAlias;
@@ -93,7 +74,6 @@ public class IcebergDeleteCommand extends Command implements ForwardWithSync, Ex
             List<String> partitions,
             LogicalPlan logicalQuery,
             DeleteCommandContext deleteCtx) {
-        super(PlanType.DELETE_COMMAND);
         this.nameParts = Utils.copyRequiredList(nameParts);
         this.tableAlias = tableAlias;
         this.isTempPart = isTempPart;
@@ -102,108 +82,18 @@ public class IcebergDeleteCommand extends Command implements ForwardWithSync, Ex
         this.deleteCtx = deleteCtx != null ? deleteCtx : new DeleteCommandContext();
     }
 
-    @Override
-    public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
-        // Check if target table is Iceberg table
-        List<String> qualifiedTableName = RelationUtil.getQualifierName(ctx, nameParts);
-        TableIf table = RelationUtil.getTable(qualifiedTableName, ctx.getEnv(), Optional.empty());
-
-        if (!(table instanceof IcebergExternalTable)) {
-            throw new AnalysisException("DELETE command can only be used on Iceberg tables. "
-                    + "Table " + Util.getTempTableDisplayName(table.getName()) + " is not an Iceberg table.");
-        }
-
-        IcebergExternalTable icebergTable = (IcebergExternalTable) table;
-        IcebergDmlCommandUtils.checkDeleteMode(icebergTable);
-
-        // Verify table format version (must be v2+ for delete support)
-        // org.apache.iceberg.Table icebergTableObj = icebergTable.getIcebergTable();
-        // String formatVersionStr = icebergTableObj.properties().get("format-version");
-        // int formatVersion = formatVersionStr != null ? Integer.parseInt(formatVersionStr) : 1;
-        // if (formatVersion < 2) {
-        //     throw new AnalysisException("Iceberg table DELETE requires format version >= 2. "
-        //             + "Current format version: " + formatVersion);
-        // }
-
-        long previousTargetTableId = ctx.getIcebergRowIdTargetTableId();
-        ctx.setIcebergRowIdTargetTableId(icebergTable.getId());
-        try {
-            LogicalPlan deleteQueryPlan = completeQueryPlan(ctx, logicalQuery, icebergTable);
-            executeWithExternalTableBatchModeDisabled(ctx, () -> {
-                // Create planner and plan the delete operation
-                NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
-                LogicalPlanAdapter logicalPlanAdapter =
-                        new LogicalPlanAdapter(deleteQueryPlan, ctx.getStatementContext());
-
-                // Plan the delete query to generate physical plan and distributed plan
-                planner.plan(logicalPlanAdapter, ctx.getSessionVariable().toThrift());
-
-                // Set planner in executor for later use
-                executor.setPlanner(planner);
-                executor.checkBlockRules();
-                Optional<org.apache.iceberg.expressions.Expression> conflictFilter =
-                        IcebergConflictDetectionFilterUtils.buildConflictDetectionFilter(
-                                planner.getAnalyzedPlan(), icebergTable);
-
-                PhysicalSink<?> physicalSink = getPhysicalSink(planner);
-                PlanFragment fragment = planner.getFragments().get(0);
-                DataSink dataSink = fragment.getSink();
-                boolean emptyInsert = childIsEmptyRelation(physicalSink);
-                String label = String.format("iceberg_delete_%x_%x", ctx.queryId().hi, ctx.queryId().lo);
-
-                // Create IcebergDeleteExecutor and execute
-                IcebergDeleteExecutor deleteExecutor = new IcebergDeleteExecutor(
-                        ctx,
-                        icebergTable,
-                        label,
-                        planner,
-                        emptyInsert,
-                        -1L);
-                deleteExecutor.setConflictDetectionFilter(conflictFilter);
-
-                if (deleteExecutor.isEmptyInsert()) {
-                    return null;
-                }
-
-                deleteExecutor.beginTransaction();
-                deleteExecutor.finalizeSinkForDelete(fragment, dataSink, physicalSink);
-                deleteExecutor.getCoordinator().setTxnId(deleteExecutor.getTxnId());
-                executor.setCoord(deleteExecutor.getCoordinator());
-                deleteExecutor.executeSingleInsert(executor);
-                return null;
-            });
-        } finally {
-            ctx.setIcebergRowIdTargetTableId(previousTargetTableId);
-        }
-    }
-
-    @VisibleForTesting
-    static <T> T executeWithExternalTableBatchModeDisabled(
-            ConnectContext ctx, Callable<T> action) throws Exception {
-        boolean previousEnableExternalTableBatchMode =
-                ctx.getSessionVariable().enableExternalTableBatchMode;
-        // disable batch mode for iceberg scan node get all splits.
-        // IcebergRewritableDeletePlanner.collect for map<data file -> list<delete file>>
-        ctx.getSessionVariable().enableExternalTableBatchMode = false;
-        try {
-            return action.call();
-        } finally {
-            ctx.getSessionVariable().enableExternalTableBatchMode =
-                    previousEnableExternalTableBatchMode;
-        }
-    }
-
     /**
      * Complete the query plan by adding necessary columns for position delete operation.
      * Select $row_id (file_path, row_position, partition info).
      */
-    private LogicalPlan completeQueryPlan(ConnectContext ctx, LogicalPlan logicalQuery,
-                                         IcebergExternalTable icebergTable) {
+    // package-visible: the generic RowLevelDmlCommand shell delegates synthesis here (T07c).
+    LogicalPlan completeQueryPlan(ConnectContext ctx, LogicalPlan logicalQuery,
+                                         ExternalTable icebergTable) {
         LogicalPlan queryPlan = buildPositionDeletePlan(ctx, logicalQuery, icebergTable);
 
         // Convert output to NamedExpression list
         List<NamedExpression> outputExprs;
-        if (!IcebergNereidsUtils.hasUnboundPlan(queryPlan)) {
+        if (!RowLevelDmlRowIdUtils.hasUnboundPlan(queryPlan)) {
             outputExprs = queryPlan.getOutput().stream()
                     .map(slot -> (NamedExpression) slot)
                     .collect(java.util.stream.Collectors.toList());
@@ -215,7 +105,7 @@ public class IcebergDeleteCommand extends Command implements ForwardWithSync, Ex
 
         // Wrap query plan with LogicalIcebergDeleteSink
         LogicalIcebergDeleteSink<LogicalPlan> deleteSink = new LogicalIcebergDeleteSink<>(
-                (IcebergExternalDatabase) icebergTable.getDatabase(),
+                (ExternalDatabase) icebergTable.getDatabase(),
                 icebergTable,
                 icebergTable.getBaseSchema(true),  // cols
                 outputExprs,  // outputExprs
@@ -239,70 +129,24 @@ public class IcebergDeleteCommand extends Command implements ForwardWithSync, Ex
      * 4. These will be written to Position Delete file
      */
     private LogicalPlan buildPositionDeletePlan(ConnectContext ctx, LogicalPlan logicalQuery,
-                                                IcebergExternalTable icebergTable) {
+                                                ExternalTable icebergTable) {
         // Step 1: Inject $row_id metadata column into the scan
-        LogicalPlan planWithRowId = IcebergNereidsUtils.injectRowIdColumn(logicalQuery);
+        LogicalPlan planWithRowId = RowLevelDmlRowIdUtils.injectRowIdColumn(logicalQuery);
 
         // Step 2: Project operation + __DORIS_ICEBERG_ROWID_COL__
         Optional<Slot> rowIdSlot = Optional.empty();
-        if (!IcebergNereidsUtils.hasUnboundPlan(planWithRowId)) {
-            rowIdSlot = IcebergNereidsUtils.findRowIdSlot(planWithRowId.getOutput());
+        if (!RowLevelDmlRowIdUtils.hasUnboundPlan(planWithRowId)) {
+            rowIdSlot = RowLevelDmlRowIdUtils.findRowIdSlot(planWithRowId.getOutput());
         }
         NamedExpression operationColumn = new UnboundAlias(
-                new TinyIntLiteral(IcebergMergeOperation.DELETE_OPERATION_NUMBER),
-                IcebergMergeOperation.OPERATION_COLUMN);
+                new TinyIntLiteral(MergeOperation.DELETE_OPERATION_NUMBER),
+                MergeOperation.OPERATION_COLUMN);
         NamedExpression rowIdColumn = rowIdSlot.isPresent()
                 ? (NamedExpression) rowIdSlot.get()
                 : new UnboundSlot(Column.ICEBERG_ROWID_COL);
         List<NamedExpression> projectItems = ImmutableList.of(operationColumn, rowIdColumn);
 
         return new LogicalProject<>(projectItems, planWithRowId);
-    }
-
-    private PhysicalSink<?> getPhysicalSink(NereidsPlanner planner) {
-        Optional<PhysicalSink<?>> plan = planner.getPhysicalPlan()
-                .<PhysicalSink<?>>collect(PhysicalSink.class::isInstance).stream().findAny();
-        if (!plan.isPresent()) {
-            throw new AnalysisException("DELETE command must contain target table");
-        }
-        PhysicalSink<?> sink = plan.get();
-        if (!(sink instanceof PhysicalIcebergDeleteSink)) {
-            throw new AnalysisException("DELETE plan must use Iceberg delete sink");
-        }
-        return sink;
-    }
-
-    private boolean childIsEmptyRelation(PhysicalSink<?> sink) {
-        return sink.children() != null && sink.children().size() == 1
-                && sink.child(0) instanceof PhysicalEmptyRelation;
-    }
-
-    @Override
-    public Plan getExplainPlan(ConnectContext ctx) {
-        List<String> qualifiedTableName = RelationUtil.getQualifierName(ctx, nameParts);
-        TableIf table = RelationUtil.getTable(qualifiedTableName, ctx.getEnv(), Optional.empty());
-        if (!(table instanceof IcebergExternalTable)) {
-            throw new AnalysisException("Table must be IcebergExternalTable in DELETE command");
-        }
-        IcebergExternalTable icebergTable = (IcebergExternalTable) table;
-        IcebergDmlCommandUtils.checkDeleteMode(icebergTable);
-        long previousTargetTableId = ctx.getIcebergRowIdTargetTableId();
-        ctx.setIcebergRowIdTargetTableId(table.getId());
-        try {
-            return completeQueryPlan(ctx, logicalQuery, icebergTable);
-        } finally {
-            ctx.setIcebergRowIdTargetTableId(previousTargetTableId);
-        }
-    }
-
-    @Override
-    public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
-        return visitor.visitCommand(this, context);
-    }
-
-    @Override
-    public StmtType stmtType() {
-        return StmtType.DELETE;
     }
 
     public DeleteCommandContext getDeleteCtx() {

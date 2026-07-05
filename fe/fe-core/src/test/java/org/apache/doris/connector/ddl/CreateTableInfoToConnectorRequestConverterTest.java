@@ -24,6 +24,7 @@ import org.apache.doris.connector.api.ddl.ConnectorBucketSpec;
 import org.apache.doris.connector.api.ddl.ConnectorCreateTableRequest;
 import org.apache.doris.connector.api.ddl.ConnectorPartitionField;
 import org.apache.doris.connector.api.ddl.ConnectorPartitionSpec;
+import org.apache.doris.connector.api.ddl.ConnectorSortField;
 import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -32,6 +33,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.ColumnDefinition;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.DistributionDescriptor;
 import org.apache.doris.nereids.trees.plans.commands.info.PartitionTableInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.SortFieldInfo;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.StringType;
 
@@ -119,6 +121,41 @@ public class CreateTableInfoToConnectorRequestConverterTest {
         // the 6-arg ctor (dropping `d.getAutoIncInitValue() != -1`) makes this red.
         Assertions.assertTrue(req.getColumns().get(0).isAutoInc(),
                 "autoIncInitValue != -1 must propagate to ConnectorColumn.isAutoInc");
+    }
+
+    @Test
+    public void sortOrderIsCarriedThrough() {
+        ColumnDefinition idCol = new ColumnDefinition("id", IntegerType.INSTANCE, false, "");
+        CreateTableInfo info = stubInfo("t", Collections.singletonList(idCol),
+                null, null, "", Collections.emptyMap(), false, false);
+        Mockito.when(info.getSortOrderFields()).thenReturn(Arrays.asList(
+                new SortFieldInfo("id", true, false),
+                new SortFieldInfo("name", false, true)));
+
+        ConnectorCreateTableRequest req = CreateTableInfoToConnectorRequestConverter.convert(info, "db");
+
+        // WHY (Rule 9): iceberg createTable can only build a write sort order from what the converter carries.
+        // Legacy iceberg supported CREATE TABLE ... ORDER BY; without this carrier the clause is silently
+        // dropped post-flip. MUTATION: removing the converter's .sortOrder(...) call makes this red.
+        Assertions.assertEquals(2, req.getSortOrder().size());
+        ConnectorSortField f0 = req.getSortOrder().get(0);
+        Assertions.assertEquals("id", f0.getColumnName());
+        Assertions.assertTrue(f0.isAscending());
+        Assertions.assertFalse(f0.isNullFirst());
+        ConnectorSortField f1 = req.getSortOrder().get(1);
+        Assertions.assertEquals("name", f1.getColumnName());
+        Assertions.assertFalse(f1.isAscending());
+        Assertions.assertTrue(f1.isNullFirst());
+    }
+
+    @Test
+    public void sortOrderEmptyWhenAbsent() {
+        ColumnDefinition idCol = new ColumnDefinition("id", IntegerType.INSTANCE, false, "");
+        CreateTableInfo info = stubInfo("t", Collections.singletonList(idCol),
+                null, null, "", Collections.emptyMap(), false, false);
+        // getSortOrderFields() unstubbed -> null -> the converter yields an empty (never null) list.
+        ConnectorCreateTableRequest req = CreateTableInfoToConnectorRequestConverter.convert(info, "db");
+        Assertions.assertTrue(req.getSortOrder().isEmpty());
     }
 
     @Test

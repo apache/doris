@@ -21,10 +21,6 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.property.metastore.HiveGlueMetaStoreProperties;
 import org.apache.doris.datasource.property.metastore.HiveHMSProperties;
-import org.apache.doris.datasource.property.metastore.IcebergGlueMetaStoreProperties;
-import org.apache.doris.datasource.property.metastore.IcebergHMSMetaStoreProperties;
-import org.apache.doris.datasource.property.metastore.IcebergRestProperties;
-import org.apache.doris.datasource.property.metastore.IcebergS3TablesMetaStoreProperties;
 import org.apache.doris.datasource.property.metastore.MetastoreProperties;
 import org.apache.doris.datasource.property.storage.HdfsProperties;
 import org.apache.doris.datasource.property.storage.MinioProperties;
@@ -281,27 +277,10 @@ public class CatalogConnectivityTestCoordinator {
             return new HiveGlueMetaStoreConnectivityTester(glueProps, glueProps.getBaseProperties());
         }
 
-        // Iceberg HMS
-        if (props instanceof IcebergHMSMetaStoreProperties) {
-            IcebergHMSMetaStoreProperties icebergHms = (IcebergHMSMetaStoreProperties) props;
-            return new IcebergHMSConnectivityTester(icebergHms, icebergHms.getHmsBaseProperties());
-        }
-
-        // Iceberg Glue
-        if (props instanceof IcebergGlueMetaStoreProperties) {
-            IcebergGlueMetaStoreProperties icebergGlue = (IcebergGlueMetaStoreProperties) props;
-            return new IcebergGlueMetaStoreConnectivityTester(icebergGlue, icebergGlue.getGlueProperties());
-        }
-
-        // Iceberg REST
-        if (props instanceof IcebergRestProperties) {
-            return new IcebergRestConnectivityTester((IcebergRestProperties) props);
-        }
-
-        // Iceberg S3Table
-        if (props instanceof IcebergS3TablesMetaStoreProperties) {
-            return new IcebergS3TablesMetaStoreConnectivityTester((IcebergS3TablesMetaStoreProperties) props);
-        }
+        // Design S7: iceberg is a plugin (SPI) catalog; its FE->external connectivity test runs connector-side
+        // (PluginDrivenExternalCatalog.checkWhenCreating delegates to connector.testConnection), never through
+        // this coordinator (only legacy Hive/Type.HMS reaches it), so the former iceberg branches were dead
+        // and were removed with the fe-core iceberg metastore cluster.
 
         // Default: no-op tester
         return new MetaConnectivityTester() {

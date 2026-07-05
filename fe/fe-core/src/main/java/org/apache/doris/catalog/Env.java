@@ -106,8 +106,6 @@ import org.apache.doris.datasource.PluginDrivenSysExternalTable;
 import org.apache.doris.datasource.SplitSourceManager;
 import org.apache.doris.datasource.hive.HiveTransactionMgr;
 import org.apache.doris.datasource.hive.event.MetastoreEventsProcessor;
-import org.apache.doris.datasource.iceberg.IcebergExternalTable;
-import org.apache.doris.datasource.iceberg.IcebergSysExternalTable;
 import org.apache.doris.deploy.DeployManager;
 import org.apache.doris.deploy.impl.LocalFileDeployManager;
 import org.apache.doris.dictionary.DictionaryManager;
@@ -4482,36 +4480,6 @@ public class Env {
         } else if (table.getType() == TableType.JDBC) {
             addTableComment(table, sb);
             sb.append("\n-- Internal JDBC tables are deprecated. Please use JDBC Catalog instead.");
-        } else if (table.getType() == TableType.ICEBERG_EXTERNAL_TABLE) {
-            addTableComment(table, sb);
-            IcebergExternalTable icebergExternalTable;
-            if (table instanceof IcebergExternalTable) {
-                icebergExternalTable = (IcebergExternalTable) table;
-            } else if (table instanceof IcebergSysExternalTable) {
-                icebergExternalTable = ((IcebergSysExternalTable) table).getSourceTable();
-            } else {
-                throw new RuntimeException("Unexpected Iceberg table type: " + table.getClass().getSimpleName());
-            }
-            if (icebergExternalTable.hasSortOrder()) {
-                sb.append("\n").append(icebergExternalTable.getSortOrderSql());
-            }
-            if (table instanceof IcebergExternalTable) {
-                String partitionSpecSql = icebergExternalTable.getPartitionSpecSql();
-                if (!partitionSpecSql.isEmpty()) {
-                    sb.append("\n").append(partitionSpecSql);
-                }
-            }
-            sb.append("\nLOCATION '").append(icebergExternalTable.location()).append("'");
-            sb.append("\nPROPERTIES (");
-            Iterator<Entry<String, String>> iterator = icebergExternalTable.properties().entrySet().iterator();
-            while (iterator.hasNext()) {
-                Entry<String, String> prop = iterator.next();
-                sb.append("\n  \"").append(prop.getKey()).append("\" = \"").append(prop.getValue()).append("\"");
-                if (iterator.hasNext()) {
-                    sb.append(",");
-                }
-            }
-            sb.append("\n)");
         } else if (table.getType() == TableType.PLUGIN_EXTERNAL_TABLE) {
             addTableComment(table, sb);
         }
@@ -4880,38 +4848,9 @@ public class Env {
         } else if (table.getType() == TableType.JDBC) {
             addTableComment(table, sb);
             sb.append("\n-- Internal JDBC tables are deprecated. Please use JDBC Catalog instead.");
-        } else if (table.getType() == TableType.ICEBERG_EXTERNAL_TABLE) {
-            addTableComment(table, sb);
-            IcebergExternalTable icebergExternalTable;
-            if (table instanceof IcebergExternalTable) {
-                icebergExternalTable = (IcebergExternalTable) table;
-            } else if (table instanceof IcebergSysExternalTable) {
-                icebergExternalTable = ((IcebergSysExternalTable) table).getSourceTable();
-            } else {
-                throw new RuntimeException("Unexpected Iceberg table type: " + table.getClass().getSimpleName());
-            }
-            if (icebergExternalTable.hasSortOrder()) {
-                sb.append("\n").append(icebergExternalTable.getSortOrderSql());
-            }
-            if (table instanceof IcebergExternalTable) {
-                String partitionSpecSql = icebergExternalTable.getPartitionSpecSql();
-                if (!partitionSpecSql.isEmpty()) {
-                    sb.append("\n").append(partitionSpecSql);
-                }
-            }
-            sb.append("\nLOCATION '").append(icebergExternalTable.location()).append("'");
-            sb.append("\nPROPERTIES (");
-            Iterator<Entry<String, String>> iterator = icebergExternalTable.properties().entrySet().iterator();
-            while (iterator.hasNext()) {
-                Entry<String, String> prop = iterator.next();
-                sb.append("\n  \"").append(prop.getKey()).append("\" = \"").append(prop.getValue()).append("\"");
-                if (iterator.hasNext()) {
-                    sb.append(",");
-                }
-            }
-            sb.append("\n)");
         } else if (table.getType() == TableType.PLUGIN_EXTERNAL_TABLE) {
             addTableComment(table, sb);
+            boolean isSysTable = table instanceof PluginDrivenSysExternalTable;
             PluginDrivenExternalTable pluginExternalTable;
             if (table instanceof PluginDrivenSysExternalTable) {
                 // Mirror the legacy paimon unwrap: a system table ($snapshots etc.) renders the
@@ -4923,20 +4862,30 @@ public class Env {
             } else {
                 throw new RuntimeException("Unexpected plugin table type: " + table.getClass().getSimpleName());
             }
-            // Render LOCATION + PROPERTIES for SHOW CREATE TABLE parity (D-046) ONLY for the paimon
-            // engine type — the single plugin-driven connector whose legacy DDL carried them.
-            // FIX-SHOWCREATE-PLUGIN-PROPS: gating only on a non-empty property map wrongly rendered
-            // LOCATION '' + PROPERTIES(...) for JDBC/ES/Trino plugin tables (whose getTableProperties()
-            // returns non-empty connection props, including credentials), diverging from their legacy
-            // comment-only DDL (ENGINE=...;) and leaking the JDBC password. Other connectors
-            // (MaxCompute) already stay comment-only via an empty map; the engine-type gate is the
-            // extension point when hive/iceberg/hudi later migrate to plugin-driven and need LOCATION.
-            boolean rendersLocationProperties = TableType.PAIMON_EXTERNAL_TABLE.name()
-                    .equals(pluginExternalTable.getEngineTableTypeName());
-            Map<String, String> properties = pluginExternalTable.getTableProperties();
-            if (rendersLocationProperties && !properties.isEmpty()) {
-                sb.append("\nLOCATION '").append(properties.getOrDefault("path", "")).append("'");
+            // Render the legacy connector DDL (ORDER BY / PARTITION BY pre-rendered by the connector, then
+            // LOCATION + PROPERTIES) for SHOW CREATE TABLE parity, gated on the connector's
+            // SUPPORTS_SHOW_CREATE_DDL capability. The capability replaces the legacy paimon-only engine-name
+            // gate and is the credential-leak guard (FIX-SHOWCREATE-PLUGIN-PROPS): JDBC/ES/Trino connectors,
+            // whose getTableProperties() returns connection props including passwords, do NOT declare it and
+            // stay comment-only; paimon and (post-cutover) iceberg do declare it.
+            if (pluginExternalTable.supportsShowCreateDdl()) {
+                // Clause order mirrors the legacy iceberg arm: ORDER BY, then PARTITION BY, then LOCATION,
+                // then PROPERTIES. The sort clause renders for sys tables too (from the unwrapped source);
+                // PARTITION BY is suppressed for system tables ($snapshots etc.), matching the legacy gate
+                // that rendered partitions only for the data table.
+                String sortClause = pluginExternalTable.getShowSortClause();
+                if (!sortClause.isEmpty()) {
+                    sb.append("\n").append(sortClause);
+                }
+                if (!isSysTable) {
+                    String partitionClause = pluginExternalTable.getShowPartitionClause();
+                    if (!partitionClause.isEmpty()) {
+                        sb.append("\n").append(partitionClause);
+                    }
+                }
+                sb.append("\nLOCATION '").append(pluginExternalTable.getShowLocation()).append("'");
                 sb.append("\nPROPERTIES (");
+                Map<String, String> properties = pluginExternalTable.getTableProperties();
                 Iterator<Entry<String, String>> iterator = properties.entrySet().iterator();
                 while (iterator.hasNext()) {
                     Entry<String, String> prop = iterator.next();

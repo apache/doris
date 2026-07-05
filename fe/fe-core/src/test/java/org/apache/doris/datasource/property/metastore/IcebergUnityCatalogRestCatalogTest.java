@@ -17,11 +17,6 @@
 
 package org.apache.doris.datasource.property.metastore;
 
-import org.apache.doris.catalog.DatabaseIf;
-import org.apache.doris.datasource.ExternalDatabase;
-import org.apache.doris.datasource.iceberg.IcebergExternalTable;
-import org.apache.doris.datasource.iceberg.IcebergRestExternalCatalog;
-
 import com.google.common.collect.Maps;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.iceberg.CatalogProperties;
@@ -38,8 +33,6 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
-import java.util.Collection;
-import java.util.List;
 import java.util.Map;
 
 @Disabled("set your databricks token and uri before running the test")
@@ -123,32 +116,6 @@ public class IcebergUnityCatalogRestCatalogTest {
             catalog.initialize("databricks_test", options);
         } catch (Exception e) {
             e.printStackTrace();
-        }
-    }
-
-    @Test
-    public void testCreateRestCatalog() {
-        Map<String, String> properties = Maps.newHashMap();
-        properties.put("uri", uri);
-        properties.put("type", "iceberg");
-        properties.put("warehouse", "yy_unity_catalog");
-        properties.put("iceberg.catalog.type", "rest");
-        properties.put("iceberg.rest.security.type", "oauth2");
-        properties.put("iceberg.rest.oauth2.token", oauthToken);
-        // properties.put("iceberg.rest.oauth2.scope", "all-apis");
-        IcebergRestExternalCatalog catalog = new IcebergRestExternalCatalog(
-                1, "databricks_test", null, properties, "test");
-        catalog.setDefaultPropsIfMissing(false);
-        Collection<DatabaseIf<?>> dbs = catalog.getAllDbs();
-        for (DatabaseIf db : dbs) {
-            ExternalDatabase extDb = (ExternalDatabase) db;
-            System.out.println(extDb.getFullName());
-            List tables = extDb.getTables();
-            for (Object table : tables) {
-                IcebergExternalTable tbl = (IcebergExternalTable) table;
-                System.out.println(tbl.getName());
-                System.out.println(tbl.location());
-            }
         }
     }
 }

@@ -24,8 +24,6 @@ import org.apache.doris.common.IdGenerator;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.PluginDrivenExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalTable;
-import org.apache.doris.datasource.iceberg.IcebergExternalTable;
-import org.apache.doris.datasource.iceberg.IcebergSysExternalTable;
 import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
@@ -210,26 +208,7 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
             // hidden/metadata columns the connector exposes are reachable.
             return computePluginDrivenOutput();
         }
-        if (table instanceof IcebergExternalTable) {
-            // iceberg v3 need append row lineage columns
-            return computeIcebergOutput((IcebergExternalTable) table);
-        } else {
-            return super.computeOutput();
-        }
-    }
-
-    private List<Slot> computeIcebergOutput(IcebergExternalTable iceTable) {
-        IdGenerator<ExprId> exprIdGenerator = StatementScopeIdGenerator.getExprIdGenerator();
-        Builder<Slot> slots = ImmutableList.builder();
-        table.getFullSchema()
-                .stream()
-                .map(col -> SlotReference.fromColumn(exprIdGenerator.getNextId(), table, col, qualified()))
-                .forEach(slots::add);
-        // add virtual slots
-        for (NamedExpression virtualColumn : virtualColumns) {
-            slots.add(virtualColumn.toSlot());
-        }
-        return slots.build();
+        return super.computeOutput();
     }
 
     private List<Slot> computePluginDrivenOutput() {
@@ -254,13 +233,13 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
     public boolean supportPruneNestedColumn() {
         ExternalTable table = getTable();
         if (table instanceof PluginDrivenExternalTable) {
-            // No SPI capability for nested-column prune yet; default to off.
-            // Future ConnectorCapability flag will refine this.
-            return false;
+            // Post-flip plugin-driven tables (e.g. iceberg as PluginDrivenMvccExternalTable) declare
+            // nested-column prune via ConnectorCapability; the legacy exact-class IcebergExternalTable arm
+            // below is dead for them. Only enabled when the connector also carries nested field ids (see
+            // SUPPORTS_NESTED_COLUMN_PRUNE / SlotTypeReplacer), else nested leaves would read NULL.
+            return ((PluginDrivenExternalTable) table).supportsNestedColumnPrune();
         }
-        if (table instanceof IcebergExternalTable || table instanceof IcebergSysExternalTable) {
-            return true;
-        } else if (table instanceof HMSExternalTable) {
+        if (table instanceof HMSExternalTable) {
             HMSExternalTable hmsTable = (HMSExternalTable) table;
             if (hmsTable.getDlaType() == HMSExternalTable.DLAType.HUDI) {
                 // Don't prune nested column for HUDI table for now, because HUDI table

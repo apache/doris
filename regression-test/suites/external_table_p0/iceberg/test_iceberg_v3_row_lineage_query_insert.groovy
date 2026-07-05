@@ -250,7 +250,7 @@ suite("test_iceberg_v3_row_lineage_query_insert", "p0,external,iceberg,external_
 
                 test {
                     sql """insert into ${unpartitionedTable}(_row_id, id, name, age) values (1, 9, 'BadRow', 99)"""
-                    exception "Cannot specify row lineage column '_row_id' in INSERT statement"
+                    exception "Cannot specify invisible column '_row_id' in INSERT statement"
                 }
 
                 test {
@@ -258,7 +258,7 @@ suite("test_iceberg_v3_row_lineage_query_insert", "p0,external,iceberg,external_
                         insert into ${unpartitionedTable}(_last_updated_sequence_number, id, name, age)
                         values (1, 10, 'BadSeq', 100)
                     """
-                    exception "Cannot specify row lineage column '_last_updated_sequence_number' in INSERT statement"
+                    exception "Cannot specify invisible column '_last_updated_sequence_number' in INSERT statement"
                 }
 
                 sql """insert into ${unpartitionedTable}(id, name, age) values (4, 'Doris', 40)"""
@@ -328,7 +328,7 @@ suite("test_iceberg_v3_row_lineage_query_insert", "p0,external,iceberg,external_
                         insert into ${partitionedTable}(_row_id, id, name, age, dt)
                         values (1, 14, 'BadPartitionRow', 24, '2024-01-04')
                     """
-                    exception "Cannot specify row lineage column '_row_id' in INSERT statement"
+                    exception "Cannot specify invisible column '_row_id' in INSERT statement"
                 }
 
                 test {
@@ -336,7 +336,7 @@ suite("test_iceberg_v3_row_lineage_query_insert", "p0,external,iceberg,external_
                         insert into ${partitionedTable}(_last_updated_sequence_number, id, name, age, dt)
                         values (1, 15, 'BadPartitionSeq', 25, '2024-01-05')
                     """
-                    exception "Cannot specify row lineage column '_last_updated_sequence_number' in INSERT statement"
+                    exception "Cannot specify invisible column '_last_updated_sequence_number' in INSERT statement"
                 }
 
                 sql """insert into ${partitionedTable}(id, name, age, dt) values (14, 'Sara', 24, '2024-01-04')"""

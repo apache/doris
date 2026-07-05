@@ -47,7 +47,6 @@ import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.PluginDrivenExternalCatalog;
 import org.apache.doris.datasource.PluginDrivenExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
-import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.properties.OrderKey;
@@ -443,10 +442,6 @@ public class ShowPartitionsCommand extends ShowCommand {
             for (String col : result.getColumnNames()) {
                 builder.addColumn(new Column(col, ScalarType.createVarchar(30)));
             }
-        } else if (catalog instanceof IcebergExternalCatalog) {
-            builder.addColumn(new Column("Partition", ScalarType.createVarchar(60)));
-            builder.addColumn(new Column("Lower Bound", ScalarType.createVarchar(100)));
-            builder.addColumn(new Column("Upper Bound", ScalarType.createVarchar(100)));
         } else if (hasPartitionStatsCapability()) {
             // A plugin connector that declares SUPPORTS_PARTITION_STATS (paimon after cutover):
             // 5-column rich result. Must match the row width built in

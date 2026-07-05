@@ -293,27 +293,6 @@ public class MaxComputeConnectorMetadata implements ConnectorMetadata {
     // ==================== Write / Transaction (P4-T03 / P4-T04) ====================
 
     /**
-     * Declares INSERT support so the engine routes MaxCompute writes through the
-     * plugin-driven sink path. The sink is built by
-     * {@link MaxComputeWritePlanProvider#planWrite} (P4-T04) and commit is driven by
-     * {@link MaxComputeConnectorTransaction#commit()} through the SPI transaction
-     * lifecycle, so the {@code beginInsert} / {@code finishInsert} / {@code getWriteConfig}
-     * hooks carry no MaxCompute-specific work and intentionally stay the throwing
-     * defaults; the exact executor call surface is settled at the cutover (Batch C).
-     */
-    @Override
-    public boolean supportsInsert() {
-        return true;
-    }
-
-    @Override
-    public boolean supportsInsertOverwrite() {
-        // MaxCompute honors overwrite end-to-end: MaxComputeWritePlanProvider sets
-        // builder.overwrite(true) on the write session when the sink requests it.
-        return true;
-    }
-
-    /**
      * Disables pushing predicates that contain implicit CAST expressions down to ODPS (F9 fix).
      *
      * <p>The shared {@code ExprToConnectorExpressionConverter} unwraps CAST shells, so without this
@@ -331,18 +310,6 @@ public class MaxComputeConnectorMetadata implements ConnectorMetadata {
     @Override
     public boolean supportsCastPredicatePushdown(ConnectorSession session) {
         return false;
-    }
-
-    /**
-     * MaxCompute uses the SPI transaction model: the engine opens a
-     * {@link MaxComputeConnectorTransaction} via {@link #beginTransaction} and binds it to
-     * the session; the write plan ({@code MaxComputeWritePlanProvider.planWrite}) attaches the
-     * ODPS write session to it. So the executor routes through the transaction model rather
-     * than the {@code beginInsert} / {@code finishInsert} handle model (which stays throwing-default).
-     */
-    @Override
-    public boolean usesConnectorTransaction() {
-        return true;
     }
 
     /**
