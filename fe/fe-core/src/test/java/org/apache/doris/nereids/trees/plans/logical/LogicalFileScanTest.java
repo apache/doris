@@ -19,8 +19,7 @@ package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.datasource.iceberg.IcebergExternalTable;
-import org.apache.doris.datasource.iceberg.IcebergSysExternalTable;
+import org.apache.doris.datasource.PluginDrivenExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
@@ -38,28 +37,11 @@ import java.util.stream.Collectors;
 public class LogicalFileScanTest {
 
     @Test
-    public void testNestedColumnPruningForIcebergSystemTables() {
-        IcebergSysExternalTable positionDeletes = Mockito.mock(IcebergSysExternalTable.class);
-        Mockito.when(positionDeletes.initSelectedPartitions(Mockito.any()))
-                .thenReturn(SelectedPartitions.NOT_PRUNED);
-        Mockito.when(positionDeletes.isPositionDeletesTable()).thenReturn(true);
-        LogicalFileScan positionDeletesScan = new LogicalFileScan(new RelationId(1), positionDeletes,
-                Collections.singletonList("db"), Collections.emptyList(),
-                Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty());
-        Assertions.assertTrue(positionDeletesScan.supportPruneNestedColumn());
-
-        IcebergSysExternalTable jniSystemTable = Mockito.mock(IcebergSysExternalTable.class);
-        Mockito.when(jniSystemTable.initSelectedPartitions(Mockito.any()))
-                .thenReturn(SelectedPartitions.NOT_PRUNED);
-        Mockito.when(jniSystemTable.isPositionDeletesTable()).thenReturn(false);
-        LogicalFileScan jniSystemTableScan = new LogicalFileScan(new RelationId(2), jniSystemTable,
-                Collections.singletonList("db"), Collections.emptyList(),
-                Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty());
-        Assertions.assertFalse(jniSystemTableScan.supportPruneNestedColumn());
-    }
-
-    @Test
     public void testComputeOutputIncludesInvisibleRowLineageColumnsForIcebergTable() {
+        // Post-cutover a native iceberg table is a PluginDrivenExternalTable, so computeOutput() flows through
+        // computePluginDrivenOutput() (row-lineage columns are surfaced by the connector via getFullSchema); the
+        // legacy exact-class IcebergExternalTable arm is gone. Assert the invisible v3 row-lineage columns still
+        // reach the plan output.
         Column rowIdColumn = new Column(IcebergUtils.ICEBERG_ROW_ID_COL, Type.BIGINT, true);
         rowIdColumn.setIsVisible(false);
         Column lastUpdatedSequenceNumberColumn =
@@ -70,7 +52,7 @@ public class LogicalFileScanTest {
                 rowIdColumn,
                 lastUpdatedSequenceNumberColumn);
 
-        IcebergExternalTable table = Mockito.mock(IcebergExternalTable.class);
+        PluginDrivenExternalTable table = Mockito.mock(PluginDrivenExternalTable.class);
         Mockito.when(table.initSelectedPartitions(Mockito.any())).thenReturn(SelectedPartitions.NOT_PRUNED);
         Mockito.when(table.getFullSchema()).thenReturn(schema);
         Mockito.when(table.getName()).thenReturn("iceberg_tbl");
@@ -85,5 +67,30 @@ public class LogicalFileScanTest {
                 "id",
                 IcebergUtils.ICEBERG_ROW_ID_COL,
                 IcebergUtils.ICEBERG_LAST_UPDATED_SEQUENCE_NUMBER_COL), outputNames);
+    }
+
+    @Test
+    public void supportPruneNestedColumnDelegatesToPluginCapability() {
+        // WHY (H-10 L1): a flipped plugin-driven table (e.g. iceberg as PluginDrivenMvccExternalTable) is no
+        // longer an IcebergExternalTable, so supportPruneNestedColumn must consult the connector capability via
+        // PluginDrivenExternalTable.supportsNestedColumnPrune() instead of the dead exact-class arm. MUTATION:
+        // reverting the plugin arm to a hard-coded `return false` -> the capable case below reds.
+        PluginDrivenExternalTable capable = Mockito.mock(PluginDrivenExternalTable.class);
+        Mockito.when(capable.initSelectedPartitions(Mockito.any())).thenReturn(SelectedPartitions.NOT_PRUNED);
+        Mockito.when(capable.supportsNestedColumnPrune()).thenReturn(true);
+        LogicalFileScan capableScan = new LogicalFileScan(new RelationId(2), capable,
+                Collections.singletonList("db"), Collections.emptyList(),
+                Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty());
+        Assertions.assertTrue(capableScan.supportPruneNestedColumn(),
+                "a plugin table whose connector declares the capability must support nested-column prune");
+
+        PluginDrivenExternalTable incapable = Mockito.mock(PluginDrivenExternalTable.class);
+        Mockito.when(incapable.initSelectedPartitions(Mockito.any())).thenReturn(SelectedPartitions.NOT_PRUNED);
+        Mockito.when(incapable.supportsNestedColumnPrune()).thenReturn(false);
+        LogicalFileScan incapableScan = new LogicalFileScan(new RelationId(3), incapable,
+                Collections.singletonList("db"), Collections.emptyList(),
+                Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty());
+        Assertions.assertFalse(incapableScan.supportPruneNestedColumn(),
+                "a plugin table whose connector does not declare the capability must not prune nested columns");
     }
 }

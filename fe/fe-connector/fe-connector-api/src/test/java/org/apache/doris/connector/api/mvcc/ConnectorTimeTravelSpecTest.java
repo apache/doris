@@ -79,6 +79,22 @@ public class ConnectorTimeTravelSpecTest {
     }
 
     @Test
+    public void versionRefFactoryIsDistinctFromTag() {
+        // WHY: a non-numeric FOR VERSION AS OF '<name>' is VERSION_REF (the connector resolves it as a
+        // branch OR a tag), NOT the explicit @tag (TAG, tag-only). Same name shape, different kind: if the
+        // factory collapsed VERSION_REF into TAG, iceberg would reject a branch ref (regression H-7).
+        ConnectorTimeTravelSpec versionRef = ConnectorTimeTravelSpec.versionRef("v1");
+        ConnectorTimeTravelSpec tag = ConnectorTimeTravelSpec.tag("v1");
+
+        Assertions.assertEquals(ConnectorTimeTravelSpec.Kind.VERSION_REF, versionRef.getKind());
+        Assertions.assertEquals("v1", versionRef.getStringValue());
+        Assertions.assertFalse(versionRef.isDigital(), "digital is only meaningful for TIMESTAMP");
+        Assertions.assertTrue(versionRef.getIncrementalParams().isEmpty());
+        // Same name, different kind => must not be equal (else a @tag query reuses a VERSION_REF result).
+        Assertions.assertNotEquals(versionRef, tag);
+    }
+
+    @Test
     public void incrementalFactoryHasNullStringValueAndParams() {
         Map<String, String> raw = new HashMap<>();
         raw.put("startSnapshotId", "1");
@@ -135,6 +151,8 @@ public class ConnectorTimeTravelSpecTest {
                 () -> ConnectorTimeTravelSpec.snapshotId(null));
         Assertions.assertThrows(NullPointerException.class,
                 () -> ConnectorTimeTravelSpec.timestamp(null, true));
+        Assertions.assertThrows(NullPointerException.class,
+                () -> ConnectorTimeTravelSpec.versionRef(null));
         Assertions.assertThrows(NullPointerException.class,
                 () -> ConnectorTimeTravelSpec.tag(null));
         Assertions.assertThrows(NullPointerException.class,

@@ -23,10 +23,10 @@ import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.connector.ConnectorSessionBuilder;
 import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.ConnectorWriteOps;
-import org.apache.doris.connector.api.handle.ConnectorInsertHandle;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.api.handle.ConnectorTransaction;
 import org.apache.doris.connector.api.handle.ConnectorWriteHandle;
+import org.apache.doris.connector.api.handle.NoOpConnectorTransaction;
 import org.apache.doris.connector.api.write.ConnectorSinkPlan;
 import org.apache.doris.connector.api.write.ConnectorWritePlanProvider;
 import org.apache.doris.planner.PluginDrivenTableSink;
@@ -38,21 +38,21 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
-import java.util.Collection;
 import java.util.Collections;
 import java.util.Optional;
 
 /**
- * Ordering / routing tests for {@link PluginDrivenInsertExecutor}'s SPI transaction-model
- * path (P4-T06a W-c / gap G2).
+ * Ordering / routing tests for {@link PluginDrivenInsertExecutor}'s unified single-transaction
+ * write lifecycle (P6.3-T01).
  *
- * <p>The four overrides encode the cutover's critical write-lifecycle constraint
- * (design §1.2): {@code beginTransaction} opens the connector transaction and registers
- * it globally, then {@code finalizeSink} must bind that transaction onto the <em>sink's</em>
- * session <em>before</em> {@code super.finalizeSink -> bindDataSink -> planWrite} runs —
- * because {@code planWrite} reads {@code session.getCurrentTransaction()} and fails loud if
- * it is absent. {@code beforeExec} must skip the JDBC handle-model path, and
- * {@code transactionType} reports MAXCOMPUTE.</p>
+ * <p>Every plugin-driven write now opens a {@link ConnectorTransaction} in
+ * {@code beginTransaction} (registered globally), then {@code finalizeSink} binds it onto the
+ * <em>sink's</em> session <em>before</em> {@code super.finalizeSink -> bindDataSink -> planWrite}
+ * runs — because plan-provider {@code planWrite} reads {@code session.getCurrentTransaction()}.
+ * Config-bag sinks (jdbc) carry no session, so the bind is skipped (no NPE).
+ * {@code transactionType} is sourced from the transaction's {@code profileLabel}, and
+ * {@code doBeforeCommit} backfills {@code loadedRows} from {@code getUpdateCnt()} only when the
+ * transaction reports a real count (>= 0), preserving the coordinator counter otherwise.</p>
  *
  * <p>The 7-arg executor constructor builds a {@code Coordinator} via
  * {@code EnvFactory.createCoordinator}, which cannot be stood up in a unit test, so the
@@ -82,7 +82,7 @@ public class PluginDrivenInsertExecutorTest {
             Assertions.assertNotNull(
                     Env.getCurrentEnv().getGlobalExternalTransactionInfoMgr().getTxnById(70001L),
                     "the connector txn must be globally registered for the BE block-allocation / "
-                            + "commit-data RPCs (W-d)");
+                            + "commit-data RPCs");
         } finally {
             Env.getCurrentEnv().getGlobalExternalTransactionInfoMgr().removeTxnById(70001L);
         }
@@ -106,64 +106,100 @@ public class PluginDrivenInsertExecutorTest {
         Assertions.assertNotNull(provider.txnSeenAtPlanWrite, "planWrite must have been reached");
         Assertions.assertTrue(provider.txnSeenAtPlanWrite.isPresent(),
                 "the transaction must be bound onto the sink's session before planWrite runs, "
-                        + "otherwise the maxcompute write plan fails loud");
+                        + "otherwise the plan-provider write plan fails loud");
         Assertions.assertSame(connectorTx, provider.txnSeenAtPlanWrite.get(),
                 "planWrite must observe exactly the transaction beginTransaction opened");
     }
 
     @Test
-    public void beforeExecSkipsHandleModelForTransactionModel() throws UserException {
+    public void finalizeSinkSkipsBindForConfigBagSinkWithoutSession() throws Exception {
+        // jdbc rides the config-bag sink, which is built without a connector session
+        // (getConnectorSession() == null). After unification jdbc carries a non-null no-op
+        // transaction, so finalizeSink must guard the bind on a non-null session — otherwise
+        // setCurrentTransaction(...) NPEs. (Mutation: drop the null-guard -> this test NPEs.)
         PluginDrivenInsertExecutor exec = newUnconstructedExecutor();
-        // connectorTx set, writeOps deliberately left null: the JDBC handle-model branch would
-        // dereference writeOps, so a clean return proves the transaction-model early-out is taken.
+        Deencapsulation.setField(exec, "connectorTx", new NoOpConnectorTransaction(70060L, "JDBC"));
+        Deencapsulation.setField(exec, "insertCtx", Optional.empty());
+
+        // Mockito sink: getConnectorSession() returns null (config-bag), bindDataSink() is a no-op
+        // so super.finalizeSink survives without a real fragment.
+        PluginDrivenTableSink configBagSink = Mockito.mock(PluginDrivenTableSink.class);
+
+        Assertions.assertDoesNotThrow(() -> exec.finalizeSink(null, configBagSink, null),
+                "binding must be skipped for a config-bag sink with no connector session (no NPE)");
+        // The bind-guard skips setCurrentTransaction (null session) but execution must still flow
+        // into super.finalizeSink -> bindDataSink — proving the guard short-circuited only the
+        // bind, not the whole sink build.
+        Mockito.verify(configBagSink).bindDataSink(Mockito.any());
+    }
+
+    @Test
+    public void beforeExecIsNoOpUnderSingleTransactionModel() throws UserException {
+        // The write session is created by planWrite (in finalizeSink); beforeExec opens nothing.
+        // writeOps deliberately left null: a clean return proves beforeExec touches no write SPI.
+        PluginDrivenInsertExecutor exec = newUnconstructedExecutor();
         Deencapsulation.setField(exec, "connectorTx", new StubConnectorTransaction(70020L));
 
         exec.beforeExec();
     }
 
     @Test
-    public void transactionTypeIsMaxComputeForTransactionModel() {
+    public void transactionTypeIsMappedFromConnectorProfileLabel() {
+        // The connector tags its transaction with a profile label; the executor maps it to the
+        // profiling TransactionType (jdbc -> JDBC, maxcompute -> MAXCOMPUTE, unknown -> UNKNOWN).
         PluginDrivenInsertExecutor exec = newUnconstructedExecutor();
-        Deencapsulation.setField(exec, "connectorTx", new StubConnectorTransaction(70030L));
 
+        Deencapsulation.setField(exec, "connectorTx", new StubConnectorTransaction(70030L, 0L, "MAXCOMPUTE"));
         Assertions.assertEquals(TransactionType.MAXCOMPUTE, exec.transactionType(),
-                "the transaction-model executor reports MAXCOMPUTE (profiling-only; sole adopter)");
+                "a transaction labelled MAXCOMPUTE must map to TransactionType.MAXCOMPUTE");
+
+        Deencapsulation.setField(exec, "connectorTx", new StubConnectorTransaction(70031L, 0L, "JDBC"));
+        Assertions.assertEquals(TransactionType.JDBC, exec.transactionType(),
+                "a transaction labelled JDBC must map to TransactionType.JDBC");
+
+        Deencapsulation.setField(exec, "connectorTx", new StubConnectorTransaction(70032L, 0L, "EXTERNAL"));
+        Assertions.assertEquals(TransactionType.UNKNOWN, exec.transactionType(),
+                "an unrecognized label must fall back to TransactionType.UNKNOWN");
     }
 
     @Test
-    public void doBeforeCommitBackfillsLoadedRowsFromConnectorTxnInTransactionModel() throws UserException {
+    public void transactionTypeIsUnknownWhenNoTransaction() {
+        // empty-insert skips beginTransaction; transactionType must not NPE on a null transaction.
         PluginDrivenInsertExecutor exec = newUnconstructedExecutor();
-        // Transaction model: connectorTx present, no insert handle. The BE sink reports the row count
-        // only through the connector transaction's commit-data, so doBeforeCommit must backfill
-        // loadedRows from it -- otherwise affected-rows is reported as 0 (WRITE-P1 regression,
-        // mirroring legacy MCInsertExecutor.doBeforeCommit's loadedRows = transaction.getUpdateCnt()).
+        Assertions.assertEquals(TransactionType.UNKNOWN, exec.transactionType(),
+                "with no connector transaction (empty insert), transactionType is UNKNOWN");
+    }
+
+    @Test
+    public void doBeforeCommitBackfillsLoadedRowsWhenTransactionReportsCount() throws UserException {
+        // Transaction model with a real row count (e.g. maxcompute): BE reports rows only through
+        // the connector transaction's commit-data, so doBeforeCommit must backfill loadedRows from
+        // getUpdateCnt() -- otherwise affected-rows is reported as 0.
+        PluginDrivenInsertExecutor exec = newUnconstructedExecutor();
         Deencapsulation.setField(exec, "connectorTx", new StubConnectorTransaction(70040L, 42L));
 
         exec.doBeforeCommit();
 
         Long loadedRows = Deencapsulation.getField(exec, "loadedRows");
         Assertions.assertEquals(42L, loadedRows.longValue(),
-                "transaction-model doBeforeCommit must set loadedRows = connectorTx.getUpdateCnt()");
+                "doBeforeCommit must set loadedRows = connectorTx.getUpdateCnt() when it is >= 0");
     }
 
     @Test
-    public void doBeforeCommitUsesHandleModelAndSkipsTxnBackfillWhenNoConnectorTxn() throws UserException {
+    public void doBeforeCommitKeepsCoordinatorRowCountWhenTransactionReportsNoCount() throws UserException {
+        // A no-op transaction (jdbc) reports getUpdateCnt() == -1 ("no count from the transaction").
+        // loadedRows was already set from the coordinator's DPP_NORMAL_ALL counter; doBeforeCommit
+        // must NOT clobber it with the sentinel -- otherwise affected-rows regresses to 0/-1.
+        // (Mutation: drop the `if (cnt >= 0)` guard -> loadedRows becomes -1 and this test fails.)
         PluginDrivenInsertExecutor exec = newUnconstructedExecutor();
-        // JDBC / auto-commit handle model: connectorTx is null. doBeforeCommit must run the
-        // insert-handle finishInsert path, and must NOT touch loadedRows via the (null) connector
-        // transaction -- a missing connectorTx==null guard would NPE here.
-        RecordingHandleWriteOps writeOps = new RecordingHandleWriteOps();
-        Deencapsulation.setField(exec, "writeOps", writeOps);
-        Deencapsulation.setField(exec, "insertHandle", new ConnectorInsertHandle() { });
-        Deencapsulation.setField(exec, "connectorSession", ConnectorSessionBuilder.create().build());
+        Deencapsulation.setField(exec, "loadedRows", 7L);
+        Deencapsulation.setField(exec, "connectorTx", new NoOpConnectorTransaction(70050L, "JDBC"));
 
         exec.doBeforeCommit();
 
-        Assertions.assertTrue(writeOps.finishInsertCalled,
-                "handle-model doBeforeCommit must still call writeOps.finishInsert");
         Long loadedRows = Deencapsulation.getField(exec, "loadedRows");
-        Assertions.assertEquals(0L, loadedRows.longValue(),
-                "with no connector transaction, loadedRows must not be backfilled (stays at default)");
+        Assertions.assertEquals(7L, loadedRows.longValue(),
+                "a -1 (no count) transaction must leave the coordinator-counted loadedRows untouched");
     }
 
     /**
@@ -174,17 +210,12 @@ public class PluginDrivenInsertExecutorTest {
         return Mockito.mock(PluginDrivenInsertExecutor.class, Mockito.CALLS_REAL_METHODS);
     }
 
-    /** Write ops that route through the SPI transaction model and hand back a fixed transaction. */
+    /** Write ops that hand back a fixed connector transaction from beginTransaction. */
     private static final class FakeTxnWriteOps implements ConnectorWriteOps {
         private final ConnectorTransaction txn;
 
         private FakeTxnWriteOps(ConnectorTransaction txn) {
             this.txn = txn;
-        }
-
-        @Override
-        public boolean usesConnectorTransaction() {
-            return true;
         }
 
         @Override
@@ -204,18 +235,24 @@ public class PluginDrivenInsertExecutorTest {
         }
     }
 
-    /** Minimal hand-written {@link ConnectorTransaction}; identity plus an affected-row count. */
+    /** Minimal hand-written {@link ConnectorTransaction}: identity, row count, profile label. */
     private static final class StubConnectorTransaction implements ConnectorTransaction {
         private final long txnId;
         private final long updateCnt;
+        private final String profileLabel;
 
         private StubConnectorTransaction(long txnId) {
-            this(txnId, 0L);
+            this(txnId, 0L, "MAXCOMPUTE");
         }
 
         private StubConnectorTransaction(long txnId, long updateCnt) {
+            this(txnId, updateCnt, "MAXCOMPUTE");
+        }
+
+        private StubConnectorTransaction(long txnId, long updateCnt, String profileLabel) {
             this.txnId = txnId;
             this.updateCnt = updateCnt;
+            this.profileLabel = profileLabel;
         }
 
         @Override
@@ -229,6 +266,11 @@ public class PluginDrivenInsertExecutorTest {
         }
 
         @Override
+        public String profileLabel() {
+            return profileLabel;
+        }
+
+        @Override
         public void commit() {
         }
 
@@ -238,17 +280,6 @@ public class PluginDrivenInsertExecutorTest {
 
         @Override
         public void close() {
-        }
-    }
-
-    /** Handle-model write ops that record whether finishInsert was invoked. */
-    private static final class RecordingHandleWriteOps implements ConnectorWriteOps {
-        private boolean finishInsertCalled;
-
-        @Override
-        public void finishInsert(ConnectorSession session, ConnectorInsertHandle handle,
-                Collection<byte[]> fragments) {
-            finishInsertCalled = true;
         }
     }
 }

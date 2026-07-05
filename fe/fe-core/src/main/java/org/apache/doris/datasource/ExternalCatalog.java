@@ -44,7 +44,6 @@ import org.apache.doris.datasource.connectivity.CatalogConnectivityTestCoordinat
 import org.apache.doris.datasource.doris.RemoteDorisExternalDatabase;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalDatabase;
-import org.apache.doris.datasource.iceberg.IcebergExternalDatabase;
 import org.apache.doris.datasource.infoschema.ExternalInfoSchemaDatabase;
 import org.apache.doris.datasource.infoschema.ExternalMysqlDatabase;
 import org.apache.doris.datasource.lakesoul.LakeSoulExternalDatabase;
@@ -431,6 +430,19 @@ public abstract class ExternalCatalog
         } finally {
             isInitializing = false;
         }
+    }
+
+    /**
+     * Records the root-cause of a deferred metadata-load failure into {@code errorMsg} so it is
+     * visible in {@code show catalogs}. Some connectors connect lazily on first metadata access
+     * (their {@link #initLocalObjectsImpl()} only constructs the client), so the initial failure
+     * happens inside the meta-cache loader — outside {@link #makeSureInitialized()}'s try/catch,
+     * which is the only other place {@code errorMsg} is written. The message is cleared again by
+     * {@link #makeSureInitialized()} on the next successful (re-)initialization, e.g. after
+     * {@code alter catalog ... set properties} triggers {@link #resetToUninitialized(boolean)}.
+     */
+    protected void recordDeferredInitError(Throwable t) {
+        this.errorMsg = ExceptionUtils.getRootCauseMessage(t);
     }
 
     protected final void initLocalObjects() {
@@ -971,7 +983,14 @@ public abstract class ExternalCatalog
             case JDBC:
                 return new PluginDrivenExternalDatabase(this, dbId, localDbName, remoteDbName);
             case ICEBERG:
-                return new IcebergExternalDatabase(this, dbId, localDbName, remoteDbName);
+                // Native iceberg is flipped to the plugin path (PluginDrivenExternalCatalog); the
+                // IcebergExternalDatabase entity class is being removed. This case only fires when
+                // replaying an old InitCatalogLog persisted with Type.ICEBERG (a base ExternalCatalog
+                // whose logType was serialized as ICEBERG) — build the post-flip runtime type so the
+                // db (and the PluginDrivenExternalTable it builds) matches the GSON remap. Keep the
+                // case label: deleting it would fall through to `return null` and break db init on
+                // replay. Type.ICEBERG enum is retained for old-image deserialization.
+                return new PluginDrivenExternalDatabase(this, dbId, localDbName, remoteDbName);
             case LAKESOUL:
                 return new LakeSoulExternalDatabase(this, dbId, localDbName, remoteDbName);
             case TEST:

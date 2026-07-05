@@ -17,225 +17,76 @@
 
 package org.apache.doris.connector.api;
 
-import org.apache.doris.connector.api.handle.ConnectorDeleteHandle;
-import org.apache.doris.connector.api.handle.ConnectorInsertHandle;
-import org.apache.doris.connector.api.handle.ConnectorMergeHandle;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.api.handle.ConnectorTransaction;
-import org.apache.doris.connector.api.write.ConnectorWriteConfig;
+import org.apache.doris.connector.api.handle.WriteOperation;
 
-import java.util.Collection;
 import java.util.List;
 
 /**
  * Write (DML) operations that a connector may support.
  *
- * <p>Follows a two-phase lifecycle for each write operation:</p>
- * <ol>
- *   <li>{@code begin*} — initialize the write, return an opaque handle</li>
- *   <li>{@code finish*} — commit using collected BE fragments; or {@code abort*} on failure</li>
- * </ol>
+ * <p>Every write goes through a single transaction model: the engine opens a
+ * {@link ConnectorTransaction} via {@link #beginTransaction(ConnectorSession)}, the
+ * connector's write plan attaches to it, BE feeds commit fragments back through
+ * {@link ConnectorTransaction#addCommitData}, and the engine finally calls
+ * {@code commit()} / {@code rollback()}. Connectors whose writes are auto-committed
+ * by BE return a degenerate no-op transaction.</p>
  *
- * <p>All methods have default implementations that throw
- * {@link DorisConnectorException}, so connectors only override what they support.</p>
+ * <p>All methods have default implementations (throwing / read-only), so connectors
+ * only override what they support.</p>
  */
 public interface ConnectorWriteOps {
 
-    // ──────────────────── Capability Queries ────────────────────
-
-    /** Returns {@code true} if this connector supports INSERT operations. */
-    default boolean supportsInsert() {
-        return false;
+    /**
+     * Validates that a row-level DML {@code op} ({@link WriteOperation#DELETE} / {@link WriteOperation#UPDATE} /
+     * {@link WriteOperation#MERGE}) is permitted on {@code handle} under the table's configured write mode,
+     * throwing a {@link DorisConnectorException} with a connector-authored message otherwise. Called at analysis
+     * time, before synthesizing the write plan, so the engine rejects an unsupported statement up front (fail
+     * loud) rather than producing a broken write.
+     *
+     * <p>The default permits everything: connectors with no per-table mode constraint need not override. A
+     * connector whose tables can be configured in a mode that forbids row-level DML (e.g. iceberg
+     * copy-on-write) MUST override this and throw, so the rejection — and its message — stay in the connector
+     * rather than being drafted by the engine. {@code op} values other than DELETE/UPDATE/MERGE are not
+     * row-level DML and an overriding connector should treat them as a no-op.</p>
+     */
+    default void validateRowLevelDmlMode(ConnectorSession session, ConnectorTableHandle handle, WriteOperation op) {
+        // default: no per-table mode constraint
     }
 
     /**
-     * Returns {@code true} if this connector supports INSERT OVERWRITE (truncate-and-insert)
-     * semantics. A connector that supports plain INSERT but not overwrite must keep this
-     * {@code false} so callers reject the command up front (fail loud) instead of silently
-     * degrading OVERWRITE to a plain append.
-     */
-    default boolean supportsInsertOverwrite() {
-        return false;
-    }
-
-    /** Returns {@code true} if this connector supports DELETE operations. */
-    default boolean supportsDelete() {
-        return false;
-    }
-
-    /** Returns {@code true} if this connector supports MERGE (INSERT + DELETE) operations. */
-    default boolean supportsMerge() {
-        return false;
-    }
-
-    /**
-     * Returns {@code true} if this connector uses the SPI transaction model: the engine
-     * opens a {@link org.apache.doris.connector.api.handle.ConnectorTransaction} via
-     * {@link #beginTransaction(ConnectorSession)}, binds it to the {@link ConnectorSession},
-     * and the connector's write plan attaches to that transaction (e.g. maxcompute).
-     * Connectors with statement-scoped / auto-commit writes (e.g. jdbc) leave this
-     * {@code false} and use the {@code beginInsert} / {@code finishInsert} handle model.
+     * Validates that every column named in a static-partition spec ({@code INSERT [OVERWRITE] ... PARTITION
+     * (col=val)}) is a legal static-partition target on {@code handle}, throwing a {@link DorisConnectorException}
+     * with a connector-authored message otherwise. Called at analysis time, before synthesizing the write plan,
+     * so the engine rejects an unknown / non-identity / unpartitioned static-partition column up front (fail
+     * loud) rather than letting it slip through to physical planning.
      *
-     * <p>The executor routes on this <em>before</em> touching any throwing-default write
-     * method, so connectors that only support the transaction model need not implement
-     * {@code getWriteConfig} / {@code beginInsert}.</p>
+     * <p>The default accepts everything: connectors with no static-partition concept (e.g. name-mapped JDBC)
+     * need not override. A connector that supports {@code PARTITION(...)} writes and can reject a column (e.g.
+     * iceberg, where only identity partition fields may be targeted statically) MUST override this and throw, so
+     * the rejection — and its message — stay in the connector rather than being drafted by the engine. {@code
+     * staticPartitionColumnNames} is the set of column names from the PARTITION clause.</p>
      */
-    default boolean usesConnectorTransaction() {
-        return false;
-    }
-
-    // ──────────────────── Write Configuration ────────────────────
-
-    /**
-     * Returns the write configuration for this table.
-     *
-     * <p>The engine uses the returned {@link ConnectorWriteConfig} to select the
-     * appropriate Thrift data sink type and pass properties to BE.</p>
-     *
-     * @param session current session
-     * @param handle the target table handle
-     * @param columns the columns being written (ordered to match INSERT column list)
-     * @return write configuration describing sink type, format, location, etc.
-     */
-    default ConnectorWriteConfig getWriteConfig(
-            ConnectorSession session,
-            ConnectorTableHandle handle,
-            List<ConnectorColumn> columns) {
-        throw new DorisConnectorException("Write not supported");
-    }
-
-    // ──────────────────── INSERT ────────────────────
-
-    /**
-     * Begins an insert operation and returns an opaque handle.
-     *
-     * @param session current session
-     * @param handle the target table handle
-     * @param columns the columns being inserted (ordered to match INSERT column list)
-     * @return an opaque insert handle carrying connector-internal state
-     */
-    default ConnectorInsertHandle beginInsert(
-            ConnectorSession session,
-            ConnectorTableHandle handle,
-            List<ConnectorColumn> columns) {
-        throw new DorisConnectorException("INSERT not supported");
-    }
-
-    /**
-     * Commits the insert operation using collected fragments from BE.
-     *
-     * @param session current session
-     * @param handle the insert handle from {@link #beginInsert}
-     * @param fragments serialized commit info collected from BE nodes
-     */
-    default void finishInsert(ConnectorSession session,
-            ConnectorInsertHandle handle,
-            Collection<byte[]> fragments) {
-        throw new DorisConnectorException("INSERT not supported");
-    }
-
-    /**
-     * Aborts a previously started insert operation.
-     * Called on failure to clean up any partial writes.
-     *
-     * @param session current session
-     * @param handle the insert handle from {@link #beginInsert}
-     */
-    default void abortInsert(ConnectorSession session,
-            ConnectorInsertHandle handle) {
-        // default: no-op — connector may not require explicit cleanup
-    }
-
-    // ──────────────────── DELETE ────────────────────
-
-    /**
-     * Begins a delete operation and returns an opaque handle.
-     *
-     * @param session current session
-     * @param handle the target table handle
-     * @return an opaque delete handle
-     */
-    default ConnectorDeleteHandle beginDelete(
-            ConnectorSession session,
-            ConnectorTableHandle handle) {
-        throw new DorisConnectorException("DELETE not supported");
-    }
-
-    /**
-     * Commits the delete operation using collected fragments.
-     *
-     * @param session current session
-     * @param handle the delete handle from {@link #beginDelete}
-     * @param fragments serialized commit info collected from BE nodes
-     */
-    default void finishDelete(ConnectorSession session,
-            ConnectorDeleteHandle handle,
-            Collection<byte[]> fragments) {
-        throw new DorisConnectorException("DELETE not supported");
-    }
-
-    /**
-     * Aborts a previously started delete operation.
-     *
-     * @param session current session
-     * @param handle the delete handle from {@link #beginDelete}
-     */
-    default void abortDelete(ConnectorSession session,
-            ConnectorDeleteHandle handle) {
-        // default: no-op
-    }
-
-    // ──────────────────── MERGE (INSERT + DELETE) ────────────────────
-
-    /**
-     * Begins a merge (combined insert+delete) operation.
-     * Used by connectors that support merge-on-read (e.g., Iceberg).
-     *
-     * @param session current session
-     * @param handle the target table handle
-     * @return an opaque merge handle
-     */
-    default ConnectorMergeHandle beginMerge(
-            ConnectorSession session,
-            ConnectorTableHandle handle) {
-        throw new DorisConnectorException("MERGE not supported");
-    }
-
-    /**
-     * Commits the merge operation using collected fragments.
-     *
-     * @param session current session
-     * @param handle the merge handle from {@link #beginMerge}
-     * @param fragments serialized commit info collected from BE nodes
-     */
-    default void finishMerge(ConnectorSession session,
-            ConnectorMergeHandle handle,
-            Collection<byte[]> fragments) {
-        throw new DorisConnectorException("MERGE not supported");
-    }
-
-    /**
-     * Aborts a previously started merge operation.
-     *
-     * @param session current session
-     * @param handle the merge handle from {@link #beginMerge}
-     */
-    default void abortMerge(ConnectorSession session,
-            ConnectorMergeHandle handle) {
-        // default: no-op
+    default void validateStaticPartitionColumns(ConnectorSession session, ConnectorTableHandle handle,
+            List<String> staticPartitionColumnNames) {
+        // default: no static-partition constraint
     }
 
     // ──────────────────── TRANSACTION ────────────────────
 
     /**
-     * Begins a new transaction scoped to a single SQL statement (auto-commit)
-     * or to an explicit BEGIN..COMMIT block. The returned transaction is passed
-     * to subsequent {@code begin*} / {@code finish*} / {@code abort*} calls via
-     * the same {@link ConnectorSession}.
+     * Begins a new transaction scoped to a single SQL statement (auto-commit) or to an
+     * explicit BEGIN..COMMIT block. The engine binds the returned transaction onto the
+     * {@link ConnectorSession} and drives its {@code commit()} / {@code rollback()} after
+     * the write completes; BE feeds commit fragments back through
+     * {@link ConnectorTransaction#addCommitData}.
      *
-     * <p>Connectors that do not support multi-statement transactions can either
-     * return a no-op transaction whose commit/rollback do nothing, or throw, in
-     * which case the engine treats every statement as auto-commit.</p>
+     * <p>Every write-capable connector must return a transaction here. Connectors whose
+     * writes are auto-committed by BE (e.g. jdbc) return a degenerate
+     * {@link org.apache.doris.connector.api.handle.NoOpConnectorTransaction}; the default
+     * throws (a connector that supports writes but does not override this is misconfigured
+     * — fail loud).</p>
      */
     default ConnectorTransaction beginTransaction(ConnectorSession session) {
         throw new DorisConnectorException("Transactions not supported");

@@ -97,17 +97,17 @@ public class ExplainCommand extends Command implements NoForward {
             new NereidsPlanner(ctx.getStatementContext())
         );
 
-        long previousTargetTableId = ctx.getIcebergRowIdTargetTableId();
+        long previousTargetTableId = ctx.getSyntheticWriteColTargetTableId();
         boolean resetTargetTableId = false;
         if (explainPlan instanceof LogicalIcebergDeleteSink) {
             if (previousTargetTableId < 0) {
-                ctx.setIcebergRowIdTargetTableId(
+                ctx.setSyntheticWriteColTargetTableId(
                         ((LogicalIcebergDeleteSink<?>) explainPlan).getTargetTable().getId());
                 resetTargetTableId = true;
             }
         } else if (explainPlan instanceof LogicalIcebergMergeSink) {
             if (previousTargetTableId < 0) {
-                ctx.setIcebergRowIdTargetTableId(
+                ctx.setSyntheticWriteColTargetTableId(
                         ((LogicalIcebergMergeSink<?>) explainPlan).getTargetTable().getId());
                 resetTargetTableId = true;
             }
@@ -134,7 +134,7 @@ public class ExplainCommand extends Command implements NoForward {
             }
         } finally {
             if (resetTargetTableId) {
-                ctx.setIcebergRowIdTargetTableId(previousTargetTableId);
+                ctx.setSyntheticWriteColTargetTableId(previousTargetTableId);
             }
         }
     }

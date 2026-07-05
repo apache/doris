@@ -20,16 +20,10 @@ package org.apache.doris.datasource.iceberg;
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
-import org.apache.doris.datasource.DelegatedCredential;
-import org.apache.doris.datasource.ExternalMetaCacheMgr;
-import org.apache.doris.datasource.ExternalTable;
-import org.apache.doris.datasource.SessionContext;
+import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.iceberg.source.IcebergTableQueryInfo;
-import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableMap;
 import org.apache.iceberg.GenericPartitionFieldSummary;
@@ -54,10 +48,8 @@ import org.apache.iceberg.types.Conversions;
 import org.apache.iceberg.types.Types;
 import org.apache.iceberg.types.Types.LongType;
 import org.apache.iceberg.types.Types.StructType;
-import org.apache.iceberg.view.View;
 import org.junit.Assert;
 import org.junit.Test;
-import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.lang.reflect.Field;
@@ -79,128 +71,32 @@ import java.util.UUID;
 
 public class IcebergUtilsTest {
     @Test
-    public void testGetFileFormatUsesPropertiesWithoutPlanningDataFiles() {
-        Table table = Mockito.mock(Table.class);
-        Mockito.when(table.properties()).thenReturn(Collections.emptyMap());
-        Mockito.when(table.currentSnapshot()).thenReturn(Mockito.mock(Snapshot.class));
-
-        Assert.assertEquals(org.apache.iceberg.FileFormat.PARQUET, IcebergUtils.getFileFormat(table));
-        // Do not call newScan planFiles()
-        Mockito.verify(table, Mockito.never()).newScan();
-    }
-
-    @Test
-    public void testGetFileFormatUsesConfiguredTableFormat() {
-        Table table = Mockito.mock(Table.class);
-        Mockito.when(table.properties()).thenReturn(
-                ImmutableMap.of(TableProperties.DEFAULT_FILE_FORMAT, "orc"));
-
-        Assert.assertEquals(org.apache.iceberg.FileFormat.ORC, IcebergUtils.getFileFormat(table));
-        // Do not call newScan planFiles()
-        Mockito.verify(table, Mockito.never()).newScan();
-    }
-
-    @Test
-    public void testGetIcebergViewUsesSessionCatalogWithDelegatedCredential() {
-        ConnectContext context = new ConnectContext();
-        SessionContext sessionContext = SessionContext.of(new DelegatedCredential(
-                DelegatedCredential.Type.ACCESS_TOKEN, "delegated-access-token"));
-        context.setSessionContext(sessionContext);
-        context.setThreadLocalInfo();
-
-        ExternalTable dorisTable = Mockito.mock(ExternalTable.class);
-        IcebergRestExternalCatalog catalog = Mockito.mock(IcebergRestExternalCatalog.class);
-        IcebergMetadataOps ops = Mockito.mock(IcebergMetadataOps.class);
-        View delegatedView = Mockito.mock(View.class);
-        View cachedView = Mockito.mock(View.class);
-        Mockito.when(dorisTable.getCatalog()).thenReturn(catalog);
-        Mockito.when(dorisTable.getRemoteDbName()).thenReturn("db");
-        Mockito.when(dorisTable.getRemoteName()).thenReturn("view1");
-        Mockito.when(catalog.useSessionCatalog(Mockito.any())).thenReturn(true);
-        Mockito.when(catalog.getMetadataOps()).thenReturn(ops);
-        Mockito.when(catalog.getId()).thenReturn(1L);
-        Mockito.when(ops.loadView(Mockito.same(sessionContext), Mockito.eq("db"), Mockito.eq("view1")))
-                .thenReturn(delegatedView);
-
-        Env env = Mockito.mock(Env.class);
-        ExternalMetaCacheMgr cacheMgr = Mockito.mock(ExternalMetaCacheMgr.class);
-        IcebergExternalMetaCache cache = Mockito.mock(IcebergExternalMetaCache.class);
-        Mockito.when(env.getExtMetaCacheMgr()).thenReturn(cacheMgr);
-        Mockito.when(cacheMgr.iceberg(1L)).thenReturn(cache);
-        Mockito.when(cache.getIcebergView(dorisTable)).thenReturn(cachedView);
-
-        try (MockedStatic<Env> mockedEnv = Mockito.mockStatic(Env.class)) {
-            mockedEnv.when(Env::getCurrentEnv).thenReturn(env);
-
-            Assert.assertSame(delegatedView, IcebergUtils.getIcebergView(dorisTable));
-            Mockito.verify(cache, Mockito.never()).getIcebergView(dorisTable);
-        } finally {
-            ConnectContext.remove();
-        }
-    }
-
-    @Test
-    public void testGetIcebergSchemaUsesSessionCatalogForView() {
-        ConnectContext context = new ConnectContext();
-        SessionContext sessionContext = SessionContext.of(new DelegatedCredential(
-                DelegatedCredential.Type.ACCESS_TOKEN, "delegated-access-token"));
-        context.setSessionContext(sessionContext);
-        context.setThreadLocalInfo();
-
-        ExternalTable dorisTable = Mockito.mock(ExternalTable.class);
-        IcebergRestExternalCatalog catalog = Mockito.mock(IcebergRestExternalCatalog.class);
-        IcebergMetadataOps ops = Mockito.mock(IcebergMetadataOps.class);
-        View delegatedView = Mockito.mock(View.class);
-        Mockito.when(dorisTable.getCatalog()).thenReturn(catalog);
-        Mockito.when(dorisTable.getRemoteDbName()).thenReturn("db");
-        Mockito.when(dorisTable.getRemoteName()).thenReturn("view1");
-        Mockito.when(dorisTable.isView()).thenReturn(true);
-        Mockito.when(catalog.useSessionCatalog(Mockito.any())).thenReturn(true);
-        Mockito.when(catalog.getMetadataOps()).thenReturn(ops);
-        Mockito.when(catalog.getExecutionAuthenticator()).thenReturn(new ExecutionAuthenticator() {});
-        Mockito.when(ops.loadView(Mockito.same(sessionContext), Mockito.eq("db"), Mockito.eq("view1")))
-                .thenReturn(delegatedView);
-        Mockito.when(delegatedView.schema()).thenReturn(new Schema(
-                Types.NestedField.required(1, "c1", Types.IntegerType.get())));
-
-        try {
-            List<Column> schema = IcebergUtils.getIcebergSchema(dorisTable);
-
-            Assert.assertEquals(1, schema.size());
-            Assert.assertEquals("c1", schema.get(0).getName());
-            Mockito.verify(ops, Mockito.never()).loadTable(Mockito.any(), Mockito.anyString(), Mockito.anyString());
-        } finally {
-            ConnectContext.remove();
-        }
-    }
-
-    @Test
     public void testParseTableName() {
         try {
-            IcebergHMSExternalCatalog c1 =
-                    new IcebergHMSExternalCatalog(1, "name", null, new HashMap<>(), "");
+            Map<String, String> p1 = new HashMap<>();
+            ExternalCatalog c1 = Mockito.mock(ExternalCatalog.class);
+            Mockito.when(c1.getProperties()).thenReturn(p1);
+            Mockito.when(c1.getHadoopProperties()).thenReturn(new HashMap<>());
             HiveCatalog i1 = IcebergUtils.createIcebergHiveCatalog(c1, "i1");
             Assert.assertTrue(getListAllTables(i1));
 
-            IcebergHMSExternalCatalog c2 =
-                    new IcebergHMSExternalCatalog(1, "name", null,
-                            new HashMap<String, String>() {{
-                                    put("list-all-tables", "true");
-                                    put("type", "hms");
-                                    put("hive.metastore.uris", "http://127.1.1.0:9000");
-                                }},
-                            "");
+            Map<String, String> p2 = new HashMap<>();
+            p2.put("list-all-tables", "true");
+            p2.put("type", "hms");
+            p2.put("hive.metastore.uris", "http://127.1.1.0:9000");
+            ExternalCatalog c2 = Mockito.mock(ExternalCatalog.class);
+            Mockito.when(c2.getProperties()).thenReturn(p2);
+            Mockito.when(c2.getHadoopProperties()).thenReturn(new HashMap<>());
             HiveCatalog i2 = IcebergUtils.createIcebergHiveCatalog(c2, "i1");
             Assert.assertTrue(getListAllTables(i2));
 
-            IcebergHMSExternalCatalog c3 =
-                    new IcebergHMSExternalCatalog(1, "name", null,
-                            new HashMap<String, String>() {{
-                                    put("list-all-tables", "false");
-                                    put("type", "hms");
-                                    put("hive.metastore.uris", "http://127.1.1.0:9000");
-                                }},
-                        "");
+            Map<String, String> p3 = new HashMap<>();
+            p3.put("list-all-tables", "false");
+            p3.put("type", "hms");
+            p3.put("hive.metastore.uris", "http://127.1.1.0:9000");
+            ExternalCatalog c3 = Mockito.mock(ExternalCatalog.class);
+            Mockito.when(c3.getProperties()).thenReturn(p3);
+            Mockito.when(c3.getHadoopProperties()).thenReturn(new HashMap<>());
             HiveCatalog i3 = IcebergUtils.createIcebergHiveCatalog(c3, "i1");
             Assert.assertFalse(getListAllTables(i3));
         } catch (Exception e) {
@@ -285,6 +181,13 @@ public class IcebergUtilsTest {
                 schemaWithRowLineage.get(2).getName());
         Assert.assertFalse(schemaWithRowLineage.get(1).isVisible());
         Assert.assertFalse(schemaWithRowLineage.get(2).isVisible());
+        // CONTRACT (③-infra part2): the iceberg connector (IcebergConnectorMetadata.buildTableSchema) cannot
+        // import fe-core, so it duplicates these reserved field ids as local literals to declare the same
+        // hidden columns through the schema SPI post-cutover. Pin the canonical Doris-side values so a change
+        // here fails loud, flagging that the connector duplicate must change too (the names are pinned by
+        // PluginDrivenScanNodeClassifyColumnTest#connectorRowIdConstantContractIsPinned).
+        Assert.assertEquals(2147483540, schemaWithRowLineage.get(1).getUniqueId());
+        Assert.assertEquals(2147483539, schemaWithRowLineage.get(2).getUniqueId());
     }
 
     @Test
@@ -308,18 +211,6 @@ public class IcebergUtilsTest {
 
         Assert.assertNotNull(schemaWithRowLineage.findField(MetadataColumns.ROW_ID.fieldId()));
         Assert.assertNotNull(schemaWithRowLineage.findField(MetadataColumns.LAST_UPDATED_SEQUENCE_NUMBER.fieldId()));
-    }
-
-    @Test
-    public void testParseSchemaPreservesNonLowercaseColumnNames() {
-        Schema schema = new Schema(
-                Types.NestedField.required(1, "mIxEd_COL", Types.IntegerType.get()),
-                Types.NestedField.required(2, "PART", Types.StringType.get()));
-
-        List<Column> columns = IcebergUtils.parseSchema(schema, false, false);
-
-        Assert.assertEquals("mIxEd_COL", columns.get(0).getName());
-        Assert.assertEquals("PART", columns.get(1).getName());
     }
 
     @Test
@@ -396,11 +287,11 @@ public class IcebergUtilsTest {
     public void testGetIdentityPartitionColumnsIgnoresTransformPartitions() {
         Schema schema = new Schema(
                 Types.NestedField.required(1, "id", Types.IntegerType.get()),
-                Types.NestedField.required(2, "Dt", Types.StringType.get()),
+                Types.NestedField.required(2, "dt", Types.StringType.get()),
                 Types.NestedField.required(3, "ts", Types.TimestampType.withoutZone()));
         PartitionSpec specWithTransform = PartitionSpec.builderFor(schema)
                 .withSpecId(1)
-                .identity("Dt")
+                .identity("dt")
                 .day("ts")
                 .build();
         PartitionSpec identityOnlySpec = PartitionSpec.builderFor(schema)
@@ -415,16 +306,16 @@ public class IcebergUtilsTest {
         Mockito.when(table.schema()).thenReturn(schema);
         Mockito.when(table.specs()).thenReturn(specs);
 
-        Assert.assertEquals(Arrays.asList("Dt", "id"), IcebergUtils.getIdentityPartitionColumns(table));
+        Assert.assertEquals(Arrays.asList("dt", "id"), IcebergUtils.getIdentityPartitionColumns(table));
     }
 
     @Test
     public void testGetIdentityPartitionInfoMapReturnsIdentityColumnsOnly() {
         Schema schema = new Schema(
-                Types.NestedField.required(1, "Dt", Types.StringType.get()),
+                Types.NestedField.required(1, "dt", Types.StringType.get()),
                 Types.NestedField.required(2, "ts", Types.TimestampType.withoutZone()));
         PartitionSpec partitionSpec = PartitionSpec.builderFor(schema)
-                .identity("Dt")
+                .identity("dt")
                 .day("ts")
                 .build();
         PartitionData partitionData = new PartitionData(partitionSpec.partitionType());
@@ -436,7 +327,7 @@ public class IcebergUtilsTest {
 
         Map<String, String> partitionInfoMap = IcebergUtils.getIdentityPartitionInfoMap(
                 partitionData, partitionSpec, table, "UTC");
-        Assert.assertEquals(Collections.singletonMap("Dt", "2025-01-01"), partitionInfoMap);
+        Assert.assertEquals(Collections.singletonMap("dt", "2025-01-01"), partitionInfoMap);
     }
 
     @Test

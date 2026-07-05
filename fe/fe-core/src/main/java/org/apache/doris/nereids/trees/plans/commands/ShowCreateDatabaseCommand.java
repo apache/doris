@@ -27,9 +27,9 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.util.DatasourcePrintableMap;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalDatabase;
+import org.apache.doris.datasource.PluginDrivenExternalCatalog;
+import org.apache.doris.datasource.PluginDrivenExternalDatabase;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
-import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
-import org.apache.doris.datasource.iceberg.IcebergExternalDatabase;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -92,12 +92,24 @@ public class ShowCreateDatabaseCommand extends ShowCommand {
                     .append(" LOCATION '")
                     .append(db.getLocationUri())
                     .append("'");
-        } else if (catalog instanceof IcebergExternalCatalog) {
-            IcebergExternalDatabase db = (IcebergExternalDatabase) catalog.getDbOrAnalysisException(databaseName);
-            sb.append("CREATE DATABASE `").append(databaseName).append("`")
-                .append(" LOCATION '")
-                .append(db.getLocation())
-                .append("'");
+        } else if (catalog instanceof PluginDrivenExternalCatalog) {
+            // Post-cutover an iceberg (and any plugin-driven) catalog surfaces databases as
+            // PluginDrivenExternalDatabase; render LOCATION from the connector's getDatabase SPI (the
+            // neutral properties-map "location" key), keyed off the connector rather than instanceof.
+            // Connectors without a namespace location (paimon/jdbc/es) return "" -> no LOCATION clause,
+            // matching their pre-flip generic-else output. PROPERTIES preserved from the generic path.
+            PluginDrivenExternalDatabase db =
+                    (PluginDrivenExternalDatabase) catalog.getDbOrAnalysisException(databaseName);
+            sb.append("CREATE DATABASE `").append(databaseName).append("`");
+            String location = db.getLocation();
+            if (!Strings.isNullOrEmpty(location)) {
+                sb.append(" LOCATION '").append(location).append("'");
+            }
+            if (db.getDbProperties().getProperties().size() > 0) {
+                sb.append("\nPROPERTIES (\n");
+                sb.append(new DatasourcePrintableMap<>(db.getDbProperties().getProperties(), "=", true, true, false));
+                sb.append("\n)");
+            }
         } else {
             DatabaseIf db = catalog.getDbOrAnalysisException(databaseName);
             sb.append("CREATE DATABASE `").append(databaseName).append("`");

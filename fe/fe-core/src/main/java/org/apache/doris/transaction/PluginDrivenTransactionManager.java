@@ -30,22 +30,16 @@ import java.util.concurrent.ConcurrentHashMap;
 /**
  * Transaction manager for plugin-driven external catalogs.
  *
- * <p>Two entry points:</p>
- * <ul>
- *   <li>{@link #begin()} — legacy auto-commit path used by
- *       {@code BaseExternalTableInsertExecutor}. The manager allocates a txn id via
- *       {@link Env#getNextId()} and stores a no-op transaction; the actual write side
- *       effects are produced by {@code ConnectorWriteOps.finishInsert/abortInsert}.
- *       This path is used by connectors that do not implement SPI transactions
- *       (e.g. JDBC, ES).</li>
- *   <li>{@link #begin(ConnectorTransaction)} — SPI path for connectors that return a
- *       real {@link ConnectorTransaction} from {@code ConnectorWriteOps.beginTransaction}.
- *       The manager uses {@link ConnectorTransaction#getTransactionId()} as the txn id
- *       and delegates commit/rollback/close to the connector.</li>
- * </ul>
+ * <p>The insert executor opens every plugin-driven write through
+ * {@link #begin(ConnectorTransaction)}: connectors return a real {@link ConnectorTransaction}
+ * from {@code ConnectorWriteOps.beginTransaction} (a degenerate no-op one for writes that BE
+ * auto-commits, such as jdbc). The manager uses {@link ConnectorTransaction#getTransactionId()}
+ * as the txn id, registers it globally, and delegates commit/rollback/close to the connector.</p>
  *
- * <p>Both paths share the same {@link #commit(long)} / {@link #rollback(long)} surface
- * required by {@link TransactionManager}.</p>
+ * <p>{@link #begin()} (no-arg) remains only to satisfy the {@link TransactionManager} interface;
+ * it allocates a txn id via {@link Env#getNextId()} and stores a marker transaction with no
+ * connector delegate. Both paths share the {@link #commit(long)} / {@link #rollback(long)}
+ * surface required by {@link TransactionManager}.</p>
  */
 public class PluginDrivenTransactionManager implements TransactionManager {
 
@@ -75,8 +69,9 @@ public class PluginDrivenTransactionManager implements TransactionManager {
         transactions.put(txnId, txn);
         // Register globally so the BE block-allocation RPC and the commit-data feedback can
         // look the transaction up by id (FrontendServiceImpl.getMaxComputeBlockIdRange ->
-        // getTxnById). Mirrors AbstractExternalTransactionManager.begin. The legacy no-arg
-        // begin() path (JDBC/ES auto-commit) needs no such callback and stays local-only.
+        // getTxnById). Mirrors AbstractExternalTransactionManager.begin. Connectors whose writes
+        // BE auto-commits (jdbc) register a no-op transaction here too; BE never sends them commit
+        // fragments, so the global entry is simply never looked up before it is removed on commit.
         Env.getCurrentEnv().getGlobalExternalTransactionInfoMgr().putTxnById(txnId, txn);
         LOG.debug("Plugin-driven transaction begun with SPI ConnectorTransaction: {}", txnId);
         return txnId;
@@ -120,10 +115,10 @@ public class PluginDrivenTransactionManager implements TransactionManager {
     }
 
     /**
-     * Internal transaction record. When {@code connectorTx} is non-null the SPI is
-     * the source of truth and commit/rollback delegate to it; close() always runs
-     * after delegation. When null, this is the legacy no-op marker (the executor
-     * drives write side effects via {@code ConnectorWriteOps} directly).
+     * Internal transaction record. When {@code connectorTx} is non-null (every plugin-driven
+     * write) the SPI is the source of truth and commit/rollback delegate to it; close() always
+     * runs after delegation. {@code connectorTx} is null only for the no-arg {@link #begin()}
+     * interface-contract path, where this is an inert no-op marker.
      */
     private static final class PluginDrivenTransaction implements Transaction {
         private final long id;

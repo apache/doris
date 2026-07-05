@@ -223,7 +223,14 @@ public abstract class JdbcConnectorClient implements Closeable {
         try {
             Thread.currentThread().setContextClassLoader(this.classLoader);
             dataSource = new HikariDataSource();
-            dataSource.setDriverClassName(driverClass);
+            // driver_class is optional. When absent, let HikariCP resolve the driver from the JDBC URL via
+            // DriverManager rather than passing null to setDriverClassName — a null there NPEs deep inside
+            // HikariCP (loadClass(null) -> ClassLoader lock map -> ConcurrentHashMap null key), which this
+            // method's catch re-wraps into an opaque "Failed to initialize JDBC data source: null" that hides
+            // the real "driver_class not provided" cause.
+            if (driverClass != null && !driverClass.isEmpty()) {
+                dataSource.setDriverClassName(driverClass);
+            }
             dataSource.setJdbcUrl(url);
             dataSource.setUsername(user);
             dataSource.setPassword(password);

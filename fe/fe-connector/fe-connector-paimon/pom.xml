@@ -47,6 +47,29 @@ under the License.
             <version>${project.version}</version>
         </dependency>
 
+        <!-- fe-connector-cache: the shared external meta-cache framework (CacheSpec property validation +
+             MetaCacheEntry/CacheFactory). fe-core does NOT depend on it, so under the parent-first
+             org.apache.doris.connector.* prefix these classes resolve parent→miss→CHILD, i.e. they load from
+             this plugin's own bundled jar and link against THIS plugin's Caffeine (below). PaimonLatestSnapshotCache
+             is backed by MetaCacheEntry, which needs Caffeine at runtime — see the caffeine dependency next. -->
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-connector-cache</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
+        <!-- Caffeine: the runtime library the shared meta-cache framework (fe-connector-cache's MetaCacheEntry/
+             CacheFactory) links against. fe-connector-cache declares Caffeine `provided` (compiles against, never
+             bundles), so each consuming plugin must carry its own Caffeine. Unlike the iceberg plugin (which gets
+             2.9.3 transitively from iceberg-core), paimon has no Caffeine on its classpath, so declare it here so
+             it is bundled into the paimon plugin zip. Pinned to 2.9.3 to match the version fe-connector-cache is
+             compiled against (the lowest common version across consuming plugins). -->
+        <dependency>
+            <groupId>com.github.ben-manes.caffeine</groupId>
+            <artifactId>caffeine</artifactId>
+            <version>2.9.3</version>
+        </dependency>
+
         <!-- connector-api provides SPI interfaces -->
         <dependency>
             <groupId>${project.groupId}</groupId>
@@ -64,13 +87,17 @@ under the License.
             <version>${project.version}</version>
         </dependency>
 
-        <!-- Shared metastore connection-fact parsers + MetaStoreProvider SPI (P2-T03 cutover): the
+        <!-- Paimon per-engine metastore backends + the shared MetaStoreProvider SPI (P2-T03 cutover): the
              adapter calls MetaStoreProviders.bind(raw, storageHadoopConfig) to parse HMS/DLF/REST/JDBC/
              filesystem facts instead of the old hand-rolled buildHmsHiveConf/buildDlfHiveConf/validate.
-             metastore-spi transitively pulls metastore-api + fe-kerberos (facts carriers). Hadoop/fs-free. -->
+             Post P6-T10 the concrete paimon impls + their ServiceLoader providers live in
+             fe-connector-metastore-paimon (mirroring fe-filesystem's per-backend modules); it transitively
+             pulls the extension point + framework + conf bases (metastore-spi), the contracts
+             (metastore-api), and fe-kerberos (facts carriers). All bundled child-first into the plugin-zip,
+             so only paimon's providers are discoverable here. Hadoop/fs-free. -->
         <dependency>
             <groupId>${project.groupId}</groupId>
-            <artifactId>fe-connector-metastore-spi</artifactId>
+            <artifactId>fe-connector-metastore-paimon</artifactId>
             <version>${project.version}</version>
         </dependency>
 
