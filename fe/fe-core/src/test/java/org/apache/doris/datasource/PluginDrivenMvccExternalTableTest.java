@@ -24,6 +24,7 @@ import org.apache.doris.catalog.ListPartitionItem;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.PartitionType;
+import org.apache.doris.catalog.RangePartitionItem;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.connector.api.Connector;
@@ -34,6 +35,8 @@ import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.ConnectorTableSchema;
 import org.apache.doris.connector.api.ConnectorType;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
+import org.apache.doris.connector.api.mvcc.ConnectorMvccPartition;
+import org.apache.doris.connector.api.mvcc.ConnectorMvccPartitionView;
 import org.apache.doris.connector.api.mvcc.ConnectorMvccSnapshot;
 import org.apache.doris.connector.api.mvcc.ConnectorTimeTravelSpec;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
@@ -423,14 +426,18 @@ public class PluginDrivenMvccExternalTableTest {
     }
 
     @Test
-    public void testForVersionAsOfNonDigitalDispatchesTag() {
+    public void testForVersionAsOfNonDigitalDispatchesVersionRef() {
         Fixture f = Fixture.timeTravel();
-        f.table.loadSnapshot(Optional.of(TableSnapshot.versionOf("my_tag")), Optional.empty());
+        f.table.loadSnapshot(Optional.of(TableSnapshot.versionOf("my_ref")), Optional.empty());
         ConnectorTimeTravelSpec spec = f.captureSpec();
         // MUTATION: always picking SNAPSHOT_ID (ignoring the isDigitalString branch) makes this red.
-        Assertions.assertEquals(ConnectorTimeTravelSpec.Kind.TAG, spec.getKind(),
-                "a non-digital FOR VERSION AS OF is a TAG name, not a snapshot id");
-        Assertions.assertEquals("my_tag", spec.getStringValue());
+        // A non-digital FOR VERSION AS OF is a source-resolved ref (VERSION_REF), NOT @tag (TAG): the
+        // connector decides branch-vs-tag (iceberg accepts a branch OR a tag; paimon resolves a tag).
+        // MUTATION: dispatching TAG here (the old paimon-only assumption) would re-introduce H-7 (a
+        // branch ref rejected) — keep VERSION_REF so the connector owns the semantics.
+        Assertions.assertEquals(ConnectorTimeTravelSpec.Kind.VERSION_REF, spec.getKind(),
+                "a non-digital FOR VERSION AS OF is a source-resolved ref (VERSION_REF), not @tag");
+        Assertions.assertEquals("my_ref", spec.getStringValue());
     }
 
     @Test
@@ -555,9 +562,23 @@ public class PluginDrivenMvccExternalTableTest {
     }
 
     @Test
-    public void testNotFoundTranslationTag() {
-        assertNotFound(TableSnapshot.versionOf("no_such_tag"), Optional.empty(),
-                "can't find snapshot by tag: no_such_tag");
+    public void testNotFoundTranslationVersionRef() {
+        // Non-numeric FOR VERSION AS OF (VERSION_REF) renders "can't find snapshot by tag" — the
+        // source-agnostic wording must not claim a branch lookup a tag-only source (paimon) never did, and
+        // "no such tag" is never false. Byte-identical to legacy paimon (paimon_time_travel.groovy pins it).
+        // MUTATION: a default/other-kind message, or "tag or branch" (which breaks paimon parity), makes
+        // this red.
+        assertNotFound(TableSnapshot.versionOf("no_such_ref"), Optional.empty(),
+                "can't find snapshot by tag: no_such_ref");
+    }
+
+    @Test
+    public void testNotFoundTranslationScanParamTag() {
+        // @tag('x') (explicit scan param, Kind.TAG) -> "can't find snapshot by tag" — covers the scan-param
+        // tag path (the FOR VERSION path above is Kind.VERSION_REF; both share the TAG wording by design).
+        TableScanParams params = new TableScanParams(TableScanParams.TAG,
+                Collections.singletonMap(TableScanParams.PARAMS_NAME, "no_such_tag"), Collections.emptyList());
+        assertNotFound(null, Optional.of(params), "can't find snapshot by tag: no_such_tag");
     }
 
     @Test
@@ -753,6 +774,152 @@ public class PluginDrivenMvccExternalTableTest {
         Assertions.assertTrue(Fixture.partitioned().table.isPartitionColumnAllowNull());
     }
 
+    // ==================== connector range-view path (e.g. iceberg) ====================
+
+    private static final long FRESH_555 = 555L;
+    private static final long FRESH_777 = 777L;
+    private static final long NEWEST_UPDATE_TIME = 1_900_000_000_000L;
+
+    private static ConnectorMvccPartition rangePart(String name, String low, String high, long freshness) {
+        return new ConnectorMvccPartition(name, Collections.singletonList(low),
+                high == null ? Collections.emptyList() : Collections.singletonList(high), freshness);
+    }
+
+    private static ConnectorMvccPartitionView rangeView(ConnectorMvccPartition... parts) {
+        return new ConnectorMvccPartitionView(ConnectorMvccPartitionView.Style.RANGE,
+                ConnectorMvccPartitionView.Freshness.SNAPSHOT_ID, Arrays.asList(parts), NEWEST_UPDATE_TIME);
+    }
+
+    @Test
+    public void testRangeViewBuildsRangePartitionTypeAndItems() {
+        Fixture f = Fixture.rangeView(rangeView(
+                rangePart("p20240101", "2024-01-01", "2024-01-02", FRESH_555)));
+
+        // MUTATION: deriving LIST/UNPARTITIONED from getPartitionColumns().size() (ignoring the connector's
+        // RANGE style) makes this red — a roll-up MTMV with date_trunc requires RANGE or it throws.
+        Assertions.assertEquals(PartitionType.RANGE, f.table.getPartitionType(Optional.empty()),
+                "the connector's RANGE style must drive getPartitionType");
+
+        Map<String, PartitionItem> items = f.table.getNameToPartitionItems(Optional.empty());
+        Assertions.assertEquals(1, items.size());
+        PartitionItem item = items.get("p20240101");
+        Assertions.assertTrue(item instanceof RangePartitionItem, "expected a RangePartitionItem");
+        com.google.common.collect.Range<PartitionKey> range = ((RangePartitionItem) item).getItems();
+        // [2024-01-01, 2024-01-02) built from the connector's pre-rendered closed/open bounds.
+        Assertions.assertEquals("2024-01-01", range.lowerEndpoint().getKeys().get(0).getStringValue());
+        Assertions.assertEquals("2024-01-02", range.upperEndpoint().getKeys().get(0).getStringValue());
+    }
+
+    @Test
+    public void testRangeViewNullMinPartitionDerivesSuccessorUpperBound() {
+        // An EMPTY upper bound denotes the NULL-min partition: fe-core derives the exclusive upper as the
+        // column-type successor of the lower key (the connector cannot — it has no Doris Column). Parity with
+        // master IcebergUtils.getPartitionRange's nullLowKey.successor().
+        Fixture f = Fixture.rangeView(rangeView(
+                rangePart("pnull", "0000-01-01", null, FRESH_777)));
+
+        Map<String, PartitionItem> items = f.table.getNameToPartitionItems(Optional.empty());
+        com.google.common.collect.Range<PartitionKey> range =
+                ((RangePartitionItem) items.get("pnull")).getItems();
+        Assertions.assertEquals("0000-01-01", range.lowerEndpoint().getKeys().get(0).getStringValue());
+        // MUTATION: building the upper from the (empty) tuple instead of lower.successor() throws or yields the
+        // wrong bound -> red. DATEV2 successor of 0000-01-01 is 0000-01-02.
+        Assertions.assertEquals("0000-01-02", range.upperEndpoint().getKeys().get(0).getStringValue(),
+                "the NULL-min partition's exclusive upper must be lowerKey.successor()");
+    }
+
+    @Test
+    public void testRangeViewPartitionSnapshotIsSnapshotId() throws AnalysisException {
+        Fixture f = Fixture.rangeView(rangeView(
+                rangePart("p20240101", "2024-01-01", "2024-01-02", FRESH_555)));
+
+        // MUTATION: wrapping the freshness value in MTMVTimestampSnapshot (ignoring the SNAPSHOT_ID freshness
+        // kind) makes this ClassCastException/red — MTMV change-detection must compare snapshot ids, not millis.
+        MTMVSnapshotIdSnapshot snap = (MTMVSnapshotIdSnapshot) f.table.getPartitionSnapshot(
+                "p20240101", null, Optional.empty());
+        Assertions.assertEquals(FRESH_555, snap.getSnapshotVersion(),
+                "a snapshot-id-freshness view must pin the per-partition snapshot id");
+
+        // Table snapshot stays the connector pin id.
+        Assertions.assertEquals(PINNED_SNAPSHOT_ID,
+                ((MTMVSnapshotIdSnapshot) f.table.getTableSnapshot(Optional.empty())).getSnapshotVersion());
+
+        // An unknown partition still throws (parity with the legacy path).
+        Assertions.assertThrows(AnalysisException.class,
+                () -> f.table.getPartitionSnapshot("missing", null, Optional.empty()));
+    }
+
+    @Test
+    public void testRangeViewNewestUpdateTimeUsesMonotonicMarkerNotSnapshotId() {
+        // The dictionary auto-refresh path needs a MONOTONIC marker; the per-partition snapshot ids are not
+        // monotonic. getNewestUpdateVersionOrTime must return the view's newest-update-time, NOT a max over the
+        // snapshot-id freshness values.
+        Fixture f = Fixture.rangeView(rangeView(
+                rangePart("p20240101", "2024-01-01", "2024-01-02", FRESH_555),
+                rangePart("p20240202", "2024-02-02", "2024-02-03", FRESH_777)));
+
+        // MUTATION: returning max(freshness)=777 (the legacy max-over-the-map path) instead of the view's
+        // newest-update-time makes this red — proving the view path reads newestUpdateTimeMillis.
+        Assertions.assertEquals(NEWEST_UPDATE_TIME, f.table.getNewestUpdateVersionOrTime(),
+                "the range-view path must answer the dictionary with the monotonic newest-update-time");
+    }
+
+    @Test
+    public void testRangeViewValidRelatedTableMirrorsStyle() {
+        // RANGE style => valid related table; UNPARTITIONED style (the connector's eligibility gate failed) =>
+        // invalid, so MTMVTask stops the refresh loud. MUTATION: always returning true (the interface default)
+        // makes the UNPARTITIONED assertion red.
+        Fixture valid = Fixture.rangeView(rangeView(
+                rangePart("p20240101", "2024-01-01", "2024-01-02", FRESH_555)));
+        Assertions.assertTrue(valid.table.isValidRelatedTable(),
+                "a RANGE range-view table is a valid related table");
+
+        Fixture invalid = Fixture.rangeView(ConnectorMvccPartitionView.unpartitioned());
+        Assertions.assertEquals(PartitionType.UNPARTITIONED,
+                invalid.table.getPartitionType(Optional.empty()));
+        Assertions.assertFalse(invalid.table.isValidRelatedTable(),
+                "an UNPARTITIONED range-view table is NOT a valid related table (stops MTMV refresh)");
+    }
+
+    @Test
+    public void testRangeViewAppliesSnapshotBeforeQueryingViewOnPinnedHandle() {
+        // Snapshot-consistency: the query-begin pin must be threaded onto the handle (applySnapshot) BEFORE
+        // getMvccPartitionView, and the view must be enumerated from that pinned handle — so the MTMV partition
+        // set/freshness stays consistent with the data-scan pin. MUTATION: querying the view on the BASE handle
+        // (or before applySnapshot) makes the InOrder / pinnedHandle verify red.
+        Fixture f = Fixture.rangeView(rangeView(
+                rangePart("p20240101", "2024-01-01", "2024-01-02", FRESH_555)));
+        f.table.getNameToPartitionItems(Optional.empty());
+
+        InOrder ord = Mockito.inOrder(f.metadata);
+        ord.verify(f.metadata).applySnapshot(Mockito.eq(f.session), Mockito.eq(f.handle), Mockito.any());
+        ord.verify(f.metadata).getMvccPartitionView(f.session, f.pinnedHandle);
+        // The legacy listPartitions path must NOT run when a range view is present.
+        Mockito.verify(f.metadata, Mockito.never())
+                .listPartitions(Mockito.any(), Mockito.any(), Mockito.any());
+    }
+
+    @Test
+    public void testAbsentRangeViewKeepsLegacyListPath() throws AnalysisException {
+        // Paimon-parity guard: a connector WITHOUT a range view (getMvccPartitionView empty) keeps the legacy
+        // listPartitions/LIST/timestamp path byte-unchanged. MUTATION: defaulting to a RANGE/empty view when the
+        // connector returns empty would flip this to RANGE and skip listPartitions -> red.
+        Fixture f = Fixture.partitioned();   // does NOT stub getMvccPartitionView -> Mockito returns empty
+        // Materialize ONCE (the single allowed round-trip), then read both accessors off that pin so the
+        // verify(...) counts below are unambiguous.
+        Optional<MvccSnapshot> pin =
+                Optional.of(f.table.loadSnapshot(Optional.empty(), Optional.empty()));
+        Assertions.assertEquals(PartitionType.LIST, f.table.getPartitionType(pin),
+                "an absent range view must keep the legacy LIST path");
+        MTMVTimestampSnapshot ts = (MTMVTimestampSnapshot) f.table.getPartitionSnapshot(
+                "dt=2024-01-01", null, pin);
+        Assertions.assertEquals(TS_2024_01_01, ts.getSnapshotVersion(),
+                "the legacy path must keep timestamp freshness");
+        // The connector WAS consulted for a range view (and returned empty), then the legacy list path ran.
+        Mockito.verify(f.metadata).getMvccPartitionView(Mockito.any(), Mockito.any());
+        Mockito.verify(f.metadata).listPartitions(Mockito.any(), Mockito.any(), Mockito.any());
+    }
+
     // ==================== fixtures / helpers ====================
 
     private static ConnectorPartitionInfo cpi(String name, long lastModifiedMillis) {
@@ -846,6 +1013,21 @@ public class PluginDrivenMvccExternalTableTest {
             Fixture f = partitioned();
             Mockito.when(f.metadata.getTableHandle(f.session, "REMOTE_DB", "REMOTE_TBL"))
                     .thenReturn(Optional.empty());
+            return f;
+        }
+
+        /**
+         * Base fixture wired for the connector range-view path: {@code applySnapshot} threads the query-begin
+         * pin onto the handle (returning the branch-aware {@code pinnedHandle}) and {@code getMvccPartitionView}
+         * returns {@code view} from THAT pinned handle, so a test can assert the apply-before-view ordering and
+         * the snapshot-consistent enumeration. The partition column is the default DATEV2 {@code dt}.
+         */
+        static Fixture rangeView(ConnectorMvccPartitionView view) {
+            Fixture f = partitioned();
+            Mockito.when(f.metadata.applySnapshot(Mockito.eq(f.session), Mockito.eq(f.handle), Mockito.any()))
+                    .thenReturn(f.pinnedHandle);
+            Mockito.when(f.metadata.getMvccPartitionView(f.session, f.pinnedHandle))
+                    .thenReturn(Optional.of(view));
             return f;
         }
 

@@ -17,19 +17,12 @@
 
 package org.apache.doris.nereids.trees.plans.commands.insert;
 
-import org.apache.doris.catalog.Column;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.connector.api.Connector;
-import org.apache.doris.connector.api.ConnectorColumn;
-import org.apache.doris.connector.api.ConnectorMetadata;
 import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.ConnectorWriteOps;
-import org.apache.doris.connector.api.handle.ConnectorInsertHandle;
-import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.api.handle.ConnectorTransaction;
-import org.apache.doris.connector.api.write.ConnectorWriteType;
-import org.apache.doris.datasource.ConnectorColumnConverter;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.PluginDrivenExternalCatalog;
 import org.apache.doris.nereids.NereidsPlanner;
@@ -44,26 +37,27 @@ import org.apache.doris.transaction.TransactionType;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.util.Collections;
-import java.util.List;
 import java.util.Optional;
-import java.util.stream.Collectors;
 
 /**
  * Insert executor for plugin-driven connector catalogs.
- * Delegates the write lifecycle to the connector's ConnectorWriteOps SPI.
+ *
+ * <p>Delegates the write lifecycle to the connector's {@link ConnectorWriteOps} SPI through a
+ * single transaction model: {@link #beginTransaction()} opens a {@link ConnectorTransaction}
+ * and registers it globally; {@link #finalizeSink} binds it onto the sink's session so the
+ * connector's {@code planWrite} sees it; BE feeds commit fragments back through the transaction;
+ * {@code onComplete} commits / {@code onFail} rolls back via the transaction manager. Connectors
+ * whose writes are auto-committed by BE (e.g. jdbc) return a degenerate no-op transaction.</p>
  */
 public class PluginDrivenInsertExecutor extends BaseExternalTableInsertExecutor {
 
     private static final Logger LOG = LogManager.getLogger(PluginDrivenInsertExecutor.class);
 
-    private transient ConnectorInsertHandle insertHandle;
     private transient ConnectorSession connectorSession;
     private transient ConnectorWriteOps writeOps;
-    private transient ConnectorWriteType resolvedWriteType;
-    // Non-null only for the SPI transaction model (e.g. maxcompute): opened in beginTransaction(),
-    // bound onto the sink's session in finalizeSink(), and committed via the transaction manager
-    // in onComplete(). Null for the JDBC / auto-commit insert-handle path.
+    // The connector transaction for this write: opened in beginTransaction(), bound onto the
+    // sink's session in finalizeSink(), and committed / rolled back via the transaction manager
+    // in onComplete() / onFail(). Null only on the empty-insert path, which skips beginTransaction.
     private transient ConnectorTransaction connectorTx;
 
     /**
@@ -79,155 +73,119 @@ public class PluginDrivenInsertExecutor extends BaseExternalTableInsertExecutor 
     @Override
     public void beginTransaction() {
         ensureConnectorSetup();
-        if (writeOps.usesConnectorTransaction()) {
-            // SPI transaction model (e.g. maxcompute): open a connector transaction and let the
-            // plugin-driven transaction manager register it globally, so the BE block-allocation
-            // RPC and commit-data feedback can look it up by id. The ODPS write session that backs
-            // it is created later by planWrite (reached through finalizeSink -> bindDataSink).
-            connectorTx = writeOps.beginTransaction(connectorSession);
-            txnId = ((PluginDrivenTransactionManager) transactionManager).begin(connectorTx);
-        } else {
-            // JDBC / auto-commit handle model: allocate a no-op engine txn id.
-            super.beginTransaction();
-        }
+        // Single transaction model: every plugin-driven write opens a ConnectorTransaction and
+        // registers it globally, so the BE block-allocation RPC and commit-data feedback can look
+        // it up by id. Connectors whose writes are auto-committed by BE (jdbc) return a degenerate
+        // no-op transaction; maxcompute returns a real one. The connector-specific write session is
+        // created later by planWrite (reached through finalizeSink -> bindDataSink).
+        connectorTx = writeOps.beginTransaction(connectorSession);
+        txnId = ((PluginDrivenTransactionManager) transactionManager).begin(connectorTx);
+    }
+
+    @Override
+    public ConnectorTransaction getConnectorTransactionOrNull() {
+        return connectorTx;
     }
 
     @Override
     protected void finalizeSink(PlanFragment fragment, DataSink sink, PhysicalSink physicalSink) {
-        // Transaction model: bind the connector transaction onto the SINK's session BEFORE
-        // super.finalizeSink -> bindDataSink -> planWrite, which reads it via
-        // ConnectorSession.getCurrentTransaction() (fail-loud if absent). The sink carries its own
-        // ConnectorSession built at translate time; the txn is shared with it by reference.
+        // Bind the connector transaction onto the SINK's session BEFORE super.finalizeSink ->
+        // bindDataSink -> planWrite, which reads it via ConnectorSession.getCurrentTransaction().
+        // Only plan-provider sinks (e.g. maxcompute) carry a connector session; config-bag sinks
+        // (jdbc) have none and build their TDataSink without the transaction, so skip binding for
+        // them (getConnectorSession() == null) — otherwise this would NPE.
         if (connectorTx != null && sink instanceof PluginDrivenTableSink) {
-            ((PluginDrivenTableSink) sink).getConnectorSession().setCurrentTransaction(connectorTx);
+            ConnectorSession sinkSession = ((PluginDrivenTableSink) sink).getConnectorSession();
+            if (sinkSession != null) {
+                sinkSession.setCurrentTransaction(connectorTx);
+            }
         }
         super.finalizeSink(fragment, sink, physicalSink);
     }
 
+    /**
+     * Public finalize entry for the row-level DML shell ({@code RowLevelDmlCommand} via
+     * {@code IcebergRowLevelDmlTransform.finalizeSink}), which lives outside this package and so cannot reach
+     * the {@code protected} {@link #finalizeSink}. Mirrors the legacy
+     * {@code IcebergDeleteExecutor.finalizeSinkForDelete} public entry, but with NO rewritable-delete overlay:
+     * the connector's {@code planWrite} supplies {@code rewritable_delete_file_sets} via the write handle (the
+     * scan-time stash), so the base finalize (bind tx &rarr; {@code bindDataSink} &rarr; {@code planWrite}) is
+     * the single, complete finalize for a row-level DELETE/MERGE write. {@code executeSingleInsert} does not
+     * finalize, so this is the one and only finalize call on the row-level DML path.
+     */
+    public void finalizeRowLevelDmlSink(PlanFragment fragment, DataSink sink, PhysicalSink<?> physicalSink) {
+        finalizeSink(fragment, sink, physicalSink);
+    }
+
     @Override
     protected void beforeExec() throws UserException {
-        if (connectorTx != null) {
-            // Transaction model: the write session was already created by planWrite (in
-            // finalizeSink). There is no per-statement insert handle to open here.
-            return;
-        }
-        // JDBC / auto-commit handle model.
-        ensureConnectorSetup();
-        if (!writeOps.supportsInsert()) {
-            throw new UserException("Connector does not support INSERT for table: "
-                    + table.getName());
-        }
-
-        // Get table handle using remote names (not local/mapped names)
-        ExternalTable extTable = (ExternalTable) table;
-        String remoteDbName = extTable.getRemoteDbName();
-        String remoteTableName = extTable.getRemoteName();
-        Optional<ConnectorTableHandle> tableHandle = ((ConnectorMetadata) writeOps).getTableHandle(
-                connectorSession, remoteDbName, remoteTableName);
-        if (!tableHandle.isPresent()) {
-            throw new UserException("Table not found via connector: "
-                    + remoteDbName + "." + remoteTableName);
-        }
-
-        // Convert Doris columns to connector columns
-        List<ConnectorColumn> columns = toConnectorColumns(extTable.getBaseSchema(true));
-
-        // Resolve write type for transaction type decision
-        resolvedWriteType = writeOps.getWriteConfig(
-                connectorSession, tableHandle.get(), columns).getWriteType();
-
-        // Begin insert
-        insertHandle = writeOps.beginInsert(connectorSession, tableHandle.get(), columns);
-        LOG.info("Plugin-driven insert started for table {}.{}, txnId={}",
-                remoteDbName, remoteTableName, txnId);
+        // Single transaction model: the connector write session is created by planWrite
+        // (in finalizeSink). There is no per-statement handle to open here.
     }
 
     @Override
     protected void doBeforeCommit() throws UserException {
-        if (writeOps != null && insertHandle != null) {
-            writeOps.finishInsert(connectorSession, insertHandle, Collections.emptyList());
-        }
         if (connectorTx != null) {
-            // SPI transaction model (e.g. maxcompute): the BE sink reports row counts via the
-            // connector transaction's commit-data (TMCCommitData.row_count), NOT via the
-            // coordinator's DPP_NORMAL_ALL load counter, so AbstractInsertExecutor leaves
-            // loadedRows at 0. Backfill it here, mirroring legacy MCInsertExecutor.doBeforeCommit
-            // (loadedRows = transaction.getUpdateCnt()); without it the client / SHOW INSERT RESULT
-            // / audit log report "affected rows: 0" even though data was written. The commit itself
-            // happens via the transaction manager (onComplete), so no finishInsert is needed here.
-            // This branch is mutually exclusive with the insert-handle branch above (the transaction
-            // model never opens a per-statement insert handle).
-            loadedRows = connectorTx.getUpdateCnt();
+            // BE reports the affected-row count either through the connector transaction's
+            // commit-data (e.g. maxcompute TMCCommitData.row_count) or through the coordinator's
+            // DPP_NORMAL_ALL load counter (e.g. jdbc). getUpdateCnt() == -1 means "no count from
+            // the transaction; keep the coordinator counter" (NoOpConnectorTransaction); a value
+            // >= 0 is authoritative and backfills loadedRows, which AbstractInsertExecutor otherwise
+            // leaves at 0 for the transaction model. Mirrors legacy MCInsertExecutor.doBeforeCommit.
+            long cnt = connectorTx.getUpdateCnt();
+            if (cnt >= 0) {
+                loadedRows = cnt;
+            }
         }
     }
 
     /**
-     * Post-commit refresh is best-effort for ALL connector write paths — both the
-     * JDBC / auto-commit handle model and the SPI connector-transaction model
-     * (e.g. maxcompute).
+     * Post-commit refresh is best-effort for ALL connector write paths.
      *
-     * <p>By the time this runs, the remote write is already durably committed and
-     * FE cannot roll it back: for JDBC_WRITE the BE commits directly via
-     * PreparedStatement; for the connector-transaction path (maxcompute) the ODPS
-     * write session is committed by the transaction manager in onComplete, before
-     * this step. {@code super.doAfterCommit()} only refreshes FE-side metadata
-     * cache and writes an external-table refresh edit log (a cache-invalidation
-     * hint to followers); it never touches the already-committed remote data.</p>
+     * <p>By the time this runs, the remote write is already durably committed and FE cannot roll
+     * it back: for jdbc the BE commits directly via PreparedStatement; for the connector-transaction
+     * path (maxcompute) the write session is committed by the transaction manager in onComplete,
+     * before this step. {@code super.doAfterCommit()} only refreshes FE-side metadata cache and
+     * writes an external-table refresh edit log (a cache-invalidation hint to followers); it never
+     * touches the already-committed remote data.</p>
      *
-     * <p>If that refresh fails (e.g., catalog dropped concurrently, edit log I/O
-     * error), reporting the INSERT as failed would mislead the user into retrying
-     * and writing duplicate data. The worst case of swallowing is transient cache
-     * staleness, which self-heals on the next refresh / TTL.</p>
-     *
-     * <p>This intentionally diverges from legacy MCInsertExecutor, which does not
-     * override doAfterCommit so a refresh failure propagates and the INSERT is
-     * reported FAILED (see deviations-log DV-018). We preserve the safer
-     * swallow-and-warn behavior — matching the old JdbcInsertExecutor, which did
-     * no post-commit work at all — while still attempting the refresh so the cache
-     * stays fresh in the common case.</p>
+     * <p>If that refresh fails (e.g., catalog dropped concurrently, edit log I/O error), reporting
+     * the INSERT as failed would mislead the user into retrying and writing duplicate data. The
+     * worst case of swallowing is transient cache staleness, which self-heals on the next refresh /
+     * TTL. This intentionally diverges from legacy MCInsertExecutor (see deviations-log DV-018),
+     * preserving the safer swallow-and-warn behavior of the old JdbcInsertExecutor.</p>
      */
     @Override
     protected void doAfterCommit() throws DdlException {
         try {
             super.doAfterCommit();
         } catch (Exception e) {
-            LOG.warn("Post-commit cache refresh failed for table {} (write type: {}). "
+            LOG.warn("Post-commit cache refresh failed for table {}. "
                     + "Data was committed successfully; cache may be stale until next refresh.",
-                    table.getName(), resolvedWriteType, e);
+                    table.getName(), e);
         }
-    }
-
-    @Override
-    protected void onFail(Throwable t) {
-        // Abort the connector-level write before the Doris-level transaction rollback
-        if (writeOps != null && insertHandle != null) {
-            try {
-                writeOps.abortInsert(connectorSession, insertHandle);
-            } catch (Exception e) {
-                LOG.warn("Failed to abort connector insert for table {}: {}",
-                        table.getName(), e.getMessage(), e);
-            }
-        }
-        super.onFail(t);
     }
 
     @Override
     protected TransactionType transactionType() {
-        if (connectorTx != null) {
-            // SPI transaction model. maxcompute is currently the sole adopter; this value is
-            // profiling-only. Revisit when a second transaction-model connector arrives.
-            return TransactionType.MAXCOMPUTE;
+        if (connectorTx == null) {
+            // empty-insert path skips beginTransaction; no transaction was opened.
+            return TransactionType.UNKNOWN;
         }
-        if (resolvedWriteType == ConnectorWriteType.JDBC_WRITE) {
-            return TransactionType.JDBC;
+        // The connector tags its transaction with a profile label (e.g. "JDBC" / "MAXCOMPUTE");
+        // map it to the profiling TransactionType. Unknown labels fall back to UNKNOWN.
+        String label = connectorTx.profileLabel();
+        for (TransactionType type : TransactionType.values()) {
+            if (type.name().equals(label)) {
+                return type;
+            }
         }
-        return TransactionType.HMS;
+        return TransactionType.UNKNOWN;
     }
 
     /**
-     * Lazily builds the connector session and write-ops handle for this insert. Idempotent so
-     * both {@link #beginTransaction()} and {@link #beforeExec()} can call it: the empty-insert
-     * path skips beginTransaction, so beforeExec must still be able to set up on its own.
+     * Lazily builds the connector session and write-ops handle for this insert. Called from
+     * {@link #beginTransaction()} before opening the connector transaction. Idempotent.
      */
     private void ensureConnectorSetup() {
         if (connectorSession != null) {
@@ -238,19 +196,5 @@ public class PluginDrivenInsertExecutor extends BaseExternalTableInsertExecutor 
         Connector connector = catalog.getConnector();
         connectorSession = catalog.buildConnectorSession();
         writeOps = connector.getMetadata(connectorSession);
-    }
-
-    /**
-     * Converts a list of Doris {@link Column} to a list of {@link ConnectorColumn}.
-     * This is the reverse of {@link org.apache.doris.datasource.ConnectorColumnConverter#convertColumns}.
-     */
-    private static List<ConnectorColumn> toConnectorColumns(List<Column> dorisColumns) {
-        return dorisColumns.stream()
-                .map(PluginDrivenInsertExecutor::toConnectorColumn)
-                .collect(Collectors.toList());
-    }
-
-    private static ConnectorColumn toConnectorColumn(Column col) {
-        return ConnectorColumnConverter.toConnectorColumn(col);
     }
 }

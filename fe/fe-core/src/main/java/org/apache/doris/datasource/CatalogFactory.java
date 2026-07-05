@@ -26,7 +26,6 @@ import org.apache.doris.connector.DefaultConnectorContext;
 import org.apache.doris.connector.api.Connector;
 import org.apache.doris.datasource.doris.RemoteDorisExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
-import org.apache.doris.datasource.iceberg.IcebergExternalCatalogFactory;
 import org.apache.doris.datasource.test.TestExternalCatalog;
 import org.apache.doris.nereids.trees.plans.commands.CreateCatalogCommand;
 
@@ -45,10 +44,10 @@ public class CatalogFactory {
     private static final Logger LOG = LogManager.getLogger(CatalogFactory.class);
 
     // Only these catalog types are routed through the SPI connector path.
-    // Other types (hms, iceberg, hudi) still use
+    // Other types (hms, hudi) still use
     // their built-in ExternalCatalog implementations until their ConnectorProviders are fully ready.
     private static final Set<String> SPI_READY_TYPES =
-            ImmutableSet.of("jdbc", "es", "trino-connector", "max_compute", "paimon");
+            ImmutableSet.of("jdbc", "es", "trino-connector", "max_compute", "paimon", "iceberg");
 
     /**
      * create the catalog instance from catalog log.
@@ -134,10 +133,9 @@ public class CatalogFactory {
                 case "hms":
                     catalog = new HMSExternalCatalog(catalogId, name, resource, props, comment);
                     break;
-                case "iceberg":
-                    catalog = IcebergExternalCatalogFactory.createCatalog(
-                            catalogId, name, resource, props, comment);
-                    break;
+                // iceberg is routed through the SPI connector path (SPI_READY_TYPES) and never reaches this
+                // built-in fallback; its legacy IcebergExternalCatalogFactory case was removed at the GSON
+                // cutover (its GSON subtype is now registerCompatibleSubtype-only -> PluginDriven).
                 case "lakesoul":
                     throw new DdlException("Lakesoul catalog is no longer supported");
                 case "doris":

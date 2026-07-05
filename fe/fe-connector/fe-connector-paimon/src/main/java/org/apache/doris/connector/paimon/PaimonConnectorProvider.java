@@ -18,6 +18,7 @@
 package org.apache.doris.connector.paimon;
 
 import org.apache.doris.connector.api.Connector;
+import org.apache.doris.connector.cache.CacheSpec;
 import org.apache.doris.connector.metastore.spi.MetaStoreProviders;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.connector.spi.ConnectorProvider;
@@ -67,11 +68,32 @@ public class PaimonConnectorProvider implements ConnectorProvider {
      * needed for validation, so an empty storage map is passed; an unknown {@code paimon.catalog.type}
      * makes {@code bind} throw (no provider supports it). Throws {@link IllegalArgumentException}, which
      * the caller ({@code PluginDrivenExternalCatalog.checkProperties}) wraps into a DdlException.
+     *
+     * <p>The meta-cache knobs are validated first (restoring the legacy
+     * {@code PaimonExternalCatalog.checkProperties} fail-fast dropped at the SPI cutover), so a bad
+     * {@code meta.cache.paimon.table.*} value is rejected at CREATE/ALTER. This runs before the
+     * dead-knob warning: an invalid value is rejected outright, while a valid-but-unwired enable/capacity
+     * is still reported as ignored.
      */
     @Override
     public void validateProperties(Map<String, String> properties) {
+        checkMetaCacheProperties(properties);
         warnIgnoredDeadTableCacheKeys(properties);
         MetaStoreProviders.bind(properties, Collections.emptyMap()).validate();
+    }
+
+    /**
+     * Byte-for-byte parity with the (deleted) legacy {@code PaimonExternalCatalog.checkProperties}:
+     * {@code table.enable} must be boolean, {@code table.ttl-second} must be a long &ge; -1, {@code
+     * table.capacity} must be a long &ge; 0. Absent keys are skipped.
+     */
+    private static void checkMetaCacheProperties(Map<String, String> properties) {
+        CacheSpec.checkBooleanProperty(properties.get(PaimonConnector.TABLE_CACHE_ENABLE),
+                PaimonConnector.TABLE_CACHE_ENABLE);
+        CacheSpec.checkLongProperty(properties.get(PaimonConnector.TABLE_CACHE_TTL_SECOND),
+                -1L, PaimonConnector.TABLE_CACHE_TTL_SECOND);
+        CacheSpec.checkLongProperty(properties.get(PaimonConnector.TABLE_CACHE_CAPACITY),
+                0L, PaimonConnector.TABLE_CACHE_CAPACITY);
     }
 
     // R2: warn (do not reject, do not strip) when a CREATE/ALTER CATALOG carries the now-dead paimon

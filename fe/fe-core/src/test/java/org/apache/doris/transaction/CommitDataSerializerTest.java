@@ -18,7 +18,6 @@
 package org.apache.doris.transaction;
 
 import org.apache.doris.datasource.hive.HMSTransaction;
-import org.apache.doris.datasource.iceberg.IcebergTransaction;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TFileContent;
 import org.apache.doris.thrift.THivePartitionUpdate;
@@ -35,6 +34,7 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 
@@ -116,23 +116,44 @@ public class CommitDataSerializerTest {
     }
 
     /**
-     * Iceberg: feeding each fragment through {@link CommitDataSerializer} accumulates
-     * the identical list as the legacy whole-list {@code updateIcebergCommitData}.
+     * Iceberg: {@link CommitDataSerializer#feed} delivers exactly one
+     * {@link Transaction#addCommitData(byte[])} call per input fragment, in input
+     * order, and each payload deserializes losslessly (via {@link TBinaryProtocol},
+     * the same protocol the consuming transactions use) back to the original
+     * {@link TIcebergCommitData}.
      */
     @Test
-    public void icebergFeedEqualsLegacyUpdate() {
+    public void icebergFeedDeliversEachFragmentLosslessly() throws Exception {
         List<TIcebergCommitData> input = Arrays.asList(
                 icebergData("s3://b/data/0.parquet", 11L),
                 icebergData("s3://b/data/1.parquet", 13L));
 
-        IcebergTransaction legacy = new IcebergTransaction(null);
-        legacy.updateIcebergCommitData(input);
+        List<byte[]> payloads = new ArrayList<>();
+        Transaction collector = new Transaction() {
+            @Override
+            public void commit() {
+                throw new UnsupportedOperationException("commit not expected in this test");
+            }
 
-        IcebergTransaction viaFeed = new IcebergTransaction(null);
-        CommitDataSerializer.feed(viaFeed, input);
+            @Override
+            public void rollback() {
+                throw new UnsupportedOperationException("rollback not expected in this test");
+            }
 
-        Assert.assertEquals(legacy.getCommitDataList(), viaFeed.getCommitDataList());
-        Assert.assertEquals(2, viaFeed.getCommitDataList().size());
+            @Override
+            public void addCommitData(byte[] commitFragment) {
+                payloads.add(commitFragment);
+            }
+        };
+
+        CommitDataSerializer.feed(collector, input);
+
+        Assert.assertEquals(input.size(), payloads.size());
+        for (int i = 0; i < input.size(); i++) {
+            TIcebergCommitData roundTripped = new TIcebergCommitData();
+            new TDeserializer(new TBinaryProtocol.Factory()).deserialize(roundTripped, payloads.get(i));
+            Assert.assertEquals(input.get(i), roundTripped);
+        }
     }
 
     /**
