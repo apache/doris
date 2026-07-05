@@ -5,7 +5,28 @@
 
 ---
 
-# 🎯 最新一轮（2026-07-05 续）= **iceberg 4 死实体类删除全完成（第 4、5、6 刀 done）= P4 DONE**
+# 🎯 最新一轮（2026-07-05 续²）= **属性/鉴权迁移到连接器启动：recon 纠正计划前提 + 用户裁定完整删除 + 设计文档 + CUT 1 done**
+
+> **本轮范围** = 承接 P4 DONE，启动"属性/鉴权迁移到连接器 + fe-core iceberg 属性簇删除"（removal-execution-plan **§P5**，死码删除收官最大一块）。**做了 recon → 暴露 Rule 7 前提错误 → 用户拍板 → 写设计 → 落 CUT 1**。
+>
+> **⚠️⚠️ Rule 7 关键更正（recon `wf_73999dcf-412` 实证，纠正 §P5 / removal-plan v2 / 旧 HANDOFF 的核心前提）**：
+> - 旧说"给连接器 metastore provider 补 authenticator 构建（**镜像 paimon 已有做法**）"——**paimon 无此样板**。实证：paimon 的 HMS 鉴权器**也在 fe-core 建**（`PaimonHMSMetaStoreProperties:60`，与 iceberg `IcebergHMSMetaStoreProperties` 同型），paimon 连接器**不**自建 HMS 鉴权器（只在 storage kerberos 时自建，与 iceberg 连接器同）；fe-core paimon 属性簇**完好在用**（非死码）。→ 真删 fe-core iceberg 簇须做 paimon 都没做的新东西（连接器自建 HMS 鉴权器）= CUT 1，**非"照抄 paimon"**。
+> - **方向仍对（pro-Trino）**：Trino 连接器自持元数据鉴权 + 存储凭据解析，引擎核心只给中立 session/identity + doAs 执行面；本仓 metastore-spi 边界正是照此设计。P5 删掉 fe-core 凭据层最后一处引擎专属耦合（iceberg 是 `VendedCredentialsFactory` 唯一残留 case）。
+> - **by-design 保留（P5 后仍在 fe-core，非泄漏）**：`executeAuthenticated` doAs 面、存储凭据 NORMALIZATION 到 BE 规范 AWS_*/hadoop 键、fe-filesystem provider registry（paimon 同赖）。**勿把 normalization 挪进连接器。**
+>
+> **✅ 用户裁定（2026-07-05）= 完整删除、一次到位**（接受鉴权刀 flip-gated 本地无法验证；已用中文讲清背景/风险/三选项后选定）。
+>
+> **✅ 权威设计 = `plan-doc/tasks/designs/iceberg-metastore-auth-connector-rewire-design.md`**（含纠正后前提 + 7 刀序 + 已裁定子决策 D1-D4 + 风险 + 验收口径）。**下个 session/续跑先读它。** 7 刀：**✅CUT 1（`cf8dda9f058`，本轮 done）** → CUT 2 SHOW CREATE 脱敏改绑 → CUT 3 vended gate 走 raw prop（⚠️见下）→ CUT 4 warehouse→fs.defaultFS 重新安置 → CUT 5 REWIRE 停造 fe-core iceberg 簇（flip-gated 全 flavor e2e）→ CUT 6 删死连通性探测 → CUT 7 删属性簇。
+>
+> **✅ CUT 1 `cf8dda9f058`（连接器自建 HMS-metastore Kerberos 鉴权器，PREP，最高风险/flip-gated）**：抽包内 static `IcebergConnector.buildPluginAuthenticator(props, storageHadoopConfig)`；storage-kerberos 分支逐字不变；新增 HMS 分支——flavor==hms 且 `HmsMetaStoreProperties.kerberos()` present-with-creds 时用 HMS client principal/keytab 建 `KerberosAuthenticationConfig`（逐字镜像 fe-core `HMSBaseProperties.initHadoopAuthenticator:176-180`；`AbstractHmsMetaStoreProperties.kerberos()` javadoc 明写 mirrors 它）。补 `IcebergConnectorPluginAuthenticatorTest` 5 例。**验收（Rule 12 实测）**：fe-connector-iceberg BUILD SUCCESS + checkstyle 0 + 5/5 绿 + mutation 击杀。**⚠️ flip-gated 未跑**：Kerberized-HMS-on-simple-storage e2e（本地无集群，登记 ENG-3）；CUT 1 使该窄场景从 fe-core-delegate doAs 立即改走 plugin-UGI doAs（同 principal/keytab、且 plugin-UGI 才是 plugin FileSystem 正确副本 → 更正确，但须 e2e 证）。
+>
+> **⏭ 续跑起步任务 = CUT 2（最机械，可先做）；但 CUT 3/CUT 5 前须先解一个设计难点**：paimon 靠 `msp.isVendedCredentialsEnabled()` 判 vended **是因保留 msp**；iceberg CUT 5 后 msp==null → 须让 vended 判定在 msp==null 下工作，而通用 `CatalogProperty.initStorageProperties` 直接读 iceberg 专属串 `iceberg.rest.vended-credentials-enabled` 逼近铁律。**动 CUT 3/CUT 5 前按 `ask-user-explain-in-chinese-first` 找用户拍板**（候选见设计文档 §3 CUT 3）。
+>
+> **⚠️ 全部未 push**（[DEC-FLIP-1] 铁律）。recon 结论持久化在 `wf_73999dcf-412` journal + 已固化进设计文档。
+
+---
+
+# 🎯 上一轮（2026-07-05）= **iceberg 4 死实体类删除全完成（第 4、5、6 刀 done）= P4 DONE**
 
 > **本轮范围** = 承接上一轮（cut 1-3 done），完成删原生 iceberg 4 死实体类（`IcebergExternalTable`/`IcebergExternalDatabase`/`IcebergSysExternalTable`/`IcebergExternalCatalog` base）的**第 4、5 刀前置 + 用户 sign-off 后第 6 刀原子删**。**至此整条 P4（删 4 实体类簇）= DONE**。**下一 = P5 属性/鉴权迁移到连接器（用户 2026-07-05 已裁定为下个 session 起步任务）**，权威刀序见执行计划 §P5 + 文末 🚀 段。
 >
