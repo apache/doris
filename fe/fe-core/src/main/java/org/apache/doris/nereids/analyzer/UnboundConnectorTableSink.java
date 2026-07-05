@@ -44,6 +44,12 @@ public class UnboundConnectorTableSink<CHILD_TYPE extends Plan> extends UnboundB
     // semantics after the cutover. Consumed via the PluginDrivenInsertCommandContext.
     private final Map<String, Expression> staticPartitionKeyValues;
 
+    // Rewrite (compaction) marker. Mirrors UnboundIcebergTableSink.rewrite: carried through bind so the
+    // neutral connector sink chain (Logical/Physical) can force single-node GATHER output for a
+    // rewrite_data_files INSERT-SELECT (controls output file count). Defaults false; set true only by the
+    // distributed rewrite coordinator. Always false for ordinary INSERT, so this is dormant pre-cutover.
+    private final boolean rewrite;
+
     public UnboundConnectorTableSink(List<String> nameParts, List<String> colNames, List<String> hints,
                                      List<String> partitions, CHILD_TYPE child) {
         this(nameParts, colNames, hints, partitions, DMLCommandType.NONE,
@@ -74,15 +80,37 @@ public class UnboundConnectorTableSink<CHILD_TYPE extends Plan> extends UnboundB
                                      Optional<LogicalProperties> logicalProperties,
                                      CHILD_TYPE child,
                                      Map<String, Expression> staticPartitionKeyValues) {
+        this(nameParts, colNames, hints, partitions, dmlCommandType,
+                groupExpression, logicalProperties, child, staticPartitionKeyValues, false);
+    }
+
+    /**
+     * constructor with static partition and rewrite flag
+     */
+    public UnboundConnectorTableSink(List<String> nameParts,
+                                     List<String> colNames,
+                                     List<String> hints,
+                                     List<String> partitions,
+                                     DMLCommandType dmlCommandType,
+                                     Optional<GroupExpression> groupExpression,
+                                     Optional<LogicalProperties> logicalProperties,
+                                     CHILD_TYPE child,
+                                     Map<String, Expression> staticPartitionKeyValues,
+                                     boolean rewrite) {
         super(nameParts, PlanType.LOGICAL_UNBOUND_CONNECTOR_TABLE_SINK, ImmutableList.of(), groupExpression,
                 logicalProperties, colNames, dmlCommandType, child, hints, partitions);
         this.staticPartitionKeyValues = staticPartitionKeyValues != null
                 ? ImmutableMap.copyOf(staticPartitionKeyValues)
                 : null;
+        this.rewrite = rewrite;
     }
 
     public Map<String, Expression> getStaticPartitionKeyValues() {
         return staticPartitionKeyValues;
+    }
+
+    public boolean isRewrite() {
+        return rewrite;
     }
 
     public boolean hasStaticPartition() {
@@ -99,20 +127,20 @@ public class UnboundConnectorTableSink<CHILD_TYPE extends Plan> extends UnboundB
         Preconditions.checkArgument(children.size() == 1,
                 "UnboundConnectorTableSink only accepts one child");
         return new UnboundConnectorTableSink<>(nameParts, colNames, hints, partitions,
-            dmlCommandType, groupExpression, Optional.empty(), children.get(0), staticPartitionKeyValues);
+            dmlCommandType, groupExpression, Optional.empty(), children.get(0), staticPartitionKeyValues, rewrite);
     }
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new UnboundConnectorTableSink<>(nameParts, colNames, hints, partitions,
             dmlCommandType, groupExpression, Optional.of(getLogicalProperties()), child(),
-            staticPartitionKeyValues);
+            staticPartitionKeyValues, rewrite);
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
                                                  Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return new UnboundConnectorTableSink<>(nameParts, colNames, hints, partitions,
-            dmlCommandType, groupExpression, logicalProperties, children.get(0), staticPartitionKeyValues);
+            dmlCommandType, groupExpression, logicalProperties, children.get(0), staticPartitionKeyValues, rewrite);
     }
 }

@@ -18,9 +18,8 @@
 package org.apache.doris.nereids.trees.plans.physical;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.datasource.iceberg.IcebergExternalDatabase;
-import org.apache.doris.datasource.iceberg.IcebergExternalTable;
-import org.apache.doris.datasource.iceberg.IcebergMergeOperation;
+import org.apache.doris.datasource.ExternalDatabase;
+import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
 import org.apache.doris.nereids.properties.DistributionSpecMerge;
@@ -32,6 +31,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.delete.DeleteCommandContext;
+import org.apache.doris.nereids.trees.plans.commands.merge.MergeOperation;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.statistics.Statistics;
 
@@ -51,8 +51,8 @@ public class PhysicalIcebergDeleteSink<CHILD_TYPE extends Plan> extends Physical
     /**
      * Constructor
      */
-    public PhysicalIcebergDeleteSink(IcebergExternalDatabase database,
-                                    IcebergExternalTable targetTable,
+    public PhysicalIcebergDeleteSink(ExternalDatabase database,
+                                    ExternalTable targetTable,
                                     List<Column> cols,
                                     List<NamedExpression> outputExprs,
                                     DeleteCommandContext deleteContext,
@@ -66,8 +66,8 @@ public class PhysicalIcebergDeleteSink<CHILD_TYPE extends Plan> extends Physical
     /**
      * Constructor
      */
-    public PhysicalIcebergDeleteSink(IcebergExternalDatabase database,
-                                    IcebergExternalTable targetTable,
+    public PhysicalIcebergDeleteSink(ExternalDatabase database,
+                                    ExternalTable targetTable,
                                     List<Column> cols,
                                     List<NamedExpression> outputExprs,
                                     DeleteCommandContext deleteContext,
@@ -89,7 +89,7 @@ public class PhysicalIcebergDeleteSink<CHILD_TYPE extends Plan> extends Physical
     @Override
     public Plan withChildren(List<Plan> children) {
         return new PhysicalIcebergDeleteSink<>(
-                (IcebergExternalDatabase) database, (IcebergExternalTable) targetTable,
+                database, targetTable,
                 cols, outputExprs, deleteContext, groupExpression,
                 getLogicalProperties(), physicalProperties, statistics, children.get(0));
     }
@@ -102,7 +102,7 @@ public class PhysicalIcebergDeleteSink<CHILD_TYPE extends Plan> extends Physical
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new PhysicalIcebergDeleteSink<>(
-                (IcebergExternalDatabase) database, (IcebergExternalTable) targetTable, cols, outputExprs,
+                database, targetTable, cols, outputExprs,
                 deleteContext, groupExpression, getLogicalProperties(), child());
     }
 
@@ -110,14 +110,14 @@ public class PhysicalIcebergDeleteSink<CHILD_TYPE extends Plan> extends Physical
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
                                                  Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return new PhysicalIcebergDeleteSink<>(
-                (IcebergExternalDatabase) database, (IcebergExternalTable) targetTable, cols, outputExprs,
+                database, targetTable, cols, outputExprs,
                 deleteContext, groupExpression, logicalProperties.get(), children.get(0));
     }
 
     @Override
     public PhysicalPlan withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties, Statistics statistics) {
         return new PhysicalIcebergDeleteSink<>(
-                (IcebergExternalDatabase) database, (IcebergExternalTable) targetTable, cols, outputExprs,
+                database, targetTable, cols, outputExprs,
                 deleteContext, groupExpression, getLogicalProperties(), physicalProperties, statistics, child());
     }
 
@@ -150,7 +150,7 @@ public class PhysicalIcebergDeleteSink<CHILD_TYPE extends Plan> extends Physical
         ExprId operationExprId = null;
         for (Slot slot : child().getOutput()) {
             String name = slot.getName();
-            if (operationExprId == null && IcebergMergeOperation.OPERATION_COLUMN.equalsIgnoreCase(name)) {
+            if (operationExprId == null && MergeOperation.OPERATION_COLUMN.equalsIgnoreCase(name)) {
                 operationExprId = slot.getExprId();
             }
             if (rowIdExprId == null && Column.ICEBERG_ROWID_COL.equalsIgnoreCase(name)) {

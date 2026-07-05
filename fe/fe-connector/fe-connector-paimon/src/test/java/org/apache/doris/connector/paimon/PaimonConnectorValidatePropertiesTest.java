@@ -73,14 +73,45 @@ public class PaimonConnectorValidatePropertiesTest {
     }
 
     @Test
-    public void deadTableCacheKeyIsAcceptedNotRejected() {
-        // R2: legacy validated meta.cache.paimon.table.{enable,ttl-second,capacity} via CacheSpec (rejecting
-        // malformed values). On the plugin path those keys are dead (a cut-over paimon table reports meta-cache
-        // engine "default", never PaimonExternalMetaCache), so a malformed value is intentionally NOT rejected
-        // (warn-only). The catalog is otherwise well-formed, so the dead key is the only variable.
+    public void rejectsMalformedMetaCacheKnob() {
+        // Legacy parity restored (user decision, 2026-07-01): meta.cache.paimon.table.{enable,ttl-second,
+        // capacity} are validated again at CREATE/ALTER via the shared CacheSpec, so a malformed value is
+        // REJECTED (this reverses the earlier warn-only behavior for dead knobs — enable/capacity stay unwired
+        // on the plugin path, but an out-of-range/garbage value is still rejected, matching the deleted
+        // PaimonExternalCatalog.checkProperties). The catalog is otherwise well-formed, so the knob is the
+        // only variable.
+        IllegalArgumentException capacity = Assertions.assertThrows(IllegalArgumentException.class,
+                () -> validate(props(
+                        "paimon.catalog.type", "filesystem", "warehouse", "/wh",
+                        "meta.cache.paimon.table.capacity", "-5")));
+        Assertions.assertTrue(capacity.getMessage().contains("is wrong"));
+
+        IllegalArgumentException ttl = Assertions.assertThrows(IllegalArgumentException.class,
+                () -> validate(props(
+                        "paimon.catalog.type", "filesystem", "warehouse", "/wh",
+                        "meta.cache.paimon.table.ttl-second", "-2")));
+        Assertions.assertEquals(
+                "The parameter meta.cache.paimon.table.ttl-second is wrong, value is -2", ttl.getMessage());
+
+        Assertions.assertThrows(IllegalArgumentException.class,
+                () -> validate(props(
+                        "paimon.catalog.type", "filesystem", "warehouse", "/wh",
+                        "meta.cache.paimon.table.enable", "maybe")));
+    }
+
+    @Test
+    public void acceptsValidMetaCacheKnobs() {
+        // Valid values must pass: ttl-second=-1 is the "no expiration" sentinel (min is -1), 0 disables,
+        // capacity=0 disables, enable is boolean. enable/capacity remain unwired (warn-only) but are NOT
+        // rejected when well-formed.
         Assertions.assertDoesNotThrow(() -> validate(props(
                 "paimon.catalog.type", "filesystem", "warehouse", "/wh",
-                "meta.cache.paimon.table.capacity", "-5")));
+                "meta.cache.paimon.table.enable", "false",
+                "meta.cache.paimon.table.ttl-second", "-1",
+                "meta.cache.paimon.table.capacity", "0")));
+        Assertions.assertDoesNotThrow(() -> validate(props(
+                "paimon.catalog.type", "filesystem", "warehouse", "/wh",
+                "meta.cache.paimon.table.ttl-second", "0")));
     }
 
     @Test

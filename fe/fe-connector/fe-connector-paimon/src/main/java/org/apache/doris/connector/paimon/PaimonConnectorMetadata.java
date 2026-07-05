@@ -530,6 +530,10 @@ public class PaimonConnectorMetadata implements ConnectorMetadata {
                         .property(CoreOptions.SCAN_SNAPSHOT_ID.key(), String.valueOf(snapshotId))
                         .build());
             }
+            // Non-numeric FOR VERSION AS OF resolves as a TAG in paimon (legacy parity:
+            // PaimonExternalTable.getPaimonSnapshotCacheValue treats a non-digital FOR VERSION AS OF
+            // value as a tag name). Empty fall-through to the @tag resolution — same behavior.
+            case VERSION_REF:
             case TAG: {
                 String tagName = spec.getStringValue();
                 Optional<PaimonCatalogOps.TagSnapshot> tag =

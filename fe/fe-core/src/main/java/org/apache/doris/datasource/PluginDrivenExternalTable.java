@@ -23,6 +23,7 @@ import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.util.DebugPointUtil;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.connector.api.Connector;
 import org.apache.doris.connector.api.ConnectorCapability;
 import org.apache.doris.connector.api.ConnectorColumn;
@@ -31,10 +32,13 @@ import org.apache.doris.connector.api.ConnectorPartitionInfo;
 import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.ConnectorTableSchema;
 import org.apache.doris.connector.api.ConnectorTableStatistics;
+import org.apache.doris.connector.api.ConnectorViewDefinition;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
+import org.apache.doris.connector.api.write.ConnectorWritePlanProvider;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.systable.PluginDrivenSysTable;
 import org.apache.doris.datasource.systable.SysTable;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.BaseAnalysisTask;
 import org.apache.doris.statistics.ExternalAnalysisTask;
@@ -66,6 +70,14 @@ public class PluginDrivenExternalTable extends ExternalTable {
 
     private static final Logger LOG = LogManager.getLogger(PluginDrivenExternalTable.class);
 
+    /**
+     * Whether this table is actually a view, resolved once from the connector in
+     * {@link #makeSureInitialized()} (gated on {@link #supportsView()}) and recomputed after GSON replay
+     * (the {@code objectCreated} reset). Mirrors legacy {@code IcebergExternalTable.isView}; derived
+     * metadata, not persisted.
+     */
+    private boolean isView;
+
     /** No-arg constructor for GSON deserialization. */
     public PluginDrivenExternalTable() {
     }
@@ -96,8 +108,83 @@ public class PluginDrivenExternalTable extends ExternalTable {
             return false;
         }
         Connector connector = ((PluginDrivenExternalCatalog) catalog).getConnector();
+        return connector != null && connector.requiresParallelWrite();
+    }
+
+    /**
+     * Returns whether the underlying connector's tables support background per-column auto-analyze.
+     * The statistics auto-collector consults this (in place of the legacy {@code instanceof
+     * IcebergExternalTable} whitelist) to admit a flipped plugin table into the auto-analyze framework
+     * and to force FULL analyze (sample analyze is unimplemented for external SQL-driven tables).
+     */
+    public boolean supportsColumnAutoAnalyze() {
+        if (!(catalog instanceof PluginDrivenExternalCatalog)) {
+            return false;
+        }
+        Connector connector = ((PluginDrivenExternalCatalog) catalog).getConnector();
         return connector != null
-                && connector.getCapabilities().contains(ConnectorCapability.SUPPORTS_PARALLEL_WRITE);
+                && connector.getCapabilities().contains(ConnectorCapability.SUPPORTS_COLUMN_AUTO_ANALYZE);
+    }
+
+    /**
+     * Returns whether the underlying connector's file-scan tables support Top-N lazy materialization.
+     * The nereids Top-N lazy-materialize probe consults this (in place of the legacy exact-class
+     * {@code SUPPORT_RELATION_TYPES} membership) to enable lazy materialization for a flipped plugin table.
+     */
+    public boolean supportsTopNLazyMaterialize() {
+        if (!(catalog instanceof PluginDrivenExternalCatalog)) {
+            return false;
+        }
+        Connector connector = ((PluginDrivenExternalCatalog) catalog).getConnector();
+        return connector != null
+                && connector.getCapabilities().contains(ConnectorCapability.SUPPORTS_TOPN_LAZY_MATERIALIZE);
+    }
+
+    /**
+     * Returns whether the underlying connector's file-scan tables support nested-column pruning (reading only
+     * the accessed STRUCT/ARRAY/MAP sub-fields). The nereids nested-column-prune probe
+     * ({@code LogicalFileScan.supportPruneNestedColumn}) consults this (in place of the legacy exact-class
+     * {@code IcebergExternalTable} arm) to enable pruning for a flipped plugin table, and the
+     * {@code SlotTypeReplacer} name-to-field-id rewrite is gated on the same capability.
+     */
+    public boolean supportsNestedColumnPrune() {
+        if (!(catalog instanceof PluginDrivenExternalCatalog)) {
+            return false;
+        }
+        Connector connector = ((PluginDrivenExternalCatalog) catalog).getConnector();
+        return connector != null
+                && connector.getCapabilities().contains(ConnectorCapability.SUPPORTS_NESTED_COLUMN_PRUNE);
+    }
+
+    /**
+     * Returns whether the underlying connector's table properties are user-facing and safe to render in
+     * SHOW CREATE TABLE. The SHOW CREATE TABLE plugin-driven arm renders LOCATION + PROPERTIES (+ the
+     * pre-rendered PARTITION BY / ORDER BY clauses) only when this is true (in place of the legacy
+     * paimon-only engine-name gate, which doubled as the JDBC/ES credential-leak guard).
+     */
+    public boolean supportsShowCreateDdl() {
+        if (!(catalog instanceof PluginDrivenExternalCatalog)) {
+            return false;
+        }
+        Connector connector = ((PluginDrivenExternalCatalog) catalog).getConnector();
+        return connector != null
+                && connector.getCapabilities().contains(ConnectorCapability.SUPPORTS_SHOW_CREATE_DDL);
+    }
+
+    /**
+     * Returns whether the underlying connector exposes views (declares {@code SUPPORTS_VIEW}). When true,
+     * {@link #isView()} resolves this table's view-ness from the connector ({@code viewExists}) and the
+     * catalog merges the connector's {@code listViewNames} back into {@code SHOW TABLES}. View-less
+     * connectors (jdbc/es) return false and keep every object a non-view. Mirror of the other capability
+     * helpers.
+     */
+    public boolean supportsView() {
+        if (!(catalog instanceof PluginDrivenExternalCatalog)) {
+            return false;
+        }
+        Connector connector = ((PluginDrivenExternalCatalog) catalog).getConnector();
+        return connector != null
+                && connector.getCapabilities().contains(ConnectorCapability.SUPPORTS_VIEW);
     }
 
     /**
@@ -111,8 +198,7 @@ public class PluginDrivenExternalTable extends ExternalTable {
             return false;
         }
         Connector connector = ((PluginDrivenExternalCatalog) catalog).getConnector();
-        return connector != null
-                && connector.getCapabilities().contains(ConnectorCapability.SINK_REQUIRE_PARTITION_LOCAL_SORT);
+        return connector != null && connector.requiresPartitionLocalSort();
     }
 
     /**
@@ -126,8 +212,22 @@ public class PluginDrivenExternalTable extends ExternalTable {
             return false;
         }
         Connector connector = ((PluginDrivenExternalCatalog) catalog).getConnector();
-        return connector != null
-                && connector.getCapabilities().contains(ConnectorCapability.SINK_REQUIRE_FULL_SCHEMA_ORDER);
+        return connector != null && connector.requiresFullSchemaWriteOrder();
+    }
+
+    /**
+     * Returns whether the underlying connector's data files retain partition columns, so a static-partition
+     * write must materialize the PARTITION-clause literal into the data column instead of NULL-filling it
+     * (e.g. Iceberg). Connectors that strip partition columns and refill them from {@code
+     * static_partition_values} (e.g. MaxCompute) return false. Used by {@code BindSink.bindConnectorTableSink};
+     * defaults to false.
+     */
+    public boolean materializeStaticPartitionValues() {
+        if (!(catalog instanceof PluginDrivenExternalCatalog)) {
+            return false;
+        }
+        Connector connector = ((PluginDrivenExternalCatalog) catalog).getConnector();
+        return connector != null && connector.requiresMaterializeStaticPartitionValues();
     }
 
     @Override
@@ -135,8 +235,13 @@ public class PluginDrivenExternalTable extends ExternalTable {
         if (!(catalog instanceof PluginDrivenExternalCatalog)) {
             return false;
         }
-        // Keep plugin-driven preload limited to JDBC until other connector types are validated.
-        return "jdbc".equalsIgnoreCase(((PluginDrivenExternalCatalog) catalog).getType());
+        // F11: gate async metadata pre-load on the connector-declared SUPPORTS_METADATA_PRELOAD capability
+        // (replacing the legacy engine-name "jdbc" string, per the iron rule). jdbc and iceberg both declare
+        // it; connectors not yet validated for concurrent pre-warming (e.g. ES) do not, and fall back to
+        // synchronous load at binding time. Pure planning/lock-latency optimization, no correctness effect.
+        Connector connector = ((PluginDrivenExternalCatalog) catalog).getConnector();
+        return connector != null
+                && connector.getCapabilities().contains(ConnectorCapability.SUPPORTS_METADATA_PRELOAD);
     }
 
     @Override
@@ -163,6 +268,16 @@ public class PluginDrivenExternalTable extends ExternalTable {
 
         String dbName = db != null ? db.getRemoteName() : "";
         String tableName = getRemoteName();
+        if (isView()) {
+            // A connector view has no table handle (the SDK tableExists() is false for views); build the schema
+            // from the view definition's columns instead. Mirrors legacy IcebergUtils.loadViewSchemaCacheValue
+            // (icebergView.schema()). Gated on isView() => only view-supporting connectors (SUPPORTS_VIEW) reach
+            // here; view-less connectors (jdbc/paimon/maxcompute) keep isView()==false and skip this.
+            ConnectorViewDefinition viewDefinition = metadata.getViewDefinition(session, dbName, tableName);
+            ConnectorTableSchema viewSchema = new ConnectorTableSchema(
+                    tableName, viewDefinition.getColumns(), null, Collections.emptyMap());
+            return Optional.of(toSchemaCacheValue(metadata, session, dbName, tableName, viewSchema));
+        }
         Optional<ConnectorTableHandle> handleOpt = resolveConnectorTableHandle(session, metadata);
         if (!handleOpt.isPresent()) {
             LOG.warn("Table handle not found for plugin-driven table: {}.{}", dbName, tableName);
@@ -237,7 +352,56 @@ public class PluginDrivenExternalTable extends ExternalTable {
         super.makeSureInitialized();
         if (!objectCreated) {
             objectCreated = true;
+            isView = resolveIsView();
         }
+    }
+
+    @Override
+    public boolean isView() {
+        makeSureInitialized();
+        return isView;
+    }
+
+    /**
+     * Resolves whether this table is a view by consulting the connector ({@code viewExists}), mirroring
+     * legacy {@code IcebergExternalTable.makeSureInitialized -> catalog.viewExists}. Gated on
+     * {@link #supportsView()} so view-less connectors (jdbc/es/paimon/maxcompute) issue no remote call and
+     * stay {@code isView()==false}. The system-table subclass overrides this to a constant {@code false}
+     * (metadata tables like {@code $snapshots} are never views, and a {@code viewExists} on their synthetic
+     * name would be a wasted — possibly failing — round-trip).
+     */
+    protected boolean resolveIsView() {
+        if (!supportsView()) {
+            return false;
+        }
+        PluginDrivenExternalCatalog pluginCatalog = (PluginDrivenExternalCatalog) catalog;
+        Connector connector = pluginCatalog.getConnector();
+        if (connector == null) {
+            return false;
+        }
+        ConnectorSession session = pluginCatalog.buildConnectorSession();
+        ConnectorMetadata metadata = connector.getMetadata(session);
+        String dbName = db != null ? db.getRemoteName() : "";
+        return metadata.viewExists(session, dbName, getRemoteName());
+    }
+
+    /**
+     * Returns the stored SQL text of this view, mirroring legacy {@code IcebergExternalTable.getViewText}.
+     * Issues one connector round-trip ({@code getViewDefinition}) — the same single remote load the legacy
+     * query path made — so {@code BindRelation} (and SHOW CREATE) can parse and analyze the view body.
+     * Callers gate on {@link #supportsView()} + {@link #isView()}; on a view-less connector the SPI default
+     * fails loud. (Legacy {@code getSqlDialect} is intentionally not ported — it has no caller; the view
+     * body is converted by the session dialect in {@code BindRelation.parseAndAnalyzeExternalView}, and the
+     * connector already uses the view's own dialect internally to pick the SQL representation.)
+     */
+    public String getViewText() {
+        PluginDrivenExternalCatalog pluginCatalog = (PluginDrivenExternalCatalog) catalog;
+        Connector connector = pluginCatalog.getConnector();
+        ConnectorSession session = pluginCatalog.buildConnectorSession();
+        ConnectorMetadata metadata = connector.getMetadata(session);
+        String dbName = db != null ? db.getRemoteName() : "";
+        ConnectorViewDefinition definition = metadata.getViewDefinition(session, dbName, getRemoteName());
+        return definition.getSql();
     }
 
     @Override
@@ -259,25 +423,123 @@ public class PluginDrivenExternalTable extends ExternalTable {
     }
 
     /**
-     * The connector's user-facing table properties (e.g. paimon coreOptions: path / file.format /
-     * write-only), used by SHOW CREATE TABLE to render LOCATION + PROPERTIES (D-046). The
-     * FE-internal schema-control keys ({@code partition_columns} / {@code primary_keys}, emitted by
-     * the connector so {@link #initSchema()} can derive the partition columns) are stripped — they
-     * are not user-facing options and must not leak into the rendered PROPERTIES(...).
+     * Opens the hidden-column gate while a row-level DML over THIS table is in flight, mirroring legacy
+     * {@code IcebergExternalTable.needInternalHiddenColumns}. The signal is the neutral per-table ctx flag
+     * the generic {@code RowLevelDmlCommand} sets (not an iceberg concept); a connector with no synthetic
+     * write columns appends nothing even with the gate open, so this stays correct for every connector type.
      */
-    public Map<String, String> getTableProperties() {
+    @Override
+    protected boolean needInternalHiddenColumns() {
+        ConnectContext ctx = ConnectContext.get();
+        return ctx != null && ctx.needsSyntheticWriteColForTable(getId());
+    }
+
+    /**
+     * Appends the connector's request-scoped synthetic write columns to the full schema when a write/DML
+     * over this table is in flight. The base schema (including any always-present hidden columns the
+     * connector declares through the schema cache, e.g. iceberg v3 row-lineage) comes from
+     * {@code super.getFullSchema()}; the request-scoped columns (e.g. iceberg's row-id STRUCT) are fetched
+     * live from the connector — they must not be cached — and appended only when the request gate is open:
+     * show-hidden, or the synthetic-write-column ctx flag set for this table during row-level DML. Mirrors
+     * legacy {@code IcebergExternalTable.getFullSchema}, but connector-agnostic (iron-law: no iceberg branch
+     * here) — a connector with no synthetic write columns (jdbc/es/paimon/maxcompute) keeps its byte-identical
+     * full schema.
+     */
+    @Override
+    public List<Column> getFullSchema() {
+        List<Column> schema = super.getFullSchema();
+        if (schema == null || !(Util.showHiddenColumns() || needInternalHiddenColumns())) {
+            return schema;
+        }
+        List<ConnectorColumn> synthetic = fetchSyntheticWriteColumns();
+        if (synthetic.isEmpty()) {
+            return schema;
+        }
+        List<Column> result = new ArrayList<>(schema);
+        result.addAll(ConnectorColumnConverter.convertColumns(synthetic));
+        return result;
+    }
+
+    /**
+     * Fetches the connector's declared synthetic write columns for this table, in engine-neutral form.
+     * Degrades to an empty list on any miss (non-plugin catalog, a read-only connector with no write-plan
+     * provider, or an unresolvable table handle) and never throws — schema resolution must not fail a query.
+     */
+    private List<ConnectorColumn> fetchSyntheticWriteColumns() {
+        if (!(catalog instanceof PluginDrivenExternalCatalog)) {
+            return Collections.emptyList();
+        }
+        PluginDrivenExternalCatalog pluginCatalog = (PluginDrivenExternalCatalog) catalog;
+        Connector connector = pluginCatalog.getConnector();
+        if (connector == null) {
+            return Collections.emptyList();
+        }
+        ConnectorWritePlanProvider writePlanProvider = connector.getWritePlanProvider();
+        if (writePlanProvider == null) {
+            return Collections.emptyList();
+        }
+        ConnectorSession session = pluginCatalog.buildConnectorSession();
+        ConnectorMetadata metadata = connector.getMetadata(session);
+        Optional<ConnectorTableHandle> handleOpt = resolveConnectorTableHandle(session, metadata);
+        if (!handleOpt.isPresent()) {
+            return Collections.emptyList();
+        }
+        return writePlanProvider.getSyntheticWriteColumns(session, handleOpt.get());
+    }
+
+    /** The raw connector-emitted table-property map (including FE-internal / render-hint keys). */
+    private Map<String, String> rawTableProperties() {
         makeSureInitialized();
-        Map<String, String> raw = getSchemaCacheValue()
+        return getSchemaCacheValue()
                 .map(value -> ((PluginDrivenSchemaCacheValue) value).getTableProperties())
                 .orElse(Collections.emptyMap());
+    }
+
+    /**
+     * The connector's user-facing table properties (e.g. paimon coreOptions: path / file.format /
+     * write-only), used by SHOW CREATE TABLE to render the PROPERTIES(...) block (D-046). The
+     * FE-internal schema-control keys ({@code partition_columns} / {@code primary_keys}, emitted by
+     * the connector so {@link #initSchema()} can derive the partition columns) and the SHOW CREATE
+     * render-hint keys ({@code show.location} / {@code show.partition-clause} / {@code show.sort-clause},
+     * rendered as the LOCATION / PARTITION BY / ORDER BY clauses via {@link #getShowLocation()} etc.) are
+     * stripped — they are not user-facing options and must not leak into the rendered PROPERTIES(...).
+     */
+    public Map<String, String> getTableProperties() {
+        Map<String, String> raw = rawTableProperties();
         Map<String, String> result = new LinkedHashMap<>();
         for (Map.Entry<String, String> entry : raw.entrySet()) {
-            if ("partition_columns".equals(entry.getKey()) || "primary_keys".equals(entry.getKey())) {
+            String key = entry.getKey();
+            if ("partition_columns".equals(key) || "primary_keys".equals(key)
+                    || ConnectorTableSchema.SHOW_LOCATION_KEY.equals(key)
+                    || ConnectorTableSchema.SHOW_PARTITION_CLAUSE_KEY.equals(key)
+                    || ConnectorTableSchema.SHOW_SORT_CLAUSE_KEY.equals(key)) {
                 continue;
             }
             result.put(entry.getKey(), entry.getValue());
         }
         return result;
+    }
+
+    /**
+     * The table location string for the SHOW CREATE TABLE {@code LOCATION '...'} clause. Reads the
+     * connector's {@code show.location} render-hint key, falling back to the user-facing {@code path}
+     * property (paimon carries its location there, and keeps it in PROPERTIES). Returns "" if neither
+     * is present.
+     */
+    public String getShowLocation() {
+        Map<String, String> raw = rawTableProperties();
+        String location = raw.getOrDefault(ConnectorTableSchema.SHOW_LOCATION_KEY, "");
+        return location.isEmpty() ? raw.getOrDefault("path", "") : location;
+    }
+
+    /** The pre-rendered {@code PARTITION BY ...} clause for SHOW CREATE TABLE, or "" if none. */
+    public String getShowPartitionClause() {
+        return rawTableProperties().getOrDefault(ConnectorTableSchema.SHOW_PARTITION_CLAUSE_KEY, "");
+    }
+
+    /** The pre-rendered {@code ORDER BY (...)} clause for SHOW CREATE TABLE, or "" if none. */
+    public String getShowSortClause() {
+        return rawTableProperties().getOrDefault(ConnectorTableSchema.SHOW_SORT_CLAUSE_KEY, "");
     }
 
     @Override
@@ -471,6 +733,11 @@ public class PluginDrivenExternalTable extends ExternalTable {
                 return TableType.JDBC_EXTERNAL_TABLE.toEngineName();
             case "es":
                 return TableType.ES_EXTERNAL_TABLE.toEngineName();
+            case "iceberg":
+                // P6.5-T06: preserve the legacy IcebergExternalTable engine name "iceberg"
+                // (TableType.ICEBERG_EXTERNAL_TABLE.toEngineName()) for migrated iceberg base/sys tables,
+                // instead of the generic "Plugin" from PLUGIN_EXTERNAL_TABLE.
+                return TableType.ICEBERG_EXTERNAL_TABLE.toEngineName();
             case "trino-connector":
                 // TableType.TRINO_CONNECTOR_EXTERNAL_TABLE.toEngineName() returns null
                 // (no switch case in TableType.toEngineName), matching legacy behavior.
@@ -497,6 +764,8 @@ public class PluginDrivenExternalTable extends ExternalTable {
                 return TableType.JDBC_EXTERNAL_TABLE.name();
             case "es":
                 return TableType.ES_EXTERNAL_TABLE.name();
+            case "iceberg":
+                return TableType.ICEBERG_EXTERNAL_TABLE.name();
             case "trino-connector":
                 return TableType.TRINO_CONNECTOR_EXTERNAL_TABLE.name();
             case "max_compute":

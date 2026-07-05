@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.PluginDrivenExternalCatalog;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Lists;
@@ -35,6 +36,8 @@ import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 
 /**
  * Tests engine-padding / catalog-engine-consistency in {@link CreateTableInfo} for a
@@ -59,6 +62,11 @@ public class CreateTableInfoEngineCatalogTest {
 
     // Mirror of CreateTableInfo.ENGINE_MAXCOMPUTE (private constant).
     private static final String ENGINE_MAXCOMPUTE = "maxcompute";
+    // Iceberg catalog-level format-version property keys (literal values of iceberg SDK
+    // CatalogProperties.TABLE_DEFAULT_PREFIX/TABLE_OVERRIDE_PREFIX + TableProperties.FORMAT_VERSION;
+    // spelled out to avoid importing org.apache.iceberg into this nereids test package).
+    private static final String TABLE_DEFAULT_FORMAT_VERSION = "table-default.format-version";
+    private static final String TABLE_OVERRIDE_FORMAT_VERSION = "table-override.format-version";
 
     private MockedStatic<Env> mockedEnv;
     private CatalogMgr catalogMgr;
@@ -187,5 +195,115 @@ public class CreateTableInfoEngineCatalogTest {
         CreateTableInfo checkInfo = newInfo("jdbc_ctl", "jdbc");
         Assertions.assertDoesNotThrow(() -> invokeCheck(checkInfo),
                 "jdbc PluginDriven catalog must pass checkEngineWithCatalog (legacy pass-through parity)");
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // ENG-1 / F1: getEffectiveIcebergFormatVersion must consult catalog-level
+    // table-default/override.format-version for a flipped (PluginDrivenExternalCatalog) iceberg
+    // catalog, so the v3 row-lineage reserved-column check is not silently no-op'd to v2 while the
+    // connector creates a v3 table. Mirrors the paddingEngineName plugin-iceberg arm.
+    // ---------------------------------------------------------------------------------------------
+
+    /** Registers a PluginDriven catalog of the given connector type, exposing the given catalog properties. */
+    private void registerPluginCatalogWithProps(String ctlName, String type, Map<String, String> props) {
+        PluginDrivenExternalCatalog catalog = Mockito.mock(PluginDrivenExternalCatalog.class);
+        Mockito.doReturn(type).when(catalog).getType();
+        Mockito.doReturn(props).when(catalog).getProperties();
+        Mockito.when(catalogMgr.getCatalog(ctlName)).thenReturn(catalog);
+    }
+
+    private static CreateTableInfo newInfoWithColumns(String ctlName, List<ColumnDefinition> columns) {
+        return new CreateTableInfo(false, false, false, ctlName, "db", "tbl",
+                columns, new ArrayList<>(), null, null,
+                new ArrayList<>(), null, null, null,
+                new ArrayList<>(), new HashMap<>(), new HashMap<>(), new ArrayList<>());
+    }
+
+    private static int invokeEffectiveVersion(CreateTableInfo info) throws Throwable {
+        Method m = CreateTableInfo.class.getDeclaredMethod("getEffectiveIcebergFormatVersion");
+        m.setAccessible(true);
+        try {
+            return (int) m.invoke(info);
+        } catch (InvocationTargetException e) {
+            throw e.getCause();
+        }
+    }
+
+    private static void invokeValidateRowLineage(CreateTableInfo info) throws Throwable {
+        Method m = CreateTableInfo.class.getDeclaredMethod("validateIcebergRowLineageColumns");
+        m.setAccessible(true);
+        try {
+            m.invoke(info);
+        } catch (InvocationTargetException e) {
+            throw e.getCause();
+        }
+    }
+
+    private static Map<String, String> propMap(String key, String value) {
+        Map<String, String> m = new HashMap<>();
+        m.put(key, value);
+        return m;
+    }
+
+    @Test
+    public void catalogLevelTableDefaultFormatVersionResolvedForPluginIceberg() throws Throwable {
+        registerPluginCatalogWithProps("ice_ctl", "iceberg", propMap(TABLE_DEFAULT_FORMAT_VERSION, "3"));
+        CreateTableInfo info = newInfoWithColumns("ice_ctl", new ArrayList<>());
+
+        // Why: a flipped iceberg catalog is a PluginDrivenExternalCatalog, so the legacy
+        // instanceof IcebergExternalCatalog gate is false; without the parallel plugin-iceberg arm the
+        // catalog-level table-default.format-version=3 is ignored and the version resolves to 2.
+        Assertions.assertEquals(3, invokeEffectiveVersion(info),
+                "catalog-level table-default.format-version=3 must be honored for a PluginDriven iceberg catalog");
+    }
+
+    @Test
+    public void catalogLevelTableOverrideFormatVersionResolvedForPluginIceberg() throws Throwable {
+        registerPluginCatalogWithProps("ice_ctl", "iceberg", propMap(TABLE_OVERRIDE_FORMAT_VERSION, "3"));
+        CreateTableInfo info = newInfoWithColumns("ice_ctl", new ArrayList<>());
+
+        Assertions.assertEquals(3, invokeEffectiveVersion(info),
+                "catalog-level table-override.format-version=3 must be honored for a PluginDriven iceberg catalog");
+    }
+
+    @Test
+    public void catalogLevelV3RejectsReservedRowLineageColumnForPluginIceberg() {
+        registerPluginCatalogWithProps("ice_ctl", "iceberg", propMap(TABLE_DEFAULT_FORMAT_VERSION, "3"));
+        List<ColumnDefinition> columns =
+                Lists.newArrayList(new ColumnDefinition("_row_id", BigIntType.INSTANCE, true));
+        CreateTableInfo info = newInfoWithColumns("ice_ctl", columns);
+
+        // End-to-end user-facing behavior: master rejected this at analysis; post-flip it must still
+        // reject (else a v3 table with a colliding reserved column is silently created).
+        Assertions.assertThrows(AnalysisException.class, () -> invokeValidateRowLineage(info),
+                "CREATE TABLE(_row_id) under a PluginDriven iceberg catalog with catalog-level "
+                        + "format-version=3 must be rejected");
+    }
+
+    @Test
+    public void noCatalogLevelFormatVersionResolvesToV2ForPluginIceberg() throws Throwable {
+        registerPluginCatalogWithProps("ice_ctl", "iceberg", new HashMap<>());
+        List<ColumnDefinition> columns =
+                Lists.newArrayList(new ColumnDefinition("_row_id", BigIntType.INSTANCE, true));
+        CreateTableInfo info = newInfoWithColumns("ice_ctl", columns);
+
+        // Not over-broadened: with no catalog-level format-version and no table-level one, the version
+        // resolves to 2, so _row_id is allowed (v3 check does not fire).
+        Assertions.assertEquals(2, invokeEffectiveVersion(info),
+                "absent any format-version, a PluginDriven iceberg catalog must resolve to v2");
+        Assertions.assertDoesNotThrow(() -> invokeValidateRowLineage(info),
+                "_row_id must be allowed when the resolved format-version is 2");
+    }
+
+    @Test
+    public void catalogLevelFormatVersionIgnoredForNonIcebergPluginCatalog() throws Throwable {
+        // A max_compute PluginDriven catalog that happens to carry a table-default.format-version must NOT
+        // have it read (the plugin-iceberg arm is gated on pluginCatalogTypeToEngine == iceberg): resolves
+        // to 2 via the emptyMap branch.
+        registerPluginCatalogWithProps("mc_ctl", "max_compute", propMap(TABLE_DEFAULT_FORMAT_VERSION, "3"));
+        CreateTableInfo info = newInfoWithColumns("mc_ctl", new ArrayList<>());
+
+        Assertions.assertEquals(2, invokeEffectiveVersion(info),
+                "a non-iceberg PluginDriven catalog must not consult catalog-level format-version");
     }
 }

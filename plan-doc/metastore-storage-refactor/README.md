@@ -1,3 +1,11 @@
+> # 🔒 本子线已彻底 CLOSED（2026-06-22 收官，用户确认）
+>
+> **「属性体系重构」子项目（Storage→fe-filesystem / MetaStore→fe-connector SPI，paimon 优先）已全部完成并合入主线** —— 核心任务 15/15 + docker 真闸全过；产出 `fe-kerberos` / `fe-connector-metastore-api` / `fe-connector-metastore-spi`（含 `MetaStoreProviders.bind` + 5 provider）+ 删除 `fe-property` 孤儿模块；paimon 连接器已 cutover 到共享 SPI。合入提交：`#64446`（paimon SPI+翻闸）/ `#64653`（P5-T29 删 legacy）/ `#64655`（P3b kerberos 收口 `e5959e1b53d`）。
+>
+> **⛔ 后续任务（含主线 P6/P7）请勿再阅读本目录的规划/接力文档** —— 它们是已结束工作的历史留存，不再维护。需了解 metastore-spi / `MetaStoreProviders.bind` 现状请**直接读代码**：`fe/fe-connector/fe-connector-metastore-spi/`。主线接力见 [`../HANDOFF.md`](../HANDOFF.md)。
+
+---
+
 # 子项目：属性体系重构（Storage→fe-filesystem / MetaStore→fe-connector SPI，paimon 优先）
 
 > 本目录是**该子项目唯一权威跟踪源**。它隶属于上层 connector 迁移项目（见 `../README.md`），并**沿用**其文档机制（决策/偏差/风险区分、ID 规则、维护规则），仅作范围裁剪与本项目特化。

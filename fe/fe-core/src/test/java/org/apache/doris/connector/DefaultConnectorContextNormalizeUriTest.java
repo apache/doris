@@ -19,6 +19,7 @@ package org.apache.doris.connector;
 
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.kerberos.ExecutionAuthenticator;
+import org.apache.doris.thrift.TFileType;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -144,5 +145,28 @@ public class DefaultConnectorContextNormalizeUriTest {
         Assertions.assertEquals("s3://bkt/warehouse/db/t/part-0.parquet",
                 ossContext().normalizeStorageUri(
                         "oss://bkt/warehouse/db/t/part-0.parquet", Collections.emptyMap()));
+    }
+
+    // ---- T06 write-sink file type: getBackendFileType resolves the BE file type via the SAME
+    //      LocationPath the legacy IcebergTableSink used (broker-aware), returned as the enum NAME. ----
+
+    @Test
+    public void backendFileTypeForOssResolvesToS3ViaLocationPath() throws Exception {
+        // WHY: the iceberg write sink must tell BE which file-system family opens the output path. The
+        // engine resolves it through LocationPath.getTFileTypeForBE() (same as legacy), so an OSS data
+        // location yields FILE_S3 (object store). Returned as the enum NAME (the SPI is Thrift-free).
+        // MUTATION: scheme-only default that can't see storage props, or a wrong family -> red.
+        Assertions.assertEquals(TFileType.FILE_S3.name(),
+                ossContext().getBackendFileType("oss://bkt/warehouse/db/t/data", null));
+    }
+
+    @Test
+    public void backendFileTypeVendedRestResolvesUnderEmptyStaticMap() {
+        // WHY: a REST catalog's static storage map is empty; the vended token resolves the file type the
+        // same way the vended-aware normalizeStorageUri resolves the path. MUTATION: ignoring the token
+        // (static-only) throws "no storage properties" -> red.
+        DefaultConnectorContext restCtx = new DefaultConnectorContext("c", 1L);
+        Assertions.assertEquals(TFileType.FILE_S3.name(),
+                restCtx.getBackendFileType("oss://bkt/warehouse/db/t/data", ossVendedToken()));
     }
 }

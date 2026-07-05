@@ -115,6 +115,25 @@ public class PluginDrivenExternalTableEngineTest {
     }
 
     @Test
+    public void testIcebergCatalogReturnsIcebergEngineName() {
+        // P6.5-T06: after the iceberg cutover (P6.6) a base/sys iceberg table is a PluginDrivenExternalTable;
+        // legacy IcebergExternalTable reported engine "iceberg" (TableType.ICEBERG_EXTERNAL_TABLE.toEngineName()).
+        // Without an iceberg case it would fall through to "Plugin", regressing SHOW TABLE STATUS /
+        // information_schema.tables. MUTATION: dropping the iceberg case -> "Plugin" -> red.
+        PluginDrivenExternalTable table = createTableWithCatalogType("iceberg");
+        Assertions.assertEquals("iceberg", table.getEngine(),
+                "Iceberg catalog tables should report engine='iceberg' (legacy parity), not 'Plugin'");
+    }
+
+    @Test
+    public void testIcebergCatalogReturnsIcebergEngineTableTypeName() {
+        PluginDrivenExternalTable table = createTableWithCatalogType("iceberg");
+        Assertions.assertEquals(TableType.ICEBERG_EXTERNAL_TABLE.name(),
+                table.getEngineTableTypeName(),
+                "Iceberg catalog tables should report ICEBERG_EXTERNAL_TABLE type name");
+    }
+
+    @Test
     public void testTableTypeIsAlwaysPluginExternalTable() {
         PluginDrivenExternalTable jdbcTable = createTableWithCatalogType("jdbc");
         PluginDrivenExternalTable esTable = createTableWithCatalogType("es");
@@ -232,8 +251,19 @@ public class PluginDrivenExternalTableEngineTest {
         Mockito.when(db.getFullName()).thenReturn("test_db");
         Mockito.when(db.getRemoteName()).thenReturn("test_db");
 
+        // Unit isolation: these tests exercise engine-name / initSchema() logic against mock
+        // connector/db objects that are not registered in a real Env-backed catalog. Since P6.6 H-8
+        // (iceberg view schema), initSchema() consults isView() -> makeSureInitialized(); the real
+        // makeSureInitialized() would resolve the db against Env and throw "Unknown database 'test_db'".
+        // Stub it out (mirrors testToThrift...'s inline no-op); isView() then stays false (the view-less
+        // connector path these tests assert), so initSchema() takes the table-handle path unchanged.
         PluginDrivenExternalTable table = new PluginDrivenExternalTable(
-                1L, "test_table", "test_table", catalog, db);
+                1L, "test_table", "test_table", catalog, db) {
+            @Override
+            protected synchronized void makeSureInitialized() {
+                // no-op: skip real Env-backed catalog/db initialization
+            }
+        };
         return table;
     }
 

@@ -17,7 +17,12 @@
 
 package org.apache.doris.connector.api;
 
+import org.apache.doris.connector.api.ddl.BranchChange;
+import org.apache.doris.connector.api.ddl.ConnectorColumnPosition;
 import org.apache.doris.connector.api.ddl.ConnectorCreateTableRequest;
+import org.apache.doris.connector.api.ddl.DropRefChange;
+import org.apache.doris.connector.api.ddl.PartitionFieldChange;
+import org.apache.doris.connector.api.ddl.TagChange;
 import org.apache.doris.connector.api.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.api.mvcc.ConnectorMvccSnapshot;
@@ -100,6 +105,46 @@ public interface ConnectorTableOps {
         return Collections.emptyList();
     }
 
+    /**
+     * Returns whether the named view exists in the given database. Connectors that expose views
+     * (declaring {@link ConnectorCapability#SUPPORTS_VIEW}) override this; the default {@code false}
+     * keeps view-less connectors reporting every object as a non-view.
+     */
+    default boolean viewExists(ConnectorSession session, String dbName, String viewName) {
+        return false;
+    }
+
+    /**
+     * Lists all view names within the given database. Connectors that subtract views from
+     * {@link #listTableNames} (e.g. iceberg) expose them here so the catalog can merge them back into
+     * {@code SHOW TABLES}; the default is empty (no view support).
+     */
+    default List<String> listViewNames(ConnectorSession session, String dbName) {
+        return Collections.emptyList();
+    }
+
+    /**
+     * Loads the {@link ConnectorViewDefinition stored SQL definition + dialect} of the named view. Connectors
+     * that expose views (declaring {@link ConnectorCapability#SUPPORTS_VIEW}) override this; callers gate on
+     * {@code SUPPORTS_VIEW} and {@code isView()} so the default — for view-less connectors — fails loud.
+     *
+     * @throws DorisConnectorException if the connector does not support views
+     */
+    default ConnectorViewDefinition getViewDefinition(ConnectorSession session, String dbName, String viewName) {
+        throw new DorisConnectorException("GET VIEW DEFINITION not supported");
+    }
+
+    /**
+     * Drops the named view. Connectors that expose views (declaring {@link ConnectorCapability#SUPPORTS_VIEW})
+     * override this; callers route a DROP through {@link #viewExists} so the default — for view-less
+     * connectors — is unreachable and fails loud as a guard.
+     *
+     * @throws DorisConnectorException if the connector does not support views
+     */
+    default void dropView(ConnectorSession session, String dbName, String viewName) {
+        throw new DorisConnectorException("DROP VIEW not supported");
+    }
+
     /** Creates a new table with the given schema and properties. */
     default void createTable(ConnectorSession session,
             ConnectorTableSchema schema,
@@ -134,6 +179,100 @@ public interface ConnectorTableOps {
             ConnectorTableHandle handle) {
         throw new DorisConnectorException(
                 "DROP TABLE not supported");
+    }
+
+    /** Renames the table identified by {@code handle} to {@code newName} within the same database. */
+    default void renameTable(ConnectorSession session,
+            ConnectorTableHandle handle, String newName) {
+        throw new DorisConnectorException(
+                "RENAME TABLE not supported");
+    }
+
+    /**
+     * Adds a column to the table at the given position.
+     *
+     * @param position where to place the column ({@link ConnectorColumnPosition#FIRST} /
+     *        {@link ConnectorColumnPosition#after(String)}); {@code null} appends at the end.
+     */
+    default void addColumn(ConnectorSession session, ConnectorTableHandle handle,
+            ConnectorColumn column, ConnectorColumnPosition position) {
+        throw new DorisConnectorException("ADD COLUMN not supported");
+    }
+
+    /** Adds multiple columns to the table, appended in order. */
+    default void addColumns(ConnectorSession session, ConnectorTableHandle handle,
+            List<ConnectorColumn> columns) {
+        throw new DorisConnectorException("ADD COLUMNS not supported");
+    }
+
+    /** Drops the named column from the table. */
+    default void dropColumn(ConnectorSession session, ConnectorTableHandle handle,
+            String columnName) {
+        throw new DorisConnectorException("DROP COLUMN not supported");
+    }
+
+    /** Renames a column. */
+    default void renameColumn(ConnectorSession session, ConnectorTableHandle handle,
+            String oldName, String newName) {
+        throw new DorisConnectorException("RENAME COLUMN not supported");
+    }
+
+    /**
+     * Modifies a column's type and/or comment, optionally repositioning it.
+     *
+     * @param position where to move the column; {@code null} keeps its current position.
+     */
+    default void modifyColumn(ConnectorSession session, ConnectorTableHandle handle,
+            ConnectorColumn column, ConnectorColumnPosition position) {
+        throw new DorisConnectorException("MODIFY COLUMN not supported");
+    }
+
+    /** Reorders the table's columns to match the given full ordered list of column names. */
+    default void reorderColumns(ConnectorSession session, ConnectorTableHandle handle,
+            List<String> newOrder) {
+        throw new DorisConnectorException("REORDER COLUMNS not supported");
+    }
+
+    /** Creates or replaces a named branch (snapshot ref) on the table. */
+    default void createOrReplaceBranch(ConnectorSession session, ConnectorTableHandle handle,
+            BranchChange branch) {
+        throw new DorisConnectorException("CREATE/REPLACE BRANCH not supported");
+    }
+
+    /** Creates or replaces a named tag (snapshot ref) on the table. */
+    default void createOrReplaceTag(ConnectorSession session, ConnectorTableHandle handle,
+            TagChange tag) {
+        throw new DorisConnectorException("CREATE/REPLACE TAG not supported");
+    }
+
+    /** Drops a named branch (snapshot ref) from the table. */
+    default void dropBranch(ConnectorSession session, ConnectorTableHandle handle,
+            DropRefChange branch) {
+        throw new DorisConnectorException("DROP BRANCH not supported");
+    }
+
+    /** Drops a named tag (snapshot ref) from the table. */
+    default void dropTag(ConnectorSession session, ConnectorTableHandle handle,
+            DropRefChange tag) {
+        throw new DorisConnectorException("DROP TAG not supported");
+    }
+
+    /** Adds a partition field (column reference + optional transform) to the table's partition spec. */
+    default void addPartitionField(ConnectorSession session, ConnectorTableHandle handle,
+            PartitionFieldChange change) {
+        throw new DorisConnectorException("ADD PARTITION FIELD not supported");
+    }
+
+    /** Drops a partition field from the table's partition spec. */
+    default void dropPartitionField(ConnectorSession session, ConnectorTableHandle handle,
+            PartitionFieldChange change) {
+        throw new DorisConnectorException("DROP PARTITION FIELD not supported");
+    }
+
+    /** Replaces a partition field (removes the old field, adds the new one) in the table's partition spec. */
+    default void replacePartitionField(ConnectorSession session, ConnectorTableHandle handle,
+            PartitionFieldChange change) {
+        throw new DorisConnectorException("REPLACE PARTITION FIELD not supported");
     }
 
     /** Returns the primary key column names for the given table. */

@@ -18,6 +18,7 @@
 package org.apache.doris.connector.api;
 
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
+import org.apache.doris.connector.api.mvcc.ConnectorMvccPartitionView;
 import org.apache.doris.connector.api.mvcc.ConnectorMvccSnapshot;
 import org.apache.doris.connector.api.mvcc.ConnectorTimeTravelSpec;
 
@@ -26,6 +27,7 @@ import java.io.IOException;
 import java.util.Collections;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Central metadata interface that a connector must implement.
@@ -59,6 +61,27 @@ public interface ConnectorMetadata extends
      * support MVCC and reads see whatever is current.</p>
      */
     default Optional<ConnectorMvccSnapshot> beginQuerySnapshot(
+            ConnectorSession session, ConnectorTableHandle handle) {
+        return Optional.empty();
+    }
+
+    /**
+     * Returns a connector-supplied, range-aware partition view for the MTMV / partition-aware
+     * materialized-view refresh path, or {@link Optional#empty()} when the connector has none.
+     *
+     * <p>The generic table model materializes its partition view from {@code listPartitions} by
+     * default (LIST partitions keyed on a last-modified timestamp). A connector whose partitions are
+     * intrinsically ranges with a snapshot-id freshness marker (e.g. iceberg's time transforms)
+     * overrides this to return a {@link ConnectorMvccPartitionView}; the generic model then builds
+     * {@code RangePartitionItem}s from the pre-rendered bounds and picks the snapshot type from the
+     * view's {@link ConnectorMvccPartitionView#getFreshness()}. All data-source-specific math
+     * (transform-to-range, partition-evolution overlap merge, snapshot-id resolution) happens inside
+     * the connector — fe-core stays source-agnostic.</p>
+     *
+     * <p>The default returns empty: connectors without a range partition view keep the generic
+     * {@code listPartitions} / LIST / timestamp behavior unchanged.</p>
+     */
+    default Optional<ConnectorMvccPartitionView> getMvccPartitionView(
             ConnectorSession session, ConnectorTableHandle handle) {
         return Optional.empty();
     }
@@ -100,6 +123,47 @@ public interface ConnectorMetadata extends
     default ConnectorTableHandle applySnapshot(ConnectorSession session,
             ConnectorTableHandle handle, ConnectorMvccSnapshot snapshot) {
         return handle;  // default: connectors without time-travel ignore the pin
+    }
+
+    /**
+     * Threads a per-group rewrite file scope into the table handle BEFORE {@code planScan}, so the
+     * distributed {@code rewrite_data_files} driver can scope each per-group INSERT-SELECT scan to only the
+     * data files that group bin-packed (mirrors {@link #applySnapshot} / {@code applyFilter} handle-update
+     * pattern). {@code rawDataFilePaths} are the RAW file paths the connector's {@code planRewrite} emitted on
+     * its {@link org.apache.doris.connector.api.procedure.ConnectorRewriteGroup}s; the connector matches its
+     * re-enumerated scan tasks against the SAME raw paths (no normalization on either side — over-reading the
+     * full table would make each group rewrite far beyond its bin-pack set and produce duplicate rows under
+     * OCC).
+     *
+     * <p>The default returns {@code handle} unchanged: connectors without distributed rewrite ignore the
+     * scope and scan the whole table. A {@code null}/empty set is also a no-op (no scope = full scan), so the
+     * pin is only applied when a real per-group path set is present.</p>
+     */
+    default ConnectorTableHandle applyRewriteFileScope(ConnectorSession session,
+            ConnectorTableHandle handle, Set<String> rawDataFilePaths) {
+        return handle;  // default: connectors without distributed rewrite ignore the scope
+    }
+
+    /**
+     * Threads a Top-N lazy-materialization signal into the table handle BEFORE {@code planScan} /
+     * {@code getScanNodeProperties} (mirrors {@link #applySnapshot} / {@link #applyRewriteFileScope}
+     * handle-update pattern). The generic engine calls this when the scan carries the synthesized,
+     * engine-wide lazy-materialization row-id column ({@code __DORIS_GLOBAL_ROWID_COL__*}, injected by
+     * {@code LazyMaterializeTopN} for {@code ORDER BY ... LIMIT}): under lazy materialization BE reads the
+     * sort key first, then re-fetches the OTHER (non-projected) columns of the surviving rows by row-id.
+     *
+     * <p>Contract: a connector that builds column-pruned scan metadata keyed by the REQUESTED columns
+     * (e.g. a field-id schema dictionary) MUST, once this is applied, build that metadata over the FULL
+     * table schema instead — otherwise a lazily re-fetched column has no entry and the native read resolves
+     * it wrong (schema-evolved tables) or drops it. A connector whose scan metadata already spans all
+     * columns ignores this.</p>
+     *
+     * <p>The default returns {@code handle} unchanged: connectors without column-pruned scan metadata are
+     * unaffected by lazy materialization.</p>
+     */
+    default ConnectorTableHandle applyTopnLazyMaterialization(ConnectorSession session,
+            ConnectorTableHandle handle) {
+        return handle;  // default: connectors without column-pruned scan metadata ignore the signal
     }
 
     @Override

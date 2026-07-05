@@ -72,6 +72,33 @@ public final class MetaStoreProviders {
                 "No MetaStoreProvider supports the given properties; registered providers: " + registeredNames());
     }
 
+    /**
+     * Binds {@code properties} to the typed facts of the backend matching an EXPLICIT catalog-type
+     * token, decoupled from any one connector's property key. Paimon dispatches via {@link #bind}
+     * (which reads the hardcoded {@code paimon.catalog.type}); iceberg — whose flavor lives under
+     * {@code iceberg.catalog.type} — resolves its flavor itself and passes it here, so the metastore-spi
+     * never has to learn iceberg's key. The selected provider's {@link MetaStoreProvider#bind} still
+     * receives the FULL raw {@code properties} (not the token), so the bound facts are identical to the
+     * map-keyed path.
+     *
+     * @param catalogType         the resolved metastore flavor (e.g. {@code "hms"} / {@code "dlf"})
+     * @param properties          the raw CREATE-CATALOG properties
+     * @param storageHadoopConfig the pre-computed neutral storage Hadoop config (may be empty; never null)
+     * @return the bound {@link MetaStoreProperties}
+     * @throws IllegalArgumentException if no registered provider supports {@code catalogType}
+     */
+    public static MetaStoreProperties bindForType(String catalogType, Map<String, String> properties,
+            Map<String, String> storageHadoopConfig) {
+        for (MetaStoreProvider provider : PROVIDERS) {
+            if (provider.supportsType(catalogType)) {
+                return provider.bind(properties, storageHadoopConfig);
+            }
+        }
+        throw new IllegalArgumentException(
+                "No MetaStoreProvider supports catalog type '" + catalogType + "'; registered providers: "
+                        + registeredNames());
+    }
+
     /** Names of the registered providers (for diagnostics). */
     public static List<String> registeredNames() {
         return PROVIDERS.stream().map(MetaStoreProvider::name).collect(Collectors.toList());

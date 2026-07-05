@@ -23,6 +23,7 @@ import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TPaimonDeletionFileDesc;
 import org.apache.doris.thrift.TPaimonFileDesc;
+import org.apache.doris.thrift.TPaimonReaderType;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 
 import java.util.ArrayList;
@@ -63,6 +64,12 @@ public class PaimonScanRange implements ConnectorScanRange {
     // FileSplit proportional weight. -1 = not provided (SPI sentinel). Separate from the file-splitting
     // granularity used to slice native files.
     private final long targetSplitSize;
+    // FIX-READER-TYPE (3645dc94306): true iff this JNI split was serialized with Paimon's native binary
+    // format for the paimon-cpp reader (cppReader && split instanceof DataSplit, mirrored from
+    // PaimonScanPlanProvider.encodeSplit). Selects PAIMON_CPP vs PAIMON_JNI in populateRangeParams's JNI
+    // branch; the native branch is always PAIMON_NATIVE. Defaults false (JNI) for non-cpp ranges. Cannot be
+    // re-derived in populateRangeParams — the serialized paimon.split string is opaque there.
+    private final boolean cppReaderSplit;
 
     private PaimonScanRange(Builder builder) {
         this.path = builder.path;
@@ -72,6 +79,7 @@ public class PaimonScanRange implements ConnectorScanRange {
         this.fileFormat = builder.fileFormat;
         this.selfSplitWeight = builder.selfSplitWeight;
         this.targetSplitSize = builder.targetSplitSize;
+        this.cppReaderSplit = builder.cppReaderSplit;
         this.partitionValues = builder.partitionValues != null
                 ? Collections.unmodifiableMap(builder.partitionValues)
                 : Collections.emptyMap();
@@ -204,6 +212,10 @@ public class PaimonScanRange implements ConnectorScanRange {
         if (paimonSplitVal != null) {
             // JNI reader path
             rangeDesc.setFormatType(TFileFormatType.FORMAT_JNI);
+            // FIX-READER-TYPE (3645dc94306): tell BE's file-scanner-v2 which paimon reader stack to use —
+            // the paimon-cpp reader (native binary split) vs the Java JNI reader. Mirrors legacy
+            // PaimonScanNode.setPaimonParams's fileDesc.setReaderType.
+            fileDesc.setReaderType(cppReaderSplit ? TPaimonReaderType.PAIMON_CPP : TPaimonReaderType.PAIMON_JNI);
             fileDesc.setPaimonSplit(paimonSplitVal);
             String tableLocation = props.get("paimon.table_location");
             if (tableLocation != null) {
@@ -215,6 +227,8 @@ public class PaimonScanRange implements ConnectorScanRange {
             }
         } else {
             // Native reader path — format already set by file extension
+            // FIX-READER-TYPE (3645dc94306): native (ORC/Parquet) reader stack.
+            fileDesc.setReaderType(TPaimonReaderType.PAIMON_NATIVE);
             String fmt = getFileFormat();
             if ("orc".equals(fmt)) {
                 rangeDesc.setFormatType(TFileFormatType.FORMAT_ORC);
@@ -295,6 +309,8 @@ public class PaimonScanRange implements ConnectorScanRange {
         // -1 = not provided (SPI sentinel). NOT 0: a 0 denominator is invalid (would divide-by-zero), unlike
         // selfSplitWeight whose 0 is a legitimate empty-file / 0-row weight.
         private long targetSplitSize = -1;
+        // FIX-READER-TYPE (3645dc94306): see PaimonScanRange.cppReaderSplit. Only meaningful for JNI splits.
+        private boolean cppReaderSplit;
 
         // JNI reader fields
         private String paimonSplit;
@@ -346,6 +362,11 @@ public class PaimonScanRange implements ConnectorScanRange {
 
         public Builder targetSplitSize(long targetSplitSize) {
             this.targetSplitSize = targetSplitSize;
+            return this;
+        }
+
+        public Builder cppReaderSplit(boolean cppReaderSplit) {
+            this.cppReaderSplit = cppReaderSplit;
             return this;
         }
 

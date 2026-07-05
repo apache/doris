@@ -71,4 +71,9 @@ public class ConnectorTransactionDefaultsTest {
     void getUpdateCntDefaultsZero() {
         Assertions.assertEquals(0L, new ReadOnlyTransaction().getUpdateCnt());
     }
+
+    @Test
+    void profileLabelDefaultsToExternal() {
+        Assertions.assertEquals("EXTERNAL", new ReadOnlyTransaction().profileLabel());
+    }
 }

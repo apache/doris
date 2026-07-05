@@ -21,13 +21,13 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.datasource.iceberg.IcebergMergeOperation;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.commands.delete.DeleteCommandContext;
+import org.apache.doris.nereids.trees.plans.commands.merge.MergeOperation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
@@ -79,7 +79,7 @@ public class IcebergUpdateCommandTest {
         boolean hasC1 = false;
         for (NamedExpression project : projects) {
             if (project instanceof UnboundAlias
-                    && project.toString().contains(IcebergMergeOperation.OPERATION_COLUMN)) {
+                    && project.toString().contains(MergeOperation.OPERATION_COLUMN)) {
                 hasOperation = true;
             }
             if (project instanceof UnboundSlot
@@ -133,34 +133,5 @@ public class IcebergUpdateCommandTest {
                 .anyMatch(slot -> "c2".equalsIgnoreCase(
                         slot.getNameParts().get(slot.getNameParts().size() - 1)));
         Assertions.assertTrue(hasC2Slot);
-    }
-
-    @Test
-    public void testExecuteWithExternalTableBatchModeDisabledRestoresValueOnSuccess() throws Exception {
-        ConnectContext ctx = new ConnectContext();
-        ctx.getSessionVariable().enableExternalTableBatchMode = true;
-
-        Boolean result = IcebergUpdateCommand.executeWithExternalTableBatchModeDisabled(ctx, () -> {
-            Assertions.assertFalse(ctx.getSessionVariable().enableExternalTableBatchMode);
-            return Boolean.TRUE;
-        });
-
-        Assertions.assertTrue(result);
-        Assertions.assertTrue(ctx.getSessionVariable().enableExternalTableBatchMode);
-    }
-
-    @Test
-    public void testExecuteWithExternalTableBatchModeDisabledRestoresValueOnException() {
-        ConnectContext ctx = new ConnectContext();
-        ctx.getSessionVariable().enableExternalTableBatchMode = false;
-
-        RuntimeException exception = Assertions.assertThrows(RuntimeException.class,
-                () -> IcebergUpdateCommand.executeWithExternalTableBatchModeDisabled(ctx, () -> {
-                    Assertions.assertFalse(ctx.getSessionVariable().enableExternalTableBatchMode);
-                    throw new RuntimeException("expected");
-                }));
-
-        Assertions.assertEquals("expected", exception.getMessage());
-        Assertions.assertFalse(ctx.getSessionVariable().enableExternalTableBatchMode);
     }
 }

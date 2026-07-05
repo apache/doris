@@ -19,17 +19,12 @@ package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TableSnapshot;
-import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.PluginDrivenExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalTable;
-import org.apache.doris.datasource.iceberg.IcebergExternalTable;
-import org.apache.doris.datasource.iceberg.IcebergSysExternalTable;
 import org.apache.doris.datasource.mvcc.MvccUtil;
-import org.apache.doris.datasource.paimon.PaimonExternalTable;
-import org.apache.doris.datasource.paimon.PaimonSysExternalTable;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.rules.expression.rules.SortedPartitionRanges;
@@ -78,7 +73,7 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
             Optional<TableSample> tableSample, Optional<TableSnapshot> tableSnapshot,
             Optional<TableScanParams> scanParams, Optional<List<Slot>> cachedOutputs) {
         this(id, table, qualifier,
-                initialSelectedPartitions(table, scanParams),
+                table.initSelectedPartitions(MvccUtil.getSnapshotFromContext(table)),
                 operativeSlots, ImmutableList.of(),
                 tableSample, tableSnapshot,
                 scanParams, Optional.empty(), Optional.empty(), "",
@@ -111,17 +106,6 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
             Optional<List<Slot>> cachedOutputs) {
         this(id, table, qualifier, selectedPartitions, operativeSlots, virtualColumns, tableSample, tableSnapshot,
                 scanParams, groupExpression, logicalProperties, "", cachedOutputs);
-    }
-
-    private static SelectedPartitions initialSelectedPartitions(
-            ExternalTable table, Optional<TableScanParams> scanParams) {
-        if ((table instanceof PaimonExternalTable || table instanceof PaimonSysExternalTable)
-                && scanParams.isPresent() && scanParams.get().isOptions()) {
-            // A relation-scoped historical snapshot cannot reuse partitions cached for the
-            // statement-level latest snapshot; Paimon will prune its selected snapshot instead.
-            return SelectedPartitions.NOT_PRUNED;
-        }
-        return table.initSelectedPartitions(MvccUtil.getSnapshotFromContext(table));
     }
 
     public SelectedPartitions getSelectedPartitions() {
@@ -237,40 +221,20 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
             // hidden/metadata columns the connector exposes are reachable.
             return computePluginDrivenOutput();
         }
-        if (table instanceof IcebergExternalTable) {
-            // iceberg v3 need append row lineage columns
-            return computeIcebergOutput();
-        } else if (scanParams.isPresent() && scanParams.get().isOptions()
-                && (table instanceof PaimonExternalTable || table instanceof PaimonSysExternalTable)) {
-            List<Column> schema = table instanceof PaimonSysExternalTable
-                    ? ((PaimonSysExternalTable) table).getFullSchema(scanParams.get())
-                    : ((PaimonExternalTable) table).getFullSchema(scanParams.get());
-            return computeOutput(schema);
-        } else {
-            return super.computeOutput();
-        }
+        return super.computeOutput();
     }
 
-    private List<Slot> computeOutput(List<Column> schema) {
+    private List<Slot> computePluginDrivenOutput() {
         IdGenerator<ExprId> exprIdGenerator = StatementScopeIdGenerator.getExprIdGenerator();
         Builder<Slot> slots = ImmutableList.builder();
-        schema
+        table.getFullSchema()
                 .stream()
                 .map(col -> SlotReference.fromColumn(exprIdGenerator.getNextId(), table, col, qualified()))
                 .forEach(slots::add);
-        // add virtual slots
         for (NamedExpression virtualColumn : virtualColumns) {
             slots.add(virtualColumn.toSlot());
         }
         return slots.build();
-    }
-
-    private List<Slot> computeIcebergOutput() {
-        return computeOutput(table.getFullSchema());
-    }
-
-    private List<Slot> computePluginDrivenOutput() {
-        return computeOutput(table.getFullSchema());
     }
 
     @Override
@@ -282,18 +246,13 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
     public boolean supportPruneNestedColumn() {
         ExternalTable table = getTable();
         if (table instanceof PluginDrivenExternalTable) {
-            // No SPI capability for nested-column prune yet; default to off.
-            // Future ConnectorCapability flag will refine this.
-            return false;
+            // Post-flip plugin-driven tables (e.g. iceberg as PluginDrivenMvccExternalTable) declare
+            // nested-column prune via ConnectorCapability; the legacy exact-class IcebergExternalTable arm
+            // below is dead for them. Only enabled when the connector also carries nested field ids (see
+            // SUPPORTS_NESTED_COLUMN_PRUNE / SlotTypeReplacer), else nested leaves would read NULL.
+            return ((PluginDrivenExternalTable) table).supportsNestedColumnPrune();
         }
-        if (table instanceof IcebergExternalTable) {
-            return true;
-        } else if (table instanceof IcebergSysExternalTable) {
-            // Position deletes use the native reader, which supports nested column pruning. Other
-            // Iceberg system tables are materialized as StructLike rows by the SDK and consumed by
-            // ordinal in the JNI reader, so their nested struct layout must remain unchanged.
-            return ((IcebergSysExternalTable) table).isPositionDeletesTable();
-        } else if (table instanceof HMSExternalTable) {
+        if (table instanceof HMSExternalTable) {
             HMSExternalTable hmsTable = (HMSExternalTable) table;
             if (hmsTable.getDlaType() == HMSExternalTable.DLAType.HUDI) {
                 // Don't prune nested column for HUDI table for now, because HUDI table

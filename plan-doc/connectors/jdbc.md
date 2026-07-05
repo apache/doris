@@ -74,5 +74,12 @@
 
 ## 进度日志
 
+### 2026-06-23（P6.3-T02 — jdbc 写路径统一到 plan-provider）
+- jdbc 写从 **config-bag** 路径迁到统一 **plan-provider** 路径（写框架统一的一部分，跨连接器一致）：
+  - 新 `JdbcWritePlanProvider`（镜像 `MaxComputeWritePlanProvider`）`planWrite` 直建 `TJdbcTableSink`（熔合 legacy `getWriteConfig` 属性袋 + fe-core `bindJdbcWriteSink`）；`JdbcDorisConnector.getWritePlanProvider()` 返非空 → `PhysicalPlanTranslator` 据此自动路由 jdbc 入 plan-provider；删 `JdbcConnectorMetadata.getWriteConfig`。
+  - 删除 config-bag SPI 三件套（`ConnectorWriteType`/`ConnectorWriteConfig`/`getWriteConfig`），jdbc 是其唯一消费者。
+  - **EXPLAIN 保留**：新 `ConnectorWritePlanProvider.appendExplainInfo`（source-agnostic，镜像扫描侧）让 jdbc 在 EXPLAIN 回吐 `TABLE TYPE`/`INSERT SQL`/`USE TRANSACTION`。
+  - **写 thrift 字节 parity**（`JdbcWritePlanProviderTest`，含连接池 default/insertSql/catalogId/tableType/useTransaction）；jdbc no-op txn（T01）不变。**0 BE 改**。
+
 ### 2026-05-24
 - 跟踪文件建立。当前状态：已 SPI 化，等待 P1 清理 fe-core 残留方言 client。

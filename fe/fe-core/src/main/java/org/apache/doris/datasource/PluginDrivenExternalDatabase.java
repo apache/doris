@@ -19,6 +19,9 @@ package org.apache.doris.datasource;
 
 import org.apache.doris.connector.api.Connector;
 import org.apache.doris.connector.api.ConnectorCapability;
+import org.apache.doris.connector.api.ConnectorDatabaseMetadata;
+import org.apache.doris.connector.api.ConnectorMetadata;
+import org.apache.doris.connector.api.ConnectorSession;
 
 /**
  * Generic {@link ExternalDatabase} for plugin-driven catalogs.
@@ -55,5 +58,27 @@ public class PluginDrivenExternalDatabase extends ExternalDatabase<PluginDrivenE
             }
         }
         return new PluginDrivenExternalTable(tblId, localTableName, remoteTableName, catalog, db);
+    }
+
+    /**
+     * The database (namespace) base location for the SHOW CREATE DATABASE {@code LOCATION '...'} clause,
+     * fetched through the connector's {@code getDatabase} SPI (Trino-aligned properties-map, the
+     * {@code location} key). Returns "" when the connector exposes no namespace location (the default
+     * {@code getDatabase} returns an empty property map), so SHOW CREATE DATABASE renders no LOCATION for
+     * connectors without a database-level location — matching their pre-flip behavior.
+     */
+    public String getLocation() {
+        if (!(extCatalog instanceof PluginDrivenExternalCatalog)) {
+            return "";
+        }
+        PluginDrivenExternalCatalog pluginCatalog = (PluginDrivenExternalCatalog) extCatalog;
+        Connector connector = pluginCatalog.getConnector();
+        if (connector == null) {
+            return "";
+        }
+        ConnectorSession session = pluginCatalog.buildConnectorSession();
+        ConnectorMetadata metadata = connector.getMetadata(session);
+        ConnectorDatabaseMetadata dbMetadata = metadata.getDatabase(session, getRemoteName());
+        return dbMetadata.getProperties().getOrDefault(ConnectorDatabaseMetadata.LOCATION_PROPERTY, "");
     }
 }

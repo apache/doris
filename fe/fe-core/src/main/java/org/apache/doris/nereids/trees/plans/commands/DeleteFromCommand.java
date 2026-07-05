@@ -40,7 +40,6 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.util.Util;
-import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.NereidsPlanner;
@@ -141,17 +140,14 @@ public class DeleteFromCommand extends Command implements ForwardWithSync, Expla
             // Table not found, will be handled by regular error flow
         }
 
-        // Route to IcebergDeleteCommand for Iceberg tables
-        if (table instanceof org.apache.doris.datasource.iceberg.IcebergExternalTable) {
-            LOG.info("Routing DELETE to IcebergDeleteCommand for table: {}", table.getName());
-            org.apache.doris.nereids.trees.plans.commands.delete.DeleteCommandContext deleteCtx =
-                    new org.apache.doris.nereids.trees.plans.commands.delete.DeleteCommandContext();
-            deleteCtx.setDeleteFileType(org.apache.doris.nereids.trees.plans.commands.delete.DeleteCommandContext
-                    .DeleteFileType.POSITION_DELETE);
-            IcebergDeleteCommand icebergDeleteCommand = new IcebergDeleteCommand(
-                    nameParts, tableAlias, isTempPart, partitions, logicalQuery,
-                    deleteCtx);
-            icebergDeleteCommand.run(ctx, executor);
+        // Route row-level DML on external tables (e.g. iceberg) through the generic shell.
+        Optional<RowLevelDmlTransform> transform = RowLevelDmlRegistry.find(table);
+        if (transform.isPresent()) {
+            DeleteCommandContext deleteCtx = new DeleteCommandContext();
+            deleteCtx.setDeleteFileType(DeleteCommandContext.DeleteFileType.POSITION_DELETE);
+            RowLevelDmlArgs args = RowLevelDmlArgs.forDelete(
+                    table, nameParts, tableAlias, isTempPart, partitions, logicalQuery, deleteCtx);
+            new RowLevelDmlCommand(transform.get(), args, RowLevelDmlOp.DELETE).run(ctx, executor);
             return;
         }
 
@@ -503,12 +499,13 @@ public class DeleteFromCommand extends Command implements ForwardWithSync, Expla
     public Plan getExplainPlan(ConnectContext ctx) {
         List<String> qualifiedTableName = RelationUtil.getQualifierName(ctx, nameParts);
         TableIf table = RelationUtil.getTable(qualifiedTableName, ctx.getEnv(), Optional.empty());
-        if (table instanceof IcebergExternalTable) {
+        Optional<RowLevelDmlTransform> transform = RowLevelDmlRegistry.find(table);
+        if (transform.isPresent()) {
             DeleteCommandContext deleteCtx = new DeleteCommandContext();
             deleteCtx.setDeleteFileType(DeleteCommandContext.DeleteFileType.POSITION_DELETE);
-            IcebergDeleteCommand icebergDeleteCommand = new IcebergDeleteCommand(
-                    nameParts, tableAlias, isTempPart, partitions, logicalQuery, deleteCtx);
-            return icebergDeleteCommand.getExplainPlan(ctx);
+            RowLevelDmlArgs args = RowLevelDmlArgs.forDelete(
+                    table, nameParts, tableAlias, isTempPart, partitions, logicalQuery, deleteCtx);
+            return new RowLevelDmlCommand(transform.get(), args, RowLevelDmlOp.DELETE).getExplainPlan(ctx);
         }
         return completeQueryPlan(ctx, logicalQuery);
     }
