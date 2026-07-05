@@ -34,6 +34,7 @@ import org.apache.hadoop.hive.metastore.api.Database;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.hadoop.hive.metastore.api.MetaException;
 import org.apache.hadoop.hive.metastore.api.Partition;
+import org.apache.hadoop.hive.metastore.api.SQLDefaultConstraint;
 import org.apache.hadoop.hive.metastore.api.StorageDescriptor;
 import org.apache.hadoop.hive.metastore.api.Table;
 import org.apache.logging.log4j.LogManager;
@@ -210,6 +211,76 @@ public class ThriftHmsClient implements HmsClient {
                     client.getPartition(dbName, tableName, values);
             return convertPartition(partition);
         });
+    }
+
+    // ========== Phase 3: DDL / write operations ==========
+
+    @Override
+    public void createDatabase(HmsCreateDatabaseRequest request) {
+        execute(client -> {
+            client.createDatabase(HmsWriteConverter.toHiveDatabase(request));
+            return null;
+        });
+    }
+
+    @Override
+    public void dropDatabase(String dbName) {
+        execute(client -> {
+            client.dropDatabase(dbName);
+            return null;
+        });
+    }
+
+    @Override
+    public void createTable(HmsCreateTableRequest request) {
+        if (tableExists(request.getDbName(), request.getTableName())) {
+            throw new HmsClientException("Table '" + request.getTableName()
+                    + "' has existed in '" + request.getDbName() + "'.");
+        }
+        Table hiveTable = HmsWriteConverter.toHiveTable(request);
+        List<SQLDefaultConstraint> defaults = buildDefaultConstraints(request);
+        execute(client -> {
+            if (!defaults.isEmpty()) {
+                // foreignKeys, uniqueConstraints, notNullConstraints, defaultConstraints, checkConstraints
+                client.createTableWithConstraints(hiveTable, null, null, null, null, defaults, null);
+            } else {
+                client.createTable(hiveTable);
+            }
+            return null;
+        });
+    }
+
+    @Override
+    public void dropTable(String dbName, String tableName) {
+        execute(client -> {
+            client.dropTable(dbName, tableName);
+            return null;
+        });
+    }
+
+    @Override
+    public void truncateTable(String dbName, String tableName, List<String> partitions) {
+        execute(client -> {
+            client.truncateTable(dbName, tableName, partitions);
+            return null;
+        });
+    }
+
+    private static List<SQLDefaultConstraint> buildDefaultConstraints(HmsCreateTableRequest request) {
+        List<SQLDefaultConstraint> defaults = new ArrayList<>();
+        for (ConnectorColumn column : request.getColumns()) {
+            String defaultValue = column.getDefaultValue();
+            if (defaultValue != null) {
+                SQLDefaultConstraint dv = new SQLDefaultConstraint();
+                dv.setTable_db(request.getDbName());
+                dv.setTable_name(request.getTableName());
+                dv.setColumn_name(column.getName());
+                dv.setDefault_value(defaultValue);
+                dv.setDc_name(column.getName() + "_dv_constraint");
+                defaults.add(dv);
+            }
+        }
+        return defaults;
     }
 
     @Override

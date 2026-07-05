@@ -135,4 +135,64 @@ public interface HmsClient extends Closeable {
      */
     HmsPartitionInfo getPartition(String dbName, String tableName,
             List<String> values);
+
+    // ========== Phase 3: DDL / write operations ==========
+    //
+    // Optional operations: default to throwing so read-only implementations (the partition-pruning
+    // test fakes, and connectors that never issue DDL) need not implement them. The production
+    // {@link ThriftHmsClient} overrides all of them.
+
+    /**
+     * Create a database.
+     *
+     * @param request database create spec
+     * @throws HmsClientException if the operation fails
+     */
+    default void createDatabase(HmsCreateDatabaseRequest request) {
+        throw new UnsupportedOperationException("createDatabase is not supported by this client");
+    }
+
+    /**
+     * Drop a database. Callers must have already handled IF EXISTS / cascade semantics.
+     *
+     * @param dbName database name
+     * @throws HmsClientException if the operation fails
+     */
+    default void dropDatabase(String dbName) {
+        throw new UnsupportedOperationException("dropDatabase is not supported by this client");
+    }
+
+    /**
+     * Create a table. When any column carries a default value, it is registered as a Hive default
+     * constraint (equivalent to legacy {@code createTableWithConstraints}).
+     *
+     * @param request table create spec
+     * @throws HmsClientException if the table already exists or the operation fails
+     */
+    default void createTable(HmsCreateTableRequest request) {
+        throw new UnsupportedOperationException("createTable is not supported by this client");
+    }
+
+    /**
+     * Drop a table. Callers must have already handled IF EXISTS and transactional-table rejection.
+     *
+     * @param dbName    database name
+     * @param tableName table name
+     * @throws HmsClientException if the operation fails
+     */
+    default void dropTable(String dbName, String tableName) {
+        throw new UnsupportedOperationException("dropTable is not supported by this client");
+    }
+
+    /**
+     * Truncate a table, or the given partitions of it.
+     *
+     * @param dbName     database name
+     * @param tableName  table name
+     * @param partitions partition names to truncate; empty/null truncates the whole table
+     * @throws HmsClientException if the operation fails
+     */
+    default void truncateTable(String dbName, String tableName, List<String> partitions) {
+        throw new UnsupportedOperationException("truncateTable is not supported by this client");
+    }
 }
