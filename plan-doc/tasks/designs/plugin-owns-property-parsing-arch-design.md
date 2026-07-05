@@ -18,7 +18,11 @@
 - **fe-core 仅保留**：raw catalog map（展示 + 回放）、一个 `bindStorage` **调用**接缝（调 fe-filesystem，不自己解析）、非 null 的 no-op ExecutionAuthenticator handle、以及不可约的引擎接缝（broker 地址注入 `Env.getBrokerMgr`、`String-map→THdfsParams` 的 `HdfsResource.generateHdfsParam`、fe-core 自己的 FS 操作 `SpiSwitchingFileSystem`）。
 - **插件→fe-core 回传契约**：(1) 展示 = raw props + **敏感键集合**（供脱敏）；(2) 回放 = raw props（已满足）；(3) 扫描 = 已回传的成品（`ScanNodePropertiesResult` + by-reference thrift）；(4) 存储成品 = 插件**返回** BE 凭据/配置 map（真正的 gap，取代 fe-core 从 `getStoragePropertiesMap()` 派生）；(5) 鉴权 = 插件独占 Kerberos，fe-core 只留非 null no-op handle（因 `BaseExternalTableInsertExecutor:113/185` 无条件调 `getExecutionAuthenticator().execute()`，且 `ExternalCatalog:1391` null 会抛）。
 
-## 2. 中央决策（**需用户拍板**）= bind-location fork
+## 2. 中央决策（**✅ 用户 2026-07-05 裁定 = A 家族：共享宿主 classpath + 连接器发起 bind**）= bind-location fork
+
+> **裁定落地**：fe-filesystem 解析器留在宿主 classpath（parent-first、不打包）；**连接器直接调 fe-filesystem-api 发起 bind**（它已 compile-dep fe-filesystem-api），不经 fe-core context round-trip；fe-core 零解析。即下方 A，且取"连接器发起"变体（非 fe-core context 发起）。**B 不采纳。**
+
+### （备查）原 fork 权衡
 
 **fe-filesystem 解析器放哪？**
 - **A（引擎宿主单 `bindStorage(raw)` 接缝，recon 推荐）**：fe-filesystem provider 留在 fe-core 的宿主 classpath（`DirectoryPluginRuntimeManager`），连接器经 context 调 bind。**满足"fe-core 不解析"**（解析器是独立 fe-filesystem 插件），近乎 drop-in（paimon 已 `toBackendProperties().toMap()`），无 AWS-SDK/hadoop 重复、无 TCCL split-brain。**代价**：fe-core 物理上仍在 bind **调用**路径上（但不解析）。

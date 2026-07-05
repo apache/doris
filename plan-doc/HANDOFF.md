@@ -16,7 +16,8 @@
 > **影响（重估原 P5 7 刀计划）**：① 原"属性簇删除 + rewire"是这个大原则的**子集/前奏**，需按新架构重写设计；② **CUT 4（在 fe-core `CatalogProperty` 加 warehouse→fs.defaultFS helper）方向反了**（那仍是 fe-core 解析 storage）——应搬到插件/fe-filesystem 侧，待新设计定夺后可能 revert/改向；③ CUT 1（连接器自建 HMS 鉴权器）方向对（meta→连接器）；④ CUT 2（SHOW CREATE 脱敏在 fe-core）多半保留（展示层），但敏感键理想应由插件供。
 >
 > **✅ 完整新设计已出 = `plan-doc/tasks/designs/plugin-owns-property-parsing-arch-design.md`**（依据侦察工作流 `wf_61c70f0d-bce`，替代/升级 iceberg-metastore-auth-connector-rewire-design.md）。**关键实证（大幅利好）：目标架构大部分已就位** —— `fe-filesystem-api/spi` 已是插件可用共享模块（parent-first、排除打包，无须抽取）；连接器读/扫描路径**已** fe-filesystem-native；fe-core `StorageProperties.createAll` 只是**冗余的第二份解析**。故本迁移 = **退掉 fe-core 第二份解析**（10 步 S1-S10），非新建模块，比预想小。**vended 难题也顺带解掉**：fe-core 对所有插件 catalog **无条件停建静态存储表**（插件 100% 拥有 static+vended），不判别、不 gate、守铁律。
-> **⚠️ 待用户拍板的中央决策 = bind-location fork**（设计 §2）：A 引擎宿主单 bindStorage 接缝（recon+我推荐，解析器是 FS 插件=满足"fe-core 零解析"实质，无 AWS/hadoop 重复、无 TCCL split-brain）vs B 每插件自打包 FS impl（字面"连接器内解析"但重复 SDK+split-brain）。**下个 session 若接手：先读新设计 + 拿这个 fork 的裁定，再按 S2 起步（repoint getStorageProperties supplier）。legacy 静态 map 方法须保活至 Hive/Hudi/LakeSoul/HMS-iceberg 全离 SPI（S10 铁律）。**
+> **✅ 中央决策已裁定（用户 2026-07-05）= A 家族：共享宿主 classpath + 连接器发起 bind**（fe-filesystem 解析器留宿主 parent-first、不打包；连接器直接调 fe-filesystem-api 发起 bind，不经 fe-core context；fe-core 零解析。B 每插件打包不采纳）。
+> **⏭ 下个 session 起步 = 按新设计 S2 起（`getStorageProperties()` supplier 改绑 raw props 直传 / 连接器直接发起 bind），逐刀 S2→S10；每刀门 = BE `location.*` map 逐字 parity diff（fe-core 路 vs fe-filesystem 路）+ 重部署 classloader 冒烟。⚠️ legacy 静态 map 方法（`CatalogProperty` 四方法 + `StorageProperties.createAll`）须保活至 Hive/Hudi/LakeSoul/HMS-iceberg 全离 SPI（S10 铁律，别删共享方法只 repoint 插件路）。CUT4 待 S6-S8 一起搬回连接器（现仍 load-bearing）。**
 >
 > **已 commit 未 push（本轮）**：CUT 1 `cf8dda9f058` / CUT 2 `eb9201dc0a6` / CUT 4 `0de34db83fb`（+ 各自 doc commit）。CUT 4 待新设计裁定去留。
 
