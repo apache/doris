@@ -198,13 +198,28 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
                 if (agg.getAggPhase().isGlobal()
                         && agg.getAggMode() == AggMode.INPUT_TO_RESULT
                         && AggregateUtils.isBucketedHashAggEnabled(
-                            agg.getGroupByExpressions().size())) {
+                            agg.getGroupByExpressions().size())
+                        && isShuffleCompatible(childOutputProperty.getDistributionSpec())) {
                     return PhysicalProperties.ANY;
                 }
                 return new PhysicalProperties(childOutputProperty.getDistributionSpec());
             default:
                 throw new RuntimeException("Could not derive output properties for agg phase: " + agg.getAggPhase());
         }
+    }
+
+    /**
+     * Returns true if the child's distribution is a shuffle-compatible hash that the
+     * bucketed fusion pattern produces (ShuffleType.REQUIRE).  EXECUTION_BUCKETED is
+     * used by CTE dedup and colocate-join patterns — those should NOT be treated as
+     * bucketed-fusion output because their hash functions ARE shuffle-compatible.
+     */
+    private static boolean isShuffleCompatible(DistributionSpec distSpec) {
+        if (!(distSpec instanceof DistributionSpecHash)) {
+            return false;
+        }
+        DistributionSpecHash hashSpec = (DistributionSpecHash) distSpec;
+        return hashSpec.getShuffleType() == ShuffleType.REQUIRE;
     }
 
     @Override
