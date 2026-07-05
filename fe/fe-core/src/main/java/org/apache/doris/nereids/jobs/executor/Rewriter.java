@@ -683,6 +683,15 @@ public class Rewriter extends AbstractBatchJobExecutor {
                         custom(RuleType.ELIMINATE_GROUP_BY_KEY, EliminateGroupByKey::new),
                         topDown(new PullUpJoinFromUnionAll())
                 ),
+                topic("init join", bottomUp(ImmutableList.of(new InitJoinOrder()))),
+                topic("Eager aggregation",
+                        cascadesContext -> cascadesContext.rewritePlanContainsTypes(
+                                LogicalAggregate.class, LogicalJoin.class
+                        ),
+                        costBased(topDown(new PushDownAggWithDistinctThroughJoinOneSide())),
+                        custom(RuleType.PUSH_DOWN_AGG_THROUGH_JOIN, PushDownAggregation::new),
+                        topDown(new PushCountIntoUnionAll())
+                ),
                 topic("Limit optimization",
                         cascadesContext -> cascadesContext.rewritePlanContainsTypes(LogicalLimit.class)
                                 || cascadesContext.rewritePlanContainsTypes(LogicalTopN.class)
