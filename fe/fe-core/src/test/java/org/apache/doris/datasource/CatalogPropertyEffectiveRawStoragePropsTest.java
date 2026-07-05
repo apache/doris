@@ -22,6 +22,7 @@ import org.apache.doris.datasource.property.storage.HdfsProperties;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -33,27 +34,41 @@ import java.util.Map;
  * either yields the same typed storage and the same BE {@code location.*} map. Also pins that the derived
  * warehouse -> fs.defaultFS defaults survive and (design S4) that the removed vended gate no longer empties
  * the map for a vended catalog.
+ *
+ * <p>Design S8: the warehouse -> fs.defaultFS derivation now lives in the connector (fe-core no longer parses
+ * metastore properties), so these tests wire the plugin derivation supplier to simulate the iceberg connector's
+ * output. The derivation logic itself is covered by
+ * {@code IcebergConnectorDeriveStoragePropertiesTest}; here we pin that fe-core folds the connector-supplied
+ * defaults identically into the raw-bind and typed-parse paths.</p>
  */
 public class CatalogPropertyEffectiveRawStoragePropsTest {
 
-    /** A hadoop-flavored native iceberg catalog (real MetastoreProperties + HDFS storage, all built offline). */
+    /** A hadoop-flavored native iceberg catalog whose connector supplies the warehouse -> fs.defaultFS bridge. */
     private static CatalogProperty hadoopIceberg(String warehouse) {
         Map<String, String> props = new HashMap<>();
         props.put("type", "iceberg");
         props.put("iceberg.catalog.type", "hadoop");
         props.put(HdfsProperties.FS_HDFS_SUPPORT, "true");
+        Map<String, String> connectorDerived = new HashMap<>();
         if (warehouse != null) {
             props.put("warehouse", warehouse);
+            if (warehouse.startsWith("hdfs://")) {
+                // Simulate the iceberg connector's hadoop warehouse -> fs.defaultFS derivation.
+                String ns = warehouse.substring("hdfs://".length(), warehouse.indexOf('/', "hdfs://".length()));
+                connectorDerived.put("fs.defaultFS", "hdfs://" + ns);
+            }
         }
-        return new CatalogProperty(null, props);
+        CatalogProperty cp = new CatalogProperty(null, props);
+        cp.setPluginDerivedStorageDefaultsSupplier(() -> connectorDerived);
+        return cp;
     }
 
     @Test
     public void effectiveRawEqualsGetOrigProps() {
         // The fe-filesystem bind path (getEffectiveRawStorageProperties) and the fe-core parse path
         // (getStoragePropertiesMap -> getOrigProps) must feed byte-identical raw maps, so binding either yields
-        // the same typed storage / BE location.* map. MUTATION: skip the derived merge or the vended gate in
-        // either path -> the maps diverge -> red.
+        // the same typed storage / BE location.* map. MUTATION: skip the derived merge in either path -> the
+        // maps diverge -> red.
         CatalogProperty cp = hadoopIceberg("hdfs://nsbridge/wh");
         Map<String, String> viaBind = cp.getEffectiveRawStorageProperties();
         Map<String, String> viaOrigProps =
@@ -63,9 +78,9 @@ public class CatalogPropertyEffectiveRawStoragePropsTest {
 
     @Test
     public void effectiveRawCarriesDerivedDefaultFs() {
-        // A hadoop catalog with ONLY warehouse (no inline fs.defaultFS): the derived warehouse -> fs.defaultFS
-        // default must be present in the raw map handed to fe-filesystem, else HA-nameservice / warehouse-only
-        // catalogs regress. MUTATION: drop mergeDerivedStorageDefaults -> fs.defaultFS absent -> red.
+        // A hadoop catalog with ONLY warehouse (no inline fs.defaultFS): the connector-derived warehouse ->
+        // fs.defaultFS default must be present in the raw map handed to fe-filesystem, else HA-nameservice /
+        // warehouse-only catalogs regress. MUTATION: drop the plugin-derived merge -> fs.defaultFS absent -> red.
         CatalogProperty cp = hadoopIceberg("hdfs://nsbridge/wh");
         Assertions.assertEquals("hdfs://nsbridge",
                 cp.getEffectiveRawStorageProperties().get("fs.defaultFS"));
@@ -84,15 +99,16 @@ public class CatalogPropertyEffectiveRawStoragePropsTest {
     public void vendedCatalogRawMapNoLongerGated() {
         // Design S4: the former vended gate is removed — fe-core hands the connector the raw storage map
         // unconditionally (the connector owns static+vended precedence, overlaying vended per-table). A vended
-        // REST catalog is no longer emptied by fe-core; it carries no static object-store keys, so a downstream
-        // fe-filesystem bind still yields no static storage, but the map itself is un-gated. MUTATION: re-add a
-        // vended gate returning empty -> the raw props vanish -> red.
+        // REST catalog is no longer emptied by fe-core; it carries no static object-store keys (its connector
+        // derives nothing), so a downstream fe-filesystem bind still yields no static storage, but the map
+        // itself is un-gated. MUTATION: re-add a vended gate returning empty -> the raw props vanish -> red.
         Map<String, String> props = new HashMap<>();
         props.put("type", "iceberg");
         props.put("iceberg.catalog.type", "rest");
         props.put("iceberg.rest.uri", "http://localhost:8181");
         props.put("iceberg.rest.vended-credentials-enabled", "true");
         CatalogProperty cp = new CatalogProperty(null, props);
+        cp.setPluginDerivedStorageDefaultsSupplier(Collections::emptyMap);
         Map<String, String> raw = cp.getEffectiveRawStorageProperties();
         Assertions.assertFalse(raw.isEmpty(), "S4: vended no longer gates the raw storage map to empty");
         Assertions.assertEquals("http://localhost:8181", raw.get("iceberg.rest.uri"),
