@@ -17,23 +17,25 @@
 >
 > **✅ 完整新设计已出 = `plan-doc/tasks/designs/plugin-owns-property-parsing-arch-design.md`**（依据侦察工作流 `wf_61c70f0d-bce`，替代/升级 iceberg-metastore-auth-connector-rewire-design.md）。**关键实证（大幅利好）：目标架构大部分已就位** —— `fe-filesystem-api/spi` 已是插件可用共享模块（parent-first、排除打包，无须抽取）；连接器读/扫描路径**已** fe-filesystem-native；fe-core `StorageProperties.createAll` 只是**冗余的第二份解析**。故本迁移 = **退掉 fe-core 第二份解析**（10 步 S1-S10），非新建模块，比预想小。**vended 难题也顺带解掉**：fe-core 对所有插件 catalog **无条件停建静态存储表**（插件 100% 拥有 static+vended），不判别、不 gate、守铁律。
 > **✅ 中央决策已裁定（用户 2026-07-05）= A 家族：共享宿主 classpath + 连接器发起 bind**（fe-filesystem 解析器留宿主 parent-first、不打包；连接器直接调 fe-filesystem-api 发起 bind，不经 fe-core context；fe-core 零解析。B 每插件打包不采纳）。
-> **⏭ 下个 session 起步 = S3（`getBackendStorageProperties()` 从 fe-core `CredentialUtils` 改到 fe-filesystem `getStorageProperties().toBackendProperties().toMap()`；iceberg WRITE 路 `IcebergWritePlanProvider:639` 迁 paimon 形）。✅ S2 已落地 `a00ca592ba3`（见下方最新一轮）。逐刀 S3→S10；每刀门 = BE `location.*` map 逐字 parity diff（fe-core 路 vs fe-filesystem 路）+ 重部署 classloader 冒烟。⚠️ legacy 静态 map 方法（`CatalogProperty` 四方法 + `StorageProperties.createAll`）须保活至 Hive/Hudi/LakeSoul/HMS-iceberg 全离 SPI（S10 铁律，别删共享方法只 repoint 插件路）。CUT4 待 S6-S8 一起搬回连接器（现仍 load-bearing）。**
+> **⏭ 下个 session 起步 = S7（退 fe-core `Paimon*/Iceberg* MetastoreProperties` 簇 + un-register `MetastoreProperties` 的 `Type.PAIMON/ICEBERG`，待三消费者 auth/vended/derived 全连接器化后——auth=S6✅、vended=S4✅、derived=S8 待办）。** ✅ S2–S6 已全部落地（见下方最新一轮）。**S8**（CUT4 `deriveHdfsDefaultFsFromWarehouse` 搬回 fe-connector-metastore-iceberg）与 S7 同步、不早于（现仍对只带 warehouse 的 HA native-iceberg load-bearing）。⚠️ legacy 静态 map 方法（`CatalogProperty` 四方法 + `StorageProperties.createAll`）须保活至 Hive/Hudi/LakeSoul/HMS-iceberg 全离 SPI（S10 铁律，别删共享方法只 repoint 插件路）。
 >
-> **已 commit 未 push（本轮）**：CUT 1 `cf8dda9f058` / CUT 2 `eb9201dc0a6` / CUT 4 `0de34db83fb`（+ 各自 doc commit）。CUT 4 待新设计裁定去留。
+> **已 commit 未 push（前序轮）**：CUT 1 `cf8dda9f058` / CUT 2 `eb9201dc0a6` / CUT 4 `0de34db83fb`（+ 各自 doc commit）。**CUT 4 现由 S8 接管去留（搬回连接器）**。
 
 ---
 
-# 🎯 最新一轮（2026-07-05 续³）= **属性簇迁移第一刀 S2 落地（`getStorageProperties()` 退掉 fe-core 第二份解析，直传 raw props 绑 fe-filesystem）= `a00ca592ba3`**
+# 🎯 最新一轮（2026-07-05 续⁴）= **属性簇迁移 S3–S6 一口气落地（写入凭据改绑 / vended 机制退休 / URI 接缝保留决策 / Kerberos 鉴权全归连接器）= 4 代码 commit + 1 doc**
 
-> **本轮范围** = 承接架构裁定（A 家族 / fe-core 零解析），按新设计 `plugin-owns-property-parsing-arch-design.md` §4 刀序起步做 **S2**（S1 无操作）。这是"退掉 fe-core 冗余存储解析"的第一刀，纯 fe-core、不碰连接器、翻闸后行为不变。
+> **本轮范围** = 承接 S2，按设计 §4 刀序把 **S3、S4、S5、S6** 全部处理掉（用户本 session 明确要求）。逐刀独立 commit + build + test + checkstyle + import-gate；每刀凭据/行为差异都做了核对，需用户拍板处已用中文讲清背景+例子后拿到裁定。**全部未 push（[DEC-FLIP-1] 铁律）。**
 >
-> **✅ S2 `a00ca592ba3`（独立 commit + BUILD SUCCESS + checkstyle 0 + mutation 3/3 KILLED + 3 视角对抗复审 0 confirmed，未 push）**：
-> - **问题**：插件 catalog 的 `ConnectorContext.getStorageProperties()` 走冤枉路——先 fe-core `StorageProperties.createAll` 解析原始配置，再从解析结果 `getOrigProps()` 抠回原始 map，最后交 fe-filesystem `bindAllStorageProperties` **再解析一遍**真正用。同配置解析两遍，连接器只用第二遍（fe-filesystem）。S2 摘掉第一遍解析，直传原始 map。
-> - **落地**：`CatalogProperty` 抽 `shouldBuildStaticStorage`（vended 门控，逐字提取）+ `mergeDerivedStorageDefaults`（user props + 派生默认值 warehouse→fs.defaultFS，putIfAbsent 不覆盖显式键、不改持久 map）两**共用私有方法**，新增 public `getEffectiveRawStorageProperties()` 与解析路 `initStorageProperties` 共用 → **两路喂 fe-filesystem 的 map 逐字节相同**（createAll 把 origProps 原样透传、全程不 mutate，已核实——该模块无 `origProps.put/remove/...`）。`DefaultConnectorContext` 加 `rawStoragePropsSupplier`+5-arg ctor（typed supplier **保留**供 S3/S5 未迁消费者：`getBackendStorageProperties`/`normalizeStorageUri`/`getBackendFileType`/`cleanupEmptyManagedLocation`/`buildVendedStorageMap`）；`PluginDrivenExternalCatalog:174` 唯一生产接线改 5-arg，raw 源=`getEffectiveRawStorageProperties`。
-> - **派生默认值保住**（HANDOFF 关键门）：`mergeDerivedStorageDefaults` 内 msp!=null 用 `msp.getDerivedStorageProperties()`、msp==null 用中立 `deriveHdfsDefaultFsFromWarehouse`——否则 HDFS-HA/warehouse-only 回归。
-> - **对抗复审主动硬化**：`getEffectiveRawStorageProperties` 包 `synchronized(this)` 使 metastore 读+持久 props 读取**单一一致快照**，对齐解析路在同一 monitor 下构建的原子性（与 modifyCatalogProps 互斥），杜绝并发 ALTER warehouse 撕裂派生默认值（复审两条 low 均 refuted：① validation-loss——createAll 仍经建目录鉴权初始化 + `getBackendStorageProperties` 等触发，校验不丢；② 并发原子性——已加锁硬化）。临界区仅小 map 拷贝+纯派生、不取外部锁，无死锁、扫描规划频率无争用。
-> - **验收**：新增 `CatalogPropertyEffectiveRawStoragePropsTest` 4 例（parity==旧 getOrigProps / 派生 fs.defaultFS 存活 / 不改持久 map / vended REST→empty）+ 改写 `DefaultConnectorContextStoragePropsTest` 3 例（直传绑定/空短路）+ 相邻门控测试全绿。**⚠️ BE `location.*` map parity 由构造保证（非 e2e）；重部署 classloader 冒烟 flip-gated 未跑（本地无集群）。**
-> - **S3 起步要点**：`getBackendStorageProperties()` 从 fe-core `CredentialUtils` 改到 fe-filesystem `getStorageProperties().toBackendProperties().toMap()`；iceberg WRITE 路 `IcebergWritePlanProvider:639` 迁 paimon 形。**删 fe-core 路前必做 BE `location.*` map 逐字 parity diff**（write=fe-core parse vs scan=fe-filesystem bind 两路到 BE-canonical map，须证一致再 repoint）。
+> **✅ S3 `72680f03995`（iceberg 写入路径 BE 静态凭据改绑 fe-filesystem）**：`IcebergWritePlanProvider.buildHadoopConfig` 由 `context.getBackendStorageProperties()`（fe-core CredentialUtils 解析）改为遍历 `context.getStorageProperties()` 取 `toBackendProperties().toMap()`——与扫描路径同源。**parity 核对**（专派 agent 逐 backend）：带凭据的对象存储/HDFS 写认证键（AWS_*/use_path_style/超时）逐字节一致、HDFS 派生默认值一致；唯一非逐字节差异是老路经 createAll 默认注入的 HDFS 兜底多带两个 BE 对象存储写不读的惰性键（ipc.client.fallback-to-simple-auth-allowed、hdfs.security.authentication=simple），新路不带——**扫描早已在用新形且线上运行=存在性证明够用**。验收=iceberg 939 测 0 失败 + 写测 41 mutation KILLED + checkstyle 0 + import 净。
+>
+> **✅ S4 `f2976900852`（vended 凭据机制彻底退休，用户裁定「彻底退休」，−1083 行）**：删 3 类（VendedCredentialsFactory/AbstractVendedCredentialsProvider/IcebergVendedCredentialsProvider + 3 测）；删 `CatalogProperty.shouldBuildStaticStorage` gate，`initStorageProperties`+`getEffectiveRawStorageProperties` 无条件走 `mergeDerivedStorageDefaults`；`IcebergScanNode`(legacy HMS) 直读 `getStoragePropertiesMap()`（HMS-typed 恒 null，逐字等价）；删已死的 `MetastoreProperties.isVendedCredentialsEnabled()`(+PaimonRest 覆写)。**行为变化（用户已接受，flip-gated）**：vended 目录若同时配静态 key，语义由「vended 取代静态」变「vended 叠加静态」（同名仍 vended 优先、最终认证不变，仅额外仅静态键也发 BE）；纯 REST 无变化。验收=fe-core 113 测 0 失败 + checkstyle 0 + import 净。
+>
+> **✅ S5（决策落地无代码，用户裁定「保留现状」）= 保留 fe-core 薄 URI 规范化/文件类型接缝**：`normalizeStorageUri`/`getBackendFileType` 已引擎中立（String 进出、无引擎名分支），仅复用已解析存储做 `LocationPath` 规范化。fe-filesystem 无等价 API（`LocationPath`/`TFileType` 均 fe-core-only、fe-filesystem 刻意无 Thrift），迁移代价大且对合并读删有正确性风险，无硬性要求故不做（低优先，将来硬性要求再评估）。
+>
+> **✅ S6 前置 `498d3230916` + 落地 `12599958bce`（Kerberos 鉴权全归连接器，用户裁定「本 session 完整做掉、接受 flip-gated 风险」）**：**前置**=paimon 连接器补 HMS 元存储 Kerberos 鉴权器（抽 `PaimonConnector.buildPluginAuthenticator` 静态、镜像 iceberg CUT1、新增 HMS-Kerberos-简单存储分支 + 5 单测），补齐 recon 发现的「paimon 缺 HMS 鉴权器」blocker。**落地**=删 `PluginDrivenExternalCatalog.initPreExecutionAuthenticator` 重写→继承基类 no-op（插件 catalog fe-core handle 非空但不做 doAs，真 doAs 在连接器）；删无调用方的 `getOrderedStoragePropertiesList` getter + 内联字段。验收=fe-core 375 测 + paimon 5 测 0 失败 + 双 checkstyle 0 + import 净。**⚠️ flip-gated**：端到端 Kerberos（对真 KDC doAs）本地无集群不可验，单测只证「鉴权器已构建 + 句柄非空 + 插入不崩」。
+>
+> **本轮 recon（4 路后台 agent 侦察，结论已固化进设计 §4）**：S3 parity 逐 backend 核对、S4 vended 控制流全图（gate 双路 + IcebergScanNode 空转 + 无 legacy 回归）、S5 消费者图 + fe-filesystem 无等价、S6 doAs 全图（iceberg 冗余 / paimon HMS blocker）。**下一步 = S7**（退 paimon/iceberg MetastoreProperties 簇 + S8 CUT4 搬回连接器）。
 
 ---
 
