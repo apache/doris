@@ -24,8 +24,8 @@ def verifyProfileContent = { suiteContext, sqlPattern, stmt, serialReadOnLimit -
     def profileAction = new ProfileAction(suiteContext)
     String profileContent = profileAction.getProfileBySql(sqlPattern, ["MaxScanConcurrency"], 60000, 1000)
     if (!profileContent.contains("MaxScanConcurrency")) {
-        logger.error("Profile of ${stmt} (pattern ${sqlPattern}) does not contain MaxScanConcurrency, "
-                + "content:\n${profileContent}")
+        logger.error("Profile of ${stmt} (pattern ${sqlPattern}) does not contain MaxScanConcurrency, " +
+                "content:\n${profileContent}")
         return false
     }
     logger.info("Profile content of ${stmt} (pattern ${sqlPattern}) is\n${profileContent}")

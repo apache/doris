@@ -149,8 +149,8 @@ class ProfileAction implements SuiteAction {
             log.info("{} is not ready, required contents: {}", profileDescription, requiredContents)
             Thread.sleep(intervalMs)
         }
-        throw new IllegalStateException("${profileDescription} is not ready after ${timeoutMs} ms, "
-                + "required contents: ${requiredContents}, last profile:\n${profileText}")
+        throw new IllegalStateException("${profileDescription} is not ready after ${timeoutMs} ms, " +
+                "required contents: ${requiredContents}, last profile:\n${profileText}")
     }
 
     String getProfileBySql(String sqlPattern, List<String> requiredContents = [],
@@ -192,8 +192,8 @@ class ProfileAction implements SuiteAction {
         if (profileId == "") {
             throw new IllegalStateException("Missing profile with sql pattern: " + sqlPattern)
         }
-        String message = "Profile ${profileId} with sql pattern ${sqlPattern} is not ready after ${timeoutMs} ms, "
-                + "required contents: ${requiredContents}"
+        String message = "Profile ${profileId} with sql pattern ${sqlPattern} is not ready after ${timeoutMs} ms, " +
+                "required contents: ${requiredContents}"
         if (lastException != null) {
             message += ", last error: ${lastException.getMessage()}"
         }
