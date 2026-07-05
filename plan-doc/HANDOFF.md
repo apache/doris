@@ -5,9 +5,9 @@
 
 ---
 
-# 🎯 当前状态（2026-07-05 下午）= **P7 hive/HMS 迁移已启动：10-agent code-grounded recon + 阶段拆分 spec 完成；下一步 = P7.1 HiveMetadataOps 实现**
+# 🎯 当前状态（2026-07-06）= **P7.1 起步 recon + 逐 task 拆解 + 唯一阻塞决策已裁定；下一步 = 按 P7.1-T01…T11 写代码（尚无代码改动）**
 
-> **本轮（recon + spec session）做了什么**：跑 10-agent code-grounded recon（`.claude/wf-p7-hive-recon.js` + 补充 type-coupling recon，~1.3M token，0 error）核清 fe-core `datasource/hive/` **52 文件**全貌、ACID 写路径、event pipeline、DLA 三分流、**85 处反向 instanceof/33 文件**、跨连接器耦合、翻闸机制。产出 **`tasks/P7-hive-migration.md`**（P7.1–P7.5 阶段拆分 spec + old→new 映射 + SPI 缺口 + 删除排序 + 8 条开放决策）。校正了 plan/HANDOFF 里过时数字（instanceof 31→85、HMSTransaction 1866→1895、HMSExternalTable 1293→1332）。**关键澄清**：recon 标"最大未知 = iceberg/hudi-on-HMS 归属"实为**已定**（D-020 per-table SPI provider 委派 + D-019 hudi live cutover 并入 P7）——**勿重议**。**无代码改动、无新决策**（仅文档）。
+> **本轮（P7.1 recon + 拆解 session）做了什么**：对 P7.1 范围做 code-grounded recon（3 并行 agent + 直读 HEAD，~225k subagent token）核清 4 件事并**校正了 spec**：(1) 通用 DDL 桥 = `PluginDrivenExternalCatalog`（非独立 MetadataOps，逐条 override + 内联 cache/editlog 钩子，连接器只实现纯 SPI）；(2) **TRUNCATE 是硬缺口**（SPI 无 `truncateTable`、桥未 override）；(3) shared converter `CreateTableInfoToConnectorRequestConverter` 逐字拷 properties（✅ 不 parse）但**丢每列默认值**（恒 null，破坏 hive 列默认值 + DLF guard）+ 丢 LIST/RANGE partition value 定义；(4) stats/partition 写 4 法**仅 HMSTransaction 消费**→**推 P7.3**（本阶段加进来即死代码），rename **hive 今天不支持**→保持 SPI default throw。产出 **`tasks/P7-hive-migration.md` 末尾 P7.1 逐 task 拆解（T01–T11）+ recon 结论块**。**唯一阻塞决策 OQ-HIVE-CFG 已由用户裁定 = 方案 A**（fe-core 建连接器时把 `hive_default_file_format`/`enable_create_hive_bucket_table` 两个全局 Config 值注入为连接器属性默认，插件只读属性、零行为回归）。**本轮无代码改动**（仅文档 + 决策）。
 
 > **整条 catalog-SPI 主线阶段链均已合入 upstream `branch-catalog-spi`**：
 > P0 #63582 · P1 #63641 · P2 trino #64096 · P3 hudi(hybrid) #64143 · P4 maxcompute #64300 · P5 paimon 迁移+翻闸 #64446 + 删 legacy #64653 · P3b kerberos→fe-kerberos #64655 · **P6 iceberg #64688（本轮收官）**。
@@ -29,18 +29,18 @@
 
 ---
 
-# 🚀 下个 session 任务 = **P7.1 实现（HiveMetadataOps → HiveConnectorMetadata + HmsClient 写方法）**
+# 🚀 下个 session 任务 = **执行 P7.1 实现（按 spec 末尾 P7.1-T01…T11；recon+决策已就绪，可直接写代码）**
 
-> **权威计划**：**`tasks/P7-hive-migration.md`**（本轮新建的阶段拆分 spec，含 P7.1–P7.5 + old→new 映射 + SPI 缺口 + 翻闸机制 + 删除排序 + 开放决策）+ [`00-connector-migration-master-plan.md` §3.8](./00-connector-migration-master-plan.md) + [`connectors/hive.md`](./connectors/hive.md)。**单连接器 13 步 playbook = master plan §4。**
-> **模块已就绪**：`fe-connector-hive`（"hms" 网关，只读 scan 已立、DDL/txn/stats override=0）+ `fe-connector-hms`（共享读元存储库，无写/txn/lock/col-stats）。
+> **权威计划**：**`tasks/P7-hive-migration.md`**——尤其**文件末尾「P7.1 逐 task 拆解」块**（本轮新建，含 recon 结论 + T01–T11 + OQ-HIVE-CFG=方案A 裁定）+ 上半 P7.1–P7.5 spec + [`connectors/hive.md`](./connectors/hive.md)。**单连接器 13 步 playbook = master plan §4。**
+> **模块已就绪**：`fe-connector-hive`（"hms" 网关，只读 scan 已立、DDL override=0）+ `fe-connector-hms`（共享读元存储库，**只读、无任何写方法**）。**通用桥 = `PluginDrivenExternalCatalog`**（DDL 命令逐条 override + 内联 cache/editlog，连接器只实现纯 SPI 方法）。**模板 = `IcebergConnectorMetadata`**（最接近：HMS-backed + DLF guard + location cleanup + 插件侧 SchemaBuilder）。
 
-## P7.1 起步要点（下个 session 开场）
+## P7.1 执行要点（下个 session 开场）
 
-1. **先读** `tasks/P7-hive-migration.md`（全）+ 对照 HEAD 真实代码 recon `HiveMetadataOps.java`(425) 全 public 面 + `HiveConnectorMetadata.java`（现 override 0）+ `fe-connector-hms/HmsClient`/`ThriftHmsClient`（**信控制流不信本 spec 行号**）。
-2. **P7.1 范围**：把 `HiveMetadataOps` 的 create/drop db+table、rename、truncate、add/drop partition、col-stats 写回搬进 `HiveConnectorMetadata` + `HmsClient`（写方法留 HmsClient / hive-only 写子接口，别撑大 hudi 共享面）；**no-property-parsing**：file_format/owner/bucket/DLF-guard 全移插件（先确认 `ConnectorCreateTableRequest` 富度，不够就扩）。新增 `ConnectorTableOps.truncateTable`（default throw）。建 `P7.1-Tnn` 逐 task 拆解追加进 spec 文件。
-3. **勿重议的已定决策**（引 decisions-log，spec §已定架构）：**D-004** event→fe-connector-hms；**D-005** tableFormatType 区分（fe-core 热路径不读）；**D-020** per-table SPI provider（hive 网关委派 -iceberg/-hudi）；**D-019** hudi live cutover + 删 legacy 并入 P7；事务桥接 `PluginDrivenTransaction`。
-4. **开放决策（OQ-*）**：到各子阶段 recon 后再**用户签字**（先中文讲背景+示例+推荐、不引任务代号）；本 spec §开放决策已附推荐。
-5. **纪律**：每子阶段独立 commit + build + test + checkstyle 0 + import-gate 净；**每轮完成即更新本 HANDOFF + commit**（memory `handoff-discipline-per-phase`）。**P7.3 ACID 写路径必须有独立集成测试作 gate（R-002 项目最大风险）**。
+1. **先读** spec 末尾「P7.1 逐 task 拆解」块（recon 结论 + T01–T11）。按 **T01(truncate SPI seam+桥 override) → T02(hms 写 DTO) → T03(hms converter，HiveUtil 等价插件侧) → T04(HmsClient 写方法 DDL-only) → T05(HiveConnectorMetadata DB DDL) → T06(createTable) → T07(dropTable+truncate；rename 保持 default throw) → T08(shared converter 带列默认值) → T09(config 注入=方案A) → T10(连接器单测) → T11(守门+交接)** 顺序推。**信 HEAD 控制流不信 spec 行号。**
+2. **本阶段范围 = 仅 DDL 写路径**：create/drop db+table + truncate。**stats/partition 写 4 法（updateTableStatistics/updatePartitionStatistics/addPartitions/dropPartition）推 P7.3**（仅 HMSTransaction 消费，本阶段加即死代码）。**rename 不实现**（hive 今天不支持，保持 SPI default throw）。**no-property-parsing**：file_format 默认/owner/bucket-gate/DLF-guard/transactional-reject 全插件侧（`ConnectorSession.getUser()`+`getCatalogProperties()`+`ConnectorColumn.defaultValue` 已够，无须扩 SPI，除 truncate seam + T08 列默认值 carrier）。
+3. **OQ-HIVE-CFG 已裁定 = 方案 A**（T09）：fe-core 组装 `hms` 连接器属性处，把 `Config.hive_default_file_format`/`Config.enable_create_hive_bucket_table` 当前值注入为属性默认（仅用户未显式设时），**插件只读属性、不碰 `common.Config`**。注入 locus 待 recon。
+4. **勿重议的已定决策**：**D-004** event→fe-connector-hms；**D-005** tableFormatType；**D-020** per-table SPI provider；**D-019** hudi live cutover 并入 P7；事务桥接 `PluginDrivenTransaction`。后续子阶段 OQ-* 到 recon 后再用户签字（中文讲背景+示例+推荐、不引任务代号）。
+5. **纪律**：每 task/每条 fix 独立 commit + build + test + checkstyle 0（不带 -am）+ import-gate 净；**每轮完成即更新本 HANDOFF + commit**（memory `handoff-discipline-per-phase`）。P7.1 **非 live**（翻闸在 P7.5），验收靠**连接器单测**（无 Mockito、recording fake `IMetaStoreClient`），无 e2e DDL。**P7.3 ACID 写路径必须有独立集成测试作 gate（R-002 项目最大风险）**。
 6. **删除排序（最硬约束，spec §跨连接器删除排序）**：`datasource/hive/` 删不掉，直到 `HudiUtils`(5 方法)/`HudiExternalMetaCache`/`HudiScanNode`(extends HiveScanNode)/`IcebergHMSSource`/`HMSAnalysisTask`/`StatisticsUtil.getIcebergColumnStats` 全 retype 到 generic（P7.4）。
 
 ---
