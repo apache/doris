@@ -36,6 +36,8 @@ import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.filesystem.properties.S3CompatibleFileSystemProperties;
 import org.apache.doris.filesystem.properties.StorageProperties;
 import org.apache.doris.kerberos.HadoopAuthenticator;
+import org.apache.doris.kerberos.KerberosAuthSpec;
+import org.apache.doris.kerberos.KerberosAuthenticationConfig;
 
 import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.conf.Configuration;
@@ -739,16 +741,52 @@ public class IcebergConnector implements Connector {
         if (!pluginAuthComputed) {
             synchronized (this) {
                 if (!pluginAuthComputed) {
-                    pluginAuth = "kerberos".equalsIgnoreCase(properties.get(HADOOP_SECURITY_AUTHENTICATION))
-                            ? HadoopAuthenticator.getHadoopAuthenticator(
-                                    IcebergCatalogFactory.buildHadoopConfiguration(
-                                            properties, buildStorageHadoopConfig()))
-                            : null;
+                    pluginAuth = buildPluginAuthenticator(properties, buildStorageHadoopConfig());
                     pluginAuthComputed = true;
                 }
             }
         }
         return pluginAuth;
+    }
+
+    /**
+     * Resolves the plugin-side Kerberos authenticator for the catalog, or {@code null} for a non-Kerberos
+     * catalog. Two Kerberos sources are covered, in precedence order:
+     * <ol>
+     *   <li><b>Storage</b> Kerberos — the raw {@code hadoop.security.authentication=kerberos} passthrough
+     *       (HDFS / data-lake login), built from the storage Hadoop configuration. Unchanged prior behavior;
+     *       when storage is Kerberos this single login also carries the HMS metastore RPC (same UGI).</li>
+     *   <li><b>HMS-metastore</b> Kerberos with non-Kerberos storage — a secured Hive Metastore whose data
+     *       storage is simple (e.g. a Kerberized HMS over S3). Legacy fe-core served this from the fe-core
+     *       {@code IcebergHMSMetaStoreProperties} HMS authenticator (delivered via {@code DefaultConnectorContext});
+     *       once the fe-core iceberg property cluster is deleted the connector must own it. This mirrors
+     *       {@code HMSBaseProperties.initHadoopAuthenticator}: the HMS client principal/keytab facts
+     *       ({@link HmsMetaStoreProperties#kerberos()}) feed a {@link KerberosAuthenticationConfig}, so the
+     *       {@code doAs} logs in the same client identity fe-core used. The HMS <em>service</em> principal /
+     *       SASL settings ride the catalog's own HiveConf ({@code hms.toHiveConfOverrides}), not the login.</li>
+     * </ol>
+     * Package-visible + static for direct unit testing (mirrors the {@code metaFailureMessage} helpers).
+     */
+    static HadoopAuthenticator buildPluginAuthenticator(Map<String, String> properties,
+            Map<String, String> storageHadoopConfig) {
+        if ("kerberos".equalsIgnoreCase(properties.get(HADOOP_SECURITY_AUTHENTICATION))) {
+            return HadoopAuthenticator.getHadoopAuthenticator(
+                    IcebergCatalogFactory.buildHadoopConfiguration(properties, storageHadoopConfig));
+        }
+        if (IcebergConnectorProperties.TYPE_HMS.equals(IcebergCatalogFactory.resolveFlavor(properties))) {
+            HmsMetaStoreProperties hms = (HmsMetaStoreProperties) MetaStoreProviders.bindForType(
+                    IcebergConnectorProperties.TYPE_HMS, properties, storageHadoopConfig);
+            Optional<KerberosAuthSpec> spec = hms.kerberos();
+            if (spec.isPresent() && spec.get().hasCredentials()) {
+                Configuration conf =
+                        IcebergCatalogFactory.buildHadoopConfiguration(properties, storageHadoopConfig);
+                conf.set("hadoop.security.authentication", "kerberos");
+                conf.set("hive.metastore.sasl.enabled", "true");
+                return HadoopAuthenticator.getHadoopAuthenticator(
+                        new KerberosAuthenticationConfig(spec.get().getPrincipal(), spec.get().getKeytab(), conf));
+            }
+        }
+        return null;
     }
 
     private Catalog buildCatalogAuthenticated(String flavor, Callable<Catalog> builder) {
