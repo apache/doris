@@ -17,6 +17,9 @@
 
 package org.apache.doris.connector.es;
 
+import org.apache.doris.connector.api.ConnectorContractValidator;
+import org.apache.doris.connector.spi.ConnectorContext;
+
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -143,15 +146,22 @@ class EsScanPlanProviderTest {
     }
 
     @Test
-    void testEsMetadataDoesNotSupportWrite() {
-        EsConnectorMetadata metadata = new EsConnectorMetadata(
-                new CountingRestClient(), minimalProps());
-        Assertions.assertFalse(metadata.supportsInsert(),
-                "ES connector metadata should not support INSERT");
-        Assertions.assertFalse(metadata.supportsDelete(),
-                "ES connector metadata should not support DELETE");
-        Assertions.assertFalse(metadata.supportsMerge(),
-                "ES connector metadata should not support MERGE");
+    void testEsConnectorDoesNotSupportWrite() {
+        EsConnector connector = new EsConnector(minimalProps(), new ConnectorContext() {
+            @Override
+            public String getCatalogName() {
+                return "test";
+            }
+
+            @Override
+            public long getCatalogId() {
+                return 0;
+            }
+        });
+        Assertions.assertTrue(connector.supportedWriteOperations().isEmpty(),
+                "ES connector should declare no supported write operations");
+        // Task 6 P2: the structural contract validator must pass for a real connector (positive control).
+        ConnectorContractValidator.validate(connector, "es");
     }
 
     @Test

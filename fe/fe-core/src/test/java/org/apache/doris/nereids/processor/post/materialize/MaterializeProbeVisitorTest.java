@@ -20,12 +20,14 @@ package org.apache.doris.nereids.processor.post.materialize;
 import org.apache.doris.analysis.ColumnAccessPath;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.datasource.PluginDrivenExternalTable;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
@@ -167,5 +169,31 @@ public class MaterializeProbeVisitorTest {
         Mockito.when(scan.getTable()).thenReturn(table);
         Mockito.when(scan.getOutput()).thenReturn(ImmutableList.of(outputSlot));
         return scan;
+    }
+
+    @Test
+    public void testPluginDrivenTableSupportedWhenConnectorDeclaresLazyTopN() {
+        // Post-flip iceberg becomes a PluginDrivenExternalTable subclass (not in the legacy exact-class
+        // SUPPORT_RELATION_TYPES set); it is admitted for Top-N lazy materialization only via the connector
+        // capability.
+        PluginDrivenExternalTable table = Mockito.mock(PluginDrivenExternalTable.class);
+        Mockito.when(table.supportsTopNLazyMaterialize()).thenReturn(true);
+        PhysicalCatalogRelation relation = Mockito.mock(PhysicalCatalogRelation.class);
+        Mockito.when(relation.getTable()).thenReturn(table);
+
+        Assertions.assertTrue(new MaterializeProbeVisitor().checkRelationTableSupportedType(relation));
+    }
+
+    @Test
+    public void testPluginDrivenTableUnsupportedWhenConnectorLacksLazyTopN() {
+        // A plugin-driven table whose connector does NOT declare the capability (e.g. jdbc/es, which also
+        // become PluginDrivenExternalTable) stays excluded — guards against a blanket isAssignableFrom that
+        // would wrongly enable lazy materialization for row/passthrough connectors.
+        PluginDrivenExternalTable table = Mockito.mock(PluginDrivenExternalTable.class);
+        Mockito.when(table.supportsTopNLazyMaterialize()).thenReturn(false);
+        PhysicalCatalogRelation relation = Mockito.mock(PhysicalCatalogRelation.class);
+        Mockito.when(relation.getTable()).thenReturn(table);
+
+        Assertions.assertFalse(new MaterializeProbeVisitor().checkRelationTableSupportedType(relation));
     }
 }

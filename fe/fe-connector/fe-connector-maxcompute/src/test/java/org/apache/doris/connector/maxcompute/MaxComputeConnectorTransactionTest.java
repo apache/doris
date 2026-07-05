@@ -134,4 +134,13 @@ public class MaxComputeConnectorTransactionTest {
         Assertions.assertDoesNotThrow(() -> MaxComputeTableHandle.checkOperationSupported(
                 false, false, "Writing", "default", "mc_managed_table"));
     }
+
+    @Test
+    public void testProfileLabelIsMaxCompute() {
+        // The insert executor maps this label to TransactionType.MAXCOMPUTE for the query profile,
+        // preserving the pre-unification profiling label after the usesConnectorTransaction fork
+        // was removed.
+        Assertions.assertEquals("MAXCOMPUTE",
+                new MaxComputeConnectorTransaction(1L, 5L).profileLabel());
+    }
 }

@@ -30,6 +30,7 @@ import org.apache.doris.catalog.View;
 import org.apache.doris.common.Id;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
+import org.apache.doris.connector.api.handle.ConnectorTransaction;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccTable;
@@ -316,13 +317,15 @@ public class StatementContext implements Closeable {
     private boolean isInsert = false;
     private Optional<Map<TableIf, Set<Expression>>> mvRefreshPredicates = Optional.empty();
 
-    // For Iceberg rewrite operations: store file scan tasks to be used by
-    // IcebergScanNode
-    // TODO: better solution?
-    private List<org.apache.iceberg.FileScanTask> icebergRewriteFileScanTasks = null;
-    // For Iceberg rewrite operations: control whether to use GATHER distribution
-    // When true, data will be collected to a single node to avoid generating too many small files
-    private boolean useGatherForIcebergRewrite = false;
+    // The RAW data-file paths a distributed rewrite_data_files group must scope its scan to.
+    // PluginDrivenScanNode reads it and pins it onto the connector scan handle
+    // (metadata.applyRewriteFileScope), the engine-neutral rewrite scoping path.
+    private List<String> rewriteSourceFilePaths = null;
+    // Post-flip neutral counterpart of the legacy shared rewrite transaction: the one connector transaction a
+    // distributed rewrite_data_files driver opens and shares across the N per-group INSERT-SELECTs. The
+    // neutral rewrite executor (ConnectorRewriteExecutor) reads it here and binds it onto its sink session so
+    // the connector's planWrite resolves the SAME transaction (rather than each group opening its own).
+    private ConnectorTransaction rewriteSharedTransaction = null;
     private boolean hasNestedColumns;
     private boolean queryStatsRecorded = false;
 
@@ -985,7 +988,8 @@ public class StatementContext implements Closeable {
     public void loadSnapshots(TableIf specificTable, Optional<TableSnapshot> tableSnapshot,
             Optional<TableScanParams> scanParams) {
         if (specificTable instanceof MvccTable) {
-            MvccTableInfo mvccTableInfo = new MvccTableInfo(specificTable);
+            MvccTableInfo mvccTableInfo = new MvccTableInfo(specificTable,
+                    versionKeyOf(tableSnapshot, scanParams));
             if (!snapshots.containsKey(mvccTableInfo)) {
                 snapshots.put(mvccTableInfo,
                         ((MvccTable) specificTable).loadSnapshot(tableSnapshot, scanParams));
@@ -994,7 +998,16 @@ public class StatementContext implements Closeable {
     }
 
     /**
-     * Obtain snapshot information of mvcc
+     * Obtain snapshot information of mvcc, version-blind. Used by the metadata/schema/partition readers
+     * that do not thread the per-reference version. Resolution order:
+     * (1) the default ("" version) entry if present — covers a plain/latest reference, and is the
+     * deterministic choice when a statement pins both main and {@code @branch}/{@code @tag} of one table;
+     * (2) else, if EXACTLY ONE snapshot is pinned for this table (ignoring version) — e.g. a standalone
+     * {@code @branch}/{@code @tag}/FOR-TIME read — that lone entry, so those readers still see the pinned
+     * snapshot; (3) else (two or more non-default versions pinned and no default, e.g. {@code t@tag('v1')}
+     * joined with {@code t@tag('v2')}) the version is ambiguous here, so empty and the caller falls back to
+     * latest. The scan path always resolves the exact per-reference snapshot via
+     * {@link #getSnapshot(TableIf, Optional, Optional)} regardless.
      *
      * @param tableIf tableIf
      * @return MvccSnapshot
@@ -1003,8 +1016,69 @@ public class StatementContext implements Closeable {
         if (!(tableIf instanceof MvccTable)) {
             return Optional.empty();
         }
-        MvccTableInfo mvccTableInfo = new MvccTableInfo(tableIf);
+        MvccTableInfo defaultKey = new MvccTableInfo(tableIf);
+        MvccSnapshot defaultSnapshot = snapshots.get(defaultKey);
+        if (defaultSnapshot != null) {
+            return Optional.of(defaultSnapshot);
+        }
+        MvccSnapshot only = null;
+        for (Map.Entry<MvccTableInfo, MvccSnapshot> entry : snapshots.entrySet()) {
+            if (defaultKey.isSameTable(entry.getKey())) {
+                if (only != null) {
+                    return Optional.empty();
+                }
+                only = entry.getValue();
+            }
+        }
+        return Optional.ofNullable(only);
+    }
+
+    /**
+     * Obtain snapshot information of mvcc, version-aware: resolves the snapshot pinned for the SAME table
+     * reference (same {@code @branch}/{@code @tag}/FOR-TIME selector) the scan carries, so a statement
+     * mixing main and {@code @branch} of one table reads each at its own snapshot. Used by the scan path
+     * ({@code PluginDrivenScanNode.pinMvccSnapshot}); the version key is computed identically to
+     * {@link #loadSnapshots}, so a pinned reference always hits its own entry.
+     *
+     * @param tableIf       tableIf
+     * @param tableSnapshot the reference's FOR VERSION/TIME AS OF selector (if any)
+     * @param scanParams    the reference's {@code @branch}/{@code @tag} selector (if any)
+     * @return MvccSnapshot
+     */
+    public Optional<MvccSnapshot> getSnapshot(TableIf tableIf, Optional<TableSnapshot> tableSnapshot,
+            Optional<TableScanParams> scanParams) {
+        if (!(tableIf instanceof MvccTable)) {
+            return Optional.empty();
+        }
+        MvccTableInfo mvccTableInfo = new MvccTableInfo(tableIf, versionKeyOf(tableSnapshot, scanParams));
         return Optional.ofNullable(snapshots.get(mvccTableInfo));
+    }
+
+    /**
+     * Derives the version key separating snapshots of the SAME table pinned at different selectors within
+     * one statement. A FOR VERSION/TIME AS OF selector keys on its type+value; a
+     * {@code @branch}/{@code @tag}/{@code @incr} selector keys on its paramType + map/list params; a plain
+     * (latest) reference keys on "". MUST be a pure function of the selector so {@link #loadSnapshots}
+     * (analysis) and the scan-time lookup compute the SAME key. (Not {@code TableSnapshot.toDigest}, which
+     * redacts the value to '?'.)
+     */
+    private static String versionKeyOf(Optional<TableSnapshot> tableSnapshot,
+            Optional<TableScanParams> scanParams) {
+        // Concatenate both selectors (rather than returning on the first) so the key stays injective even
+        // if a reference ever carried BOTH a snapshot and scan params. Today the two are mutually exclusive
+        // (e.g. IcebergUtils.getQuerySpecSnapshot rejects FOR-TIME together with @branch/@tag), so in every
+        // reachable case exactly one part is non-empty and the key is "v:...", "p:...", or "".
+        StringBuilder key = new StringBuilder();
+        if (tableSnapshot != null && tableSnapshot.isPresent()) {
+            TableSnapshot ts = tableSnapshot.get();
+            key.append("v:").append(ts.getType()).append(':').append(ts.getValue());
+        }
+        if (scanParams != null && scanParams.isPresent()) {
+            TableScanParams sp = scanParams.get();
+            key.append("p:").append(sp.getParamType()).append(':').append(sp.getMapParams())
+                    .append(':').append(sp.getListParams());
+        }
+        return key.toString();
     }
 
     /**
@@ -1262,37 +1336,35 @@ public class StatementContext implements Closeable {
     }
 
     /**
-     * Set file scan tasks for Iceberg rewrite operations.
-     * This allows IcebergScanNode to use specific file scan tasks instead of
-     * scanning the full table.
+     * Set the RAW data-file paths a distributed rewrite group must scope its scan to (post-flip neutral
+     * path, consumed by {@link org.apache.doris.datasource.PluginDrivenScanNode}).
      */
-    public void setIcebergRewriteFileScanTasks(List<org.apache.iceberg.FileScanTask> tasks) {
-        this.icebergRewriteFileScanTasks = tasks;
+    public void setRewriteSourceFilePaths(List<String> paths) {
+        this.rewriteSourceFilePaths = paths;
     }
 
     /**
-     * Get and consume file scan tasks for Iceberg rewrite operations.
-     * Returns the tasks and clears the field to prevent reuse.
+     * Get the per-group rewrite scan scope. NON-consuming (unlike the legacy iceberg getAndClear): the pin is
+     * applied at several scan-side handle-consumption points within one statement and must read the same scope
+     * each time (mirrors the non-consuming MVCC snapshot pin); the per-group StatementContext is single-use, so
+     * there is no stale-reuse risk. Returns {@code null} when no scope is set (full-table scan).
      */
-    public List<org.apache.iceberg.FileScanTask> getAndClearIcebergRewriteFileScanTasks() {
-        List<org.apache.iceberg.FileScanTask> tasks = this.icebergRewriteFileScanTasks;
-        this.icebergRewriteFileScanTasks = null;
-        return tasks;
+    public List<String> getRewriteSourceFilePaths() {
+        return this.rewriteSourceFilePaths;
     }
 
     /**
-     * Set whether to use GATHER distribution for Iceberg rewrite operations.
-     * When enabled, data will be collected to a single node to minimize output files.
+     * Set the shared connector transaction a distributed rewrite group's sink must bind onto its session.
      */
-    public void setUseGatherForIcebergRewrite(boolean useGather) {
-        this.useGatherForIcebergRewrite = useGather;
+    public void setRewriteSharedTransaction(ConnectorTransaction transaction) {
+        this.rewriteSharedTransaction = transaction;
     }
 
     /**
-     * Check if GATHER distribution should be used for Iceberg rewrite operations.
+     * Get the shared connector transaction for the current rewrite group (null outside a distributed rewrite).
      */
-    public boolean isUseGatherForIcebergRewrite() {
-        return this.useGatherForIcebergRewrite;
+    public ConnectorTransaction getRewriteSharedTransaction() {
+        return this.rewriteSharedTransaction;
     }
 
     public boolean hasNestedColumns() {

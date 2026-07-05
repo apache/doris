@@ -468,6 +468,26 @@ public class PaimonConnectorMetadataMvccTest {
                 "a missing tag must yield Optional.empty");
     }
 
+    @Test
+    public void resolveVersionRefResolvesAsTagForParity() {
+        RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+        PaimonTableHandle handle = normalHandle(ops);
+        ops.tagSnapshot = new PaimonCatalogOps.TagSnapshot(42L, 4L);
+
+        // WHY: a non-numeric FOR VERSION AS OF '<name>' is dispatched as VERSION_REF. For paimon this must
+        // resolve EXACTLY as a tag (legacy parity: PaimonExternalTable treats a non-digital FOR VERSION AS
+        // OF value as a tag name) — the connector stacks VERSION_REF onto its TAG case. MUTATION: dropping
+        // the VERSION_REF fall-through (so VERSION_REF hits the default) -> UnsupportedOperationException
+        // instead of a tag pin -> red.
+        ConnectorMvccSnapshot snap = metadataWith(ops)
+                .resolveTimeTravel(null, handle, ConnectorTimeTravelSpec.versionRef("release-1")).get();
+
+        Assertions.assertEquals(42L, snap.getSnapshotId());
+        Assertions.assertEquals(4L, snap.getSchemaId());
+        Assertions.assertEquals("release-1", snap.getProperties().get("scan.tag-name"),
+                "paimon must resolve a non-numeric FOR VERSION AS OF as a tag (scan.tag-name)");
+    }
+
     // ==================== resolveTimeTravel: BRANCH ====================
 
     @Test
@@ -1126,20 +1146,51 @@ public class PaimonConnectorMetadataMvccTest {
     // ==================== capabilities ====================
 
     @Test
-    public void connectorDeclaresMvccAndTimeTravelCapabilities() {
+    public void connectorDeclaresMvccCapability() {
         // PaimonConnector is unit-constructable: getCapabilities() does NOT touch the catalog (the
         // catalog is created lazily on first getMetadata/getScanPlanProvider call), so a null-config
         // connector with a recording context suffices.
         ConnectorContext ctx = new RecordingConnectorContext();
         Set<ConnectorCapability> caps = new PaimonConnector(Collections.emptyMap(), ctx).getCapabilities();
 
-        // WHY: B5's fe-core MvccTable wiring keys off these capabilities to decide whether paimon
-        // tables expose MVCC pinning and FOR TIME TRAVEL / FOR VERSION AS OF. If they were absent
-        // (the inherited Connector default = emptySet), the E5 methods above would never be called.
-        // MUTATION: leaving getCapabilities() unoverridden (empty set) -> both assertions red.
+        // WHY: B5's fe-core MvccTable wiring keys off this capability to decide whether paimon
+        // tables expose MVCC pinning. If it were absent (the inherited Connector default = emptySet),
+        // the E5 methods above would never be called. MUTATION: leaving getCapabilities()
+        // unoverridden (empty set) -> assertion red.
         Assertions.assertTrue(caps.contains(ConnectorCapability.SUPPORTS_MVCC_SNAPSHOT),
                 "paimon must declare SUPPORTS_MVCC_SNAPSHOT");
-        Assertions.assertTrue(caps.contains(ConnectorCapability.SUPPORTS_TIME_TRAVEL),
-                "paimon must declare SUPPORTS_TIME_TRAVEL");
+    }
+
+    @Test
+    public void connectorDeclaresColumnAutoAnalyzeButNotTopNLazyMaterialize() {
+        ConnectorContext ctx = new RecordingConnectorContext();
+        Set<ConnectorCapability> caps = new PaimonConnector(Collections.emptyMap(), ctx).getCapabilities();
+
+        // WHY: paimon tables are queryable via the generic SQL-driven ExternalAnalysisTask FULL path, so the
+        // flip wires them into background per-column auto-analyze (paimon was never in the legacy
+        // instanceof-based whitelist). MUTATION: dropping SUPPORTS_COLUMN_AUTO_ANALYZE -> paimon stays
+        // excluded from auto-analyze -> first assertion red.
+        Assertions.assertTrue(caps.contains(ConnectorCapability.SUPPORTS_COLUMN_AUTO_ANALYZE),
+                "paimon must declare SUPPORTS_COLUMN_AUTO_ANALYZE");
+        // Paimon was NEVER eligible for Top-N lazy materialization (legacy PaimonExternalTable was never in
+        // MaterializeProbeVisitor's supported set), so granting it would be a new unvalidated feature, not
+        // parity. MUTATION: declaring SUPPORTS_TOPN_LAZY_MATERIALIZE on paimon -> this assertion red.
+        Assertions.assertFalse(caps.contains(ConnectorCapability.SUPPORTS_TOPN_LAZY_MATERIALIZE),
+                "paimon must NOT declare SUPPORTS_TOPN_LAZY_MATERIALIZE (parity: it was never eligible)");
+    }
+
+    @Test
+    public void connectorDeclaresShowCreateDdlCapability() {
+        ConnectorContext ctx = new RecordingConnectorContext();
+        Set<ConnectorCapability> caps = new PaimonConnector(Collections.emptyMap(), ctx).getCapabilities();
+
+        // WHY: paimon's table properties (coreOptions incl. path) are user-facing and credential-free, so
+        // SHOW CREATE TABLE renders LOCATION + PROPERTIES for paimon. The capability replaces the legacy
+        // paimon-only engine-name gate in Env.getDdlStmt (the credential-leak guard now keyed on a capability
+        // instead of an engine string). MUTATION: dropping SUPPORTS_SHOW_CREATE_DDL -> paimon SHOW CREATE TABLE
+        // regresses to a comment-only shell -> red.
+        Assertions.assertTrue(caps.contains(ConnectorCapability.SUPPORTS_SHOW_CREATE_DDL),
+                "paimon must declare SUPPORTS_SHOW_CREATE_DDL so SHOW CREATE TABLE keeps rendering "
+                        + "LOCATION/PROPERTIES");
     }
 }

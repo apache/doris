@@ -20,8 +20,10 @@ package org.apache.doris.datasource;
 import org.apache.doris.analysis.CastExpr;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprToSqlVisitor;
+import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.analysis.TupleDescriptor;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.UserException;
@@ -37,16 +39,21 @@ import org.apache.doris.connector.api.pushdown.ConnectorFilterConstraint;
 import org.apache.doris.connector.api.pushdown.FilterApplicationResult;
 import org.apache.doris.connector.api.pushdown.LimitApplicationResult;
 import org.apache.doris.connector.api.pushdown.ProjectionApplicationResult;
+import org.apache.doris.connector.api.scan.ConnectorColumnCategory;
 import org.apache.doris.connector.api.scan.ConnectorScanPlanProvider;
 import org.apache.doris.connector.api.scan.ConnectorScanRange;
+import org.apache.doris.connector.api.scan.ConnectorSplitSource;
 import org.apache.doris.connector.api.scan.ScanNodePropertiesResult;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
+import org.apache.doris.datasource.mvcc.MvccTable;
 import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.spi.Split;
+import org.apache.doris.thrift.TColumnCategory;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TFileAttributes;
 import org.apache.doris.thrift.TFileFormatType;
@@ -71,6 +78,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 /**
@@ -134,6 +142,13 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
     // and explain (FileScanNode) paths and num_partitions_in_batch_mode is fuzzy, so cache it to
     // keep the decision stable across reads (mirrors IcebergScanNode).
     private Boolean isBatchModeCache;
+
+    // FIX-M3 (streaming splits): when a connector opts into file-count streaming split generation
+    // (ConnectorScanPlanProvider.streamingSplitEstimate >= 0), this caches that estimate and flags the
+    // streaming flavor of batch mode — distinct from the partition-count flavor in shouldUseBatchMode.
+    // -1 / false until computeBatchMode runs.
+    private long streamingSplitEstimate = -1;
+    private boolean streamingBatch;
 
     // FIX-E (explain gap): native (ORC/Parquet) vs total scan-range counts accumulated in getSplits()
     // from ConnectorScanRange.isNativeReadRange(), surfaced to the connector's appendExplainInfo for the
@@ -340,6 +355,18 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
             if (detailLevel == TExplainLevel.VERBOSE && !isBatchMode()) {
                 appendBackendScanRangeDetail(output, prefix);
             }
+            // F6/F7 (explain gap): the parent FileScanNode emits the "nested columns:" block (pruned type /
+            // sub path / all + predicate access paths) via printNestedColumns, which this override drops by
+            // not calling super, so the ENTIRE block vanished for every plugin FileScan connector (broader
+            // than iceberg). Re-emit it -- like the sibling inputSplitNum / partition / backend-detail lines --
+            // because nested-column-pruning visibility is universal FileScanNode info, not connector-specific.
+            // printNestedColumns is connector-agnostic here: this node is a PluginDrivenScanNode (never an
+            // IcebergScanNode), so it takes the generic name-join path (PlanNode:954/970) and the legacy
+            // iceberg field-id merge arms (PlanNode:949/965) stay dead -- the field-id-annotated access-path
+            // form (col(3).sub(5)) is deliberately NOT reproduced (cosmetic, tracked as FU-h10-deadcode; the
+            // BE still receives the id-form path). Emitted before the connector delegation so the FileScanNode
+            // body parts precede the connector's lines (matches legacy: base, then icebergPredicatePushdown).
+            printNestedColumns(output, prefix, getTupleDesc());
             // Delegate connector-specific EXPLAIN info to the SPI. Thread the native/total split counts
             // (FIX-E) the node accumulated in getSplits() into a copy of the props map via the synthetic
             // keys, so a connector that distinguishes native/JNI reads (paimon) can emit its
@@ -353,7 +380,10 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
                 if (detailLevel == TExplainLevel.VERBOSE) {
                     explainProps.put(VERBOSE_EXPLAIN_KEY, "true");
                 }
-                scanProvider.appendExplainInfo(output, prefix, explainProps);
+                onPluginClassLoader(scanProvider, () -> {
+                    scanProvider.appendExplainInfo(output, prefix, explainProps);
+                    return null;
+                });
             }
             // FIX-E (explain gap): the "pushdown agg=<op> (n)" line lives in the parent FileScanNode
             // but this override does not call super. Re-emit it for ALL plugin connectors (universally
@@ -401,9 +431,83 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         return Collections.emptyList();
     }
 
+    /**
+     * Classifies a query slot's column for the BE reader (C2 WS-SYNTH-READ). This is the generic,
+     * connector-agnostic port of the per-connector overrides (legacy {@code IcebergScanNode.classifyColumn},
+     * {@code HiveScanNode}, {@code TVFScanNode}): it must keep the synthesized / generated special columns
+     * out of the file-read set so they are materialized by the connector reader rather than read from a data
+     * file where they do not exist.
+     *
+     * <p>Two sources, no connector-type branching:</p>
+     * <ul>
+     *   <li>{@code __DORIS_GLOBAL_ROWID_COL__*} — the engine-wide lazy-materialization row-id (injected by
+     *       {@code LazyMaterializeTopN}, also classified by {@code HiveScanNode}/{@code TVFScanNode}) is a
+     *       generic Doris mechanism, so it is classified here as {@code SYNTHESIZED} directly.</li>
+     *   <li>connector special columns (e.g. iceberg's hidden row-id / v3 row-lineage) are classified by the
+     *       connector through {@link ConnectorScanPlanProvider#classifyColumn(String)}, so no iceberg (or any
+     *       connector) knowledge leaks into the generic node.</li>
+     * </ul>
+     * Everything else falls through to {@code super} (partition key / regular).
+     */
+    @Override
+    protected TColumnCategory classifyColumn(SlotDescriptor slot, List<String> partitionKeys) {
+        String name = slot.getColumn().getName();
+        if (name.startsWith(Column.GLOBAL_ROWID_COL)) {
+            return TColumnCategory.SYNTHESIZED;
+        }
+        ConnectorColumnCategory category = classifyColumnByConnector(name);
+        if (category == ConnectorColumnCategory.SYNTHESIZED) {
+            return TColumnCategory.SYNTHESIZED;
+        }
+        if (category == ConnectorColumnCategory.GENERATED) {
+            return TColumnCategory.GENERATED;
+        }
+        return super.classifyColumn(slot, partitionKeys);
+    }
+
+    /**
+     * Asks the connector how to classify a special column (iceberg's hidden row-id / v3 row-lineage), so no
+     * connector knowledge leaks into {@link #classifyColumn}. Package-private + overridable so the mapping is
+     * unit-testable on a Mockito mock without a live connector (mirrors {@link #sysTableSupportsTimeTravel}).
+     * A connector with no scan provider (no scan capability) contributes no special columns ({@code DEFAULT}).
+     */
+    ConnectorColumnCategory classifyColumnByConnector(String columnName) {
+        ConnectorScanPlanProvider scanProvider = connector.getScanPlanProvider();
+        if (scanProvider == null) {
+            return ConnectorColumnCategory.DEFAULT;
+        }
+        return onPluginClassLoader(scanProvider, () -> scanProvider.classifyColumn(columnName));
+    }
+
     @Override
     protected TableIf getTargetTable() throws UserException {
         return desc.getTable();
+    }
+
+    /**
+     * Runs a connector scan-plan call with the thread-context classloader pinned to the connector
+     * plugin's own loader, restoring it afterward.
+     *
+     * <p>Plugin connectors run isolated under a child-first classloader, while fe-core ships some of
+     * the same third-party libraries (e.g. iceberg) on the parent 'app' loader. Such libraries resolve
+     * helper classes by name through the TCCL — iceberg-aws's {@code HttpClientProperties} loads
+     * {@code ApacheHttpClientConfigurations} via {@code DynMethods}, whose default loader IS the TCCL.
+     * Under the query thread's default ('app') TCCL that reflective load returns the parent copy and
+     * {@link ClassCastException}s against the child-loaded plugin copy. Pinning the TCCL to the
+     * provider's loader keeps every reflective load on the plugin side — the same split-brain guard
+     * {@code IcebergConnector.buildCatalogAuthenticated} applies on the catalog path. Keyed off the
+     * provider's own classloader, so it is connector-agnostic and a no-op for connectors that are not
+     * classloader-isolated. Must wrap the call on the thread that runs it: the streaming split paths
+     * execute on a pool thread that does not inherit the caller's TCCL.
+     */
+    private static <T> T onPluginClassLoader(ConnectorScanPlanProvider provider, Supplier<T> body) {
+        ClassLoader previous = Thread.currentThread().getContextClassLoader();
+        try {
+            Thread.currentThread().setContextClassLoader(provider.getClass().getClassLoader());
+            return body.get();
+        } finally {
+            Thread.currentThread().setContextClassLoader(previous);
+        }
     }
 
     /**
@@ -421,7 +525,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         if (scanProvider == null || rangeDesc == null || !rangeDesc.isSetTableFormatParams()) {
             return Collections.emptyList();
         }
-        return scanProvider.getDeleteFiles(rangeDesc.getTableFormatParams());
+        return onPluginClassLoader(scanProvider, () -> scanProvider.getDeleteFiles(rangeDesc.getTableFormatParams()));
     }
 
     @Override
@@ -584,11 +688,14 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
      * every consumption site is safe. A missing pin — before the connector is MVCC-cutover, or a
      * non-MVCC table, or a foreign (non-plugin) snapshot — leaves the handle unchanged (reads latest).
      *
-     * <p>Package-private static so the correctness-critical pin-vs-skip decision is unit-testable
-     * directly on Mockito mocks, without constructing a {@link FileQueryScanNode} (the call-site
-     * wiring is covered by live e2e — see DV-019).
+     * <p>Public static so the correctness-critical pin-vs-skip decision is unit-testable directly on
+     * Mockito mocks, without constructing a {@link FileQueryScanNode} (the call-site wiring is covered by
+     * live e2e — see DV-019), and so the WRITE path can reuse the IDENTICAL pin logic: the connector sink
+     * translator ({@code PhysicalPlanTranslator.visitPhysicalConnectorTableSink}) threads the same
+     * statement pin onto the write handle so a DML's write anchors at the snapshot its scan read
+     * ([SHOULD-2] / Fix B). Scan and write MUST pin identically — sharing this method guarantees that.
      */
-    static ConnectorTableHandle applyMvccSnapshotPin(ConnectorMetadata metadata, ConnectorSession session,
+    public static ConnectorTableHandle applyMvccSnapshotPin(ConnectorMetadata metadata, ConnectorSession session,
             ConnectorTableHandle handle, Optional<MvccSnapshot> snapshot) {
         if (snapshot.isPresent() && snapshot.get() instanceof PluginDrivenMvccSnapshot) {
             ConnectorMvccSnapshot connectorSnapshot =
@@ -607,8 +714,135 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
      */
     private void pinMvccSnapshot() throws UserException {
         ConnectorMetadata metadata = connector.getMetadata(connectorSession);
-        Optional<MvccSnapshot> snapshot = MvccUtil.getSnapshotFromContext(getTargetTable());
+        // Version-aware lookup: a statement mixing main and @branch/@tag (or FOR-TIME) of the SAME table
+        // pins one snapshot per reference; resolve THIS scan's reference by its own selector so it reads
+        // its own snapshot (not whichever reference loaded first). getQueryTableSnapshot()/getScanParams()
+        // are this scan's selectors, threaded from the relation by the translator.
+        Optional<MvccSnapshot> snapshot = MvccUtil.getSnapshotFromContext(getTargetTable(),
+                Optional.ofNullable(getQueryTableSnapshot()), Optional.ofNullable(getScanParams()));
+        if (!snapshot.isPresent()) {
+            // A normal MVCC table's snapshot is materialized into the StatementContext during analysis
+            // (StatementContext.loadSnapshots, keyed by the table and the reference's version selector);
+            // a plugin SYSTEM table's is NOT —
+            // the sys table is not an MvccTable and BindRelation short-circuits loadSnapshots for the
+            // $-suffixed relation, so getSnapshotFromContext returns empty above. Resolve the sys-table
+            // FOR TIME AS OF / @branch / @tag pin directly off the source table here so the sys handle
+            // reads at the pin (legacy IcebergScanNode.createTableScan parity) instead of silently
+            // reading latest. Returns empty for every other case, so the normal-table path is unchanged.
+            snapshot = resolveSysTableSnapshotPin();
+        }
         currentHandle = applyMvccSnapshotPin(metadata, connectorSession, currentHandle, snapshot);
+    }
+
+    /**
+     * Threads a distributed {@code rewrite_data_files} group's per-group file scope onto {@code handle}
+     * BEFORE {@code planScan}, so the group's INSERT-SELECT scans ONLY the data files that group bin-packed
+     * (mirrors {@link #applyMvccSnapshotPin}). {@code rawDataFilePaths} are the RAW paths the connector's
+     * {@code planRewrite} emitted; the connector's {@link ConnectorMetadata#applyRewriteFileScope} matches its
+     * re-enumerated tasks against the SAME raw strings.
+     *
+     * <p>A {@code null}/empty path list is a no-op (returns {@code handle} unchanged — full-table scan): an
+     * absent scope must read everything, and an EMPTY scope must NOT be threaded down (it would scope to
+     * "match nothing"). Public static so the pin-vs-skip decision is unit-testable directly on a Mockito mock,
+     * exactly like {@link #applyMvccSnapshotPin}.</p>
+     */
+    public static ConnectorTableHandle applyRewriteFileScopePin(ConnectorMetadata metadata,
+            ConnectorSession session, ConnectorTableHandle handle, List<String> rawDataFilePaths) {
+        if (rawDataFilePaths == null || rawDataFilePaths.isEmpty()) {
+            return handle;
+        }
+        return metadata.applyRewriteFileScope(session, handle, new HashSet<>(rawDataFilePaths));
+    }
+
+    /**
+     * Resolves the per-group rewrite file scope from the statement context and threads it onto
+     * {@link #currentHandle} (mutates exactly like {@link #pinMvccSnapshot}). Called at every scan-side
+     * handle-consumption point so the split path, the async batch path and the serialized-table path all scan
+     * the scoped file set. NON-consuming read (the per-group {@code StatementContext} is single-use, so the
+     * scope is the same at every site within the statement); a no-op for every non-rewrite scan, so it is
+     * byte-identical for normal reads.
+     */
+    private void pinRewriteFileScope() {
+        ConnectContext ctx = ConnectContext.get();
+        if (ctx == null || ctx.getStatementContext() == null) {
+            return;
+        }
+        List<String> scope = ctx.getStatementContext().getRewriteSourceFilePaths();
+        if (scope == null || scope.isEmpty()) {
+            return;
+        }
+        ConnectorMetadata metadata = connector.getMetadata(connectorSession);
+        currentHandle = applyRewriteFileScopePin(metadata, connectorSession, currentHandle, scope);
+    }
+
+    /**
+     * Threads a Top-N lazy-materialization signal onto {@link #currentHandle} (mutates exactly like
+     * {@link #pinRewriteFileScope}) when this scan carries the engine-wide synthesized row-id column
+     * ({@code __DORIS_GLOBAL_ROWID_COL__}, injected by {@code LazyMaterializeTopN} for {@code ORDER BY
+     * ... LIMIT}). Under lazy materialization BE reads the sort key first, then re-fetches the OTHER
+     * (non-projected) columns of the surviving rows by row-id, so a connector whose scan metadata is
+     * pruned to the requested columns must rebuild it over the full schema (legacy
+     * {@code IcebergScanNode.createScanRangeLocations} {@code haveTopnLazyMatCol} parity). A no-op for
+     * every non-lazy-mat scan and for every connector whose {@link ConnectorMetadata#applyTopnLazyMaterialization}
+     * is the default (handle unchanged), so it is byte-identical for normal reads.
+     */
+    private void pinTopnLazyMaterialize() {
+        if (!hasTopnLazyMaterializeSlot(desc.getSlots())) {
+            return;
+        }
+        ConnectorMetadata metadata = connector.getMetadata(connectorSession);
+        currentHandle = metadata.applyTopnLazyMaterialization(connectorSession, currentHandle);
+    }
+
+    /**
+     * Whether any scan slot is the engine-wide synthesized lazy-materialization row-id column
+     * ({@code Column.GLOBAL_ROWID_COL} prefix). Mirrors legacy {@code IcebergScanNode.createScanRangeLocations}'
+     * {@code haveTopnLazyMatCol} detection and the same prefix test already used by {@link #classifyColumn}.
+     * Static + package-private so the pure detection is unit-testable directly (mirrors
+     * {@link #applyMvccSnapshotPin} / {@link #applyRewriteFileScopePin}).
+     */
+    static boolean hasTopnLazyMaterializeSlot(List<SlotDescriptor> slots) {
+        for (SlotDescriptor slot : slots) {
+            Column col = slot.getColumn();
+            if (col != null && col.getName().startsWith(Column.GLOBAL_ROWID_COL)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Resolves the time-travel pin for a {@link PluginDrivenSysExternalTable} query whose pin never
+     * enters the {@link org.apache.doris.nereids.StatementContext} MVCC map (the sys table is not an
+     * {@link MvccTable}; see {@link #pinMvccSnapshot}). Delegates to the SOURCE table's
+     * {@link MvccTable#loadSnapshot} — the same resolution a normal-table read uses — so the connector's
+     * point-in-time conversion ({@code FOR VERSION/TIME AS OF} {@link org.apache.doris.analysis.TableSnapshot},
+     * {@code @branch}/{@code @tag} {@link org.apache.doris.analysis.TableScanParams}), not-found messages and
+     * mutual-exclusion check are reused verbatim. The resolved snapshot is then threaded onto the sys handle
+     * by {@link #applyMvccSnapshotPin}, which {@code IcebergConnectorMetadata.applySnapshot} preserves as a
+     * pinned SYSTEM handle (the connector's {@code planSystemTableScan} applies it).
+     *
+     * <p>Returns empty (no pin) when the target is not a sys table, when there is no time-travel selector,
+     * or — defensively — when the source is not MVCC-capable (the guard
+     * {@link #checkSysTableScanConstraints} already rejects that case for the relevant connectors).
+     *
+     * <p>Package-private + overridable so the resolution is unit-testable on a Mockito mock without a live
+     * connector (mirrors {@link #applyMvccSnapshotPin} / {@link #checkSysTableScanConstraints}).
+     */
+    Optional<MvccSnapshot> resolveSysTableSnapshotPin() throws UserException {
+        if (!(getTargetTable() instanceof PluginDrivenSysExternalTable)) {
+            return Optional.empty();
+        }
+        if (getQueryTableSnapshot() == null && getScanParams() == null) {
+            return Optional.empty();
+        }
+        PluginDrivenExternalTable source = ((PluginDrivenSysExternalTable) getTargetTable()).getSourceTable();
+        if (!(source instanceof MvccTable)) {
+            return Optional.empty();
+        }
+        return Optional.of(((MvccTable) source).loadSnapshot(
+                Optional.ofNullable(getQueryTableSnapshot()),
+                Optional.ofNullable(getScanParams())));
     }
 
     /**
@@ -628,12 +862,31 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         if (!(getTargetTable() instanceof PluginDrivenSysExternalTable)) {
             return;
         }
+        boolean timeTravelSupported = sysTableSupportsTimeTravel();
         if (getScanParams() != null) {
-            throw new UserException("Plugin system tables do not support scan params.");
+            // A connector whose sys tables honor a pin (iceberg) still rejects @incr — incremental read
+            // of a synthetic metadata table is undefined; a connector that does not (paimon, the default)
+            // rejects EVERY scan-param. Branch/tag are allowed only for the former.
+            if (!timeTravelSupported || getScanParams().incrementalRead()) {
+                throw new UserException("Plugin system tables do not support scan params.");
+            }
         }
-        if (getQueryTableSnapshot() != null) {
+        if (getQueryTableSnapshot() != null && !timeTravelSupported) {
             throw new UserException("Plugin system tables do not support time travel.");
         }
+    }
+
+    /**
+     * Whether the connector's system tables honor a time-travel / branch-tag pin (iceberg) versus reject
+     * it (paimon, the default). Package-private + overridable so {@link #checkSysTableScanConstraints}
+     * stays unit-testable on a Mockito mock without a live connector (mirrors the guard's own visibility).
+     */
+    boolean sysTableSupportsTimeTravel() {
+        ConnectorScanPlanProvider scanProvider = connector.getScanPlanProvider();
+        if (scanProvider == null) {
+            return false;
+        }
+        return onPluginClassLoader(scanProvider, scanProvider::supportsSystemTableTimeTravel);
     }
 
     @Override
@@ -653,8 +906,10 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         // mirroring legacy MaxComputeScanNode.getSplits()'s empty-selection short-circuit — UNLESS the
         // connector is predicate-driven (ignorePartitionPruneShortCircuit), in which case a prune-to-zero
         // maps to scan-all and planScan re-plans from the pushed predicate (paimon `col IS NULL` parity).
+        boolean ignorePartitionPruneShortCircuit = onPluginClassLoader(
+                scanProvider, scanProvider::ignorePartitionPruneShortCircuit);
         List<String> requiredPartitions = resolveRequiredPartitions(
-                selectedPartitions, scanProvider.ignorePartitionPruneShortCircuit());
+                selectedPartitions, ignorePartitionPruneShortCircuit);
         // Surface the partition counts for EXPLAIN (partition=N/M) and SQL-block-rule enforcement,
         // mirroring legacy MaxComputeScanNode.getSplits():720-722. Set BEFORE the pruned-to-zero
         // short-circuit below so a 0-partition selection still reports partition=0/total (e.g. WHERE
@@ -676,6 +931,8 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         // immediately before planScan consumes it, so the native split path reads at the pinned
         // snapshot. getSplits already declares UserException, so a getTargetTable() failure propagates.
         pinMvccSnapshot();
+        // Scope the scan to a distributed rewrite group's files (no-op for every non-rewrite read).
+        pinRewriteFileScope();
 
         // If buildRemainingFilter stripped non-pushable (CAST) conjuncts (filteredToOriginalIndex
         // != null), suppress source-side LIMIT pushdown: the connector now sees a filter that no
@@ -692,9 +949,9 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         // materializes the full post-merge row set just to count. Connectors that do not override the
         // count-pushdown overload ignore the flag (default delegates to the 6-arg planScan).
         boolean countPushdown = getPushDownAggNoGroupingOp() == TPushAggOp.COUNT;
-        List<ConnectorScanRange> ranges = scanProvider.planScan(
+        List<ConnectorScanRange> ranges = onPluginClassLoader(scanProvider, () -> scanProvider.planScan(
                 connectorSession, currentHandle, columns, remainingFilter, sourceLimit,
-                requiredPartitions, countPushdown);
+                requiredPartitions, countPushdown));
 
         List<Split> splits = new ArrayList<>(ranges.size());
         for (ConnectorScanRange range : ranges) {
@@ -783,9 +1040,29 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         // getScanPlanProvider() may be null for connectors without scan capability; mirror the
         // null-guard in getSplits() so isBatchMode (run on the dispatch + explain paths) never NPEs.
         ConnectorScanPlanProvider scanProvider = connector.getScanPlanProvider();
-        boolean supportsBatchScan = scanProvider != null
-                && scanProvider.supportsBatchScan(connectorSession, currentHandle);
-        return shouldUseBatchMode(selectedPartitions, !desc.getSlots().isEmpty(),
+        if (scanProvider == null) {
+            return false;
+        }
+        boolean hasSlots = !desc.getSlots().isEmpty();
+        // Streaming (file-count) batch flavor (FIX-M3): the connector owns the whole decision (e.g.
+        // Iceberg's matched-file count vs num_files_in_batch_mode); the engine only requires output slots
+        // (a scan with no slots needs no file ranges). Checked before the partition-count flavor because a
+        // connector implements at most one — Iceberg streams files, MaxCompute slices partitions.
+        if (hasSlots) {
+            boolean countPushdown = getPushDownAggNoGroupingOp() == TPushAggOp.COUNT;
+            long estimate = onPluginClassLoader(scanProvider, () -> scanProvider.streamingSplitEstimate(
+                    connectorSession, currentHandle, buildRemainingFilter(), countPushdown));
+            if (estimate >= 0) {
+                streamingSplitEstimate = estimate;
+                streamingBatch = true;
+                return true;
+            }
+        }
+        // Partition-count batch flavor (legacy MaxCompute): its connector odpsTable.getFileNum()>0 check is
+        // folded into supportsBatchScan; the partition threshold is evaluated generically.
+        boolean supportsBatchScan = onPluginClassLoader(scanProvider,
+                () -> scanProvider.supportsBatchScan(connectorSession, currentHandle));
+        return shouldUseBatchMode(selectedPartitions, hasSlots,
                 supportsBatchScan, sessionVariable.getNumPartitionsInBatchMode());
     }
 
@@ -825,6 +1102,13 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
 
     @Override
     public int numApproximateSplits() {
+        if (streamingBatch) {
+            // Streaming batch (FIX-M3): the connector's matched-file estimate. Legacy IcebergScanNode batch
+            // returned ~partition count; the file estimate is a strictly better, always-non-negative BE
+            // concurrency hint. Cap at Integer.MAX_VALUE for pathologically large tables.
+            return streamingSplitEstimate > Integer.MAX_VALUE
+                    ? Integer.MAX_VALUE : (int) streamingSplitEstimate;
+        }
         // Number of pruned partitions; must be non-negative in batch mode (FileQueryScanNode rejects
         // negative). Under the isBatchMode gate this is >= num_partitions_in_batch_mode >= 1.
         return selectedPartitions == null ? -1 : selectedPartitions.selectedPartitions.size();
@@ -843,6 +1127,12 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
      */
     @Override
     public void startSplit(int numBackends) {
+        if (streamingBatch) {
+            // File-count streaming flavor (FIX-M3): pump a connector-driven lazy source instead of
+            // slicing partitions. Mutually exclusive with the partition-slicing path below.
+            startStreamingSplit();
+            return;
+        }
         try {
             checkSysTableScanConstraints();
         } catch (UserException e) {
@@ -878,6 +1168,8 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
             splitAssignment.setException(e);
             return;
         }
+        // Scope the scan to a distributed rewrite group's files (no-op for every non-rewrite read).
+        pinRewriteFileScope();
         final ConnectorTableHandle handle = currentHandle;
         final ConnectorScanPlanProvider scanProvider = connector.getScanPlanProvider();
         final List<String> allPartitions =
@@ -899,8 +1191,9 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
                 try {
                     CompletableFuture.runAsync(() -> {
                         try {
-                            List<ConnectorScanRange> ranges = scanProvider.planScanForPartitionBatch(
-                                    connectorSession, handle, columns, remainingFilter, -1L, batch);
+                            List<ConnectorScanRange> ranges = onPluginClassLoader(scanProvider,
+                                    () -> scanProvider.planScanForPartitionBatch(
+                                            connectorSession, handle, columns, remainingFilter, -1L, batch));
                             List<Split> batchSplits = new ArrayList<>(ranges.size());
                             for (ConnectorScanRange range : ranges) {
                                 batchSplits.add(new PluginDrivenSplit(range));
@@ -929,6 +1222,74 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         }, scheduleExecutor);
     }
 
+    /**
+     * Streams splits from a connector-driven lazy {@link ConnectorSplitSource} into
+     * {@link #splitAssignment} with backpressure, mirroring legacy {@code IcebergScanNode.doStartSplit}.
+     * Used by the file-count streaming batch flavor (see {@link #computeBatchMode}); the partition-count
+     * flavor stays on the {@link #startSplit} partition-slicing path. Deliberately does NOT push the limit
+     * (passes {@code -1}): the LIMIT-split optimization stays on the non-batch {@link #getSplits} path only.
+     */
+    private void startStreamingSplit() {
+        try {
+            checkSysTableScanConstraints();
+        } catch (UserException e) {
+            // startSplit cannot throw checked exceptions; surface the fail-loud guard through the
+            // SplitAssignment error channel so the query fails rather than silently ignoring the guard.
+            splitAssignment.setException(e);
+            return;
+        }
+        // Mirror getSplits()'s projection + filter pushdown (but NOT the limit) before going async.
+        // tryPushDownProjection mutates currentHandle, so capture the resolved handle afterwards.
+        final List<ConnectorColumnHandle> columns = buildColumnHandles();
+        tryPushDownProjection(columns);
+        final Optional<ConnectorExpression> remainingFilter = buildRemainingFilter();
+        // Pin the MVCC snapshot + rewrite scope onto currentHandle before capturing the resolved handle,
+        // so the lazy source plans at the PINNED snapshot (rows are always correct). The streamingSplitEstimate
+        // gate ran pre-pin (current snapshot), so it only affects the approximate batch decision + concurrency
+        // hint, never the rows. Narrow caveat: a time-travel query to a past snapshot much LARGER than current
+        // (table since compacted/expired) may under-count -> pick the eager path -> lose streaming's OOM
+        // protection for that scan. Acceptable (perf-only, rare); documented in the FIX-M3 design.
+        try {
+            pinMvccSnapshot();
+        } catch (UserException e) {
+            splitAssignment.setException(e);
+            return;
+        }
+        pinRewriteFileScope();
+        final ConnectorTableHandle handle = currentHandle;
+        final ConnectorScanPlanProvider scanProvider = connector.getScanPlanProvider();
+        Executor scheduleExecutor = Env.getCurrentEnv().getExtMetaCacheMgr().getScheduleExecutor();
+        CompletableFuture.runAsync(() -> {
+            ConnectorSplitSource source = null;
+            try {
+                source = onPluginClassLoader(scanProvider,
+                        () -> scanProvider.streamSplits(connectorSession, handle, columns, remainingFilter, -1L));
+                // Pull ranges with backpressure (needMoreSplit) and pump them one at a time, exactly like
+                // legacy doStartSplit. The bounded SplitAssignment queue throttles the lazy source so FE
+                // heap stays bounded for million-file scans.
+                while (splitAssignment.needMoreSplit() && source.hasNext()) {
+                    List<Split> one = new ArrayList<>(1);
+                    one.add(new PluginDrivenSplit(source.next()));
+                    splitAssignment.addToQueue(one);
+                }
+                splitAssignment.finishSchedule();
+            } catch (Exception e) {
+                splitAssignment.setException(new UserException(e.getMessage(), e));
+            } finally {
+                // Close in a finally that SWALLOWS close errors (NOT try-with-resources, whose close runs
+                // before the catch): a close() failure must not fail a scan whose splits were already
+                // enumerated + finishSchedule()-d (legacy doStartSplit swallowed close errors identically).
+                if (source != null) {
+                    try {
+                        source.close();
+                    } catch (Exception ce) {
+                        LOG.warn("Failed to close streaming split source for {}", handle, ce);
+                    }
+                }
+            }
+        }, scheduleExecutor);
+    }
+
     @Override
     protected void setScanParams(TFileRangeDesc rangeDesc, Split split) {
         if (!(split instanceof PluginDrivenSplit)) {
@@ -952,7 +1313,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         ConnectorScanPlanProvider scanProvider = connector.getScanPlanProvider();
         if (scanProvider != null) {
             Map<String, String> props = getOrLoadScanNodeProperties();
-            String serialized = scanProvider.getSerializedTable(props);
+            String serialized = onPluginClassLoader(scanProvider, () -> scanProvider.getSerializedTable(props));
             if (serialized != null) {
                 return Optional.of(serialized);
             }
@@ -967,7 +1328,10 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         ConnectorScanPlanProvider scanProvider = connector.getScanPlanProvider();
         if (scanProvider != null) {
             Map<String, String> props = getOrLoadScanNodeProperties();
-            scanProvider.populateScanLevelParams(params, props);
+            onPluginClassLoader(scanProvider, () -> {
+                scanProvider.populateScanLevelParams(params, props);
+                return null;
+            });
         }
         pruneConjunctsFromNodeProperties();
 
@@ -1060,8 +1424,15 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
                 } catch (UserException e) {
                     throw new RuntimeException("Failed to pin MVCC snapshot for plugin-driven scan", e);
                 }
-                cachedPropertiesResult = scanProvider.getScanNodePropertiesResult(
-                        connectorSession, currentHandle, columns, filter);
+                // Scope the scan to a distributed rewrite group's files (no-op for every non-rewrite read).
+                pinRewriteFileScope();
+                // Signal Top-N lazy materialization so a connector with a column-pruned scan dictionary
+                // rebuilds it over the full schema (no-op for every non-lazy-mat read / every connector
+                // without a pruned dictionary).
+                pinTopnLazyMaterialize();
+                cachedPropertiesResult = onPluginClassLoader(scanProvider,
+                        () -> scanProvider.getScanNodePropertiesResult(
+                                connectorSession, currentHandle, columns, filter));
             }
             if (cachedPropertiesResult == null) {
                 cachedPropertiesResult = new ScanNodePropertiesResult(Collections.emptyMap());

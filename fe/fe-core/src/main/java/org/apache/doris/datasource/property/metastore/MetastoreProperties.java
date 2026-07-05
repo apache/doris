@@ -19,13 +19,13 @@ package org.apache.doris.datasource.property.metastore;
 
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.property.ConnectionProperties;
-import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.kerberos.ExecutionAuthenticator;
 
 import lombok.Getter;
 import org.apache.commons.lang3.StringUtils;
 
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.EnumMap;
 import java.util.HashSet;
 import java.util.Locale;
@@ -86,8 +86,9 @@ public class MetastoreProperties extends ConnectionProperties {
     static {
         //subclasses should be registered here
         register(Type.HMS, new HivePropertiesFactory());
-        register(Type.ICEBERG, new IcebergPropertiesFactory());
-        register(Type.PAIMON, new PaimonPropertiesFactory());
+        // Design S7: iceberg/paimon are plugin (SPI) catalogs whose metastore properties live connector-side;
+        // fe-core no longer parses them. The Type.ICEBERG/PAIMON enum values remain (so a stray create() fails
+        // loud with "Unsupported metastore type") but their factories are intentionally not registered.
         register(Type.TRINO_CONNECTOR, new TrinoConnectorPropertiesFactory());
     }
 
@@ -142,34 +143,19 @@ public class MetastoreProperties extends ConnectionProperties {
     }
 
     /**
-     * Wires an {@link ExecutionAuthenticator} that is derived from the catalog's storage properties,
-     * for metastore types whose authenticator cannot be built at {@link #initNormalizeAndCheckProps()}
-     * time (which has no storage-properties context).
+     * Storage-configuration properties derived from this metastore's own properties that the raw catalog
+     * property map does not already supply. {@code CatalogProperty.initStorageProperties} merges them (as
+     * defaults — an explicit user key always wins) into the map fed to {@code StorageProperties.createAll},
+     * before storage-backend detection.
      *
-     * <p>The default is a no-op: most metastore types either build their authenticator in
-     * {@code initNormalizeAndCheckProps} (e.g. HMS, from its hive props) or have none. The Paimon
-     * filesystem/jdbc flavors override this to build the HDFS Kerberos authenticator from the
-     * HDFS {@code StorageProperties} — mirroring what legacy did inside {@code initializeCatalog}
-     * (which is dead on the plugin/cutover path). Invoked once on catalog init by
-     * {@code PluginDrivenExternalCatalog.initPreExecutionAuthenticator}, before
-     * {@link #getExecutionAuthenticator()} is read.</p>
+     * <p>The default is empty: no derivation, zero behavior change for every existing metastore type. The
+     * iceberg filesystem flavor overrides it to bridge a {@code warehouse=hdfs://<ns>/path} into
+     * {@code fs.defaultFS=hdfs://<ns>} — legacy {@code IcebergHadoopExternalCatalog} did this in its
+     * constructor (dead on the plugin/cutover path), and the shared HDFS detection never reads
+     * {@code warehouse}, so an HA-nameservice hadoop catalog configured with only {@code warehouse} would
+     * otherwise fail to bind HDFS storage.</p>
      */
-    public void initExecutionAuthenticator(java.util.List<StorageProperties> storagePropertiesList) {
-        // no-op by default
-    }
-
-    /**
-     * Whether this metastore supplies storage credentials by vending them per-table at scan time
-     * rather than from a static catalog-level storage map. When {@code true}, the catalog skips
-     * building the static {@link StorageProperties} map (a vended catalog — e.g. a Paimon REST
-     * catalog — has no static storage credentials by design; they arrive with each table token).
-     *
-     * <p>The default is {@code false} (use the static storage map). The Paimon REST flavor overrides
-     * it to {@code true}. This is the SDK-free replacement of the former
-     * {@code VendedCredentialsFactory} PAIMON type-switch (the Iceberg path still routes through its
-     * provider). Read by {@code CatalogProperty.initStorageProperties}.</p>
-     */
-    public boolean isVendedCredentialsEnabled() {
-        return false;
+    public Map<String, String> getDerivedStorageProperties() {
+        return Collections.emptyMap();
     }
 }

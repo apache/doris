@@ -44,6 +44,7 @@ public final class ConnectorCreateTableRequest {
     private final List<ConnectorColumn> columns;
     private final ConnectorPartitionSpec partitionSpec;
     private final ConnectorBucketSpec bucketSpec;
+    private final List<ConnectorSortField> sortOrder;
     private final String comment;
     private final Map<String, String> properties;
     private final boolean ifNotExists;
@@ -57,6 +58,9 @@ public final class ConnectorCreateTableRequest {
                 : Collections.unmodifiableList(b.columns);
         this.partitionSpec = b.partitionSpec;
         this.bucketSpec = b.bucketSpec;
+        this.sortOrder = b.sortOrder == null
+                ? Collections.emptyList()
+                : Collections.unmodifiableList(b.sortOrder);
         this.comment = b.comment;
         this.properties = b.properties == null
                 ? Collections.emptyMap()
@@ -85,6 +89,15 @@ public final class ConnectorCreateTableRequest {
     /** @return bucket spec, or {@code null} when no bucketing is declared. */
     public ConnectorBucketSpec getBucketSpec() {
         return bucketSpec;
+    }
+
+    /**
+     * @return the {@code ORDER BY (...)} write-order fields (never {@code null}; empty when the DDL
+     *         omits an ORDER BY clause or the engine drops it). Iceberg builds a write sort order from
+     *         these; engines without a write order ignore them.
+     */
+    public List<ConnectorSortField> getSortOrder() {
+        return sortOrder;
     }
 
     public String getComment() {
@@ -123,6 +136,7 @@ public final class ConnectorCreateTableRequest {
         private List<ConnectorColumn> columns;
         private ConnectorPartitionSpec partitionSpec;
         private ConnectorBucketSpec bucketSpec;
+        private List<ConnectorSortField> sortOrder;
         private String comment;
         private Map<String, String> properties;
         private boolean ifNotExists;
@@ -150,6 +164,11 @@ public final class ConnectorCreateTableRequest {
 
         public Builder bucketSpec(ConnectorBucketSpec bucketSpec) {
             this.bucketSpec = bucketSpec;
+            return this;
+        }
+
+        public Builder sortOrder(List<ConnectorSortField> sortOrder) {
+            this.sortOrder = sortOrder;
             return this;
         }
 

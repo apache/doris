@@ -186,6 +186,67 @@ public interface ConnectorContext {
     }
 
     /**
+     * Resolves the BE-facing file type (a {@code TFileType} enum name, e.g. {@code "FILE_S3"}) for a raw
+     * storage URI a connector emits (e.g. an iceberg write output path). A write-side analogue of
+     * {@link #normalizeStorageUri(String, Map)}: a connector that hands an output location to a BE table
+     * sink must tell BE which file-system family to open it with, and that decision (object store vs HDFS
+     * vs local vs broker) lives in the engine's {@code LocationPath} together with the catalog's storage
+     * properties — which the connector must not import. The result is the enum <em>name</em> (a plain
+     * String) so this SPI stays Thrift-free, exactly like {@link #normalizeStorageUri}; the connector,
+     * which has the Thrift types, maps it back. The engine resolves it the same way it does for a legacy
+     * external-table sink.
+     *
+     * <p>The default derives the type from the URI scheme alone (object-store schemes → {@code FILE_S3},
+     * {@code hdfs}/{@code viewfs} → {@code FILE_HDFS}, {@code file} or no scheme → {@code FILE_LOCAL}); it
+     * has no storage-property machinery and so cannot detect a broker-backed path — the engine override
+     * does. Mirrors the vended-aware normalization: the same raw per-table vended token is accepted so a
+     * REST catalog (empty static map) still resolves.
+     *
+     * @param rawUri               the raw storage URI
+     * @param rawVendedCredentials the raw per-table vended token map (may be null/empty → static path)
+     * @return the BE file type enum name for the URI
+     */
+    default String getBackendFileType(String rawUri, Map<String, String> rawVendedCredentials) {
+        if (rawUri == null) {
+            return "FILE_LOCAL";
+        }
+        int schemeEnd = rawUri.indexOf("://");
+        if (schemeEnd < 0) {
+            return "FILE_LOCAL";
+        }
+        String scheme = rawUri.substring(0, schemeEnd).toLowerCase();
+        if ("hdfs".equals(scheme) || "viewfs".equals(scheme)) {
+            return "FILE_HDFS";
+        }
+        if ("file".equals(scheme)) {
+            return "FILE_LOCAL";
+        }
+        return "FILE_S3";
+    }
+
+    /**
+     * Resolves the broker backend addresses bound to this catalog (host + port), for a write whose
+     * {@link #getBackendFileType} resolved to {@code FILE_BROKER} (e.g. an {@code ofs://} / {@code gfs://}
+     * iceberg write). A write-side companion to {@link #getBackendFileType}: a connector that hands a
+     * broker-backed output location to a BE table sink must also tell BE which brokers to open it through,
+     * and the broker registry (alive instances) + the catalog's bound broker name live in the engine, which
+     * the connector must not import. Returns neutral {@link ConnectorBrokerAddress} host/port pairs so this
+     * SPI stays Thrift-free — the connector, which has the Thrift types, maps them to {@code TNetworkAddress},
+     * exactly like it maps the {@link #getBackendFileType} String back to {@code TFileType}.
+     *
+     * <p>The engine override resolves the catalog's bound broker (or any alive broker when none is bound) and
+     * shuffles for load-balance, mirroring legacy write planning ({@code BaseExternalTableDataSink}); the
+     * connector applies these only for a {@code FILE_BROKER} target and fails loud when the resolved set is
+     * empty. The default returns empty (no broker machinery), so every non-broker write — and every other
+     * connector — is unaffected.
+     *
+     * @return the catalog's broker backend addresses, or empty when none
+     */
+    default List<ConnectorBrokerAddress> getBrokerAddresses() {
+        return Collections.emptyList();
+    }
+
+    /**
      * Returns the catalog's static storage credentials/config normalized to BE-canonical scan
      * properties: object-store creds as {@code AWS_ACCESS_KEY} / {@code AWS_SECRET_KEY} /
      * {@code AWS_TOKEN} / {@code AWS_ENDPOINT} / {@code AWS_REGION}, and HDFS config as the resolved
@@ -230,5 +291,27 @@ public interface ConnectorContext {
      */
     default List<StorageProperties> getStorageProperties() {
         return Collections.emptyList();
+    }
+
+    /**
+     * Best-effort removal of the EMPTY directory shells left behind after a connector drops a managed
+     * table or database. The data + metadata FILES are already deleted by the connector's own drop (e.g.
+     * iceberg {@code dropTable(purge=true)}); this only prunes now-empty directories (the parent table /
+     * database location, descending {@code tableChildDirs} first). A directory is removed ONLY when it
+     * contains no files — never recursively deleting live data.
+     *
+     * <p>The connector decides WHEN to call this (e.g. iceberg only for HMS-managed locations) and captures
+     * {@code location} BEFORE the drop; the engine owns the {@code fe-filesystem} machinery to build a
+     * {@code FileSystem} from the catalog's storage properties (which the connector cannot construct). Any
+     * failure is swallowed (logged) — cleanup is cosmetic and must never fail the drop.
+     *
+     * <p>The default is a no-op, so connectors whose engine does not manage storage cleanup are unaffected.
+     *
+     * @param location       the table/database root location to prune (no-op when blank)
+     * @param tableChildDirs engine-format child directories to descend first (e.g. iceberg
+     *                       {@code ["data", "metadata"]}); empty/{@code null} for a database/namespace root
+     */
+    default void cleanupEmptyManagedLocation(String location, List<String> tableChildDirs) {
+        // no-op: the engine that manages storage overrides this.
     }
 }
