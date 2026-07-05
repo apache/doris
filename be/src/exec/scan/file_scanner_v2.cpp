@@ -41,6 +41,7 @@
 #include "exec/common/util.hpp"
 #include "exec/operator/scan_operator.h"
 #include "exec/scan/access_path_parser.h"
+#include "exec/scan/file_scanner_counter_helper.h"
 #include "exprs/runtime_filter_expr.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
@@ -323,6 +324,8 @@ Status FileScannerV2::_get_block_impl(RuntimeState* state, Block* block, bool* e
             RETURN_IF_ERROR(_table_reader->get_block(block, eof));
         }
         if (*eof) {
+            // Flush the finished split before switching _current_range to the next one.
+            _flush_scan_byte_counters_for_current_range();
             _state->update_num_finished_scan_range(1);
             _has_prepared_split = false;
             *eof = false;
@@ -751,6 +754,8 @@ Status FileScannerV2::close(RuntimeState* state) {
     if (!_try_close()) {
         return Status::OK();
     }
+    // Flush any bytes that were produced after the last scheduler callback.
+    _flush_scan_byte_counters_for_current_range();
     if (_table_reader != nullptr) {
         RETURN_IF_ERROR(_table_reader->close());
         _report_condition_cache_profile();
@@ -766,21 +771,57 @@ void FileScannerV2::try_stop() {
     }
 }
 
+void FileScannerV2::_flush_scan_byte_counters_for_current_range() {
+    const int64_t current_read_bytes = cast_set<int64_t>(_file_reader_stats->read_bytes);
+    const int64_t current_cache_local = _file_cache_statistics->bytes_read_from_local;
+    const int64_t current_cache_remote = _file_cache_statistics->bytes_read_from_remote;
+    DORIS_CHECK_GE(current_read_bytes, _reported_read_bytes);
+    DORIS_CHECK_GE(current_cache_local, _reported_cache_local_bytes);
+    DORIS_CHECK_GE(current_cache_remote, _reported_cache_remote_bytes);
+
+    const int64_t read_bytes_delta = current_read_bytes - _reported_read_bytes;
+    const int64_t cache_local_delta = current_cache_local - _reported_cache_local_bytes;
+    const int64_t cache_remote_delta = current_cache_remote - _reported_cache_remote_bytes;
+    if (read_bytes_delta == 0 && cache_local_delta == 0 && cache_remote_delta == 0) {
+        return;
+    }
+
+    FileScanLocalState* local_state = static_cast<FileScanLocalState*>(_local_state);
+    const auto buckets = compute_scan_byte_buckets(read_bytes_delta, cache_local_delta,
+                                                   cache_remote_delta, _current_range, *_params);
+    // Total scan bytes follow traced reader bytes, while storage buckets follow physical cache
+    // source bytes. In particular, a cache-only delta must not be folded into FileReadBytes.
+    COUNTER_UPDATE(local_state->_scan_bytes, read_bytes_delta);
+    COUNTER_UPDATE(_file_read_bytes_counter, read_bytes_delta);
+    _state->get_query_ctx()->resource_ctx()->io_context()->update_scan_bytes(read_bytes_delta);
+    _state->get_query_ctx()->resource_ctx()->io_context()->update_scan_bytes_from_local_storage(
+            buckets.local_bytes);
+    _state->get_query_ctx()->resource_ctx()->io_context()->update_scan_bytes_from_remote_storage(
+            buckets.remote_bytes);
+    DorisMetrics::instance()->query_scan_bytes->increment(read_bytes_delta);
+    DorisMetrics::instance()->query_scan_bytes_from_local->increment(buckets.local_bytes);
+    DorisMetrics::instance()->query_scan_bytes_from_remote->increment(buckets.remote_bytes);
+
+    _reported_read_bytes = current_read_bytes;
+    _reported_cache_local_bytes = current_cache_local;
+    _reported_cache_remote_bytes = current_cache_remote;
+}
+
 void FileScannerV2::update_realtime_counters() {
     if (_file_reader_stats == nullptr) {
         return;
     }
-    const int64_t bytes_read = _file_reader_stats->read_bytes;
-    COUNTER_SET(_file_read_bytes_counter, bytes_read);
     COUNTER_SET(_file_read_calls_counter, cast_set<int64_t>(_file_reader_stats->read_calls));
     COUNTER_SET(_file_read_time_counter, cast_set<int64_t>(_file_reader_stats->read_time_ns));
+    _flush_scan_byte_counters_for_current_range();
 }
 
 void FileScannerV2::_collect_profile_before_close() {
     _report_file_reader_predicate_filtered_rows();
     Scanner::_collect_profile_before_close();
+    // Flush bytes through the shared path so close-time accounting matches runtime updates.
+    _flush_scan_byte_counters_for_current_range();
     if (_file_reader_stats != nullptr) {
-        COUNTER_SET(_file_read_bytes_counter, cast_set<int64_t>(_file_reader_stats->read_bytes));
         COUNTER_SET(_file_read_calls_counter, cast_set<int64_t>(_file_reader_stats->read_calls));
         COUNTER_SET(_file_read_time_counter, cast_set<int64_t>(_file_reader_stats->read_time_ns));
     }
