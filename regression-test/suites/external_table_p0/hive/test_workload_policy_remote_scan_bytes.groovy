@@ -119,12 +119,14 @@ suite("test_workload_policy_remote_scan_bytes", "p0,external") {
             Thread.sleep(40000)
 
             Throwable queryException = null
+            // Tag the target query so the suite can print the matching audit record when cancellation is missing.
+            String queryMarker = "remote_scan_probe_" + System.currentTimeMillis()
             sql """SET workload_group = '${workloadGroupName}'"""
             sql """SET enable_file_cache = false"""
             sql """SET enable_sql_cache = false"""
             try {
                 sql """
-                    SELECT SUM(SLEEP(1) + l_quantity)
+                    SELECT /* ${queryMarker} */ SUM(SLEEP(1) + l_quantity)
                     FROM (
                         SELECT l_quantity
                         FROM ${catalogName}.${lineitemDb}.lineitem
@@ -134,6 +136,18 @@ suite("test_workload_policy_remote_scan_bytes", "p0,external") {
             } catch (Throwable t) {
                 queryException = t
             }
+            // Give the audit log time to flush and print the matching record for both success and failure paths.
+            Thread.sleep(60000)
+            def auditRows = sql """
+                SELECT time, state, error_message, scan_bytes, scan_rows,
+                       scan_bytes_from_remote_storage, scan_bytes_from_local_storage,
+                       workload_group, stmt
+                FROM __internal_schema.audit_log
+                WHERE stmt LIKE '%${queryMarker}%'
+                ORDER BY time DESC
+                LIMIT 5
+            """
+            logger.info("Remote scan bytes workload policy audit rows for ${queryMarker}: " + auditRows)
             assertTrue(queryException != null, "query should be cancelled by remote scan bytes workload policy")
             String msg = queryException.getMessage()
             logger.info("Remote scan bytes workload policy cancel message: " + msg)
