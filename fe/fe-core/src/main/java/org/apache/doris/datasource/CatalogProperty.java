@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource;
 
+import org.apache.doris.catalog.HdfsResource;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.credentials.AbstractVendedCredentialsProvider;
 import org.apache.doris.datasource.credentials.VendedCredentialsFactory;
@@ -28,11 +29,13 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
 import org.apache.commons.collections4.MapUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -193,14 +196,17 @@ public class CatalogProperty {
                         }
                         if (checkStorageProperties) {
                             Map<String, String> storageProps = getProperties();
-                            if (msp != null) {
-                                Map<String, String> derived = msp.getDerivedStorageProperties();
-                                if (MapUtils.isNotEmpty(derived)) {
-                                    // Merge into a copy: derived props are defaults (an explicit user key wins
-                                    // via putIfAbsent), and the persisted getProperties() map is never mutated.
-                                    storageProps = new HashMap<>(storageProps);
-                                    derived.forEach(storageProps::putIfAbsent);
-                                }
+                            // Derived storage defaults: from the metastore props when present; otherwise (an SPI
+                            // catalog with no fe-core MetastoreProperties — e.g. a native iceberg catalog whose
+                            // property cluster moved to the connector) from the neutral hdfs:// warehouse bridge.
+                            Map<String, String> derived = msp != null
+                                    ? msp.getDerivedStorageProperties()
+                                    : deriveHdfsDefaultFsFromWarehouse(storageProps);
+                            if (MapUtils.isNotEmpty(derived)) {
+                                // Merge into a copy: derived props are defaults (an explicit user key wins
+                                // via putIfAbsent), and the persisted getProperties() map is never mutated.
+                                storageProps = new HashMap<>(storageProps);
+                                derived.forEach(storageProps::putIfAbsent);
                             }
                             this.orderedStoragePropertiesList = StorageProperties.createAll(storageProps);
                             this.storagePropertiesMap = orderedStoragePropertiesList.stream()
@@ -217,6 +223,30 @@ public class CatalogProperty {
                 }
             }
         }
+    }
+
+    /**
+     * Derives {@code fs.defaultFS=hdfs://<nameservice>} from an HDFS {@code warehouse=hdfs://<ns>/path} for a
+     * catalog that carries no fe-core {@link MetastoreProperties} (an SPI catalog whose metastore properties
+     * live connector-side, e.g. a native iceberg catalog after its property cluster moved to the connector).
+     * Without it an HA-nameservice catalog configured with only {@code warehouse} (relying on the classpath
+     * {@code core-site.xml}/{@code hdfs-site.xml} for the rest) would not bind HDFS storage with the warehouse
+     * nameservice, because {@code HdfsProperties} detection never reads {@code warehouse}. Non-hdfs warehouses
+     * (and a blank one) derive nothing. Keyed purely on the neutral {@code warehouse} property + hdfs scheme
+     * (no engine-specific keys); the parse and empty-nameservice message are a verbatim port of the former
+     * {@code IcebergFileSystemMetaStoreProperties.getDerivedStorageProperties} bridge it replaces.
+     */
+    static Map<String, String> deriveHdfsDefaultFsFromWarehouse(Map<String, String> storageProps) {
+        String warehouse = storageProps.get("warehouse");
+        if (StringUtils.isBlank(warehouse) || !StringUtils.startsWith(warehouse, HdfsResource.HDFS_PREFIX)) {
+            return Collections.emptyMap();
+        }
+        String nameService = StringUtils.substringBetween(warehouse, HdfsResource.HDFS_FILE_PREFIX, "/");
+        if (StringUtils.isEmpty(nameService)) {
+            throw new IllegalArgumentException("Unrecognized 'warehouse' location format"
+                    + " because name service is required.");
+        }
+        return Collections.singletonMap(HdfsResource.HADOOP_FS_NAME, HdfsResource.HDFS_FILE_PREFIX + nameService);
     }
 
     public Map<StorageProperties.Type, StorageProperties> getStoragePropertiesMap() {
