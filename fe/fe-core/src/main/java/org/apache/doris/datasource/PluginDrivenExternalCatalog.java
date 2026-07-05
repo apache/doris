@@ -45,7 +45,6 @@ import org.apache.doris.connector.api.ddl.ConnectorCreateTableRequest;
 import org.apache.doris.connector.api.ddl.PartitionFieldChange;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.ddl.CreateTableInfoToConnectorRequestConverter;
-import org.apache.doris.datasource.property.metastore.MetastoreProperties;
 import org.apache.doris.nereids.trees.plans.commands.info.AddPartitionFieldOp;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.DropPartitionFieldOp;
@@ -135,29 +134,14 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
                     + ". Ensure the connector plugin is installed.");
         }
         transactionManager = new PluginDrivenTransactionManager();
+        // Design S6: a plugin catalog's pre-execution Kerberos auth is owned entirely by the connector
+        // (TcclPinningConnectorContext runs each remote op under the connector's own plugin-side authenticator —
+        // storage Kerberos and, via {Iceberg,Paimon}Connector.buildPluginAuthenticator, HMS-metastore Kerberos).
+        // fe-core keeps only the base no-op ExecutionAuthenticator handle (non-null so
+        // BaseExternalTableInsertExecutor / ExternalCatalog.getExecutionAuthenticator can call it
+        // unconditionally, but it performs no doAs — the connector's inner doAs is authoritative). Hence no
+        // plugin-specific initPreExecutionAuthenticator override: inherit the base no-op.
         initPreExecutionAuthenticator();
-    }
-
-    @Override
-    protected synchronized void initPreExecutionAuthenticator() {
-        if (executionAuthenticator != null) {
-            return;
-        }
-        try {
-            MetastoreProperties msp = catalogProperty.getMetastoreProperties();
-            if (msp != null) {
-                // Wire any storage-derived authenticator first (rereview2 M-8): the paimon
-                // filesystem/jdbc flavors build their HDFS Kerberos authenticator from the catalog's
-                // storage properties here, because their legacy initializeCatalog() — which did this —
-                // is dead on the plugin/cutover path. Default no-op for every other metastore type.
-                msp.initExecutionAuthenticator(catalogProperty.getOrderedStoragePropertiesList());
-                executionAuthenticator = msp.getExecutionAuthenticator();
-                return;
-            }
-        } catch (Exception ignored) {
-            // Not all catalog types have metastore properties (e.g., JDBC, ES)
-        }
-        super.initPreExecutionAuthenticator();
     }
 
     /**

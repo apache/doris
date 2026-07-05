@@ -58,21 +58,6 @@ public class CatalogProperty {
     @SerializedName(value = "properties")
     private Map<String, String> properties;
 
-    /**
-     * An ordered list of all initialized {@link StorageProperties} instances.
-     * <p>
-     * The order of this list is significant:
-     * <ul>
-     *   <li>The default HDFSProperties (if auto-created) is always inserted at index 0.</li>
-     *   <li>Explicitly configured storage providers follow in the order they are detected.</li>
-     *   <li>Callers rely on this deterministic ordering for selecting or iterating through
-     *       storage backends.</li>
-     * </ul>
-     * <p>
-     * Declared as {@code volatile} to ensure visibility across threads once initialized.
-     */
-    private volatile List<StorageProperties> orderedStoragePropertiesList;
-
     // Lazy-loaded storage properties map, using volatile to ensure visibility
     private volatile Map<StorageProperties.Type, StorageProperties> storagePropertiesMap;
 
@@ -183,8 +168,8 @@ public class CatalogProperty {
                         // connector supplies vended per-table), so createAll yields only inert defaults the
                         // plugin storage consumers do not use.
                         Map<String, String> storageProps = mergeDerivedStorageDefaults(getMetastoreProperties());
-                        this.orderedStoragePropertiesList = StorageProperties.createAll(storageProps);
-                        this.storagePropertiesMap = orderedStoragePropertiesList.stream()
+                        List<StorageProperties> ordered = StorageProperties.createAll(storageProps);
+                        this.storagePropertiesMap = ordered.stream()
                                 .collect(Collectors.toMap(StorageProperties::getType, Function.identity()));
                     } catch (UserException e) {
                         LOG.warn("Failed to initialize catalog storage properties", e);
@@ -267,11 +252,6 @@ public class CatalogProperty {
     public Map<StorageProperties.Type, StorageProperties> getStoragePropertiesMap() {
         initStorageProperties();
         return storagePropertiesMap;
-    }
-
-    public List<StorageProperties> getOrderedStoragePropertiesList() {
-        initStorageProperties();
-        return orderedStoragePropertiesList;
     }
 
     public void checkMetaStoreAndStorageProperties(Class msClass) {
