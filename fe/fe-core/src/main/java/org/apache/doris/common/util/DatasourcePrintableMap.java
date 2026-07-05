@@ -20,7 +20,6 @@ package org.apache.doris.common.util;
 import org.apache.doris.common.maxcompute.MCProperties;
 import org.apache.doris.datasource.property.metastore.AWSGlueMetaStoreBaseProperties;
 import org.apache.doris.datasource.property.metastore.AliyunDLFBaseProperties;
-import org.apache.doris.datasource.property.metastore.IcebergRestProperties;
 import org.apache.doris.foundation.property.ConnectorPropertiesUtils;
 import org.apache.doris.foundation.util.BasicPrintableMap;
 
@@ -51,7 +50,20 @@ public class DatasourcePrintableMap<K, V> extends BasicPrintableMap<K, V> {
                 MCProperties.SECRET_KEY));
         SENSITIVE_KEY.addAll(ConnectorPropertiesUtils.getSensitiveKeys(AliyunDLFBaseProperties.class));
         SENSITIVE_KEY.addAll(ConnectorPropertiesUtils.getSensitiveKeys(AWSGlueMetaStoreBaseProperties.class));
-        SENSITIVE_KEY.addAll(ConnectorPropertiesUtils.getSensitiveKeys(IcebergRestProperties.class));
+        // Iceberg REST catalog secret keys. Formerly reflected off the fe-core IcebergRestProperties
+        // (getSensitiveKeys). That class is removed with the fe-core iceberg property cluster; its
+        // authoritative copy now lives connector-side (fe-connector-metastore-iceberg
+        // IcebergRestMetaStoreProperties), which fe-core cannot depend on. SHOW CREATE CATALOG masking must
+        // still hide these, so all four former IcebergRestProperties sensitive keys are enumerated explicitly,
+        // byte-identical to the former reflection result (its AbstractIcebergProperties/MetastoreProperties
+        // superclass chain carries no sensitive keys). Note the overlap with the inlined storage keys below is
+        // uneven and must NOT be relied on: iceberg.rest.secret-access-key aliases the (sensitive) S3 secret
+        // key, but iceberg.rest.session-token aliases the S3 session-token field which is NOT sensitive, so
+        // omitting it here would silently unmask it. Keep in sync with the connector's sensitive REST keys.
+        SENSITIVE_KEY.add("iceberg.rest.oauth2.token");
+        SENSITIVE_KEY.add("iceberg.rest.oauth2.credential");
+        SENSITIVE_KEY.add("iceberg.rest.secret-access-key");
+        SENSITIVE_KEY.add("iceberg.rest.session-token");
         // Inlined union of the legacy typed storage classes' @ConnectorProperty(sensitive = true)
         // key aliases (S3/GCS/Azure/OSS/OSS-HDFS/COS/OBS/Minio Properties). The set is
         // case-insensitive, so alias spellings differing only in case are listed once. Locked

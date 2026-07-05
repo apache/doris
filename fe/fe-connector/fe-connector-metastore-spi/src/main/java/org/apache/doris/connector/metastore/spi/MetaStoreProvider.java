@@ -41,8 +41,23 @@ import java.util.Set;
  */
 public interface MetaStoreProvider<P extends MetaStoreProperties> extends PluginFactory {
 
-    /** Cheap, deterministic self-identification (e.g. reads {@code paimon.catalog.type}). */
-    boolean supports(Map<String, String> properties);
+    /**
+     * Cheap, deterministic self-identification on the catalog-type token alone (e.g. {@code "hms"}).
+     * This is the dispatch primitive: it depends ONLY on the resolved flavor string, NOT on which
+     * property key carried it, so a caller that has already resolved its flavor (paimon's
+     * {@code paimon.catalog.type} OR iceberg's {@code iceberg.catalog.type}) can select a backend via
+     * {@link MetaStoreProviders#bindForType} without this module hardcoding any one connector's key.
+     */
+    boolean supportsType(String catalogType);
+
+    /**
+     * Map-keyed self-identification, preserved for the paimon dispatch path: reads the flavor from the
+     * hardcoded {@link MetaStoreParseUtils#CATALOG_TYPE_KEY} and delegates to {@link #supportsType}.
+     * Behavior is byte-identical to the former per-provider {@code supports(Map)} overrides.
+     */
+    default boolean supports(Map<String, String> properties) {
+        return supportsType(properties.get(MetaStoreParseUtils.CATALOG_TYPE_KEY));
+    }
 
     /**
      * Parses the raw properties (plus a pre-computed neutral storage Hadoop-config map, used by the

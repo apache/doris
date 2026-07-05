@@ -74,12 +74,70 @@ public final class ConnectorColumnConverter {
         if (cc.isWithTimeZone()) {
             column.setWithTZExtraInfo();
         }
+        // Re-apply the hidden marker the connector carried across the SPI boundary
+        // (ConnectorColumn.invisible()), so synthetic write columns a connector declares through the schema
+        // SPI (iceberg __DORIS_ICEBERG_ROWID_COL__ / v3 row-lineage) stay hidden, matching legacy
+        // Column.setIsVisible(false). A Doris Column defaults to visible, so only the false case is re-applied.
+        if (!cc.isVisible()) {
+            column.setIsVisible(false);
+        }
+        // Re-apply the reserved field id the connector carried across the SPI boundary
+        // (ConnectorColumn.withUniqueId()), so synthetic write columns whose Doris identity must equal a
+        // connector-reserved field id keep it (iceberg v3 row-lineage _row_id=2147483540 /
+        // _last_updated_sequence_number=2147483539, matched by field id BE-side). A Doris Column defaults to
+        // an unset (-1) uniqueId, so only a set (>= 0) id is re-applied.
+        if (cc.getUniqueId() >= 0) {
+            column.setUniqueId(cc.getUniqueId());
+        }
+        // Stamp the nested (STRUCT/ARRAY/MAP) child column tree with the per-field ids the connector carried
+        // on the ConnectorType (iceberg), mirroring legacy IcebergUtils.updateIcebergColumnUniqueId's
+        // recursive set. The BE field-id scan path matches a pruned nested leaf by id; a -1 leaf is skipped
+        // and returns NULL. Inert for connectors that don't carry field ids (getChildFieldId returns -1).
+        applyNestedFieldIds(column, cc.getType());
         return column;
+    }
+
+    /**
+     * Recursively stamps {@code column}'s child tree (STRUCT fields / ARRAY element / MAP key+value) with the
+     * per-child field ids carried on {@code type} ({@link ConnectorType#getChildFieldId(int)}). The Doris
+     * child column order built by {@code Column.createChildrenColumn} matches the {@link ConnectorType}
+     * children order (array element / map key,value / struct fields-in-order), so a parallel walk aligns them.
+     * Only sets a child whose carried id is {@code >= 0}, leaving others at the default -1.
+     */
+    private static void applyNestedFieldIds(Column column, ConnectorType type) {
+        List<Column> childColumns = column.getChildren();
+        if (childColumns == null || childColumns.isEmpty()) {
+            return;
+        }
+        List<ConnectorType> childTypes = type.getChildren();
+        int n = Math.min(childColumns.size(), childTypes.size());
+        for (int i = 0; i < n; i++) {
+            Column childColumn = childColumns.get(i);
+            int childFieldId = type.getChildFieldId(i);
+            if (childFieldId >= 0) {
+                childColumn.setUniqueId(childFieldId);
+            }
+            applyNestedFieldIds(childColumn, childTypes.get(i));
+        }
+    }
+
+    /**
+     * Converts a list of Doris {@link Column} to a list of {@link ConnectorColumn}.
+     */
+    public static List<ConnectorColumn> toConnectorColumns(List<Column> columns) {
+        return columns.stream()
+                .map(ConnectorColumnConverter::toConnectorColumn)
+                .collect(Collectors.toList());
     }
 
     /**
      * Converts a Doris {@link Column} to a {@link ConnectorColumn}.
      * This is the inverse of {@link #convertColumn(ConnectorColumn)}.
+     *
+     * <p>The {@code isKey}/{@code isAutoInc}/{@code isAggregated} flags are carried so a connector can
+     * re-enforce its column-validation parity (e.g. iceberg rejects aggregated / auto-increment columns
+     * in {@code ALTER TABLE ADD/MODIFY COLUMN}); without them those flags would default to {@code false}
+     * and the connector could not tell an aggregated/auto-inc column apart from a plain one.</p>
      */
     public static ConnectorColumn toConnectorColumn(Column col) {
         ConnectorType connectorType = toConnectorType(col.getType());
@@ -88,7 +146,10 @@ public final class ConnectorColumnConverter {
                 connectorType,
                 col.getComment(),
                 col.isAllowNull(),
-                col.getDefaultValue());
+                col.getDefaultValue(),
+                col.isKey(),
+                col.isAutoInc(),
+                col.isAggregated());
     }
 
     /**
@@ -99,21 +160,31 @@ public final class ConnectorColumnConverter {
     public static ConnectorType toConnectorType(Type dorisType) {
         if (dorisType instanceof ArrayType) {
             ArrayType arr = (ArrayType) dorisType;
-            return ConnectorType.arrayOf(toConnectorType(arr.getItemType()));
+            // Carry the element's nullability so a connector can preserve a NOT NULL ARRAY element
+            // (e.g. iceberg CREATE TABLE / complex MODIFY COLUMN); legacy lost it (defaulted optional).
+            return ConnectorType.arrayOf(toConnectorType(arr.getItemType()), arr.getContainsNull());
         } else if (dorisType instanceof MapType) {
             MapType map = (MapType) dorisType;
+            // Map keys are always required; only the value nullability is carried.
             return ConnectorType.mapOf(
                     toConnectorType(map.getKeyType()),
-                    toConnectorType(map.getValueType()));
+                    toConnectorType(map.getValueType()),
+                    map.getIsValueContainsNull());
         } else if (dorisType instanceof StructType) {
             StructType struct = (StructType) dorisType;
             List<String> names = new ArrayList<>();
             List<ConnectorType> types = new ArrayList<>();
+            List<Boolean> nullables = new ArrayList<>();
+            List<String> comments = new ArrayList<>();
+            // Carry each field's nullability + comment so a connector can preserve a NOT NULL / commented
+            // STRUCT field and diff a complex MODIFY COLUMN field-by-field; legacy carried neither.
             for (StructField f : struct.getFields()) {
                 names.add(f.getName());
                 types.add(toConnectorType(f.getType()));
+                nullables.add(f.getContainsNull());
+                comments.add(f.getComment());
             }
-            return ConnectorType.structOf(names, types);
+            return ConnectorType.structOf(names, types, nullables, comments);
         } else if (dorisType instanceof ScalarType) {
             ScalarType scalar = (ScalarType) dorisType;
             PrimitiveType primitiveType = scalar.getPrimitiveType();

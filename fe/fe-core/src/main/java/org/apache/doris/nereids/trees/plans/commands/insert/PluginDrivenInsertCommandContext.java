@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.plans.commands.insert;
 
 import java.util.Collections;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * Insert command context for plugin-driven connector catalogs.
@@ -29,10 +30,15 @@ import java.util.Map;
  * {@code ConnectorWritePlanProvider.planWrite}. It is populated during sink binding
  * (wired at the connector cutover) and defaults to empty, so a write with no static
  * partition contributes nothing to partition pinning.</p>
+ *
+ * <p>{@code branchName} carries the {@code INSERT INTO t@branch(name)} target. It is threaded onto
+ * the connector write handle ({@code ConnectorWriteHandle.getBranchName}) so a versioned-table
+ * connector points the commit at the branch; empty (the default) means the table's default ref.</p>
  */
 public class PluginDrivenInsertCommandContext extends BaseExternalTableInsertCommandContext {
 
     private Map<String, String> staticPartitionSpec = Collections.emptyMap();
+    private Optional<String> branchName = Optional.empty();
 
     public Map<String, String> getStaticPartitionSpec() {
         return staticPartitionSpec;
@@ -41,5 +47,13 @@ public class PluginDrivenInsertCommandContext extends BaseExternalTableInsertCom
     public void setStaticPartitionSpec(Map<String, String> staticPartitionSpec) {
         this.staticPartitionSpec =
                 staticPartitionSpec == null ? Collections.emptyMap() : staticPartitionSpec;
+    }
+
+    public Optional<String> getBranchName() {
+        return branchName;
+    }
+
+    public void setBranchName(Optional<String> branchName) {
+        this.branchName = branchName == null ? Optional.empty() : branchName;
     }
 }

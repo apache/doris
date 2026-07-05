@@ -17,7 +17,10 @@
 
 package org.apache.doris.connector.api.handle;
 
+import org.apache.doris.connector.api.pushdown.ConnectorPredicate;
+
 import java.io.Closeable;
+import java.util.Set;
 
 /**
  * A connector-managed transaction that scopes one or more write operations.
@@ -95,5 +98,60 @@ public interface ConnectorTransaction extends ConnectorTransactionHandle, Closea
     /** Returns the number of rows affected by the write(s) bound to this transaction. */
     default long getUpdateCnt() {
         return 0;
+    }
+
+    /**
+     * Applies an optional engine-extracted, target-only write constraint used for write-time optimistic
+     * conflict detection (O5-2). The engine extracts, from the analyzed DELETE/UPDATE/MERGE plan, the
+     * conjuncts that reference only the target table's own columns (slot origin-table == target, excluding
+     * synthetic {@code $row_id} / metadata / join columns) and hands the connector a neutral
+     * {@link ConnectorPredicate} at plan time, before {@code begin}/{@code commit}.
+     *
+     * <p>A connector that does optimistic conflict detection converts the neutral predicate to its own
+     * dialect and uses it as the conflict-detection filter when the transaction commits (ANDed with any
+     * commit-time partition filter it derives itself). Connectors that do not do conflict detection — or
+     * that traffic in opaque handles — ignore it. The default is a no-op.</p>
+     *
+     * @param targetOnlyFilter the neutral target-only predicate, or {@code null} when the plan yielded none
+     */
+    default void applyWriteConstraint(ConnectorPredicate targetOnlyFilter) {
+        // no-op: connectors that do optimistic conflict detection override this
+    }
+
+    /**
+     * A short, connector-identifying label for the query profile (cosmetic), e.g.
+     * {@code "JDBC"} / {@code "MAXCOMPUTE"}. The insert executor maps this label to a
+     * profile transaction type. Replaces the executor's former hard-coded connector
+     * switch; the default is a generic external label.
+     */
+    default String profileLabel() {
+        return "EXTERNAL";
+    }
+
+    /**
+     * Compaction rewrite ({@code rewrite_data_files}): registers the original data files this transaction
+     * will atomically replace, by their RAW file paths. The engine rewrite driver hands the connector the
+     * neutral {@code String} paths from its bin-packed groups (fe-core cannot traffic in connector-native
+     * file objects across the wall); the connector resolves them back to its own file objects — e.g. by
+     * re-deriving from the table at the transaction's pinned snapshot — and removes them at {@link #commit()}.
+     *
+     * <p>Default throws: only rewrite-capable connectors override it.</p>
+     *
+     * @param dataFilePaths the raw paths of the source data files to replace
+     */
+    default void registerRewriteSourceFiles(Set<String> dataFilePaths) {
+        throw new UnsupportedOperationException("rewrite source file registration not supported");
+    }
+
+    /**
+     * Compaction rewrite: the number of new compacted data files this transaction added, available only
+     * AFTER {@link #commit()} (the count is materialized from the BE-reported commit fragments during commit).
+     * Feeds the procedure's {@code added_data_files_count} result column — the one rewrite-result statistic
+     * the engine driver cannot compute from its planning groups.
+     *
+     * <p>Default throws: only rewrite-capable connectors override it.</p>
+     */
+    default int getRewriteAddedDataFilesCount() {
+        throw new UnsupportedOperationException("rewrite statistics not supported");
     }
 }

@@ -50,7 +50,6 @@ import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.PluginDrivenExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
-import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.CascadesContext;
@@ -387,8 +386,6 @@ public class CreateTableInfo {
         CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(ctlName);
         if (catalog instanceof HMSExternalCatalog && !engineName.equals(ENGINE_HIVE)) {
             throw new AnalysisException("Hms type catalog can only use `hive` engine.");
-        } else if (catalog instanceof IcebergExternalCatalog && !engineName.equals(ENGINE_ICEBERG)) {
-            throw new AnalysisException("Iceberg type catalog can only use `iceberg` engine.");
         } else if (catalog instanceof PluginDrivenExternalCatalog) {
             // After the SPI cutover a max_compute / paimon catalog is a PluginDrivenExternalCatalog; mirror
             // the legacy per-type consistency check, keyed on the connector type.
@@ -916,8 +913,6 @@ public class CreateTableInfo {
                 engineName = ENGINE_OLAP;
             } else if (catalog instanceof HMSExternalCatalog) {
                 engineName = ENGINE_HIVE;
-            } else if (catalog instanceof IcebergExternalCatalog) {
-                engineName = ENGINE_ICEBERG;
             } else if (catalog instanceof PluginDrivenExternalCatalog
                     && pluginCatalogTypeToEngine((PluginDrivenExternalCatalog) catalog) != null) {
                 // After the SPI cutover a max_compute / paimon catalog is a PluginDrivenExternalCatalog; pad
@@ -944,6 +939,8 @@ public class CreateTableInfo {
                 return ENGINE_MAXCOMPUTE;
             case "paimon":
                 return ENGINE_PAIMON;
+            case "iceberg":
+                return ENGINE_ICEBERG;
             default:
                 return null;
         }
@@ -1159,7 +1156,12 @@ public class CreateTableInfo {
     private int getEffectiveIcebergFormatVersion() {
         CatalogIf catalog = Strings.isNullOrEmpty(ctlName) ? null
                 : Env.getCurrentEnv().getCatalogMgr().getCatalog(ctlName);
-        if (catalog instanceof IcebergExternalCatalog) {
+        // A plugin-iceberg catalog (post-cutover an iceberg catalog is a PluginDrivenExternalCatalog) must
+        // consult catalog-level table-default/override.format-version; otherwise the version resolves to 2 and
+        // validateIcebergRowLineageColumns is silently no-op'd while the connector honors the catalog-level
+        // format-version and creates a v3 table.
+        if (catalog instanceof PluginDrivenExternalCatalog
+                && ENGINE_ICEBERG.equals(pluginCatalogTypeToEngine((PluginDrivenExternalCatalog) catalog))) {
             return IcebergUtils.getEffectiveIcebergFormatVersion(properties, catalog.getProperties());
         }
         return IcebergUtils.getEffectiveIcebergFormatVersion(properties, Collections.emptyMap());

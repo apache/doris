@@ -28,7 +28,7 @@
 | R-002 | R2 | Hive ACID 写路径数据不一致 | High | 高 | 🟡 待启动 | TBD | P7.3 |
 | R-003 | R3 | Iceberg Procedure SPI 抽象失败 | Med | 高 | 🟢 监控中 | @me | P6.4 |
 | R-004 | R4 | classloader 隔离打破 SDK 单例 | Med | 中 | 🟢 监控中 | @me | P5/P6 |
-| R-005 | R5 | nereids 写命令对外部表深度耦合 | Med | 中 | 🟡 待 P6.3 评估 | TBD | P6.3 |
+| R-005 | R5 | nereids 写命令对外部表深度耦合 | Med | 中 | 🟢 RFC 评估定（O5-2 + Route B；DV-04x） | P6.3 实现 | P6.3 |
 | R-006 | R6 | 通过 SPI 性能回归 | Low | 低 | ⏸ 未启动 | TBD | P0 末 benchmark |
 | R-007 | R7 | FE/BE 共享 jar 冲突 | Low | 低 | ⏸ 未启动 | TBD | P5/P6 |
 | R-008 | R8 | 文档与流程脱节 | Low | 中 | 🟢 缓解中 | @me | 全周期 |
@@ -116,11 +116,12 @@
 - **首次提出**：2026-05-24（master plan §6）
 - **影响**：Med — Iceberg DML 命令（DELETE/MERGE/UPDATE）改造工作量难估
 - **概率**：中 — `IcebergUpdateCommand` 等 305-行级别复杂逻辑
-- **当前状态**：🟡 待 P6.3 评估
-- **缓解措施**：
-  1. P6.3 之前必须单独写 `plan-doc/06-iceberg-write-path-rfc.md` 评估方案
-  2. 给 `ConnectorMetadata` 暴露 hint API（如 `getMergeMode()`）让 nereids 命令通过 SPI 查询
-- **拥有者**：TBD（P6 启动前指派）
+- **当前状态**：🟢 RFC 评估定（2026-06-23，`06-iceberg-write-path-rfc.md` 评审通过 `a49720820f9`）
+- **缓解措施（RFC 裁定）**：
+  1. ✅ `plan-doc/06-iceberg-write-path-rfc.md` 已写 + PMC 评审通过；**O5 = O5-2**（`ConnectorTransaction.applyWriteConstraint(ConnectorPredicate)` default-no-op，复用 P6.2-T02 `IcebergPredicateConverter`，非 `getMergeMode()` hint API）。
+  2. **Route B / option (i)**：通用 `RowLevelDmlCommand` 壳 + capability 派发消路由 instanceof；iceberg `$row_id`/branch-label/投影代数**暂留 fe-core**（连接器禁 import nereids，import-gate 墙）= **有界 deviation DV-04x**，保 EXPLAIN parity。
+  3. **北极星 = Trino 式 (iii) 通用化**（连接器 0 优化器 import、引擎核心全 DML 合成）→ 后续专门 RFC 关闭 DV-04x；演进触发 = hive P7/paimon 第二行级-DML 消费者。残余实现风险 = P6.3-T07（通用命令壳抽取）+ jdbc/maxcompute 框架统一 parity（T01/T02）。
+- **拥有者**：P6.3 实现（T01–T09，`tasks/P6-iceberg-migration.md` §P6.3 拆解）
 - **关联 task**：P6.3
 - **更新日志**：
   - 2026-05-24：初始登记

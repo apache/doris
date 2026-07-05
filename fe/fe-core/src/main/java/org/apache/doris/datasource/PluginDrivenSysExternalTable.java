@@ -86,6 +86,61 @@ public class PluginDrivenSysExternalTable extends PluginDrivenExternalTable {
     }
 
     /**
+     * A system/metadata table (e.g. {@code tbl$snapshots}) is never a view. Short-circuit to {@code false}
+     * so the base {@code resolveIsView} does not issue a {@code viewExists} round-trip on this synthetic
+     * {@code "$"}-suffixed name (which would be wasted work and could fail on an unparseable identifier).
+     */
+    @Override
+    protected boolean resolveIsView() {
+        return false;
+    }
+
+    /**
+     * A system/metadata table (e.g. {@code tbl$snapshots}) can NEVER take part in Top-N lazy materialization,
+     * regardless of what the connector declares. Lazy materialization reads the sort key plus the engine-wide
+     * row-id ({@code __DORIS_GLOBAL_ROWID_COL__}) first, then re-fetches the surviving rows' other columns by
+     * row-id — which requires a file+position row-id. A system table is served by the connector's JNI
+     * serialized-split metadata reader, which synthesizes rows from table metadata and produces no such row-id,
+     * so the injected row-id column comes back empty and BE aborts the scan
+     * ({@code __DORIS_GLOBAL_ROWID_COL__... return column size 0 not equal to expected size 1}).
+     *
+     * <p>This restores legacy parity: legacy sys tables ({@code IcebergSysExternalTable} /
+     * {@code PaimonSysExternalTable}) extend {@code ExternalTable} — NOT the base file-scan table class — so
+     * they are absent from {@code MaterializeProbeVisitor.SUPPORT_RELATION_TYPES} and were never lazy-
+     * materialized. The base {@link PluginDrivenExternalTable#supportsTopNLazyMaterialize()} keys off the
+     * connector capability alone and would otherwise (wrongly) admit a flipped sys table; this override is the
+     * sys-table opt-out. Nested-column prune is similarly opted out for sys tables — see
+     * {@link #supportsNestedColumnPrune()}.
+     */
+    @Override
+    public boolean supportsTopNLazyMaterialize() {
+        return false;
+    }
+
+    /**
+     * A system/metadata table (e.g. {@code tbl$snapshots}) can NEVER take part in nested-column pruning,
+     * regardless of what the connector declares. Pruning has two stages in fe-core: (L1) generate name-based
+     * access paths ({@code LogicalFileScan.supportPruneNestedColumn}), then (L2) rewrite each access-path top
+     * element from the column NAME to its numeric field id ({@code SlotTypeReplacer.replaceAccessPathToFieldId},
+     * gated on {@link PluginDrivenExternalTable#supportsNestedColumnPrune()}). BE can only field-id-match a
+     * complex column when the scan ships a field-id dictionary, but a system-table scan intentionally ships NONE
+     * ({@code IcebergScanPlanProvider} skips {@code SCHEMA_EVOLUTION_PROP} when {@code systemTable}), so
+     * {@code column->has_identifier_field_id()} is false and BE rejects the field-id access path with
+     * {@code AccessPathParser access path N does not match slot X}.
+     *
+     * <p>Legacy parity: on master the L2 field-id rewrite was gated on {@code instanceof IcebergExternalTable},
+     * and legacy sys tables ({@code IcebergSysExternalTable}) extend {@code ExternalTable} — NOT
+     * {@code IcebergExternalTable} — so L2 never fired for them and their access paths stayed name-based (BE
+     * matched by name). The migrated gate keys off the connector capability alone, which a flipped sys table
+     * inherits as {@code true}; this override is the sys-table opt-out. It disables BOTH stages, so no access
+     * paths are emitted and BE reads the whole (tiny) metadata-table complex column — which is correct.
+     */
+    @Override
+    public boolean supportsNestedColumnPrune() {
+        return false;
+    }
+
+    /**
      * Compute the schema directly on this transient instance instead of going through the base
      * {@link ExternalTable#getSchemaCacheValue()}, which routes through {@code ExternalCatalog.getSchema()}
      * and re-resolves the table by name in the db map. A system table (e.g. {@code tbl$snapshots}) is never

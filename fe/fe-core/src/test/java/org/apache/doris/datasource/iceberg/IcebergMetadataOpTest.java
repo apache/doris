@@ -20,11 +20,8 @@ package org.apache.doris.datasource.iceberg;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.datasource.CatalogProperty;
-import org.apache.doris.datasource.DelegatedCredential;
 import org.apache.doris.datasource.ExternalDatabase;
-import org.apache.doris.datasource.ExternalTable;
-import org.apache.doris.datasource.SessionContext;
-import org.apache.doris.datasource.property.metastore.IcebergRestProperties;
+import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.filesystem.DorisInputFile;
 import org.apache.doris.filesystem.DorisOutputFile;
 import org.apache.doris.filesystem.FileEntry;
@@ -44,9 +41,7 @@ import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.SupportsNamespaces;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.catalog.ViewCatalog;
-import org.apache.iceberg.rest.RESTSessionCatalog;
 import org.junit.Assert;
-import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
@@ -87,8 +82,8 @@ public class IcebergMetadataOpTest {
     }
 
     @Test
-    public void testListTableNamesSkipsViewsWhenRestViewDisabled() {
-        IcebergRestExternalCatalog dorisCatalog = Mockito.mock(IcebergRestExternalCatalog.class);
+    public void testListTableNamesFiltersViewsWhenRestViewEnabled() {
+        HMSExternalCatalog dorisCatalog = Mockito.mock(HMSExternalCatalog.class);
         Catalog icebergCatalog = Mockito.mock(Catalog.class,
                 Mockito.withSettings().extraInterfaces(SupportsNamespaces.class, ViewCatalog.class));
 
@@ -96,7 +91,6 @@ public class IcebergMetadataOpTest {
         props.put("type", "iceberg");
         props.put("iceberg.catalog.type", "rest");
         props.put("iceberg.rest.uri", "http://localhost:8181");
-        props.put("iceberg.rest.view-enabled", "false");
 
         Mockito.when(dorisCatalog.getExecutionAuthenticator()).thenReturn(new ExecutionAuthenticator() {
         });
@@ -105,93 +99,21 @@ public class IcebergMetadataOpTest {
 
         Namespace namespace = Namespace.of("PUBLIC");
         TableIdentifier table = TableIdentifier.of(namespace, "DORIS_HORIZON_T");
-        Mockito.when(icebergCatalog.listTables(namespace)).thenReturn(Collections.singletonList(table));
-
-        IcebergMetadataOps ops = new IcebergMetadataOps(dorisCatalog, icebergCatalog);
-        List<String> tableNames = ops.listTableNames("PUBLIC");
-
-        Assert.assertEquals(Collections.singletonList("DORIS_HORIZON_T"), tableNames);
-        Mockito.verify((ViewCatalog) icebergCatalog, Mockito.never()).listViews(Mockito.any());
-    }
-
-    @Test
-    public void testListTableNamesFiltersViewsWhenRestViewEnabled() {
-        IcebergRestExternalCatalog dorisCatalog = Mockito.mock(IcebergRestExternalCatalog.class);
-        // The default Catalog handed to IcebergMetadataOps is asCatalog(empty); it is NOT a ViewCatalog.
-        Catalog icebergCatalog = Mockito.mock(Catalog.class,
-                Mockito.withSettings().extraInterfaces(SupportsNamespaces.class));
-        RESTSessionCatalog sessionCatalog = Mockito.mock(RESTSessionCatalog.class);
-        ViewCatalog viewCatalog = Mockito.mock(ViewCatalog.class);
-
-        Mockito.when(dorisCatalog.getExecutionAuthenticator()).thenReturn(new ExecutionAuthenticator() {
-        });
-        Mockito.when(dorisCatalog.getProperties()).thenReturn(Collections.emptyMap());
-        Mockito.when(dorisCatalog.useSessionCatalog(Mockito.any())).thenReturn(false);
-        Mockito.when(dorisCatalog.isViewEnabled()).thenReturn(true);
-        Mockito.when(dorisCatalog.getRestSessionCatalog()).thenReturn(sessionCatalog);
-        Mockito.when(dorisCatalog.getDelegatedTokenMode())
-                .thenReturn(IcebergRestProperties.DelegatedTokenMode.ACCESS_TOKEN);
-        Mockito.when(sessionCatalog.asViewCatalog(Mockito.any())).thenReturn(viewCatalog);
-
-        Namespace namespace = Namespace.of("PUBLIC");
-        TableIdentifier table = TableIdentifier.of(namespace, "DORIS_HORIZON_T");
         TableIdentifier view = TableIdentifier.of(namespace, "DORIS_HORIZON_V");
         Mockito.when(icebergCatalog.listTables(namespace)).thenReturn(Arrays.asList(table, view));
-        Mockito.when(viewCatalog.listViews(namespace)).thenReturn(Collections.singletonList(view));
+        Mockito.when(((ViewCatalog) icebergCatalog).listViews(namespace)).thenReturn(Collections.singletonList(view));
 
         IcebergMetadataOps ops = new IcebergMetadataOps(dorisCatalog, icebergCatalog);
         List<String> tableNames = ops.listTableNames("PUBLIC");
 
         Assert.assertEquals(Collections.singletonList("DORIS_HORIZON_T"), tableNames);
-        Mockito.verify(viewCatalog).listViews(namespace);
-    }
-
-    @Test
-    public void testRejectsRequestWithoutCredentialWhenDynamicIdentityEnabled() {
-        Map<String, String> props = new HashMap<>();
-        props.put("type", "iceberg");
-        props.put("iceberg.catalog.type", "rest");
-        props.put("iceberg.rest.uri", "http://localhost:8181");
-        props.put("iceberg.rest.security.type", "oauth2");
-        props.put("iceberg.rest.session", "user");
-        props.put("iceberg.rest.oauth2.credential", "client_credentials");
-        props.put("iceberg.rest.oauth2.server-uri", "http://auth.example.com/token");
-
-        IcebergRestExternalCatalog catalog =
-                new IcebergRestExternalCatalog(1, "rest_user_session", null, props, "");
-
-        // Dynamic identity is configured but the session has no delegated credential (e.g. a password login):
-        // rejected, never falls back to a shared/borrowed identity.
-        Assertions.assertThrows(IllegalStateException.class,
-                () -> catalog.useSessionCatalog(SessionContext.empty()));
-
-        // With a delegated credential, the per-user session catalog is used.
-        SessionContext withCredential = SessionContext.of(
-                new DelegatedCredential(DelegatedCredential.Type.ACCESS_TOKEN, "delegated-access-token"));
-        Assert.assertTrue(catalog.useSessionCatalog(withCredential));
-    }
-
-    @Test
-    public void testNoSessionCatalogWhenDynamicIdentityDisabled() {
-        Map<String, String> props = new HashMap<>();
-        props.put("type", "iceberg");
-        props.put("iceberg.catalog.type", "rest");
-        props.put("iceberg.rest.uri", "http://localhost:8181");
-
-        IcebergRestExternalCatalog catalog =
-                new IcebergRestExternalCatalog(1, "rest_plain", null, props, "");
-
-        // Without dynamic identity, no request uses the session catalog and none is rejected.
-        Assert.assertFalse(catalog.useSessionCatalog(SessionContext.empty()));
-        Assert.assertFalse(catalog.useSessionCatalog(SessionContext.of(
-                new DelegatedCredential(DelegatedCredential.Type.ACCESS_TOKEN, "delegated-access-token"))));
     }
 
     @Test
     public void testPerformCreateTableRespectsCatalogDefaultFormatVersion() throws Exception {
         Map<String, String> catalogProps = new HashMap<>();
         catalogProps.put(CatalogProperties.TABLE_DEFAULT_PREFIX + TableProperties.FORMAT_VERSION, "3");
-        IcebergExternalCatalog dorisCatalog = mockHmsCatalog(catalogProps);
+        HMSExternalCatalog dorisCatalog = mockHmsCatalog(catalogProps);
         Catalog icebergCatalog = Mockito.mock(Catalog.class,
                 Mockito.withSettings().extraInterfaces(SupportsNamespaces.class));
         IcebergMetadataOps ops = new IcebergMetadataOps(dorisCatalog, icebergCatalog);
@@ -224,62 +146,6 @@ public class IcebergMetadataOpTest {
     }
 
     @Test
-    public void testDropTableCleansEmptyTableLocation() throws Exception {
-        MemoryFileSystem fs = new MemoryFileSystem();
-        Location tableLocation = Location.of("hdfs://nn/warehouse/db/t1");
-        fs.mkdirs(tableLocation);
-        fs.mkdirs(tableLocation.resolve("data"));
-        fs.mkdirs(tableLocation.resolve("metadata"));
-
-        IcebergExternalCatalog dorisCatalog = mockHmsCatalog();
-        Catalog icebergCatalog = Mockito.mock(Catalog.class,
-                Mockito.withSettings().extraInterfaces(SupportsNamespaces.class));
-        IcebergMetadataOps ops = newOpsWithCleanupFileSystem(dorisCatalog, icebergCatalog, fs);
-
-        TableIdentifier tableIdentifier = TableIdentifier.of(Namespace.of("db"), "t1");
-        org.apache.iceberg.Table icebergTable = Mockito.mock(org.apache.iceberg.Table.class);
-        Mockito.when(icebergTable.location()).thenReturn(tableLocation.uri());
-        Mockito.when(icebergCatalog.tableExists(tableIdentifier)).thenReturn(true);
-        Mockito.when(icebergCatalog.loadTable(tableIdentifier)).thenReturn(icebergTable);
-        Mockito.when(icebergCatalog.dropTable(tableIdentifier, true)).thenReturn(true);
-
-        ExternalTable dorisTable = Mockito.mock(ExternalTable.class);
-        Mockito.when(dorisTable.getRemoteDbName()).thenReturn("db");
-        Mockito.when(dorisTable.getRemoteName()).thenReturn("t1");
-        Mockito.when(dorisTable.getName()).thenReturn("t1");
-        ops.dropTableImpl(dorisTable, false);
-
-        Assert.assertFalse(fs.exists(tableLocation));
-        Mockito.verify(icebergCatalog).dropTable(tableIdentifier, true);
-    }
-
-    @Test
-    public void testDropDbCleansEmptyNamespaceLocation() throws Exception {
-        MemoryFileSystem fs = new MemoryFileSystem();
-        Location namespaceLocation = Location.of("hdfs://nn/warehouse/db.db");
-        fs.mkdirs(namespaceLocation);
-
-        IcebergExternalCatalog dorisCatalog = mockHmsCatalog();
-        Catalog icebergCatalog = Mockito.mock(Catalog.class,
-                Mockito.withSettings().extraInterfaces(SupportsNamespaces.class));
-        IcebergMetadataOps ops = newOpsWithCleanupFileSystem(dorisCatalog, icebergCatalog, fs);
-
-        ExternalDatabase<?> dorisDb = Mockito.mock(ExternalDatabase.class);
-        Mockito.when(dorisDb.getRemoteName()).thenReturn("db");
-        Mockito.doReturn(dorisDb).when(dorisCatalog).getDbNullable("db");
-
-        SupportsNamespaces nsCatalog = (SupportsNamespaces) icebergCatalog;
-        Namespace namespace = Namespace.of("db");
-        Mockito.when(nsCatalog.loadNamespaceMetadata(namespace))
-                .thenReturn(Collections.singletonMap("location", namespaceLocation.uri()));
-        Mockito.when(nsCatalog.dropNamespace(namespace)).thenReturn(true);
-        ops.dropDbImpl("db", false, false);
-
-        Assert.assertFalse(fs.exists(namespaceLocation));
-        Mockito.verify(nsCatalog).dropNamespace(namespace);
-    }
-
-    @Test
     public void testDeleteEmptyDirectoryKeepsDirectoryWithExternalFile() throws Exception {
         MemoryFileSystem fs = new MemoryFileSystem();
         Location tableLocation = Location.of("hdfs://nn/warehouse/db/t2");
@@ -307,30 +173,13 @@ public class IcebergMetadataOpTest {
         Assert.assertFalse(fs.exists(tableLocation));
     }
 
-    private IcebergExternalCatalog mockHmsCatalog() {
-        return mockHmsCatalog(Collections.emptyMap());
-    }
-
-    private IcebergExternalCatalog mockHmsCatalog(Map<String, String> catalogProperties) {
-        IcebergExternalCatalog dorisCatalog = Mockito.mock(IcebergExternalCatalog.class);
+    private HMSExternalCatalog mockHmsCatalog(Map<String, String> catalogProperties) {
+        HMSExternalCatalog dorisCatalog = Mockito.mock(HMSExternalCatalog.class);
         Mockito.when(dorisCatalog.getExecutionAuthenticator()).thenReturn(new ExecutionAuthenticator() {
         });
         Mockito.when(dorisCatalog.getProperties()).thenReturn(catalogProperties);
-        Mockito.when(dorisCatalog.getIcebergCatalogType()).thenReturn(IcebergExternalCatalog.ICEBERG_HMS);
         Mockito.when(dorisCatalog.getCatalogProperty()).thenReturn(new CatalogProperty(null, Collections.emptyMap()));
         return dorisCatalog;
-    }
-
-    private IcebergMetadataOps newOpsWithCleanupFileSystem(
-            IcebergExternalCatalog dorisCatalog, Catalog icebergCatalog, FileSystem fs) {
-        IcebergMetadataOps ops = new IcebergMetadataOps(dorisCatalog, icebergCatalog) {
-            @Override
-            protected FileSystem createCleanupFileSystem() {
-                return fs;
-            }
-        };
-        Mockito.when(dorisCatalog.getMetadataOps()).thenReturn(ops);
-        return ops;
     }
 
     private static class FlatMarkerFileSystem implements FileSystem {

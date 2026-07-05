@@ -165,6 +165,11 @@ public class MaxComputeConnectorTransaction implements ConnectorTransaction {
     }
 
     @Override
+    public String profileLabel() {
+        return "MAXCOMPUTE";
+    }
+
+    @Override
     public void commit() {
         try {
             List<WriterCommitMessage> allMessages = new ArrayList<>();

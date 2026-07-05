@@ -17,10 +17,15 @@
 
 package org.apache.doris.datasource;
 
+import org.apache.doris.analysis.ColumnAccessPath;
+import org.apache.doris.analysis.SlotDescriptor;
+import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.connector.api.Connector;
 import org.apache.doris.thrift.TExplainLevel;
@@ -31,6 +36,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 
 /**
@@ -118,6 +124,45 @@ public class PluginDrivenScanNodeVerboseExplainTest {
 
         Assertions.assertTrue(explain.contains("backends:"),
                 "VERBOSE EXPLAIN must still emit the backends: block for paimon. Actual:\n" + explain);
+    }
+
+    @Test
+    public void emitsNestedColumnsBlockForPluginConnector() {
+        // F6/F7: the parent FileScanNode emits the "nested columns:" block (pruned type / sub path / all +
+        // predicate access paths) via printNestedColumns; this override drops it by not calling super, so the
+        // WHOLE block vanished for EVERY plugin FileScan connector (broader than iceberg). Attach a slot
+        // carrying nested-pruned access paths and assert the block re-appears. MUTATION: removing the
+        // printNestedColumns(...) call -> "nested columns:" disappears -> red. The node is a
+        // PluginDrivenScanNode (never an IcebergScanNode), so the GENERIC name-join path renders "a.b"
+        // (the dead iceberg field-id merge arms PlanNode:949/965 -> "a(3).b(5)" are NOT reached).
+        PluginDrivenScanNode node = nodeForCatalogType("max_compute");
+        TupleDescriptor desc = Deencapsulation.getField(node, "desc");
+        SlotDescriptor slot = new SlotDescriptor(new SlotId(1), desc.getId());
+        Column col = new Column("c1", Type.INT);
+        slot.setColumn(col);
+        slot.setType(Type.INT);
+        // printNestedColumns gates the "all access paths" line on getDisplayAllAccessPaths but the generic
+        // branch renders getDisplayAllAccessPaths; it gates the "predicate access paths" line on
+        // getDisplayPredicateAccessPaths but the generic branch renders getPredicateAccessPaths. Set BOTH the
+        // display and non-display forms so each line renders its value regardless of that asymmetry.
+        slot.setAllAccessPaths(Collections.singletonList(ColumnAccessPath.data(Arrays.asList("a", "b"))));
+        slot.setDisplayAllAccessPaths(
+                Collections.singletonList(ColumnAccessPath.data(Arrays.asList("a", "b"))));
+        slot.setPredicateAccessPaths(
+                Collections.singletonList(ColumnAccessPath.data(Collections.singletonList("x"))));
+        slot.setDisplayPredicateAccessPaths(
+                Collections.singletonList(ColumnAccessPath.data(Collections.singletonList("x"))));
+        desc.addSlot(slot);
+
+        String explain = node.getNodeExplainString("", TExplainLevel.VERBOSE);
+
+        Assertions.assertTrue(explain.contains("nested columns:"),
+                "the nested columns block must be re-emitted for a plugin FileScan connector. Actual:\n"
+                        + explain);
+        Assertions.assertTrue(explain.contains("all access paths: [a.b]"),
+                "F6: the all-access-paths line must re-appear (generic name-join). Actual:\n" + explain);
+        Assertions.assertTrue(explain.contains("predicate access paths: [x]"),
+                "F7: the predicate-access-paths line must re-appear. Actual:\n" + explain);
     }
 
     @Test

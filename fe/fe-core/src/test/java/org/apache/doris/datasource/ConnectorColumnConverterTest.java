@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource;
 
+import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.MapType;
@@ -26,6 +27,7 @@ import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.connector.api.ConnectorColumn;
 import org.apache.doris.connector.api.ConnectorType;
+import org.apache.doris.nereids.trees.plans.commands.IcebergRowId;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -184,5 +186,223 @@ class ConnectorColumnConverterTest {
         Type varcharBack = ConnectorColumnConverter.convertType(varcharCt);
         Assertions.assertTrue(varcharBack instanceof ScalarType);
         Assertions.assertEquals(255, ((ScalarType) varcharBack).getLength());
+    }
+
+    @Test
+    void convertColumnDefaultsToVisible() {
+        ConnectorType intType = ConnectorColumnConverter.toConnectorType(ScalarType.INT);
+        Column col = ConnectorColumnConverter.convertColumn(
+                new ConnectorColumn("c", intType, null, true, null));
+        Assertions.assertTrue(col.isVisible(),
+                "a ConnectorColumn not marked invisible converts to a visible Doris column");
+    }
+
+    @Test
+    void convertColumnPropagatesInvisibleMarker() {
+        // WHY: the iceberg synthetic write columns (__DORIS_ICEBERG_ROWID_COL__ + the v3 row-lineage
+        // columns) are hidden (Column.setIsVisible(false)). Post-flip they are declared through the
+        // connector schema SPI, so the neutral ConnectorColumn must carry the invisible marker across the
+        // boundary and the converter must re-apply it (mirroring the withTimeZone marker).
+        // MUTATION: dropping the setIsVisible(false) re-apply leaves the column visible -> this turns red.
+        ConnectorType intType = ConnectorColumnConverter.toConnectorType(ScalarType.INT);
+        Column col = ConnectorColumnConverter.convertColumn(
+                new ConnectorColumn("rowid", intType, null, true, null).invisible());
+        Assertions.assertFalse(col.isVisible(),
+                "an invisible ConnectorColumn must convert to a hidden (isVisible=false) Doris column");
+    }
+
+    @Test
+    void convertColumnDefaultsToUnsetUniqueId() {
+        // Regression guard: a ConnectorColumn that does not carry a reserved field id must leave the Doris
+        // Column at its default unset (-1) uniqueId — the converter must not stamp an id where none was
+        // declared. Mirrors convertColumnDefaultsToVisible.
+        ConnectorType bigintType = ConnectorColumnConverter.toConnectorType(ScalarType.BIGINT);
+        Column col = ConnectorColumnConverter.convertColumn(
+                new ConnectorColumn("c", bigintType, null, true, null));
+        Assertions.assertEquals(-1, col.getUniqueId(),
+                "a ConnectorColumn without withUniqueId() converts to a Doris column with the default -1 uniqueId");
+    }
+
+    @Test
+    void convertColumnPropagatesUniqueId() {
+        // WHY: the iceberg v3 row-lineage columns must keep their reserved field ids across the SPI boundary
+        // (_row_id=2147483540, _last_updated_sequence_number=2147483539), which BE matches by field id when
+        // reading lineage from iceberg data files. Post-flip the connector declares them through the schema
+        // SPI as invisible() + withUniqueId(reservedId), so both markers must survive the immutable-copy
+        // chain AND the converter must re-apply Column.setUniqueId(). The .withUniqueId(...).invisible()
+        // chaining order verifies invisible() preserves the carried uniqueId.
+        // MUTATION: dropping the setUniqueId(cc.getUniqueId()) re-apply leaves the id at -1 -> this turns red.
+        ConnectorType bigintType = ConnectorColumnConverter.toConnectorType(ScalarType.BIGINT);
+        Column col = ConnectorColumnConverter.convertColumn(
+                new ConnectorColumn("_row_id", bigintType, null, true, null)
+                        .withUniqueId(2147483540).invisible());
+        Assertions.assertEquals(2147483540, col.getUniqueId(),
+                "an invisible ConnectorColumn carrying a reserved uniqueId must convert to a Doris column with that id");
+        Assertions.assertFalse(col.isVisible(),
+                "the invisible marker must survive alongside the carried uniqueId");
+    }
+
+    @Test
+    void convertColumnReconstructsIcebergRowIdHiddenColumn() {
+        // CONTRACT PIN (③ C3b-core, fe-core half): the iceberg connector declares the request-scoped row-id
+        // synthetic write column (__DORIS_ICEBERG_ROWID_COL__) as an engine-neutral invisible STRUCT
+        // ConnectorColumn through ConnectorWritePlanProvider.getSyntheticWriteColumns (pinned connector-side by
+        // IcebergWritePlanProviderTest.getSyntheticWriteColumnsDeclaresRowIdStruct). fe-core cannot import the
+        // connector, so this two-sided pin asserts that converting that exact agreed shape yields the legacy
+        // fe-core IcebergRowId.createHiddenColumn() byte-for-byte (name / STRUCT type / hidden / not-null) — the
+        // column post-flip getFullSchema appends. If the connector's literal and the legacy IcebergRowId drift
+        // apart, one of the two sides turns red.
+        ConnectorType rowIdStruct = ConnectorType.structOf(
+                Arrays.asList("file_path", "row_position", "partition_spec_id", "partition_data"),
+                Arrays.asList(ConnectorType.of("STRING"), ConnectorType.of("BIGINT"),
+                        ConnectorType.of("INT"), ConnectorType.of("STRING")));
+        Column converted = ConnectorColumnConverter.convertColumn(
+                new ConnectorColumn("__DORIS_ICEBERG_ROWID_COL__", rowIdStruct,
+                        "Iceberg row position metadata", false, null, false).invisible());
+
+        Column legacy = IcebergRowId.createHiddenColumn();
+        Assertions.assertEquals(Column.ICEBERG_ROWID_COL, converted.getName());
+        Assertions.assertEquals(legacy.getName(), converted.getName());
+        Assertions.assertEquals(legacy.getType(), converted.getType(),
+                "the converted STRUCT must equal the legacy IcebergRowId struct type");
+        Assertions.assertFalse(converted.isVisible(), "the row-id column must be hidden");
+        Assertions.assertEquals(legacy.isVisible(), converted.isVisible());
+        Assertions.assertEquals(legacy.isAllowNull(), converted.isAllowNull());
+    }
+
+    @Test
+    void testToConnectorColumnPreservesKeyAndAggregation() {
+        Column key = new Column("k", Type.INT, true, null, true, null, "");
+        ConnectorColumn ck = ConnectorColumnConverter.toConnectorColumn(key);
+        Assertions.assertTrue(ck.isKey());
+        Assertions.assertFalse(ck.isAggregated());
+
+        // WHY (B2): the iceberg connector rejects aggregated columns in ALTER ADD/MODIFY COLUMN
+        // (validateCommonColumnInfo); toConnectorColumn must carry isAggregated across the SPI or the
+        // connector could not tell an aggregated column apart from a plain one. A mutation reverting to
+        // the 5-arg ctor (dropping these flags) makes isAggregated default false -> this assert goes red.
+        Column agg = new Column("s", Type.INT, false, AggregateType.SUM, true, null, "");
+        ConnectorColumn ca = ConnectorColumnConverter.toConnectorColumn(agg);
+        Assertions.assertTrue(ca.isAggregated());
+        Assertions.assertFalse(ca.isKey());
+        Assertions.assertEquals("s", ca.getName());
+    }
+
+    @Test
+    void toConnectorTypeCarriesStructFieldNullabilityAndComment() {
+        // WHY (B2b): a complex MODIFY COLUMN diffs field-by-field on the connector side, and CREATE TABLE
+        // must preserve a NOT NULL / commented STRUCT field. toConnectorType must thread each field's
+        // nullability + comment across the SPI; a mutation dropping them flips these asserts.
+        ArrayList<StructField> fields = new ArrayList<>();
+        fields.add(new StructField("a", ScalarType.INT, "ca", true));
+        fields.add(new StructField("b", ScalarType.createStringType(), null, false));
+        ConnectorType ct = ConnectorColumnConverter.toConnectorType(new StructType(fields));
+        Assertions.assertTrue(ct.isChildNullable(0));
+        Assertions.assertEquals("ca", ct.getChildComment(0));
+        Assertions.assertFalse(ct.isChildNullable(1));
+    }
+
+    @Test
+    void toConnectorTypeThreadsArrayElementNullability() {
+        // Doris ARRAY elements are always nullable (ArrayType.getContainsNull() is hard-coded true), so the
+        // threaded value is always true; honoring a NOT NULL element from a non-Doris source happens in the
+        // connector schema builder (IcebergSchemaBuilderTest.testNestedNullabilityAndCommentPreserved).
+        ConnectorType ct = ConnectorColumnConverter.toConnectorType(ArrayType.create(ScalarType.INT, true));
+        Assertions.assertTrue(ct.isChildNullable(0));
+    }
+
+    @Test
+    void toConnectorTypeCarriesMapValueNullability() {
+        // child index 1 is the MAP value (keys are always required).
+        MapType notNullValue = new MapType(ScalarType.createStringType(), ScalarType.INT, true, false);
+        ConnectorType ct = ConnectorColumnConverter.toConnectorType(notNullValue);
+        Assertions.assertFalse(ct.isChildNullable(1));
+    }
+
+    @Test
+    void convertColumnStampsNestedFieldIdsOntoChildTree() {
+        // WHY (H-10 L3): post-flip iceberg nested-column pruning is only correct if EVERY level of the Doris
+        // Column tree carries uniqueId = iceberg field-id (legacy IcebergUtils.updateIcebergColumnUniqueId set
+        // them recursively). The connector carries the top-level id on ConnectorColumn.withUniqueId and the
+        // per-child ids on ConnectorType.withChildrenFieldIds; convertColumn must stamp the whole child tree so
+        // SlotTypeReplacer can rewrite the nested access path to ids and BE matches the pruned leaf by id (a -1
+        // leaf is skipped -> NULL). MUTATION: dropping the applyNestedFieldIds call leaves children at -1 -> red.
+        // struct<a:int (field-id 4), b:string (field-id 5)>, top-level field-id 3
+        ConnectorType structType = ConnectorType.structOf(
+                Arrays.asList("a", "b"),
+                Arrays.asList(ConnectorType.of("INT"), ConnectorType.of("STRING")))
+                .withChildrenFieldIds(Arrays.asList(4, 5));
+        Column col = ConnectorColumnConverter.convertColumn(
+                new ConnectorColumn("s", structType, null, true, null).withUniqueId(3));
+        Assertions.assertEquals(3, col.getUniqueId(), "top-level struct column carries field-id 3");
+        Assertions.assertEquals(4, col.getChildren().get(0).getUniqueId(), "struct field a carries field-id 4");
+        Assertions.assertEquals(5, col.getChildren().get(1).getUniqueId(), "struct field b carries field-id 5");
+    }
+
+    @Test
+    void convertColumnStampsDeeplyNestedAndArrayMapFieldIds() {
+        // Verifies the recursion descends through an ARRAY element into a nested STRUCT, and that ARRAY/MAP
+        // child ordering ([item] / [key,value]) aligns with ConnectorType.getChildFieldId (legacy parity:
+        // updateIcebergColumnUniqueId recursed via ListType/MapType .fields()).
+        // array<struct<c:int (id 7)>> with array element id 6, top-level id 5
+        ConnectorType innerStruct = ConnectorType.structOf(
+                Arrays.asList("c"), Arrays.asList(ConnectorType.of("INT")))
+                .withChildrenFieldIds(Arrays.asList(7));
+        ConnectorType arrayType = ConnectorType.arrayOf(innerStruct)
+                .withChildrenFieldIds(Arrays.asList(6));
+        Column arrCol = ConnectorColumnConverter.convertColumn(
+                new ConnectorColumn("arr", arrayType, null, true, null).withUniqueId(5));
+        Assertions.assertEquals(5, arrCol.getUniqueId());
+        Column elem = arrCol.getChildren().get(0);                 // array element (the struct)
+        Assertions.assertEquals(6, elem.getUniqueId(), "array element carries field-id 6");
+        Assertions.assertEquals(7, elem.getChildren().get(0).getUniqueId(),
+                "nested struct field c carries field-id 7");
+
+        // map<string (id 9), int (id 10)>, top-level id 8
+        ConnectorType mapType = ConnectorType.mapOf(ConnectorType.of("STRING"), ConnectorType.of("INT"))
+                .withChildrenFieldIds(Arrays.asList(9, 10));
+        Column mapCol = ConnectorColumnConverter.convertColumn(
+                new ConnectorColumn("m", mapType, null, true, null).withUniqueId(8));
+        Assertions.assertEquals(8, mapCol.getUniqueId());
+        Assertions.assertEquals(9, mapCol.getChildren().get(0).getUniqueId(), "map key carries field-id 9");
+        Assertions.assertEquals(10, mapCol.getChildren().get(1).getUniqueId(), "map value carries field-id 10");
+    }
+
+    @Test
+    void convertColumnLeavesNestedUniqueIdsUnsetWithoutFieldIds() {
+        // Regression guard: a connector that does NOT carry nested field ids (no withChildrenFieldIds, e.g.
+        // paimon) must leave every child uniqueId at the default -1 — applyNestedFieldIds must be inert, so a
+        // non-iceberg connector's nested columns are never accidentally stamped.
+        ConnectorType structType = ConnectorType.structOf(
+                Arrays.asList("a", "b"),
+                Arrays.asList(ConnectorType.of("INT"), ConnectorType.of("STRING")));
+        Column col = ConnectorColumnConverter.convertColumn(
+                new ConnectorColumn("s", structType, null, true, null));
+        Assertions.assertEquals(-1, col.getChildren().get(0).getUniqueId());
+        Assertions.assertEquals(-1, col.getChildren().get(1).getUniqueId());
+    }
+
+    @Test
+    void connectorTypeChildFieldIdDefaultsAndEqualityExclusion() {
+        // getChildFieldId returns -1 for unset / out-of-range indices; withChildrenFieldIds is excluded from
+        // equals/hashCode (type identity stays the structural shape), matching childrenNullable/childrenComments
+        // so existing equality-based schema-change detection is unaffected.
+        ConnectorType bare = ConnectorType.structOf(
+                Arrays.asList("a"), Arrays.asList(ConnectorType.of("INT")));
+        Assertions.assertEquals(-1, bare.getChildFieldId(0), "unset child field id defaults to -1");
+        Assertions.assertEquals(-1, bare.getChildFieldId(5), "out-of-range child field id defaults to -1");
+        ConnectorType withIds = bare.withChildrenFieldIds(Arrays.asList(4));
+        Assertions.assertEquals(4, withIds.getChildFieldId(0));
+        Assertions.assertEquals(bare, withIds, "field ids must be excluded from equals (structural identity)");
+        Assertions.assertEquals(bare.hashCode(), withIds.hashCode(), "field ids must be excluded from hashCode");
+    }
+
+    @Test
+    void testToConnectorColumnsConvertsList() {
+        java.util.List<ConnectorColumn> cols = ConnectorColumnConverter.toConnectorColumns(
+                Arrays.asList(new Column("a", Type.INT), new Column("b", Type.INT)));
+        Assertions.assertEquals(2, cols.size());
+        Assertions.assertEquals("a", cols.get(0).getName());
+        Assertions.assertEquals("b", cols.get(1).getName());
     }
 }

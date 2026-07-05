@@ -194,6 +194,52 @@ public class PaimonScanPlanProviderTest {
         Assertions.assertEquals(1, ctx.authCount);
     }
 
+    @Test
+    public void planScanEnumeratesSplitsInsideAuthScope(@TempDir Path warehouse) throws Exception {
+        // scan.plan() reads paimon's snapshot/manifest files remotely, on the planning thread — on a
+        // Kerberos filesystem catalog that read runs on the PLUGIN's UGI copy, which only the plugin doAs
+        // logs in (iceberg fourth-locus parity; iceberg CI proof: SELECT after INSERT failing SASL at the
+        // plan-time manifest read). So planScan must wrap the enumeration in executeAuthenticated IN
+        // ADDITION to resolveTable's load wrap. MUTATION: dropping the planSplits wrap -> authCount stays
+        // 1 (load only) -> red.
+        try (Catalog catalog = new FileSystemCatalog(LocalFileIO.create(),
+                new org.apache.paimon.fs.Path(warehouse.toUri()))) {
+            catalog.createDatabase("db", false);
+            Identifier id = Identifier.create("db", "t");
+            catalog.createTable(id, Schema.newBuilder()
+                    .column("id", DataTypes.INT())
+                    .column("val", DataTypes.BIGINT())
+                    .primaryKey("id")
+                    .option("bucket", "1")
+                    .build(), false);
+            Table table = catalog.getTable(id);
+            BatchWriteBuilder wb = table.newBatchWriteBuilder();
+            try (BatchTableWrite write = wb.newWrite()) {
+                write.write(GenericRow.of(1, 100L));
+                List<CommitMessage> messages = write.prepareCommit();
+                try (BatchTableCommit commit = wb.newCommit()) {
+                    commit.commit(messages);
+                }
+            }
+
+            RecordingPaimonCatalogOps ops = new RecordingPaimonCatalogOps();
+            ops.table = table;
+            RecordingConnectorContext ctx = new RecordingConnectorContext();
+            PaimonScanPlanProvider provider = new PaimonScanPlanProvider(Collections.emptyMap(), ops, ctx);
+            PaimonTableHandle handle = new PaimonTableHandle(
+                    "db", "t", Collections.emptyList(), Collections.emptyList());
+
+            List<ConnectorScanRange> ranges = provider.planScan(
+                    sessionWithProps(Collections.emptyMap()), handle,
+                    Collections.emptyList(), Optional.empty());
+
+            Assertions.assertFalse(ranges.isEmpty(), "one committed row must plan at least one split");
+            Assertions.assertEquals(2, ctx.authCount,
+                    "planScan must run BOTH the table load (resolveTable) AND the split enumeration "
+                            + "(scan.plan(), the remote manifest read) inside executeAuthenticated");
+        }
+    }
+
     /** Builds a native-eligible RawFile (parquet suffix). The numeric fields are irrelevant to the
      * native-vs-JNI routing decision under test, only the path suffix matters. */
     private static RawFile parquetRawFile(String path) {

@@ -17,7 +17,15 @@
 
 package org.apache.doris.datasource;
 
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.info.ColumnPosition;
+import org.apache.doris.catalog.info.CreateOrReplaceBranchInfo;
+import org.apache.doris.catalog.info.CreateOrReplaceTagInfo;
+import org.apache.doris.catalog.info.DropBranchInfo;
+import org.apache.doris.catalog.info.DropTagInfo;
+import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -27,25 +35,32 @@ import org.apache.doris.connector.ConnectorSessionBuilder;
 import org.apache.doris.connector.DefaultConnectorContext;
 import org.apache.doris.connector.DefaultConnectorValidationContext;
 import org.apache.doris.connector.api.Connector;
+import org.apache.doris.connector.api.ConnectorCapability;
 import org.apache.doris.connector.api.ConnectorMetadata;
 import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.ConnectorTestResult;
 import org.apache.doris.connector.api.DorisConnectorException;
+import org.apache.doris.connector.api.ddl.ConnectorColumnPosition;
 import org.apache.doris.connector.api.ddl.ConnectorCreateTableRequest;
+import org.apache.doris.connector.api.ddl.PartitionFieldChange;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.ddl.CreateTableInfoToConnectorRequestConverter;
-import org.apache.doris.datasource.property.metastore.MetastoreProperties;
+import org.apache.doris.nereids.trees.plans.commands.info.AddPartitionFieldOp;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.DropPartitionFieldOp;
+import org.apache.doris.nereids.trees.plans.commands.info.ReplacePartitionFieldOp;
 import org.apache.doris.persist.CreateDbInfo;
 import org.apache.doris.persist.DropDbInfo;
 import org.apache.doris.persist.DropInfo;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.transaction.PluginDrivenTransactionManager;
 
+import com.google.common.base.Preconditions;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -118,30 +133,25 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
                     + name + ", type: " + getType()
                     + ". Ensure the connector plugin is installed.");
         }
+        // Design S8: the connector owns storage-property derivation (e.g. the iceberg hadoop
+        // warehouse -> fs.defaultFS bridge); fe-core folds the connector-derived defaults into its storage map
+        // instead of parsing metastore properties. Read the connector field lazily so an ALTER-rebuilt (or
+        // dropped) connector is honored at storage-access time.
+        catalogProperty.setPluginDerivedStorageDefaultsSupplier(() -> {
+            Connector activeConnector = connector;
+            return activeConnector != null
+                    ? activeConnector.deriveStorageProperties(catalogProperty.getProperties())
+                    : java.util.Collections.emptyMap();
+        });
         transactionManager = new PluginDrivenTransactionManager();
+        // Design S6: a plugin catalog's pre-execution Kerberos auth is owned entirely by the connector
+        // (TcclPinningConnectorContext runs each remote op under the connector's own plugin-side authenticator —
+        // storage Kerberos and, via {Iceberg,Paimon}Connector.buildPluginAuthenticator, HMS-metastore Kerberos).
+        // fe-core keeps only the base no-op ExecutionAuthenticator handle (non-null so
+        // BaseExternalTableInsertExecutor / ExternalCatalog.getExecutionAuthenticator can call it
+        // unconditionally, but it performs no doAs — the connector's inner doAs is authoritative). Hence no
+        // plugin-specific initPreExecutionAuthenticator override: inherit the base no-op.
         initPreExecutionAuthenticator();
-    }
-
-    @Override
-    protected synchronized void initPreExecutionAuthenticator() {
-        if (executionAuthenticator != null) {
-            return;
-        }
-        try {
-            MetastoreProperties msp = catalogProperty.getMetastoreProperties();
-            if (msp != null) {
-                // Wire any storage-derived authenticator first (rereview2 M-8): the paimon
-                // filesystem/jdbc flavors build their HDFS Kerberos authenticator from the catalog's
-                // storage properties here, because their legacy initializeCatalog() — which did this —
-                // is dead on the plugin/cutover path. Default no-op for every other metastore type.
-                msp.initExecutionAuthenticator(catalogProperty.getOrderedStoragePropertiesList());
-                executionAuthenticator = msp.getExecutionAuthenticator();
-                return;
-            }
-        } catch (Exception ignored) {
-            // Not all catalog types have metastore properties (e.g., JDBC, ES)
-        }
-        super.initPreExecutionAuthenticator();
     }
 
     /**
@@ -156,7 +166,8 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
         return ConnectorFactory.createConnector(catalogType,
                 catalogProperty.getProperties(),
                 new DefaultConnectorContext(name, id, this::getExecutionAuthenticator,
-                        () -> catalogProperty.getStoragePropertiesMap()));
+                        () -> catalogProperty.getStoragePropertiesMap(),
+                        catalogProperty::getEffectiveRawStorageProperties));
     }
 
     @Override
@@ -221,16 +232,67 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
         super.notifyPropertiesUpdated(updatedProps);
     }
 
+    /**
+     * {@code REFRESH CATALOG} must also drop the connector's OWN caches (e.g. the iceberg latest-snapshot
+     * cache, default TTL 24h, and the manifest cache). The base {@link #onRefreshCache} only invalidates the
+     * registered engine caches via the route resolver — which for a plugin catalog resolves to the schema-only
+     * {@code ENGINE_DEFAULT} bucket and never reaches the connector-owned caches. And {@code REFRESH CATALOG}
+     * does NOT rebuild the connector (that only happens on {@code ADD}/{@code MODIFY CATALOG} via
+     * {@link #resetToUninitialized}), so without this the connector keeps serving stale metadata until TTL.
+     *
+     * <p>Connector-agnostic: {@link Connector#invalidateAll()} is a generic SPI (no-op default; paimon clears
+     * its own latest-snapshot cache too). Reads the {@code connector} field directly (no forced init, mirroring
+     * {@link #overlayMetaCacheConfig}): an uninitialized catalog — or one whose connector was just nulled by
+     * {@code resetToUninitialized}'s {@code onClose()} before this runs — has no connector caches to drop, and
+     * the next access lazily rebuilds the connector with empty caches.
+     */
+    @Override
+    public void onRefreshCache(boolean invalidCache) {
+        super.onRefreshCache(invalidCache);
+        if (invalidCache) {
+            Connector localConnector = connector;
+            if (localConnector != null) {
+                localConnector.invalidateAll();
+            }
+        }
+    }
+
     @Override
     protected List<String> listDatabaseNames() {
-        ConnectorSession session = buildConnectorSession();
-        return connector.getMetadata(session).listDatabaseNames(session);
+        try {
+            ConnectorSession session = buildConnectorSession();
+            return connector.getMetadata(session).listDatabaseNames(session);
+        } catch (RuntimeException e) {
+            // The connector connects lazily: initLocalObjectsImpl() only constructs it, so the
+            // first metastore round-trip happens here — inside the meta-cache loader, which runs
+            // OUTSIDE makeSureInitialized()'s try/catch. Capture the failure so `show catalogs`
+            // surfaces it; makeSureInitialized() clears errorMsg again on the next successful
+            // (re-)initialization (e.g. after `alter catalog ... set properties`). This stays
+            // connector-agnostic: any plugin that connects lazily gets the same treatment.
+            recordDeferredInitError(e);
+            throw e;
+        }
     }
 
     @Override
     protected List<String> listTableNamesFromRemote(SessionContext ctx, String dbName) {
         ConnectorSession session = buildConnectorSession();
-        return connector.getMetadata(session).listTableNames(session, dbName);
+        ConnectorMetadata metadata = connector.getMetadata(session);
+        List<String> tableNames = metadata.listTableNames(session, dbName);
+        if (!connector.getCapabilities().contains(ConnectorCapability.SUPPORTS_VIEW)) {
+            return tableNames;
+        }
+        // Mirror legacy IcebergExternalCatalog.listTableNamesFromRemote: for a view-exposing connector
+        // (iceberg) SHOW TABLES includes both tables AND views, because the connector's listTableNames
+        // subtracts the view names. Re-merge the connector's view names here (the two sets are disjoint
+        // by construction, so a plain addAll cannot introduce duplicates).
+        List<String> viewNames = metadata.listViewNames(session, dbName);
+        if (viewNames.isEmpty()) {
+            return tableNames;
+        }
+        List<String> merged = new ArrayList<>(tableNames);
+        merged.addAll(viewNames);
+        return merged;
     }
 
     @Override
@@ -419,7 +481,12 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
     @Override
     public void dropDb(String dbName, boolean ifExists, boolean force) throws DdlException {
         makeSureInitialized();
-        if (getDbNullable(dbName) == null) {
+        // Resolve the local db name to its remote name before handing it to the connector, mirroring
+        // the sibling dropTable / legacy IcebergMetadataOps.performDropDb (dorisDb.getRemoteName()).
+        // Name-mapped catalogs (lower_case_meta_names / meta_names_mapping, where the local display
+        // name differs from the remote name) would otherwise address the wrong remote namespace.
+        ExternalDatabase<? extends ExternalTable> db = getDbNullable(dbName);
+        if (db == null) {
             if (ifExists) {
                 return;
             }
@@ -427,10 +494,12 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
         }
         ConnectorSession session = buildConnectorSession();
         try {
-            connector.getMetadata(session).dropDatabase(session, dbName, ifExists, force);
+            connector.getMetadata(session).dropDatabase(session, db.getRemoteName(), ifExists, force);
         } catch (DorisConnectorException e) {
             throw new DdlException(e.getMessage(), e);
         }
+        // Edit log + cache invalidation intentionally use the LOCAL name: followers replay the
+        // persisted DropDbInfo and the on-FE cache is keyed by local name (follower-replay parity).
         Env.getCurrentEnv().getEditLog().logDropDb(new DropDbInfo(getName(), dbName));
         unregisterDatabase(dbName);
         LOG.info("finished to drop database {}.{}", getName(), dbName);
@@ -468,6 +537,23 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
         }
         ConnectorSession session = buildConnectorSession();
         ConnectorMetadata metadata = connector.getMetadata(session);
+        // Route a DROP on a VIEW to dropView, mirroring legacy IcebergMetadataOps.dropTableImpl's
+        // viewExists -> performDropView dispatch: a connector that exposes views keeps them in a separate
+        // namespace, so getTableHandle/tableExists below is false for a view and the table-handle path
+        // could never drop it. For view-less connectors viewExists defaults to false (no remote call), so
+        // this routing is inert and the table path runs unchanged. The edit log + cache invalidation use
+        // the LOCAL names (follower-replay parity), identical to the table path.
+        if (metadata.viewExists(session, dorisTable.getRemoteDbName(), dorisTable.getRemoteName())) {
+            try {
+                metadata.dropView(session, dorisTable.getRemoteDbName(), dorisTable.getRemoteName());
+            } catch (DorisConnectorException e) {
+                throw new DdlException(e.getMessage(), e);
+            }
+            Env.getCurrentEnv().getEditLog().logDropTable(new DropInfo(getName(), dbName, tableName));
+            getDbForReplay(dbName).ifPresent(d -> d.unregisterTable(tableName));
+            LOG.info("finished to drop view {}.{}.{}", getName(), dbName, tableName);
+            return;
+        }
         Optional<ConnectorTableHandle> handle = metadata.getTableHandle(
                 session, dorisTable.getRemoteDbName(), dorisTable.getRemoteName());
         // The table is present in the FE cache but may have been dropped out-of-band on the remote
@@ -488,6 +574,350 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
         Env.getCurrentEnv().getEditLog().logDropTable(new DropInfo(getName(), dbName, tableName));
         getDbForReplay(dbName).ifPresent(d -> d.unregisterTable(tableName));
         LOG.info("finished to drop table {}.{}.{}", getName(), dbName, tableName);
+    }
+
+    /**
+     * Routes {@code ALTER TABLE ... RENAME} through the SPI's {@code ConnectorTableOps.renameTable} instead of
+     * the base {@link ExternalCatalog#renameTable} (which throws on {@code metadataOps == null}).
+     *
+     * <p>Resolves the SOURCE table by REMOTE names (like {@link #dropTable}); {@code newTableName} is passed
+     * through as the target's name in the same remote database, mirroring legacy
+     * {@code IcebergMetadataOps.renameTableImpl} (which feeds the SQL name straight to
+     * {@code catalog.renameTable}) and createTable (which keeps the SQL name as the remote name). On success
+     * runs {@link #afterExternalRename} for the cache fix + constraint rename + editlog the base op delegated
+     * to {@code metadataOps}.</p>
+     */
+    @Override
+    public void renameTable(String dbName, String oldTableName, String newTableName) throws DdlException {
+        makeSureInitialized();
+        ExternalDatabase<? extends ExternalTable> db = getDbNullable(dbName);
+        if (db == null) {
+            throw new DdlException("Failed to get database: '" + dbName + "' in catalog: " + getName());
+        }
+        ExternalTable dorisTable = db.getTableNullable(oldTableName);
+        if (dorisTable == null) {
+            throw new DdlException("Failed to get table: '" + oldTableName + "' in database: " + dbName);
+        }
+        ConnectorSession session = buildConnectorSession();
+        ConnectorMetadata metadata = connector.getMetadata(session);
+        ConnectorTableHandle handle = resolveAlterHandle(dorisTable, session, metadata);
+        try {
+            metadata.renameTable(session, handle, newTableName);
+        } catch (DorisConnectorException e) {
+            throw new DdlException(e.getMessage(), e);
+        }
+        afterExternalRename(dbName, oldTableName, newTableName);
+    }
+
+    /**
+     * Routes {@code ALTER TABLE ... ADD/DROP/RENAME/MODIFY/REORDER COLUMN} through the SPI's
+     * {@code ConnectorTableOps} column-evolution methods instead of the legacy {@code metadataOps} path used
+     * by other {@link ExternalCatalog} subclasses (which PluginDriven never sets, so the base ops would
+     * throw {@code metadataOps == null}).
+     *
+     * <p>Each override resolves the connector handle (by REMOTE names, like {@link #dropTable}), converts the
+     * Doris {@link Column}/{@link ColumnPosition} to the neutral SPI types, dispatches, wraps a
+     * {@link DorisConnectorException} as a {@link DdlException}, and runs {@link #afterExternalDdl} for the
+     * editlog + cache invalidation the base op delegated to {@code metadataOps}.</p>
+     */
+    @Override
+    public void addColumn(TableIf dorisTable, Column column, ColumnPosition position) throws UserException {
+        ExternalTable externalTable = checkExternalTable(dorisTable);
+        ConnectorSession session = buildConnectorSession();
+        ConnectorMetadata metadata = connector.getMetadata(session);
+        ConnectorTableHandle handle = resolveAlterHandle(externalTable, session, metadata);
+        long updateTime = System.currentTimeMillis();
+        try {
+            metadata.addColumn(session, handle, ConnectorColumnConverter.toConnectorColumn(column),
+                    toConnectorPosition(position));
+        } catch (DorisConnectorException e) {
+            throw new DdlException(e.getMessage(), e);
+        }
+        afterExternalDdl(externalTable, updateTime);
+    }
+
+    @Override
+    public void addColumns(TableIf dorisTable, List<Column> columns) throws UserException {
+        ExternalTable externalTable = checkExternalTable(dorisTable);
+        ConnectorSession session = buildConnectorSession();
+        ConnectorMetadata metadata = connector.getMetadata(session);
+        ConnectorTableHandle handle = resolveAlterHandle(externalTable, session, metadata);
+        long updateTime = System.currentTimeMillis();
+        try {
+            metadata.addColumns(session, handle, ConnectorColumnConverter.toConnectorColumns(columns));
+        } catch (DorisConnectorException e) {
+            throw new DdlException(e.getMessage(), e);
+        }
+        afterExternalDdl(externalTable, updateTime);
+    }
+
+    @Override
+    public void dropColumn(TableIf dorisTable, String columnName) throws UserException {
+        ExternalTable externalTable = checkExternalTable(dorisTable);
+        ConnectorSession session = buildConnectorSession();
+        ConnectorMetadata metadata = connector.getMetadata(session);
+        ConnectorTableHandle handle = resolveAlterHandle(externalTable, session, metadata);
+        long updateTime = System.currentTimeMillis();
+        try {
+            metadata.dropColumn(session, handle, columnName);
+        } catch (DorisConnectorException e) {
+            throw new DdlException(e.getMessage(), e);
+        }
+        afterExternalDdl(externalTable, updateTime);
+    }
+
+    @Override
+    public void renameColumn(TableIf dorisTable, String oldName, String newName) throws UserException {
+        ExternalTable externalTable = checkExternalTable(dorisTable);
+        ConnectorSession session = buildConnectorSession();
+        ConnectorMetadata metadata = connector.getMetadata(session);
+        ConnectorTableHandle handle = resolveAlterHandle(externalTable, session, metadata);
+        long updateTime = System.currentTimeMillis();
+        try {
+            metadata.renameColumn(session, handle, oldName, newName);
+        } catch (DorisConnectorException e) {
+            throw new DdlException(e.getMessage(), e);
+        }
+        afterExternalDdl(externalTable, updateTime);
+    }
+
+    @Override
+    public void modifyColumn(TableIf dorisTable, Column column, ColumnPosition position) throws UserException {
+        ExternalTable externalTable = checkExternalTable(dorisTable);
+        ConnectorSession session = buildConnectorSession();
+        ConnectorMetadata metadata = connector.getMetadata(session);
+        ConnectorTableHandle handle = resolveAlterHandle(externalTable, session, metadata);
+        long updateTime = System.currentTimeMillis();
+        try {
+            metadata.modifyColumn(session, handle, ConnectorColumnConverter.toConnectorColumn(column),
+                    toConnectorPosition(position));
+        } catch (DorisConnectorException e) {
+            throw new DdlException(e.getMessage(), e);
+        }
+        afterExternalDdl(externalTable, updateTime);
+    }
+
+    @Override
+    public void reorderColumns(TableIf dorisTable, List<String> newOrder) throws UserException {
+        ExternalTable externalTable = checkExternalTable(dorisTable);
+        ConnectorSession session = buildConnectorSession();
+        ConnectorMetadata metadata = connector.getMetadata(session);
+        ConnectorTableHandle handle = resolveAlterHandle(externalTable, session, metadata);
+        long updateTime = System.currentTimeMillis();
+        try {
+            metadata.reorderColumns(session, handle, newOrder);
+        } catch (DorisConnectorException e) {
+            throw new DdlException(e.getMessage(), e);
+        }
+        afterExternalDdl(externalTable, updateTime);
+    }
+
+    /**
+     * Routes {@code ALTER TABLE ... CREATE/REPLACE/DROP BRANCH/TAG} through the SPI's {@code ConnectorTableOps}
+     * branch/tag methods instead of the legacy {@code metadataOps} path (which PluginDriven never sets, so the
+     * base ops throw {@code metadataOps == null}).
+     *
+     * <p>Each override resolves the connector handle (by REMOTE names, like {@link #dropTable}), neutralizes the
+     * nereids info type to the SPI carrier ({@link ConnectorBranchTagConverter}), dispatches, wraps a
+     * {@link DorisConnectorException} as a {@link DdlException}, and runs {@link #afterExternalDdl} for the
+     * editlog + cache invalidation the base op delegated to {@code metadataOps}. A branch/tag op is a
+     * table-level change whose cache effect ({@code refreshTableInternal}) is identical to a column evolution, so
+     * the column-op bookkeeping helper is reused (the base {@code OP_BRANCH_OR_TAG} editlog's replay is
+     * {@code metadataOps}-gated and would be a no-op for PluginDriven; the replay-neutral
+     * {@code OP_REFRESH_EXTERNAL_TABLE} that {@code afterExternalDdl} emits yields the same refresh on
+     * followers).</p>
+     */
+    @Override
+    public void createOrReplaceBranch(TableIf dorisTable, CreateOrReplaceBranchInfo branchInfo)
+            throws UserException {
+        ExternalTable externalTable = checkExternalTable(dorisTable);
+        ConnectorSession session = buildConnectorSession();
+        ConnectorMetadata metadata = connector.getMetadata(session);
+        ConnectorTableHandle handle = resolveAlterHandle(externalTable, session, metadata);
+        long updateTime = System.currentTimeMillis();
+        try {
+            metadata.createOrReplaceBranch(session, handle,
+                    ConnectorBranchTagConverter.toBranchChange(branchInfo));
+        } catch (DorisConnectorException e) {
+            throw new DdlException(e.getMessage(), e);
+        }
+        afterExternalDdl(externalTable, updateTime);
+    }
+
+    @Override
+    public void createOrReplaceTag(TableIf dorisTable, CreateOrReplaceTagInfo tagInfo) throws UserException {
+        ExternalTable externalTable = checkExternalTable(dorisTable);
+        ConnectorSession session = buildConnectorSession();
+        ConnectorMetadata metadata = connector.getMetadata(session);
+        ConnectorTableHandle handle = resolveAlterHandle(externalTable, session, metadata);
+        long updateTime = System.currentTimeMillis();
+        try {
+            metadata.createOrReplaceTag(session, handle,
+                    ConnectorBranchTagConverter.toTagChange(tagInfo));
+        } catch (DorisConnectorException e) {
+            throw new DdlException(e.getMessage(), e);
+        }
+        afterExternalDdl(externalTable, updateTime);
+    }
+
+    @Override
+    public void dropBranch(TableIf dorisTable, DropBranchInfo branchInfo) throws UserException {
+        ExternalTable externalTable = checkExternalTable(dorisTable);
+        ConnectorSession session = buildConnectorSession();
+        ConnectorMetadata metadata = connector.getMetadata(session);
+        ConnectorTableHandle handle = resolveAlterHandle(externalTable, session, metadata);
+        long updateTime = System.currentTimeMillis();
+        try {
+            metadata.dropBranch(session, handle,
+                    ConnectorBranchTagConverter.toDropRefChange(branchInfo));
+        } catch (DorisConnectorException e) {
+            throw new DdlException(e.getMessage(), e);
+        }
+        afterExternalDdl(externalTable, updateTime);
+    }
+
+    @Override
+    public void dropTag(TableIf dorisTable, DropTagInfo tagInfo) throws UserException {
+        ExternalTable externalTable = checkExternalTable(dorisTable);
+        ConnectorSession session = buildConnectorSession();
+        ConnectorMetadata metadata = connector.getMetadata(session);
+        ConnectorTableHandle handle = resolveAlterHandle(externalTable, session, metadata);
+        long updateTime = System.currentTimeMillis();
+        try {
+            metadata.dropTag(session, handle,
+                    ConnectorBranchTagConverter.toDropRefChange(tagInfo));
+        } catch (DorisConnectorException e) {
+            throw new DdlException(e.getMessage(), e);
+        }
+        afterExternalDdl(externalTable, updateTime);
+    }
+
+    /**
+     * Routes {@code ALTER TABLE ... ADD/DROP/REPLACE PARTITION KEY} (Iceberg partition evolution) through the
+     * SPI's {@code ConnectorTableOps} partition-field methods, replacing the legacy {@code Alter.java}
+     * {@code instanceof IcebergExternalTable} dispatch. Each override resolves the connector handle (by REMOTE
+     * names, like {@link #dropTable}), neutralizes the nereids op to {@link PartitionFieldChange} via
+     * {@link ConnectorPartitionFieldConverter}, dispatches, wraps a {@link DorisConnectorException} as a
+     * {@link DdlException}, and runs {@link #afterExternalDdl} for the editlog + cache invalidation (a partition
+     * spec change is a table-level change whose {@code refreshTableInternal} effect matches a column evolution).
+     */
+    @Override
+    public void addPartitionField(TableIf dorisTable, AddPartitionFieldOp op) throws UserException {
+        ExternalTable externalTable = checkExternalTable(dorisTable);
+        ConnectorSession session = buildConnectorSession();
+        ConnectorMetadata metadata = connector.getMetadata(session);
+        ConnectorTableHandle handle = resolveAlterHandle(externalTable, session, metadata);
+        long updateTime = System.currentTimeMillis();
+        try {
+            metadata.addPartitionField(session, handle, ConnectorPartitionFieldConverter.toAddChange(op));
+        } catch (DorisConnectorException e) {
+            throw new DdlException(e.getMessage(), e);
+        }
+        afterExternalDdl(externalTable, updateTime);
+    }
+
+    @Override
+    public void dropPartitionField(TableIf dorisTable, DropPartitionFieldOp op) throws UserException {
+        ExternalTable externalTable = checkExternalTable(dorisTable);
+        ConnectorSession session = buildConnectorSession();
+        ConnectorMetadata metadata = connector.getMetadata(session);
+        ConnectorTableHandle handle = resolveAlterHandle(externalTable, session, metadata);
+        long updateTime = System.currentTimeMillis();
+        try {
+            metadata.dropPartitionField(session, handle, ConnectorPartitionFieldConverter.toDropChange(op));
+        } catch (DorisConnectorException e) {
+            throw new DdlException(e.getMessage(), e);
+        }
+        afterExternalDdl(externalTable, updateTime);
+    }
+
+    @Override
+    public void replacePartitionField(TableIf dorisTable, ReplacePartitionFieldOp op) throws UserException {
+        ExternalTable externalTable = checkExternalTable(dorisTable);
+        ConnectorSession session = buildConnectorSession();
+        ConnectorMetadata metadata = connector.getMetadata(session);
+        ConnectorTableHandle handle = resolveAlterHandle(externalTable, session, metadata);
+        long updateTime = System.currentTimeMillis();
+        try {
+            metadata.replacePartitionField(session, handle, ConnectorPartitionFieldConverter.toReplaceChange(op));
+        } catch (DorisConnectorException e) {
+            throw new DdlException(e.getMessage(), e);
+        }
+        afterExternalDdl(externalTable, updateTime);
+    }
+
+    /** Initializes + checks the table is an {@link ExternalTable}, mirroring the base {@link ExternalCatalog}. */
+    private ExternalTable checkExternalTable(TableIf dorisTable) {
+        makeSureInitialized();
+        Preconditions.checkState(dorisTable instanceof ExternalTable, dorisTable.getName());
+        return (ExternalTable) dorisTable;
+    }
+
+    /**
+     * Resolves the connector handle for an ALTER by the table's REMOTE names (mirroring {@link #dropTable}),
+     * failing loud as a {@link DdlException} when the table no longer exists remotely.
+     */
+    private ConnectorTableHandle resolveAlterHandle(ExternalTable externalTable, ConnectorSession session,
+            ConnectorMetadata metadata) throws DdlException {
+        Optional<ConnectorTableHandle> handle = metadata.getTableHandle(
+                session, externalTable.getRemoteDbName(), externalTable.getRemoteName());
+        if (!handle.isPresent()) {
+            throw new DdlException("Failed to get table: '" + externalTable.getName()
+                    + "' in database: " + externalTable.getDbName());
+        }
+        return handle.get();
+    }
+
+    /** Neutralizes the fe-catalog {@link ColumnPosition} to the SPI {@link ConnectorColumnPosition}; null-safe. */
+    private static ConnectorColumnPosition toConnectorPosition(ColumnPosition position) {
+        if (position == null) {
+            return null;
+        }
+        return position.isFirst()
+                ? ConnectorColumnPosition.FIRST
+                : ConnectorColumnPosition.after(position.getLastCol());
+    }
+
+    /**
+     * Replays the base {@link ExternalCatalog} per-op bookkeeping for a connector-driven schema change.
+     *
+     * <p>The base column ops only emit the editlog ({@code logRefreshExternalTable}); the actual cache
+     * invalidation is delegated INTO {@code metadataOps.refreshTable -> RefreshManager.refreshTableInternal}.
+     * Since PluginDrivenExternalCatalog has no {@code metadataOps}, this helper does BOTH explicitly: the
+     * {@code createForRefreshTable} editlog (LOCAL names, replay-neutral) and a {@code refreshTableInternal}
+     * (re-resolving the local cached table by its REMOTE names, mirroring legacy
+     * {@code IcebergMetadataOps.refreshTable}). {@code refreshTableInternal} is the single source of truth for
+     * the cache work ({@code unsetObjectCreated} + {@code setUpdateTime} + {@code invalidateTableCache} + the
+     * connector-side per-table cache drop), so it must NOT be re-inlined here.
+     */
+    protected void afterExternalDdl(ExternalTable externalTable, long updateTime) {
+        Env.getCurrentEnv().getEditLog().logRefreshExternalTable(
+                ExternalObjectLog.createForRefreshTable(getId(),
+                        externalTable.getDbName(), externalTable.getName(), updateTime));
+        getDbForReplay(externalTable.getRemoteDbName()).ifPresent(db ->
+                db.getTableForReplay(externalTable.getRemoteName()).ifPresent(tbl ->
+                        Env.getCurrentEnv().getRefreshManager().refreshTableInternal(db, tbl, updateTime)));
+    }
+
+    /**
+     * Replays the base {@link ExternalCatalog#renameTable} bookkeeping for a connector-driven rename, since
+     * PluginDriven has no {@code metadataOps}: the table-name cache fix ({@code unregisterTable(old)} +
+     * {@code resetMetaCacheNames()}, mirroring legacy {@code IcebergMetadataOps.afterRenameTable}), the
+     * {@code constraintManager} rename, and the {@code createForRenameTable} editlog (whose replay,
+     * {@code RefreshManager.replayRefreshTable}, is already metadataOps-neutral). All use LOCAL names, matching
+     * the base op + the editlog payload, so followers replay consistently. Order mirrors the base op
+     * (cache &rarr; constraint &rarr; editlog).
+     */
+    protected void afterExternalRename(String dbName, String oldTableName, String newTableName) {
+        getDbForReplay(dbName).ifPresent(db -> {
+            db.unregisterTable(oldTableName);
+            db.resetMetaCacheNames();
+        });
+        Env.getCurrentEnv().getConstraintManager().renameTable(
+                new TableNameInfo(getName(), dbName, oldTableName),
+                new TableNameInfo(getName(), dbName, newTableName));
+        Env.getCurrentEnv().getEditLog().logRefreshExternalTable(
+                ExternalObjectLog.createForRenameTable(getId(), dbName, oldTableName, newTableName));
     }
 
     @Override

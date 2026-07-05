@@ -20,8 +20,7 @@ package org.apache.doris.nereids.trees.plans.commands.insert;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.connector.api.Connector;
-import org.apache.doris.connector.api.ConnectorMetadata;
-import org.apache.doris.connector.api.ConnectorSession;
+import org.apache.doris.connector.api.handle.WriteOperation;
 import org.apache.doris.datasource.PluginDrivenExternalCatalog;
 import org.apache.doris.datasource.PluginDrivenExternalTable;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -30,7 +29,9 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
+import java.util.EnumSet;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Tests for {@link InsertOverwriteTableCommand}'s {@code allowInsertOverwrite} type gate
@@ -57,20 +58,31 @@ public class InsertOverwriteTableCommandTest {
     }
 
     /**
-     * A PluginDrivenExternalTable whose connector reports {@code supportsInsertOverwrite()==supported},
-     * stubbing the exact catalog -> connector -> metadata chain the production gate walks.
+     * A PluginDrivenExternalTable whose connector reports {@code supportedWriteOperations()} containing
+     * (or omitting) {@code OVERWRITE}, stubbing the exact catalog -> connector chain the production gate walks.
      */
     private static PluginDrivenExternalTable pluginTable(boolean supported) {
         PluginDrivenExternalTable table = Mockito.mock(PluginDrivenExternalTable.class);
         PluginDrivenExternalCatalog catalog = Mockito.mock(PluginDrivenExternalCatalog.class);
         Connector connector = Mockito.mock(Connector.class);
-        ConnectorMetadata metadata = Mockito.mock(ConnectorMetadata.class);
-        ConnectorSession session = Mockito.mock(ConnectorSession.class);
+        Set<WriteOperation> ops = supported ? EnumSet.of(WriteOperation.OVERWRITE) : EnumSet.noneOf(WriteOperation.class);
         Mockito.when(table.getCatalog()).thenReturn(catalog);
-        Mockito.when(catalog.buildConnectorSession()).thenReturn(session);
         Mockito.when(catalog.getConnector()).thenReturn(connector);
-        Mockito.when(connector.getMetadata(session)).thenReturn(metadata);
-        Mockito.when(metadata.supportsInsertOverwrite()).thenReturn(supported);
+        Mockito.when(connector.supportedWriteOperations()).thenReturn(ops);
+        return table;
+    }
+
+    /**
+     * A PluginDrivenExternalTable whose connector reports {@code supportsWriteBranch()==supported},
+     * stubbing the exact catalog -> connector chain the @branch gate walks.
+     */
+    private static PluginDrivenExternalTable pluginTableForWriteBranch(boolean supported) {
+        PluginDrivenExternalTable table = Mockito.mock(PluginDrivenExternalTable.class);
+        PluginDrivenExternalCatalog catalog = Mockito.mock(PluginDrivenExternalCatalog.class);
+        Connector connector = Mockito.mock(Connector.class);
+        Mockito.when(table.getCatalog()).thenReturn(catalog);
+        Mockito.when(catalog.getConnector()).thenReturn(connector);
+        Mockito.when(connector.supportsWriteBranch()).thenReturn(supported);
         return table;
     }
 
@@ -105,5 +117,39 @@ public class InsertOverwriteTableCommandTest {
                 Mockito.mock(TableIf.class));
         Assertions.assertFalse(allowed,
                 "an unsupported table type must NOT be allowed for INSERT OVERWRITE");
+    }
+
+    @Test
+    public void testWriteBranchAllowedForBranchCapablePluginDrivenTable() {
+        // INSERT OVERWRITE t@branch: post-cutover an iceberg table is plugin-driven (generic sink, not
+        // PhysicalIcebergTableSink), so the @branch guard admits it via the connector capability. Without
+        // this, a branch overwrite is rejected post-flip even though the connector threads the branch.
+        // Mutation guard: dropping the production `&& !pluginConnectorSupportsWriteBranch(...)` arm makes
+        // this probe irrelevant; flipping it to false here would (in production) wrongly reject -> red.
+        boolean supported = Deencapsulation.invoke(newCommand(),
+                "pluginConnectorSupportsWriteBranch", pluginTableForWriteBranch(true));
+        Assertions.assertTrue(supported,
+                "a branch-capable plugin-driven table (iceberg) must be admitted for INSERT OVERWRITE @branch");
+    }
+
+    @Test
+    public void testWriteBranchRejectedForNonBranchCapablePluginDrivenTable() {
+        // A plugin-driven table whose connector does NOT support branch writes (jdbc/maxcompute) MUST be
+        // rejected (fail loud), NOT admitted to silently drop the branch and overwrite the default ref.
+        // Mutation guard: dropping the `&& supportsWriteBranch()` chain -> returns true -> red.
+        boolean supported = Deencapsulation.invoke(newCommand(),
+                "pluginConnectorSupportsWriteBranch", pluginTableForWriteBranch(false));
+        Assertions.assertFalse(supported,
+                "a plugin-driven table whose connector lacks write-branch support must be rejected");
+    }
+
+    @Test
+    public void testWriteBranchRejectedForNonPluginTableType() {
+        // A non-plugin table type must short-circuit to false (the helper's instanceof guard), proving the
+        // probe targets a specific arm rather than admitting every table.
+        boolean supported = Deencapsulation.invoke(newCommand(),
+                "pluginConnectorSupportsWriteBranch", Mockito.mock(TableIf.class));
+        Assertions.assertFalse(supported,
+                "a non-plugin table type must NOT be treated as write-branch capable");
     }
 }
