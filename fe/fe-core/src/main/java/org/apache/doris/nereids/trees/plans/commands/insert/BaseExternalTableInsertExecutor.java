@@ -25,6 +25,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.connector.api.handle.ConnectorTransaction;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -88,6 +89,15 @@ public abstract class BaseExternalTableInsertExecutor extends AbstractInsertExec
         txnId = transactionManager.begin();
     }
 
+    /**
+     * Returns the SPI {@link ConnectorTransaction} backing this write, or {@code null} if this executor runs on
+     * the legacy (non-plugin-driven) transaction path. Used by the generic {@code RowLevelDmlCommand} shell to
+     * apply the O5-2 write constraint only when a connector transaction is present. Default: legacy path → null.
+     */
+    public ConnectorTransaction getConnectorTransactionOrNull() {
+        return null;
+    }
+
     @Override
     protected void onComplete() throws UserException {
         if (ctx.getState().getStateType() == QueryState.MysqlStateType.ERR) {
@@ -149,7 +159,7 @@ public abstract class BaseExternalTableInsertExecutor extends AbstractInsertExec
     }
 
     @Override
-    protected void onFail(Throwable t) {
+    public void onFail(Throwable t) {
         errMsg = Util.getRootCauseMessage(t);
         String queryId = DebugUtil.printId(ctx.queryId());
         // if any throwable being thrown during insert operation, first we should abort this txn

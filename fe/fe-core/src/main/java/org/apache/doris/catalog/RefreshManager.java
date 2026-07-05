@@ -31,7 +31,6 @@ import org.apache.doris.datasource.PluginDrivenExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HiveExternalMetaCache;
-import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.persist.OperationType;
 
 import com.google.common.base.Strings;
@@ -238,11 +237,6 @@ public class RefreshManager {
 
     public void refreshTableInternal(ExternalDatabase db, ExternalTable table, long updateTime) {
         table.unsetObjectCreated();
-        // Iceberg partition evolution can change partition specs across FEs.
-        // Clear related-table validation cache to avoid stale partitioned/unpartitioned judgment.
-        if (table instanceof IcebergExternalTable) {
-            ((IcebergExternalTable) table).setIsValidRelatedTableCached(false);
-        }
         if (updateTime > 0) {
             table.setUpdateTime(updateTime);
         }

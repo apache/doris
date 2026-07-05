@@ -131,6 +131,18 @@ public interface ConnectorScanRange extends Serializable {
     }
 
     /**
+     * Whether this range belongs to a partitioned table whose partition values come from the connector's
+     * metadata (NOT encoded in the file path). When {@code true}, an <em>empty</em> {@link #getPartitionValues()}
+     * map means "this file genuinely has no path-derived partition values" and the engine must use it verbatim
+     * instead of falling back to Hive-style path parsing — which would fail for connectors (e.g. Iceberg) whose
+     * data files are not laid out as {@code key=value} directories. The default {@code false} preserves the
+     * legacy behavior (an empty map is treated as "no partition info", letting the engine path-parse).
+     */
+    default boolean isPartitionBearing() {
+        return false;
+    }
+
+    /**
      * Returns delete files associated with this scan range.
      * Used by Iceberg merge-on-read tables for positional/equality deletes.
      */
