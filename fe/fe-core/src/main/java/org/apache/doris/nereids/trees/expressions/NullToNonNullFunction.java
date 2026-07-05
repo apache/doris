@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
-import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 
 /**
  * Marker interface for expressions that can convert NULL input into a non-NULL output.
@@ -40,7 +39,8 @@ public interface NullToNonNullFunction {
 
     /**
      * Check whether an expression can convert NULL input to non-NULL output.
-     * This covers both {@link NullToNonNullFunction} (e.g. Coalesce, Nvl, NullOrEmpty)
+     * This covers both {@link NullToNonNullFunction} (e.g. Coalesce, Nvl, If, CaseWhen,
+     * NullOrEmpty, IsNull, IsTrue, IsFalse, NonNullable)
      * and {@link AlwaysNotNullable} expressions with input slots (e.g. Array, JsonArray,
      * CreateStruct, CreateMap), which always produce non-NULL output regardless of NULL inputs.
      *
@@ -50,14 +50,6 @@ public interface NullToNonNullFunction {
      * pre-aggregation on the base table cannot see those rows — resulting in wrong results.
      */
     static boolean canConvertNullToNonNull(Expression e) {
-        if (e instanceof AggregateFunction) {
-            // AggregateFunction is the container, not an argument.
-            // AlwaysNotNullable agg functions (Count, Sum0, etc.) have their own
-            // decomposition semantics (Count->sum0, etc.) that correctly handle
-            // null-extended rows from outer joins. The check targets expressions
-            // INSIDE aggregate function arguments (e.g. count(array(col))).
-            return false;
-        }
         return e instanceof NullToNonNullFunction
                 || (e instanceof AlwaysNotNullable
                         && !e.getInputSlots().isEmpty());

@@ -389,7 +389,7 @@ public class EagerAggRewriter extends DefaultPlanRewriter<PushDownAggContext> {
         boolean newContainsNullToNonNull = context.containsNullToNonNull;
         if (!newContainsNullToNonNull) {
             for (AggregateFunction aggFunc : aggFunctions) {
-                if (aggFunc.anyMatch(
+                if (aggFunc.children().anyMatch(
                         e -> NullToNonNullFunction.canConvertNullToNonNull((Expression) e))) {
                     newContainsNullToNonNull = true;
                     break;

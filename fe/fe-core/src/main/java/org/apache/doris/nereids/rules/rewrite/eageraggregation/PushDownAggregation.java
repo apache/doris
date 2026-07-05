@@ -149,7 +149,7 @@ public class PushDownAggregation extends DefaultPlanRewriter<JobContext> impleme
                     // cannot see null-extended rows (they are produced by the join), so the push-down
                     // would lose those contributions — producing wrong results.
                     if (!containsNullToNonNull
-                            && aggFunction.anyMatch(
+                            && aggFunction.children().anyMatch(
                                     e -> NullToNonNullFunction.canConvertNullToNonNull((Expression) e))) {
                         containsNullToNonNull = true;
                     }
