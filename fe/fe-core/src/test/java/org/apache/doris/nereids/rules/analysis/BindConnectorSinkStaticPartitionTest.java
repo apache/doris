@@ -61,6 +61,22 @@ public class BindConnectorSinkStaticPartitionTest {
         return table;
     }
 
+    /**
+     * A table carrying an invisible column after the visible data columns, modelling an iceberg v3 table
+     * whose row-lineage {@code _row_id} is appended {@code .invisible()} by the connector.
+     */
+    private static PluginDrivenExternalTable tableWithRowLineage() {
+        Column rowId = new Column("_row_id", PrimitiveType.BIGINT);
+        rowId.setIsVisible(false);
+        List<Column> schema = ImmutableList.of(ID, VAL, rowId);
+        PluginDrivenExternalTable table = Mockito.mock(PluginDrivenExternalTable.class);
+        Mockito.when(table.getBaseSchema(true)).thenReturn(schema);
+        for (Column c : schema) {
+            Mockito.when(table.getColumn(c.getName())).thenReturn(c);
+        }
+        return table;
+    }
+
     private static List<String> names(List<Column> columns) {
         return columns.stream().map(Column::getName).collect(Collectors.toList());
     }
@@ -73,7 +89,7 @@ public class BindConnectorSinkStaticPartitionTest {
     @Test
     public void noColumnListAllStaticExcludesPartitionColumns() {
         List<Column> bound = BindSink.selectConnectorSinkBindColumns(
-                partitionedTable(), Collections.emptyList(), ImmutableSet.of("ds", "region"));
+                partitionedTable(), Collections.emptyList(), ImmutableSet.of("ds", "region"), false);
         Assertions.assertEquals(ImmutableList.of("id", "val"), names(bound),
                 "static partition columns must be excluded from the bound columns");
     }
@@ -85,7 +101,7 @@ public class BindConnectorSinkStaticPartitionTest {
     @Test
     public void noColumnListPartialStaticExcludesOnlyStaticColumn() {
         List<Column> bound = BindSink.selectConnectorSinkBindColumns(
-                partitionedTable(), Collections.emptyList(), ImmutableSet.of("ds"));
+                partitionedTable(), Collections.emptyList(), ImmutableSet.of("ds"), false);
         Assertions.assertEquals(ImmutableList.of("id", "val", "region"), names(bound),
                 "only the statically-specified partition column must be excluded");
     }
@@ -98,7 +114,7 @@ public class BindConnectorSinkStaticPartitionTest {
     @Test
     public void noColumnListNoStaticPartitionBindsFullSchema() {
         List<Column> bound = BindSink.selectConnectorSinkBindColumns(
-                partitionedTable(), Collections.emptyList(), Collections.emptySet());
+                partitionedTable(), Collections.emptyList(), Collections.emptySet(), false);
         Assertions.assertEquals(ImmutableList.of("id", "val", "ds", "region"), names(bound),
                 "without a static partition spec the full base schema is bound");
     }
@@ -110,7 +126,7 @@ public class BindConnectorSinkStaticPartitionTest {
     @Test
     public void explicitColumnListUsesUserColumnsVerbatim() {
         List<Column> bound = BindSink.selectConnectorSinkBindColumns(
-                partitionedTable(), ImmutableList.of("val", "id"), ImmutableSet.of("ds"));
+                partitionedTable(), ImmutableList.of("val", "id"), ImmutableSet.of("ds"), false);
         Assertions.assertEquals(ImmutableList.of("val", "id"), names(bound),
                 "explicit column list is bound in user order, unaffected by static partitions");
     }
@@ -122,7 +138,35 @@ public class BindConnectorSinkStaticPartitionTest {
     public void explicitColumnListUnknownColumnThrows() {
         AnalysisException ex = Assertions.assertThrows(AnalysisException.class, () ->
                 BindSink.selectConnectorSinkBindColumns(
-                        partitionedTable(), ImmutableList.of("nope"), Collections.emptySet()));
+                        partitionedTable(), ImmutableList.of("nope"), Collections.emptySet(), false));
         Assertions.assertTrue(ex.getMessage().contains("nope"), "error must name the missing column");
+    }
+
+    /**
+     * No column list, ordinary write (not a rewrite): invisible columns (e.g. iceberg v3 row-lineage
+     * {@code _row_id} / {@code _last_updated_sequence_number}) must be EXCLUDED from the default bound
+     * columns — the user never supplies their values, so including them would make the bound-column
+     * count exceed the query output and throw "insert into cols should be corresponding to the query
+     * output". Guards the v3 row-lineage INSERT regression (test_iceberg_v2_to_v3_doris_spark_compare).
+     */
+    @Test
+    public void noColumnListOrdinaryWriteExcludesInvisibleColumns() {
+        List<Column> bound = BindSink.selectConnectorSinkBindColumns(
+                tableWithRowLineage(), Collections.emptyList(), Collections.emptySet(), false);
+        Assertions.assertEquals(ImmutableList.of("id", "val"), names(bound),
+                "invisible row-lineage columns must be excluded from an ordinary write target");
+    }
+
+    /**
+     * No column list, rewrite (distributed {@code rewrite_data_files}): invisible columns are RETAINED so
+     * the engine-managed row-lineage values read from the source rows are preserved through the rewrite,
+     * mirroring the legacy {@code bindIcebergTableSink} rewrite branch.
+     */
+    @Test
+    public void noColumnListRewriteRetainsInvisibleColumns() {
+        List<Column> bound = BindSink.selectConnectorSinkBindColumns(
+                tableWithRowLineage(), Collections.emptyList(), Collections.emptySet(), true);
+        Assertions.assertEquals(ImmutableList.of("id", "val", "_row_id"), names(bound),
+                "a rewrite must retain invisible row-lineage columns to preserve their values");
     }
 }

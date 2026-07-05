@@ -73,6 +73,41 @@ public interface ConnectorScanPlanProvider {
     }
 
     /**
+     * Whether this connector's SYSTEM tables honor a pinned read — {@code FOR TIME/VERSION AS OF}
+     * (snapshot) and {@code @branch}/{@code @tag} scan-params. Consulted by the generic
+     * {@code PluginDrivenScanNode} sys-table guard: a connector returning {@code true} (e.g. iceberg,
+     * whose metadata tables legally time-travel) lets those pinned sys reads through to {@link #planScan};
+     * a connector returning {@code false} (the default — e.g. paimon, whose binlog/audit_log sys tables
+     * have no point-in-time semantics) keeps the fail-loud rejection. {@code @incr} (incremental read) is
+     * rejected for EVERY connector regardless of this flag — it is undefined on a synthetic metadata table.
+     *
+     * @return {@code true} if this connector's system tables honor a time-travel / branch-tag pin
+     *         (default: {@code false})
+     */
+    default boolean supportsSystemTableTimeTravel() {
+        return false;
+    }
+
+    /**
+     * Classifies a SPECIAL (synthesized / generated) column that this connector owns, by name. Consulted by
+     * the generic {@code PluginDrivenScanNode.classifyColumn} so the engine can tag a connector's hidden /
+     * metadata columns (e.g. iceberg's {@code __DORIS_ICEBERG_ROWID_COL__} row-id and v3 row-lineage columns)
+     * with the right BE column category WITHOUT the generic node importing any connector-specific code.
+     *
+     * <p>Returning {@link ConnectorColumnCategory#DEFAULT} (the default — for every regular data column and
+     * for connectors with no special columns, e.g. paimon/jdbc/es) means "not mine": the generic node falls
+     * through to its own partition-key / regular classification. The engine-wide lazy-materialization row-id
+     * column ({@code __DORIS_GLOBAL_ROWID_COL__*}) is NOT classified here — it is a generic Doris mechanism
+     * handled by the generic node itself.</p>
+     *
+     * @param columnName the (already identifier-mapped) Doris column name of a query slot
+     * @return the special-column category, or {@link ConnectorColumnCategory#DEFAULT} if not a special column
+     */
+    default ConnectorColumnCategory classifyColumn(String columnName) {
+        return ConnectorColumnCategory.DEFAULT;
+    }
+
+    /**
      * Plans the scan for the given table, returning a list of scan ranges.
      *
      * @param session the current session
@@ -224,6 +259,65 @@ public interface ConnectorScanPlanProvider {
             long limit,
             List<String> partitionBatch) {
         return planScan(session, handle, columns, filter, limit, partitionBatch);
+    }
+
+    /**
+     * Decides whether this scan should use streaming (lazy) split generation and, if so, estimates
+     * the number of splits it will produce. This is the file-count counterpart of the partition-count
+     * batch gate ({@link #supportsBatchScan}), and echoes Trino's lazy {@code ConnectorSplitSource}
+     * model: the connector owns the whole decision (e.g. Iceberg: matched-manifest file count &ge;
+     * {@code num_files_in_batch_mode} with {@code enable_external_table_batch_mode} on, a snapshot
+     * present, not a system table, count pushdown not servable). The engine additionally requires the
+     * scan to have output slots before entering streaming mode.
+     *
+     * <p>When this returns a non-negative value, the engine drives streaming split generation via
+     * {@link #streamSplits} (pulling ranges with backpressure) instead of the synchronous
+     * {@link #planScan}; the returned estimate doubles as the BE concurrency hint. A negative value
+     * keeps the scan on the synchronous {@code planScan} path (the default).</p>
+     *
+     * <p>The decision MUST be cheap (e.g. manifest metadata counts), NOT a full split enumeration —
+     * the heavy enumeration is deferred to {@link #streamSplits}.</p>
+     *
+     * @param session       the current session
+     * @param handle        the table handle (carries any pushed-down filter)
+     * @param filter        an optional remaining filter expression
+     * @param countPushdown whether a no-grouping {@code COUNT(*)} is pushed down for this scan
+     * @return the approximate streamed split count if streaming should be used, else a negative value
+     *         (default: -1)
+     */
+    default long streamingSplitEstimate(
+            ConnectorSession session,
+            ConnectorTableHandle handle,
+            Optional<ConnectorExpression> filter,
+            boolean countPushdown) {
+        return -1;
+    }
+
+    /**
+     * Builds a lazy {@link ConnectorSplitSource} for streaming split generation. Called once, on a
+     * background task, only when {@link #streamingSplitEstimate} returned a non-negative value. The
+     * engine pulls ranges from the source with backpressure and pumps them into the split queue
+     * (mirrors legacy {@code IcebergScanNode.doStartSplit}).
+     *
+     * <p>The source MUST defer the heavy planning (e.g. {@code TableScan.planFiles()}) until ranges
+     * are consumed, so FE heap usage stays bounded for very large scans. The default throws, so a
+     * connector that returns a non-negative {@link #streamingSplitEstimate} must override this.</p>
+     *
+     * @param session the current session
+     * @param handle  the table handle (snapshot/time-travel already pinned by the engine)
+     * @param columns the columns to read
+     * @param filter  an optional remaining filter expression
+     * @param limit   the maximum number of rows to return, or -1 for no limit
+     * @return a lazy, closeable source of scan ranges
+     */
+    default ConnectorSplitSource streamSplits(
+            ConnectorSession session,
+            ConnectorTableHandle handle,
+            List<ConnectorColumnHandle> columns,
+            Optional<ConnectorExpression> filter,
+            long limit) {
+        throw new UnsupportedOperationException(
+                "streamSplits requires streamingSplitEstimate(...) >= 0; connector did not implement it");
     }
 
     /**

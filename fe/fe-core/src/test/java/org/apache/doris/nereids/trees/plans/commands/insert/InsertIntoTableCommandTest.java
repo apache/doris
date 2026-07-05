@@ -18,6 +18,11 @@
 package org.apache.doris.nereids.trees.plans.commands.insert;
 
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.jmockit.Deencapsulation;
+import org.apache.doris.connector.api.Connector;
+import org.apache.doris.datasource.PluginDrivenExternalCatalog;
+import org.apache.doris.datasource.PluginDrivenExternalTable;
 import org.apache.doris.datasource.doris.RemoteDorisExternalTable;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -169,5 +174,49 @@ class InsertIntoTableCommandTest {
         Assertions.assertThrows(AnalysisException.class, () -> {
             command.selectInsertExecutorFactory(planner, ctx, stmtExecutor, remoteDorisExternalTable);
         }, "remote olap table do not support group commit");
+    }
+
+    /**
+     * A PluginDrivenExternalTable whose connector reports {@code supportsWriteBranch()==supported},
+     * stubbing the catalog -> connector chain the @branch gate walks.
+     */
+    private static PluginDrivenExternalTable pluginTableForWriteBranch(boolean supported) {
+        PluginDrivenExternalTable table = Mockito.mock(PluginDrivenExternalTable.class);
+        PluginDrivenExternalCatalog catalog = Mockito.mock(PluginDrivenExternalCatalog.class);
+        Connector connector = Mockito.mock(Connector.class);
+        Mockito.when(table.getCatalog()).thenReturn(catalog);
+        Mockito.when(catalog.getConnector()).thenReturn(connector);
+        Mockito.when(connector.supportsWriteBranch()).thenReturn(supported);
+        return table;
+    }
+
+    @Test
+    void testConnectorSupportsWriteBranchForBranchCapablePluginDrivenTable() {
+        // INSERT INTO t@branch: post-cutover an iceberg table is plugin-driven (generic sink, not
+        // PhysicalIcebergTableSink), so the @branch guard admits it via the connector capability. Without
+        // this the branch is rejected post-flip even though the connector threads it.
+        // Mutation guard: dropping the production `&& !connectorSupportsWriteBranch(...)` arm or stubbing
+        // the wrong capability -> branch-capable iceberg wrongly rejected -> red.
+        boolean supported = Deencapsulation.invoke(InsertIntoTableCommand.class,
+                "connectorSupportsWriteBranch", pluginTableForWriteBranch(true));
+        Assertions.assertTrue(supported,
+                "a branch-capable plugin-driven table (iceberg) must be admitted for INSERT @branch");
+    }
+
+    @Test
+    void testConnectorSupportsWriteBranchForNonBranchCapableAndNonPluginTables() {
+        // A plugin-driven table whose connector lacks branch support (jdbc) MUST be rejected (fail loud),
+        // not silently dropped onto the default ref; a non-plugin table short-circuits via the instanceof
+        // guard. Mutation guard: returning true in either case -> red.
+        // Assign to a boolean local first: passing the generic Deencapsulation.invoke result straight into
+        // assertFalse(..., String) would resolve to the BooleanSupplier overload (Boolean != BooleanSupplier).
+        boolean nonBranchCapable = Deencapsulation.invoke(InsertIntoTableCommand.class,
+                "connectorSupportsWriteBranch", pluginTableForWriteBranch(false));
+        Assertions.assertFalse(nonBranchCapable,
+                "a plugin-driven table whose connector lacks write-branch support must be rejected");
+        boolean nonPlugin = Deencapsulation.invoke(InsertIntoTableCommand.class,
+                "connectorSupportsWriteBranch", Mockito.mock(TableIf.class));
+        Assertions.assertFalse(nonPlugin,
+                "a non-plugin table type must NOT be treated as write-branch capable");
     }
 }

@@ -177,17 +177,10 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
     }
 
     private View loadView(NameMapping nameMapping) {
-        CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(nameMapping.getCtlId());
-        if (!(catalog instanceof IcebergExternalCatalog)) {
-            return null;
-        }
-        IcebergMetadataOps ops = (IcebergMetadataOps) (((IcebergExternalCatalog) catalog).getMetadataOps());
-        try {
-            return (View) ((ExternalCatalog) catalog).getExecutionAuthenticator().execute(
-                    () -> ops.loadView(nameMapping.getRemoteDbName(), nameMapping.getRemoteTblName()));
-        } catch (Exception e) {
-            throw new RuntimeException(ExceptionUtils.getRootCauseMessage(e), e);
-        }
+        // Post-cutover no live catalog is an IcebergExternalCatalog (native iceberg -> PluginDrivenExternalCatalog,
+        // HMS-iceberg -> HMSExternalCatalog), so this fe-core view loader is inert and returns null exactly as it
+        // already did for every non-native catalog. Plugin iceberg view resolution is handled by the connector.
+        return null;
     }
 
     private ManifestCacheValue loadManifestCacheValue(org.apache.iceberg.ManifestFile manifest, Table icebergTable,
@@ -240,8 +233,6 @@ public class IcebergExternalMetaCache extends AbstractExternalMetaCache {
     private IcebergMetadataOps resolveMetadataOps(CatalogIf catalog) {
         if (catalog instanceof HMSExternalCatalog) {
             return ((HMSExternalCatalog) catalog).getIcebergMetadataOps();
-        } else if (catalog instanceof IcebergExternalCatalog) {
-            return (IcebergMetadataOps) (((IcebergExternalCatalog) catalog).getMetadataOps());
         }
         throw new RuntimeException("Only support 'hms' and 'iceberg' type for iceberg table");
     }

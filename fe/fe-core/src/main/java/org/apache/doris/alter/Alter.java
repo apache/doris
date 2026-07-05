@@ -47,8 +47,6 @@ import org.apache.doris.common.util.MetaLockUtils;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.PropertyAnalyzer.RewriteProperty;
 import org.apache.doris.datasource.ExternalTable;
-import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
-import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.info.TableNameInfoUtils;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.nereids.trees.plans.commands.AlterSystemCommand;
@@ -393,7 +391,6 @@ public class Alter {
 
     private void processAlterTableForExternalTable(
             ExternalTable table, List<AlterOp> alterOps) throws UserException {
-        long updateTime = System.currentTimeMillis();
         for (AlterOp alterOp : alterOps) {
             if (alterOp instanceof ModifyTablePropertiesOp) {
                 setExternalTableAutoAnalyzePolicy(table, alterOps);
@@ -433,29 +430,11 @@ public class Alter {
                 ReorderColumnsOp reorderColumns = (ReorderColumnsOp) alterOp;
                 table.getCatalog().reorderColumns(table, reorderColumns.getColumnsByPos());
             } else if (alterOp instanceof AddPartitionFieldOp) {
-                AddPartitionFieldOp addPartitionField = (AddPartitionFieldOp) alterOp;
-                if (table instanceof IcebergExternalTable) {
-                    ((IcebergExternalCatalog) table.getCatalog()).addPartitionField(
-                            (IcebergExternalTable) table, addPartitionField, updateTime);
-                } else {
-                    throw new UserException("ADD PARTITION KEY is only supported for Iceberg tables");
-                }
+                table.getCatalog().addPartitionField(table, (AddPartitionFieldOp) alterOp);
             } else if (alterOp instanceof DropPartitionFieldOp) {
-                DropPartitionFieldOp dropPartitionField = (DropPartitionFieldOp) alterOp;
-                if (table instanceof IcebergExternalTable) {
-                    ((IcebergExternalCatalog) table.getCatalog()).dropPartitionField(
-                            (IcebergExternalTable) table, dropPartitionField, updateTime);
-                } else {
-                    throw new UserException("DROP PARTITION KEY is only supported for Iceberg tables");
-                }
+                table.getCatalog().dropPartitionField(table, (DropPartitionFieldOp) alterOp);
             } else if (alterOp instanceof ReplacePartitionFieldOp) {
-                ReplacePartitionFieldOp replacePartitionField = (ReplacePartitionFieldOp) alterOp;
-                if (table instanceof IcebergExternalTable) {
-                    ((IcebergExternalCatalog) table.getCatalog()).replacePartitionField(
-                            (IcebergExternalTable) table, replacePartitionField, updateTime);
-                } else {
-                    throw new UserException("REPLACE PARTITION KEY is only supported for Iceberg tables");
-                }
+                table.getCatalog().replacePartitionField(table, (ReplacePartitionFieldOp) alterOp);
             } else {
                 throw new UserException("Invalid alter operations for external table: " + alterOps);
             }

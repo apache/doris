@@ -18,13 +18,10 @@
 package org.apache.doris.datasource;
 
 import org.apache.doris.common.UserException;
-import org.apache.doris.datasource.credentials.AbstractVendedCredentialsProvider;
-import org.apache.doris.datasource.credentials.VendedCredentialsFactory;
 import org.apache.doris.datasource.property.metastore.MetastoreProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 
 import com.google.common.base.Preconditions;
-import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
 import org.apache.commons.collections4.MapUtils;
@@ -33,10 +30,12 @@ import org.apache.hadoop.conf.Configuration;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 /**
@@ -58,21 +57,6 @@ public class CatalogProperty {
     @SerializedName(value = "properties")
     private Map<String, String> properties;
 
-    /**
-     * An ordered list of all initialized {@link StorageProperties} instances.
-     * <p>
-     * The order of this list is significant:
-     * <ul>
-     *   <li>The default HDFSProperties (if auto-created) is always inserted at index 0.</li>
-     *   <li>Explicitly configured storage providers follow in the order they are detected.</li>
-     *   <li>Callers rely on this deterministic ordering for selecting or iterating through
-     *       storage backends.</li>
-     * </ul>
-     * <p>
-     * Declared as {@code volatile} to ensure visibility across threads once initialized.
-     */
-    private volatile List<StorageProperties> orderedStoragePropertiesList;
-
     // Lazy-loaded storage properties map, using volatile to ensure visibility
     private volatile Map<StorageProperties.Type, StorageProperties> storagePropertiesMap;
 
@@ -84,6 +68,14 @@ public class CatalogProperty {
 
     // Lazy-loaded Hadoop properties, using volatile to ensure visibility
     private volatile Map<String, String> hadoopProperties;
+
+    // Design S8: for a plugin catalog, the connector owns storage-property derivation (e.g. iceberg hadoop
+    // warehouse -> fs.defaultFS); this supplier returns the connector-derived storage defaults fe-core folds
+    // into the storage map, so fe-core does NOT parse metastore properties on the storage path. Null for a
+    // legacy catalog (Hive/Hudi/HMS-iceberg/LakeSoul), which derives from its fe-core MetastoreProperties. Set
+    // once by PluginDrivenExternalCatalog after the connector is created; deliberately NOT cleared by
+    // resetAllCaches (it is catalog wiring, not a derived cache, and an ALTER re-runs catalog init anyway).
+    private volatile Supplier<Map<String, String>> pluginDerivedStorageDefaultsSupplier;
 
     public CatalogProperty(String resource, Map<String, String> properties) {
         this.resource = resource; // Keep but not used
@@ -177,28 +169,15 @@ public class CatalogProperty {
             synchronized (this) {
                 if (storagePropertiesMap == null) {
                     try {
-                        boolean checkStorageProperties = true;
-                        MetastoreProperties msp = getMetastoreProperties();
-                        AbstractVendedCredentialsProvider provider =
-                                VendedCredentialsFactory.getProviderType(msp);
-                        if (provider != null) {
-                            checkStorageProperties = !provider.isVendedCredentialsEnabled(msp);
-                        } else if (msp != null) {
-                            // Non-provider backends signal vended credentials via the metastore-props gate
-                            // (e.g. a Paimon REST catalog skips the static storage map): SDK-free replacement
-                            // of the former VendedCredentialsFactory PAIMON case. Iceberg still routes through
-                            // its provider above, so its behavior is unchanged. The null guard preserves the
-                            // pre-change "build the static map" behavior when there is no metastore.
-                            checkStorageProperties = !msp.isVendedCredentialsEnabled();
-                        }
-                        if (checkStorageProperties) {
-                            this.orderedStoragePropertiesList = StorageProperties.createAll(getProperties());
-                            this.storagePropertiesMap = orderedStoragePropertiesList.stream()
-                                    .collect(Collectors.toMap(StorageProperties::getType, Function.identity()));
-                        } else {
-                            this.orderedStoragePropertiesList = Lists.newArrayList();
-                            this.storagePropertiesMap = Maps.newHashMap();
-                        }
+                        // Design S4: build the static storage map unconditionally (no vended discrimination).
+                        // For legacy catalogs (Hive/Hudi/HMS-iceberg/LakeSoul) this is exactly today's behavior;
+                        // for a plugin REST/vended catalog the map carries no static object-store creds (the
+                        // connector supplies vended per-table), so createAll yields only inert defaults the
+                        // plugin storage consumers do not use.
+                        Map<String, String> storageProps = mergeDerivedStorageDefaults();
+                        List<StorageProperties> ordered = StorageProperties.createAll(storageProps);
+                        this.storagePropertiesMap = ordered.stream()
+                                .collect(Collectors.toMap(StorageProperties::getType, Function.identity()));
                     } catch (UserException e) {
                         LOG.warn("Failed to initialize catalog storage properties", e);
                         throw new RuntimeException("Failed to initialize storage properties, error: "
@@ -209,14 +188,78 @@ public class CatalogProperty {
         }
     }
 
+    /**
+     * The catalog's persisted user props merged with derived storage defaults. For a plugin catalog the
+     * connector supplies them (design S8: {@link #pluginDerivedStorageDefaultsSupplier} — fe-core does not
+     * parse metastore properties for storage); for a legacy catalog they come from its fe-core
+     * {@link MetastoreProperties}. Derived props are defaults (an explicit user key wins via {@code putIfAbsent})
+     * and the persisted {@link #getProperties()} map is never mutated. This is the exact map
+     * {@link #initStorageProperties} feeds to {@link StorageProperties#createAll} and that
+     * {@link #getEffectiveRawStorageProperties} hands the connector for fe-filesystem binding.
+     */
+    private Map<String, String> mergeDerivedStorageDefaults() {
+        Map<String, String> storageProps = getProperties();
+        Map<String, String> derived = resolveDerivedStorageDefaults();
+        if (MapUtils.isNotEmpty(derived)) {
+            storageProps = new HashMap<>(storageProps);
+            derived.forEach(storageProps::putIfAbsent);
+        }
+        return storageProps;
+    }
+
+    /**
+     * Resolves the derived storage defaults. A plugin catalog gets them from the connector (design S8 — fe-core
+     * does not parse metastore properties for storage; the iceberg connector bridges its hadoop warehouse to
+     * {@code fs.defaultFS}). A legacy catalog derives them from its fe-core {@link MetastoreProperties}, which
+     * is empty for every remaining type once the iceberg cluster's sole {@code getDerivedStorageProperties}
+     * override moved to the connector.
+     */
+    private Map<String, String> resolveDerivedStorageDefaults() {
+        Supplier<Map<String, String>> pluginSupplier = pluginDerivedStorageDefaultsSupplier;
+        if (pluginSupplier != null) {
+            Map<String, String> derived = pluginSupplier.get();
+            return derived != null ? derived : Collections.emptyMap();
+        }
+        MetastoreProperties msp = getMetastoreProperties();
+        return msp != null ? msp.getDerivedStorageProperties() : Collections.emptyMap();
+    }
+
+    /**
+     * Design S8: wires the connector-owned storage-derivation source for a plugin catalog. Once set, storage
+     * property init folds the connector-derived defaults instead of deriving from fe-core MetastoreProperties,
+     * so a plugin iceberg/paimon catalog never calls {@link #getMetastoreProperties()} on the storage path.
+     */
+    public void setPluginDerivedStorageDefaultsSupplier(Supplier<Map<String, String>> supplier) {
+        this.pluginDerivedStorageDefaultsSupplier = supplier;
+    }
+
+    /**
+     * The effective raw storage property map for a plugin catalog to bind directly through fe-filesystem
+     * (design S2), letting {@code ConnectorContext.getStorageProperties()} hand the connector typed
+     * fe-filesystem storage without the redundant fe-core {@link StorageProperties#createAll} round-trip.
+     * Returns the same map {@link #initStorageProperties} would parse — user props plus derived defaults
+     * (warehouse -> fs.defaultFS). Design S4: no vended discrimination — fe-core hands the connector the raw
+     * map unconditionally (the connector owns static+vended precedence, overlaying per-table vended creds); a
+     * REST/vended catalog carries no static storage keys, so binding it still yields no static storage.
+     * Byte-identical to {@code getStoragePropertiesMap().values().iterator().next().getOrigProps()} (createAll
+     * passes the map through unmutated), so the bound typed StorageProperties, and the BE {@code location.*}
+     * map derived from them, are unchanged. The returned map must be treated as read-only by callers.
+     */
+    public Map<String, String> getEffectiveRawStorageProperties() {
+        // synchronized(this) so the metastore read and the persisted-props read form a single consistent
+        // snapshot, matching the atomicity of the fe-core parse path (initStorageProperties builds under the
+        // same monitor, mutually exclusive with modifyCatalogProps/addProperty/deleteProperty). Without it a
+        // concurrent ALTER of a derivation-feeding key (e.g. warehouse) could tear the derived defaults against
+        // the user props. The critical section is a small map copy + pure derivation and takes no foreign lock,
+        // so it is deadlock-free and contention-free at scan-planning frequency.
+        synchronized (this) {
+            return mergeDerivedStorageDefaults();
+        }
+    }
+
     public Map<StorageProperties.Type, StorageProperties> getStoragePropertiesMap() {
         initStorageProperties();
         return storagePropertiesMap;
-    }
-
-    public List<StorageProperties> getOrderedStoragePropertiesList() {
-        initStorageProperties();
-        return orderedStoragePropertiesList;
     }
 
     public void checkMetaStoreAndStorageProperties(Class msClass) {

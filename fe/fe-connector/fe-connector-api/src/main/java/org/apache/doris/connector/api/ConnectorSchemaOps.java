@@ -37,11 +37,16 @@ public interface ConnectorSchemaOps {
         return false;
     }
 
-    /** Retrieves metadata for the specified database. */
+    /**
+     * Retrieves metadata for the specified database. The default returns metadata with an empty
+     * property map (so SHOW CREATE DATABASE renders no LOCATION/PROPERTIES for connectors with no
+     * database-level metadata, matching their pre-flip behavior); connectors that expose namespace
+     * metadata (e.g. iceberg's namespace location) override this. Mirrors the graceful empty defaults
+     * of {@link #listDatabaseNames}/{@link #databaseExists} rather than throwing.
+     */
     default ConnectorDatabaseMetadata getDatabase(
             ConnectorSession session, String dbName) {
-        throw new DorisConnectorException(
-                "getDatabase not implemented");
+        return new ConnectorDatabaseMetadata(dbName, Collections.emptyMap());
     }
 
     /**

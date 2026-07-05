@@ -17,18 +17,39 @@
 
 package org.apache.doris.datasource;
 
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.RefreshManager;
+import org.apache.doris.catalog.Type;
+import org.apache.doris.catalog.constraint.ConstraintManager;
+import org.apache.doris.catalog.info.BranchOptions;
+import org.apache.doris.catalog.info.ColumnPosition;
+import org.apache.doris.catalog.info.CreateOrReplaceBranchInfo;
+import org.apache.doris.catalog.info.CreateOrReplaceTagInfo;
+import org.apache.doris.catalog.info.DropBranchInfo;
+import org.apache.doris.catalog.info.DropTagInfo;
+import org.apache.doris.catalog.info.TableNameInfo;
+import org.apache.doris.catalog.info.TagOptions;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.UserException;
 import org.apache.doris.connector.api.Connector;
+import org.apache.doris.connector.api.ConnectorColumn;
 import org.apache.doris.connector.api.ConnectorMetadata;
 import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.DorisConnectorException;
+import org.apache.doris.connector.api.ddl.BranchChange;
+import org.apache.doris.connector.api.ddl.ConnectorColumnPosition;
 import org.apache.doris.connector.api.ddl.ConnectorCreateTableRequest;
+import org.apache.doris.connector.api.ddl.DropRefChange;
+import org.apache.doris.connector.api.ddl.PartitionFieldChange;
+import org.apache.doris.connector.api.ddl.TagChange;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.ddl.CreateTableInfoToConnectorRequestConverter;
+import org.apache.doris.nereids.trees.plans.commands.info.AddPartitionFieldOp;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.DropPartitionFieldOp;
+import org.apache.doris.nereids.trees.plans.commands.info.ReplacePartitionFieldOp;
 import org.apache.doris.persist.EditLog;
 
 import org.junit.jupiter.api.AfterEach;
@@ -39,6 +60,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
@@ -62,6 +84,8 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
 
     private MockedStatic<Env> mockedEnv;
     private EditLog mockEditLog;
+    private RefreshManager mockRefreshManager;
+    private ConstraintManager mockConstraintManager;
     private Connector connector;
     private ConnectorMetadata metadata;
     private ConnectorSession session;
@@ -81,9 +105,13 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
 
         Env mockEnv = Mockito.mock(Env.class);
         mockEditLog = Mockito.mock(EditLog.class);
+        mockRefreshManager = Mockito.mock(RefreshManager.class);
+        mockConstraintManager = Mockito.mock(ConstraintManager.class);
         mockedEnv = Mockito.mockStatic(Env.class);
         mockedEnv.when(Env::getCurrentEnv).thenReturn(mockEnv);
         Mockito.when(mockEnv.getEditLog()).thenReturn(mockEditLog);
+        Mockito.when(mockEnv.getRefreshManager()).thenReturn(mockRefreshManager);
+        Mockito.when(mockEnv.getConstraintManager()).thenReturn(mockConstraintManager);
     }
 
     @AfterEach
@@ -189,7 +217,9 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
 
     @Test
     public void testDropDbRoutesToConnectorAndUnregisters() throws Exception {
-        catalog.dbNullableResult = Mockito.mock(ExternalDatabase.class);
+        ExternalDatabase<? extends ExternalTable> db = mockExternalDatabase();
+        Mockito.when(db.getRemoteName()).thenReturn("db1"); // non-mapped: LOCAL == REMOTE
+        catalog.dbNullableResult = db;
 
         catalog.dropDb("db1", false, false);
 
@@ -231,7 +261,9 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
 
     @Test
     public void testDropDbForceForwardsForceTrueToConnector() throws Exception {
-        catalog.dbNullableResult = Mockito.mock(ExternalDatabase.class);
+        ExternalDatabase<? extends ExternalTable> db = mockExternalDatabase();
+        Mockito.when(db.getRemoteName()).thenReturn("db1"); // non-mapped: LOCAL == REMOTE
+        catalog.dbNullableResult = db;
 
         catalog.dropDb("db1", false, true);
 
@@ -244,13 +276,41 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
 
     @Test
     public void testDropDbNonForceForwardsForceFalseToConnector() throws Exception {
-        catalog.dbNullableResult = Mockito.mock(ExternalDatabase.class);
+        ExternalDatabase<? extends ExternalTable> db = mockExternalDatabase();
+        Mockito.when(db.getRemoteName()).thenReturn("db1"); // non-mapped: LOCAL == REMOTE
+        catalog.dbNullableResult = db;
 
         catalog.dropDb("db1", false, false);
 
         // WHY: guards that the fix does NOT over-correct into always-cascading -- a plain
         // (non-FORCE) DROP DB must forward force=false so the connector never deletes tables.
         Mockito.verify(metadata).dropDatabase(session, "db1", false, false);
+    }
+
+    @Test
+    public void testDropDbResolvesRemoteNameRoutesAndUnregisters() throws Exception {
+        // local "db1" maps to remote "REMOTE_DB1" (name mapping enabled).
+        ExternalDatabase<? extends ExternalTable> db = mockExternalDatabase();
+        Mockito.when(db.getRemoteName()).thenReturn("REMOTE_DB1");
+        catalog.dbNullableResult = db;
+
+        catalog.dropDb("db1", false, true);
+
+        // WHY (Rule 9): the connector must receive the REMOTE db name so name-mapped catalogs hit the
+        // real remote namespace -- the regression forwarded the bare LOCAL "db1", which on a mapped
+        // catalog drops/cascades the wrong (or nonexistent) namespace. A mutation reverting to the
+        // local dbName makes this verify red. Mirrors the dropTable remote-name resolution.
+        Mockito.verify(metadata).dropDatabase(session, "REMOTE_DB1", false, true);
+        // WHY: edit log + cache invalidation MUST keep the LOCAL name -- followers replay the persisted
+        // DropDbInfo and the on-FE cache is keyed by local name. A mutation persisting the remote name
+        // into DropDbInfo / unregisterDatabase must turn these red.
+        ArgumentCaptor<org.apache.doris.persist.DropDbInfo> dropDbInfo =
+                ArgumentCaptor.forClass(org.apache.doris.persist.DropDbInfo.class);
+        Mockito.verify(mockEditLog).logDropDb(dropDbInfo.capture());
+        Assertions.assertEquals("db1", dropDbInfo.getValue().getDbName(),
+                "edit-log DropDbInfo must carry the LOCAL db name for follower replay");
+        Assertions.assertEquals("db1", catalog.unregisteredDb,
+                "cache invalidation must use the LOCAL db name");
     }
 
     // ==================== DROP TABLE ====================
@@ -386,6 +446,151 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
         DdlException ex = Assertions.assertThrows(DdlException.class,
                 () -> catalog.dropTable("db1", "t1", false, false, false, false, false, false));
         Assertions.assertTrue(ex.getMessage().contains("boom"));
+    }
+
+    // B2: DROP on a flipped iceberg VIEW must route to metadata.dropView (mirroring legacy
+    // IcebergMetadataOps.dropTableImpl's viewExists -> performDropView dispatch). The connector's
+    // getTableHandle/tableExists is false for a view, so without this routing the handle path would no-op
+    // (IF EXISTS) / throw (no such table). Edit log + cache invalidation use the LOCAL names like the table path.
+
+    @Test
+    public void testDropTableRoutesViewToDropViewAndUnregisters() throws Exception {
+        ExternalDatabase<? extends ExternalTable> db = mockExternalDatabase();
+        ExternalTable view = Mockito.mock(ExternalTable.class);
+        Mockito.when(view.getRemoteDbName()).thenReturn("DB1");
+        Mockito.when(view.getRemoteName()).thenReturn("V1");
+        Mockito.doReturn(view).when(db).getTableNullable("v1");
+        catalog.dbNullableResult = db;
+        ExternalDatabase<? extends ExternalTable> replayDb = mockExternalDatabase();
+        catalog.dbForReplayResult = Optional.of(replayDb);
+        // The connector reports the (remote) object as a view.
+        Mockito.when(metadata.viewExists(session, "DB1", "V1")).thenReturn(true);
+
+        catalog.dropTable("db1", "v1", false, false, false, false, false, false);
+
+        // WHY: a view must be dropped via dropView with the REMOTE names, and the table-handle path must be
+        // skipped entirely (getTableHandle/dropTable never consulted) -- legacy dropTableImpl checks viewExists
+        // BEFORE resolving the table. A mutation that drops the routing makes the dropView verify red (and the
+        // getTableHandle would be reached on a non-existent table).
+        Mockito.verify(metadata).dropView(session, "DB1", "V1");
+        Mockito.verify(metadata, Mockito.never()).getTableHandle(Mockito.any(), Mockito.any(), Mockito.any());
+        Mockito.verify(metadata, Mockito.never()).dropTable(Mockito.any(), Mockito.any());
+        // WHY: edit log + cache invalidation MUST use the LOCAL names (follower replay parity), identical to
+        // the table path. A mutation persisting the remote names turns these red.
+        ArgumentCaptor<org.apache.doris.persist.DropInfo> dropInfo =
+                ArgumentCaptor.forClass(org.apache.doris.persist.DropInfo.class);
+        Mockito.verify(mockEditLog).logDropTable(dropInfo.capture());
+        Assertions.assertEquals("db1", dropInfo.getValue().getDb(),
+                "edit-log DropInfo must carry the LOCAL db name for follower replay");
+        Assertions.assertEquals("v1", dropInfo.getValue().getTableName(),
+                "edit-log DropInfo must carry the LOCAL view name for follower replay");
+        Assertions.assertEquals("db1", catalog.lastGetDbForReplayArg,
+                "cache invalidation must look up the LOCAL db name");
+        Mockito.verify(replayDb).unregisterTable("v1");
+    }
+
+    @Test
+    public void testDropViewWrapsConnectorException() {
+        ExternalDatabase<? extends ExternalTable> db = mockExternalDatabase();
+        ExternalTable view = Mockito.mock(ExternalTable.class);
+        Mockito.when(view.getRemoteDbName()).thenReturn("DB1");
+        Mockito.when(view.getRemoteName()).thenReturn("V1");
+        Mockito.doReturn(view).when(db).getTableNullable("v1");
+        catalog.dbNullableResult = db;
+        Mockito.when(metadata.viewExists(session, "DB1", "V1")).thenReturn(true);
+        Mockito.doThrow(new DorisConnectorException("boom")).when(metadata).dropView(session, "DB1", "V1");
+
+        // WHY: a remote view-drop failure must surface as a DdlException (same as the table path) and abort
+        // BEFORE any bookkeeping -- no editlog, no unregister, so the FE cache stays consistent with the remote.
+        DdlException ex = Assertions.assertThrows(DdlException.class,
+                () -> catalog.dropTable("db1", "v1", false, false, false, false, false, false));
+        Assertions.assertTrue(ex.getMessage().contains("boom"));
+        Mockito.verify(mockEditLog, Mockito.never()).logDropTable(Mockito.any());
+    }
+
+    // ==================== RENAME TABLE ====================
+    // renameTable resolves the SOURCE by REMOTE names (like dropTable) and passes the new name through
+    // (legacy renameTableImpl parity); afterExternalRename does the cache fix (unregister old + reset names)
+    // + constraintManager rename + createForRenameTable editlog, all with LOCAL names for follower replay.
+
+    @Test
+    public void testRenameTableResolvesRemoteSourceRoutesAndFixesCache() throws Exception {
+        // local db1.t1 maps to remote DB1.TBL1 (name mapping enabled).
+        ExternalDatabase<? extends ExternalTable> db = mockExternalDatabase();
+        ExternalTable table = Mockito.mock(ExternalTable.class);
+        Mockito.when(table.getRemoteDbName()).thenReturn("DB1");
+        Mockito.when(table.getRemoteName()).thenReturn("TBL1");
+        Mockito.doReturn(table).when(db).getTableNullable("t1");
+        catalog.dbNullableResult = db;
+        // Distinct replay db: locks that the cache fix uses the getDbForReplay lookup (LOCAL name), not the
+        // resolution db.
+        ExternalDatabase<? extends ExternalTable> replayDb = mockExternalDatabase();
+        catalog.dbForReplayResult = Optional.of(replayDb);
+        ConnectorTableHandle handle = Mockito.mock(ConnectorTableHandle.class);
+        Mockito.when(metadata.getTableHandle(session, "DB1", "TBL1")).thenReturn(Optional.of(handle));
+
+        catalog.renameTable("db1", "t1", "t2");
+
+        // WHY: the connector must receive the REMOTE source names + the new name; a mutation passing the
+        // local "db1"/"t1" makes this verify red.
+        Mockito.verify(metadata).getTableHandle(session, "DB1", "TBL1");
+        Mockito.verify(metadata).renameTable(session, handle, "t2");
+        // WHY (Rule 9): cache fix + constraint + editlog MUST use LOCAL names (followers replay the
+        // createForRenameTable entry and the cache is keyed by local name). A mutation using remote names
+        // for the bookkeeping turns these red.
+        Assertions.assertEquals("db1", catalog.lastGetDbForReplayArg,
+                "cache fix must look up the LOCAL db name");
+        Mockito.verify(replayDb).unregisterTable("t1");
+        Mockito.verify(replayDb).resetMetaCacheNames();
+        ArgumentCaptor<TableNameInfo> oldName = ArgumentCaptor.forClass(TableNameInfo.class);
+        ArgumentCaptor<TableNameInfo> newName = ArgumentCaptor.forClass(TableNameInfo.class);
+        Mockito.verify(mockConstraintManager).renameTable(oldName.capture(), newName.capture());
+        Assertions.assertEquals("t1", oldName.getValue().getTbl());
+        Assertions.assertEquals("t2", newName.getValue().getTbl());
+        ArgumentCaptor<ExternalObjectLog> logCap = ArgumentCaptor.forClass(ExternalObjectLog.class);
+        Mockito.verify(mockEditLog).logRefreshExternalTable(logCap.capture());
+        Assertions.assertEquals("db1", logCap.getValue().getDbName());
+        Assertions.assertEquals("t1", logCap.getValue().getTableName());
+        Assertions.assertEquals("t2", logCap.getValue().getNewTableName());
+    }
+
+    @Test
+    public void testRenameTableMissingDbThrows() {
+        catalog.dbNullableResult = null;
+
+        Assertions.assertThrows(DdlException.class, () -> catalog.renameTable("missing", "t1", "t2"));
+        Mockito.verifyNoInteractions(metadata);
+    }
+
+    @Test
+    public void testRenameTableMissingTableThrows() {
+        ExternalDatabase<? extends ExternalTable> db = mockExternalDatabase();
+        Mockito.doReturn(null).when(db).getTableNullable("t1");
+        catalog.dbNullableResult = db;
+
+        Assertions.assertThrows(DdlException.class, () -> catalog.renameTable("db1", "t1", "t2"));
+        Mockito.verifyNoInteractions(metadata);
+    }
+
+    @Test
+    public void testRenameTableWrapsConnectorExceptionAndSkipsBookkeeping() {
+        ExternalDatabase<? extends ExternalTable> db = mockExternalDatabase();
+        ExternalTable table = Mockito.mock(ExternalTable.class);
+        Mockito.when(table.getRemoteDbName()).thenReturn("DB1");
+        Mockito.when(table.getRemoteName()).thenReturn("TBL1");
+        Mockito.doReturn(table).when(db).getTableNullable("t1");
+        catalog.dbNullableResult = db;
+        ConnectorTableHandle handle = Mockito.mock(ConnectorTableHandle.class);
+        Mockito.when(metadata.getTableHandle(session, "DB1", "TBL1")).thenReturn(Optional.of(handle));
+        Mockito.doThrow(new DorisConnectorException("boom")).when(metadata).renameTable(session, handle, "t2");
+
+        DdlException ex = Assertions.assertThrows(DdlException.class,
+                () -> catalog.renameTable("db1", "t1", "t2"));
+        Assertions.assertTrue(ex.getMessage().contains("boom"));
+        // WHY: a remote rename failure must abort BEFORE any bookkeeping (no editlog, no constraint rename),
+        // so the FE cache + constraints stay consistent with the unchanged remote.
+        Mockito.verify(mockEditLog, Mockito.never()).logRefreshExternalTable(Mockito.any());
+        Mockito.verifyNoInteractions(mockConstraintManager);
     }
 
     // ==================== CREATE TABLE ====================
@@ -592,7 +797,405 @@ public class PluginDrivenExternalCatalogDdlRoutingTest {
         }
     }
 
+    // ==================== COLUMN EVOLUTION (B2) ====================
+    // The 6 column-op overrides resolve the connector handle by REMOTE names (like dropTable), convert the
+    // Doris Column/ColumnPosition to the neutral SPI types, dispatch, wrap DorisConnectorException as
+    // DdlException, and run afterExternalDdl (editlog with LOCAL names + RefreshManager.refreshTableInternal
+    // re-resolving by REMOTE names). PluginDriven has no metadataOps, so without these overrides the base ops
+    // would throw "not supported".
+
+    @Test
+    public void testAddColumnRoutesConvertsAndLogsRefresh() throws Exception {
+        ExternalTable table = mockAlterTable();
+        ConnectorTableHandle handle = stubAlterHandle();
+
+        catalog.addColumn(table, nullableIntColumn("age"), ColumnPosition.FIRST);
+
+        ArgumentCaptor<ConnectorColumn> colCap = ArgumentCaptor.forClass(ConnectorColumn.class);
+        ArgumentCaptor<ConnectorColumnPosition> posCap = ArgumentCaptor.forClass(ConnectorColumnPosition.class);
+        Mockito.verify(metadata).addColumn(Mockito.eq(session), Mockito.eq(handle),
+                colCap.capture(), posCap.capture());
+        Assertions.assertEquals("age", colCap.getValue().getName());
+        // WHY: position FIRST must be neutralized to ConnectorColumnPosition.FIRST (toConnectorPosition); a
+        // mutation dropping the isFirst() branch makes this red.
+        Assertions.assertTrue(posCap.getValue().isFirst());
+        // WHY (Rule 9): the editlog MUST carry the LOCAL names for follower replay (base
+        // logRefreshExternalTable parity); a mutation persisting the remote names turns these red.
+        ArgumentCaptor<ExternalObjectLog> logCap = ArgumentCaptor.forClass(ExternalObjectLog.class);
+        Mockito.verify(mockEditLog).logRefreshExternalTable(logCap.capture());
+        Assertions.assertEquals("db1", logCap.getValue().getDbName());
+        Assertions.assertEquals("t1", logCap.getValue().getTableName());
+    }
+
+    @Test
+    public void testAddColumnsRoutesConvertedList() throws Exception {
+        ExternalTable table = mockAlterTable();
+        ConnectorTableHandle handle = stubAlterHandle();
+
+        catalog.addColumns(table, Arrays.asList(nullableIntColumn("a"), nullableIntColumn("b")));
+
+        ArgumentCaptor<java.util.List<ConnectorColumn>> cap = ArgumentCaptor.forClass(java.util.List.class);
+        Mockito.verify(metadata).addColumns(Mockito.eq(session), Mockito.eq(handle), cap.capture());
+        Assertions.assertEquals(2, cap.getValue().size());
+        Assertions.assertEquals("a", cap.getValue().get(0).getName());
+        Assertions.assertEquals("b", cap.getValue().get(1).getName());
+    }
+
+    @Test
+    public void testDropColumnRoutes() throws Exception {
+        ExternalTable table = mockAlterTable();
+        ConnectorTableHandle handle = stubAlterHandle();
+
+        catalog.dropColumn(table, "age");
+
+        Mockito.verify(metadata).dropColumn(session, handle, "age");
+        Mockito.verify(mockEditLog).logRefreshExternalTable(Mockito.any());
+    }
+
+    @Test
+    public void testRenameColumnRoutes() throws Exception {
+        ExternalTable table = mockAlterTable();
+        ConnectorTableHandle handle = stubAlterHandle();
+
+        catalog.renameColumn(table, "old", "new");
+
+        Mockito.verify(metadata).renameColumn(session, handle, "old", "new");
+    }
+
+    @Test
+    public void testModifyColumnRoutesWithAfterPosition() throws Exception {
+        ExternalTable table = mockAlterTable();
+        ConnectorTableHandle handle = stubAlterHandle();
+
+        catalog.modifyColumn(table, nullableIntColumn("age"), new ColumnPosition("id"));
+
+        ArgumentCaptor<ConnectorColumnPosition> posCap = ArgumentCaptor.forClass(ConnectorColumnPosition.class);
+        Mockito.verify(metadata).modifyColumn(Mockito.eq(session), Mockito.eq(handle),
+                Mockito.any(ConnectorColumn.class), posCap.capture());
+        // WHY: AFTER <col> must be neutralized to ConnectorColumnPosition.after(col); a mutation that drops
+        // the afterColumn or flips it to FIRST makes these red.
+        Assertions.assertFalse(posCap.getValue().isFirst());
+        Assertions.assertEquals("id", posCap.getValue().getAfterColumn());
+    }
+
+    @Test
+    public void testReorderColumnsRoutes() throws Exception {
+        ExternalTable table = mockAlterTable();
+        ConnectorTableHandle handle = stubAlterHandle();
+
+        catalog.reorderColumns(table, Arrays.asList("b", "a"));
+
+        Mockito.verify(metadata).reorderColumns(session, handle, Arrays.asList("b", "a"));
+    }
+
+    @Test
+    public void testColumnOpNullPositionConvertedToNull() throws Exception {
+        ExternalTable table = mockAlterTable();
+        stubAlterHandle();
+
+        catalog.addColumn(table, nullableIntColumn("age"), null);
+
+        ArgumentCaptor<ConnectorColumnPosition> posCap = ArgumentCaptor.forClass(ConnectorColumnPosition.class);
+        Mockito.verify(metadata).addColumn(Mockito.any(), Mockito.any(),
+                Mockito.any(ConnectorColumn.class), posCap.capture());
+        // WHY: a null ColumnPosition (no position clause) must stay null across the SPI (toConnectorPosition
+        // null-guard); a mutation returning FIRST/after for null would change append semantics.
+        Assertions.assertNull(posCap.getValue());
+    }
+
+    @Test
+    public void testColumnOpRefreshesTableCacheViaRefreshManager() throws Exception {
+        ExternalTable table = mockAlterTable();
+        stubAlterHandle();
+        // afterExternalDdl re-resolves the cached table by the REMOTE names (legacy IcebergMetadataOps.refreshTable
+        // parity), then calls RefreshManager.refreshTableInternal — the cache-invalidation the base column op
+        // delegated into metadataOps and PluginDriven (metadataOps == null) must reproduce explicitly.
+        ExternalDatabase<? extends ExternalTable> replayDb = mockExternalDatabase();
+        ExternalTable cached = Mockito.mock(ExternalTable.class);
+        Mockito.doReturn(Optional.of(cached)).when(replayDb).getTableForReplay("TBL1");
+        catalog.dbForReplayResult = Optional.of(replayDb);
+
+        catalog.dropColumn(table, "age");
+
+        // WHY (Rule 9 / BLOCKER-2): the base column ops do NOT invalidate the cache themselves — they delegate it
+        // into metadataOps.refreshTable -> RefreshManager.refreshTableInternal. A helper that only writes the
+        // editlog (the literal "copy the base op" reading) would SILENTLY lose cache invalidation after every
+        // connector-driven schema change. These asserts pin that the refresh actually runs, re-resolving by the
+        // REMOTE names. A mutation dropping the refreshTableInternal call goes red.
+        Assertions.assertEquals("DB1", catalog.lastGetDbForReplayArg,
+                "afterExternalDdl must re-resolve the cached table by the REMOTE db name (legacy parity)");
+        Mockito.verify(replayDb).getTableForReplay("TBL1");
+        Mockito.verify(mockRefreshManager)
+                .refreshTableInternal(Mockito.eq(replayDb), Mockito.eq(cached), Mockito.anyLong());
+    }
+
+    @Test
+    public void testColumnOpHandleAbsentThrows() {
+        ExternalTable table = mockAlterTable();
+        Mockito.when(metadata.getTableHandle(session, "DB1", "TBL1")).thenReturn(Optional.empty());
+
+        Assertions.assertThrows(DdlException.class, () -> catalog.dropColumn(table, "age"));
+        Mockito.verify(metadata, Mockito.never()).dropColumn(Mockito.any(), Mockito.any(), Mockito.any());
+    }
+
+    @Test
+    public void testColumnOpWrapsConnectorException() {
+        ExternalTable table = mockAlterTable();
+        ConnectorTableHandle handle = stubAlterHandle();
+        Mockito.doThrow(new DorisConnectorException("boom"))
+                .when(metadata).dropColumn(session, handle, "age");
+
+        DdlException ex = Assertions.assertThrows(DdlException.class, () -> catalog.dropColumn(table, "age"));
+        Assertions.assertTrue(ex.getMessage().contains("boom"));
+    }
+
+    // Branch/tag ALTERs resolve the handle by REMOTE names (like the column ops), neutralize the nereids info
+    // type to the SPI carrier (ConnectorBranchTagConverter), wrap a DorisConnectorException as a DdlException,
+    // and run afterExternalDdl (editlog with LOCAL names + refreshTableInternal). PluginDriven has no
+    // metadataOps, so without these overrides the base ops would throw "branching operation is not supported".
+
+    @Test
+    public void testCreateOrReplaceBranchRoutesConvertsAndRefreshes() throws Exception {
+        ExternalTable table = mockAlterTable();
+        ConnectorTableHandle handle = stubAlterHandle();
+        catalog.dbForReplayResult = Optional.of(mockExternalDatabase());
+
+        CreateOrReplaceBranchInfo info = new CreateOrReplaceBranchInfo("b1", true, false, true,
+                new BranchOptions(Optional.of(42L), Optional.of(86400000L),
+                        Optional.of(5), Optional.of(172800000L)));
+        catalog.createOrReplaceBranch(table, info);
+
+        // WHY (Rule 9): the converter must map every field of the nereids info/options to the neutral carrier
+        // (incl. the legacy retain->maxSnapshotAge / numSnapshots->minSnapshotsToKeep / retention->maxRefAge
+        // mapping). A mutation dropping any field makes one of these asserts red.
+        ArgumentCaptor<BranchChange> cap = ArgumentCaptor.forClass(BranchChange.class);
+        Mockito.verify(metadata).createOrReplaceBranch(Mockito.eq(session), Mockito.eq(handle), cap.capture());
+        BranchChange b = cap.getValue();
+        Assertions.assertEquals("b1", b.getName());
+        Assertions.assertTrue(b.isCreate());
+        Assertions.assertFalse(b.isReplace());
+        Assertions.assertTrue(b.isIfNotExists());
+        Assertions.assertEquals(42L, b.getSnapshotId().longValue());
+        Assertions.assertEquals(86400000L, b.getMaxSnapshotAgeMs().longValue());
+        Assertions.assertEquals(5, b.getMinSnapshotsToKeep().intValue());
+        Assertions.assertEquals(172800000L, b.getMaxRefAgeMs().longValue());
+        // WHY: branch/tag share the column-op bookkeeping (afterExternalDdl) — editlog with LOCAL names + cache
+        // refresh re-resolving by REMOTE names. A mutation dropping the bookkeeping turns these red.
+        ArgumentCaptor<ExternalObjectLog> logCap = ArgumentCaptor.forClass(ExternalObjectLog.class);
+        Mockito.verify(mockEditLog).logRefreshExternalTable(logCap.capture());
+        Assertions.assertEquals("db1", logCap.getValue().getDbName());
+        Assertions.assertEquals("t1", logCap.getValue().getTableName());
+        Assertions.assertEquals("DB1", catalog.lastGetDbForReplayArg,
+                "afterExternalDdl must re-resolve the cached table by the REMOTE db name");
+    }
+
+    @Test
+    public void testCreateOrReplaceBranchEmptyOptionsConvertToNulls() throws Exception {
+        ExternalTable table = mockAlterTable();
+        ConnectorTableHandle handle = stubAlterHandle();
+        catalog.dbForReplayResult = Optional.of(mockExternalDatabase());
+
+        catalog.createOrReplaceBranch(table, new CreateOrReplaceBranchInfo("b1", true, false, false,
+                BranchOptions.EMPTY));
+
+        ArgumentCaptor<BranchChange> cap = ArgumentCaptor.forClass(BranchChange.class);
+        Mockito.verify(metadata).createOrReplaceBranch(Mockito.eq(session), Mockito.eq(handle), cap.capture());
+        BranchChange b = cap.getValue();
+        // An absent SQL option must become a null carrier field (== "leave the snapshot/retention untouched").
+        Assertions.assertNull(b.getSnapshotId());
+        Assertions.assertNull(b.getMaxSnapshotAgeMs());
+        Assertions.assertNull(b.getMinSnapshotsToKeep());
+        Assertions.assertNull(b.getMaxRefAgeMs());
+    }
+
+    @Test
+    public void testCreateOrReplaceBranchWrapsConnectorException() {
+        ExternalTable table = mockAlterTable();
+        ConnectorTableHandle handle = stubAlterHandle();
+        Mockito.doThrow(new DorisConnectorException("boom"))
+                .when(metadata).createOrReplaceBranch(Mockito.eq(session), Mockito.eq(handle), Mockito.any());
+
+        DdlException ex = Assertions.assertThrows(DdlException.class, () -> catalog.createOrReplaceBranch(table,
+                new CreateOrReplaceBranchInfo("b1", true, false, false, BranchOptions.EMPTY)));
+        Assertions.assertTrue(ex.getMessage().contains("boom"));
+        // A remote failure must abort BEFORE bookkeeping (no editlog).
+        Mockito.verify(mockEditLog, Mockito.never()).logRefreshExternalTable(Mockito.any());
+    }
+
+    @Test
+    public void testCreateOrReplaceTagRoutesConvertsAndRefreshes() throws Exception {
+        ExternalTable table = mockAlterTable();
+        ConnectorTableHandle handle = stubAlterHandle();
+        catalog.dbForReplayResult = Optional.of(mockExternalDatabase());
+
+        catalog.createOrReplaceTag(table, new CreateOrReplaceTagInfo("v1", false, true, false,
+                new TagOptions(Optional.of(9L), Optional.of(99000L))));
+
+        ArgumentCaptor<TagChange> cap = ArgumentCaptor.forClass(TagChange.class);
+        Mockito.verify(metadata).createOrReplaceTag(Mockito.eq(session), Mockito.eq(handle), cap.capture());
+        TagChange t = cap.getValue();
+        Assertions.assertEquals("v1", t.getName());
+        Assertions.assertFalse(t.isCreate());
+        Assertions.assertTrue(t.isReplace());
+        Assertions.assertEquals(9L, t.getSnapshotId().longValue());
+        Assertions.assertEquals(99000L, t.getMaxRefAgeMs().longValue());
+        Mockito.verify(mockEditLog).logRefreshExternalTable(Mockito.any());
+    }
+
+    @Test
+    public void testDropBranchRoutesConvertsAndRefreshes() throws Exception {
+        ExternalTable table = mockAlterTable();
+        ConnectorTableHandle handle = stubAlterHandle();
+        catalog.dbForReplayResult = Optional.of(mockExternalDatabase());
+
+        catalog.dropBranch(table, new DropBranchInfo("b1", true));
+
+        ArgumentCaptor<DropRefChange> cap = ArgumentCaptor.forClass(DropRefChange.class);
+        Mockito.verify(metadata).dropBranch(Mockito.eq(session), Mockito.eq(handle), cap.capture());
+        Assertions.assertEquals("b1", cap.getValue().getName());
+        Assertions.assertTrue(cap.getValue().isIfExists());
+        Mockito.verify(mockEditLog).logRefreshExternalTable(Mockito.any());
+    }
+
+    @Test
+    public void testDropTagRoutesConvertsAndRefreshes() throws Exception {
+        ExternalTable table = mockAlterTable();
+        ConnectorTableHandle handle = stubAlterHandle();
+        catalog.dbForReplayResult = Optional.of(mockExternalDatabase());
+
+        catalog.dropTag(table, new DropTagInfo("v1", false));
+
+        ArgumentCaptor<DropRefChange> cap = ArgumentCaptor.forClass(DropRefChange.class);
+        Mockito.verify(metadata).dropTag(Mockito.eq(session), Mockito.eq(handle), cap.capture());
+        Assertions.assertEquals("v1", cap.getValue().getName());
+        Assertions.assertFalse(cap.getValue().isIfExists());
+        Mockito.verify(mockEditLog).logRefreshExternalTable(Mockito.any());
+    }
+
+    @Test
+    public void testBranchTagHandleAbsentThrows() {
+        ExternalTable table = mockAlterTable();
+        Mockito.when(metadata.getTableHandle(session, "DB1", "TBL1")).thenReturn(Optional.empty());
+
+        Assertions.assertThrows(DdlException.class, () -> catalog.dropTag(table, new DropTagInfo("v1", false)));
+        Mockito.verify(metadata, Mockito.never())
+                .dropTag(Mockito.any(), Mockito.any(), Mockito.any());
+    }
+
+    // ---------- Partition evolution (B5): route by handle, convert op -> DTO, bookkeep ----------
+
+    @Test
+    public void testAddPartitionFieldRoutesConvertsAndRefreshes() throws Exception {
+        ExternalTable table = mockAlterTable();
+        ConnectorTableHandle handle = stubAlterHandle();
+        catalog.dbForReplayResult = Optional.of(mockExternalDatabase());
+
+        catalog.addPartitionField(table, new AddPartitionFieldOp("bucket", 8, "id", "id_b"));
+
+        // WHY (Rule 9): the op's transform spec must reach the connector as a neutral PartitionFieldChange; a
+        // mutation dropping any field makes one of these asserts red.
+        ArgumentCaptor<PartitionFieldChange> cap = ArgumentCaptor.forClass(PartitionFieldChange.class);
+        Mockito.verify(metadata).addPartitionField(Mockito.eq(session), Mockito.eq(handle), cap.capture());
+        PartitionFieldChange c = cap.getValue();
+        Assertions.assertEquals("bucket", c.getTransformName());
+        Assertions.assertEquals(8, c.getTransformArg().intValue());
+        Assertions.assertEquals("id", c.getColumnName());
+        Assertions.assertEquals("id_b", c.getPartitionFieldName());
+        Assertions.assertNull(c.getOldColumnName());
+        // WHY: a partition spec change shares the column-op bookkeeping (afterExternalDdl) — editlog with LOCAL
+        // names + cache refresh re-resolving by REMOTE names. A mutation dropping it turns these red.
+        ArgumentCaptor<ExternalObjectLog> logCap = ArgumentCaptor.forClass(ExternalObjectLog.class);
+        Mockito.verify(mockEditLog).logRefreshExternalTable(logCap.capture());
+        Assertions.assertEquals("db1", logCap.getValue().getDbName());
+        Assertions.assertEquals("t1", logCap.getValue().getTableName());
+        Assertions.assertEquals("DB1", catalog.lastGetDbForReplayArg,
+                "afterExternalDdl must re-resolve the cached table by the REMOTE db name");
+    }
+
+    @Test
+    public void testDropPartitionFieldRoutesByName() throws Exception {
+        ExternalTable table = mockAlterTable();
+        ConnectorTableHandle handle = stubAlterHandle();
+        catalog.dbForReplayResult = Optional.of(mockExternalDatabase());
+
+        catalog.dropPartitionField(table, new DropPartitionFieldOp("p_id"));
+
+        ArgumentCaptor<PartitionFieldChange> cap = ArgumentCaptor.forClass(PartitionFieldChange.class);
+        Mockito.verify(metadata).dropPartitionField(Mockito.eq(session), Mockito.eq(handle), cap.capture());
+        Assertions.assertEquals("p_id", cap.getValue().getPartitionFieldName());
+        Assertions.assertNull(cap.getValue().getColumnName());
+        Mockito.verify(mockEditLog).logRefreshExternalTable(Mockito.any());
+    }
+
+    @Test
+    public void testReplacePartitionFieldRoutesMapsOldAndNew() throws Exception {
+        ExternalTable table = mockAlterTable();
+        ConnectorTableHandle handle = stubAlterHandle();
+        catalog.dbForReplayResult = Optional.of(mockExternalDatabase());
+
+        catalog.replacePartitionField(table,
+                new ReplacePartitionFieldOp("p", null, null, null, "bucket", 4, "id", "p2"));
+
+        ArgumentCaptor<PartitionFieldChange> cap = ArgumentCaptor.forClass(PartitionFieldChange.class);
+        Mockito.verify(metadata).replacePartitionField(Mockito.eq(session), Mockito.eq(handle), cap.capture());
+        PartitionFieldChange c = cap.getValue();
+        // new* maps to the primary field, old* to the old side (Rule 9).
+        Assertions.assertEquals("bucket", c.getTransformName());
+        Assertions.assertEquals(4, c.getTransformArg().intValue());
+        Assertions.assertEquals("id", c.getColumnName());
+        Assertions.assertEquals("p2", c.getPartitionFieldName());
+        Assertions.assertEquals("p", c.getOldPartitionFieldName());
+        Mockito.verify(mockEditLog).logRefreshExternalTable(Mockito.any());
+    }
+
+    @Test
+    public void testPartitionFieldWrapsConnectorException() {
+        ExternalTable table = mockAlterTable();
+        ConnectorTableHandle handle = stubAlterHandle();
+        Mockito.doThrow(new DorisConnectorException("boom"))
+                .when(metadata).addPartitionField(Mockito.eq(session), Mockito.eq(handle), Mockito.any());
+
+        DdlException ex = Assertions.assertThrows(DdlException.class, () -> catalog.addPartitionField(table,
+                new AddPartitionFieldOp(null, null, "id", null)));
+        Assertions.assertTrue(ex.getMessage().contains("boom"));
+        // A remote failure must abort BEFORE bookkeeping (no editlog).
+        Mockito.verify(mockEditLog, Mockito.never()).logRefreshExternalTable(Mockito.any());
+    }
+
+    @Test
+    public void testPartitionFieldHandleAbsentThrows() {
+        ExternalTable table = mockAlterTable();
+        Mockito.when(metadata.getTableHandle(session, "DB1", "TBL1")).thenReturn(Optional.empty());
+
+        Assertions.assertThrows(DdlException.class,
+                () -> catalog.addPartitionField(table, new AddPartitionFieldOp(null, null, "id", null)));
+        Mockito.verify(metadata, Mockito.never())
+                .addPartitionField(Mockito.any(), Mockito.any(), Mockito.any());
+    }
+
     // ==================== helpers ====================
+
+    /** A mock external table whose LOCAL names are db1.t1 and REMOTE names DB1.TBL1 (name mapping enabled). */
+    private ExternalTable mockAlterTable() {
+        ExternalTable table = Mockito.mock(ExternalTable.class);
+        Mockito.when(table.getDbName()).thenReturn("db1");
+        Mockito.when(table.getName()).thenReturn("t1");
+        Mockito.when(table.getRemoteDbName()).thenReturn("DB1");
+        Mockito.when(table.getRemoteName()).thenReturn("TBL1");
+        return table;
+    }
+
+    /** Stubs the connector handle resolution for the REMOTE names of {@link #mockAlterTable()}. */
+    private ConnectorTableHandle stubAlterHandle() {
+        ConnectorTableHandle handle = Mockito.mock(ConnectorTableHandle.class);
+        Mockito.when(metadata.getTableHandle(session, "DB1", "TBL1")).thenReturn(Optional.of(handle));
+        return handle;
+    }
+
+    /** A nullable INT Doris column (iceberg add/modify reject non-nullable adds). */
+    private static Column nullableIntColumn(String name) {
+        return new Column(name, Type.INT, false, null, true, null, "");
+    }
 
     @SuppressWarnings("unchecked")
     private ExternalDatabase<? extends ExternalTable> mockExternalDatabase() {

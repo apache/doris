@@ -478,14 +478,12 @@ suite("iceberg_on_hms_and_filesystem_and_dlf", "p2,external") {
     String hdfs_kerberos_properties = """
                 "fs.defaultFS" = "hdfs://${externalEnvIp}:8520",
                 "hadoop.security.authentication" = "kerberos", 
-                "io-impl" = "org.apache.doris.datasource.iceberg.fileio.DelegateFileIO",          
                 "hadoop.kerberos.principal"="hive/presto-master.docker.cluster@LABS.TERADATA.COM",
                 "hadoop.kerberos.keytab" = "${keytab_root_dir}/hive-presto-master.keytab"
     """
 
     String hdfs_new_kerberos_properties = """
                 "fs.defaultFS" = "hdfs://${externalEnvIp}:8520",
-                "io-impl" = "org.apache.doris.datasource.iceberg.fileio.DelegateFileIO",          
                 "hdfs.authentication.type" = "kerberos",
                 "hdfs.authentication.kerberos.principal"="hive/presto-master.docker.cluster@LABS.TERADATA.COM",
                 "hdfs.authentication.kerberos.keytab" = "${keytab_root_dir}/hive-presto-master.keytab"
