@@ -2709,16 +2709,20 @@ Status OrcReader::_execute_delete_conjuncts(Block* file_block, size_t rows,
     DORIS_CHECK(file_block != nullptr);
     DORIS_CHECK(keep_filter != nullptr);
     for (const auto& delete_conjunct : _request->delete_conjuncts) {
-        IColumn::Filter delete_filter(rows, 1);
-        bool no_deleted_rows = false;
-        RETURN_IF_ERROR(delete_conjunct->execute_filter(file_block, delete_filter.data(), rows,
-                                                        false, &no_deleted_rows));
-        if (no_deleted_rows) {
-            continue;
-        }
+        DORIS_CHECK(delete_conjunct != nullptr);
+        int result_column_id = -1;
+        RETURN_IF_ERROR(delete_conjunct->root()->execute(delete_conjunct.get(), file_block,
+                                                         &result_column_id));
+        DORIS_CHECK(result_column_id >= 0 &&
+                    result_column_id < static_cast<int>(file_block->columns()));
+        const auto& delete_filter =
+                assert_cast<const ColumnUInt8&>(*file_block->get_by_position(result_column_id).column)
+                        .get_data();
+        DORIS_CHECK(delete_filter.size() == rows);
         for (size_t row = 0; row < rows; ++row) {
             (*keep_filter)[row] &= !delete_filter[row];
         }
+        file_block->erase(result_column_id);
     }
     return Status::OK();
 }
