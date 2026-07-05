@@ -5,15 +5,15 @@
 
 ---
 
-# 🎯 当前状态（2026-07-06）= **P7.1 进行中：recon+拆解+决策已定，T01（TRUNCATE SPI seam）已实现+全绿+提交；下一步 = T02→T04 插件写客户端**
+# 🎯 当前状态（2026-07-06）= **P7.1 进行中：T01（TRUNCATE SPI seam）+ T02–T04（插件写客户端）已实现+全绿+提交；下一步 = T05→T07（HiveConnectorMetadata DDL override）+ T08/T09/T10/T11**
 
-> **本轮（P7.1 recon + 拆解 + T01 session）做了什么**：
-> 1. **P7.1 code-grounded recon**（3 并行 agent + 直读 HEAD，~225k subagent token）核清并**校正 spec** 4 件事：(1) 通用 DDL 桥 = `PluginDrivenExternalCatalog`（非独立 MetadataOps，逐条 override + 内联 cache/editlog，连接器只实现纯 SPI）；(2) **TRUNCATE 硬缺口**（SPI 无 `truncateTable`、桥未 override）；(3) shared converter 逐字拷 properties（✅ 不 parse）但**丢每列默认值**（恒 null → 破坏 hive 列默认值 + DLF guard）+ 丢 LIST/RANGE partition value；(4) stats/partition 写 4 法**仅 HMSTransaction 消费**→推 P7.3，rename **hive 今天不支持**→保持 SPI default throw。
-> 2. 产出 **`tasks/P7-hive-migration.md` 末尾 P7.1 逐 task 拆解（T01–T11）+ recon 结论块**。
-> 3. **决策 OQ-HIVE-CFG 用户裁定 = 方案 A**（fe-core 建连接器时注入两个全局 Config 值为属性默认，插件只读属性、零行为回归）。
-> 4. **T01 已实现并全绿提交（`c0222977ebd`）**：加 `ConnectorTableOps.truncateTable(session, handle, partitions)` default-throw seam + `PluginDrivenExternalCatalog.truncateTable`（remote 解析 → `metadata.truncateTable` → `TruncateTableInfo` editlog + `refreshTableInternal` 缓存刷新，仿 legacy `afterTruncateTable`）+ `replayTruncateTable`（follower 缓存刷新）。compile SUCCESS + checkstyle 0（fe-connector-api,fe-core）+ import-gate 净。**尚无连接器 override truncate（等 T07），翻闸前行为不变。**
+> **本轮（P7.1 T02+T03+T04 session）做了什么** —— 提交 `fdf577e7946`，**插件写客户端一个自洽单元，全在 `fe-connector-hms`**：
+> 1. **T02 写 DTO**：`HmsCreateTableRequest`（builder：全列[数据+分区]、partitionKeys 名、bucketCols/numBuckets、fileFormat、comment、properties、`defaultTextCompression`、`dorisVersion`；列默认值走 `ConnectorColumn.getDefaultValue()`）+ `HmsCreateDatabaseRequest`。仿读侧 `HmsTableInfo`/`HmsDatabaseInfo`，SPI-clean。
+> 2. **T03 转换器**：`HmsTypeMapping.toHiveTypeString(ConnectorType)`（反向类型映射，等价 `dorisTypeToHiveType`；switch 于 `PrimitiveType.toString()` 名，VARCHAR→string、datetime 丢 scale、decimal p==0→9、不支持类型 throw）+ `HmsWriteConverter.toHiveTable/toHiveDatabase`（忠实移植 `HiveUtil` + `HiveProperties.setTableProperties` serde/table 属性切分；in/out/serde+压缩默认逐字照搬；`createTime` 溢出照搬）。**断耦**：`DORIS_VERSION_VALUE` 经 request 线程进（插件禁 import fe-common `Version`——import gate 禁 `org.apache.doris.common`）、text 压缩默认经 request（T06 从 session 取）、`AnalysisException`→`IllegalArgumentException`、JDK-only。
+> 3. **T04 写方法**：`HmsClient` 加 5 个写方法为 **default-throw seam**（3 个读侧 fake 不破）；`ThriftHmsClient` 用现成 `execute(...)`（auth+pool）override 全部，`createTable` 从列默认值建 `SQLDefaultConstraint`→`createTableWithConstraints`，等价 legacy `ThriftHMSCachedClient`。
+> 4. **验收**：fe-connector-hms compile SUCCESS + checkstyle 0（main+test）+ import-gate 净 + **28 单测绿**（反向映射 + 转换器，无 fake；client-dispatch/HiveConnectorMetadata 单测留 T10 recording-fake）。**无连接器 override 这些写方法（等 T05–T07），翻闸前行为不变。**
 >
-> **T02–T11 未动**（下一 session 接手；T03 类型映射/转换器移植最精细，故留新 context 谨慎做，不在长 session 尾仓促）。
+> **T05–T11 未动**（下一单元：`fe-connector-hive` 的 `HiveConnectorMetadata` DDL override + shared converter 列默认值 + config 注入 + 单测 + 守门）。T05–T07 需研读模板 `IcebergConnectorMetadata` 与 SPI base（`ConnectorSchemaOps`/`ConnectorTableOps`），故为下一自洽单元。
 
 > **整条 catalog-SPI 主线阶段链均已合入 upstream `branch-catalog-spi`**：
 > P0 #63582 · P1 #63641 · P2 trino #64096 · P3 hudi(hybrid) #64143 · P4 maxcompute #64300 · P5 paimon 迁移+翻闸 #64446 + 删 legacy #64653 · P3b kerberos→fe-kerberos #64655 · **P6 iceberg #64688（本轮收官）**。
@@ -42,7 +42,7 @@
 
 ## P7.1 执行要点（下个 session 开场）
 
-1. **先读** spec 末尾「P7.1 逐 task 拆解」块 + 「T03 移植指针」块（recon 存档，勿再 recon）。**T01 已完成**（truncate SPI seam + 桥 override，`c0222977ebd`）。**从 T02 起接**：T02(hms 写 DTO) → T03(hms converter，HiveUtil 等价插件侧，**最精细**，指针见 spec) → T04(HmsClient 写方法 DDL-only) → T05(HiveConnectorMetadata DB DDL) → T06(createTable) → T07(dropTable+truncate override；rename 保持 default throw) → T08(shared converter 带列默认值) → T09(config 注入=方案A) → T10(连接器单测) → T11(守门+交接)。**信 HEAD 控制流不信 spec 行号。** T02+T03+T04 = 一个自洽单元（插件写客户端），可合并一次 commit。
+1. **先读** spec 末尾「P7.1 逐 task 拆解」块 + 「P7.1 实现进度」块（recon 存档，勿再 recon）。**T01–T04 已完成**（T01 truncate SPI seam + 桥 override `c0222977ebd`；T02+T03+T04 插件写客户端 `fdf577e7946`）。**从 T05 起接**：T05(HiveConnectorMetadata DB DDL) → T06(createTable) → T07(dropTable+truncate override；rename 保持 default throw) → T08(shared converter 带列默认值) → T09(config 注入=方案A) → T10(连接器单测，recording-fake `IMetaStoreClient`) → T11(守门+交接)。**信 HEAD 控制流不信 spec 行号。** T05→T07 = 下一自洽单元（连接器 DDL override，模板 `IcebergConnectorMetadata`）。**注意**：T06 须从 `ConnectorSession` 取 text 压缩默认填 `HmsCreateTableRequest.defaultTextCompression`；T09 注入 locus 须同时把 `doris.version`（值）填 `HmsCreateTableRequest.dorisVersion`（插件已留字段，值缺时转换器省略该 tag）。
 2. **本阶段范围 = 仅 DDL 写路径**：create/drop db+table + truncate。**stats/partition 写 4 法（updateTableStatistics/updatePartitionStatistics/addPartitions/dropPartition）推 P7.3**（仅 HMSTransaction 消费，本阶段加即死代码）。**rename 不实现**（hive 今天不支持，保持 SPI default throw）。**no-property-parsing**：file_format 默认/owner/bucket-gate/DLF-guard/transactional-reject 全插件侧（`ConnectorSession.getUser()`+`getCatalogProperties()`+`ConnectorColumn.defaultValue` 已够，无须扩 SPI，除 truncate seam + T08 列默认值 carrier）。
 3. **OQ-HIVE-CFG 已裁定 = 方案 A**（T09）：fe-core 组装 `hms` 连接器属性处，把 `Config.hive_default_file_format`/`Config.enable_create_hive_bucket_table` 当前值注入为属性默认（仅用户未显式设时），**插件只读属性、不碰 `common.Config`**。注入 locus 待 recon。
 4. **勿重议的已定决策**：**D-004** event→fe-connector-hms；**D-005** tableFormatType；**D-020** per-table SPI provider；**D-019** hudi live cutover 并入 P7；事务桥接 `PluginDrivenTransaction`。后续子阶段 OQ-* 到 recon 后再用户签字（中文讲背景+示例+推荐、不引任务代号）。
