@@ -1469,44 +1469,74 @@ Status phrase_prefix_query(const LogicalIndexReader& idx, const std::vector<std:
         return ExecuteResolvedPhraseTerms(idx, resolved_terms, docids);
     }
 
-    ExpectedTailPositionSet expected;
-    RETURN_IF_ERROR(CollectExpectedTailPositions(idx, exact_terms, &expected));
-    if (expected.docs.empty()) {
-        return Status::OK();
-    }
-
-    // Hoist the expected-docid projection out of the per-tail loop: it depends only
-    // on the (const) expected set, is byte-identical for every tail expansion, and
-    // is ascending because expected.docs derives from ascending candidates -- which
-    // satisfies filter_docids_by_conjunction's sorted-input contract.
-    std::vector<uint32_t> expected_docids;
-    expected_docids.reserve(expected.docs.size());
-    for (const ExpectedTailPositions& doc : expected.docs) {
-        expected_docids.push_back(doc.docid);
-    }
-    SNII_QUERY_COUNT(expected_docids_build);
-
-    // Verify the expansions in resident-capped GROUPS. Within a group every tail
-    // shares one docid fetch + one PRX fetch and is merged in a single forward
-    // sweep (CollectMergedTailMatches); across groups the emitted docids are
-    // unioned. The grouping is result-invariant -- union over tails is
-    // associative/commutative and dedups -- so the outcome is identical to the
-    // old per-tail loop regardless of the batch size, which only bounds how many
-    // tail cursors sit resident at once.
     std::vector<uint32_t> acc;
-    for (size_t start = 0; start < tail_hits.size(); start += kMaxTailMergeBatch) {
-        const size_t end = std::min(start + kMaxTailMergeBatch, tail_hits.size());
-        std::vector<ResolvedQueryTerm> group;
-        group.reserve(end - start);
-        for (size_t i = start; i < end; ++i) {
-            group.push_back(ResolvedQueryTerm {.entry = std::move(tail_hits[i].entry),
-                                               .frq_base = tail_hits[i].frq_base,
-                                               .prx_base = tail_hits[i].prx_base});
+
+    // Bigram fast path for the SINGLE-leading-term case (the common phrase-prefix
+    // shape, e.g. "connection res*"): each expansion (lead, tail) is exactly a
+    // 2-term phrase, so a SURVIVING hidden bigram pair posting IS the adjacency
+    // answer with NO position read -- the very fast path the plain 2-term phrase
+    // uses. Partition the tails: expansions whose (lead, tail) pair the 2-term
+    // path can answer (present pair, or a legitimately-empty miss) contribute
+    // their docids directly; the rest (a pruning-ambiguous miss) fall through to
+    // the position-verification path below. This never sacrifices fidelity --
+    // TryTwoTermPhraseBigram returns handled=false for exactly the misses that
+    // require positions -- and reads no bigram positions (docs-only postings).
+    std::vector<LogicalIndexReader::PrefixHit> verify_hits;
+    if (exact_terms.size() == 1) {
+        const std::string& lead = terms[terms.size() - 2];
+        verify_hits.reserve(tail_hits.size());
+        for (LogicalIndexReader::PrefixHit& hit : tail_hits) {
+            std::vector<uint32_t> pair_docs;
+            bool handled = false;
+            const std::vector<std::string> pair_terms = {lead, hit.term};
+            RETURN_IF_ERROR(TryTwoTermPhraseBigram(idx, pair_terms, &pair_docs, &handled));
+            if (handled) {
+                internal::union_sorted_into(&acc, pair_docs);
+            } else {
+                verify_hits.push_back(std::move(hit));
+            }
         }
-        std::vector<uint32_t> group_docs;
-        RETURN_IF_ERROR(CollectMergedTailMatches(idx, std::move(group), expected, expected_docids,
-                                                 &group_docs));
-        internal::union_sorted_into(&acc, group_docs);
+    } else {
+        verify_hits = std::move(tail_hits);
+    }
+
+    // Position-verify the residual expansions (multi-leading-term phrases, and
+    // single-leading tails whose bigram pair was pruned/ambiguous).
+    if (!verify_hits.empty()) {
+        ExpectedTailPositionSet expected;
+        RETURN_IF_ERROR(CollectExpectedTailPositions(idx, exact_terms, &expected));
+        if (!expected.docs.empty()) {
+            // Hoist the expected-docid projection out of the per-tail loop: it
+            // depends only on the (const) expected set and is ascending because
+            // expected.docs derives from ascending candidates -- satisfying
+            // filter_docids_by_conjunction's sorted-input contract.
+            std::vector<uint32_t> expected_docids;
+            expected_docids.reserve(expected.docs.size());
+            for (const ExpectedTailPositions& doc : expected.docs) {
+                expected_docids.push_back(doc.docid);
+            }
+            SNII_QUERY_COUNT(expected_docids_build);
+
+            // Verify the residual expansions in resident-capped GROUPS: within a
+            // group every tail shares one docid fetch + one PRX fetch and is
+            // merged in a single forward sweep; across groups the emitted docids
+            // are unioned (associative/commutative + dedup, so grouping is
+            // result-invariant).
+            for (size_t start = 0; start < verify_hits.size(); start += kMaxTailMergeBatch) {
+                const size_t end = std::min(start + kMaxTailMergeBatch, verify_hits.size());
+                std::vector<ResolvedQueryTerm> group;
+                group.reserve(end - start);
+                for (size_t i = start; i < end; ++i) {
+                    group.push_back(ResolvedQueryTerm {.entry = std::move(verify_hits[i].entry),
+                                                       .frq_base = verify_hits[i].frq_base,
+                                                       .prx_base = verify_hits[i].prx_base});
+                }
+                std::vector<uint32_t> group_docs;
+                RETURN_IF_ERROR(CollectMergedTailMatches(idx, std::move(group), expected,
+                                                         expected_docids, &group_docs));
+                internal::union_sorted_into(&acc, group_docs);
+            }
+        }
     }
     *docids = std::move(acc);
     return Status::OK();

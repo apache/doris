@@ -553,3 +553,38 @@ TEST(SniiPhrasePrefixMerge, BigramPrunedSegmentMatchesUnigramPath) {
     EXPECT_EQ(unpruned, baseline) << "bigram presence must not change phrase-prefix result";
     EXPECT_EQ(pruned, baseline) << "bigram df-pruning must not change phrase-prefix result";
 }
+
+// A MULTI-leading-term phrase-prefix ("failed order ord*") must NOT take the
+// 2-term bigram fast path: the bigram pair (order, ord_expansion) only proves
+// the LAST two terms are adjacent, not that "failed order" precedes them. Using
+// it would over-match docs that have "order ord..." without the leading
+// "failed". The single-leading guard routes this to full position verification;
+// the result must be identical whether or not the segment carries bigrams (and
+// must equal the brute-force position oracle would -- here anchored by the
+// no-bigram baseline, which is pure position verification).
+TEST(SniiPhrasePrefixMerge, MultiLeadingTermIgnoresBigramFastPath) {
+    namespace snii_test = doris::snii::snii_test;
+    const std::vector<std::string> terms = {"failed", "order", "ord"};
+
+    auto run = [&](bool include_bigrams, uint32_t prune_min_df) {
+        snii_test::MemoryFile file;
+        SniiSegmentReader segment;
+        LogicalIndexReader idx;
+        EXPECT_TRUE(
+                snii_test::build_reader(&file, &segment, &idx, include_bigrams, prune_min_df).ok());
+        std::vector<uint32_t> got;
+        EXPECT_TRUE(query::phrase_prefix_query(idx, terms, &got).ok());
+        EXPECT_TRUE(std::ranges::is_sorted(got));
+        return got;
+    };
+
+    const std::vector<uint32_t> baseline = run(/*include_bigrams=*/false, /*prune_min_df=*/0);
+    const std::vector<uint32_t> unpruned = run(/*include_bigrams=*/true, /*prune_min_df=*/0);
+    const std::vector<uint32_t> pruned = run(/*include_bigrams=*/true, /*prune_min_df=*/2);
+
+    // "failed order ordinal" is adjacent in docs 5000/7000 (order@1 -> ordinal@2
+    // there); the leading "failed order" must gate it -- bigram(order,ordinal)
+    // alone (present in docs 5000/7000) must not add a doc lacking "failed order".
+    EXPECT_EQ(unpruned, baseline) << "multi-leading phrase-prefix must not use the bigram pair";
+    EXPECT_EQ(pruned, baseline) << "multi-leading phrase-prefix stays on the positions path";
+}
