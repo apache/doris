@@ -30,6 +30,8 @@
 #include "core/block/column_numbers.h"
 #include "core/block/column_with_type_and_name.h"
 #include "core/block/columns_with_type_and_name.h"
+#include "core/column/column_nullable.h"
+#include "core/column/column_vector.h"
 
 namespace doris::format {
 
@@ -80,9 +82,27 @@ Status DeletePredicate::execute(VExprContext* context, Block* block, int* result
                 "DeletePredicate row id child returned invalid column id {}, block has {} columns",
                 slot, block->columns());
     }
-    const auto& row_ids =
-            assert_cast<const ColumnInt64&>(*block->get_by_position(slot).column).get_data();
+    const auto& row_id_column = *block->get_by_position(slot).column;
+    const ColumnInt64* row_id_data_column = nullptr;
+    const NullMap* null_map = nullptr;
+    if (const auto* nullable_column = check_and_get_column<ColumnNullable>(row_id_column)) {
+        row_id_data_column =
+                check_and_get_column<ColumnInt64>(nullable_column->get_nested_column());
+        null_map = &nullable_column->get_null_map_data();
+    } else {
+        row_id_data_column = check_and_get_column<ColumnInt64>(row_id_column);
+    }
+    if (row_id_data_column == nullptr) {
+        return Status::InternalError("DeletePredicate row id child must be Int64, but got {}",
+                                     row_id_column.get_name());
+    }
+    const auto& row_ids = row_id_data_column->get_data();
     const auto count = row_ids.size();
+    if (null_map != nullptr && null_map->size() != count) {
+        return Status::InternalError(
+                "DeletePredicate nullable row id column has {} values but {} null flags", count,
+                null_map->size());
+    }
     auto res_col = ColumnBool::create(count, 0);
     if (_deleted_rows.empty()) {
         block->insert({std::move(res_col), std::make_shared<DataTypeBool>(), expr_name()});
@@ -90,6 +110,19 @@ Status DeletePredicate::execute(VExprContext* context, Block* block, int* result
         return Status::OK();
     }
     if (count == 0) {
+        block->insert({std::move(res_col), std::make_shared<DataTypeBool>(), expr_name()});
+        *result_column_id = static_cast<int>(block->get_columns().size() - 1);
+        return Status::OK();
+    }
+    if (null_map != nullptr && std::any_of(null_map->begin(), null_map->end(),
+                                           [](UInt8 is_null) { return is_null != 0; })) {
+        auto& result_data = res_col->get_data();
+        for (size_t row = 0; row < count; ++row) {
+            if ((*null_map)[row] == 0 &&
+                std::binary_search(_deleted_rows.begin(), _deleted_rows.end(), row_ids[row])) {
+                result_data[row] = true;
+            }
+        }
         block->insert({std::move(res_col), std::make_shared<DataTypeBool>(), expr_name()});
         *result_column_id = static_cast<int>(block->get_columns().size() - 1);
         return Status::OK();

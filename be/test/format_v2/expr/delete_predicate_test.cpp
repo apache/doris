@@ -25,7 +25,9 @@
 
 #include "common/status.h"
 #include "core/block/block.h"
+#include "core/column/column_nullable.h"
 #include "core/column/column_vector.h"
+#include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "exprs/vexpr_context.h"
 #include "runtime/descriptors.h"
@@ -43,6 +45,21 @@ protected:
 
         Block block;
         block.insert({std::move(column), std::make_shared<DataTypeInt64>(), "row_id"});
+        return block;
+    }
+
+    static Block make_nullable_block(const std::vector<int64_t>& row_ids,
+                                     const std::vector<UInt8>& nulls) {
+        auto column = ColumnInt64::create();
+        auto null_map = ColumnUInt8::create();
+        for (size_t row = 0; row < row_ids.size(); ++row) {
+            column->insert_value(row_ids[row]);
+            null_map->insert_value(nulls[row]);
+        }
+
+        Block block;
+        block.insert({ColumnNullable::create(std::move(column), std::move(null_map)),
+                      make_nullable(std::make_shared<DataTypeInt64>()), "row_id"});
         return block;
     }
 
@@ -97,6 +114,28 @@ TEST_F(DeletePredicateTest, DeletedRowsOutsideInputRangeReturnAllFalse) {
     ASSERT_TRUE(status.ok()) << status;
 
     EXPECT_EQ(result_column_data(block, result_column_id), std::vector<UInt8>({0, 0, 0}));
+}
+
+TEST_F(DeletePredicateTest, NullableRowIdColumnMatchesDeletedRows) {
+    const std::vector<int64_t> deleted_rows {1, 3};
+    auto block = make_nullable_block({0, 1, 2, 3, 4}, {0, 0, 0, 0, 0});
+
+    int result_column_id = -1;
+    auto status = execute_delete_predicate(deleted_rows, &block, &result_column_id);
+    ASSERT_TRUE(status.ok()) << status;
+
+    EXPECT_EQ(result_column_data(block, result_column_id), std::vector<UInt8>({0, 1, 0, 1, 0}));
+}
+
+TEST_F(DeletePredicateTest, NullableRowIdColumnIgnoresNullRows) {
+    const std::vector<int64_t> deleted_rows {1, 2, 4};
+    auto block = make_nullable_block({0, 1, 2, 3, 4}, {0, 1, 0, 0, 0});
+
+    int result_column_id = -1;
+    auto status = execute_delete_predicate(deleted_rows, &block, &result_column_id);
+    ASSERT_TRUE(status.ok()) << status;
+
+    EXPECT_EQ(result_column_data(block, result_column_id), std::vector<UInt8>({0, 0, 1, 0, 1}));
 }
 
 TEST_F(DeletePredicateTest, EmptyRowIdColumnAppendsEmptyResultColumn) {
