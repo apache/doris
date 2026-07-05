@@ -17,13 +17,30 @@
 >
 > **✅ 完整新设计已出 = `plan-doc/tasks/designs/plugin-owns-property-parsing-arch-design.md`**（依据侦察工作流 `wf_61c70f0d-bce`，替代/升级 iceberg-metastore-auth-connector-rewire-design.md）。**关键实证（大幅利好）：目标架构大部分已就位** —— `fe-filesystem-api/spi` 已是插件可用共享模块（parent-first、排除打包，无须抽取）；连接器读/扫描路径**已** fe-filesystem-native；fe-core `StorageProperties.createAll` 只是**冗余的第二份解析**。故本迁移 = **退掉 fe-core 第二份解析**（10 步 S1-S10），非新建模块，比预想小。**vended 难题也顺带解掉**：fe-core 对所有插件 catalog **无条件停建静态存储表**（插件 100% 拥有 static+vended），不判别、不 gate、守铁律。
 > **✅ 中央决策已裁定（用户 2026-07-05）= A 家族：共享宿主 classpath + 连接器发起 bind**（fe-filesystem 解析器留宿主 parent-first、不打包；连接器直接调 fe-filesystem-api 发起 bind，不经 fe-core context；fe-core 零解析。B 每插件打包不采纳）。
-> **⏭ 下个 session 起步 = S7（退 fe-core `Paimon*/Iceberg* MetastoreProperties` 簇 + un-register `MetastoreProperties` 的 `Type.PAIMON/ICEBERG`，待三消费者 auth/vended/derived 全连接器化后——auth=S6✅、vended=S4✅、derived=S8 待办）。** ✅ S2–S6 已全部落地（见下方最新一轮）。**S8**（CUT4 `deriveHdfsDefaultFsFromWarehouse` 搬回 fe-connector-metastore-iceberg）与 S7 同步、不早于（现仍对只带 warehouse 的 HA native-iceberg load-bearing）。⚠️ legacy 静态 map 方法（`CatalogProperty` 四方法 + `StorageProperties.createAll`）须保活至 Hive/Hudi/LakeSoul/HMS-iceberg 全离 SPI（S10 铁律，别删共享方法只 repoint 插件路）。
+> **✅✅ S1–S10 全部落地（2026-07-05 续⁵，见下方最新一轮）= 已迁连接器（iceberg+paimon）属性解析全归插件、fe-core 零解析目标达成。** S8 用「连接器发起派生」变体落地：新增中立 SPI `Connector.deriveStorageProperties`，iceberg 连接器自持 warehouse→fs.defaultFS（仅 hadoop flavor），fe-core 插件路径经 `CatalogProperty.setPluginDerivedStorageDefaultsSupplier` 折叠、不再调 getMetastoreProperties；S7 删 fe-core Iceberg/Paimon 簇（-4914 行，含 recon 新发现的 5 个 fe-core iceberg 连通性探测器 + 协调器 iceberg 分支）。⚠️ legacy 静态 map 方法（`CatalogProperty` getStoragePropertiesMap/getBackendStorageProperties/getHadoopProperties/getMetastoreProperties + `StorageProperties.createAll` + 共享基类 HMSBaseProperties/AWSGlueMetaStoreBaseProperties/AliyunDLFBaseProperties/AbstractMetastorePropertiesFactory）已按 S10 铁律**保活**，供 Hive/Hudi/LakeSoul/HMS-iceberg 继续用，直到它们全离 SPI（阶段四）。
+> **⏭ 下个 session 起步 = 回翻闸主线**（连通性 F2/F3/F15/F16 → ENG-3 flip-gated e2e 全跑 → 用户二签翻闸最后原子提交）；属性簇迁移子线已 CLOSED。
 >
-> **已 commit 未 push（前序轮）**：CUT 1 `cf8dda9f058` / CUT 2 `eb9201dc0a6` / CUT 4 `0de34db83fb`（+ 各自 doc commit）。**CUT 4 现由 S8 接管去留（搬回连接器）**。
+> **已 commit 未 push（前序轮，[DEC-FLIP-1] 铁律）**：CUT 1 `cf8dda9f058` / CUT 2 `eb9201dc0a6` / CUT 4 `0de34db83fb`。**CUT 4 已由 S8 `3e7a687e6e2` 接管——`deriveHdfsDefaultFsFromWarehouse` helper 已从 fe-core 删除、逻辑搬入 iceberg 连接器。**
 
 ---
 
-# 🎯 最新一轮（2026-07-05 续⁴）= **属性簇迁移 S3–S6 一口气落地（写入凭据改绑 / vended 机制退休 / URI 接缝保留决策 / Kerberos 鉴权全归连接器）= 4 代码 commit + 1 doc**
+# 🎯 最新一轮（2026-07-05 续⁵）= **属性簇迁移收官 S7–S10：连接器自持存储派生 + 删除 fe-core Iceberg/Paimon 元存储簇 = 2 代码 commit（未 push）**
+
+> **本轮范围** = 承接 S6，一次把 **S7、S8、S9、S10** 全部处理掉（用户本 session 明确要求）。先跑 6-agent 侦察工作流（`wf_225ef82c-53c`：删除安全闭包 / 插件 getMetastoreProperties 闭包 / S8 派生 parity / S9-S10-auth 死码 + 2 路对抗核验），**对抗核验揪出设计一句话漏掉的 compile 阻塞**（`datasource/connectivity/` 子系统硬引用 iceberg 簇），据此扩大 S7 删除面。需用户拍板处（派生逻辑放哪）已用中文讲清背景+例子后拿到裁定 = **搬进连接器**。
+>
+> **✅ S8 `3e7a687e6e2`（连接器自持 warehouse→fs.defaultFS，插件路径退掉 fe-core 元存储解析）**：新增中立 SPI `Connector.deriveStorageProperties(rawProps)`（默认空）；`IcebergConnector` 实现 hadoop-flavor `warehouse=hdfs://ns/path`→`fs.defaultFS=hdfs://ns`（**仅 hadoop 类型派生**，逐字节镜像原 `IcebergFileSystemMetaStoreProperties.getDerivedStorageProperties`，铁律：连接器 inline hdfs 常量、无 fe-core import）；`PluginDrivenExternalCatalog.initLocalObjectsImpl` 经 `CatalogProperty.setPluginDerivedStorageDefaultsSupplier` 把连接器派生结果懒折叠进存储表，**FE 绑定（raw supplier）与 BE 扫描（typed supplier）两路同源**；`CatalogProperty` 的 `initStorageProperties`/`getEffectiveRawStorageProperties` 改走 `mergeDerivedStorageDefaults()`→`resolveDerivedStorageDefaults()`：插件 catalog 用 supplier（不调 getMetastoreProperties），legacy Hive/Hudi 仍走 msp。删 fe-core 中立 `deriveHdfsDefaultFsFromWarehouse` helper（搬入连接器）。**为何这是 S7 前置**：un-register 后任何对插件 catalog 的 getMetastoreProperties 都会抛「Unsupported metastore type」，本刀切断插件存储路径对它的**唯一**依赖（recon 实证：typed+raw 两 supplier 是仅有的插件消费点，连通性协调器被 PluginDriven.checkWhenCreating override 绕开）。验收=fe-core 10 测 + iceberg 7 测 0 失败、三模块 checkstyle 0、连接器无 fe-core import。
+>
+> **✅ S7 `3c69bfa8265`（删 fe-core Iceberg/Paimon MetastoreProperties 簇 + un-register，−4914 行）**：`MetastoreProperties` 摘 register(Type.ICEBERG/PAIMON)（枚举值留、工厂不注册→fail-loud）+ 删死方法 `initExecutionAuthenticator`；删 **16 簇类**（9 iceberg + 7 paimon）+ **2 property/common 凭据类**（IcebergAwsAssumeRole/ClientCredentials，仅簇内消费）+ **5 fe-core iceberg 连通性探测器** + `CatalogConnectivityTestCoordinator` 摘 4 iceberg 分支/import（Hive 逐字保留）；删 14 簇单测、迁 `CatalogPropertyEffectiveRawStoragePropsTest` 到 supplier 路径。验收=fe-core main+test BUILD SUCCESS（删 37 文件零悬挂引用=闭包完整）+ checkstyle 0 + 28 存储/脱敏/派生用例 + 7 存活 Hive 元存储用例 0 失败。
+>
+> **✅ S9（决策落地，无代码）= BE-thrift 方向保持现状（INDIRECT 默认）**：实证插件 iceberg/paimon 的 BE thrift **已全在连接器侧**建（`IcebergScanRange/IcebergScanPlanProvider.populate*`、`PaimonScanRange/PaimonScanPlanProvider.populate*`；fe-core 无 paimon 包；fe-core `IcebergScanNode.setIcebergParams` 只服务 legacy HMS-iceberg）。HDFS/kerberos 保持 INDIRECT（唯一 typed build = `HdfsResource.generateHdfsParam` 单转换器留 fe-core），S3/对象存储已 `params.setProperties(map)`。「插件→BE thrift」原则由 by-reference populate* 接缝结构性满足，无须动码。
+>
+> **✅ S10（铁律验证，无代码）= legacy 残留全保活**：`CatalogProperty` getStoragePropertiesMap/getBackendStorageProperties/getHadoopProperties/getMetastoreProperties（:260/:308/:333/:284）+ `StorageProperties.createAll`（:137，main 3 处消费）+ 共享基类（HMSBaseProperties/AWSGlueMetaStoreBaseProperties/AliyunDLFBaseProperties/AbstractMetastorePropertiesFactory）实测均在，供 Hive/Hudi/LakeSoul/HMS-iceberg 直读解析出 BE thrift（清单见 recon `wf_225ef82c-53c` s10KeepAliveConsumers）。**只 repoint 了插件路，未删任何共享方法。**
+>
+> **⚠️ flip-gated 未验（本地无集群）**：iceberg hadoop-catalog 只带 warehouse 的 HDFS-HA 绑定 e2e（S8 派生逐字节镜像，单测证 FE+BE 折叠一致 + 逻辑，但真绑定 flip 后才能 e2e）；重部署类加载冒烟。**全部未 push（[DEC-FLIP-1] 铁律）。** 侦察结论持久化在 `wf_225ef82c-53c` journal + 设计文档 §4。
+
+---
+
+# 🎯 上一轮（2026-07-05 续⁴）= **属性簇迁移 S3–S6 一口气落地（写入凭据改绑 / vended 机制退休 / URI 接缝保留决策 / Kerberos 鉴权全归连接器）= 4 代码 commit + 1 doc**
 
 > **本轮范围** = 承接 S2，按设计 §4 刀序把 **S3、S4、S5、S6** 全部处理掉（用户本 session 明确要求）。逐刀独立 commit + build + test + checkstyle + import-gate；每刀凭据/行为差异都做了核对，需用户拍板处已用中文讲清背景+例子后拿到裁定。**全部未 push（[DEC-FLIP-1] 铁律）。**
 >
