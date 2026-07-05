@@ -5,6 +5,22 @@
 
 ---
 
+# 🚨 架构裁定升级（2026-07-05 续² 末，用户拍板）= **fe-core 不再持有任何属性解析/组装；已迁移连接器（paimon+iceberg）完全走"插件解析 → BE thrift → 回传 fe-core"**
+
+> **触发**：本轮做属性/鉴权迁移到连接器时，vended 判定撞到"完整删除 vs 铁律 vs 风险"三者不可兼得；查 Trino（连接器独占存储/凭据解析，引擎从不建静态凭据表、也不必知 vended）后，用户升级为更根本的架构原则：
+> - **fe-core 不应再持有任何属性解析能力**，全部由插件完成。
+> - **storage 属性解析** → **fe-filesystem 模块**（插件侧）；**meta 属性解析** → **fe-connector**（插件侧）。
+> - **数据流**：插件组装 → 传给 BE 的 thrift → 再回传给 fe-core（fe-core 只接收成品、不自己解析）。
+> - **范围**：未迁移连接器暂留残留代码；但 **paimon 与 iceberg 必须完全按新架构走**（=paimon 也纳入范围，不再是 iceberg-only）。
+>
+> **影响（重估原 P5 7 刀计划）**：① 原"属性簇删除 + rewire"是这个大原则的**子集/前奏**，需按新架构重写设计；② **CUT 4（在 fe-core `CatalogProperty` 加 warehouse→fs.defaultFS helper）方向反了**（那仍是 fe-core 解析 storage）——应搬到插件/fe-filesystem 侧，待新设计定夺后可能 revert/改向；③ CUT 1（连接器自建 HMS 鉴权器）方向对（meta→连接器）；④ CUT 2（SHOW CREATE 脱敏在 fe-core）多半保留（展示层），但敏感键理想应由插件供。
+>
+> **进行中**：已起后台侦察工作流 `wf_61c70f0d-bce`（7 路：fe-filesystem 是否插件可用共享模块 / fe-core storage 消费者全谱 / BE thrift storage 数据流 / paimon 现状 / 连接器 storage seam / fe-core 究竟还需从属性读什么〔回传契约〕）→ 产出后基于原则出**完整新设计**再动码。**下个 session 若接手：先读该工作流 journal + 本段原则，勿按旧 7 刀计划继续（尤其别扩散 CUT 4 式的 fe-core 解析）。**
+>
+> **已 commit 未 push（本轮）**：CUT 1 `cf8dda9f058` / CUT 2 `eb9201dc0a6` / CUT 4 `0de34db83fb`（+ 各自 doc commit）。CUT 4 待新设计裁定去留。
+
+---
+
 # 🎯 最新一轮（2026-07-05 续²）= **属性/鉴权迁移到连接器启动：recon 纠正计划前提 + 用户裁定完整删除 + 设计文档 + CUT 1 done**
 
 > **本轮范围** = 承接 P4 DONE，启动"属性/鉴权迁移到连接器 + fe-core iceberg 属性簇删除"（removal-execution-plan **§P5**，死码删除收官最大一块）。**做了 recon → 暴露 Rule 7 前提错误 → 用户拍板 → 写设计 → 落 CUT 1**。
