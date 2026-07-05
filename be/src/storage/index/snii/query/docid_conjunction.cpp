@@ -740,12 +740,15 @@ Status run_docid_only_conjunction_impl(const LogicalIndexReader& idx,
     if (sources != nullptr) {
         sources->assign(plans.size(), DocidSource {});
     }
-    if (initial_candidates != nullptr) {
-        *candidates = *initial_candidates;
-    } else {
-        candidates->clear();
+    candidates->clear();
+    if (plans.empty()) {
+        // No terms: the result is the initial candidate set verbatim (or empty).
+        if (initial_candidates != nullptr) {
+            *candidates = *initial_candidates;
+        }
+        return Status::OK();
     }
-    if (initial_candidates != nullptr && candidates->empty()) {
+    if (initial_candidates != nullptr && initial_candidates->empty()) {
         return Status::OK();
     }
     const std::vector<size_t> order = ascending_df_order(plans);
@@ -753,8 +756,13 @@ Status run_docid_only_conjunction_impl(const LogicalIndexReader& idx,
         const size_t ti = order[k];
         std::vector<uint32_t> next;
         DocidSource* source = sources == nullptr ? nullptr : &(*sources)[ti];
-        const std::vector<uint32_t>* input_candidates =
-                initial_candidates == nullptr && k == 0 ? nullptr : candidates;
+        // k == 0 intersects against the (const) initial_candidates DIRECTLY, so
+        // the whole set is never copied once per plan -- the previous code seeded
+        // *candidates = *initial_candidates before the loop, which for a single
+        // plan (e.g. one phrase-prefix tail verified against the leading-term
+        // expected docids) was an O(|initial|) copy per call with no benefit.
+        // k > 0 chains on the previous term's already-whittled result.
+        const std::vector<uint32_t>* input_candidates = k == 0 ? initial_candidates : candidates;
         RETURN_IF_ERROR(
                 collect_docids_only(idx, round1, plans[ti], input_candidates, &next, source));
         if (source != nullptr && k + 1 == order.size()) {

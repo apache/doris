@@ -1224,67 +1224,139 @@ bool contains_any_position(const ExpectedTailPositionSet& expected,
     return false;
 }
 
-// `expected_docids` is the ascending docid projection of `expected.docs`. It is
-// invariant across every tail expansion (it depends only on the const `expected`
-// set, never on `tail`), so the caller builds it ONCE and passes it in by
-// const-ref rather than rebuilding it per tail hit inside this function.
-Status CollectTailMatchesAtExpectedPositions(const LogicalIndexReader& idx,
-                                             const ResolvedQueryTerm& tail,
-                                             const ExpectedTailPositionSet& expected,
-                                             const std::vector<uint32_t>& expected_docids,
-                                             std::vector<uint32_t>* out) {
-    if (expected.docs.empty()) {
+// Upper bound on prefix expansions whose position cursors are held resident at
+// once. The old per-tail loop verified a single expansion at a time (one
+// PosSource + one PRX buffer live); the merged sweep below holds up to this many
+// tail PosSources + cursors + PRX buffers simultaneously so it can read every
+// tail's docid/prx bytes in ONE batched round and verify them in a single
+// forward pass. `max_expansions` may be unbounded (<= 0), so this hard cap keeps
+// resident memory bounded independent of the query: expansions beyond the cap
+// are processed as additional capped groups (each a fresh single fetch) whose
+// emitted docids are unioned. 32 mirrors the small-fan-in style of
+// kLinearFanInMax (docid_set_ops), tightened because each cursor here also holds
+// decoded PRX rather than plain docids.
+constexpr size_t kMaxTailMergeBatch = 32;
+
+// Merged multi-tail verification for ONE resident-capped group of prefix
+// expansions (`tails`, already truncated by max_expansions upstream). This
+// replaces the per-tail verify-then-union loop: instead of re-planning + TWO
+// remote rounds (docid, then prx) + a separate doc-walk PER tail and unioning N
+// result lists, it plans every tail into ONE shared round1 fetch, intersects
+// each tail with `expected_docids` in memory (no I/O), builds every surviving
+// tail's position source in ONE batched PRX round, then sweeps the group's tail
+// cursors over the ascending `expected` docs a SINGLE time -- emitting each doc
+// at most once as soon as ANY tail has a position adjacent to a leading match.
+//
+// The emitted set is byte-identical to the per-tail path's
+//   UNION_{tail in group} { d : d in tail INTERSECT expected AND
+//                               contains_any_position(expected, doc_d, pos_tail(d)) }
+// because each tail's PosSource is still built from its OWN final-candidate
+// docids (the shared-candidate argument is ignored for final-candidate sources),
+// so pos_tail(d) and the per-doc position test are unchanged; only the I/O rounds
+// (2N -> 2) and the N separate unions (-> one forward sweep) collapse. Emitted
+// docids are ascending and unique because `expected.docs` is ascending/unique and
+// each doc is pushed at most once. Bigram postings are NEVER consulted: every
+// tail is verified against its unigram positions here.
+Status CollectMergedTailMatches(const LogicalIndexReader& idx, std::vector<ResolvedQueryTerm> tails,
+                                const ExpectedTailPositionSet& expected,
+                                const std::vector<uint32_t>& expected_docids,
+                                std::vector<uint32_t>* out) {
+    const size_t n = tails.size();
+    if (n == 0 || expected.docs.empty()) {
         return Status::OK();
     }
 
+    // Plan every tail into ONE fetcher so their docid postings + windowed
+    // preludes are read in a single batched round (the per-tail path issued one
+    // round per tail). Each tail keeps its own single-term plan vector so the
+    // conjunction filter below consumes it directly, without slicing a shared
+    // plan vector (whose prelude readers own decoded directory buffers).
     io::BatchRangeFetcher round1(idx.reader());
-    std::vector<TermPlan> plans;
-    RETURN_IF_ERROR(internal::plan_resolved_terms(idx, {tail}, &round1, &plans,
-                                                  /*need_positions=*/false));
-
+    std::vector<std::vector<TermPlan>> tail_plans(n);
+    for (size_t i = 0; i < n; ++i) {
+        std::vector<ResolvedQueryTerm> one;
+        one.push_back(std::move(tails[i]));
+        RETURN_IF_ERROR(internal::plan_resolved_terms(idx, one, &round1, &tail_plans[i],
+                                                      /*need_positions=*/false));
+    }
     if (round1.pending() > 0) {
         RETURN_IF_ERROR(round1.fetch());
     }
-    RETURN_IF_ERROR(internal::open_preludes(round1, &plans,
-                                            /*need_positions=*/true));
+    for (size_t i = 0; i < n; ++i) {
+        RETURN_IF_ERROR(internal::open_preludes(round1, &tail_plans[i],
+                                                /*need_positions=*/true));
+    }
 
-    std::vector<uint32_t> tail_candidates;
-    std::vector<DocidSource> doc_sources;
-    RETURN_IF_ERROR(internal::filter_docids_by_conjunction(idx, round1, plans, expected_docids,
-                                                           &tail_candidates, &doc_sources));
-    if (tail_candidates.empty()) {
+    // Per-tail candidate docids (tail posting INTERSECT expected) and the aligned
+    // final-candidate doc sources feeding the batched position builder. The
+    // conjunction reads only already-fetched round1 bytes; a single-plan filter
+    // marks its one source docids_are_final_candidates, so the position builder
+    // materializes each tail's PosSource directly over its own candidate docs.
+    // Tails whose intersection is empty are dropped here (exactly as the old
+    // per-tail early return did), so no dead tail decodes its full posting.
+    std::vector<std::vector<uint32_t>> tail_candidates(n);
+    std::vector<TermPlan> active_plans;
+    std::vector<DocidSource> active_sources;
+    std::vector<size_t> active_index; // active slot -> tail index (into tail_candidates)
+    for (size_t i = 0; i < n; ++i) {
+        std::vector<DocidSource> tail_source;
+        RETURN_IF_ERROR(internal::filter_docids_by_conjunction(
+                idx, round1, tail_plans[i], expected_docids, &tail_candidates[i], &tail_source));
+        if (tail_candidates[i].empty()) {
+            continue; // this expansion has no doc in the expected set: nothing to verify
+        }
+        active_plans.push_back(std::move(tail_plans[i].front()));
+        active_sources.push_back(tail_source.empty() ? DocidSource {}
+                                                     : std::move(tail_source.front()));
+        active_index.push_back(i);
+    }
+    if (active_plans.empty()) {
         return Status::OK();
     }
 
+    // ONE batched PRX round for every retained chunk across all surviving tails
+    // (vs one round per tail before). `candidates` is intentionally empty: every
+    // source is a final-candidate source, so the builder addresses positions by
+    // the source's own docids and never consults the shared candidate list.
     std::vector<std::unique_ptr<io::BatchRangeFetcher>> owners;
     std::vector<PosSource> srcs;
-    RETURN_IF_ERROR(BuildPositionSourcesForCandidates(idx, round1, plans, &doc_sources,
-                                                      tail_candidates, &owners, &srcs));
+    const std::vector<uint32_t> no_shared_candidates;
+    RETURN_IF_ERROR(BuildPositionSourcesForCandidates(idx, round1, active_plans, &active_sources,
+                                                      no_shared_candidates, &owners, &srcs));
 
-    PostingCursor cursor;
-    cursor.init(srcs.data());
-    size_t ei = 0;
-    size_t ti = 0;
-    while (ei < expected.docs.size() && ti < tail_candidates.size()) {
-        const uint32_t want_doc = expected.docs[ei].docid;
-        const uint32_t tail_doc = tail_candidates[ti];
-        if (want_doc < tail_doc) {
-            ++ei;
-            continue;
+    // Single forward sweep over the ascending expected docs. For each doc probe
+    // only the tails that actually posted it (per-tail ascending cursor over
+    // tail_candidates), decode positions once, and emit the doc the instant one
+    // tail's positions land adjacent to a leading match. Cursors advance strictly
+    // forward because expected.docs is strictly ascending and each cursor is
+    // sought at most once per doc.
+    std::vector<PostingCursor> cursors(active_plans.size());
+    for (size_t a = 0; a < active_plans.size(); ++a) {
+        cursors[a].init(&srcs[a]);
+    }
+    std::vector<size_t> tail_pos(active_plans.size(), 0);
+    for (const ExpectedTailPositions& doc : expected.docs) {
+        const uint32_t d = doc.docid;
+        bool matched = false;
+        for (size_t a = 0; a < active_plans.size() && !matched; ++a) {
+            std::vector<uint32_t>& cand = tail_candidates[active_index[a]];
+            size_t& ti = tail_pos[a];
+            while (ti < cand.size() && cand[ti] < d) {
+                ++ti;
+            }
+            if (ti >= cand.size() || cand[ti] != d) {
+                continue; // this expansion has no posting at d
+            }
+            RETURN_IF_ERROR(cursors[a].seek(d));
+            std::pair<const uint32_t*, const uint32_t*> actual;
+            RETURN_IF_ERROR(cursors[a].positions(&actual));
+            if (contains_any_position(expected, doc, actual)) {
+                matched = true;
+            }
         }
-        if (tail_doc < want_doc) {
-            ++ti;
-            continue;
+        if (matched) {
+            out->push_back(d);
         }
-
-        RETURN_IF_ERROR(cursor.seek(want_doc));
-        std::pair<const uint32_t*, const uint32_t*> actual;
-        RETURN_IF_ERROR(cursor.positions(&actual));
-        if (contains_any_position(expected, expected.docs[ei], actual)) {
-            out->push_back(want_doc);
-        }
-        ++ei;
-        ++ti;
     }
     return Status::OK();
 }
@@ -1375,8 +1447,7 @@ Status phrase_prefix_query(const LogicalIndexReader& idx, const std::vector<std:
     // NEVER consulted as tail evidence here, on pruned or legacy segments
     // alike: every expanded tail below is verified against UNIGRAM postings and
     // positions (single-tail via the generic streaming phrase path, multi-tail
-    // via CollectTailMatchesAtExpectedPositions), which G01's diet leaves
-    // untouched.
+    // via CollectMergedTailMatches), which G01's diet leaves untouched.
     std::vector<LogicalIndexReader::PrefixHit> tail_hits;
     RETURN_IF_ERROR(idx.visit_prefix_terms(terms.back(), [&](LogicalIndexReader::PrefixHit&& hit,
                                                              bool* stop) {
@@ -1415,14 +1486,27 @@ Status phrase_prefix_query(const LogicalIndexReader& idx, const std::vector<std:
     }
     SNII_QUERY_COUNT(expected_docids_build);
 
+    // Verify the expansions in resident-capped GROUPS. Within a group every tail
+    // shares one docid fetch + one PRX fetch and is merged in a single forward
+    // sweep (CollectMergedTailMatches); across groups the emitted docids are
+    // unioned. The grouping is result-invariant -- union over tails is
+    // associative/commutative and dedups -- so the outcome is identical to the
+    // old per-tail loop regardless of the batch size, which only bounds how many
+    // tail cursors sit resident at once.
     std::vector<uint32_t> acc;
-    for (LogicalIndexReader::PrefixHit& hit : tail_hits) {
-        ResolvedQueryTerm tail {
-                .entry = std::move(hit.entry), .frq_base = hit.frq_base, .prx_base = hit.prx_base};
-        std::vector<uint32_t> tail_docs;
-        RETURN_IF_ERROR(CollectTailMatchesAtExpectedPositions(idx, tail, expected, expected_docids,
-                                                              &tail_docs));
-        internal::union_sorted_into(&acc, tail_docs);
+    for (size_t start = 0; start < tail_hits.size(); start += kMaxTailMergeBatch) {
+        const size_t end = std::min(start + kMaxTailMergeBatch, tail_hits.size());
+        std::vector<ResolvedQueryTerm> group;
+        group.reserve(end - start);
+        for (size_t i = start; i < end; ++i) {
+            group.push_back(ResolvedQueryTerm {.entry = std::move(tail_hits[i].entry),
+                                               .frq_base = tail_hits[i].frq_base,
+                                               .prx_base = tail_hits[i].prx_base});
+        }
+        std::vector<uint32_t> group_docs;
+        RETURN_IF_ERROR(CollectMergedTailMatches(idx, std::move(group), expected, expected_docids,
+                                                 &group_docs));
+        internal::union_sorted_into(&acc, group_docs);
     }
     *docids = std::move(acc);
     return Status::OK();
