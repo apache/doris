@@ -25,6 +25,7 @@ import org.apache.doris.catalog.info.CreateOrReplaceBranchInfo;
 import org.apache.doris.catalog.info.CreateOrReplaceTagInfo;
 import org.apache.doris.catalog.info.DropBranchInfo;
 import org.apache.doris.catalog.info.DropTagInfo;
+import org.apache.doris.catalog.info.PartitionNamesInfo;
 import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
@@ -52,6 +53,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.ReplacePartitionFieldO
 import org.apache.doris.persist.CreateDbInfo;
 import org.apache.doris.persist.DropDbInfo;
 import org.apache.doris.persist.DropInfo;
+import org.apache.doris.persist.TruncateTableInfo;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.transaction.PluginDrivenTransactionManager;
 
@@ -607,6 +609,62 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
             throw new DdlException(e.getMessage(), e);
         }
         afterExternalRename(dbName, oldTableName, newTableName);
+    }
+
+    /**
+     * Routes {@code TRUNCATE TABLE} through the SPI's {@code ConnectorTableOps.truncateTable(session, handle,
+     * partitions)} instead of the base {@link ExternalCatalog#truncateTable} (which throws on
+     * {@code metadataOps == null}).
+     *
+     * <p>Resolves the table by REMOTE names for the connector (like {@link #dropTable}); {@code partitions} is
+     * {@code null} for a whole-table truncate or the named partitions otherwise. On success it emits the same
+     * {@link TruncateTableInfo} edit log the base op writes and refreshes the local table cache (mirroring legacy
+     * {@code HiveMetadataOps.afterTruncateTable -> RefreshManager.refreshTableInternal}); followers refresh via
+     * {@link #replayTruncateTable}. {@code forceDrop} / {@code rawTruncateSql} carry no external semantics (the
+     * connector truncates the remote table directly) and are ignored, matching the legacy path.</p>
+     */
+    @Override
+    public void truncateTable(String dbName, String tableName, PartitionNamesInfo partitionNamesInfo,
+                              boolean forceDrop, String rawTruncateSql) throws DdlException {
+        makeSureInitialized();
+        ExternalDatabase<? extends ExternalTable> db = getDbNullable(dbName);
+        if (db == null) {
+            throw new DdlException("Failed to get database: '" + dbName + "' in catalog: " + getName());
+        }
+        ExternalTable dorisTable = db.getTableNullable(tableName);
+        if (dorisTable == null) {
+            throw new DdlException("Failed to get table: '" + tableName + "' in database: " + dbName);
+        }
+        List<String> partitions = partitionNamesInfo == null ? null : partitionNamesInfo.getPartitionNames();
+        ConnectorSession session = buildConnectorSession();
+        ConnectorMetadata metadata = connector.getMetadata(session);
+        ConnectorTableHandle handle = resolveAlterHandle(dorisTable, session, metadata);
+        try {
+            metadata.truncateTable(session, handle, partitions);
+        } catch (DorisConnectorException e) {
+            throw new DdlException(e.getMessage(), e);
+        }
+        long updateTime = System.currentTimeMillis();
+        // Cache refresh + edit log use the LOCAL db/table names for follower-replay parity (only the
+        // connector-bound handle is remote-resolved), mirroring base ExternalCatalog.truncateTable.
+        Env.getCurrentEnv().getRefreshManager().refreshTableInternal(db, dorisTable, updateTime);
+        Env.getCurrentEnv().getEditLog().logTruncateTable(
+                new TruncateTableInfo(getName(), dbName, tableName, partitions, updateTime));
+        LOG.info("finished to truncate table {}.{}.{}", getName(), dbName, tableName);
+    }
+
+    /**
+     * Refreshes the local table cache on edit-log replay of a connector-driven truncate. The base
+     * {@link ExternalCatalog#replayTruncateTable} delegates to {@code metadataOps.afterTruncateTable}, which is a
+     * no-op for PluginDriven ({@code metadataOps == null}); this override re-resolves the cached table by the
+     * replayed LOCAL names and runs {@code refreshTableInternal} (the same effect the master path applied),
+     * mirroring legacy {@code HiveMetadataOps.afterTruncateTable}.
+     */
+    @Override
+    public void replayTruncateTable(TruncateTableInfo info) {
+        getDbForReplay(info.getDb()).ifPresent(db ->
+                db.getTableForReplay(info.getTable()).ifPresent(tbl ->
+                        Env.getCurrentEnv().getRefreshManager().refreshTableInternal(db, tbl, info.getUpdateTime())));
     }
 
     /**

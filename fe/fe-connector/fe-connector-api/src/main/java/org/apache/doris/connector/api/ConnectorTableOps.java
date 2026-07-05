@@ -189,6 +189,21 @@ public interface ConnectorTableOps {
     }
 
     /**
+     * Truncates the table identified by {@code handle}. When {@code partitions} is non-empty only those
+     * partitions are truncated; {@code null} / empty truncates the whole table.
+     *
+     * <p>Connectors that support {@code TRUNCATE TABLE} override this. The default throws, matching the
+     * pre-flip behavior of the generic bridge (which had no truncate route for the SPI path).</p>
+     *
+     * @throws DorisConnectorException if the connector does not support truncate
+     */
+    default void truncateTable(ConnectorSession session,
+            ConnectorTableHandle handle, List<String> partitions) {
+        throw new DorisConnectorException(
+                "TRUNCATE TABLE not supported");
+    }
+
+    /**
      * Adds a column to the table at the given position.
      *
      * @param position where to place the column ({@link ConnectorColumnPosition#FIRST} /
