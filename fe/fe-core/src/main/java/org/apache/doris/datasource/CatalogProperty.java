@@ -17,7 +17,6 @@
 
 package org.apache.doris.datasource;
 
-import org.apache.doris.catalog.HdfsResource;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.property.metastore.MetastoreProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
@@ -26,7 +25,6 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
 import org.apache.commons.collections4.MapUtils;
-import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.logging.log4j.LogManager;
@@ -37,6 +35,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 /**
@@ -69,6 +68,14 @@ public class CatalogProperty {
 
     // Lazy-loaded Hadoop properties, using volatile to ensure visibility
     private volatile Map<String, String> hadoopProperties;
+
+    // Design S8: for a plugin catalog, the connector owns storage-property derivation (e.g. iceberg hadoop
+    // warehouse -> fs.defaultFS); this supplier returns the connector-derived storage defaults fe-core folds
+    // into the storage map, so fe-core does NOT parse metastore properties on the storage path. Null for a
+    // legacy catalog (Hive/Hudi/HMS-iceberg/LakeSoul), which derives from its fe-core MetastoreProperties. Set
+    // once by PluginDrivenExternalCatalog after the connector is created; deliberately NOT cleared by
+    // resetAllCaches (it is catalog wiring, not a derived cache, and an ALTER re-runs catalog init anyway).
+    private volatile Supplier<Map<String, String>> pluginDerivedStorageDefaultsSupplier;
 
     public CatalogProperty(String resource, Map<String, String> properties) {
         this.resource = resource; // Keep but not used
@@ -167,7 +174,7 @@ public class CatalogProperty {
                         // for a plugin REST/vended catalog the map carries no static object-store creds (the
                         // connector supplies vended per-table), so createAll yields only inert defaults the
                         // plugin storage consumers do not use.
-                        Map<String, String> storageProps = mergeDerivedStorageDefaults(getMetastoreProperties());
+                        Map<String, String> storageProps = mergeDerivedStorageDefaults();
                         List<StorageProperties> ordered = StorageProperties.createAll(storageProps);
                         this.storagePropertiesMap = ordered.stream()
                                 .collect(Collectors.toMap(StorageProperties::getType, Function.identity()));
@@ -182,23 +189,48 @@ public class CatalogProperty {
     }
 
     /**
-     * The catalog's persisted user props merged with derived storage defaults: from the metastore props when
-     * present; otherwise (an SPI catalog with no fe-core {@link MetastoreProperties} — e.g. a native iceberg
-     * catalog whose property cluster moved to the connector) from the neutral {@code hdfs://} warehouse
-     * bridge. Derived props are defaults (an explicit user key wins via {@code putIfAbsent}) and the persisted
-     * {@link #getProperties()} map is never mutated. This is the exact map {@link #initStorageProperties}
-     * feeds to {@link StorageProperties#createAll}.
+     * The catalog's persisted user props merged with derived storage defaults. For a plugin catalog the
+     * connector supplies them (design S8: {@link #pluginDerivedStorageDefaultsSupplier} — fe-core does not
+     * parse metastore properties for storage); for a legacy catalog they come from its fe-core
+     * {@link MetastoreProperties}. Derived props are defaults (an explicit user key wins via {@code putIfAbsent})
+     * and the persisted {@link #getProperties()} map is never mutated. This is the exact map
+     * {@link #initStorageProperties} feeds to {@link StorageProperties#createAll} and that
+     * {@link #getEffectiveRawStorageProperties} hands the connector for fe-filesystem binding.
      */
-    private Map<String, String> mergeDerivedStorageDefaults(MetastoreProperties msp) {
+    private Map<String, String> mergeDerivedStorageDefaults() {
         Map<String, String> storageProps = getProperties();
-        Map<String, String> derived = msp != null
-                ? msp.getDerivedStorageProperties()
-                : deriveHdfsDefaultFsFromWarehouse(storageProps);
+        Map<String, String> derived = resolveDerivedStorageDefaults();
         if (MapUtils.isNotEmpty(derived)) {
             storageProps = new HashMap<>(storageProps);
             derived.forEach(storageProps::putIfAbsent);
         }
         return storageProps;
+    }
+
+    /**
+     * Resolves the derived storage defaults. A plugin catalog gets them from the connector (design S8 — fe-core
+     * does not parse metastore properties for storage; the iceberg connector bridges its hadoop warehouse to
+     * {@code fs.defaultFS}). A legacy catalog derives them from its fe-core {@link MetastoreProperties}, which
+     * is empty for every remaining type once the iceberg cluster's sole {@code getDerivedStorageProperties}
+     * override moved to the connector.
+     */
+    private Map<String, String> resolveDerivedStorageDefaults() {
+        Supplier<Map<String, String>> pluginSupplier = pluginDerivedStorageDefaultsSupplier;
+        if (pluginSupplier != null) {
+            Map<String, String> derived = pluginSupplier.get();
+            return derived != null ? derived : Collections.emptyMap();
+        }
+        MetastoreProperties msp = getMetastoreProperties();
+        return msp != null ? msp.getDerivedStorageProperties() : Collections.emptyMap();
+    }
+
+    /**
+     * Design S8: wires the connector-owned storage-derivation source for a plugin catalog. Once set, storage
+     * property init folds the connector-derived defaults instead of deriving from fe-core MetastoreProperties,
+     * so a plugin iceberg/paimon catalog never calls {@link #getMetastoreProperties()} on the storage path.
+     */
+    public void setPluginDerivedStorageDefaultsSupplier(Supplier<Map<String, String>> supplier) {
+        this.pluginDerivedStorageDefaultsSupplier = supplier;
     }
 
     /**
@@ -221,32 +253,8 @@ public class CatalogProperty {
         // the user props. The critical section is a small map copy + pure derivation and takes no foreign lock,
         // so it is deadlock-free and contention-free at scan-planning frequency.
         synchronized (this) {
-            return mergeDerivedStorageDefaults(getMetastoreProperties());
+            return mergeDerivedStorageDefaults();
         }
-    }
-
-    /**
-     * Derives {@code fs.defaultFS=hdfs://<nameservice>} from an HDFS {@code warehouse=hdfs://<ns>/path} for a
-     * catalog that carries no fe-core {@link MetastoreProperties} (an SPI catalog whose metastore properties
-     * live connector-side, e.g. a native iceberg catalog after its property cluster moved to the connector).
-     * Without it an HA-nameservice catalog configured with only {@code warehouse} (relying on the classpath
-     * {@code core-site.xml}/{@code hdfs-site.xml} for the rest) would not bind HDFS storage with the warehouse
-     * nameservice, because {@code HdfsProperties} detection never reads {@code warehouse}. Non-hdfs warehouses
-     * (and a blank one) derive nothing. Keyed purely on the neutral {@code warehouse} property + hdfs scheme
-     * (no engine-specific keys); the parse and empty-nameservice message are a verbatim port of the former
-     * {@code IcebergFileSystemMetaStoreProperties.getDerivedStorageProperties} bridge it replaces.
-     */
-    static Map<String, String> deriveHdfsDefaultFsFromWarehouse(Map<String, String> storageProps) {
-        String warehouse = storageProps.get("warehouse");
-        if (StringUtils.isBlank(warehouse) || !StringUtils.startsWith(warehouse, HdfsResource.HDFS_PREFIX)) {
-            return Collections.emptyMap();
-        }
-        String nameService = StringUtils.substringBetween(warehouse, HdfsResource.HDFS_FILE_PREFIX, "/");
-        if (StringUtils.isEmpty(nameService)) {
-            throw new IllegalArgumentException("Unrecognized 'warehouse' location format"
-                    + " because name service is required.");
-        }
-        return Collections.singletonMap(HdfsResource.HADOOP_FS_NAME, HdfsResource.HDFS_FILE_PREFIX + nameService);
     }
 
     public Map<StorageProperties.Type, StorageProperties> getStoragePropertiesMap() {

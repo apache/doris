@@ -27,6 +27,7 @@ import java.io.IOException;
 import java.util.Collections;
 import java.util.EnumSet;
 import java.util.List;
+import java.util.Map;
 import java.util.OptionalLong;
 import java.util.Set;
 
@@ -108,6 +109,25 @@ public interface Connector extends Closeable {
     /** Returns the set of capabilities this connector supports. */
     default Set<ConnectorCapability> getCapabilities() {
         return Collections.emptySet();
+    }
+
+    /**
+     * Storage-configuration defaults this connector derives from its own catalog properties, which the raw
+     * catalog map does not already supply. Design S8: storage-property derivation is owned by the connector —
+     * fe-core does not parse metastore properties. fe-core folds the returned map into the catalog's storage
+     * properties as DEFAULTS (an explicit user key always wins via {@code putIfAbsent}), and does so BEFORE
+     * both the fe-filesystem bind ({@code ConnectorContext.getStorageProperties()}) and the BE storage map
+     * ({@code getBackendStorageProperties()}), so the FE bind and the BE scan see the same derived storage.
+     *
+     * <p>The default is empty (no derivation), so every connector that does not need it is unaffected. The
+     * iceberg connector overrides this to bridge a hadoop-catalog {@code warehouse=hdfs://<ns>/path} into
+     * {@code fs.defaultFS=hdfs://<ns>}, which the shared HDFS detection never derives from {@code warehouse}.</p>
+     *
+     * @param rawCatalogProps the catalog's current persisted properties
+     * @return extra storage-property defaults; an empty map when there is nothing to derive
+     */
+    default Map<String, String> deriveStorageProperties(Map<String, String> rawCatalogProps) {
+        return Collections.emptyMap();
     }
 
     /** Returns the table-level property descriptors. */

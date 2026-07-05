@@ -714,6 +714,57 @@ public class IcebergConnector implements Connector {
         return AwsCredentialsProviderModes.providerFor(props, AwsCredentialsProviderModes.S3_MODE_KEYS);
     }
 
+    // HDFS scheme constants for the warehouse -> fs.defaultFS bridge (inlined; the connector must not import
+    // fe-core's HdfsResource). Values match HdfsResource.HDFS_PREFIX / HDFS_FILE_PREFIX / HADOOP_FS_NAME.
+    private static final String HDFS_SCHEME_PREFIX = "hdfs:";
+    private static final String HDFS_URI_PREFIX = "hdfs://";
+    private static final String FS_DEFAULT_FS_KEY = "fs.defaultFS";
+
+    /**
+     * Design S8: the iceberg connector owns the {@code warehouse -> fs.defaultFS} storage derivation that used
+     * to live in fe-core's {@code IcebergFileSystemMetaStoreProperties.getDerivedStorageProperties}. Only the
+     * hadoop (filesystem) catalog flavor bridges the warehouse; the other flavors (rest/hms/glue/dlf/jdbc/
+     * s3tables) contribute no storage derivation (empty), matching the legacy override which only the hadoop
+     * flavor carried. fe-core folds the result into its storage map as defaults, feeding both the fe-filesystem
+     * bind and the BE storage map identically.
+     */
+    @Override
+    public Map<String, String> deriveStorageProperties(Map<String, String> rawCatalogProps) {
+        return deriveStorageDefaults(rawCatalogProps);
+    }
+
+    /**
+     * Gate + derivation for {@link #deriveStorageProperties} (static so it is unit-testable without constructing
+     * a connector): only the hadoop (filesystem) catalog flavor bridges the warehouse; every other flavor
+     * (rest/hms/glue/dlf/jdbc/s3tables) contributes nothing.
+     */
+    static Map<String, String> deriveStorageDefaults(Map<String, String> rawCatalogProps) {
+        if (!IcebergConnectorProperties.TYPE_HADOOP.equalsIgnoreCase(
+                rawCatalogProps.get(IcebergConnectorProperties.ICEBERG_CATALOG_TYPE))) {
+            return Collections.emptyMap();
+        }
+        return deriveHdfsDefaultFsFromWarehouse(rawCatalogProps.get(IcebergConnectorProperties.WAREHOUSE));
+    }
+
+    /**
+     * Bridges a hadoop-flavor {@code warehouse=hdfs://<ns>/path} to {@code fs.defaultFS=hdfs://<ns>} so an
+     * HA-nameservice catalog configured with only {@code warehouse} (relying on classpath {@code core-site.xml}/
+     * {@code hdfs-site.xml} for the nameservice, no inline {@code uri}/{@code fs.defaultFS}) still binds HDFS
+     * storage with the warehouse nameservice. Non-hdfs and blank warehouses derive nothing; a blank nameservice
+     * fails loud. Verbatim port of the former {@code IcebergFileSystemMetaStoreProperties.getDerivedStorageProperties}.
+     */
+    static Map<String, String> deriveHdfsDefaultFsFromWarehouse(String warehouse) {
+        if (StringUtils.isBlank(warehouse) || !StringUtils.startsWith(warehouse, HDFS_SCHEME_PREFIX)) {
+            return Collections.emptyMap();
+        }
+        String nameService = StringUtils.substringBetween(warehouse, HDFS_URI_PREFIX, "/");
+        if (StringUtils.isEmpty(nameService)) {
+            throw new IllegalArgumentException("Unrecognized 'warehouse' location format"
+                    + " because name service is required.");
+        }
+        return Collections.singletonMap(FS_DEFAULT_FS_KEY, HDFS_URI_PREFIX + nameService);
+    }
+
     /**
      * Assembles the canonical storage Hadoop config from the FE-bound storage properties (P1-T03), mirroring
      * {@code PaimonConnector.buildStorageHadoopConfig}: object stores contribute their fs.s3a.* / fs.oss.* /

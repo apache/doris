@@ -133,6 +133,16 @@ public class PluginDrivenExternalCatalog extends ExternalCatalog {
                     + name + ", type: " + getType()
                     + ". Ensure the connector plugin is installed.");
         }
+        // Design S8: the connector owns storage-property derivation (e.g. the iceberg hadoop
+        // warehouse -> fs.defaultFS bridge); fe-core folds the connector-derived defaults into its storage map
+        // instead of parsing metastore properties. Read the connector field lazily so an ALTER-rebuilt (or
+        // dropped) connector is honored at storage-access time.
+        catalogProperty.setPluginDerivedStorageDefaultsSupplier(() -> {
+            Connector activeConnector = connector;
+            return activeConnector != null
+                    ? activeConnector.deriveStorageProperties(catalogProperty.getProperties())
+                    : java.util.Collections.emptyMap();
+        });
         transactionManager = new PluginDrivenTransactionManager();
         // Design S6: a plugin catalog's pre-execution Kerberos auth is owned entirely by the connector
         // (TcclPinningConnectorContext runs each remote op under the connector's own plugin-side authenticator —
