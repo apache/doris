@@ -46,10 +46,10 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.ExternalView;
+import org.apache.doris.datasource.PluginDrivenExternalTable;
 import org.apache.doris.datasource.doris.RemoteDorisExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalTable.DLAType;
-import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.systable.SysTableResolver;
 import org.apache.doris.nereids.CTEContext;
 import org.apache.doris.nereids.CascadesContext;
@@ -776,11 +776,26 @@ public class BindRelation extends OneAnalysisRuleFactory {
                                 unboundRelation.getTableSnapshot(),
                                 Optional.ofNullable(unboundRelation.getScanParams()), Optional.empty());
                     }
-                case ICEBERG_EXTERNAL_TABLE:
-                    IcebergExternalTable icebergExternalTable = (IcebergExternalTable) table;
-                    if (Config.enable_query_iceberg_views && icebergExternalTable.isView()) {
-                        Optional<TableSnapshot> tableSnapshot = unboundRelation.getTableSnapshot();
-                        if (tableSnapshot.isPresent()) {
+                case PAIMON_EXTERNAL_TABLE:
+                case MAX_COMPUTE_EXTERNAL_TABLE:
+                case TRINO_CONNECTOR_EXTERNAL_TABLE:
+                case LAKESOUl_EXTERNAL_TABLE:
+                case PLUGIN_EXTERNAL_TABLE:
+                    if (table instanceof PluginDrivenExternalTable
+                            && ((PluginDrivenExternalTable) table).isView()) {
+                        // Flipped iceberg view: reproduce the legacy ICEBERG_EXTERNAL_TABLE view arm on the
+                        // neutral plugin path (only iceberg declares SUPPORTS_VIEW, so isView() is true only
+                        // for it). Same config gate + time-travel rejection + view-body dispatch as legacy;
+                        // the config-off message is thrown before the time-travel check, matching the legacy
+                        // arm's ordering (a config-off view errors with the config message regardless of any
+                        // time/version travel). The view body is converted by the session dialect inside
+                        // parseAndAnalyzeExternalView (shared with HMS hive-view), which is fully neutral.
+                        PluginDrivenExternalTable pluginViewTable = (PluginDrivenExternalTable) table;
+                        if (!Config.enable_query_iceberg_views) {
+                            throw new UnsupportedOperationException(
+                                "please set enable_query_iceberg_views=true to enable query iceberg views");
+                        }
+                        if (unboundRelation.getTableSnapshot().isPresent()) {
                             // iceberg view not supported with snapshot time/version travel
                             // note that enable_fallback_to_original_planner should be set with false
                             // or else this exception will not be thrown
@@ -789,27 +804,13 @@ public class BindRelation extends OneAnalysisRuleFactory {
                                 "iceberg view not supported with snapshot time/version travel");
                         }
                         isView = true;
-                        String icebergCatalog = icebergExternalTable.getCatalog().getName();
-                        String icebergDb = icebergExternalTable.getDatabase().getFullName();
-                        String ddlSql = icebergExternalTable.getViewText();
-                        Plan icebergViewPlan = parseAndAnalyzeExternalView(icebergExternalTable,
-                                icebergCatalog, icebergDb, ddlSql, cascadesContext);
-                        return new LogicalSubQueryAlias<>(qualifiedTableName, icebergViewPlan);
+                        String pluginCatalog = pluginViewTable.getCatalog().getName();
+                        String pluginDb = pluginViewTable.getDatabase().getFullName();
+                        String ddlSql = pluginViewTable.getViewText();
+                        Plan pluginViewPlan = parseAndAnalyzeExternalView(pluginViewTable,
+                                pluginCatalog, pluginDb, ddlSql, cascadesContext);
+                        return new LogicalSubQueryAlias<>(qualifiedTableName, pluginViewPlan);
                     }
-                    if (icebergExternalTable.isView()) {
-                        throw new UnsupportedOperationException(
-                            "please set enable_query_iceberg_views=true to enable query iceberg views");
-                    }
-                    return new LogicalFileScan(unboundRelation.getRelationId(), (ExternalTable) table,
-                        qualifierWithoutTableName, ImmutableList.of(),
-                        unboundRelation.getTableSample(),
-                        unboundRelation.getTableSnapshot(),
-                        Optional.ofNullable(unboundRelation.getScanParams()), Optional.empty());
-                case PAIMON_EXTERNAL_TABLE:
-                case MAX_COMPUTE_EXTERNAL_TABLE:
-                case TRINO_CONNECTOR_EXTERNAL_TABLE:
-                case LAKESOUl_EXTERNAL_TABLE:
-                case PLUGIN_EXTERNAL_TABLE:
                     return new LogicalFileScan(unboundRelation.getRelationId(), (ExternalTable) table,
                             qualifierWithoutTableName, ImmutableList.of(),
                             unboundRelation.getTableSample(),

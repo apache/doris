@@ -20,7 +20,6 @@ package org.apache.doris.common.util;
 import org.apache.doris.common.maxcompute.MCProperties;
 import org.apache.doris.datasource.property.metastore.AWSGlueMetaStoreBaseProperties;
 import org.apache.doris.datasource.property.metastore.AliyunDLFBaseProperties;
-import org.apache.doris.datasource.property.metastore.IcebergRestProperties;
 import org.apache.doris.datasource.property.storage.AzureProperties;
 import org.apache.doris.datasource.property.storage.COSProperties;
 import org.apache.doris.datasource.property.storage.GCSProperties;
@@ -60,7 +59,20 @@ public class DatasourcePrintableMap<K, V> extends BasicPrintableMap<K, V> {
         SENSITIVE_KEY.addAll(ConnectorPropertiesUtils.getSensitiveKeys(S3Properties.class));
         SENSITIVE_KEY.addAll(ConnectorPropertiesUtils.getSensitiveKeys(AliyunDLFBaseProperties.class));
         SENSITIVE_KEY.addAll(ConnectorPropertiesUtils.getSensitiveKeys(AWSGlueMetaStoreBaseProperties.class));
-        SENSITIVE_KEY.addAll(ConnectorPropertiesUtils.getSensitiveKeys(IcebergRestProperties.class));
+        // Iceberg REST catalog secret keys. Formerly reflected off the fe-core IcebergRestProperties
+        // (getSensitiveKeys). That class is being removed with the fe-core iceberg property cluster; its
+        // authoritative copy now lives connector-side (fe-connector-metastore-iceberg
+        // IcebergRestMetaStoreProperties), which fe-core cannot depend on. SHOW CREATE CATALOG masking must
+        // still hide these, so all four former IcebergRestProperties sensitive keys are enumerated explicitly,
+        // byte-identical to the former reflection result (its AbstractIcebergProperties/MetastoreProperties
+        // superclass chain carries no sensitive keys). Note the overlap with S3Properties above is uneven and
+        // must NOT be relied on: iceberg.rest.secret-access-key aliases S3Properties' (sensitive) secret-key,
+        // but iceberg.rest.session-token aliases S3Properties' session-token field which is NOT sensitive, so
+        // omitting it here would silently unmask it. Keep in sync with the connector's sensitive REST keys.
+        SENSITIVE_KEY.add("iceberg.rest.oauth2.token");
+        SENSITIVE_KEY.add("iceberg.rest.oauth2.credential");
+        SENSITIVE_KEY.add("iceberg.rest.secret-access-key");
+        SENSITIVE_KEY.add("iceberg.rest.session-token");
         SENSITIVE_KEY.addAll(ConnectorPropertiesUtils.getSensitiveKeys(GCSProperties.class));
         SENSITIVE_KEY.addAll(ConnectorPropertiesUtils.getSensitiveKeys(AzureProperties.class));
         SENSITIVE_KEY.addAll(ConnectorPropertiesUtils.getSensitiveKeys(OSSProperties.class));

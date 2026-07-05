@@ -1402,6 +1402,12 @@ under the License.
                 <artifactId>iceberg-aws</artifactId>
                 <version>${iceberg.version}</version>
             </dependency>
+            <!-- S3Tables catalog impl for the iceberg s3tables flavor; not part of the AWS SDK BOM. -->
+            <dependency>
+                <groupId>software.amazon.s3tables</groupId>
+                <artifactId>s3-tables-catalog-for-iceberg</artifactId>
+                <version>${s3tables.catalog.version}</version>
+            </dependency>
             <dependency>
                 <groupId>org.apache.paimon</groupId>
                 <artifactId>paimon-core</artifactId>

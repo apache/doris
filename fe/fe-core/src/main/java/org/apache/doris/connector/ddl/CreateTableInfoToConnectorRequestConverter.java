@@ -25,6 +25,7 @@ import org.apache.doris.connector.api.ddl.ConnectorBucketSpec;
 import org.apache.doris.connector.api.ddl.ConnectorCreateTableRequest;
 import org.apache.doris.connector.api.ddl.ConnectorPartitionField;
 import org.apache.doris.connector.api.ddl.ConnectorPartitionSpec;
+import org.apache.doris.connector.api.ddl.ConnectorSortField;
 import org.apache.doris.datasource.ConnectorColumnConverter;
 import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
@@ -35,6 +36,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.ColumnDefinition;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.DistributionDescriptor;
 import org.apache.doris.nereids.trees.plans.commands.info.PartitionTableInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.SortFieldInfo;
 import org.apache.doris.nereids.types.DataType;
 
 import java.util.ArrayList;
@@ -66,6 +68,7 @@ public final class CreateTableInfoToConnectorRequestConverter {
                 .columns(convertColumns(info.getColumnDefinitions()))
                 .partitionSpec(convertPartition(info.getPartitionTableInfo()))
                 .bucketSpec(convertBucket(info.getDistribution()))
+                .sortOrder(convertSortOrder(info.getSortOrderFields()))
                 .comment(info.getComment())
                 .properties(info.getProperties())
                 .ifNotExists(info.isIfNotExists())
@@ -212,5 +215,23 @@ public final class CreateTableInfoToConnectorRequestConverter {
         } catch (Exception ignored) {
             return 0;
         }
+    }
+
+    // -------- sort order --------
+
+    /**
+     * Carries the {@code ORDER BY (...)} write-order clause neutrally so a connector (iceberg) can build an
+     * engine sort order. Iceberg-specific validation (column existence, no metric-only types, no duplicates)
+     * already ran in fe-core {@code CreateTableInfo} before this conversion; here we only map the shape.
+     */
+    private static List<ConnectorSortField> convertSortOrder(List<SortFieldInfo> sortFields) {
+        if (sortFields == null || sortFields.isEmpty()) {
+            return Collections.emptyList();
+        }
+        List<ConnectorSortField> out = new ArrayList<>(sortFields.size());
+        for (SortFieldInfo f : sortFields) {
+            out.add(new ConnectorSortField(f.getColumnName(), f.isAscending(), f.isNullFirst()));
+        }
+        return out;
     }
 }

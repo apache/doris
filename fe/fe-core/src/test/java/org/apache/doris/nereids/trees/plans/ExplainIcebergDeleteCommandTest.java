@@ -17,11 +17,6 @@
 
 package org.apache.doris.nereids.trees.plans;
 
-import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.PrimitiveType;
-import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
-import org.apache.doris.datasource.iceberg.IcebergExternalDatabase;
-import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.DeleteFromCommand;
 import org.apache.doris.nereids.trees.plans.commands.delete.DeleteCommandContext;
@@ -29,15 +24,9 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalIcebergDeleteSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalIcebergDeleteSink;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
-import org.apache.doris.qe.ConnectContext;
 
-import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Assertions;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.mockito.Mockito;
-
-import java.util.List;
 
 /**
  * Unit tests for EXPLAIN DELETE on Iceberg tables.
@@ -49,30 +38,6 @@ import java.util.List;
  */
 public class ExplainIcebergDeleteCommandTest {
     private final NereidsParser parser = new NereidsParser();
-    private IcebergExternalTable mockIcebergTable;
-    private IcebergExternalDatabase mockDatabase;
-    private IcebergExternalCatalog mockCatalog;
-    private ConnectContext mockConnectContext;
-
-    @BeforeEach
-    public void setUp() {
-        // Mock Iceberg catalog, database, and table
-        mockCatalog = Mockito.mock(IcebergExternalCatalog.class);
-        mockDatabase = Mockito.mock(IcebergExternalDatabase.class);
-        mockIcebergTable = Mockito.mock(IcebergExternalTable.class);
-        mockConnectContext = Mockito.mock(ConnectContext.class);
-
-        // Setup table schema with basic columns
-        List<Column> columns = Lists.newArrayList(
-                new Column("id", PrimitiveType.INT),
-                new Column("name", PrimitiveType.STRING),
-                new Column("age", PrimitiveType.INT)
-        );
-        Mockito.when(mockIcebergTable.getFullSchema()).thenReturn(columns);
-        Mockito.when(mockIcebergTable.getName()).thenReturn("test_table");
-        Mockito.when(mockDatabase.getFullName()).thenReturn("test_db.test_table");
-        Mockito.when(mockCatalog.getName()).thenReturn("iceberg_catalog");
-    }
 
     @Test
     public void testParseDeleteFromTable() {

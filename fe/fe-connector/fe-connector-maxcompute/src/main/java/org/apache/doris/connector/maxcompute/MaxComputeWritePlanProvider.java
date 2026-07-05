@@ -21,6 +21,7 @@ import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.DorisConnectorException;
 import org.apache.doris.connector.api.handle.ConnectorTransaction;
 import org.apache.doris.connector.api.handle.ConnectorWriteHandle;
+import org.apache.doris.connector.api.handle.WriteOperation;
 import org.apache.doris.connector.api.write.ConnectorSinkPlan;
 import org.apache.doris.connector.api.write.ConnectorWritePlanProvider;
 import org.apache.doris.thrift.TDataSink;
@@ -41,9 +42,11 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -137,6 +140,26 @@ public class MaxComputeWritePlanProvider implements ConnectorWritePlanProvider {
         TDataSink dataSink = new TDataSink(TDataSinkType.MAXCOMPUTE_TABLE_SINK);
         dataSink.setMaxComputeTableSink(tSink);
         return new ConnectorSinkPlan(dataSink);
+    }
+
+    @Override
+    public Set<WriteOperation> supportedOperations() {
+        return EnumSet.of(WriteOperation.INSERT, WriteOperation.OVERWRITE);
+    }
+
+    @Override
+    public boolean requiresParallelWrite() {
+        return true;
+    }
+
+    @Override
+    public boolean requiresFullSchemaWriteOrder() {
+        return true;
+    }
+
+    @Override
+    public boolean requiresPartitionLocalSort() {
+        return true;
     }
 
     /**

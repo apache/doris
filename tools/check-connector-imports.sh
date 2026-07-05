@@ -47,11 +47,50 @@ fi
 
 FORBIDDEN='org\.apache\.doris\.(catalog|common|datasource|qe|analysis|nereids|planner)'
 
-RESULT=$(grep -rEn "^import ${FORBIDDEN}\." "${ROOT}"/*/src/main/java 2>/dev/null \
+CANDIDATES=$(grep -rEn "^import ${FORBIDDEN}\." "${ROOT}"/*/src/main/java 2>/dev/null \
         | grep -v 'org.apache.doris.thrift' \
         | grep -v 'org.apache.doris.connector' \
         | grep -v 'org.apache.doris.extension' \
         | grep -v 'org.apache.doris.filesystem' || true)
+
+# A flagged import is a FALSE POSITIVE when the connector module VENDORS its own self-contained copy of the
+# class: a real source file inside a fe-connector module whose package happens to match a fe-core prefix (e.g.
+# fe-connector-hms's patched HiveMetaStoreClient imports org.apache.doris.datasource.hive.HiveVersionUtil,
+# which resolves to fe-connector-hms's OWN vendored HiveVersionUtil.java, not fe-core). The naive package-prefix
+# grep cannot tell those apart. Skip an import when a connector-owned source file defines it; keep only imports
+# that have NO in-tree definition (i.e. genuinely reach into fe-core).
+is_vendored() {
+    local fqn="$1" path last
+    while [ -n "${fqn}" ]; do
+        path="${fqn//.//}.java"
+        if find "${ROOT}" -path "*/src/main/java/${path}" -print -quit 2>/dev/null | grep -q .; then
+            return 0
+        fi
+        # Peel a trailing nested-class segment (Uppercase) so a nested-type import resolves to its top-level
+        # file; stop at a package segment (lowercase) — a genuine fe-core import has no vendored file at any level.
+        last="${fqn##*.}"
+        case "${last}" in
+            [A-Z]*) case "${fqn}" in *.*) fqn="${fqn%.*}" ;; *) return 1 ;; esac ;;
+            *) return 1 ;;
+        esac
+    done
+    return 1
+}
+
+RESULT=""
+if [ -n "${CANDIDATES}" ]; then
+    while IFS= read -r line; do
+        [ -z "${line}" ] && continue
+        # line = <file>:<lineno>:import <fqn>;
+        fqn=$(printf '%s\n' "${line}" | sed -E 's/.*import[[:space:]]+//; s/;.*//')
+        if is_vendored "${fqn}"; then
+            echo "check-connector-imports: skipping vendored same-module import: ${fqn}" >&2
+            continue
+        fi
+        RESULT="${RESULT}${line}"$'\n'
+    done <<< "${CANDIDATES}"
+fi
+RESULT=$(printf '%s' "${RESULT}" | sed '/^$/d')
 
 if [ -n "${RESULT}" ]; then
     echo "FORBIDDEN IMPORTS in fe-connector modules:" >&2

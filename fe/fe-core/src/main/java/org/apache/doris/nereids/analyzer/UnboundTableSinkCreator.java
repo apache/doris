@@ -24,7 +24,6 @@ import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.PluginDrivenExternalCatalog;
 import org.apache.doris.datasource.doris.RemoteDorisExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
-import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.dictionary.Dictionary;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.ParseException;
@@ -60,8 +59,6 @@ public class UnboundTableSinkCreator {
             return new UnboundTableSink<>(nameParts, colNames, hints, partitions, query);
         } else if (curCatalog instanceof HMSExternalCatalog) {
             return new UnboundHiveTableSink<>(nameParts, colNames, hints, partitions, query);
-        } else if (curCatalog instanceof IcebergExternalCatalog) {
-            return new UnboundIcebergTableSink<>(nameParts, colNames, hints, partitions, query);
         } else if (curCatalog instanceof PluginDrivenExternalCatalog) {
             return new UnboundConnectorTableSink<>(nameParts, colNames, hints, partitions, query);
         }
@@ -96,9 +93,6 @@ public class UnboundTableSinkCreator {
         } else if (curCatalog instanceof HMSExternalCatalog) {
             return new UnboundHiveTableSink<>(nameParts, colNames, hints, partitions,
                     dmlCommandType, Optional.empty(), Optional.empty(), plan);
-        } else if (curCatalog instanceof IcebergExternalCatalog) {
-            return new UnboundIcebergTableSink<>(nameParts, colNames, hints, partitions,
-                    dmlCommandType, Optional.empty(), Optional.empty(), plan, staticPartitionKeyValues, false);
         } else if (curCatalog instanceof PluginDrivenExternalCatalog) {
             return new UnboundConnectorTableSink<>(nameParts, colNames, hints, partitions,
                     dmlCommandType, Optional.empty(), Optional.empty(), plan, staticPartitionKeyValues);
@@ -134,9 +128,6 @@ public class UnboundTableSinkCreator {
         } else if (curCatalog instanceof HMSExternalCatalog && !isAutoDetectPartition) {
             return new UnboundHiveTableSink<>(nameParts, colNames, hints, partitions,
                     dmlCommandType, Optional.empty(), Optional.empty(), plan);
-        } else if (curCatalog instanceof IcebergExternalCatalog && !isAutoDetectPartition) {
-            return new UnboundIcebergTableSink<>(nameParts, colNames, hints, partitions,
-                    dmlCommandType, Optional.empty(), Optional.empty(), plan, staticPartitionKeyValues, false);
         } else if (curCatalog instanceof PluginDrivenExternalCatalog && !isAutoDetectPartition) {
             return new UnboundConnectorTableSink<>(nameParts, colNames, hints, partitions,
                     dmlCommandType, Optional.empty(), Optional.empty(), plan, staticPartitionKeyValues);

@@ -17,7 +17,6 @@
 
 package org.apache.doris.connector;
 
-import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.filesystem.FileSystem;
 import org.apache.doris.filesystem.FileSystemType;
 import org.apache.doris.filesystem.properties.FileSystemProperties;
@@ -35,16 +34,14 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.function.Function;
 import java.util.function.Supplier;
-import java.util.stream.Collectors;
 
 /**
- * P1-T02: pins that {@link DefaultConnectorContext#getStorageProperties()} hands the connector the
- * catalog's storage bound as typed fe-filesystem {@code StorageProperties} (design D-003 / D-009).
- * It must (a) source the catalog raw map from the existing storage supplier's
- * {@code getOrigProps()}, and (b) bind it through {@link FileSystemFactory#bindAllStorageProperties}
- * (the live plugin-loaded manager), without touching the construction site.
+ * Design S2: pins that {@link DefaultConnectorContext#getStorageProperties()} binds the catalog's raw storage
+ * map directly through {@link FileSystemFactory#bindAllStorageProperties} (the live plugin-loaded manager),
+ * sourced straight from the raw-props supplier — with no fe-core {@code StorageProperties.createAll} parse /
+ * {@code getOrigProps()} round-trip on this path. The raw supplier is responsible for merging the catalog's
+ * derived storage defaults and honoring the vended gate (see {@code CatalogProperty.getEffectiveRawStorageProperties}).
  */
 public class DefaultConnectorContextStoragePropsTest {
 
@@ -58,23 +55,28 @@ public class DefaultConnectorContextStoragePropsTest {
     }
 
     @Test
-    public void getStorageProperties_emptyWhenNoStorageMap() {
-        // 2-arg ctor -> empty storage supplier -> empty list (REST/vended/non-plugin/local-FS warehouse),
-        // so non-paimon paths are unaffected and there is no NPE. MUTATION: null / throw -> red.
+    public void getStorageProperties_emptyWhenNoRawSupplier() {
+        // 2-arg ctor -> empty raw supplier -> empty list (REST/vended/non-plugin/local-FS warehouse), so
+        // non-plugin paths are unaffected and there is no NPE. MUTATION: null / throw -> red.
         Assertions.assertTrue(new DefaultConnectorContext("c", 1L).getStorageProperties().isEmpty());
     }
 
     @Test
-    public void getStorageProperties_bindsCatalogRawMapViaLiveManager() throws Exception {
-        // Build the fe-core typed storage map exactly like a real OSS catalog; each instance's
-        // origProps is the full catalog raw map (StorageProperties.createAll passes it through).
-        Map<String, String> oss = new HashMap<>();
-        oss.put("oss.endpoint", "oss-cn-beijing.aliyuncs.com");
-        oss.put("oss.access_key", "ak");
-        oss.put("oss.secret_key", "sk");
-        List<StorageProperties> all = StorageProperties.createAll(oss);
-        Map<StorageProperties.Type, StorageProperties> typed = all.stream()
-                .collect(Collectors.toMap(StorageProperties::getType, Function.identity(), (a, b) -> a));
+    public void getStorageProperties_emptyWhenRawSupplierEmpty() {
+        // A REST/vended or credential-less catalog: the raw supplier yields an empty map -> empty list, so no
+        // static storage is bound. MUTATION: dropping the isEmpty() short-circuit -> reaches the factory -> red.
+        DefaultConnectorContext ctx = new DefaultConnectorContext("c", 1L, NOOP_AUTH,
+                Collections::emptyMap, Collections::emptyMap);
+        Assertions.assertTrue(ctx.getStorageProperties().isEmpty());
+    }
+
+    @Test
+    public void getStorageProperties_bindsRawCatalogMapViaLiveManager() {
+        // The raw catalog map is bound as-is through the live plugin-loaded manager.
+        Map<String, String> raw = new HashMap<>();
+        raw.put("oss.endpoint", "oss-cn-beijing.aliyuncs.com");
+        raw.put("oss.access_key", "ak");
+        raw.put("oss.secret_key", "sk");
 
         // Inject a live manager whose provider captures the raw map it is asked to bind.
         CapturingProvider provider = new CapturingProvider();
@@ -82,15 +84,18 @@ public class DefaultConnectorContextStoragePropsTest {
         mgr.registerProvider(provider);
         FileSystemFactory.initPluginManager(mgr);
 
-        DefaultConnectorContext ctx = new DefaultConnectorContext("c", 1L, NOOP_AUTH, () -> typed);
+        // 5-arg ctor: the typed supplier (unused by getStorageProperties, kept for other consumers) is empty;
+        // the raw supplier is exactly what this path binds — no getOrigProps() round-trip.
+        DefaultConnectorContext ctx = new DefaultConnectorContext("c", 1L, NOOP_AUTH,
+                Collections::emptyMap, () -> raw);
         List<org.apache.doris.filesystem.properties.StorageProperties> result = ctx.getStorageProperties();
 
-        // The connector received the typed props bound from the catalog's FULL raw map (getOrigProps()).
+        // The connector received the props bound from the raw supplier's map.
         // MUTATION: returning the default empty / not reaching the factory / a filtered map -> red.
         Assertions.assertEquals(1, result.size());
         Assertions.assertNotNull(provider.capturedRawMap, "getStorageProperties() must bind via the factory");
         Assertions.assertEquals("ak", provider.capturedRawMap.get("oss.access_key"),
-                "must bind the full catalog raw map sourced from getOrigProps()");
+                "must bind the raw catalog map from the raw supplier");
         Assertions.assertEquals("oss-cn-beijing.aliyuncs.com", provider.capturedRawMap.get("oss.endpoint"));
     }
 

@@ -26,6 +26,7 @@ import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.PartitionType;
+import org.apache.doris.catalog.RangePartitionItem;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.connector.api.Connector;
@@ -34,6 +35,8 @@ import org.apache.doris.connector.api.ConnectorPartitionInfo;
 import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.ConnectorTableSchema;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
+import org.apache.doris.connector.api.mvcc.ConnectorMvccPartition;
+import org.apache.doris.connector.api.mvcc.ConnectorMvccPartitionView;
 import org.apache.doris.connector.api.mvcc.ConnectorMvccSnapshot;
 import org.apache.doris.connector.api.mvcc.ConnectorTimeTravelSpec;
 import org.apache.doris.datasource.hive.HiveUtil;
@@ -50,6 +53,7 @@ import org.apache.doris.mtmv.MTMVTimestampSnapshot;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Range;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -147,11 +151,103 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
         ConnectorMvccSnapshot connectorSnapshot =
                 metadata.beginQuerySnapshot(session, handle).orElseGet(this::emptySnapshot);
 
+        // Range-view path (e.g. iceberg): thread the query's pin onto the handle FIRST (applySnapshot), so
+        // the partition/freshness enumeration stays consistent with the data-scan pin, then ask the connector
+        // for its range-aware view. A connector without a range view returns empty -> fall through to the
+        // legacy listPartitions/LIST/timestamp path below (byte-unchanged; the no-op applySnapshot for the
+        // latest pin is side-effect-free for both paimon and iceberg).
+        ConnectorTableHandle pinnedHandle = metadata.applySnapshot(session, handle, connectorSnapshot);
+        Optional<ConnectorMvccPartitionView> viewOpt =
+                metadata.getMvccPartitionView(session, pinnedHandle);
+        if (viewOpt.isPresent()) {
+            ConnectorMvccPartitionView view = viewOpt.get();
+            // A non-RANGE (UNPARTITIONED) view is the connector's "not RANGE / not MTMV-range-eligible" verdict
+            // (iceberg's range view only covers single time-transform specs). If the table nonetheless declares
+            // partition columns (e.g. iceberg identity / bucket / truncate partitions), enumerate them via the
+            // generic LIST path so partition pruning / selectedPartitionNum / SQL-block-rule enforcement see the
+            // real partition set — WITHOUT which they wrongly report 0 partitions. The connector's UNPARTITIONED
+            // verdict is preserved on the pin (partitionType), so getPartitionType() and isValidRelatedTable()
+            // (MTMV eligibility) stay byte-unchanged; only getNameToPartitionItem() gains the LIST partitions.
+            // A RANGE view (range items) and a genuinely unpartitioned table (no partition columns) are
+            // unaffected. Freshness matches the legacy LIST path (timestamps / 0), harmless here because the
+            // UNPARTITIONED verdict keeps this table out of the snapshot-id MTMV path.
+            if (view.getStyle() != ConnectorMvccPartitionView.Style.RANGE && !getPartitionColumns().isEmpty()) {
+                Map<String, PartitionItem> listItems = Maps.newHashMap();
+                Map<String, Long> listLastModifiedMillis = Maps.newHashMap();
+                listLatestPartitions(metadata, session, handle, listItems, listLastModifiedMillis);
+                return new PluginDrivenMvccSnapshot(connectorSnapshot, listItems, listLastModifiedMillis,
+                        null, PartitionType.UNPARTITIONED, false, 0L);
+            }
+            return buildFromRangeView(connectorSnapshot, view);
+        }
+
         Map<String, PartitionItem> nameToPartitionItem = Maps.newHashMap();
         Map<String, Long> nameToLastModifiedMillis = Maps.newHashMap();
         listLatestPartitions(metadata, session, handle, nameToPartitionItem, nameToLastModifiedMillis);
         return new PluginDrivenMvccSnapshot(connectorSnapshot, nameToPartitionItem,
                 nameToLastModifiedMillis);
+    }
+
+    /**
+     * Builds a pin from a connector-supplied {@link ConnectorMvccPartitionView} (range-view path). The
+     * connector has already done ALL source-specific math (transform-to-range, partition-evolution overlap
+     * merge, per-partition snapshot-id resolution); this turns the pre-rendered bounds into generic
+     * {@link RangePartitionItem}s and stores the partition type / freshness kind / newest-update-time the
+     * accessors then read. A partition that fails to build FAILS LOUD (parity with legacy
+     * {@code IcebergUtils.loadPartitionInfo}, which does not swallow a bad partition — unlike the LIST path's
+     * per-partition log-and-skip).
+     */
+    private PluginDrivenMvccSnapshot buildFromRangeView(ConnectorMvccSnapshot connectorSnapshot,
+            ConnectorMvccPartitionView view) {
+        PartitionType partitionType = view.getStyle() == ConnectorMvccPartitionView.Style.RANGE
+                ? PartitionType.RANGE : PartitionType.UNPARTITIONED;
+        boolean snapshotIdFreshness =
+                view.getFreshness() == ConnectorMvccPartitionView.Freshness.SNAPSHOT_ID;
+        Map<String, PartitionItem> nameToPartitionItem = Maps.newHashMap();
+        Map<String, Long> nameToFreshnessValue = Maps.newHashMap();
+        if (view.getStyle() == ConnectorMvccPartitionView.Style.RANGE) {
+            List<Column> partitionColumns = getPartitionColumns();
+            for (ConnectorMvccPartition partition : view.getPartitions()) {
+                try {
+                    nameToPartitionItem.put(partition.getName(),
+                            toRangePartitionItem(partition, partitionColumns));
+                } catch (AnalysisException e) {
+                    // Fail loud: a range partition that cannot build is a real metadata error, not a
+                    // skippable row (legacy loadPartitionInfo lets getPartitionRange throw).
+                    throw new RuntimeException("Failed to build range partition item for "
+                            + partition.getName() + ", partitionColumns: " + partitionColumns, e);
+                }
+                nameToFreshnessValue.put(partition.getName(), partition.getFreshnessValue());
+            }
+        }
+        return new PluginDrivenMvccSnapshot(connectorSnapshot, nameToPartitionItem, nameToFreshnessValue,
+                null, partitionType, snapshotIdFreshness, view.getNewestUpdateTimeMillis());
+    }
+
+    /**
+     * Assembles a {@link RangePartitionItem} from the connector's pre-rendered {@code [lower, upper)} bounds
+     * and the table's partition column types. An EMPTY upper-bound tuple denotes the NULL-min partition: the
+     * exclusive upper is the column-type/scale-aware {@code lowerKey.successor()} (only fe-core owns the Doris
+     * {@code Column}/{@code PartitionKey}), matching the source's null-partition behavior (e.g. iceberg's
+     * {@code nullLowKey.successor()}). Mirrors {@code IcebergUtils.getPartitionRange}'s key building.
+     */
+    private static RangePartitionItem toRangePartitionItem(ConnectorMvccPartition partition,
+            List<Column> partitionColumns) throws AnalysisException {
+        PartitionKey lowerKey = PartitionKey.createPartitionKey(
+                toPartitionValues(partition.getLowerBound()), partitionColumns);
+        PartitionKey upperKey = partition.getUpperBound().isEmpty()
+                ? lowerKey.successor()
+                : PartitionKey.createPartitionKey(toPartitionValues(partition.getUpperBound()), partitionColumns);
+        return new RangePartitionItem(Range.closedOpen(lowerKey, upperKey));
+    }
+
+    /** Wraps each pre-rendered bound string into a (non-null) {@link PartitionValue}. */
+    private static List<PartitionValue> toPartitionValues(List<String> bound) {
+        List<PartitionValue> values = Lists.newArrayListWithExpectedSize(bound.size());
+        for (String v : bound) {
+            values.add(new PartitionValue(v));
+        }
+        return values;
     }
 
     /**
@@ -292,8 +388,9 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
     /**
      * Source-agnostic dispatch of the analyzer's {@code FOR VERSION/TIME AS OF} ({@link TableSnapshot})
      * or {@code @tag/@branch/@incr} ({@link TableScanParams}) into a {@link ConnectorTimeTravelSpec}.
-     * Mirrors the legacy {@code PaimonExternalTable.getPaimonSnapshotCacheValue} + {@code PaimonScanNode}
-     * dispatch: a digital {@code FOR VERSION AS OF} is a snapshot id, a non-digital one is a tag name.
+     * A digital {@code FOR VERSION AS OF} is a snapshot id; a non-digital one is a source-resolved ref
+     * ({@link ConnectorTimeTravelSpec.Kind#VERSION_REF}) — fe-core does NOT pre-decide tag-vs-branch
+     * (the connector owns that: iceberg accepts a branch or a tag, paimon resolves it as a tag).
      */
     private ConnectorTimeTravelSpec toTimeTravelSpec(Optional<TableSnapshot> ts, Optional<TableScanParams> sp) {
         if (ts.isPresent()) {
@@ -302,10 +399,10 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
             if (snap.getType() == TableSnapshot.VersionType.TIME) {
                 return ConnectorTimeTravelSpec.timestamp(value, isDigital(value));   // FOR TIME AS OF
             }
-            // FOR VERSION AS OF: digital -> snapshot id, non-digital -> tag name.
+            // FOR VERSION AS OF: digital -> snapshot id, non-digital -> source-resolved ref (branch/tag).
             return isDigital(value)
                     ? ConnectorTimeTravelSpec.snapshotId(value)
-                    : ConnectorTimeTravelSpec.tag(value);
+                    : ConnectorTimeTravelSpec.versionRef(value);
         }
         TableScanParams params = sp.get();
         if (params.isTag()) {
@@ -344,6 +441,12 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
         switch (spec.getKind()) {
             case SNAPSHOT_ID:
                 return "can't find snapshot by id: " + spec.getStringValue();   // parity PaimonUtil:687
+            case VERSION_REF:
+                // Non-numeric FOR VERSION AS OF may name a branch OR a tag (iceberg resolves both), but the
+                // source-agnostic wording must NOT claim a branch lookup a tag-only source never performed
+                // (paimon: FOR VERSION AS OF == tag), and "no such tag" is never false. Empty fall-through to
+                // TAG keeps the message byte-identical to legacy paimon. (iceberg legacy's more precise "tag
+                // or branch" wording is a pre-existing cosmetic gap, out of this functional fix's scope.)
             case TAG:
                 return "can't find snapshot by tag: " + spec.getStringValue();  // parity PaimonUtil:694
             case BRANCH:
@@ -437,7 +540,12 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
 
     @Override
     public PartitionType getPartitionType(Optional<MvccSnapshot> snapshot) {
-        if (getOrMaterialize(snapshot).isPartitionInvalid()) {
+        PluginDrivenMvccSnapshot pin = getOrMaterialize(snapshot);
+        if (pin.getPartitionType() != null) {
+            // Range-view path: the connector already decided RANGE vs UNPARTITIONED (its eligibility gate).
+            return pin.getPartitionType();
+        }
+        if (pin.isPartitionInvalid()) {
             return PartitionType.UNPARTITIONED;
         }
         return getPartitionColumns(snapshot).size() > 0 ? PartitionType.LIST : PartitionType.UNPARTITIONED;
@@ -445,9 +553,15 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
 
     @Override
     public List<Column> getPartitionColumns(Optional<MvccSnapshot> snapshot) {
+        PluginDrivenMvccSnapshot pin = getOrMaterialize(snapshot);
+        if (pin.getPartitionType() != null) {
+            // Range-view path: do NOT empty the columns here (parity master getIcebergPartitionColumns, which
+            // always returns the spec columns); UNPARTITIONED is enforced via getPartitionType above.
+            return super.getPartitionColumns();
+        }
         // Legacy empties the partition columns on an invalid partition set so the table is treated
         // as UNPARTITIONED everywhere downstream.
-        return getOrMaterialize(snapshot).isPartitionInvalid() ? Collections.emptyList() : super.getPartitionColumns();
+        return pin.isPartitionInvalid() ? Collections.emptyList() : super.getPartitionColumns();
     }
 
     @Override
@@ -461,11 +575,18 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
     @Override
     public MTMVSnapshotIf getPartitionSnapshot(String partitionName, MTMVRefreshContext context,
             Optional<MvccSnapshot> snapshot) throws AnalysisException {
-        Long ts = getOrMaterialize(snapshot).getNameToLastModifiedMillis().get(partitionName);
-        if (ts == null) {
+        PluginDrivenMvccSnapshot pin = getOrMaterialize(snapshot);
+        Long value = pin.getNameToLastModifiedMillis().get(partitionName);
+        if (value == null) {
             throw new AnalysisException("can not find partition: " + partitionName);
         }
-        return new MTMVTimestampSnapshot(ts);
+        // Range-view path with snapshot-id freshness pins the per-partition snapshot id (parity master
+        // IcebergExternalTable.getPartitionSnapshot -> MTMVSnapshotIdSnapshot). The connector pre-resolved the
+        // `<= 0 -> table snapshot id` fallback, so a non-empty table never carries a non-positive value here.
+        // The legacy path keeps the last-modified-millis timestamp (paimon parity).
+        return pin.isSnapshotIdFreshness()
+                ? new MTMVSnapshotIdSnapshot(value)
+                : new MTMVTimestampSnapshot(value);
     }
 
     @Override
@@ -483,11 +604,38 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
     public long getNewestUpdateVersionOrTime() {
         // Dictionary-update path: always probe LATEST (bypass any context pin), mirroring legacy
         // which passes empty/empty to force a fresh listing.
+        PluginDrivenMvccSnapshot pin = materializeLatest();
+        if (pin.getPartitionType() != null) {
+            // Range-view path: nameToLastModifiedMillis holds (non-monotonic) snapshot ids, NOT a usable
+            // change marker. Use the connector-supplied newest-update-time, which IS monotonic (parity master
+            // IcebergExternalTable.getNewestUpdateVersionOrTime = max(partition.lastUpdateTime)). The dictionary
+            // requires a monotonically non-decreasing value or it throws (Dictionary.hasNewerSourceVersion).
+            return pin.getNewestUpdateTimeMillis();
+        }
         // Skip the UNKNOWN(-1) sentinel (a connector that did not collect a modified time): legacy
         // used Paimon's lastFileCreationTime() which has no -1 sentinel, so feeding -1 into max()
         // would let the sentinel win on an all-unknown table (returning -1 instead of the legacy 0).
-        return materializeLatest().getNameToLastModifiedMillis().values().stream()
+        return pin.getNameToLastModifiedMillis().values().stream()
                 .mapToLong(Long::longValue).filter(v -> v >= 0).max().orElse(0L);
+    }
+
+    @Override
+    public boolean isValidRelatedTable() {
+        // MTMV refresh safety gate (MTMVTask): a base table that evolved into an unsupported partitioning
+        // (e.g. a single time transform changed to bucket, or gained a second partition column) must stop the
+        // refresh loud (parity master IcebergExternalTable.isValidRelatedTable). The connector encodes its
+        // eligibility verdict in the range view's style: a valid related table is RANGE, an ineligible one is
+        // UNPARTITIONED. The legacy path (no range view) keeps the interface default (always valid; paimon does
+        // not override isValidRelatedTable either). Probe LATEST, bypassing any context pin, like the gate does.
+        // Cost note: unlike master's cached spec-only check, this materializes (a remote partition enumeration for
+        // a valid table; an invalid one early-returns before the scan). Bounded — the only generic caller is
+        // MTMVTask, once per refresh — so the extra listing is acceptable. A cheap specs-only eligibility SPI is a
+        // possible future optimization if it ever matters.
+        PluginDrivenMvccSnapshot pin = materializeLatest();
+        if (pin.getPartitionType() != null) {
+            return pin.getPartitionType() == PartitionType.RANGE;
+        }
+        return true;
     }
 
     @Override

@@ -75,6 +75,23 @@ public class ConnectorScanPlanProviderBatchScanTest {
     }
 
     @Test
+    public void testStreamingSplitEstimateDefaultsNegative() {
+        // FIX-M3: default MUST be < 0 so no connector silently enters file-count streaming without opting in
+        // (the engine treats < 0 as "stay on the synchronous planScan path").
+        ConnectorScanPlanProvider provider = new RecordingProvider();
+        Assertions.assertTrue(provider.streamingSplitEstimate(null, null, Optional.empty(), false) < 0);
+    }
+
+    @Test
+    public void testStreamSplitsDefaultThrows() {
+        // FIX-M3: the default producer MUST fail loud — it is only reachable if a connector returns a
+        // non-negative streamingSplitEstimate without implementing streamSplits, which is a connector bug.
+        ConnectorScanPlanProvider provider = new RecordingProvider();
+        Assertions.assertThrows(UnsupportedOperationException.class,
+                () -> provider.streamSplits(null, null, Collections.emptyList(), Optional.empty(), -1L));
+    }
+
+    @Test
     public void testPlanScanForPartitionBatchDelegatesToSixArgPlanScan() {
         // Default MUST forward the batch as requiredPartitions and pass the limit through to the
         // 6-arg planScan, returning its result. A connector with partition-set-scoped planScan

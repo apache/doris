@@ -28,6 +28,29 @@ import java.util.Objects;
  */
 public final class ConnectorTableSchema {
 
+    /**
+     * Reserved property key carrying the table location string for SHOW CREATE TABLE rendering.
+     * Connectors emit it here (rather than as a user-facing property) so the FE renders it as the
+     * {@code LOCATION '...'} clause and strips it from the PROPERTIES(...) block. Distinct from a
+     * connector's own user-facing location property (e.g. paimon's SDK {@code path} option, which
+     * legitimately stays in PROPERTIES).
+     */
+    public static final String SHOW_LOCATION_KEY = "show.location";
+
+    /**
+     * Reserved property key carrying the fully-rendered {@code PARTITION BY ...} clause (Doris SQL,
+     * including transform terms like {@code BUCKET(8, `c`)} / {@code DAY(`c`)}) for SHOW CREATE TABLE.
+     * The connector pre-renders it (the transform-aware logic is connector-specific); the FE appends
+     * it verbatim and strips it from PROPERTIES.
+     */
+    public static final String SHOW_PARTITION_CLAUSE_KEY = "show.partition-clause";
+
+    /**
+     * Reserved property key carrying the fully-rendered {@code ORDER BY (...)} clause for SHOW CREATE
+     * TABLE. The connector pre-renders it; the FE appends it verbatim and strips it from PROPERTIES.
+     */
+    public static final String SHOW_SORT_CLAUSE_KEY = "show.sort-clause";
+
     private final String tableName;
     private final List<ConnectorColumn> columns;
     private final String tableFormatType;

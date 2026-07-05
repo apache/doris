@@ -51,4 +51,19 @@ public class ConnectorContextTest {
         Assertions.assertTrue(storage.isEmpty(),
                 "default getStorageProperties() must be empty so non-paimon connectors are unaffected");
     }
+
+    @Test
+    public void getBackendFileType_defaultDerivesFromScheme() {
+        // The write-side file-type seam (T06): fe-core overrides it (LocationPath, broker-aware); the
+        // default has no storage machinery and derives the BE file type from the URI scheme alone,
+        // returning the TFileType enum NAME so the SPI stays Thrift-free (like normalizeStorageUri).
+        ConnectorContext ctx = minimalContext();
+        Assertions.assertEquals("FILE_S3", ctx.getBackendFileType("s3://bucket/data", null));
+        Assertions.assertEquals("FILE_S3", ctx.getBackendFileType("oss://bucket/data", null));
+        Assertions.assertEquals("FILE_HDFS", ctx.getBackendFileType("hdfs://ns/data", null));
+        Assertions.assertEquals("FILE_HDFS", ctx.getBackendFileType("viewfs://ns/data", null));
+        Assertions.assertEquals("FILE_LOCAL", ctx.getBackendFileType("file:///tmp/data", null));
+        Assertions.assertEquals("FILE_LOCAL", ctx.getBackendFileType("/no/scheme", null));
+        Assertions.assertEquals("FILE_LOCAL", ctx.getBackendFileType(null, null));
+    }
 }

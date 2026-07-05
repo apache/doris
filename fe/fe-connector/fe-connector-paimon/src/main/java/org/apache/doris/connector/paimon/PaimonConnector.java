@@ -29,6 +29,9 @@ import org.apache.doris.connector.metastore.spi.JdbcDriverSupport;
 import org.apache.doris.connector.metastore.spi.MetaStoreProviders;
 import org.apache.doris.connector.spi.ConnectorContext;
 import org.apache.doris.filesystem.properties.StorageProperties;
+import org.apache.doris.kerberos.HadoopAuthenticator;
+import org.apache.doris.kerberos.KerberosAuthSpec;
+import org.apache.doris.kerberos.KerberosAuthenticationConfig;
 
 import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.conf.Configuration;
@@ -49,6 +52,7 @@ import java.util.Collections;
 import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -88,15 +92,28 @@ public class PaimonConnector implements Connector {
     // is restored here: it sizes the latest-snapshot cache below (data) AND, via schemaCacheTtlSecondOverride(),
     // the generic schema cache (schema). enable/capacity remain best-effort (capacity uses the legacy default).
     static final String TABLE_CACHE_TTL_SECOND = "meta.cache.paimon.table.ttl-second";
+    // enable/capacity are not wired on the plugin path (see PaimonConnectorProvider), but their values are
+    // still validated at CREATE/ALTER for legacy parity (reject non-boolean / out-of-range garbage).
+    static final String TABLE_CACHE_ENABLE = "meta.cache.paimon.table.enable";
+    static final String TABLE_CACHE_CAPACITY = "meta.cache.paimon.table.capacity";
     // Legacy default = Config.external_cache_expire_time_seconds_after_access (24h); the connector is isolated
     // from fe-core Config, so the legacy default is mirrored here (an explicit ttl-second always overrides it).
     static final long DEFAULT_TABLE_CACHE_TTL_SECOND = 86400L;
     // Legacy default = Config.max_external_table_cache_num.
     static final int DEFAULT_TABLE_CACHE_CAPACITY = 1000;
 
+    // Catalog property key gating the plugin-side Kerberos authenticator (value matches AuthType.KERBEROS).
+    private static final String HADOOP_SECURITY_AUTHENTICATION = "hadoop.security.authentication";
+
     private final Map<String, String> properties;
     private final ConnectorContext context;
     private volatile Catalog catalog;
+
+    // Lazily-built plugin-side Kerberos authenticator (single-owner auth; see TcclPinningConnectorContext).
+    // null for a non-Kerberos catalog. Its doAs acts on the PLUGIN's UserGroupInformation copy — the one the
+    // plugin's HDFS FileSystem reads — not the app-loader copy the FE-injected authenticator logs in.
+    private volatile HadoopAuthenticator pluginAuth;
+    private volatile boolean pluginAuthComputed;
 
     // FIX-4: per-catalog (long-lived) cache of each table's latest snapshot id, sized by
     // meta.cache.paimon.table.ttl-second (<=0 disables -> always live, the no-cache catalog). getMetadata()
@@ -112,9 +129,78 @@ public class PaimonConnector implements Connector {
 
     public PaimonConnector(Map<String, String> properties, ConnectorContext context) {
         this.properties = properties;
-        this.context = context;
+        // Wrap the FE-injected context so every executeAuthenticated pins the TCCL to the plugin loader (the
+        // paimon plugin bundles paimon-core + hadoop child-first) and, for a Kerberos catalog, runs the op
+        // under a plugin-side UGI doAs (pluginAuthenticator): the plugin's FileSystem reads the plugin's own
+        // UserGroupInformation copy, which the FE-injected app-side authenticator never logs in — so without
+        // this a DDL/read against secured HDFS negotiates SIMPLE auth. See TcclPinningConnectorContext.
+        this.context = new TcclPinningConnectorContext(context, getClass().getClassLoader(),
+                this::pluginAuthenticator);
         this.latestSnapshotCache =
                 new PaimonLatestSnapshotCache(resolveTableCacheTtlSecond(properties), DEFAULT_TABLE_CACHE_CAPACITY);
+    }
+
+    /**
+     * Lazily builds and memoizes the plugin-side Kerberos authenticator that {@link TcclPinningConnectorContext}
+     * runs each op under, so remote HDFS access uses the PLUGIN's own {@code UserGroupInformation} copy (the one
+     * the plugin's {@code FileSystem} reads). Returns {@code null} for a non-Kerberos catalog so the FE-injected
+     * auth path is preserved unchanged. Construction is cheap — the keytab login is lazy in {@code getUGI()} on
+     * the first {@code doAs}.
+     */
+    private HadoopAuthenticator pluginAuthenticator() {
+        if (!pluginAuthComputed) {
+            synchronized (this) {
+                if (!pluginAuthComputed) {
+                    pluginAuth = buildPluginAuthenticator(properties, buildStorageHadoopConfig());
+                    pluginAuthComputed = true;
+                }
+            }
+        }
+        return pluginAuth;
+    }
+
+    /**
+     * Resolves the plugin-side Kerberos authenticator for the catalog, or {@code null} for a non-Kerberos
+     * catalog. Two Kerberos sources are covered, in precedence order:
+     * <ol>
+     *   <li><b>Storage</b> Kerberos — the raw {@code hadoop.security.authentication=kerberos} passthrough
+     *       (HDFS / data-lake login), built from the storage Hadoop configuration. Unchanged prior behavior;
+     *       when storage is Kerberos this single login also carries the HMS metastore RPC (same UGI). The
+     *       Kerberos keys ride the {@code hadoop.*} passthrough in
+     *       {@link PaimonCatalogFactory#buildHadoopConfiguration}; {@link HadoopAuthenticator#getHadoopAuthenticator}
+     *       resolves the plugin (child-first) copy of fe-kerberos, so its {@code doAs} acts on the plugin UGI.</li>
+     *   <li><b>HMS-metastore</b> Kerberos with non-Kerberos storage — a secured Hive Metastore whose data
+     *       storage is simple (e.g. a Kerberized HMS over S3). Legacy fe-core served this from the fe-core
+     *       {@code PaimonHMSMetaStoreProperties} HMS authenticator (delivered via {@code DefaultConnectorContext});
+     *       once the fe-core pre-execution authenticator is retired (design S6) the connector must own it,
+     *       mirroring {@code IcebergConnector.buildPluginAuthenticator}: the HMS client principal/keytab facts
+     *       ({@link HmsMetaStoreProperties#kerberos()}) feed a
+     *       {@link KerberosAuthenticationConfig}, so the {@code doAs} logs in the same client identity fe-core
+     *       used. The HMS <em>service</em> principal / SASL settings ride the catalog's own HiveConf, not the
+     *       login.</li>
+     * </ol>
+     * Package-visible + static for direct unit testing (mirrors {@code IcebergConnector.buildPluginAuthenticator}).
+     */
+    static HadoopAuthenticator buildPluginAuthenticator(Map<String, String> properties,
+            Map<String, String> storageHadoopConfig) {
+        if ("kerberos".equalsIgnoreCase(properties.get(HADOOP_SECURITY_AUTHENTICATION))) {
+            return HadoopAuthenticator.getHadoopAuthenticator(
+                    PaimonCatalogFactory.buildHadoopConfiguration(properties, storageHadoopConfig));
+        }
+        if (PaimonConnectorProperties.HMS.equals(PaimonCatalogFactory.resolveFlavor(properties))) {
+            HmsMetaStoreProperties hms =
+                    (HmsMetaStoreProperties) MetaStoreProviders.bind(properties, storageHadoopConfig);
+            Optional<KerberosAuthSpec> spec = hms.kerberos();
+            if (spec.isPresent() && spec.get().hasCredentials()) {
+                Configuration conf =
+                        PaimonCatalogFactory.buildHadoopConfiguration(properties, storageHadoopConfig);
+                conf.set("hadoop.security.authentication", "kerberos");
+                conf.set("hive.metastore.sasl.enabled", "true");
+                return HadoopAuthenticator.getHadoopAuthenticator(
+                        new KerberosAuthenticationConfig(spec.get().getPrincipal(), spec.get().getKeytab(), conf));
+            }
+        }
+        return null;
     }
 
     /**
@@ -180,19 +266,32 @@ public class PaimonConnector implements Connector {
     }
 
     /**
-     * Declares the E5 read-path capabilities paimon supports: MVCC snapshot pinning and time travel
-     * (FOR TIME TRAVEL / FOR VERSION AS OF). The B5 fe-core MvccTable wiring keys off these to call
-     * {@link PaimonConnectorMetadata#beginQuerySnapshot} / {@code resolveTimeTravel}.
+     * Declares the E5 read-path capabilities paimon supports: MVCC snapshot pinning. The B5 fe-core
+     * MvccTable wiring keys off this to call {@link PaimonConnectorMetadata#beginQuerySnapshot} /
+     * {@code resolveTimeTravel}.
      * No write capability is declared: paimon write is not migrated.
      */
     @Override
     public Set<ConnectorCapability> getCapabilities() {
         return EnumSet.of(
                 ConnectorCapability.SUPPORTS_MVCC_SNAPSHOT,
-                ConnectorCapability.SUPPORTS_TIME_TRAVEL,
                 // Paimon exposes per-partition stats (record/size/file count) via listPartitions,
                 // so SHOW PARTITIONS renders the legacy 5-column result (D-045).
-                ConnectorCapability.SUPPORTS_PARTITION_STATS);
+                ConnectorCapability.SUPPORTS_PARTITION_STATS,
+                // Paimon tables are queryable via the generic SQL-driven ExternalAnalysisTask FULL path, so
+                // they opt into background per-column auto-analyze (paimon was never wired into the legacy
+                // instanceof-based whitelist; this is the parity-neutral mechanism wiring it in). Unlike the
+                // iceberg capabilities this is NOT inert pre-cutover: paimon is already in SPI_READY_TYPES, so
+                // paimon background auto-analyze activates on merge (parity-safe — manual ANALYZE already uses
+                // the same doFull SQL path). NOT SUPPORTS_TOPN_LAZY_MATERIALIZE: paimon was never eligible for
+                // Top-N lazy materialization.
+                ConnectorCapability.SUPPORTS_COLUMN_AUTO_ANALYZE,
+                // Paimon's table properties (coreOptions incl. path) are user-facing and credential-free, so
+                // SHOW CREATE TABLE renders LOCATION + PROPERTIES for paimon. This capability replaces the
+                // legacy paimon-only engine-name gate in Env.getDdlStmt (the credential-leak guard now keyed
+                // on a capability instead of an engine string). Paimon emits no partition/sort show.* keys, so
+                // it renders no PARTITION BY / ORDER BY — byte-faithful with its prior SHOW CREATE output.
+                ConnectorCapability.SUPPORTS_SHOW_CREATE_DDL);
     }
 
     private Catalog ensureCatalog() {

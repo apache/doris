@@ -21,7 +21,6 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FunctionRegistry;
 import org.apache.doris.common.Pair;
-import org.apache.doris.datasource.iceberg.IcebergMergeOperation;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.SqlCacheContext;
@@ -76,6 +75,7 @@ import org.apache.doris.nereids.trees.plans.algebra.InlineTable;
 import org.apache.doris.nereids.trees.plans.algebra.OneRowRelation;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
+import org.apache.doris.nereids.trees.plans.commands.merge.MergeOperation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalExcept;
@@ -349,7 +349,7 @@ public class BindExpression implements AnalysisRuleFactory {
     }
 
     private boolean isIcebergMergeMetaColumn(String name) {
-        if (IcebergMergeOperation.OPERATION_COLUMN.equalsIgnoreCase(name)) {
+        if (MergeOperation.OPERATION_COLUMN.equalsIgnoreCase(name)) {
             return true;
         }
         if (Column.ICEBERG_ROWID_COL.equalsIgnoreCase(name)) {

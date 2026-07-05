@@ -45,12 +45,13 @@ import java.util.List;
  * legacy 3-branch distribution, gated by connector capabilities:
  *
  * <ul>
- *   <li><b>dynamic-partition write</b> (a partition column present in {@code cols}) + connector
- *       declaring {@code SINK_REQUIRE_PARTITION_LOCAL_SORT} → hash-by-partition + mandatory local sort,
- *       so the MaxCompute Storage API streaming partition writer does not hit "writer has been
- *       closed" on un-grouped rows;</li>
- *   <li><b>non-partition / all-static write</b> + {@code SUPPORTS_PARALLEL_WRITE} →
- *       {@code SINK_RANDOM_PARTITIONED} (parallel writers, NG-4 parity);</li>
+ *   <li><b>dynamic-partition write</b> (a partition column present in {@code cols}) + connector's write
+ *       provider returning {@code true} from {@code requiresPartitionLocalSort()} → hash-by-partition +
+ *       mandatory local sort, so the MaxCompute Storage API streaming partition writer does not hit
+ *       "writer has been closed" on un-grouped rows;</li>
+ *   <li><b>non-partition / all-static write</b> + write provider returning {@code true} from
+ *       {@code requiresParallelWrite()} → {@code SINK_RANDOM_PARTITIONED} (parallel writers, NG-4
+ *       parity);</li>
  *   <li><b>capability-less connector</b> (jdbc/es-like) → {@code GATHER} (single writer).</li>
  * </ul>
  *
@@ -225,6 +226,30 @@ public class PhysicalConnectorTableSinkTest {
                 "a connector declaring neither capability must keep the single-writer GATHER default");
     }
 
+    /**
+     * Rewrite (compaction) override: a {@code rewrite_data_files} INSERT-SELECT must gather to a single
+     * writer to control its output file count, even on a PARTITIONED table where an ordinary write would
+     * hash-distribute by the partition columns. The neutral {@code isRewrite} flag short-circuits to
+     * GATHER before the partition-shuffle arm. The table/cols/child are identical to
+     * {@link #dynamicPartitionWriteRequiresHashAndLocalSort} (which, with {@code isRewrite=false}, returns
+     * the hash-partitioned spec), so this isolates the override as the sole behavioral delta. Mutation
+     * lock: dropping the {@code if (isRewrite) return GATHER} guard makes this return
+     * {@link DistributionSpecHiveTableSinkHashPartitioned} and the assertion fails.
+     */
+    @Test
+    public void rewriteModeGathersEvenOnPartitionedTable() {
+        SlotReference dataSlot = new SlotReference("data", IntegerType.INSTANCE);
+        SlotReference partSlot = new SlotReference("part", IntegerType.INSTANCE);
+        PhysicalConnectorTableSink<Plan> sink = sinkRewrite(
+                table(true, true, ImmutableList.of(PART), ImmutableList.of(DATA, PART)),
+                Arrays.asList(DATA, PART),
+                ImmutableList.of(dataSlot, partSlot));
+
+        Assertions.assertSame(PhysicalProperties.GATHER, sink.getRequirePhysicalProperties(),
+                "a rewrite write must gather to a single writer even on a partitioned table, "
+                        + "overriding the partition-shuffle distribution");
+    }
+
     // ==================== helpers ====================
 
     private static PluginDrivenExternalTable table(boolean parallelWrite, boolean requirePartitionSort,
@@ -253,6 +278,17 @@ public class PhysicalConnectorTableSinkTest {
         Deencapsulation.setField(sink, "targetTable", table);
         Deencapsulation.setField(sink, "cols", cols);
         Deencapsulation.setField(sink, "children", ImmutableList.of(child));
+        return sink;
+    }
+
+    /**
+     * Builds a {@link PhysicalConnectorTableSink} as {@link #sink} but in rewrite mode (the neutral
+     * {@code isRewrite} field set true), to exercise the rewrite GATHER override.
+     */
+    private static PhysicalConnectorTableSink<Plan> sinkRewrite(PluginDrivenExternalTable table,
+            List<Column> cols, List<Slot> childOutput) {
+        PhysicalConnectorTableSink<Plan> sink = sink(table, cols, childOutput);
+        Deencapsulation.setField(sink, "isRewrite", true);
         return sink;
     }
 }

@@ -159,13 +159,6 @@ public class FakeConnectorPluginTest {
     // ──────────────────── ConnectorWriteOps defaults ────────────────────
 
     @Test
-    void writeOpsCapabilitiesDefaultToFalse() {
-        Assertions.assertFalse(metadata.supportsInsert());
-        Assertions.assertFalse(metadata.supportsDelete());
-        Assertions.assertFalse(metadata.supportsMerge());
-    }
-
-    @Test
     void beginTransactionDefaultThrows() {
         // T06: default beginTransaction throws — engine treats statement as auto-commit.
         DorisConnectorException ex = Assertions.assertThrows(

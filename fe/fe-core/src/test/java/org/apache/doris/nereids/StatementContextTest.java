@@ -25,7 +25,6 @@ import org.apache.doris.datasource.PluginDrivenExternalTable;
 import org.apache.doris.datasource.PluginDrivenMvccExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalTable.DLAType;
-import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.nereids.rules.analysis.PreloadExternalMetadata;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
@@ -408,7 +407,7 @@ public class StatementContextTest {
     public void testPreloadIcebergLatestSnapshotBeforeLock() {
         ConnectContext connectContext = Mockito.mock(ConnectContext.class);
         TableIf internalTable = Mockito.mock(TableIf.class);
-        IcebergExternalTable icebergExternalTable = Mockito.mock(IcebergExternalTable.class);
+        PluginDrivenMvccExternalTable icebergExternalTable = Mockito.mock(PluginDrivenMvccExternalTable.class);
         DatabaseIf<TableIf> database = mockDatabase();
         CatalogIf<?> catalog = mockCatalog();
         MvccSnapshot mvccSnapshot = Mockito.mock(MvccSnapshot.class);
@@ -453,7 +452,7 @@ public class StatementContextTest {
     public void testSkipIcebergPreloadWhenOnlyNonLatestRelationExists() {
         ConnectContext connectContext = Mockito.mock(ConnectContext.class);
         TableIf internalTable = Mockito.mock(TableIf.class);
-        IcebergExternalTable icebergExternalTable = Mockito.mock(IcebergExternalTable.class);
+        PluginDrivenMvccExternalTable icebergExternalTable = Mockito.mock(PluginDrivenMvccExternalTable.class);
         DatabaseIf<TableIf> database = mockDatabase();
         CatalogIf<?> catalog = mockCatalog();
         SessionVariable sessionVariable = new SessionVariable();
