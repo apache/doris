@@ -38,9 +38,6 @@ public class PaimonHMSMetaStorePropertiesTest {
         props.put("warehouse", "file:///tmp");
         PaimonHMSMetaStoreProperties paimonProps = (PaimonHMSMetaStoreProperties) MetastoreProperties.create(props);
         Assertions.assertEquals("hms", paimonProps.getPaimonCatalogType());
-        // Parity: only the REST flavor vends credentials; non-REST paimon flavors keep building the
-        // static storage map (the former provider gated on instanceof PaimonRestMetaStoreProperties).
-        Assertions.assertFalse(paimonProps.isVendedCredentialsEnabled());
         //should mock connection to hms
     }
 

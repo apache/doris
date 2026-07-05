@@ -19,13 +19,10 @@ package org.apache.doris.datasource;
 
 import org.apache.doris.catalog.HdfsResource;
 import org.apache.doris.common.UserException;
-import org.apache.doris.datasource.credentials.AbstractVendedCredentialsProvider;
-import org.apache.doris.datasource.credentials.VendedCredentialsFactory;
 import org.apache.doris.datasource.property.metastore.MetastoreProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 
 import com.google.common.base.Preconditions;
-import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
 import org.apache.commons.collections4.MapUtils;
@@ -180,16 +177,15 @@ public class CatalogProperty {
             synchronized (this) {
                 if (storagePropertiesMap == null) {
                     try {
-                        MetastoreProperties msp = getMetastoreProperties();
-                        if (shouldBuildStaticStorage(msp)) {
-                            Map<String, String> storageProps = mergeDerivedStorageDefaults(msp);
-                            this.orderedStoragePropertiesList = StorageProperties.createAll(storageProps);
-                            this.storagePropertiesMap = orderedStoragePropertiesList.stream()
-                                    .collect(Collectors.toMap(StorageProperties::getType, Function.identity()));
-                        } else {
-                            this.orderedStoragePropertiesList = Lists.newArrayList();
-                            this.storagePropertiesMap = Maps.newHashMap();
-                        }
+                        // Design S4: build the static storage map unconditionally (no vended discrimination).
+                        // For legacy catalogs (Hive/Hudi/HMS-iceberg/LakeSoul) this is exactly today's behavior;
+                        // for a plugin REST/vended catalog the map carries no static object-store creds (the
+                        // connector supplies vended per-table), so createAll yields only inert defaults the
+                        // plugin storage consumers do not use.
+                        Map<String, String> storageProps = mergeDerivedStorageDefaults(getMetastoreProperties());
+                        this.orderedStoragePropertiesList = StorageProperties.createAll(storageProps);
+                        this.storagePropertiesMap = orderedStoragePropertiesList.stream()
+                                .collect(Collectors.toMap(StorageProperties::getType, Function.identity()));
                     } catch (UserException e) {
                         LOG.warn("Failed to initialize catalog storage properties", e);
                         throw new RuntimeException("Failed to initialize storage properties, error: "
@@ -198,26 +194,6 @@ public class CatalogProperty {
                 }
             }
         }
-    }
-
-    /**
-     * Whether fe-core should build the static storage map for this catalog: {@code true} unless the
-     * connector supplies per-table vended credentials (a REST/vended catalog whose static storage map is
-     * empty by design). Provider-backed metastores (iceberg) route through the {@link VendedCredentialsFactory}
-     * provider; non-provider backends (e.g. a Paimon REST catalog) signal vended credentials through the
-     * metastore-props gate. The null guard preserves the "build the static map" behavior when there is no
-     * metastore. Verbatim extraction of the former inline gate — the single source of truth shared by
-     * {@link #initStorageProperties} (the fe-core parse) and {@link #getEffectiveRawStorageProperties} (the
-     * fe-filesystem bind), so the two paths never diverge.
-     */
-    private boolean shouldBuildStaticStorage(MetastoreProperties msp) {
-        AbstractVendedCredentialsProvider provider = VendedCredentialsFactory.getProviderType(msp);
-        if (provider != null) {
-            return !provider.isVendedCredentialsEnabled(msp);
-        } else if (msp != null) {
-            return !msp.isVendedCredentialsEnabled();
-        }
-        return true;
     }
 
     /**
@@ -245,22 +221,22 @@ public class CatalogProperty {
      * (design S2), letting {@code ConnectorContext.getStorageProperties()} hand the connector typed
      * fe-filesystem storage without the redundant fe-core {@link StorageProperties#createAll} round-trip.
      * Returns the same map {@link #initStorageProperties} would parse — user props plus derived defaults
-     * (warehouse -> fs.defaultFS) — honoring the vended gate (empty when the connector supplies vended
-     * credentials, so no static storage is bound). Byte-identical to
-     * {@code getStoragePropertiesMap().values().iterator().next().getOrigProps()} (createAll passes the map
-     * through unmutated), so the bound typed StorageProperties, and the BE {@code location.*} map derived from
-     * them, are unchanged. The returned map must be treated as read-only by callers.
+     * (warehouse -> fs.defaultFS). Design S4: no vended discrimination — fe-core hands the connector the raw
+     * map unconditionally (the connector owns static+vended precedence, overlaying per-table vended creds); a
+     * REST/vended catalog carries no static storage keys, so binding it still yields no static storage.
+     * Byte-identical to {@code getStoragePropertiesMap().values().iterator().next().getOrigProps()} (createAll
+     * passes the map through unmutated), so the bound typed StorageProperties, and the BE {@code location.*}
+     * map derived from them, are unchanged. The returned map must be treated as read-only by callers.
      */
     public Map<String, String> getEffectiveRawStorageProperties() {
-        // synchronized(this) so the vended-gate metastore read and the persisted-props read form a single
-        // consistent snapshot, matching the atomicity of the fe-core parse path (initStorageProperties builds
-        // under the same monitor, mutually exclusive with modifyCatalogProps/addProperty/deleteProperty).
-        // Without it a concurrent ALTER of a derivation-feeding key (e.g. warehouse) could tear the derived
-        // defaults against the user props. The critical section is a small map copy + pure derivation and
-        // takes no foreign lock, so it is deadlock-free and contention-free at scan-planning frequency.
+        // synchronized(this) so the metastore read and the persisted-props read form a single consistent
+        // snapshot, matching the atomicity of the fe-core parse path (initStorageProperties builds under the
+        // same monitor, mutually exclusive with modifyCatalogProps/addProperty/deleteProperty). Without it a
+        // concurrent ALTER of a derivation-feeding key (e.g. warehouse) could tear the derived defaults against
+        // the user props. The critical section is a small map copy + pure derivation and takes no foreign lock,
+        // so it is deadlock-free and contention-free at scan-planning frequency.
         synchronized (this) {
-            MetastoreProperties msp = getMetastoreProperties();
-            return shouldBuildStaticStorage(msp) ? mergeDerivedStorageDefaults(msp) : Collections.emptyMap();
+            return mergeDerivedStorageDefaults(getMetastoreProperties());
         }
     }
 

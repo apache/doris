@@ -67,17 +67,6 @@ public class PaimonRestMetaStoreProperties extends AbstractPaimonProperties {
         return "rest";
     }
 
-    /**
-     * A Paimon REST catalog vends storage credentials per-table at scan time (via the connector's
-     * REST token path) and has no static catalog-level storage map, so the catalog skips building it.
-     * SDK-free replacement of the former {@code PaimonVendedCredentialsProvider.isVendedCredentialsEnabled}
-     * gate. Read by {@code CatalogProperty.initStorageProperties}.
-     */
-    @Override
-    public boolean isVendedCredentialsEnabled() {
-        return true;
-    }
-
     private ParamRules buildRules() {
         ParamRules rules = new ParamRules();
         // Check for dlf rest catalog

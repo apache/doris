@@ -201,11 +201,11 @@ public class DefaultConnectorContext implements ConnectorContext {
      * Builds the vended {@link StorageProperties} typed map from a raw per-table token: filter to
      * cloud-storage props, run {@link StorageProperties#createAll} (normalizes arbitrary token key
      * shapes + derives region/endpoint), then index by {@link StorageProperties.Type}. Mirrors the
-     * legacy {@code AbstractVendedCredentialsProvider} tail exactly, so the BE-credential overlay
+     * legacy vended-credentials normalization tail exactly, so the BE-credential overlay
      * ({@link #vendStorageCredentials}) and the URI normalization ({@link #normalizeStorageUri(String,
      * Map)}) derive the SAME credentials from the SAME token — no drift. Returns {@code null} when the
      * token is null/empty, yields no cloud-storage props, or normalization throws — replicating the
-     * legacy provider's "return null → Factory falls back to the base/static map" contract.
+     * legacy "return null → fall back to the base/static map" contract.
      */
     private Map<StorageProperties.Type, StorageProperties> buildVendedStorageMap(
             Map<String, String> rawVendedCredentials) {
@@ -266,8 +266,8 @@ public class DefaultConnectorContext implements ConnectorContext {
         }
         // Mirror legacy PaimonScanNode's 2-arg LocationPath.of(path, storagePropertiesMap):
         // scheme-normalize (oss/cos/obs/s3a -> s3, OSS bucket.endpoint -> bucket) so BE's
-        // scheme-dispatched S3 factory can open the file. The storage map follows legacy
-        // VendedCredentialsFactory precedence: when the connector supplies a per-table vended token
+        // scheme-dispatched S3 factory can open the file. The storage map follows the vended
+        // precedence: when the connector supplies a per-table vended token
         // (REST catalogs, whose static map is empty by design) the VENDED map REPLACES the static map;
         // otherwise the catalog's static storage map is used. Fail-loud (StoragePropertiesException
         // propagates) — a path that cannot be normalized would otherwise silently corrupt reads (esp. a

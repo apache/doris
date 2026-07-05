@@ -39,22 +39,6 @@ public class PaimonRestMetaStorePropertiesTest {
     }
 
     @Test
-    public void testIsVendedCredentialsEnabled() {
-        // A Paimon REST catalog vends credentials per-table and has no static storage map; the SDK-free
-        // gate (replacing the former PaimonVendedCredentialsProvider) must report true so
-        // CatalogProperty.initStorageProperties skips building the static StorageProperties map.
-        Map<String, String> props = new HashMap<>();
-        props.put("paimon.rest.uri", "http://localhost:8080");
-        props.put("warehouse", "catalog_name");
-        props.put("paimon.rest.token.provider", "none");
-
-        PaimonRestMetaStoreProperties restProps = new PaimonRestMetaStoreProperties(props);
-        restProps.initNormalizeAndCheckProps();
-
-        Assertions.assertTrue(restProps.isVendedCredentialsEnabled());
-    }
-
-    @Test
     public void testTokenProviderProperty() {
         Map<String, String> props = new HashMap<>();
         props.put("paimon.rest.uri", "http://localhost:8080");

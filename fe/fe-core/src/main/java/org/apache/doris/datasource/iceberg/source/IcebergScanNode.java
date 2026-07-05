@@ -35,7 +35,6 @@ import org.apache.doris.datasource.ExternalUtil;
 import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.datasource.TableFormatType;
 import org.apache.doris.datasource.credentials.CredentialUtils;
-import org.apache.doris.datasource.credentials.VendedCredentialsFactory;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergExternalMetaCache;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
@@ -197,11 +196,11 @@ public class IcebergScanNode extends FileQueryScanNode {
                 formatVersion = MIN_DELETE_FILE_SUPPORT_VERSION;
             }
             preExecutionAuthenticator = source.getCatalog().getExecutionAuthenticator();
-            storagePropertiesMap = VendedCredentialsFactory.getStoragePropertiesMapWithVendedCredentials(
-                    source.getCatalog().getCatalogProperty().getMetastoreProperties(),
-                    source.getCatalog().getCatalogProperty().getStoragePropertiesMap(),
-                    icebergTable
-            );
+            // S4: HMS-iceberg has an HMS-typed metastore, so the former VendedCredentialsFactory dispatch
+            // always returned the base static map verbatim (only an ICEBERG-typed metastore had a vended
+            // provider, and those are plugin catalogs on the PluginDrivenScanNode path). Read the static map
+            // directly — byte-identical for this legacy HMS-iceberg path.
+            storagePropertiesMap = source.getCatalog().getCatalogProperty().getStoragePropertiesMap();
             backendStorageProperties = CredentialUtils.getBackendPropertiesFromStorageMap(storagePropertiesMap);
         } finally {
             if (getSummaryProfile() != null) {

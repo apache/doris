@@ -22,7 +22,6 @@ import org.apache.doris.datasource.property.storage.HdfsProperties;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -32,7 +31,8 @@ import java.util.Map;
  * round-trip). The invariant that de-risks the whole cut: this map is byte-identical to what the fe-core parse
  * path exposes via {@code getStoragePropertiesMap().values().iterator().next().getOrigProps()}, so binding
  * either yields the same typed storage and the same BE {@code location.*} map. Also pins that the derived
- * warehouse -> fs.defaultFS defaults survive and the vended gate is honored.
+ * warehouse -> fs.defaultFS defaults survive and (design S4) that the removed vended gate no longer empties
+ * the map for a vended catalog.
  */
 public class CatalogPropertyEffectiveRawStoragePropsTest {
 
@@ -81,15 +81,21 @@ public class CatalogPropertyEffectiveRawStoragePropsTest {
     }
 
     @Test
-    public void effectiveRawEmptyWhenVendedCredentialsEnabled() {
-        // A REST catalog with vended credentials enabled has no static storage map by design: the raw map is
-        // empty so getStorageProperties() binds nothing. MUTATION: ignore the vended gate -> non-empty -> red.
+    public void vendedCatalogRawMapNoLongerGated() {
+        // Design S4: the former vended gate is removed — fe-core hands the connector the raw storage map
+        // unconditionally (the connector owns static+vended precedence, overlaying vended per-table). A vended
+        // REST catalog is no longer emptied by fe-core; it carries no static object-store keys, so a downstream
+        // fe-filesystem bind still yields no static storage, but the map itself is un-gated. MUTATION: re-add a
+        // vended gate returning empty -> the raw props vanish -> red.
         Map<String, String> props = new HashMap<>();
         props.put("type", "iceberg");
         props.put("iceberg.catalog.type", "rest");
         props.put("iceberg.rest.uri", "http://localhost:8181");
         props.put("iceberg.rest.vended-credentials-enabled", "true");
         CatalogProperty cp = new CatalogProperty(null, props);
-        Assertions.assertEquals(Collections.emptyMap(), cp.getEffectiveRawStorageProperties());
+        Map<String, String> raw = cp.getEffectiveRawStorageProperties();
+        Assertions.assertFalse(raw.isEmpty(), "S4: vended no longer gates the raw storage map to empty");
+        Assertions.assertEquals("http://localhost:8181", raw.get("iceberg.rest.uri"),
+                "the raw catalog props are handed over un-gated");
     }
 }

@@ -160,21 +160,6 @@ public class MetastoreProperties extends ConnectionProperties {
     }
 
     /**
-     * Whether this metastore supplies storage credentials by vending them per-table at scan time
-     * rather than from a static catalog-level storage map. When {@code true}, the catalog skips
-     * building the static {@link StorageProperties} map (a vended catalog — e.g. a Paimon REST
-     * catalog — has no static storage credentials by design; they arrive with each table token).
-     *
-     * <p>The default is {@code false} (use the static storage map). The Paimon REST flavor overrides
-     * it to {@code true}. This is the SDK-free replacement of the former
-     * {@code VendedCredentialsFactory} PAIMON type-switch (the Iceberg path still routes through its
-     * provider). Read by {@code CatalogProperty.initStorageProperties}.</p>
-     */
-    public boolean isVendedCredentialsEnabled() {
-        return false;
-    }
-
-    /**
      * Storage-configuration properties derived from this metastore's own properties that the raw catalog
      * property map does not already supply. {@code CatalogProperty.initStorageProperties} merges them (as
      * defaults — an explicit user key always wins) into the map fed to {@code StorageProperties.createAll},
