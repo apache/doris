@@ -10,8 +10,8 @@
 | **fe-connector 模块** | `fe/fe-connector/fe-connector-hive/` + `fe/fe-connector/fe-connector-hms/`（共享库）|
 | **fe-core 旧路径** | `fe/fe-core/src/main/java/org/apache/doris/datasource/hive/` |
 | **共享依赖** | 自身 `fe-connector-hms`；被 hudi/iceberg-HMS/paimon-HMS 依赖 |
-| **计划迁移阶段** | **P7**（最复杂，6 周）|
-| **当前状态** | ⏸ 未启动 |
+| **计划迁移阶段** | **P7**（最复杂，6 周；**当前活跃阶段**，起步 P7.1）|
+| **当前状态** | 🚧 P7 启动中（iceberg P6 已合入 #64688 → hive 为下一个活跃迁移目标）；下一 = **P7.1 HiveMetadataOps 全功能搬迁** |
 | **完成度** | 10%（hive 20% + hms 共享库已立） |
 | **主 owner** | TBD |
 
@@ -89,6 +89,11 @@
 ---
 
 ## 进度日志
+
+### 2026-07-05（P7 启动 = 当前活跃迁移目标）
+- **iceberg P6 已 squash-合入 `branch-catalog-spi`（#64688 `8b391c7459d`）→ hive 成为下一个活跃迁移目标**。工作分支 `catalog-spi-11-hive`。
+- **下个 session 起步**：建 `tasks/P7-hive-migration.md` 阶段拆分 spec + code-grounded recon；起步 P7.1 HiveMetadataOps 全功能搬迁。权威计划 master plan §3.8 + 本文 §子阶段。**R-002 ACID 写路径（P7.3）= 项目最大风险，须专门集成测试作 gate。**
+- **P7 连带清理**：删 fe-core `datasource/hive/`（P7.5）+ 23 个 HMS-iceberg 支撑类 + `datasource/hudi/`（阶段四）；hudi 批 E（live cutover）并入 P7。
 
 ### 2026-05-24
 - 跟踪文件建立。当前最复杂的连接器；R-002（ACID 数据不一致）是项目最大风险。
