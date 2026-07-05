@@ -45,9 +45,10 @@
 - **✅ 落地**：抽包内 static `IcebergConnector.buildPluginAuthenticator(properties, storageHadoopConfig)`；storage-kerberos 分支逐字不变；新增 HMS 分支用 `hms.kerberos()` 的 client principal/keytab 建 `KerberosAuthenticationConfig`（镜像 `HMSBaseProperties.initHadoopAuthenticator:176-180`）。新增 `IcebergConnectorPluginAuthenticatorTest` 5 例。**验收**：fe-connector-iceberg BUILD SUCCESS + checkstyle 0 + 5/5 绿 + mutation 击杀（翻 HMS 分支守卫 → 焦点用例转红）。
 - **⚠️ flip-gated（未跑，登记 ENG-3）**：真正证明须 Kerberized-HMS-on-simple-storage e2e（本地无集群）。注意 CUT 1 使 HMS-kerberos-simple-storage 场景从 fe-core-delegate doAs 立即改走 plugin-UGI doAs（同 principal/keytab，且 plugin-UGI 才是 plugin FileSystem 的正确副本 → 更正确），但该行为变更须 e2e 证明。
 
-### CUT 2（PREP，纯机械）= SHOW CREATE 脱敏改绑，脱离 IcebergRestProperties
-- **改**：`DatasourcePrintableMap:63` `getSensitiveKeys(IcebergRestProperties.class)` → 等价来源（连接器 `IcebergRestMetaStoreProvider.sensitivePropertyKeys()` 或显式 key list）。
-- **UT**：断言脱敏 key 集合 delete 前后**逐字不变**（防 SHOW CREATE CATALOG 密钥泄漏静默回归）。
+### ✅ CUT 2（DONE `eb9201dc0a6`，PREP）= SHOW CREATE 脱敏改绑，脱离 IcebergRestProperties
+- **落地**：`DatasourcePrintableMap` 删 `getSensitiveKeys(IcebergRestProperties.class)` 反射 + import → 显式 add 4 键（byte-identical，超类链无 sensitive 键）。fe-core 不能引连接器承接类，故显式枚举（非连接器 provider）。
+- **⚠️ 实证纠正（recon 深挖）**：与 `S3Properties` 重叠不均、不可依赖——`iceberg.rest.secret-access-key` 是 S3Properties 敏感 secret-key 别名（冗余），但 `iceberg.rest.session-token` 是 S3Properties `sessionToken`（**非 sensitive**）别名 → 只由本处保护，省略即静默泄漏。故四键全显式。
+- **验收**：fe-core BUILD SUCCESS + checkstyle 0 + `DatasourcePrintableMapTest` 18/18（补断言全 4 键）；mutation 击杀（oauth2.token / session-token 丢 → 转红）；secret-access-key 因 S3 冗余覆盖 mutation 存活（预期）。
 
 ### CUT 3（PREP，align paimon）= iceberg vended gate 走 raw prop（SDK-free）
 - **改**：使 iceberg vended 判定独立于 SDK provider——从 raw `iceberg.rest.vended-credentials-enabled` 算（paimon-style `isVendedCredentialsEnabled` gate，`CatalogProperty:186-192`），使其 `msp==null`（CUT 5 后）仍成立。**暂留** `VendedCredentialsFactory case ICEBERG`（仍返回同 boolean，本刀行为保持）；实删在 CUT 7。
