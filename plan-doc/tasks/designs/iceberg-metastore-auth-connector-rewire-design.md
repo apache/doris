@@ -55,9 +55,11 @@
 - **⚠️ 起步先解的设计难点（recon 后新发现，非 CUT 1 阻塞）**：paimon 靠 `msp.isVendedCredentialsEnabled()` 成立**是因为 paimon 保留 msp**；iceberg CUT 5 后 msp==null → 该机制失效 → vended 判定必须能在 msp==null 下工作。但通用 `CatalogProperty.initStorageProperties` 是引擎无关的，直接读 iceberg 专属串 `iceberg.rest.vended-credentials-enabled` 逼近铁律（引擎名判别新 seam）。**候选**：① 该 gate 在 CUT 5 前（msp 尚在）仍走 `msp.isVendedCredentialsEnabled()`，CUT 5 把"iceberg 无 msp 时 vended?"的判定连同鉴权/derived-storage 一起在 `PluginDrivenExternalCatalog`/连接器侧解决（连接器构造前的 init-order 阻塞使连接器供不了 → 需另设中立途径）；② 用中立、非引擎前缀的 vended 标志键。**须在动 CUT 3/CUT 5 前定夺**（届时按 `ask-user-explain-in-chinese-first` 找用户拍板或给出推荐）。
 - **UT**：raw prop true/false/缺省 三态断言 vended gate 结果与今日一致。
 
-### CUT 4（PREP）= warehouse→fs.defaultFS 重新安置，脱离待删类
-- **改**：**首选（connector-agnostic）** 通用化 HDFS storage 检测使 `HdfsProperties` 对任意 engine 从 `hdfs://` warehouse 推 `fs.defaultFS`；**或** 把 `IcebergFileSystemMetaStoreProperties.getDerivedStorageProperties():90-100` 逐字抽到 fe-core 独立 helper（keyed on raw props）。
-- **UT**：只配 warehouse 的 HA-nameservice hadoop catalog 仍绑同一 `fs.defaultFS`。
+### ✅ CUT 4（DONE `0de34db83fb`，PREP，纯本地可验）= warehouse→fs.defaultFS 重新安置，脱离待删类
+- **落地**：`CatalogProperty` 新增包内 static `deriveHdfsDefaultFsFromWarehouse(props)`（逐字移植 iceberg 桥，keyed 仅在中立 `warehouse` 键 + hdfs scheme，无引擎名串=守铁律；空 nameservice fail-loud）。`initStorageProperties` 统一 derived 源：`msp!=null` 用 `msp.getDerivedStorageProperties()`（不变），`msp==null` 用中立 helper。
+- **⚠️ 关键：这是 recon 后确定的方案（放弃"通用化 HdfsProperties 对所有 engine 生效"的首选）** —— 通用化会误改非 iceberg catalog（如 paimon fs 只配 hdfs warehouse 时也会 putIfAbsent fs.defaultFS，若与 core-site.xml 的 fs.defaultFS 冲突则回归）。**msp==null 分支** 天然只覆盖 iceberg（post-CUT5）+ jdbc/es/maxcompute/trino（无 hdfs warehouse→no-op），**paimon 有 msp 不受影响**，且行为保持（CUT 4 时 iceberg 仍有 msp 走原路，helper 在 CUT 5 翻掉 iceberg msp 后接替，byte-identical）。
+- **验收**：新增 `CatalogPropertyDeriveHdfsWarehouseTest` 5 例（等价旧 IcebergFileSystemMetaStorePropertiesTest 派生用例）。fe-core BUILD SUCCESS + checkstyle 0 + 5/5 绿 + mutation 击杀 2/2。
+- **⚠️ CUT 3 借鉴受限**：本刀 msp==null 分支的中立 helper 模式**不能直接套用到 CUT 3 vended gate**——warehouse 是中立键，但 vended 判定要读 iceberg 专属键 `iceberg.rest.vended-credentials-enabled`（引擎名串=铁律），CUT 3 仍待用户拍板（见下）。
 
 ### CUT 5（REWIRE，flip-gated）= plugin 路径停止构造 fe-core iceberg 簇
 - **改**：删 `MetastoreProperties` 对 `Type.ICEBERG` 的 register + `IcebergPropertiesFactory` dispatch → type=iceberg 的 `getMetastoreProperties()` 返回 null（对齐 jdbc/es 既有 null-msp 路径）。CUT 1-4 落地后三活 hook 均有非簇归宿：鉴权器 ← 连接器（CUT 1）、vended gate ← raw prop（CUT 3）、derived-storage ← CUT 4。`initPreExecutionAuthenticator` 对 msp==null 跳过 fe-core 鉴权器（连接器独占）；实现 [D4] fail-loud。
