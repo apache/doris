@@ -28,15 +28,7 @@ suite("test_be_workload_policy_cancel_query_metrics") {
         forComputeGroupStr = " for ${validCluster} "
     }
 
-    // Read and later restore the shared FE publish interval so the suite can
-    // shrink BE policy propagation latency without leaving global state behind.
-    def getFrontendConfigValue = { configKey ->
-        def configRows = sql """ADMIN SHOW FRONTEND CONFIG LIKE '${configKey}'"""
-        assertEquals(1, configRows.size())
-        return configRows[0][1].toString()
-    }
-
-    // Wait long enough for the BE-side policy to become effective on the target cluster.
+    // Wait for the default FE->BE publish cycle instead of mutating a shared FE config.
     def waitForBePolicyPublish = {
         Thread.sleep(40000)
     }
@@ -58,106 +50,113 @@ suite("test_be_workload_policy_cancel_query_metrics") {
         assertTrue(msg.contains(metricName), "missing trigger metric ${metricName}: " + msg)
     }
 
-    // Create one BE-side cancel_query policy at a time so the metric under test
-    // is the only possible cancellation reason within the dedicated workload group.
-    def createPolicyAndAssertCancellation = { policyName, conditionSql, querySql, metricName ->
-        sql """DROP WORKLOAD POLICY IF EXISTS ${policyName}"""
-        try {
+    // Build isolated workload groups so all policies can be published once and verified independently.
+    def policyCases = [
+            [
+                    workloadGroupName: "${workloadGroupName}_time",
+                    policyName      : "test_be_cancel_query_time_policy",
+                    conditionSql    : "query_time > 1",
+                    metricName      : "query_time"
+            ],
+            [
+                    workloadGroupName: "${workloadGroupName}_scan_rows",
+                    policyName      : "test_be_cancel_query_scan_rows_policy",
+                    conditionSql    : "be_scan_rows > 1",
+                    metricName      : "scan_rows"
+            ],
+            [
+                    workloadGroupName: "${workloadGroupName}_scan_bytes",
+                    policyName      : "test_be_cancel_query_scan_bytes_policy",
+                    conditionSql    : "be_scan_bytes > 1",
+                    metricName      : "scan_bytes"
+            ],
+            [
+                    workloadGroupName: "${workloadGroupName}_memory",
+                    policyName      : "test_be_cancel_query_memory_policy",
+                    conditionSql    : "query_be_memory_bytes > 1",
+                    metricName      : "query_memory"
+            ]
+    ]
+
+    try {
+        sql """CREATE DATABASE IF NOT EXISTS ${dbName}"""
+        sql """DROP TABLE IF EXISTS ${dbName}.test_be_workload_policy_cancel_query_metrics_tbl"""
+        sql """
+            CREATE TABLE ${dbName}.test_be_workload_policy_cancel_query_metrics_tbl (
+                id INT,
+                payload STRING
+            )
+            DUPLICATE KEY(id)
+            DISTRIBUTED BY HASH(id) BUCKETS 1
+            PROPERTIES("replication_num" = "1")
+        """
+        sql """
+            INSERT INTO ${dbName}.test_be_workload_policy_cancel_query_metrics_tbl
+            SELECT number, REPEAT('x', 4096)
+            FROM numbers("number" = "200")
+        """
+
+        // Use a scan-heavy query for time/rows/bytes and a sort-heavy query for
+        // memory so the BE runtime counters can trip the dedicated policy.
+        String scanQuerySql = """
+            SELECT SUM(SLEEP(1) + id)
+            FROM (
+                SELECT id
+                FROM ${dbName}.test_be_workload_policy_cancel_query_metrics_tbl
+                ORDER BY id
+                LIMIT 10
+            ) s
+        """
+        String memoryQuerySql = """
+            SELECT SUM(SLEEP(1) + payload_len)
+            FROM (
+                SELECT LENGTH(payload) AS payload_len
+                FROM ${dbName}.test_be_workload_policy_cancel_query_metrics_tbl
+                ORDER BY payload
+                LIMIT 10
+            ) s
+        """
+
+        policyCases.each { policyCase ->
+            sql """DROP WORKLOAD POLICY IF EXISTS ${policyCase.policyName}"""
+            sql """DROP WORKLOAD GROUP IF EXISTS ${policyCase.workloadGroupName} ${forComputeGroupStr}"""
             sql """
-                CREATE WORKLOAD POLICY ${policyName}
-                CONDITIONS(${conditionSql})
+                CREATE WORKLOAD GROUP ${policyCase.workloadGroupName} ${forComputeGroupStr}
+                PROPERTIES ('max_cpu_percent' = '100')
+            """
+        }
+
+        // Publish all BE-side policies together and reuse the same propagation wait.
+        policyCases.each { policyCase ->
+            sql """
+                CREATE WORKLOAD POLICY ${policyCase.policyName}
+                CONDITIONS(${policyCase.conditionSql})
                 ACTIONS(cancel_query)
                 PROPERTIES(
                     'priority' = '100',
-                    'workload_group' = '${currentCgName}${workloadGroupName}'
+                    'workload_group' = '${currentCgName}${policyCase.workloadGroupName}'
                 )
             """
-            waitForBePolicyPublish()
-            sql """SET workload_group = '${workloadGroupName}'"""
-            sql """SET enable_sql_cache = false"""
-            assertCancelledByPolicy(querySql, policyName, metricName)
-        } finally {
-            sql """DROP WORKLOAD POLICY IF EXISTS ${policyName}"""
         }
-    }
 
-    String originalPublishTopicInfoIntervalMs = getFrontendConfigValue("publish_topic_info_interval_ms")
-    try {
-        sql """ADMIN SET FRONTEND CONFIG("publish_topic_info_interval_ms" = "1000")"""
-        try {
-            sql """CREATE DATABASE IF NOT EXISTS ${dbName}"""
-            sql """DROP TABLE IF EXISTS ${dbName}.test_be_workload_policy_cancel_query_metrics_tbl"""
-            sql """
-                CREATE TABLE ${dbName}.test_be_workload_policy_cancel_query_metrics_tbl (
-                    id INT,
-                    payload STRING
-                )
-                DUPLICATE KEY(id)
-                DISTRIBUTED BY HASH(id) BUCKETS 1
-                PROPERTIES("replication_num" = "1")
-            """
-            sql """
-                INSERT INTO ${dbName}.test_be_workload_policy_cancel_query_metrics_tbl
-                SELECT number, REPEAT('x', 4096)
-                FROM numbers("number" = "200")
-            """
+        waitForBePolicyPublish()
 
-            sql """DROP WORKLOAD GROUP IF EXISTS ${workloadGroupName} ${forComputeGroupStr}"""
-            sql """
-                CREATE WORKLOAD GROUP ${workloadGroupName} ${forComputeGroupStr}
-                PROPERTIES ('max_cpu_percent' = '100')
-            """
-
-            // Use a scan-heavy query for time/rows/bytes and a sort-heavy query for
-            // memory so the BE runtime counters can trip the dedicated policy.
-            String scanQuerySql = """
-                SELECT SUM(SLEEP(1) + id)
-                FROM (
-                    SELECT id
-                    FROM ${dbName}.test_be_workload_policy_cancel_query_metrics_tbl
-                    ORDER BY id
-                    LIMIT 10
-                ) s
-            """
-            String memoryQuerySql = """
-                SELECT SUM(SLEEP(1) + payload_len)
-                FROM (
-                    SELECT LENGTH(payload) AS payload_len
-                    FROM ${dbName}.test_be_workload_policy_cancel_query_metrics_tbl
-                    ORDER BY payload
-                    LIMIT 10
-                ) s
-            """
-
-            createPolicyAndAssertCancellation(
-                    "test_be_cancel_query_time_policy",
-                    "query_time > 1",
-                    scanQuerySql,
-                    "query_time")
-            createPolicyAndAssertCancellation(
-                    "test_be_cancel_query_scan_rows_policy",
-                    "be_scan_rows > 1",
-                    scanQuerySql,
-                    "scan_rows")
-            createPolicyAndAssertCancellation(
-                    "test_be_cancel_query_scan_bytes_policy",
-                    "be_scan_bytes > 1",
-                    scanQuerySql,
-                    "scan_bytes")
-            createPolicyAndAssertCancellation(
-                    "test_be_cancel_query_memory_policy",
-                    "query_be_memory_bytes > 1",
-                    memoryQuerySql,
-                    "query_memory")
-        } finally {
-            try {
-                sql """SET workload_group = ''"""
-            } catch (Throwable t) {
-                logger.info("ignore reset workload_group failure: " + t.getMessage())
-            }
-            sql """DROP WORKLOAD GROUP IF EXISTS ${workloadGroupName} ${forComputeGroupStr}"""
+        // Switch workload groups between assertions so each query can only match one policy.
+        policyCases.each { policyCase ->
+            sql """SET workload_group = '${policyCase.workloadGroupName}'"""
+            sql """SET enable_sql_cache = false"""
+            String querySql = policyCase.metricName == "query_memory" ? memoryQuerySql : scanQuerySql
+            assertCancelledByPolicy(querySql, policyCase.policyName, policyCase.metricName)
         }
     } finally {
-        sql """ADMIN SET FRONTEND CONFIG("publish_topic_info_interval_ms" = "${originalPublishTopicInfoIntervalMs}")"""
+        try {
+            sql """SET workload_group = ''"""
+        } catch (Throwable t) {
+            logger.info("ignore reset workload_group failure: " + t.getMessage())
+        }
+        policyCases.each { policyCase ->
+            sql """DROP WORKLOAD POLICY IF EXISTS ${policyCase.policyName}"""
+            sql """DROP WORKLOAD GROUP IF EXISTS ${policyCase.workloadGroupName} ${forComputeGroupStr}"""
+        }
     }
 }
