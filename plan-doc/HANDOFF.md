@@ -17,13 +17,27 @@
 >
 > **✅ 完整新设计已出 = `plan-doc/tasks/designs/plugin-owns-property-parsing-arch-design.md`**（依据侦察工作流 `wf_61c70f0d-bce`，替代/升级 iceberg-metastore-auth-connector-rewire-design.md）。**关键实证（大幅利好）：目标架构大部分已就位** —— `fe-filesystem-api/spi` 已是插件可用共享模块（parent-first、排除打包，无须抽取）；连接器读/扫描路径**已** fe-filesystem-native；fe-core `StorageProperties.createAll` 只是**冗余的第二份解析**。故本迁移 = **退掉 fe-core 第二份解析**（10 步 S1-S10），非新建模块，比预想小。**vended 难题也顺带解掉**：fe-core 对所有插件 catalog **无条件停建静态存储表**（插件 100% 拥有 static+vended），不判别、不 gate、守铁律。
 > **✅ 中央决策已裁定（用户 2026-07-05）= A 家族：共享宿主 classpath + 连接器发起 bind**（fe-filesystem 解析器留宿主 parent-first、不打包；连接器直接调 fe-filesystem-api 发起 bind，不经 fe-core context；fe-core 零解析。B 每插件打包不采纳）。
-> **⏭ 下个 session 起步 = 按新设计 S2 起（`getStorageProperties()` supplier 改绑 raw props 直传 / 连接器直接发起 bind），逐刀 S2→S10；每刀门 = BE `location.*` map 逐字 parity diff（fe-core 路 vs fe-filesystem 路）+ 重部署 classloader 冒烟。⚠️ legacy 静态 map 方法（`CatalogProperty` 四方法 + `StorageProperties.createAll`）须保活至 Hive/Hudi/LakeSoul/HMS-iceberg 全离 SPI（S10 铁律，别删共享方法只 repoint 插件路）。CUT4 待 S6-S8 一起搬回连接器（现仍 load-bearing）。**
+> **⏭ 下个 session 起步 = S3（`getBackendStorageProperties()` 从 fe-core `CredentialUtils` 改到 fe-filesystem `getStorageProperties().toBackendProperties().toMap()`；iceberg WRITE 路 `IcebergWritePlanProvider:639` 迁 paimon 形）。✅ S2 已落地 `a00ca592ba3`（见下方最新一轮）。逐刀 S3→S10；每刀门 = BE `location.*` map 逐字 parity diff（fe-core 路 vs fe-filesystem 路）+ 重部署 classloader 冒烟。⚠️ legacy 静态 map 方法（`CatalogProperty` 四方法 + `StorageProperties.createAll`）须保活至 Hive/Hudi/LakeSoul/HMS-iceberg 全离 SPI（S10 铁律，别删共享方法只 repoint 插件路）。CUT4 待 S6-S8 一起搬回连接器（现仍 load-bearing）。**
 >
 > **已 commit 未 push（本轮）**：CUT 1 `cf8dda9f058` / CUT 2 `eb9201dc0a6` / CUT 4 `0de34db83fb`（+ 各自 doc commit）。CUT 4 待新设计裁定去留。
 
 ---
 
-# 🎯 最新一轮（2026-07-05 续²）= **属性/鉴权迁移到连接器启动：recon 纠正计划前提 + 用户裁定完整删除 + 设计文档 + CUT 1 done**
+# 🎯 最新一轮（2026-07-05 续³）= **属性簇迁移第一刀 S2 落地（`getStorageProperties()` 退掉 fe-core 第二份解析，直传 raw props 绑 fe-filesystem）= `a00ca592ba3`**
+
+> **本轮范围** = 承接架构裁定（A 家族 / fe-core 零解析），按新设计 `plugin-owns-property-parsing-arch-design.md` §4 刀序起步做 **S2**（S1 无操作）。这是"退掉 fe-core 冗余存储解析"的第一刀，纯 fe-core、不碰连接器、翻闸后行为不变。
+>
+> **✅ S2 `a00ca592ba3`（独立 commit + BUILD SUCCESS + checkstyle 0 + mutation 3/3 KILLED + 3 视角对抗复审 0 confirmed，未 push）**：
+> - **问题**：插件 catalog 的 `ConnectorContext.getStorageProperties()` 走冤枉路——先 fe-core `StorageProperties.createAll` 解析原始配置，再从解析结果 `getOrigProps()` 抠回原始 map，最后交 fe-filesystem `bindAllStorageProperties` **再解析一遍**真正用。同配置解析两遍，连接器只用第二遍（fe-filesystem）。S2 摘掉第一遍解析，直传原始 map。
+> - **落地**：`CatalogProperty` 抽 `shouldBuildStaticStorage`（vended 门控，逐字提取）+ `mergeDerivedStorageDefaults`（user props + 派生默认值 warehouse→fs.defaultFS，putIfAbsent 不覆盖显式键、不改持久 map）两**共用私有方法**，新增 public `getEffectiveRawStorageProperties()` 与解析路 `initStorageProperties` 共用 → **两路喂 fe-filesystem 的 map 逐字节相同**（createAll 把 origProps 原样透传、全程不 mutate，已核实——该模块无 `origProps.put/remove/...`）。`DefaultConnectorContext` 加 `rawStoragePropsSupplier`+5-arg ctor（typed supplier **保留**供 S3/S5 未迁消费者：`getBackendStorageProperties`/`normalizeStorageUri`/`getBackendFileType`/`cleanupEmptyManagedLocation`/`buildVendedStorageMap`）；`PluginDrivenExternalCatalog:174` 唯一生产接线改 5-arg，raw 源=`getEffectiveRawStorageProperties`。
+> - **派生默认值保住**（HANDOFF 关键门）：`mergeDerivedStorageDefaults` 内 msp!=null 用 `msp.getDerivedStorageProperties()`、msp==null 用中立 `deriveHdfsDefaultFsFromWarehouse`——否则 HDFS-HA/warehouse-only 回归。
+> - **对抗复审主动硬化**：`getEffectiveRawStorageProperties` 包 `synchronized(this)` 使 metastore 读+持久 props 读取**单一一致快照**，对齐解析路在同一 monitor 下构建的原子性（与 modifyCatalogProps 互斥），杜绝并发 ALTER warehouse 撕裂派生默认值（复审两条 low 均 refuted：① validation-loss——createAll 仍经建目录鉴权初始化 + `getBackendStorageProperties` 等触发，校验不丢；② 并发原子性——已加锁硬化）。临界区仅小 map 拷贝+纯派生、不取外部锁，无死锁、扫描规划频率无争用。
+> - **验收**：新增 `CatalogPropertyEffectiveRawStoragePropsTest` 4 例（parity==旧 getOrigProps / 派生 fs.defaultFS 存活 / 不改持久 map / vended REST→empty）+ 改写 `DefaultConnectorContextStoragePropsTest` 3 例（直传绑定/空短路）+ 相邻门控测试全绿。**⚠️ BE `location.*` map parity 由构造保证（非 e2e）；重部署 classloader 冒烟 flip-gated 未跑（本地无集群）。**
+> - **S3 起步要点**：`getBackendStorageProperties()` 从 fe-core `CredentialUtils` 改到 fe-filesystem `getStorageProperties().toBackendProperties().toMap()`；iceberg WRITE 路 `IcebergWritePlanProvider:639` 迁 paimon 形。**删 fe-core 路前必做 BE `location.*` map 逐字 parity diff**（write=fe-core parse vs scan=fe-filesystem bind 两路到 BE-canonical map，须证一致再 repoint）。
+
+---
+
+# 🎯 上一轮（2026-07-05 续²）= **属性/鉴权迁移到连接器启动：recon 纠正计划前提 + 用户裁定完整删除 + 设计文档 + CUT 1 done**
 
 > **本轮范围** = 承接 P4 DONE，启动"属性/鉴权迁移到连接器 + fe-core iceberg 属性簇删除"（removal-execution-plan **§P5**，死码删除收官最大一块）。**做了 recon → 暴露 Rule 7 前提错误 → 用户拍板 → 写设计 → 落 CUT 1**。
 >

@@ -38,7 +38,7 @@
 
 ## 4. 迁移刀序（每刀独立 commit + build + test + checkstyle + import-gate；**先 parity 验证再删 fe-core 路**）
 - **S1**：无（fe-filesystem-api/spi 已插件可用，**别抽取**）。
-- **S2**：`getStorageProperties()` supplier 改绑 raw props 直传（`DefaultConnectorContext:239` 去掉 `getStoragePropertiesMap()→getOrigProps()` round-trip）。**须保住** derived defaults（warehouse→defaultFS）否则 HDFS-HA/warehouse-only 回归。
+- **✅ S2（`a00ca592ba3`）**：`getStorageProperties()` 改绑 raw props 直传，去掉 `getStoragePropertiesMap()→getOrigProps()` round-trip（fe-core 第二份解析退出该路）。落地=`CatalogProperty` 抽 `shouldBuildStaticStorage`+`mergeDerivedStorageDefaults` 两共用私有方法（解析路 `initStorageProperties` 与新 public `getEffectiveRawStorageProperties` 共用→两路 map 逐字节相同，createAll origProps 原样透传不 mutate 已核实）；`DefaultConnectorContext` 加 `rawStoragePropsSupplier`+5-arg ctor（typed supplier 保留供 S3/S5 未迁消费者）；`PluginDrivenExternalCatalog` 唯一生产接线改 5-arg。**derived defaults（warehouse→defaultFS）保住**（`mergeDerivedStorageDefaults` 内，msp!=null 用 msp、msp==null 用中立 helper）。`getEffectiveRawStorageProperties` 包 `synchronized(this)` 保 metastore+props 单一致快照（对齐解析路原子性，防并发 ALTER warehouse 撕裂派生值；对抗复审 refuted 后主动硬化）。验收=fe-core BUILD + 新/改 7 测 + mutation 3/3 KILLED + checkstyle 0 + 3 视角对抗复审 0 confirmed。⚠️ BE `location.*` map parity 由构造保证（非 e2e）；重部署 classloader 冒烟 flip-gated 未跑。
 - **S3**：`getBackendStorageProperties()` 从 fe-core `CredentialUtils` 改到 fe-filesystem `getStorageProperties().toBackendProperties().toMap()`；iceberg WRITE 路（`IcebergWritePlanProvider:639`）迁到 paimon 形。**删 fe-core 路前做 BE `location.*` map 逐字 parity diff**。
 - **S4**：vended 全连接器侧（插件 bind vended token 走 fe-filesystem）；退 fe-core `VendedCredentialsFactory`/`AbstractVendedCredentialsProvider` + `CatalogProperty:184-196` gate；fe-core 对插件 catalog 停建静态表。
 - **S5**：URI-normalize/TFileType 决策（默认留薄接缝）。
