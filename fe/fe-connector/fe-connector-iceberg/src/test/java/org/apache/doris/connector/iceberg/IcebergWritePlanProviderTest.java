@@ -30,6 +30,11 @@ import org.apache.doris.connector.api.write.ConnectorWritePartitionField;
 import org.apache.doris.connector.api.write.ConnectorWritePartitionSpec;
 import org.apache.doris.connector.api.write.ConnectorWriteSortColumn;
 import org.apache.doris.connector.spi.ConnectorBrokerAddress;
+import org.apache.doris.filesystem.FileSystemType;
+import org.apache.doris.filesystem.properties.BackendStorageKind;
+import org.apache.doris.filesystem.properties.BackendStorageProperties;
+import org.apache.doris.filesystem.properties.StorageKind;
+import org.apache.doris.filesystem.properties.StorageProperties;
 import org.apache.doris.thrift.TDataSinkType;
 import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileContent;
@@ -133,10 +138,61 @@ public class IcebergWritePlanProviderTest {
     private static RecordingConnectorContext contextWithStorage() {
         RecordingConnectorContext ctx = new RecordingConnectorContext();
         // Static catalog creds in BE-canonical form (AWS_*), the form the write sink ships to BE — NOT the
-        // fs.s3a.* hadoop form (s3_util.cpp convert_properties_to_s3_conf reads only AWS_*).
-        ctx.backendStorageProperties = Collections.singletonMap("AWS_ACCESS_KEY", "AK123");
+        // fs.s3a.* hadoop form (s3_util.cpp convert_properties_to_s3_conf reads only AWS_*). Fed through the
+        // typed fe-filesystem seam (getStorageProperties() -> toBackendProperties().toMap()) that the write
+        // now derives its BE creds from (design S3), the SAME source the scan path uses.
+        ctx.storageProperties = Collections.singletonList(
+                fakeBackendStorage(Collections.singletonMap("AWS_ACCESS_KEY", "AK123")));
         ctx.backendFileType = TFileType.FILE_S3;
         return ctx;
+    }
+
+    /** A fe-filesystem {@link StorageProperties} whose toBackendProperties().toMap() returns the given
+     * BE-canonical map — mirrors how a real object-store binding hands BE creds to the connector, and how
+     * the write path (design S3) sources its static creds. Adapted verbatim from the scan test. */
+    private static StorageProperties fakeBackendStorage(Map<String, String> beMap) {
+        BackendStorageProperties backend = new BackendStorageProperties() {
+            @Override
+            public BackendStorageKind backendKind() {
+                return BackendStorageKind.S3_COMPATIBLE;
+            }
+
+            @Override
+            public Map<String, String> toMap() {
+                return beMap;
+            }
+        };
+        return new StorageProperties() {
+            @Override
+            public String providerName() {
+                return "fake";
+            }
+
+            @Override
+            public StorageKind kind() {
+                return StorageKind.OBJECT_STORAGE;
+            }
+
+            @Override
+            public FileSystemType type() {
+                return FileSystemType.S3;
+            }
+
+            @Override
+            public Map<String, String> rawProperties() {
+                return Collections.emptyMap();
+            }
+
+            @Override
+            public Map<String, String> matchedProperties() {
+                return Collections.emptyMap();
+            }
+
+            @Override
+            public Optional<BackendStorageProperties> toBackendProperties() {
+                return Optional.of(backend);
+            }
+        };
     }
 
     /** A context that resolves writes to a FILE_BROKER backend (ofs/gfs) with the given broker addresses. */
@@ -407,7 +463,7 @@ public class IcebergWritePlanProviderTest {
         Map<String, String> staticCreds = new HashMap<>();
         staticCreds.put("AWS_ACCESS_KEY", "static-ak");
         staticCreds.put("AWS_REGION", "us-east-1");
-        ctx.backendStorageProperties = staticCreds;
+        ctx.storageProperties = Collections.singletonList(fakeBackendStorage(staticCreds));
         Map<String, String> vendedCreds = new HashMap<>();
         vendedCreds.put("AWS_ACCESS_KEY", "vended-ak");
         vendedCreds.put("AWS_TOKEN", "vended-tok");

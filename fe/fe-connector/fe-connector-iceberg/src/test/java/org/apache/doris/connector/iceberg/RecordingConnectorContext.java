@@ -52,12 +52,10 @@ final class RecordingConnectorContext implements ConnectorContext {
     /** The {@code resources} string the connector passed to {@link #loadHiveConfResources}. */
     String lastHiveConfResourcesArg;
 
-    /** Storage properties the fake returns from {@link #getStorageProperties()} (default: none). */
+    /** Storage properties the fake returns from {@link #getStorageProperties()} — the typed fe-filesystem
+     * seam both the scan and (design S3) the write path derive their BE-canonical static creds from via
+     * {@code sp.toBackendProperties().toMap()} (default: none). */
     List<StorageProperties> storageProperties = Collections.emptyList();
-
-    /** BE-canonical static catalog creds the fake returns from {@link #getBackendStorageProperties()} (the
-     * AWS_* or dfs/hadoop map the write sink ships to BE; default: none). */
-    Map<String, String> backendStorageProperties = Collections.emptyMap();
 
     /** BE-canonical vended creds the fake returns from {@link #vendStorageCredentials} for a NON-EMPTY token
      * (an empty/null token -> empty result, mirroring {@code DefaultConnectorContext} — so a test can prove the
@@ -130,11 +128,6 @@ final class RecordingConnectorContext implements ConnectorContext {
     @Override
     public List<StorageProperties> getStorageProperties() {
         return storageProperties;
-    }
-
-    @Override
-    public Map<String, String> getBackendStorageProperties() {
-        return backendStorageProperties;
     }
 
     @Override

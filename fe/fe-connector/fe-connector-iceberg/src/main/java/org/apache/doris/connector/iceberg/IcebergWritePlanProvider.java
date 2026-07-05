@@ -32,6 +32,7 @@ import org.apache.doris.connector.api.write.ConnectorWritePlanProvider;
 import org.apache.doris.connector.api.write.ConnectorWriteSortColumn;
 import org.apache.doris.connector.spi.ConnectorBrokerAddress;
 import org.apache.doris.connector.spi.ConnectorContext;
+import org.apache.doris.filesystem.properties.StorageProperties;
 import org.apache.doris.thrift.TDataSink;
 import org.apache.doris.thrift.TDataSinkType;
 import org.apache.doris.thrift.TFileCompressType;
@@ -633,10 +634,16 @@ public class IcebergWritePlanProvider implements ConnectorWritePlanProvider {
         Map<String, String> merged = new HashMap<>();
         if (context != null) {
             // Static catalog credentials in BE-canonical form (AWS_* for object stores, dfs/hadoop for HDFS),
-            // mirroring legacy IcebergTableSink getBackendConfigProperties + the scan-side backend overlay. The
-            // BE S3 sink (s3_util.cpp convert_properties_to_s3_conf) reads ONLY AWS_*, so the fs.s3a.* hadoop
-            // form (correct for the FE iceberg-catalog Configuration) would leave the BE writer with no creds.
-            merged.putAll(context.getBackendStorageProperties());
+            // sourced from the typed fe-filesystem StorageProperties bound by the catalog and handed over via
+            // ctx.getStorageProperties(): each backend's toBackendProperties().toMap() yields the canonical map
+            // (design S3 — the write derives its BE creds from the SAME typed fe-filesystem source as the scan
+            // path IcebergScanPlanProvider.getScanNodeProperties, retiring the redundant fe-core
+            // getBackendStorageProperties() second parse). The BE S3 sink (s3_util.cpp
+            // convert_properties_to_s3_conf) reads ONLY AWS_*, so the fs.s3a.* hadoop form (correct for the FE
+            // iceberg-catalog Configuration) would leave the BE writer with no creds.
+            for (StorageProperties sp : context.getStorageProperties()) {
+                sp.toBackendProperties().ifPresent(b -> merged.putAll(b.toMap()));
+            }
             // REST per-table vended overlay (colliding key takes the vended value — legacy/scan precedence): a
             // vending catalog's static storage map is empty by design, so the vended creds are the only ones.
             merged.putAll(context.vendStorageCredentials(
