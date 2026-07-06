@@ -328,4 +328,25 @@ suite("set_preagg") {
         contains "(preagg_t1), PREAGGREGATION: OFF. Reason: No valid aggregate on scan."
         contains "(preagg_t1), PREAGGREGATION: ON"
     }
+
+    // Aggregate over limited subquery: Limit between aggregate and scan goes
+    // through generic visitor path, which should block preagg collection
+    // without clearing the aggregate's own frame.
+    explain {
+        sql("""
+            select k1, sum(v7)
+            from (select k1, v7 from preagg_t1 limit 10) s
+            group by k1;
+        """)
+        notContains "(preagg_t1), PREAGGREGATION: ON"
+    }
+
+    // Aggregate over non-Olap relation (numbers TVF).
+    // The TVF scan goes through the generic visitor path, which should not
+    // clear the aggregate's frame and cause EmptyStackException.
+    explain {
+        sql("""
+            select count(*) from (select * from numbers("number"="10")) t;
+        """)
+    }
 }
