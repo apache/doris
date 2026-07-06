@@ -116,6 +116,7 @@ private:
     Status _parse_properties();
     Status _parse_schema();
     arrow::Status _open_file_writer();
+    Status _can_write_iceberg_bounds(int32_t field_id, bool* can_write) const;
 
     std::shared_ptr<ParquetOutputStream> _outstream;
     std::shared_ptr<::parquet::WriterProperties> _parquet_writer_properties;

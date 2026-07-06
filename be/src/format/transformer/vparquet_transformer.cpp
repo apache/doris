@@ -326,6 +326,9 @@ Status VParquetTransformer::close() {
 }
 
 Status VParquetTransformer::collect_file_statistics_after_close(TIcebergColumnStats* stats) {
+    if (_iceberg_schema == nullptr) {
+        return Status::InternalError("Iceberg schema is not available for Parquet metrics");
+    }
     std::shared_ptr<::parquet::FileMetaData> file_metadata = _writer->metadata();
     if (file_metadata == nullptr) {
         return Status::InternalError("File metadata is not available");
@@ -359,7 +362,6 @@ Status VParquetTransformer::collect_file_statistics_after_close(TIcebergColumnSt
     }
 
     bool has_any_null_count = false;
-    bool has_any_min_max = false;
     for (const auto& [field_id, column_stat] : merged_column_stats) {
         value_counts[field_id] = column_stat->num_values();
         if (column_stat->HasNullCount()) {
@@ -369,9 +371,12 @@ Status VParquetTransformer::collect_file_statistics_after_close(TIcebergColumnSt
             value_counts[field_id] += null_count;
         }
         if (column_stat->HasMinMax()) {
-            has_any_min_max = true;
-            lower_bounds[field_id] = column_stat->EncodeMin();
-            upper_bounds[field_id] = column_stat->EncodeMax();
+            bool can_write_bounds = false;
+            RETURN_IF_ERROR(_can_write_iceberg_bounds(field_id, &can_write_bounds));
+            if (can_write_bounds) {
+                lower_bounds[field_id] = column_stat->EncodeMin();
+                upper_bounds[field_id] = column_stat->EncodeMax();
+            }
         }
     }
 
@@ -380,10 +385,21 @@ Status VParquetTransformer::collect_file_statistics_after_close(TIcebergColumnSt
     if (has_any_null_count) {
         stats->__set_null_value_counts(null_value_counts);
     }
-    if (has_any_min_max) {
+    if (!lower_bounds.empty()) {
         stats->__set_lower_bounds(lower_bounds);
         stats->__set_upper_bounds(upper_bounds);
     }
+    return Status::OK();
+}
+
+Status VParquetTransformer::_can_write_iceberg_bounds(int32_t field_id, bool* can_write) const {
+    for (const auto& field : _iceberg_schema->root_struct().fields()) {
+        if (field.field_id() == field_id) {
+            *can_write = field.field_type()->is_primitive_type();
+            return Status::OK();
+        }
+    }
+    *can_write = false;
     return Status::OK();
 }
 } // namespace doris

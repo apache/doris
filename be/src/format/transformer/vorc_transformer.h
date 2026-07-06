@@ -106,10 +106,12 @@ private:
     // so we need to resize the subtype of a complex type
     Status _resize_row_batch(const DataTypePtr& type, const IColumn& column,
                              orc::ColumnVectorBatch* orc_col_batch);
-    bool _collect_column_bounds(const orc::ColumnStatistics* col_stats, int32_t field_id,
-                                const DataTypePtr& data_type,
-                                std::map<int32_t, std::string>* lower_bounds,
-                                std::map<int32_t, std::string>* upper_bounds);
+    const iceberg::NestedField* _iceberg_field_for_column(const std::string& column_name) const;
+    Status _can_write_iceberg_bounds(int32_t field_id, bool* can_write) const;
+    void _collect_primitive_column_bounds(const orc::ColumnStatistics* col_stats, int32_t field_id,
+                                          const DataTypePtr& data_type,
+                                          std::map<int32_t, std::string>* lower_bounds,
+                                          std::map<int32_t, std::string>* upper_bounds);
     std::string _decimal_to_bytes(const orc::Decimal& decimal);
     std::shared_ptr<io::FileSystem> _fs = nullptr;
     doris::io::FileWriter* _file_writer = nullptr;
@@ -121,6 +123,7 @@ private:
     std::unique_ptr<orc::Writer> _writer;
 
     const iceberg::Schema* _iceberg_schema;
+    std::vector<int32_t> _iceberg_output_field_ids;
 
     // Buffer used by date/datetime/datev2/datetimev2/largeint type
     // date/datetime/datev2/datetimev2/largeint type will be converted to string bytes to store in Buffer
