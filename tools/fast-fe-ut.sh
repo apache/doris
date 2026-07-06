@@ -131,7 +131,24 @@ Usage: $0 [<test_spec>]
 
 TEST_SPEC=""
 if [[ $# -ge 1 ]]; then
+    # Reject option-style arguments (e.g. --run, --coverage).  This script only
+    # accepts a positional test spec; the --run prefix that run-fe-ut.sh uses is
+    # not valid here.
+    if [[ "$1" == -* ]]; then
+        error "Unexpected option: $1"
+        error "fast-fe-ut.sh accepts a positional test spec only (no --run prefix)."
+        error "For --run / --coverage, use run-fe-ut.sh directly."
+        usage
+    fi
     TEST_SPEC="$1"
+    shift
+fi
+
+# Reject extra arguments — only one test spec is supported.
+if [[ $# -gt 0 ]]; then
+    error "Unexpected extra arguments: $*"
+    error "fast-fe-ut.sh accepts at most one test spec."
+    usage
 fi
 
 # ─── Fallback helper ───────────────────────────────────────────────────────────
