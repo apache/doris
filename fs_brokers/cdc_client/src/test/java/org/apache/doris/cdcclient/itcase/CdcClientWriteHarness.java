@@ -418,6 +418,10 @@ final class CdcClientWriteHarness implements AutoCloseable {
         return mock.committedOffset();
     }
 
+    String committedTableSchemas() {
+        return lastTableSchemas;
+    }
+
     @Override
     public void close() {
         SourceReader reader = Env.getCurrentEnv().getReaderIfPresent(jobId);

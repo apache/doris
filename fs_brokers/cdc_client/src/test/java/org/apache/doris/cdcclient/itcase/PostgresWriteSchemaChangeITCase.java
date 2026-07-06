@@ -129,6 +129,83 @@ class PostgresWriteSchemaChangeITCase {
     }
 
     @Test
+    void modifyColumnTypeCommitsBaselineWithoutDdlAndReloadsBeforeNextAdd() throws Exception {
+        try (Connection conn = connect();
+                Statement st = conn.createStatement()) {
+            st.execute("ALTER TABLE t_user ADD COLUMN value_col INT");
+            st.execute("UPDATE t_user SET value_col = id");
+        }
+
+        try (MockDorisServer mock = new MockDorisServer();
+                CdcClientWriteHarness harness =
+                        CdcClientWriteHarness.postgres(
+                                jobId,
+                                POSTGRES.getHost(),
+                                POSTGRES.getMappedPort(PostgreSQLContainer.POSTGRESQL_PORT),
+                                POSTGRES.getUsername(),
+                                POSTGRES.getPassword(),
+                                POSTGRES.getDatabaseName(),
+                                "public",
+                                "t_user",
+                                "initial",
+                                "doris_target_db",
+                                mock)) {
+
+            List<SnapshotSplit> splits = harness.fetchAllSnapshotSplits("t_user");
+            harness.writeSnapshot(splits);
+            harness.enterBinlog(splits);
+            String tableSchemasBeforeModify = harness.committedTableSchemas();
+            assertThat(tableSchemasBeforeModify).contains("value_col").contains("int4");
+
+            try (Connection conn = connect();
+                    Statement st = conn.createStatement()) {
+                st.execute("ALTER TABLE t_user ALTER COLUMN value_col TYPE BIGINT");
+                st.execute(
+                        "INSERT INTO t_user (id, name, value_col)"
+                                + " VALUES (3, 'carol', 3000000000)");
+            }
+
+            List<String> modifiedRecords = harness.continueBinlog(1, Duration.ofSeconds(90));
+
+            assertThat(modifiedRecords).isNotEmpty();
+            JsonNode modifiedRow = MAPPER.readTree(modifiedRecords.get(modifiedRecords.size() - 1));
+            assertThat(modifiedRow.get("id").asInt()).isEqualTo(3);
+            assertThat(modifiedRow.get("value_col").asLong()).isEqualTo(3_000_000_000L);
+            assertThat(mock.executedDdls()).isEmpty();
+
+            String tableSchemasAfterModify = harness.committedTableSchemas();
+            assertThat(tableSchemasAfterModify)
+                    .isNotEqualTo(tableSchemasBeforeModify)
+                    .contains("value_col")
+                    .contains("int8");
+
+            harness.rebuildReaderOnNextWrite();
+            try (Connection conn = connect();
+                    Statement st = conn.createStatement()) {
+                st.execute("ALTER TABLE t_user ADD COLUMN note VARCHAR(50)");
+                st.execute(
+                        "INSERT INTO t_user (id, name, value_col, note)"
+                                + " VALUES (4, 'dave', 4000000000, 'after_reload')");
+            }
+
+            List<String> addedRecords = harness.continueBinlog(1, Duration.ofSeconds(90));
+
+            assertThat(mock.executedDdls())
+                    .anySatisfy(
+                            ddl -> {
+                                String upper = ddl.toUpperCase();
+                                assertThat(upper).contains("ADD COLUMN");
+                                assertThat(upper).contains("NOTE");
+                            });
+            assertThat(addedRecords).isNotEmpty();
+            JsonNode addedRow = MAPPER.readTree(addedRecords.get(addedRecords.size() - 1));
+            assertThat(addedRow.get("id").asInt()).isEqualTo(4);
+            assertThat(addedRow.get("value_col").asLong()).isEqualTo(4_000_000_000L);
+            assertThat(addedRow.get("note").asText()).isEqualTo("after_reload");
+        }
+    }
+
+    @Test
     void schemaSerializationFailureDoesNotCommitOffset() throws Exception {
         ExecutorService executor = Executors.newSingleThreadExecutor();
         try (MockDorisServer mock = new MockDorisServer();
