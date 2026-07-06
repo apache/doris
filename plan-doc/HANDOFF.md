@@ -5,17 +5,16 @@
 
 ---
 
-# 🎯 当前状态（2026-07-07）= **P7.3 原子批 INC-1 + INC-2 + INC-3(主体) 均已实现并全绿——INC-3 把 fe-core `HMSTransaction`(1895 行) 忠实移植成插件 `HiveConnectorTransaction`(1697 行) + `HiveWriteContext`(89) + `HiveConnectorMetadata.beginTransaction` 一行工厂 + `HiveWriteUtils` 增 `equalsIgnoreSchemeIfOneIsS3`(GAP-11)/`toPartitionValues`(GAP-12) + `HiveConnectorTransactionTest`(9 例全绿) + `FakeConnectorContext`(测试 ctx double)。按用户拍板「整批一次原子提交」，全部仍 UNCOMMITTED 在工作树里（跨 session WIP 载体，勿 commit / 勿 revert / 勿 `git checkout`）。本轮只 commit 了 HANDOFF + 设计文档 + 新落地的 port-map。**
+# 🎯 当前状态（2026-07-06）= **P7.3 原子批 INC-1 + INC-2 + INC-3(主体) 全绿 + INC-3 的全量对抗式忠实度复审已跑完(收尾 b) + 复审查出的唯一缺陷已修+加测+验证。INC-3 只剩 FS 重活单测(收尾 a) → 然后 INC-4 / INC-5。全批仍 UNCOMMITTED 在工作树里（跨 session WIP 载体，勿 commit / 勿 revert / 勿 `git checkout`）。本轮只 commit HANDOFF + 设计文档。**
 
-> **本轮验证（独立重跑，不信自述）**：`fe-connector-hive` 独立 `compile` BUILD SUCCESS；全模块 `test` **62 测试 0 失败 0 错误 BUILD SUCCESS（含新 `HiveConnectorTransactionTest` 9、既有 hive/hms 全绿、无回归）**；`checkstyle:check` 0 违规；`check-connector-imports.sh` 净（仅 `HiveVersionUtil` 已知误报）。侦察侧我**逐行核对了最险的几段**（D6 MPU/FS 构建 `getFileSystem`/`resolveObjectStoreFileSystem`/`objCommit`；`commit()`/`rollback()` 顺序；分类状态机 `finishInsertTable`/NEW→APPEND 降级；full-ACID 拒写守卫 D7/D8），确为忠实移植。
+> **本轮做了什么（复审 + 修缺陷）**：跑了 12 路净室对抗复审（workflow `hive-txn-fidelity-review`）——12 个 finder（code-first、不给"忠实"先验）各拿 `HiveConnectorTransaction` 一个维度逐行对照 HEAD `HMSTransaction`，每条分歧再派对抗性怀疑者 verify。**结论：12 维中 11 维完全忠实；共 4 条分歧全为 low；只 1 条 CONFIRMED 缺陷**（`convertToInsertExistingPartitionAction` 用 `HashMap.put` 静默去重，HEAD 的 `Collectors.toMap` 遇重复键抛异常——静默去重会让 `size()` 界的循环丢掉一个分区的 INSERT_EXISTING 动作 = 静默丢写，违反 Rule 12）。**已修**：两处 `put(...) != null` 抛 `IllegalStateException("Duplicate key ...")`，忠实复刻 HEAD；加测 `testDuplicatePartitionValuesFromHmsFailsLoud`。另 3 条判 BENIGN（`getTable` 复用 begin 期快照=单表同真值；`beginWrite` 对自 pin 的 `getTable` 多包一层 `executeAuthenticated`=无害冗余；HEAD `doCommit()` 末尾 `doNothing()` 被删=空的 fe-core debug-point 测试注入桩，连接器不能 import `DebugPointUtil`、且只在延后的集成门有意义→**有意删除，已记录**）。有 1 个 verifier 死于 StructuredOutput 重试上限（`doNothing` 那条），已人工判 BENIGN。
 
-> **⚠️ 本轮的过程事故（已恢复，无损）**：INC-3 的实现最初交给一个后台实现 agent（照 port-map 写代码），它写完**主体代码并使其编译通过**、正开始写测试时**撞上账号级 session limit（resets 5pm Asia/Shanghai）而中断**。我接手后：确认主体代码 `compile` + checkstyle + import-gate 全绿、逐行 spot-check 忠实、然后**亲手补齐了 FS-free 单测**（利用 `finishInsertTable` 包级可见 + `HmsClient` 方法多为 default-throw，绕开重型 FS 假件）。因 session limit 是共享池，本轮起**未再起新的多 agent 编排**，改在主循环内经济地推进。
+> **本轮验证（独立重跑，不信自述）**：`fe-connector-hive` 全模块 `test` **63 测试 0 失败 0 错误 BUILD SUCCESS（原 62 + 新 dup 测试 1；hive/hms 全绿、无回归）**；`checkstyle:check` 0 违规；`check-connector-imports.sh` 净（仅 `HiveVersionUtil` 已知误报，gate 现已自动 skip）。
 
-> **⚠️ 工作树未提交的 INC-1 + INC-2 + INC-3 代码**（`git status` 会显示）：
+> **⚠️ 工作树未提交的 INC-1 + INC-2 + INC-3 代码**（`git status` 会显示；原子批模型，设计文档 §8——**若工作树被清就照 port-map 重建**）：
 > - INC-1（`fe-connector-hms`）：`HmsClient`/`ThriftHmsClient`/`HmsWriteConverter`/`pom.xml` 改 + `HmsAcidConstants`/`HmsCommonStatistics`/`HmsPartitionStatistics`/`HmsPartitionWithStatistics`/`HmsPartitionInfo` 新 + 2 test。
 > - INC-2（`fe-connector-hive`）：`HiveWriteUtils.java` + `NameMapping.java`（+ 2 test）。
-> - **INC-3（`fe-connector-hive`，本轮）**：**新** `HiveWriteContext.java`(89) + `HiveConnectorTransaction.java`(1697) + `HiveConnectorTransactionTest.java`(351) + `FakeConnectorContext.java`(64)；**改** `HiveConnectorMetadata.java`(+15，`beginTransaction` override) + `pom.xml`(+11，`fe-filesystem-spi` scope `provided`) + `HiveWriteUtils.java`（追加 `equalsIgnoreSchemeIfOneIsS3`/`toPartitionValues` 两个纯 helper + 单测）。
-> 这是**故意的**（原子批模型，设计文档 §8）——下个 session 在此基础上做 INC-3 收尾 + INC-4/INC-5，全批全绿后才一次性 feature commit。**若工作树被清就照 port-map 重建**。
+> - **INC-3（`fe-connector-hive`）**：**新** `HiveWriteContext.java`(89) + `HiveConnectorTransaction.java`(1704，含本轮 dup-key 修复) + `HiveConnectorTransactionTest.java`(377，含新 dup 测试) + `FakeConnectorContext.java`(64)；**改** `HiveConnectorMetadata.java`(+15，`beginTransaction` override) + `pom.xml`(+11，`fe-filesystem-spi` scope `provided`) + `HiveWriteUtils.java`（`equalsIgnoreSchemeIfOneIsS3`/`toPartitionValues` + 单测）。
 
 > **权威实现依据**（信 HEAD 控制流，不信行号）：
 > - `tasks/P7.3-hive-write-txn-implementation-design.md`（§2 决策 D1–D12、§4 签名、§5 移植细节、§6 构建顺序）。
@@ -26,9 +25,9 @@
 
 # 🚀 下个 session 任务 = **INC-3 收尾 →（全绿后）INC-4 → INC-5，全批一次原子 feature commit**
 
-> **① INC-3 收尾（两件，本轮故意未做——session-limit 下保守停在干净节点）**：
-> - **(a) 提交器 FS 重活的单测**（port-map §6 里 commit/rollback 那半）：commit 派发（`addPartitions` 一次 + staging→target 改名 + MPU `completeMultipartUpload`）、rollback（MPU `abortMultipartUpload` + 删 staging + 幂等）。**注入路径已备好**：`HiveConnectorTransaction.resolveObjectStoreFileSystem(StorageProperties)` 是 `protected`，测试**子类化**它返回一个假 `ObjFileSystem`（记录 `completeMultipartUpload`/`getObjStorage().abortMultipartUpload`）+ 假 `org.apache.doris.filesystem.FileSystem`（记录 `rename`/`renameDirectory`/`delete`/`mkdirs`/`exists`）。本轮的 FS-free 测试已覆盖分类/降级/拒写/getUpdateCnt/SPI-identity，故这步是**补齐 FS 那一半**。
-> - **(b) 全量对抗性忠实度复审（clean-room，memory `clean-room-adversarial-review-pref`）**：我本轮只 spot-check 了最险几段（已确认忠实），但**尚未做多 agent 全量对抗复审**。宜派多 agent 各拿 `HiveConnectorTransaction` 与 HEAD `HMSTransaction` 逐维度对比（提交顺序 / `HmsCommitter` prepare*/doCommit/abort/rollback / MPU / D5 鉴权包裹 / 那 12 处 GAP / `Action<T>` ctor 的 DROP-data==null 语义 / `convertToInsertExistingPartitionAction` 的 map/list index quirk 是否忠实），专挑分歧，再核对。**⚠️ session limit 是共享池——起多 agent 前先确认额度已恢复（5pm 后）**。
+> **① INC-3 收尾 —— 只剩 (a) FS 重活单测（(b) 复审已完成，见 🎯）**：
+> - **(a) 提交器 FS 重活的单测**：commit 的 MPU `completeMultipartUpload` + rollback 的 MPU `abortMultipartUpload` + 幂等（第二次 `rollback()` 不抛）。**注入 seam + 假件形状已确定**（设计文档 §6 INC-3 (a) 有完整 scoping）：子类化 `HiveConnectorTransaction`、override `protected resolveObjectStoreFileSystem(StorageProperties)` 返回假 `ObjFileSystem`（`abstract class implements FileSystem`，ctor 收 `ObjStorage<?>`；其**具体** `completeMultipartUpload(String,String,Map)` 转 `List` 后委派 `objStorage.completeMultipartUpload(...)`，`getObjStorage()` 返回 ctor 参数——故**一个 recording 假 `ObjStorage` 同时记录 complete+abort**）。**关键简化**：沿用现有 `TFileType.FILE_S3` ctx → `stagingDirectory=Optional.empty()` → `pruneAndDeleteStagingDirectories` 空转、目录遍历 FS 方法（`listFiles`/`delete`）**不触发**，故只需假 MPU 面。触发：MPU-complete = 无分区 APPEND + PU 带 `s3MpuPendingUploads` 且 `targetPath==writePath`（needRename=false → `objCommit`）；MPU-abort = committer-null 路径的 `rollback()`（`collectUncompletedMpuPendingUploads` 从原始 updates 收集 → `abortMultiUploads`）。若要覆盖 staging→target 改名 + `addPartitions` 一次，另用 non-S3 staging ctx（需再假 `FileSystem.rename`/`renameDirectory`）。
+> - **(b) 全量对抗性忠实度复审 —— ✅ 已完成本轮**（12 路净室对抗，结论见 🎯：11/12 忠实，唯一 low 缺陷已修+测）。无需再跑；INC-4/INC-5 落地后可对新代码再起一轮同款复审。
 
 > **② INC-4 —— `HiveWritePlanProvider.planWrite` + `buildSink` + capabilities**（`fe-connector-hive`，port-map §4.4/§5.2）：`planWrite` 调 `tx.beginWrite(...)` + `buildSink`（= 忠实移植 HEAD `planner.HiveTableSink.bindDataSink`：PARTITION_KEY/REGULAR 按表序、bucket、按格式压缩、staging-vs-in-place location、serde、`hadoopConfig` 经 `context.getStorageProperties().toBackendProperties()` + `vendStorageCredentials`）+ `HiveConnector.getWritePlanProvider()` + `supportedOperations={INSERT,OVERWRITE}` + capability gates；LZO-INSERT / 事务表拒写作 begin-guard。测试 = `HiveWritePlanProviderTest`（假 `ConnectorWriteHandle`，断 `THiveTableSink` 形状 + INSERT→OVERWRITE 提升 + guard）。
 
@@ -39,7 +38,7 @@
 ## 开场要点（承接）
 
 1. **起步先读**本文顶部 🎯 段 + `tasks/P7.3-INC-3-portmap.md`（尤其 §9 已核实检查 + §6 测试计划）+ 设计文档 §6 构建顺序。**信 HEAD 控制流不信行号**——每处编辑前重读对应 HEAD 段。
-2. **主体已在，勿重写**：INC-3 的 `HiveConnectorTransaction` 已编译 + 单测 + checkstyle + import-gate 全绿且经 spot-check 忠实。下步是**加 FS 测试 + 全量复审**，不是重造。
+2. **主体已在 + 已全量复审，勿重写**：INC-3 的 `HiveConnectorTransaction` 已编译 + 63 单测 + checkstyle + import-gate 全绿，且**已过 12 路净室对抗复审（11/12 忠实，唯一 low 缺陷已修+测）**。下步是**加 FS 单测(收尾 a)** 然后 **INC-4 → INC-5**，不是重造、也不用再复审现有代码。
 3. **范围锁定（勿重议）**：hive **不在** `SPI_READY_TYPES`（整批天然 dormant，编译+单测但零线上路由）；翻闸 / fe-core 写链 retype / 摘 `HiveTransactionMgr` / 删 legacy **均属后续 P7.4/P7.5，另起原子批**。full-ACID **写**继续硬拒（D7），full-ACID **读**在范围（INC-5）。
 4. **硬门 = ACID 集成测试套件**（R-002 项目最大风险，需 live 写路径 → P7.4/P7.5 翻闸时跑，勿静默跳过——Rule 12）。
 5. **纪律**：每轮完成即更新本 HANDOFF + commit（memory `handoff-discipline-per-phase`）；上下文超 30% 找干净节点交接（memory `session-handoff-at-30pct-context`）。
