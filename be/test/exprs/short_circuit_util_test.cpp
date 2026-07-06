@@ -37,7 +37,7 @@ TEST(ShortCircuitUtilTest, ColumnNullConstView_non_nullable) {
     auto view = ColumnNullConstView::create(col);
 
     EXPECT_EQ(view.column.size(), 3);
-    EXPECT_EQ(view.null_map, nullptr);
+    EXPECT_EQ(view.null_map.data(), nullptr);
     EXPECT_FALSE(view.is_const);
 }
 
@@ -46,10 +46,10 @@ TEST(ShortCircuitUtilTest, ColumnNullConstView_nullable) {
     auto view = ColumnNullConstView::create(col);
 
     EXPECT_EQ(view.column.size(), 3);
-    EXPECT_NE(view.null_map, nullptr);
-    EXPECT_EQ((*view.null_map)[0], 0);
-    EXPECT_EQ((*view.null_map)[1], 1);
-    EXPECT_EQ((*view.null_map)[2], 0);
+    EXPECT_NE(view.null_map.data(), nullptr);
+    EXPECT_EQ(view.null_map[0], 0);
+    EXPECT_EQ(view.null_map[1], 1);
+    EXPECT_EQ(view.null_map[2], 0);
     EXPECT_FALSE(view.is_const);
 }
 
@@ -59,7 +59,7 @@ TEST(ShortCircuitUtilTest, ColumnNullConstView_const_column) {
     auto view = ColumnNullConstView::create(const_col);
 
     EXPECT_EQ(view.column.size(), 1);
-    EXPECT_EQ(view.null_map, nullptr);
+    EXPECT_EQ(view.null_map.data(), nullptr);
     EXPECT_TRUE(view.is_const);
 }
 
@@ -69,7 +69,7 @@ TEST(ShortCircuitUtilTest, ColumnNullConstView_const_nullable_column) {
     auto view = ColumnNullConstView::create(const_col);
 
     EXPECT_EQ(view.column.size(), 1);
-    EXPECT_NE(view.null_map, nullptr);
+    EXPECT_NE(view.null_map.data(), nullptr);
     EXPECT_TRUE(view.is_const);
 }
 
@@ -83,7 +83,7 @@ TEST(ShortCircuitUtilTest, ColumnNullConstViewScalar_non_nullable) {
     EXPECT_EQ(view.data[0], 10);
     EXPECT_EQ(view.data[1], 20);
     EXPECT_EQ(view.data[2], 30);
-    EXPECT_EQ(view.null_map, nullptr);
+    EXPECT_EQ(view.null_map.data(), nullptr);
     EXPECT_FALSE(view.is_const);
 }
 
@@ -94,8 +94,8 @@ TEST(ShortCircuitUtilTest, ColumnNullConstViewScalar_nullable) {
     EXPECT_EQ(view.data.size(), 3);
     EXPECT_EQ(view.data[0], 10);
     EXPECT_EQ(view.data[2], 30);
-    EXPECT_NE(view.null_map, nullptr);
-    EXPECT_EQ((*view.null_map)[1], 1);
+    EXPECT_NE(view.null_map.data(), nullptr);
+    EXPECT_EQ(view.null_map[1], 1);
     EXPECT_FALSE(view.is_const);
 }
 
@@ -158,7 +158,7 @@ TEST(ShortCircuitUtilTest, MutableColumnNullViewScalar_insert_from) {
     auto src_view = ColumnNullConstViewScalar<TYPE_INT>::create(src_col);
 
     MutableColumnPtr dst_col = ColumnInt32::create();
-    assert_cast<ColumnInt32*>(dst_col.get())->get_data().resize(5);
+    assert_cast<ColumnInt32*>(dst_col.get())->get_data_mutable().resize(5);
     auto dst_view = MutableColumnNullViewScalar<TYPE_INT>::create(dst_col);
 
     // Use selector to specify insert positions
@@ -178,7 +178,7 @@ TEST(ShortCircuitUtilTest, MutableColumnNullViewScalar_insert_from_const) {
     EXPECT_TRUE(src_view.is_const);
 
     MutableColumnPtr dst_col = ColumnInt32::create();
-    assert_cast<ColumnInt32*>(dst_col.get())->get_data().resize(3);
+    assert_cast<ColumnInt32*>(dst_col.get())->get_data_mutable().resize(3);
     auto dst_view = MutableColumnNullViewScalar<TYPE_INT>::create(dst_col);
 
     Selector selector = {0, 1, 2};
@@ -916,7 +916,7 @@ TEST(ShortCircuitUtilTest, ColumnNullConstViewScalar_const_column) {
 
     EXPECT_EQ(view.data.size(), 1);
     EXPECT_EQ(view.data[0], 42);
-    EXPECT_EQ(view.null_map, nullptr);
+    EXPECT_EQ(view.null_map.data(), nullptr);
     EXPECT_TRUE(view.is_const);
 }
 
@@ -927,8 +927,8 @@ TEST(ShortCircuitUtilTest, ColumnNullConstViewScalar_const_nullable_column) {
 
     EXPECT_EQ(view.data.size(), 1);
     EXPECT_EQ(view.data[0], 42);
-    EXPECT_NE(view.null_map, nullptr);
-    EXPECT_EQ((*view.null_map)[0], 0);
+    EXPECT_NE(view.null_map.data(), nullptr);
+    EXPECT_EQ(view.null_map[0], 0);
     EXPECT_TRUE(view.is_const);
 }
 

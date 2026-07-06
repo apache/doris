@@ -20,6 +20,9 @@
 
 #pragma once
 
+#include <memory>
+#include <utility>
+
 #include "common/status.h"
 #include "core/assert_cast.h"
 #include "core/column/column.h"
@@ -40,6 +43,7 @@ class Arena;
 class ColumnSorter;
 
 using NullMap = ColumnUInt8::Container;
+using NullMapView = PODArrayView<ColumnUInt8::value_type>;
 using ConstNullMapPtr = const NullMap*;
 
 /// Class that specifies nullable columns. A nullable column represents
@@ -159,6 +163,16 @@ public:
     void insert_many_fix_len_data(const char* pos, size_t num) override {
         push_false_to_nullmap(num);
         get_nested_column().insert_many_fix_len_data(pos, num);
+    }
+
+    void insert_many_fix_len_data_with_owner(const char* pos, size_t num,
+                                             std::shared_ptr<void> owner) override {
+        // A nullable column has two physical children: the nested data and the null map. This entry
+        // point is used only when storage has already proved the appended range contains no NULLs,
+        // so we append a false null map and may let the nested fixed-width column borrow page
+        // memory. Ranges with real NULLs are decoded through nullable-specific paths instead.
+        push_false_to_nullmap(num);
+        get_nested_column().insert_many_fix_len_data_with_owner(pos, num, std::move(owner));
     }
 
     void insert_many_raw_data(const char* pos, size_t num) override {
@@ -392,7 +406,7 @@ public:
     // return the column that represents the byte map. if want use null_map, just call this.
     const ColumnUInt8::Ptr& get_null_map_column_ptr() const { return _null_map; }
     const ColumnUInt8& get_null_map_column() const { return *_null_map; }
-    const NullMap& get_null_map_data() const { return get_null_map_column().get_data(); }
+    NullMapView get_null_map_data() const { return get_null_map_column().get_data(); }
 
     ColumnUInt8::MutablePtr get_null_map_column_ptr() {
         auto null_map = _null_map->assert_mutable();
@@ -400,7 +414,7 @@ public:
                 assert_cast<ColumnUInt8*, TypeCheckOnRelease::DISABLE>(null_map.get()));
     }
     ColumnUInt8& get_null_map_column() { return *_null_map; }
-    NullMap& get_null_map_data() { return get_null_map_column().get_data(); }
+    NullMap& get_null_map_data() { return get_null_map_column().get_data_mutable(); }
 
     // push not null value wouldn't change the nullity. no need to update _has_null
     void push_false_to_nullmap(size_t num) { get_null_map_column().insert_many_vals(0, num); }

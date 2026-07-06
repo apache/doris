@@ -20,6 +20,7 @@
 #include <thrift/protocol/TJSONProtocol.h>
 
 #include <boost/shared_ptr.hpp>
+#include <optional>
 
 #include "core/block/block.h"
 #include "core/column/column.h"
@@ -104,21 +105,21 @@ public:
     }
 
     // Helper function to extract null map from column (including ColumnConst cases)
-    static const NullMap* get_null_map(const ColumnPtr& col) {
+    static std::optional<NullMapView> get_null_map(const ColumnPtr& col) {
         if (const auto* nullable = check_and_get_column<ColumnNullable>(col.get())) {
-            return &nullable->get_null_map_data();
+            return nullable->get_null_map_data();
         }
         // Handle Const(Nullable) case
         if (const auto* const_col = check_and_get_column<ColumnConst>(col.get());
             const_col != nullptr && const_col->is_nullable()) {
-            return &static_cast<const ColumnNullable&>(const_col->get_data_column())
-                            .get_null_map_data();
+            return static_cast<const ColumnNullable&>(const_col->get_data_column())
+                    .get_null_map_data();
         }
-        return nullptr;
+        return std::nullopt;
     };
 
     // is_single: whether src is null map of a ColumnConst
-    static void update_null_map(NullMap& dst, const NullMap& src, bool is_single = false) {
+    static void update_null_map(NullMap& dst, NullMapView src, bool is_single = false) {
         size_t size = dst.size();
         auto* __restrict l = dst.data();
         auto* __restrict r = src.data();
@@ -133,6 +134,10 @@ public:
                 l[i] |= r[i];
             }
         }
+    }
+
+    static void update_null_map(NullMap& dst, const NullMap& src, bool is_single = false) {
+        update_null_map(dst, NullMapView(src.data(), src.size()), is_single);
     }
 
     static DataTypes get_data_types(const RowDescriptor& row_desc) {
@@ -164,8 +169,10 @@ public:
         return true;
     }
 
-    // SIMD helper: find the first not null in the null map
-    static size_t find_first_valid_simd(const NullMap& null_map, size_t start_pos, size_t end_pos) {
+private:
+    template <typename NullMapLike>
+    static size_t find_first_valid_simd_impl(const NullMapLike& null_map, size_t start_pos,
+                                             size_t end_pos) {
 #ifdef __AVX2__
         // search by simd
         for (size_t pos = start_pos; pos + 31 < end_pos; pos += 32) {
@@ -195,6 +202,17 @@ public:
         }
 #endif
         return end_pos;
+    }
+
+public:
+    // SIMD helper: find the first not null in the null map.
+    // Read-only null maps may be backed by an external page, so callers pass
+    // either an owning NullMap or a NullMapView without forcing materialization.
+    static size_t find_first_valid_simd(const NullMap& null_map, size_t start_pos, size_t end_pos) {
+        return find_first_valid_simd_impl(null_map, start_pos, end_pos);
+    }
+    static size_t find_first_valid_simd(NullMapView null_map, size_t start_pos, size_t end_pos) {
+        return find_first_valid_simd_impl(null_map, start_pos, end_pos);
     }
 
     // SIMD helper: batch set non-null value with [start, end) to 1
@@ -254,7 +272,7 @@ inline ColumnPtr change_null_to_true(ColumnPtr&& column, const ColumnPtr& argume
     auto mutable_column = IColumn::mutate(std::move(column));
     if (auto* nullable = check_and_get_column<ColumnNullable>(*mutable_column)) {
         auto* __restrict data = assert_cast<ColumnUInt8*>(nullable->get_nested_column_ptr().get())
-                                        ->get_data()
+                                        ->get_data_mutable()
                                         .data();
         NullMap& null_map = nullable->get_null_map_data();
         for (size_t i = 0; i < rows; ++i) {
@@ -267,7 +285,8 @@ inline ColumnPtr change_null_to_true(ColumnPtr&& column, const ColumnPtr& argume
     if (argument && argument->has_null()) {
         const auto* __restrict null_map =
                 assert_cast<const ColumnNullable*>(argument.get())->get_null_map_data().data();
-        auto* __restrict data = assert_cast<ColumnUInt8*>(mutable_column.get())->get_data().data();
+        auto* __restrict data =
+                assert_cast<ColumnUInt8*>(mutable_column.get())->get_data_mutable().data();
         for (size_t i = 0; i < rows; ++i) {
             data[i] |= null_map[i];
         }

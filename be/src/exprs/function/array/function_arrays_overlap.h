@@ -287,7 +287,8 @@ public:
         // prepare return column
         auto dst_nested_col = ColumnUInt8::create(input_rows_count, 0);
         auto dst_null_map = ColumnUInt8::create(input_rows_count, 0);
-        UInt8* dst_null_map_data = dst_null_map->get_data().data();
+        UInt8* dst_null_map_data = dst_null_map->get_data_mutable().data();
+        UInt8* dst_nested_data = dst_nested_col->get_data_mutable().data();
 
         // execute overlap check
         auto array_type = remove_nullable(block.get_by_position(arguments[0]).type);
@@ -302,7 +303,7 @@ public:
             auto right_view =
                     ColumnArrayView<PType>::create(block.get_by_position(arguments[1]).column);
             ret = _execute_internal<PType>(left_view, right_view, dst_null_map_data,
-                                           dst_nested_col->get_data().data());
+                                           dst_nested_data);
             return true;
         };
         if (!dispatch_switch_all(left_element_type->get_primitive_type(), call)) {

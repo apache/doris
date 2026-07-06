@@ -287,7 +287,7 @@ public:
                 } else { // if(cond, not_nullable, NULL)
                     const auto& null_map_data = cond_col->get_data();
                     auto negated_null_map = ColumnUInt8::create();
-                    auto& negated_null_map_data = negated_null_map->get_data();
+                    auto& negated_null_map_data = negated_null_map->get_data_mutable();
                     negated_null_map_data.resize(size);
 
                     for (size_t i = 0; i < size; ++i) {
@@ -430,17 +430,24 @@ public:
             DCHECK(remove_nullable(arg_cond.type)->get_primitive_type() ==
                    PrimitiveType::TYPE_BOOLEAN);
 
-            // update nested column by null map
-            const auto* __restrict null_map = nullable->get_null_map_data().data();
-            auto* __restrict nested_bool_data =
-                    ((ColumnUInt8&)(nullable->get_nested_column())).get_data().data();
+            // Nullable condition treats NULL as false. Build an adjusted condition column instead
+            // of mutating the input nested column, because scan-backed fixed-length columns may be
+            // shared by other operators.
             auto rows = nullable->size();
+            const auto* __restrict null_map = nullable->get_null_map_data().data();
+            auto adjusted_condition = ColumnUInt8::create();
+            auto& adjusted_condition_data = adjusted_condition->get_data_mutable();
+            adjusted_condition_data.resize(rows);
+            const auto* __restrict nested_bool_data =
+                    assert_cast<const ColumnUInt8&>(nullable->get_nested_column())
+                            .get_data()
+                            .data();
             for (size_t i = 0; i < rows; i++) {
-                nested_bool_data[i] &= !null_map[i];
+                adjusted_condition_data[i] = nested_bool_data[i] && !null_map[i];
             }
             auto column_size = block.columns();
-            block.insert({nullable->get_nested_column_ptr(), remove_nullable(arg_cond.type),
-                          arg_cond.name});
+            block.insert(
+                    {std::move(adjusted_condition), remove_nullable(arg_cond.type), arg_cond.name});
 
             handled = true;
             return _execute_impl_internal(context, block, {column_size, arguments[1], arguments[2]},

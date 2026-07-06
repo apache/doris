@@ -143,7 +143,7 @@ public:
         }
 
         auto result_null_map_column = ColumnUInt8::create(input_rows_count, 0);
-        NullMap& result_null_map = result_null_map_column->get_data();
+        NullMap& result_null_map = result_null_map_column->get_data_mutable();
 
         ColumnPtr argument_columns[3];
         bool col_const[3];
@@ -152,7 +152,7 @@ public:
         for (int i = 0; i < 3; ++i) {
             ColumnPtr& col = block.get_by_position(arguments[i]).column;
             col_const[i] = is_column_const(*col);
-            const NullMap* null_map = VectorizedUtils::get_null_map(col);
+            auto null_map = VectorizedUtils::get_null_map(col);
             if (null_map) {
                 VectorizedUtils::update_null_map(result_null_map, *null_map, col_const[i]);
             }

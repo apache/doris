@@ -170,6 +170,10 @@ public:
     }
 
     void insert_many_from(const IColumn& src, size_t position, size_t length) override {
+        if (length == 0) {
+            return;
+        }
+
         const Self& src_vec = assert_cast<const Self&>(src);
         auto val = src_vec.get_element(position);
         for (uint32_t i = 0; i < length; ++i) {

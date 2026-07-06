@@ -155,7 +155,7 @@ public:
         col_offset.resize(input_rows_count);
 
         auto null_column = ColumnUInt8::create(input_rows_count);
-        auto& null_map = null_column->get_data();
+        auto& null_map = null_column->get_data_mutable();
 
         std::string uncompressed;
         Slice data;

@@ -75,7 +75,7 @@ public:
                     fmt::format("unsupported types for function {}({})", get_name(),
                                 block.get_by_position(arguments[0]).type->get_name()));
         }
-        const auto& src_offsets = src_column_array->get_offsets();
+        const auto src_offsets = src_column_array->get_offsets();
         const auto* src_nested_column = &src_column_array->get_data();
         DCHECK(src_nested_column != nullptr);
 
@@ -99,7 +99,7 @@ public:
     }
 
 private:
-    bool _execute(const IColumn& src_column, const ColumnArray::Offsets64& src_offsets,
+    bool _execute(const IColumn& src_column, IColumn::Offsets64View src_offsets,
                   IColumn& dest_column, ColumnArray::Offsets64& dest_offsets) const {
         ColumnArray::Offset64 src_offsets_size = src_offsets.size();
         ColumnArray::Offset64 src_pos = 0;

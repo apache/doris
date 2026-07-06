@@ -60,7 +60,7 @@ public:
         auto col_to = ToDataType::ColumnType::create(input_rows_count);
         const auto& vec_from = col_from->get_data();
         const auto* vec_from_data = vec_from.data();
-        auto& vec_to = col_to->get_data();
+        auto& vec_to = col_to->get_data_mutable();
         auto* vec_to_data = vec_to.data();
 
         CastParameters params;

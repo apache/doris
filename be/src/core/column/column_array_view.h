@@ -30,7 +30,7 @@ struct ArrayDataView {
     using ElementType = typename ColumnElementView<PType>::ElementType;
 
     const ColumnElementView<PType>& data;
-    const NullMap& nested_null_map;
+    NullMapView nested_null_map;
     const size_t offset;
     const size_t length;
 
@@ -56,9 +56,10 @@ struct ArrayDataView {
 template <PrimitiveType PType>
 struct ColumnArrayView {
     const ColumnElementView<PType> element_data;
-    const ColumnArray::Offsets64& offsets;
-    const NullMap* outer_null_map;
-    const NullMap& nested_null_map;
+    ColumnArray::Offsets64View offsets;
+    NullMapView outer_null_map;
+    bool has_outer_null_map;
+    NullMapView nested_null_map;
     const bool is_const;
     const size_t count;
 
@@ -67,10 +68,12 @@ struct ColumnArrayView {
         const auto& [unpacked, is_const] = unpack_if_const(column_ptr);
 
         // Step 2: unpack outer nullable
-        const NullMap* outer_null_map = nullptr;
+        NullMapView outer_null_map;
+        bool has_outer_null_map = false;
         const IColumn* array_raw = nullptr;
         if (const auto* nullable = check_and_get_column<ColumnNullable>(unpacked.get())) {
-            outer_null_map = &nullable->get_null_map_data();
+            outer_null_map = nullable->get_null_map_data();
+            has_outer_null_map = true;
             array_raw = nullable->get_nested_column_ptr().get();
         } else {
             array_raw = unpacked.get();
@@ -86,12 +89,13 @@ struct ColumnArrayView {
         }
 
         const auto& nested_nullable = assert_cast<const ColumnNullable&>(array_column.get_data());
-        const NullMap& nested_null_map = nested_nullable.get_null_map_data();
+        NullMapView nested_null_map = nested_nullable.get_null_map_data();
         const IColumn* data_column = nested_nullable.get_nested_column_ptr().get();
 
         return ColumnArrayView {.element_data = ColumnElementView<PType>(*data_column),
                                 .offsets = array_column.get_offsets(),
                                 .outer_null_map = outer_null_map,
+                                .has_outer_null_map = has_outer_null_map,
                                 .nested_null_map = nested_null_map,
                                 .is_const = is_const,
                                 .count = column_ptr->size()};
@@ -114,13 +118,13 @@ struct ColumnArrayView {
     }
 
     bool is_null_at(size_t idx) const {
-        if (outer_null_map) {
-            return (*outer_null_map)[is_const ? 0 : idx];
+        if (has_outer_null_map) {
+            return outer_null_map[is_const ? 0 : idx];
         }
         return false;
     }
 
-    bool is_nullable() const { return outer_null_map != nullptr; }
+    bool is_nullable() const { return has_outer_null_map; }
 
     // Index-based access: uses offsets[actual - 1] (PaddedPODArray sentinel guarantees [-1] is valid)
     ArrayDataView<PType> operator[](size_t idx) const {

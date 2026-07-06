@@ -402,7 +402,7 @@ public:
         if (is_column_nullable(column)) {
             const auto* nullable_column_ptr = assert_cast<const ColumnNullable*>(&column);
             const auto& nested_column = nullable_column_ptr->get_nested_column();
-            const auto& null_map = nullable_column_ptr->get_null_map_column().get_data();
+            const auto null_map = nullable_column_ptr->get_null_map_column().get_data();
 
             if (nested_column.is_column_dictionary()) {
                 if constexpr (is_string_type(Type)) {
@@ -485,7 +485,7 @@ private:
         if (is_column_nullable(column)) {
             const auto* nullable_column_ptr = assert_cast<const ColumnNullable*>(&column);
             const auto& nested_column = nullable_column_ptr->get_nested_column();
-            const auto& null_map = nullable_column_ptr->get_null_map_column().get_data();
+            const auto null_map = nullable_column_ptr->get_null_map_column().get_data();
 
             return _base_evaluate<true>(&nested_column, null_map.data(), sel, size);
         } else {
@@ -538,7 +538,7 @@ private:
         if (is_column_nullable(column)) {
             const auto* nullable_column_ptr = assert_cast<const ColumnNullable*>(&column);
             const auto& nested_column = nullable_column_ptr->get_nested_column();
-            const auto& null_map = nullable_column_ptr->get_null_map_column().get_data();
+            const auto null_map = nullable_column_ptr->get_null_map_column().get_data();
 
             _base_evaluate_bit<true, is_and>(&nested_column, null_map.data(), sel, size, flags);
         } else {

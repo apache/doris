@@ -368,7 +368,7 @@ void ColumnArray::update_hash_with_value(size_t n, SipHash& hash) const {
 // for every array row calculate xxHash
 void ColumnArray::update_xxHash_with_value(size_t start, size_t end, uint64_t& hash,
                                            const uint8_t* __restrict null_data) const {
-    auto& offsets_column = get_offsets();
+    const auto& offsets_column = get_offsets();
     if (null_data) {
         for (size_t i = start; i < end; ++i) {
             if (null_data[i] == 0) {
@@ -399,7 +399,7 @@ void ColumnArray::update_xxHash_with_value(size_t start, size_t end, uint64_t& h
 // for every array row calculate crcHash
 void ColumnArray::update_crc_with_value(size_t start, size_t end, uint32_t& hash,
                                         const uint8_t* __restrict null_data) const {
-    auto& offsets_column = get_offsets();
+    const auto& offsets_column = get_offsets();
     if (null_data) {
         for (size_t i = start; i < end; ++i) {
             if (null_data[i] == 0) {
@@ -573,7 +573,7 @@ size_t ColumnArray::byte_size() const {
 }
 
 size_t ColumnArray::allocated_bytes() const {
-    return get_data().allocated_bytes() + get_offsets().allocated_bytes();
+    return get_data().allocated_bytes() + get_offsets_column().allocated_bytes();
 }
 
 bool ColumnArray::has_enough_capacity(const IColumn& src) const {
@@ -583,8 +583,8 @@ bool ColumnArray::has_enough_capacity(const IColumn& src) const {
 }
 
 bool ColumnArray::has_equal_offsets(const ColumnArray& other) const {
-    const Offsets64& offsets1 = get_offsets();
-    const Offsets64& offsets2 = other.get_offsets();
+    const auto& offsets1 = get_offsets();
+    const auto& offsets2 = other.get_offsets();
     return offsets1.size() == offsets2.size() &&
            (offsets1.empty() ||
             0 == memcmp(offsets1.data(), offsets2.data(), sizeof(offsets1[0]) * offsets1.size()));
@@ -680,12 +680,12 @@ ColumnArrayDataOffsets filter_number_return_new(const Filter& filt, ssize_t resu
     auto dst_data = src_data->clone_empty();
     auto dst_offset = ColumnOffsets::create();
 
-    auto& res_elems = assert_cast<ColumnVector<T>&>(*dst_data).get_data();
-    auto& res_offsets = dst_offset->get_data();
+    auto& res_elems = assert_cast<ColumnVector<T>&>(*dst_data).get_data_mutable();
+    auto& res_offsets = dst_offset->get_data_mutable();
 
     filter_arrays_impl<typename PrimitiveTypeTraits<T>::CppType, IColumn::Offset64>(
             assert_cast<const ColumnVector<T>&, TypeCheckOnRelease::DISABLE>(*src_data).get_data(),
-            src_offsets->get_data(), res_elems, res_offsets, filt, result_size_hint);
+            src_offsets->get_data_with_padding(), res_elems, res_offsets, filt, result_size_hint);
 
     return ColumnArrayDataOffsets {.data = std::move(dst_data), .offsets = std::move(dst_offset)};
 }
@@ -693,8 +693,8 @@ ColumnArrayDataOffsets filter_number_return_new(const Filter& filt, ssize_t resu
 template <PrimitiveType T>
 size_t filter_number_inplace(const Filter& filter, IColumn& src_data, ColumnOffsets& src_offsets) {
     return filter_arrays_impl<typename PrimitiveTypeTraits<T>::CppType, Offset64>(
-            assert_cast<ColumnVector<T>&, TypeCheckOnRelease::DISABLE>(src_data).get_data(),
-            src_offsets.get_data(), filter);
+            assert_cast<ColumnVector<T>&, TypeCheckOnRelease::DISABLE>(src_data).get_data_mutable(),
+            src_offsets.get_data_mutable(), filter);
 }
 
 ColumnArrayDataOffsets filter_string_return_new(const Filter& filt, ssize_t result_size_hint,
@@ -711,13 +711,13 @@ ColumnArrayDataOffsets filter_string_return_new(const Filter& filt, ssize_t resu
     const auto& src_string = assert_cast<const ColumnString&>(*src_data);
     const ColumnString::Chars& src_chars = src_string.get_chars();
     const auto& src_string_offsets = src_string.get_offsets();
-    const auto& offsets = src_offsets->get_data();
+    const auto offsets = src_offsets->get_data_with_padding();
 
     auto dst_data = src_data->clone_empty();
     ColumnString::Chars& res_chars = assert_cast<ColumnString&>(*dst_data).get_chars();
     auto& res_string_offsets = assert_cast<ColumnString&>(*dst_data).get_offsets();
     auto dst_offset = ColumnOffsets::create();
-    auto& res_offsets = dst_offset->get_data();
+    auto& res_offsets = dst_offset->get_data_mutable();
 
     if (result_size_hint < 0) {
         res_chars.reserve(src_chars.size());
@@ -777,7 +777,7 @@ ColumnArrayDataOffsets filter_generic_return_new(const Filter& filt, ssize_t res
                                        .offsets = ColumnOffsets::create()};
     }
 
-    const auto& offsets = src_offsets->get_data();
+    const auto offsets = src_offsets->get_data_with_padding();
     Filter nested_filt(offsets.back());
     ssize_t nested_result_size_hint = 0;
     for (size_t i = 0; i < size; ++i) {
@@ -793,7 +793,7 @@ ColumnArrayDataOffsets filter_generic_return_new(const Filter& filt, ssize_t res
 
     ColumnPtr dst_data = src_data->filter(nested_filt, nested_result_size_hint);
     auto dst_offsets = ColumnOffsets::create();
-    auto& res_offsets = dst_offsets->get_data();
+    auto& res_offsets = dst_offsets->get_data_mutable();
 
     if (result_size_hint) {
         res_offsets.reserve(result_size_hint > 0 ? result_size_hint : size);
@@ -817,7 +817,7 @@ size_t filter_generic_inplace(const Filter& filter, IColumn& src_data, ColumnOff
         return 0;
     }
 
-    auto& offsets = src_offsets.get_data();
+    auto& offsets = src_offsets.get_data_mutable();
 
     Filter nested_filter(offsets.back());
     for (size_t i = 0; i < size; ++i) {
@@ -833,7 +833,7 @@ size_t filter_generic_inplace(const Filter& filter, IColumn& src_data, ColumnOff
     src_data.filter(nested_filter);
     // Make a new offset to avoid inplace operation
     auto res_offset = ColumnOffsets::create();
-    auto& res_offset_data = res_offset->get_data();
+    auto& res_offset_data = res_offset->get_data_mutable();
     res_offset_data.reserve(size);
     size_t current_offset = 0;
     for (size_t i = 0; i < size; ++i) {
@@ -894,8 +894,9 @@ ColumnPtr ColumnArray::filter(const Filter& filt, ssize_t result_size_hint) cons
     if (const auto* nullable_data_column = check_and_get_column<ColumnNullable>(*data)) {
         auto res_null_map = ColumnUInt8::create();
         // filter null map
-        filter_arrays_impl_only_data(nullable_data_column->get_null_map_data(), get_offsets(),
-                                     res_null_map->get_data(), filt, result_size_hint);
+        filter_arrays_impl_only_data(PODArrayView<UInt8>(nullable_data_column->get_null_map_data()),
+                                     get_offsets(), res_null_map->get_data_mutable(), filt,
+                                     result_size_hint);
 
         auto src_data = nullable_data_column->get_nested_column_ptr();
         const auto* src_offsets = offsets.get();

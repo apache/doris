@@ -60,7 +60,8 @@ void append_many_from_column(MutableColumnPtr& dst_column, const IColumn& src_co
         const auto origin_size = dst_column->size();
         auto* nullable_column = assert_cast<ColumnNullable*>(dst_column.get());
         nullable_column->get_nested_column_ptr()->insert_many_from(src_column, row, rows);
-        nullable_column->get_null_map_column().get_data().resize_fill(origin_size + rows, 0);
+        nullable_column->get_null_map_column().get_data_mutable().resize_fill(origin_size + rows,
+                                                                              0);
     } else {
         dst_column->insert_many_from(src_column, row, rows);
     }
@@ -82,7 +83,8 @@ void append_range_from_column(MutableColumnPtr& dst_column, const IColumn& src_c
         const auto origin_size = dst_column->size();
         auto* nullable_column = assert_cast<ColumnNullable*>(dst_column.get());
         nullable_column->get_nested_column_ptr()->insert_range_from(src_column, start, length);
-        nullable_column->get_null_map_column().get_data().resize_fill(origin_size + length, 0);
+        nullable_column->get_null_map_column().get_data_mutable().resize_fill(origin_size + length,
+                                                                              0);
     } else {
         dst_column->insert_range_from(src_column, start, length);
     }
@@ -100,7 +102,7 @@ void append_indices_from_column(MutableColumnPtr& dst_column, const IColumn& src
         auto* nullable_column = assert_cast<ColumnNullable*>(dst_column.get());
         nullable_column->get_nested_column_ptr()->insert_indices_from(src_column, indices_begin,
                                                                       indices_end);
-        nullable_column->get_null_map_column().get_data().resize_fill(
+        nullable_column->get_null_map_column().get_data_mutable().resize_fill(
                 origin_size + (indices_end - indices_begin), 0);
     } else {
         dst_column->insert_indices_from(src_column, indices_begin, indices_end);
@@ -120,8 +122,8 @@ void append_filtered_from_source(MutableColumnPtr& dst_column,
 void append_mark_value(MutableColumnPtr& dst_column, int8_t mark_value) {
     auto* nullable_column = assert_cast<ColumnNullable*>(dst_column.get());
     auto& value_column = assert_cast<ColumnUInt8&>(nullable_column->get_nested_column());
-    value_column.get_data().push_back(mark_value == MARK_TRUE);
-    nullable_column->get_null_map_column().get_data().push_back(mark_value == MARK_NULL);
+    value_column.get_data_mutable().push_back(mark_value == MARK_TRUE);
+    nullable_column->get_null_map_column().get_data_mutable().push_back(mark_value == MARK_NULL);
 }
 } // namespace
 
@@ -545,7 +547,7 @@ void NestedLoopJoinProbeLocalState::_mark_lazy_build_rows_visited(size_t build_b
 
     auto& build_side_flag = assert_cast<ColumnUInt8*>(
                                     _shared_state->build_side_visited_flags[build_block_idx].get())
-                                    ->get_data();
+                                    ->get_data_mutable();
     auto* __restrict build_side_flag_data = build_side_flag.data();
     const auto* __restrict filter_data = filter.data();
     DCHECK_EQ(build_side_flag.size(), filter.size());

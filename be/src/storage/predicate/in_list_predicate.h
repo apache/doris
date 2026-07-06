@@ -204,7 +204,7 @@ public:
                        bool* flags) const {
         if (is_column_nullable(column)) {
             const auto* nullable_col = assert_cast<const ColumnNullable*>(&column);
-            const auto& null_bitmap = nullable_col->get_null_map_column().get_data();
+            const auto null_bitmap = nullable_col->get_null_map_data();
             const auto& nested_col = nullable_col->get_nested_column();
 
             if (_opposite) {
@@ -463,7 +463,7 @@ private:
 
         if (is_column_nullable(column)) {
             const auto* nullable_col = assert_cast<const ColumnNullable*>(&column);
-            const auto& null_map = nullable_col->get_null_map_column().get_data();
+            const auto null_map = nullable_col->get_null_map_data();
             const auto& nested_col = nullable_col->get_nested_column();
 
             if (_opposite) {
@@ -490,8 +490,8 @@ private:
     }
 
     template <bool is_nullable, bool is_opposite>
-    uint16_t _base_evaluate(const IColumn* column, const PaddedPODArray<UInt8>* null_map,
-                            uint16_t* sel, uint16_t size) const {
+    uint16_t _base_evaluate(const IColumn* column, const NullMapView* null_map, uint16_t* sel,
+                            uint16_t size) const {
         uint16_t new_size = 0;
 
         if (column->is_column_dictionary()) {
@@ -552,8 +552,8 @@ private:
     }
 
     template <bool is_nullable, bool is_opposite, bool is_and>
-    void _base_evaluate_bit(const IColumn* column, const PaddedPODArray<UInt8>* null_map,
-                            const uint16_t* sel, uint16_t size, bool* flags) const {
+    void _base_evaluate_bit(const IColumn* column, const NullMapView* null_map, const uint16_t* sel,
+                            uint16_t size, bool* flags) const {
         if (column->is_column_dictionary()) {
             if constexpr (is_string_type(Type)) {
                 const auto* nested_col_ptr = assert_cast<const ColumnDictI32*>(column);

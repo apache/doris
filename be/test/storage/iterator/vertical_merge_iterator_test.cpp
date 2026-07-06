@@ -359,7 +359,7 @@ TEST_F(SparseColumnOptimizationTest, ReplaceColumnDataRange) {
     auto* nullable_dst = dst.get();
 
     // Pre-fill with NULLs
-    nullable_dst->get_null_map_column().get_data().resize_fill(5, 1);
+    nullable_dst->get_null_map_column().get_data_mutable().resize_fill(5, 1);
     nullable_dst->get_nested_column().resize(5);
 
     // Replace with source data
@@ -589,7 +589,7 @@ TEST_F(SparseColumnOptimizationTest, AllNonNullBatchOptimization) {
     auto* nullable_dst = dst.get();
 
     // Pre-fill with NULLs
-    nullable_dst->get_null_map_column().get_data().resize_fill(5, 1); // all NULL
+    nullable_dst->get_null_map_column().get_data_mutable().resize_fill(5, 1); // all NULL
     nullable_dst->get_nested_column().resize(5);
 
     // Check non-NULL count using SIMD
@@ -630,7 +630,7 @@ TEST_F(SparseColumnOptimizationTest, BatchReplaceWithOffset) {
     auto dst = ColumnNullable::create(ColumnInt64::create(), ColumnUInt8::create());
     auto* nullable_dst = dst.get();
 
-    nullable_dst->get_null_map_column().get_data().resize_fill(5, 1);
+    nullable_dst->get_null_map_column().get_data_mutable().resize_fill(5, 1);
     nullable_dst->get_nested_column().resize(5);
 
     // Batch 1: replace at offset 0, count 3
@@ -659,7 +659,7 @@ TEST_F(SparseColumnOptimizationTest, MixedBatchProcessing) {
     auto* nullable_dst = dst.get();
 
     // Pre-fill with 15 NULLs
-    nullable_dst->get_null_map_column().get_data().resize_fill(15, 1);
+    nullable_dst->get_null_map_column().get_data_mutable().resize_fill(15, 1);
     nullable_dst->get_nested_column().resize(15);
 
     // Batch 1 (offset 0-4): All NULL - skip (already pre-filled)
@@ -724,7 +724,7 @@ TEST_F(SparseColumnOptimizationTest, LargeBatchMemcpyPerformance) {
     // Create destination pre-filled with NULLs
     auto dst = ColumnNullable::create(ColumnInt64::create(), ColumnUInt8::create());
     auto* nullable_dst = dst.get();
-    nullable_dst->get_null_map_column().get_data().resize_fill(num_rows, 1);
+    nullable_dst->get_null_map_column().get_data_mutable().resize_fill(num_rows, 1);
     nullable_dst->get_nested_column().resize(num_rows);
 
     // Batch replace (should use memcpy)
@@ -1107,7 +1107,7 @@ TEST_F(SparseColumnOptimizationTest, NullableColumnAllNullReplace) {
 
     // Pre-fill with non-NULL values
     for (int i = 0; i < 5; ++i) {
-        nullable_dst->get_null_map_column().get_data().push_back(0); // non-NULL
+        nullable_dst->get_null_map_column().get_data_mutable().push_back(0); // non-NULL
         assert_cast<ColumnInt64&>(nullable_dst->get_nested_column()).insert_value(i * 10);
     }
 

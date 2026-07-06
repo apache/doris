@@ -63,4 +63,13 @@ TEST(PodArrayTypeTest, test) {
     test_for_type<Decimal256>();
 }
 
+TEST(PodArrayTypeTest, EmptyViewRangeIsSafe) {
+    PODArrayView<uint8_t> view;
+    EXPECT_TRUE(view.empty());
+    EXPECT_EQ(view.begin(), view.end());
+
+    PODArrayView<uint8_t> another_empty_view;
+    EXPECT_EQ(view, another_empty_view);
+}
+
 } // namespace doris

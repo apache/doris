@@ -155,8 +155,8 @@ TEST_F(BloomFilterFuncTest, InsertFixedLen) {
 
     auto column = ColumnHelper::create_column<DataTypeInt32>({1, 2, 3, 4});
     auto nullmap_column = ColumnUInt8::create(4, 0);
-    nullmap_column->get_data()[1] = 1;
-    nullmap_column->get_data()[3] = 1;
+    nullmap_column->get_data_mutable()[1] = 1;
+    nullmap_column->get_data_mutable()[3] = 1;
     auto nullable_column = ColumnNullable::create(std::move(column), std::move(nullmap_column));
     ASSERT_TRUE(nullable_column->has_null());
     bloom_filter_func.insert_fixed_len(std::move(nullable_column), 0);
@@ -171,8 +171,8 @@ TEST_F(BloomFilterFuncTest, InsertFixedLen) {
 
     auto column_string = ColumnHelper::create_column<DataTypeString>({"aa", "bb", "cc", "dd"});
     nullmap_column = ColumnUInt8::create(4, 0);
-    nullmap_column->get_data()[1] = 1;
-    nullmap_column->get_data()[3] = 1;
+    nullmap_column->get_data_mutable()[1] = 1;
+    nullmap_column->get_data_mutable()[3] = 1;
     nullable_column = ColumnNullable::create(column_string->clone(), nullmap_column->clone());
     ASSERT_TRUE(nullable_column->has_null());
 
@@ -190,8 +190,8 @@ TEST_F(BloomFilterFuncTest, InsertFixedLen) {
 
     ASSERT_EQ(find_count, 4);
 
-    nullmap_column->get_data()[1] = 0;
-    nullmap_column->get_data()[3] = 0;
+    nullmap_column->get_data_mutable()[1] = 0;
+    nullmap_column->get_data_mutable()[3] = 0;
     find_count = bloom_filter_func2.find_fixed_len_olap_engine(
             *probe_column, nullmap_column->get_data().data(), offsets.data(), 4, false);
 

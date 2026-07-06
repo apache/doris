@@ -359,7 +359,7 @@ TEST(ColumnMapTest2, SharedCreatePreservesImmutableSubcolumns) {
     ColumnPtr values_alias = values;
 
     auto offsets_mut = ColumnArray::ColumnOffsets::create();
-    offsets_mut->get_data().push_back(1);
+    offsets_mut->get_data_mutable().push_back(1);
     ColumnPtr offsets = std::move(offsets_mut);
     ColumnPtr offsets_alias = offsets;
 
@@ -385,8 +385,8 @@ TEST(ColumnMapTest2, ConstFilterAndPermuteKeepInputAliasesUntouched) {
     ColumnPtr values_alias = values;
 
     auto offsets_mut = ColumnArray::ColumnOffsets::create();
-    offsets_mut->get_data().push_back(2);
-    offsets_mut->get_data().push_back(3);
+    offsets_mut->get_data_mutable().push_back(2);
+    offsets_mut->get_data_mutable().push_back(3);
     ColumnPtr offsets = std::move(offsets_mut);
     ColumnPtr offsets_alias = offsets;
 
@@ -438,7 +438,7 @@ TEST(ColumnMapTest2, DeduplicateNestedNullableMapValuesDetachesSharedValueColumn
     ColumnPtr outer_keys = std::move(outer_keys_mut);
 
     auto outer_offsets_mut = ColumnArray::ColumnOffsets::create();
-    outer_offsets_mut->get_data().push_back(1);
+    outer_offsets_mut->get_data_mutable().push_back(1);
     ColumnPtr outer_offsets = std::move(outer_offsets_mut);
 
     auto outer_map = ColumnMap::create(outer_keys, nullable_values, outer_offsets);

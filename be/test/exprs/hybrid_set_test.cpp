@@ -453,7 +453,7 @@ TEST_F(HybridSetTest, string) {
         auto column = ColumnHelper::create_column<DataTypeInt32>({1, 2, 3, 4, 5, 6, 7, 8}); \
         auto result_column = ColumnUInt8::create(N, 0);                                     \
         try {                                                                               \
-            set->find_batch(*column, N, result_column->get_data());                         \
+            set->find_batch(*column, N, result_column->get_data_mutable());                 \
             ASSERT_TRUE(false) << "should not be here";                                     \
         } catch (...) {                                                                     \
         }                                                                                   \
@@ -518,9 +518,9 @@ TEST_F(HybridSetTest, FindBatch) {
     string_set->insert_fixed_len(nullable_column->clone(), 0);
     ASSERT_EQ(string_set->size(), nullable_column->size());
 
-    nullmap_column->get_data()[1] = 1;
-    nullmap_column->get_data()[3] = 1;
-    nullmap_column->get_data()[6] = 1;
+    nullmap_column->get_data_mutable()[1] = 1;
+    nullmap_column->get_data_mutable()[3] = 1;
+    nullmap_column->get_data_mutable()[6] = 1;
     auto nullable_column2 = ColumnNullable::create(string_column->clone(), nullmap_column->clone());
 
     std::unique_ptr<HybridSetBase> string_set2(create_set(PrimitiveType::TYPE_VARCHAR, true));
@@ -529,53 +529,54 @@ TEST_F(HybridSetTest, FindBatch) {
     ASSERT_TRUE(string_set2->contain_null());
 
     auto result_column = ColumnUInt8::create(nullable_column2->size(), 0);
-    string_set->find_batch(*string_column, string_column->size(), result_column->get_data());
+    string_set->find_batch(*string_column, string_column->size(),
+                           result_column->get_data_mutable());
 
-    ASSERT_EQ(result_column->get_data()[0], 1);
-    ASSERT_EQ(result_column->get_data()[1], 1);
-    ASSERT_EQ(result_column->get_data()[2], 1);
-    ASSERT_EQ(result_column->get_data()[3], 1);
-    ASSERT_EQ(result_column->get_data()[4], 1);
-    ASSERT_EQ(result_column->get_data()[5], 1);
-    ASSERT_EQ(result_column->get_data()[6], 1);
-    ASSERT_EQ(result_column->get_data()[7], 1);
+    ASSERT_EQ(result_column->get_data_mutable()[0], 1);
+    ASSERT_EQ(result_column->get_data_mutable()[1], 1);
+    ASSERT_EQ(result_column->get_data_mutable()[2], 1);
+    ASSERT_EQ(result_column->get_data_mutable()[3], 1);
+    ASSERT_EQ(result_column->get_data_mutable()[4], 1);
+    ASSERT_EQ(result_column->get_data_mutable()[5], 1);
+    ASSERT_EQ(result_column->get_data_mutable()[6], 1);
+    ASSERT_EQ(result_column->get_data_mutable()[7], 1);
 
     string_set->find_batch_negative(*string_column, string_column->size(),
-                                    result_column->get_data());
-    ASSERT_EQ(result_column->get_data()[0], 0);
-    ASSERT_EQ(result_column->get_data()[1], 0);
-    ASSERT_EQ(result_column->get_data()[2], 0);
-    ASSERT_EQ(result_column->get_data()[3], 0);
-    ASSERT_EQ(result_column->get_data()[4], 0);
-    ASSERT_EQ(result_column->get_data()[5], 0);
-    ASSERT_EQ(result_column->get_data()[6], 0);
-    ASSERT_EQ(result_column->get_data()[7], 0);
+                                    result_column->get_data_mutable());
+    ASSERT_EQ(result_column->get_data_mutable()[0], 0);
+    ASSERT_EQ(result_column->get_data_mutable()[1], 0);
+    ASSERT_EQ(result_column->get_data_mutable()[2], 0);
+    ASSERT_EQ(result_column->get_data_mutable()[3], 0);
+    ASSERT_EQ(result_column->get_data_mutable()[4], 0);
+    ASSERT_EQ(result_column->get_data_mutable()[5], 0);
+    ASSERT_EQ(result_column->get_data_mutable()[6], 0);
+    ASSERT_EQ(result_column->get_data_mutable()[7], 0);
 
     // Only bloom fitler need to handle nullaware(RuntimeFilterExpr::execute),
     // So HybridSet will return false when find null value.
     string_set2->find_batch_nullable(*string_column, string_column->size(),
-                                     nullmap_column->get_data(), result_column->get_data());
-    ASSERT_EQ(result_column->get_data()[0], 1);
+                                     nullmap_column->get_data(), result_column->get_data_mutable());
+    ASSERT_EQ(result_column->get_data_mutable()[0], 1);
     // null value always return false, no metter nullaware or not.
-    ASSERT_EQ(result_column->get_data()[1], 0);
-    ASSERT_EQ(result_column->get_data()[2], 1);
-    ASSERT_EQ(result_column->get_data()[3], 0);
-    ASSERT_EQ(result_column->get_data()[4], 1);
-    ASSERT_EQ(result_column->get_data()[5], 1);
-    ASSERT_EQ(result_column->get_data()[6], 0);
-    ASSERT_EQ(result_column->get_data()[7], 1);
+    ASSERT_EQ(result_column->get_data_mutable()[1], 0);
+    ASSERT_EQ(result_column->get_data_mutable()[2], 1);
+    ASSERT_EQ(result_column->get_data_mutable()[3], 0);
+    ASSERT_EQ(result_column->get_data_mutable()[4], 1);
+    ASSERT_EQ(result_column->get_data_mutable()[5], 1);
+    ASSERT_EQ(result_column->get_data_mutable()[6], 0);
+    ASSERT_EQ(result_column->get_data_mutable()[7], 1);
 
     string_set2->find_batch_nullable_negative(*string_column, string_column->size(),
                                               nullmap_column->get_data(),
-                                              result_column->get_data());
-    ASSERT_EQ(result_column->get_data()[0], 0);
-    ASSERT_EQ(result_column->get_data()[1], 1);
-    ASSERT_EQ(result_column->get_data()[2], 0);
-    ASSERT_EQ(result_column->get_data()[3], 1);
-    ASSERT_EQ(result_column->get_data()[4], 0);
-    ASSERT_EQ(result_column->get_data()[5], 0);
-    ASSERT_EQ(result_column->get_data()[6], 1);
-    ASSERT_EQ(result_column->get_data()[7], 0);
+                                              result_column->get_data_mutable());
+    ASSERT_EQ(result_column->get_data_mutable()[0], 0);
+    ASSERT_EQ(result_column->get_data_mutable()[1], 1);
+    ASSERT_EQ(result_column->get_data_mutable()[2], 0);
+    ASSERT_EQ(result_column->get_data_mutable()[3], 1);
+    ASSERT_EQ(result_column->get_data_mutable()[4], 0);
+    ASSERT_EQ(result_column->get_data_mutable()[5], 0);
+    ASSERT_EQ(result_column->get_data_mutable()[6], 1);
+    ASSERT_EQ(result_column->get_data_mutable()[7], 0);
 
     PInFilter in_filter;
     string_set2->to_pb(&in_filter);
@@ -634,34 +635,37 @@ TEST_F(HybridSetTest, StringValueSet) {
     ASSERT_EQ(string_value_set->size(), nullable_column->size());
 
     auto results = ColumnUInt8::create(string_column->size(), 0);
-    string_value_set->find_batch(*string_column, string_column->size(), results->get_data());
+    string_value_set->find_batch(*string_column, string_column->size(),
+                                 results->get_data_mutable());
     for (size_t i = 0; i != string_column->size(); ++i) {
-        ASSERT_TRUE(results->get_data()[i]);
+        ASSERT_TRUE(results->get_data_mutable()[i]);
     }
 
     string_value_set->clear();
     ASSERT_EQ(string_value_set->size(), 0);
 
-    nullmap_column->get_data()[1] = 1;
-    nullmap_column->get_data()[3] = 1;
-    nullmap_column->get_data()[6] = 1;
+    nullmap_column->get_data_mutable()[1] = 1;
+    nullmap_column->get_data_mutable()[3] = 1;
+    nullmap_column->get_data_mutable()[6] = 1;
     auto nullable_column2 = ColumnNullable::create(string_column, nullmap_column->clone());
 
     string_value_set->insert_fixed_len(nullable_column2->clone(), 0);
     ASSERT_EQ(string_value_set->size(), nullable_column2->size() - 3);
 
-    string_value_set->find_batch(*string_column, string_column->size(), results->get_data());
+    string_value_set->find_batch(*string_column, string_column->size(),
+                                 results->get_data_mutable());
     for (size_t i = 0; i != string_column->size(); ++i) {
-        ASSERT_EQ(results->get_data()[i], i != 1 && i != 3 && i != 6);
+        ASSERT_EQ(results->get_data_mutable()[i], i != 1 && i != 3 && i != 6);
     }
 
     // insert duplicated strings
     string_value_set->insert_fixed_len(nullable_column2->clone(), 0);
     ASSERT_EQ(string_value_set->size(), nullable_column2->size() - 3);
 
-    string_value_set->find_batch(*string_column, string_column->size(), results->get_data());
+    string_value_set->find_batch(*string_column, string_column->size(),
+                                 results->get_data_mutable());
     for (size_t i = 0; i != string_column->size(); ++i) {
-        ASSERT_EQ(results->get_data()[i], i != 1 && i != 3 && i != 6);
+        ASSERT_EQ(results->get_data_mutable()[i], i != 1 && i != 3 && i != 6);
     }
 
     // test ColumnStr64
@@ -683,9 +687,10 @@ TEST_F(HybridSetTest, StringValueSet) {
     string_value_set->insert_fixed_len(string64_column, 0);
     ASSERT_EQ(string_value_set->size(), string64_column->size());
 
-    string_value_set->find_batch(*string_column, string_column->size(), results->get_data());
+    string_value_set->find_batch(*string_column, string_column->size(),
+                                 results->get_data_mutable());
     for (size_t i = 0; i != string_column->size(); ++i) {
-        ASSERT_TRUE(results->get_data()[i]);
+        ASSERT_TRUE(results->get_data_mutable()[i]);
     }
 
     string_value_set->clear();
@@ -697,29 +702,30 @@ TEST_F(HybridSetTest, StringValueSet) {
     string_value_set->insert_fixed_len(nullable_column3, 0);
     ASSERT_EQ(string_value_set->size(), string64_column->size() - 3);
 
-    string_value_set->find_batch(*string_column, string_column->size(), results->get_data());
+    string_value_set->find_batch(*string_column, string_column->size(),
+                                 results->get_data_mutable());
     for (size_t i = 0; i != string_column->size(); ++i) {
-        ASSERT_EQ(results->get_data()[i], i != 1 && i != 3 && i != 6);
+        ASSERT_EQ(results->get_data_mutable()[i], i != 1 && i != 3 && i != 6);
     }
 
     string_value_set->find_batch_negative(*string_column, string_column->size(),
-                                          results->get_data());
+                                          results->get_data_mutable());
     for (size_t i = 0; i != string_column->size(); ++i) {
-        ASSERT_EQ(results->get_data()[i], !(i != 1 && i != 3 && i != 6));
+        ASSERT_EQ(results->get_data_mutable()[i], !(i != 1 && i != 3 && i != 6));
     }
 
     string_value_set->find_batch_nullable(*string_column, string_column->size(),
                                           nullable_column2->get_null_map_data(),
-                                          results->get_data());
+                                          results->get_data_mutable());
     for (size_t i = 0; i != string_column->size(); ++i) {
-        ASSERT_EQ(results->get_data()[i], (i != 1 && i != 3 && i != 6));
+        ASSERT_EQ(results->get_data_mutable()[i], (i != 1 && i != 3 && i != 6));
     }
 
     string_value_set->find_batch_nullable_negative(*string_column, string_column->size(),
                                                    nullable_column2->get_null_map_data(),
-                                                   results->get_data());
+                                                   results->get_data_mutable());
     for (size_t i = 0; i != string_column->size(); ++i) {
-        ASSERT_EQ(results->get_data()[i], !(i != 1 && i != 3 && i != 6));
+        ASSERT_EQ(results->get_data_mutable()[i], !(i != 1 && i != 3 && i != 6));
     }
 
     try {

@@ -81,7 +81,7 @@ public:
                                                uint64_t* num_deserialized,
                                                const FormatOptions& options) const override;
 
-    Status write_column_to_arrow(const IColumn& column, const NullMap* null_map,
+    Status write_column_to_arrow(const IColumn& column, const NullMapView* null_map,
                                  arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,
                                  const cctz::time_zone& ctz) const override;
     Status read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int64_t start,
@@ -93,7 +93,7 @@ public:
                                         const FormatOptions& options) const override;
 
     Status write_column_to_orc(const std::string& timezone, const IColumn& column,
-                               const NullMap* null_map, orc::ColumnVectorBatch* orc_col_batch,
+                               const NullMapView* null_map, orc::ColumnVectorBatch* orc_col_batch,
                                int64_t start, int64_t end, Arena& arena,
                                const FormatOptions& options) const override;
 

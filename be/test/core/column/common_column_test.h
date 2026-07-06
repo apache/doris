@@ -691,14 +691,28 @@ public:
                                                        source_column->size() + 1,
                                                        (source_column->size() + 1) >> 1};
                 for (auto pos = check_start_pos.begin(); pos < check_start_pos.end(); ++pos) {
+                    const bool is_array_column = is_column<ColumnArray>(
+                            remove_nullable(
+                                    static_cast<const IColumn*>(source_column.get())->get_ptr())
+                                    .get());
                     if (*pos > source_column->size() || *cl > source_column->size()) {
                         // insert_range_from now we have no any exception error data to handle, so here will meet crash
                         continue;
+                    } else if (*pos >= source_column->size() && *cl > 0) {
+                        if (is_array_column) {
+                            // ColumnArray still treats invalid offset ranges as debug-check-only
+                            // inputs, so keep the historical skip for this generic stress case.
+                            continue;
+                        }
+                        target_column->clear();
+                        // insert_many_from repeats one existing source row. A non-empty repeat from
+                        // one-past-the-end used to hit container-specific UB; keep the test aligned
+                        // with the explicit Doris exception contract.
+                        EXPECT_THROW(target_column->insert_many_from(*source_column, *pos, *cl),
+                                     doris::Exception);
+                        continue;
                     } else if (*pos + *cl > source_column->size()) {
-                        if (is_column<ColumnArray>(
-                                    remove_nullable(static_cast<const IColumn*>(source_column.get())
-                                                            ->get_ptr())
-                                            .get())) {
+                        if (is_array_column) {
                             // insert_range_from in array has DCHECK_LG
                             continue;
                         }
@@ -3402,8 +3416,7 @@ auto assert_column_vector_clone_resized_callback = [](auto x,
 };
 
 template <PrimitiveType PType>
-auto assert_column_vector_serialize_vec_callback = [](auto x,
-                                                      const MutableColumnPtr& source_column) {
+void assert_column_vector_serialize_vec_callback(auto x, const MutableColumnPtr& source_column) {
     using T = decltype(x);
     using ColumnVecType = std::conditional_t<
             std::is_same_v<T, ColumnString>, ColumnString,
@@ -3454,7 +3467,7 @@ auto assert_column_vector_serialize_vec_callback = [](auto x,
         ColumnVecType* col_vec_target = nullptr;
 
         auto null_col = ColumnUInt8::create(rows, 0);
-        auto& null_map = null_col->get_data();
+        auto& null_map = null_col->get_data_mutable();
         if (test_null_map) {
             std::vector<size_t> null_positions(rows);
             std::iota(null_positions.begin(), null_positions.end(), 0);
@@ -3536,7 +3549,7 @@ auto assert_column_vector_serialize_vec_callback = [](auto x,
     };
     test_func(true);
     test_func(false);
-};
+}
 
 template <PrimitiveType PType>
 auto assert_sort_column_callback = [](auto x, const MutableColumnPtr& source_column) {

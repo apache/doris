@@ -55,7 +55,7 @@ TEST_F(ColumnTypeConverterTest, TestIntegerWideningConversions) {
         ASSERT_FALSE(converter->is_consistent());
 
         auto src_col = ColumnInt8::create();
-        auto& src_data = src_col->get_data();
+        auto& src_data = src_col->get_data_mutable();
         // Test normal values
         src_data.push_back(42);
         src_data.push_back(-42);
@@ -68,7 +68,7 @@ TEST_F(ColumnTypeConverterTest, TestIntegerWideningConversions) {
         Status st = converter->convert(reinterpret_cast<ColumnPtr&>(src_col), mutable_dst);
         ASSERT_TRUE(st.ok());
 
-        auto& dst_data = static_cast<ColumnInt16&>(*mutable_dst).get_data();
+        auto dst_data = static_cast<ColumnInt16&>(*mutable_dst).get_data();
         ASSERT_EQ(4, dst_data.size());
         EXPECT_EQ(42, dst_data[0]);
         EXPECT_EQ(-42, dst_data[1]);
@@ -87,7 +87,7 @@ TEST_F(ColumnTypeConverterTest, TestIntegerWideningConversions) {
         ASSERT_FALSE(converter->is_consistent());
 
         auto src_col = ColumnInt16::create();
-        auto& src_data = src_col->get_data();
+        auto& src_data = src_col->get_data_mutable();
         // Test normal values
         src_data.push_back(1234);
         src_data.push_back(-1234);
@@ -100,7 +100,7 @@ TEST_F(ColumnTypeConverterTest, TestIntegerWideningConversions) {
         Status st = converter->convert(reinterpret_cast<ColumnPtr&>(src_col), mutable_dst);
         ASSERT_TRUE(st.ok());
 
-        auto& dst_data = static_cast<ColumnInt32&>(*mutable_dst).get_data();
+        auto dst_data = static_cast<ColumnInt32&>(*mutable_dst).get_data();
         ASSERT_EQ(4, dst_data.size());
         EXPECT_EQ(1234, dst_data[0]);
         EXPECT_EQ(-1234, dst_data[1]);
@@ -122,7 +122,7 @@ TEST_F(ColumnTypeConverterTest, TestIntegerNarrowingConversions) {
         ASSERT_FALSE(converter->is_consistent());
 
         auto src_col = ColumnInt32::create();
-        auto& src_data = src_col->get_data();
+        auto& src_data = src_col->get_data_mutable();
         src_data.push_back(1234);
         src_data.push_back(-1234);
         src_data.push_back(std::numeric_limits<int16_t>::max());
@@ -133,7 +133,7 @@ TEST_F(ColumnTypeConverterTest, TestIntegerNarrowingConversions) {
         Status st = converter->convert(reinterpret_cast<ColumnPtr&>(src_col), mutable_dst);
         ASSERT_TRUE(st.ok());
 
-        auto& dst_data = static_cast<ColumnInt16&>(*mutable_dst).get_data();
+        auto dst_data = static_cast<ColumnInt16&>(*mutable_dst).get_data();
         ASSERT_EQ(4, dst_data.size());
         EXPECT_EQ(1234, dst_data[0]);
         EXPECT_EQ(-1234, dst_data[1]);
@@ -153,7 +153,7 @@ TEST_F(ColumnTypeConverterTest, TestIntegerNarrowingConversions) {
         ASSERT_FALSE(converter->is_consistent());
 
         auto src_col = ColumnInt32::create();
-        auto& src_data = src_col->get_data();
+        auto& src_data = src_col->get_data_mutable();
         src_data.push_back(std::numeric_limits<int16_t>::max() + 1);
         src_data.push_back(std::numeric_limits<int16_t>::min() - 1);
 
@@ -177,7 +177,7 @@ TEST_F(ColumnTypeConverterTest, TestFloatingPointConversions) {
         ASSERT_FALSE(converter->is_consistent());
 
         auto src_col = ColumnInt32::create();
-        auto& src_data = src_col->get_data();
+        auto& src_data = src_col->get_data_mutable();
         src_data.resize(0);
         // Add test values
         src_data.push_back(12345);
@@ -274,7 +274,7 @@ TEST_F(ColumnTypeConverterTest, TestFloatingPointConversions) {
         ASSERT_FALSE(converter->is_consistent());
 
         auto src_col = ColumnFloat32::create();
-        auto& src_data = src_col->get_data();
+        auto& src_data = src_col->get_data_mutable();
         // Test normal values
         src_data.push_back(3.14159f);
         src_data.push_back(-2.71828f);
@@ -288,7 +288,7 @@ TEST_F(ColumnTypeConverterTest, TestFloatingPointConversions) {
         Status st = converter->convert(reinterpret_cast<ColumnPtr&>(src_col), mutable_dst);
         ASSERT_TRUE(st.ok());
 
-        auto& dst_data = static_cast<ColumnFloat64&>(*mutable_dst).get_data();
+        auto dst_data = static_cast<ColumnFloat64&>(*mutable_dst).get_data();
         ASSERT_EQ(5, dst_data.size());
         EXPECT_FLOAT_EQ(3.14159, dst_data[0]);
         EXPECT_FLOAT_EQ(-2.71828, dst_data[1]);
@@ -519,7 +519,7 @@ TEST_F(ColumnTypeConverterTest, TestDecimalConversions) {
         ASSERT_FALSE(converter->is_consistent());
 
         auto src_col = ColumnInt32::create();
-        auto& src_data = src_col->get_data();
+        auto& src_data = src_col->get_data_mutable();
         // Test normal values
         src_data.resize(0);
         src_data.push_back(12345);  // 123.45 after scaling
@@ -548,7 +548,7 @@ TEST_F(ColumnTypeConverterTest, TestDecimalConversions) {
         ASSERT_FALSE(converter->is_consistent());
 
         auto src_col = ColumnInt32::create();
-        auto& src_data = src_col->get_data();
+        auto& src_data = src_col->get_data_mutable();
         // Test normal values
         src_data.resize(0);
         src_data.push_back(12345);
@@ -576,7 +576,7 @@ TEST_F(ColumnTypeConverterTest, TestDecimalConversions) {
         ASSERT_FALSE(converter->is_consistent());
 
         auto src_col = ColumnInt8::create();
-        auto& src_data = src_col->get_data();
+        auto& src_data = src_col->get_data_mutable();
         // Test normal values
         src_data.resize(0);
         src_data.push_back(123);  // 123.45 after scaling
@@ -605,7 +605,7 @@ TEST_F(ColumnTypeConverterTest, TestDecimalConversions) {
         ASSERT_FALSE(converter->is_consistent());
 
         auto src_col = ColumnInt8::create();
-        auto& src_data = src_col->get_data();
+        auto& src_data = src_col->get_data_mutable();
         // Test normal values
         src_data.resize(0);
         src_data.push_back(123);  // 123.45 after scaling
@@ -714,7 +714,7 @@ TEST_F(ColumnTypeConverterTest, TestDecimalConversions) {
         ASSERT_FALSE(converter->is_consistent());
 
         auto src_col = ColumnFloat32::create();
-        auto& src_data = src_col->get_data();
+        auto& src_data = src_col->get_data_mutable();
         // Add test values
         src_data.resize(0);
         src_data.push_back(123.45f);                           // Normal value
@@ -811,7 +811,7 @@ TEST_F(ColumnTypeConverterTest, TestStringConversions) {
         ASSERT_FALSE(converter->is_consistent());
 
         auto src_col = ColumnInt32::create();
-        auto& src_data = src_col->get_data();
+        auto& src_data = src_col->get_data_mutable();
         src_data.push_back(std::numeric_limits<int32_t>::max());
         src_data.push_back(std::numeric_limits<int32_t>::min());
         src_data.push_back(0);
@@ -841,7 +841,7 @@ TEST_F(ColumnTypeConverterTest, TestStringConversions) {
         ASSERT_FALSE(converter->is_consistent());
 
         auto src_col = ColumnFloat64::create();
-        auto& src_data = src_col->get_data();
+        auto& src_data = src_col->get_data_mutable();
         src_data.push_back(3.14159265359);
         src_data.push_back(-2.71828182846);
         src_data.push_back(std::numeric_limits<double>::infinity());
@@ -935,7 +935,7 @@ TEST_F(ColumnTypeConverterTest, TestStringConversions) {
         ASSERT_FALSE(converter->is_consistent());
 
         auto src_col = ColumnDateV2::create();
-        auto& src_data = src_col->get_data();
+        auto& src_data = src_col->get_data_mutable();
         // Add test date values
         src_data.resize(0);
         DateV2Value<DateV2ValueType> value;
@@ -971,7 +971,7 @@ TEST_F(ColumnTypeConverterTest, TestStringConversions) {
         ASSERT_FALSE(converter->is_consistent());
 
         auto src_col = ColumnUInt8::create();
-        auto& src_data = src_col->get_data();
+        auto& src_data = src_col->get_data_mutable();
         src_data.resize(0);
         // Add boolean values
         src_data.push_back(1); // true
@@ -1402,7 +1402,7 @@ TEST_F(ColumnTypeConverterTest, TestDateTimeV2ToNumericConversions) {
                 for (const auto& [y, m, d, h, min, s, micro] : datetimes) {
                     DateV2Value<DateTimeV2ValueType> v;
                     v.unchecked_set_time(y, m, d, h, min, s, micro);
-                    col->get_data().push_back(v);
+                    col->get_data_mutable().push_back(v);
                 }
                 return col;
             };
@@ -1432,7 +1432,7 @@ TEST_F(ColumnTypeConverterTest, TestDateTimeV2ToNumericConversions) {
         Status st = converter->convert(reinterpret_cast<ColumnPtr&>(src_col), mutable_dst);
         ASSERT_TRUE(st.ok());
 
-        auto& dst_data = static_cast<ColumnInt64&>(*mutable_dst).get_data();
+        auto dst_data = static_cast<ColumnInt64&>(*mutable_dst).get_data();
         ASSERT_EQ(1, dst_data.size());
         EXPECT_EQ(1704067200123, dst_data[0]);
     }
@@ -1458,7 +1458,7 @@ TEST_F(ColumnTypeConverterTest, TestDateTimeV2ToNumericConversions) {
         Status st = converter->convert(reinterpret_cast<ColumnPtr&>(src_col), mutable_dst);
         ASSERT_TRUE(st.ok());
         auto& nested_col = static_cast<ColumnInt32&>(nullable_col.get_nested_column());
-        auto& dst_data = nested_col.get_data();
+        auto dst_data = nested_col.get_data();
 
         ASSERT_EQ(2, nested_col.size());
         EXPECT_EQ(0, null_map[0]);
@@ -1493,21 +1493,21 @@ TEST_F(ColumnTypeConverterTest, TestDateTimeV2ToNumericConversions) {
         ASSERT_TRUE(converter->support());
 
         auto src_col = ColumnDateTimeV2::create();
-        src_col->get_data().push_back(parse_datetimev2_str("2024-01-01 12:34:56.123456"));
-        src_col->get_data().push_back(parse_datetimev2_str("1970-01-01 00:00:00.000000"));
-        src_col->get_data().push_back(parse_datetimev2_str("3000-01-01 00:00:00.000000"));
-        src_col->get_data().push_back(parse_datetimev2_str("1900-01-01 00:00:00.000000"));
-        src_col->get_data().push_back(parse_datetimev2_str("1999-12-31 23:59:59.999999"));
-        src_col->get_data().push_back(parse_datetimev2_str("2000-01-01 00:00:00.000000"));
-        src_col->get_data().push_back(parse_datetimev2_str("2025-07-08 16:00:00.123456"));
-        src_col->get_data().push_back(parse_datetimev2_str("2100-01-01 00:00:00.000000"));
-        src_col->get_data().push_back(parse_datetimev2_str("9999-12-31 23:59:59.999999"));
-        src_col->get_data().push_back(parse_datetimev2_str("2022-05-01 12:00:00.000001"));
-        src_col->get_data().push_back(parse_datetimev2_str("2022-05-01 13:00:00.000002"));
-        src_col->get_data().push_back(parse_datetimev2_str("2022-05-01 14:00:00.000004"));
-        src_col->get_data().push_back(parse_datetimev2_str("2022-05-01 12:00:00"));
-        src_col->get_data().push_back(parse_datetimev2_str("2022-05-01 13:00:00"));
-        src_col->get_data().push_back(parse_datetimev2_str("2022-05-01 14:00:00"));
+        src_col->get_data_mutable().push_back(parse_datetimev2_str("2024-01-01 12:34:56.123456"));
+        src_col->get_data_mutable().push_back(parse_datetimev2_str("1970-01-01 00:00:00.000000"));
+        src_col->get_data_mutable().push_back(parse_datetimev2_str("3000-01-01 00:00:00.000000"));
+        src_col->get_data_mutable().push_back(parse_datetimev2_str("1900-01-01 00:00:00.000000"));
+        src_col->get_data_mutable().push_back(parse_datetimev2_str("1999-12-31 23:59:59.999999"));
+        src_col->get_data_mutable().push_back(parse_datetimev2_str("2000-01-01 00:00:00.000000"));
+        src_col->get_data_mutable().push_back(parse_datetimev2_str("2025-07-08 16:00:00.123456"));
+        src_col->get_data_mutable().push_back(parse_datetimev2_str("2100-01-01 00:00:00.000000"));
+        src_col->get_data_mutable().push_back(parse_datetimev2_str("9999-12-31 23:59:59.999999"));
+        src_col->get_data_mutable().push_back(parse_datetimev2_str("2022-05-01 12:00:00.000001"));
+        src_col->get_data_mutable().push_back(parse_datetimev2_str("2022-05-01 13:00:00.000002"));
+        src_col->get_data_mutable().push_back(parse_datetimev2_str("2022-05-01 14:00:00.000004"));
+        src_col->get_data_mutable().push_back(parse_datetimev2_str("2022-05-01 12:00:00"));
+        src_col->get_data_mutable().push_back(parse_datetimev2_str("2022-05-01 13:00:00"));
+        src_col->get_data_mutable().push_back(parse_datetimev2_str("2022-05-01 14:00:00"));
 
         auto mutable_dst = nullable_dst_type->create_column();
         auto& nullable_col = static_cast<ColumnNullable&>(*mutable_dst);
@@ -1534,7 +1534,7 @@ TEST_F(ColumnTypeConverterTest, TestDateTimeV2ToNumericConversions) {
         EXPECT_EQ(0, null_map[13]);
         EXPECT_EQ(0, null_map[14]);
 
-        auto& dst_data = static_cast<ColumnInt64&>(nullable_col.get_nested_column()).get_data();
+        auto dst_data = static_cast<ColumnInt64&>(nullable_col.get_nested_column()).get_data();
         ASSERT_EQ(15, dst_data.size());
         EXPECT_EQ(1704112496123L, dst_data[0]);
         EXPECT_EQ(0L, dst_data[1]);

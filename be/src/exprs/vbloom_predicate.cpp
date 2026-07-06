@@ -85,7 +85,7 @@ Status VBloomPredicate::_do_execute(VExprContext* context, const Block* block,
     auto res_data_column = ColumnUInt8::create(sz);
 
     res_data_column->resize(sz);
-    auto* ptr = ((ColumnUInt8*)res_data_column.get())->get_data().data();
+    auto* ptr = ((ColumnUInt8*)res_data_column.get())->get_data_mutable().data();
 
     _filter->find_fixed_len(argument_column, ptr, filter);
 

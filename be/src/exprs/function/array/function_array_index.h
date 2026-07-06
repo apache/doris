@@ -224,9 +224,9 @@ private:
                             const ColumnView<PType>& right_view) const {
         // prepare return data
         auto dst = PrimitiveTypeTraits<ResultType>::ColumnType::create(array_view.size(), 0);
-        auto& dst_data = dst->get_data();
+        auto& dst_data = dst->get_data_mutable();
         auto dst_null_column = ColumnUInt8::create(array_view.size(), 0);
-        auto& dst_null_data = dst_null_column->get_data();
+        auto& dst_null_data = dst_null_column->get_data_mutable();
 
         // process
         for (size_t row = 0; row < array_view.size(); ++row) {

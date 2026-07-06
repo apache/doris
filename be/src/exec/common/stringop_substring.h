@@ -28,6 +28,7 @@
 #include <cstddef>
 #include <cstdlib>
 #include <cstring>
+#include <span>
 #include <utility>
 #include <vector>
 
@@ -157,7 +158,7 @@ struct SubstringUtil {
 private:
     template <bool is_ascii, bool str_const, bool start_const, bool len_const>
     static void vectors(const ColumnString::Chars& chars, const ColumnString::Offsets& offsets,
-                        const PaddedPODArray<Int32>& start, const PaddedPODArray<Int32>& len,
+                        std::span<const Int32> start, std::span<const Int32> len,
                         ColumnString::Chars& res_chars, ColumnString::Offsets& res_offsets,
                         size_t size) {
         res_offsets.resize(size);
@@ -189,7 +190,7 @@ private:
     template <bool str_const, bool start_const, bool len_const>
     NO_SANITIZE_UNDEFINED static void vectors_utf8(
             const ColumnString::Chars& chars, const ColumnString::Offsets& offsets,
-            const PaddedPODArray<Int32>& start, const PaddedPODArray<Int32>& len,
+            std::span<const Int32> start, std::span<const Int32> len,
             ColumnString::Chars& res_chars, ColumnString::Offsets& res_offsets, size_t size) {
         std::array<std::byte, 128 * 1024> buf;
         PMR::monotonic_buffer_resource pool {buf.data(), buf.size()};
@@ -249,10 +250,9 @@ private:
 
     template <bool str_const, bool start_const, bool len_const>
     static void vectors_ascii(const ColumnString::Chars& chars,
-                              const ColumnString::Offsets& offsets,
-                              const PaddedPODArray<Int32>& start, const PaddedPODArray<Int32>& len,
-                              ColumnString::Chars& res_chars, ColumnString::Offsets& res_offsets,
-                              size_t size) {
+                              const ColumnString::Offsets& offsets, std::span<const Int32> start,
+                              std::span<const Int32> len, ColumnString::Chars& res_chars,
+                              ColumnString::Offsets& res_offsets, size_t size) {
         for (size_t i = 0; i < size; ++i) {
             int str_size = offsets[index_check_const<str_const>(i)] -
                            offsets[index_check_const<str_const>(i) - 1];

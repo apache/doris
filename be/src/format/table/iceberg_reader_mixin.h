@@ -163,8 +163,8 @@ protected:
             auto* nullable_column =
                     assert_cast<ColumnNullable*>(column_guard.mutable_column().get());
             auto& null_map = nullable_column->get_null_map_data();
-            auto& data =
-                    assert_cast<ColumnInt64&>(*nullable_column->get_nested_column_ptr()).get_data();
+            auto& data = assert_cast<ColumnInt64&>(*nullable_column->get_nested_column_ptr())
+                                 .get_data_mutable();
             const auto& row_ids = this->current_batch_row_positions();
             for (size_t i = 0; i < rows; ++i) {
                 if (null_map[i] != 0) {
@@ -185,8 +185,8 @@ protected:
             auto* nullable_column =
                     assert_cast<ColumnNullable*>(column_guard.mutable_column().get());
             auto& null_map = nullable_column->get_null_map_data();
-            auto& data =
-                    assert_cast<ColumnInt64&>(*nullable_column->get_nested_column_ptr()).get_data();
+            auto& data = assert_cast<ColumnInt64&>(*nullable_column->get_nested_column_ptr())
+                                 .get_data_mutable();
             for (size_t i = 0; i < rows; ++i) {
                 if (null_map[i] != 0) {
                     null_map[i] = 0;

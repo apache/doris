@@ -202,12 +202,12 @@ public:
                                         get_name());
         }
         auto res = ColumnUInt8::create();
-        ColumnUInt8::Container& vec_res = res->get_data();
+        ColumnUInt8::Container& vec_res = res->get_data_mutable();
         vec_res.resize(input_rows_count);
 
         ColumnUInt8::MutablePtr col_null_map_to;
         col_null_map_to = ColumnUInt8::create(input_rows_count, false);
-        auto& vec_null_map_to = col_null_map_to->get_data();
+        auto& vec_null_map_to = col_null_map_to->get_data_mutable();
 
         const ColumnWithTypeAndName& left_arg = block.get_by_position(arguments[0]);
         const auto& [unpacked_column, col_const] = unpack_if_const(left_arg.column);
@@ -285,8 +285,8 @@ public:
 private:
     template <typename T>
     static void search_hash_set_check_null(InState* in_state, size_t input_rows_count,
-                                           ColumnUInt8::Container& vec_res,
-                                           const ColumnUInt8::Container& null_map, T* col_ptr) {
+                                           ColumnUInt8::Container& vec_res, NullMapView null_map,
+                                           T* col_ptr) {
         if constexpr (!negative) {
             in_state->hybrid_set->find_batch_nullable(*col_ptr, input_rows_count, null_map,
                                                       vec_res);

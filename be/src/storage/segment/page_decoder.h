@@ -17,6 +17,9 @@
 
 #pragma once
 
+#include <memory>
+#include <utility>
+
 #include "common/status.h" // for Status
 #include "core/column/column.h"
 
@@ -87,8 +90,18 @@ public:
         return Status::NotSupported("get_dict_word_info not implement");
     }
 
+    // Fixed-width decoders can hand out pointers into their decoded page buffer. The owner keeps
+    // that page alive after next_batch() returns if the destination column chooses a zero-copy
+    // immutable view; destinations that cannot use it still copy through the default column API.
+    void set_page_data_owner(std::shared_ptr<void> page_data_owner) {
+        _page_data_owner = std::move(page_data_owner);
+    }
+
 private:
     DISALLOW_COPY_AND_ASSIGN(PageDecoder);
+
+protected:
+    std::shared_ptr<void> _page_data_owner;
 };
 
 } // namespace segment_v2

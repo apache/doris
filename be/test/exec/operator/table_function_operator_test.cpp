@@ -119,8 +119,8 @@ public:
     void process_row(size_t row_idx) override {
         TableFunction::process_row(row_idx);
         if (!_detail.array_nullmap_data || !_detail.array_nullmap_data[row_idx]) {
-            _array_offset = row_idx == 0 ? 0 : (*_detail.offsets_ptr)[row_idx - 1];
-            _cur_size = (*_detail.offsets_ptr)[row_idx] - _array_offset;
+            _array_offset = row_idx == 0 ? 0 : _detail.offsets[row_idx - 1];
+            _cur_size = _detail.offsets[row_idx] - _array_offset;
         }
     }
 
@@ -151,10 +151,11 @@ public:
             const size_t old_size = nullmap_column->size();
             nullmap_column->resize(old_size + max_step);
             if (_detail.nested_nullmap_data != nullptr) {
-                memcpy(nullmap_column->get_data().data() + old_size,
+                memcpy(nullmap_column->get_data_mutable().data() + old_size,
                        _detail.nested_nullmap_data + pos, max_step * sizeof(UInt8));
             } else {
-                memset(nullmap_column->get_data().data() + old_size, 0, max_step * sizeof(UInt8));
+                memset(nullmap_column->get_data_mutable().data() + old_size, 0,
+                       max_step * sizeof(UInt8));
             }
         } else {
             column->insert_range_from(*_detail.nested_col, pos, max_step);
@@ -169,7 +170,7 @@ public:
                                    BlockFastPathContext* ctx) override {
         // NOTE: process_init() must be called before this to fill `_detail`.
         ctx->array_nullmap_data = _detail.array_nullmap_data;
-        ctx->offsets_ptr = _detail.offsets_ptr;
+        ctx->offsets = _detail.offsets;
         ctx->nested_col = _detail.nested_col;
         ctx->nested_nullmap_data = _detail.nested_nullmap_data;
         return Status::OK();
@@ -1677,11 +1678,11 @@ TEST_F(UnnestTest, inner_with_nulls_fast_path) {
         }
         ColumnArray::Offset64 off = 3;
         arr_offsets->insert_data((const char*)(&off), 0);
-        arr_nullmap->get_data().push_back(0);
+        arr_nullmap->get_data_mutable().push_back(0);
 
         // Row 1: NULL
         arr_offsets->insert_data((const char*)(&off), 0); // same offset
-        arr_nullmap->get_data().push_back(1);
+        arr_nullmap->get_data_mutable().push_back(1);
 
         // Row 2: [40, 50]
         for (int32_t v : {40, 50}) {
@@ -1689,18 +1690,18 @@ TEST_F(UnnestTest, inner_with_nulls_fast_path) {
         }
         off = 5;
         arr_offsets->insert_data((const char*)(&off), 0);
-        arr_nullmap->get_data().push_back(0);
+        arr_nullmap->get_data_mutable().push_back(0);
 
         // Row 3: []
         arr_offsets->insert_data((const char*)(&off), 0); // same offset
-        arr_nullmap->get_data().push_back(0);
+        arr_nullmap->get_data_mutable().push_back(0);
 
         // Row 4: [60]
         int32_t v60 = 60;
         arr_data->insert_data((const char*)(&v60), 0);
         off = 6;
         arr_offsets->insert_data((const char*)(&off), 0);
-        arr_nullmap->get_data().push_back(0);
+        arr_nullmap->get_data_mutable().push_back(0);
 
         auto array_column =
                 ColumnArray::create(make_nullable(std::move(arr_data)), std::move(arr_offsets));
@@ -1806,22 +1807,22 @@ TEST_F(UnnestTest, outer_with_nulls_fast_path) {
         }
         ColumnArray::Offset64 off = 2;
         arr_offsets->insert_data((const char*)(&off), 0);
-        arr_nullmap->get_data().push_back(0);
+        arr_nullmap->get_data_mutable().push_back(0);
 
         // Row 1: NULL
         arr_offsets->insert_data((const char*)(&off), 0);
-        arr_nullmap->get_data().push_back(1);
+        arr_nullmap->get_data_mutable().push_back(1);
 
         // Row 2: [30]
         int32_t v30 = 30;
         arr_data->insert_data((const char*)(&v30), 0);
         off = 3;
         arr_offsets->insert_data((const char*)(&off), 0);
-        arr_nullmap->get_data().push_back(0);
+        arr_nullmap->get_data_mutable().push_back(0);
 
         // Row 3: []
         arr_offsets->insert_data((const char*)(&off), 0);
-        arr_nullmap->get_data().push_back(0);
+        arr_nullmap->get_data_mutable().push_back(0);
 
         // Row 4: [40, 50]
         for (int32_t v : {40, 50}) {
@@ -1829,7 +1830,7 @@ TEST_F(UnnestTest, outer_with_nulls_fast_path) {
         }
         off = 5;
         arr_offsets->insert_data((const char*)(&off), 0);
-        arr_nullmap->get_data().push_back(0);
+        arr_nullmap->get_data_mutable().push_back(0);
 
         auto array_column =
                 ColumnArray::create(make_nullable(std::move(arr_data)), std::move(arr_offsets));
@@ -2087,22 +2088,22 @@ TEST_F(UnnestTest, posexplode_with_nulls_fast_path) {
         }
         ColumnArray::Offset64 off = 2;
         arr_offsets->insert_data((const char*)(&off), 0);
-        arr_nullmap->get_data().push_back(0);
+        arr_nullmap->get_data_mutable().push_back(0);
 
         // Row 1: NULL
         arr_offsets->insert_data((const char*)(&off), 0);
-        arr_nullmap->get_data().push_back(1);
+        arr_nullmap->get_data_mutable().push_back(1);
 
         // Row 2: [30]
         int32_t v30 = 30;
         arr_data->insert_data((const char*)(&v30), 0);
         off = 3;
         arr_offsets->insert_data((const char*)(&off), 0);
-        arr_nullmap->get_data().push_back(0);
+        arr_nullmap->get_data_mutable().push_back(0);
 
         // Row 3: []
         arr_offsets->insert_data((const char*)(&off), 0);
-        arr_nullmap->get_data().push_back(0);
+        arr_nullmap->get_data_mutable().push_back(0);
 
         auto array_column =
                 ColumnArray::create(make_nullable(std::move(arr_data)), std::move(arr_offsets));

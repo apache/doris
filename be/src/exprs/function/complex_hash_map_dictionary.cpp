@@ -203,7 +203,7 @@ ColumnPtr ComplexHashMapDictionary::get_single_value_column(
     const auto rows = value_index.size();
     MutableColumnPtr res_column = attribute_type->create_column();
     ColumnUInt8::MutablePtr res_null = ColumnUInt8::create(rows, false);
-    auto& res_null_map = res_null->get_data();
+    auto& res_null_map = res_null->get_data_mutable();
     const auto& value_data = _values_data[attribute_index(attribute_name)];
     std::visit(
             [&](auto&& arg, auto value_is_nullable) {

@@ -95,7 +95,7 @@ uint16_t BloomFilterColumnPredicate<T>::_evaluate_inner(const IColumn& column, u
                                                         uint16_t size) const {
     if (is_column_nullable(column)) {
         const auto* nullable_col = assert_cast<const ColumnNullable*>(&column);
-        const auto& null_map_data = nullable_col->get_null_map_column().get_data();
+        const auto null_map_data = nullable_col->get_null_map_column().get_data();
         return evaluate<true>(nullable_col->get_nested_column(), null_map_data.data(), sel, size);
     } else {
         return evaluate<false>(column, nullptr, sel, size);

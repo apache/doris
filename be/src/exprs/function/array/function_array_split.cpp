@@ -68,35 +68,37 @@ public:
 
         // only change its split(i.e. offsets)
         const auto& src_data = assert_cast<const ColumnArray&>(*src_column).get_data_ptr();
-        const auto& src_offsets = assert_cast<const ColumnArray&>(*src_column).get_offsets();
+        const auto src_offsets = assert_cast<const ColumnArray&>(*src_column).get_offsets();
 
         auto split_col = assert_cast<const ColumnArray*>(spliter_column.get())->get_data_ptr();
-        const auto& split_offsets = assert_cast<const ColumnArray&>(*spliter_column)
-                                            .get_offsets(); // for check uneven array
+        const auto split_offsets = assert_cast<const ColumnArray&>(*spliter_column)
+                                           .get_offsets(); // for check uneven array
 
-        const NullMap* null_map = nullptr;
+        NullMapView null_map;
+        bool has_null_map = false;
         if (const auto* nullable_split_col =
                     check_and_get_column<ColumnNullable>(split_col.get())) {
             if (split_col->has_null()) {
-                null_map = &nullable_split_col->get_null_map_data();
+                null_map = nullable_split_col->get_null_map_data();
+                has_null_map = true;
             }
             split_col = nullable_split_col->get_nested_column_ptr();
         }
 
-        const IColumn::Filter& cut = assert_cast<const ColumnBool*>(split_col.get())->get_data();
+        const auto cut = assert_cast<const ColumnBool*>(split_col.get())->get_data();
 
         auto col_offsets_inner = ColumnArray::ColumnOffsets::create();
         auto col_offsets_outer = ColumnArray::ColumnOffsets::create();
-        auto& offsets_inner = col_offsets_inner->get_data();
-        auto& offsets_outer = col_offsets_outer->get_data();
+        auto& offsets_inner = col_offsets_inner->get_data_mutable();
+        auto& offsets_outer = col_offsets_outer->get_data_mutable();
         offsets_inner.reserve(src_offsets.size()); // assume the actual size to be equal or larger
         offsets_outer.reserve(src_offsets.size());
 
-        if (null_map != nullptr) {
-            RETURN_IF_ERROR(do_loop<true>(src_offsets, split_offsets, cut, null_map, offsets_inner,
+        if (has_null_map) {
+            RETURN_IF_ERROR(do_loop<true>(src_offsets, split_offsets, cut, &null_map, offsets_inner,
                                           offsets_outer));
         } else {
-            RETURN_IF_ERROR(do_loop<false>(src_offsets, split_offsets, cut, null_map, offsets_inner,
+            RETURN_IF_ERROR(do_loop<false>(src_offsets, split_offsets, cut, nullptr, offsets_inner,
                                            offsets_outer));
         }
 
@@ -110,9 +112,9 @@ public:
     }
 
     template <bool CONSIDER_NULL>
-    static Status do_loop(const IColumn::Offsets64& src_offsets,
-                          const IColumn::Offsets64& split_offsets, const IColumn::Filter& cut,
-                          const NullMap* null_map, PaddedPODArray<IColumn::Offset64>& offsets_inner,
+    static Status do_loop(IColumn::Offsets64View src_offsets, IColumn::Offsets64View split_offsets,
+                          IColumn::FilterView cut, const NullMapView* null_map,
+                          PaddedPODArray<IColumn::Offset64>& offsets_inner,
                           PaddedPODArray<IColumn::Offset64>& offsets_outer) {
         size_t pos = 0;
         for (auto i = 0; i < src_offsets.size(); i++) { // per cells

@@ -49,7 +49,7 @@ void CollectionSimilarity::get_bm25_scores(roaring::Roaring* row_bitmap,
     size_t num_results = row_ids->size();
     auto score_column = ColumnFloat32::create(num_results);
     if (num_results > 0) {
-        memcpy(score_column->get_data().data(), filtered_scores.data(),
+        memcpy(score_column->get_data_mutable().data(), filtered_scores.data(),
                num_results * sizeof(float));
     }
 
@@ -73,7 +73,7 @@ void CollectionSimilarity::get_topn_bm25_scores(roaring::Roaring* row_bitmap,
 
     size_t num_results = top_k_results.size();
     auto score_column = ColumnFloat32::create(num_results);
-    auto& score_data = score_column->get_data();
+    auto& score_data = score_column->get_data_mutable();
 
     row_ids->resize(num_results);
     roaring::Roaring new_bitmap;

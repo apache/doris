@@ -695,7 +695,7 @@ Status VectorizedFnCall::evaluate_ann_range_search(
             size_t size = result.roaring->cardinality();
             auto distance_col = ColumnFloat32::create(size);
             const float* src = result.distance.get();
-            float* dst = distance_col->get_data().data();
+            float* dst = distance_col->get_data_mutable().data();
             for (size_t i = 0; i < size; ++i) {
                 dst[i] = src[i];
             }

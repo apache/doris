@@ -58,7 +58,7 @@ public:
         auto col_res = ToDataType::ColumnType::create();
 
         col_res->resize(input_rows_count);
-        auto& col_res_data = col_res->get_data();
+        auto& col_res_data = col_res->get_data_mutable();
 
         for (size_t i = 0; i < input_rows_count; i++) {
             cast_set(col_res_data[i], Transform::execute(column_time->get_element(i)));

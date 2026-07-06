@@ -429,10 +429,10 @@ class LittleIntPhysicalConverter : public PhysicalToLogicalConverter {
 
         size_t rows = from_col->size();
         // always comes from tparquet::Type::INT32
-        auto& src_data = assert_cast<const ColumnInt32*>(from_col.get())->get_data();
+        const auto& src_data = assert_cast<const ColumnInt32*>(from_col.get())->get_data();
         size_t start_idx = to_col->size();
         to_col->resize(start_idx + rows);
-        auto& data = assert_cast<DstColumnType&>(*to_col).get_data();
+        auto& data = assert_cast<DstColumnType&>(*to_col).get_data_mutable();
         for (int i = 0; i < rows; ++i) {
             data[start_idx + i] = static_cast<DstCppType>(src_data[i]);
         }
@@ -485,12 +485,12 @@ class UnsignedIntegerConverter : public PhysicalToLogicalConverter {
 
         ColumnPtr from_col = remove_nullable(src_physical_col);
         IColumn* to_col = get_mutable_inner_column(src_logical_column);
-        auto& src_data = assert_cast<const StorageColumnType*>(from_col.get())->get_data();
+        const auto& src_data = assert_cast<const StorageColumnType*>(from_col.get())->get_data();
 
         size_t rows = src_data.size();
         size_t start_idx = to_col->size();
         to_col->resize(start_idx + rows);
-        auto& data = assert_cast<DstColumnType&>(*to_col).get_data();
+        auto& data = assert_cast<DstColumnType&>(*to_col).get_data_mutable();
 
         for (int i = 0; i < rows; i++) {
             StorageCppType src_value = src_data[i];
@@ -554,7 +554,7 @@ public:
         auto* to_float_column = assert_cast<ColumnFloat32*>(to_col);
         size_t start_idx = to_float_column->size();
         to_float_column->resize(start_idx + num_values);
-        auto& to_float_column_data = to_float_column->get_data();
+        auto& to_float_column_data = to_float_column->get_data_mutable();
         const auto* ptr = src_data.data;
         for (int i = 0; i < num_values; ++i) {
             size_t offset = i * _type_length;
@@ -805,8 +805,8 @@ class Int32ToDate : public PhysicalToLogicalConverter {
         size_t start_idx = dst_col->size();
         dst_col->reserve(start_idx + rows);
 
-        auto& src_data = static_cast<const ColumnInt32*>(src_col.get())->get_data();
-        auto& data = static_cast<ColumnDateV2*>(dst_col)->get_data();
+        const auto& src_data = static_cast<const ColumnInt32*>(src_col.get())->get_data();
+        auto& data = static_cast<ColumnDateV2*>(dst_col)->get_data_mutable();
         date_day_offset_dict& date_dict = date_day_offset_dict::get();
 
         for (int i = 0; i < rows; i++) {
@@ -827,7 +827,7 @@ struct Int64ToTimestamp : public PhysicalToLogicalConverter {
         dst_col->resize(start_idx + rows);
 
         auto src_data = static_cast<const ColumnInt64*>(src_col.get())->get_data().data();
-        auto& data = static_cast<ColumnDateTimeV2*>(dst_col)->get_data();
+        auto& data = static_cast<ColumnDateTimeV2*>(dst_col)->get_data_mutable();
 
         for (int i = 0; i < rows; i++) {
             int64_t x = src_data[i];
@@ -860,7 +860,7 @@ struct Int64ToTimestampTz : public PhysicalToLogicalConverter {
         dst_col->resize(start_idx + rows);
 
         const auto& src_data = assert_cast<const ColumnInt64*>(src_col.get())->get_data();
-        auto& dest_data = assert_cast<ColumnTimeStampTz*>(dst_col)->get_data();
+        auto& dest_data = assert_cast<ColumnTimeStampTz*>(dst_col)->get_data_mutable();
         static const cctz::time_zone UTC = cctz::utc_time_zone();
 
         for (int i = 0; i < rows; i++) {
@@ -880,11 +880,11 @@ struct Int96toTimestamp : public PhysicalToLogicalConverter {
         IColumn* dst_col = get_mutable_inner_column(src_logical_column);
 
         size_t rows = src_col->size() / sizeof(ParquetInt96);
-        auto& src_data = static_cast<const ColumnInt8*>(src_col.get())->get_data();
+        const auto& src_data = static_cast<const ColumnInt8*>(src_col.get())->get_data();
         auto ParquetInt96_data = (ParquetInt96*)src_data.data();
         size_t start_idx = dst_col->size();
         dst_col->resize(start_idx + rows);
-        auto& data = static_cast<ColumnDateTimeV2*>(dst_col)->get_data();
+        auto& data = static_cast<ColumnDateTimeV2*>(dst_col)->get_data_mutable();
 
         for (int i = 0; i < rows; i++) {
             ParquetInt96 src_cell_data = ParquetInt96_data[i];
@@ -918,7 +918,7 @@ struct Int96toTimestampTz : public PhysicalToLogicalConverter {
         auto* ParquetInt96_data = (ParquetInt96*)src_data.data();
         size_t start_idx = dst_col->size();
         dst_col->resize(start_idx + rows);
-        auto& data = assert_cast<ColumnTimeStampTz*>(dst_col)->get_data();
+        auto& data = assert_cast<ColumnTimeStampTz*>(dst_col)->get_data_mutable();
         static const cctz::time_zone UTC = cctz::utc_time_zone();
 
         for (int i = 0; i < rows; i++) {

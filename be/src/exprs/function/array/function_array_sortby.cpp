@@ -79,28 +79,32 @@ public:
         const auto& src_column_array = assert_cast<const ColumnArray&>(*argument_columns[0]);
         const auto& key_column_array = assert_cast<const ColumnArray&>(*argument_columns[1]);
 
-        const auto& src_offsets = src_column_array.get_offsets();
+        const auto src_offsets = src_column_array.get_offsets();
         const ColumnNullable& src_nested_nullable_column =
                 assert_cast<const ColumnNullable&>(src_column_array.get_data());
         auto& src_nested_data_column = src_nested_nullable_column.get_nested_column();
 
-        const auto& key_offsets = key_column_array.get_offsets();
+        const auto key_offsets = key_column_array.get_offsets();
         const ColumnNullable& key_nested_nullable_column =
                 assert_cast<const ColumnNullable&>(key_column_array.get_data());
 
         auto result_data_column = src_nested_nullable_column.clone_empty();
         ColumnPtr result_offset_column = src_column_array.get_offsets_ptr();
         ColumnPtr result_nullmap = nullptr;
-        const ColumnUInt8::Container* src_null_map_data = nullptr;
+        NullMapView src_null_map_data;
+        bool has_src_null_map = false;
         if (argument_nullmap[0]) {
             const auto& src_column_nullmap = assert_cast<const ColumnUInt8&>(*argument_nullmap[0]);
             result_nullmap = argument_nullmap[0];
-            src_null_map_data = &(src_column_nullmap.get_data());
+            src_null_map_data = src_column_nullmap.get_data();
+            has_src_null_map = true;
         }
-        const ColumnUInt8::Container* key_null_map_data = nullptr;
+        NullMapView key_null_map_data;
+        bool has_key_null_map = false;
         if (argument_nullmap[1]) {
             const auto& key_column_nullmap = assert_cast<const ColumnUInt8&>(*argument_nullmap[1]);
-            key_null_map_data = &(key_column_nullmap.get_data());
+            key_null_map_data = key_column_nullmap.get_data();
+            has_key_null_map = true;
         }
 
         IColumn::Selector src_selector;
@@ -115,14 +119,14 @@ public:
             unsigned long cur_src_element_num = src_offsets[row] - src_offsets[row - 1];
             unsigned long cur_key_element_num = key_offsets[row] - key_offsets[row - 1];
             if (cur_src_element_num != cur_key_element_num) {
-                if (key_null_map_data != nullptr && (*key_null_map_data)[row]) {
+                if (has_key_null_map && key_null_map_data[row]) {
                     // deal with this case if one of row like: ([1,2,3], NULL) --->([1,2,3])
                     for (unsigned long pos = src_offsets[row - 1]; pos < src_offsets[row]; ++pos) {
                         src_selector.push_back(pos);
                     }
                     null_step = null_step + cur_src_element_num;
                     continue;
-                } else if (src_null_map_data != nullptr && (*src_null_map_data)[row]) {
+                } else if (has_src_null_map && src_null_map_data[row]) {
                     // deal with this case if one of row like: (NULL, [1,2,3]) --->(NULL)
                     null_step = null_step - cur_key_element_num;
                     continue;

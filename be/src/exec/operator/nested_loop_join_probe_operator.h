@@ -130,7 +130,7 @@ private:
                     auto& build_side_flag =
                             assert_cast<ColumnUInt8*>(
                                     _shared_state->build_side_visited_flags[build_block_idx].get())
-                                    ->get_data();
+                                    ->get_data_mutable();
                     auto* __restrict build_side_flag_data = build_side_flag.data();
                     auto cur_sz = build_side_flag.size();
                     const size_t offset = _build_offset_stack.top();
@@ -209,7 +209,7 @@ private:
                     auto& build_side_flag =
                             assert_cast<ColumnUInt8*>(
                                     _shared_state->build_side_visited_flags[build_block_idx].get())
-                                    ->get_data();
+                                    ->get_data_mutable();
                     auto* __restrict build_side_flag_data = build_side_flag.data();
                     auto cur_sz = build_side_flag.size();
                     _build_offset_stack.pop();

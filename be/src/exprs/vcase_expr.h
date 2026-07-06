@@ -206,10 +206,19 @@ private:
         }
 
         result_column_ptr->resize(rows_count);
-        auto* __restrict result_raw_data =
-                assert_cast<ColumnType*, TypeCheckOnRelease::DISABLE>(result_column_ptr.get())
-                        ->get_data()
-                        .data();
+        auto* __restrict result_raw_data = [&]() {
+            auto* result_column =
+                    assert_cast<ColumnType*, TypeCheckOnRelease::DISABLE>(result_column_ptr.get());
+            if constexpr (std::is_same_v<ColumnType, ColumnDecimal32> ||
+                          std::is_same_v<ColumnType, ColumnDecimal64> ||
+                          std::is_same_v<ColumnType, ColumnDecimal128V2> ||
+                          std::is_same_v<ColumnType, ColumnDecimal128V3> ||
+                          std::is_same_v<ColumnType, ColumnDecimal256>) {
+                return result_column->get_data().data();
+            } else {
+                return result_column->get_data_mutable().data();
+            }
+        }();
 
         // set default value
         for (int i = 0; i < rows_count; i++) {

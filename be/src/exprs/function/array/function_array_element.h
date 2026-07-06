@@ -63,6 +63,19 @@ class FunctionContext;
 
 namespace doris {
 
+template <typename ColumnType>
+decltype(auto) array_element_writable_data(ColumnType& column) {
+    return column.get_data();
+}
+
+template <PrimitiveType T>
+auto& array_element_writable_data(ColumnVector<T>& column) {
+    // Element extraction writes into a freshly created result column. If the result type is a
+    // fixed-length ColumnVector, use the explicit mutable accessor so any external page backing is
+    // detached before mutation; decimal and complex columns keep their existing owned buffers.
+    return column.get_data_mutable();
+}
+
 class FunctionArrayElement : public IFunction {
 public:
     using MapIndiceDataType = DataTypeInt64;
@@ -133,7 +146,7 @@ public:
             return _execute_struct(block, arguments, result, input_rows_count);
         }
         auto dst_null_column = ColumnUInt8::create(input_rows_count, 0);
-        UInt8* dst_null_map = dst_null_column->get_data().data();
+        UInt8* dst_null_map = dst_null_column->get_data_mutable().data();
         const UInt8* src_null_map = nullptr;
         ColumnsWithTypeAndName args;
         ColumnPtr res_column = nullptr;
@@ -249,10 +262,10 @@ private:
 
         ColumnPtr field_col = struct_col->get_column_ptr(index);
         auto res_null_column = ColumnUInt8::create(input_rows_count, 0);
-        auto& res_null_map = res_null_column->get_data();
+        auto& res_null_map = res_null_column->get_data_mutable();
         ColumnPtr res_nested = field_col;
         if (const auto* field_nullable = check_and_get_column<ColumnNullable>(field_col.get())) {
-            const auto& field_null_map = field_nullable->get_null_map_column().get_data();
+            const auto field_null_map = field_nullable->get_null_map_column().get_data();
             memcpy(res_null_map.data(), field_null_map.data(), input_rows_count);
             res_nested = field_nullable->get_nested_column_ptr();
         }
@@ -271,7 +284,7 @@ private:
     ColumnPtr _get_mapped_idx(const ColumnArray& column,
                               const ColumnWithTypeAndName& argument) const {
         auto right_column = make_nullable(argument.column->convert_to_full_column_if_const());
-        const ColumnArray::Offsets64& offsets = column.get_offsets();
+        const auto offsets = column.get_offsets();
         ColumnPtr nested_ptr = make_nullable(column.get_data_ptr());
         size_t rows = offsets.size();
         // prepare return data
@@ -301,16 +314,16 @@ private:
     }
 
     template <typename ColumnType, typename IndexColumnType>
-    ColumnPtr _execute_number(const ColumnArray::Offsets64& offsets, const IColumn& nested_column,
+    ColumnPtr _execute_number(IColumn::Offsets64View offsets, const IColumn& nested_column,
                               const UInt8* arr_null_map, const IColumn& indices,
                               const UInt8* nested_null_map, UInt8* dst_null_map,
                               const UInt8* idx_null_map, bool is_const_index, bool is_const_array,
                               size_t input_rows_count) const {
-        const auto& nested_data = reinterpret_cast<const ColumnType&>(nested_column).get_data();
-        const auto& index_data = assert_cast<const IndexColumnType&>(indices).get_data();
+        const auto nested_data = reinterpret_cast<const ColumnType&>(nested_column).get_data();
+        const auto index_data = assert_cast<const IndexColumnType&>(indices).get_data();
 
         auto dst_column = nested_column.clone_empty();
-        auto& dst_data = reinterpret_cast<ColumnType&>(*dst_column).get_data();
+        auto& dst_data = array_element_writable_data(reinterpret_cast<ColumnType&>(*dst_column));
         dst_data.resize(input_rows_count);
 
         for (size_t row = 0; row < input_rows_count; ++row) {
@@ -338,7 +351,7 @@ private:
     }
 
     template <typename IndexColumnType>
-    ColumnPtr _execute_string(const ColumnArray::Offsets64& offsets, const IColumn& nested_column,
+    ColumnPtr _execute_string(IColumn::Offsets64View offsets, const IColumn& nested_column,
                               const UInt8* arr_null_map, const IColumn& indices,
                               const UInt8* nested_null_map, UInt8* dst_null_map,
                               const UInt8* idx_null_map, bool is_const_index, bool is_const_array,
@@ -347,7 +360,7 @@ private:
                 reinterpret_cast<const ColumnString&>(nested_column).get_offsets();
         const auto& src_str_chars =
                 reinterpret_cast<const ColumnString&>(nested_column).get_chars();
-        const auto& index_data = assert_cast<const IndexColumnType&>(indices).get_data();
+        const auto index_data = assert_cast<const IndexColumnType&>(indices).get_data();
 
         // prepare return data
         auto dst_column = ColumnString::create();
@@ -416,12 +429,12 @@ private:
     }
 
     template <typename IndexColumnType>
-    ColumnPtr _execute_common(const ColumnArray::Offsets64& offsets, const IColumn& nested_column,
+    ColumnPtr _execute_common(IColumn::Offsets64View offsets, const IColumn& nested_column,
                               const UInt8* arr_null_map, const IColumn& indices,
                               const UInt8* nested_null_map, UInt8* dst_null_map,
                               const UInt8* idx_null_map, bool is_const_index, bool is_const_array,
                               size_t input_rows_count) const {
-        const auto& index_data = assert_cast<const IndexColumnType&>(indices).get_data();
+        const auto index_data = assert_cast<const IndexColumnType&>(indices).get_data();
 
         auto dst_column = nested_column.clone_empty();
         dst_column->reserve(input_rows_count);

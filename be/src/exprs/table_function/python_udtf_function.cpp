@@ -172,8 +172,8 @@ void PythonUDTFFunction::process_row(size_t row_idx) {
     // Check if array is null for this row
     if (!_array_column_detail.array_nullmap_data ||
         !_array_column_detail.array_nullmap_data[row_idx]) {
-        _array_offset = (*_array_column_detail.offsets_ptr)[row_idx - 1];
-        _cur_size = (*_array_column_detail.offsets_ptr)[row_idx] - _array_offset;
+        _array_offset = _array_column_detail.offsets[row_idx - 1];
+        _cur_size = _array_column_detail.offsets[row_idx] - _array_offset;
     }
     // When it's NULL at row_idx, _cur_size stays 0, meaning current_empty()
     // If outer function: will continue with insert_default
@@ -220,7 +220,7 @@ int PythonUDTFFunction::get_value(MutableColumnPtr& column, int max_step) {
             nested_column->insert_range_from(*_array_column_detail.nested_col, pos, max_step);
             size_t old_size = nullmap_column->size();
             nullmap_column->resize(old_size + max_step);
-            memcpy(nullmap_column->get_data().data() + old_size,
+            memcpy(nullmap_column->get_data_mutable().data() + old_size,
                    _array_column_detail.nested_nullmap_data + pos * sizeof(UInt8),
                    max_step * sizeof(UInt8));
         } else {

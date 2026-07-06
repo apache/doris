@@ -286,7 +286,7 @@ Status VExprContext::execute_conjuncts(const VExprContextSPtrs& conjuncts, const
                                      null_map.size(), rows);
     }
 
-    auto* final_null_map = null_map.get_data().data();
+    auto* final_null_map = null_map.get_data_mutable().data();
     auto* final_filter_ptr = filter.data();
 
     for (const auto& conjunct : conjuncts) {
@@ -296,8 +296,7 @@ Status VExprContext::execute_conjuncts(const VExprContextSPtrs& conjuncts, const
         const auto* nullable_column = assert_cast<const ColumnNullable*>(filter_column.get());
         if (!is_const) {
             const ColumnPtr& nested_column = nullable_column->get_nested_column_ptr();
-            const IColumn::Filter& result =
-                    assert_cast<const ColumnUInt8&>(*nested_column).get_data();
+            const auto result = assert_cast<const ColumnUInt8&>(*nested_column).get_data();
             const auto* __restrict filter_data = result.data();
             const auto* __restrict null_map_data = nullable_column->get_null_map_data().data();
             DCHECK_EQ(rows, nullable_column->size());

@@ -48,7 +48,7 @@ bool extract_column_map_info(const IColumn& src, ColumnMapExecutionData& data) {
         return false;
     }
 
-    data.offsets_ptr = &data.map_col->get_offsets();
+    data.offsets = data.map_col->get_offsets();
     return true;
 }
 
@@ -76,8 +76,8 @@ void VExplodeMapTableFunction::process_row(size_t row_idx) {
     TableFunction::process_row(row_idx);
 
     if (!_map_detail.map_nullmap_data || !_map_detail.map_nullmap_data[row_idx]) {
-        _collection_offset = (*_map_detail.offsets_ptr)[row_idx - 1];
-        _cur_size = (*_map_detail.offsets_ptr)[row_idx] - _collection_offset;
+        _collection_offset = _map_detail.offsets[row_idx - 1];
+        _cur_size = _map_detail.offsets[row_idx] - _collection_offset;
     }
 }
 

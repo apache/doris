@@ -666,7 +666,7 @@ public:
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
         this->data(const_cast<AggregateDataPtr>(place)).sort();
-        assert_cast<ColumnInt32&>(to).get_data().push_back(
+        assert_cast<ColumnInt32&>(to).get_data_mutable().push_back(
                 IAggregateFunctionDataHelper<WindowFunnelStateV2<T>,
                                              AggregateFunctionWindowFunnelV2<T>>::data(place)
                         .get());

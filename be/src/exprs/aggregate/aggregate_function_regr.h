@@ -504,7 +504,7 @@ public:
             nested_column.insert_default();
         } else {
             nullable_column.get_null_map_data().push_back(0);
-            nested_column.get_data().push_back(result);
+            nested_column.get_data_mutable().push_back(result);
         }
     }
 };
@@ -526,7 +526,7 @@ public:
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
         auto& result_column = assert_cast<ResultDataType&>(to);
-        result_column.get_data().push_back(this->data(place).get_result());
+        result_column.get_data_mutable().push_back(this->data(place).get_result());
     }
 };
 

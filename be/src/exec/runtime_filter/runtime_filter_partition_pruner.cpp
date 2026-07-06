@@ -425,7 +425,7 @@ Status ParsedPartitionBoundaries::get_or_compute_projected_boundaries(
                 list_result_begin[i] = list_row_count;                                           \
                 for (const auto& value : cvr->get_fixed_value_set()) {                           \
                     list_inner->insert_value(value);                                             \
-                    list_nulls->get_data().push_back(0);                                         \
+                    list_nulls->get_data_mutable().push_back(0);                                 \
                     ++list_row_count;                                                            \
                 }                                                                                \
                 list_result_end[i] = list_row_count;                                             \
@@ -436,12 +436,12 @@ Status ParsedPartitionBoundaries::get_or_compute_projected_boundaries(
             if (!lo_open[i]) {                                                                   \
                 lo_result_row[i] = lo_row_count++;                                               \
                 lo_inner->insert_value(cvr->get_range_min_value());                              \
-                lo_nulls->get_data().push_back(0);                                               \
+                lo_nulls->get_data_mutable().push_back(0);                                       \
             }                                                                                    \
             if (!hi_open[i]) {                                                                   \
                 hi_result_row[i] = hi_row_count++;                                               \
                 hi_inner->insert_value(cvr->get_range_max_value());                              \
-                hi_nulls->get_data().push_back(0);                                               \
+                hi_nulls->get_data_mutable().push_back(0);                                       \
             }                                                                                    \
         }                                                                                        \
         add_dummy_columns(lo_block, lo_row_count);                                               \

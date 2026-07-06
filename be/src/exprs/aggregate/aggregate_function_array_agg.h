@@ -34,6 +34,18 @@
 namespace doris {
 class Arena;
 
+template <typename Column>
+decltype(auto) aggregate_array_agg_writable_data(Column& column) {
+    // Fixed-length array_agg states may use ColumnVector or Decimal columns. ColumnVector can hold
+    // page-backed external data, so writes must ask it to materialize; other columns keep their
+    // historical writable get_data() container.
+    if constexpr (requires { column.get_data_mutable(); }) {
+        return column.get_data_mutable();
+    } else {
+        return column.get_data();
+    }
+}
+
 template <PrimitiveType T>
 struct AggregateFunctionArrayAggData {
     static constexpr PrimitiveType PType = T;
@@ -58,7 +70,7 @@ struct AggregateFunctionArrayAggData {
                 assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(col.get_nested_column())
                         .get_data();
         null_map->push_back(col.get_null_map_data()[row_num]);
-        nested_column->get_data().push_back(vec[row_num]);
+        aggregate_array_agg_writable_data(*nested_column).push_back(vec[row_num]);
         DCHECK(null_map->size() == nested_column->size());
     }
 
@@ -71,7 +83,7 @@ struct AggregateFunctionArrayAggData {
         auto end = start + to_arr.get_offsets()[row_num] - to_arr.get_offsets()[row_num - 1];
         for (auto i = start; i < end; ++i) {
             null_map->push_back(col_null->get_null_map_data()[i]);
-            nested_column->get_data().push_back(vec[i]);
+            aggregate_array_agg_writable_data(*nested_column).push_back(vec[i]);
         }
     }
 
@@ -84,9 +96,10 @@ struct AggregateFunctionArrayAggData {
         auto& to_arr = assert_cast<ColumnArray&>(to);
         auto& to_nested_col = to_arr.get_data();
         auto* col_null = assert_cast<ColumnNullable*>(&to_nested_col);
-        auto& vec = assert_cast<ColVecType&>(col_null->get_nested_column()).get_data();
+        auto& vec = aggregate_array_agg_writable_data(
+                assert_cast<ColVecType&>(col_null->get_nested_column()));
         size_t num_rows = null_map->size();
-        auto& nested_column_data = nested_column->get_data();
+        auto nested_column_data = nested_column->get_data();
         for (size_t i = 0; i < num_rows; ++i) {
             col_null->get_null_map_data().push_back((*null_map)[i]);
             vec.push_back(nested_column_data[i]);
@@ -121,7 +134,7 @@ struct AggregateFunctionArrayAggData {
         ElementType data_value;
         for (size_t i = 0; i < size; i++) {
             buf.read_binary(data_value);
-            nested_column->get_data().push_back(data_value);
+            aggregate_array_agg_writable_data(*nested_column).push_back(data_value);
         }
     }
 
@@ -381,12 +394,12 @@ public:
                 vec.insert_from(col_src.get_nested_column(), i);
             } else {
                 using ColVecType = typename PrimitiveTypeTraits<Data::PType>::ColumnType;
-                auto& vec = assert_cast<ColVecType&, TypeCheckOnRelease::DISABLE>(
-                                    col_null->get_nested_column())
-                                    .get_data();
-                auto& vec_src = assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(
-                                        col_src.get_nested_column())
-                                        .get_data();
+                auto& vec = aggregate_array_agg_writable_data(
+                        assert_cast<ColVecType&, TypeCheckOnRelease::DISABLE>(
+                                col_null->get_nested_column()));
+                const auto vec_src = assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(
+                                             col_src.get_nested_column())
+                                             .get_data();
                 vec.push_back(vec_src[i]);
             }
             to_arr.get_offsets().push_back(to_nested_col.size());

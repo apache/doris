@@ -346,7 +346,7 @@ Status HashJoinProbeLocalState::_extract_join_column(Block& block,
         if (!_null_map_column) {
             _null_map_column = ColumnUInt8::create();
         }
-        _null_map_column->get_data().assign(block.rows(), (uint8_t)0);
+        _null_map_column->get_data_mutable().assign(block.rows(), (uint8_t)0);
     }
 
     auto& shared_state = *_shared_state;
@@ -370,7 +370,7 @@ Status HashJoinProbeLocalState::_extract_join_column(Block& block,
             const auto& col_nested = nullable->get_nested_column();
             const auto& col_nullmap = nullable->get_null_map_data();
             DCHECK(_null_map_column);
-            VectorizedUtils::update_null_map(_null_map_column->get_data(), col_nullmap);
+            VectorizedUtils::update_null_map(_null_map_column->get_data_mutable(), col_nullmap);
             _probe_columns[i] = &col_nested;
         } else {
             _probe_columns[i] = column;

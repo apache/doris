@@ -65,9 +65,9 @@ public:
         }
         auto col_to = ToDataType::ColumnType::create(input_rows_count);
         const auto& vec_from = col_from->get_data();
-        auto& vec_to = col_to->get_data();
+        auto& vec_to = col_to->get_data_mutable();
         ColumnBool::MutablePtr col_null_map_to = ColumnBool::create(input_rows_count, 0);
-        NullMap::value_type* vec_null_map_to = col_null_map_to->get_data().data();
+        NullMap::value_type* vec_null_map_to = col_null_map_to->get_data_mutable().data();
 
         CastParameters params;
         params.is_strict = (CastMode == CastModeType::StrictMode);
@@ -164,14 +164,14 @@ public:
         auto col_to = ToDataType::ColumnType::create(input_rows_count);
         const auto& vec_from = col_from->get_data();
         const auto* vec_from_data = vec_from.data();
-        auto& vec_to = col_to->get_data();
+        auto& vec_to = col_to->get_data_mutable();
         auto* vec_to_data = vec_to.data();
 
         ColumnUInt8::MutablePtr col_null_map_to;
         NullMap::value_type* null_map_data = nullptr;
         if (overflow_and_nullable) {
             col_null_map_to = ColumnUInt8::create(input_rows_count, 0);
-            null_map_data = col_null_map_to->get_data().data();
+            null_map_data = col_null_map_to->get_data_mutable().data();
         }
 
         CastParameters params;

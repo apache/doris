@@ -314,7 +314,7 @@ TEST(VGeoFunctionsTest, function_geo_st_geometries_multipolygon) {
     // Get the array column and check it has 2 elements
     auto& nested_col = nullable_col->get_nested_column();
     auto* array_col = assert_cast<const ColumnArray*>(&nested_col);
-    auto& offsets = array_col->get_offsets();
+    const auto offsets = array_col->get_offsets();
     EXPECT_EQ(offsets[0], 2); // 2 polygons in the array
 
     static_cast<void>(func->close(fn_ctx, FunctionContext::THREAD_LOCAL));
@@ -445,7 +445,7 @@ TEST(VGeoFunctionsTest, function_geo_st_geometries_single_polygon) {
     // Get the array column and check it has 1 element
     auto& nested_col = nullable_col->get_nested_column();
     auto* array_col = assert_cast<const ColumnArray*>(&nested_col);
-    auto& offsets = array_col->get_offsets();
+    const auto offsets = array_col->get_offsets();
     EXPECT_EQ(offsets[0], 1); // 1 polygon in the array
 
     static_cast<void>(func->close(fn_ctx, FunctionContext::THREAD_LOCAL));

@@ -121,7 +121,7 @@ protected:
         PaddedPODArray<Int32>& column_data =
                 doris_column->is_column_dictionary()
                         ? assert_cast<ColumnDictI32&>(*doris_column).get_data()
-                        : assert_cast<ColumnInt32&>(*doris_column).get_data();
+                        : assert_cast<ColumnInt32&>(*doris_column).get_data_mutable();
         while (size_t run_length = select_vector.get_next_run<has_filter>(&read_type)) {
             switch (read_type) {
             case ColumnSelectVector::CONTENT: {

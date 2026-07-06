@@ -172,7 +172,7 @@ public:
 
     void get(IColumn& to) const {
         auto& column = assert_cast<ColumnInt64&>(to);
-        column.get_data().emplace_back(AggOrthBitmapBaseData<T>::bitmap.intersect_count());
+        column.get_data_mutable().emplace_back(AggOrthBitmapBaseData<T>::bitmap.intersect_count());
     }
 };
 
@@ -209,8 +209,8 @@ public:
 
     void get(IColumn& to) const {
         auto& column = assert_cast<ColumnInt64&>(to);
-        column.get_data().emplace_back(result ? result
-                                              : AggOrthBitmapBaseData<T>::bitmap.intersect_count());
+        column.get_data_mutable().emplace_back(
+                result ? result : AggOrthBitmapBaseData<T>::bitmap.intersect_count());
     }
 
 private:
@@ -322,8 +322,8 @@ public:
 
     void get(IColumn& to) const {
         auto& column = assert_cast<ColumnInt64&>(to);
-        column.get_data().emplace_back(result ? result
-                                              : this->bitmap_expr_cal.bitmap_calculate_count());
+        column.get_data_mutable().emplace_back(
+                result ? result : this->bitmap_expr_cal.bitmap_calculate_count());
     }
 
     void reset() {
@@ -358,7 +358,7 @@ struct OrthBitmapUnionCountData {
 
     void get(IColumn& to) const {
         auto& column = assert_cast<ColumnInt64&>(to);
-        column.get_data().emplace_back(result ? result : value.cardinality());
+        column.get_data_mutable().emplace_back(result ? result : value.cardinality());
     }
 
     void reset() {

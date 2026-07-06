@@ -381,7 +381,7 @@ Status static_cast_no_overflow(FunctionContext* context, Block& block,
     }
     auto col_to = ToDataType::ColumnType::create(input_rows_count);
     const auto& vec_from = col_from->get_data();
-    auto& vec_to = col_to->get_data();
+    auto& vec_to = col_to->get_data_mutable();
 
     CastParameters params;
     for (size_t i = 0; i < input_rows_count; ++i) {

@@ -527,10 +527,10 @@ private:
     template <typename ColumnType>
     void _execute_column_comparison(const IColumn& map_entry_column, const UInt8* map_entry_nullmap,
                                     const IColumn& search_column, const UInt8* search_nullmap,
-                                    const ColumnArray::Offsets64& map_offsets,
+                                    ColumnArray::Offsets64View map_offsets,
                                     const UInt8* map_row_nullmap, bool search_is_const,
                                     ColumnUInt8& result_matches) const {
-        auto& result_data = result_matches.get_data();
+        auto& result_data = result_matches.get_data_mutable();
         for (size_t row = 0; row < map_offsets.size(); ++row) {
             if (map_row_nullmap && map_row_nullmap[row]) {
                 continue;
@@ -553,7 +553,7 @@ private:
     void _dispatch_column_comparison(PrimitiveType type, const IColumn& map_entry_column,
                                      const UInt8* map_entry_nullmap, const IColumn& search_column,
                                      const UInt8* search_nullmap,
-                                     const ColumnArray::Offsets64& map_offsets,
+                                     ColumnArray::Offsets64View map_offsets,
                                      const UInt8* map_row_nullmap, bool search_is_const,
                                      ColumnUInt8& result_matches) const {
         auto call = [&](const auto& type) -> bool {
@@ -593,7 +593,7 @@ private:
                 map_values_nullable.get_null_map_column().get_data().data();
 
         auto result_column = ColumnUInt8::create(map_offsets.size(), 0);
-        auto& result_data = result_column->get_data();
+        auto& result_data = result_column->get_data_mutable();
 
         const UInt8* map_row_nullmap = nullptr;
         if (map_row_nullmap_col) {
@@ -614,7 +614,7 @@ private:
                                     value_is_const, *matches);
 
         // aggregate results by map boundaries
-        auto& matches_data = matches->get_data();
+        const auto matches_data = matches->get_data();
         for (size_t row = 0; row < map_offsets.size(); ++row) {
             if (map_row_nullmap && map_row_nullmap[row]) {
                 // result is null for this row

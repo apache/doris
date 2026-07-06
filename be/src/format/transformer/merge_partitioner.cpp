@@ -223,7 +223,7 @@ Status MergePartitioner::do_partitioning(RuntimeState* state, Block* block) cons
         if (op_values_col == nullptr) {
             return Status::InternalError("Merge operation column must be tinyint");
         }
-        auto& op_values = op_values_col->get_data();
+        auto& op_values = op_values_col->get_data_mutable();
         // First pass: collect update row indices and mark original rows as DELETE.
         std::vector<size_t> update_rows;
         for (size_t row = 0; row < rows; ++row) {

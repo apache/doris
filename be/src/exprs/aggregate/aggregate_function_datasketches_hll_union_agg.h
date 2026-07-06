@@ -204,7 +204,8 @@ public:
         this->data(place).read(buf);
     }
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
-        assert_cast<ColumnFloat64&>(to).get_data().push_back(this->data(place).get_result());
+        assert_cast<ColumnFloat64&>(to).get_data_mutable().push_back(
+                this->data(place).get_result());
     }
 
 private:

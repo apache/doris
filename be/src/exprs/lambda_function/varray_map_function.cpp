@@ -57,7 +57,7 @@ struct LambdaArgs {
     // the size of the array
     int64_t cur_size = 0;
     // offset of column array
-    const ColumnArray::Offsets64* offsets_ptr = nullptr;
+    ColumnArray::Offsets64View offsets;
     // expend data of repeat times
     int current_repeat_times = 0;
     // whether the current row of the original block has been extended
@@ -147,7 +147,7 @@ public:
                                      ->get_nested_type();
 
                 // need to union nullmap from all columns
-                VectorizedUtils::update_null_map(outside_null_map->get_data(),
+                VectorizedUtils::update_null_map(outside_null_map->get_data_mutable(),
                                                  column_array_nullmap->get_data());
             }
 
@@ -160,7 +160,7 @@ public:
                 first_array_offsets = col_array.get_offsets_ptr();
                 const auto& off_data = col_array.get_offsets_column();
                 array_column_offset = off_data.clone_resized(col_array.get_offsets_column().size());
-                args_info.offsets_ptr = &col_array.get_offsets();
+                args_info.offsets = col_array.get_offsets();
             } else {
                 // select array_map((x,y)->x+y,c_array1,[0,1,2,3]) from array_test2;
                 // c_array1: [0,1,2,3,4,5,6,7,8,9]
@@ -217,9 +217,8 @@ public:
         DataTypePtr res_type;
 
         //process first row
-        args_info.array_start = (*args_info.offsets_ptr)[args_info.current_row_idx - 1];
-        args_info.cur_size =
-                (*args_info.offsets_ptr)[args_info.current_row_idx] - args_info.array_start;
+        args_info.array_start = args_info.offsets[args_info.current_row_idx - 1];
+        args_info.cur_size = args_info.offsets[args_info.current_row_idx] - args_info.array_start;
 
         // lambda block to exectute the lambda, and reuse the memory
         Block lambda_block;
@@ -267,9 +266,9 @@ public:
                         break;
                     }
                     args_info.current_row_eos = false;
-                    args_info.array_start = (*args_info.offsets_ptr)[args_info.current_row_idx - 1];
-                    args_info.cur_size = (*args_info.offsets_ptr)[args_info.current_row_idx] -
-                                         args_info.array_start;
+                    args_info.array_start = args_info.offsets[args_info.current_row_idx - 1];
+                    args_info.cur_size =
+                            args_info.offsets[args_info.current_row_idx] - args_info.array_start;
                 }
             }
 

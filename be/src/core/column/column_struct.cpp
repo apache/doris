@@ -280,6 +280,10 @@ void ColumnStruct::insert_indices_from(const IColumn& src, const uint32_t* indic
 }
 
 void ColumnStruct::insert_many_from(const IColumn& src, size_t position, size_t length) {
+    if (length == 0) {
+        return;
+    }
+
     const auto& src_concrete = assert_cast<const ColumnStruct&>(src);
     for (size_t i = 0; i < columns.size(); ++i) {
         columns[i]->insert_many_from(src_concrete.get_column(i), position, length);

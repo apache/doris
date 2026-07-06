@@ -211,11 +211,11 @@ public:
                                      doris::ColumnUInt8::Container& results,
                                      const uint8_t* __restrict filter = nullptr) = 0;
     virtual void find_batch_nullable(const doris::IColumn& column, size_t rows,
-                                     const doris::NullMap& null_map,
+                                     doris::NullMapView null_map,
                                      doris::ColumnUInt8::Container& results,
                                      const uint8_t* __restrict filter = nullptr) = 0;
     virtual void find_batch_nullable_negative(const doris::IColumn& column, size_t rows,
-                                              const doris::NullMap& null_map,
+                                              doris::NullMapView null_map,
                                               doris::ColumnUInt8::Container& results,
                                               const uint8_t* __restrict filter = nullptr) = 0;
 
@@ -309,21 +309,21 @@ public:
         _find_batch<false, true>(column, rows, nullptr, results, filter);
     }
 
-    void find_batch_nullable(const doris::IColumn& column, size_t rows,
-                             const doris::NullMap& null_map, doris::ColumnUInt8::Container& results,
+    void find_batch_nullable(const doris::IColumn& column, size_t rows, doris::NullMapView null_map,
+                             doris::ColumnUInt8::Container& results,
                              const uint8_t* __restrict filter = nullptr) override {
         _find_batch<true, false>(column, rows, &null_map, results, filter);
     }
 
     void find_batch_nullable_negative(const doris::IColumn& column, size_t rows,
-                                      const doris::NullMap& null_map,
+                                      doris::NullMapView null_map,
                                       doris::ColumnUInt8::Container& results,
                                       const uint8_t* __restrict filter = nullptr) override {
         _find_batch<true, true>(column, rows, &null_map, results, filter);
     }
 
     template <bool is_nullable, bool is_negative>
-    void _find_batch(const doris::IColumn& column, size_t rows, const doris::NullMap* null_map,
+    void _find_batch(const doris::IColumn& column, size_t rows, const doris::NullMapView* null_map,
                      doris::ColumnUInt8::Container& results, const uint8_t* __restrict filter) {
         auto& col = assert_cast<const ColumnType&>(column);
         const auto* __restrict data = (ElementType*)col.get_data().data();
@@ -508,21 +508,21 @@ public:
         _find_batch<false, true>(column, rows, nullptr, results, filter);
     }
 
-    void find_batch_nullable(const doris::IColumn& column, size_t rows,
-                             const doris::NullMap& null_map, doris::ColumnUInt8::Container& results,
+    void find_batch_nullable(const doris::IColumn& column, size_t rows, doris::NullMapView null_map,
+                             doris::ColumnUInt8::Container& results,
                              const uint8_t* __restrict filter = nullptr) override {
         _find_batch<true, false>(column, rows, &null_map, results, filter);
     }
 
     void find_batch_nullable_negative(const doris::IColumn& column, size_t rows,
-                                      const doris::NullMap& null_map,
+                                      doris::NullMapView null_map,
                                       doris::ColumnUInt8::Container& results,
                                       const uint8_t* __restrict filter = nullptr) override {
         _find_batch<true, true>(column, rows, &null_map, results, filter);
     }
 
     template <bool is_nullable, bool is_negative>
-    void _find_batch(const doris::IColumn& column, size_t rows, const doris::NullMap* null_map,
+    void _find_batch(const doris::IColumn& column, size_t rows, const doris::NullMapView* null_map,
                      doris::ColumnUInt8::Container& results, const uint8_t* __restrict filter) {
         const auto& col = assert_cast<const doris::ColumnString&>(column);
         const uint8_t* __restrict null_map_data;
@@ -710,21 +710,21 @@ public:
         _find_batch<false, true>(column, rows, nullptr, results, filter);
     }
 
-    void find_batch_nullable(const doris::IColumn& column, size_t rows,
-                             const doris::NullMap& null_map, doris::ColumnUInt8::Container& results,
+    void find_batch_nullable(const doris::IColumn& column, size_t rows, doris::NullMapView null_map,
+                             doris::ColumnUInt8::Container& results,
                              const uint8_t* __restrict filter) override {
         _find_batch<true, false>(column, rows, &null_map, results, filter);
     }
 
     void find_batch_nullable_negative(const doris::IColumn& column, size_t rows,
-                                      const doris::NullMap& null_map,
+                                      doris::NullMapView null_map,
                                       doris::ColumnUInt8::Container& results,
                                       const uint8_t* __restrict filter) override {
         _find_batch<true, true>(column, rows, &null_map, results, filter);
     }
 
     template <bool is_nullable, bool is_negative>
-    void _find_batch(const doris::IColumn& column, size_t rows, const doris::NullMap* null_map,
+    void _find_batch(const doris::IColumn& column, size_t rows, const doris::NullMapView* null_map,
                      doris::ColumnUInt8::Container& results, const uint8_t* __restrict filter) {
         const auto& col = assert_cast<const doris::ColumnString&>(column);
         const auto& offset = col.get_offsets();

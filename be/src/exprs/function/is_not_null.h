@@ -79,7 +79,7 @@ public:
             /// Return the negated null map.
             auto res_column = ColumnUInt8::create(input_rows_count);
             const auto* __restrict src_data = nullable->get_null_map_data().data();
-            auto* __restrict res_data = res_column->get_data().data();
+            auto* __restrict res_data = res_column->get_data_mutable().data();
 
             for (size_t i = 0; i < input_rows_count; ++i) {
                 res_data[i] = !src_data[i];

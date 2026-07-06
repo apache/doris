@@ -98,7 +98,7 @@ private:
         array_nested_column->reserve(array_data_column.size());
 
         auto dst_offsets_column = ColumnArray::ColumnOffsets::create();
-        auto& dst_offsets = dst_offsets_column->get_data();
+        auto& dst_offsets = dst_offsets_column->get_data_mutable();
         dst_offsets.reserve(array_view.size());
 
         size_t cur = 0;
@@ -128,7 +128,7 @@ private:
         }
 
         auto dst_null_column = ColumnUInt8::create(array_view.size(), 0);
-        auto& dst_null_map = dst_null_column->get_data();
+        auto& dst_null_map = dst_null_column->get_data_mutable();
         for (size_t row = 0; row < array_view.size(); ++row) {
             dst_null_map[row] = array_view.is_null_at(row);
         }

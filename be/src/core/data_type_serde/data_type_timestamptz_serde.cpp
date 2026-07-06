@@ -114,6 +114,8 @@ Status DataTypeTimeStampTzSerDe::from_string_batch(const ColumnString& col_str,
     auto& col_nullmap = col_res.get_null_map_column();
     size_t row = col_str.size();
     col_res.resize(row);
+    auto& data_values = col_data.get_data_mutable();
+    auto& nullmap_values = col_nullmap.get_data_mutable();
 
     CastParameters params {.status = Status::OK(), .is_strict = false};
     for (size_t i = 0; i < row; ++i) {
@@ -121,11 +123,11 @@ Status DataTypeTimeStampTzSerDe::from_string_batch(const ColumnString& col_str,
         TimestampTzValue res;
         if (!CastToTimestampTz::from_string(str, res, params, options.timezone, _scale))
                 [[unlikely]] {
-            col_nullmap.get_data()[i] = true;
-            col_data.get_data()[i] = TimestampTzValue(TimestampTzValue::default_column_value());
+            nullmap_values[i] = true;
+            data_values[i] = TimestampTzValue(TimestampTzValue::default_column_value());
         } else {
-            col_nullmap.get_data()[i] = false;
-            col_data.get_data()[i] = res;
+            nullmap_values[i] = false;
+            data_values[i] = res;
         }
     }
     return Status::OK();
@@ -155,6 +157,7 @@ Status DataTypeTimeStampTzSerDe::from_string_strict_mode_batch(
     size_t row = col_str.size();
     col_res.resize(row);
     auto& col_data = assert_cast<ColumnTimeStampTz&>(col_res);
+    auto& data_values = col_data.get_data_mutable();
 
     CastParameters params {.status = Status::OK(), .is_strict = true};
     for (size_t i = 0; i < row; ++i) {
@@ -171,7 +174,7 @@ Status DataTypeTimeStampTzSerDe::from_string_strict_mode_batch(
             return params.status;
         }
 
-        col_data.get_data()[i] = res;
+        data_values[i] = res;
     }
     return Status::OK();
 }
@@ -240,7 +243,7 @@ Status DataTypeTimeStampTzSerDe::write_column_to_mysql_binary(const IColumn& col
 }
 
 Status DataTypeTimeStampTzSerDe::write_column_to_arrow(const IColumn& column,
-                                                       const NullMap* null_map,
+                                                       const NullMapView* null_map,
                                                        arrow::ArrayBuilder* array_builder,
                                                        int64_t start, int64_t end,
                                                        const cctz::time_zone& ctz) const {
@@ -273,7 +276,8 @@ Status DataTypeTimeStampTzSerDe::write_column_to_arrow(const IColumn& column,
 }
 
 Status DataTypeTimeStampTzSerDe::write_column_to_orc(const std::string& timezone,
-                                                     const IColumn& column, const NullMap* null_map,
+                                                     const IColumn& column,
+                                                     const NullMapView* null_map,
                                                      orc::ColumnVectorBatch* orc_col_batch,
                                                      int64_t start, int64_t end, Arena& arena,
                                                      const FormatOptions& options) const {
@@ -307,7 +311,7 @@ Status DataTypeTimeStampTzSerDe::read_column_from_decoded_values(
         return Status::Corruption("Decoded value buffer is null for {}", column.get_name());
     }
 
-    auto& data = assert_cast<ColumnTimeStampTz&>(column).get_data();
+    auto& data = assert_cast<ColumnTimeStampTz&>(column).get_data_mutable();
     if (view.value_kind == DecodedValueKind::INT96) {
         const auto* values = reinterpret_cast<const DecodedInt96Timestamp*>(view.values);
         for (int64_t row = 0; row < view.row_count; ++row) {

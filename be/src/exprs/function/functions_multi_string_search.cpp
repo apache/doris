@@ -107,8 +107,8 @@ public:
         auto col_res = ColumnVector<Impl::ResultPType>::create();
         auto col_offsets = ColumnArray::ColumnOffsets::create();
 
-        auto& vec_res = col_res->get_data();
-        auto& offsets_res = col_offsets->get_data();
+        auto& vec_res = col_res->get_data_mutable();
+        auto& offsets_res = col_offsets->get_data_mutable();
 
         Status status;
         if (col_needles_const) {
@@ -283,7 +283,7 @@ struct FunctionMultiMatchAnyImpl {
     static Status vector_vector(const ColumnString::Chars& haystack_data,
                                 const ColumnString::Offsets& haystack_offsets,
                                 const IColumn& needles_data,
-                                const ColumnArray::Offsets64& needles_offsets,
+                                ColumnArray::Offsets64View needles_offsets,
                                 PaddedPODArray<ResultType>& res, PaddedPODArray<UInt64>& offsets,
                                 bool allow_hyperscan, size_t max_hyperscan_regexp_length,
                                 size_t max_hyperscan_regexp_total_length) {

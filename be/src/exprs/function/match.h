@@ -78,7 +78,7 @@ public:
                                  const std::string& match_query_str, size_t input_rows_count,
                                  const ColumnString* string_col,
                                  const InvertedIndexAnalyzerCtx* analyzer_ctx,
-                                 const ColumnArray::Offsets64* array_offsets,
+                                 ColumnArray::Offsets64View array_offsets,
                                  ColumnUInt8::Container& result) const = 0;
 
     doris::segment_v2::InvertedIndexQueryType get_query_type_from_fn_name() const;
@@ -91,7 +91,7 @@ public:
                                              const InvertedIndexAnalyzerCtx* analyzer_ctx,
                                              const ColumnString* string_col,
                                              int32_t current_block_row_idx,
-                                             const ColumnArray::Offsets64* array_offsets,
+                                             ColumnArray::Offsets64View array_offsets,
                                              int32_t& current_src_array_offset) const;
 
     Status check(FunctionContext* context, const std::string& function_name) const;
@@ -115,7 +115,7 @@ public:
                          const std::string& match_query_str, size_t input_rows_count,
                          const ColumnString* string_col,
                          const InvertedIndexAnalyzerCtx* analyzer_ctx,
-                         const ColumnArray::Offsets64* array_offsets,
+                         ColumnArray::Offsets64View array_offsets,
                          ColumnUInt8::Container& result) const override;
 };
 
@@ -130,7 +130,7 @@ public:
                          const std::string& match_query_str, size_t input_rows_count,
                          const ColumnString* string_col,
                          const InvertedIndexAnalyzerCtx* analyzer_ctx,
-                         const ColumnArray::Offsets64* array_offsets,
+                         ColumnArray::Offsets64View array_offsets,
                          ColumnUInt8::Container& result) const override;
 };
 
@@ -145,7 +145,7 @@ public:
                          const std::string& match_query_str, size_t input_rows_count,
                          const ColumnString* string_col,
                          const InvertedIndexAnalyzerCtx* analyzer_ctx,
-                         const ColumnArray::Offsets64* array_offsets,
+                         ColumnArray::Offsets64View array_offsets,
                          ColumnUInt8::Container& result) const override;
 };
 
@@ -160,7 +160,7 @@ public:
                          const std::string& match_query_str, size_t input_rows_count,
                          const ColumnString* string_col,
                          const InvertedIndexAnalyzerCtx* analyzer_ctx,
-                         const ColumnArray::Offsets64* array_offsets,
+                         ColumnArray::Offsets64View array_offsets,
                          ColumnUInt8::Container& result) const override;
 };
 
@@ -175,7 +175,7 @@ public:
                          const std::string& match_query_str, size_t input_rows_count,
                          const ColumnString* string_col,
                          const InvertedIndexAnalyzerCtx* analyzer_ctx,
-                         const ColumnArray::Offsets64* array_offsets,
+                         ColumnArray::Offsets64View array_offsets,
                          ColumnUInt8::Container& result) const override;
 };
 
@@ -190,7 +190,7 @@ public:
                          const std::string& match_query_str, size_t input_rows_count,
                          const ColumnString* string_col,
                          const InvertedIndexAnalyzerCtx* analyzer_ctx,
-                         const ColumnArray::Offsets64* array_offsets,
+                         ColumnArray::Offsets64View array_offsets,
                          ColumnUInt8::Container& result) const override;
 };
 

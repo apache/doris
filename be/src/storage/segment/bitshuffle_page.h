@@ -393,7 +393,9 @@ public:
 
         size_t max_fetch = std::min(*n, _num_elements - _cur_index);
 
-        dst->insert_many_fix_len_data(get_data(_cur_index), max_fetch);
+        // Pass the page owner with the contiguous fixed-width range. ColumnVector can borrow this
+        // read-only page memory when safe; other columns fall back to the normal copy path.
+        dst->insert_many_fix_len_data_with_owner(get_data(_cur_index), max_fetch, _page_data_owner);
         *n = max_fetch;
         if constexpr (forward_index) {
             _cur_index += max_fetch;

@@ -97,8 +97,8 @@ private:
                 assert_cast<const typename Impl::ColumnType*>(column_left.get());
         auto column_result = Impl::ColumnType::create(column_left->size());
 
-        auto& a = column_left_ptr->get_data();
-        auto& c = column_result->get_data();
+        const auto a = column_left_ptr->get_data();
+        auto& c = column_result->get_data_mutable();
         size_t size = a.size();
         for (size_t i = 0; i < size; ++i) {
             c[i] = Impl::apply(a[i], column_right_ptr->template get_value<Impl::ArgPType>());
@@ -113,8 +113,8 @@ private:
                 assert_cast<const typename Impl::ColumnType*>(column_right.get());
         auto column_result = Impl::ColumnType::create(column_right->size());
 
-        auto& b = column_right_ptr->get_data();
-        auto& c = column_result->get_data();
+        const auto b = column_right_ptr->get_data();
+        auto& c = column_result->get_data_mutable();
         size_t size = b.size();
         for (size_t i = 0; i < size; ++i) {
             c[i] = Impl::apply(column_left_ptr->template get_value<Impl::ArgPType>(), b[i]);
@@ -130,9 +130,9 @@ private:
 
         auto column_result = Impl::ColumnType::create(column_left->size());
 
-        auto& a = column_left_ptr->get_data();
-        auto& b = column_right_ptr->get_data();
-        auto& c = column_result->get_data();
+        const auto a = column_left_ptr->get_data();
+        const auto b = column_right_ptr->get_data();
+        auto& c = column_result->get_data_mutable();
         size_t size = a.size();
         for (size_t i = 0; i < size; ++i) {
             c[i] = Impl::apply(a[i], b[i]);

@@ -284,17 +284,20 @@ public:
             const uint8_t* __restrict other_data_column = rhs_data_column;
             if (lhs_column->use_count() == 1) {
                 mutable_result_column = IColumn::mutate(std::move(lhs_column));
-                result_data_column =
-                        assert_cast<ColumnUInt8*>(mutable_result_column.get())->get_data().data();
+                result_data_column = assert_cast<ColumnUInt8*>(mutable_result_column.get())
+                                             ->get_data_mutable()
+                                             .data();
             } else if (rhs_column->use_count() == 1) {
                 mutable_result_column = IColumn::mutate(std::move(rhs_column));
-                result_data_column =
-                        assert_cast<ColumnUInt8*>(mutable_result_column.get())->get_data().data();
+                result_data_column = assert_cast<ColumnUInt8*>(mutable_result_column.get())
+                                             ->get_data_mutable()
+                                             .data();
                 other_data_column = lhs_data_column;
             } else {
                 mutable_result_column = lhs_column->clone_resized(size);
-                result_data_column =
-                        assert_cast<ColumnUInt8*>(mutable_result_column.get())->get_data().data();
+                result_data_column = assert_cast<ColumnUInt8*>(mutable_result_column.get())
+                                             ->get_data_mutable()
+                                             .data();
             }
 
             do_not_null_pred<is_and_op>(result_data_column, other_data_column, size);
@@ -304,8 +307,8 @@ public:
             auto col_res = ColumnUInt8::create(size);
             auto col_nulls = ColumnUInt8::create(size);
 
-            auto* __restrict res_datas = col_res->get_data().data();
-            auto* __restrict res_nulls = col_nulls->get_data().data();
+            auto* __restrict res_datas = col_res->get_data_mutable().data();
+            auto* __restrict res_nulls = col_nulls->get_data_mutable().data();
             ColumnPtr temp_null_map = nullptr;
             // maybe both children are nullable / or one of children is nullable
             auto* __restrict lhs_null_map_tmp = create_null_map_column(temp_null_map, lhs_null_map);

@@ -58,6 +58,18 @@ inline IColumn* get_mutable_inner_col(MutableColumnPtr& dst_col) {
     }
 }
 
+template <typename Column>
+decltype(auto) converter_writable_data(Column& column) {
+    // Converters append or overwrite destination values after get_mutable_inner_col() has picked an
+    // exclusively-owned column. ColumnVector destinations still need to materialize page-backed
+    // buffers before exposing mutable data; Decimal destinations keep the old writable get_data().
+    if constexpr (requires { column.get_data_mutable(); }) {
+        return column.get_data_mutable();
+    } else {
+        return column.get_data();
+    }
+}
+
 template <PrimitiveType type>
 constexpr bool is_decimal_type() {
     return type == TYPE_DECIMALV2 || type == TYPE_DECIMAL32 || type == TYPE_DECIMAL64 ||
@@ -183,10 +195,10 @@ public:
         IColumn* to_col = get_mutable_inner_col(dst_col);
 
         size_t rows = from_col->size();
-        auto& src_data = static_cast<const SrcColumnType*>(from_col.get())->get_data();
+        const auto& src_data = static_cast<const SrcColumnType*>(from_col.get())->get_data();
         size_t start_idx = to_col->size();
         to_col->resize(start_idx + rows);
-        auto& data = static_cast<DstColumnType&>(*to_col).get_data();
+        auto& data = converter_writable_data(static_cast<DstColumnType&>(*to_col));
         for (int i = 0; i < rows; ++i) {
             if constexpr (sizeof(DstCppType) < sizeof(SrcCppType)) {
                 SrcCppType src_value = src_data[i];
@@ -235,10 +247,10 @@ public:
         }
 
         size_t rows = from_col->size();
-        auto& src_data = static_cast<const SrcColumnType*>(from_col.get())->get_data();
+        const auto& src_data = static_cast<const SrcColumnType*>(from_col.get())->get_data();
         size_t start_idx = to_col->size();
         to_col->resize(start_idx + rows);
-        auto& data = static_cast<DstColumnType&>(*to_col).get_data();
+        auto& data = converter_writable_data(static_cast<DstColumnType&>(*to_col));
         for (int i = 0; i < rows; ++i) {
             SrcCppType src_value = src_data[i];
             if constexpr (is_integer_type<SrcPrimitiveType>()) {
@@ -266,7 +278,7 @@ public:
         IColumn* to_col = get_mutable_inner_col(dst_col);
 
         size_t rows = from_col->size();
-        auto& src_data = static_cast<const SrcColumnType*>(from_col.get())->get_data();
+        const auto& src_data = static_cast<const SrcColumnType*>(from_col.get())->get_data();
         auto& string_col = static_cast<ColumnString&>(*to_col);
         for (int i = 0; i < rows; ++i) {
             std::string value = src_data[i] != 0 ? "TRUE" : "FALSE";
@@ -293,7 +305,7 @@ public:
 
         size_t rows = from_col->size();
         size_t start_idx = to_col->size();
-        auto& src_data = static_cast<const SrcColumnType*>(from_col.get())->get_data();
+        const auto& src_data = static_cast<const SrcColumnType*>(from_col.get())->get_data();
         auto& string_col = static_cast<ColumnString&>(*to_col);
         for (int i = 0; i < rows; ++i) {
             if constexpr (SrcPrimitiveType == TYPE_FLOAT || SrcPrimitiveType == TYPE_DOUBLE) {
@@ -336,7 +348,7 @@ public:
         IColumn* to_col = get_mutable_inner_col(dst_col);
 
         size_t rows = from_col->size();
-        auto& src_data = static_cast<const SrcColumnType*>(from_col.get())->get_data();
+        const auto& src_data = static_cast<const SrcColumnType*>(from_col.get())->get_data();
         auto& string_col = static_cast<ColumnString&>(*to_col);
         for (int i = 0; i < rows; ++i) {
             std::string value = src_data[i].to_string(_scale);
@@ -357,7 +369,7 @@ public:
         IColumn* to_col = get_mutable_inner_col(dst_col);
 
         size_t rows = from_col->size();
-        auto& src_data = static_cast<const SrcColumnType*>(from_col.get())->get_data();
+        const auto& src_data = static_cast<const SrcColumnType*>(from_col.get())->get_data();
         auto& string_col = static_cast<ColumnString&>(*to_col);
         char buf[50];
         for (int i = 0; i < rows; ++i) {
@@ -598,7 +610,7 @@ public:
         size_t rows = string_col->size();
         size_t start_idx = to_col->size();
         to_col->resize(start_idx + rows);
-        auto& data = assert_cast<DstColumnType*>(to_col)->get_data();
+        auto& data = converter_writable_data(*assert_cast<DstColumnType*>(to_col));
         CastParameters params;
         for (int i = 0; i < rows; ++i) {
             bool can_cast = false;
@@ -654,7 +666,7 @@ public:
         const auto& src_data = static_cast<const SrcColumnType*>(from_col.get())->get_data();
         size_t start_idx = to_col->size();
         to_col->resize(start_idx + rows);
-        auto& data = static_cast<DstColumnType&>(*to_col).get_data();
+        auto& data = converter_writable_data(static_cast<DstColumnType&>(*to_col));
 
         for (int i = 0; i < rows; ++i) {
             const SrcCppType& src_value = src_data[i];
@@ -698,10 +710,10 @@ public:
         IColumn* to_col = get_mutable_inner_col(dst_col);
 
         size_t rows = from_col->size();
-        auto& src_data = static_cast<const SrcColumnType*>(from_col.get())->get_data();
+        const auto& src_data = static_cast<const SrcColumnType*>(from_col.get())->get_data();
         size_t start_idx = to_col->size();
         to_col->resize(start_idx + rows);
-        auto& data = static_cast<DstColumnType&>(*to_col).get_data();
+        auto& data = converter_writable_data(static_cast<DstColumnType&>(*to_col));
         for (int i = 0; i < rows; ++i) {
             const auto& src_value = reinterpret_cast<const SrcCppType&>(src_data[i]);
             auto& dst_value = reinterpret_cast<DstCppType&>(data[start_idx + i]);
@@ -741,10 +753,10 @@ public:
         }
 
         size_t rows = from_col->size();
-        auto& src_data = static_cast<const SrcColumnType*>(from_col.get())->get_data();
+        const auto& src_data = static_cast<const SrcColumnType*>(from_col.get())->get_data();
         size_t start_idx = to_col->size();
         to_col->resize(start_idx + rows);
-        auto& data = static_cast<DstColumnType&>(*to_col).get_data();
+        auto& data = converter_writable_data(static_cast<DstColumnType&>(*to_col));
 
         auto max_result = DataTypeDecimal<DstPrimitiveType>::get_max_digits_number(_precision);
         auto multiplier = DataTypeDecimal<DstPrimitiveType>::get_scale_multiplier(_scale);
@@ -822,10 +834,10 @@ public:
         IColumn* to_col = get_mutable_inner_col(dst_col);
 
         size_t rows = from_col->size();
-        auto& src_data = static_cast<const SrcColumnType*>(from_col.get())->get_data();
+        const auto& src_data = static_cast<const SrcColumnType*>(from_col.get())->get_data();
         size_t start_idx = to_col->size();
         to_col->resize(start_idx + rows);
-        auto& data = static_cast<DstColumnType&>(*to_col).get_data();
+        auto& data = converter_writable_data(static_cast<DstColumnType&>(*to_col));
 
         NullMap* null_map = nullptr;
         if (is_column_nullable(*dst_col)) {
@@ -907,10 +919,10 @@ public:
         IColumn* to_col = get_mutable_inner_col(dst_col);
 
         size_t rows = from_col->size();
-        auto& src_data = static_cast<const SrcColumnType*>(from_col.get())->get_data();
+        const auto& src_data = static_cast<const SrcColumnType*>(from_col.get())->get_data();
         size_t start_idx = to_col->size();
         to_col->resize(start_idx + rows);
-        auto& data = static_cast<DstColumnType&>(*to_col).get_data();
+        auto& data = converter_writable_data(static_cast<DstColumnType&>(*to_col));
 
         for (int i = 0; i < rows; ++i) {
             SrcNativeType src_value = src_data[i].value;

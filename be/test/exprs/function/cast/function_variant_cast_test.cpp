@@ -529,7 +529,7 @@ TEST(FunctionVariantCast, CastFromVariantWithEmptyRoot) {
         variant_col->finalize();
         auto single_variant_col = variant_col->cut(0, 1);
         auto null_map = ColumnUInt8::create(single_variant_col->size(), 0);
-        null_map->get_data()[0] = 1;
+        null_map->get_data_mutable()[0] = 1;
         auto nullable_variant_col =
                 ColumnNullable::create(std::move(single_variant_col), std::move(null_map));
 

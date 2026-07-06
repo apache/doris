@@ -64,7 +64,7 @@ Status BoolPlainDecoder::decode_values(MutableColumnPtr& doris_column, DataTypeP
 template <bool has_filter>
 Status BoolPlainDecoder::_decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
                                         ColumnSelectVector& select_vector, bool is_dict_filter) {
-    auto& column_data = assert_cast<ColumnUInt8*>(doris_column.get())->get_data();
+    auto& column_data = assert_cast<ColumnUInt8*>(doris_column.get())->get_data_mutable();
     size_t data_index = column_data.size();
     column_data.resize(data_index + select_vector.num_values() - select_vector.num_filtered());
 

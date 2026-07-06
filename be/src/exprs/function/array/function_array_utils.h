@@ -42,7 +42,7 @@ public:
     void reset() {
         array_nullmap_data = nullptr;
         array_col = nullptr;
-        offsets_ptr = nullptr;
+        offsets = {};
         nested_nullmap_data = nullptr;
         nested_col = nullptr;
     }
@@ -50,7 +50,7 @@ public:
 public:
     const UInt8* array_nullmap_data = nullptr;
     const ColumnArray* array_col = nullptr;
-    const ColumnArray::Offsets64* offsets_ptr = nullptr;
+    IColumn::Offsets64View offsets;
     const UInt8* nested_nullmap_data = nullptr;
     ColumnPtr nested_col = nullptr;
     DataTypePtr nested_type = nullptr;
@@ -62,17 +62,17 @@ public:
     ColumnArrayMutableData to_mutable_data() const {
         ColumnArrayMutableData dst;
         dst.offsets_col = ColumnArray::ColumnOffsets::create();
-        dst.offsets_ptr =
-                &reinterpret_cast<ColumnArray::ColumnOffsets*>(dst.offsets_col.get())->get_data();
+        dst.offsets_ptr = &reinterpret_cast<ColumnArray::ColumnOffsets*>(dst.offsets_col.get())
+                                   ->get_data_mutable();
         dst.array_nested_col =
                 ColumnNullable::create(nested_col->clone_empty(), ColumnUInt8::create());
         auto* nullable_col = reinterpret_cast<ColumnNullable*>(dst.array_nested_col.get());
         dst.nested_nullmap_data = &nullable_col->get_null_map_data();
         dst.nested_col = nullable_col->get_nested_column_ptr().get();
-        for (size_t row = 0; row < offsets_ptr->size(); ++row) {
-            dst.offsets_ptr->push_back((*offsets_ptr)[row]);
-            size_t off = (*offsets_ptr)[row - 1];
-            size_t len = (*offsets_ptr)[row] - off;
+        for (size_t row = 0; row < offsets.size(); ++row) {
+            dst.offsets_ptr->push_back(offsets[row]);
+            size_t off = offsets[row - 1];
+            size_t len = offsets[row] - off;
             for (size_t start = off; start < off + len; ++start) {
                 if (nested_nullmap_data && nested_nullmap_data[start]) {
                     dst.nested_col->insert_default();

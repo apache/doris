@@ -311,13 +311,13 @@ struct SubReplaceImpl {
                     if (data_column->is_ascii()) {
                         vector_ascii<origin_str_const, new_str_const, start_const, len_const>(
                                 data_column, mask_column, start_column->get_data(),
-                                length_column->get_data(), args_null_map->get_data(), result_column,
-                                input_rows_count);
+                                length_column->get_data(), args_null_map->get_data_mutable(),
+                                result_column, input_rows_count);
                     } else {
                         vector_utf8<origin_str_const, new_str_const, start_const, len_const>(
                                 data_column, mask_column, start_column->get_data(),
-                                length_column->get_data(), args_null_map->get_data(), result_column,
-                                input_rows_count);
+                                length_column->get_data(), args_null_map->get_data_mutable(),
+                                result_column, input_rows_count);
                     }
                 },
                 make_bool_variant(col_const[0]), make_bool_variant(col_const[1]),
@@ -328,11 +328,12 @@ struct SubReplaceImpl {
     }
 
 private:
-    template <bool origin_str_const, bool new_str_const, bool start_const, bool len_const>
+    template <bool origin_str_const, bool new_str_const, bool start_const, bool len_const,
+              typename StartArray, typename LengthArray>
     static void vector_ascii(const ColumnString* data_column, const ColumnString* mask_column,
-                             const PaddedPODArray<Int32>& args_start,
-                             const PaddedPODArray<Int32>& args_length, NullMap& args_null_map,
-                             ColumnString* result_column, size_t input_rows_count) {
+                             const StartArray& args_start, const LengthArray& args_length,
+                             NullMap& args_null_map, ColumnString* result_column,
+                             size_t input_rows_count) {
         ColumnString::Chars& res_chars = result_column->get_chars();
         ColumnString::Offsets& res_offsets = result_column->get_offsets();
         for (size_t row = 0; row < input_rows_count; ++row) {
@@ -355,11 +356,12 @@ private:
         }
     }
 
-    template <bool origin_str_const, bool new_str_const, bool start_const, bool len_const>
+    template <bool origin_str_const, bool new_str_const, bool start_const, bool len_const,
+              typename StartArray, typename LengthArray>
     static void vector_utf8(const ColumnString* data_column, const ColumnString* mask_column,
-                            const PaddedPODArray<Int32>& args_start,
-                            const PaddedPODArray<Int32>& args_length, NullMap& args_null_map,
-                            ColumnString* result_column, size_t input_rows_count) {
+                            const StartArray& args_start, const LengthArray& args_length,
+                            NullMap& args_null_map, ColumnString* result_column,
+                            size_t input_rows_count) {
         ColumnString::Chars& res_chars = result_column->get_chars();
         ColumnString::Offsets& res_offsets = result_column->get_offsets();
 
@@ -410,7 +412,7 @@ struct SubReplaceThreeImpl {
                                const ColumnNumbers& arguments, uint32_t result,
                                size_t input_rows_count) {
         auto params = ColumnInt32::create(input_rows_count);
-        auto& strlen_data = params->get_data();
+        auto& strlen_data = params->get_data_mutable();
 
         auto str_col =
                 block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();

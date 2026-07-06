@@ -113,7 +113,7 @@ TEST(DataTypeSerDePbTest, DataTypeScalaSerDeTest2) {
     // double
     {
         auto vec = ColumnFloat64::create();
-        auto& data = vec->get_data();
+        auto& data = vec->get_data_mutable();
         for (int i = 0; i < 10; ++i) {
             data.push_back(i);
         }
@@ -128,8 +128,8 @@ TEST(DataTypeSerDePbTest, DataTypeScalaSerDeTest3) {
     {
         auto vec = ColumnInt32::create();
         auto null_map = ColumnUInt8::create();
-        auto& data = vec->get_data();
-        auto& null_map_data = null_map->get_data();
+        auto& data = vec->get_data_mutable();
+        auto& null_map_data = null_map->get_data_mutable();
 
         for (int i = 0; i < 10; ++i) {
             data.push_back(i);
@@ -149,8 +149,8 @@ TEST(DataTypeSerDePbTest, DataTypeScalaSerDeTest4) {
     {
         auto vec = ColumnInt32::create();
         auto null_map = ColumnUInt8::create();
-        auto& data = vec->get_data();
-        auto& null_map_data = null_map->get_data();
+        auto& data = vec->get_data_mutable();
+        auto& null_map_data = null_map->get_data_mutable();
         int rows = 10;
         for (int i = 0; i < rows; ++i) {
             data.push_back(i);
@@ -158,8 +158,8 @@ TEST(DataTypeSerDePbTest, DataTypeScalaSerDeTest4) {
         }
         auto nullable_column = ColumnNullable::create(std::move(vec), std::move(null_map));
         auto offset_column = ColumnArray::ColumnOffsets::create();
-        offset_column->get_data().push_back(3);
-        offset_column->get_data().push_back(rows);
+        offset_column->get_data_mutable().push_back(3);
+        offset_column->get_data_mutable().push_back(rows);
         /*
         +-------------------------------+
         |                   [0, NULL, 2]  |
@@ -182,8 +182,8 @@ TEST(DataTypeSerDePbTest, DataTypeScalaSerDeTest5) {
     {
         auto vec = ColumnInt32::create();
         auto null_map = ColumnUInt8::create();
-        auto& data = vec->get_data();
-        auto& null_map_data = null_map->get_data();
+        auto& data = vec->get_data_mutable();
+        auto& null_map_data = null_map->get_data_mutable();
         int rows = 10;
         for (int i = 0; i < rows; ++i) {
             data.push_back(i);
@@ -191,7 +191,7 @@ TEST(DataTypeSerDePbTest, DataTypeScalaSerDeTest5) {
         }
         auto nullable_column = ColumnNullable::create(std::move(vec), std::move(null_map));
         auto offset_column = ColumnArray::ColumnOffsets::create();
-        offset_column->get_data().push_back(rows);
+        offset_column->get_data_mutable().push_back(rows);
         //[0,1,2,3,.....9]
         auto array_column =
                 ColumnArray::create(std::move(nullable_column), std::move(offset_column));
@@ -200,7 +200,7 @@ TEST(DataTypeSerDePbTest, DataTypeScalaSerDeTest5) {
         DataTypePtr array_type = std::make_shared<DataTypeArray>(nullable_type);
 
         auto out_offset_column = ColumnArray::ColumnOffsets::create();
-        out_offset_column->get_data().push_back(1);
+        out_offset_column->get_data_mutable().push_back(1);
         DataTypePtr out_array_type = std::make_shared<DataTypeArray>(make_nullable(array_type));
         //[[0,1,2,3,.....9]]
         auto out_array_column = ColumnArray::create((make_nullable(std::move(array_column))),
@@ -215,8 +215,8 @@ TEST(DataTypeSerDePbTest, DataTypeScalaSerDeTest6) {
     {
         auto vec = ColumnInt32::create();
         auto null_map = ColumnUInt8::create();
-        auto& data = vec->get_data();
-        auto& null_map_data = null_map->get_data();
+        auto& data = vec->get_data_mutable();
+        auto& null_map_data = null_map->get_data_mutable();
         int rows = 10;
         for (int i = 0; i < rows; ++i) {
             data.push_back(i);
@@ -224,8 +224,8 @@ TEST(DataTypeSerDePbTest, DataTypeScalaSerDeTest6) {
         }
         auto nullable_column = ColumnNullable::create(std::move(vec), std::move(null_map));
         auto offset_column = ColumnArray::ColumnOffsets::create();
-        offset_column->get_data().push_back(4);
-        offset_column->get_data().push_back(rows);
+        offset_column->get_data_mutable().push_back(4);
+        offset_column->get_data_mutable().push_back(rows);
         /*
         +-------------------------------+
         |           [0, NULL, 2, NULL]  |
@@ -239,7 +239,7 @@ TEST(DataTypeSerDePbTest, DataTypeScalaSerDeTest6) {
         DataTypePtr array_type = std::make_shared<DataTypeArray>(nullable_type);
         auto out_offset_column = ColumnArray::ColumnOffsets::create();
         //[[0, NULL, 2, NULL], [4, NULL, 6, NULL, 8, NULL]]
-        out_offset_column->get_data().push_back(2);
+        out_offset_column->get_data_mutable().push_back(2);
         DataTypePtr out_array_type = std::make_shared<DataTypeArray>(make_nullable(array_type));
         auto null_array_column = make_nullable(std::move(array_column));
 
@@ -255,8 +255,8 @@ TEST(DataTypeSerDePbTest, DataTypeScalaSerDeTest7) {
     {
         auto vec = ColumnInt32::create();
         auto null_map = ColumnUInt8::create();
-        auto& data = vec->get_data();
-        auto& null_map_data = null_map->get_data();
+        auto& data = vec->get_data_mutable();
+        auto& null_map_data = null_map->get_data_mutable();
         int rows = 10;
         for (int i = 0; i < rows; ++i) {
             data.push_back(i);
@@ -264,8 +264,8 @@ TEST(DataTypeSerDePbTest, DataTypeScalaSerDeTest7) {
         }
         auto nullable_column = ColumnNullable::create(std::move(vec), std::move(null_map));
         auto offset_column = ColumnArray::ColumnOffsets::create();
-        offset_column->get_data().push_back(4);
-        offset_column->get_data().push_back(rows);
+        offset_column->get_data_mutable().push_back(4);
+        offset_column->get_data_mutable().push_back(rows);
         /*
         +-------------------------------+
         |           [0, NULL, 2, NULL]  |
@@ -286,8 +286,8 @@ TEST(DataTypeSerDePbTest, DataTypeScalaSerDeTest7) {
         |               [[4, NULL, 6, NULL, 8, NULL]]|
         +--------------------------------------------+
         */
-        out_offset_column->get_data().push_back(1);
-        out_offset_column->get_data().push_back(2);
+        out_offset_column->get_data_mutable().push_back(1);
+        out_offset_column->get_data_mutable().push_back(2);
         DataTypePtr out_array_type = std::make_shared<DataTypeArray>(make_nullable(array_type));
         auto null_array_column = make_nullable(std::move(array_column));
 
@@ -302,7 +302,7 @@ inline void serialize_and_deserialize_pb_test() {
     // int
     {
         auto vec = ColumnInt32::create();
-        auto& data = vec->get_data();
+        auto& data = vec->get_data_mutable();
         for (int i = 0; i < 1024; ++i) {
             data.push_back(i);
         }
@@ -404,7 +404,7 @@ inline void serialize_and_deserialize_pb_test() {
     std::cout << "==== ipv4 === " << std::endl;
     {
         auto vec = ColumnIPv4::create();
-        auto& data = vec->get_data();
+        auto& data = vec->get_data_mutable();
         for (int i = 0; i < 1024; ++i) {
             data.push_back(i);
         }
@@ -415,7 +415,7 @@ inline void serialize_and_deserialize_pb_test() {
     std::cout << "==== ipv6 === " << std::endl;
     {
         auto vec = ColumnIPv6::create();
-        auto& data = vec->get_data();
+        auto& data = vec->get_data_mutable();
         for (int i = 0; i < 1024; ++i) {
             data.push_back(i);
         }
@@ -519,8 +519,8 @@ TEST(DataTypeSerDePbTest, DataTypeScalaSerDeTestMap2) {
     outer_string_key_column->insert_data(str2.c_str(), str2.size());
 
     auto outer_offset_column = ColumnArray::ColumnOffsets::create();
-    outer_offset_column->get_data().push_back(1);
-    outer_offset_column->get_data().push_back(2);
+    outer_offset_column->get_data_mutable().push_back(1);
+    outer_offset_column->get_data_mutable().push_back(2);
     DataTypePtr outer_type = std::make_shared<DataTypeMap>(s, m);
 
     /*
@@ -624,7 +624,7 @@ TEST(DataTypeSerDePbTest, DataTypeScalaSerDeTestDateTime) {
     // datetime
     {
         auto vec = ColumnDateTimeV2::create();
-        auto& data = vec->get_data();
+        auto& data = vec->get_data_mutable();
         for (int i = 0; i < 10; ++i) {
             uint16_t year = 2022;
             uint8_t month = 5;
@@ -663,7 +663,7 @@ TEST(DataTypeSerDePbTest, DataTypeScalaSerDeTestLargeInt) {
     // LargeInt
     {
         auto vec = ColumnInt128::create();
-        auto& data = vec->get_data();
+        auto& data = vec->get_data_mutable();
         for (int i = 0; i < 10; ++i) {
             data.push_back(500000000000 + i);
         }

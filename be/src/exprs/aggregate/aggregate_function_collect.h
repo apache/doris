@@ -44,6 +44,17 @@
 #include "util/var_int.h"
 
 namespace doris {
+template <typename Column>
+decltype(auto) aggregate_collect_writable_data(Column& column) {
+    // collect_list/collect_set write fixed-length values into result columns. ColumnVector writes
+    // must materialize page-backed data first; Decimal columns keep their existing writable data.
+    if constexpr (requires { column.get_data_mutable(); }) {
+        return column.get_data_mutable();
+    } else {
+        return column.get_data();
+    }
+}
+
 template <PrimitiveType T, bool HasLimit>
 struct AggregateFunctionCollectSetData {
     static constexpr PrimitiveType PType = T;
@@ -102,7 +113,7 @@ struct AggregateFunctionCollectSetData {
     }
 
     void insert_result_into(IColumn& to) const {
-        auto& vec = assert_cast<ColVecType&>(to).get_data();
+        auto& vec = aggregate_collect_writable_data(assert_cast<ColVecType&>(to));
         vec.reserve(size());
         for (const auto& item : data_set) {
             vec.push_back(item);
@@ -232,7 +243,7 @@ struct AggregateFunctionCollectListData {
     void reset() { data.clear(); }
 
     void insert_result_into(IColumn& to) const {
-        auto& vec = assert_cast<ColVecType&>(to).get_data();
+        auto& vec = aggregate_collect_writable_data(assert_cast<ColVecType&>(to));
         size_t old_size = vec.size();
         vec.resize(old_size + size());
         std::memcpy(vec.data() + old_size, data.data(), size() * sizeof(ElementType));

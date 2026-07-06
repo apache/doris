@@ -216,7 +216,7 @@ public:
 
         const ColumnString* col_from_string = nullptr;
         if (const auto* nullable_col = check_and_get_column<ColumnNullable>(col_from.get())) {
-            VectorizedUtils::update_null_map(null_map->get_data(),
+            VectorizedUtils::update_null_map(null_map->get_data_mutable(),
                                              nullable_col->get_null_map_data(), col_from_is_const);
             col_from_string =
                     assert_cast<const ColumnString*>(nullable_col->get_nested_column_ptr().get());
@@ -230,7 +230,7 @@ public:
         ColumnPtr default_value_col;
         JsonBinaryValue default_jsonb_value_parser;
         const ColumnString* default_value_str_col = nullptr;
-        const NullMap* default_value_nullmap = nullptr;
+        NullMapView default_value_nullmap;
         if constexpr (parse_error_handle_mode == JsonbParseErrorMode::RETURN_VALUE) {
             auto* state = reinterpret_cast<FunctionJsonbParseState*>(
                     context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
@@ -262,7 +262,7 @@ public:
                                 check_and_get_column<ColumnNullable>(default_value_col.get())) {
                         default_value_str_col = assert_cast<const ColumnString*>(
                                 nullable_col->get_nested_column_ptr().get());
-                        default_value_nullmap = &(nullable_col->get_null_map_data());
+                        default_value_nullmap = nullable_col->get_null_map_data();
                     } else {
                         default_value_str_col =
                                 assert_cast<const ColumnString*>(default_value_col.get());
@@ -281,7 +281,7 @@ public:
 
         col_to->reserve(input_rows_count);
 
-        auto& null_map_data = null_map->get_data();
+        auto& null_map_data = null_map->get_data_mutable();
 
         // parser can be reused for performance
         JsonBinaryValue jsonb_value;
@@ -315,7 +315,7 @@ public:
                                                 constant_default_value.size);
                         }
                     } else {
-                        if (default_value_nullmap && (*default_value_nullmap)[i]) {
+                        if (default_value_nullmap.data() && default_value_nullmap[i]) {
                             null_map_data[i] = 1;
                             col_to->insert_default();
                             continue;
@@ -374,7 +374,7 @@ public:
 
         ColumnPtr jsonb_data_column;
         bool jsonb_data_const = false;
-        const NullMap* data_null_map = nullptr;
+        NullMapView data_null_map;
 
         if (block.get_by_position(arguments[0]).type->get_primitive_type() !=
             PrimitiveType::TYPE_JSONB) {
@@ -389,7 +389,7 @@ public:
         if (const auto* nullable_column =
                     check_and_get_column<ColumnNullable>(jsonb_data_column.get())) {
             jsonb_data_column = nullable_column->get_nested_column_ptr();
-            data_null_map = &nullable_column->get_null_map_data();
+            data_null_map = nullable_column->get_null_map_data();
         }
         const auto& ldata = assert_cast<const ColumnString*>(jsonb_data_column.get())->get_chars();
         const auto& loffsets =
@@ -398,7 +398,7 @@ public:
         // prepare parse path column prepare
         std::vector<const ColumnString*> jsonb_path_columns;
         std::vector<bool> path_const(arguments.size() - 1);
-        std::vector<const NullMap*> path_null_maps(arguments.size() - 1, nullptr);
+        std::vector<NullMapView> path_null_maps(arguments.size() - 1);
         for (int i = 0; i < arguments.size() - 1; ++i) {
             ColumnPtr path_column;
             bool is_const = false;
@@ -408,7 +408,7 @@ public:
             if (const auto* nullable_column =
                         check_and_get_column<ColumnNullable>(path_column.get())) {
                 path_column = nullable_column->get_nested_column_ptr();
-                path_null_maps[i] = &nullable_column->get_null_map_data();
+                path_null_maps[i] = nullable_column->get_null_map_data();
             }
             jsonb_path_columns.push_back(assert_cast<const ColumnString*>(path_column.get()));
         }
@@ -421,9 +421,10 @@ public:
                       std::is_same_v<typename Impl::ReturnType, DataTypeJsonb>) {
             auto& res_data = res->get_chars();
             auto& res_offsets = res->get_offsets();
-            RETURN_IF_ERROR(Impl::vector_vector_v2(
-                    context, ldata, loffsets, data_null_map, jsonb_data_const, jsonb_path_columns,
-                    path_null_maps, path_const, res_data, res_offsets, null_map->get_data()));
+            RETURN_IF_ERROR(Impl::vector_vector_v2(context, ldata, loffsets, data_null_map,
+                                                   jsonb_data_const, jsonb_path_columns,
+                                                   path_null_maps, path_const, res_data,
+                                                   res_offsets, null_map->get_data_mutable()));
         } else {
             // not support other extract type for now (e.g. int, double, ...)
             DORIS_CHECK_EQ(jsonb_path_columns.size(), 1);
@@ -442,24 +443,25 @@ public:
             };
 
             if (jsonb_data_const) {
-                if (data_null_map && (*data_null_map)[0]) {
+                if (data_null_map.data() && data_null_map[0]) {
                     return create_all_null_result();
                 }
 
-                RETURN_IF_ERROR(Impl::scalar_vector(context, jsonb_data_column->get_data_at(0),
-                                                    rdata, roffsets, path_null_maps[0],
-                                                    res->get_data(), null_map->get_data()));
+                RETURN_IF_ERROR(Impl::scalar_vector(
+                        context, jsonb_data_column->get_data_at(0), rdata, roffsets,
+                        path_null_maps[0], res->get_data_mutable(), null_map->get_data_mutable()));
             } else if (path_const[0]) {
-                if (path_null_maps[0] && (*path_null_maps[0])[0]) {
+                if (path_null_maps[0].data() && path_null_maps[0][0]) {
                     return create_all_null_result();
                 }
                 RETURN_IF_ERROR(Impl::vector_scalar(context, ldata, loffsets, data_null_map,
                                                     jsonb_path_columns[0]->get_data_at(0),
-                                                    res->get_data(), null_map->get_data()));
+                                                    res->get_data_mutable(),
+                                                    null_map->get_data_mutable()));
             } else {
-                RETURN_IF_ERROR(Impl::vector_vector(context, ldata, loffsets, data_null_map, rdata,
-                                                    roffsets, path_null_maps[0], res->get_data(),
-                                                    null_map->get_data()));
+                RETURN_IF_ERROR(Impl::vector_vector(
+                        context, ldata, loffsets, data_null_map, rdata, roffsets, path_null_maps[0],
+                        res->get_data_mutable(), null_map->get_data_mutable()));
             }
         }
 
@@ -491,7 +493,7 @@ public:
         DORIS_CHECK(arguments.size() == 1 || arguments.size() == 2)
                 << "json_keys should have 1 or 2 arguments, but got " << arguments.size();
 
-        const NullMap* data_null_map = nullptr;
+        NullMapView data_null_map;
         const ColumnString* col_from_string = nullptr;
         // prepare jsonb data column
         auto&& [jsonb_data_column, json_data_const] =
@@ -499,7 +501,7 @@ public:
         if (const auto* nullable = check_and_get_column<ColumnNullable>(jsonb_data_column.get())) {
             col_from_string =
                     assert_cast<const ColumnString*>(nullable->get_nested_column_ptr().get());
-            data_null_map = &nullable->get_null_map_data();
+            data_null_map = nullable->get_null_map_data();
         } else {
             col_from_string = assert_cast<const ColumnString*>(jsonb_data_column.get());
         }
@@ -508,7 +510,7 @@ public:
         ColumnPtr jsonb_path_column = nullptr;
         const ColumnString* jsonb_path_col = nullptr;
         bool path_const = false;
-        const NullMap* path_null_map = nullptr;
+        NullMapView path_null_map;
         if (arguments.size() == 2) {
             // we have should have a ColumnString for path
             std::tie(jsonb_path_column, path_const) =
@@ -516,13 +518,13 @@ public:
             if (const auto* nullable =
                         check_and_get_column<ColumnNullable>(jsonb_path_column.get())) {
                 jsonb_path_column = nullable->get_nested_column_ptr();
-                path_null_map = &nullable->get_null_map_data();
+                path_null_map = nullable->get_null_map_data();
             }
             jsonb_path_col = check_and_get_column<ColumnString>(jsonb_path_column.get());
         }
 
         auto null_map = ColumnUInt8::create(input_rows_count, 0);
-        NullMap& res_null_map = null_map->get_data();
+        NullMap& res_null_map = null_map->get_data_mutable();
 
         auto dst_arr = ColumnArray::create(
                 ColumnNullable::create(ColumnString::create(), ColumnUInt8::create()),
@@ -551,9 +553,9 @@ private:
                                                 ColumnNullable& dst_nested_column,
                                                 NullMap& res_null_map,
                                                 const ColumnString& col_from_string,
-                                                const NullMap* jsonb_data_nullmap,
+                                                NullMapView jsonb_data_nullmap,
                                                 const ColumnString* jsonb_path_column,
-                                                const NullMap* path_null_map) {
+                                                NullMapView path_null_map) {
         // if path is const, we just need to parse it once
         JsonbPath const_path;
         if constexpr (JSONB_PATH_PARAM && JSON_PATH_CONST) {
@@ -573,13 +575,13 @@ private:
         for (size_t i = 0; i < input_rows_count; ++i) {
             auto index = index_check_const(i, JSONB_DATA_CONST);
             // if jsonb data is null or path column is null , we should return null
-            if (jsonb_data_nullmap && (*jsonb_data_nullmap)[index]) {
+            if (jsonb_data_nullmap.data() && jsonb_data_nullmap[index]) {
                 res_null_map[i] = 1;
                 dst_arr.insert_default();
                 continue;
             }
             if constexpr (JSONB_PATH_PARAM && !JSON_PATH_CONST) {
-                if (path_null_map && (*path_null_map)[i]) {
+                if (path_null_map.data() && path_null_map[i]) {
                     res_null_map[i] = 1;
                     dst_arr.insert_default();
                     continue;
@@ -665,11 +667,11 @@ public:
         auto&& [jsonb_data_column, jsonb_data_const] =
                 unpack_if_const(block.get_by_position(arguments[0]).column);
 
-        const NullMap* data_null_map = nullptr;
+        NullMapView data_null_map;
         const ColumnString* data_col = nullptr;
         if (const auto* nullable = check_and_get_column<ColumnNullable>(jsonb_data_column.get())) {
             data_col = assert_cast<const ColumnString*>(nullable->get_nested_column_ptr().get());
-            data_null_map = &nullable->get_null_map_data();
+            data_null_map = nullable->get_null_map_data();
         } else {
             data_col = assert_cast<const ColumnString*>(jsonb_data_column.get());
         }
@@ -681,10 +683,10 @@ public:
         auto&& [path_column, path_const] =
                 unpack_if_const(block.get_by_position(arguments[1]).column);
         const ColumnString* path_col = nullptr;
-        const NullMap* path_null_map = nullptr;
+        NullMapView path_null_map;
         if (const auto* nullable = check_and_get_column<ColumnNullable>(path_column.get())) {
             path_col = assert_cast<const ColumnString*>(nullable->get_nested_column_ptr().get());
-            path_null_map = &nullable->get_null_map_data();
+            path_null_map = nullable->get_null_map_data();
         } else {
             path_col = assert_cast<const ColumnString*>(path_column.get());
         }
@@ -704,17 +706,16 @@ public:
 
         ColumnUInt8::MutablePtr result_null_map_column;
         NullMap* result_null_map = nullptr;
-        if (data_null_map || path_null_map) {
+        if (data_null_map.data() || path_null_map.data()) {
             result_null_map_column = ColumnUInt8::create(input_rows_count, 0);
-            result_null_map = &result_null_map_column->get_data();
+            result_null_map = &result_null_map_column->get_data_mutable();
 
-            if (data_null_map) {
-                VectorizedUtils::update_null_map(*result_null_map, *data_null_map,
-                                                 jsonb_data_const);
+            if (data_null_map.data()) {
+                VectorizedUtils::update_null_map(*result_null_map, data_null_map, jsonb_data_const);
             }
 
-            if (path_null_map) {
-                VectorizedUtils::update_null_map(*result_null_map, *path_null_map, path_const);
+            if (path_null_map.data()) {
+                VectorizedUtils::update_null_map(*result_null_map, path_null_map, path_const);
             }
 
             if (!simd::contain_zero(result_null_map->data(), input_rows_count)) {
@@ -723,26 +724,28 @@ public:
         }
 
         auto res = ColumnType::create();
+        const auto result_null_map_view =
+                result_null_map ? NullMapView(*result_null_map) : NullMapView();
 
         bool is_invalid_json_path = false;
 
         const auto& rdata = path_col->get_chars();
         const auto& roffsets = path_col->get_offsets();
         if (jsonb_data_const) {
-            if (data_null_map && (*data_null_map)[0]) {
+            if (data_null_map.data() && data_null_map[0]) {
                 return create_all_null_result();
             }
-            scalar_vector(context, data_col->get_data_at(0), rdata, roffsets, res->get_data(),
-                          result_null_map, is_invalid_json_path);
+            scalar_vector(context, data_col->get_data_at(0), rdata, roffsets,
+                          res->get_data_mutable(), result_null_map_view, is_invalid_json_path);
         } else if (path_const) {
-            if (path_null_map && (*path_null_map)[0]) {
+            if (path_null_map.data() && path_null_map[0]) {
                 return create_all_null_result();
             }
-            vector_scalar(context, ldata, loffsets, path_col->get_data_at(0), res->get_data(),
-                          result_null_map, is_invalid_json_path);
+            vector_scalar(context, ldata, loffsets, path_col->get_data_at(0),
+                          res->get_data_mutable(), result_null_map_view, is_invalid_json_path);
         } else {
-            vector_vector(context, ldata, loffsets, rdata, roffsets, res->get_data(),
-                          result_null_map, is_invalid_json_path);
+            vector_vector(context, ldata, loffsets, rdata, roffsets, res->get_data_mutable(),
+                          result_null_map_view, is_invalid_json_path);
         }
         if (is_invalid_json_path) {
             return Status::InvalidArgument(
@@ -781,12 +784,12 @@ private:
                               const ColumnString::Offsets& loffsets,
                               const ColumnString::Chars& rdata,
                               const ColumnString::Offsets& roffsets, Container& res,
-                              const NullMap* result_null_map, bool& is_invalid_json_path) {
+                              NullMapView result_null_map, bool& is_invalid_json_path) {
         const size_t size = loffsets.size();
         res.resize_fill(size, 0);
 
         for (size_t i = 0; i < size; i++) {
-            if (result_null_map && (*result_null_map)[i]) {
+            if (result_null_map.data() && result_null_map[i]) {
                 continue;
             }
 
@@ -808,12 +811,12 @@ private:
     static void scalar_vector(FunctionContext* context, const StringRef& ldata,
                               const ColumnString::Chars& rdata,
                               const ColumnString::Offsets& roffsets, Container& res,
-                              const NullMap* result_null_map, bool& is_invalid_json_path) {
+                              NullMapView result_null_map, bool& is_invalid_json_path) {
         const size_t size = roffsets.size();
         res.resize_fill(size, 0);
 
         for (size_t i = 0; i < size; i++) {
-            if (result_null_map && (*result_null_map)[i]) {
+            if (result_null_map.data() && result_null_map[i]) {
                 continue;
             }
             const char* r_raw_str = reinterpret_cast<const char*>(&rdata[roffsets[i - 1]]);
@@ -830,7 +833,7 @@ private:
     }
     static void vector_scalar(FunctionContext* context, const ColumnString::Chars& ldata,
                               const ColumnString::Offsets& loffsets, const StringRef& rdata,
-                              Container& res, const NullMap* result_null_map,
+                              Container& res, NullMapView result_null_map,
                               bool& is_invalid_json_path) {
         const size_t size = loffsets.size();
         res.resize_fill(size, 0);
@@ -842,7 +845,7 @@ private:
         }
 
         for (size_t i = 0; i < size; i++) {
-            if (result_null_map && (*result_null_map)[i]) {
+            if (result_null_map.data() && result_null_map[i]) {
                 continue;
             }
             const char* l_raw_str = reinterpret_cast<const char*>(&ldata[loffsets[i - 1]]);
@@ -913,10 +916,10 @@ public:
     // for jsonb_extract_string
     static Status vector_vector_v2(
             FunctionContext* context, const ColumnString::Chars& ldata,
-            const ColumnString::Offsets& loffsets, const NullMap* l_null_map,
+            const ColumnString::Offsets& loffsets, NullMapView l_null_map,
             const bool& json_data_const,
             const std::vector<const ColumnString*>& rdata_columns, // here we can support more paths
-            const std::vector<const NullMap*>& r_null_maps, const std::vector<bool>& path_const,
+            const std::vector<NullMapView>& r_null_maps, const std::vector<bool>& path_const,
             ColumnString::Chars& res_data, ColumnString::Offsets& res_offsets, NullMap& null_map) {
         const size_t input_rows_count = null_map.size();
         res_offsets.resize(input_rows_count);
@@ -951,7 +954,7 @@ public:
 
         for (size_t pi = 0; pi < rdata_columns.size(); pi++) {
             if (path_const[pi]) {
-                if (r_null_maps[pi] && (*r_null_maps[pi])[0]) {
+                if (r_null_maps[pi].data() && r_null_maps[pi][0]) {
                     continue;
                 }
                 RETURN_IF_ERROR(parse_json_path(0, pi));
@@ -965,7 +968,7 @@ public:
             }
 
             const auto data_index = index_check_const(i, json_data_const);
-            if (l_null_map && (*l_null_map)[data_index]) {
+            if (l_null_map.data() && l_null_map[data_index]) {
                 StringOP::push_null_string(i, res_data, res_offsets, null_map);
                 continue;
             }
@@ -975,7 +978,7 @@ public:
             const char* l_raw = reinterpret_cast<const char*>(&ldata[l_off]);
             if (rdata_columns.size() == 1) { // just return origin value
                 const auto path_index = index_check_const(i, path_const[0]);
-                if (r_null_maps[0] && (*r_null_maps[0])[path_index]) {
+                if (r_null_maps[0].data() && r_null_maps[0][path_index]) {
                     StringOP::push_null_string(i, res_data, res_offsets, null_map);
                     continue;
                 }
@@ -1001,7 +1004,7 @@ public:
                     }
 
                     const auto path_index = index_check_const(i, path_const[pi]);
-                    if (r_null_maps[pi] && (*r_null_maps[pi])[path_index]) {
+                    if (r_null_maps[pi].data() && r_null_maps[pi][path_index]) {
                         StringOP::push_null_string(i, res_data, res_offsets, null_map);
                         break;
                     }
@@ -1043,9 +1046,9 @@ public:
     }
 
     static Status vector_vector(FunctionContext* context, const ColumnString::Chars& ldata,
-                                const ColumnString::Offsets& loffsets, const NullMap* l_null_map,
+                                const ColumnString::Offsets& loffsets, NullMapView l_null_map,
                                 const ColumnString::Chars& rdata,
-                                const ColumnString::Offsets& roffsets, const NullMap* r_null_map,
+                                const ColumnString::Offsets& roffsets, NullMapView r_null_map,
                                 ColumnString::Chars& res_data, ColumnString::Offsets& res_offsets,
                                 NullMap& null_map) {
         size_t input_rows_count = loffsets.size();
@@ -1053,12 +1056,12 @@ public:
 
         JsonbWriter writer;
         for (size_t i = 0; i < input_rows_count; ++i) {
-            if (l_null_map && (*l_null_map)[i]) {
+            if (l_null_map.data() && l_null_map[i]) {
                 StringOP::push_null_string(i, res_data, res_offsets, null_map);
                 continue;
             }
 
-            if (r_null_map && (*r_null_map)[i]) {
+            if (r_null_map.data() && r_null_map[i]) {
                 StringOP::push_null_string(i, res_data, res_offsets, null_map);
                 continue;
             }
@@ -1083,7 +1086,7 @@ public:
     } //function
 
     static Status vector_scalar(FunctionContext* context, const ColumnString::Chars& ldata,
-                                const ColumnString::Offsets& loffsets, const NullMap* l_null_map,
+                                const ColumnString::Offsets& loffsets, NullMapView l_null_map,
                                 const StringRef& rdata, ColumnString::Chars& res_data,
                                 ColumnString::Offsets& res_offsets, NullMap& null_map) {
         size_t input_rows_count = loffsets.size();
@@ -1097,7 +1100,7 @@ public:
 
         JsonbWriter writer;
         for (size_t i = 0; i < input_rows_count; ++i) {
-            if (l_null_map && (*l_null_map)[i]) {
+            if (l_null_map.data() && l_null_map[i]) {
                 StringOP::push_null_string(i, res_data, res_offsets, null_map);
                 continue;
             }
@@ -1113,7 +1116,7 @@ public:
 
     static Status scalar_vector(FunctionContext* context, const StringRef& ldata,
                                 const ColumnString::Chars& rdata,
-                                const ColumnString::Offsets& roffsets, const NullMap* r_null_map,
+                                const ColumnString::Offsets& roffsets, NullMapView r_null_map,
                                 ColumnString::Chars& res_data, ColumnString::Offsets& res_offsets,
                                 NullMap& null_map) {
         size_t input_rows_count = roffsets.size();
@@ -1122,7 +1125,7 @@ public:
         JsonbWriter writer;
 
         for (size_t i = 0; i < input_rows_count; ++i) {
-            if (r_null_map && (*r_null_map)[i]) {
+            if (r_null_map.data() && r_null_map[i]) {
                 StringOP::push_null_string(i, res_data, res_offsets, null_map);
                 continue;
             }
@@ -1187,15 +1190,15 @@ private:
 public:
     // for jsonb_extract_int/int64/double
     static Status vector_vector(FunctionContext* context, const ColumnString::Chars& ldata,
-                                const ColumnString::Offsets& loffsets, const NullMap* l_null_map,
+                                const ColumnString::Offsets& loffsets, NullMapView l_null_map,
                                 const ColumnString::Chars& rdata,
-                                const ColumnString::Offsets& roffsets, const NullMap* r_null_map,
+                                const ColumnString::Offsets& roffsets, NullMapView r_null_map,
                                 Container& res, NullMap& null_map) {
         size_t size = loffsets.size();
         res.resize(size);
 
         for (size_t i = 0; i < loffsets.size(); i++) {
-            if ((l_null_map && (*l_null_map)[i]) || (r_null_map && (*r_null_map)[i])) {
+            if ((l_null_map.data() && l_null_map[i]) || (r_null_map.data() && r_null_map[i])) {
                 res[i] = 0;
                 null_map[i] = 1;
                 continue;
@@ -1221,13 +1224,13 @@ public:
 
     static Status scalar_vector(FunctionContext* context, const StringRef& ldata,
                                 const ColumnString::Chars& rdata,
-                                const ColumnString::Offsets& roffsets, const NullMap* r_null_map,
+                                const ColumnString::Offsets& roffsets, NullMapView r_null_map,
                                 Container& res, NullMap& null_map) {
         size_t size = roffsets.size();
         res.resize(size);
 
         for (size_t i = 0; i < size; i++) {
-            if (r_null_map && (*r_null_map)[i]) {
+            if (r_null_map.data() && r_null_map[i]) {
                 res[i] = 0;
                 null_map[i] = 1;
                 continue;
@@ -1249,7 +1252,7 @@ public:
     } //function
 
     static Status vector_scalar(FunctionContext* context, const ColumnString::Chars& ldata,
-                                const ColumnString::Offsets& loffsets, const NullMap* l_null_map,
+                                const ColumnString::Offsets& loffsets, NullMapView l_null_map,
                                 const StringRef& rdata, Container& res, NullMap& null_map) {
         size_t size = loffsets.size();
         res.resize(size);
@@ -1261,7 +1264,7 @@ public:
         }
 
         for (size_t i = 0; i < loffsets.size(); i++) {
-            if (l_null_map && (*l_null_map)[i]) {
+            if (l_null_map.data() && l_null_map[i]) {
                 res[i] = 0;
                 null_map[i] = 1;
                 continue;
@@ -1369,7 +1372,7 @@ struct JsonbLengthUtil {
         if (is_const) {
             if (path_column->is_null_at(0)) {
                 for (size_t i = 0; i < input_rows_count; ++i) {
-                    null_map->get_data()[i] = 1;
+                    null_map->get_data_mutable()[i] = 1;
                     res->insert_data(nullptr, 0);
                 }
 
@@ -1388,7 +1391,7 @@ struct JsonbLengthUtil {
         for (size_t i = 0; i < input_rows_count; ++i) {
             if (jsonb_data_column->is_null_at(i) || path_column->is_null_at(i) ||
                 (jsonb_data_column->get_data_at(i).size == 0)) {
-                null_map->get_data()[i] = 1;
+                null_map->get_data_mutable()[i] = 1;
                 res->insert_data(nullptr, 0);
                 continue;
             }
@@ -1409,7 +1412,7 @@ struct JsonbLengthUtil {
             auto find_result = doc->getValue()->findValue(path);
             const auto* value = find_result.value;
             if (UNLIKELY(!value)) {
-                null_map->get_data()[i] = 1;
+                null_map->get_data_mutable()[i] = 1;
                 res->insert_data(nullptr, 0);
                 continue;
             }
@@ -1482,7 +1485,7 @@ struct JsonbContainsUtil {
         if (is_const) {
             if (path_column->is_null_at(0)) {
                 for (size_t i = 0; i < input_rows_count; ++i) {
-                    null_map->get_data()[i] = 1;
+                    null_map->get_data_mutable()[i] = 1;
                     res->insert_data(nullptr, 0);
                 }
 
@@ -1501,7 +1504,7 @@ struct JsonbContainsUtil {
         for (size_t i = 0; i < input_rows_count; ++i) {
             if (jsonb_data1_column->is_null_at(i) || jsonb_data2_column->is_null_at(i) ||
                 path_column->is_null_at(i)) {
-                null_map->get_data()[i] = 1;
+                null_map->get_data_mutable()[i] = 1;
                 res->insert_data(nullptr, 0);
                 continue;
             }
@@ -1520,7 +1523,7 @@ struct JsonbContainsUtil {
             auto jsonb_value2 = jsonb_data2_column->get_data_at(i);
 
             if (jsonb_value1.size == 0 || jsonb_value2.size == 0) {
-                null_map->get_data()[i] = 1;
+                null_map->get_data_mutable()[i] = 1;
                 res->insert_data(nullptr, 0);
                 continue;
             }
@@ -1536,7 +1539,7 @@ struct JsonbContainsUtil {
             const auto* value1 = find_result.value;
             const JsonbValue* value2 = doc2->getValue();
             if (!value1 || !value2) {
-                null_map->get_data()[i] = 1;
+                null_map->get_data_mutable()[i] = 1;
                 res->insert_data(nullptr, 0);
                 continue;
             }
@@ -1583,7 +1586,7 @@ public:
                         unpack_if_const(block.get_by_position(argument).column);
                 if (const auto* nullable_column =
                             check_and_get_column<ColumnNullable>(arg_column.get())) {
-                    const auto& null_map = nullable_column->get_null_map_data();
+                    const auto null_map = nullable_column->get_null_map_data();
                     const auto& nested_column = nullable_column->get_nested_column();
                     const auto& jsonb_column =
                             assert_cast<const ColumnString&, TypeCheckOnRelease::DISABLE>(
@@ -1671,9 +1674,9 @@ public:
         auto return_data_type = std::make_shared<DataTypeJsonb>();
 
         auto write_key = [](JsonbWriter& writer, const ColumnString& key_col, const bool is_const,
-                            const NullMap* null_map, const size_t arg_index, const size_t row_idx) {
+                            NullMapView null_map, const size_t arg_index, const size_t row_idx) {
             auto index = index_check_const(row_idx, is_const);
-            if (null_map && (*null_map)[index]) {
+            if (null_map.data() && null_map[index]) {
                 return Status::InvalidArgument(
                         "JSON documents may not contain NULL member name(argument "
                         "index:  "
@@ -1693,10 +1696,10 @@ public:
         };
 
         auto write_value = [](JsonbWriter& writer, const ColumnString& value_col,
-                              const bool is_const, const NullMap* null_map, const size_t arg_index,
+                              const bool is_const, NullMapView null_map, const size_t arg_index,
                               const size_t row_idx) {
             auto index = index_check_const(row_idx, is_const);
-            if (null_map && (*null_map)[index]) {
+            if (null_map.data() && null_map[index]) {
                 writer.writeNull();
                 return Status::OK();
             }
@@ -1746,38 +1749,37 @@ public:
 
                 if (const auto* nullable_column =
                             check_and_get_column<ColumnNullable>(key_column.get())) {
-                    const auto& null_map = nullable_column->get_null_map_data();
+                    const auto null_map = nullable_column->get_null_map_data();
                     const auto& nested_column = nullable_column->get_nested_column();
                     const auto& key_arg_column =
                             assert_cast<const ColumnString&, TypeCheckOnRelease::DISABLE>(
                                     nested_column);
 
                     RETURN_IF_ERROR(
-                            write_key(writer, key_arg_column, key_const, &null_map, arg_idx, i));
+                            write_key(writer, key_arg_column, key_const, null_map, arg_idx, i));
                 } else {
                     const auto& key_arg_column =
                             assert_cast<const ColumnString&, TypeCheckOnRelease::DISABLE>(
                                     *key_column);
-                    RETURN_IF_ERROR(
-                            write_key(writer, key_arg_column, key_const, nullptr, arg_idx, i));
+                    RETURN_IF_ERROR(write_key(writer, key_arg_column, key_const, {}, arg_idx, i));
                 }
 
                 if (const auto* nullable_column =
                             check_and_get_column<ColumnNullable>(value_column.get())) {
-                    const auto& null_map = nullable_column->get_null_map_data();
+                    const auto null_map = nullable_column->get_null_map_data();
                     const auto& nested_column = nullable_column->get_nested_column();
                     const auto& value_arg_column =
                             assert_cast<const ColumnString&, TypeCheckOnRelease::DISABLE>(
                                     nested_column);
 
-                    RETURN_IF_ERROR(write_value(writer, value_arg_column, value_const, &null_map,
+                    RETURN_IF_ERROR(write_value(writer, value_arg_column, value_const, null_map,
                                                 arg_idx + 1, i));
                 } else {
                     const auto& value_arg_column =
                             assert_cast<const ColumnString&, TypeCheckOnRelease::DISABLE>(
                                     *value_column);
-                    RETURN_IF_ERROR(write_value(writer, value_arg_column, value_const, nullptr,
-                                                arg_idx + 1, i));
+                    RETURN_IF_ERROR(
+                            write_value(writer, value_arg_column, value_const, {}, arg_idx + 1, i));
                 }
             }
 
@@ -1877,17 +1879,17 @@ public:
 
         std::vector<const ColumnString*> json_path_columns(keys_count);
         std::vector<bool> json_path_constant(keys_count);
-        std::vector<const NullMap*> json_path_null_maps(keys_count, nullptr);
+        std::vector<NullMapView> json_path_null_maps(keys_count);
 
         std::vector<const ColumnString*> json_value_columns(keys_count);
         std::vector<bool> json_value_constant(keys_count);
-        std::vector<const NullMap*> json_value_null_maps(keys_count, nullptr);
+        std::vector<NullMapView> json_value_null_maps(keys_count);
 
-        const NullMap* json_data_null_map = nullptr;
+        NullMapView json_data_null_map;
         const ColumnString* json_data_column;
         if (const auto* nullable_column =
                     check_and_get_column<ColumnNullable>(json_data_arg_column.get())) {
-            json_data_null_map = &nullable_column->get_null_map_data();
+            json_data_null_map = nullable_column->get_null_map_data();
             const auto& nested_column = nullable_column->get_nested_column();
             json_data_column = assert_cast<const ColumnString*>(&nested_column);
         } else {
@@ -1910,7 +1912,7 @@ public:
             json_path_constant[i / 2] = path_const;
             if (const auto* nullable_column =
                         check_and_get_column<ColumnNullable>(path_column.get())) {
-                json_path_null_maps[i / 2] = &nullable_column->get_null_map_data();
+                json_path_null_maps[i / 2] = nullable_column->get_null_map_data();
                 const auto& nested_column = nullable_column->get_nested_column();
                 json_path_columns[i / 2] = assert_cast<const ColumnString*>(&nested_column);
             } else {
@@ -1920,7 +1922,7 @@ public:
             json_value_constant[i / 2] = value_const;
             if (const auto* nullable_column =
                         check_and_get_column<ColumnNullable>(value_column.get())) {
-                json_value_null_maps[i / 2] = &nullable_column->get_null_map_data();
+                json_value_null_maps[i / 2] = nullable_column->get_null_map_data();
                 const auto& nested_column = nullable_column->get_nested_column();
                 json_value_columns[i / 2] = assert_cast<const ColumnString*>(&nested_column);
             } else {
@@ -1942,7 +1944,7 @@ public:
             }
         } else {
             for (size_t i = 0; i != input_rows_count; ++i) {
-                if (json_data_null_map && (*json_data_null_map)[i]) {
+                if (json_data_null_map.data() && json_data_null_map[i]) {
                     null_map[i] = 1;
                     json_documents[i] = nullptr;
                     continue;
@@ -1995,7 +1997,7 @@ public:
                     continue;
                 }
 
-                if (json_path_null_maps[index] && (*json_path_null_maps[index])[path_index]) {
+                if (json_path_null_maps[index].data() && json_path_null_maps[index][path_index]) {
                     null_map[row_idx] = 1;
                     continue;
                 }
@@ -2246,10 +2248,10 @@ public:
                                   const ColumnNumbers& arguments, const size_t input_rows_count,
                                   const std::vector<const ColumnString*>& json_path_columns,
                                   const std::vector<bool>& json_path_constant,
-                                  const std::vector<const NullMap*>& json_path_null_maps,
+                                  const std::vector<NullMapView>& json_path_null_maps,
                                   const std::vector<const ColumnString*>& json_value_columns,
                                   const std::vector<bool>& json_value_constant,
-                                  const std::vector<const NullMap*>& json_value_null_maps) const {
+                                  const std::vector<NullMapView>& json_value_null_maps) const {
         for (size_t i = 1; i < arguments.size(); i += 2) {
             const size_t index = i / 2;
             const auto* json_path_column = json_path_columns[index];
@@ -2259,7 +2261,7 @@ public:
             json_values[index].resize(json_value_constant[index] ? 1 : input_rows_count, nullptr);
 
             for (size_t row_idx = 0; row_idx != json_paths[index].size(); ++row_idx) {
-                if (json_path_null_maps[index] && (*json_path_null_maps[index])[row_idx]) {
+                if (json_path_null_maps[index].data() && json_path_null_maps[index][row_idx]) {
                     continue;
                 }
 
@@ -2281,7 +2283,7 @@ public:
             }
 
             for (size_t row_idx = 0; row_idx != json_values[index].size(); ++row_idx) {
-                if (json_value_null_maps[index] && (*json_value_null_maps[index])[row_idx]) {
+                if (json_value_null_maps[index].data() && json_value_null_maps[index][row_idx]) {
                     continue;
                 }
 
@@ -2442,7 +2444,7 @@ private:
         for (size_t i = 0; i < input_rows_count; ++i) {
             // an error occurs if the json_doc argument is not a valid json document.
             if (json_null_check(i)) {
-                null_map->get_data()[i] = 1;
+                null_map->get_data_mutable()[i] = 1;
                 result_col->insert_data("", 0);
                 continue;
             }
@@ -2461,7 +2463,7 @@ private:
             }
 
             if (one_null_check(i) || search_null_check(i)) {
-                null_map->get_data()[i] = 1;
+                null_map->get_data_mutable()[i] = 1;
                 result_col->insert_data("", 0);
                 continue;
             }
@@ -2493,7 +2495,7 @@ private:
             }
             if (matches.empty()) {
                 // returns NULL if the search_str is not found in the document.
-                null_map->get_data()[i] = 1;
+                null_map->get_data_mutable()[i] = 1;
                 result_col->insert_data("", 0);
                 continue;
             }
@@ -2722,10 +2724,10 @@ public:
                 unpack_if_const(block.get_by_position(arguments[0]).column);
         const auto* json_nullable = check_and_get_column<ColumnNullable>(json_column.get());
         const ColumnString* json_data_column = nullptr;
-        const NullMap* json_null_map = nullptr;
+        NullMapView json_null_map;
 
         if (json_nullable) {
-            json_null_map = &json_nullable->get_null_map_data();
+            json_null_map = json_nullable->get_null_map_data();
             json_data_column =
                     check_and_get_column<ColumnString>(&json_nullable->get_nested_column());
         } else {
@@ -2738,7 +2740,7 @@ public:
 
         // Parse paths
         std::vector<const ColumnString*> path_columns;
-        std::vector<const NullMap*> path_null_maps;
+        std::vector<NullMapView> path_null_maps;
         std::vector<bool> path_constants;
 
         for (size_t i = 1; i < arguments.size(); ++i) {
@@ -2747,11 +2749,11 @@ public:
             const auto* path_nullable = check_and_get_column<ColumnNullable>(path_column.get());
 
             if (path_nullable) {
-                path_null_maps.push_back(&path_nullable->get_null_map_data());
+                path_null_maps.push_back(path_nullable->get_null_map_data());
                 path_columns.push_back(
                         check_and_get_column<ColumnString>(&path_nullable->get_nested_column()));
             } else {
-                path_null_maps.push_back(nullptr);
+                path_null_maps.emplace_back();
                 path_columns.push_back(check_and_get_column<ColumnString>(path_column.get()));
             }
 
@@ -2770,7 +2772,7 @@ public:
             size_t json_idx = index_check_const(row_idx, json_const);
 
             // Check if JSON document is null
-            if (json_null_map && (*json_null_map)[json_idx]) {
+            if (json_null_map.data() && json_null_map[json_idx]) {
                 null_map[row_idx] = 1;
                 res_offsets[row_idx] = static_cast<uint32_t>(res_chars.size());
                 continue;
@@ -2792,7 +2794,7 @@ public:
             bool has_null_path = false;
             for (size_t path_idx = 0; path_idx < path_columns.size(); ++path_idx) {
                 size_t idx = index_check_const(row_idx, path_constants[path_idx]);
-                if (path_null_maps[path_idx] && (*path_null_maps[path_idx])[idx]) {
+                if (path_null_maps[path_idx].data() && path_null_maps[path_idx][idx]) {
                     has_null_path = true;
                     break;
                 }
@@ -3014,10 +3016,10 @@ public:
         const auto arg_column =
                 block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
         const ColumnString* json_column = nullptr;
-        const NullMap* json_null_map = nullptr;
+        NullMapView json_null_map;
         if (const auto* nullable_col = check_and_get_column<ColumnNullable>(arg_column.get())) {
             json_column = assert_cast<const ColumnString*>(&nullable_col->get_nested_column());
-            json_null_map = &nullable_col->get_null_map_data();
+            json_null_map = nullable_col->get_null_map_data();
         } else {
             json_column = assert_cast<const ColumnString*>(arg_column.get());
         }
@@ -3031,7 +3033,7 @@ public:
 
         result_nullmap.resize_fill(input_rows_count, 0);
         for (size_t i = 0; i != input_rows_count; ++i) {
-            if (json_null_map && (*json_null_map)[i]) {
+            if (json_null_map.data() && json_null_map[i]) {
                 result_nullmap[i] = 1;
                 result_data_col.insert_default();
                 continue;

@@ -159,7 +159,7 @@ Status RuntimeFilterExpr::execute_filter(VExprContext* context, const Block* blo
     } else if (const auto* nullable_column = check_and_get_column<ColumnNullable>(*filter_column)) {
         // nullable(bool)
         const ColumnPtr& nested_column = nullable_column->get_nested_column_ptr();
-        const IColumn::Filter& filter = assert_cast<const ColumnUInt8&>(*nested_column).get_data();
+        const auto filter = assert_cast<const ColumnUInt8&>(*nested_column).get_data();
         const auto* __restrict filter_data = filter.data();
         const auto* __restrict null_map_data = nullable_column->get_null_map_data().data();
 
@@ -182,7 +182,7 @@ Status RuntimeFilterExpr::execute_filter(VExprContext* context, const Block* blo
         }
     } else {
         // bool
-        const IColumn::Filter& filter = assert_cast<const ColumnUInt8&>(*filter_column).get_data();
+        const auto filter = assert_cast<const ColumnUInt8&>(*filter_column).get_data();
         const auto* __restrict filter_data = filter.data();
 
         const size_t input_rows = rows - simd::count_zero_num((int8_t*)result_filter_data, rows);

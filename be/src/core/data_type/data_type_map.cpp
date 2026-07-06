@@ -131,7 +131,7 @@ const char* DataTypeMap::deserialize(const char* buf, MutableColumnPtr* column,
     auto* map_column = assert_cast<ColumnMap*>(origin_column);
     // offsets
     auto offsets_column = std::move(*map_column->get_offsets_ptr()).mutate();
-    auto& map_offsets = assert_cast<ColumnMap::COffsets&>(*offsets_column).get_data();
+    auto& map_offsets = assert_cast<ColumnMap::COffsets&>(*offsets_column).get_data_mutable();
     map_offsets.resize(real_have_saved_num);
     memcpy(map_offsets.data(), buf, sizeof(ColumnArray::Offset64) * real_have_saved_num);
     buf += sizeof(ColumnArray::Offset64) * real_have_saved_num;

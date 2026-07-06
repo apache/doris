@@ -67,7 +67,8 @@ namespace doris {
 template <typename A, typename B, typename Op>
 struct NumComparisonImpl {
     /// If you don't specify NO_INLINE, the compiler will inline this function, but we don't need this as this function contains tight loop inside.
-    static void NO_INLINE vector_vector(const PaddedPODArray<A>& a, const PaddedPODArray<B>& b,
+    template <typename ArrayA, typename ArrayB>
+    static void NO_INLINE vector_vector(const ArrayA& a, const ArrayB& b,
                                         PaddedPODArray<UInt8>& c) {
         size_t size = a.size();
         const A* __restrict a_pos = a.data();
@@ -83,8 +84,8 @@ struct NumComparisonImpl {
         }
     }
 
-    static void NO_INLINE vector_constant(const PaddedPODArray<A>& a, B b,
-                                          PaddedPODArray<UInt8>& c) {
+    template <typename ArrayA>
+    static void NO_INLINE vector_constant(const ArrayA& a, B b, PaddedPODArray<UInt8>& c) {
         size_t size = a.size();
         const A* __restrict a_pos = a.data();
         UInt8* __restrict c_pos = c.data();
@@ -97,7 +98,8 @@ struct NumComparisonImpl {
         }
     }
 
-    static void constant_vector(A a, const PaddedPODArray<B>& b, PaddedPODArray<UInt8>& c) {
+    template <typename ArrayB>
+    static void constant_vector(A a, const ArrayB& b, PaddedPODArray<UInt8>& c) {
         NumComparisonImpl<B, A, typename Op::SymmetricOp>::vector_constant(b, a, c);
     }
 };
@@ -414,7 +416,7 @@ private:
         if (!left_is_const && !right_is_const) {
             auto col_res = ColumnUInt8::create();
 
-            ColumnUInt8::Container& vec_res = col_res->get_data();
+            ColumnUInt8::Container& vec_res = col_res->get_data_mutable();
             vec_res.resize(col_left->get_data().size());
             NumComparisonImpl<typename PrimitiveTypeTraits<PT>::CppType,
                               typename PrimitiveTypeTraits<PT>::CppType,
@@ -425,7 +427,7 @@ private:
         } else if (!left_is_const && right_is_const) {
             auto col_res = ColumnUInt8::create();
 
-            ColumnUInt8::Container& vec_res = col_res->get_data();
+            ColumnUInt8::Container& vec_res = col_res->get_data_mutable();
             vec_res.resize(col_left->size());
             NumComparisonImpl<typename PrimitiveTypeTraits<PT>::CppType,
                               typename PrimitiveTypeTraits<PT>::CppType,
@@ -436,7 +438,7 @@ private:
         } else if (left_is_const && !right_is_const) {
             auto col_res = ColumnUInt8::create();
 
-            ColumnUInt8::Container& vec_res = col_res->get_data();
+            ColumnUInt8::Container& vec_res = col_res->get_data_mutable();
             vec_res.resize(col_right->size());
             NumComparisonImpl<typename PrimitiveTypeTraits<PT>::CppType,
                               typename PrimitiveTypeTraits<PT>::CppType,
@@ -515,7 +517,7 @@ private:
         using StringImpl = StringComparisonImpl<Op<TYPE_INT>>;
 
         auto c_res = ColumnUInt8::create();
-        ColumnUInt8::Container& vec_res = c_res->get_data();
+        ColumnUInt8::Container& vec_res = c_res->get_data_mutable();
         vec_res.resize(c0->size());
 
         if (c0_string && c1_string) {
@@ -545,7 +547,7 @@ private:
         DCHECK(!(c0_const && c1_const));
 
         auto c_res = ColumnUInt8::create();
-        ColumnUInt8::Container& vec_res = c_res->get_data();
+        ColumnUInt8::Container& vec_res = c_res->get_data_mutable();
         vec_res.resize(c0->size());
 
         if (c0_const) {

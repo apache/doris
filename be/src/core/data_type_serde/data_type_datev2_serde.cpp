@@ -89,7 +89,8 @@ Status DataTypeDateV2SerDe::deserialize_one_cell_from_json(IColumn& column, Slic
     return Status::OK();
 }
 
-Status DataTypeDateV2SerDe::write_column_to_arrow(const IColumn& column, const NullMap* null_map,
+Status DataTypeDateV2SerDe::write_column_to_arrow(const IColumn& column,
+                                                  const NullMapView* null_map,
                                                   arrow::ArrayBuilder* array_builder, int64_t start,
                                                   int64_t end, const cctz::time_zone& ctz) const {
     const auto& col_data = static_cast<const ColumnDateV2&>(column).get_data();
@@ -110,7 +111,7 @@ Status DataTypeDateV2SerDe::write_column_to_arrow(const IColumn& column, const N
 Status DataTypeDateV2SerDe::read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array,
                                                    int64_t start, int64_t end,
                                                    const cctz::time_zone& ctz) const {
-    auto& col_data = static_cast<ColumnDateV2&>(column).get_data();
+    auto& col_data = static_cast<ColumnDateV2&>(column).get_data_mutable();
     const auto* concrete_array = dynamic_cast<const arrow::Date32Array*>(arrow_array);
     const auto* base_ptr = reinterpret_cast<const uint8_t*>(concrete_array->raw_values());
     const size_t element_size = sizeof(int32_t);
@@ -134,7 +135,7 @@ Status DataTypeDateV2SerDe::read_column_from_decoded_values(IColumn& column,
     if (view.values == nullptr && decoded_column_view_has_non_null_value(view)) {
         return Status::Corruption("Decoded value buffer is null for {}", column.get_name());
     }
-    auto& data = assert_cast<ColumnDateV2&>(column).get_data();
+    auto& data = assert_cast<ColumnDateV2&>(column).get_data_mutable();
     const auto* values = reinterpret_cast<const int32_t*>(view.values);
     for (int64_t row = 0; row < view.row_count; ++row) {
         if (decoded_column_view_row_is_null(view, row)) {
@@ -162,7 +163,7 @@ Status DataTypeDateV2SerDe::write_column_to_mysql_binary(const IColumn& column,
 }
 
 Status DataTypeDateV2SerDe::write_column_to_orc(const std::string& timezone, const IColumn& column,
-                                                const NullMap* null_map,
+                                                const NullMapView* null_map,
                                                 orc::ColumnVectorBatch* orc_col_batch,
                                                 int64_t start, int64_t end, Arena& arena,
                                                 const FormatOptions& options) const {
@@ -229,6 +230,8 @@ Status DataTypeDateV2SerDe::from_string_batch(const ColumnString& col_str, Colum
     auto& col_nullmap = col_res.get_null_map_column();
     size_t row = col_str.size();
     col_res.resize(row);
+    auto& values = col_data.get_data_mutable();
+    auto& nulls = col_nullmap.get_data_mutable();
 
     CastParameters params {.status = Status::OK(), .is_strict = false};
     for (size_t i = 0; i < row; ++i) {
@@ -240,11 +243,11 @@ Status DataTypeDateV2SerDe::from_string_batch(const ColumnString& col_str, Colum
         // Exception!
         if (!CastToDateV2::from_string_non_strict_mode(str, res, options.timezone, params))
                 [[unlikely]] {
-            col_nullmap.get_data()[i] = true;
-            col_data.get_data()[i] = MIN_DATE_V2;
+            nulls[i] = true;
+            values[i] = MIN_DATE_V2;
         } else {
-            col_nullmap.get_data()[i] = false;
-            col_data.get_data()[i] = res;
+            nulls[i] = false;
+            values[i] = res;
         }
     }
     return Status::OK();
@@ -287,6 +290,7 @@ Status DataTypeDateV2SerDe::from_string_strict_mode_batch(
     size_t row = col_str.size();
     col_res.resize(row);
     auto& col_data = assert_cast<ColumnDateV2&>(col_res);
+    auto& values = col_data.get_data_mutable();
 
     CastParameters params {.status = Status::OK(), .is_strict = true};
     for (size_t i = 0; i < row; ++i) {
@@ -303,7 +307,7 @@ Status DataTypeDateV2SerDe::from_string_strict_mode_batch(
             return params.status;
         }
 
-        col_data.get_data()[i] = res;
+        values[i] = res;
     }
     return Status::OK();
 }
@@ -353,17 +357,19 @@ Status DataTypeDateV2SerDe::from_int_batch(const typename IntDataType::ColumnTyp
     auto& col_nullmap = target_col.get_null_map_column();
     col_data.resize(int_col.size());
     col_nullmap.resize(int_col.size());
+    auto& values = col_data.get_data_mutable();
+    auto& nulls = col_nullmap.get_data_mutable();
 
     CastParameters params {.status = Status::OK(), .is_strict = false};
     for (size_t i = 0; i < int_col.size(); ++i) {
         DateV2Value<DateV2ValueType> val;
         if (CastToDateV2::from_integer<DatelikeParseMode::NON_STRICT>(int_col.get_element(i), val,
                                                                       params)) [[likely]] {
-            col_data.get_data()[i] = val;
-            col_nullmap.get_data()[i] = false;
+            values[i] = val;
+            nulls[i] = false;
         } else {
-            col_nullmap.get_data()[i] = true;
-            col_data.get_data()[i] = MIN_DATE_V2;
+            nulls[i] = true;
+            values[i] = MIN_DATE_V2;
         }
     }
     return Status::OK();
@@ -374,6 +380,7 @@ Status DataTypeDateV2SerDe::from_int_strict_mode_batch(
         const typename IntDataType::ColumnType& int_col, IColumn& target_col) const {
     auto& col_data = assert_cast<ColumnDateV2&>(target_col);
     col_data.resize(int_col.size());
+    auto& values = col_data.get_data_mutable();
 
     CastParameters params {.status = Status::OK(), .is_strict = true};
     for (size_t i = 0; i < int_col.size(); ++i) {
@@ -384,7 +391,7 @@ Status DataTypeDateV2SerDe::from_int_strict_mode_batch(
             return params.status;
         }
 
-        col_data.get_data()[i] = val;
+        values[i] = val;
     }
     return Status::OK();
 }
@@ -396,17 +403,19 @@ Status DataTypeDateV2SerDe::from_float_batch(const typename FloatDataType::Colum
     auto& col_nullmap = target_col.get_null_map_column();
     col_data.resize(float_col.size());
     col_nullmap.resize(float_col.size());
+    auto& values = col_data.get_data_mutable();
+    auto& nulls = col_nullmap.get_data_mutable();
 
     CastParameters params {.status = Status::OK(), .is_strict = false};
     for (size_t i = 0; i < float_col.size(); ++i) {
         DateV2Value<DateV2ValueType> val;
         if (CastToDateV2::from_float<DatelikeParseMode::NON_STRICT>(float_col.get_data()[i], val,
                                                                     params)) [[likely]] {
-            col_data.get_data()[i] = val;
-            col_nullmap.get_data()[i] = false;
+            values[i] = val;
+            nulls[i] = false;
         } else {
-            col_nullmap.get_data()[i] = true;
-            col_data.get_data()[i] = MIN_DATE_V2;
+            nulls[i] = true;
+            values[i] = MIN_DATE_V2;
         }
     }
     return Status::OK();
@@ -417,6 +426,7 @@ Status DataTypeDateV2SerDe::from_float_strict_mode_batch(
         const typename FloatDataType::ColumnType& float_col, IColumn& target_col) const {
     auto& col_data = assert_cast<ColumnDateV2&>(target_col);
     col_data.resize(float_col.size());
+    auto& values = col_data.get_data_mutable();
 
     CastParameters params {.status = Status::OK(), .is_strict = true};
     for (size_t i = 0; i < float_col.size(); ++i) {
@@ -428,7 +438,7 @@ Status DataTypeDateV2SerDe::from_float_strict_mode_batch(
             return params.status;
         }
 
-        col_data.get_data()[i] = val;
+        values[i] = val;
     }
     return Status::OK();
 }
@@ -440,6 +450,8 @@ Status DataTypeDateV2SerDe::from_decimal_batch(
     auto& col_nullmap = target_col.get_null_map_column();
     col_data.resize(decimal_col.size());
     col_nullmap.resize(decimal_col.size());
+    auto& values = col_data.get_data_mutable();
+    auto& nulls = col_nullmap.get_data_mutable();
 
     CastParameters params {.status = Status::OK(), .is_strict = false};
     for (size_t i = 0; i < decimal_col.size(); ++i) {
@@ -447,11 +459,11 @@ Status DataTypeDateV2SerDe::from_decimal_batch(
         if (CastToDateV2::from_decimal<DatelikeParseMode::NON_STRICT>(
                     decimal_col.get_intergral_part(i), decimal_col.get_scale(), val, params))
                 [[likely]] {
-            col_data.get_data()[i] = val;
-            col_nullmap.get_data()[i] = false;
+            values[i] = val;
+            nulls[i] = false;
         } else {
-            col_nullmap.get_data()[i] = true;
-            col_data.get_data()[i] = MIN_DATE_V2;
+            nulls[i] = true;
+            values[i] = MIN_DATE_V2;
         }
     }
     return Status::OK();
@@ -462,6 +474,7 @@ Status DataTypeDateV2SerDe::from_decimal_strict_mode_batch(
         const typename DecimalDataType::ColumnType& decimal_col, IColumn& target_col) const {
     auto& col_data = assert_cast<ColumnDateV2&>(target_col);
     col_data.resize(decimal_col.size());
+    auto& values = col_data.get_data_mutable();
 
     CastParameters params {.status = Status::OK(), .is_strict = true};
     for (size_t i = 0; i < decimal_col.size(); ++i) {
@@ -475,7 +488,7 @@ Status DataTypeDateV2SerDe::from_decimal_strict_mode_batch(
             return params.status;
         }
 
-        col_data.get_data()[i] = val;
+        values[i] = val;
     }
     return Status::OK();
 }

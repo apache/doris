@@ -34,7 +34,7 @@ Status cast_from_generic_to_jsonb(FunctionContext* context, Block& block,
     JsonbWriter writer;
 
     ColumnUInt8::MutablePtr col_null_map_to = ColumnUInt8::create(col_from.size(), 0);
-    ColumnUInt8::Container* vec_null_map_to = &col_null_map_to->get_data();
+    ColumnUInt8::Container* vec_null_map_to = &col_null_map_to->get_data_mutable();
     DataTypeSerDe::FormatOptions format_options;
     format_options.converted_from_string = true;
     DataTypeSerDeSPtr from_serde = type.get_serde();
@@ -92,7 +92,7 @@ Status cast_from_string_to_generic(FunctionContext* context, Block& block,
         col_to->reserve(size);
 
         ColumnUInt8::MutablePtr col_null_map_to = ColumnUInt8::create(size, 0);
-        ColumnUInt8::Container* vec_null_map_to = &col_null_map_to->get_data();
+        ColumnUInt8::Container* vec_null_map_to = &col_null_map_to->get_data_mutable();
         const bool is_complex = is_complex_type(data_type_to->get_primitive_type());
         DataTypeSerDe::FormatOptions format_options;
         format_options.converted_from_string = true;

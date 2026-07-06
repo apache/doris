@@ -518,7 +518,7 @@ Status VIcebergDeleteSink::_build_position_delete_block(const std::string& file_
 
     // Create pos column
     auto pos_col = ColumnVector<TYPE_BIGINT>::create();
-    pos_col->get_data().assign(positions.begin(), positions.end());
+    pos_col->get_data_mutable().assign(positions.begin(), positions.end());
 
     // Build block
     output_block.insert(ColumnWithTypeAndName(std::move(file_path_col),

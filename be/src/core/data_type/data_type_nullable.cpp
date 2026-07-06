@@ -114,7 +114,7 @@ const char* DataTypeNullable::deserialize(const char* buf, MutableColumnPtr* col
     const auto& const_col = *col;
     auto nested = std::move(*const_col.get_nested_column_ptr()).mutate();
     auto null_map = std::move(*const_col.get_null_map_column_ptr()).mutate();
-    auto& null_map_data = assert_cast<ColumnUInt8&>(*null_map).get_data();
+    auto& null_map_data = assert_cast<ColumnUInt8&>(*null_map).get_data_mutable();
 
     null_map_data.resize(real_have_saved_num);
     if (mem_size <= SERIALIZED_MEM_SIZE_LIMIT) {

@@ -767,7 +767,7 @@ public:
         NullMap::value_type* null_map_data = nullptr;
         if (narrow_integral) {
             col_null_map_to = ColumnUInt8::create(input_rows_count, 0);
-            null_map_data = col_null_map_to->get_data().data();
+            null_map_data = col_null_map_to->get_data_mutable().data();
         }
 
         auto col_to = ToDataType::ColumnType::create(input_rows_count, to_scale);
@@ -846,7 +846,7 @@ public:
         bool set_nullable = (CastMode == CastModeType::NonStrictMode) && narrow_integral;
 
         ColumnUInt8::MutablePtr col_null_map_to = ColumnUInt8::create(input_rows_count, 0);
-        NullMap::value_type* null_map_data = col_null_map_to->get_data().data();
+        NullMap::value_type* null_map_data = col_null_map_to->get_data_mutable().data();
 
         auto col_to = ToDataType::ColumnType::create(input_rows_count, to_scale);
         const auto& vec_from = col_from->get_data();
@@ -941,7 +941,7 @@ public:
         NullMap::value_type* null_map_data = nullptr;
         if (narrow_integral) {
             col_null_map_to = ColumnUInt8::create(size, 0);
-            null_map_data = col_null_map_to->get_data().data();
+            null_map_data = col_null_map_to->get_data_mutable().data();
         }
         CastParameters params;
         params.is_strict = (CastMode == CastModeType::StrictMode);
@@ -1049,7 +1049,7 @@ public:
         NullMap::value_type* null_map_data = nullptr;
         if (narrow_integral) {
             col_null_map_to = ColumnUInt8::create(size, 0);
-            null_map_data = col_null_map_to->get_data().data();
+            null_map_data = col_null_map_to->get_data_mutable().data();
         }
         CastParameters params;
         params.is_strict = (CastMode == CastModeType::StrictMode);

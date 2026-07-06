@@ -205,7 +205,7 @@ TEST_F(PartitionTransformersTest, test_decimal32_bucket_transform) {
 
 TEST_F(PartitionTransformersTest, test_date_bucket_transform) {
     auto column = ColumnDateV2::create();
-    auto& date_v2_data = column->get_data();
+    auto& date_v2_data = column->get_data_mutable();
     DateV2Value<DateV2ValueType> value;
     value.unchecked_set_time(2017, 11, 16, 0, 0, 0, 0); // -653330422
     date_v2_data.push_back(*reinterpret_cast<UInt32*>(&value));
@@ -229,7 +229,7 @@ TEST_F(PartitionTransformersTest, test_date_bucket_transform) {
 
 TEST_F(PartitionTransformersTest, test_timestamp_bucket_transform) {
     auto column = ColumnDateTimeV2::create();
-    auto& datetime_v2_data = column->get_data();
+    auto& datetime_v2_data = column->get_data_mutable();
     DateV2Value<DateTimeV2ValueType> value;
     value.unchecked_set_time(2017, 11, 16, 22, 31, 8, 0); // -2047944441
     datetime_v2_data.push_back(*reinterpret_cast<UInt64*>(&value));
@@ -275,7 +275,7 @@ TEST_F(PartitionTransformersTest, test_string_bucket_transform) {
 
 TEST_F(PartitionTransformersTest, test_date_year_transform) {
     auto column = ColumnDateV2::create();
-    auto& date_v2_data = column->get_data();
+    auto& date_v2_data = column->get_data_mutable();
     DateV2Value<DateV2ValueType> value;
     value.unchecked_set_time(2017, 11, 16, 0, 0, 0, 0);
     date_v2_data.push_back(*reinterpret_cast<UInt32*>(&value));
@@ -302,7 +302,7 @@ TEST_F(PartitionTransformersTest, test_date_year_transform) {
 
 TEST_F(PartitionTransformersTest, test_timestamp_year_transform) {
     auto column = ColumnDateTimeV2::create();
-    auto& datetime_v2_data = column->get_data();
+    auto& datetime_v2_data = column->get_data_mutable();
     DateV2Value<DateTimeV2ValueType> value;
     value.unchecked_set_time(2017, 11, 16, 22, 31, 8, 0);
     datetime_v2_data.push_back(*reinterpret_cast<UInt64*>(&value));
@@ -329,7 +329,7 @@ TEST_F(PartitionTransformersTest, test_timestamp_year_transform) {
 
 TEST_F(PartitionTransformersTest, test_date_month_transform) {
     auto column = ColumnDateV2::create();
-    auto& date_v2_data = column->get_data();
+    auto& date_v2_data = column->get_data_mutable();
     DateV2Value<DateV2ValueType> value;
     value.unchecked_set_time(2017, 11, 16, 0, 0, 0, 0);
     date_v2_data.push_back(*reinterpret_cast<UInt32*>(&value));
@@ -356,7 +356,7 @@ TEST_F(PartitionTransformersTest, test_date_month_transform) {
 
 TEST_F(PartitionTransformersTest, test_timestamp_month_transform) {
     auto column = ColumnDateTimeV2::create();
-    auto& datetime_v2_data = column->get_data();
+    auto& datetime_v2_data = column->get_data_mutable();
     DateV2Value<DateTimeV2ValueType> value;
     value.unchecked_set_time(2017, 11, 16, 22, 31, 8, 0);
     datetime_v2_data.push_back(*reinterpret_cast<UInt64*>(&value));
@@ -383,7 +383,7 @@ TEST_F(PartitionTransformersTest, test_timestamp_month_transform) {
 
 TEST_F(PartitionTransformersTest, test_date_day_transform) {
     auto column = ColumnDateV2::create();
-    auto& date_v2_data = column->get_data();
+    auto& date_v2_data = column->get_data_mutable();
     DateV2Value<DateV2ValueType> value;
     value.unchecked_set_time(2017, 11, 16, 0, 0, 0, 0);
     date_v2_data.push_back(*reinterpret_cast<UInt32*>(&value));
@@ -410,7 +410,7 @@ TEST_F(PartitionTransformersTest, test_date_day_transform) {
 
 TEST_F(PartitionTransformersTest, test_timestamp_day_transform) {
     auto column = ColumnDateTimeV2::create();
-    auto& datetime_v2_data = column->get_data();
+    auto& datetime_v2_data = column->get_data_mutable();
     DateV2Value<DateTimeV2ValueType> value;
     value.unchecked_set_time(2017, 11, 16, 22, 31, 8, 0);
     datetime_v2_data.push_back(*reinterpret_cast<UInt64*>(&value));
@@ -437,7 +437,7 @@ TEST_F(PartitionTransformersTest, test_timestamp_day_transform) {
 
 TEST_F(PartitionTransformersTest, test_timestamp_hour_transform) {
     auto column = ColumnDateTimeV2::create();
-    auto& datetime_v2_data = column->get_data();
+    auto& datetime_v2_data = column->get_data_mutable();
     DateV2Value<DateTimeV2ValueType> value;
     value.unchecked_set_time(2017, 11, 16, 22, 31, 8, 0);
     datetime_v2_data.push_back(*reinterpret_cast<UInt64*>(&value));

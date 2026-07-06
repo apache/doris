@@ -45,7 +45,7 @@ Status DataTypeMapSerDe::serialize_one_cell_to_json(const IColumn& column, int64
     row_num = result.second;
 
     const auto& map_column = assert_cast<const ColumnMap&>(*ptr);
-    const ColumnArray::Offsets64& offsets = map_column.get_offsets();
+    const auto offsets = map_column.get_offsets();
 
     size_t offset = offsets[row_num - 1];
     size_t next_offset = offsets[row_num];
@@ -150,7 +150,7 @@ Status DataTypeMapSerDe::serialize_one_cell_to_hive_text(
     row_num = result.second;
 
     const auto& map_column = assert_cast<const ColumnMap&>(*ptr);
-    const ColumnArray::Offsets64& offsets = map_column.get_offsets();
+    const auto offsets = map_column.get_offsets();
 
     size_t start = offsets[row_num - 1];
     size_t end = offsets[row_num];
@@ -330,7 +330,7 @@ void DataTypeMapSerDe::write_one_cell_to_jsonb(const IColumn& column, JsonbWrite
     result.writeEndBinary();
 }
 
-Status DataTypeMapSerDe::write_column_to_arrow(const IColumn& column, const NullMap* null_map,
+Status DataTypeMapSerDe::write_column_to_arrow(const IColumn& column, const NullMapView* null_map,
                                                arrow::ArrayBuilder* array_builder, int64_t start,
                                                int64_t end, const cctz::time_zone& ctz) const {
     auto& builder = assert_cast<arrow::MapBuilder&>(*array_builder);
@@ -419,7 +419,7 @@ Status DataTypeMapSerDe::write_column_to_mysql_binary(const IColumn& column,
 }
 
 Status DataTypeMapSerDe::write_column_to_orc(const std::string& timezone, const IColumn& column,
-                                             const NullMap* null_map,
+                                             const NullMapView* null_map,
                                              orc::ColumnVectorBatch* orc_col_batch, int64_t start,
                                              int64_t end, Arena& arena,
                                              const FormatOptions& options) const {
@@ -427,7 +427,7 @@ Status DataTypeMapSerDe::write_column_to_orc(const std::string& timezone, const 
     cur_batch->offsets[0] = 0;
 
     const auto& map_column = assert_cast<const ColumnMap&>(column);
-    const ColumnArray::Offsets64& offsets = map_column.get_offsets();
+    const auto offsets = map_column.get_offsets();
     const IColumn& nested_keys_column = map_column.get_keys();
     const IColumn& nested_values_column = map_column.get_values();
     for (size_t row_id = start; row_id < end; row_id++) {
@@ -455,7 +455,7 @@ Status DataTypeMapSerDe::write_column_to_pb(const IColumn& column, PValues& resu
     const auto& map_column = assert_cast<const ColumnMap&>(column);
     auto* ptype = result.mutable_type();
     ptype->set_id(PGenericType::MAP);
-    const ColumnArray::Offsets64& offsets = map_column.get_offsets();
+    const auto offsets = map_column.get_offsets();
     const IColumn& nested_keys_column = map_column.get_keys();
     const IColumn& nested_values_column = map_column.get_values();
     auto* key_child_element = result.add_child_element();
@@ -567,7 +567,7 @@ Status DataTypeMapSerDe::from_string_strict_mode(StringRef& str, IColumn& column
 Status DataTypeMapSerDe::serialize_column_to_jsonb(const IColumn& from_column, int64_t row_num,
                                                    JsonbWriter& writer) const {
     const auto& map_column = assert_cast<const ColumnMap&>(from_column);
-    const ColumnArray::Offsets64& offsets = map_column.get_offsets();
+    const auto offsets = map_column.get_offsets();
 
     size_t offset = offsets[row_num - 1];
     size_t next_offset = offsets[row_num];
@@ -610,7 +610,7 @@ Status DataTypeMapSerDe::serialize_column_to_jsonb(const IColumn& from_column, i
 void DataTypeMapSerDe::to_string(const IColumn& column, size_t row_num, BufferWritable& bw,
                                  const FormatOptions& options) const {
     const auto& map_column = assert_cast<const ColumnMap&>(column);
-    const ColumnArray::Offsets64& offsets = map_column.get_offsets();
+    const auto offsets = map_column.get_offsets();
 
     size_t offset = offsets[row_num - 1];
     size_t next_offset = offsets[row_num];
@@ -633,7 +633,7 @@ bool DataTypeMapSerDe::write_column_to_presto_text(const IColumn& column, Buffer
                                                    int64_t row_idx,
                                                    const FormatOptions& options) const {
     const auto& map_column = assert_cast<const ColumnMap&>(column);
-    const ColumnArray::Offsets64& offsets = map_column.get_offsets();
+    const auto offsets = map_column.get_offsets();
 
     size_t offset = offsets[row_idx - 1];
     size_t next_offset = offsets[row_idx];
@@ -658,7 +658,7 @@ bool DataTypeMapSerDe::write_column_to_hive_text(const IColumn& column, BufferWr
                                                  int64_t row_idx,
                                                  const FormatOptions& options) const {
     const auto& map_column = assert_cast<const ColumnMap&>(column);
-    const ColumnArray::Offsets64& offsets = map_column.get_offsets();
+    const auto offsets = map_column.get_offsets();
 
     size_t offset = offsets[row_idx - 1];
     size_t next_offset = offsets[row_idx];

@@ -128,7 +128,7 @@ TEST(ColumnMutateSubcolumnsTest, ArrayDetachesSharedSubcolumns) {
     EXPECT_NE(mutated_array.get_data_ptr().get(), data_alias.get());
     EXPECT_NE(mutated_array.get_offsets_ptr().get(), offsets_alias.get());
 
-    assert_cast<ColumnInt64&>(mutated_array.get_data()).get_data()[0] = 20;
+    assert_cast<ColumnInt64&>(mutated_array.get_data()).get_data_mutable()[0] = 20;
     mutated_array.get_offsets()[0] = 2;
     EXPECT_EQ(assert_cast<const ColumnInt64&>(*data_alias).get_data()[0], 10);
     EXPECT_EQ(assert_cast<const ColumnArray::ColumnOffsets&>(*offsets_alias).get_data()[0], 1);
@@ -166,8 +166,8 @@ TEST(ColumnMutateSubcolumnsTest, MapDetachesSharedSubcolumns) {
     EXPECT_NE(mutated_map.get_values_ptr().get(), values_alias.get());
     EXPECT_NE(mutated_map.get_offsets_ptr().get(), offsets_alias.get());
 
-    assert_cast<ColumnInt64&>(mutated_map.get_keys()).get_data()[0] = 2;
-    assert_cast<ColumnInt64&>(mutated_map.get_values()).get_data()[0] = 20;
+    assert_cast<ColumnInt64&>(mutated_map.get_keys()).get_data_mutable()[0] = 2;
+    assert_cast<ColumnInt64&>(mutated_map.get_values()).get_data_mutable()[0] = 20;
     mutated_map.get_offsets()[0] = 2;
     EXPECT_EQ(assert_cast<const ColumnInt64&>(*keys_alias).get_data()[0], 1);
     EXPECT_EQ(assert_cast<const ColumnInt64&>(*values_alias).get_data()[0], 10);
@@ -228,8 +228,8 @@ TEST(ColumnMutateSubcolumnsTest, StructDetachesSharedSubcolumns) {
     EXPECT_NE(mutated_struct.get_column_ptr(0).get(), first_alias.get());
     EXPECT_NE(mutated_struct.get_column_ptr(1).get(), second_alias.get());
 
-    assert_cast<ColumnInt64&>(mutated_struct.get_column(0)).get_data()[0] = 20;
-    assert_cast<ColumnUInt8&>(mutated_struct.get_column(1)).get_data()[0] = 2;
+    assert_cast<ColumnInt64&>(mutated_struct.get_column(0)).get_data_mutable()[0] = 20;
+    assert_cast<ColumnUInt8&>(mutated_struct.get_column(1)).get_data_mutable()[0] = 2;
     EXPECT_EQ(assert_cast<const ColumnInt64&>(*first_alias).get_data()[0], 10);
     EXPECT_EQ(assert_cast<const ColumnUInt8&>(*second_alias).get_data()[0], 1);
 }

@@ -23,7 +23,7 @@
 
 namespace doris {
 
-auto& get_cond_data(ColumnPtr col) {
+ColumnUInt8::ImmContainer get_cond_data(ColumnPtr col) {
     return assert_cast<const ColumnUInt8*>(col.get())->get_data();
 }
 

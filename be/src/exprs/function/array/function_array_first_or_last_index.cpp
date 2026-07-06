@@ -82,7 +82,7 @@ public:
         const auto& src_offset = array_column->get_offsets();
 
         auto result_data_col = ColumnInt64::create(input_rows_count, 0);
-        auto& result_data = result_data_col->get_data();
+        auto& result_data = result_data_col->get_data_mutable();
 
         for (size_t i = 0; i < input_rows_count; ++i) {
             if (array_null_map && array_null_map[i]) {

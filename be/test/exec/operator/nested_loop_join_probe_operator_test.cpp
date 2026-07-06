@@ -63,8 +63,8 @@ TEST_F(NLJAppendProbeDataWithNullTest, NullMapSizeMustMatchNestedColumnAfterInse
                                                            probe_side_process_count);
 
     // The fix: resize_fill must use probe_side_process_count, not 1.
-    dst_column->get_null_map_column().get_data().resize_fill(origin_sz + probe_side_process_count,
-                                                             0);
+    dst_column->get_null_map_column().get_data_mutable().resize_fill(
+            origin_sz + probe_side_process_count, 0);
 
     // Verify: nested column and null map must have the same size.
     auto* nullable = dst_column.get();
@@ -104,7 +104,7 @@ TEST_F(NLJAppendProbeDataWithNullTest, BugReproNullMapSizeMismatchWhenExtendedBy
     dst_column->get_nested_column_ptr()->insert_range_from(*src_column, 0, num_rows);
 
     // Simulate the OLD buggy code: resize_fill(origin_sz + 1, 0)
-    dst_column->get_null_map_column().get_data().resize_fill(origin_sz + 1, 0);
+    dst_column->get_null_map_column().get_data_mutable().resize_fill(origin_sz + 1, 0);
 
     auto* nullable = dst_column.get();
     // The nested column has 5 rows but null map only has 1 — invariant broken.
@@ -126,7 +126,7 @@ TEST_F(NLJAppendProbeDataWithNullTest, SingleRowInsertIsCorrect) {
     constexpr size_t count = 1;
 
     dst_column->get_nested_column_ptr()->insert_range_from(*src_column, 0, count);
-    dst_column->get_null_map_column().get_data().resize_fill(origin_sz + count, 0);
+    dst_column->get_null_map_column().get_data_mutable().resize_fill(origin_sz + count, 0);
 
     auto* nullable = dst_column.get();
     ASSERT_EQ(nullable->get_nested_column().size(), 1);
@@ -156,7 +156,7 @@ TEST_F(NLJAppendProbeDataWithNullTest, AppendToNonEmptyColumn) {
 
     constexpr size_t count = 3;
     dst_column->get_nested_column_ptr()->insert_range_from(*src_column, 0, count);
-    dst_column->get_null_map_column().get_data().resize_fill(origin_sz + count, 0);
+    dst_column->get_null_map_column().get_data_mutable().resize_fill(origin_sz + count, 0);
 
     auto* nullable = dst_column.get();
     ASSERT_EQ(nullable->get_nested_column().size(), 5);

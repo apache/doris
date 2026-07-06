@@ -181,7 +181,7 @@ void serialize_and_deserialize_test(segment_v2::CompressionTypePB compression_ty
     // int
     {
         auto vec = ColumnInt32::create();
-        auto& data = vec->get_data();
+        auto& data = vec->get_data_mutable();
         for (int i = 0; i < 1024; ++i) {
             data.push_back(i);
         }
@@ -373,7 +373,7 @@ void serialize_and_deserialize_test_one() {
     // const int
     {
         auto vec = ColumnInt32::create();
-        auto& data = vec->get_data();
+        auto& data = vec->get_data_mutable();
         data.push_back(111);
         auto const_column = ColumnConst::create(vec->get_ptr(), 1);
         DataTypePtr data_type(std::make_shared<DataTypeInt32>());
@@ -400,7 +400,7 @@ void serialize_and_deserialize_test_int() {
     // const int
     {
         auto vec = ColumnInt32::create();
-        auto& data = vec->get_data();
+        auto& data = vec->get_data_mutable();
         data.push_back(111);
         auto const_column = ColumnConst::create(vec->get_ptr(), 10);
         DataTypePtr data_type(std::make_shared<DataTypeInt32>());
@@ -425,7 +425,7 @@ void serialize_and_deserialize_test_int() {
     // int
     {
         auto vec = ColumnInt32::create();
-        auto& data = vec->get_data();
+        auto& data = vec->get_data_mutable();
         for (int i = 0; i < 1024; ++i) {
             data.push_back(i);
         }
@@ -452,7 +452,7 @@ void serialize_and_deserialize_test_long() {
     // const long
     {
         auto vec = ColumnInt64::create();
-        auto& data = vec->get_data();
+        auto& data = vec->get_data_mutable();
         data.push_back(111);
         auto const_column = ColumnConst::create(vec->get_ptr(), 10);
         DataTypePtr data_type(std::make_shared<DataTypeInt64>());
@@ -477,7 +477,7 @@ void serialize_and_deserialize_test_long() {
     // long
     {
         auto vec = ColumnInt64::create();
-        auto& data = vec->get_data();
+        auto& data = vec->get_data_mutable();
         for (int i = 0; i < 1024; ++i) {
             data.push_back(i);
         }
@@ -557,7 +557,7 @@ void serialize_and_deserialize_test_nullable() {
     // nullable(const int)
     {
         auto vec = ColumnInt32::create();
-        auto& data = vec->get_data();
+        auto& data = vec->get_data_mutable();
         data.push_back(111);
         auto nullable_column = make_nullable(vec->get_ptr());
         auto const_column = ColumnConst::create(nullable_column, 10);
@@ -585,7 +585,7 @@ void serialize_and_deserialize_test_nullable() {
     // nullable(int)
     {
         auto vec = ColumnInt32::create();
-        auto& data = vec->get_data();
+        auto& data = vec->get_data_mutable();
         for (int i = 0; i < 1024; ++i) {
             data.push_back(i);
         }
@@ -814,7 +814,7 @@ TEST(BlockTest, SerializeAndDeserializeBlock) {
 
 TEST(BlockTest, dump_data) {
     auto vec = ColumnInt32::create();
-    auto& int32_data = vec->get_data();
+    auto& int32_data = vec->get_data_mutable();
     for (int i = 0; i < 1024; ++i) {
         int32_data.push_back(i);
     }
@@ -850,7 +850,7 @@ TEST(BlockTest, dump_data) {
                                               "test_nullable_int32");
 
     auto column_vector_date = ColumnDate::create();
-    auto& date_data = column_vector_date->get_data();
+    auto& date_data = column_vector_date->get_data_mutable();
     for (int i = 0; i < 1024; ++i) {
         VecDateTimeValue value;
         value.from_date_int64(20210501);
@@ -860,7 +860,7 @@ TEST(BlockTest, dump_data) {
     ColumnWithTypeAndName test_date(column_vector_date->get_ptr(), date_type, "test_date");
 
     auto column_vector_datetime = ColumnDateTime::create();
-    auto& datetime_data = column_vector_datetime->get_data();
+    auto& datetime_data = column_vector_datetime->get_data_mutable();
     for (int i = 0; i < 1024; ++i) {
         VecDateTimeValue value;
         value.from_date_int64(20210501080910);
@@ -871,7 +871,7 @@ TEST(BlockTest, dump_data) {
                                         "test_datetime");
 
     auto column_vector_date_v2 = ColumnDateV2::create();
-    auto& date_v2_data = column_vector_date_v2->get_data();
+    auto& date_v2_data = column_vector_date_v2->get_data_mutable();
     for (int i = 0; i < 1024; ++i) {
         DateV2Value<DateV2ValueType> value;
         value.unchecked_set_time(2022, 6, 6, 0, 0, 0, 0);
@@ -905,7 +905,7 @@ TEST(BlockTest, dump_data) {
 
 TEST(BlockTest, merge_with_shared_columns) {
     auto vec = ColumnInt32::create();
-    auto& int32_data = vec->get_data();
+    auto& int32_data = vec->get_data_mutable();
     for (int i = 0; i < 1024; ++i) {
         int32_data.push_back(i);
     }
@@ -925,7 +925,7 @@ TEST(BlockTest, merge_with_shared_columns) {
     Block src_block({test_k1, test_v1, test_v2});
 
     auto vec_temp = ColumnInt32::create();
-    auto& int32_data_temp = vec_temp->get_data();
+    auto& int32_data_temp = vec_temp->get_data_mutable();
     for (int i = 0; i < 10; ++i) {
         int32_data_temp.push_back(i);
     }

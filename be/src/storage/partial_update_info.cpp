@@ -1047,7 +1047,7 @@ Status BlockAggregator::aggregate_for_insert_after_delete(
     const auto* delete_signs = BaseTablet::get_delete_sign_column_data(*block, num_rows);
 
     auto filter_column = ColumnUInt8::create(num_rows, 1);
-    auto* __restrict filter_map = filter_column->get_data().data();
+    auto* __restrict filter_map = filter_column->get_data_mutable().data();
     std::string previous_key {};
     bool previous_has_delete_sign {false};
     int duplicate_rows {0};

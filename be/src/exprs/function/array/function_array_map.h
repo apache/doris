@@ -50,6 +50,16 @@ struct MapActionImpl<Map, ColumnType, MapOperation::UNION> {
     using Action = UnionAction<Map, ColumnType>;
 };
 
+template <typename ColumnType>
+auto& array_map_writable_data(ColumnType& column) {
+    return column.get_data();
+}
+
+template <PrimitiveType Type>
+auto& array_map_writable_data(ColumnVector<Type>& column) {
+    return column.get_data_mutable();
+}
+
 template <MapOperation operation, typename ColumnType>
 struct OpenMapImpl {
     using Element = typename ColumnType::value_type;
@@ -86,7 +96,8 @@ struct OpenMapImpl {
                 if ((operation == MapOperation::INTERSECT && entry.second == params.size()) ||
                     operation == MapOperation::UNION) {
                     ++dst_off;
-                    auto& dst_data = static_cast<ColumnType&>(*dst.nested_col).get_data();
+                    auto& dst_data =
+                            array_map_writable_data(static_cast<ColumnType&>(*dst.nested_col));
                     dst_data.push_back(entry.first);
                     if (dst.nested_nullmap_data) {
                         dst.nested_nullmap_data->push_back(0);

@@ -32,6 +32,18 @@
 
 namespace doris {
 
+template <typename ColumnType>
+decltype(auto) unary_arithmetic_writable_data(ColumnType& column) {
+    return column.get_data();
+}
+
+template <PrimitiveType T>
+auto& unary_arithmetic_writable_data(ColumnVector<T>& column) {
+    // Unary arithmetic writes into a freshly allocated result. Fixed-length vectors may be backed
+    // by a segment page, so use the mutable accessor to detach before filling the result buffer.
+    return column.get_data_mutable();
+}
+
 template <PrimitiveType A, typename Op>
 struct UnaryOperationImpl {
     static constexpr PrimitiveType ResultType = Op::ResultType;
@@ -40,7 +52,8 @@ struct UnaryOperationImpl {
     using ArrayA = typename ColVecA::Container;
     using ArrayC = typename ColVecC::Container;
 
-    static void NO_INLINE vector(const ArrayA& a, ArrayC& c) {
+    template <typename ArrayLike>
+    static void NO_INLINE vector(const ArrayLike& a, ArrayC& c) {
         size_t size = a.size();
         for (size_t i = 0; i < size; ++i) c[i] = Op::apply(a[i]);
     }
@@ -130,7 +143,7 @@ public:
                                 auto col_res =
                                         PrimitiveTypeTraits<Op::ResultType>::ColumnType::create(
                                                 0, type.get_scale());
-                                auto& vec_res = col_res->get_data();
+                                auto& vec_res = unary_arithmetic_writable_data(*col_res);
                                 vec_res.resize(col->get_data().size());
                                 UnaryOperationImpl<DataType::PType, Op>::vector(col->get_data(),
                                                                                 vec_res);
@@ -143,7 +156,7 @@ public:
                                     block.get_by_position(arguments[0]).column.get())) {
                             auto col_res =
                                     PrimitiveTypeTraits<Op::ResultType>::ColumnType::create();
-                            auto& vec_res = col_res->get_data();
+                            auto& vec_res = unary_arithmetic_writable_data(*col_res);
                             vec_res.resize(col->get_data().size());
                             UnaryOperationImpl<DataType::PType, Op>::vector(col->get_data(),
                                                                             vec_res);

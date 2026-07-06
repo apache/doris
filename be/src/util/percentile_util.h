@@ -23,6 +23,7 @@
 #include <cmath>
 #include <cstdint>
 #include <queue>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -64,6 +65,7 @@ public:
     void increment(Ty key) { _nums.push_back(key); }
 
     void increment_batch(const PaddedPODArray<Ty>& keys) { _nums.insert(keys.begin(), keys.end()); }
+    void increment_batch(std::span<const Ty> keys) { _nums.insert(keys.begin(), keys.end()); }
 
     void serialize(BufferWritable& buf) {
         if (!_nums.empty()) {

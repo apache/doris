@@ -81,7 +81,7 @@ public:
             arg_cols[i] = remove_nullable(arg_cols[i]);
         }
 
-        const NullMap* compare_null_map = VectorizedUtils::get_null_map(arg_cols[0]);
+        auto compare_null_map = VectorizedUtils::get_null_map(arg_cols[0]);
         arg_cols[0] = remove_nullable(arg_cols[0]);
         const auto& compare_data = assert_cast<const ColumnInt64&>(*arg_cols[0]).get_data();
         for (int row = 0; row < input_rows_count; ++row) {

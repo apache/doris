@@ -143,13 +143,15 @@ public:
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
         const ColumnPtr source_col = block.get_by_position(arguments[0]).column;
-        const NullMap* null_map = nullptr;
+        NullMapView null_map;
+        bool has_null_map = false;
         ColumnPtr actual_col = source_col;
 
         if (is_column_nullable(*source_col)) {
             const auto* nullable_col = assert_cast<const ColumnNullable*>(source_col.get());
             actual_col = nullable_col->get_nested_column_ptr();
-            null_map = &nullable_col->get_null_map_data();
+            null_map = nullable_col->get_null_map_data();
+            has_null_map = true;
         }
 
         const auto* sources =
@@ -163,7 +165,7 @@ public:
         vector(context, sources->get_data(), col_res->get_chars(), col_res->get_offsets(),
                null_map);
 
-        if (null_map) {
+        if (has_null_map) {
             const auto* nullable_col = assert_cast<const ColumnNullable*>(source_col.get());
             block.replace_by_position(
                     result, ColumnNullable::create(std::move(col_res),
@@ -175,9 +177,9 @@ public:
     }
 
 private:
-    static void vector(FunctionContext* context, const PaddedPODArray<DateType>& ts,
-                       ColumnString::Chars& res_data, ColumnString::Offsets& res_offsets,
-                       const NullMap* null_map = nullptr) {
+    template <typename DateArray>
+    static void vector(FunctionContext* context, const DateArray& ts, ColumnString::Chars& res_data,
+                       ColumnString::Offsets& res_offsets, NullMapView null_map = {}) {
         const auto len = ts.size();
         res_data.resize(len * Transform::max_size);
         res_offsets.resize(len);
@@ -193,7 +195,7 @@ private:
         }
 
         for (size_t i = 0; i < len; ++i) {
-            if (null_map && (*null_map)[i]) {
+            if (null_map.data() && null_map[i]) {
                 res_offsets[i] = cast_set<UInt32>(offset);
                 continue;
             }

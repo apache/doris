@@ -142,10 +142,13 @@ public:
         const auto* col_from = assert_cast<const typename FromDataType::ColumnType*>(
                 block.get_by_position(arguments[0]).column.get());
         auto col_to = ToDataType::ColumnType::create(input_rows_count);
+        auto& col_to_data = col_to->get_data_mutable();
         ColumnUInt8::MutablePtr col_nullmap;
+        ColumnUInt8::Container* col_nullmap_data = nullptr;
 
         if constexpr (Nullable) {
             col_nullmap = ColumnUInt8::create(input_rows_count, 0);
+            col_nullmap_data = &col_nullmap->get_data_mutable();
         }
 
         for (size_t i = 0; i < input_rows_count; ++i) {
@@ -156,22 +159,22 @@ public:
                 // from Date to Date
                 auto dtv1 = col_from->get_data()[i];
                 dtv1.cast_to_date();
-                col_to->get_data()[i] =
+                col_to_data[i] =
                         binary_cast<uint32_t, DateV2Value<DateV2ValueType>>(dtv1.to_date_v2());
             } else if constexpr (IsDateV2Type<FromDataType> && IsDateType<ToDataType>) {
-                DataTypeDateV2::cast_to_date(col_from->get_data()[i], col_to->get_data()[i]);
+                DataTypeDateV2::cast_to_date(col_from->get_data()[i], col_to_data[i]);
             } else if constexpr (IsDateTimeType<FromDataType> && IsDateType<ToDataType>) {
                 // from Datetime to Date
-                col_to->get_data()[i] = col_from->get_data()[i];
-                DataTypeDate::cast_to_date(col_to->get_data()[i]);
+                col_to_data[i] = col_from->get_data()[i];
+                DataTypeDate::cast_to_date(col_to_data[i]);
             } else if constexpr (IsDateTimeV2Type<FromDataType> && IsDateType<ToDataType>) {
-                DataTypeDateTimeV2::cast_to_date(col_from->get_data()[i], col_to->get_data()[i]);
+                DataTypeDateTimeV2::cast_to_date(col_from->get_data()[i], col_to_data[i]);
             } else if constexpr (IsDateTimeType<FromDataType> && IsDateV2Type<ToDataType>) {
                 auto dtmv1 = col_from->get_data()[i];
-                col_to->get_data()[i] =
+                col_to_data[i] =
                         binary_cast<uint32_t, DateV2Value<DateV2ValueType>>(dtmv1.to_date_v2());
             } else if constexpr (IsDateTimeV2Type<FromDataType> && IsDateV2Type<ToDataType>) {
-                DataTypeDateTimeV2::cast_to_date_v2(col_from->get_data()[i], col_to->get_data()[i]);
+                DataTypeDateTimeV2::cast_to_date_v2(col_from->get_data()[i], col_to_data[i]);
             } else if constexpr (IsTimeV2Type<FromDataType> && IsDateType<ToDataType>) {
                 // from Time to Date
                 VecDateTimeValue dtv;
@@ -189,7 +192,7 @@ public:
                 dtv.date_add_interval<TimeUnit::MINUTE, false>(TimeInterval(MINUTE, minute, neg));
                 dtv.date_add_interval<TimeUnit::SECOND, false>(TimeInterval(SECOND, second, neg));
 
-                col_to->get_data()[i] = dtv;
+                col_to_data[i] = dtv;
             } else if constexpr (IsTimeV2Type<FromDataType> && IsDateV2Type<ToDataType>) {
                 DateV2Value<DateV2ValueType> dtv;
                 dtv.from_unixtime(context->state()->timestamp_ms() / 1000,
@@ -205,20 +208,19 @@ public:
                 dtv.date_add_interval<TimeUnit::MINUTE, false>(TimeInterval(MINUTE, minute, neg));
                 dtv.date_add_interval<TimeUnit::SECOND, false>(TimeInterval(SECOND, second, neg));
 
-                col_to->get_data()[i] = dtv;
+                col_to_data[i] = dtv;
             } else if constexpr (IsDateType<FromDataType> && IsDateTimeType<ToDataType>) {
                 // from Date to Datetime
-                col_to->get_data()[i] = col_from->get_data()[i];
-                DataTypeDateTime::cast_to_date_time(col_to->get_data()[i]);
+                col_to_data[i] = col_from->get_data()[i];
+                DataTypeDateTime::cast_to_date_time(col_to_data[i]);
             } else if constexpr (IsDateV2Type<FromDataType> && IsDateTimeType<ToDataType>) {
-                DataTypeDateV2::cast_to_date_time(col_from->get_data()[i], col_to->get_data()[i]);
+                DataTypeDateV2::cast_to_date_time(col_from->get_data()[i], col_to_data[i]);
             } else if constexpr (IsDateType<FromDataType> && IsDateTimeV2Type<ToDataType>) {
                 auto dtv1 = col_from->get_data()[i];
-                col_to->get_data()[i] = binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(
+                col_to_data[i] = binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(
                         dtv1.to_datetime_v2());
             } else if constexpr (IsDateV2Type<FromDataType> && IsDateTimeV2Type<ToDataType>) {
-                DataTypeDateV2::cast_to_date_time_v2(col_from->get_data()[i],
-                                                     col_to->get_data()[i]);
+                DataTypeDateV2::cast_to_date_time_v2(col_from->get_data()[i], col_to_data[i]);
             } else if constexpr (IsTimeV2Type<FromDataType> && IsDateTimeType<ToDataType>) {
                 // from Time to Datetime
                 VecDateTimeValue dtv; // datetime by default
@@ -236,7 +238,7 @@ public:
                 dtv.date_add_interval<TimeUnit::MINUTE, false>(TimeInterval(MINUTE, minute, neg));
                 dtv.date_add_interval<TimeUnit::SECOND, false>(TimeInterval(SECOND, second, neg));
 
-                col_to->get_data()[i] = dtv;
+                col_to_data[i] = dtv;
             } else if constexpr (IsTimeV2Type<FromDataType> && IsDateTimeV2Type<ToDataType>) {
                 const auto* type = assert_cast<const DataTypeTimeV2*>(
                         block.get_by_position(arguments[0]).type.get());
@@ -261,15 +263,14 @@ public:
                 dtmv2.date_add_interval<TimeUnit::MICROSECOND, false>(
                         TimeInterval(MICROSECOND, microsecond, neg));
 
-                col_to->get_data()[i] = dtmv2;
+                col_to_data[i] = dtmv2;
             } else if constexpr (IsDateTimeType<FromDataType> && IsDateTimeV2Type<ToDataType>) {
                 // from Datetime to Datetime
                 auto dtmv1 = col_from->get_data()[i];
-                col_to->get_data()[i] = binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(
+                col_to_data[i] = binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(
                         dtmv1.to_datetime_v2());
             } else if constexpr (IsDateTimeV2Type<FromDataType> && IsDateTimeType<ToDataType>) {
-                DataTypeDateTimeV2::cast_to_date_time(col_from->get_data()[i],
-                                                      col_to->get_data()[i]);
+                DataTypeDateTimeV2::cast_to_date_time(col_from->get_data()[i], col_to_data[i]);
             } else if constexpr (IsDateTimeV2Type<FromDataType> && IsDateTimeV2Type<ToDataType>) {
                 const auto* type = assert_cast<const DataTypeDateTimeV2*>(
                         block.get_by_position(arguments[0]).type.get());
@@ -279,7 +280,7 @@ public:
                         block.get_by_position(result).type.get());
                 UInt32 to_scale = to_type->get_scale();
 
-                bool success = transform_date_scale(to_scale, scale, col_to->get_data()[i],
+                bool success = transform_date_scale(to_scale, scale, col_to_data[i],
                                                     col_from->get_data()[i]);
                 if (!success) {
                     if constexpr (CastMode == CastModeType::StrictMode) {
@@ -293,13 +294,12 @@ public:
                                 type->to_string(*col_from, i, format_options), type->get_name(),
                                 to_type->get_name());
                     } else {
-                        col_nullmap->get_data()[i] = true;
+                        (*col_nullmap_data)[i] = true;
                         //TODO: maybe we can remove all set operations on nested of null cell.
                         // the correctness should be keep by downstream user with replace_... or manually
                         // process null data if need.
-                        col_to->get_data()[i] =
-                                binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(
-                                        MIN_DATETIME_V2);
+                        col_to_data[i] = binary_cast<uint64_t, DateV2Value<DateTimeV2ValueType>>(
+                                MIN_DATETIME_V2);
                     }
                 }
 
@@ -314,7 +314,7 @@ public:
 
                 if (to_scale >= scale) {
                     // nothing to do, just copy
-                    col_to->get_data()[i] = col_from->get_data()[i];
+                    col_to_data[i] = col_from->get_data()[i];
                 } else {
                     double time = col_from->get_data()[i];
                     auto sign = TimeValue::sign(time);
@@ -344,7 +344,7 @@ public:
                         // truncate
                         time = TimeValue::reset_microsecond(time, microseconds / divisor * divisor);
                     }
-                    col_to->get_data()[i] = sign * time;
+                    col_to_data[i] = sign * time;
                 }
             } else if constexpr (IsDateTimeV2Type<FromDataType> && IsTimeV2Type<ToDataType>) {
                 // from Datetime to Time
@@ -391,12 +391,12 @@ public:
 
                 auto time = TimeValue::limit_with_bound(
                         TimeValue::make_time(hour, minute, second, microseconds));
-                col_to->get_data()[i] = time;
+                col_to_data[i] = time;
             } else if constexpr (IsDateTimeType<FromDataType> && IsTimeV2Type<ToDataType>) {
                 auto dtmv1 = col_from->get_data()[i];
                 auto time = TimeValue::limit_with_bound(
                         TimeValue::make_time(dtmv1.hour(), dtmv1.minute(), dtmv1.second()));
-                col_to->get_data()[i] = time;
+                col_to_data[i] = time;
             }
         }
 
@@ -422,7 +422,7 @@ public:
                         .get_data();
 
         auto col_to = ColumnDateTimeV2::create(input_rows_count);
-        auto& col_to_data = col_to->get_data();
+        auto& col_to_data = col_to->get_data_mutable();
         const auto& local_time_zone = context->state()->timezone_obj();
 
         const auto tz_scale = block.get_by_position(arguments[0]).type->get_scale();
@@ -459,9 +459,9 @@ public:
                         .get_data();
 
         auto col_to = ColumnDateTimeV2::create(input_rows_count);
-        auto& col_to_data = col_to->get_data();
+        auto& col_to_data = col_to->get_data_mutable();
         auto col_null = ColumnBool::create(input_rows_count, 0);
-        auto& col_null_map = col_null->get_data();
+        auto& col_null_map = col_null->get_data_mutable();
         const auto& local_time_zone = context->state()->timezone_obj();
 
         const auto tz_scale = block.get_by_position(arguments[0]).type->get_scale();

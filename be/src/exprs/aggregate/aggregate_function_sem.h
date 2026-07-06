@@ -140,7 +140,7 @@ public:
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
         auto& column = assert_cast<ColumnFloat64&>(to);
-        column.get_data().push_back(this->data(place).result());
+        column.get_data_mutable().push_back(this->data(place).result());
     }
 };
 

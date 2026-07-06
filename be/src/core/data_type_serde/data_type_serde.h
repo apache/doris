@@ -479,7 +479,7 @@ public:
     // JSON serializer and deserializer
 
     // Arrow serializer and deserializer
-    virtual Status write_column_to_arrow(const IColumn& column, const NullMap* null_map,
+    virtual Status write_column_to_arrow(const IColumn& column, const NullMapView* null_map,
                                          arrow::ArrayBuilder* array_builder, int64_t start,
                                          int64_t end, const cctz::time_zone& ctz) const = 0;
     virtual Status read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array,
@@ -496,7 +496,7 @@ public:
 
     // ORC serializer
     virtual Status write_column_to_orc(const std::string& timezone, const IColumn& column,
-                                       const NullMap* null_map,
+                                       const NullMapView* null_map,
                                        orc::ColumnVectorBatch* orc_col_batch, int64_t start,
                                        int64_t end, Arena& arena,
                                        const FormatOptions& options) const = 0;
@@ -539,7 +539,7 @@ protected:
 };
 
 /// Invert values since Arrow interprets 1 as a non-null value, while doris as a null
-inline static NullMap revert_null_map(const NullMap* null_bytemap, size_t start, size_t end) {
+inline static NullMap revert_null_map(const NullMapView* null_bytemap, size_t start, size_t end) {
     NullMap res;
     if (!null_bytemap) {
         return res;

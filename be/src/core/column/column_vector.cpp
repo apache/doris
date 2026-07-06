@@ -47,12 +47,14 @@ namespace doris {
 
 template <PrimitiveType T>
 size_t ColumnVector<T>::serialize_impl(char* pos, const size_t row) const {
-    memcpy_fixed<value_type>(pos, (char*)&data[row]);
+    auto values = immutable_data();
+    memcpy_fixed<value_type>(pos, reinterpret_cast<const char*>(&values[row]));
     return sizeof(value_type);
 }
 
 template <PrimitiveType T>
 size_t ColumnVector<T>::deserialize_impl(const char* pos) {
+    materialize_external_data();
     data.push_back(unaligned_load<value_type>(pos));
     return sizeof(value_type);
 }
@@ -137,23 +139,24 @@ void ColumnVector<T>::deserialize_with_nullable(StringRef* keys, const size_t nu
 
 template <PrimitiveType T>
 void ColumnVector<T>::update_hash_with_value(size_t n, SipHash& hash) const {
-    hash.update(data[n]);
+    hash.update(immutable_data()[n]);
 }
 
 template <PrimitiveType T>
 void ColumnVector<T>::update_hashes_with_value(uint64_t* __restrict hashes,
                                                const uint8_t* __restrict null_data) const {
-    auto s = size();
+    auto values = immutable_data();
+    auto s = values.size();
     if (null_data) {
-        for (int i = 0; i < s; i++) {
+        for (size_t i = 0; i < s; i++) {
             if (null_data[i] == 0) {
-                hashes[i] = HashUtil::xxHash64WithSeed(reinterpret_cast<const char*>(&data[i]),
+                hashes[i] = HashUtil::xxHash64WithSeed(reinterpret_cast<const char*>(&values[i]),
                                                        sizeof(value_type), hashes[i]);
             }
         }
     } else {
-        for (int i = 0; i < s; i++) {
-            hashes[i] = HashUtil::xxHash64WithSeed(reinterpret_cast<const char*>(&data[i]),
+        for (size_t i = 0; i < s; i++) {
+            hashes[i] = HashUtil::xxHash64WithSeed(reinterpret_cast<const char*>(&values[i]),
                                                    sizeof(value_type), hashes[i]);
         }
     }
@@ -171,15 +174,16 @@ void ColumnVector<T>::compare_internal(size_t rhs_row_id, const IColumn& rhs,
                                        int nan_direction_hint, int direction,
                                        std::vector<uint8_t>& cmp_res,
                                        uint8_t* __restrict filter) const {
-    const auto sz = data.size();
+    auto values = immutable_data();
+    const auto sz = values.size();
     DCHECK(cmp_res.size() == sz);
     const auto& cmp_base = assert_cast<const ColumnVector<T>&, TypeCheckOnRelease::DISABLE>(rhs)
-                                   .get_data()[rhs_row_id];
+                                   .immutable_data()[rhs_row_id];
     size_t begin = simd::find_zero(cmp_res, 0);
     while (begin < sz) {
         size_t end = simd::find_one(cmp_res, begin + 1);
         for (size_t row_id = begin; row_id < end; row_id++) {
-            auto value_a = data[row_id];
+            auto value_a = values[row_id];
             int res = value_a > cmp_base ? 1 : (value_a < cmp_base ? -1 : 0);
             cmp_res[row_id] = (res != 0);
             filter[row_id] = (res * direction < 0);
@@ -190,7 +194,7 @@ void ColumnVector<T>::compare_internal(size_t rhs_row_id, const IColumn& rhs,
 
 template <PrimitiveType T>
 Field ColumnVector<T>::operator[](size_t n) const {
-    return Field::create_field<T>(*(typename PrimitiveTypeTraits<T>::CppType*)(&data[n]));
+    return Field::create_field<T>(immutable_data()[n]);
 }
 
 template <PrimitiveType T>
@@ -215,13 +219,14 @@ void ColumnVector<T>::update_crcs_with_value(uint32_t* __restrict hashes, Primit
 
 template <PrimitiveType T>
 uint32_t ColumnVector<T>::_zlib_crc32_hash(uint32_t hash, size_t idx) const {
+    auto values = immutable_data();
     if constexpr (is_date_or_datetime(T)) {
         char buf[64];
-        const auto& date_val = (const VecDateTimeValue&)data[idx];
+        const auto& date_val = (const VecDateTimeValue&)values[idx];
         auto len = date_val.to_buffer(buf);
         return HashUtil::zlib_crc_hash(buf, len, hash);
     } else {
-        return HashUtil::zlib_crc32_fixed(data[idx], hash);
+        return HashUtil::zlib_crc32_fixed(values[idx], hash);
     }
 }
 
@@ -239,7 +244,7 @@ uint32_t ColumnVector<T>::_crc32c_hash_value(uint32_t hash, const value_type& va
 
 template <PrimitiveType T>
 uint32_t ColumnVector<T>::_crc32c_hash(uint32_t hash, size_t idx) const {
-    return _crc32c_hash_value(hash, data[idx]);
+    return _crc32c_hash_value(hash, immutable_data()[idx]);
 }
 
 template <PrimitiveType T>
@@ -290,29 +295,35 @@ void ColumnVector<T>::update_crc32c_single(size_t start, size_t end, uint32_t& h
 template <PrimitiveType T>
 struct ColumnVector<T>::less {
     const Self& parent;
+    ImmContainer values;
     int nan_direction_hint;
     less(const Self& parent_, int nan_direction_hint_)
-            : parent(parent_), nan_direction_hint(nan_direction_hint_) {}
+            : parent(parent_),
+              values(parent_.immutable_data()),
+              nan_direction_hint(nan_direction_hint_) {}
     bool operator()(size_t lhs, size_t rhs) const {
-        return Compare::less(parent.data[lhs], parent.data[rhs]);
+        return Compare::less(values[lhs], values[rhs]);
     }
 };
 
 template <PrimitiveType T>
 struct ColumnVector<T>::greater {
     const Self& parent;
+    ImmContainer values;
     int nan_direction_hint;
     greater(const Self& parent_, int nan_direction_hint_)
-            : parent(parent_), nan_direction_hint(nan_direction_hint_) {}
+            : parent(parent_),
+              values(parent_.immutable_data()),
+              nan_direction_hint(nan_direction_hint_) {}
     bool operator()(size_t lhs, size_t rhs) const {
-        return Compare::greater(parent.data[lhs], parent.data[rhs]);
+        return Compare::greater(values[lhs], values[rhs]);
     }
 };
 
 template <PrimitiveType T>
 void ColumnVector<T>::get_permutation(bool reverse, size_t limit, int nan_direction_hint,
                                       HybridSorter& sorter, IColumn::Permutation& res) const {
-    size_t s = data.size();
+    size_t s = size();
     res.resize(s);
 
     if (s == 0) return;
@@ -347,7 +358,8 @@ MutableColumnPtr ColumnVector<T>::clone_resized(size_t size) const {
         auto& new_col = *res;
         size_t count = std::min(this->size(), size);
         new_col.data.resize(count);
-        memcpy(new_col.data.data(), data.data(), count * sizeof(data[0]));
+        auto values = immutable_data();
+        memcpy(new_col.data.data(), values.data(), count * sizeof(value_type));
 
         if (size > count) {
             new_col.insert_many_defaults(size - count);
@@ -360,17 +372,19 @@ MutableColumnPtr ColumnVector<T>::clone_resized(size_t size) const {
 template <PrimitiveType T>
 void ColumnVector<T>::insert_range_from(const IColumn& src, size_t start, size_t length) {
     const ColumnVector& src_vec = assert_cast<const ColumnVector&>(src);
-    //  size_t(start)  start > src_vec.data.size() || length > src_vec.data.size() should not be negative which cause overflow
-    if (start + length > src_vec.data.size()) {
+    auto src_values = src_vec.immutable_data();
+    //  size_t(start)  start > src_vec.size() || length > src_vec.size() should not be negative which cause overflow
+    if (start + length > src_values.size()) {
         throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
                                "Parameters start = {}, length = {}, are out of bound in "
                                "ColumnVector<T>::insert_range_from method (data.size() = {}).",
-                               start, length, src_vec.data.size());
+                               start, length, src_values.size());
     }
 
+    materialize_external_data();
     size_t old_size = data.size();
     data.resize(old_size + length);
-    memcpy(data.data() + old_size, &src_vec.data[start], length * sizeof(data[0]));
+    memcpy(data.data() + old_size, src_values.data() + start, length * sizeof(value_type));
 }
 
 template <PrimitiveType T>
@@ -378,7 +392,10 @@ void ColumnVector<T>::insert_indices_from(const IColumn& src, const uint32_t* in
                                           const uint32_t* indices_end) {
     auto origin_size = size();
     auto new_size = indices_end - indices_begin;
+    materialize_external_data();
     data.resize(origin_size + new_size);
+    const auto src_values =
+            assert_cast<const Self&, TypeCheckOnRelease::DISABLE>(src).immutable_data();
 
     auto copy = [](const value_type* __restrict src, value_type* __restrict dest,
                    const uint32_t* __restrict begin, const uint32_t* __restrict end) {
@@ -387,23 +404,23 @@ void ColumnVector<T>::insert_indices_from(const IColumn& src, const uint32_t* in
             ++dest;
         }
     };
-    copy(reinterpret_cast<const value_type*>(src.get_raw_data().data), data.data() + origin_size,
-         indices_begin, indices_end);
+    copy(src_values.data(), data.data() + origin_size, indices_begin, indices_end);
 }
 
 template <PrimitiveType T>
 ColumnPtr ColumnVector<T>::filter(const IColumn::Filter& filt, ssize_t result_size_hint) const {
-    size_t size = data.size();
+    auto values = immutable_data();
+    size_t size = values.size();
     column_match_filter_size(size, filt.size());
 
     auto res = this->create();
-    Container& res_data = res->get_data();
+    Container& res_data = res->get_data_mutable();
 
     res_data.reserve(result_size_hint > 0 ? result_size_hint : size);
 
     const UInt8* filt_pos = filt.data();
     const UInt8* filt_end = filt_pos + size;
-    const value_type* data_pos = data.data();
+    const value_type* data_pos = values.data();
 
     /** A slightly more optimized version.
         * Based on the assumption that often pieces of consecutive values
@@ -443,6 +460,12 @@ ColumnPtr ColumnVector<T>::filter(const IColumn::Filter& filt, ssize_t result_si
 
 template <PrimitiveType T>
 size_t ColumnVector<T>::filter(const IColumn::Filter& filter) {
+    return this->filter(IColumn::FilterView(filter.data(), filter.size()));
+}
+
+template <PrimitiveType T>
+size_t ColumnVector<T>::filter(IColumn::FilterView filter) {
+    materialize_external_data();
     size_t size = data.size();
     column_match_filter_size(size, filter.size());
 
@@ -497,15 +520,29 @@ size_t ColumnVector<T>::filter(const IColumn::Filter& filter) {
 
 template <PrimitiveType T>
 void ColumnVector<T>::insert_many_from(const IColumn& src, size_t position, size_t length) {
+    if (length == 0) {
+        // Empty insertion is a valid no-op even when position points one past the source end.
+        return;
+    }
+
+    auto vals = assert_cast<const Self&>(src).immutable_data();
+    if (UNLIKELY(position >= vals.size())) {
+        throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
+                               "Position {} is out of bound in ColumnVector<T>::insert_many_from "
+                               "method (data.size() = {}).",
+                               position, vals.size());
+    }
+
+    materialize_external_data();
     auto old_size = data.size();
     data.resize(old_size + length);
-    auto& vals = assert_cast<const Self&>(src).get_data();
     std::fill(&data[old_size], &data[old_size + length], vals[position]);
 }
 
 template <PrimitiveType T>
 MutableColumnPtr ColumnVector<T>::permute(const IColumn::Permutation& perm, size_t limit) const {
-    size_t size = data.size();
+    auto values = immutable_data();
+    size_t size = values.size();
 
     if (limit == 0)
         limit = size;
@@ -519,14 +556,15 @@ MutableColumnPtr ColumnVector<T>::permute(const IColumn::Permutation& perm, size
     }
 
     auto res = this->create(limit);
-    typename Self::Container& res_data = res->get_data();
-    for (size_t i = 0; i < limit; ++i) res_data[i] = data[perm[i]];
+    typename Self::Container& res_data = res->get_data_mutable();
+    for (size_t i = 0; i < limit; ++i) res_data[i] = values[perm[i]];
 
     return res;
 }
 
 template <PrimitiveType T>
 void ColumnVector<T>::replace_column_null_data(const uint8_t* __restrict null_map) {
+    materialize_external_data();
     auto s = size();
     auto value = default_value();
     for (size_t i = 0; i < s; ++i) {
@@ -537,6 +575,7 @@ void ColumnVector<T>::replace_column_null_data(const uint8_t* __restrict null_ma
 template <PrimitiveType T>
 void ColumnVector<T>::replace_float_special_values() {
     if constexpr (is_float_or_double(T)) {
+        materialize_external_data();
         auto s = size();
         for (size_t i = 0; i < s; ++i) {
             NormalizeFloat(data[i]);

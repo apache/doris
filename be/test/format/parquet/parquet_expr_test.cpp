@@ -965,7 +965,7 @@ TEST_F(ParquetExprTest, test_min_max_p) {
                                                date_str2.size()));
 
         auto column = ColumnDateV2::create();
-        auto& date_v2_data = column->get_data();
+        auto& date_v2_data = column->get_data_mutable();
         date_v2_data.push_back(*reinterpret_cast<UInt32*>(&date1));
         date_v2_data.push_back(*reinterpret_cast<UInt32*>(&date2));
 
@@ -992,7 +992,7 @@ TEST_F(ParquetExprTest, test_min_max_p) {
                                                        origin_date.data(), origin_date.size()));
 
         auto column = ColumnDateTimeV2::create();
-        auto& date_v2_data = column->get_data();
+        auto& date_v2_data = column->get_data_mutable();
         date_v2_data.push_back(*reinterpret_cast<UInt64*>(&datetime_v2_1));
         date_v2_data.push_back(*reinterpret_cast<UInt64*>(&datetime_v2_2));
 

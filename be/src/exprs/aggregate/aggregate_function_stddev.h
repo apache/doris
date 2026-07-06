@@ -131,7 +131,7 @@ struct PopData : BaseData<T, is_stddev>, Name {
         if constexpr (is_decimal(T)) {
             col.get_data().push_back(this->get_pop_result().value());
         } else {
-            col.get_data().push_back(this->get_pop_result());
+            col.get_data_mutable().push_back(this->get_pop_result());
         }
     }
 
@@ -153,7 +153,7 @@ struct SampData : BaseData<T, is_stddev>, Name {
             if constexpr (is_decimal(T)) {
                 col.get_data().push_back(this->get_samp_result().value());
             } else {
-                col.get_data().push_back(this->get_samp_result());
+                col.get_data_mutable().push_back(this->get_samp_result());
             }
         }
     }

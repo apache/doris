@@ -111,7 +111,7 @@ public:
         std::vector<const ColumnString::Chars*> chars_list(argument_size);
         std::vector<const ColumnString::Offsets*> offsets_list(argument_size);
         std::vector<bool> is_const_args(argument_size);
-        std::vector<const ColumnUInt8::Container*> null_list(argument_size);
+        std::vector<NullMapView> null_list(argument_size);
         std::vector<ColumnPtr> argument_null_columns(argument_size);
 
         std::vector<ColumnPtr> argument_columns(argument_size);
@@ -120,11 +120,11 @@ public:
                     block.get_by_position(arguments[i]).column->convert_to_full_column_if_const();
             if (const auto* nullable =
                         check_and_get_column<const ColumnNullable>(*argument_columns[i])) {
-                null_list[i] = &nullable->get_null_map_data();
+                null_list[i] = nullable->get_null_map_data();
                 argument_null_columns[i] = nullable->get_null_map_column_ptr();
                 argument_columns[i] = nullable->get_nested_column_ptr();
             } else {
-                null_list[i] = &const_null_map->get_data();
+                null_list[i] = const_null_map->get_data();
             }
 
             const auto& [col, is_const] =
@@ -194,8 +194,8 @@ private:
     Status _auto_partition_type_of_list(std::vector<const ColumnString::Chars*>& chars_list,
                                         std::vector<const ColumnString::Offsets*>& offsets_list,
                                         std::vector<bool>& is_const_args,
-                                        const std::vector<const ColumnUInt8::Container*>& null_list,
-                                        auto& res_data, auto& res_offset, size_t input_rows_count,
+                                        const std::vector<NullMapView>& null_list, auto& res_data,
+                                        auto& res_offset, size_t input_rows_count,
                                         size_t argument_size, Block& block, uint32_t result,
                                         auto& res) const {
         int curr_len = 0;
@@ -206,7 +206,7 @@ private:
             for (int col = 1; col < argument_size; col++) {
                 const auto& current_offsets = *offsets_list[col];
                 const auto& current_chars = *chars_list[col];
-                const auto& current_nullmap = *null_list[col];
+                const auto current_nullmap = null_list[col];
 
                 if (current_nullmap[row]) {
                     res_p += 'X';
@@ -746,7 +746,7 @@ public:
         }
 
         // validate utf8
-        auto* null_map_data = null_map->get_data().data();
+        auto* null_map_data = null_map->get_data_mutable().data();
         for (size_t i = 0; i < input_rows_count; ++i) {
             if (!validate_utf8((const char*)(&res_data[res_offset[i - 1]]),
                                res_offset[i] - res_offset[i - 1])) {
@@ -848,7 +848,7 @@ private:
     template <bool column_const>
     void _execute_impl(const ColumnString* text_col, StringRef& pattern, int gram_num,
                        ColumnFloat64& res, size_t size) const {
-        auto& res_data = res.get_data();
+        auto& res_data = res.get_data_mutable();
         res_data.resize_fill(size, 0);
         // If the length of the pattern is less than gram_num, return 0.
         if (pattern.size < gram_num) {
@@ -1263,7 +1263,7 @@ public:
 
     static bool is_return_nullable(bool has_nullable,
                                    const std::vector<ColumnWithConstAndNullMap>& cols_info) {
-        return cols_info[0].null_map != nullptr;
+        return cols_info[0].has_null_map;
     }
 
     static bool execute_const_null(ColumnString::MutablePtr& res_col,
@@ -1479,7 +1479,7 @@ public:
         }
 
         auto res_col = ColumnInt64::create();
-        auto& res_data = res_col->get_data();
+        auto& res_data = res_col->get_data_mutable();
         res_data.resize_fill(input_rows_count, 0);
 
         for (size_t i = 0; i < input_rows_count; ++i) {

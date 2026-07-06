@@ -71,13 +71,19 @@ public:
         const auto* right_str_col = assert_cast<const ColumnString*>(right_nested);
 
         auto res_col = ResultColumnType::create(input_rows_count);
-        auto& res_data = res_col->get_data();
+        auto& res_data = res_col->get_data_mutable();
 
-        const NullMap* left_null_map =
-                left_nullable ? &left_nullable->get_null_map_data() : nullptr;
-        const NullMap* right_null_map =
-                right_nullable ? &right_nullable->get_null_map_data() : nullptr;
-        const bool has_nullable = left_null_map != nullptr || right_null_map != nullptr;
+        NullMapView left_null_map;
+        NullMapView right_null_map;
+        const bool has_left_null_map = left_nullable != nullptr;
+        const bool has_right_null_map = right_nullable != nullptr;
+        if (has_left_null_map) {
+            left_null_map = left_nullable->get_null_map_data();
+        }
+        if (has_right_null_map) {
+            right_null_map = right_nullable->get_null_map_data();
+        }
+        const bool has_nullable = has_left_null_map || has_right_null_map;
 
         if (!has_nullable) {
             if (left_const) {
@@ -95,9 +101,9 @@ public:
         }
 
         auto null_col = ColumnUInt8::create(input_rows_count, 0);
-        auto& null_map = null_col->get_data();
+        auto& null_map = null_col->get_data_mutable();
         if (left_const) {
-            if (left_null_map && (*left_null_map)[0]) {
+            if (has_left_null_map && left_null_map[0]) {
                 std::fill(null_map.begin(), null_map.end(), 1);
                 block.replace_by_position(
                         result, ColumnNullable::create(std::move(res_col), std::move(null_col)));
@@ -105,10 +111,11 @@ public:
             }
 
             const auto left = left_str_col->get_data_at(0).trim_tail_padding_zero();
-            RETURN_IF_ERROR(scalar_vector_nullable(left, *right_str_col, right_null_map, res_data,
-                                                   null_map));
+            RETURN_IF_ERROR(scalar_vector_nullable(left, *right_str_col,
+                                                   has_right_null_map ? &right_null_map : nullptr,
+                                                   res_data, null_map));
         } else if (right_const) {
-            if (right_null_map && (*right_null_map)[0]) {
+            if (has_right_null_map && right_null_map[0]) {
                 std::fill(null_map.begin(), null_map.end(), 1);
                 block.replace_by_position(
                         result, ColumnNullable::create(std::move(res_col), std::move(null_col)));
@@ -117,11 +124,11 @@ public:
 
             RETURN_IF_ERROR(vector_scalar_nullable(
                     *left_str_col, right_str_col->get_data_at(0).trim_tail_padding_zero(),
-                    left_null_map, res_data, null_map));
+                    has_left_null_map ? &left_null_map : nullptr, res_data, null_map));
         } else {
             for (size_t i = 0; i < input_rows_count; ++i) {
-                const bool left_is_null = left_null_map && (*left_null_map)[i];
-                const bool right_is_null = right_null_map && (*right_null_map)[i];
+                const bool left_is_null = has_left_null_map && left_null_map[i];
+                const bool right_is_null = has_right_null_map && right_null_map[i];
                 if (left_is_null || right_is_null) {
                     null_map[i] = 1;
                     res_data[i] = 0;
@@ -193,8 +200,8 @@ private:
     }
 
     static Status vector_scalar_nullable(const ColumnString& lcol, const StringRef& rdata,
-                                         const NullMap* left_null_map, ResultPaddedPODArray& res,
-                                         NullMap& null_map) {
+                                         const NullMapView* left_null_map,
+                                         ResultPaddedPODArray& res, NullMap& null_map) {
         const size_t size = lcol.size();
         res.resize(size);
         const bool right_ascii = simd::VStringFunctions::is_ascii(rdata);
@@ -217,8 +224,8 @@ private:
     }
 
     static Status scalar_vector_nullable(const StringRef& ldata, const ColumnString& rcol,
-                                         const NullMap* right_null_map, ResultPaddedPODArray& res,
-                                         NullMap& null_map) {
+                                         const NullMapView* right_null_map,
+                                         ResultPaddedPODArray& res, NullMap& null_map) {
         const size_t size = rcol.size();
         res.resize(size);
         const bool left_ascii = simd::VStringFunctions::is_ascii(ldata);

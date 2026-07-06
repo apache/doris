@@ -473,7 +473,7 @@ public:
                 get_child(0)->execute_column(context, block, selector, count, child_column));
         const auto& input = assert_cast<const ColumnInt64&>(*child_column);
         auto result = ColumnUInt8::create();
-        auto& result_data = result->get_data();
+        auto& result_data = result->get_data_mutable();
         result_data.resize(count);
         for (size_t row = 0; row < count; ++row) {
             result_data[row] = input.get_element(row) > _value;
@@ -512,7 +512,7 @@ public:
                 get_child(1)->execute_column(context, block, selector, count, right_column));
 
         auto result = ColumnUInt8::create();
-        auto& result_data = result->get_data();
+        auto& result_data = result->get_data_mutable();
         result_data.resize(count);
         for (size_t row = 0; row < count; ++row) {
             const auto left = left_column->get_int(row);

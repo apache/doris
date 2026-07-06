@@ -517,10 +517,11 @@ TEST_F(VectorSearchTest, TestRangeSearchRuntimeInfoToString) {
     runtime_info2.metric_type = doris::segment_v2::AnnIndexMetric::L2;
     runtime_info2.dim = 4;
     auto f32 = ColumnFloat32::create(4);
-    f32->get_data()[0] = 1.0f;
-    f32->get_data()[1] = 2.0f;
-    f32->get_data()[2] = 3.0f;
-    f32->get_data()[3] = 4.0f;
+    auto& query_data = f32->get_data_mutable();
+    query_data[0] = 1.0f;
+    query_data[1] = 2.0f;
+    query_data[2] = 3.0f;
+    query_data[3] = 4.0f;
     runtime_info2.query_value = std::move(f32);
 
     doris::VectorSearchUserParams user_params;

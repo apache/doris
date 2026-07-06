@@ -88,7 +88,7 @@ public:
 
         auto result_data_column = first_nested_nullable_column.clone_empty();
         auto result_offset_column = ColumnArray::ColumnOffsets::create();
-        auto& result_offset_data = result_offset_column->get_data();
+        auto& result_offset_data = result_offset_column->get_data_mutable();
         IColumn::Selector selector;
         selector.reserve(first_off_data.size());
         result_offset_data.reserve(input_rows_count);

@@ -89,15 +89,15 @@ struct ToBitmap {
 
     template <typename ColumnType>
     static void vector(const ColumnType* col, MutableColumnPtr& col_res) {
-        execute<ColumnType, false>(col, nullptr, col_res);
+        execute<ColumnType, false>(col, {}, col_res);
     }
     template <typename ColumnType>
-    static void vector_nullable(const ColumnType* col, const NullMap& nullmap,
+    static void vector_nullable(const ColumnType* col, NullMapView nullmap,
                                 MutableColumnPtr& col_res) {
-        execute<ColumnType, true>(col, &nullmap, col_res);
+        execute<ColumnType, true>(col, nullmap, col_res);
     }
     template <typename ColumnType, bool arg_is_nullable>
-    static void execute(const ColumnType* col, const NullMap* nullmap, MutableColumnPtr& col_res) {
+    static void execute(const ColumnType* col, NullMapView nullmap, MutableColumnPtr& col_res) {
         if constexpr (std::is_same_v<ColumnType, ColumnString>) {
             const ColumnString::Chars& data = col->get_chars();
             const ColumnString::Offsets& offsets = col->get_offsets();
@@ -107,7 +107,7 @@ struct ToBitmap {
             size_t size = offsets.size();
 
             for (size_t i = 0; i < size; ++i) {
-                if (arg_is_nullable && ((*nullmap)[i])) {
+                if (arg_is_nullable && nullmap[i]) {
                     continue;
                 } else {
                     const char* raw_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
@@ -127,7 +127,7 @@ struct ToBitmap {
 
             for (size_t i = 0; i < size; ++i) {
                 if constexpr (arg_is_nullable) {
-                    if ((*nullmap)[i]) {
+                    if (nullmap[i]) {
                         continue;
                     }
                 }
@@ -145,16 +145,15 @@ struct ToBitmapWithCheck {
 
     template <typename ColumnType>
     static Status vector(const ColumnType* col, MutableColumnPtr& col_res) {
-        return execute<ColumnType, false>(col, nullptr, col_res);
+        return execute<ColumnType, false>(col, {}, col_res);
     }
     template <typename ColumnType>
-    static Status vector_nullable(const ColumnType* col, const NullMap& nullmap,
+    static Status vector_nullable(const ColumnType* col, NullMapView nullmap,
                                   MutableColumnPtr& col_res) {
-        return execute<ColumnType, true>(col, &nullmap, col_res);
+        return execute<ColumnType, true>(col, nullmap, col_res);
     }
     template <typename ColumnType, bool arg_is_nullable>
-    static Status execute(const ColumnType* col, const NullMap* nullmap,
-                          MutableColumnPtr& col_res) {
+    static Status execute(const ColumnType* col, NullMapView nullmap, MutableColumnPtr& col_res) {
         if constexpr (std::is_same_v<ColumnType, ColumnString>) {
             const ColumnString::Chars& data = col->get_chars();
             const ColumnString::Offsets& offsets = col->get_offsets();
@@ -163,7 +162,7 @@ struct ToBitmapWithCheck {
             size_t size = offsets.size();
 
             for (size_t i = 0; i < size; ++i) {
-                if (arg_is_nullable && ((*nullmap)[i])) {
+                if (arg_is_nullable && nullmap[i]) {
                     continue;
                 } else {
                     const char* raw_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
@@ -190,7 +189,7 @@ struct ToBitmapWithCheck {
             size_t size = col->size();
 
             for (size_t i = 0; i < size; ++i) {
-                if (arg_is_nullable && ((*nullmap)[i])) {
+                if (arg_is_nullable && nullmap[i]) {
                     continue;
                 } else {
                     int64_t int_value = col->get_data()[i];
@@ -317,8 +316,8 @@ struct BitmapFromArray {
     static constexpr auto name = "bitmap_from_array";
 
     template <typename ColumnType>
-    static Status vector(const ColumnArray::Offsets64& offset_column_data,
-                         const IColumn& nested_column, const NullMap& nested_null_map,
+    static Status vector(ColumnArray::Offsets64View offset_column_data,
+                         const IColumn& nested_column, NullMapView nested_null_map,
                          std::vector<BitmapValue>& res, NullMap& null_map) {
         const auto& nested_column_data = static_cast<const ColumnType&>(nested_column).get_data();
         auto size = offset_column_data.size();
@@ -367,7 +366,7 @@ public:
                         uint32_t result, size_t input_rows_count) const override {
         auto res_null_map = ColumnUInt8::create(input_rows_count, 0);
         auto res_data_column = ColumnBitmap::create();
-        auto& null_map = res_null_map->get_data();
+        auto& null_map = res_null_map->get_data_mutable();
         auto& res = res_data_column->get_data();
 
         ColumnPtr& argument_column = block.get_by_position(arguments[0]).column;
@@ -469,7 +468,7 @@ struct BitmapHash {
     }
 
     template <typename ColumnType>
-    static void vector_nullable(const ColumnType* col, const NullMap& nullmap,
+    static void vector_nullable(const ColumnType* col, NullMapView nullmap,
                                 MutableColumnPtr& col_res) {
         if constexpr (std::is_same_v<ColumnType, ColumnString>) {
             const ColumnString::Chars& data = col->get_chars();
@@ -518,9 +517,9 @@ public:
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
         auto res_data_column = ColumnInt64::create();
-        auto& res = res_data_column->get_data();
+        auto& res = res_data_column->get_data_mutable();
         auto data_null_map = ColumnUInt8::create(input_rows_count, 0);
-        auto& null_map = data_null_map->get_data();
+        auto& null_map = data_null_map->get_data_mutable();
 
         auto column = block.get_by_position(arguments[0]).column;
         if (auto* nullable = check_and_get_column<const ColumnNullable>(*column)) {
@@ -667,7 +666,7 @@ struct BitmapAndNotCount {
     }
 };
 
-void update_bitmap_op_count(int64_t* __restrict count, const NullMap& null_map) {
+void update_bitmap_op_count(int64_t* __restrict count, NullMapView null_map) {
     static constexpr int64_t flags[2] = {-1, 0};
     size_t size = null_map.size();
     auto* __restrict null_map_data = null_map.data();
@@ -685,7 +684,7 @@ ColumnPtr handle_bitmap_op_count_null_value(ColumnPtr& src, const Block& block,
     auto* nullable = assert_cast<ColumnNullable*>(mutable_src.get());
     auto* src_not_nullable_mutable = &nullable->get_nested_column();
     auto* __restrict count_data =
-            assert_cast<ColumnInt64*>(src_not_nullable_mutable)->get_data().data();
+            assert_cast<ColumnInt64*>(src_not_nullable_mutable)->get_data_mutable().data();
 
     for (const auto& arg : args) {
         const ColumnWithTypeAndName& elem = block.get_by_position(arg);
@@ -705,7 +704,7 @@ ColumnPtr handle_bitmap_op_count_null_value(ColumnPtr& src, const Block& block,
 
         if (const auto* nullable_column = assert_cast<const ColumnNullable*>(elem.column.get())) {
             const ColumnPtr& null_map_column = nullable_column->get_null_map_column_ptr();
-            const NullMap& src_null_map =
+            const NullMapView src_null_map =
                     assert_cast<const ColumnUInt8&>(*null_map_column).get_data();
 
             update_bitmap_op_count(count_data, src_null_map);
@@ -781,7 +780,7 @@ public:
         using ColVecResult = ColumnVector<ResultDataType::PType>;
 
         typename ColVecResult::MutablePtr col_res = ColVecResult::create();
-        auto& vec_res = col_res->get_data();
+        auto& vec_res = col_res->get_data_mutable();
         vec_res.resize(block.rows());
 
         const auto& left = block.get_by_position(arguments[0]);
@@ -830,7 +829,7 @@ struct BitmapContains {
     using T0 = typename LeftDataType::FieldType;
     using T1 = typename RightDataType::FieldType;
     using LTData = std::vector<BitmapValue>;
-    using RTData = typename ColumnVector<RightDataType::PType>::Container;
+    using RTData = typename ColumnVector<RightDataType::PType>::ImmContainer;
     using ResTData = typename ColumnUInt8::Container;
 
     static void vector_vector(const LTData& lvec, const RTData& rvec, ResTData& res) {
@@ -863,7 +862,7 @@ struct BitmapRemove {
     using T0 = typename LeftDataType::FieldType;
     using T1 = typename RightDataType::FieldType;
     using LTData = std::vector<BitmapValue>;
-    using RTData = typename ColumnVector<RightDataType::PType>::Container;
+    using RTData = typename ColumnVector<RightDataType::PType>::ImmContainer;
     using ResTData = std::vector<BitmapValue>;
 
     static void vector_vector(const LTData& lvec, const RTData& rvec, ResTData& res) {
@@ -1044,7 +1043,7 @@ struct BitmapToBase64 {
 struct SubBitmap {
     static constexpr auto name = "sub_bitmap";
     using TData1 = std::vector<BitmapValue>;
-    using TData2 = typename ColumnInt64::Container;
+    using TData2 = typename ColumnInt64::ImmContainer;
 
     static void vector3(const TData1& bitmap_data, const TData2& offset_data,
                         const TData2& limit_data, NullMap& null_map, size_t input_rows_count,
@@ -1083,7 +1082,7 @@ struct SubBitmap {
 struct BitmapSubsetLimit {
     static constexpr auto name = "bitmap_subset_limit";
     using TData1 = std::vector<BitmapValue>;
-    using TData2 = typename ColumnInt64::Container;
+    using TData2 = typename ColumnInt64::ImmContainer;
 
     static void vector3(const TData1& bitmap_data, const TData2& offset_data,
                         const TData2& limit_data, NullMap& null_map, size_t input_rows_count,
@@ -1118,7 +1117,7 @@ struct BitmapSubsetLimit {
 struct BitmapSubsetInRange {
     static constexpr auto name = "bitmap_subset_in_range";
     using TData1 = std::vector<BitmapValue>;
-    using TData2 = typename ColumnInt64::Container;
+    using TData2 = typename ColumnInt64::ImmContainer;
 
     static void vector3(const TData1& bitmap_data, const TData2& range_start,
                         const TData2& range_end, NullMap& null_map, size_t input_rows_count,
@@ -1169,6 +1168,7 @@ public:
         DCHECK_EQ(arguments.size(), 3);
         auto res_null_map = ColumnUInt8::create(input_rows_count, 0);
         auto res_data_column = ColumnBitmap::create(input_rows_count);
+        auto& res_null_map_data = res_null_map->get_data_mutable();
 
         bool col_const[3];
         ColumnPtr argument_columns[3];
@@ -1188,11 +1188,11 @@ public:
 
         if (col_const[1] && col_const[2]) {
             Impl::vector_scalars(bitmap_column->get_data(), offset_column->get_element(0),
-                                 limit_column->get_element(0), res_null_map->get_data(),
-                                 input_rows_count, res_data_column->get_data());
+                                 limit_column->get_element(0), res_null_map_data, input_rows_count,
+                                 res_data_column->get_data());
         } else {
             Impl::vector3(bitmap_column->get_data(), offset_column->get_data(),
-                          limit_column->get_data(), res_null_map->get_data(), input_rows_count,
+                          limit_column->get_data(), res_null_map_data, input_rows_count,
                           res_data_column->get_data());
         }
 
@@ -1227,12 +1227,13 @@ public:
         ColumnNullable* dest_nested_nullable_col =
                 reinterpret_cast<ColumnNullable*>(dest_nested_column);
         dest_nested_column = dest_nested_nullable_col->get_nested_column_ptr().get();
-        auto& dest_nested_null_map = dest_nested_nullable_col->get_null_map_column().get_data();
+        auto& dest_nested_null_map = dest_nested_nullable_col->get_null_map_data();
 
         auto& arg_col = block.get_by_position(arguments[0]).column;
         auto bitmap_col = assert_cast<const ColumnBitmap*>(arg_col.get());
         const auto& bitmap_col_data = bitmap_col->get_data();
-        auto& nested_column_data = assert_cast<ColumnInt64*>(dest_nested_column)->get_data();
+        auto& nested_column_data =
+                assert_cast<ColumnInt64*>(dest_nested_column)->get_data_mutable();
         auto& dest_offsets = dest_array_column_ptr->get_offsets();
         dest_offsets.reserve(input_rows_count);
 

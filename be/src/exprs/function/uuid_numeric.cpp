@@ -102,9 +102,9 @@ public:
                         size_t input_rows_count) const override {
         auto col_res = ColumnInt128::create();
         col_res->resize(input_rows_count);
+        auto& result_data = col_res->get_data_mutable();
 
-        GenerateUUIDs(reinterpret_cast<char*>(col_res->get_data().data()),
-                      uuid_length * input_rows_count);
+        GenerateUUIDs(reinterpret_cast<char*>(result_data.data()), uuid_length * input_rows_count);
 
         block.replace_by_position(result, std::move(col_res));
         return Status::OK();

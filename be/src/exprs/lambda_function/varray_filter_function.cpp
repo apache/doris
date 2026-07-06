@@ -80,7 +80,7 @@ public:
                     assert_cast<const ColumnNullable*>(first_column.get())->get_nested_column_ptr();
             const auto& column_array_nullmap =
                     assert_cast<const ColumnNullable*>(first_column.get())->get_null_map_column();
-            VectorizedUtils::update_null_map(first_outside_null_map->get_data(),
+            VectorizedUtils::update_null_map(first_outside_null_map->get_data_mutable(),
                                              column_array_nullmap.get_data());
         }
         const auto& first_col_array = assert_cast<const ColumnArray&>(*first_arg_column);
@@ -90,7 +90,7 @@ public:
 
         auto result_data_column = first_nested_nullable_column.clone_empty();
         auto result_offset_column = ColumnArray::ColumnOffsets::create();
-        auto& result_offset_data = result_offset_column->get_data();
+        auto& result_offset_data = result_offset_column->get_data_mutable();
         IColumn::Selector selector;
         selector.reserve(first_off_data.size());
         result_offset_data.reserve(input_rows);
@@ -102,7 +102,7 @@ public:
                                         ->get_nested_column_ptr();
             const auto& column_array_nullmap =
                     assert_cast<const ColumnNullable*>(second_column.get())->get_null_map_column();
-            VectorizedUtils::update_null_map(second_outside_null_map->get_data(),
+            VectorizedUtils::update_null_map(second_outside_null_map->get_data_mutable(),
                                              column_array_nullmap.get_data());
         }
         const auto& second_col_array = assert_cast<const ColumnArray&>(*second_arg_column);

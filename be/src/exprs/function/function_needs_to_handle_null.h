@@ -24,10 +24,11 @@ namespace doris {
 // Helper struct to store information about const+nullable columns
 struct ColumnWithConstAndNullMap {
     const IColumn* nested_col = nullptr;
-    const NullMap* null_map = nullptr;
+    NullMapView null_map;
+    bool has_null_map = false;
     bool is_const = false;
 
-    bool is_null_at(size_t row) const { return (null_map && (*null_map)[is_const ? 0 : row]); }
+    bool is_null_at(size_t row) const { return has_null_map && null_map[is_const ? 0 : row]; }
 };
 
 // For functions that need to handle const+nullable column combinations
@@ -69,7 +70,7 @@ public:
                         uint32_t result, size_t input_rows_count) const override {
         auto res_col = ResultColumnType::create();
         auto null_map = ColumnUInt8::create();
-        auto& null_map_data = null_map->get_data();
+        auto& null_map_data = null_map->get_data_mutable();
         res_col->reserve(input_rows_count);
         null_map_data.resize_fill(input_rows_count, 0);
 
@@ -82,8 +83,8 @@ public:
 
         // Check if there is a const null
         for (size_t i = 0; i < arg_size; ++i) {
-            if (columns_info[i].is_const && columns_info[i].null_map &&
-                (*columns_info[i].null_map)[0] &&
+            if (columns_info[i].is_const && columns_info[i].has_null_map &&
+                columns_info[i].null_map[0] &&
                 execute_const_null(res_col, null_map_data, input_rows_count, i)) {
                 block.replace_by_position(
                         result, ColumnNullable::create(std::move(res_col), std::move(null_map)));
@@ -138,7 +139,8 @@ private:
                 has_nullable = true;
                 const auto* nullable = assert_cast<const ColumnNullable*>(col_ptr.get());
                 columns_info[i].nested_col = &nullable->get_nested_column();
-                columns_info[i].null_map = &nullable->get_null_map_data();
+                columns_info[i].null_map = nullable->get_null_map_data();
+                columns_info[i].has_null_map = true;
             } else {
                 columns_info[i].nested_col = col_ptr.get();
             }

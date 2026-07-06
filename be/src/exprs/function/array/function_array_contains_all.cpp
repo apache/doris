@@ -79,7 +79,8 @@ public:
         // prepare return column
         auto dst_nested_col = ColumnUInt8::create(input_rows_count, 0);
         auto dst_null_map = ColumnUInt8::create(input_rows_count, 0);
-        UInt8* dst_null_map_data = dst_null_map->get_data().data();
+        UInt8* dst_null_map_data = dst_null_map->get_data_mutable().data();
+        UInt8* dst_nested_data = dst_nested_col->get_data_mutable().data();
 
         // execute check of contains all
         auto array_type = remove_nullable(block.get_by_position(arguments[0]).type);
@@ -90,9 +91,8 @@ public:
         auto call = [&](const auto& type) -> bool {
             using DataType = std::decay_t<decltype(type)>;
             status = _execute_internal<typename DataType::ColumnType>(
-                    left_exec_data, right_exec_data, dst_null_map_data,
-                    dst_nested_col->get_data().data(), input_rows_count, left_is_const,
-                    right_is_const);
+                    left_exec_data, right_exec_data, dst_null_map_data, dst_nested_data,
+                    input_rows_count, left_is_const, right_is_const);
             return true;
         };
 
@@ -120,11 +120,11 @@ private:
         for (ssize_t row = 0; row < input_rows_count; ++row) {
             auto left_index = index_check_const(row, left_is_const);
             auto right_index = index_check_const(row, right_is_const);
-            size_t left_start = (*left_data.offsets_ptr)[left_index - 1];
-            size_t left_end = (*left_data.offsets_ptr)[left_index];
+            size_t left_start = left_data.offsets[left_index - 1];
+            size_t left_end = left_data.offsets[left_index];
             size_t left_size = left_end - left_start;
-            size_t right_start = (*right_data.offsets_ptr)[right_index - 1];
-            size_t right_end = (*right_data.offsets_ptr)[right_index];
+            size_t right_start = right_data.offsets[right_index - 1];
+            size_t right_end = right_data.offsets[right_index];
             size_t right_size = right_end - right_start;
             // case: [1,2,3] : []
             if (right_size == 0) {

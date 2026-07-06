@@ -165,7 +165,7 @@ void test_arrow_to_datetime_column(std::shared_ptr<ArrowType> type, ColumnWithTy
     } else {
         data_column = (*std::move(column.column)).mutate();
     }
-    auto& datetime_data = static_cast<ColumnType&>(*data_column).get_data();
+    auto datetime_data = static_cast<ColumnType&>(*data_column).get_data();
     for (auto i = 0; i < num_elements; ++i) {
         auto idx = counter - num_elements + i;
         if (is_nullable) {
@@ -278,7 +278,7 @@ void test_arrow_to_numeric_column(std::shared_ptr<ArrowType> type, ColumnWithTyp
     } else {
         data_column = (*std::move(column.column)).mutate();
     }
-    auto& numeric_data = static_cast<ColumnType&>(*data_column).get_data();
+    auto numeric_data = static_cast<ColumnType&>(*data_column).get_data();
     for (auto i = 0; i < num_elements; ++i) {
         auto idx = counter - num_elements + i;
         if (is_nullable) {

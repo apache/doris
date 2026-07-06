@@ -23,6 +23,7 @@
 #include "core/call_on_type_index.h"
 #include "core/column/column.h"
 #include "core/column/column_array.h"
+#include "core/column/column_vector.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_decimal.h"
@@ -37,12 +38,24 @@
 
 namespace doris {
 
+template <typename ColumnType>
+auto& array_cum_sum_writable_data(ColumnType& column) {
+    return column.get_data();
+}
+
+template <PrimitiveType T>
+auto& array_cum_sum_writable_data(ColumnVector<T>& column) {
+    // The result nested column is written below. For fixed-length ColumnVector this must cross the
+    // explicit materialization boundary; decimal columns already own their mutable backing buffer.
+    return column.get_data_mutable();
+}
+
 // array_cum_sum([1, 2, 3, 4, 5]) -> [1, 3, 6, 10, 15]
 // array_cum_sum([1, NULL, 3, NULL, 5]) -> [1, NULL, 4, NULL, 9]
 template <PrimitiveType PType>
 class FunctionArrayCumSum : public IFunction {
 public:
-    using NullMapType = PaddedPODArray<UInt8>;
+    using NullMapType = NullMapView;
 
     static constexpr auto name = "array_cum_sum";
 
@@ -125,7 +138,7 @@ public:
                                 block.get_by_position(arguments[0]).type->get_name()));
         }
 
-        const auto& src_offsets = src_column_array->get_offsets();
+        const auto src_offsets = src_column_array->get_offsets();
         const auto* src_nested_column = &src_column_array->get_data();
         DCHECK(src_nested_column != nullptr);
 
@@ -135,7 +148,7 @@ public:
         // get null map
         const auto* src_nested_nullable_col = assert_cast<const ColumnNullable*>(src_nested_column);
         src_nested_column = src_nested_nullable_col->get_nested_column_ptr().get();
-        const NullMapType& src_null_map = src_nested_nullable_col->get_null_map_column().get_data();
+        const auto src_null_map = src_nested_nullable_col->get_null_map_column().get_data();
 
         ColumnPtr res_nested_ptr;
         auto res_val = _execute_by_type(src_nested_type, *src_nested_column, src_offsets,
@@ -155,8 +168,8 @@ public:
 
 private:
     bool _execute_by_type(DataTypePtr src_nested_type, const IColumn& src_column,
-                          const ColumnArray::Offsets64& src_offsets,
-                          const NullMapType& src_null_map, ColumnPtr& res_nested_ptr) const {
+                          IColumn::Offsets64View src_offsets, NullMapType src_null_map,
+                          ColumnPtr& res_nested_ptr) const {
         bool res = false;
         switch (src_nested_type->get_primitive_type()) {
         case TYPE_BOOLEAN:
@@ -218,8 +231,8 @@ private:
     }
 
     template <PrimitiveType Element, PrimitiveType Result>
-    bool _execute_number(const IColumn& src_column, const ColumnArray::Offsets64& src_offsets,
-                         const NullMapType& src_null_map, ColumnPtr& res_nested_ptr) const {
+    bool _execute_number(const IColumn& src_column, IColumn::Offsets64View src_offsets,
+                         NullMapType src_null_map, ColumnPtr& res_nested_ptr) const {
         if constexpr (is_decimalv3(Element) &&
                       (TYPE_DECIMAL128I != Result && TYPE_DECIMAL256 != Result)) {
             return false;
@@ -243,7 +256,7 @@ private:
 
             // get result data pod array
             auto size = src_column.size();
-            auto& res_datas = res_nested_mut_ptr->get_data();
+            auto& res_datas = array_cum_sum_writable_data(*res_nested_mut_ptr);
             res_datas.resize(size);
 
             // 3. compute cum sum and null map
@@ -255,7 +268,7 @@ private:
             size_t first_not_null_pos =
                     VectorizedUtils::find_first_valid_simd(src_null_map, 0, size);
             VLOG_DEBUG << "first_not_null_pos: " << std::to_string(first_not_null_pos);
-            VectorizedUtils::range_set_nullmap_to_true_simd(res_null_map_col->get_data(), 0,
+            VectorizedUtils::range_set_nullmap_to_true_simd(res_null_map_col->get_data_mutable(), 0,
                                                             first_not_null_pos);
 
             res_nested_ptr = ColumnNullable::create(std::move(res_nested_mut_ptr),
@@ -266,8 +279,8 @@ private:
     }
 
     template <PrimitiveType Result>
-    void _compute_cum_sum(const auto& src_datas, const ColumnArray::Offsets64& src_offsets,
-                          const NullMapType& src_null_map, auto& res_datas) const {
+    void _compute_cum_sum(const auto& src_datas, IColumn::Offsets64View src_offsets,
+                          NullMapType src_null_map, auto& res_datas) const {
         size_t prev_offset = 0;
         for (auto cur_offset : src_offsets) {
             // [1, null, 2, 3] -> [1, 1, 3, 6]

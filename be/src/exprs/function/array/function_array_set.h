@@ -22,12 +22,26 @@
 #include "core/column/column_array.h"
 #include "core/column/column_decimal.h"
 #include "core/column/column_string.h"
+#include "core/column/column_vector.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/primitive_type.h"
 #include "exprs/function/array/function_array_utils.h"
 #include "exprs/function/function_helpers.h"
 
 namespace doris {
+
+template <typename ColumnType>
+decltype(auto) array_set_writable_data(ColumnType& column) {
+    return column.get_data();
+}
+
+template <PrimitiveType T>
+auto& array_set_writable_data(ColumnVector<T>& column) {
+    // Set operations append into the mutable result nested column. Fixed-length vectors may be
+    // page-backed, so use the accessor that detaches before mutation; other nested columns are
+    // already owned.
+    return column.get_data_mutable();
+}
 
 enum class SetOperation { UNION, EXCEPT };
 
@@ -63,7 +77,7 @@ struct OpenSetImpl {
     void apply(const ColumnArrayExecutionData& src, size_t off, size_t len,
                ColumnArrayMutableData& dst, size_t* count) {
         const auto& src_data = assert_cast<const ColumnType&>(*src.nested_col).get_data();
-        auto& dst_data = assert_cast<ColumnType&>(*dst.nested_col).get_data();
+        auto& dst_data = array_set_writable_data(assert_cast<ColumnType&>(*dst.nested_col));
         for (size_t i = off; i < off + len; ++i) {
             if (src.nested_nullmap_data && src.nested_nullmap_data[i]) {
                 if (action.template apply_null<is_left>()) {
@@ -182,17 +196,16 @@ private:
         constexpr auto execute_left_column_first = Impl::Action::execute_left_column_first;
         size_t current = 0;
         Impl impl;
-        size_t row_size = left_data.offsets_ptr->size();
+        size_t row_size = left_data.offsets.size();
         if constexpr (LCONST) {
-            row_size = right_data.offsets_ptr->size();
+            row_size = right_data.offsets.size();
         }
         for (size_t row = 0; row < row_size; ++row) {
             size_t count = 0;
-            size_t left_off = (*left_data.offsets_ptr)[index_check_const(row, LCONST) - 1];
-            size_t left_len = (*left_data.offsets_ptr)[index_check_const(row, LCONST)] - left_off;
-            size_t right_off = (*right_data.offsets_ptr)[index_check_const(row, RCONST) - 1];
-            size_t right_len =
-                    (*right_data.offsets_ptr)[index_check_const(row, RCONST)] - right_off;
+            size_t left_off = left_data.offsets[index_check_const(row, LCONST) - 1];
+            size_t left_len = left_data.offsets[index_check_const(row, LCONST)] - left_off;
+            size_t right_off = right_data.offsets[index_check_const(row, RCONST) - 1];
+            size_t right_len = right_data.offsets[index_check_const(row, RCONST)] - right_off;
             if constexpr (execute_left_column_first) {
                 impl.template apply<true>(left_data, left_off, left_len, dst, &count);
                 impl.template apply<false>(right_data, right_off, right_len, dst, &count);

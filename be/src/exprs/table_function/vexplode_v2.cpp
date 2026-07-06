@@ -115,11 +115,11 @@ Status VExplodeV2TableFunction::prepare_block_fast_path(Block* /*block*/, Runtim
                                                         BlockFastPathContext* ctx) {
     DCHECK(support_block_fast_path());
     const auto& detail = _multi_detail[0];
-    if (detail.offsets_ptr == nullptr || detail.nested_col.get() == nullptr) {
+    if (detail.offsets.data() == nullptr || detail.nested_col.get() == nullptr) {
         return Status::InternalError("vexplode block fast path not initialized");
     }
     ctx->array_nullmap_data = detail.array_nullmap_data;
-    ctx->offsets_ptr = detail.offsets_ptr;
+    ctx->offsets = detail.offsets;
     ctx->nested_col = detail.nested_col;
     ctx->nested_nullmap_data = detail.nested_nullmap_data;
     ctx->generate_row_index = _generate_row_index;
@@ -132,9 +132,9 @@ void VExplodeV2TableFunction::process_row(size_t row_idx) {
     for (int i = 0; i < _multi_detail.size(); i++) {
         auto& detail = _multi_detail[i];
         if (!detail.array_nullmap_data || !detail.array_nullmap_data[row_idx]) {
-            _array_offsets[i] = (*detail.offsets_ptr)[row_idx - 1];
+            _array_offsets[i] = detail.offsets[row_idx - 1];
             // find max size in array
-            auto cur_size = (*detail.offsets_ptr)[row_idx] - _array_offsets[i];
+            auto cur_size = detail.offsets[row_idx] - _array_offsets[i];
             _cur_size = std::max<unsigned long>(_cur_size, cur_size);
         }
     }
@@ -257,7 +257,7 @@ int VExplodeV2TableFunction::get_value(MutableColumnPtr& column, int max_step) {
                     if (detail.nested_nullmap_data) {
                         size_t old_size = nullmap_column->size();
                         nullmap_column->resize(old_size + max_step);
-                        memcpy(nullmap_column->get_data().data() + old_size,
+                        memcpy(nullmap_column->get_data_mutable().data() + old_size,
                                detail.nested_nullmap_data + pos, max_step * sizeof(UInt8));
                     } else {
                         nullmap_column->insert_many_defaults(max_step);
@@ -269,7 +269,7 @@ int VExplodeV2TableFunction::get_value(MutableColumnPtr& column, int max_step) {
                     if (detail.nested_nullmap_data) {
                         size_t old_size = nullmap_column->size();
                         nullmap_column->resize(old_size + current_insert_num);
-                        memcpy(nullmap_column->get_data().data() + old_size,
+                        memcpy(nullmap_column->get_data_mutable().data() + old_size,
                                detail.nested_nullmap_data + pos,
                                current_insert_num * sizeof(UInt8));
                     } else {

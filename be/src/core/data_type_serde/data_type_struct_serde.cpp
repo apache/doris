@@ -394,7 +394,8 @@ void DataTypeStructSerDe::read_one_cell_from_jsonb(IColumn& column, const JsonbV
     column.deserialize_and_insert_from_arena(blob->getBlob());
 }
 
-Status DataTypeStructSerDe::write_column_to_arrow(const IColumn& column, const NullMap* null_map,
+Status DataTypeStructSerDe::write_column_to_arrow(const IColumn& column,
+                                                  const NullMapView* null_map,
                                                   arrow::ArrayBuilder* array_builder, int64_t start,
                                                   int64_t end, const cctz::time_zone& ctz) const {
     auto& builder = assert_cast<arrow::StructBuilder&>(*array_builder);
@@ -435,7 +436,7 @@ Status DataTypeStructSerDe::write_column_to_mysql_binary(const IColumn& column,
 }
 
 Status DataTypeStructSerDe::write_column_to_orc(const std::string& timezone, const IColumn& column,
-                                                const NullMap* null_map,
+                                                const NullMapView* null_map,
                                                 orc::ColumnVectorBatch* orc_col_batch,
                                                 int64_t start, int64_t end, Arena& arena,
                                                 const FormatOptions& options) const {

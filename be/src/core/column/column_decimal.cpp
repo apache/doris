@@ -382,6 +382,10 @@ void ColumnDecimal<T>::insert_many_fix_len_data(const char* data_ptr, size_t num
 
 template <PrimitiveType T>
 void ColumnDecimal<T>::insert_many_from(const IColumn& src, size_t position, size_t length) {
+    if (length == 0) {
+        return;
+    }
+
     auto old_size = data.size();
     data.resize(old_size + length);
     auto& vals = assert_cast<const Self&>(src).get_data();

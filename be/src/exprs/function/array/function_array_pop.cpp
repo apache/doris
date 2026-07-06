@@ -80,9 +80,9 @@ public:
         auto offset_column = ColumnInt64::create(array_column->size(), PopType::start_offset);
         // len - 1
         auto length_column = ColumnInt64::create();
-        for (size_t row = 0; row < src.offsets_ptr->size(); ++row) {
-            size_t off = (*src.offsets_ptr)[row - 1];
-            size_t len = (*src.offsets_ptr)[row] - off;
+        for (size_t row = 0; row < src.offsets.size(); ++row) {
+            size_t off = src.offsets[row - 1];
+            size_t len = src.offsets[row] - off;
             length_column->insert_value(len - 1);
         }
         slice_array(dst, src, *offset_column, length_column.get());

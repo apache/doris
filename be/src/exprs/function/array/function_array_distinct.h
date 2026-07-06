@@ -24,6 +24,7 @@
 
 #include <cstring>
 #include <memory>
+#include <optional>
 #include <ostream>
 #include <utility>
 
@@ -38,6 +39,7 @@
 #include "core/column/column_decimal.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
+#include "core/column/column_vector.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_nullable.h"
@@ -56,6 +58,18 @@ template <typename, typename>
 struct DefaultHash;
 
 namespace doris {
+
+template <typename ColumnType>
+decltype(auto) array_distinct_writable_data(ColumnType& column) {
+    return column.get_data();
+}
+
+template <PrimitiveType T>
+auto& array_distinct_writable_data(ColumnVector<T>& column) {
+    // array_distinct appends into a result nested column. Only fixed-length vectors can share a
+    // page-backed buffer, so they must detach through the mutable accessor before writes.
+    return column.get_data_mutable();
+}
 
 class FunctionArrayDistinct : public IFunction {
 public:
@@ -87,7 +101,7 @@ public:
                     fmt::format("unsupported types for function {}({})", get_name(),
                                 block.get_by_position(arguments[0]).type->get_name()));
         }
-        const auto& src_offsets = src_column_array->get_offsets();
+        const auto src_offsets = src_column_array->get_offsets();
         const auto* src_nested_column = &src_column_array->get_data();
         DCHECK(src_nested_column != nullptr);
 
@@ -101,18 +115,18 @@ public:
         dest_nested_column->reserve(src_nested_column->size());
         dest_offsets.reserve(input_rows_count);
 
-        const NullMapType* src_null_map = nullptr;
+        std::optional<NullMapView> src_null_map;
         if (const auto* src_nested_nullable_col =
                     check_and_get_column<ColumnNullable>(src_nested_column)) {
             src_nested_column = src_nested_nullable_col->get_nested_column_ptr().get();
-            src_null_map = &src_nested_nullable_col->get_null_map_column().get_data();
+            src_null_map = src_nested_nullable_col->get_null_map_column().get_data();
         }
 
         NullMapType* dest_null_map = nullptr;
         if (auto* dest_nested_nullable_col =
                     check_and_get_column<ColumnNullable>(dest_nested_column)) {
             dest_nested_column = dest_nested_nullable_col->get_nested_column_ptr().get();
-            dest_null_map = &dest_nested_nullable_col->get_null_map_column().get_data();
+            dest_null_map = &dest_nested_nullable_col->get_null_map_column().get_data_mutable();
         }
 
         auto res_val = _execute_by_type(*src_nested_column, src_offsets, *dest_nested_column,
@@ -132,9 +146,10 @@ private:
     static constexpr size_t INITIAL_SIZE_DEGREE = 5;
 
     template <typename ColumnType>
-    bool _execute_number(const IColumn& src_column, const ColumnArray::Offsets64& src_offsets,
+    bool _execute_number(const IColumn& src_column, IColumn::Offsets64View src_offsets,
                          IColumn& dest_column, ColumnArray::Offsets64& dest_offsets,
-                         const NullMapType* src_null_map, NullMapType* dest_null_map) const {
+                         const std::optional<NullMapView>& src_null_map,
+                         NullMapType* dest_null_map) const {
         using NestType = typename ColumnType::value_type;
         using ElementNativeType = typename NativeType<NestType>::Type;
 
@@ -142,10 +157,10 @@ private:
         if (!src_data_concrete) {
             return false;
         }
-        const PaddedPODArray<NestType>& src_datas = src_data_concrete->get_data();
+        const auto src_datas = src_data_concrete->get_data();
 
         auto& dest_data_concrete = reinterpret_cast<ColumnType&>(dest_column);
-        PaddedPODArray<NestType>& dest_datas = dest_data_concrete.get_data();
+        auto& dest_datas = array_distinct_writable_data(dest_data_concrete);
 
         using Set = phmap::flat_hash_set<ElementNativeType, DefaultHash<ElementNativeType>>;
         Set set;
@@ -188,9 +203,10 @@ private:
         return true;
     }
 
-    bool _execute_string(const IColumn& src_column, const ColumnArray::Offsets64& src_offsets,
+    bool _execute_string(const IColumn& src_column, IColumn::Offsets64View src_offsets,
                          IColumn& dest_column, ColumnArray::Offsets64& dest_offsets,
-                         const NullMapType* src_null_map, NullMapType* dest_null_map) const {
+                         const std::optional<NullMapView>& src_null_map,
+                         NullMapType* dest_null_map) const {
         const auto* src_data_concrete = reinterpret_cast<const ColumnString*>(&src_column);
         if (!src_data_concrete) {
             return false;
@@ -250,10 +266,10 @@ private:
         return true;
     }
 
-    bool _execute_by_type(const IColumn& src_column, const ColumnArray::Offsets64& src_offsets,
+    bool _execute_by_type(const IColumn& src_column, IColumn::Offsets64View src_offsets,
                           IColumn& dest_column, ColumnArray::Offsets64& dest_offsets,
-                          const NullMapType* src_null_map, NullMapType* dest_null_map,
-                          DataTypePtr& nested_type) const {
+                          const std::optional<NullMapView>& src_null_map,
+                          NullMapType* dest_null_map, DataTypePtr& nested_type) const {
         if (is_string_type(nested_type->get_primitive_type())) {
             return _execute_string(src_column, src_offsets, dest_column, dest_offsets, src_null_map,
                                    dest_null_map);

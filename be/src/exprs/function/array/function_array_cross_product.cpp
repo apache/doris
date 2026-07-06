@@ -16,6 +16,7 @@
 // under the License.
 
 #include <memory>
+#include <span>
 
 #include "common/status.h"
 #include "core/assert_cast.h"
@@ -87,16 +88,16 @@ public:
                 assert_cast<const ColumnFloat32&>(*right_data.nested_col).get_data();
 
         auto res_data = ColumnType::create();
-        auto& res_values = res_data->get_data();
+        auto& res_values = res_data->get_data_mutable();
         res_values.reserve(input_rows_count * VECTOR_DIM);
         auto res_offsets = ColumnArray::ColumnOffsets::create();
-        auto& offsets = res_offsets->get_data();
+        auto& offsets = res_offsets->get_data_mutable();
         offsets.resize(input_rows_count);
         auto result_nested_null_map = ColumnUInt8::create();
-        auto& result_nested_null_map_data = result_nested_null_map->get_data();
+        auto& result_nested_null_map_data = result_nested_null_map->get_data_mutable();
         result_nested_null_map_data.reserve(input_rows_count * VECTOR_DIM);
         auto result_null_map = ColumnUInt8::create(input_rows_count, 0);
-        auto& result_null_map_data = result_null_map->get_data();
+        auto& result_null_map_data = result_null_map->get_data_mutable();
         size_t result_offset = 0;
 
         for (size_t row = 0; row < input_rows_count; ++row) {
@@ -110,10 +111,10 @@ public:
                 continue;
             }
 
-            size_t left_begin = (*left_data.offsets_ptr)[left_row - 1];
-            size_t right_begin = (*right_data.offsets_ptr)[right_row - 1];
-            auto dim1 = (*left_data.offsets_ptr)[left_row] - left_begin;
-            auto dim2 = (*right_data.offsets_ptr)[right_row] - right_begin;
+            size_t left_begin = left_data.offsets[left_row - 1];
+            size_t right_begin = right_data.offsets[right_row - 1];
+            auto dim1 = left_data.offsets[left_row] - left_begin;
+            auto dim2 = right_data.offsets[right_row] - right_begin;
 
             RETURN_IF_ERROR(check_vector_dims(dim1, dim2));
             if (has_nested_null(left_data, left_begin) ||
@@ -162,10 +163,9 @@ private:
         return Status::OK();
     }
 
-    static void compute_cross_product(const ColumnFloat32::Container& left_nested_data,
-                                      size_t left_begin,
-                                      const ColumnFloat32::Container& right_nested_data,
-                                      size_t right_begin, ColumnFloat32::Container& res_values,
+    static void compute_cross_product(std::span<const float> left_nested_data, size_t left_begin,
+                                      std::span<const float> right_nested_data, size_t right_begin,
+                                      ColumnFloat32::Container& res_values,
                                       ColumnUInt8::Container& result_nested_null_map_data) {
         float x0 = left_nested_data[left_begin];
         float x1 = left_nested_data[left_begin + 1];

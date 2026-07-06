@@ -96,8 +96,15 @@ public:
 
     void insert_result_into(IColumn& to) const {
         if (has()) {
-            assert_cast<typename PrimitiveTypeTraits<T>::ColumnType&>(to).get_data().push_back(
-                    value);
+            auto& column = assert_cast<typename PrimitiveTypeTraits<T>::ColumnType&>(to);
+            auto& column_data = [&]() -> decltype(auto) {
+                if constexpr (requires { column.get_data_mutable(); }) {
+                    return column.get_data_mutable();
+                } else {
+                    return column.get_data();
+                }
+            }();
+            column_data.push_back(value);
         } else {
             assert_cast<typename PrimitiveTypeTraits<T>::ColumnType&>(to).insert_default();
         }

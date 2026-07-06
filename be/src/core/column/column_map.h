@@ -137,9 +137,11 @@ public:
                                "Method replace_column_data is not supported for " + get_name());
     }
 
-    ColumnArray::Offsets64& ALWAYS_INLINE get_offsets() { return offsets_column->get_data(); }
-    const ColumnArray::Offsets64& ALWAYS_INLINE get_offsets() const {
-        return offsets_column->get_data();
+    ColumnArray::Offsets64& ALWAYS_INLINE get_offsets() {
+        return offsets_column->get_data_mutable();
+    }
+    ColumnArray::Offsets64View ALWAYS_INLINE get_offsets() const {
+        return offsets_column->get_data_with_padding();
     }
     COffsets& get_offsets_column() { return *offsets_column; }
     const COffsets& get_offsets_column() const { return *offsets_column; }

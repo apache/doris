@@ -122,7 +122,7 @@ int VExplodeBitmapTableFunction::get_value(MutableColumnPtr& column, int max_ste
         }
         auto origin_size = target->size();
         target->resize(origin_size + max_step);
-        auto* target_data = target->get_data().data();
+        auto* target_data = target->get_data_mutable().data();
         for (int i = 0; i < max_step; ++i) {
             target_data[i + origin_size] = **_cur_iter;
             ++(*_cur_iter);

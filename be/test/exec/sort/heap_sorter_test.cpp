@@ -86,14 +86,16 @@ TEST_F(HeapSorterTest, test_topn_sorter1) {
 
     {
         Block block = ColumnHelper::create_block<DataTypeInt64>({6}, {6});
+        // append_block may clear the input block after partial sorting, so keep the expected value
+        // before transferring the block into the sorter.
+        Field real;
+        block.get_by_position(0).column->get(0, real);
         auto st = sorter->append_block(&block);
         EXPECT_TRUE(st.ok());
 
         EXPECT_EQ(sorter->_queue_row_num, 6);
 
         auto value = sorter->get_top_value();
-        Field real;
-        block.get_by_position(0).column->get(0, real);
         EXPECT_EQ(value, real);
     }
 

@@ -53,6 +53,18 @@ class FunctionContext;
 
 namespace doris {
 
+template <typename ColumnType>
+decltype(auto) array_difference_writable_data(ColumnType& column) {
+    return column.get_data();
+}
+
+template <PrimitiveType T>
+auto& array_difference_writable_data(ColumnVector<T>& column) {
+    // Numeric array_difference writes a freshly created result column. Fixed-length vectors need
+    // the explicit mutable accessor; decimal columns continue using their owned container.
+    return column.get_data_mutable();
+}
+
 class FunctionArrayDifference : public IFunction {
 public:
     static constexpr auto name = "array_difference";
@@ -146,21 +158,20 @@ private:
     }
 
     template <PrimitiveType Element, PrimitiveType Result>
-    ColumnPtr _execute_number_expanded(const ColumnArray::Offsets64& offsets,
-                                       const IColumn& nested_column,
+    ColumnPtr _execute_number_expanded(IColumn::Offsets64View offsets, const IColumn& nested_column,
                                        ColumnPtr nested_null_map) const {
         using ColVecType = typename PrimitiveTypeTraits<Element>::ColumnType;
         using ColVecResult = typename PrimitiveTypeTraits<Result>::ColumnType;
         typename ColVecResult::MutablePtr res_nested = nullptr;
 
-        const auto& src_data = reinterpret_cast<const ColVecType&>(nested_column).get_data();
+        const auto src_data = reinterpret_cast<const ColVecType&>(nested_column).get_data();
         if constexpr (is_decimal(Result)) {
             res_nested = ColVecResult::create(0, src_data.get_scale());
         } else {
             res_nested = ColVecResult::create();
         }
         auto size = nested_column.size();
-        typename ColVecResult::Container& res_values = res_nested->get_data();
+        auto& res_values = array_difference_writable_data(*res_nested);
         res_values.resize(size);
 
         size_t pos = 0;
@@ -170,7 +181,7 @@ private:
         }
         if (nested_null_map) {
             auto null_map_col = ColumnUInt8::create(size, 0);
-            auto& null_map_col_data = null_map_col->get_data();
+            auto& null_map_col_data = null_map_col->get_data_mutable();
             auto nested_colum_data = static_cast<const ColumnUInt8*>(nested_null_map.get());
             VectorizedUtils::update_null_map(null_map_col_data, nested_colum_data->get_data());
             for (size_t row = 0; row < offsets.size(); ++row) {
@@ -194,7 +205,7 @@ private:
         // check array nested column type and get data
         auto left_column = arg.column->convert_to_full_column_if_const();
         const auto& array_column = reinterpret_cast<const ColumnArray&>(*left_column);
-        const auto& offsets = array_column.get_offsets();
+        const auto offsets = array_column.get_offsets();
         DCHECK(offsets.size() == input_rows_count);
 
         ColumnPtr nested_column = nullptr;

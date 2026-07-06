@@ -402,7 +402,7 @@ public:
                 normal_add_lambda();
                 return;
             }
-            auto add_batch_lambda = [&](const IColumn& data_column, const NullMap* null_map) {
+            auto add_batch_lambda = [&](const IColumn& data_column, const NullMapView* null_map) {
                 const auto& column = assert_cast<const ColVecType&>(data_column);
                 std::vector<const BitmapValue*> values;
                 for (size_t i = 0; i < batch_size; ++i) {
@@ -418,8 +418,8 @@ public:
 
             if constexpr (arg_is_nullable) {
                 const auto& nullable_column = assert_cast<const ColumnNullable&>(*columns[0]);
-                add_batch_lambda(nullable_column.get_nested_column(),
-                                 &(nullable_column.get_null_map_data()));
+                const auto null_map = nullable_column.get_null_map_data();
+                add_batch_lambda(nullable_column.get_nested_column(), &null_map);
             } else {
                 add_batch_lambda(*columns[0], nullptr);
             }
@@ -445,7 +445,7 @@ public:
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
         auto& value_data = this->data(place).get();
         auto& column = assert_cast<ColVecResult&>(to);
-        column.get_data().push_back(value_data.cardinality());
+        column.get_data_mutable().push_back(value_data.cardinality());
     }
 
     void reset(AggregateDataPtr __restrict place) const override { this->data(place).reset(); }

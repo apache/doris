@@ -326,9 +326,10 @@ private:
     using Data = std::array<T, Op::data_count>;
     using ColumnType = ColumnVector<Type>;
     using Container = typename ColumnType::Container;
+    using InputContainer = typename ColumnType::ImmContainer;
 
 public:
-    static NO_INLINE void apply(const Container& in, size_t scale, Container& out) {
+    static NO_INLINE void apply(InputContainer in, size_t scale, Container& out) {
         auto mm_scale = Op::prepare(scale);
 
         const size_t data_count = std::tuple_size<Data>();
@@ -370,11 +371,13 @@ private:
     using T = typename PrimitiveTypeTraits<Type>::CppType;
     using Op =
             IntegerRoundingComputation<Type, rounding_mode, scale_mode, tie_breaking_mode, size_t>;
-    using Container = typename ColumnVector<Type>::Container;
+    using ColumnType = ColumnVector<Type>;
+    using Container = typename ColumnType::Container;
+    using InputContainer = typename ColumnType::ImmContainer;
 
 public:
     template <size_t scale>
-    static NO_INLINE void applyImpl(const Container& in, Container& out) {
+    static NO_INLINE void applyImpl(InputContainer in, Container& out) {
         const T* end_in = in.data() + in.size();
 
         const T* __restrict p_in = in.data();
@@ -387,7 +390,7 @@ public:
         }
     }
 
-    static NO_INLINE void apply(const Container& in, size_t scale, Container& out) {
+    static NO_INLINE void apply(InputContainer in, size_t scale, Container& out) {
         /// Manual function cloning for compiler to generate integer division by constant.
         switch (scale) {
         case 1ULL:
@@ -463,7 +466,7 @@ struct Dispatcher {
             const auto* const col = assert_cast<const ColumnVector<T>*>(col_general);
             auto col_res = ColumnVector<T>::create();
 
-            typename ColumnVector<T>::Container& vec_res = col_res->get_data();
+            typename ColumnVector<T>::Container& vec_res = col_res->get_data_mutable();
             vec_res.resize(col->get_data().size());
 
             if (!vec_res.empty()) {
@@ -577,7 +580,7 @@ struct Dispatcher {
                       T == TYPE_TIMEV2) {
             const auto* col = assert_cast<const ColumnVector<T>*>(col_general);
             auto col_res = ColumnVector<T>::create();
-            typename ColumnVector<T>::Container& vec_res = col_res->get_data();
+            typename ColumnVector<T>::Container& vec_res = col_res->get_data_mutable();
             vec_res.resize(input_row_count);
 
             for (size_t i = 0; i < input_row_count; ++i) {
@@ -769,7 +772,7 @@ struct Dispatcher {
                     assert_cast<const ColumnVector<T>&>(const_col_general->get_data_column());
             const auto& general_val = data_col_general.get_data()[0];
             auto col_res = ColumnVector<T>::create(input_rows_count);
-            typename ColumnVector<T>::Container& vec_res = col_res->get_data();
+            typename ColumnVector<T>::Container& vec_res = col_res->get_data_mutable();
 
             for (size_t i = 0; i < input_rows_count; ++i) {
                 const Int16 scale_arg = col_scale_i32.get_data()[i];

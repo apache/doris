@@ -88,9 +88,9 @@ public:
                     fmt::format("Illegal column {}, of first argument of function {}",
                                 left_column->get_name(), get_name()));
         }
-        const ColumnArray::Offsets64& offsets = array->get_offsets();
+        const auto offsets = array->get_offsets();
         auto res_nested = ColumnInt64::create();
-        ColumnInt64::Container& res_values = res_nested->get_data();
+        ColumnInt64::Container& res_values = res_nested->get_data_mutable();
         res_values.resize(array->get_data().size());
         ColumnArray::Offset64 prev_off = 0;
         for (auto off : offsets) {

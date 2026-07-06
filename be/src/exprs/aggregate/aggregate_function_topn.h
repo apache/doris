@@ -51,6 +51,18 @@ namespace doris {} // namespace doris
 
 namespace doris {
 
+template <typename ColumnType>
+decltype(auto) topn_writable_data(ColumnType& column) {
+    return column.get_data();
+}
+
+template <PrimitiveType T>
+auto& topn_writable_data(ColumnVector<T>& column) {
+    // Only fixed-length ColumnVector may point at a shared segment page. Writers must materialize
+    // it first, while decimal and other owned columns can keep using their native mutable buffer.
+    return column.get_data_mutable();
+}
+
 // space-saving algorithm
 template <PrimitiveType T>
 struct AggregateFunctionTopNData {
@@ -190,8 +202,8 @@ struct AggregateFunctionTopNData {
                 assert_cast<ColumnString&, TypeCheckOnRelease::DISABLE>(to).insert_data(
                         element.second.c_str(), element.second.length());
             } else {
-                assert_cast<ColVecType&, TypeCheckOnRelease::DISABLE>(to).get_data().push_back(
-                        element.second);
+                auto& result_column = assert_cast<ColVecType&, TypeCheckOnRelease::DISABLE>(to);
+                topn_writable_data(result_column).push_back(element.second);
             }
         }
     }

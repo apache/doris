@@ -139,11 +139,13 @@ Status write_iceberg_uuid_string_column_to_arrow(const IColumn& column, const Da
 
     auto& builder = assert_cast<arrow::FixedSizeBinaryBuilder&>(*array_builder);
     const IColumn* data_column = &column;
-    const NullMap* null_map = nullptr;
+    NullMapView null_map;
+    bool has_null_map = false;
     if (type->is_nullable()) {
         const auto& nullable_column = assert_cast<const ColumnNullable&>(column);
         data_column = &nullable_column.get_nested_column();
-        null_map = &nullable_column.get_null_map_data();
+        null_map = nullable_column.get_null_map_data();
+        has_null_map = true;
     }
     if (!data_column->is_column_string()) {
         return Status::InvalidArgument(
@@ -153,7 +155,7 @@ Status write_iceberg_uuid_string_column_to_arrow(const IColumn& column, const Da
 
     const auto& string_column = assert_cast<const ColumnString&>(*data_column);
     for (size_t row = start; row < end; ++row) {
-        if (null_map != nullptr && (*null_map)[row]) {
+        if (has_null_map && null_map[row]) {
             RETURN_IF_ERROR(checkArrowStatus(builder.AppendNull(), column, builder));
             continue;
         }

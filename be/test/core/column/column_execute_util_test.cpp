@@ -76,7 +76,7 @@ TEST(ColumnExecuteUtilTest, ColumnView_non_nullable_non_const) {
 
     EXPECT_EQ(view.count, 3);
     EXPECT_FALSE(view.is_const);
-    EXPECT_EQ(view.null_map, nullptr);
+    EXPECT_EQ(view.null_map.data(), nullptr);
 
     EXPECT_FALSE(view.is_null_at(0));
     EXPECT_FALSE(view.is_null_at(1));
@@ -93,7 +93,7 @@ TEST(ColumnExecuteUtilTest, ColumnView_nullable) {
 
     EXPECT_EQ(view.count, 3);
     EXPECT_FALSE(view.is_const);
-    EXPECT_NE(view.null_map, nullptr);
+    EXPECT_NE(view.null_map.data(), nullptr);
 
     EXPECT_FALSE(view.is_null_at(0));
     EXPECT_TRUE(view.is_null_at(1));
@@ -110,7 +110,7 @@ TEST(ColumnExecuteUtilTest, ColumnView_const_column) {
 
     EXPECT_EQ(view.count, 5);
     EXPECT_TRUE(view.is_const);
-    EXPECT_EQ(view.null_map, nullptr);
+    EXPECT_EQ(view.null_map.data(), nullptr);
 
     // All positions should return the same value
     for (size_t i = 0; i < 5; ++i) {
@@ -126,7 +126,7 @@ TEST(ColumnExecuteUtilTest, ColumnView_const_nullable_column) {
 
     EXPECT_EQ(view.count, 3);
     EXPECT_TRUE(view.is_const);
-    EXPECT_NE(view.null_map, nullptr);
+    EXPECT_NE(view.null_map.data(), nullptr);
 
     for (size_t i = 0; i < 3; ++i) {
         EXPECT_FALSE(view.is_null_at(i));
@@ -141,7 +141,7 @@ TEST(ColumnExecuteUtilTest, ColumnView_const_nullable_null_column) {
 
     EXPECT_EQ(view.count, 3);
     EXPECT_TRUE(view.is_const);
-    EXPECT_NE(view.null_map, nullptr);
+    EXPECT_NE(view.null_map.data(), nullptr);
 
     for (size_t i = 0; i < 3; ++i) {
         EXPECT_TRUE(view.is_null_at(i));
@@ -154,7 +154,7 @@ TEST(ColumnExecuteUtilTest, ColumnView_string) {
 
     EXPECT_EQ(view.count, 3);
     EXPECT_FALSE(view.is_const);
-    EXPECT_EQ(view.null_map, nullptr);
+    EXPECT_EQ(view.null_map.data(), nullptr);
 
     EXPECT_EQ(view.value_at(0).to_string(), "a");
     EXPECT_EQ(view.value_at(1).to_string(), "bb");

@@ -177,10 +177,10 @@ private:
         if (const auto* nullable = check_and_get_column<ColumnNullable>(argument_column.get())) {
             auto column_nested = nullable->get_nested_column_ptr();
             const auto& null_map = nullable->get_null_map_data();
-            _filter->find_batch_nullable(*column_nested, sz, null_map, res_data_column->get_data(),
-                                         filter);
+            _filter->find_batch_nullable(*column_nested, sz, null_map,
+                                         res_data_column->get_data_mutable(), filter);
         } else {
-            _filter->find_batch(*argument_column, sz, res_data_column->get_data(), filter);
+            _filter->find_batch(*argument_column, sz, res_data_column->get_data_mutable(), filter);
         }
 
         DCHECK(!_data_type->is_nullable());

@@ -143,7 +143,7 @@ public:
                     lambda_block.get_by_position(i).column->assert_mutable().get());
             temp_data[i] = temp_column->get_nested_column_ptr();
             auto& null_map_col = temp_column->get_null_map_column();
-            temp_nullmap_data[i] = &null_map_col.get_data();
+            temp_nullmap_data[i] = &null_map_col.get_data_mutable();
             temp_data[i]->resize(1);
             temp_nullmap_data[i]->resize(1);
         };
@@ -167,7 +167,7 @@ public:
                         } else {
                             (*temp_nullmap_data[cid])[0] = 0;
                             if constexpr (is_column_vector_v<ColumnType>) {
-                                data_vec[cid]->get_data()[0] = data->get_data()[i];
+                                data_vec[cid]->get_data_mutable()[0] = data->get_data()[i];
                             } else {
                                 data_vec[cid]->clear();
                                 data_vec[cid]->insert_from(*data, i);

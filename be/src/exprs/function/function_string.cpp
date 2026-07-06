@@ -1091,7 +1091,7 @@ struct StringSpace {
     using Type = Int32;
     using ReturnColumnType = ColumnString;
 
-    static Status vector(const ColumnInt32::Container& data, ColumnString::Chars& res_data,
+    static Status vector(ColumnInt32::ImmContainer data, ColumnString::Chars& res_data,
                          ColumnString::Offsets& res_offsets) {
         res_offsets.resize(data.size());
         size_t input_size = res_offsets.size();

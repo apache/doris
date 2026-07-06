@@ -79,7 +79,7 @@ public:
         const auto& nested_data = assert_cast<const ColumnUInt8&>(*nested_column).get_data();
 
         auto dst_column = ColumnInt64::create(offsets.size());
-        auto& dst_data = dst_column->get_data();
+        auto& dst_data = dst_column->get_data_mutable();
 
         for (size_t row = 0; row < offsets.size(); ++row) {
             Int64 res = 0;

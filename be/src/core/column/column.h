@@ -20,8 +20,11 @@
 
 #pragma once
 
+#include <algorithm>
 #include <cstdint>
 #include <functional>
+#include <memory>
+#include <span>
 #include <string>
 #include <type_traits>
 #include <utility>
@@ -51,6 +54,48 @@ class ColumnSorter;
 using EqualFlags = std::vector<uint8_t>;
 using EqualRange = std::pair<int, int>;
 
+template <typename T>
+class PODArrayView {
+public:
+    using value_type = T;
+    using const_iterator = const T*;
+
+    PODArrayView() = default;
+    PODArrayView(const T* data, size_t size) : _data(data), _size(size) {}
+    PODArrayView(std::span<const T> values) : _data(values.data()), _size(values.size()) {}
+    template <typename ArrayLike>
+        requires(!std::same_as<std::remove_cvref_t<ArrayLike>, PODArrayView> &&
+                 requires(const ArrayLike& values) {
+                     values.data();
+                     values.size();
+                 })
+    PODArrayView(const ArrayLike& values) : _data(values.data()), _size(values.size()) {}
+
+    const T* data() const { return _data; }
+    size_t size() const { return _size; }
+    bool empty() const { return _size == 0; }
+
+    const T* begin() const { return _data; }
+    const T* end() const { return _size == 0 ? _data : _data + _size; }
+
+    // Keep PODArray-compatible signed indexing for existing offsets code that
+    // intentionally reads offsets[-1] from the zero-padded prefix.
+    const T& operator[](ssize_t n) const { return _data[n]; }
+    const T& front() const { return _data[0]; }
+    const T& back() const { return _data[_size - 1]; }
+
+    bool operator==(PODArrayView rhs) const {
+        return _size == rhs._size && std::equal(begin(), end(), rhs.begin());
+    }
+    bool operator!=(PODArrayView rhs) const { return !(*this == rhs); }
+
+    operator std::span<const T>() const { return {_data, _size}; }
+
+private:
+    const T* _data = nullptr;
+    size_t _size = 0;
+};
+
 /// Declares interface to store columns in memory.
 class IColumn : public COW<IColumn> {
 private:
@@ -68,6 +113,7 @@ public:
     // please use ColumnArray::Offset64 instead if we need.
     using Offset64 = UInt64;
     using Offsets64 = PaddedPODArray<Offset64>;
+    using Offsets64View = PODArrayView<Offset64>;
 
     // 32bit offsets for string
     using Offset = UInt32;
@@ -243,6 +289,14 @@ public:
         throw doris::Exception(
                 ErrorCode::NOT_IMPLEMENTED_ERROR,
                 "Method insert_many_fix_len_data is not supported for " + get_name());
+    }
+
+    // Fixed-width page decoders can pass a shared owner for the source memory. Columns that know
+    // how to read immutable external storage may keep that owner and avoid an immediate memcpy;
+    // the default implementation preserves the historical eager-copy behavior for all columns.
+    virtual void insert_many_fix_len_data_with_owner(const char* pos, size_t num,
+                                                     std::shared_ptr<void> owner) {
+        insert_many_fix_len_data(pos, num);
     }
 
     // todo(zeno) Use dict_args temp object to cover all arguments
@@ -445,6 +499,7 @@ public:
       *  otherwise (i.e. < 0), makes reserve() using size of source column.
       */
     using Filter = PaddedPODArray<UInt8>;
+    using FilterView = PODArrayView<UInt8>;
     virtual Ptr filter(const Filter& filt, ssize_t result_size_hint) const = 0;
 
     /// This function will modify the original table.

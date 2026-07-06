@@ -141,6 +141,8 @@ protected:
     Status _filter_output_block(Block* block);
 
     Status _do_projections(Block* origin_block, Block* output_block);
+    Status _do_direct_slot_ref_projection(Block* origin_block, Block* output_block,
+                                          ColumnsWithTypeAndName&& output_columns);
 
 private:
     void _start_scan_cpu_timer() {
@@ -249,6 +251,9 @@ protected:
     VExprContextSPtrs _projections;
     // Used in common subexpression elimination to compute intermediate results.
     std::vector<VExprContextSPtrs> _intermediate_projections;
+    // Non-empty only when final projections are all VSlotRef and there is no intermediate CSE
+    // projection. Values are source block column ids used by the no-copy projection fast path.
+    std::vector<int> _direct_slot_ref_projection_column_ids;
     Block _origin_block;
     Block _padding_block;
 

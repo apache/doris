@@ -32,7 +32,8 @@ struct Transformer {
     using FromType = typename PrimitiveTypeTraits<FromPType>::CppType;
     using ToType = typename PrimitiveTypeTraits<ToPType>::CppType;
     using CppType = typename PrimitiveTypeTraits<FromPType>::CppType;
-    static void vector(const PaddedPODArray<FromType>& vec_from, PaddedPODArray<ToType>& vec_to) {
+    template <typename FromArray>
+    static void vector(const FromArray& vec_from, PaddedPODArray<ToType>& vec_to) {
         size_t size = vec_from.size();
         vec_to.resize(size);
 
@@ -64,7 +65,8 @@ struct TransformerYear {
     using FromType = typename PrimitiveTypeTraits<FromPType>::CppType;
     using ToType = typename PrimitiveTypeTraits<ToPType>::CppType;
 
-    static void vector(const PaddedPODArray<FromType>& vec_from, PaddedPODArray<ToType>& vec_to) {
+    template <typename FromArray>
+    static void vector(const FromArray& vec_from, PaddedPODArray<ToType>& vec_to) {
         size_t size = vec_from.size();
         vec_to.resize(size);
 
@@ -162,7 +164,7 @@ public:
         const auto* sources = assert_cast<const ColumnVector<FromType>*>(
                 block.get_by_position(arguments[0]).column.get());
         auto col_to = ColumnVector<ToType>::create();
-        Op::vector(sources->get_data(), col_to->get_data());
+        Op::vector(sources->get_data(), col_to->get_data_mutable());
         block.replace_by_position(result, std::move(col_to));
 
         return Status::OK();

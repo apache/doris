@@ -30,7 +30,7 @@ Status DataTypeIPv4SerDe::write_column_to_mysql_binary(const IColumn& column,
                                                        MysqlRowBinaryBuffer& result,
                                                        int64_t row_idx, bool col_const,
                                                        const FormatOptions& options) const {
-    auto& data = assert_cast<const ColumnIPv4&>(column).get_data();
+    const auto& data = assert_cast<const ColumnIPv4&>(column).get_data();
     auto col_index = index_check_const(row_idx, col_const);
     IPv4Value ipv4_val(data[col_index]);
     if (UNLIKELY(0 != result.push_ipv4(ipv4_val))) {
@@ -86,7 +86,7 @@ Status DataTypeIPv4SerDe::write_column_to_pb(const IColumn& column, PValues& res
 }
 
 Status DataTypeIPv4SerDe::read_column_from_pb(IColumn& column, const PValues& arg) const {
-    auto& col_data = assert_cast<ColumnIPv4&>(column).get_data();
+    auto& col_data = assert_cast<ColumnIPv4&>(column).get_data_mutable();
     auto old_column_size = column.size();
     column.resize(old_column_size + arg.uint32_value_size());
     for (int i = 0; i < arg.uint32_value_size(); ++i) {
@@ -95,7 +95,7 @@ Status DataTypeIPv4SerDe::read_column_from_pb(IColumn& column, const PValues& ar
     return Status::OK();
 }
 
-Status DataTypeIPv4SerDe::write_column_to_arrow(const IColumn& column, const NullMap* null_map,
+Status DataTypeIPv4SerDe::write_column_to_arrow(const IColumn& column, const NullMapView* null_map,
                                                 arrow::ArrayBuilder* array_builder, int64_t start,
                                                 int64_t end, const cctz::time_zone& ctz) const {
     const auto& col_data = assert_cast<const ColumnIPv4&>(column).get_data();
@@ -113,7 +113,7 @@ Status DataTypeIPv4SerDe::write_column_to_arrow(const IColumn& column, const Nul
 Status DataTypeIPv4SerDe::read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array,
                                                  int64_t start, int64_t end,
                                                  const cctz::time_zone& ctz) const {
-    auto& col_data = assert_cast<ColumnIPv4&>(column).get_data();
+    auto& col_data = assert_cast<ColumnIPv4&>(column).get_data_mutable();
     int64_t row_count = end - start;
     /// buffers[0] is a null bitmap and buffers[1] are actual values
     std::shared_ptr<arrow::Buffer> buffer = arrow_array->data()->buffers[1];
@@ -128,7 +128,7 @@ Status DataTypeIPv4SerDe::from_string_batch(const ColumnString& str, ColumnNulla
     column.resize(size);
 
     auto& column_to = assert_cast<ColumnType&>(column.get_nested_column());
-    auto& vec_to = column_to.get_data();
+    auto& vec_to = column_to.get_data_mutable();
     auto& null_map = column.get_null_map_data();
 
     CastParameters params;
@@ -146,7 +146,7 @@ Status DataTypeIPv4SerDe::from_string_strict_mode_batch(const ColumnString& str,
     column.resize(size);
 
     auto& column_to = assert_cast<ColumnType&>(column);
-    auto& vec_to = column_to.get_data();
+    auto& vec_to = column_to.get_data_mutable();
     CastParameters params;
     params.is_strict = true;
     for (size_t i = 0; i < size; ++i) {

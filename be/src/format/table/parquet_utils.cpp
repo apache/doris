@@ -384,7 +384,7 @@ std::string decode_statistics_value(const FieldSchema* schema_field,
         }
         auto physical_col = ColumnUInt8::create();
         physical_col->resize(type_length);
-        memcpy(physical_col->get_data().data(), encoded_value.data(), encoded_value.size());
+        memcpy(physical_col->get_data_mutable().data(), encoded_value.data(), encoded_value.size());
         physical_column = std::move(physical_col);
         break;
     }
@@ -395,7 +395,7 @@ std::string decode_statistics_value(const FieldSchema* schema_field,
         }
         auto physical_col = ColumnInt8::create();
         physical_col->resize(kInt96Size);
-        memcpy(physical_col->get_data().data(), encoded_value.data(), encoded_value.size());
+        memcpy(physical_col->get_data_mutable().data(), encoded_value.data(), encoded_value.size());
         physical_column = std::move(physical_col);
         break;
     }

@@ -328,14 +328,15 @@ void DataTypeNullableSerDe::read_one_cell_from_jsonb(IColumn& column, const Json
    1/ convert the null_map from doris to arrow null byte map
    2/ pass the arrow null byteamp to nested column , and call AppendValues
 **/
-Status DataTypeNullableSerDe::write_column_to_arrow(const IColumn& column, const NullMap* null_map,
+Status DataTypeNullableSerDe::write_column_to_arrow(const IColumn& column,
+                                                    const NullMapView* null_map,
                                                     arrow::ArrayBuilder* array_builder,
                                                     int64_t start, int64_t end,
                                                     const cctz::time_zone& ctz) const {
     const auto& column_nullable = assert_cast<const ColumnNullable&>(column);
+    const auto nested_null_map = column_nullable.get_null_map_data();
     return nested_serde->write_column_to_arrow(column_nullable.get_nested_column(),
-                                               &column_nullable.get_null_map_data(), array_builder,
-                                               start, end, ctz);
+                                               &nested_null_map, array_builder, start, end, ctz);
 }
 
 Status DataTypeNullableSerDe::read_column_from_arrow(IColumn& column,
@@ -458,13 +459,14 @@ Status DataTypeNullableSerDe::write_column_to_mysql_binary(const IColumn& column
 }
 
 Status DataTypeNullableSerDe::write_column_to_orc(const std::string& timezone,
-                                                  const IColumn& column, const NullMap* null_map,
+                                                  const IColumn& column,
+                                                  const NullMapView* null_map,
                                                   orc::ColumnVectorBatch* orc_col_batch,
                                                   int64_t start, int64_t end, Arena& arena,
                                                   const FormatOptions& options) const {
     const auto& column_nullable = assert_cast<const ColumnNullable&>(column);
     orc_col_batch->hasNulls = true;
-    const auto& null_map_tmp = column_nullable.get_null_map_data();
+    const auto null_map_tmp = column_nullable.get_null_map_data();
     auto orc_null_map = revert_null_map(&null_map_tmp, start, end);
     // orc_col_batch->notNull.data() must add 'start' (+ start),
     // because orc_col_batch->notNull.data() begins at 0
@@ -473,8 +475,8 @@ Status DataTypeNullableSerDe::write_column_to_orc(const std::string& timezone,
     memcpy(orc_col_batch->notNull.data() + start, orc_null_map.data(), end - start);
 
     RETURN_IF_ERROR(nested_serde->write_column_to_orc(timezone, column_nullable.get_nested_column(),
-                                                      &column_nullable.get_null_map_data(),
-                                                      orc_col_batch, start, end, arena, options));
+                                                      &null_map_tmp, orc_col_batch, start, end,
+                                                      arena, options));
     return Status::OK();
 }
 

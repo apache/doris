@@ -69,7 +69,7 @@ uint16_t NullPredicate::_evaluate_inner(const IColumn& column, uint16_t* sel, ui
         if (!nullable->has_null()) {
             return _is_null ? 0 : size;
         }
-        auto& pred_col = nullable->get_null_map_data();
+        const auto pred_col = nullable->get_null_map_data();
         constexpr bool is_nullable = true;
         auto with_null = [&](uint16_t idx) { return pred_col[idx] == _is_null; };
         auto without_null = [](uint16_t) { return true; };
@@ -89,7 +89,7 @@ void NullPredicate::evaluate_or(const IColumn& column, const uint16_t* sel, uint
                 memset(flags, true, size);
             }
         } else {
-            auto& null_map = nullable->get_null_map_data();
+            const auto null_map = nullable->get_null_map_data();
             for (uint16_t i = 0; i < size; ++i) {
                 if (flags[i]) continue;
                 uint16_t idx = sel[i];
@@ -109,7 +109,7 @@ void NullPredicate::evaluate_and(const IColumn& column, const uint16_t* sel, uin
                 memset(flags, false, size);
             }
         } else {
-            auto& null_map = nullable->get_null_map_data();
+            const auto null_map = nullable->get_null_map_data();
             for (uint16_t i = 0; i < size; ++i) {
                 if (flags[i]) continue;
                 uint16_t idx = sel[i];
@@ -126,7 +126,7 @@ void NullPredicate::evaluate_vec(const IColumn& column, uint16_t size, bool* fla
         if (!nullable->has_null()) {
             memset(flags, !_is_null, size);
         }
-        auto& null_map = nullable->get_null_map_data();
+        const auto null_map = nullable->get_null_map_data();
         for (uint16_t i = 0; i < size; ++i) {
             flags[i] = (null_map[i] == _is_null);
         }

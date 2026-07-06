@@ -102,7 +102,7 @@ public:
                                size_t count, ColumnPtr& result_column) const override {
         const auto& input = nullable_nested_column<ColumnInt32>(*block, _column_id);
         auto result = ColumnUInt8::create();
-        auto& result_data = result->get_data();
+        auto& result_data = result->get_data_mutable();
         result_data.resize(count);
         for (size_t row = 0; row < count; ++row) {
             const size_t input_row = selector == nullptr ? row : (*selector)[row];
@@ -133,7 +133,7 @@ public:
         const auto& left_input = nullable_nested_column<ColumnInt32>(*block, _left_column_id);
         const auto& right_input = nullable_nested_column<ColumnInt32>(*block, _right_column_id);
         auto result = ColumnUInt8::create();
-        auto& result_data = result->get_data();
+        auto& result_data = result->get_data_mutable();
         result_data.resize(count);
         for (size_t row = 0; row < count; ++row) {
             const size_t input_row = selector == nullptr ? row : (*selector)[row];
@@ -164,7 +164,7 @@ public:
                                size_t count, ColumnPtr& result_column) const override {
         const auto& input = nullable_nested_column<ColumnString>(*block, _column_id);
         auto result = ColumnUInt8::create();
-        auto& result_data = result->get_data();
+        auto& result_data = result->get_data_mutable();
         result_data.resize(count);
         for (size_t row = 0; row < count; ++row) {
             const size_t input_row = selector == nullptr ? row : (*selector)[row];

@@ -19,13 +19,17 @@
 
 #include <glog/logging.h>
 
+#include <algorithm>
+
 #include "common/config.h"
 #include "common/status.h"
 #include "core/block/column_with_type_and_name.h"
 #include "core/column/column_nothing.h"
+#include "exec/common/util.hpp"
 #include "exec/operator/scan_operator.h"
 #include "exec/scan/scan_node.h"
 #include "exprs/vexpr_context.h"
+#include "exprs/vslot_ref.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_profile.h"
 #include "util/concurrency_stats.h"
@@ -77,6 +81,30 @@ Status Scanner::init(RuntimeState* state, const VExprContextSPtrs& conjuncts) {
                 RETURN_IF_ERROR(intermediate_projections[i][j]->clone(
                         state, _intermediate_projections[i][j]));
             }
+        }
+    }
+
+    // Pure slot-ref projections do not compute new values; they only reorder or forward scan
+    // columns. Record the source column ids once here so the hot projection path can move the
+    // existing ColumnPtr instead of executing VSlotRef and then mutating it, which would clone
+    // the column when the input block still shares the same pointer. Conjuncts are safe for this
+    // path because Scanner filters the source block before running output projections.
+    if (!_projections.empty() && _intermediate_projections.empty() && _limit <= 0 &&
+        _shared_scan_limit == nullptr && _output_row_descriptor != nullptr &&
+        _output_row_descriptor->num_materialized_slots() == _projections.size()) {
+        std::vector<int> direct_slot_ref_projection_column_ids;
+        direct_slot_ref_projection_column_ids.reserve(_projections.size());
+        for (const auto& projection : _projections) {
+            auto slot_ref = std::dynamic_pointer_cast<VSlotRef>(projection->root());
+            if (slot_ref == nullptr) {
+                direct_slot_ref_projection_column_ids.clear();
+                break;
+            }
+            direct_slot_ref_projection_column_ids.push_back(slot_ref->column_id());
+        }
+        if (!direct_slot_ref_projection_column_ids.empty()) {
+            _direct_slot_ref_projection_column_ids =
+                    std::move(direct_slot_ref_projection_column_ids);
         }
     }
 
@@ -222,6 +250,40 @@ Status Scanner::_do_projections(Block* origin_block, Block* output_block) {
     }
 
     DCHECK_EQ(rows, input_block.rows());
+    // Fast path for the common scan shape: PhysicalProject only forwards slot refs and the
+    // output slot type is exactly the same as the scan column type. The exact type check keeps
+    // casts/nullability changes on the generic expression path; only a pure column ownership
+    // transfer is handled here.
+    if (!_direct_slot_ref_projection_column_ids.empty() &&
+        _direct_slot_ref_projection_column_ids.size() == _projections.size()) {
+        bool can_use_direct_projection = true;
+        auto direct_projection_columns =
+                VectorizedUtils::create_columns_with_type_and_name(*_output_row_descriptor);
+        if (direct_projection_columns.size() != _direct_slot_ref_projection_column_ids.size()) {
+            return Status::InternalError(
+                    "direct slot ref projection size mismatch, output columns {}, projections {}",
+                    direct_projection_columns.size(),
+                    _direct_slot_ref_projection_column_ids.size());
+        }
+        for (size_t i = 0; i < _direct_slot_ref_projection_column_ids.size(); ++i) {
+            auto column_id = _direct_slot_ref_projection_column_ids[i];
+            if (column_id < 0 || column_id >= origin_block->columns()) {
+                return Status::InternalError(
+                        "slot ref projection column id {} is out of range, origin block columns {}",
+                        column_id, origin_block->columns());
+            }
+            const auto& src = origin_block->get_by_position(column_id);
+            if (!direct_projection_columns[i].type->equals(*src.type)) {
+                can_use_direct_projection = false;
+                break;
+            }
+        }
+        if (can_use_direct_projection) {
+            return _do_direct_slot_ref_projection(origin_block, output_block,
+                                                  std::move(direct_projection_columns));
+        }
+    }
+
     auto scoped_mutable_block = VectorizedUtils::build_scoped_mutable_mem_reuse_block(
             output_block, *_output_row_descriptor);
     auto& mutable_block = scoped_mutable_block.mutable_block();
@@ -243,6 +305,41 @@ Status Scanner::_do_projections(Block* origin_block, Block* output_block) {
     scoped_mutable_block.restore();
 
     // origin columns was moved into output_block, so we need to set origin_block to empty columns
+    auto empty_columns = origin_block->clone_empty_columns();
+    origin_block->set_columns(std::move(empty_columns));
+    DCHECK_EQ(output_block->rows(), rows);
+
+    return Status::OK();
+}
+
+Status Scanner::_do_direct_slot_ref_projection(Block* origin_block, Block* output_block,
+                                               ColumnsWithTypeAndName&& output_columns) {
+    const size_t rows = origin_block->rows();
+
+    for (size_t i = 0; i < _direct_slot_ref_projection_column_ids.size(); ++i) {
+        auto column_id = _direct_slot_ref_projection_column_ids[i];
+        if (column_id < 0 || column_id >= origin_block->columns()) {
+            return Status::InternalError(
+                    "slot ref projection column id {} is out of range, origin block columns {}",
+                    column_id, origin_block->columns());
+        }
+
+        auto column =
+                origin_block->get_by_position(column_id).column->convert_to_full_column_if_const();
+        if (column->size() != rows) {
+            return Status::InternalError(
+                    "direct slot ref projection result column size {} not equal input rows {}",
+                    column->size(), rows);
+        }
+        output_columns[i].column = std::move(column);
+    }
+
+    Block projected_block(std::move(output_columns));
+    output_block->swap(projected_block);
+
+    // The output block now owns the scan columns. Replace the origin block with empty columns so
+    // later block reuse/destruction does not keep an extra shared reference that would make later
+    // mutable paths clone the forwarded columns.
     auto empty_columns = origin_block->clone_empty_columns();
     origin_block->set_columns(std::move(empty_columns));
     DCHECK_EQ(output_block->rows(), rows);

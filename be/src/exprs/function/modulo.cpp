@@ -384,8 +384,17 @@ struct ModNumericImpl {
         DCHECK(column_left_ptr != nullptr);
 
         auto null_map = ColumnUInt8::create(column_left->size(), 0);
-        Impl::apply(column_left_ptr->get_data(), b, column_result->get_data(),
-                    null_map->get_data());
+        const auto a = column_left_ptr->get_data();
+        auto& c = column_result->get_data_mutable();
+        auto& n = null_map->get_data_mutable();
+        if constexpr (requires { Impl::apply(a, b, c, n); }) {
+            Impl::apply(a, b, c, n);
+        } else {
+            size_t size = a.size();
+            for (size_t i = 0; i < size; ++i) {
+                c[i] = Impl::apply(a[i], b, n[i]);
+            }
+        }
         return ColumnNullable::create(std::move(column_result), std::move(null_map));
     }
 
@@ -395,9 +404,9 @@ struct ModNumericImpl {
         DCHECK(column_right_ptr != nullptr);
 
         auto null_map = ColumnUInt8::create(column_right->size(), 0);
-        auto& b = column_right_ptr->get_data();
-        auto& c = column_result->get_data();
-        auto& n = null_map->get_data();
+        const auto b = column_right_ptr->get_data();
+        auto& c = column_result->get_data_mutable();
+        auto& n = null_map->get_data_mutable();
         if constexpr (requires { Impl::apply(a, b, c, n); }) {
             Impl::apply(a, b, c, n);
         } else {
@@ -417,10 +426,10 @@ struct ModNumericImpl {
         DCHECK(column_left_ptr != nullptr && column_right_ptr != nullptr);
 
         auto null_map = ColumnUInt8::create(column_result->size(), 0);
-        auto& a = column_left_ptr->get_data();
-        auto& b = column_right_ptr->get_data();
-        auto& c = column_result->get_data();
-        auto& n = null_map->get_data();
+        const auto a = column_left_ptr->get_data();
+        const auto b = column_right_ptr->get_data();
+        auto& c = column_result->get_data_mutable();
+        auto& n = null_map->get_data_mutable();
         if constexpr (requires { Impl::apply(a, b, c, n); }) {
             Impl::apply(a, b, c, n);
         } else {
@@ -447,7 +456,7 @@ struct ModuloNumericImpl {
                 std::make_shared<typename PrimitiveTypeTraits<Type>::DataType>()};
     }
 
-    static void apply(const typename ColumnType::Container& a, ArgB b,
+    static void apply(typename ColumnType::ImmContainer a, ArgB b,
                       typename ColumnType::Container& c, PaddedPODArray<UInt8>& null_map) {
         size_t size = c.size();
         if constexpr (is_float_or_double(Type)) {
@@ -465,7 +474,7 @@ struct ModuloNumericImpl {
         }
     }
 
-    static void apply(ArgA a, const typename ColumnType::Container& b,
+    static void apply(ArgA a, typename ColumnType::ImmContainer b,
                       typename ColumnType::Container& c, PaddedPODArray<UInt8>& null_map) {
         size_t size = c.size();
         if constexpr (is_float_or_double(Type)) {
@@ -477,9 +486,8 @@ struct ModuloNumericImpl {
         }
     }
 
-    static void apply(const typename ColumnType::Container& a,
-                      const typename ColumnType::Container& b, typename ColumnType::Container& c,
-                      PaddedPODArray<UInt8>& null_map) {
+    static void apply(typename ColumnType::ImmContainer a, typename ColumnType::ImmContainer b,
+                      typename ColumnType::Container& c, PaddedPODArray<UInt8>& null_map) {
         size_t size = c.size();
         if constexpr (is_float_or_double(Type)) {
             fmod_fast::vector_vector(a.data(), b.data(), c.data(), null_map.data(), size);
@@ -518,7 +526,7 @@ struct PModuloNumericImpl {
                 std::make_shared<typename PrimitiveTypeTraits<Type>::DataType>()};
     }
 
-    static void apply(const typename ColumnType::Container& a, ArgB b,
+    static void apply(typename ColumnType::ImmContainer a, ArgB b,
                       typename PrimitiveTypeTraits<Type>::ColumnType::Container& c,
                       PaddedPODArray<UInt8>& null_map) {
         size_t size = c.size();
@@ -677,7 +685,7 @@ struct ModDecimalImpl {
         auto null_map = ColumnUInt8::create(column_left->size(), 0);
         const auto& a = column_left_ptr->get_data().data();
         const auto& c = column_result->get_data().data();
-        auto& n = null_map->get_data();
+        auto& n = null_map->get_data_mutable();
         auto sz = column_left->size();
         if (check_overflow_for_decimal) {
             for (size_t i = 0; i < sz; ++i) {
@@ -708,7 +716,7 @@ struct ModDecimalImpl {
         auto null_map = ColumnUInt8::create(column_left->size(), 0);
         const auto& a = column_left_ptr->get_data().data();
         const auto& c = column_result->get_data().data();
-        auto& n = null_map->get_data();
+        auto& n = null_map->get_data_mutable();
         auto sz = column_left->size();
         if (check_overflow_for_decimal) {
             for (size_t i = 0; i < sz; ++i) {
@@ -739,7 +747,7 @@ struct ModDecimalImpl {
         auto null_map = ColumnUInt8::create(column_right->size(), 0);
         const auto& b = column_right_ptr->get_data().data();
         const auto& c = column_result->get_data().data();
-        auto& n = null_map->get_data();
+        auto& n = null_map->get_data_mutable();
         auto sz = column_right->size();
         if (check_overflow_for_decimal) {
             for (size_t i = 0; i < sz; ++i) {
@@ -771,7 +779,7 @@ struct ModDecimalImpl {
         auto null_map = ColumnUInt8::create(column_right->size(), 0);
         const auto& b = column_right_ptr->get_data().data();
         const auto& c = column_result->get_data().data();
-        auto& n = null_map->get_data();
+        auto& n = null_map->get_data_mutable();
         auto sz = column_right->size();
         if (check_overflow_for_decimal) {
             for (size_t i = 0; i < sz; ++i) {
@@ -807,7 +815,7 @@ struct ModDecimalImpl {
         const auto& a = column_left_ptr->get_data().data();
         const auto& b = column_right_ptr->get_data().data();
         const auto& c = column_result->get_data().data();
-        auto& n = null_map->get_data();
+        auto& n = null_map->get_data_mutable();
         auto sz = column_right->size();
         if (check_overflow_for_decimal) {
             for (size_t i = 0; i < sz; ++i) {
@@ -842,7 +850,7 @@ struct ModDecimalImpl {
         const auto& a = column_left_ptr->get_data().data();
         const auto& b = column_right_ptr->get_data().data();
         const auto& c = column_result->get_data().data();
-        auto& n = null_map->get_data();
+        auto& n = null_map->get_data_mutable();
         auto sz = column_right->size();
         if (check_overflow_for_decimal) {
             for (size_t i = 0; i < sz; ++i) {

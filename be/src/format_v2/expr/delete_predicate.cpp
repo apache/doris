@@ -106,7 +106,7 @@ Status DeletePredicate::execute(VExprContext* context, Block* block, int* result
         if (const auto it = std::ranges::lower_bound(row_ids, delete_row);
             it != row_ids.end() && *it == delete_row) {
             const size_t index = it - row_ids.begin();
-            res_col->get_data()[index] = true;
+            res_col->get_data_mutable()[index] = true;
         }
         ++start_index;
     }

@@ -86,6 +86,16 @@ public:
     using ColVecType = typename PrimitiveTypeTraits<T>::ColumnType;
     using ColVecResult = typename PrimitiveTypeTraits<TResult>::ColumnType;
 
+private:
+    static decltype(auto) _column_values(const ColVecType& column) {
+        if constexpr (is_decimal(T)) {
+            return column.get_data();
+        } else {
+            return column.immutable_data();
+        }
+    }
+
+public:
     String get_name() const override { return "sum"; }
 
     AggregateFunctionSum(const DataTypes& argument_types_)
@@ -107,8 +117,20 @@ public:
              Arena&) const override {
         const auto& column =
                 assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(*columns[0]);
-        this->data(place).add(
-                typename PrimitiveTypeTraits<TResult>::CppType(column.get_data()[row_num]));
+        const auto& values = _column_values(column);
+        this->data(place).add(typename PrimitiveTypeTraits<TResult>::CppType(values[row_num]));
+    }
+
+    void add_batch_single_place(size_t batch_size, AggregateDataPtr place, const IColumn** columns,
+                                Arena&) const override {
+        const auto& column =
+                assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(*columns[0]);
+        auto& aggregate_data = this->data(place);
+        const auto& source_values = _column_values(column);
+        const auto* __restrict values = source_values.data();
+        for (size_t i = 0; i < batch_size; ++i) {
+            aggregate_data.add(typename PrimitiveTypeTraits<TResult>::CppType(values[i]));
+        }
     }
 
     void reset(AggregateDataPtr place) const override { this->data(place).sum = {}; }
@@ -129,7 +151,14 @@ public:
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
         auto& column = assert_cast<ColVecResult&>(to);
-        column.get_data().push_back(this->data(place).get());
+        auto& column_data = [&]() -> decltype(auto) {
+            if constexpr (requires { column.get_data_mutable(); }) {
+                return column.get_data_mutable();
+            } else {
+                return column.get_data();
+            }
+        }();
+        column_data.push_back(this->data(place).get());
     }
 
     void serialize_to_column(const std::vector<AggregateDataPtr>& places, size_t offset,
@@ -152,7 +181,8 @@ public:
         DCHECK(col.item_size() == sizeof(Data))
                 << "size is not equal: " << col.item_size() << " " << sizeof(Data);
         col.resize(num_rows);
-        auto* src_data = src.get_data().data();
+        const auto& source_values = _column_values(src);
+        auto* src_data = source_values.data();
         auto* dst_data = col.get_data().data();
         for (size_t i = 0; i != num_rows; ++i) {
             auto& state = *reinterpret_cast<Data*>(&dst_data[sizeof(Data) * i]);
@@ -223,7 +253,8 @@ public:
         if (*could_use_previous_result) {
             const auto& column =
                     assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(*columns[0]);
-            const auto* data = column.get_data().data();
+            const auto& source_values = _column_values(column);
+            const auto* data = source_values.data();
             auto outcoming_pos = frame_start - 1;
             auto incoming_pos = frame_end - 1;
             if (!previous_is_nul && outcoming_pos >= partition_start &&
@@ -256,9 +287,10 @@ public:
         } else {
             const auto& column =
                     assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(*columns[0]);
+            const auto& source_values = _column_values(column);
             for (size_t row_num = current_frame_start; row_num < current_frame_end; ++row_num) {
                 this->data(place).add(
-                        typename PrimitiveTypeTraits<TResult>::CppType(column.get_data()[row_num]));
+                        typename PrimitiveTypeTraits<TResult>::CppType(source_values[row_num]));
             }
             *use_null_result = false;
             *could_use_previous_result = true;

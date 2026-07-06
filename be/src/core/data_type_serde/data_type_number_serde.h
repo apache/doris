@@ -111,7 +111,7 @@ public:
 
     void read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const override;
 
-    Status write_column_to_arrow(const IColumn& column, const NullMap* null_map,
+    Status write_column_to_arrow(const IColumn& column, const NullMapView* null_map,
                                  arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,
                                  const cctz::time_zone& ctz) const override;
     Status read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int64_t start,
@@ -124,7 +124,7 @@ public:
                                         int64_t row_idx, bool col_const,
                                         const FormatOptions& options) const override;
     Status write_column_to_orc(const std::string& timezone, const IColumn& column,
-                               const NullMap* null_map, orc::ColumnVectorBatch* orc_col_batch,
+                               const NullMapView* null_map, orc::ColumnVectorBatch* orc_col_batch,
                                int64_t start, int64_t end, Arena& arena,
                                const FormatOptions& options) const override;
 
@@ -162,7 +162,7 @@ Status DataTypeNumberSerDe<T>::read_column_from_pb(IColumn& column, const PValue
     auto old_column_size = column.size();
     if constexpr (T == TYPE_BOOLEAN) {
         column.resize(old_column_size + arg.uint32_value_size());
-        auto& data = assert_cast<ColumnType&>(column).get_data();
+        auto& data = assert_cast<ColumnType&>(column).get_data_mutable();
         for (int i = 0; i < arg.uint32_value_size(); ++i) {
             data[old_column_size + i] =
                     cast_set<typename PrimitiveTypeTraits<T>::CppType, uint32_t, false>(
@@ -170,13 +170,13 @@ Status DataTypeNumberSerDe<T>::read_column_from_pb(IColumn& column, const PValue
         }
     } else if constexpr (T == TYPE_DATEV2 || T == TYPE_IPV4) {
         column.resize(old_column_size + arg.uint32_value_size());
-        auto& data = assert_cast<ColumnType&>(column).get_data();
+        auto& data = assert_cast<ColumnType&>(column).get_data_mutable();
         for (int i = 0; i < arg.uint32_value_size(); ++i) {
             data[old_column_size + i] = arg.uint32_value(i);
         }
     } else if constexpr (T == TYPE_TINYINT || T == TYPE_SMALLINT) {
         column.resize(old_column_size + arg.int32_value_size());
-        auto& data = reinterpret_cast<ColumnType&>(column).get_data();
+        auto& data = reinterpret_cast<ColumnType&>(column).get_data_mutable();
         for (int i = 0; i < arg.int32_value_size(); ++i) {
             data[old_column_size + i] =
                     cast_set<typename PrimitiveTypeTraits<T>::CppType, int32_t, false>(
@@ -184,50 +184,50 @@ Status DataTypeNumberSerDe<T>::read_column_from_pb(IColumn& column, const PValue
         }
     } else if constexpr (T == TYPE_INT) {
         column.resize(old_column_size + arg.int32_value_size());
-        auto& data = reinterpret_cast<ColumnType&>(column).get_data();
+        auto& data = reinterpret_cast<ColumnType&>(column).get_data_mutable();
         for (int i = 0; i < arg.int32_value_size(); ++i) {
             data[old_column_size + i] = arg.int32_value(i);
         }
     } else if constexpr (T == TYPE_DATETIMEV2) {
         column.resize(old_column_size + arg.uint64_value_size());
-        auto& data = reinterpret_cast<ColumnType&>(column).get_data();
+        auto& data = reinterpret_cast<ColumnType&>(column).get_data_mutable();
         for (int i = 0; i < arg.uint64_value_size(); ++i) {
             data[old_column_size + i] =
                     binary_cast<UInt64, DateV2Value<DateTimeV2ValueType>>(arg.uint64_value(i));
         }
     } else if constexpr (T == TYPE_TIMESTAMPTZ) {
         column.resize(old_column_size + arg.uint64_value_size());
-        auto& data = reinterpret_cast<ColumnType&>(column).get_data();
+        auto& data = reinterpret_cast<ColumnType&>(column).get_data_mutable();
         for (int i = 0; i < arg.uint64_value_size(); ++i) {
             data[old_column_size + i] = binary_cast<UInt64, TimestampTzValue>(arg.uint64_value(i));
         }
     } else if constexpr (T == TYPE_DATE || T == TYPE_DATETIME) {
         column.resize(old_column_size + arg.int64_value_size());
-        auto& data = reinterpret_cast<ColumnType&>(column).get_data();
+        auto& data = reinterpret_cast<ColumnType&>(column).get_data_mutable();
         for (int i = 0; i < arg.int64_value_size(); ++i) {
             data[old_column_size + i] = binary_cast<Int64, VecDateTimeValue>(arg.int64_value(i));
         }
     } else if constexpr (T == TYPE_BIGINT) {
         column.resize(old_column_size + arg.int64_value_size());
-        auto& data = reinterpret_cast<ColumnType&>(column).get_data();
+        auto& data = reinterpret_cast<ColumnType&>(column).get_data_mutable();
         for (int i = 0; i < arg.int64_value_size(); ++i) {
             data[old_column_size + i] = arg.int64_value(i);
         }
     } else if constexpr (T == TYPE_FLOAT) {
         column.resize(old_column_size + arg.float_value_size());
-        auto& data = reinterpret_cast<ColumnType&>(column).get_data();
+        auto& data = reinterpret_cast<ColumnType&>(column).get_data_mutable();
         for (int i = 0; i < arg.float_value_size(); ++i) {
             data[old_column_size + i] = arg.float_value(i);
         }
     } else if constexpr (T == TYPE_DOUBLE || T == TYPE_TIMEV2) {
         column.resize(old_column_size + arg.double_value_size());
-        auto& data = reinterpret_cast<ColumnType&>(column).get_data();
+        auto& data = reinterpret_cast<ColumnType&>(column).get_data_mutable();
         for (int i = 0; i < arg.double_value_size(); ++i) {
             data[old_column_size + i] = arg.double_value(i);
         }
     } else if constexpr (T == TYPE_LARGEINT) {
         column.resize(old_column_size + arg.bytes_value_size());
-        auto& data = reinterpret_cast<ColumnType&>(column).get_data();
+        auto& data = reinterpret_cast<ColumnType&>(column).get_data_mutable();
         for (int i = 0; i < arg.bytes_value_size(); ++i) {
             data[old_column_size + i] = *(int128_t*)(arg.bytes_value(i).c_str());
         }
@@ -252,7 +252,7 @@ Status DataTypeNumberSerDe<T>::write_column_to_pb(const IColumn& column, PValues
         }
         return Status::OK();
     }
-    auto& data = col->get_data();
+    const auto& data = col->get_data();
     if constexpr (T == TYPE_BOOLEAN) {
         ptype->set_id(PGenericType::UINT8);
         auto* values = result.mutable_uint32_value();
@@ -262,7 +262,8 @@ Status DataTypeNumberSerDe<T>::write_column_to_pb(const IColumn& column, PValues
         ptype->set_id(PGenericType::UINT32);
         auto* values = result.mutable_uint32_value();
         values->Reserve(row_count);
-        values->Add((uint32_t*)data.begin() + start, (uint32_t*)data.begin() + end);
+        const auto* raw_data = reinterpret_cast<const uint32_t*>(data.data());
+        values->Add(raw_data + start, raw_data + end);
     } else if constexpr (T == TYPE_IPV4) {
         ptype->set_id(PGenericType::UINT32);
         auto* values = result.mutable_uint32_value();
@@ -272,7 +273,8 @@ Status DataTypeNumberSerDe<T>::write_column_to_pb(const IColumn& column, PValues
         ptype->set_id(PGenericType::UINT64);
         auto* values = result.mutable_uint64_value();
         values->Reserve(row_count);
-        values->Add((uint64_t*)data.begin() + start, (uint64_t*)data.begin() + end);
+        const auto* raw_data = reinterpret_cast<const uint64_t*>(data.data());
+        values->Add(raw_data + start, raw_data + end);
     } else if constexpr (T == TYPE_TINYINT) {
         ptype->set_id(PGenericType::INT8);
         auto* values = result.mutable_int32_value();
@@ -292,7 +294,8 @@ Status DataTypeNumberSerDe<T>::write_column_to_pb(const IColumn& column, PValues
         ptype->set_id(PGenericType::INT64);
         auto* values = result.mutable_int64_value();
         values->Reserve(row_count);
-        values->Add((int64_t*)data.begin() + start, (int64_t*)data.begin() + end);
+        const auto* raw_data = reinterpret_cast<const int64_t*>(data.data());
+        values->Add(raw_data + start, raw_data + end);
     } else if constexpr (T == TYPE_BIGINT) {
         ptype->set_id(PGenericType::INT64);
         auto* values = result.mutable_int64_value();

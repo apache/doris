@@ -164,7 +164,7 @@ struct ArrayAggregateImpl {
         DataTypePtr type = data_type_array->get_nested_type();
         const IColumn* data = array.get_data_ptr().get();
 
-        const auto& offsets = array.get_offsets();
+        const auto offsets = array.get_offsets();
         if constexpr (operation == AggregateOperation::MAX ||
                       operation == AggregateOperation::MIN) {
             // min/max can only be applied on ip type
@@ -200,7 +200,7 @@ struct ArrayAggregateImpl {
 
     template <typename ColumnType, typename CreateColumnFunc>
     static bool execute_type_impl(ColumnPtr& res_ptr, const DataTypePtr& type, const IColumn* data,
-                                  const ColumnArray::Offsets64& offsets,
+                                  IColumn::Offsets64View offsets,
                                   CreateColumnFunc create_column_func) {
         using Function =
                 ArrayAggregateFunctionCreator<operation, AggregateFunctionTraits<operation>>;
@@ -242,7 +242,7 @@ struct ArrayAggregateImpl {
 
     template <PrimitiveType Element>
     static bool execute_type(ColumnPtr& res_ptr, const DataTypePtr& type, const IColumn* data,
-                             const ColumnArray::Offsets64& offsets) {
+                             IColumn::Offsets64View offsets) {
         if constexpr (is_string_type(Element)) {
             if (operation == AggregateOperation::SUM || operation == AggregateOperation::PRODUCT ||
                 operation == AggregateOperation::AVERAGE) {
@@ -408,7 +408,7 @@ struct ArrayAggregateImplDecimalV3<operation, ResultType> {
         DataTypePtr type = data_type_array->get_nested_type();
         const IColumn* data = array.get_data_ptr().get();
 
-        const auto& offsets = array.get_offsets();
+        const auto offsets = array.get_offsets();
 
         if (execute_type<TYPE_DECIMAL32>(res, result_type, type, data, offsets) ||
             execute_type<TYPE_DECIMAL64>(res, result_type, type, data, offsets) ||
@@ -424,7 +424,7 @@ struct ArrayAggregateImplDecimalV3<operation, ResultType> {
     template <typename ColumnType, typename CreateColumnFunc>
     static bool execute_type_impl(ColumnPtr& res_ptr, const DataTypePtr& result_type,
                                   const DataTypePtr& type, const IColumn* data,
-                                  const ColumnArray::Offsets64& offsets,
+                                  IColumn::Offsets64View offsets,
                                   CreateColumnFunc create_column_func) {
         using Function = ArrayAggregateFunctionCreatorWithResultType<
                 AggregateFunctionTraitsWithResultType<operation>>;
@@ -468,7 +468,7 @@ struct ArrayAggregateImplDecimalV3<operation, ResultType> {
     template <PrimitiveType Element>
     static bool execute_type(ColumnPtr& res_ptr, const DataTypePtr& result_type,
                              const DataTypePtr& type, const IColumn* data,
-                             const ColumnArray::Offsets64& offsets) {
+                             IColumn::Offsets64View offsets) {
         using ColVecType = typename PrimitiveTypeTraits<Element>::ColumnType;
         using ColVecResultType = typename PrimitiveTypeTraits<ResultType>::ColumnType;
 

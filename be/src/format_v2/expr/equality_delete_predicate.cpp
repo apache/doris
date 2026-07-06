@@ -116,7 +116,7 @@ Status EqualityDeletePredicate::execute(VExprContext* context, Block* block,
     }
 
     auto data_hashes = _build_hashes(data_key_block);
-    auto& result_data = res_col->get_data();
+    auto& result_data = res_col->get_data_mutable();
     for (size_t row = 0; row < rows; ++row) {
         const auto range = _delete_hash_map.equal_range(data_hashes[row]);
         for (auto it = range.first; it != range.second; ++it) {

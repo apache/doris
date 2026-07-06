@@ -112,7 +112,14 @@ struct GroupArraySetOpNumericBaseData {
                 << "should be array(nullable(column)) " << to.dump_structure();
 
         auto insert_values = [](ColVecType& nested_col, auto& set, ColumnNullable* col_null) {
-            size_t old_size = nested_col.get_data().size();
+            auto& nested_data = []<typename ColumnType>(ColumnType& column) -> decltype(auto) {
+                if constexpr (requires { column.get_data_mutable(); }) {
+                    return column.get_data_mutable();
+                } else {
+                    return column.get_data();
+                }
+            }(nested_col);
+            size_t old_size = nested_data.size();
             size_t res_size = set->size();
             size_t i = 0;
 
@@ -122,11 +129,11 @@ struct GroupArraySetOpNumericBaseData {
                 i = 1;
             }
 
-            nested_col.get_data().resize(old_size + res_size);
+            nested_data.resize(old_size + res_size);
             HybridSetBase::IteratorBase* it = set->begin();
             while (it->has_next()) {
                 const auto value = *reinterpret_cast<const CppType*>(it->get_value());
-                nested_col.get_data()[old_size + i] = value;
+                nested_data[old_size + i] = value;
                 col_null->get_null_map_data().push_back(0);
                 it->next();
                 ++i;

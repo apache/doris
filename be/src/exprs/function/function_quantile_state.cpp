@@ -88,13 +88,13 @@ public:
         const ColumnNullable* col_nullable = nullptr;
         const ColumnUInt8* col_nullmap = nullptr;
         const ColumnFloat64* col = nullptr;
-        const NullMap* nullmap = nullptr;
+        NullMapView nullmap;
         if constexpr (is_nullable) {
             col_nullable = assert_cast<const ColumnNullable*>(column.get());
             col_nullmap = col_nullable->get_null_map_column_ptr().get();
             col = assert_cast<const ColumnFloat64*>(col_nullable->get_nested_column_ptr().get());
 
-            nullmap = &col_nullmap->get_data();
+            nullmap = col_nullmap->get_data();
         } else {
             col = assert_cast<const ColumnFloat64*>(column.get());
         }
@@ -104,7 +104,7 @@ public:
         size_t size = col->size();
         for (size_t i = 0; i < size; ++i) {
             if constexpr (is_nullable) {
-                if ((*nullmap)[i]) {
+                if (nullmap[i]) {
                     res_data[i].clear();
                     continue;
                 }
@@ -166,9 +166,9 @@ public:
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
         auto res_data_column = ColumnFloat64::create();
-        auto& res = res_data_column->get_data();
+        auto& res = res_data_column->get_data_mutable();
         auto data_null_map = ColumnUInt8::create(input_rows_count, 0);
-        auto& null_map = data_null_map->get_data();
+        auto& null_map = data_null_map->get_data_mutable();
 
         auto column = block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
         if (const auto* nullable = check_and_get_column<const ColumnNullable>(*column)) {
@@ -226,7 +226,7 @@ public:
                         uint32_t result, size_t input_rows_count) const override {
         auto res_null_map = ColumnUInt8::create(input_rows_count, 0);
         auto res_data_column = ColumnQuantileState::create();
-        auto& null_map = res_null_map->get_data();
+        auto& null_map = res_null_map->get_data_mutable();
         auto& res = res_data_column->get_data();
 
         auto& argument_column = block.get_by_position(arguments[0]).column;
