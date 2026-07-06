@@ -21,6 +21,11 @@ import org.apache.doris.connector.api.ConnectorColumn;
 import org.apache.doris.connector.api.ConnectorMetadata;
 import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.ConnectorTableSchema;
+import org.apache.doris.connector.api.DorisConnectorException;
+import org.apache.doris.connector.api.ddl.ConnectorBucketSpec;
+import org.apache.doris.connector.api.ddl.ConnectorCreateTableRequest;
+import org.apache.doris.connector.api.ddl.ConnectorPartitionField;
+import org.apache.doris.connector.api.ddl.ConnectorPartitionSpec;
 import org.apache.doris.connector.api.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.api.pushdown.ConnectorAnd;
@@ -31,10 +36,14 @@ import org.apache.doris.connector.api.pushdown.ConnectorIn;
 import org.apache.doris.connector.api.pushdown.ConnectorLiteral;
 import org.apache.doris.connector.api.pushdown.FilterApplicationResult;
 import org.apache.doris.connector.hms.HmsClient;
+import org.apache.doris.connector.hms.HmsClientConfig;
 import org.apache.doris.connector.hms.HmsClientException;
+import org.apache.doris.connector.hms.HmsCreateDatabaseRequest;
+import org.apache.doris.connector.hms.HmsCreateTableRequest;
 import org.apache.doris.connector.hms.HmsPartitionInfo;
 import org.apache.doris.connector.hms.HmsTableInfo;
 import org.apache.doris.connector.hms.HmsTypeMapping;
+import org.apache.doris.connector.spi.ConnectorContext;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -44,6 +53,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -69,10 +79,16 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
     private final HmsClient hmsClient;
     private final Map<String, String> properties;
     private final HmsTypeMapping.Options typeMappingOptions;
+    // Carries the fe-core-injected environment (getEnvironment()) with the FE-global CREATE TABLE defaults
+    // (hive_default_file_format / enable_create_hive_bucket_table / doris_version) that the plugin cannot
+    // read from FE Config. The default getEnvironment() is an empty map, so direct-construction tests that
+    // pass a bare context degrade to the hard-coded fallbacks in createTable.
+    private final ConnectorContext context;
 
-    public HiveConnectorMetadata(HmsClient hmsClient, Map<String, String> properties) {
+    public HiveConnectorMetadata(HmsClient hmsClient, Map<String, String> properties, ConnectorContext context) {
         this.hmsClient = hmsClient;
         this.properties = properties;
+        this.context = context;
         this.typeMappingOptions = buildTypeMappingOptions(properties);
     }
 
@@ -231,6 +247,251 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
                 .build();
         return Optional.of(new FilterApplicationResult<>(
                 newHandle, constraint.getExpression(), false));
+    }
+
+    // ========== ConnectorSchemaOps: DDL writes (create/drop database) ==========
+
+    /**
+     * Hive supports CREATE DATABASE. Declaring it lets {@code PluginDrivenExternalCatalog.createDb} consult
+     * the remote database existence for IF NOT EXISTS (the SPI default {@code false} would skip that check).
+     */
+    @Override
+    public boolean supportsCreateDatabase() {
+        return true;
+    }
+
+    /**
+     * Creates a Hive database, mirroring legacy {@code HiveMetadataOps.createDbImpl}: the {@code location}
+     * property becomes the database location URI (and is dropped from the parameter map), the {@code comment}
+     * property becomes the description, and the remaining properties become database parameters. Existence /
+     * IF NOT EXISTS is resolved upstream by {@code PluginDrivenExternalCatalog.createDb}.
+     */
+    @Override
+    public void createDatabase(ConnectorSession session, String dbName, Map<String, String> dbProperties) {
+        Map<String, String> params = new HashMap<>(dbProperties);
+        String location = params.remove(HiveConnectorProperties.CREATE_LOCATION);
+        String comment = params.getOrDefault(HiveConnectorProperties.CREATE_COMMENT, "");
+        try {
+            hmsClient.createDatabase(new HmsCreateDatabaseRequest(dbName, location, comment, params));
+        } catch (HmsClientException e) {
+            throw new DorisConnectorException(
+                    "Failed to create Hive database " + dbName + ": " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Drops a Hive database, mirroring legacy {@code HiveMetadataOps.dropDbImpl}: with {@code force} every
+     * table in the database is dropped first (a table that vanished remotely is skipped; a transactional table
+     * is rejected exactly as a direct DROP TABLE would be), then the database itself. Existence / IF EXISTS is
+     * resolved upstream by {@code PluginDrivenExternalCatalog.dropDb}, so {@code ifExists} is accepted for SPI
+     * parity but not re-checked here.
+     */
+    @Override
+    public void dropDatabase(ConnectorSession session, String dbName, boolean ifExists, boolean force) {
+        try {
+            if (force) {
+                for (String tableName : hmsClient.listTables(dbName)) {
+                    HmsTableInfo tableInfo;
+                    try {
+                        tableInfo = hmsClient.getTable(dbName, tableName);
+                    } catch (HmsClientException e) {
+                        // The table disappeared between listing and load (dropped out-of-band); skip it,
+                        // mirroring legacy dropDbImpl which swallowed getTableOrDdlException and continued.
+                        LOG.warn("failed to load table {}.{} during force drop database: {}",
+                                dbName, tableName, e.getMessage());
+                        continue;
+                    }
+                    dropTableChecked(dbName, tableName, tableInfo.getParameters());
+                }
+            }
+            hmsClient.dropDatabase(dbName);
+        } catch (HmsClientException e) {
+            throw new DorisConnectorException(
+                    "Failed to drop Hive database " + dbName + ": " + e.getMessage(), e);
+        }
+    }
+
+    // ========== ConnectorTableOps: DDL writes (create/drop/truncate table) ==========
+
+    /**
+     * Creates a Hive table, a faithful port of legacy {@code HiveMetadataOps.createTableImpl}. All property
+     * interpretation happens here (plugin side); fe-core does not parse hive properties. Existence /
+     * IF NOT EXISTS is resolved upstream by {@code PluginDrivenExternalCatalog.createTable}.
+     */
+    @Override
+    public void createTable(ConnectorSession session, ConnectorCreateTableRequest request) {
+        // Working copy of the user CREATE TABLE properties; the default owner is added here (legacy added it
+        // to the same map before deriving the metastore parameters).
+        Map<String, String> userProps = new HashMap<>(request.getProperties());
+        if (session.getUser() != null) {
+            userProps.putIfAbsent(HiveConnectorProperties.CREATE_OWNER, session.getUser());
+        }
+        // Reject a transactional table create (legacy parity: a hive transactional table only appears to
+        // accept inserts). Matches legacy's case-sensitive "transactional" key check.
+        String transactional = userProps.get(HiveConnectorProperties.CREATE_TRANSACTIONAL);
+        if (transactional != null && transactional.equalsIgnoreCase("true")) {
+            throw new DorisConnectorException("Not support create hive transactional table.");
+        }
+        Map<String, String> env = context.getEnvironment();
+        String fileFormat = userProps.getOrDefault(HiveConnectorProperties.CREATE_FILE_FORMAT,
+                env.getOrDefault(HiveConnectorProperties.ENV_HIVE_DEFAULT_FILE_FORMAT,
+                        HiveConnectorProperties.DEFAULT_FILE_FORMAT));
+
+        // Metastore table parameters: lower-case every key and stamp the file_format / location keys under a
+        // doris. prefix so they round-trip (legacy HiveMetadataOps ddlProps loop).
+        Map<String, String> tableParams = new HashMap<>();
+        for (Map.Entry<String, String> entry : userProps.entrySet()) {
+            String key = entry.getKey().toLowerCase(Locale.ROOT);
+            if (HiveConnectorProperties.DORIS_HIVE_KEYS.contains(key)) {
+                tableParams.put(HiveConnectorProperties.DORIS_PROP_PREFIX + key, entry.getValue());
+            } else {
+                tableParams.put(key, entry.getValue());
+            }
+        }
+
+        // Partition columns: LIST only (reject RANGE), and reject explicit partition value definitions
+        // (hive external tables discover partitions from the data layout). Legacy parity.
+        List<String> partitionColNames = new ArrayList<>();
+        ConnectorPartitionSpec partitionSpec = request.getPartitionSpec();
+        if (partitionSpec != null) {
+            if (partitionSpec.getStyle() == ConnectorPartitionSpec.Style.RANGE) {
+                throw new DorisConnectorException("Only support 'LIST' partition type in hive catalog.");
+            }
+            for (ConnectorPartitionField field : partitionSpec.getFields()) {
+                partitionColNames.add(field.getColumnName());
+            }
+            if (partitionSpec.hasExplicitPartitionValues()) {
+                throw new DorisConnectorException(
+                        "Partition values expressions is not supported in hive catalog.");
+            }
+        }
+
+        // DLF catalogs reject per-column default values (legacy parity).
+        if (HmsClientConfig.METASTORE_TYPE_DLF.equals(properties.get(HmsClientConfig.METASTORE_TYPE_KEY))) {
+            for (ConnectorColumn column : request.getColumns()) {
+                if (column.getDefaultValue() != null) {
+                    throw new DorisConnectorException("Default values are not supported with `DLF` catalog.");
+                }
+            }
+        }
+
+        HmsCreateTableRequest.Builder builder = HmsCreateTableRequest.builder()
+                .dbName(request.getDbName())
+                .tableName(request.getTableName())
+                .location(userProps.get(HiveConnectorProperties.CREATE_LOCATION))
+                .columns(request.getColumns())
+                .partitionKeys(partitionColNames)
+                .fileFormat(fileFormat)
+                .comment(request.getComment())
+                .properties(tableParams)
+                .defaultTextCompression(resolveTextCompressionDefault(session))
+                .dorisVersion(env.get(HiveConnectorProperties.ENV_DORIS_VERSION));
+
+        // Bucketing: gated on the FE-global toggle, and hive supports hash bucketing only. Legacy checks the
+        // enable gate first, then the hash requirement.
+        ConnectorBucketSpec bucketSpec = request.getBucketSpec();
+        if (bucketSpec != null) {
+            boolean bucketEnabled = Boolean.parseBoolean(env.getOrDefault(
+                    HiveConnectorProperties.ENV_ENABLE_CREATE_HIVE_BUCKET_TABLE, "false"));
+            if (!bucketEnabled) {
+                throw new DorisConnectorException(
+                        "Create hive bucket table need set enable_create_hive_bucket_table to true");
+            }
+            if (HiveConnectorProperties.BUCKET_ALGO_RANDOM.equals(bucketSpec.getAlgorithm())) {
+                throw new DorisConnectorException("External hive table only supports hash bucketing");
+            }
+            builder.bucketCols(bucketSpec.getColumns()).numBuckets(bucketSpec.getNumBuckets());
+        }
+
+        try {
+            hmsClient.createTable(builder.build());
+        } catch (HmsClientException | IllegalArgumentException e) {
+            throw new DorisConnectorException("Failed to create Hive table "
+                    + request.getDbName() + "." + request.getTableName() + ": " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Drops a Hive table, mirroring legacy {@code HiveMetadataOps.dropTableImpl}: a transactional table is
+     * rejected. {@code PluginDrivenExternalCatalog} has already resolved the handle / IF EXISTS upstream and
+     * routed a view DROP elsewhere.
+     */
+    @Override
+    public void dropTable(ConnectorSession session, ConnectorTableHandle handle) {
+        HiveTableHandle hiveHandle = (HiveTableHandle) handle;
+        try {
+            // The handle was just built by the bridge's getTableHandle (which loaded the table), so its
+            // parameters carry the transactional flag; reuse them instead of re-fetching, matching legacy's
+            // AcidUtils.isTransactionalTable(client.getTable(...)) check.
+            dropTableChecked(hiveHandle.getDbName(), hiveHandle.getTableName(),
+                    hiveHandle.getTableParameters());
+        } catch (HmsClientException e) {
+            throw new DorisConnectorException("Failed to drop Hive table "
+                    + hiveHandle.getDbName() + "." + hiveHandle.getTableName() + ": " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Truncates a Hive table, or the given partitions of it, mirroring legacy
+     * {@code HiveMetadataOps.truncateTableImpl}. {@code partitions} is {@code null}/empty for a whole-table
+     * truncate.
+     */
+    @Override
+    public void truncateTable(ConnectorSession session, ConnectorTableHandle handle, List<String> partitions) {
+        HiveTableHandle hiveHandle = (HiveTableHandle) handle;
+        try {
+            hmsClient.truncateTable(hiveHandle.getDbName(), hiveHandle.getTableName(), partitions);
+        } catch (HmsClientException e) {
+            throw new DorisConnectorException("Failed to truncate Hive table "
+                    + hiveHandle.getDbName() + "." + hiveHandle.getTableName() + ": " + e.getMessage(), e);
+        }
+    }
+
+    // RENAME TABLE is intentionally NOT overridden: hive does not support ALTER TABLE RENAME (legacy
+    // HMSCachedClient has no rename), so the SPI default throw ("RENAME TABLE not supported") preserves the
+    // pre-flip behavior.
+
+    /**
+     * Drops {@code dbName.tableName} after rejecting a transactional table, mirroring legacy
+     * {@code HiveMetadataOps.dropTableImpl}. Shared by the direct DROP TABLE and the force DROP DATABASE
+     * cascade.
+     */
+    private void dropTableChecked(String dbName, String tableName, Map<String, String> tableParameters) {
+        if (isTransactionalTable(tableParameters)) {
+            throw new DorisConnectorException("Not support drop hive transactional table.");
+        }
+        hmsClient.dropTable(dbName, tableName);
+    }
+
+    /**
+     * Whether the metastore table parameters mark the table transactional, replicating Hive's
+     * {@code AcidUtils.isTransactionalTable} (case-insensitive "true" under the "transactional" key, with the
+     * upper-cased key as a fallback) without pulling in the hive-exec dependency.
+     */
+    private static boolean isTransactionalTable(Map<String, String> tableParameters) {
+        if (tableParameters == null) {
+            return false;
+        }
+        String value = tableParameters.get(HiveConnectorProperties.CREATE_TRANSACTIONAL);
+        if (value == null) {
+            value = tableParameters.get(
+                    HiveConnectorProperties.CREATE_TRANSACTIONAL.toUpperCase(Locale.ROOT));
+        }
+        return "true".equalsIgnoreCase(value);
+    }
+
+    /**
+     * Resolves the compression a {@code text} table falls back to when the user set no {@code compression}
+     * property, replicating legacy {@code SessionVariable.hiveTextCompression()} (the "uncompressed" alias maps
+     * to "plain"). The value rides on the request; the write converter only consults it for a text table.
+     */
+    private static String resolveTextCompressionDefault(ConnectorSession session) {
+        String textCompression = session.getSessionProperties()
+                .get(HiveConnectorProperties.SESSION_HIVE_TEXT_COMPRESSION);
+        if (HiveConnectorProperties.TEXT_COMPRESSION_UNCOMPRESSED.equals(textCompression)) {
+            return HiveConnectorProperties.TEXT_COMPRESSION_PLAIN;
+        }
+        return textCompression;
     }
 
     // ========== Internal helpers ==========

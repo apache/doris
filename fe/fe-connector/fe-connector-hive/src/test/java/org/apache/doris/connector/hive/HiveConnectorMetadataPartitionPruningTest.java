@@ -141,7 +141,7 @@ public class HiveConnectorMetadataPartitionPruningTest {
     private Optional<FilterApplicationResult<ConnectorTableHandle>> applyFilter(
             HiveTableHandle handle, ConnectorExpression expr) {
         HiveConnectorMetadata metadata = new HiveConnectorMetadata(
-                new FakeHmsClient(PARTITIONS), Collections.emptyMap());
+                new FakeHmsClient(PARTITIONS), Collections.emptyMap(), new FakeConnectorContext());
         return metadata.applyFilter(null, handle, new ConnectorFilterConstraint(expr));
     }
 

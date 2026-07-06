@@ -53,7 +53,7 @@ public class HiveConnector implements Connector {
 
     @Override
     public ConnectorMetadata getMetadata(ConnectorSession session) {
-        return new HiveConnectorMetadata(getOrCreateClient(), properties);
+        return new HiveConnectorMetadata(getOrCreateClient(), properties, context);
     }
 
     @Override

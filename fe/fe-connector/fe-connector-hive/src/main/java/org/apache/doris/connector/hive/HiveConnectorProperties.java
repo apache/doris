@@ -17,7 +17,11 @@
 
 package org.apache.doris.connector.hive;
 
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Property constants for Hive connector configuration.
@@ -51,6 +55,38 @@ public final class HiveConnectorProperties {
     // -- type mapping options --
     public static final String ENABLE_MAPPING_BINARY_AS_STRING = "enable_mapping_binary_as_string";
     public static final String ENABLE_MAPPING_TIMESTAMP_TZ = "enable_mapping_timestamp_tz";
+
+    // -- CREATE TABLE / DATABASE property keys (legacy HiveMetadataOps) --
+    public static final String CREATE_FILE_FORMAT = "file_format";
+    public static final String CREATE_LOCATION = "location";
+    public static final String CREATE_OWNER = "owner";
+    public static final String CREATE_COMMENT = "comment";
+    public static final String CREATE_TRANSACTIONAL = "transactional";
+    /**
+     * Property keys that legacy {@code HiveMetadataOps} stamps into the metastore table parameters under a
+     * {@code doris.} prefix (so they round-trip). Mirrors legacy {@code HiveMetadataOps.DORIS_HIVE_KEYS}.
+     */
+    public static final Set<String> DORIS_HIVE_KEYS = Collections.unmodifiableSet(
+            new HashSet<>(Arrays.asList(CREATE_FILE_FORMAT, CREATE_LOCATION)));
+    public static final String DORIS_PROP_PREFIX = "doris.";
+
+    // -- environment keys threaded from fe-core DefaultConnectorContext (must stay byte-identical there) --
+    public static final String ENV_HIVE_DEFAULT_FILE_FORMAT = "hive_default_file_format";
+    public static final String ENV_ENABLE_CREATE_HIVE_BUCKET_TABLE = "enable_create_hive_bucket_table";
+    public static final String ENV_DORIS_VERSION = "doris_version";
+    /** Fallback default file format, matching legacy {@code Config.hive_default_file_format} default. */
+    public static final String DEFAULT_FILE_FORMAT = "orc";
+
+    // -- session variable read for a text table's compression default (legacy hive_text_compression) --
+    public static final String SESSION_HIVE_TEXT_COMPRESSION = "hive_text_compression";
+    public static final String TEXT_COMPRESSION_UNCOMPRESSED = "uncompressed";
+    public static final String TEXT_COMPRESSION_PLAIN = "plain";
+
+    /**
+     * Bucket algorithm string produced by {@code CreateTableInfoToConnectorRequestConverter} for a
+     * random (non-hash) distribution. Hive external tables only support hash bucketing.
+     */
+    public static final String BUCKET_ALGO_RANDOM = "doris_random";
 
     /**
      * Parse an integer property with a default value.
