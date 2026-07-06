@@ -256,6 +256,10 @@ bool ColumnReader::is_compaction_reader_type(ReaderType type) {
 Status ColumnReader::create(const ColumnReaderOptions& opts, const ColumnMetaPB& meta,
                             uint64_t num_rows, const io::FileReaderSPtr& file_reader,
                             std::shared_ptr<ColumnReader>* reader) {
+    if (opts.const_value.has_value()) {
+        *reader = std::make_shared<ConstantColumnReader>(*opts.const_value);
+        return Status::OK();
+    }
     if (is_scalar_type((FieldType)meta.type())) {
         std::shared_ptr<ColumnReader> reader_local(
                 new ColumnReader(opts, meta, num_rows, file_reader));
@@ -497,6 +501,18 @@ Status ColumnReader::match_condition(const AndBlockColumnPredicate* col_predicat
     return Status::OK();
 }
 
+Status ConstantColumnReader::match_condition(const AndBlockColumnPredicate* col_predicates,
+                                             bool* matched) const {
+    ZoneMap zone_map;
+    zone_map.min_value = _value;
+    zone_map.max_value = _value;
+    zone_map.has_not_null = !_value.is_null();
+    // evaluate_and returns false iff no value in [min, max] (i.e. the real constant) can satisfy
+    // the predicates; predicates that don't support zonemap conservatively return true.
+    *matched = col_predicates->evaluate_and(zone_map);
+    return Status::OK();
+}
+
 Status ColumnReader::prune_predicates_by_zone_map(
         std::vector<std::shared_ptr<ColumnPredicate>>& predicates, const int column_id,
         bool* pruned) const {
@@ -640,6 +656,13 @@ Status ColumnReader::get_segment_zone_map(segment_v2::ZoneMap* zone_map) const {
     DORIS_CHECK(zone_map != nullptr);
     DORIS_CHECK(_segment_zone_map != nullptr);
     return ZoneMap::from_proto(*_segment_zone_map, _data_type, *zone_map);
+}
+
+Status ConstantColumnReader::get_segment_zone_map(segment_v2::ZoneMap* zone_map) const {
+    zone_map->min_value = _value;
+    zone_map->max_value = _value;
+    zone_map->has_not_null = !_value.is_null();
+    return Status::OK();
 }
 
 Status ColumnReader::get_page_zone_maps(const ColumnIteratorOptions& iter_opts,

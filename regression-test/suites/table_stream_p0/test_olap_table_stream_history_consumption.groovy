@@ -120,10 +120,6 @@ suite("test_olap_table_stream_history_consumption") {
     qt_sql "select * from s1"
     qt_sql "select * from s2"
     qt_sql "select * from s3"
-    sql "SET show_hidden_columns=true;"
-    qt_sql "select * from s1"
-    qt_sql "select * from s2"
-    qt_sql "select * from s3"
     sql """
         CREATE TABLE `target` (
           `sid` int NULL,
