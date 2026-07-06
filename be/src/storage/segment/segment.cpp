@@ -445,6 +445,16 @@ Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_o
         if (pruned) {
             auto options_with_pruned_predicates = read_options;
             options_with_pruned_predicates.column_predicates = pruned_predicates;
+            std::set<uint32_t> cols_with_pred_after_prune;
+            for (const auto& pred : pruned_predicates) {
+                cols_with_pred_after_prune.insert(pred->column_id());
+            }
+            for (const auto& pred : read_options.column_predicates) {
+                const auto pred_cid = pred->column_id();
+                if (!cols_with_pred_after_prune.contains(pred_cid)) {
+                    options_with_pruned_predicates.zonemap_always_true_pred_cols.insert(pred_cid);
+                }
+            }
             //because column_predicates is changed, we need to rebuild col_id_to_predicates so that inverted index will not go through it.
             options_with_pruned_predicates.col_id_to_predicates.clear();
             for (auto pred : options_with_pruned_predicates.column_predicates) {

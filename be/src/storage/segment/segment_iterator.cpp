@@ -1454,13 +1454,6 @@ bool SegmentIterator::_need_read_data(ColumnId cid) {
         // occurring, return true here that column data needs to be read
         return true;
     }
-    // Check the following conditions:
-    // 1. If the column represented by the unique ID is an inverted index column (indicated by '_need_read_data_indices.count(unique_id) > 0 && !_need_read_data_indices[unique_id]')
-    //    and it's not marked for projection in '_output_columns'.
-    // 2. Or, if the column is an inverted index column and it's marked for projection in '_output_columns',
-    //    and the operation is a push down of the 'COUNT_ON_INDEX' aggregation function.
-    // If any of the above conditions are met, log a debug message indicating that there's no need to read data for the indexed column.
-    // Then, return false.
     const auto& column = _opts.tablet_schema->column(cid);
     // Different subcolumns may share the same parent_unique_id, so we choose to abandon this optimization.
     if (column.is_extracted_column() &&
@@ -1471,10 +1464,16 @@ bool SegmentIterator::_need_read_data(ColumnId cid) {
     if (unique_id < 0) {
         unique_id = column.parent_unique_id();
     }
-    if ((_need_read_data_indices.contains(cid) && !_need_read_data_indices[cid] &&
-         !_output_columns.contains(unique_id)) ||
-        (_need_read_data_indices.contains(cid) && !_need_read_data_indices[cid] &&
-         _output_columns.count(unique_id) == 1 &&
+    // A column can skip data reads when its predicates have already been fully resolved:
+    // either by an index, or by the segment zone map proving all predicates on this column are
+    // always true and removing them before iterator initialization.
+    const bool used_by_common_expr =
+            cid < _is_common_expr_column.size() && _is_common_expr_column[cid];
+    const bool no_need_read_filter_column =
+            (_need_read_data_indices.contains(cid) && !_need_read_data_indices[cid]) ||
+            (_opts.zonemap_always_true_pred_cols.contains(cid) && !used_by_common_expr);
+    if ((no_need_read_filter_column && !_output_columns.contains(unique_id)) ||
+        (no_need_read_filter_column && _output_columns.count(unique_id) == 1 &&
          _opts.push_down_agg_type_opt == TPushAggOp::COUNT_ON_INDEX)) {
         VLOG_DEBUG << "SegmentIterator no need read data for column: "
                    << _opts.tablet_schema->column_by_uid(unique_id).name();
