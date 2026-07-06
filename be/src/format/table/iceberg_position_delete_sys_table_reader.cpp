@@ -17,6 +17,7 @@
 
 #include "format/table/iceberg_position_delete_sys_table_reader.h"
 
+#include <gen_cpp/ExternalTableSchema_types.h>
 #include <gen_cpp/PlanNodes_types.h>
 
 #include <algorithm>
@@ -37,6 +38,7 @@
 #include "format/parquet/schema_desc.h"
 #include "format/parquet/vparquet_reader.h"
 #include "format/table/parquet_utils.h"
+#include "format/table/table_schema_change_helper.h"
 #include "runtime/runtime_state.h"
 
 namespace doris {
@@ -51,6 +53,7 @@ constexpr const char* kSpecIdColumn = "spec_id";
 constexpr const char* kDeleteFilePathColumn = "delete_file_path";
 constexpr const char* kContentOffsetColumn = "content_offset";
 constexpr const char* kContentSizeInBytesColumn = "content_size_in_bytes";
+constexpr const char* kIcebergOrcAttribute = "iceberg.id";
 constexpr int kPositionDeleteContent = 1;
 
 bool block_has_row(const Block& block, size_t row) {
@@ -79,6 +82,54 @@ const ColumnInt64* get_int64_column(const Block& block, const std::string& name)
         return nullptr;
     }
     return check_and_get_column<ColumnInt64>(block.get_by_position(pos).column.get());
+}
+
+const schema::external::TField* get_field_ptr(const schema::external::TFieldPtr& field_ptr) {
+    if (!field_ptr.__isset.field_ptr || field_ptr.field_ptr == nullptr) {
+        return nullptr;
+    }
+    return field_ptr.field_ptr.get();
+}
+
+const schema::external::TField* find_current_schema_field(const TFileScanRangeParams* params,
+                                                          const std::string& name) {
+    if (params == nullptr || !params->__isset.history_schema_info ||
+        params->history_schema_info.empty()) {
+        return nullptr;
+    }
+    const schema::external::TSchema* schema = &params->history_schema_info.front();
+    if (params->__isset.current_schema_id) {
+        for (const auto& candidate : params->history_schema_info) {
+            if (candidate.__isset.schema_id && candidate.schema_id == params->current_schema_id) {
+                schema = &candidate;
+                break;
+            }
+        }
+    }
+    if (!schema->__isset.root_field || !schema->root_field.__isset.fields) {
+        return nullptr;
+    }
+    for (const auto& field_ptr : schema->root_field.fields) {
+        const auto* field = get_field_ptr(field_ptr);
+        if (field != nullptr && field->__isset.name && field->name == name) {
+            return field;
+        }
+    }
+    return nullptr;
+}
+
+template <typename ReadColumns>
+std::shared_ptr<TableSchemaChangeHelper::StructNode> create_position_delete_root_node(
+        const ReadColumns& read_columns) {
+    auto root_node = std::make_shared<TableSchemaChangeHelper::StructNode>();
+    for (const auto& column : read_columns) {
+        if (column.name == kRowColumn) {
+            continue;
+        }
+        root_node->add_children(column.name, column.name,
+                                TableSchemaChangeHelper::ConstNode::get_instance());
+    }
+    return root_node;
 }
 
 } // namespace
@@ -177,6 +228,28 @@ Status IcebergPositionDeleteSysTableReader::_init_position_delete_reader() {
         pctx.params = _range_params;
         pctx.range = &_range;
         pctx.filter_groups = false;
+        if (read_row) {
+            const auto* table_row_field = find_current_schema_field(_range_params, kRowColumn);
+            if (table_row_field == nullptr) {
+                return Status::InternalError(
+                        "Iceberg position delete system table row schema is missing");
+            }
+            const FieldDescriptor* schema = nullptr;
+            RETURN_IF_ERROR(parquet_reader->get_file_metadata_schema(&schema));
+            DORIS_CHECK(schema != nullptr);
+            const auto row_index = schema->get_column_index(kRowColumn);
+            if (row_index < 0) {
+                return Status::InternalError("Iceberg position delete file row column is missing");
+            }
+            const auto* file_row_field = schema->get_column(static_cast<size_t>(row_index));
+            std::shared_ptr<TableSchemaChangeHelper::Node> row_node;
+            RETURN_IF_ERROR(TableSchemaChangeHelper::BuildTableInfoUtil::
+                                    by_parquet_field_id_with_name_mapping(
+                                            *table_row_field, *file_row_field, row_node));
+            auto root_node = create_position_delete_root_node(_read_columns);
+            root_node->add_children(kRowColumn, file_row_field->name, row_node);
+            pctx.table_info_node = std::move(root_node);
+        }
         RETURN_IF_ERROR(static_cast<GenericReader*>(parquet_reader.get())->init_reader(&pctx));
         _position_reader = std::move(parquet_reader);
         return Status::OK();
@@ -192,6 +265,33 @@ Status IcebergPositionDeleteSysTableReader::_init_position_delete_reader() {
         octx.state = _state;
         octx.params = _range_params;
         octx.range = &_range;
+        if (read_row) {
+            const auto* table_row_field = find_current_schema_field(_range_params, kRowColumn);
+            if (table_row_field == nullptr) {
+                return Status::InternalError(
+                        "Iceberg position delete system table row schema is missing");
+            }
+            const orc::Type* root_type = nullptr;
+            RETURN_IF_ERROR(orc_reader->get_file_type(&root_type));
+            DORIS_CHECK(root_type != nullptr);
+            const orc::Type* row_type = nullptr;
+            for (uint64_t i = 0; i < root_type->getSubtypeCount(); ++i) {
+                if (root_type->getFieldName(i) == kRowColumn) {
+                    row_type = root_type->getSubtype(i);
+                    break;
+                }
+            }
+            if (row_type == nullptr) {
+                return Status::InternalError("Iceberg position delete file row column is missing");
+            }
+            std::shared_ptr<TableSchemaChangeHelper::Node> row_node;
+            RETURN_IF_ERROR(
+                    TableSchemaChangeHelper::BuildTableInfoUtil::by_orc_field_id_with_name_mapping(
+                            *table_row_field, row_type, kIcebergOrcAttribute, row_node));
+            auto root_node = create_position_delete_root_node(_read_columns);
+            root_node->add_children(kRowColumn, kRowColumn, row_node);
+            octx.table_info_node = std::move(root_node);
+        }
         RETURN_IF_ERROR(static_cast<GenericReader*>(orc_reader.get())->init_reader(&octx));
         _position_reader = std::move(orc_reader);
         return Status::OK();

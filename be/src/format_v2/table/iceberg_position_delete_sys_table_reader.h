@@ -67,8 +67,8 @@ private:
     Status _append_partition_column(MutableColumnPtr& column, const SlotDescriptor& slot);
     Block _create_delete_block() const;
     bool _output_column_requested(const std::string& name) const;
-    void _init_read_columns();
-    std::vector<ColumnDefinition> _build_delete_file_projected_columns() const;
+    void _init_read_columns(bool read_row);
+    Status _build_delete_file_projected_columns(std::vector<ColumnDefinition>* columns) const;
     const std::string& _delete_file_output_path() const;
 
     TFileRangeDesc _current_range;

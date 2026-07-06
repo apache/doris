@@ -51,6 +51,9 @@ constexpr const char* kDeleteFilePathColumn = "delete_file_path";
 constexpr const char* kContentOffsetColumn = "content_offset";
 constexpr const char* kContentSizeInBytesColumn = "content_size_in_bytes";
 constexpr int kPositionDeleteContent = 1;
+constexpr int32_t kDeleteFilePathFieldId = 2147483546;
+constexpr int32_t kDeleteFilePosFieldId = 2147483545;
+constexpr int32_t kDeleteFileRowFieldId = 2147483544;
 
 bool block_has_row(const Block& block, size_t row) {
     return block.columns() > 0 && row < block.rows();
@@ -102,6 +105,38 @@ ColumnDefinition build_delete_file_column(const std::string& name, DataTypePtr t
     column.type = std::move(type);
     return column;
 }
+
+void set_iceberg_delete_field_id(ColumnDefinition* column) {
+    DORIS_CHECK(column != nullptr);
+    if (column->name == kFilePathColumn) {
+        column->identifier = Field::create_field<TYPE_INT>(kDeleteFilePathFieldId);
+    } else if (column->name == kPosColumn) {
+        column->identifier = Field::create_field<TYPE_INT>(kDeleteFilePosFieldId);
+    } else if (column->name == kRowColumn && !column->has_identifier_field_id()) {
+        column->identifier = Field::create_field<TYPE_INT>(kDeleteFileRowFieldId);
+    }
+}
+
+bool has_field_id(const std::vector<ColumnDefinition>& schema) {
+    for (const auto& field : schema) {
+        if (!field.has_identifier_field_id()) {
+            return false;
+        }
+        if (!has_field_id(field.children)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+class PositionDeleteFileTableReader final : public format::TableReader {
+protected:
+    format::TableColumnMappingMode mapping_mode() const override {
+        return !_data_reader.file_schema.empty() && has_field_id(_data_reader.file_schema)
+                       ? format::TableColumnMappingMode::BY_FIELD_ID
+                       : format::TableColumnMappingMode::BY_NAME;
+    }
+};
 
 } // namespace
 
@@ -242,10 +277,14 @@ Status IcebergPositionDeleteSysTableV2Reader::_init_position_delete_reader() {
                 _delete_file_desc->file_format);
     }
 
-    _init_read_columns();
-    _position_reader = std::make_unique<format::TableReader>();
+    const bool read_row = _output_column_requested(kRowColumn);
+    _init_read_columns(read_row);
+    std::vector<ColumnDefinition> projected_columns;
+    RETURN_IF_ERROR(_build_delete_file_projected_columns(&projected_columns));
+
+    _position_reader = std::make_unique<PositionDeleteFileTableReader>();
     RETURN_IF_ERROR(_position_reader->init({
-            .projected_columns = _build_delete_file_projected_columns(),
+            .projected_columns = std::move(projected_columns),
             .column_predicates = {},
             .conjuncts = {},
             .format = format::FileFormat::PARQUET,
@@ -469,11 +508,11 @@ bool IcebergPositionDeleteSysTableV2Reader::_output_column_requested(
                        [&name](const SlotDescriptor* slot) { return slot->col_name() == name; });
 }
 
-void IcebergPositionDeleteSysTableV2Reader::_init_read_columns() {
+void IcebergPositionDeleteSysTableV2Reader::_init_read_columns(bool read_row) {
     _read_columns.clear();
     _read_columns.push_back({kFilePathColumn, make_nullable(std::make_shared<DataTypeString>())});
     _read_columns.push_back({kPosColumn, make_nullable(std::make_shared<DataTypeInt64>())});
-    if (_output_column_requested(kRowColumn)) {
+    if (read_row) {
         for (const auto* slot : *_file_slot_descs) {
             if (slot->col_name() == kRowColumn) {
                 _read_columns.push_back({kRowColumn, slot->get_data_type_ptr()});
@@ -483,14 +522,30 @@ void IcebergPositionDeleteSysTableV2Reader::_init_read_columns() {
     }
 }
 
-std::vector<ColumnDefinition>
-IcebergPositionDeleteSysTableV2Reader::_build_delete_file_projected_columns() const {
-    std::vector<ColumnDefinition> columns;
-    columns.reserve(_read_columns.size());
+Status IcebergPositionDeleteSysTableV2Reader::_build_delete_file_projected_columns(
+        std::vector<ColumnDefinition>* columns) const {
+    DORIS_CHECK(columns != nullptr);
+    columns->clear();
+    columns->reserve(_read_columns.size());
     for (const auto& column : _read_columns) {
-        columns.push_back(build_delete_file_column(column.name, column.type));
+        if (column.name == kRowColumn) {
+            auto it = std::ranges::find_if(_projected_columns, [](const ColumnDefinition& field) {
+                return field.name == kRowColumn;
+            });
+            if (it == _projected_columns.end()) {
+                return Status::InternalError(
+                        "Iceberg position delete system table row schema is missing");
+            }
+            columns->push_back(*it);
+            columns->back().type = column.type;
+            set_iceberg_delete_field_id(&columns->back());
+            continue;
+        }
+        auto field = build_delete_file_column(column.name, column.type);
+        set_iceberg_delete_field_id(&field);
+        columns->push_back(std::move(field));
     }
-    return columns;
+    return Status::OK();
 }
 
 const std::string& IcebergPositionDeleteSysTableV2Reader::_delete_file_output_path() const {
