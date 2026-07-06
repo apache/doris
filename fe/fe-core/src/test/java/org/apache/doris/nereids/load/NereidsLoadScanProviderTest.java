@@ -112,6 +112,18 @@ public class NereidsLoadScanProviderTest {
         assertSlot(context, "ev", PrimitiveType.DOUBLE);
     }
 
+    @Test
+    public void testImportColumnMatchesTableColumnCaseInsensitive() {
+        Column tableColumn = new Column("EV", PrimitiveType.DOUBLE, true);
+
+        Assertions.assertTrue(NereidsLoadUtils.hasImportColumn(
+                ImmutableList.of(new NereidsImportColumnDesc("ev")), tableColumn));
+        Assertions.assertTrue(NereidsLoadUtils.hasImportColumn(
+                ImmutableList.of(new NereidsImportColumnDesc("EV")), tableColumn));
+        Assertions.assertFalse(NereidsLoadUtils.hasImportColumn(
+                ImmutableList.of(new NereidsImportColumnDesc("other")), tableColumn));
+    }
+
     private NereidsParamCreateContext createArrowLoadContext(
             OlapTable table, List<NereidsImportColumnDesc> columnExprList) throws UserException {
         return createLoadContext(table, columnExprList, new ArrowFileFormatProperties());
