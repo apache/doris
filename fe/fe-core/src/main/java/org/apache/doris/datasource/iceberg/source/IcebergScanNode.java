@@ -73,6 +73,7 @@ import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.iceberg.BaseFileScanTask;
 import org.apache.iceberg.BaseTable;
 import org.apache.iceberg.BatchScan;
+import org.apache.iceberg.ContentScanTask;
 import org.apache.iceberg.DataFile;
 import org.apache.iceberg.DeleteFile;
 import org.apache.iceberg.DeleteFileIndex;
@@ -89,6 +90,7 @@ import org.apache.iceberg.PositionDeletesScanTask;
 import org.apache.iceberg.ScanTask;
 import org.apache.iceberg.SchemaParser;
 import org.apache.iceberg.Snapshot;
+import org.apache.iceberg.SplittableScanTask;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.TableScan;
@@ -703,11 +705,11 @@ public class IcebergScanNode extends FileQueryScanNode {
         return TableScanUtil.splitFiles(CloseableIterable.withNoopClose(fileScanTaskList), targetSplitSize);
     }
 
-    private long determineTargetFileSplitSize(Iterable<FileScanTask> tasks) {
+    private long determineTargetFileSplitSize(Iterable<? extends ContentScanTask<?>> tasks) {
         long result = sessionVariable.getMaxInitialSplitSize();
         long accumulatedTotalFileSize = 0;
         boolean exceedInitialThreshold = false;
-        for (FileScanTask task : tasks) {
+        for (ContentScanTask<?> task : tasks) {
             accumulatedTotalFileSize += ScanTaskUtil.contentSizeInBytes(task.file());
             if (!exceedInitialThreshold && accumulatedTotalFileSize
                     >= sessionVariable.getMaxSplitSize() * sessionVariable.getMaxInitialSplitNum()) {
@@ -719,6 +721,13 @@ public class IcebergScanNode extends FileQueryScanNode {
             result = applyMaxFileSplitNumLimit(result, accumulatedTotalFileSize);
         }
         return result;
+    }
+
+    private long determinePositionDeleteTargetSplitSize(Iterable<PositionDeletesScanTask> tasks) {
+        if (sessionVariable.getFileSplitSize() > 0) {
+            return sessionVariable.getFileSplitSize();
+        }
+        return determineTargetFileSplitSize(tasks);
     }
 
     private CloseableIterable<FileScanTask> planFileScanTaskWithManifestCache(TableScan scan) throws IOException {
@@ -998,6 +1007,11 @@ public class IcebergScanNode extends FileQueryScanNode {
         return split;
     }
 
+    @SuppressWarnings("unchecked")
+    private Iterable<PositionDeletesScanTask> splitPositionDeleteScanTask(PositionDeletesScanTask task) {
+        return ((SplittableScanTask<PositionDeletesScanTask>) task).split(targetSplitSize);
+    }
+
     private TFileFormatType getNativePositionDeleteFileFormat(FileFormat fileFormat) {
         if (fileFormat == FileFormat.PARQUET || fileFormat == FileFormat.PUFFIN) {
             return TFileFormatType.FORMAT_PARQUET;
@@ -1157,6 +1171,7 @@ public class IcebergScanNode extends FileQueryScanNode {
 
     private List<Split> doGetPositionDeletesSystemTableSplits() throws UserException {
         List<Split> splits = new ArrayList<>();
+        List<PositionDeletesScanTask> positionDeleteTasks = new ArrayList<>();
         BatchScan scan = icebergTable.newBatchScan().metricsReporter(new IcebergMetricsReporter());
 
         IcebergTableQueryInfo info = getSpecifiedSnapshot();
@@ -1187,13 +1202,19 @@ public class IcebergScanNode extends FileQueryScanNode {
                 if (!(task instanceof PositionDeletesScanTask)) {
                     throw new UserException("Unexpected Iceberg position_deletes scan task: " + task);
                 }
-                splits.add(createIcebergPositionDeleteSysSplit((PositionDeletesScanTask) task));
+                positionDeleteTasks.add((PositionDeletesScanTask) task);
             }
         } catch (IOException e) {
             throw new UserException(e.getMessage(), e);
         } finally {
             if (getSummaryProfile() != null) {
                 getSummaryProfile().addExternalTableGetFileScanTasksTime(System.currentTimeMillis() - startTime);
+            }
+        }
+        targetSplitSize = determinePositionDeleteTargetSplitSize(positionDeleteTasks);
+        for (PositionDeletesScanTask task : positionDeleteTasks) {
+            for (PositionDeletesScanTask splitTask : splitPositionDeleteScanTask(task)) {
+                splits.add(createIcebergPositionDeleteSysSplit(splitTask));
             }
         }
         selectedPartitionNum = 0;

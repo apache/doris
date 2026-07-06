@@ -20,6 +20,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -27,6 +28,7 @@
 #include "core/data_type/data_type.h"
 #include "format_v2/table_reader.h"
 #include "gen_cpp/PlanNodes_types.h"
+#include "roaring/roaring64map.hh"
 
 namespace doris {
 class SlotDescriptor;
@@ -75,8 +77,8 @@ private:
     DeleteFileKind _delete_file_kind = DeleteFileKind::POSITION_DELETE;
     std::unique_ptr<format::TableReader> _position_reader;
     std::vector<ReadColumn> _read_columns;
-    std::vector<uint64_t> _dv_positions;
-    size_t _next_dv_position = 0;
+    roaring::Roaring64Map _dv_positions;
+    std::optional<roaring::Roaring64Map::const_iterator> _next_dv_position;
     bool _has_split = false;
 };
 

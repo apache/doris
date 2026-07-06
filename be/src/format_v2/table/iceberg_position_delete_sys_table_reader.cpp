@@ -173,8 +173,8 @@ Status IcebergPositionDeleteSysTableV2Reader::close() {
     _iceberg_file_desc = nullptr;
     _delete_file_desc = nullptr;
     _read_columns.clear();
-    _dv_positions.clear();
-    _next_dv_position = 0;
+    _next_dv_position.reset();
+    _dv_positions = roaring::Roaring64Map();
     _has_split = false;
     return close_status;
 }
@@ -186,8 +186,7 @@ std::string IcebergPositionDeleteSysTableV2Reader::debug_string() const {
         << (_delete_file_kind == DeleteFileKind::DELETION_VECTOR ? "DELETION_VECTOR"
                                                                  : "POSITION_DELETE")
         << ", read_column_count=" << _read_columns.size()
-        << ", dv_position_count=" << _dv_positions.size()
-        << ", next_dv_position=" << _next_dv_position << "}";
+        << ", dv_position_count=" << _dv_positions.cardinality() << "}";
     return out.str();
 }
 
@@ -287,13 +286,9 @@ Status IcebergPositionDeleteSysTableV2Reader::_init_deletion_vector_reader() {
         options.fs_name = &_current_range.fs_name;
     }
 
-    roaring::Roaring64Map rows_to_delete;
-    RETURN_IF_ERROR(read_iceberg_deletion_vector(*_delete_file_desc, options, &rows_to_delete));
-    _dv_positions.clear();
-    for (auto it = rows_to_delete.begin(); it != rows_to_delete.end(); ++it) {
-        _dv_positions.emplace_back(*it);
-    }
-    _next_dv_position = 0;
+    _dv_positions = roaring::Roaring64Map();
+    RETURN_IF_ERROR(read_iceberg_deletion_vector(*_delete_file_desc, options, &_dv_positions));
+    _next_dv_position.emplace(_dv_positions.begin());
     return Status::OK();
 }
 
@@ -319,14 +314,13 @@ Status IcebergPositionDeleteSysTableV2Reader::_append_position_delete_block(
 Status IcebergPositionDeleteSysTableV2Reader::_append_deletion_vector_block(Block* block,
                                                                             size_t* read_rows,
                                                                             bool* eof) {
-    const size_t remaining = _dv_positions.size() - _next_dv_position;
-    const size_t batch_size =
+    const size_t batch_size = std::max<size_t>(
             _batch_size > 0 ? _batch_size
                             : (_runtime_state == nullptr
                                        ? static_cast<size_t>(102400)
-                                       : static_cast<size_t>(_runtime_state->batch_size()));
-    const size_t rows = std::min(remaining, batch_size);
-    if (rows == 0) {
+                                       : static_cast<size_t>(_runtime_state->batch_size())),
+            1);
+    if (!_next_dv_position.has_value() || *_next_dv_position == _dv_positions.end()) {
         *read_rows = 0;
         *eof = true;
         RETURN_IF_ERROR(close());
@@ -337,8 +331,9 @@ Status IcebergPositionDeleteSysTableV2Reader::_append_deletion_vector_block(Bloc
     auto& columns = columns_guard.mutable_columns();
     auto name_to_pos = block->get_name_to_pos_map();
 
-    for (size_t row = 0; row < rows; ++row) {
-        const uint64_t dv_pos = _dv_positions[_next_dv_position + row];
+    size_t rows = 0;
+    while (rows < batch_size && *_next_dv_position != _dv_positions.end()) {
+        const uint64_t dv_pos = **_next_dv_position;
         for (const auto* slot : *_file_slot_descs) {
             auto it = name_to_pos.find(slot->col_name());
             if (it == name_to_pos.end()) {
@@ -346,8 +341,9 @@ Status IcebergPositionDeleteSysTableV2Reader::_append_deletion_vector_block(Bloc
             }
             RETURN_IF_ERROR(_append_sys_column(columns[it->second], *slot, nullptr, 0, dv_pos));
         }
+        ++(*_next_dv_position);
+        ++rows;
     }
-    _next_dv_position += rows;
     *read_rows = rows;
     *eof = false;
     return Status::OK();

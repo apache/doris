@@ -280,6 +280,14 @@ suite("test_iceberg_position_deletes_sys_table", "p0,external") {
     List<List<Object>> unpartitionedRows = sql """select `row` from pd_unpartitioned\$position_deletes"""
     assertEquals(unpartitionedCount, (long) unpartitionedRows.size())
     assertTrue(unpartitionedRows.every { it[0] == null })
+    try {
+        sql """set file_split_size=1"""
+        assertSparkDorisPositionDeletes("pd_unpartitioned", commonCompareColumns)
+        assertEquals(unpartitionedCount, countRows(
+                """select count(*) from pd_unpartitioned\$position_deletes where pos >= 0"""))
+    } finally {
+        sql """unset variable file_split_size"""
+    }
     assertEquals([[1, "a"], [3, "c"], [4, "d"]], sql("""select * from pd_unpartitioned order by id"""))
 
     assertPositionDeletesSchema("pd_partitioned", true)

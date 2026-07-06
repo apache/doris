@@ -22,6 +22,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -101,8 +102,8 @@ private:
     std::unique_ptr<GenericReader> _position_reader;
     std::vector<ReadColumn> _read_columns;
     std::unordered_map<std::string, uint32_t> _read_col_name_to_block_idx;
-    std::vector<uint64_t> _dv_positions;
-    size_t _next_dv_position = 0;
+    roaring::Roaring64Map _dv_positions;
+    std::optional<roaring::Roaring64Map::const_iterator> _next_dv_position;
 };
 
 } // namespace doris
