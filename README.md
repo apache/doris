@@ -55,11 +55,9 @@ under the License.
 
 ---
 
-<p align="center">
-
+<div align="center">
   <a href="https://trendshift.io/repositories/1156" target="_blank"><img src="https://trendshift.io/api/badge/repositories/1156" alt="apache%2Fdoris | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a>
-
-</p>
+</div>
 
 Apache Doris is an open-source, real-time analytics and search database built on MPP architecture. It provides fast SQL analytics, lakehouse query acceleration, and hybrid search across structured, text, and vector data.
 
