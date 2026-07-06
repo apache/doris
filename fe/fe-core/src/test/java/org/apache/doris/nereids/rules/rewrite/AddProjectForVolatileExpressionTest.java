@@ -45,6 +45,7 @@ import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanConstructor;
+import org.apache.doris.thrift.TFunctionBinaryType;
 
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
@@ -166,7 +167,7 @@ public class AddProjectForVolatileExpressionTest implements MemoPatternMatchSupp
     }
 
     private JavaUdf javaUdf(FunctionVolatility volatility, VolatileIdentity volatileIdentity) {
-        return new JavaUdf("java_fn", 1, "db1", org.apache.doris.catalog.Function.BinaryType.JAVA_UDF,
+        return new JavaUdf("java_fn", 1, "db1", TFunctionBinaryType.JAVA_UDF,
                 FunctionSignature.ret(IntegerType.INSTANCE).args(IntegerType.INSTANCE),
                 NullableMode.ALWAYS_NULLABLE, volatility, volatileIdentity,
                 null, "evaluate", null, null, "", false, 360, new IntegerLiteral(1));
