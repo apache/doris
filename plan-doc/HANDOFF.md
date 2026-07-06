@@ -5,7 +5,11 @@
 
 ---
 
-# 🎯 当前状态（2026-07-06）= **P7.3 已落地中立读事务生命周期 seam（T08 连接器无关部分，commit `21aa30683dc`）+ 前序 delete-delta 回归修复（T07 隔离必修，commit `c30fa15d99a`）；核心写/事务批（T01–T05）+ 6 文件 retype（T06）+ 读侧 ACID 生产半搬迁（T07 剩余，本轮侦察已知与写批耦合）+ HiveTransactionMgr 入插件（T08 剩余）+ 测试/门（T09–T11）待做**
+# 🎯 当前状态（2026-07-06 晚）= **P7.3 写/事务批已完成 HEAD 级侦察 + 可执行实现设计（新文档 [`P7.3-hive-write-txn-implementation-design.md`](./tasks/P7.3-hive-write-txn-implementation-design.md)）；用户已拍板「整批作为一次原子提交」，实现拆成 5 个可编译增量 INC-1..INC-5（内部构建顺序、逐增量编译+单测过、但不单独 commit，最后一次性提交）；下一步 = 起手实现 INC-1（HmsClient 读/写原语 + DTO + 录制式假客户端单测）。前序 seam/回归已落地（T08 `21aa30683dc`、T07 delete-delta `c30fa15d99a`），勿重做**
+
+> **⚠️ 权威实现计划已切换到设计文档**：本轮把 spec 的 T01–T11 拆解**收敛成一份可直接执行的设计**（4 类拆分修正、精确签名、3 硬耦合断法、INC-1..INC-5 构建顺序、逐增量测试计划、原子提交管理策略）。**下个 session 直接照 `tasks/P7.3-hive-write-txn-implementation-design.md` 的 §6 构建顺序执行**，spec 的 T01–T11 表仅作背景。
+>
+> **本轮侦察的关键修正（写进设计文档，勿再纠结）**：① **写路径是「4 类拆分」**——`HiveConnectorTransaction` + 不可变 `HiveWriteContext` + **独立** `HiveWritePlanProvider`（planWrite **不在** metadata，spec 说法有误）+ `HiveConnectorMetadata.beginTransaction` 一行工厂，全对齐 iceberg。② **fe-core 桥零改动**已复核（`profileLabel()="HMS"` 复用既存 `TransactionType.HMS` 枚举）。③ **读侧 ACID（T07 生产半）并不与写事务机器耦合**——`HMSTransaction` 全程不调 `openTxn/commitTxn/getValidWriteIds`，四个读原语仅读侧用；所谓「拖入 fe-core」是浅的（插件已用裸 Hadoop FS + 自有 `HiveScanRange`，`FileCacheValue/FileSystemTransferUtil/LocationPath/StorageProperties/HivePartition/AcidInfo` 在边界处全落地），真正搬的只有纯目录名解析 + `hive-common ValidWriteIdList` 算法。④ hive **不在** `SPI_READY_TYPES`（`{jdbc,es,trino-connector,max_compute,paimon,iceberg}`）——整批**天然 dormant/安全**，编译+单测但零线上路由，同 iceberg/paimon 翻闸前范式。⑤ **翻闸/fe-core retype/Env 摘 `HiveTransactionMgr`/删 legacy 均不在本原子批**（属后续 P7.4/P7.5，另起一次原子提交）。
 
 > **本轮做了什么** —— **1 实现 commit（`21aa30683dc`）+ 1 文档 commit**，落地 T08 的**中立读事务生命周期 seam**（OQ-RTX=a 的连接器无关部分）：
 > - **新 `QueryFinishCallbackRegistry`**（fe-core `qe/`）：`register(queryId, Runnable)` / `runAndClear(queryId)`（幂等 + 单回调异常隔离，一个连接器清理失败不阻断其它）。
@@ -43,7 +47,7 @@
 
 ---
 
-# 🚀 下个 session 任务 = **实现 P7.3 核心写/事务批（T01–T05 原子批 → T06 retype → T07 剩余 + T08 剩余 → T09–T11）；T07 delete-delta 回归修复（`c30fa15d99a`）+ T08 中立 seam（`21aa30683dc`）已落地，勿重做**
+# 🚀 下个 session 任务 = **照 [`tasks/P7.3-hive-write-txn-implementation-design.md`](./tasks/P7.3-hive-write-txn-implementation-design.md) §6 构建顺序起手 INC-1（HmsClient 原语+DTO+录制式假客户端单测）→ INC-2..INC-5；全批作为一次原子提交（用户拍板），逐增量保持树可编译+单测过、但不单独 commit**
 
 > **权威计划**：`tasks/P7-hive-migration.md` 末尾「**P7.3 逐 task 拆解**」块（recon 结论 + 3 决策 + T01–T11 任务表 + 移植指针 + HEAD 行号）。**信 HEAD 控制流不信本文/spec 行号。** 模板 = `IcebergConnectorTransaction`/`IcebergWriteContext`/`IcebergConnectorMetadata.beginTransaction+planWrite`；fe-core 桥 `PluginDrivenTransactionManager`/`PluginDrivenInsertExecutor` **零改动**。
 
