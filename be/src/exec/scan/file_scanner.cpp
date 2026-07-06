@@ -1056,6 +1056,7 @@ Status FileScanner::_get_next_reader() {
         // create reader for specific format
         Status init_status = Status::OK();
         TFileFormatType::type format_type = _get_current_format_type();
+        const bool is_position_deletes_sys_table = is_iceberg_position_deletes_sys_table(range);
         // for compatibility, this logic is deprecated in 3.1
         if (format_type == TFileFormatType::FORMAT_JNI && range.__isset.table_format_params) {
             if (range.table_format_params.table_format_type == "paimon" &&
@@ -1072,6 +1073,7 @@ Status FileScanner::_get_next_reader() {
             }
         }
 
+        bool push_down_predicates = _should_push_down_predicates(format_type);
         bool need_to_get_parsed_schema = false;
         switch (format_type) {
         case TFileFormatType::FORMAT_JNI: {
@@ -1180,14 +1182,44 @@ Status FileScanner::_get_next_reader() {
             auto file_meta_cache_ptr = _should_enable_file_meta_cache()
                                                ? ExecEnv::GetInstance()->file_meta_cache()
                                                : nullptr;
-            RETURN_IF_ERROR(_init_parquet_reader(file_meta_cache_ptr, need_to_get_parsed_schema));
+            if (is_position_deletes_sys_table) {
+                ReaderInitContext ctx;
+                _fill_base_init_context(&ctx);
+                auto reader = IcebergPositionDeleteSysTableReader::create_unique(
+                        _file_slot_descs, _state, _profile, range, _params, file_meta_cache_ptr);
+                init_status = static_cast<GenericReader*>(reader.get())->init_reader(&ctx);
+                _cur_reader = std::move(reader);
+                need_to_get_parsed_schema = false;
+                break;
+            }
+            if (push_down_predicates) {
+                RETURN_IF_ERROR(_process_late_arrival_conjuncts());
+            }
+            RETURN_IF_ERROR(_init_parquet_reader(file_meta_cache_ptr));
+
+            need_to_get_parsed_schema = true;
             break;
         }
         case TFileFormatType::FORMAT_ORC: {
             auto file_meta_cache_ptr = _should_enable_file_meta_cache()
                                                ? ExecEnv::GetInstance()->file_meta_cache()
                                                : nullptr;
-            RETURN_IF_ERROR(_init_orc_reader(file_meta_cache_ptr, need_to_get_parsed_schema));
+            if (is_position_deletes_sys_table) {
+                ReaderInitContext ctx;
+                _fill_base_init_context(&ctx);
+                auto reader = IcebergPositionDeleteSysTableReader::create_unique(
+                        _file_slot_descs, _state, _profile, range, _params, file_meta_cache_ptr);
+                init_status = static_cast<GenericReader*>(reader.get())->init_reader(&ctx);
+                _cur_reader = std::move(reader);
+                need_to_get_parsed_schema = false;
+                break;
+            }
+            if (push_down_predicates) {
+                RETURN_IF_ERROR(_process_late_arrival_conjuncts());
+            }
+            RETURN_IF_ERROR(_init_orc_reader(file_meta_cache_ptr));
+
+            need_to_get_parsed_schema = true;
             break;
         }
         case TFileFormatType::FORMAT_CSV_PLAIN:
@@ -1359,32 +1391,10 @@ Status FileScanner::_get_next_reader() {
     return Status::OK();
 }
 
-Status FileScanner::_init_iceberg_position_delete_sys_table_reader(
-        FileMetaCache* file_meta_cache_ptr) {
-    ReaderInitContext ctx;
-    _fill_base_init_context(&ctx);
-    auto reader = IcebergPositionDeleteSysTableReader::create_unique(
-            _file_slot_descs, _state, _profile, _current_range, _params, file_meta_cache_ptr);
-    RETURN_IF_ERROR(static_cast<GenericReader*>(reader.get())->init_reader(&ctx));
-    _cur_reader = std::move(reader);
-    return Status::OK();
-}
-
 Status FileScanner::_init_parquet_reader(FileMetaCache* file_meta_cache_ptr,
-                                         bool& need_to_get_parsed_schema,
                                          std::unique_ptr<ParquetReader> parquet_reader) {
     const TFileRangeDesc& range = _current_range;
     Status init_status = Status::OK();
-    need_to_get_parsed_schema = true;
-
-    if (is_iceberg_position_deletes_sys_table(range)) {
-        need_to_get_parsed_schema = false;
-        return _init_iceberg_position_delete_sys_table_reader(file_meta_cache_ptr);
-    }
-
-    if (_should_push_down_predicates(TFileFormatType::FORMAT_PARQUET)) {
-        RETURN_IF_ERROR(_process_late_arrival_conjuncts());
-    }
 
     phmap::flat_hash_map<int, std::vector<std::shared_ptr<ColumnPredicate>>> slot_id_to_predicates =
             _local_state
@@ -1467,20 +1477,9 @@ Status FileScanner::_init_parquet_reader(FileMetaCache* file_meta_cache_ptr,
 }
 
 Status FileScanner::_init_orc_reader(FileMetaCache* file_meta_cache_ptr,
-                                     bool& need_to_get_parsed_schema,
                                      std::unique_ptr<OrcReader> orc_reader) {
     const TFileRangeDesc& range = _current_range;
     Status init_status = Status::OK();
-    need_to_get_parsed_schema = true;
-
-    if (is_iceberg_position_deletes_sys_table(range)) {
-        need_to_get_parsed_schema = false;
-        return _init_iceberg_position_delete_sys_table_reader(file_meta_cache_ptr);
-    }
-
-    if (_should_push_down_predicates(TFileFormatType::FORMAT_ORC)) {
-        RETURN_IF_ERROR(_process_late_arrival_conjuncts());
-    }
 
     // Build unified OrcInitContext (shared by all ORC reader variants)
     OrcInitContext octx;
@@ -1660,15 +1659,13 @@ Status FileScanner::read_lines_from_range(const TFileRangeDesc& range,
 
     RETURN_IF_ERROR(scope_timer_run(
             [&]() -> Status {
-                bool need_to_get_parsed_schema = false;
                 switch (format_type) {
                 case TFileFormatType::FORMAT_PARQUET: {
                     std::unique_ptr<ParquetReader> parquet_reader = ParquetReader::create_unique(
                             _profile, *_params, range, 1, &_state->timezone_obj(), _io_ctx, _state,
                             file_meta_cache_ptr, false);
-                    RETURN_IF_ERROR(_init_parquet_reader(file_meta_cache_ptr,
-                                                         need_to_get_parsed_schema,
-                                                         std::move(parquet_reader)));
+                    RETURN_IF_ERROR(
+                            _init_parquet_reader(file_meta_cache_ptr, std::move(parquet_reader)));
                     // _init_parquet_reader may create a new table-format specific reader
                     // (e.g., HiveParquetReader) that replaces the original parquet_reader.
                     // We need to re-apply read_by_rows to the actual _cur_reader.
@@ -1679,8 +1676,7 @@ Status FileScanner::read_lines_from_range(const TFileRangeDesc& range,
                     std::unique_ptr<OrcReader> orc_reader = OrcReader::create_unique(
                             _profile, _state, *_params, range, 1, _state->timezone(), _io_ctx,
                             file_meta_cache_ptr, false);
-                    RETURN_IF_ERROR(_init_orc_reader(file_meta_cache_ptr, need_to_get_parsed_schema,
-                                                     std::move(orc_reader)));
+                    RETURN_IF_ERROR(_init_orc_reader(file_meta_cache_ptr, std::move(orc_reader)));
                     // Same as above: re-apply read_by_rows to the actual _cur_reader.
                     RETURN_IF_ERROR(_cur_reader->read_by_rows(row_ids));
                     break;
