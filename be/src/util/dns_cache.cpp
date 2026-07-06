@@ -35,6 +35,7 @@ DNSCache::DNSCache(Resolver resolver) : _resolver(std::move(resolver)) {}
 
 DNSCache::~DNSCache() {
     stop_refresh = true;
+    _cv.notify_all();
     if (refresh_thread.joinable()) {
         refresh_thread.join();
     }
@@ -49,13 +50,11 @@ Status DNSCache::get(const std::string& hostname, std::string* ip) {
             return Status::OK();
         }
     }
-    // Update if not found
-    RETURN_IF_ERROR(_update(hostname));
-    {
-        std::shared_lock<std::shared_mutex> lock(mutex);
-        *ip = cache[hostname];
-        return Status::OK();
-    }
+    // First access: resolve and populate the cache.  Consume the IP returned by
+    // _update() directly to avoid a second cache lookup — operator[] under a
+    // shared_lock would mutate the map and could reinsert an empty entry if a
+    // concurrent refresh cycle evicted the hostname between _update() and here.
+    return _update(hostname, nullptr, ip);
 }
 
 // Resolve hostname to IP address, similar to Java's DNSCache.resolveHostname.
@@ -137,10 +136,11 @@ void DNSCache::_erase(const std::string& hostname) {
     failure_count.erase(hostname);
 }
 
-Status DNSCache::_update(const std::string& hostname, uint32_t* out_failures) {
+Status DNSCache::_update(const std::string& hostname, uint32_t* out_failures, std::string* out_ip) {
     std::string real_ip = _resolve_hostname(hostname);
     if (real_ip.empty()) {
         if (out_failures) *out_failures = 0;
+        if (out_ip) out_ip->clear();
         return Status::InternalError("Failed to resolve hostname {} and no cached ip available",
                                      hostname);
     }
@@ -151,6 +151,7 @@ Status DNSCache::_update(const std::string& hostname, uint32_t* out_failures) {
         cache[hostname] = real_ip;
         LOG(INFO) << "update hostname " << hostname << "'s ip to " << real_ip;
     }
+    if (out_ip) *out_ip = real_ip;
     // Read failure_count under the same lock we already hold, so _refresh_once
     // does not need a second lock acquisition to decide on eviction.
     if (out_failures) {
@@ -199,9 +200,14 @@ void DNSCache::_refresh_once() {
 
 void DNSCache::_refresh_cache() {
     while (!stop_refresh) {
-        // refresh every 1 min
-        std::this_thread::sleep_for(std::chrono::minutes(1));
-        _refresh_once();
+        {
+            std::unique_lock<std::mutex> lk(_cv_mutex);
+            // Wake up either after 1 minute or when the destructor signals stop.
+            _cv.wait_for(lk, std::chrono::minutes(1), [this] { return stop_refresh.load(); });
+        }
+        if (!stop_refresh) {
+            _refresh_once();
+        }
     }
 }
 
