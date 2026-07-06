@@ -234,7 +234,8 @@ Status FileScannerV2::TEST_rewrite_slot_refs_to_global_index(
 
 bool FileScannerV2::is_supported(const TFileScanRangeParams& params, const TFileRangeDesc& range) {
     const auto format_type = get_range_format_type(params, range);
-    if (format_type == TFileFormatType::FORMAT_PARQUET) {
+    if (format_type == TFileFormatType::FORMAT_PARQUET ||
+        format_type == TFileFormatType::FORMAT_ORC) {
         return is_supported_table_format(range);
     } else if (format_type == TFileFormatType::FORMAT_ARROW) {
         return is_supported_arrow_table_format(range);
@@ -630,6 +631,9 @@ Status FileScannerV2::_to_file_format(TFileFormatType::type format_type,
     switch (format_type) {
     case TFileFormatType::FORMAT_PARQUET:
         *file_format = format::FileFormat::PARQUET;
+        return Status::OK();
+    case TFileFormatType::FORMAT_ORC:
+        *file_format = format::FileFormat::ORC;
         return Status::OK();
     case TFileFormatType::FORMAT_JNI:
         *file_format = format::FileFormat::JNI;
