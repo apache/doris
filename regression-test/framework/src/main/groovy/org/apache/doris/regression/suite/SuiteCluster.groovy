@@ -97,6 +97,10 @@ class ClusterOptions {
 
     String tdeAk = "";
     String tdeSk = "";
+    String tdeAwsAk = "";
+    String tdeAwsSk = "";
+    String tdeAliyunAk = "";
+    String tdeAliyunSk = "";
 
     void enableDebugPoints() {
         feConfigs.add('enable_debug_points=true')
@@ -389,6 +393,26 @@ class SuiteCluster {
         if (options.tdeSk != null && options.tdeSk != "") {
             cmd += ['--tde-sk']
             cmd += options.tdeSk
+        }
+
+        if (options.tdeAwsAk != null && options.tdeAwsAk != "") {
+            cmd += ['--tde-aws-ak']
+            cmd += options.tdeAwsAk
+        }
+
+        if (options.tdeAwsSk != null && options.tdeAwsSk != "") {
+            cmd += ['--tde-aws-sk']
+            cmd += options.tdeAwsSk
+        }
+
+        if (options.tdeAliyunAk != null && options.tdeAliyunAk != "") {
+            cmd += ['--tde-aliyun-ak']
+            cmd += options.tdeAliyunAk
+        }
+
+        if (options.tdeAliyunSk != null && options.tdeAliyunSk != "") {
+            cmd += ['--tde-aliyun-sk']
+            cmd += options.tdeAliyunSk
         }
 
         cmd += ['--wait-timeout', String.valueOf(options.waitTimeout)]
@@ -841,9 +865,34 @@ class SuiteCluster {
     }
 
     // Execute command with proper argument list to avoid shell escaping issues
+    private static List<String> maskSensitiveArgs(List<String> cmdList) {
+        Set<String> sensitiveOptions = [
+                '--tde-ak',
+                '--tde-sk',
+                '--tde-aws-ak',
+                '--tde-aws-sk',
+                '--tde-aliyun-ak',
+                '--tde-aliyun-sk'
+        ] as Set
+        List<String> masked = []
+        boolean maskNext = false
+        for (String arg : cmdList) {
+            if (maskNext) {
+                masked += '***'
+                maskNext = false
+                continue
+            }
+            masked += arg
+            if (sensitiveOptions.contains(arg)) {
+                maskNext = true
+            }
+        }
+        return masked
+    }
+
     private Object runCmdList(List<String> cmdList, int timeoutSecond = 60) throws Exception {
         def fullCmdList = ['python', '-W', 'ignore', config.dorisComposePath] + cmdList + ['-v', '--output-json']
-        logger.info('Run doris compose cmd: {}', fullCmdList.join(' '))
+        logger.info('Run doris compose cmd: {}', maskSensitiveArgs(fullCmdList).join(' '))
         def proc = fullCmdList.execute()
         def outBuf = new StringBuilder()
         def errBuf = new StringBuilder()
