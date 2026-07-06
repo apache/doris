@@ -155,12 +155,17 @@ Suite.metaClass.trigger_and_wait_compaction = { String table_name, String compac
                     def newCumulativePoint = toLongOrNull(tabletStatus["cumulative point"])
                     def lastCumulativeStatus = "${tabletStatus["last cumulative status"]}".toLowerCase()
                     def baseSuccessTimeChanged = oldStatus["last base success time"] != tabletStatus["last base success time"]
+                    def cumulativeSuccessTimeChanged =
+                            oldStatus["last cumulative success time"] != tabletStatus["last cumulative success time"]
                     // E-2010 advances the cumulative point and lets base compaction handle delete-version rowsets.
+                    // In some timing windows, base success is already visible in the cached old status while
+                    // cumulative success advances later, so accept either success signal but not failure time alone.
                     handedOffToBaseCompactionAfterDeleteVersion = lastCumulativeStatus.contains("e-2010") &&
                             oldCumulativePoint != null && newCumulativePoint != null &&
                             newCumulativePoint > oldCumulativePoint
                     completedByBaseCompactionAfterDeleteVersion =
-                            handedOffToBaseCompactionAfterDeleteVersion && baseSuccessTimeChanged
+                            handedOffToBaseCompactionAfterDeleteVersion &&
+                            (baseSuccessTimeChanged || cumulativeSuccessTimeChanged)
                 }
                 def success_time_unchanged = (oldStatus["last ${compaction_type} success time"] == tabletStatus["last ${compaction_type} success time"])
                 def failure_time_unchanged = (oldStatus["last ${compaction_type} failure time"] == tabletStatus["last ${compaction_type} failure time"])
