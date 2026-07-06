@@ -93,6 +93,10 @@ class ClusterOptions {
 
     String tdeAk = "";
     String tdeSk = "";
+    String tdeAwsAk = "";
+    String tdeAwsSk = "";
+    String tdeAliyunAk = "";
+    String tdeAliyunSk = "";
 
     void enableDebugPoints() {
         feConfigs.add('enable_debug_points=true')
@@ -380,11 +384,31 @@ class SuiteCluster {
             cmd += options.tdeSk
         }
 
+        if (options.tdeAwsAk != null && options.tdeAwsAk != "") {
+            cmd += ['--tde-aws-ak']
+            cmd += options.tdeAwsAk
+        }
+
+        if (options.tdeAwsSk != null && options.tdeAwsSk != "") {
+            cmd += ['--tde-aws-sk']
+            cmd += options.tdeAwsSk
+        }
+
+        if (options.tdeAliyunAk != null && options.tdeAliyunAk != "") {
+            cmd += ['--tde-aliyun-ak']
+            cmd += options.tdeAliyunAk
+        }
+
+        if (options.tdeAliyunSk != null && options.tdeAliyunSk != "") {
+            cmd += ['--tde-aliyun-sk']
+            cmd += options.tdeAliyunSk
+        }
+
         cmd += ['--wait-timeout', String.valueOf(options.waitTimeout)]
 
         sqlModeNodeMgr = options.sqlModeNodeMgr
 
-        runCmd(cmd.join(' '), 180)
+        runCmdList(cmd, 180)
 
         // wait be report disk
         Thread.sleep(5000)
@@ -733,6 +757,56 @@ class SuiteCluster {
         def fullCmd = String.format('python -W ignore %s %s -v --output-json', config.dorisComposePath, cmd)
         logger.info('Run doris compose cmd: {}', fullCmd)
         def proc = fullCmd.execute()
+        def outBuf = new StringBuilder()
+        def errBuf = new StringBuilder()
+        Awaitility.await().atMost(timeoutSecond, SECONDS).until({
+            proc.waitForProcessOutput(outBuf, errBuf)
+            return true
+        })
+        if (proc.exitValue() != 0) {
+            throw new Exception(String.format('Exit value: %s != 0, stdout: %s, stderr: %s',
+                                              proc.exitValue(), outBuf.toString(), errBuf.toString()))
+        }
+        def parser = new JsonSlurper()
+        if (outBuf.toString().size() == 0) {
+            throw new Exception(String.format('doris compose output is empty, err: %s', errBuf.toString()))
+        }
+        def object = (Map<String, Object>) parser.parseText(outBuf.toString())
+        if (object.get('code') != 0) {
+            throw new Exception(String.format('Code: %s != 0, err: %s', object.get('code'), object.get('err')))
+        }
+        return object.get('data')
+    }
+
+    private static List<String> maskSensitiveArgs(List<String> cmdList) {
+        Set<String> sensitiveOptions = [
+                '--tde-ak',
+                '--tde-sk',
+                '--tde-aws-ak',
+                '--tde-aws-sk',
+                '--tde-aliyun-ak',
+                '--tde-aliyun-sk'
+        ] as Set
+        List<String> masked = []
+        boolean maskNext = false
+        for (String arg : cmdList) {
+            if (maskNext) {
+                masked += '***'
+                maskNext = false
+                continue
+            }
+            masked += arg
+            if (sensitiveOptions.contains(arg)) {
+                maskNext = true
+            }
+        }
+        return masked
+    }
+
+    private Object runCmdList(List<String> cmdList, int timeoutSecond = 60) throws Exception {
+        def fullCmdList = ['python', '-W', 'ignore', config.dorisComposePath] + cmdList + ['-v', '--output-json']
+        logger.info('Run doris compose cmd: {}', maskSensitiveArgs(fullCmdList).join(' '))
+        def proc = fullCmdList.execute()
         def outBuf = new StringBuilder()
         def errBuf = new StringBuilder()
         Awaitility.await().atMost(timeoutSecond, SECONDS).until({

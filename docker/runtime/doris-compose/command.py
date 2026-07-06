@@ -505,6 +505,30 @@ class UpCommand(Command):
             default="",
             help="tde sk")
 
+        parser.add_argument(
+            "--tde-aws-ak",
+            type=str,
+            default="",
+            help="tde aws ak")
+
+        parser.add_argument(
+            "--tde-aws-sk",
+            type=str,
+            default="",
+            help="tde aws sk")
+
+        parser.add_argument(
+            "--tde-aliyun-ak",
+            type=str,
+            default="",
+            help="tde aliyun ak")
+
+        parser.add_argument(
+            "--tde-aliyun-sk",
+            type=str,
+            default="",
+            help="tde aliyun sk")
+
         # if default==True, use this style to parser, like --detach
         if self._support_boolean_action():
             parser.add_argument(
@@ -615,7 +639,8 @@ class UpCommand(Command):
                 args.remote_master_fe, args.local_network_ip, args.fe_follower,
                 args.be_disks, args.be_cluster, args.reg_be, args.extra_hosts,
                 args.coverage_dir, cloud_store_config, args.sql_mode_node_mgr,
-                args.be_metaservice_endpoint, args.be_cluster_id, args.tde_ak, args.tde_sk)
+                args.be_metaservice_endpoint, args.be_cluster_id, args.tde_ak, args.tde_sk,
+                args.tde_aws_ak, args.tde_aws_sk, args.tde_aliyun_ak, args.tde_aliyun_sk)
             LOG.info("Create new cluster {} succ, cluster path is {}".format(
                 args.NAME, cluster.get_path()))
 
