@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.expressions.functions.executable;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.nereids.trees.expressions.ExecFunction;
+import org.apache.doris.nereids.trees.expressions.ExecFunctionList;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
@@ -52,8 +53,10 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.regex.Pattern;
 
 /**
@@ -61,6 +64,8 @@ import java.util.regex.Pattern;
  * concat
  */
 public class StringArithmetic {
+    private static final long MAX_DAMERAU_LEVENSHTEIN_MATRIX_CELLS = 16L * 1024L * 1024L;
+
     private static Literal castStringLikeLiteral(StringLikeLiteral first, String value) {
         if (first instanceof StringLiteral) {
             return new StringLiteral(value);
@@ -1217,7 +1222,11 @@ public class StringArithmetic {
     /**
      * Executable arithmetic functions levenshtein
      */
-    @ExecFunction(name = "levenshtein")
+    @ExecFunctionList({
+            @ExecFunction(name = "levenshtein"),
+            @ExecFunction(name = "levenshtein_distance"),
+            @ExecFunction(name = "edit_distance")
+    })
     public static Expression levenshtein(StringLikeLiteral first, StringLikeLiteral second) {
         int[] left = first.getValue().codePoints().toArray();
         int[] right = second.getValue().codePoints().toArray();
@@ -1259,6 +1268,73 @@ public class StringArithmetic {
         }
 
         return new IntegerLiteral(prev[n]);
+    }
+
+    /**
+     * Executable arithmetic functions damerau_levenshtein_distance
+     */
+    @ExecFunction(name = "damerau_levenshtein_distance")
+    public static Expression damerauLevenshteinDistance(StringLikeLiteral first,
+            StringLikeLiteral second) {
+        int[] left = first.getValue().codePoints().toArray();
+        int[] right = second.getValue().codePoints().toArray();
+        return new IntegerLiteral(damerauLevenshteinDistance(left, right));
+    }
+
+    private static int damerauLevenshteinDistance(int[] left, int[] right) {
+        int m = left.length;
+        int n = right.length;
+        if (m == 0) {
+            return n;
+        }
+        if (n == 0) {
+            return m;
+        }
+
+        long matrixCells = ((long) m + 2L) * ((long) n + 2L);
+        if (matrixCells > MAX_DAMERAU_LEVENSHTEIN_MATRIX_CELLS) {
+            throw new AnalysisException("damerau_levenshtein_distance distance matrix is too large: "
+                    + matrixCells + " cells exceeds limit " + MAX_DAMERAU_LEVENSHTEIN_MATRIX_CELLS);
+        }
+
+        int maxDistance = m + n;
+        int cols = n + 2;
+        int[] distance = new int[(int) matrixCells];
+        Map<Integer, Integer> lastRow = new HashMap<>();
+
+        distance[0] = maxDistance;
+        for (int i = 0; i <= m; i++) {
+            distance[(i + 1) * cols] = maxDistance;
+            distance[(i + 1) * cols + 1] = i;
+        }
+        for (int j = 0; j <= n; j++) {
+            distance[j + 1] = maxDistance;
+            distance[cols + j + 1] = j;
+        }
+
+        for (int i = 1; i <= m; i++) {
+            int lastMatchCol = 0;
+            for (int j = 1; j <= n; j++) {
+                int lastMatchRow = lastRow.getOrDefault(right[j - 1], 0);
+                int transpositionCol = lastMatchCol;
+                int cost = 1;
+                if (left[i - 1] == right[j - 1]) {
+                    cost = 0;
+                    lastMatchCol = j;
+                }
+
+                int replaceCost = distance[i * cols + j] + cost;
+                int insertCost = distance[(i + 1) * cols + j] + 1;
+                int deleteCost = distance[i * cols + j + 1] + 1;
+                int transposeCost = distance[lastMatchRow * cols + transpositionCol]
+                        + i - lastMatchRow - 1 + 1 + j - transpositionCol - 1;
+                distance[(i + 1) * cols + j + 1] = Math.min(Math.min(replaceCost, insertCost),
+                        Math.min(deleteCost, transposeCost));
+            }
+            lastRow.put(left[i - 1], i);
+        }
+
+        return distance[(m + 1) * cols + n + 1];
     }
 
     /**
