@@ -436,7 +436,8 @@ public class IvmDeltaRewriter {
             throw new AnalysisException("IVM: stream not found for base table "
                     + originTable.getName());
         }
-        OlapTableStreamWrapper streamWrapper = new OlapTableStreamWrapper(stream, originTable);
+        OlapTableStreamWrapper streamWrapper = new OlapTableStreamWrapper(
+                stream, originTable, scan.getSelectedPartitionIds());
         return new LogicalOlapTableStreamScan(
                 StatementScopeIdGenerator.newRelationId(),
                 streamWrapper,
