@@ -204,7 +204,16 @@ public:
         this->data(place).read(buf);
     }
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
-        assert_cast<ColumnFloat64&>(to).get_data().push_back(this->data(place).get_result());
+        assert_cast<ColumnFloat64&, TypeCheckOnRelease::DISABLE>(to).get_data().push_back(
+                this->data(place).get_result());
+    }
+
+    void check_input_columns_type(const IColumn** columns) const override {
+        IAggregateFunction::check_input_columns_type(columns);
+        if constexpr (is_string_type(T) || is_varbinary(T)) {
+            this->template check_argument_column_type<typename PrimitiveTypeTraits<T>::ColumnType>(
+                    columns[0]);
+        }
     }
 
 private:

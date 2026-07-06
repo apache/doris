@@ -128,16 +128,13 @@ Status AnalyticSinkLocalState::open(RuntimeState* state) {
             _agg_input_columns[i][j] = _agg_expr_ctxs[i][j]->root()->data_type()->create_column();
         }
         _offsets_of_aggregate_states[i] = p._offsets_of_aggregate_states[i];
-        _result_column_nullable_flags[i] =
-                !_agg_functions[i]->function()->get_return_type()->is_nullable() &&
-                _agg_functions[i]->data_type()->is_nullable();
-        _result_column_could_resize[i] =
-                _agg_functions[i]->function()->result_column_could_resize();
-        if (PARTITION_FUNCTION_SET.contains(_agg_functions[i]->function()->get_name())) {
+        _result_column_nullable_flags[i] = !_agg_functions[i]->get_return_type()->is_nullable() &&
+                                           _agg_functions[i]->data_type()->is_nullable();
+        _result_column_could_resize[i] = _agg_functions[i]->result_column_could_resize();
+        if (PARTITION_FUNCTION_SET.contains(_agg_functions[i]->get_name())) {
             _streaming_mode = false;
         }
-        _support_incremental_calculate &=
-                _agg_functions[i]->function()->supported_incremental_mode();
+        _support_incremental_calculate &= _agg_functions[i]->supported_incremental_mode();
     }
 
     _partition_exprs_size = p._partition_by_eq_expr_ctxs.size();
@@ -385,13 +382,13 @@ void AnalyticSinkLocalState::_execute_for_function(int64_t partition_start, int6
             agg_columns.push_back(_agg_input_columns[i][j].get());
         }
         if constexpr (incremental) {
-            _agg_functions[i]->function()->execute_function_with_incremental(
+            _agg_functions[i]->execute_function_with_incremental(
                     partition_start, partition_end, frame_start, frame_end,
                     _fn_place_ptr + _offsets_of_aggregate_states[i], agg_columns.data(),
                     _shared_state->agg_arena_pool, false, false, false, &_use_null_result[i],
                     &_could_use_previous_result[i]);
         } else {
-            _agg_functions[i]->function()->add_range_single_place(
+            _agg_functions[i]->add_range_single_place(
                     partition_start, partition_end, frame_start, frame_end,
                     _fn_place_ptr + _offsets_of_aggregate_states[i], agg_columns.data(),
                     _shared_state->agg_arena_pool, &(_use_null_result[i]),
@@ -410,14 +407,14 @@ void AnalyticSinkLocalState::_insert_result_info(int64_t start, int64_t end) {
                 auto* dst = assert_cast<ColumnNullable*>(_result_window_columns[i].get());
                 dst->get_null_map_data().resize_fill(
                         dst->get_null_map_data().size() + static_cast<uint32_t>(end - start), 0);
-                _agg_functions[i]->function()->insert_result_into_range(
-                        _fn_place_ptr + _offsets_of_aggregate_states[i], dst->get_nested_column(),
+                _agg_functions[i]->insert_result_info_range(
+                        _fn_place_ptr + _offsets_of_aggregate_states[i], &dst->get_nested_column(),
                         start, end);
             }
         } else {
-            _agg_functions[i]->function()->insert_result_into_range(
-                    _fn_place_ptr + _offsets_of_aggregate_states[i], *_result_window_columns[i],
-                    start, end);
+            _agg_functions[i]->insert_result_info_range(
+                    _fn_place_ptr + _offsets_of_aggregate_states[i],
+                    _result_window_columns[i].get(), start, end);
         }
     }
 }
@@ -725,13 +722,13 @@ Status AnalyticSinkOperatorX::prepare(RuntimeState* state) {
     _offsets_of_aggregate_states.resize(_agg_functions_size);
     for (size_t i = 0; i < _agg_functions_size; ++i) {
         _offsets_of_aggregate_states[i] = _total_size_of_aggregate_states;
-        const auto& agg_function = _agg_functions[i]->function();
+        const auto* agg_function = _agg_functions[i];
         // aggregate states are aligned based on maximum requirement
         _align_aggregate_states = std::max(_align_aggregate_states, agg_function->align_of_data());
         _total_size_of_aggregate_states += agg_function->size_of_data();
         // If not the last aggregate_state, we need pad it so that next aggregate_state will be aligned.
         if (i + 1 < _agg_functions_size) {
-            size_t alignment_of_next_state = _agg_functions[i + 1]->function()->align_of_data();
+            size_t alignment_of_next_state = _agg_functions[i + 1]->align_of_data();
             if ((alignment_of_next_state & (alignment_of_next_state - 1)) != 0) {
                 return Status::RuntimeError("Logical error: align_of_data is not 2^N");
             }
