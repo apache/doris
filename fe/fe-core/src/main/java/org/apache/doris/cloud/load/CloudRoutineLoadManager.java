@@ -19,6 +19,7 @@ package org.apache.doris.cloud.load;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.load.routineload.RoutineLoadJob;
@@ -55,7 +56,7 @@ public class CloudRoutineLoadManager extends RoutineLoadManager {
                 .getBackendsByClusterName(routineLoadJob.getCloudCluster())
                 .stream()
                 .filter(backend -> backend.isLoadAvailable()
-                        && !backend.isDecommissioning()
+                        && (!Config.isCloudMode() || !backend.isDecommissioning())
                         && !backend.isDecommissioned())
                 .map(Backend::getId)
                 .collect(Collectors.toList());
