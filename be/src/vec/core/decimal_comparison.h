@@ -252,8 +252,8 @@ private:
     static UInt8 apply(typename PrimitiveTypeTraits<A>::CppType a,
                        typename PrimitiveTypeTraits<B>::CppType b,
                        CompareInt scale [[maybe_unused]]) {
-        CompareInt x = a;
-        CompareInt y = b;
+        CompareInt x = get_compare_value<A>(a);
+        CompareInt y = get_compare_value<B>(b);
 
         if constexpr (_check_overflow) {
             bool overflow = false;
@@ -279,6 +279,15 @@ private:
         }
 
         return Op::apply(x, y);
+    }
+
+    template <PrimitiveType T>
+    static CompareInt get_compare_value(typename PrimitiveTypeTraits<T>::CppType value) {
+        if constexpr (T == TYPE_DECIMALV2) {
+            return value.value();
+        } else {
+            return value;
+        }
     }
 
     template <bool scale_left, bool scale_right>

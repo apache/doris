@@ -21,6 +21,7 @@
 #pragma once
 
 #include "common/compare.h"
+#include "runtime/decimalv2_value.h"
 #include "runtime/primitive_type.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/types.h"
@@ -63,7 +64,8 @@ struct EqualsOp {
 
 template <>
 struct EqualsOp<TYPE_DECIMALV2> {
-    static UInt8 apply(const Int128& a, const Int128& b) { return a == b; }
+    using SymmetricOp = EqualsOp<TYPE_DECIMALV2>;
+    static UInt8 apply(const DecimalV2Value& a, const DecimalV2Value& b) { return a == b; }
 };
 
 template <>
@@ -177,7 +179,8 @@ struct LessOp {
 
 template <>
 struct LessOp<TYPE_DECIMALV2> {
-    static UInt8 apply(Int128 a, Int128 b) { return a < b; }
+    using SymmetricOp = GreaterOp<TYPE_DECIMALV2>;
+    static UInt8 apply(const DecimalV2Value& a, const DecimalV2Value& b) { return a < b; }
 };
 
 template <>
@@ -235,7 +238,8 @@ struct GreaterOp {
 
 template <>
 struct GreaterOp<TYPE_DECIMALV2> {
-    static UInt8 apply(Int128 a, Int128 b) { return a > b; }
+    using SymmetricOp = LessOp<TYPE_DECIMALV2>;
+    static UInt8 apply(const DecimalV2Value& a, const DecimalV2Value& b) { return a > b; }
 };
 
 template <>

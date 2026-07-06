@@ -1452,6 +1452,15 @@ public class TypeCoercionUtils {
             DecimalV3Type decimalV3Type = (DecimalV3Type) commonType;
             return DecimalV2Type.createDecimalV2Type(decimalV3Type.getPrecision(), decimalV3Type.getScale());
         }
+        // DecimalV2 slot vs DecimalV2 literal. Keep the slot side uncast so simple delete predicates
+        // can still be pushed to storage as column-name predicates.
+        if (shouldDowngrade(DecimalV2Type.class, DecimalV2Type.class,
+                commonType, target,
+                d -> true,
+                o -> o.isLiteral() && o.getDataType().isDecimalV2Type(),
+                compareExpressions)) {
+            return target.getDataType();
+        }
         // cast to datev1 for datev1 slot in (datev1 or datev2 literal)
         if (shouldDowngrade(DateV2Type.class, DateType.class,
                 commonType, target,

@@ -202,6 +202,17 @@ public class TypeCoercionUtilsTest {
         decimalDowngrade = (InPredicate) TypeCoercionUtils.processInPredicate(decimalDowngrade);
         Assertions.assertEquals(DecimalV2Type.createDecimalV2Type(16, 7), decimalDowngrade.getCompareExpr().getDataType());
 
+        // DecimalV2 slot vs DecimalV2 literal should keep the slot side uncast for delete predicates.
+        DecimalV2Type decimalV2ColumnType = DecimalV2Type.createDecimalV2Type(8, 5);
+        InPredicate decimalV2Downgrade = new InPredicate(
+                new SlotReference("c1", decimalV2ColumnType),
+                ImmutableList.of(
+                        new DecimalLiteral(new BigDecimal("5.0")),
+                        new DecimalLiteral(new BigDecimal("5.5555"))));
+        decimalV2Downgrade = (InPredicate) TypeCoercionUtils.processInPredicate(decimalV2Downgrade);
+        Assertions.assertEquals(decimalV2ColumnType, decimalV2Downgrade.getCompareExpr().getDataType());
+        Assertions.assertTrue(decimalV2Downgrade.getCompareExpr() instanceof SlotReference);
+
         // DateV1 slot vs DateV2 literal
         InPredicate dateDowngrade = new InPredicate(
                 new SlotReference("c1", DateType.INSTANCE),
@@ -232,6 +243,16 @@ public class TypeCoercionUtilsTest {
         );
         decimalDowngrade = (EqualTo) TypeCoercionUtils.processComparisonPredicate(decimalDowngrade);
         Assertions.assertEquals(DecimalV2Type.createDecimalV2Type(16, 7), decimalDowngrade.left().getDataType());
+
+        // DecimalV2 slot vs DecimalV2 literal should keep the slot side uncast for delete predicates.
+        DecimalV2Type decimalV2ColumnType = DecimalV2Type.createDecimalV2Type(8, 5);
+        EqualTo decimalV2Downgrade = new EqualTo(
+                new SlotReference("c1", decimalV2ColumnType),
+                new DecimalLiteral(new BigDecimal("5.0"))
+        );
+        decimalV2Downgrade = (EqualTo) TypeCoercionUtils.processComparisonPredicate(decimalV2Downgrade);
+        Assertions.assertEquals(decimalV2ColumnType, decimalV2Downgrade.left().getDataType());
+        Assertions.assertTrue(decimalV2Downgrade.left() instanceof SlotReference);
 
         // DateV1 slot vs DateV2 literal (this case cover right slot vs left literal)
         EqualTo dateDowngrade = new EqualTo(
