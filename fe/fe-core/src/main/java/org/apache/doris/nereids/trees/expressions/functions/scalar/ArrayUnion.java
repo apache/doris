@@ -68,11 +68,13 @@ public class ArrayUnion extends ScalarFunction implements ExplicitlyCastableSign
 
     @Override
     public void checkLegalityBeforeTypeCoercion() {
-        DataType argType = getArgument(0).getDataType();
-        if (argType.isArrayType() && (((ArrayType) argType).getItemType().isComplexType()
-                    || ((ArrayType) argType).getItemType().isVariantType()
-                    || ((ArrayType) argType).getItemType().isJsonType())) {
-            throw new AnalysisException("array_union does not support types: " + argType.toSql());
+        for (Expression argument : getArguments()) {
+            DataType argType = argument.getDataType();
+            if (argType.isArrayType() && (((ArrayType) argType).getItemType().isComplexType()
+                        || ((ArrayType) argType).getItemType().isVariantType()
+                        || ((ArrayType) argType).getItemType().isJsonType())) {
+                throw new AnalysisException("array_union does not support types: " + argType.toSql());
+            }
         }
     }
 

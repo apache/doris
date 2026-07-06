@@ -70,6 +70,11 @@ public class CountEqual extends ScalarFunction
                     || ((ArrayType) argType).getItemType().isJsonType())) {
             throw new AnalysisException("countequal does not support types: " + argType.toSql());
         }
+        DataType itemType = getArgument(1).getDataType();
+        if (itemType.isComplexType() || itemType.isVariantType() || itemType.isJsonType()) {
+            throw new AnalysisException("countequal does not support types: "
+                    + ArrayType.of(itemType).toSql());
+        }
     }
 
     /**

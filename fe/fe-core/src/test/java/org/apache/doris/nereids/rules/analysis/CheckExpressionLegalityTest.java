@@ -71,6 +71,46 @@ public class CheckExpressionLegalityTest implements MemoPatternMatchSupported {
     }
 
     @Test
+    public void testArrayFunctionsRejectNestedArrayFromNonFirstArgument() {
+        ConnectContext connectContext = MemoTestUtils.createConnectContext();
+        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class,
+                "array_union does not support types: ARRAY<ARRAY<TINYINT>>", () -> {
+                    PlanChecker.from(connectContext)
+                            .analyze("select array_union([], [[1]])");
+                });
+        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class,
+                "arrays_overlap does not support types: ARRAY<ARRAY<TINYINT>>", () -> {
+                    PlanChecker.from(connectContext)
+                            .analyze("select arrays_overlap([], [[1]])");
+                });
+        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class,
+                "array_position does not support types: ARRAY<ARRAY<TINYINT>>", () -> {
+                    PlanChecker.from(connectContext)
+                            .analyze("select array_position([], [1])");
+                });
+        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class,
+                "array_position does not support types: ARRAY<JSON>", () -> {
+                    PlanChecker.from(connectContext)
+                            .analyze("select array_position([], cast('{}' as json))");
+                });
+        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class,
+                "array_position does not support types: ARRAY<variant", () -> {
+                    PlanChecker.from(connectContext)
+                            .analyze("select array_position([], cast('{}' as variant))");
+                });
+        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class,
+                "array_remove does not support types: ARRAY<ARRAY<TINYINT>>", () -> {
+                    PlanChecker.from(connectContext)
+                            .analyze("select array_remove([], [1])");
+                });
+        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class,
+                "countequal does not support types: ARRAY<ARRAY<TINYINT>>", () -> {
+                    PlanChecker.from(connectContext)
+                            .analyze("select countequal([], [1])");
+                });
+    }
+
+    @Test
     public void testCountDistinctBitmap() {
         ConnectContext connectContext = MemoTestUtils.createConnectContext();
         PlanChecker.from(connectContext)
