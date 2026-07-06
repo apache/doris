@@ -228,6 +228,52 @@ suite("hive_on_hms_and_dlf", "p2,external") {
 
         def table_name = buildTableName(prefix, "_overwrite_table")
 
+        def refreshOverwriteTable = { String stage ->
+            logger.info("refresh insert overwrite target after ${stage}, catalog=${catalog_name}, " +
+                    "db=${db_name}, table=${table_name}, location=${dbLocation}")
+            sql """
+                refresh catalog ${catalog_name};
+            """
+            sql """
+                switch ${catalog_name};
+            """
+            sql """
+                use ${db_name};
+            """
+            sql """
+                refresh table ${db_name}.${table_name};
+            """
+        }
+
+        def logOverwriteDebugInfo = { String stage, Object actualResult ->
+            logger.info("insert overwrite check failed after ${stage}, catalog=${catalog_name}, " +
+                    "db=${db_name}, table=${table_name}, location=${dbLocation}, actualResult=${actualResult}")
+            try {
+                def countResult = sql """
+                    SELECT COUNT(*) FROM ${table_name};
+                """
+                logger.info("insert overwrite debug count after ${stage}: ${countResult}")
+            } catch (Throwable t) {
+                logger.info("insert overwrite debug count failed after ${stage}: ${t.getMessage()}")
+            }
+            try {
+                def showCreateResult = sql """
+                    SHOW CREATE TABLE ${table_name};
+                """
+                logger.info("insert overwrite debug show create table after ${stage}: ${showCreateResult}")
+            } catch (Throwable t) {
+                logger.info("insert overwrite debug show create table failed after ${stage}: ${t.getMessage()}")
+            }
+            try {
+                def explainResult = sql """
+                    EXPLAIN SELECT * FROM ${table_name};
+                """
+                logger.info("insert overwrite debug explain select after ${stage}: ${explainResult}")
+            } catch (Throwable t) {
+                logger.info("insert overwrite debug explain select failed after ${stage}: ${t.getMessage()}")
+            }
+        }
+
         // Create non-partitioned table for insert overwrite test
         sql """
             CREATE TABLE ${table_name} (
@@ -253,12 +299,13 @@ suite("hive_on_hms_and_dlf", "p2,external") {
         sql """
             insert overwrite table ${table_name} values (3, 'charlie', 30);
         """
-        sql """
-            refresh table ${db_name}.${table_name};
-        """
+        refreshOverwriteTable("first overwrite")
         def result2 = sql """
-            SELECT * FROM ${table_name};
+            SELECT * FROM ${table_name} ORDER BY id;
         """
+        if (result2.size() != 1 || result2[0][0] != 3) {
+            logOverwriteDebugInfo("first overwrite", result2)
+        }
         assert result2.size() == 1
         assert result2[0][0] == 3
 
@@ -266,18 +313,22 @@ suite("hive_on_hms_and_dlf", "p2,external") {
         sql """
             insert overwrite table ${table_name} values (4, 'david', 35), (5, 'eve', 28), (6, 'frank', 40);
         """
-        sql """
-            refresh table ${db_name}.${table_name};
-        """
+        refreshOverwriteTable("second overwrite")
         def result3 = sql """
             SELECT COUNT(*) FROM ${table_name};
         """
+        if (result3[0][0] != 3) {
+            logOverwriteDebugInfo("second overwrite count", result3)
+        }
         assert result3[0][0] == 3
 
         // Test 4: Verify data integrity after overwrite
         def result4 = sql """
             SELECT * FROM ${table_name} ORDER BY id;
         """
+        if (result4.size() != 3 || result4[0][0] != 4 || result4[1][0] != 5 || result4[2][0] != 6) {
+            logOverwriteDebugInfo("second overwrite rows", result4)
+        }
         assert result4.size() == 3
         assert result4[0][0] == 4
         assert result4[1][0] == 5
