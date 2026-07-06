@@ -51,6 +51,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPart
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.spi.Split;
 import org.apache.doris.thrift.TColumnCategory;
@@ -140,6 +141,12 @@ public class HiveScanNode extends FileQueryScanNode {
             this.hiveTransaction = new HiveTransaction(DebugUtil.printId(ConnectContext.get().queryId()),
                     ConnectContext.get().getQualifiedUser(), hmsTable, hmsTable.isFullAcidTable());
             Env.getCurrentHiveTransactionMgr().register(hiveTransaction);
+            // Commit this hive read transaction when the query finishes, registered via the
+            // connector-agnostic query-finish callback so the generic query-cleanup path
+            // (QeProcessorImpl.unregisterQuery) no longer hardcodes a hive-specific hook.
+            String txnQueryId = hiveTransaction.getQueryId();
+            QeProcessorImpl.INSTANCE.registerQueryFinishCallback(txnQueryId,
+                    () -> Env.getCurrentHiveTransactionMgr().deregister(txnQueryId));
             skipCheckingAcidVersionFile = sessionVariable.skipCheckingAcidVersionFile;
         }
     }
