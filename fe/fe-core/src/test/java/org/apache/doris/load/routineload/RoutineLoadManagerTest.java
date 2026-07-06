@@ -48,6 +48,7 @@ import org.apache.doris.nereids.trees.plans.commands.load.StopRoutineLoadCommand
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.persist.RoutineLoadOperation;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.system.Backend;
 import org.apache.doris.system.BeSelectionPolicy;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TResourceInfo;
@@ -76,6 +77,18 @@ public class RoutineLoadManagerTest {
 
     @Mocked
     private SystemInfoService systemInfoService;
+
+    private void mockAvailableBackend(long beId) {
+        Backend backend = new Backend(beId, "host" + beId, 9050);
+        backend.setAlive(true);
+        new Expectations() {
+            {
+                systemInfoService.getBackend(beId);
+                minTimes = 0;
+                result = backend;
+            }
+        };
+    }
 
     @Test
     public void testCreateJobAuthDeny(@Injectable AccessControllerManager accessManager,
@@ -215,6 +228,8 @@ public class RoutineLoadManagerTest {
                 result = beIds;
             }
         };
+        mockAvailableBackend(1L);
+        mockAvailableBackend(2L);
 
         new MockUp<Env>() {
             SystemInfoService getCurrentSystemInfo() {
@@ -323,6 +338,8 @@ public class RoutineLoadManagerTest {
                 result = beIds;
             }
         };
+        mockAvailableBackend(1L);
+        mockAvailableBackend(2L);
 
         new MockUp<Env>() {
             SystemInfoService getCurrentSystemInfo() {
