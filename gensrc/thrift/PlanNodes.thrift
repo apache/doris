@@ -63,7 +63,8 @@ enum TPlanNodeType {
   MATERIALIZATION_NODE = 34,
   REC_CTE_NODE = 35,
   REC_CTE_SCAN_NODE = 36,
-  BUCKETED_AGGREGATION_NODE = 37
+  BUCKETED_AGGREGATION_NODE = 37,
+  LOCAL_EXCHANGE_NODE = 38
 }
 
 struct TKeyRange {
@@ -354,6 +355,12 @@ struct TPaimonDeletionFileDesc {
     3: optional i64 length;
 }
 
+enum TPaimonReaderType {
+    PAIMON_NATIVE = 0,
+    PAIMON_JNI = 1,
+    PAIMON_CPP = 2,
+}
+
 struct TPaimonFileDesc {
     1: optional string paimon_split
     2: optional string paimon_column_names
@@ -371,6 +378,8 @@ struct TPaimonFileDesc {
     14: optional string paimon_table  // deprecated
     15: optional i64 row_count // deprecated
     16: optional i64 schema_id; // for schema change.
+    // Reader implementation for logical paimon split. Native file split uses range format type.
+    17: optional TPaimonReaderType reader_type;
 }
 
 struct TTrinoConnectorFileDesc {
@@ -1007,6 +1016,8 @@ struct TOlapScanNode {
   // Only partitions that are candidates for pruning are included; partitions FE
   // does not want pruned (e.g. default catch-all) are omitted from this list.
   27: optional list<TPartitionBoundary> partition_boundaries
+  // Slot ids of extra storage key columns used only to align the scan tuple with storage schema.
+  28: optional set<i32> extra_key_column_slot_ids
 }
 
 struct TEqJoinCondition {
@@ -1427,6 +1438,24 @@ struct TExchangeNode {
   4: optional Partitions.TPartitionType partition_type
 }
 
+struct TLocalExchangeNode {
+  1: optional Partitions.TLocalPartitionType partition_type
+  // when partition_type in (GLOBAL_EXECUTION_HASH_SHUFFLE, LOCAL_EXECUTION_HASH_SHUFFLE, BUCKET_HASH_SHUFFLE),
+  // the distribute_expr_lists is not null, and the legacy `TPlanNode.distribute_expr_lists` is deprecated
+  //
+  // the hash computation:
+  // 1. for BUCKET_HASH_SHUFFLE, use distribution_exprs to compute hash value and mod by
+  //    `TPipelineFragmentParams.num_buckets`, and mapping bucket index to local instance id by
+  //    `TPipelineFragmentParams.bucket_seq_to_instance_idx`
+  // 2. for LOCAL_EXECUTION_HASH_SHUFFLE, use distribution_exprs to compute hash value and mod by
+  //    `TPipelineFragmentParams.local_params.size`, and backend will mapping instance index to local instance
+  //    by `i -> i`, for example: 1 -> 1, 2 -> 2, ...
+  // 3. for GLOBAL_EXECUTION_HASH_SHUFFLE, use distribution_exprs to compute hash value and mod by
+  //    `TPipelineFragmentParams.total_instances`, and mapping global instance index to local instance by
+  //    `TPipelineFragmentParams.shuffle_idx_to_instance_idx`
+  2: optional list<Exprs.TExpr> distribute_expr_lists
+}
+
 struct TOlapRewriteNode {
     1: required list<Exprs.TExpr> columns
     2: required list<Types.TColumnType> column_types
@@ -1590,6 +1619,12 @@ struct TRuntimeFilterDesc {
   // the listed partitions with the listed direction; absent partitions are
   // unsafe for this RF target and must not be pruned by it.
   20: optional map<Types.TPlanNodeId, list<TPartitionTargetExprMonotonicity>> planId_to_partition_target_monotonicity;
+
+  // True when a local exchange sits between the filter builder (join) and a same-fragment
+  // target scan: per-instance partial filters are then NOT aligned with the scan's data
+  // slice and must be merged before being applied. Computed truthfully by FE after local
+  // exchange planning; replaces inferring this from the target scan's is_serial_operator.
+  21: optional bool force_local_merge;
 }
 
 
@@ -1673,6 +1708,7 @@ struct TPlanNode {
   51: optional bool is_serial_operator
   52: optional TRecCTEScanNode rec_cte_scan_node
   53: optional TBucketedAggregationNode bucketed_agg_node
+  54: optional TLocalExchangeNode local_exchange_node
 
   // projections is final projections, which means projecting into results and materializing them into the output block.
   101: optional list<Exprs.TExpr> projections

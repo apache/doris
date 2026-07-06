@@ -1046,7 +1046,15 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         SplitSource splitSource =
                 Env.getCurrentEnv().getSplitSourceManager().getSplitSource(request.getSplitSourceId());
         if (splitSource == null) {
-            throw new TException("Split source " + request.getSplitSourceId() + " is released");
+            // Return a structured error status instead of throwing a bare TException, so the BE
+            // receives a well-formed error (with a non-empty message) through the normal result
+            // path. Throwing here surfaces as a thrift transport exception on the BE side and,
+            // on the Arrow Flight path, may feed an empty/invalid error string into the gRPC
+            // status conversion. See https://github.com/apache/doris/issues/62259
+            LOG.warn("split source {} is released", request.getSplitSourceId());
+            result.status = new TStatus(TStatusCode.NOT_FOUND);
+            result.status.addToErrorMsgs("Split source " + request.getSplitSourceId() + " is released");
+            return result;
         }
         try {
             List<TScanRangeLocations> locations = splitSource.getNextBatch(request.getMaxNumSplits());
@@ -3605,7 +3613,16 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 if (Config.isCloudMode()) {
                     CloudReplica cloudReplica = (CloudReplica) replica;
                     if (!request.isSetWarmUpJobId()) {
+                        // Lazy fetch path: return primary + secondary BEs from all compute groups.
+                        // This allows the BE to discover peer candidates across warehouses.
                         backends = cloudReplica.getAllPrimaryBes();
+                        // Also collect secondary backends (may have cached data during primary failover)
+                        for (String computeGroupId : cloudReplica.getPrimaryComputeGroupIds()) {
+                            Backend secondaryBe = cloudReplica.getSecondaryBackend(computeGroupId);
+                            if (secondaryBe != null) {
+                                backends.add(secondaryBe);
+                            }
+                        }
                     } else {
                         // On the cloud, the PrimaryBackend of a tablet
                         // indicates the BE where the tablet is stably located,
@@ -3629,6 +3646,13 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                         replicaInfo.setHttpPort(backend.getHttpPort());
                         replicaInfo.setBrpcPort(backend.getBrpcPort());
                         replicaInfo.setReplicaId(replica.getId());
+                        // Fill cloud_compute_group_id so BE can categorize candidates by compute group
+                        if (Config.isCloudMode()) {
+                            String beComputeGroupId = backend.getCloudClusterId();
+                            if (beComputeGroupId != null && !beComputeGroupId.isEmpty()) {
+                                replicaInfo.setCloudComputeGroupId(beComputeGroupId);
+                            }
+                        }
                         replicaInfos.add(replicaInfo);
                     }
                 }

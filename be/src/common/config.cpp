@@ -273,6 +273,8 @@ DEFINE_mInt32(download_low_speed_limit_kbps, "50");
 DEFINE_mInt32(download_low_speed_time, "300");
 // whether to download small files in batch
 DEFINE_mBool(enable_batch_download, "true");
+// whether to enable stream load forward endpoint for cloud group commit
+DEFINE_mBool(enable_group_commit_streamload_be_forward, "false");
 // whether to check md5sum when download
 DEFINE_mBool(enable_download_md5sum_check, "false");
 // download binlog meta timeout, default 30s
@@ -409,6 +411,7 @@ DEFINE_String(storage_page_cache_limit, "20%");
 // Shard size for page cache, the value must be power of two.
 // It's recommended to set it to a value close to the number of BE cores in order to reduce lock contentions.
 DEFINE_Int32(storage_page_cache_shard_size, "256");
+DEFINE_mInt32(file_cache_mem_storage_shard_num, "1024");
 // Percentage for index page cache
 // all storage page cache will be divided into data_page_cache and index_page_cache
 DEFINE_Int32(index_page_cache_percentage, "10");
@@ -649,8 +652,10 @@ DEFINE_mInt64(load_error_log_reserve_hours, "48");
 DEFINE_mInt64(load_error_log_limit_bytes, "209715200");
 
 DEFINE_Int32(brpc_heavy_work_pool_threads, "-1");
+DEFINE_Int32(brpc_peer_fetch_pool_threads, "-1");
 DEFINE_Int32(brpc_light_work_pool_threads, "-1");
 DEFINE_Int32(brpc_heavy_work_pool_max_queue_size, "-1");
+DEFINE_Int32(brpc_peer_fetch_pool_max_queue_size, "-1");
 DEFINE_Int32(brpc_light_work_pool_max_queue_size, "-1");
 DEFINE_mBool(enable_bthread_transmit_block, "true");
 DEFINE_Int32(brpc_arrow_flight_work_pool_threads, "-1");
@@ -1091,6 +1096,9 @@ DEFINE_String(tmp_file_dir, "tmp");
 DEFINE_Int32(min_s3_file_system_thread_num, "16");
 DEFINE_Int32(max_s3_file_system_thread_num, "64");
 
+DEFINE_Int32(min_peer_race_s3_thread_num, "0");
+DEFINE_Int32(max_peer_race_s3_thread_num, "32"); // aligned with default max_concurrent_peer_races
+
 DEFINE_Bool(enable_time_lut, "true");
 
 DEFINE_mBool(enable_query_like_bloom_filter, "true");
@@ -1174,7 +1182,11 @@ DEFINE_mBool(variant_enable_duplicate_json_path_check, "false");
 DEFINE_mInt32(variant_storage_parse_mode, "0");
 DEFINE_mBool(enable_vertical_compact_variant_subcolumns, "true");
 DEFINE_mBool(enable_variant_doc_sparse_write_subcolumns, "true");
-DEFINE_mBool(variant_nested_group_discard_scalar_on_conflict, "false");
+// Maximum depth of nested arrays to track with NestedGroup
+// Reserved for future use when NestedGroup expansion moves to storage layer
+// Deeper arrays will be stored as JSONB
+DEFINE_mInt32(variant_nested_group_max_depth, "10");
+DEFINE_mBool(variant_nested_group_discard_scalar_on_conflict, "true");
 
 DEFINE_Validator(variant_max_json_key_length,
                  [](const int config) -> bool { return config > 0 && config <= 65535; });
@@ -1421,6 +1433,9 @@ DEFINE_mInt32(group_commit_queue_mem_limit, "67108864");
 // group_commit_wal_max_disk_limit=1024 or group_commit_wal_max_disk_limit=10% can be automatically identified.
 DEFINE_String(group_commit_wal_max_disk_limit, "10%");
 DEFINE_Bool(group_commit_wait_replay_wal_finish, "false");
+// Max time(ms) to wait for creating group commit plan fragment.
+// 0 means no timeout, default 2min.
+DEFINE_mInt32(group_commit_create_plan_timeout_ms, "120000");
 
 DEFINE_mInt32(scan_thread_nice_value, "0");
 DEFINE_mInt32(tablet_schema_cache_recycle_interval, "3600");

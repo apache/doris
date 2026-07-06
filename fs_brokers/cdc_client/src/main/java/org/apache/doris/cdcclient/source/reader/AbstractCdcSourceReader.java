@@ -74,6 +74,15 @@ public abstract class AbstractCdcSourceReader implements SourceReader {
         // backend to take over.
         LOG.info("Release source reader for job {}", jobConfig.getJobId());
         finishSplitRecords();
+        shutdownSnapshotPollExecutor();
+    }
+
+    /** Stop the snapshot-phase poll thread pool; called when this reader instance is discarded. */
+    protected void shutdownSnapshotPollExecutor() {}
+
+    /** Drop source-side owned resources. Returns false if cleanup is incomplete (retry later). */
+    public boolean releaseSourceResources(JobBaseConfig jobConfig) {
+        return true;
     }
 
     protected abstract Class<?> probeSplitKeyClass(

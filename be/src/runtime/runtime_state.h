@@ -414,8 +414,11 @@ public:
                BeExecVersionManager::check_be_exec_version(_query_options.be_exec_version));
         return _query_options.be_exec_version;
     }
-    bool enable_local_shuffle() const {
-        return _query_options.__isset.enable_local_shuffle && _query_options.enable_local_shuffle;
+    bool plan_local_shuffle() const {
+        // If local shuffle is enabled and not planned by local shuffle planner, we should plan local shuffle in BE.
+        return _query_options.__isset.enable_local_shuffle && _query_options.enable_local_shuffle &&
+               (!_query_options.__isset.enable_local_shuffle_planner ||
+                !_query_options.enable_local_shuffle_planner);
     }
 
     MOCK_FUNCTION bool enable_local_exchange() const {
@@ -612,6 +615,11 @@ public:
     bool enable_aggregate_function_null_v2() const {
         return _query_options.__isset.enable_aggregate_function_null_v2 &&
                _query_options.enable_aggregate_function_null_v2;
+    }
+
+    bool enable_prune_nested_column() const {
+        return _query_options.__isset.enable_prune_nested_column &&
+               _query_options.enable_prune_nested_column;
     }
 
     bool is_read_csv_empty_line_as_null() const {

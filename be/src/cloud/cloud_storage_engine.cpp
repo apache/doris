@@ -230,7 +230,7 @@ Status CloudStorageEngine::open() {
 
     _file_cache_block_downloader = std::make_unique<io::FileCacheBlockDownloader>(*this);
 
-    _cloud_warm_up_manager = std::make_unique<CloudWarmUpManager>(*this);
+    _cloud_warm_up_manager = std::make_shared<CloudWarmUpManager>(*this);
 
     _tablet_hotspot = std::make_unique<TabletHotspot>();
 
@@ -292,6 +292,12 @@ void CloudStorageEngine::stop() {
 bool CloudStorageEngine::stopped() {
     return _stopped;
 }
+
+#ifdef BE_TEST
+void CloudStorageEngine::set_cloud_warm_up_manager(std::unique_ptr<CloudWarmUpManager> manager) {
+    _cloud_warm_up_manager = std::shared_ptr<CloudWarmUpManager>(std::move(manager));
+}
+#endif
 
 Result<BaseTabletSPtr> CloudStorageEngine::get_tablet(int64_t tablet_id,
                                                       SyncRowsetStats* sync_stats,
@@ -445,6 +451,15 @@ void CloudStorageEngine::_refresh_storage_vault_info_thread_callback() {
     while (!_stop_background_threads_latch.wait_for(
             std::chrono::seconds(config::refresh_s3_info_interval_s))) {
         sync_storage_vault();
+        // The other place that rebuilds the S3 rate limiter is S3ClientFactory::create(), which
+        // is not called when an existing vault's conf is unchanged. Trigger the check here as well
+        // so that dynamically modified s3_{get,put}_* rate limiter configs take effect within
+        // refresh_s3_info_interval_s even when no vault is created or its conf does not change.
+        // Gate it behind enable_s3_rate_limiter so that clusters with rate limiting disabled
+        // (e.g. HDFS-only vaults) do not force-initialize S3ClientFactory / the AWS SDK here.
+        if (config::enable_s3_rate_limiter) {
+            check_s3_rate_limiter_config_changed();
+        }
     }
 }
 

@@ -19,11 +19,13 @@ package org.apache.doris.cdcclient.utils;
 
 import org.apache.doris.job.cdc.DataSourceConfigKeys;
 
+import io.debezium.config.CommonConnectorConfig;
 import org.apache.flink.cdc.connectors.mysql.source.config.ServerIdRange;
 
 import java.time.ZoneId;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Properties;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
@@ -128,6 +130,63 @@ class ConfigUtilTest {
         assertEquals(0, result.length);
     }
 
+    // ─── getDefaultDebeziumProps: queue byte cap ──────────────────────────────
+
+    private static long queueBytes(Properties props) {
+        return Long.parseLong(
+                props.getProperty(CommonConnectorConfig.MAX_QUEUE_SIZE_IN_BYTES.name()));
+    }
+
+    @Test
+    void defaultQueueBytesWithinClamp() {
+        long bytes = queueBytes(ConfigUtil.getDefaultDebeziumProps());
+        assertTrue(bytes >= 64L * 1024 * 1024 && bytes <= 256L * 1024 * 1024,
+                "expected clamp to [64MB, 256MB] but got " + bytes);
+    }
+
+    @Test
+    void sysPropOverridesAdaptiveValue() {
+        String prev = System.getProperty(ConfigUtil.MAX_QUEUE_BYTES_SYS_PROP);
+        try {
+            System.setProperty(ConfigUtil.MAX_QUEUE_BYTES_SYS_PROP, "1048576");
+            assertEquals(1048576L, queueBytes(ConfigUtil.getDefaultDebeziumProps()));
+        } finally {
+            restore(prev);
+        }
+    }
+
+    @Test
+    void negativeSysPropDisablesByteBound() {
+        String prev = System.getProperty(ConfigUtil.MAX_QUEUE_BYTES_SYS_PROP);
+        try {
+            System.setProperty(ConfigUtil.MAX_QUEUE_BYTES_SYS_PROP, "-1");
+            assertEquals(0L, queueBytes(ConfigUtil.getDefaultDebeziumProps()));
+        } finally {
+            restore(prev);
+        }
+    }
+
+    @Test
+    void malformedSysPropFallsBackToClamp() {
+        String prev = System.getProperty(ConfigUtil.MAX_QUEUE_BYTES_SYS_PROP);
+        try {
+            System.setProperty(ConfigUtil.MAX_QUEUE_BYTES_SYS_PROP, "32MB");
+            long bytes = queueBytes(ConfigUtil.getDefaultDebeziumProps());
+            assertTrue(bytes >= 64L * 1024 * 1024 && bytes <= 256L * 1024 * 1024,
+                    "malformed override should fall back to [64MB, 256MB] but got " + bytes);
+        } finally {
+            restore(prev);
+        }
+    }
+
+    private static void restore(String prev) {
+        if (prev == null) {
+            System.clearProperty(ConfigUtil.MAX_QUEUE_BYTES_SYS_PROP);
+        } else {
+            System.setProperty(ConfigUtil.MAX_QUEUE_BYTES_SYS_PROP, prev);
+        }
+    }
+
     // ─── server timezone parsing ──────────────────────────────────────────────
 
     @Test
@@ -212,6 +271,21 @@ class ConfigUtilTest {
     }
 
     @Test
+    void parseAllExcludeColumns_preservesOriginalCase() {
+        // Table name in config key is preserved as-is; callers must use the
+        // same case that Debezium returns (which is the PG/MySQL stored name).
+        Map<String, String> config = new HashMap<>();
+        config.put("table.MyTable.exclude_columns", "a,b");
+        config.put("table.T_User.exclude_columns", "c");
+
+        Map<String, Set<String>> all = ConfigUtil.parseAllExcludeColumns(config);
+
+        assertEquals(2, all.size());
+        assertEquals(Set.of("a", "b"), all.get("MyTable"));
+        assertEquals(Set.of("c"), all.get("T_User"));
+    }
+
+    @Test
     void parseAllTargetTableMappings_skipsEmptyValues() {
         Map<String, String> config = new HashMap<>();
         config.put("table.src.target_table", "dst");
@@ -221,6 +295,31 @@ class ConfigUtilTest {
 
         assertEquals(1, mappings.size());
         assertEquals("dst", mappings.get("src"));
+    }
+
+    @Test
+    void parseAllTargetTableMappings_preservesOriginalCase() {
+        Map<String, String> config = new HashMap<>();
+        config.put("table.MyTable.target_table", "DstTable");
+        config.put("table.Src.target_table", "Dst2");
+
+        Map<String, String> mappings = ConfigUtil.parseAllTargetTableMappings(config);
+
+        assertEquals(2, mappings.size());
+        assertEquals("DstTable", mappings.get("MyTable"));
+        assertEquals("Dst2", mappings.get("Src"));
+    }
+
+    // ─── getTableList case handling ───────────────────────────────────────────
+
+    @Test
+    void tableListPreservesOriginalCase() {
+        // include_tables values are passed through as-is; Flink CDC's (?i) regex
+        // handles case-insensitive matching downstream.
+        Map<String, String> config = new HashMap<>();
+        config.put(DataSourceConfigKeys.INCLUDE_TABLES, "MyTable, T_User");
+        String[] result = ConfigUtil.getTableList("db", config);
+        assertArrayEquals(new String[] {"db.MyTable", "db.T_User"}, result);
     }
 
     // ─── toStringMap ──────────────────────────────────────────────────────────

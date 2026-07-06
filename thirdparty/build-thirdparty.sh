@@ -33,6 +33,8 @@ set -eo pipefail
 
 curdir="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 
+TP_CXX_STANDARD=20
+
 export DORIS_HOME="${curdir}/.."
 export TP_DIR="${curdir}"
 
@@ -723,7 +725,8 @@ build_re2() {
     cd "${TP_SOURCE_DIR}/${RE2_SOURCE}"
 
     "${CMAKE_CMD}" -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
-        -DCMAKE_BUILD_TYPE=Release -G "${GENERATOR}" -DBUILD_SHARED_LIBS=0 -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+        -DCMAKE_BUILD_TYPE=Release \
+        -G "${GENERATOR}" -DBUILD_SHARED_LIBS=0 -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
         -DCMAKE_PREFIX_PATH="${TP_INSTALL_DIR}" -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}"
     "${BUILD_SYSTEM}" -j "${PARALLEL}" install
     strip_lib libre2.a
@@ -995,6 +998,7 @@ build_flatbuffers() {
     "${BUILD_SYSTEM}" -j "${PARALLEL}"
 
     cp flatc ../../../installed/bin/flatc
+    rm -rf ../../../installed/include/flatbuffers
     cp -r ../include/flatbuffers ../../../installed/include/flatbuffers
     cp libflatbuffers.a ../../../installed/lib/libflatbuffers.a
 }
@@ -1084,8 +1088,11 @@ build_arrow() {
         ldflags="-L${TP_LIB_DIR}"
     fi
 
-    LDFLAGS="${ldflags}" \
+    CPPFLAGS="-I${TP_INCLUDE_DIR}" \
+        CXXFLAGS="-I${TP_INCLUDE_DIR}" \
+        LDFLAGS="${ldflags}" \
         "${CMAKE_CMD}" -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+        -DCMAKE_CXX_STANDARD="${TP_CXX_STANDARD}" \
         -G "${GENERATOR}" -DARROW_PARQUET=ON -DARROW_IPC=ON -DARROW_BUILD_SHARED=OFF \
         -DARROW_BUILD_STATIC=ON -DARROW_WITH_BROTLI=ON -DARROW_WITH_LZ4=ON -DARROW_USE_GLOG=ON \
         -DARROW_WITH_SNAPPY=ON -DARROW_WITH_ZLIB=ON -DARROW_WITH_ZSTD=ON -DARROW_JSON=ON \
@@ -2024,6 +2031,7 @@ build_paimon_cpp() {
     "${CMAKE_CMD}" -C "${TP_DIR}/paimon-cpp-cache.cmake" \
         -G "${GENERATOR}" \
         -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+        -DCMAKE_CXX_STANDARD="${TP_CXX_STANDARD}" \
         -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
         -DPAIMON_BUILD_SHARED=OFF \
         -DPAIMON_BUILD_STATIC=ON \

@@ -102,7 +102,8 @@ struct MockAggSourceOperator : public AggSourceOperatorX {
 
 class MockDistributionOperator final : public OperatorX<MockLocalState> {
 public:
-    MockDistributionOperator(ExchangeType exchange_type) : _exchange_type(exchange_type) {}
+    MockDistributionOperator(TLocalPartitionType::type exchange_type)
+            : _exchange_type(exchange_type) {}
 
     Status get_block_impl(RuntimeState* /*state*/, Block* /*block*/, bool* eos) override {
         *eos = true;
@@ -114,7 +115,7 @@ public:
     }
 
 private:
-    ExchangeType _exchange_type;
+    TLocalPartitionType::type _exchange_type;
 };
 
 std::shared_ptr<AggSinkOperatorX> create_agg_sink_op(OperatorContext& ctx, bool is_merge,
@@ -133,11 +134,11 @@ TEST(AggOperatorRequiredDistributionTest, require_hash_shuffle_after_non_hash_ch
     sink_op->_partition_exprs.emplace_back();
     sink_op->_needs_finalize = false;
     OperatorPtr child =
-            std::make_shared<MockDistributionOperator>(ExchangeType::ADAPTIVE_PASSTHROUGH);
+            std::make_shared<MockDistributionOperator>(TLocalPartitionType::ADAPTIVE_PASSTHROUGH);
     sink_op->_child = child;
 
     const auto distribution = sink_op->required_data_distribution(&ctx.state);
-    EXPECT_EQ(ExchangeType::HASH_SHUFFLE, distribution.distribution_type);
+    EXPECT_EQ(TLocalPartitionType::GLOBAL_EXECUTION_HASH_SHUFFLE, distribution.distribution_type);
 }
 
 TEST(AggOperatorRequiredDistributionTest, require_hash_shuffle_after_non_hash_local_exchange) {
@@ -145,7 +146,7 @@ TEST(AggOperatorRequiredDistributionTest, require_hash_shuffle_after_non_hash_lo
     auto sink_op = std::make_shared<MockAggsinkOperator>();
     sink_op->_needs_finalize = false;
     OperatorPtr child = std::make_shared<LocalExchangeSourceOperatorX>();
-    EXPECT_TRUE(child->init(ExchangeType::ADAPTIVE_PASSTHROUGH).ok());
+    EXPECT_TRUE(child->init(TLocalPartitionType::ADAPTIVE_PASSTHROUGH).ok());
     sink_op->_child = child;
 
     TExpr distinct_agg_expr;
@@ -157,11 +158,12 @@ TEST(AggOperatorRequiredDistributionTest, require_hash_shuffle_after_non_hash_lo
     sink_op->update_operator(tnode, false, false);
 
     const auto distribution = sink_op->required_data_distribution(&ctx.state);
-    EXPECT_EQ(ExchangeType::HASH_SHUFFLE, distribution.distribution_type);
+    EXPECT_EQ(TLocalPartitionType::GLOBAL_EXECUTION_HASH_SHUFFLE, distribution.distribution_type);
 
     Pipeline pipeline(0, 4, 4);
     EXPECT_TRUE(pipeline.add_operator(child, 0).ok());
-    pipeline.set_data_distribution(DataDistribution(ExchangeType::HASH_SHUFFLE));
+    pipeline.set_data_distribution(
+            DataDistribution(TLocalPartitionType::GLOBAL_EXECUTION_HASH_SHUFFLE));
     EXPECT_TRUE(pipeline.need_to_local_exchange(distribution, 1));
 }
 

@@ -19,6 +19,7 @@
 
 #include <cstddef>
 #include <memory>
+#include <set>
 
 #include "common/status.h"
 #include "core/block/block.h"
@@ -130,6 +131,11 @@ public:
     io::IOContext io_ctx;
     VExprContextSPtrs common_expr_ctxs_push_down;
     const std::set<int32_t>* output_columns = nullptr;
+    // Extra storage key columns that are included only to keep the scan schema
+    // aligned with the storage key prefix. SegmentIterator can synthesize
+    // placeholders only after proving predicates, delete conditions, and
+    // expressions do not need their real values.
+    std::set<ColumnId> extra_columns;
     // runtime state
     RuntimeState* runtime_state = nullptr;
     RowsetId rowset_id;
@@ -148,8 +154,6 @@ public:
 
     std::map<ColumnId, VExprContextSPtr> virtual_column_exprs;
     std::shared_ptr<segment_v2::AnnTopNRuntime> ann_topn_runtime;
-    std::map<ColumnId, size_t> vir_cid_to_idx_in_block;
-    std::map<size_t, DataTypePtr> vir_col_idx_to_type;
 
     std::map<int32_t, TColumnAccessPaths> all_access_paths;
     std::map<int32_t, TColumnAccessPaths> predicate_access_paths;

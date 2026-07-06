@@ -30,6 +30,7 @@ file(GLOB_RECURSE UT_FILES CONFIGURE_DEPENDS
     exec/*.cpp
     exprs/*.cpp
     format/*.cpp
+    format_v2/*.cpp
     gutil/*.cpp
     io/*.cpp
     load/*.cpp
@@ -52,6 +53,12 @@ endif()
 if (ENABLE_TLS)
     file(GLOB_RECURSE TLS_UT_FILES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/${TLS_MODULE_DIR}/*.cpp")
     list(APPEND UT_FILES ${TLS_UT_FILES})
+endif()
+
+if (ENABLE_VARIANT_NESTED_GROUP)
+    file(GLOB_RECURSE VARIANT_NESTED_GROUP_UT_FILES CONFIGURE_DEPENDS
+            "${CMAKE_CURRENT_SOURCE_DIR}/${VARIANT_NESTED_GROUP_MODULE_DIR}/*.cpp")
+    list(APPEND UT_FILES ${VARIANT_NESTED_GROUP_UT_FILES})
 endif()
 
 # Remove all cpp files from vector search (ANN index) subdirectory

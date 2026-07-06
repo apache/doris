@@ -32,6 +32,7 @@
 #include "core/call_on_type_index.h"
 #include "core/column/column.h"
 #include "core/column/column_array.h"
+#include "core/column/column_array_view.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
 #include "core/column/column_vector.h"
@@ -218,60 +219,40 @@ public:
     }
 
 private:
-    ColumnPtr _execute_string(const ColumnArray::Offsets64& offsets, const UInt8* nested_null_map,
-                              const IColumn& nested_column, const IColumn& right_column,
-                              const UInt8* right_nested_null_map,
-                              const UInt8* outer_null_map) const {
-        // check array nested column type and get data
-        const auto& str_offs = reinterpret_cast<const ColumnString&>(nested_column).get_offsets();
-        const auto& str_chars = reinterpret_cast<const ColumnString&>(nested_column).get_chars();
-
-        // check right column type and get data
-        const auto& right_offs = reinterpret_cast<const ColumnString&>(right_column).get_offsets();
-        const auto& right_chars = reinterpret_cast<const ColumnString&>(right_column).get_chars();
-
+    template <PrimitiveType PType>
+    ColumnPtr _execute_view(const ColumnArrayView<PType>& array_view,
+                            const ColumnView<PType>& right_view) const {
         // prepare return data
-        auto dst = PrimitiveTypeTraits<ResultType>::ColumnType::create(offsets.size(), 0);
+        auto dst = PrimitiveTypeTraits<ResultType>::ColumnType::create(array_view.size(), 0);
         auto& dst_data = dst->get_data();
-        auto dst_null_column = ColumnUInt8::create(offsets.size(), 0);
+        auto dst_null_column = ColumnUInt8::create(array_view.size(), 0);
         auto& dst_null_data = dst_null_column->get_data();
 
         // process
-        for (size_t row = 0; row < offsets.size(); ++row) {
-            if (outer_null_map && outer_null_map[row]) {
+        for (size_t row = 0; row < array_view.size(); ++row) {
+            if (array_view.is_null_at(row)) {
                 dst_null_data[row] = true;
                 continue;
             }
             dst_null_data[row] = false;
             typename PrimitiveTypeTraits<ResultType>::CppType res = 0;
-            size_t off = offsets[row - 1];
-            size_t len = offsets[row] - off;
-
-            size_t right_off = right_offs[row - 1];
-            size_t right_len = right_offs[row] - right_off;
-            for (size_t pos = 0; pos < len; ++pos) {
+            const auto array_data = array_view[row];
+            for (size_t pos = 0; pos < array_data.size(); ++pos) {
                 // match null value
-                if (right_nested_null_map && right_nested_null_map[row] && nested_null_map &&
-                    nested_null_map[pos + off]) {
+                if (right_view.is_null_at(row) && array_data.is_null_at(pos)) {
                     ConcreteAction::apply(res, pos);
                     if constexpr (!ConcreteAction::resume_execution) {
                         break;
                     }
                 }
                 // some is null while another is not
-                if (right_nested_null_map && nested_null_map &&
-                    right_nested_null_map[row] != nested_null_map[pos + off]) {
+                if (right_view.is_null_at(row) != array_data.is_null_at(pos)) {
                     continue;
                 }
-                if (nested_null_map && nested_null_map[pos + off]) {
+                if (array_data.is_null_at(pos)) {
                     continue;
                 }
-                size_t str_pos = str_offs[pos + off - 1];
-                size_t str_len = str_offs[pos + off] - str_pos;
-                const char* left_raw_v = reinterpret_cast<const char*>(&str_chars[str_pos]);
-                const char* right_raw_v = reinterpret_cast<const char*>(&right_chars[right_off]);
-                // StringRef operator == using vec impl
-                if (StringRef(left_raw_v, str_len) == StringRef(right_raw_v, right_len)) {
+                if (array_data.value_at(pos) == right_view.value_at(row)) {
                     ConcreteAction::apply(res, pos);
                     if constexpr (!ConcreteAction::resume_execution) {
                         break;
@@ -281,125 +262,17 @@ private:
             dst_data[row] = res;
         }
 
-        if (outer_null_map == nullptr) {
+        if (!array_view.is_nullable()) {
             return dst;
         }
         return ColumnNullable::create(std::move(dst), std::move(dst_null_column));
-    }
-
-    template <typename NestedColumnType, typename RightColumnType>
-    ColumnPtr _execute_number(const ColumnArray::Offsets64& offsets, const UInt8* nested_null_map,
-                              const IColumn& nested_column, const IColumn& right_column,
-                              const UInt8* right_nested_null_map,
-                              const UInt8* outer_null_map) const {
-        // check array nested column type and get data
-        const auto& nested_data =
-                reinterpret_cast<const NestedColumnType&>(nested_column).get_data();
-
-        // check right column type and get data
-        const auto& right_data = reinterpret_cast<const RightColumnType&>(right_column).get_data();
-
-        // prepare return data
-        auto dst = PrimitiveTypeTraits<ResultType>::ColumnType::create(offsets.size(), 0);
-        auto& dst_data = dst->get_data();
-        auto dst_null_column = ColumnUInt8::create(offsets.size(), 0);
-        auto& dst_null_data = dst_null_column->get_data();
-
-        // process
-        for (size_t row = 0; row < offsets.size(); ++row) {
-            if (outer_null_map && outer_null_map[row]) {
-                dst_null_data[row] = true;
-                continue;
-            }
-            dst_null_data[row] = false;
-            typename PrimitiveTypeTraits<ResultType>::CppType res = 0;
-            size_t off = offsets[row - 1];
-            size_t len = offsets[row] - off;
-            for (size_t pos = 0; pos < len; ++pos) {
-                // match null value
-                if (right_nested_null_map && right_nested_null_map[row] && nested_null_map &&
-                    nested_null_map[pos + off]) {
-                    ConcreteAction::apply(res, pos);
-                    if constexpr (!ConcreteAction::resume_execution) {
-                        break;
-                    }
-                }
-                // some is null while another is not
-                if (right_nested_null_map && nested_null_map &&
-                    right_nested_null_map[row] != nested_null_map[pos + off]) {
-                    continue;
-                }
-                if (nested_null_map && nested_null_map[pos + off]) {
-                    continue;
-                }
-                if (nested_data[pos + off] == right_data[row]) {
-                    ConcreteAction::apply(res, pos);
-                    if constexpr (!ConcreteAction::resume_execution) {
-                        break;
-                    }
-                }
-            }
-            dst_data[row] = res;
-        }
-
-        if (outer_null_map == nullptr) {
-            return dst;
-        }
-        return ColumnNullable::create(std::move(dst), std::move(dst_null_column));
-    }
-
-    template <typename NestedColumnType>
-    ColumnPtr _execute_number_expanded(const ColumnArray::Offsets64& offsets,
-                                       const UInt8* nested_null_map, const IColumn& nested_column,
-                                       const IColumn& right_column,
-                                       const UInt8* right_nested_null_map,
-                                       const UInt8* outer_null_map) const {
-        if (is_column<NestedColumnType>(right_column)) {
-            return _execute_number<NestedColumnType, NestedColumnType>(
-                    offsets, nested_null_map, nested_column, right_column, right_nested_null_map,
-                    outer_null_map);
-        }
-        return nullptr;
     }
 
     Status _execute_dispatch(Block& block, const ColumnNumbers& arguments, uint32_t result,
                              size_t input_rows_count) const {
-        // extract array offsets and nested data
-        auto left_column =
-                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
         if (block.get_by_position(arguments[0]).type->get_primitive_type() != TYPE_ARRAY) {
             return Status::InvalidArgument(get_name() + " first argument must be array, but got " +
                                            block.get_by_position(arguments[0]).type->get_name());
-        }
-        const ColumnArray* array_column = nullptr;
-        const UInt8* array_null_map = nullptr;
-        if (const auto* nullable_array = check_and_get_column<ColumnNullable>(left_column.get())) {
-            array_column =
-                    reinterpret_cast<const ColumnArray*>(&nullable_array->get_nested_column());
-            array_null_map = nullable_array->get_null_map_column().get_data().data();
-        } else {
-            array_column = reinterpret_cast<const ColumnArray*>(left_column.get());
-        }
-        const auto& offsets = array_column->get_offsets();
-        const UInt8* nested_null_map = nullptr;
-        ColumnPtr nested_column = nullptr;
-        if (const auto* nested_null_column =
-                    check_and_get_column<ColumnNullable>(&array_column->get_data())) {
-            nested_null_map = nested_null_column->get_null_map_column().get_data().data();
-            nested_column = nested_null_column->get_nested_column_ptr();
-        } else {
-            nested_column = array_column->get_data_ptr();
-        }
-
-        // get right column
-        ColumnPtr right_full_column =
-                block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
-        ColumnPtr right_column = right_full_column;
-        const UInt8* right_nested_null_map = nullptr;
-        if (const auto* nested_null_column =
-                    check_and_get_column<ColumnNullable>(right_column.get())) {
-            right_column = nested_null_column->get_nested_column_ptr();
-            right_nested_null_map = nested_null_column->get_null_map_column().get_data().data();
         }
         // execute
         auto array_type = remove_nullable(block.get_by_position(arguments[0]).type);
@@ -407,24 +280,22 @@ private:
                 assert_cast<const DataTypeArray*>(array_type.get())->get_nested_type());
         auto right_type = remove_nullable(block.get_by_position(arguments[1]).type);
 
+        auto left_element_primitive_type = left_element_type->get_primitive_type();
+        auto right_primitive_type = right_type->get_primitive_type();
         ColumnPtr return_column = nullptr;
-        if (is_string_type(right_type->get_primitive_type()) &&
-            is_string_type(left_element_type->get_primitive_type())) {
-            return_column = _execute_string(offsets, nested_null_map, *nested_column, *right_column,
-                                            right_nested_null_map, array_null_map);
-        } else if (right_type->get_primitive_type() == left_element_type->get_primitive_type()) {
+        if (right_primitive_type == left_element_primitive_type ||
+            (is_string_type(right_primitive_type) && is_string_type(left_element_primitive_type))) {
             auto call = [&](const auto& type) -> bool {
                 using DispatchType = std::decay_t<decltype(type)>;
-                auto col = _execute_number_expanded<typename DispatchType::ColumnType>(
-                        offsets, nested_null_map, *nested_column, *right_column,
-                        right_nested_null_map, array_null_map);
-                if (col) {
-                    return_column = std::move(col);
-                    return true;
-                }
-                return false;
+                constexpr PrimitiveType PType = DispatchType::PType;
+                auto array_view =
+                        ColumnArrayView<PType>::create(block.get_by_position(arguments[0]).column);
+                auto right_view =
+                        ColumnView<PType>::create(block.get_by_position(arguments[1]).column);
+                return_column = _execute_view(array_view, right_view);
+                return true;
             };
-            dispatch_switch_scalar(right_type->get_primitive_type(), call);
+            dispatch_switch_all(left_element_primitive_type, call);
         }
 
         if (return_column) {

@@ -23,7 +23,6 @@ import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.catalog.AIResource;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FsBroker;
-import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.MarkedCountDownLatch;
@@ -129,9 +128,6 @@ import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TTabletCommitInfo;
 import org.apache.doris.thrift.TTopnFilterDesc;
 import org.apache.doris.thrift.TUniqueId;
-import org.apache.doris.transaction.TransactionState;
-import org.apache.doris.transaction.TransactionStatus;
-import org.apache.doris.tso.TSOTimestamp;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
@@ -363,7 +359,6 @@ public class Coordinator implements CoordInterface {
         } else {
             distributedPlans = ((NereidsPlanner) planner).getDistributedPlans();
         }
-
         setFromUserProperty(context);
 
         this.queryGlobals.setNowString(TimeUtils.getDatetimeFormatWithTimeZone().format(LocalDateTime.now()));
@@ -439,6 +434,8 @@ public class Coordinator implements CoordInterface {
         this.queryOptions.setFeProcessUuid(ExecuteEnv.getInstance().getProcessUUID());
         this.queryOptions.setMysqlRowBinaryFormat(
                     context.getCommand() == MysqlCommand.COM_STMT_EXECUTE);
+        // Old Coordinator never plans local exchange in FE. Force BE to plan its own.
+        this.queryOptions.setEnableLocalShufflePlanner(false);
     }
 
     public ConnectContext getConnectContext() {
@@ -631,102 +628,6 @@ public class Coordinator implements CoordInterface {
         }
     }
 
-    protected static void waitForTimeBasedReadTransactionsVisible(ConnectContext context, List<ScanNode> scanNodes,
-                                                           TQueryGlobals queryGlobals) throws Exception {
-        if (context == null) {
-            return;
-        }
-        SessionVariable sessionVariable = context.getSessionVariable();
-        if (sessionVariable == null || sessionVariable.isEnableEventualConsistentChange()) {
-            return;
-        }
-
-        // Collect (dbId, tableId) -> max(endTSO)
-        Map<Pair<Long, Long>, Long> tableEndTSO = new HashMap<>();
-        for (ScanNode scanNode : scanNodes) {
-            if (scanNode instanceof OlapScanNode) {
-                OlapScanNode olapScanNode = (OlapScanNode) scanNode;
-                if (olapScanNode.isChangeScan()) {
-                    long endTsMs = olapScanNode.getIncrementalScanEndTime();
-                    if (endTsMs <= 0) {
-                        endTsMs = queryGlobals.getTimestampMs();
-                    }
-                    long endTSO = TSOTimestamp.composeFullTimestamp(endTsMs);
-                    addTableEndTimestamp(tableEndTSO, olapScanNode.getOlapTable(), endTSO);
-                }
-            }
-        }
-        if (tableEndTSO.isEmpty()) {
-            return;
-        }
-
-        long deadlineMs = System.currentTimeMillis() + sessionVariable.getChangeVisibleTimeoutMs();
-        for (Map.Entry<Pair<Long, Long>, Long> entry : tableEndTSO.entrySet()) {
-            long dbId = entry.getKey().first;
-            long tableId = entry.getKey().second;
-            long endTSO = entry.getValue();
-
-            List<TransactionState> committedTxns;
-            try {
-                committedTxns = Env.getCurrentGlobalTransactionMgr().getCommittedTransactions(dbId);
-            } catch (Exception e) {
-                throw new UserException("get committed transactions failed. dbId=" + dbId, e);
-            }
-
-            for (TransactionState txn : committedTxns) {
-                if (txn == null
-                        || txn.getTransactionStatus() != TransactionStatus.COMMITTED
-                        || txn.getTableIdList() == null
-                        || !txn.getTableIdList().contains(tableId)) {
-                    continue;
-                }
-
-                if (txn.getCommitTSO() < 0 || txn.getCommitTSO() > endTSO) {
-                    continue;
-                }
-
-                long remainingMs = deadlineMs - System.currentTimeMillis();
-                if (remainingMs <= 0) {
-                    throw new UserException(String.format(
-                            "timeout waiting committed transactions become visible for time-based read, "
-                                    + "dbId=%d tableId=%d endTSO=%d",
-                            dbId, tableId, endTSO));
-                }
-
-                while (txn.getTransactionStatus() == TransactionStatus.COMMITTED
-                        && remainingMs > 0) {
-                    try {
-                        txn.waitTransactionVisible(remainingMs);
-                    } catch (InterruptedException ignored) {
-                        // ignore
-                    }
-                    remainingMs = deadlineMs - System.currentTimeMillis();
-                }
-
-                if (txn.getTransactionStatus() == TransactionStatus.COMMITTED) {
-                    throw new UserException(String.format(
-                            "timeout waiting transaction become visible for time-based read, "
-                                    + "txnId=%d dbId=%d tableId=%d endTSO=%d",
-                            txn.getTransactionId(), dbId, tableId, endTSO));
-                }
-            }
-        }
-    }
-
-    private static void addTableEndTimestamp(Map<Pair<Long, Long>, Long> tableEndTimestampMs,
-                                             OlapTable table, long endTimestampMs) {
-        if (table == null || table.getDatabase() == null) {
-            return;
-        }
-        long dbId = table.getDatabase().getId();
-        long tableId = table.getId();
-        Pair<Long, Long> key = Pair.of(dbId, tableId);
-        Long oldEnd = tableEndTimestampMs.get(key);
-        if (oldEnd == null || oldEnd < endTimestampMs) {
-            tableEndTimestampMs.put(key, endTimestampMs);
-        }
-    }
-
     protected void processFragmentAssignmentAndParams() throws Exception {
         // prepare information
         prepare();
@@ -836,7 +737,6 @@ public class Coordinator implements CoordInterface {
                     DebugUtil.printId(queryId), fragments.get(0).toThrift());
         }
 
-        waitForTimeBasedReadTransactionsVisible(context, scanNodes, queryGlobals);
         processFragmentAssignmentAndParams();
 
         traceInstance();
@@ -2992,7 +2892,7 @@ public class Coordinator implements CoordInterface {
                             Optional<ScanNode> node = scanNodes.stream().filter(
                                     scanNode -> scanNode.getId().asInt() == scanId).findFirst();
                             Preconditions.checkArgument(node.isPresent());
-                            FInstanceExecParam instanceParamToScan = node.get().isSerialOperator()
+                            FInstanceExecParam instanceParamToScan = node.get().isSerialNode()
                                     ? firstInstanceParam : instanceParam;
                             if (!instanceParamToScan.perNodeScanRanges.containsKey(nodeScanRange.getKey())) {
                                 range.put(nodeScanRange.getKey(), Lists.newArrayList());
