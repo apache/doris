@@ -5,16 +5,18 @@
 
 ---
 
-# 🎯 当前状态（2026-07-06）= **P7.1（DDL 写）已完成合入前状态；P7.3（写/事务，关键路径）已完成 recon + 3 项决策 + 逐 task 拆解（写进 spec，无实现代码）；下一步 = 实现 P7.3-T01…T11**
+# 🎯 当前状态（2026-07-06）= **P7.3 已落地首个独立可交付（T07 delete-delta 回归修复，已 commit `c30fa15d99a`）；核心写/事务批（T01–T05）+ 6 文件 retype（T06）+ 读侧 ACID 搬迁（T07 剩余）+ 中立 seam（T08）+ 测试/门（T09–T11）待做**
 
-> **本轮（P7.3 开场 recon + 设计 session）做了什么** —— **无实现代码**，产出 = P7.3 逐 task 拆解 + 决策，全部写进 `tasks/P7-hive-migration.md` 末尾「**P7.3 逐 task 拆解**」块（OQ 段已标 ✅）：
-> 1. **选定子阶段**：用户在 P7.2（event）/ P7.3（写/事务）二选一中选 **P7.3（关键路径、最难、R-002）**。
-> 2. **4-agent 并行 code-grounded recon**（直读 HEAD）：写引擎 `HMSTransaction` / 6 文件写链 / 读侧 ACID / 目标 SPI+桥接。
-> 3. **关键去风险发现**：**通用写入通路已由 iceberg P6 建好**（`PhysicalConnectorTableSink → PluginDrivenTableSink → PluginDrivenInsertExecutor` + `ConnectorTransaction`/`ConnectorWritePlanProvider`/`PluginDrivenTransactionManager`，**fe-core 桥零改动**）。⇒ P7.3 = 把 hive INSERT 折进现成通路 + 照抄 `IcebergConnectorTransaction`/`IcebergWriteContext`，**非从零发明 seam**。
-> 4. **缺的 HMS 写原语底层全有**（vendored `HiveMetaStoreClient` 已实现 addPartitions/stats/ACID 全套）→ 缺的只是 `HmsClient` 接口开口 + 一行 `execute` 转发。老写引擎写原语已干净隔离在 `hiveOps` 后。
-> 5. **⚠️ 揪出一处已存真实回归（必修，T07）**：插件 `HiveScanRange.populateTransactionalHiveParams` 处理 ACID delete-delta **只填目录、丢文件名**（老 fe-core 两者都填）→ 翻闸后事务表静默读错。
+> **本轮（P7.3 实现开场）做了什么** —— **1 个独立 commit**（`c30fa15d99a`），只做了 spec 揪出的那处**已存真实回归**（T07 的隔离必修部分）：
+> - **修 `HiveScanRange.populateTransactionalHiveParams`**（`fe-connector-hive`）：builder `acidInfo` 把 delete-delta 编码成 `dir|file1,file2`，但 populate 步只 decode 目录、`|` 后文件名整段丢弃 → 翻闸后事务表 BE 定位不到删除记录、**静默少删**（老 fe-core `HiveScanNode.setScanParams` 两者都填）。改成解析 `|` 后逗号分隔文件名并 `setFileNames`；纯目录编码（无 `|`）仍只填目录、不带文件名。
+> - **加单测** `HiveScanRangeAcidTest`（3 例，无 Mockito）：encode/decode 往返（断言文件名回来了）+ 纯目录例 + 非事务表不发 params 例。build SUCCESS / 3 pass / checkstyle 0 / import-gate 净。
+> - **为何只做这一处**：T01–T05 是**互锁原子批**（写原语签名须由事务实际调用点反推，不得先作死代码落地——P7.1 教训），无更小的可独立编译切片；照 spec 移植 1895 行 `HMSTransaction` + `HiveTableSink.bindDataSink` 是**多 session** 工作。T07 这处回归是唯一「独立、有界、本 session 可完整交付+验证」的片。
+> - **T07 剩余未动**：`AcidUtil`/读侧 `HiveTransaction`/`AcidInfo`/`DeleteDeltaInfo` 搬入插件 + 调用 `acidInfo` 的生产者接线，仍在 fe-core，未迁。
 >
-> **本轮三项决策（2026-07-06，spec OQ 段已标 ✅）**：① **OQ-RTX = 主干加通用 per-query finish 回调**（连接器无关，替 `QeProcessorImpl:210→Env.getCurrentHiveTransactionMgr` 硬编，对齐 Trino；hive 读事务管理器随之从 `Env` 摘掉入插件）；② **OQ-ACID-WRITE = 迁移行为保持**（非-ACID 写 + ACID 读迁到位，full-ACID 写继续硬拒，控 R-002）；③ **OQ-LOCK = 保持现状**（读侧共享 HMS 锁无 heartbeat，原样保留）。
+> **上一轮（P7.3 recon+设计）已定的产出仍有效**（写进 `tasks/P7-hive-migration.md` 末尾「**P7.3 逐 task 拆解**」块 + OQ 段 ✅）：
+> - **通用写入通路已由 iceberg P6 建好**（`PhysicalConnectorTableSink → PluginDrivenTableSink → PluginDrivenInsertExecutor` + `ConnectorTransaction`/`ConnectorWritePlanProvider`/`PluginDrivenTransactionManager`，**fe-core 桥零改动**）⇒ P7.3 = 把 hive INSERT 折进现成通路 + 照抄 `IcebergConnectorTransaction`/`IcebergWriteContext`，非从零发明 seam。
+> - **缺的 HMS 写原语底层全有**（vendored `HiveMetaStoreClient` 已实现 addPartitions/stats/ACID 全套）→ 缺的只是 `HmsClient` 接口开口 + 一行 `execute` 转发。
+> - **三项决策（2026-07-06，spec OQ 段 ✅）**：① **OQ-RTX = 主干加通用 per-query finish 回调**（连接器无关，替 `QeProcessorImpl:210→Env.getCurrentHiveTransactionMgr` 硬编，对齐 Trino）；② **OQ-ACID-WRITE = 迁移行为保持**（非-ACID 写 + ACID 读迁到位，full-ACID 写继续硬拒，控 R-002）；③ **OQ-LOCK = 保持现状**（读侧共享 HMS 锁无 heartbeat）。
 >
 > **P7.1 交付的地基（已在工作分支）**：`fe-connector-hms` 有 DDL 写客户端（create/drop db+table、truncate，default-throw seam + `ThriftHmsClient` 实现）；`fe-connector-hive` `HiveConnectorMetadata` DDL override 齐（txn/planWrite override 仍 0）；env channel 通；shared converter 带列默认值 + 显式分区标志。
 
@@ -38,14 +40,14 @@
 
 ---
 
-# 🚀 下个 session 任务 = **实现 P7.3（写/事务，关键路径）——照 spec「P7.3 逐 task 拆解」块 T01–T11 逐 task commit+build+test+checkstyle；recon+决策已完成，直接写代码**
+# 🚀 下个 session 任务 = **实现 P7.3 核心写/事务批（T01–T05 原子批 → T06 retype → T07 剩余 + T08 → T09–T11）；T07 回归修复已单独落地（`c30fa15d99a`），勿重做**
 
 > **权威计划**：`tasks/P7-hive-migration.md` 末尾「**P7.3 逐 task 拆解**」块（recon 结论 + 3 决策 + T01–T11 任务表 + 移植指针 + HEAD 行号）。**信 HEAD 控制流不信本文/spec 行号。** 模板 = `IcebergConnectorTransaction`/`IcebergWriteContext`/`IcebergConnectorMetadata.beginTransaction+planWrite`；fe-core 桥 `PluginDrivenTransactionManager`/`PluginDrivenInsertExecutor` **零改动**。
 
 ## 开场要点（P7.3 实现）
 
 1. **不发明中立 seam**：通用写入通路现成（iceberg P6 建）。P7.3 = 把 hive INSERT 折进现成通路 + 照抄 iceberg 事务。
-2. **落地顺序**（spec 已排）：**组1 写原语（T01/T02）与组2 连接器事务（T03–T05）同批 commit**（P7.1 教训：写原语不得先于事务作死代码，签名由实际调用反推）；组3 6 文件 retype（T06）依赖组2 provider/txn 就位；组4 读侧 ACID（T07，含**回归修复**）+ 组5 读事务中立 seam（T08）相对独立、可并行。
+2. **落地顺序**（spec 已排）：**组1 写原语（T01/T02）与组2 连接器事务（T03–T05）同批 commit**（P7.1 教训：写原语不得先于事务作死代码，签名由实际调用反推）；组3 6 文件 retype（T06）依赖组2 provider/txn 就位；组4 读侧 ACID（T07）+ 组5 读事务中立 seam（T08）相对独立、可并行。**T07 内的 delete-delta 回归修复已单独落地（`c30fa15d99a`）**；T07 剩余 = 搬 `AcidUtil`/读侧 `HiveTransaction`/`AcidInfo`/`DeleteDeltaInfo` 入插件 + 接生产者（调 `HiveScanRange.Builder#acidInfo`），届时复用已修好的 populate。
 3. **3 硬耦合结**（成为插件事务时必断）：注入 profile/queryId（去 `ConnectContext.get()`）；thrift `THivePartitionUpdate` 簇随插件走；fs 抽象须暴露对象存储 MPU complete/abort（`SpiSwitchingFileSystem.forPath→ObjFileSystem`）。
 4. **范围锁定**：full-ACID **表**写继续硬拒（OQ-ACID-WRITE）；读侧共享锁**不加 heartbeat**（OQ-LOCK）。
 5. **硬门 = 独立 ACID 集成测试套件**（T10，R-002 项目最大风险）：INSERT/OVERWRITE/分区写/delete-delta 读/rollback/多 FE 失效。⚠️端到端写测试需插件写路径 live，但翻闸在 P7.5 → 须本地/scoped 翻闸跑该套件（或与 P7.5 联跑），**勿静默跳过**（Rule 12）。
