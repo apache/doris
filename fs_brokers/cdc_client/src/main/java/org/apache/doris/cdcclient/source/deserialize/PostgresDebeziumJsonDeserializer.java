@@ -127,9 +127,24 @@ public class PostgresDebeziumJsonDeserializer extends DebeziumJsonDeserializer {
             }
         }
 
-        // No-op: Relation re-emitted but schema unchanged vs the FE baseline (idempotent).
+        // A Relation can be re-emitted without a structural change. Only skip an identical schema;
+        // unsupported changes such as MODIFY still advance the FE baseline without emitting DDL.
         if (added.isEmpty() && dropped.isEmpty()) {
-            return DeserializeResult.empty();
+            if (stored.getTable().equals(freshTable)) {
+                LOG.info(
+                        "[SCHEMA-CHANGE] Table {}: Relation re-emitted with no structural change, skipping DDL.",
+                        tableId.identifier());
+                return DeserializeResult.empty();
+            }
+            updatedSchemas.put(tableId, freshChange);
+            LOG.warn(
+                    "[SCHEMA-CHANGE-SKIPPED] Table {}: detected a non-ADD/DROP schema change; no"
+                            + " DDL emitted and the FE baseline will be updated. Before: {} After: {}",
+                    tableId.identifier(),
+                    stored.getTable(),
+                    freshTable);
+            return DeserializeResult.schemaChange(
+                    Collections.emptyList(), updatedSchemas, Collections.emptyList());
         }
 
         updatedSchemas.put(tableId, freshChange);

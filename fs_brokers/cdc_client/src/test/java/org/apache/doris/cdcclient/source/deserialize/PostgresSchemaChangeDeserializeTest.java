@@ -45,9 +45,9 @@ import io.debezium.relational.TableId;
 import io.debezium.relational.history.TableChanges;
 
 /**
- * Unit tests for {@link PostgresDebeziumJsonDeserializer}'s event-driven ADD/DROP column detection.
- * Schema changes are driven by pgoutput Relation messages surfaced as {@link PostgresSchemaRecord};
- * DML records are emitted directly without per-record schema comparison.
+ * Unit tests for {@link PostgresDebeziumJsonDeserializer}'s event-driven schema handling. Schema
+ * changes are driven by pgoutput Relation messages surfaced as {@link PostgresSchemaRecord}; DML
+ * records are emitted directly without per-record schema comparison.
  */
 class PostgresSchemaChangeDeserializeTest {
 
@@ -89,6 +89,19 @@ class PostgresSchemaChangeDeserializeTest {
                 deserializer.deserialize(CONTEXT, schemaRecord(storedTable("id", "name")));
 
         assertEquals(DeserializeResult.Type.EMPTY, result.getType());
+    }
+
+    @Test
+    void relationModifyColumnType_updatesBaselineWithoutDdl() throws Exception {
+        PostgresDebeziumJsonDeserializer deserializer =
+                newDeserializer(tableWith(column("id", "int4", true, null)));
+        Table fresh = tableWith(column("id", "int8", true, null));
+
+        DeserializeResult result = deserializer.deserialize(CONTEXT, schemaRecord(fresh));
+
+        assertEquals(DeserializeResult.Type.SCHEMA_CHANGE, result.getType());
+        assertTrue(result.getDdls().isEmpty(), "type change must not emit DDL");
+        assertEquals(fresh, result.getUpdatedSchemas().get(TABLE).getTable());
     }
 
     @Test
