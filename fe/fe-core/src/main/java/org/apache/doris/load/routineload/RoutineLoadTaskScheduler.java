@@ -363,7 +363,7 @@ public class RoutineLoadTaskScheduler extends MasterDaemon {
     static boolean isRoutineLoadTaskBackendAvailable(Backend backend) {
         return backend != null
                 && backend.isLoadAvailable()
-                && !backend.isDecommissioning()
+                && (!Config.isCloudMode() || !backend.isDecommissioning())
                 && !backend.isDecommissioned();
     }
 
