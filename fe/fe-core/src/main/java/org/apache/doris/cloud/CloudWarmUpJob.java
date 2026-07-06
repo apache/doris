@@ -1128,11 +1128,11 @@ public class CloudWarmUpJob implements Writable {
                         if (this.isPeriodic()) {
                             // wait for next schedule
                             this.jobState = JobState.PENDING;
-                            long nextScheduleTimeMs = finishedTimeMs + getSyncInterval() * 1000;
+                            long nextScheduleTimeMs = finishedTimeMs + syncInterval * 1000;
                             LOG.debug("warmup-periodic reschedule jobId={} srcCluster={} dstCluster={} "
                                             + "syncIntervalSec={} lastFinishTimeMs={} nextScheduleTimeMs={} nowMs={} "
                                             + "triggerImmediately={}",
-                                    jobId, srcClusterName, dstClusterName, getSyncInterval(),
+                                    jobId, srcClusterName, dstClusterName, syncInterval,
                                     finishedTimeMs, nextScheduleTimeMs, System.currentTimeMillis(),
                                     System.currentTimeMillis() >= nextScheduleTimeMs);
                         } else {
