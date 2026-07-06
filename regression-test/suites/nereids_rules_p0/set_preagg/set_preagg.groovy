@@ -271,7 +271,7 @@ suite("set_preagg") {
         """)
         contains "(preagg_t1), PREAGGREGATION: ON"
         contains "(preagg_t2), PREAGGREGATION: ON"
-        contains "(preagg_t3), PREAGGREGATION: OFF"
+        contains "(preagg_t3), PREAGGREGATION: ON"
     }
 
     explain {
@@ -291,7 +291,7 @@ suite("set_preagg") {
         """)
         contains "(preagg_t1), PREAGGREGATION: ON"
         contains "(preagg_t2), PREAGGREGATION: ON"
-        contains "(preagg_t3), PREAGGREGATION: OFF"
+        contains "(preagg_t3), PREAGGREGATION: ON"
     }
 
     explain {

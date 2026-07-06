@@ -161,10 +161,9 @@ public class SetPreAggStatus extends DefaultPlanRewriter<Stack<SetPreAggStatus.P
                             logicalOlapScan.getTable().getName()))) {
                 return logicalOlapScan.withPreAggStatus(PreAggStatus.on());
             } else {
-                if (context.empty()) {
-                    context.push(new PreAggInfoContext());
+                if (!context.empty()) {
+                    context.peek().addRelationId(logicalOlapScan.getRelationId());
                 }
-                context.peek().addRelationId(logicalOlapScan.getRelationId());
                 return logicalOlapScan;
             }
         } else {
@@ -204,15 +203,16 @@ public class SetPreAggStatus extends DefaultPlanRewriter<Stack<SetPreAggStatus.P
     @Override
     public Plan visitLogicalAggregate(LogicalAggregate<? extends Plan> logicalAggregate,
             Stack<PreAggInfoContext> context) {
+        PreAggInfoContext preAggInfoContext = new PreAggInfoContext();
+        context.push(preAggInfoContext);
         Plan plan = super.visit(logicalAggregate, context);
-        if (!context.isEmpty()) {
-            PreAggInfoContext preAggInfoContext = context.pop();
-            preAggInfoContext.olapScanIds.retainAll(logicalAggregate.child().getInputRelations());
-            preAggInfoContext.addAggregateFunctions(logicalAggregate.getAggregateFunctions());
-            preAggInfoContext.addGroupByExpresssions(logicalAggregate.getGroupByExpressions());
-            for (RelationId id : preAggInfoContext.olapScanIds) {
-                olapScanPreAggContexts.put(id, preAggInfoContext);
-            }
+        PreAggInfoContext popped = context.pop();
+        Preconditions.checkState(popped == preAggInfoContext,
+                "PreAggInfoContext stack mismatch in visitLogicalAggregate");
+        popped.addAggregateFunctions(logicalAggregate.getAggregateFunctions());
+        popped.addGroupByExpresssions(logicalAggregate.getGroupByExpressions());
+        for (RelationId id : popped.olapScanIds) {
+            olapScanPreAggContexts.put(id, popped);
         }
         return plan;
     }
