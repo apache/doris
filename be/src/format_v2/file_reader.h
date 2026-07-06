@@ -35,7 +35,6 @@
 
 namespace doris {
 class Block;
-class ColumnPredicate;
 struct ConditionCacheContext;
 
 namespace io {
@@ -47,16 +46,6 @@ namespace doris::format {
 
 class TableColumnMapper;
 struct TableColumnMapperOptions;
-
-// File-local single-column predicates for file-layer pruning, such as min/max, page index,
-// dictionary and bloom filter. Predicates must all belong to file_column_id.
-// These predicates are pruning hints only and are not row-level conjuncts.
-struct FileColumnPredicateFilter {
-    LocalColumnId file_column_id = LocalColumnId::invalid();
-    std::vector<std::shared_ptr<ColumnPredicate>> predicates;
-
-    std::string debug_string() const;
-};
 
 enum class FileFormat {
     PARQUET,
@@ -86,9 +75,6 @@ struct FileScanRequest {
     VExprContextSPtrs conjuncts;
     // Delete predicates converted to file-local expressions.
     VExprContextSPtrs delete_conjuncts;
-    // Single-column predicates used only for file-layer pruning, such as statistics, page index,
-    // dictionary and bloom filter. They must not be used for batch row-level filtering.
-    std::vector<FileColumnPredicateFilter> column_predicate_filters;
 };
 
 // Helper for constructing the scan-column layout in FileScanRequest.
