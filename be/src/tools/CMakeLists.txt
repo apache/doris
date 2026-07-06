@@ -156,5 +156,11 @@ add_custom_command(
     DEPENDS kuromoji_build_dict
     COMMENT "Generating kuromoji IPADIC dictionary from ${KUROMOJI_IPADIC_SRC}"
     VERBATIM)
-# Built as part of ALL so a normal build/package always contains the runtime dictionary.
-add_custom_target(kuromoji_dict ALL DEPENDS "${KUROMOJI_DICT_OUT}/system.bin")
+# A real build generates the dictionary as part of ALL so the package
+# always contains it. However, Unit-test builds (MAKE_TEST=ON) keep
+# kuromoji_dict as a manual target.
+if (NOT MAKE_TEST)
+    add_custom_target(kuromoji_dict ALL DEPENDS "${KUROMOJI_DICT_OUT}/system.bin")
+else()
+    add_custom_target(kuromoji_dict DEPENDS "${KUROMOJI_DICT_OUT}/system.bin")
+endif()
