@@ -145,6 +145,16 @@ public:
         Impl::add(this->data(place), columns, row_num);
     }
 
+    void check_input_columns_type(const IColumn** columns) const override {
+        for (size_t i = 0; i < this->argument_types.size(); ++i) {
+            this->template check_argument_column_type<ColumnString>(columns[i]);
+        }
+    }
+
+    void check_result_column_type(const IColumn& column) const override {
+        this->template check_result_column_type_as<ColumnString>(column);
+    }
+
     void reset(AggregateDataPtr place) const override { this->data(place).reset(); }
 
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
@@ -163,7 +173,8 @@ public:
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
         const auto result = this->data(place).get();
-        assert_cast<ColumnString&>(to).insert_data(result.data, result.size);
+        assert_cast<ColumnString&, TypeCheckOnRelease::DISABLE>(to).insert_data(result.data,
+                                                                                result.size);
     }
 };
 

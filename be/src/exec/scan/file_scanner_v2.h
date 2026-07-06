@@ -104,7 +104,6 @@ private:
     Status _build_projected_columns(const format::TableReader& table_reader);
     Status _build_default_expr(const TFileScanSlotInfo& slot_info, VExprContextSPtr* ctx) const;
     static format::ColumnDefinition _build_table_column(const SlotDescriptor* slot_desc);
-    Status _build_table_column_predicates(format::TableColumnPredicates* predicates) const;
     Status _build_table_conjuncts(VExprContextSPtrs* conjuncts) const;
     static Status _to_file_format(TFileFormatType::type format_type,
                                   format::FileFormat* file_format);

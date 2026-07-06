@@ -156,7 +156,7 @@ public class NormalizeAggregate implements RewriteRuleFactory, NormalizeToSlot {
      *            c. alias with window-agg
      */
     @SuppressWarnings("checkstyle:UnusedLocalVariable")
-    public LogicalPlan normalizeAgg(LogicalAggregate<Plan> aggregate, Optional<LogicalHaving<?>> having,
+    private LogicalPlan normalizeAgg(LogicalAggregate<Plan> aggregate, Optional<LogicalHaving<?>> having,
             CascadesContext ctx) {
         // Push down exprs:
         // collect group by exprs

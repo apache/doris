@@ -28,6 +28,7 @@
 #include <memory>
 #include <numeric>
 #include <optional>
+#include <set>
 #include <string>
 #include <utility>
 #include <vector>
@@ -41,6 +42,8 @@
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "core/field.h"
+#include "exprs/vexpr.h"
+#include "exprs/vexpr_context.h"
 #include "format_v2/file_reader.h"
 #include "format_v2/parquet/parquet_column_schema.h"
 #include "format_v2/parquet/parquet_reader.h"
@@ -48,7 +51,8 @@
 #include "gen_cpp/Types_types.h"
 #include "io/io_common.h"
 #include "runtime/runtime_state.h"
-#include "storage/predicate/predicate_creator.h"
+#include "storage/index/zone_map/zonemap_eval_context.h"
+#include "storage/index/zone_map/zonemap_filter_result.h"
 #include "storage/utils.h"
 
 namespace doris {
@@ -70,6 +74,81 @@ const ColumnString& string_data_column(const IColumn& column) {
         return assert_cast<const ColumnString&>(nullable_column->get_nested_column());
     }
     return assert_cast<const ColumnString&>(column);
+}
+
+class Int32ZoneMapExpr final : public VExpr {
+public:
+    enum class Op { GE, GT, LT };
+
+    Int32ZoneMapExpr(int column_id, Op op, int32_t value)
+            : VExpr(std::make_shared<DataTypeUInt8>(), false),
+              _column_id(column_id),
+              _op(op),
+              _value(value) {}
+
+    const std::string& expr_name() const override { return _expr_name; }
+
+    Status execute_column_impl(VExprContext*, const Block* block, const Selector* selector,
+                               size_t count, ColumnPtr& result_column) const override {
+        DORIS_CHECK(block != nullptr);
+        DORIS_CHECK(selector == nullptr);
+        DORIS_CHECK(_column_id >= 0 && _column_id < static_cast<int>(block->columns()));
+        const auto& data_column = int32_data_column(*block->get_by_position(_column_id).column);
+        DORIS_CHECK(data_column.size() >= count);
+
+        auto result = ColumnUInt8::create(count, 0);
+        auto& result_data = result->get_data();
+        for (size_t row = 0; row < count; ++row) {
+            const auto value = data_column.get_element(row);
+            if (_op == Op::GE) {
+                result_data[row] = value >= _value;
+            } else if (_op == Op::GT) {
+                result_data[row] = value > _value;
+            } else {
+                result_data[row] = value < _value;
+            }
+        }
+        result_column = std::move(result);
+        return Status::OK();
+    }
+
+    bool can_evaluate_zonemap_filter() const override { return true; }
+
+    void collect_slot_column_ids(std::set<int>& column_ids) const override {
+        column_ids.insert(_column_id);
+    }
+
+    ZoneMapFilterResult evaluate_zonemap_filter(const ZoneMapEvalContext& ctx) const override {
+        auto zone_map = ctx.zone_map(_column_id);
+        if (zone_map == nullptr) {
+            return unsupported_zonemap_filter(ctx);
+        }
+        if (!zone_map->has_not_null) {
+            return ZoneMapFilterResult::kNoMatch;
+        }
+        const auto literal = Field::create_field<TYPE_INT>(_value);
+        if (_op == Op::GE) {
+            return zone_map->max_value < literal ? ZoneMapFilterResult::kNoMatch
+                                                 : ZoneMapFilterResult::kMayMatch;
+        }
+        if (_op == Op::GT) {
+            return zone_map->max_value <= literal ? ZoneMapFilterResult::kNoMatch
+                                                  : ZoneMapFilterResult::kMayMatch;
+        }
+        return zone_map->min_value >= literal ? ZoneMapFilterResult::kNoMatch
+                                              : ZoneMapFilterResult::kMayMatch;
+    }
+
+private:
+    int _column_id;
+    Op _op;
+    int32_t _value;
+    const std::string _expr_name = "Int32ZoneMapExpr";
+};
+
+VExprContextSPtr create_int32_zonemap_conjunct(int column_id, Int32ZoneMapExpr::Op op,
+                                               int32_t value) {
+    return VExprContext::create_shared(std::make_shared<Int32ZoneMapExpr>(column_id, op, value));
 }
 
 std::shared_ptr<arrow::Array> finish_array(arrow::ArrayBuilder* builder) {
@@ -254,30 +333,6 @@ std::vector<std::unique_ptr<format::parquet::ParquetColumnSchema>> build_file_sc
     return file_schema;
 }
 
-format::FileColumnPredicateFilter int32_filter(int32_t column_id, std::string column_name,
-                                               const DataTypePtr& type,
-                                               PredicateType predicate_type, int32_t value) {
-    format::FileColumnPredicateFilter column_filter;
-    column_filter.file_column_id = format::LocalColumnId(column_id);
-    switch (predicate_type) {
-    case PredicateType::GE:
-        column_filter.predicates.push_back(create_comparison_predicate<PredicateType::GE>(
-                column_id, column_name, type, Field::create_field<TYPE_INT>(value), false));
-        break;
-    case PredicateType::GT:
-        column_filter.predicates.push_back(create_comparison_predicate<PredicateType::GT>(
-                column_id, column_name, type, Field::create_field<TYPE_INT>(value), false));
-        break;
-    case PredicateType::LT:
-        column_filter.predicates.push_back(create_comparison_predicate<PredicateType::LT>(
-                column_id, column_name, type, Field::create_field<TYPE_INT>(value), false));
-        break;
-    default:
-        DORIS_CHECK(false);
-    }
-    return column_filter;
-}
-
 int64_t count_range_rows(const std::vector<format::parquet::RowRange>& ranges) {
     int64_t rows = 0;
     for (const auto& range : ranges) {
@@ -330,8 +385,8 @@ TEST_F(ParquetScanTest, PlanRowGroupsAppliesScanRangeBeforeStatistics) {
     auto file_schema = build_file_schema(*parquet_file_reader);
 
     format::FileScanRequest request;
-    request.column_predicate_filters.push_back(
-            int32_filter(0, "id", file_schema[0]->type, PredicateType::GE, 5));
+    request.local_positions.emplace(format::LocalColumnId(0), format::LocalIndex(0));
+    request.conjuncts.push_back(create_int32_zonemap_conjunct(0, Int32ZoneMapExpr::Op::GE, 5));
 
     const auto [range_start_offset, range_size] = row_group_mid_range(_file_path, 1);
     format::parquet::ParquetScanRange scan_range;
@@ -358,8 +413,8 @@ TEST_F(ParquetScanTest, PlanRowGroupsPreservesFirstFileRowAcrossPrunedRowGroups)
     auto file_schema = build_file_schema(*parquet_file_reader);
 
     format::FileScanRequest request;
-    request.column_predicate_filters.push_back(
-            int32_filter(0, "id", file_schema[0]->type, PredicateType::GE, 5));
+    request.local_positions.emplace(format::LocalColumnId(0), format::LocalIndex(0));
+    request.conjuncts.push_back(create_int32_zonemap_conjunct(0, Int32ZoneMapExpr::Op::GE, 5));
 
     format::parquet::RowGroupScanPlan plan;
     format::parquet::ParquetScanRange scan_range;
@@ -413,8 +468,10 @@ TEST_F(ParquetScanTest, PageIndexIntersectsMultipleFiltersAndBuildsSkipPlan) {
     auto file_schema = build_file_schema(*parquet_file_reader);
 
     format::FileScanRequest single_filter_request;
-    single_filter_request.column_predicate_filters.push_back(
-            int32_filter(0, "id", file_schema[0]->type, PredicateType::GE, 32));
+    format::FileScanRequestBuilder single_filter_builder(&single_filter_request);
+    ASSERT_TRUE(single_filter_builder.add_predicate_column(format::LocalColumnId(0)).ok());
+    single_filter_request.conjuncts.push_back(
+            create_int32_zonemap_conjunct(0, Int32ZoneMapExpr::Op::GE, 32));
     format::parquet::RowGroupScanPlan single_filter_plan;
     format::parquet::ParquetScanRange scan_range;
     ASSERT_TRUE(format::parquet::plan_parquet_row_groups(
@@ -426,10 +483,13 @@ TEST_F(ParquetScanTest, PageIndexIntersectsMultipleFiltersAndBuildsSkipPlan) {
             count_range_rows(single_filter_plan.row_groups[0].selected_ranges);
 
     format::FileScanRequest intersect_request;
-    intersect_request.column_predicate_filters.push_back(
-            int32_filter(0, "id", file_schema[0]->type, PredicateType::GE, 32));
-    intersect_request.column_predicate_filters.push_back(
-            int32_filter(1, "score", file_schema[1]->type, PredicateType::LT, 96));
+    format::FileScanRequestBuilder intersect_builder(&intersect_request);
+    ASSERT_TRUE(intersect_builder.add_predicate_column(format::LocalColumnId(0)).ok());
+    ASSERT_TRUE(intersect_builder.add_predicate_column(format::LocalColumnId(1)).ok());
+    intersect_request.conjuncts.push_back(
+            create_int32_zonemap_conjunct(0, Int32ZoneMapExpr::Op::GE, 32));
+    intersect_request.conjuncts.push_back(
+            create_int32_zonemap_conjunct(1, Int32ZoneMapExpr::Op::LT, 96));
     format::parquet::RowGroupScanPlan intersect_plan;
     ASSERT_TRUE(format::parquet::plan_parquet_row_groups(
                         *parquet_file_reader->metadata(), parquet_file_reader.get(), file_schema,
@@ -463,10 +523,9 @@ TEST_F(ParquetScanTest, PageIndexCanFullyFilterRowGroupAfterRangeIntersection) {
     auto file_schema = build_file_schema(*parquet_file_reader);
 
     format::FileScanRequest request;
-    request.column_predicate_filters.push_back(
-            int32_filter(0, "id", file_schema[0]->type, PredicateType::GE, 32));
-    request.column_predicate_filters.push_back(
-            int32_filter(0, "id", file_schema[0]->type, PredicateType::LT, 32));
+    request.local_positions.emplace(format::LocalColumnId(0), format::LocalIndex(0));
+    request.conjuncts.push_back(create_int32_zonemap_conjunct(0, Int32ZoneMapExpr::Op::GE, 32));
+    request.conjuncts.push_back(create_int32_zonemap_conjunct(0, Int32ZoneMapExpr::Op::LT, 32));
 
     format::parquet::RowGroupScanPlan plan;
     format::parquet::ParquetScanRange scan_range;
@@ -488,8 +547,8 @@ TEST_F(ParquetScanTest, PageIndexFullRangeWhenDisabledOrUnavailable) {
     auto file_schema = build_file_schema(*parquet_file_reader);
 
     format::FileScanRequest request;
-    request.column_predicate_filters.push_back(
-            int32_filter(0, "id", file_schema[0]->type, PredicateType::GT, 63));
+    request.local_positions.emplace(format::LocalColumnId(0), format::LocalIndex(0));
+    request.conjuncts.push_back(create_int32_zonemap_conjunct(0, Int32ZoneMapExpr::Op::GT, 63));
 
     const bool old_enable_page_index = config::enable_parquet_page_index;
     config::enable_parquet_page_index = false;
@@ -511,8 +570,9 @@ TEST_F(ParquetScanTest, PageIndexFullRangeWhenDisabledOrUnavailable) {
     auto no_index_reader = ::parquet::ParquetFileReader::OpenFile(_file_path, false);
     auto no_index_schema = build_file_schema(*no_index_reader);
     format::FileScanRequest no_index_request;
-    no_index_request.column_predicate_filters.push_back(
-            int32_filter(0, "id", no_index_schema[0]->type, PredicateType::GT, 3));
+    no_index_request.local_positions.emplace(format::LocalColumnId(0), format::LocalIndex(0));
+    no_index_request.conjuncts.push_back(
+            create_int32_zonemap_conjunct(0, Int32ZoneMapExpr::Op::GT, 3));
     selected_ranges.clear();
     page_skip_plans.clear();
     pruning_stats = {};
@@ -562,14 +622,9 @@ TEST_F(ParquetScanTest, AggregateRespectsStatisticsPrunedRowGroups) {
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
     ASSERT_TRUE(reader->init(&state).ok());
 
-    std::vector<format::ColumnDefinition> schema;
-    ASSERT_TRUE(reader->get_schema(&schema).ok());
     auto request = std::make_shared<format::FileScanRequest>();
-    format::FileColumnPredicateFilter column_filter;
-    column_filter.file_column_id = format::LocalColumnId(0);
-    column_filter.predicates.push_back(create_comparison_predicate<PredicateType::GE>(
-            0, "id", schema[0].type, Field::create_field<TYPE_INT>(5), false));
-    request->column_predicate_filters.push_back(std::move(column_filter));
+    request->local_positions.emplace(format::LocalColumnId(0), format::LocalIndex(0));
+    request->conjuncts.push_back(create_int32_zonemap_conjunct(0, Int32ZoneMapExpr::Op::GE, 5));
     ASSERT_TRUE(reader->open(request).ok());
 
     format::FileAggregateRequest aggregate_request;
@@ -589,14 +644,9 @@ TEST_F(ParquetScanTest, AggregateCountKeepsRowGroupRowsAfterPageIndexPruning) {
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
     ASSERT_TRUE(reader->init(&state).ok());
 
-    std::vector<format::ColumnDefinition> schema;
-    ASSERT_TRUE(reader->get_schema(&schema).ok());
     auto request = std::make_shared<format::FileScanRequest>();
-    format::FileColumnPredicateFilter column_filter;
-    column_filter.file_column_id = format::LocalColumnId(0);
-    column_filter.predicates.push_back(create_comparison_predicate<PredicateType::GT>(
-            0, "id", schema[0].type, Field::create_field<TYPE_INT>(63), false));
-    request->column_predicate_filters.push_back(std::move(column_filter));
+    request->local_positions.emplace(format::LocalColumnId(0), format::LocalIndex(0));
+    request->conjuncts.push_back(create_int32_zonemap_conjunct(0, Int32ZoneMapExpr::Op::GT, 63));
     ASSERT_TRUE(reader->open(request).ok());
 
     format::FileAggregateRequest aggregate_request;
@@ -719,11 +769,8 @@ TEST_F(ParquetScanTest, EmptyScanPlanReturnsEofWithoutReadingColumns) {
     std::vector<format::ColumnDefinition> schema;
     ASSERT_TRUE(reader->get_schema(&schema).ok());
     auto request = std::make_shared<format::FileScanRequest>();
-    format::FileColumnPredicateFilter column_filter;
-    column_filter.file_column_id = format::LocalColumnId(0);
-    column_filter.predicates.push_back(create_comparison_predicate<PredicateType::GE>(
-            0, "id", schema[0].type, Field::create_field<TYPE_INT>(100), false));
-    request->column_predicate_filters.push_back(std::move(column_filter));
+    request->local_positions.emplace(format::LocalColumnId(0), format::LocalIndex(0));
+    request->conjuncts.push_back(create_int32_zonemap_conjunct(0, Int32ZoneMapExpr::Op::GE, 100));
     ASSERT_TRUE(reader->open(request).ok());
 
     Block block = build_file_block(schema);
@@ -765,13 +812,9 @@ TEST_F(ParquetScanTest, ProfileCountersReflectPageIndexAndRangeGapPruning) {
     std::vector<format::ColumnDefinition> schema;
     ASSERT_TRUE(reader->get_schema(&schema).ok());
     auto request = std::make_shared<format::FileScanRequest>();
-    request->non_predicate_columns = {field_projection(0)};
-    use_schema_order_positions(request.get(), schema);
-    format::FileColumnPredicateFilter column_filter;
-    column_filter.file_column_id = format::LocalColumnId(0);
-    column_filter.predicates.push_back(create_comparison_predicate<PredicateType::GT>(
-            0, "id", schema[0].type, Field::create_field<TYPE_INT>(63), false));
-    request->column_predicate_filters.push_back(std::move(column_filter));
+    format::FileScanRequestBuilder request_builder(request.get());
+    ASSERT_TRUE(request_builder.add_predicate_column(format::LocalColumnId(0)).ok());
+    request->conjuncts.push_back(create_int32_zonemap_conjunct(0, Int32ZoneMapExpr::Op::GT, 63));
     ASSERT_TRUE(reader->open(request).ok());
 
     size_t total_rows = 0;

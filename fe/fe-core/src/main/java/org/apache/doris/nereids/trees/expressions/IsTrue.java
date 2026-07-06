@@ -33,7 +33,8 @@ import java.util.Objects;
 /**
  * expr is true predicate.
  */
-public class IsTrue extends Expression implements UnaryExpression, AlwaysNotNullable {
+public class IsTrue extends Expression
+        implements UnaryExpression, AlwaysNotNullable, NullToNonNullFunction {
 
     public IsTrue(Expression e) {
         super(ImmutableList.of(e));
