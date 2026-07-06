@@ -5,15 +5,16 @@
 
 ---
 
-# 🎯 当前状态（2026-07-06）= **P7.1 进行中：T01（TRUNCATE SPI seam）+ T02–T04（插件写客户端）已实现+全绿+提交；下一步 = T05→T07（HiveConnectorMetadata DDL override）+ T08/T09/T10/T11**
+# 🎯 当前状态（2026-07-06）= **P7.1 完成：hive DDL 写路径（create/drop db+table、truncate）全部落地 + 全绿 + 提交（非 live，翻闸在 P7.5）；下一步 = 进入 P7.2（event）或 P7.3（txn，关键路径）**
 
-> **本轮（P7.1 T02+T03+T04 session）做了什么** —— 提交 `fdf577e7946`，**插件写客户端一个自洽单元，全在 `fe-connector-hms`**：
-> 1. **T02 写 DTO**：`HmsCreateTableRequest`（builder：全列[数据+分区]、partitionKeys 名、bucketCols/numBuckets、fileFormat、comment、properties、`defaultTextCompression`、`dorisVersion`；列默认值走 `ConnectorColumn.getDefaultValue()`）+ `HmsCreateDatabaseRequest`。仿读侧 `HmsTableInfo`/`HmsDatabaseInfo`，SPI-clean。
-> 2. **T03 转换器**：`HmsTypeMapping.toHiveTypeString(ConnectorType)`（反向类型映射，等价 `dorisTypeToHiveType`；switch 于 `PrimitiveType.toString()` 名，VARCHAR→string、datetime 丢 scale、decimal p==0→9、不支持类型 throw）+ `HmsWriteConverter.toHiveTable/toHiveDatabase`（忠实移植 `HiveUtil` + `HiveProperties.setTableProperties` serde/table 属性切分；in/out/serde+压缩默认逐字照搬；`createTime` 溢出照搬）。**断耦**：`DORIS_VERSION_VALUE` 经 request 线程进（插件禁 import fe-common `Version`——import gate 禁 `org.apache.doris.common`）、text 压缩默认经 request（T06 从 session 取）、`AnalysisException`→`IllegalArgumentException`、JDK-only。
-> 3. **T04 写方法**：`HmsClient` 加 5 个写方法为 **default-throw seam**（3 个读侧 fake 不破）；`ThriftHmsClient` 用现成 `execute(...)`（auth+pool）override 全部，`createTable` 从列默认值建 `SQLDefaultConstraint`→`createTableWithConstraints`，等价 legacy `ThriftHMSCachedClient`。
-> 4. **验收**：fe-connector-hms compile SUCCESS + checkstyle 0（main+test）+ import-gate 净 + **28 单测绿**（反向映射 + 转换器，无 fake；client-dispatch/HiveConnectorMetadata 单测留 T10 recording-fake）。**无连接器 override 这些写方法（等 T05–T07），翻闸前行为不变。**
+> **本轮（P7.1 T05–T11 收官 session）做了什么** —— 3 个实现 commit（`4a92…` T08 / `0713…` T09 / `c17b…` T05–T07+T10）+ 本 HANDOFF：
+> 1. **T05–T07 插件 DDL override**（`c17b…`，`fe-connector-hive`）：`HiveConnectorMetadata` 加 `supportsCreateDatabase/createDatabase/dropDatabase(force cascade)/createTable/dropTable/truncateTable`——忠实移植 legacy `HiveMetadataOps`。`createTable` 全套插件侧解析：owner 默认（`session.getUser()`）、transactional 建表拒绝、file_format 默认（env，用户 per-table 属性胜）、`doris.`-前缀 round-trip 参数、LIST-only 分区 + 显式分区取值拒绝、DLF 列默认值 guard、bucket gate（env enable + hash-only）、`doris.version`/text 压缩默认线程进写请求。事务表拒绝用 handle 的 `tableParameters` 复刻 `AcidUtils.isTransactionalTable`（**不引 hive-exec**）。**`renameTable` 保持 SPI default throw**（hive 无 rename，parity）。`HiveConnector` 传 `ConnectorContext`。
+> 2. **T08 shared converter 富化**（`4a92…`，fe-core+api）：`ColumnDefinition.getDefaultValueString()` + converter 填 `ConnectorColumn.defaultValue`（原恒 null）；`ConnectorPartitionSpec.hasExplicitPartitionValues()` + converter 从 `PartitionTableInfo.getPartitionDefs()` 置位。**已核实 additive**：iceberg create `buildSchema` 不读默认值（读默认值的三处都在 ADD COLUMN 路径），paimon/maxcompute create 不读——只 hive 消费。
+> 3. **T09 config threading**（`0713…`，fe-core）：`DefaultConnectorContext.buildEnvironment` 加 `hive_default_file_format`/`enable_create_hive_bucket_table`/`doris_version` 三键，**走运行环境**（非写 catalog 属性）。
+> 4. **T10 单测**（并入 `c17b…`）：`HiveConnectorMetadataDdlTest`（20 条，recording-fake `HmsClient` + fake session/context，无 Mockito）覆盖各 guard/默认值/round-trip/force cascade；修既存 pruning 测 ctor。
+> 5. **验收全绿**：fe-core compile + fe-connector-hive test-compile SUCCESS；单测 20+8=28 条 0 fail/0 skip；checkstyle 0（api+hive+core）；import-gate 净。**非 live**（翻闸在 P7.5），无 e2e DDL（符合本阶段验收门）。
 >
-> **T05–T11 未动**（下一单元：`fe-connector-hive` 的 `HiveConnectorMetadata` DDL override + shared converter 列默认值 + config 注入 + 单测 + 守门）。T05–T07 需研读模板 `IcebergConnectorMetadata` 与 SPI base（`ConnectorSchemaOps`/`ConnectorTableOps`），故为下一自洽单元。
+> **本轮两个用户签字决策（2026-07-06，见 spec「P7.1 实现进度」块）**：① **config threading 机制 = 走运行环境**（非写 catalog 属性；在方案 A 内的机制细化——不落镜像/edit-log、不污染 SHOW CREATE、随全局配置刷新；有现成 `hive_metastore_client_timeout_second` 先例）。**注意**：legacy-exact（全局默认 + per-table 覆盖），**未**新增 per-catalog 覆盖属性。② **显式分区取值 = 保持报错**（converter thread 标志，hive 照 legacy 报错，非静默忽略）。
 
 > **整条 catalog-SPI 主线阶段链均已合入 upstream `branch-catalog-spi`**：
 > P0 #63582 · P1 #63641 · P2 trino #64096 · P3 hudi(hybrid) #64143 · P4 maxcompute #64300 · P5 paimon 迁移+翻闸 #64446 + 删 legacy #64653 · P3b kerberos→fe-kerberos #64655 · **P6 iceberg #64688（本轮收官）**。
@@ -35,18 +36,18 @@
 
 ---
 
-# 🚀 下个 session 任务 = **执行 P7.1 实现（按 spec 末尾 P7.1-T01…T11；recon+决策已就绪，可直接写代码）**
+# 🚀 下个 session 任务 = **进入 P7.2（event pipeline，可与 P7.3 并行）或 P7.3（HMSTransaction/写路径，关键路径、最难、R-002）；先 code-grounded recon → 用户签字 OQ-* → 再写代码**
 
-> **权威计划**：**`tasks/P7-hive-migration.md`**——尤其**文件末尾「P7.1 逐 task 拆解」块**（本轮新建，含 recon 结论 + T01–T11 + OQ-HIVE-CFG=方案A 裁定）+ 上半 P7.1–P7.5 spec + [`connectors/hive.md`](./connectors/hive.md)。**单连接器 13 步 playbook = master plan §4。**
-> **模块已就绪**：`fe-connector-hive`（"hms" 网关，只读 scan 已立、DDL override=0）+ `fe-connector-hms`（共享读元存储库，**只读、无任何写方法**）。**通用桥 = `PluginDrivenExternalCatalog`**（DDL 命令逐条 override + 内联 cache/editlog，连接器只实现纯 SPI 方法）。**模板 = `IcebergConnectorMetadata`**（最接近：HMS-backed + DLF guard + location cleanup + 插件侧 SchemaBuilder）。
+> **权威计划**：**`tasks/P7-hive-migration.md`**——P7.2/P7.3 子阶段 spec（上半）+「跨连接器删除排序」+「SPI 缺口（按子阶段）」块 +「开放决策 OQ-*」块 + [`connectors/hive.md`](./connectors/hive.md)。**「P7.1 逐 task 拆解」块已标 ✅ 完成（勿重做）。** 流程样板照搬 P7.1：recon → 中文讲背景+示例+推荐 → 用户签字 OQ-* → 逐 task commit+build+test+checkstyle。
+> **P7.1 已交付的地基**：`fe-connector-hms` 有完整 DDL 写客户端（create/drop db+table、truncate）；`fe-connector-hive` `HiveConnectorMetadata` DDL override 齐；env channel 已通（`DefaultConnectorContext.buildEnvironment` → `ConnectorContext.getEnvironment()`）；shared converter 已带列默认值 + 显式分区标志。**通用桥 = `PluginDrivenExternalCatalog`**；**模板 = `IcebergConnectorMetadata`**。
 
-## P7.1 执行要点（下个 session 开场）
+## 下一子阶段选择 + 开场要点
 
-1. **先读** spec 末尾「P7.1 逐 task 拆解」块 + 「P7.1 实现进度」块（recon 存档，勿再 recon）。**T01–T04 已完成**（T01 truncate SPI seam + 桥 override `c0222977ebd`；T02+T03+T04 插件写客户端 `fdf577e7946`）。**从 T05 起接**：T05(HiveConnectorMetadata DB DDL) → T06(createTable) → T07(dropTable+truncate override；rename 保持 default throw) → T08(shared converter 带列默认值) → T09(config 注入=方案A) → T10(连接器单测，recording-fake `IMetaStoreClient`) → T11(守门+交接)。**信 HEAD 控制流不信 spec 行号。** T05→T07 = 下一自洽单元（连接器 DDL override，模板 `IcebergConnectorMetadata`）。**注意**：T06 须从 `ConnectorSession` 取 text 压缩默认填 `HmsCreateTableRequest.defaultTextCompression`；T09 注入 locus 须同时把 `doris.version`（值）填 `HmsCreateTableRequest.dorisVersion`（插件已留字段，值缺时转换器省略该 tag）。
-2. **本阶段范围 = 仅 DDL 写路径**：create/drop db+table + truncate。**stats/partition 写 4 法（updateTableStatistics/updatePartitionStatistics/addPartitions/dropPartition）推 P7.3**（仅 HMSTransaction 消费，本阶段加即死代码）。**rename 不实现**（hive 今天不支持，保持 SPI default throw）。**no-property-parsing**：file_format 默认/owner/bucket-gate/DLF-guard/transactional-reject 全插件侧（`ConnectorSession.getUser()`+`getCatalogProperties()`+`ConnectorColumn.defaultValue` 已够，无须扩 SPI，除 truncate seam + T08 列默认值 carrier）。
-3. **OQ-HIVE-CFG 已裁定 = 方案 A**（T09）：fe-core 组装 `hms` 连接器属性处，把 `Config.hive_default_file_format`/`Config.enable_create_hive_bucket_table` 当前值注入为属性默认（仅用户未显式设时），**插件只读属性、不碰 `common.Config`**。注入 locus 待 recon。
-4. **勿重议的已定决策**：**D-004** event→fe-connector-hms；**D-005** tableFormatType；**D-020** per-table SPI provider；**D-019** hudi live cutover 并入 P7；事务桥接 `PluginDrivenTransaction`。后续子阶段 OQ-* 到 recon 后再用户签字（中文讲背景+示例+推荐、不引任务代号）。
-5. **纪律**：每 task/每条 fix 独立 commit + build + test + checkstyle 0（不带 -am）+ import-gate 净；**每轮完成即更新本 HANDOFF + commit**（memory `handoff-discipline-per-phase`）。P7.1 **非 live**（翻闸在 P7.5），验收靠**连接器单测**（无 Mockito、recording fake `IMetaStoreClient`），无 e2e DDL。**P7.3 ACID 写路径必须有独立集成测试作 gate（R-002 项目最大风险）**。
+1. **关键路径 = P7.3**（P7.1→P7.3→P7.4→P7.5）；P7.2（event）是可并行侧支。二选一按精力：P7.3 最难（ACID 写路径 6 文件耦合链 + `HMSTransaction` 1895 行重表达，R-002 项目最大风险，**硬门 = 独立 ACID 集成测试套件**）；P7.2 较独立（21 event 类 + processor 搬 `fe-connector-hms`，核心 fork = OQ-EVT）。
+2. **进入子阶段先 recon**（**信 HEAD 控制流不信 spec 行号**）：读该子阶段 spec +「SPI 缺口」对应块 + 真实代码，产出逐 task 拆解追加 spec 末尾（仿「P7.1 逐 task 拆解」块）。**OQ-* 到 recon 后用户签字**（中文讲背景+示例+推荐、不引任务代号）——P7.3 = OQ-RTX/OQ-ACID-WRITE/OQ-LOCK；P7.2 = OQ-EVT。
+3. **P7.3 需补的写原语**（随 `HMSTransaction` 落地才非死代码）：`HmsClient` 加 `updateTableStatistics/updatePartitionStatistics/addPartitions/dropPartition` + txn/writeId/lock/commit 方法。写路径 6 文件耦合链 retype `HMSExternalTable`→generic：`BindSink`→`LogicalHiveTableSink`→`PhysicalHiveTableSink`→`PhysicalPlanTranslator:569`→`planner/HiveTableSink`→`HiveInsertExecutor`。读侧 ACID（delete-delta）须移入插件。
+4. **勿重议的已定决策**：**D-004** event→fe-connector-hms；**D-005** tableFormatType；**D-020** per-table SPI provider；**D-019** hudi live cutover 并入 P7；事务桥接 `PluginDrivenTransaction`。
+5. **纪律**：每 task/每条 fix 独立 commit + build + test + checkstyle 0（不带 -am）+ import-gate 净；**每轮完成即更新本 HANDOFF + commit**（memory `handoff-discipline-per-phase`）。**P7.3 ACID 写路径必须有独立集成测试作 gate（R-002 项目最大风险）**。
 6. **删除排序（最硬约束，spec §跨连接器删除排序）**：`datasource/hive/` 删不掉，直到 `HudiUtils`(5 方法)/`HudiExternalMetaCache`/`HudiScanNode`(extends HiveScanNode)/`IcebergHMSSource`/`HMSAnalysisTask`/`StatisticsUtil.getIcebergColumnStats` 全 retype 到 generic（P7.4）。
 
 ---
