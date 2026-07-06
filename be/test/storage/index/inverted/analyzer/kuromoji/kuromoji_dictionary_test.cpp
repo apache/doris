@@ -58,7 +58,7 @@ protected:
 
         UnkDictInput unk;
         unk.per_category.resize(CAT_CLASS_COUNT);
-        unk.per_category[CAT_DEFAULT].push_back({5, 5, 4769, "unk-default"});
+        unk.per_category[CAT_DEFAULT].push_back({2, 2, 4769, "unk-default"});
         ASSERT_TRUE(KuromojiDictionaryBuilder::write_unkdict(_dir + "/unkdict.bin", unk).ok());
     }
 };
