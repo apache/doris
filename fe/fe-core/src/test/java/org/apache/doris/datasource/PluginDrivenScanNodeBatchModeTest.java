@@ -144,7 +144,10 @@ public class PluginDrivenScanNodeBatchModeTest {
     private static PluginDrivenScanNode streamingNode(ConnectorScanPlanProvider provider) {
         PluginDrivenScanNode node = Mockito.mock(PluginDrivenScanNode.class, Mockito.CALLS_REAL_METHODS);
         Connector connector = Mockito.mock(Connector.class);
-        Mockito.when(connector.getScanPlanProvider()).thenReturn(provider);
+        // The node resolves the provider PER TABLE via getScanPlanProvider(currentHandle); a real connector
+        // delegates that overload to the no-arg getter, so the mock answers the arg form (currentHandle is
+        // null in this partial node, hence the null-tolerant any() matcher).
+        Mockito.when(connector.getScanPlanProvider(Mockito.any())).thenReturn(provider);
         Deencapsulation.setField(node, "connector", connector);
         // hasSlots = true (the streaming gate requires output slots). getSlots() returns ArrayList (concrete).
         TupleDescriptor desc = Mockito.mock(TupleDescriptor.class);

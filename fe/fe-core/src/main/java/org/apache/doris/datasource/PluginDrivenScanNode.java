@@ -197,6 +197,19 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
     }
 
     /**
+     * Resolves the scan plan provider for the table being scanned, allowing a heterogeneous gateway
+     * connector to select a per-table (per-format) provider. Keyed on {@link #currentHandle} — the
+     * same handle the rest of the scan uses (pushdown may refine it, but a table's format, and thus
+     * the selected provider, does not change across a scan). For every single-format connector the
+     * SPI default ignores the handle and returns the connector-level provider, so this stays
+     * byte-identical to the former {@code connector.getScanPlanProvider()} and may still be
+     * {@code null} for connectors without scan capability.
+     */
+    private ConnectorScanPlanProvider resolveScanProvider() {
+        return connector.getScanPlanProvider(currentHandle);
+    }
+
+    /**
      * Injects the Nereids partition-pruning result. Called by the translator so the pruned
      * partition set can be pushed down to the connector's scan plan (see {@link #getSplits}).
      */
@@ -372,7 +385,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
             // keys, so a connector that distinguishes native/JNI reads (paimon) can emit its
             // "paimonNativeReadSplits=<raw>/<total>" line without an SPI signature change. The copy keeps
             // the cached scanNodeProperties unpolluted; non-paimon providers ignore the extra keys.
-            ConnectorScanPlanProvider scanProvider = connector.getScanPlanProvider();
+            ConnectorScanPlanProvider scanProvider = resolveScanProvider();
             if (scanProvider != null) {
                 Map<String, String> explainProps = new HashMap<>(props);
                 explainProps.put(NATIVE_READ_SPLITS_KEY, String.valueOf(nativeReadSplitNum));
@@ -472,7 +485,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
      * A connector with no scan provider (no scan capability) contributes no special columns ({@code DEFAULT}).
      */
     ConnectorColumnCategory classifyColumnByConnector(String columnName) {
-        ConnectorScanPlanProvider scanProvider = connector.getScanPlanProvider();
+        ConnectorScanPlanProvider scanProvider = resolveScanProvider();
         if (scanProvider == null) {
             return ConnectorColumnCategory.DEFAULT;
         }
@@ -521,7 +534,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
      */
     @Override
     protected List<String> getDeleteFiles(TFileRangeDesc rangeDesc) {
-        ConnectorScanPlanProvider scanProvider = connector.getScanPlanProvider();
+        ConnectorScanPlanProvider scanProvider = resolveScanProvider();
         if (scanProvider == null || rangeDesc == null || !rangeDesc.isSetTableFormatParams()) {
             return Collections.emptyList();
         }
@@ -882,7 +895,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
      * stays unit-testable on a Mockito mock without a live connector (mirrors the guard's own visibility).
      */
     boolean sysTableSupportsTimeTravel() {
-        ConnectorScanPlanProvider scanProvider = connector.getScanPlanProvider();
+        ConnectorScanPlanProvider scanProvider = resolveScanProvider();
         if (scanProvider == null) {
             return false;
         }
@@ -895,7 +908,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         // Attempt limit and projection pushdown via SPI protocol
         tryPushDownLimit();
 
-        ConnectorScanPlanProvider scanProvider = connector.getScanPlanProvider();
+        ConnectorScanPlanProvider scanProvider = resolveScanProvider();
         if (scanProvider == null) {
             LOG.warn("Connector does not provide a scan plan provider, returning empty splits");
             return Collections.emptyList();
@@ -1039,7 +1052,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
     private boolean computeBatchMode() {
         // getScanPlanProvider() may be null for connectors without scan capability; mirror the
         // null-guard in getSplits() so isBatchMode (run on the dispatch + explain paths) never NPEs.
-        ConnectorScanPlanProvider scanProvider = connector.getScanPlanProvider();
+        ConnectorScanPlanProvider scanProvider = resolveScanProvider();
         if (scanProvider == null) {
             return false;
         }
@@ -1171,7 +1184,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         // Scope the scan to a distributed rewrite group's files (no-op for every non-rewrite read).
         pinRewriteFileScope();
         final ConnectorTableHandle handle = currentHandle;
-        final ConnectorScanPlanProvider scanProvider = connector.getScanPlanProvider();
+        final ConnectorScanPlanProvider scanProvider = resolveScanProvider();
         final List<String> allPartitions =
                 new ArrayList<>(selectedPartitions.selectedPartitions.keySet());
         final int batchSize = sessionVariable.getNumPartitionsInBatchMode();
@@ -1257,7 +1270,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
         }
         pinRewriteFileScope();
         final ConnectorTableHandle handle = currentHandle;
-        final ConnectorScanPlanProvider scanProvider = connector.getScanPlanProvider();
+        final ConnectorScanPlanProvider scanProvider = resolveScanProvider();
         Executor scheduleExecutor = Env.getCurrentEnv().getExtMetaCacheMgr().getScheduleExecutor();
         CompletableFuture.runAsync(() -> {
             ConnectorSplitSource source = null;
@@ -1310,7 +1323,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
 
     @Override
     protected Optional<String> getSerializedTable() {
-        ConnectorScanPlanProvider scanProvider = connector.getScanPlanProvider();
+        ConnectorScanPlanProvider scanProvider = resolveScanProvider();
         if (scanProvider != null) {
             Map<String, String> props = getOrLoadScanNodeProperties();
             String serialized = onPluginClassLoader(scanProvider, () -> scanProvider.getSerializedTable(props));
@@ -1325,7 +1338,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
     public void createScanRangeLocations() throws UserException {
         super.createScanRangeLocations();
         // Delegate scan-level Thrift params to the connector SPI
-        ConnectorScanPlanProvider scanProvider = connector.getScanPlanProvider();
+        ConnectorScanPlanProvider scanProvider = resolveScanProvider();
         if (scanProvider != null) {
             Map<String, String> props = getOrLoadScanNodeProperties();
             onPluginClassLoader(scanProvider, () -> {
@@ -1407,7 +1420,7 @@ public class PluginDrivenScanNode extends FileQueryScanNode {
      */
     private ScanNodePropertiesResult getOrLoadPropertiesResult() {
         if (cachedPropertiesResult == null) {
-            ConnectorScanPlanProvider scanProvider = connector.getScanPlanProvider();
+            ConnectorScanPlanProvider scanProvider = resolveScanProvider();
             if (scanProvider != null) {
                 List<ConnectorColumnHandle> columns = buildColumnHandles();
                 Optional<ConnectorExpression> filter = buildRemainingFilter();

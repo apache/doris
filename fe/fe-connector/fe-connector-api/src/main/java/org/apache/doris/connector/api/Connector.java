@@ -17,6 +17,7 @@
 
 package org.apache.doris.connector.api;
 
+import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.api.handle.WriteOperation;
 import org.apache.doris.connector.api.procedure.ConnectorProcedureOps;
 import org.apache.doris.connector.api.scan.ConnectorScanPlanProvider;
@@ -45,6 +46,25 @@ public interface Connector extends Closeable {
     /** Returns the scan plan provider for split generation. */
     default ConnectorScanPlanProvider getScanPlanProvider() {
         return null;
+    }
+
+    /**
+     * Returns the scan plan provider for the given table, allowing one connector to select a
+     * different provider <b>per table</b>.
+     *
+     * <p>The selection MUST happen here, at provider-acquisition time — not inside a single
+     * dispatching provider — because {@link ConnectorScanPlanProvider} has methods that do not
+     * carry the handle (e.g. {@code appendExplainInfo}) and providers are built fresh/stateless
+     * per call, so a provider returned here must already be bound to the correct backing scanner
+     * for {@code handle}. This is the seam a heterogeneous gateway connector (one catalog serving
+     * multiple table formats) overrides to delegate to per-format sub-providers by the concrete
+     * (connector-defined) handle type; the engine never inspects the format.</p>
+     *
+     * <p>The default ignores {@code handle} and returns the connector-level
+     * {@link #getScanPlanProvider()}, so every single-format connector is unaffected.</p>
+     */
+    default ConnectorScanPlanProvider getScanPlanProvider(ConnectorTableHandle handle) {
+        return getScanPlanProvider();
     }
 
     /**
