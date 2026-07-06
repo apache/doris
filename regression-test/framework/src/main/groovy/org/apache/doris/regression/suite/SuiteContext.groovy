@@ -18,6 +18,10 @@
 package org.apache.doris.regression.suite
 
 import com.google.common.collect.Maps
+import com.mysql.cj.NativeSession
+import com.mysql.cj.jdbc.JdbcConnection
+import com.mysql.cj.protocol.a.NativeConstants
+import com.mysql.cj.protocol.a.NativePacketPayload
 import groovy.transform.CompileStatic
 import org.apache.doris.regression.Config
 import org.apache.doris.regression.util.OutputUtils
@@ -49,6 +53,7 @@ class SuiteContext implements Closeable {
     public final ThreadLocal<Connection> threadHive2DockerConn = new ThreadLocal<>()
     public final ThreadLocal<Connection> threadHive3DockerConn = new ThreadLocal<>()
     public final ThreadLocal<Connection> threadHiveRemoteConn = new ThreadLocal<>()
+    public final ThreadLocal<Connection> threadSparkIcebergConn = new ThreadLocal<>()
     public final ThreadLocal<Connection> threadDB2DockerConn = new ThreadLocal<>()
     private final ThreadLocal<Syncer> syncer = new ThreadLocal<>()
     public final Config config
@@ -235,6 +240,15 @@ class SuiteContext implements Closeable {
         return threadConn
     }
 
+    Connection getSparkIcebergConnection() {
+        def threadConn = threadSparkIcebergConn.get()
+        if (threadConn == null) {
+            threadConn = getConnectionBySparkIcebergConfig()
+            threadSparkIcebergConn.set(threadConn)
+        }
+        return threadConn
+    }
+
     Connection getDB2DockerConnection() {
         def threadConn = threadDB2DockerConn.get()
         if (threadConn == null) {
@@ -308,6 +322,21 @@ class SuiteContext implements Closeable {
         String hiveJdbcUser =  "hadoop"
         String hiveJdbcPassword = "hadoop"
         return DriverManager.getConnection(hiveJdbcUrl, hiveJdbcUser, hiveJdbcPassword)
+    }
+
+    Connection getConnectionBySparkIcebergConfig() {
+        Class.forName("org.apache.hive.jdbc.HiveDriver");
+        String sparkJdbcUser =  "hadoop"
+        String sparkJdbcPassword = "hadoop"
+        String sparkJdbcUrl = getSparkIcebergJdbcUrl()
+        log.info("Create Spark Iceberg JDBC connection to ${sparkJdbcUrl}".toString())
+        return DriverManager.getConnection(sparkJdbcUrl, sparkJdbcUser, sparkJdbcPassword)
+    }
+
+    String getSparkIcebergJdbcUrl() {
+        String sparkHost = config.otherConfigs.get("externalEnvIp")
+        String sparkPort = config.otherConfigs.get("iceberg_spark_thrift_port") ?: "11000"
+        return "jdbc:hive2://${sparkHost}:${sparkPort}/default"
     }
 
     Connection getConnectionByDB2DockerConfig() {
@@ -435,6 +464,18 @@ class SuiteContext implements Closeable {
             return
         }
         connectTo(connInfo.conn.getMetaData().getURL(), connInfo.username, connInfo.password);
+    }
+
+    public void resetConnection() {
+        ConnectionInfo connInfo = threadLocalConn.get()
+        if (connInfo == null) {
+            return
+        }
+        NativeSession session = (NativeSession) connInfo.conn.unwrap(JdbcConnection.class).getSession()
+        // COM_RESET_CONNECTION has no payload besides the command byte.
+        NativePacketPayload packet = new NativePacketPayload(1)
+        packet.writeInteger(NativeConstants.IntegerDataType.INT1, 0x1f)
+        session.sendCommand(packet, false, 0)
     }
 
     public void connectTo(String url, String username, String password) {
@@ -596,6 +637,16 @@ class SuiteContext implements Closeable {
             threadHiveRemoteConn.remove()
             try {
                 hive_remote_conn.close()
+            } catch (Throwable t) {
+                log.warn("Close connection failed", t)
+            }
+        }
+
+        Connection spark_iceberg_conn = threadSparkIcebergConn.get()
+        if (spark_iceberg_conn != null) {
+            threadSparkIcebergConn.remove()
+            try {
+                spark_iceberg_conn.close()
             } catch (Throwable t) {
                 log.warn("Close connection failed", t)
             }

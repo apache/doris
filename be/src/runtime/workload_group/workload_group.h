@@ -219,6 +219,8 @@ private:
     void upsert_cgroup_cpu_ctl_no_lock(WorkloadGroupInfo* wg_info);
     Status upsert_thread_pool_no_lock(WorkloadGroupInfo* wg_info,
                                       std::shared_ptr<CgroupCpuCtl> cg_cpu_ctl_ptr);
+    void stop_schedulers_no_lock();
+    void destroy_schedulers();
 
     std::string _memory_debug_string() const;
 

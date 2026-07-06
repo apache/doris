@@ -70,6 +70,19 @@ class OlapMeta;
 static const uint32_t MAX_PATH_LEN = 1024;
 static StorageEngine* engine_ref = nullptr;
 
+static std::shared_ptr<Schema> create_full_schema(const TabletSchemaSPtr& tablet_schema) {
+    size_t num_columns = tablet_schema->num_columns();
+    if (num_columns > 0 && tablet_schema->columns().back()->name() == BeConsts::ROW_STORE_COL) {
+        --num_columns;
+    }
+
+    std::vector<ColumnId> column_ids(num_columns);
+    for (uint32_t cid = 0; cid < num_columns; ++cid) {
+        column_ids[cid] = cid;
+    }
+    return std::make_shared<Schema>(tablet_schema->columns(), column_ids);
+}
+
 static void set_up() {
     char buffer[MAX_PATH_LEN];
     EXPECT_NE(getcwd(buffer, MAX_PATH_LEN), nullptr);
@@ -340,7 +353,7 @@ TEST_F(TestDeltaWriterClusterKey, vec_sequence_col) {
     opts.tablet_schema = rowset->tablet_schema();
 
     std::unique_ptr<RowwiseIterator> iter;
-    std::shared_ptr<Schema> schema = std::make_shared<Schema>(rowset->tablet_schema());
+    std::shared_ptr<Schema> schema = create_full_schema(rowset->tablet_schema());
     auto s = segments[0]->new_iterator(schema, opts, &iter);
     ASSERT_TRUE(s.ok());
     auto read_block = rowset->tablet_schema()->create_block();

@@ -73,8 +73,7 @@ size_t VConditionExpr::count_true_with_notnull(const ColumnPtr& col) {
     }
 
     auto count = col->size();
-    if (col->is_nullable()) {
-        const auto* nullable = assert_cast<const ColumnNullable*>(col.get());
+    if (const auto* nullable = check_and_get_column<ColumnNullable>(col.get())) {
         const auto* __restrict null_data = nullable->get_null_map_data().data();
         const auto* __restrict bool_data =
                 ((const ColumnUInt8&)(nullable->get_nested_column())).get_data().data();
@@ -194,7 +193,7 @@ Status VectorizedIfExpr::execute_for_null_then_else(Block& block,
         return Status::OK();
     }
 
-    const auto* cond_col = typeid_cast<const ColumnUInt8*>(arg_cond.column.get());
+    const auto* cond_col = check_and_get_column<ColumnUInt8>(arg_cond.column.get());
     const ColumnConst* cond_const_col =
             check_and_get_column_const<ColumnUInt8>(arg_cond.column.get());
 
@@ -502,7 +501,7 @@ Status VectorizedIfNullExpr::execute_column_impl(VExprContext* context, const Bl
     RETURN_IF_ERROR(_children[0]->execute_column(context, block, selector, count, first_column));
     first_column = first_column->convert_to_full_column_if_const();
 
-    if (!first_column->is_nullable()) {
+    if (!is_column_nullable(*first_column)) {
         result_column = first_column;
         DCHECK(_data_type->is_nullable() == false);
         return Status::OK();

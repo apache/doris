@@ -116,6 +116,7 @@ import org.apache.doris.thrift.TQueryGlobals;
 import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TQueryType;
 import org.apache.doris.thrift.TReportExecStatusParams;
+import org.apache.doris.thrift.TResourceInfo;
 import org.apache.doris.thrift.TResourceLimit;
 import org.apache.doris.thrift.TRuntimeFilterParams;
 import org.apache.doris.thrift.TRuntimeFilterTargetParamsV2;
@@ -333,6 +334,12 @@ public class Coordinator implements CoordInterface {
         this.statsErrorEstimator = statsErrorEstimator;
     }
 
+    public Coordinator(ConnectContext context, Planner planner,
+            StatsErrorEstimator statsErrorEstimator, long jobId) {
+        this(context, planner, statsErrorEstimator);
+        this.jobId = jobId;
+    }
+
     // Used for query/insert/test
     public Coordinator(ConnectContext context, Planner planner) {
         this.context = context;
@@ -352,7 +359,6 @@ public class Coordinator implements CoordInterface {
         } else {
             distributedPlans = ((NereidsPlanner) planner).getDistributedPlans();
         }
-
         setFromUserProperty(context);
 
         this.queryGlobals.setNowString(TimeUtils.getDatetimeFormatWithTimeZone().format(LocalDateTime.now()));
@@ -428,6 +434,8 @@ public class Coordinator implements CoordInterface {
         this.queryOptions.setFeProcessUuid(ExecuteEnv.getInstance().getProcessUUID());
         this.queryOptions.setMysqlRowBinaryFormat(
                     context.getCommand() == MysqlCommand.COM_STMT_EXECUTE);
+        // Old Coordinator never plans local exchange in FE. Force BE to plan its own.
+        this.queryOptions.setEnableLocalShufflePlanner(false);
     }
 
     public ConnectContext getConnectContext() {
@@ -2884,7 +2892,7 @@ public class Coordinator implements CoordInterface {
                             Optional<ScanNode> node = scanNodes.stream().filter(
                                     scanNode -> scanNode.getId().asInt() == scanId).findFirst();
                             Preconditions.checkArgument(node.isPresent());
-                            FInstanceExecParam instanceParamToScan = node.get().isSerialOperator()
+                            FInstanceExecParam instanceParamToScan = node.get().isSerialNode()
                                     ? firstInstanceParam : instanceParam;
                             if (!instanceParamToScan.perNodeScanRanges.containsKey(nodeScanRange.getKey())) {
                                 range.put(nodeScanRange.getKey(), Lists.newArrayList());
@@ -3234,7 +3242,6 @@ public class Coordinator implements CoordInterface {
 
         Map<TNetworkAddress, TPipelineFragmentParams> toThrift(int backendNum) {
             Set<SortNode> topnSortNodes = scanNodes.stream()
-                    .filter(scanNode -> scanNode instanceof OlapScanNode)
                     .flatMap(scanNode -> scanNode.getTopnFilterSortNodes().stream()).collect(Collectors.toSet());
             topnSortNodes.forEach(SortNode::setHasRuntimePredicate);
 
@@ -3285,6 +3292,13 @@ public class Coordinator implements CoordInterface {
                     params.setLocalParams(Lists.newArrayList());
                     if (tWorkloadGroups != null) {
                         params.setWorkloadGroups(tWorkloadGroups);
+                    }
+
+                    if (context != null && context.getCurrentUserIdentity() != null) {
+                        TResourceInfo resourceInfo = new TResourceInfo();
+                        resourceInfo.setUser(context.getCurrentUserIdentity().getQualifiedUser());
+                        resourceInfo.setGroup("");
+                        params.setResourceInfo(resourceInfo);
                     }
 
                     params.setFileScanParams(fileScanRangeParamsMap);

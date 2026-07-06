@@ -69,6 +69,7 @@ suite("test_dml_export_table_auth","p0,auth_call") {
         test {
             sql """EXPORT TABLE ${dbName}.${tableName} TO "s3://${bucket}/test_outfile/exp_${exportLabel}"
                 PROPERTIES(
+                    "label" = "${exportLabel}",
                     "format" = "csv",
                     "max_file_size" = "2048MB"
                 )
@@ -83,7 +84,7 @@ suite("test_dml_export_table_auth","p0,auth_call") {
         try {
             sql """CANCEL EXPORT
                 FROM ${dbName}
-                WHERE STATE = "EXPORTING";"""
+                WHERE LABEL = "${exportLabel}";"""
         } catch (Exception e) {
             log.info(e.getMessage())
             assertTrue(e.getMessage().indexOf("denied") == -1)
@@ -93,6 +94,7 @@ suite("test_dml_export_table_auth","p0,auth_call") {
     connect(user, "${pwd}", context.config.jdbcUrl) {
         sql """EXPORT TABLE ${dbName}.${tableName} TO "s3://${bucket}/test_outfile/exp_${exportLabel}"
                 PROPERTIES(
+                    "label" = "${exportLabel}",
                     "format" = "csv",
                     "max_file_size" = "2048MB"
                 )
@@ -118,7 +120,7 @@ suite("test_dml_export_table_auth","p0,auth_call") {
         try {
             sql """CANCEL EXPORT
             FROM ${dbName}
-            WHERE STATE = "EXPORTING";"""
+            WHERE LABEL = "${exportLabel}";"""
         } catch (Exception e) {
             log.info(e.getMessage())
             // should not cause by not have auth

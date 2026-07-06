@@ -35,6 +35,7 @@
 #include "service/http/action/adjust_log_level.h"
 #include "service/http/action/batch_download_action.h"
 #include "service/http/action/be_proc_thread_action.h"
+#include "service/http/action/be_thread_stack_action.h"
 #include "service/http/action/calc_file_crc_action.h"
 #include "service/http/action/check_encryption_action.h"
 #include "service/http/action/check_rpc_channel_action.h"
@@ -59,6 +60,7 @@
 #include "service/http/action/meta_action.h"
 #include "service/http/action/metrics_action.h"
 #include "service/http/action/pad_rowset_action.h"
+#include "service/http/action/peer_cache_action.h"
 #include "service/http/action/pipeline_task_action.h"
 #include "service/http/action/pprof_actions.h"
 #include "service/http/action/reload_tablet_action.h"
@@ -76,6 +78,7 @@
 #include "service/http/action/tablets_distribution_action.h"
 #include "service/http/action/tablets_info_action.h"
 #include "service/http/action/version_action.h"
+#include "service/http/action/warmup_stats_action.h"
 #include "service/http/default_path_handlers.h"
 #include "service/http/ev_http_server.h"
 #include "service/http/http_method.h"
@@ -113,6 +116,11 @@ HttpService::HttpService(ExecEnv* env, int port, int num_threads)
           _ev_http_server(new EvHttpServer(port, num_threads)),
           _web_page_handler(new WebPageHandler(_ev_http_server.get(), env)) {}
 
+HttpService::HttpService(ExecEnv* env, std::unique_ptr<EvHttpServer> http_server)
+        : _env(env),
+          _ev_http_server(std::move(http_server)),
+          _web_page_handler(new WebPageHandler(_ev_http_server.get(), env)) {}
+
 HttpService::~HttpService() {
     stop();
 }
@@ -137,7 +145,7 @@ Status HttpService::start() {
                                       streamload_2pc_action);
 
     // register stream load forward handler
-    auto* forward_handler = _pool.add(new StreamLoadForwardHandler());
+    auto* forward_handler = _pool.add(new StreamLoadForwardHandler(_env));
     _ev_http_server->register_handler(HttpMethod::PUT, "/api/{db}/{table}/_stream_load_forward",
                                       forward_handler);
 
@@ -189,6 +197,10 @@ Status HttpService::start() {
     BeProcThreadAction* be_proc_thread_action = _pool.add(new BeProcThreadAction(_env));
     _ev_http_server->register_handler(HttpMethod::GET, "/api/be_process_thread_num",
                                       be_proc_thread_action);
+
+    // Dump C++ stack traces for current BE threads.
+    BeThreadStackAction* be_thread_stack_action = _pool.add(new BeThreadStackAction(_env));
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/stack_trace", be_thread_stack_action);
 
     // Register BE LoadStream action
     LoadStreamAction* load_stream_action = _pool.add(new LoadStreamAction(_env));
@@ -502,6 +514,10 @@ void HttpService::register_cloud_handler(CloudStorageEngine& engine) {
     auto* show_hotspot_action = _pool.add(new ShowHotspotAction(engine, _env));
     _ev_http_server->register_handler(HttpMethod::GET, "/api/hotspot/tablet", show_hotspot_action);
 
+    auto* warmup_stats_action = _pool.add(new WarmUpStatsAction(_env));
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/warmup_event_driven_stats",
+                                      warmup_stats_action);
+
     CalcFileCrcAction* calc_crc_action = _pool.add(
             new CalcFileCrcAction(_env, engine, TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN));
     _ev_http_server->register_handler(HttpMethod::GET, "/api/calc_crc", calc_crc_action);
@@ -518,6 +534,12 @@ void HttpService::register_cloud_handler(CloudStorageEngine& engine) {
             _pool.add(new CheckEncryptionAction(_env, TPrivilegeHier::GLOBAL, TPrivilegeType::ALL));
     _ev_http_server->register_handler(HttpMethod::GET, "/api/check_tablet_encryption",
                                       check_encryption_action);
+
+    // Peer cache admin/debug endpoints
+    PeerCacheAction* peer_cache_get = _pool.add(new PeerCacheAction(_env, engine));
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/peer_cache", peer_cache_get);
+    PeerCacheAction* peer_cache_post = _pool.add(new PeerCacheAction(_env, engine));
+    _ev_http_server->register_handler(HttpMethod::POST, "/api/peer_cache", peer_cache_post);
 }
 // NOLINTEND(readability-function-size)
 

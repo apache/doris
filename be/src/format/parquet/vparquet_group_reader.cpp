@@ -26,6 +26,7 @@
 #include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
 #include <memory>
+#include <numeric>
 #include <ostream>
 
 #include "common/config.h"
@@ -207,7 +208,7 @@ Status RowGroupReader::init(
     }
     // _state is nullptr in some ut.
     if (_state && _state->enable_adjust_conjunct_order_by_cost()) {
-        std::ranges::sort(_filter_conjuncts, [](const auto& a, const auto& b) {
+        std::ranges::stable_sort(_filter_conjuncts, [](const auto& a, const auto& b) {
             return a->execute_cost() < b->execute_cost();
         });
     }
@@ -326,22 +327,27 @@ Status RowGroupReader::next_batch(Block* block, size_t batch_size, size_t* read_
 
     // Process external table query task that select columns are all from path.
     if (_read_table_columns.empty()) {
-        bool modify_row_ids = false;
-        RETURN_IF_ERROR(_read_empty_batch(batch_size, read_rows, batch_eof, &modify_row_ids));
+        int64_t batch_base_row = _total_read_rows;
+        RETURN_IF_ERROR(_read_empty_batch(batch_size, read_rows, batch_eof));
 
         DCHECK(_table_format_reader);
         RETURN_IF_ERROR(_table_format_reader->on_fill_partition_columns(
                 block, *read_rows, _lazy_read_ctx.partition_col_names));
         RETURN_IF_ERROR(_table_format_reader->on_fill_missing_columns(
                 block, *read_rows, _lazy_read_ctx.missing_col_names));
-        if (_table_format_reader->has_synthesized_column_handlers()) {
-            RETURN_IF_ERROR(_get_current_batch_row_id(*read_rows));
-        }
         RETURN_IF_ERROR(_table_format_reader->fill_synthesized_columns(block, *read_rows));
         RETURN_IF_ERROR(_table_format_reader->fill_generated_columns(block, *read_rows));
-        Status st = VExprContext::filter_block(_lazy_read_ctx.conjuncts, block, block->columns());
+        std::vector<uint32_t> columns_to_filter(block->columns());
+        for (uint32_t i = 0; i < columns_to_filter.size(); ++i) {
+            columns_to_filter[i] = i;
+        }
+        IColumn::Filter result_filter;
+        RETURN_IF_ERROR(VExprContext::execute_conjuncts_and_filter_block(
+                _lazy_read_ctx.conjuncts, block, columns_to_filter, block->columns(),
+                result_filter));
+        _mark_condition_cache_granules(result_filter.data(), *read_rows, batch_base_row);
         *read_rows = block->rows();
-        return st;
+        return Status::OK();
     }
     if (_lazy_read_ctx.can_lazy_read) {
         // call _do_lazy_read recursively when current batch is skipped
@@ -357,8 +363,7 @@ Status RowGroupReader::next_batch(Block* block, size_t batch_size, size_t* read_
         RETURN_IF_ERROR(_table_format_reader->on_fill_missing_columns(
                 block, *read_rows, _lazy_read_ctx.missing_col_names));
 
-        if (_table_format_reader->has_synthesized_column_handlers() ||
-            _table_format_reader->has_generated_column_handlers()) {
+        if (_need_current_batch_row_positions()) {
             RETURN_IF_ERROR(_get_current_batch_row_id(*read_rows));
         }
         RETURN_IF_ERROR(_table_format_reader->fill_synthesized_columns(block, *read_rows));
@@ -639,8 +644,7 @@ Status RowGroupReader::_do_lazy_read(Block* block, size_t batch_size, size_t* re
                 block, pre_read_rows, _lazy_read_ctx.predicate_partition_col_names));
         RETURN_IF_ERROR(_table_format_reader->on_fill_missing_columns(
                 block, pre_read_rows, _lazy_read_ctx.predicate_missing_col_names));
-        if (_table_format_reader->has_synthesized_column_handlers() ||
-            _table_format_reader->has_generated_column_handlers()) {
+        if (_need_current_batch_row_positions()) {
             RETURN_IF_ERROR(_get_current_batch_row_id(pre_read_rows));
         }
         RETURN_IF_ERROR(_table_format_reader->fill_synthesized_columns(block, pre_read_rows));
@@ -949,9 +953,13 @@ Status RowGroupReader::_get_block_column_pos(const Block& block, const std::stri
     return Status::OK();
 }
 
-Status RowGroupReader::_read_empty_batch(size_t batch_size, size_t* read_rows, bool* batch_eof,
-                                         bool* modify_row_ids) {
-    *modify_row_ids = false;
+bool RowGroupReader::_need_current_batch_row_positions() const {
+    DCHECK(_table_format_reader);
+    return _table_format_reader->has_synthesized_column_handlers() ||
+           _table_format_reader->has_generated_column_handlers();
+}
+
+Status RowGroupReader::_read_empty_batch(size_t batch_size, size_t* read_rows, bool* batch_eof) {
     if (_position_delete_ctx.has_filter) {
         int64_t start_row_id = _position_delete_ctx.current_row_id;
         int64_t end_row_id = std::min(_position_delete_ctx.current_row_id + (int64_t)batch_size,
@@ -975,9 +983,7 @@ Status RowGroupReader::_read_empty_batch(size_t batch_size, size_t* read_rows, b
         _position_delete_ctx.current_row_id = end_row_id;
         *batch_eof = _position_delete_ctx.current_row_id == _position_delete_ctx.last_row_id;
 
-        if (_table_format_reader->has_synthesized_column_handlers() ||
-            _table_format_reader->has_generated_column_handlers()) {
-            *modify_row_ids = true;
+        if (_need_current_batch_row_positions()) {
             _current_batch_row_ids.clear();
             _current_batch_row_ids.resize(*read_rows);
             size_t idx = 0;
@@ -1000,9 +1006,7 @@ Status RowGroupReader::_read_empty_batch(size_t batch_size, size_t* read_rows, b
             _remaining_rows = 0;
             *batch_eof = true;
         }
-        if (_table_format_reader->has_synthesized_column_handlers() ||
-            _table_format_reader->has_generated_column_handlers()) {
-            *modify_row_ids = true;
+        if (_need_current_batch_row_positions()) {
             RETURN_IF_ERROR(_get_current_batch_row_id(*read_rows));
         }
     }
@@ -1266,7 +1270,7 @@ Status RowGroupReader::_rewrite_dict_conjuncts(std::vector<int32_t>& dict_codes,
             for (int j = 0; j < dict_codes.size(); ++j) {
                 hybrid_set->insert(&dict_codes[j]);
             }
-            root = VDirectInPredicate::create_shared(node, hybrid_set);
+            root = VDirectInPredicate::create_shared(node, hybrid_set, false);
         }
         {
             SlotDescriptor* slot = nullptr;

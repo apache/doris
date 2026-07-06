@@ -166,7 +166,6 @@ suite("test_special_buffer_before_nested", "p0") {
             "store_row_column" = "true",
             "row_store_page_size" = "16384",
             "disable_auto_compaction" = "false",
-            "enable_single_replica_compaction" = "false",
             "enable_mow_light_delete" = "false"
             );
             """

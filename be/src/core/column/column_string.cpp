@@ -85,29 +85,6 @@ MutableColumnPtr ColumnStr<T>::clone_resized(size_t to_size) const {
     return res;
 }
 
-template <typename T>
-void ColumnStr<T>::shrink_padding_chars() {
-    if (size() == 0) {
-        return;
-    }
-    char* data = reinterpret_cast<char*>(chars.data());
-    auto* offset = offsets.data();
-    size_t size = offsets.size();
-
-    // deal the 0-th element. no need to move.
-    auto next_start = offset[0];
-    offset[0] = static_cast<T>(strnlen(data, size_at(0)));
-    for (size_t i = 1; i < size; i++) {
-        // get the i-th length and whole move it to cover the last's trailing void
-        auto length = strnlen(data + next_start, offset[i] - next_start);
-        memmove(data + offset[i - 1], data + next_start, length);
-        // offset i will be changed. so save the old value for (i+1)-th to get its length.
-        next_start = offset[i];
-        offset[i] = offset[i - 1] + static_cast<T>(length);
-    }
-    chars.resize_fill(offsets.back()); // just call it to shrink memory here. no possible to expand.
-}
-
 // This method is only called by MutableBlock::merge_ignore_overflow
 // by hash join operator to collect build data to avoid
 // the total string length of a ColumnStr<uint32_t> column exceeds the 4G limit.
@@ -388,7 +365,8 @@ size_t ColumnStr<T>::filter(const IColumn::Filter& filter) {
 }
 
 template <typename T>
-Status ColumnStr<T>::filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) {
+Status ColumnStr<T>::filter_by_selector(const uint16_t* sel, size_t sel_size,
+                                        IColumn* col_ptr) const {
     if constexpr (std::is_same_v<UInt32, T>) {
         auto* col = static_cast<ColumnStr<T>*>(col_ptr);
         Chars& res_chars = col->chars;

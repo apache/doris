@@ -30,6 +30,8 @@ const char* to_string(CompactionProfileType type) {
         return "cumulative";
     case CompactionProfileType::FULL:
         return "full";
+    case CompactionProfileType::BINLOG:
+        return "binlog";
     }
     return "unknown";
 }
@@ -170,6 +172,7 @@ void CompactionTaskTracker::_apply_completion(CompactionTaskInfo& info,
     info.output_total_size = stats.output_total_size;
     info.output_segments_num = stats.output_segments_num;
     info.output_version = stats.output_version;
+    info.is_ordered_data_compaction = stats.is_ordered_data_compaction;
     info.merge_latency_ms = stats.merge_latency_ms;
     info.bytes_read_from_local = stats.bytes_read_from_local;
     info.bytes_read_from_remote = stats.bytes_read_from_remote;

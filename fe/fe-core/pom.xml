@@ -345,6 +345,11 @@ under the License.
             <version>${antlr4.version}</version>
         </dependency>
         <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-sql-parser</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
             <groupId>com.aliyun.odps</groupId>
             <artifactId>odps-sdk-core</artifactId>
             <version>${maxcompute.version}</version>
@@ -854,7 +859,7 @@ under the License.
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
                 <configuration>
-                    <release>8</release>
+                    <release>17</release>
                 </configuration>
                 <executions>
                     <!-- first: compile annotation and annotation processor -->

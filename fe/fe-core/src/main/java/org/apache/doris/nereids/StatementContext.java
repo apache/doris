@@ -30,6 +30,7 @@ import org.apache.doris.catalog.View;
 import org.apache.doris.common.Id;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
+import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccTable;
 import org.apache.doris.datasource.mvcc.MvccTableInfo;
@@ -168,6 +169,7 @@ public class StatementContext implements Closeable {
     private final Map<CTEId, LogicalCTEProducer<? extends Plan>> cteIdToProducer = new HashMap<>();
 
     private final Map<RelationId, Set<Expression>> consumerIdToFilters = new HashMap<>();
+    private final Map<RelationId, Long> consumerIdToLimitRows = new HashMap<>();
     // Used to update consumer's stats
     private final Map<CTEId, List<Pair<Multimap<Slot, Slot>, Group>>> cteIdToConsumerGroup = new HashMap<>();
     private final Map<CTEId, LogicalPlan> rewrittenCteProducer = new HashMap<>();
@@ -267,6 +269,9 @@ public class StatementContext implements Closeable {
     private Backend groupCommitMergeBackend;
 
     private final Map<MvccTableInfo, MvccSnapshot> snapshots = Maps.newHashMap();
+    // Record external tables that can be preloaded before internal table locks are acquired.
+    private final Map<Long, ExternalTablePreloadInfo> externalTablePreloadInfos = new LinkedHashMap<>();
+    private ExternalMetadataPreloadResult externalMetadataPreloadResult;
 
     private boolean privChecked;
 
@@ -483,6 +488,27 @@ public class StatementContext implements Closeable {
         usedAIResourceNames.add(resourceName);
     }
 
+    /**
+     * Register an external relation that may preload metadata before internal table locks are acquired.
+     *
+     * @param table external table referenced by the relation
+     * @param tableSnapshot optional explicit snapshot specification on the relation
+     * @param scanParams optional relation scan parameters such as branch or tag
+     */
+    public void registerExternalTableForPreload(TableIf table, Optional<TableSnapshot> tableSnapshot,
+            Optional<TableScanParams> scanParams) {
+        if (!(table instanceof ExternalTable) || !table.supportsExternalMetadataPreload()) {
+            return;
+        }
+        ExternalTablePreloadInfo preloadInfo = externalTablePreloadInfos.computeIfAbsent(table.getId(),
+                id -> new ExternalTablePreloadInfo((ExternalTable) table));
+        if (tableSnapshot.isPresent() || scanParams.isPresent()) {
+            preloadInfo.markNonLatestRelation();
+        } else {
+            preloadInfo.markLatestRelation();
+        }
+    }
+
     public void setOriginStatement(OriginStatement originStatement) {
         this.originStatement = originStatement;
         if (originStatement != null && sqlCacheContext != null) {
@@ -644,6 +670,10 @@ public class StatementContext implements Closeable {
         return consumerIdToFilters;
     }
 
+    public Map<RelationId, Long> getConsumerIdToLimitRows() {
+        return consumerIdToLimitRows;
+    }
+
     public PlaceholderId getNextPlaceholderId() {
         return placeHolderIdGenerator.getNextId();
     }
@@ -674,6 +704,7 @@ public class StatementContext implements Closeable {
         cteIdToOutputIds.clear();
         cteIdToProducer.clear();
         consumerIdToFilters.clear();
+        consumerIdToLimitRows.clear();
         cteIdToConsumerGroup.clear();
         rewrittenCteProducer.clear();
         rewrittenCteConsumer.clear();
@@ -688,6 +719,7 @@ public class StatementContext implements Closeable {
                 copyMapOfSets(cteIdToOutputIds),
                 new HashMap<>(cteIdToProducer),
                 copyMapOfSets(consumerIdToFilters),
+                new HashMap<>(consumerIdToLimitRows),
                 copyMapOfLists(cteIdToConsumerGroup),
                 new HashMap<>(rewrittenCteProducer),
                 new HashMap<>(rewrittenCteConsumer));
@@ -706,6 +738,9 @@ public class StatementContext implements Closeable {
 
         consumerIdToFilters.clear();
         consumerIdToFilters.putAll(snapshot.consumerIdToFilters);
+
+        consumerIdToLimitRows.clear();
+        consumerIdToLimitRows.putAll(snapshot.consumerIdToLimitRows);
 
         cteIdToConsumerGroup.clear();
         cteIdToConsumerGroup.putAll(snapshot.cteIdToConsumerGroup);
@@ -739,6 +774,7 @@ public class StatementContext implements Closeable {
         private final Map<CTEId, Set<Slot>> cteIdToOutputIds;
         private final Map<CTEId, LogicalCTEProducer<? extends Plan>> cteIdToProducer;
         private final Map<RelationId, Set<Expression>> consumerIdToFilters;
+        private final Map<RelationId, Long> consumerIdToLimitRows;
         private final Map<CTEId, List<Pair<Multimap<Slot, Slot>, Group>>> cteIdToConsumerGroup;
         private final Map<CTEId, LogicalPlan> rewrittenCteProducer;
         private final Map<CTEId, LogicalPlan> rewrittenCteConsumer;
@@ -751,6 +787,7 @@ public class StatementContext implements Closeable {
                 Map<CTEId, Set<Slot>> cteIdToOutputIds,
                 Map<CTEId, LogicalCTEProducer<? extends Plan>> cteIdToProducer,
                 Map<RelationId, Set<Expression>> consumerIdToFilters,
+                Map<RelationId, Long> consumerIdToLimitRows,
                 Map<CTEId, List<Pair<Multimap<Slot, Slot>, Group>>> cteIdToConsumerGroup,
                 Map<CTEId, LogicalPlan> rewrittenCteProducer,
                 Map<CTEId, LogicalPlan> rewrittenCteConsumer) {
@@ -758,6 +795,7 @@ public class StatementContext implements Closeable {
             this.cteIdToOutputIds = cteIdToOutputIds;
             this.cteIdToProducer = cteIdToProducer;
             this.consumerIdToFilters = consumerIdToFilters;
+            this.consumerIdToLimitRows = consumerIdToLimitRows;
             this.cteIdToConsumerGroup = cteIdToConsumerGroup;
             this.rewrittenCteProducer = rewrittenCteProducer;
             this.rewrittenCteConsumer = rewrittenCteConsumer;
@@ -977,6 +1015,37 @@ public class StatementContext implements Closeable {
      */
     public void setSnapshot(MvccTableInfo mvccTableInfo, MvccSnapshot snapshot) {
         snapshots.put(mvccTableInfo, snapshot);
+    }
+
+    public Collection<ExternalTablePreloadInfo> getExternalTablePreloadInfos() {
+        return Collections.unmodifiableCollection(externalTablePreloadInfos.values());
+    }
+
+    public int getExternalTablePreloadCandidateCount() {
+        return externalTablePreloadInfos.size();
+    }
+
+    public boolean hasAnyPlanReadLockTable() {
+        return containsPlanReadLockTable(tables.values())
+                || containsPlanReadLockTable(mtmvRelatedTables.values())
+                || containsPlanReadLockTable(insertTargetTables.values());
+    }
+
+    public Optional<ExternalMetadataPreloadResult> getExternalMetadataPreloadResult() {
+        return Optional.ofNullable(externalMetadataPreloadResult);
+    }
+
+    public void setExternalMetadataPreloadResult(ExternalMetadataPreloadResult result) {
+        this.externalMetadataPreloadResult = result;
+    }
+
+    private boolean containsPlanReadLockTable(Collection<TableIf> tableIfs) {
+        for (TableIf tableIf : tableIfs) {
+            if (tableIf.needReadLockWhenPlan()) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static class CloseableResource implements Closeable {

@@ -22,8 +22,8 @@ suite("regression_test_variant_github_events_p2", "p2"){
             table "${table_name}"
 
             // set http request header params
-            set 'read_json_by_line', 'true' 
-            set 'format', 'json' 
+            set 'read_json_by_line', 'true'
+            set 'format', 'json'
             set 'max_filter_ratio', '0.1'
             set 'memtable_on_sink_node', 'true'
             file file_name // import json file
@@ -55,7 +55,7 @@ suite("regression_test_variant_github_events_p2", "p2"){
             INDEX idx_var(v) USING INVERTED COMMENT ''
         )
         DUPLICATE KEY(`k`)
-        DISTRIBUTED BY HASH(k) BUCKETS 4 
+        DISTRIBUTED BY HASH(k) BUCKETS 4
         properties("replication_num" = "1", "disable_auto_compaction" = "false");
     """
 
@@ -67,7 +67,7 @@ suite("regression_test_variant_github_events_p2", "p2"){
             INDEX idx_var(v) USING INVERTED COMMENT ''
         )
         DUPLICATE KEY(`k`)
-        DISTRIBUTED BY HASH(k) BUCKETS 4 
+        DISTRIBUTED BY HASH(k) BUCKETS 4
         properties("replication_num" = "1", "disable_auto_compaction" = "false");
     """
     // 2015
@@ -90,11 +90,11 @@ suite("regression_test_variant_github_events_p2", "p2"){
 
     // test array index
     sql """insert into github_events_arr select k, cast(v['payload']['pull_request']['head']['repo']['topics'] as array<text>) from github_events"""
-    sql "set enable_common_expr_pushdown = true; "
+    sql "set enable_segment_limit_pushdown = true; "
     qt_sql """select count() from github_events_arr where array_contains(v, 'css');"""
-    sql "set enable_common_expr_pushdown = false; "
+    sql "set enable_segment_limit_pushdown = false; "
     qt_sql """select count() from github_events_arr where array_contains(v, 'css');"""
-    sql "set enable_common_expr_pushdown = true; "
+    sql "set enable_segment_limit_pushdown = true; "
 
     // TODO fix compaction issue, this case could be stable
     qt_sql """select cast(v["payload"]["pull_request"]["additions"] as int)  from github_events where cast(v["repo"]["name"] as string) = 'xpressengine/xe-core' order by 1;"""
@@ -115,7 +115,7 @@ suite("regression_test_variant_github_events_p2", "p2"){
         insert into github_events_2 select 1, cast(v["repo"]["name"] as string) FROM github_events;
     """
     // insert batches of nulls
-    for(int t = 0; t <= 10; t += 1){ 
+    for(int t = 0; t <= 10; t += 1){
         long k = 9223372036854775107 + t
         sql """INSERT INTO github_events VALUES (${k}, NULL)"""
     }
@@ -138,7 +138,7 @@ suite("regression_test_variant_github_events_p2", "p2"){
         }
     }
     sql """ALTER TABLE github_events ADD COLUMN v2 variant<properties("variant_enable_typed_paths_to_sparse" = "${enable_typed_paths_to_sparse}")> DEFAULT NULL"""
-    for(int t = 0; t <= 10; t += 1){ 
+    for(int t = 0; t <= 10; t += 1){
         long k = 9223372036854775107 + t
         sql """INSERT INTO github_events VALUES (${k}, '{"aaaa" : 1234, "bbbb" : "11ssss"}', '{"xxxx" : 1234, "yyyy" : [1.111]}')"""
     }
@@ -152,8 +152,7 @@ suite("regression_test_variant_github_events_p2", "p2"){
     // query and filterd by inverted index
     if (!enable_typed_paths_to_sparse) {
         profile("test_profile_1") {
-            sql """ set enable_common_expr_pushdown = true; """
-            sql """ set enable_common_expr_pushdown_for_inverted_index = true; """
+            sql """ set enable_segment_limit_pushdown = true; """
             sql """ set enable_pipeline_x_engine = true;"""
             sql """ set enable_profile = true;"""
             sql """ set profile_level = 2;"""
@@ -173,11 +172,10 @@ suite("regression_test_variant_github_events_p2", "p2"){
                 }
                 // Assert that the sum of all matched numbers equals 67677
                 assertEquals(67677, total)
-            } 
+            }
         }
     }
-    
-    sql """ set enable_common_expr_pushdown = true; """
-    sql """ set enable_common_expr_pushdown_for_inverted_index = true; """
+
+    sql """ set enable_segment_limit_pushdown = true; """
     qt_sql_inv """select count() from github_events where arrays_overlap(cast(v['payload']['pull_request']['head']['repo']['topics'] as array<text>), ['javascript', 'css'] )"""
 }

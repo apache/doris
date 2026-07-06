@@ -116,7 +116,7 @@ public:
     }
 
     DataDistribution required_data_distribution(RuntimeState* /*state*/) const override {
-        return {ExchangeType::PASSTHROUGH};
+        return {TLocalPartitionType::PASSTHROUGH};
     }
 
     Status push(RuntimeState* state, Block* input_block, bool eos) const override {

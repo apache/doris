@@ -51,7 +51,7 @@ suite("regression_test_variant_add_multi_var_mulit_indexes", "variant_type"){
         properties("replication_num" = "1", "disable_auto_compaction" = "true");
     """
     sql """insert into  ${table_name} values (0, '{"a" : 12345,"b" : 2}')"""
-    
+
     sql """ alter table  ${table_name} add column v2 variant<'a': string, 'b': string> NULL"""
 
     sql """insert into  ${table_name} values (1, '{"a" : 12345,"b" : 2}', '{"a" : 12345,"b" : 3}')"""
@@ -82,12 +82,11 @@ suite("regression_test_variant_add_multi_var_mulit_indexes", "variant_type"){
 
     sql """ set enable_match_without_inverted_index = false"""
     sql """ set enable_inverted_index_query = true"""
-    sql """ set enable_common_expr_pushdown = true"""
-    sql """ set enable_common_expr_pushdown_for_inverted_index = true"""
-    
+    sql """ set enable_segment_limit_pushdown = true"""
+
     qt_sql "select * from  ${table_name} where cast(v2['a'] as string) match '12345' order by k"
     qt_sql "select * from  ${table_name} where cast(v2['b'] as string) match '2' order by k"
     qt_sql "select * from  ${table_name} where cast(v3['b'] as int) = 2 order by k"
-    
-    
+
+
 }

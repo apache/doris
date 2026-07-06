@@ -813,6 +813,10 @@ public abstract class DataType {
 
     public abstract int width();
 
+    public boolean isInjectiveCastTo(DataType target) {
+        return this.equals(target);
+    }
+
     public static List<DataType> trivialTypes() {
         return Type.getTrivialTypes()
                 .stream()
@@ -905,7 +909,12 @@ public abstract class DataType {
             if (catalogType.isMapType()) {
                 org.apache.doris.catalog.MapType mt =
                         (org.apache.doris.catalog.MapType) catalogType;
-                validateNestedType(catalogType, mt.getKeyType());
+                Type mapKeyType = mt.getKeyType();
+                if (mapKeyType.isComplexType()) {
+                    throw new AnalysisException(
+                            "MAP key type must be a primitive type but get " + mapKeyType.toSql());
+                }
+                validateNestedType(catalogType, mapKeyType);
                 validateNestedType(catalogType, mt.getValueType());
             }
             if (catalogType.isStructType()) {

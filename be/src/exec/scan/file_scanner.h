@@ -119,6 +119,8 @@ protected:
 
     void _collect_profile_before_close() override;
 
+    bool _should_update_load_counters() const override;
+
     // fe will add skip_bitmap_col to _input_tuple_desc iff the target olaptable has skip_bitmap_col
     // and the current load is a flexible partial update
     bool _should_process_skip_bitmap_col() const { return _skip_bitmap_col_idx != -1; }
@@ -133,8 +135,6 @@ protected:
     bool _cur_reader_eof = false;
     // File source slot descriptors
     std::vector<SlotDescriptor*> _file_slot_descs;
-    // col names from _file_slot_descs
-    std::vector<std::string> _file_col_names;
     // Unified column descriptors for init_reader (includes file, partition, missing, synthesized cols)
     std::vector<ColumnDescriptor> _column_descs;
 
@@ -147,6 +147,7 @@ protected:
     // dest slot name to index in _dest_vexpr_ctx;
     std::unordered_map<std::string, int> _dest_slot_name_to_idx;
     // col name to default value expr
+    // TODO: only used by json reader. Could we delete this?
     std::unordered_map<std::string, VExprContextSPtr> _col_default_value_ctx;
     // the map values of dest slot id to src slot desc
     // if there is not key of dest slot id in dest_sid_to_src_sid_without_trans, it will be set to nullptr
@@ -190,10 +191,9 @@ protected:
 
     std::unique_ptr<io::FileCacheStatistics> _file_cache_statistics;
     std::unique_ptr<io::FileReaderStats> _file_reader_stats;
-    std::unique_ptr<io::IOContext> _io_ctx;
+    std::shared_ptr<io::IOContext> _io_ctx;
 
     // Whether to fill partition columns from path, default is true.
-    bool _fill_partition_from_path = true;
     std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
             _partition_col_descs;
     std::unordered_map<std::string, bool> _partition_value_is_null;
@@ -273,6 +273,7 @@ private:
     Status _generate_partition_columns();
 
     bool _check_partition_prune_expr(const VExprSPtr& expr);
+    bool _contains_runtime_filter(const VExprContextSPtrs& conjuncts) const;
     void _init_runtime_filter_partition_prune_ctxs();
     void _init_runtime_filter_partition_prune_block();
     Status _process_runtime_filters_partition_prune(bool& is_partition_pruned);
@@ -294,7 +295,7 @@ private:
     };
 
     Status _init_io_ctx() {
-        _io_ctx.reset(new io::IOContext());
+        _io_ctx = std::make_shared<io::IOContext>();
         _io_ctx->query_id = &_state->query_id();
         return Status::OK();
     };

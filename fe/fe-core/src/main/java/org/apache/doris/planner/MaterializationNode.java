@@ -22,6 +22,10 @@ import org.apache.doris.analysis.ExprToThriftVisitor;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.ColumnToThrift;
+import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
+import org.apache.doris.planner.LocalExchangeNode.LocalExchangeType;
+import org.apache.doris.planner.LocalExchangeNode.LocalExchangeTypeRequire;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.resource.computegroup.ComputeGroup;
 import org.apache.doris.system.Backend;
@@ -33,6 +37,8 @@ import org.apache.doris.thrift.TNodeInfo;
 import org.apache.doris.thrift.TPaloNodesInfo;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
+
+import com.google.common.collect.Lists;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -172,7 +178,7 @@ public class MaterializationNode extends PlanNode {
         output.append(detailPrefix).append("column_idxs_lists: ").append(columnIdxsLists).append("\n");
         output.append(detailPrefix).append("row_ids: ").append(rowIds).append("\n");
         output.append(detailPrefix).append("isTopMaterializeNode: ").append(isTopMaterializeNode).append("\n");
-        printNestedColumns(output, detailPrefix, outputTupleDesc);
+        printNestedColumns(output, detailPrefix, materializeTupleDescriptor);
 
         return output.toString();
     }
@@ -227,7 +233,17 @@ public class MaterializationNode extends PlanNode {
     }
 
     @Override
-    public boolean isSerialOperator() {
+    public boolean isSerialNode() {
         return true;
+    }
+
+    @Override
+    public Pair<PlanNode, LocalExchangeType> enforceAndDeriveLocalExchange(
+            PlanTranslatorContext translatorContext, PlanNode parent, LocalExchangeTypeRequire parentRequire) {
+        Pair<PlanNode, LocalExchangeType> enforceResult = enforceRequire(
+                translatorContext, children.get(0), 0, LocalExchangeTypeRequire.requirePassthrough());
+        children = Lists.newArrayList();
+        children.add(enforceResult.first);
+        return Pair.of(this, LocalExchangeType.PASSTHROUGH);
     }
 }

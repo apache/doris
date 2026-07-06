@@ -35,13 +35,19 @@ void record_object_request_failed(int http_code) {
     }
 }
 
-S3CustomRetryStrategy::S3CustomRetryStrategy(int maxRetries) : DefaultRetryStrategy(maxRetries) {}
+S3CustomRetryStrategy::S3CustomRetryStrategy(int maxRetries, bool retry_slow_down)
+        : DefaultRetryStrategy(maxRetries), _retry_slow_down(retry_slow_down) {}
 
 S3CustomRetryStrategy::~S3CustomRetryStrategy() = default;
 
 bool S3CustomRetryStrategy::ShouldRetry(const Aws::Client::AWSError<Aws::Client::CoreErrors>& error,
                                         long attemptedRetries) const {
     if (attemptedRetries >= m_maxRetries) {
+        return false;
+    }
+
+    if (!_retry_slow_down && error.GetExceptionName() == "SlowDown" &&
+        error.GetResponseCode() == Aws::Http::HttpResponseCode::SERVICE_UNAVAILABLE) {
         return false;
     }
 

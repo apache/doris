@@ -113,10 +113,6 @@ public:
         return nullptr;
     }
 
-    // shrink the end zeros for ColumnStr(also for who has it nested). so nest column will call it for all nested.
-    // for non-str col, will reach here(do nothing). only ColumnStr will really shrink itself.
-    virtual void shrink_padding_chars() {}
-
     // Only used in ColumnVariant to handle lifecycle of variant. Other columns would do nothing.
     virtual void finalize() {}
 
@@ -425,6 +421,16 @@ public:
                                "Method update_crc32c_batch is not supported for " + get_name());
     }
 
+    // Hash NULL rows as this column type's default value, instead of skipping them like
+    // update_crc32c_batch(hashes, null_map). This keeps the legacy Nullable fixed-width hash
+    // semantics without mutating the source nested column.
+    virtual void update_crc32c_batch_default_on_null(uint32_t* __restrict hashes,
+                                                     const uint8_t* __restrict null_map) const {
+        throw doris::Exception(
+                ErrorCode::NOT_IMPLEMENTED_ERROR,
+                "Method update_crc32c_batch_default_on_null is not supported for " + get_name());
+    }
+
     // use range for one hash value to avoid virtual function call in loop
     virtual void update_crc32c_single(size_t start, size_t end, uint32_t& hash,
                                       const uint8_t* __restrict null_map) const {
@@ -456,7 +462,8 @@ public:
      *  // nullable -> predict_column
      *  // string (dictionary) -> column_dictionary
      */
-    virtual Status filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) {
+    virtual Status filter_by_selector(const uint16_t* sel, size_t sel_size,
+                                      IColumn* col_ptr) const {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "Method filter_by_selector is not supported for {}, only "
                                "column_nullable, column_dictionary and predict_column support",
@@ -567,10 +574,27 @@ public:
 
     /// If the column contains subcolumns (such as Array, Nullable, etc), do callback on them.
     /// Shallow: doesn't do recursive calls; don't do call for itself.
-    using ColumnCallback = std::function<void(WrappedPtr&)>;
-    using ImutableColumnCallback = std::function<void(const IColumn&)>;
-    virtual void for_each_subcolumn(ColumnCallback) {}
+    using ColumnCallback = std::function<void(const IColumn&)>;
+    virtual void for_each_subcolumn(ColumnCallback) const {}
 
+protected:
+    virtual void mutate_subcolumns() {}
+
+    static void mutate_subcolumn(WrappedPtr& subcolumn) {
+        static_cast<IColumn::Ptr&>(subcolumn) =
+                std::move(*static_cast<const IColumn::Ptr&>(subcolumn)).mutate();
+    }
+
+    template <typename ColumnType>
+    static void mutate_subcolumn(typename ColumnType::WrappedPtr& subcolumn) {
+        auto mutated = std::move(*static_cast<const typename ColumnType::Ptr&>(subcolumn)).mutate();
+        auto typed_mutated = ColumnType::cast_to_column_mutptr(
+                assert_cast<ColumnType*, TypeCheckOnRelease::DISABLE>(mutated.get()));
+        mutated = nullptr;
+        static_cast<typename ColumnType::Ptr&>(subcolumn) = std::move(typed_mutated);
+    }
+
+public:
     /// Columns have equal structure.
     /// If true - you can use "compare_at", "insert_from", etc. methods.
     virtual bool structure_equals(const IColumn&) const {
@@ -584,10 +608,7 @@ public:
     // exclusive nodes are reused through the COW fast path.
     MutablePtr mutate() const&& {
         MutablePtr res = shallow_mutate();
-        res->for_each_subcolumn([](WrappedPtr& subcolumn) {
-            static_cast<IColumn::Ptr&>(subcolumn) =
-                    std::move(*static_cast<const IColumn::Ptr&>(subcolumn)).mutate();
-        });
+        res->mutate_subcolumns();
         return res;
     }
 
@@ -598,10 +619,7 @@ public:
     static MutablePtr mutate(Ptr ptr) {
         MutablePtr res = ptr->shallow_mutate(); /// Now use_count is 2.
         ptr.reset();                            /// Reset use_count to 1.
-        res->for_each_subcolumn([](WrappedPtr& subcolumn) {
-            static_cast<IColumn::Ptr&>(subcolumn) =
-                    std::move(*static_cast<const IColumn::Ptr&>(subcolumn)).mutate();
-        });
+        res->mutate_subcolumns();
         return res;
     }
 
@@ -615,10 +633,8 @@ public:
 
     /// Various properties on behaviour of column type.
 
-    /// It's true for ColumnNullable only.
+    /// It's true for ColumnNullable and Const(ColumnNullable).
     virtual bool is_nullable() const { return false; }
-    /// It's true for ColumnNullable, can be true or false for ColumnConst, etc.
-    virtual bool is_concrete_nullable() const { return false; }
 
     // true if column has null element
     virtual bool has_null() const { return false; }

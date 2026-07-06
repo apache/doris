@@ -45,8 +45,6 @@ std::ostream& operator<<(std::ostream& os, __int128 const& value);
 
 std::istream& operator>>(std::istream& is, __int128& value);
 
-std::size_t hash_value(LargeIntValue const& value);
-
 } // namespace doris
 
 // Thirdparty printers like gtest needs operator<< to be exported into global namespace, so that ADL will work.

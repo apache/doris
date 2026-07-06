@@ -61,6 +61,7 @@
 #include "storage/index/ann/ann_index_iterator.h"
 #include "storage/index/ann/ann_search_params.h"
 #include "storage/index/index_reader.h"
+#include "storage/index/zone_map/zonemap_eval_context.h"
 #include "storage/segment/column_reader.h"
 #include "storage/segment/virtual_column_iterator.h"
 
@@ -80,7 +81,9 @@ const static std::set<std::string> DISTANCE_FUNCS = {L2DistanceApproximate::name
 const static std::set<TExprOpcode::type> OPS_FOR_ANN_RANGE_SEARCH = {
         TExprOpcode::GE, TExprOpcode::LE, TExprOpcode::LE, TExprOpcode::GT, TExprOpcode::LT};
 
-VectorizedFnCall::VectorizedFnCall(const TExprNode& node) : VExpr(node) {}
+VectorizedFnCall::VectorizedFnCall(const TExprNode& node) : VExpr(node) {
+    _function_name = _fn.name.function_name;
+}
 
 Status VectorizedFnCall::prepare(RuntimeState* state, const RowDescriptor& desc,
                                  VExprContext* context) {
@@ -206,6 +209,35 @@ Status VectorizedFnCall::evaluate_inverted_index(VExprContext* context, uint32_t
         return Status::OK();
     }
     return _evaluate_inverted_index(context, _function, segment_num_rows);
+}
+
+ZoneMapFilterResult VectorizedFnCall::evaluate_zonemap_filter(const ZoneMapEvalContext& ctx) const {
+    return _function->evaluate_zonemap_filter(ctx, _children);
+}
+
+bool VectorizedFnCall::can_evaluate_zonemap_filter() const {
+    return _function != nullptr && !_function->is_blockable() &&
+           _function->can_evaluate_zonemap_filter(_children);
+}
+
+ZoneMapFilterResult VectorizedFnCall::evaluate_dictionary_filter(
+        const DictionaryEvalContext& ctx) const {
+    return _function->evaluate_dictionary_filter(ctx, _children);
+}
+
+bool VectorizedFnCall::can_evaluate_dictionary_filter() const {
+    return _function != nullptr && !_function->is_blockable() &&
+           _function->can_evaluate_dictionary_filter(_children);
+}
+
+ZoneMapFilterResult VectorizedFnCall::evaluate_bloom_filter(
+        const BloomFilterEvalContext& ctx) const {
+    return _function->evaluate_bloom_filter(ctx, _children);
+}
+
+bool VectorizedFnCall::can_evaluate_bloom_filter() const {
+    return _function != nullptr && !_function->is_blockable() &&
+           _function->can_evaluate_bloom_filter(_children);
 }
 
 Status VectorizedFnCall::_do_execute(VExprContext* context, const Block* block,
@@ -556,8 +588,9 @@ Status VectorizedFnCall::evaluate_ann_range_search(
         const std::vector<std::unique_ptr<segment_v2::IndexIterator>>& cid_to_index_iterators,
         const std::vector<ColumnId>& idx_to_cid,
         const std::vector<std::unique_ptr<segment_v2::ColumnIterator>>& column_iterators,
-        roaring::Roaring& row_bitmap, segment_v2::AnnIndexStats& ann_index_stats,
-        bool enable_result_cache, AnnRangeSearchEvaluationResult& evaluation_result) {
+        size_t rows_of_segment, roaring::Roaring& row_bitmap,
+        segment_v2::AnnIndexStats& ann_index_stats, bool enable_result_cache,
+        AnnRangeSearchEvaluationResult& evaluation_result) {
     evaluation_result = {};
     if (range_search_runtime.is_ann_range_search == false) {
         return Status::OK();
@@ -609,6 +642,20 @@ Status VectorizedFnCall::evaluate_ann_range_search(
         return Status::InvalidArgument(
                 "Ann range search query dimension {} does not match index dimension {}",
                 range_search_runtime.dim, index_dim);
+    }
+
+    const auto& user_params = range_search_runtime.user_params;
+    if (user_params.should_fallback_ann_index_by_small_candidate(origin_num, rows_of_segment)) {
+        VLOG_DEBUG << fmt::format(
+                "Ann range search input rows {} reach small candidate threshold, "
+                "rows_of_segment: {}, absolute_threshold: {}, percent_threshold: {}, "
+                "will not use ann index to filter",
+                origin_num, rows_of_segment, user_params.ann_index_candidate_rows_threshold,
+                user_params.ann_index_candidate_rows_percent_threshold);
+        ann_index_stats.fall_back_brute_force_cnt += 1;
+        ann_index_stats.range_fallback_by_small_candidate_cnt += 1;
+        ann_index_stats.range_fallback_small_candidate_rows += origin_num;
+        return Status::OK();
     }
 
     auto stats = std::make_unique<segment_v2::AnnIndexStats>();

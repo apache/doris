@@ -38,8 +38,8 @@
 suite("test_search_dsl_operators", "p0") {
     def tableName = "search_dsl_operators_test"
 
-    // Pin enable_common_expr_pushdown to prevent CI flakiness from fuzzy testing.
-    sql """ set enable_common_expr_pushdown = true """
+    // Pin enable_segment_limit_pushdown to prevent CI flakiness from fuzzy testing.
+    sql """ set enable_segment_limit_pushdown = true """
 
     sql "DROP TABLE IF EXISTS ${tableName}"
 
@@ -72,7 +72,7 @@ suite("test_search_dsl_operators", "p0") {
     // All OR operators -> at least one must match (minimum_should_match=1)
     // Expected: rows 1,2,3,4 (all match at least one term)
     qt_dsl_or_chain """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, firstname
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, firstname
         FROM ${tableName}
         WHERE search('aterm OR bterm OR cterm', '{"default_field":"firstname","default_operator":"and","mode":"lucene"}')
         ORDER BY id
@@ -82,7 +82,7 @@ suite("test_search_dsl_operators", "p0") {
     // All AND operators -> all must match
     // Expected: row 4 only (the only one with all three terms)
     qt_dsl_and_chain """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, firstname
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, firstname
         FROM ${tableName}
         WHERE search('dterm AND eterm AND aterm', '{"default_field":"firstname","default_operator":"and","mode":"lucene"}')
         ORDER BY id
@@ -98,7 +98,7 @@ suite("test_search_dsl_operators", "p0") {
     // Result: effectively +aterm only
     // Expected: rows 1, 4 (rows containing "aterm")
     qt_dsl_and_or_mixed """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, firstname
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, firstname
         FROM ${tableName}
         WHERE search('aterm AND bterm OR cterm', '{"default_field":"firstname","default_operator":"and","mode":"lucene","minimum_should_match":0}')
         ORDER BY id
@@ -114,7 +114,7 @@ suite("test_search_dsl_operators", "p0") {
     // Result: +aterm -bterm
     // Expected: row 4 only (has "aterm" but NOT "bterm")
     qt_dsl_and_not_or """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, firstname
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, firstname
         FROM ${tableName}
         WHERE search('aterm AND NOT bterm OR cterm', '{"default_field":"firstname","default_operator":"and","mode":"lucene","minimum_should_match":0}')
         ORDER BY id
@@ -125,7 +125,7 @@ suite("test_search_dsl_operators", "p0") {
     // Same as: cterm AND dterm
     // Expected: row 3 only (has both "cterm" AND "dterm")
     qt_dsl_implicit_and """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, firstname
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, firstname
         FROM ${tableName}
         WHERE search('cterm dterm', '{"default_field":"firstname","default_operator":"and","mode":"lucene"}')
         ORDER BY id
@@ -136,7 +136,7 @@ suite("test_search_dsl_operators", "p0") {
     // Data has "dterm eterm aterm" - "aterm" comes AFTER "eterm", not before
     // Expected: no match
     qt_dsl_phrase_wrong_order """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, firstname
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, firstname
         FROM ${tableName}
         WHERE search('"aterm eterm"', '{"default_field":"firstname","default_operator":"and","mode":"lucene"}')
         ORDER BY id
@@ -147,7 +147,7 @@ suite("test_search_dsl_operators", "p0") {
     // Data has "dterm eterm aterm" - "eterm aterm" appears in this order
     // Expected: row 4
     qt_dsl_phrase_correct_order """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, firstname
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, firstname
         FROM ${tableName}
         WHERE search('"eterm aterm"', '{"default_field":"firstname","default_operator":"and","mode":"lucene"}')
         ORDER BY id
@@ -160,7 +160,7 @@ suite("test_search_dsl_operators", "p0") {
     // Row 4 contains all terms (dterm, eterm, aterm)
     // Expected: row 4
     qt_dsl_escaped_space_and """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, firstname
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, firstname
         FROM ${tableName}
         WHERE search('eterm\\\\ dterm AND aterm', '{"default_field":"firstname","default_operator":"and","mode":"lucene"}')
         ORDER BY id
@@ -171,7 +171,7 @@ suite("test_search_dsl_operators", "p0") {
     // Row 4 has "dterm eterm aterm" - phrase "dterm eterm" matches, and "aterm" is also present
     // Expected: row 4
     qt_dsl_phrase_and_term """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, firstname
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, firstname
         FROM ${tableName}
         WHERE search('"dterm eterm" AND aterm', '{"default_field":"firstname","default_operator":"and","mode":"lucene"}')
         ORDER BY id
@@ -181,7 +181,7 @@ suite("test_search_dsl_operators", "p0") {
     // Phrase "eterm dterm" is wrong order (data has "dterm eterm")
     // Expected: no match
     qt_dsl_phrase_wrong_and_term """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, firstname
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, firstname
         FROM ${tableName}
         WHERE search('"eterm dterm" AND aterm', '{"default_field":"firstname","default_operator":"and","mode":"lucene"}')
         ORDER BY id
@@ -193,7 +193,7 @@ suite("test_search_dsl_operators", "p0") {
     // cterm matches rows 2, 3
     // Expected: rows 2, 3
     qt_dsl_phrase_or_term_1 """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, firstname
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, firstname
         FROM ${tableName}
         WHERE search('"eterm dterm" OR cterm', '{"default_field":"firstname","default_operator":"and","mode":"lucene"}')
         ORDER BY id
@@ -205,7 +205,7 @@ suite("test_search_dsl_operators", "p0") {
     // cterm matches rows 2, 3
     // Expected: rows 2, 3, 4
     qt_dsl_phrase_or_term_2 """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, firstname
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, firstname
         FROM ${tableName}
         WHERE search('"dterm eterm" OR cterm', '{"default_field":"firstname","default_operator":"and","mode":"lucene"}')
         ORDER BY id
@@ -223,7 +223,7 @@ suite("test_search_dsl_operators", "p0") {
     // Actually row 4 has aterm but no bterm/cterm...
     // Expected: row 1 only
     qt_dsl_and_or_min_should_1 """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, firstname
+        SELECT /*+SET_VAR(enable_segment_limit_pushdown=true) */ id, firstname
         FROM ${tableName}
         WHERE search('aterm AND bterm OR cterm', '{"default_field":"firstname","default_operator":"and","mode":"lucene","minimum_should_match":1}')
         ORDER BY id

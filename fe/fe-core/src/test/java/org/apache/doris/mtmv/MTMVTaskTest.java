@@ -85,6 +85,8 @@ public class MTMVTaskTest {
         Mockito.when(mtmv.getRefreshInfo()).thenReturn(mtmvRefreshInfo);
 
         Mockito.when(mtmvRefreshInfo.getRefreshMethod()).thenReturn(RefreshMethod.COMPLETE);
+
+        Mockito.when(mtmv.hasCompleteRefreshSnapshot()).thenReturn(true);
     }
 
     @After
@@ -125,6 +127,34 @@ public class MTMVTaskTest {
         MTMVTask task = new MTMVTask(mtmv, relation, context);
         List<String> result = task.calculateNeedRefreshPartitions(null);
         Assert.assertEquals(allPartitionNames, result);
+    }
+
+    @Test
+    public void testCalculateNeedRefreshPartitionsSystemIncompleteRefreshSnapshot() throws AnalysisException {
+        Mockito.when(mtmvRefreshInfo.getRefreshMethod()).thenReturn(RefreshMethod.AUTO);
+        Mockito.when(mtmv.hasCompleteRefreshSnapshot()).thenReturn(false);
+
+        MTMVTaskContext context = new MTMVTaskContext(MTMVTaskTriggerMode.SYSTEM);
+        MTMVTask task = new MTMVTask(mtmv, relation, context);
+        List<String> result = task.calculateNeedRefreshPartitions(null);
+
+        Assert.assertEquals(allPartitionNames, result);
+        mtmvPartitionUtilStatic.verify(() -> MTMVPartitionUtil.isMTMVSync(
+                Mockito.nullable(MTMVRefreshContext.class), Mockito.nullable(Set.class), Mockito.nullable(Set.class)),
+                Mockito.never());
+    }
+
+    @Test
+    public void testCalculateNeedRefreshPartitionsManualPartitionsIncompleteRefreshSnapshot()
+            throws AnalysisException {
+        Mockito.when(mtmv.hasCompleteRefreshSnapshot()).thenReturn(false);
+
+        MTMVTaskContext context = new MTMVTaskContext(MTMVTaskTriggerMode.MANUAL, Lists.newArrayList(poneName),
+                false, null);
+        MTMVTask task = new MTMVTask(mtmv, relation, context);
+        List<String> result = task.calculateNeedRefreshPartitions(null);
+
+        Assert.assertEquals(Lists.newArrayList(poneName), result);
     }
 
     @Test

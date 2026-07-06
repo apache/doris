@@ -72,4 +72,59 @@ suite("test_global_partition_topn_plan") {
         contains"PhysicalPartitionTopN"
         contains"PhysicalQuickSort"
     }
+
+    explain {
+        sql """select c2, c3, rk from (
+                select c2, c3, rank() over (partition by c2 order by c2, c3) as rk
+                from test_global_partition_topn_plan
+            ) tmp where rk <= 1"""
+        check { String explainStr ->
+            def lines = explainStr.readLines()
+            def partitionTopNBlocks = []
+            lines.eachWithIndex { line, index ->
+                if (line.contains("VPartitionTopN")) {
+                    partitionTopNBlocks.add(lines.subList(index, Math.min(index + 10, lines.size())).join("\n"))
+                }
+            }
+            assertTrue(!partitionTopNBlocks.isEmpty(), explainStr)
+            partitionTopNBlocks.each { block ->
+                assertTrue(block.find("partition by: c2\\[#\\d+\\]") != null, block)
+                assertTrue(block.find("order by: c3\\[#\\d+\\] ASC") != null, block)
+                assertTrue(block.find("order by: c2\\[#\\d+\\] ASC") == null, block)
+            }
+        }
+    }
+
+    sql "SET global_partition_topn_threshold=2"
+    explain {
+        sql """shape plan select rn from (
+                select row_number() over (partition by c2 order by c2, c3) as rn
+                from test_global_partition_topn_plan
+            ) tmp where rn <= 100"""
+        contains"PhysicalPartitionTopN"
+        notContains"PhysicalQuickSort"
+    }
+
+    explain {
+        sql """select * from (
+                select l.c2 as lc2, r.c2 as rc2,
+                       row_number() over (partition by l.c2 order by r.c2) as rn
+                from test_global_partition_topn_plan l
+                join test_global_partition_topn_plan r on l.c1 = r.c1
+            ) tmp where rn <= 1"""
+        check { String explainStr ->
+            def lines = explainStr.readLines()
+            def partitionTopNBlocks = []
+            lines.eachWithIndex { line, index ->
+                if (line.contains("VPartitionTopN")) {
+                    partitionTopNBlocks.add(lines.subList(index, Math.min(index + 10, lines.size())).join("\n"))
+                }
+            }
+            assertTrue(!partitionTopNBlocks.isEmpty(), explainStr)
+            partitionTopNBlocks.each { block ->
+                assertTrue(block.find("partition by: c2\\[#\\d+\\]") != null, block)
+                assertTrue(block.find("order by: c2\\[#\\d+\\] ASC") != null, block)
+            }
+        }
+    }
 }

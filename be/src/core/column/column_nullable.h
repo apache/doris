@@ -32,7 +32,6 @@
 #include "core/typeid_cast.h"
 #include "core/types.h"
 #include "storage/olap_common.h"
-#include "util/defer_op.h"
 
 class SipHash;
 
@@ -92,8 +91,6 @@ public:
         }
         _nested_column->sanity_check();
     }
-
-    void shrink_padding_chars() override;
 
     bool is_variable_length() const override { return _nested_column->is_variable_length(); }
 
@@ -215,7 +212,8 @@ public:
 
     size_t filter(const Filter& filter) override;
 
-    Status filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) override;
+    Status filter_by_selector(const uint16_t* sel, size_t sel_size,
+                              IColumn* col_ptr) const override;
     MutableColumnPtr permute(const Permutation& perm, size_t limit) const override;
     //    ColumnPtr index(const IColumn & indexes, size_t limit) const override;
     int compare_at(size_t n, size_t m, const IColumn& rhs_, int null_direction_hint) const override;
@@ -252,25 +250,24 @@ public:
         return get_ptr();
     }
 
-    void for_each_subcolumn(ColumnCallback callback) override {
-        callback(_nested_column);
+    void mutate_subcolumns() override {
+        mutate_subcolumn(_nested_column);
+        mutate_subcolumn<ColumnUInt8>(_null_map);
+    }
 
-        IColumn::WrappedPtr null_map(std::move(static_cast<ColumnUInt8::Ptr&>(_null_map)));
-        Defer defer([&] {
-            _null_map = cast_to_column<ColumnUInt8>(static_cast<const IColumn::Ptr&>(null_map));
-        });
-        callback(null_map);
+    void for_each_subcolumn(ColumnCallback callback) const override {
+        callback(*static_cast<const IColumn::Ptr&>(_nested_column));
+        callback(*static_cast<const ColumnUInt8::Ptr&>(_null_map));
     }
 
     bool structure_equals(const IColumn& rhs) const override {
-        if (const auto* rhs_nullable = typeid_cast<const ColumnNullable*>(&rhs)) {
+        if (const auto* rhs_nullable = check_and_get_column<ColumnNullable>(&rhs)) {
             return _nested_column->structure_equals(*rhs_nullable->_nested_column);
         }
         return false;
     }
 
     bool is_nullable() const override { return true; }
-    bool is_concrete_nullable() const override { return true; }
     bool is_column_string() const override { return get_nested_column().is_column_string(); }
 
     bool is_exclusive() const override {

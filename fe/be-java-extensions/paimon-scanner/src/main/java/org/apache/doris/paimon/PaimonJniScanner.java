@@ -24,6 +24,7 @@ import org.apache.doris.common.security.authentication.PreExecutionAuthenticator
 import org.apache.doris.common.security.authentication.PreExecutionAuthenticatorCache;
 
 import com.google.common.base.Preconditions;
+import org.apache.paimon.CoreOptions;
 import org.apache.paimon.data.InternalRow;
 import org.apache.paimon.predicate.Predicate;
 import org.apache.paimon.reader.RecordReader;
@@ -37,6 +38,7 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.TimeZone;
@@ -65,8 +67,11 @@ public class PaimonJniScanner extends JniScanner {
             LOG.debug("params:{}", params);
         }
         this.params = params;
-        String[] requiredFields = params.get("required_fields").split(",");
-        String[] requiredTypes = params.get("columns_types").split("#");
+        String[] requiredFields = splitParam(params.get("required_fields"), ",");
+        String[] requiredTypes = splitParam(params.get("columns_types"), "#");
+        Preconditions.checkArgument(requiredFields.length == requiredTypes.length,
+                "required_fields size %s does not match columns_types size %s",
+                requiredFields.length, requiredTypes.length);
         ColumnType[] columnTypes = new ColumnType[requiredTypes.length];
         for (int i = 0; i < requiredTypes.length; i++) {
             columnTypes[i] = ColumnType.parseType(requiredFields[i], requiredTypes[i]);
@@ -188,6 +193,9 @@ public class PaimonJniScanner extends JniScanner {
                         appendData(i, columnValue);
                     }
                     if (rows >= batchSize) {
+                        if (fields.length == 0) {
+                            vectorTable.appendVirtualData(rows);
+                        }
                         appendDataTime += System.nanoTime() - startTime;
                         return rows;
                     }
@@ -196,6 +204,9 @@ public class PaimonJniScanner extends JniScanner {
 
                 recordIterator.releaseBatch();
                 recordIterator = reader.readBatch();
+            }
+            if (fields.length == 0 && rows > 0) {
+                vectorTable.appendVirtualData(rows);
             }
         } catch (Exception e) {
             close();
@@ -225,10 +236,19 @@ public class PaimonJniScanner extends JniScanner {
     private void initTable() {
         Preconditions.checkState(params.containsKey("serialized_table"));
         table = PaimonUtils.deserialize(params.get("serialized_table"));
+        table = table.copy(Collections.singletonMap(
+                CoreOptions.READ_BATCH_SIZE.key(), String.valueOf(batchSize)));
         paimonAllFieldNames = PaimonUtils.getFieldNames(this.table.rowType());
         if (LOG.isDebugEnabled()) {
             LOG.debug("paimonAllFieldNames:{}", paimonAllFieldNames);
         }
+    }
+
+    private static String[] splitParam(String value, String delimiter) {
+        if (value == null || value.isEmpty()) {
+            return new String[0];
+        }
+        return value.split(delimiter);
     }
 
 }

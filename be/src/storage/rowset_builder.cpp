@@ -51,6 +51,7 @@
 #include "storage/tablet/tablet_manager.h"
 #include "storage/tablet/tablet_meta.h"
 #include "storage/tablet/tablet_schema.h"
+#include "storage/tablet/tablet_schema_cache.h"
 #include "storage/tablet_info.h"
 #include "storage/txn/txn_manager.h"
 #include "util/brpc_client_cache.h"
@@ -146,7 +147,7 @@ void RowsetBuilder::_garbage_collection(bool cancel_txn) {
 Status BaseRowsetBuilder::init_mow_context(std::shared_ptr<MowContext>& mow_context) {
     DCHECK(is_data_builder());
 
-    std::lock_guard<std::shared_mutex> lck(tablet()->get_header_lock());
+    std::lock_guard lck(tablet()->get_header_lock());
     _max_version_in_flush_phase = tablet()->max_version_unlocked();
     std::vector<RowsetSharedPtr> rowset_ptrs;
     // tablet is under alter process. The delete bitmap will be calculated after conversion.
@@ -242,6 +243,7 @@ Status RowsetBuilder::init() {
     // build tablet schema in request level
     RETURN_IF_ERROR(_build_current_tablet_schema(_req.index_id, _req.table_schema_param.get(),
                                                  *_tablet->tablet_schema()));
+    context.tablet_schema = _tablet_schema;
 
     context.mow_context = mow_context;
 
@@ -441,14 +443,30 @@ Status BaseRowsetBuilder::_build_current_tablet_schema(
         }
     }
 
-    if (index_schema != nullptr && !index_schema->columns.empty() &&
-        index_schema->columns[0]->unique_id() >= 0) {
-        _tablet_schema->shawdow_copy_without_columns(ori_tablet_schema);
-        _tablet_schema->build_current_tablet_schema(
-                index_id, cast_set<int32_t>(table_schema_param->version()), index_schema,
-                ori_tablet_schema);
+    auto cache_key = TabletSchemaCache::build_load_schema_cache_key(
+            index_id, table_schema_param, ori_tablet_schema, index_schema);
+    auto cached_schema = TabletSchemaCache::instance()->lookup_schema(cache_key);
+    if (cached_schema.first != nullptr) {
+        _tablet_schema = cached_schema.second;
+        TabletSchemaCache::instance()->release(cached_schema.first);
     } else {
-        _tablet_schema->copy_from(ori_tablet_schema);
+        if (index_schema != nullptr && !index_schema->columns.empty() &&
+            index_schema->columns[0]->unique_id() >= 0) {
+            _tablet_schema->shawdow_copy_without_columns(ori_tablet_schema);
+            _tablet_schema->build_current_tablet_schema(
+                    index_id, cast_set<int32_t>(table_schema_param->version()), index_schema,
+                    ori_tablet_schema);
+        } else {
+            _tablet_schema->copy_from(ori_tablet_schema);
+        }
+        _tablet_schema->set_table_id(table_schema_param->table_id());
+        _tablet_schema->set_db_id(table_schema_param->db_id());
+        if (table_schema_param->is_partial_update()) {
+            _tablet_schema->set_auto_increment_column(table_schema_param->auto_increment_coulumn());
+        }
+        auto inserted_schema = TabletSchemaCache::instance()->insert(cache_key, _tablet_schema);
+        _tablet_schema = inserted_schema.second;
+        TabletSchemaCache::instance()->release(inserted_schema.first);
     }
     if (_tablet_schema->schema_version() > ori_tablet_schema.schema_version()) {
         // After schema change, should include extracted column
@@ -468,11 +486,6 @@ Status BaseRowsetBuilder::_build_current_tablet_schema(
         }
     }
 
-    _tablet_schema->set_table_id(table_schema_param->table_id());
-    _tablet_schema->set_db_id(table_schema_param->db_id());
-    if (table_schema_param->is_partial_update()) {
-        _tablet_schema->set_auto_increment_column(table_schema_param->auto_increment_coulumn());
-    }
     // set partial update columns info
     if (is_data_builder()) {
         _partial_update_info = std::make_shared<PartialUpdateInfo>();
@@ -565,6 +578,7 @@ Status RowBinlogRowsetBuilder::init() {
     RETURN_IF_ERROR(_build_current_tablet_schema(
             _req.index_id, _req.table_schema_param.get(),
             *std::dynamic_pointer_cast<Tablet>(_tablet)->row_binlog_tablet_schema()));
+    context.tablet_schema = _tablet_schema;
     context.write_binlog_opt().enable = true;
 
     _rowset_writer = DORIS_TRY(_tablet->create_rowset_writer(context, false));

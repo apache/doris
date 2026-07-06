@@ -25,8 +25,6 @@ DEFINE_String(deploy_mode, "");
 DEFINE_mString(cloud_unique_id, "");
 DEFINE_mString(meta_service_endpoint, "");
 DEFINE_mBool(enable_meta_service_endpoint_consistency_check, "true");
-DEFINE_Bool(meta_service_use_load_balancer, "false");
-DEFINE_mInt32(meta_service_rpc_timeout_ms, "10000");
 DEFINE_Bool(meta_service_connection_pooled, "true");
 DEFINE_mInt64(meta_service_connection_pool_size, "20");
 DEFINE_mInt32(meta_service_connection_age_base_seconds, "30");
@@ -107,8 +105,6 @@ DEFINE_mBool(enable_use_cloud_unique_id_from_fe, "true");
 
 DEFINE_mBool(enable_cloud_tablet_report, "true");
 
-DEFINE_mInt32(delete_bitmap_rpc_retry_times, "25");
-
 DEFINE_mInt64(meta_service_rpc_reconnect_interval_ms, "100");
 
 DEFINE_mInt32(meta_service_conflict_error_retry_times, "10");
@@ -135,6 +131,7 @@ DEFINE_mBool(enable_warmup_immediately_on_new_rowset, "false");
 
 // Packed file manager config
 DEFINE_mBool(enable_packed_file, "true");
+DEFINE_mBool(enable_file_cache_write_index_file_only, "false");
 DEFINE_mInt64(packed_file_size_threshold_bytes, "5242880"); // 5MB
 DEFINE_mInt64(packed_file_time_threshold_ms, "100");        // 100ms
 DEFINE_mInt64(packed_file_try_lock_timeout_ms, "5");        // 5ms
@@ -157,17 +154,37 @@ DEFINE_mInt64(cluster_status_cache_refresh_interval_sec, "60");
 // When version count exceeds this ratio of max_tablet_version_num, force compaction
 // even on read-only clusters (safety valve)
 DEFINE_mDouble(compaction_rw_separation_version_threshold_ratio, "0.8");
-
-DEFINE_mBool(enable_cache_read_from_peer, "true");
-
 // Rate limit for warmup download in bytes per second, default 100MB/s
 // <= 0 means no limit
 DEFINE_mInt64(file_cache_warmup_download_rate_limit_bytes_per_second, "104857600");
 
-// Cache the expiration time of the peer address.
-// This can be configured to be less than the `rehash_tablet_after_be_dead_seconds` setting in the `fe` configuration.
-// If the value is -1, use the `rehash_tablet_after_be_dead_seconds` setting in the `fe` configuration as the expiration time.
-DEFINE_mInt64(cache_read_from_peer_expired_seconds, "-1");
+// Cross compute group peer read candidate management
+DEFINE_mInt64(peer_candidate_cleanup_interval_s, "3600"); // cleanup interval, 1 hour
+DEFINE_mInt64(peer_candidate_expiry_s, "3600");           // candidate expiry, 1 hour
+DEFINE_mInt32(peer_rpc_failure_eviction_threshold, "3");  // consecutive failures to evict
+DEFINE_mInt32(peer_all_miss_cooldown_threshold,
+              "5"); // consecutive all-miss races to trigger cooldown
+DEFINE_mInt64(peer_all_miss_cooldown_duration_s, "300"); // cooldown duration, 5 minutes
+
+DEFINE_mBool(enable_cache_read_from_peer, "false");
+
+// Winner race between peer read and S3 read for cross compute group scenarios
+DEFINE_mBool(enable_peer_s3_race, "true");
+DEFINE_mInt32(max_concurrent_peer_races, "64");
+DEFINE_mInt32(peer_race_hedge_delay_ms, "20");
+DEFINE_mString(peer_cache_fill_compute_group_id, "");
+DEFINE_mBool(enable_peer_server_cache_fill, "true");
+// Peer server fill pulls the missing block from remote storage before serving it back to the
+// requesting BE. Small remote reads can still exceed 500ms in docker/cloud regression, so keep
+// this comfortably above the normal block-cache wait timeout to avoid premature fallback.
+DEFINE_mInt32(peer_server_cache_fill_timeout_ms, "6000");
+// Maximum number of concurrent server-side S3 pull-through fills. Each fill ties up a
+// download task slot and waits up to peer_server_cache_fill_timeout_ms. Without this
+// limit a burst of cross-CG cold misses can saturate the fill server's download pool.
+// Excess requests are rejected immediately so the client falls back to S3.
+DEFINE_mInt32(max_concurrent_peer_server_fills, "32");
+// Reject queued peer fetch tasks that wait too long in the peer fetch pool.
+DEFINE_mInt32(peer_fetch_queue_timeout_ms, "100");
 
 DEFINE_mBool(enable_file_cache_write_base_compaction_index_only, "false");
 DEFINE_mBool(enable_file_cache_write_cumu_compaction_index_only, "false");

@@ -28,6 +28,7 @@
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_tablet.h"
 #include "cpp/sync_point.h"
+#include "load/stream_load/stream_load_context.h"
 #include "storage/olap_common.h"
 #include "storage/rowset/rowset_factory.h"
 #include "storage/rowset/rowset_meta.h"
@@ -42,6 +43,35 @@ class CloudMetaMgrTest : public testing::Test {
     void SetUp() override {}
     void TearDown() override {}
 };
+
+static AbortTxnRequest get_abort_txn_request(CloudMetaMgr* meta_mgr, const StreamLoadContext& ctx) {
+    auto* sp = SyncPoint::get_instance();
+    sp->clear_all_call_backs();
+    sp->enable_processing();
+
+    bool called = false;
+    AbortTxnRequest captured_req;
+    SyncPoint::CallbackGuard guard;
+    sp->set_call_back(
+            "CloudMetaMgr::abort_txn.before_rpc",
+            [&](auto&& args) {
+                auto* req = try_any_cast<AbortTxnRequest*>(args[0]);
+                captured_req.CopyFrom(*req);
+                called = true;
+                auto* ret = try_any_cast<std::pair<Status, bool>*>(args.back());
+                ret->first = Status::OK();
+                ret->second = true;
+            },
+            &guard);
+
+    Status status = meta_mgr->abort_txn(ctx);
+
+    EXPECT_TRUE(status.ok()) << "Status: " << status;
+    EXPECT_TRUE(called);
+    sp->disable_processing();
+    sp->clear_all_call_backs();
+    return captured_req;
+}
 
 TEST_F(CloudMetaMgrTest, bthread_fork_join_test) {
     // clang-format off
@@ -170,6 +200,38 @@ TEST_F(CloudMetaMgrTest, bthread_fork_join_test) {
     // clang-format on
 }
 
+TEST_F(CloudMetaMgrTest, abort_txn_prefers_txn_id_when_label_is_also_present) {
+    CloudMetaMgr meta_mgr;
+    StreamLoadContext ctx(nullptr);
+    ctx.db_id = 10001;
+    ctx.txn_id = 20002;
+    ctx.label = "same_label";
+    ctx.status = Status::InternalError<false>("load failed");
+
+    AbortTxnRequest captured_req = get_abort_txn_request(&meta_mgr, ctx);
+
+    EXPECT_TRUE(captured_req.has_txn_id());
+    EXPECT_EQ(captured_req.txn_id(), ctx.txn_id);
+    EXPECT_FALSE(captured_req.has_db_id());
+    EXPECT_FALSE(captured_req.has_label());
+}
+
+TEST_F(CloudMetaMgrTest, abort_txn_uses_label_when_txn_id_is_missing) {
+    CloudMetaMgr meta_mgr;
+    StreamLoadContext ctx(nullptr);
+    ctx.db_id = 10001;
+    ctx.label = "same_label";
+    ctx.status = Status::InternalError<false>("load failed");
+
+    AbortTxnRequest captured_req = get_abort_txn_request(&meta_mgr, ctx);
+
+    EXPECT_FALSE(captured_req.has_txn_id());
+    EXPECT_TRUE(captured_req.has_db_id());
+    EXPECT_EQ(captured_req.db_id(), ctx.db_id);
+    EXPECT_TRUE(captured_req.has_label());
+    EXPECT_EQ(captured_req.label(), ctx.label);
+}
+
 TEST_F(CloudMetaMgrTest, test_fill_version_holes_no_holes) {
     CloudStorageEngine engine(EngineOptions {});
     CloudMetaMgr meta_mgr;
@@ -204,12 +266,12 @@ TEST_F(CloudMetaMgrTest, test_fill_version_holes_no_holes) {
 
     // Add all rowsets to tablet
     {
-        std::unique_lock<std::shared_mutex> lock(tablet->get_header_lock());
+        std::unique_lock lock(tablet->get_header_lock());
         tablet->add_rowsets(std::move(rowsets), false, lock, false);
     }
 
     // Test fill_version_holes directly - should not add any rowsets since there are no holes
-    std::unique_lock<std::shared_mutex> wlock(tablet->get_header_lock());
+    std::unique_lock wlock(tablet->get_header_lock());
     Status status = meta_mgr.fill_version_holes(tablet.get(), 4, wlock);
     EXPECT_TRUE(status.ok());
 
@@ -256,7 +318,7 @@ TEST_F(CloudMetaMgrTest, test_fill_version_holes_with_holes) {
 
     // Add all rowsets to tablet
     {
-        std::unique_lock<std::shared_mutex> lock(tablet->get_header_lock());
+        std::unique_lock lock(tablet->get_header_lock());
         tablet->add_rowsets(std::move(rowsets), false, lock, false);
     }
 
@@ -264,7 +326,7 @@ TEST_F(CloudMetaMgrTest, test_fill_version_holes_with_holes) {
     EXPECT_EQ(tablet->tablet_meta()->all_rs_metas().size(), 3);
 
     // Test fill_version_holes directly to fill missing versions 1 and 3
-    std::unique_lock<std::shared_mutex> wlock(tablet->get_header_lock());
+    std::unique_lock wlock(tablet->get_header_lock());
     Status status = meta_mgr.fill_version_holes(tablet.get(), 4, wlock);
     EXPECT_TRUE(status.ok());
 
@@ -372,7 +434,7 @@ TEST_F(CloudMetaMgrTest, test_fill_version_holes_edge_cases) {
         auto tablet =
                 std::make_shared<CloudTablet>(engine, std::make_shared<TabletMeta>(*tablet_meta));
 
-        std::unique_lock<std::shared_mutex> wlock(tablet->get_header_lock());
+        std::unique_lock wlock(tablet->get_header_lock());
         Status status = meta_mgr.fill_version_holes(tablet.get(), 0, wlock);
         EXPECT_TRUE(status.ok());
 
@@ -390,7 +452,7 @@ TEST_F(CloudMetaMgrTest, test_fill_version_holes_edge_cases) {
         auto tablet =
                 std::make_shared<CloudTablet>(engine, std::make_shared<TabletMeta>(*tablet_meta));
 
-        std::unique_lock<std::shared_mutex> wlock(tablet->get_header_lock());
+        std::unique_lock wlock(tablet->get_header_lock());
         Status status = meta_mgr.fill_version_holes(tablet.get(), 5, wlock);
         EXPECT_TRUE(status.ok());
 
@@ -432,7 +494,7 @@ TEST_F(CloudMetaMgrTest, test_fill_version_holes_trailing_holes) {
 
     // Add all rowsets to tablet
     {
-        std::unique_lock<std::shared_mutex> lock(tablet->get_header_lock());
+        std::unique_lock lock(tablet->get_header_lock());
         tablet->add_rowsets(std::move(rowsets), false, lock, false);
     }
 
@@ -440,7 +502,7 @@ TEST_F(CloudMetaMgrTest, test_fill_version_holes_trailing_holes) {
     EXPECT_EQ(tablet->tablet_meta()->all_rs_metas().size(), 3);
 
     // Test fill_version_holes to fill trailing holes (versions 3, 4, 5)
-    std::unique_lock<std::shared_mutex> wlock(tablet->get_header_lock());
+    std::unique_lock wlock(tablet->get_header_lock());
     Status status = meta_mgr.fill_version_holes(tablet.get(), 5, wlock);
     EXPECT_TRUE(status.ok());
 
@@ -507,7 +569,7 @@ TEST_F(CloudMetaMgrTest, test_fill_version_holes_single_hole) {
 
     // Add all rowsets to tablet
     {
-        std::unique_lock<std::shared_mutex> lock(tablet->get_header_lock());
+        std::unique_lock lock(tablet->get_header_lock());
         tablet->add_rowsets(std::move(rowsets), false, lock, false);
     }
 
@@ -515,7 +577,7 @@ TEST_F(CloudMetaMgrTest, test_fill_version_holes_single_hole) {
     EXPECT_EQ(tablet->tablet_meta()->all_rs_metas().size(), 2);
 
     // Test fill_version_holes to fill single hole (version 1)
-    std::unique_lock<std::shared_mutex> wlock(tablet->get_header_lock());
+    std::unique_lock wlock(tablet->get_header_lock());
     Status status = meta_mgr.fill_version_holes(tablet.get(), 2, wlock);
     EXPECT_TRUE(status.ok());
 
@@ -580,7 +642,7 @@ TEST_F(CloudMetaMgrTest, test_fill_version_holes_multiple_consecutive_holes) {
 
     // Add all rowsets to tablet
     {
-        std::unique_lock<std::shared_mutex> lock(tablet->get_header_lock());
+        std::unique_lock lock(tablet->get_header_lock());
         tablet->add_rowsets(std::move(rowsets), false, lock, false);
     }
 
@@ -588,7 +650,7 @@ TEST_F(CloudMetaMgrTest, test_fill_version_holes_multiple_consecutive_holes) {
     EXPECT_EQ(tablet->tablet_meta()->all_rs_metas().size(), 2);
 
     // Test fill_version_holes to fill multiple consecutive holes (versions 1, 2, 3, 4)
-    std::unique_lock<std::shared_mutex> wlock(tablet->get_header_lock());
+    std::unique_lock wlock(tablet->get_header_lock());
     Status status = meta_mgr.fill_version_holes(tablet.get(), 5, wlock);
     EXPECT_TRUE(status.ok());
 
@@ -655,7 +717,7 @@ TEST_F(CloudMetaMgrTest, test_fill_version_holes_mixed_holes) {
 
     // Add all rowsets to tablet
     {
-        std::unique_lock<std::shared_mutex> lock(tablet->get_header_lock());
+        std::unique_lock lock(tablet->get_header_lock());
         tablet->add_rowsets(std::move(rowsets), false, lock, false);
     }
 
@@ -663,7 +725,7 @@ TEST_F(CloudMetaMgrTest, test_fill_version_holes_mixed_holes) {
     EXPECT_EQ(tablet->tablet_meta()->all_rs_metas().size(), 4);
 
     // Test fill_version_holes with max_version = 8 (should fill 1, 3, 4, 7, 8)
-    std::unique_lock<std::shared_mutex> wlock(tablet->get_header_lock());
+    std::unique_lock wlock(tablet->get_header_lock());
     Status status = meta_mgr.fill_version_holes(tablet.get(), 8, wlock);
     EXPECT_TRUE(status.ok());
 

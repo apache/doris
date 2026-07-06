@@ -206,10 +206,10 @@ public:
     bool is_serial_operator() const override { return true; }
 
     DataDistribution required_data_distribution(RuntimeState* /*state*/) const override {
-        return {ExchangeType::NOOP};
+        return {TLocalPartitionType::NOOP};
     }
 
-    Status get_block(RuntimeState* state, Block* block, bool* eos) override {
+    Status get_block_impl(RuntimeState* state, Block* block, bool* eos) override {
         auto& local_state = get_local_state(state);
         auto& ctx = local_state._shared_state;
         ctx->update_ready_to_return();

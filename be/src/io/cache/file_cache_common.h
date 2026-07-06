@@ -71,6 +71,9 @@ struct ReadStatistics {
     bool from_peer_cache = false;
     bool skip_cache = false;
     int64_t bytes_read = 0;
+    int64_t bytes_read_from_local = 0;
+    int64_t bytes_read_from_remote = 0;
+    int64_t bytes_read_from_peer = 0;
     int64_t bytes_write_into_file_cache = 0;
     int64_t remote_read_timer = 0;
     int64_t peer_read_timer = 0;
@@ -166,11 +169,11 @@ struct CacheContext {
         return query_id == rhs.query_id && cache_type == rhs.cache_type &&
                expiration_time == rhs.expiration_time && is_cold_data == rhs.is_cold_data;
     }
-    TUniqueId query_id;
-    FileCacheType cache_type;
+    TUniqueId query_id {};
+    FileCacheType cache_type {FileCacheType::NORMAL};
     int64_t expiration_time {0};
     bool is_cold_data {false};
-    ReadStatistics* stats;
+    ReadStatistics* stats {nullptr};
     bool is_warmup {false};
     int64_t tablet_id {0};
 };
@@ -245,6 +248,8 @@ public:
     Iterator end() { return queue.end(); }
 
     void remove_all(std::lock_guard<std::mutex>& cache_lock);
+
+    bool pop_front(std::lock_guard<std::mutex>& cache_lock);
 
     Iterator get(const UInt128Wrapper& hash, size_t offset,
                  std::lock_guard<std::mutex>& /* cache_lock */) const;

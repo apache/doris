@@ -102,6 +102,7 @@
 #include "storage/utils.h"
 #include "util/slice.h"
 #include "util/timezone_utils.h"
+#include "util/unaligned.h"
 
 namespace doris {
 class RuntimeState;
@@ -116,6 +117,10 @@ namespace doris {
 // TODO: we need to determine it by test.
 static constexpr uint32_t MAX_DICT_CODE_PREDICATE_TO_REWRITE = std::numeric_limits<uint32_t>::max();
 static constexpr char EMPTY_STRING_FOR_OVERFLOW[ColumnString::MAX_STRINGS_OVERFLOW_SIZE] = "";
+
+static std::string normalized_orc_timezone_name(const std::string& ctz) {
+    return ctz.empty() ? "UTC" : (ctz == "CST" ? "Asia/Shanghai" : ctz);
+}
 
 static void fill_orc_null_map(ColumnNullable* nullable_column, const orc::ColumnVectorBatch* cvb,
                               size_t num_values) {
@@ -141,7 +146,7 @@ static void align_orc_null_map(const ColumnPtr& src_column, ColumnNullable* dst_
         return;
     }
     DCHECK_EQ(dst_null_map.size(), old_rows);
-    if (src_column->is_nullable()) {
+    if (is_column_nullable(*src_column)) {
         const auto* src_nullable = assert_cast<const ColumnNullable*>(src_column.get());
         DCHECK_GE(src_nullable->get_null_map_column().size(), src_null_map_start + new_rows);
         dst_null_map.insert_range_from(src_nullable->get_null_map_column(), src_null_map_start,
@@ -231,7 +236,7 @@ OrcReader::OrcReader(RuntimeProfile* profile, RuntimeState* state,
           _enable_filter_by_min_max(
                   state == nullptr ? true : state->query_options().enable_orc_filter_by_min_max),
           _dict_cols_has_converted(false) {
-    TimezoneUtils::find_cctz_time_zone(ctz, _time_zone);
+    TimezoneUtils::find_cctz_time_zone(normalized_orc_timezone_name(ctz), _time_zone);
     _meta_cache = meta_cache;
     _init_profile();
     _init_system_properties();
@@ -257,7 +262,7 @@ OrcReader::OrcReader(RuntimeProfile* profile, RuntimeState* state,
           _enable_filter_by_min_max(
                   state == nullptr ? true : state->query_options().enable_orc_filter_by_min_max),
           _dict_cols_has_converted(false) {
-    TimezoneUtils::find_cctz_time_zone(ctz, _time_zone);
+    TimezoneUtils::find_cctz_time_zone(normalized_orc_timezone_name(ctz), _time_zone);
     _meta_cache = meta_cache;
     _init_profile();
     _init_system_properties();
@@ -291,6 +296,7 @@ OrcReader::OrcReader(const TFileScanRangeParams& params, const TFileRangeDesc& r
           _enable_lazy_mat(enable_lazy_mat),
           _enable_filter_by_min_max(true),
           _dict_cols_has_converted(false) {
+    TimezoneUtils::find_cctz_time_zone(normalized_orc_timezone_name(ctz), _time_zone);
     _meta_cache = meta_cache;
     _init_system_properties();
     _init_file_description();
@@ -311,6 +317,7 @@ OrcReader::OrcReader(const TFileScanRangeParams& params, const TFileRangeDesc& r
           _enable_lazy_mat(enable_lazy_mat),
           _enable_filter_by_min_max(true),
           _dict_cols_has_converted(false) {
+    TimezoneUtils::find_cctz_time_zone(normalized_orc_timezone_name(ctz), _time_zone);
     _meta_cache = meta_cache;
     _init_system_properties();
     _init_file_description();
@@ -381,8 +388,8 @@ Status OrcReader::_create_file_reader() {
     if (_file_input_stream == nullptr) {
         _file_description.mtime =
                 _scan_range.__isset.modification_time ? _scan_range.modification_time : 0;
-        io::FileReaderOptions reader_options =
-                FileFactory::get_reader_options(_state, _file_description);
+        io::FileReaderOptions reader_options = FileFactory::get_reader_options(
+                _state ? _state->query_options() : _default_query_options, _file_description);
         io::FileReaderSPtr inner_reader;
         if (_io_ctx_holder != nullptr) {
             inner_reader = DORIS_TRY(io::DelegateReader::create_file_reader(
@@ -570,9 +577,10 @@ Status OrcReader::_do_init_reader(ReaderInitContext* base_ctx) {
 Status OrcReader::on_before_init_reader(ReaderInitContext* ctx) {
     _column_descs = ctx->column_descs;
     _fill_col_name_to_block_idx = ctx->col_name_to_block_idx;
-    RETURN_IF_ERROR(
-            _extract_partition_values(*ctx->range, ctx->tuple_descriptor, _fill_partition_values));
-    for (auto& desc : *ctx->column_descs) {
+    RETURN_IF_ERROR(_extract_partition_values(*ctx->range, ctx->tuple_descriptor,
+                                              _fill_partition_values,
+                                              &_fill_partition_value_is_null));
+    for (const auto& desc : *ctx->column_descs) {
         if (desc.category == ColumnCategory::REGULAR ||
             desc.category == ColumnCategory::GENERATED) {
             ctx->column_names.push_back(desc.name);
@@ -746,7 +754,7 @@ std::tuple<bool, orc::Literal> convert_to_orc_literal(const orc::Type* type,
             } else if constexpr (primitive_type == TYPE_INT) {
                 return std::make_tuple(true, orc::Literal(int64_t(*((int32_t*)value))));
             } else if constexpr (primitive_type == TYPE_BIGINT) {
-                return std::make_tuple(true, orc::Literal(int64_t(*((int64_t*)value))));
+                return std::make_tuple(true, orc::Literal(*((int64_t*)value)));
             }
             return std::make_tuple(false, orc::Literal(false));
         }
@@ -754,7 +762,7 @@ std::tuple<bool, orc::Literal> convert_to_orc_literal(const orc::Type* type,
             if constexpr (primitive_type == TYPE_FLOAT) {
                 return std::make_tuple(true, orc::Literal(double(*((float*)value))));
             } else if constexpr (primitive_type == TYPE_DOUBLE) {
-                return std::make_tuple(true, orc::Literal(double(*((double*)value))));
+                return std::make_tuple(true, orc::Literal(*((double*)value)));
             }
             return std::make_tuple(false, orc::Literal(false));
         }
@@ -781,7 +789,8 @@ std::tuple<bool, orc::Literal> convert_to_orc_literal(const orc::Type* type,
         case orc::TypeKind::DECIMAL: {
             int128_t decimal_value;
             if constexpr (primitive_type == TYPE_DECIMALV2) {
-                decimal_value = *reinterpret_cast<const int128_t*>(value);
+                // value may not be 16-byte aligned; use unaligned_load to avoid UB.
+                decimal_value = unaligned_load<int128_t>(value);
                 precision = DecimalV2Value::PRECISION;
                 scale = DecimalV2Value::SCALE;
             } else if constexpr (primitive_type == TYPE_DECIMAL32) {
@@ -789,7 +798,7 @@ std::tuple<bool, orc::Literal> convert_to_orc_literal(const orc::Type* type,
             } else if constexpr (primitive_type == TYPE_DECIMAL64) {
                 decimal_value = *((int64_t*)value);
             } else if constexpr (primitive_type == TYPE_DECIMAL128I) {
-                decimal_value = *((int128_t*)value);
+                decimal_value = unaligned_load<int128_t>(value);
             } else {
                 return std::make_tuple(false, orc::Literal(false));
             }
@@ -1383,8 +1392,7 @@ void OrcReader::_classify_columns_for_lazy_read(
 Status OrcReader::_init_orc_row_reader() {
     try {
         _row_reader_options.range(_range_start_offset, _range_size);
-        std::string tz = _ctz.empty() ? "UTC" : (_ctz == "CST" ? "Asia/Shanghai" : _ctz);
-        _row_reader_options.setTimezoneName(tz);
+        _row_reader_options.setTimezoneName(normalized_orc_timezone_name(_ctz));
         if (!_column_ids.empty()) {
             std::list<uint64_t> column_ids_list(_column_ids.begin(), _column_ids.end());
             _row_reader_options.includeTypes(column_ids_list);
@@ -2053,7 +2061,7 @@ Status OrcReader::_fill_doris_data_column(const std::string& col_name,
         if (key_is_missing) {
             // Fill key column with default values (nulls or empty values)
             auto mutable_key_column = IColumn::mutate(std::move(doris_key_column));
-            if (mutable_key_column->is_nullable()) {
+            if (is_column_nullable(*mutable_key_column)) {
                 auto* nullable_column = static_cast<ColumnNullable*>(mutable_key_column.get());
                 nullable_column->insert_many_defaults(element_size);
             } else {
@@ -2071,7 +2079,7 @@ Status OrcReader::_fill_doris_data_column(const std::string& col_name,
         if (value_is_missing) {
             // Fill value column with default values (nulls or empty values)
             auto mutable_value_column = IColumn::mutate(std::move(doris_value_column));
-            if (mutable_value_column->is_nullable()) {
+            if (is_column_nullable(*mutable_value_column)) {
                 auto* nullable_column = static_cast<ColumnNullable*>(mutable_value_column.get());
                 nullable_column->insert_many_defaults(element_size);
             } else {
@@ -2219,7 +2227,7 @@ Status OrcReader::_orc_column_to_doris_column(
         }
 
         size_t src_null_map_start = 0;
-        if (mutable_resolved_column->is_nullable()) {
+        if (is_column_nullable(*mutable_resolved_column)) {
             SCOPED_RAW_TIMER(&_statistics.decode_null_map_time);
             auto* nullable_column =
                     reinterpret_cast<ColumnNullable*>(mutable_resolved_column.get());
@@ -2252,7 +2260,7 @@ Status OrcReader::_orc_column_to_doris_column(
 
         doris_column = IColumn::mutate(std::move(doris_column));
         auto converted_column = doris_column->assert_mutable();
-        if (converted_column->is_nullable()) {
+        if (is_column_nullable(*converted_column)) {
             const size_t new_rows = remove_nullable(resolved_column)->size();
             align_orc_null_map(resolved_column,
                                reinterpret_cast<ColumnNullable*>(converted_column.get()),
@@ -2261,7 +2269,7 @@ Status OrcReader::_orc_column_to_doris_column(
         return converter->convert(resolved_column, converted_column);
     } else {
         auto mutable_column = IColumn::mutate(std::move(doris_column));
-        if (mutable_column->is_nullable()) {
+        if (is_column_nullable(*mutable_column)) {
             auto* nullable_column = static_cast<ColumnNullable*>(mutable_column.get());
             nullable_column->insert_many_defaults(num_values);
         } else {
@@ -2286,7 +2294,7 @@ Status OrcReader::_do_get_next_block(Block* block, size_t* read_rows, bool* eof)
                        _reader_metrics.SelectedRowGroupCount);
         COUNTER_UPDATE(_orc_profile.evaluated_row_group_count,
                        _reader_metrics.EvaluatedRowGroupCount);
-        if (_io_ctx) {
+        if (_io_ctx && _io_ctx->file_reader_stats) {
             _io_ctx->file_reader_stats->read_rows += _reader_metrics.ReadRowCount;
         }
     }
@@ -3194,7 +3202,7 @@ Status OrcReader::_rewrite_dict_conjuncts(std::vector<int32_t>& dict_codes, int 
             for (int& dict_code : dict_codes) {
                 hybrid_set->insert(&dict_code);
             }
-            root = VDirectInPredicate::create_shared(node, hybrid_set);
+            root = VDirectInPredicate::create_shared(node, hybrid_set, false);
         }
         {
             SlotDescriptor* slot = nullptr;
@@ -3440,7 +3448,7 @@ void ORCFileInputStream::_build_small_ranges_input_stripe_streams(
                 std::make_shared<OrcMergeRangeFileReader>(_profile, _file_reader, merged_range);
 
         std::shared_ptr<io::FileReader> tracing_file_reader;
-        if (_io_ctx) {
+        if (_io_ctx && _io_ctx->file_reader_stats) {
             tracing_file_reader = std::make_shared<io::TracingFileReader>(
                     std::move(merge_range_file_reader), _io_ctx->file_reader_stats);
         } else {
@@ -3473,7 +3481,8 @@ void ORCFileInputStream::_build_large_ranges_input_stripe_streams(
     for (const auto& range : ranges) {
         auto stripe_stream_input_stream = std::make_shared<StripeStreamInputStream>(
                 getName(),
-                _io_ctx ? std::make_shared<io::TracingFileReader>(_file_reader,
+                _io_ctx && _io_ctx->file_reader_stats
+                        ? std::make_shared<io::TracingFileReader>(_file_reader,
                                                                   _io_ctx->file_reader_stats)
                         : _file_reader,
                 _io_ctx, _profile);

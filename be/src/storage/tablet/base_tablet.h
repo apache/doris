@@ -35,6 +35,7 @@
 #include "storage/tablet/tablet_meta.h"
 #include "storage/tablet/tablet_schema.h"
 #include "storage/version_graph.h"
+#include "util/bthread_shared_mutex.h"
 
 namespace doris {
 struct RowSetSplits;
@@ -89,12 +90,12 @@ public:
     }
 
     // Property encapsulated in TabletMeta
-    const TabletMetaSharedPtr& tablet_meta() { return _tablet_meta; }
+    const TabletMetaSharedPtr& tablet_meta() const { return _tablet_meta; }
 
     int32_t max_version_config();
 
     // FIXME(plat1ko): It is not appropriate to expose this lock
-    std::shared_mutex& get_header_lock() { return _meta_lock; }
+    BthreadSharedMutex& get_header_lock() { return _meta_lock; }
 
     void update_max_version_schema(const TabletSchemaSPtr& tablet_schema);
 
@@ -127,6 +128,10 @@ public:
     // this method just return the compaction sum on each rowset
     // note(tsy): we should unify the compaction score calculation finally
     uint32_t get_real_compaction_score() const;
+    // MUST hold shared `_meta_lock`. Use this variant when the caller already
+    // holds the header lock to avoid recursively re-acquiring the (now
+    // writer-preferring) `_meta_lock`, which would self-deadlock.
+    uint32_t get_real_compaction_score_unlocked() const;
 
     // MUST hold shared meta lock
     Status capture_rs_readers_unlocked(const Versions& version_path,
@@ -136,6 +141,7 @@ public:
     // The caller must call hold _meta_lock when call this three function.
     RowsetSharedPtr get_rowset_by_version(const Version& version, bool find_is_stale = false) const;
     RowsetSharedPtr get_stale_rowset_by_version(const Version& version) const;
+    RowsetSharedPtr get_row_binlog_rowset_by_version(const Version& version) const;
     RowsetSharedPtr get_rowset_with_max_version() const;
 
     Status get_all_rs_id(int64_t max_version, RowsetIdUnorderedSet* rowset_ids) const;
@@ -371,7 +377,7 @@ protected:
 
     Result<CaptureRowsetResult> _remote_capture_rowsets(const Version& version_range) const;
 
-    mutable std::shared_mutex _meta_lock;
+    mutable BthreadSharedMutex _meta_lock;
     TimestampedVersionTracker _timestamped_version_tracker;
     TimestampedVersionTracker _row_binlog_version_tracker;
 

@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Alias;
@@ -86,6 +87,9 @@ public class DistinctWindowExpression extends OneRewriteRuleFactory {
     private Optional<AggregateFunction> convertToMultiDistinctFunction(AggregateFunction func) {
         if (func.isDistinct()) {
             if (func instanceof Count) {
+                if (func.arity() != 1) {
+                    throw new AnalysisException("COUNT with DISTINCT only support 1 parameter in analytic function");
+                }
                 return Optional.of(new MultiDistinctCount(false, func.child(0)));
             } else if (func instanceof Sum) {
                 return Optional.of(new MultiDistinctSum(false, ((Sum) func).child()));

@@ -18,6 +18,7 @@
 package org.apache.doris.datasource.maxcompute;
 
 import org.apache.doris.catalog.Type;
+import org.apache.doris.common.Config;
 import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.SchemaCacheKey;
 import org.apache.doris.datasource.SchemaCacheValue;
@@ -105,6 +106,33 @@ public class MaxComputeExternalMetaCacheTest {
             Assert.assertTrue(stats.containsKey(MaxComputeExternalMetaCache.ENTRY_PARTITION_VALUES));
             Assert.assertTrue(stats.containsKey(MaxComputeExternalMetaCache.ENTRY_SCHEMA));
         } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    public void testPartitionValuesDefaultSpecUsesTableLevelCapacity() {
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        long originalPartitionCapacity = Config.max_hive_partition_cache_num;
+        long originalPartitionTableCapacity = Config.max_hive_partition_table_cache_num;
+        long originalRefreshTime = Config.external_cache_refresh_time_minutes;
+        try {
+            Config.max_hive_partition_cache_num = 100L;
+            Config.max_hive_partition_table_cache_num = 20L;
+            Config.external_cache_refresh_time_minutes = 3L;
+
+            MaxComputeExternalMetaCache cache = new MaxComputeExternalMetaCache(executor);
+            long catalogId = 1L;
+            cache.initCatalog(catalogId, Collections.emptyMap());
+
+            MetaCacheEntryStats partitionValuesStats = cache.stats(catalogId)
+                    .get(MaxComputeExternalMetaCache.ENTRY_PARTITION_VALUES);
+            Assert.assertEquals(20L, partitionValuesStats.getCapacity());
+            Assert.assertEquals(180L, partitionValuesStats.getTtlSecond());
+        } finally {
+            Config.max_hive_partition_cache_num = originalPartitionCapacity;
+            Config.max_hive_partition_table_cache_num = originalPartitionTableCapacity;
+            Config.external_cache_refresh_time_minutes = originalRefreshTime;
             executor.shutdownNow();
         }
     }

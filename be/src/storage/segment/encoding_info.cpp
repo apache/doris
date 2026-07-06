@@ -33,8 +33,11 @@
 #include "storage/segment/binary_dict_page.h"
 #include "storage/segment/binary_dict_page_pre_decoder.h"
 #include "storage/segment/binary_plain_page.h"
+#include "storage/segment/binary_plain_page_char_strip_pre_decoder.h"
 #include "storage/segment/binary_plain_page_v2.h"
 #include "storage/segment/binary_plain_page_v2_pre_decoder.h"
+#include "storage/segment/binary_plain_page_v3.h"
+#include "storage/segment/binary_plain_page_v3_pre_decoder.h"
 #include "storage/segment/binary_prefix_page.h"
 #include "storage/segment/bitshuffle_page.h"
 #include "storage/segment/bitshuffle_page_pre_decoder.h"
@@ -92,6 +95,20 @@ struct TypeEncodingTraits<type, PLAIN_ENCODING_V2, Slice> {
     static Status create_page_decoder(const Slice& data, const PageDecoderOptions& opts,
                                       PageDecoder** decoder) {
         *decoder = new BinaryPlainPageV2Decoder<type>(data, opts);
+        return Status::OK();
+    }
+};
+
+// PLAIN_ENCODING_V3 is a binary plain page, only registered for Slice (binary) types, so it
+// has no non-Slice specialization (unlike PLAIN_ENCODING, which also serves numeric types).
+template <FieldType type>
+struct TypeEncodingTraits<type, PLAIN_ENCODING_V3, Slice> {
+    static Status create_page_builder(const PageBuilderOptions& opts, PageBuilder** builder) {
+        return BinaryPlainPageV3Builder<type>::create(builder, opts);
+    }
+    static Status create_page_decoder(const Slice& data, const PageDecoderOptions& opts,
+                                      PageDecoder** decoder) {
+        *decoder = new BinaryPlainPageV3Decoder<type>(data, opts);
         return Status::OK();
     }
 };
@@ -251,22 +268,27 @@ EncodingInfoResolver::EncodingInfoResolver() {
     _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_CHAR, DICT_ENCODING>();
     _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_CHAR, PLAIN_ENCODING>();
     _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_CHAR, PLAIN_ENCODING_V2>();
+    _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_CHAR, PLAIN_ENCODING_V3>();
     _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_CHAR, PREFIX_ENCODING>();
     _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_VARCHAR, DICT_ENCODING>();
     _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_VARCHAR, PLAIN_ENCODING>();
     _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_VARCHAR, PLAIN_ENCODING_V2>();
+    _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_VARCHAR, PLAIN_ENCODING_V3>();
     _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_VARCHAR, PREFIX_ENCODING>();
     _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_STRING, DICT_ENCODING>();
     _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_STRING, PLAIN_ENCODING>();
     _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_STRING, PLAIN_ENCODING_V2>();
+    _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_STRING, PLAIN_ENCODING_V3>();
     _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_STRING, PREFIX_ENCODING>();
     _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_JSONB, DICT_ENCODING>();
     _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_JSONB, PLAIN_ENCODING>();
     _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_JSONB, PLAIN_ENCODING_V2>();
+    _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_JSONB, PLAIN_ENCODING_V3>();
     _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_JSONB, PREFIX_ENCODING>();
     _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_VARIANT, DICT_ENCODING>();
     _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_VARIANT, PLAIN_ENCODING>();
     _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_VARIANT, PLAIN_ENCODING_V2>();
+    _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_VARIANT, PLAIN_ENCODING_V3>();
     _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_VARIANT, PREFIX_ENCODING>();
 
     // BOOL
@@ -312,12 +334,16 @@ EncodingInfoResolver::EncodingInfoResolver() {
     // aggregate / binary-flavored types
     _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_HLL, PLAIN_ENCODING>();
     _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_HLL, PLAIN_ENCODING_V2>();
+    _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_HLL, PLAIN_ENCODING_V3>();
     _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_BITMAP, PLAIN_ENCODING>();
     _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_BITMAP, PLAIN_ENCODING_V2>();
+    _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_BITMAP, PLAIN_ENCODING_V3>();
     _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_QUANTILE_STATE, PLAIN_ENCODING>();
     _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_QUANTILE_STATE, PLAIN_ENCODING_V2>();
+    _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_QUANTILE_STATE, PLAIN_ENCODING_V3>();
     _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_AGG_STATE, PLAIN_ENCODING>();
     _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_AGG_STATE, PLAIN_ENCODING_V2>();
+    _register_supported_encoding<FieldType::OLAP_FIELD_TYPE_AGG_STATE, PLAIN_ENCODING_V3>();
 
     // ===== Phase 2a: V2 defaults (write path, V1/V2 segments) =====
     _set_v2_default<FieldType::OLAP_FIELD_TYPE_TINYINT, BIT_SHUFFLE>();
@@ -380,10 +406,10 @@ EncodingInfoResolver::EncodingInfoResolver() {
     _set_v3_default<FieldType::OLAP_FIELD_TYPE_DECIMAL256, BIT_SHUFFLE>();
     _set_v3_default<FieldType::OLAP_FIELD_TYPE_IPV4, BIT_SHUFFLE>();
     _set_v3_default<FieldType::OLAP_FIELD_TYPE_IPV6, BIT_SHUFFLE>();
-    _set_v3_default<FieldType::OLAP_FIELD_TYPE_HLL, PLAIN_ENCODING_V2>();
-    _set_v3_default<FieldType::OLAP_FIELD_TYPE_BITMAP, PLAIN_ENCODING_V2>();
-    _set_v3_default<FieldType::OLAP_FIELD_TYPE_QUANTILE_STATE, PLAIN_ENCODING_V2>();
-    _set_v3_default<FieldType::OLAP_FIELD_TYPE_AGG_STATE, PLAIN_ENCODING_V2>();
+    _set_v3_default<FieldType::OLAP_FIELD_TYPE_HLL, PLAIN_ENCODING_V3>();
+    _set_v3_default<FieldType::OLAP_FIELD_TYPE_BITMAP, PLAIN_ENCODING_V3>();
+    _set_v3_default<FieldType::OLAP_FIELD_TYPE_QUANTILE_STATE, PLAIN_ENCODING_V3>();
+    _set_v3_default<FieldType::OLAP_FIELD_TYPE_AGG_STATE, PLAIN_ENCODING_V3>();
 
     // ===== Phase 2c: IndexedColumn (value-seek) defaults =====
     // Only the PrimaryKeyIndexBuilder consults this map, and it hardcodes VARCHAR.
@@ -433,18 +459,49 @@ EncodingInfo::EncodingInfo(TraitsClass traits)
     if (_encoding == BIT_SHUFFLE) {
         _data_page_pre_decoder = std::make_unique<BitShufflePagePreDecoder>();
     } else if (_encoding == DICT_ENCODING) {
-        _data_page_pre_decoder = std::make_unique<BinaryDictPagePreDecoder>();
+        if constexpr (TraitsClass::type == FieldType::OLAP_FIELD_TYPE_CHAR) {
+            _data_page_pre_decoder = std::make_unique<BinaryDictPagePreDecoder<true>>();
+        } else {
+            _data_page_pre_decoder = std::make_unique<BinaryDictPagePreDecoder<false>>();
+        }
+    } else if (_encoding == PLAIN_ENCODING) {
+        // CHAR plain pages may contain trailing '\0' padding written by older
+        // BEs; strip it once at page load so the cached page is unpadded.
+        if constexpr (TraitsClass::type == FieldType::OLAP_FIELD_TYPE_CHAR) {
+            _data_page_pre_decoder = std::make_unique<BinaryPlainPageCharStripPreDecoder>();
+        }
     } else if (_encoding == PLAIN_ENCODING_V2) {
         // Only binary types (Slice) need the predecoder for PLAIN_ENCODING_V2 — it converts
         // varint-encoded lengths to an offset-array format that downstream Slice decoders expect.
-        // All current (type, PLAIN_ENCODING_V2) registrations are Slice (CHAR/VARCHAR/STRING/
-        // JSONB/VARIANT/HLL/BITMAP/QUANTILE_STATE/AGG_STATE per storage/types.h). The else throws
-        // at construction time to fail loudly if a future non-Slice registration is added.
-        if constexpr (std::is_same_v<typename TraitsClass::CppType, Slice>) {
-            _data_page_pre_decoder = std::make_unique<BinaryPlainPageV2PreDecoder>();
+        // CHAR pages additionally strip trailing '\0' padding written by the convertor; other
+        // Slice types use the non-CHAR specialization. All current (type, PLAIN_ENCODING_V2)
+        // registrations are Slice (CHAR/VARCHAR/STRING/JSONB/VARIANT/HLL/BITMAP/QUANTILE_STATE/
+        // AGG_STATE per storage/types.h). The else throws at construction time to fail loudly
+        // if a future non-Slice registration is added.
+        if constexpr (TraitsClass::type == FieldType::OLAP_FIELD_TYPE_CHAR) {
+            _data_page_pre_decoder = std::make_unique<BinaryPlainPageV2PreDecoder<true>>();
+        } else if constexpr (std::is_same_v<typename TraitsClass::CppType, Slice>) {
+            _data_page_pre_decoder = std::make_unique<BinaryPlainPageV2PreDecoder<false>>();
         } else {
             throw Exception(Status::FatalError(
                     "PLAIN_ENCODING_V2 is only supported for Slice (binary) types, but got "
+                    "non-Slice type {}",
+                    int(TraitsClass::type)));
+        }
+    } else if (_encoding == PLAIN_ENCODING_V3) {
+        // V3 binary plain pages store contiguous data followed by a contiguous varuint length
+        // block; the predecoder rewrites that into the V1 offset-array layout downstream Slice
+        // decoders expect. CHAR uses the IS_CHAR=true variant so the trailing '\0' padding of
+        // CHAR dictionary words (written with the VARCHAR builder) is stripped on read — mirroring
+        // PLAIN_ENCODING_V2. strnlen on a write-stripped CHAR page is a no-op, so the variant is
+        // also correct for direct CHAR plain V3 pages.
+        if constexpr (TraitsClass::type == FieldType::OLAP_FIELD_TYPE_CHAR) {
+            _data_page_pre_decoder = std::make_unique<BinaryPlainPageV3PreDecoder<true>>();
+        } else if constexpr (std::is_same_v<typename TraitsClass::CppType, Slice>) {
+            _data_page_pre_decoder = std::make_unique<BinaryPlainPageV3PreDecoder<false>>();
+        } else {
+            throw Exception(Status::FatalError(
+                    "PLAIN_ENCODING_V3 is only supported for Slice (binary) types, but got "
                     "non-Slice type {}",
                     int(TraitsClass::type)));
         }
@@ -508,9 +565,10 @@ EncodingTypePB EncodingInfo::resolve_default_encoding(TabletStorageFormatPB stor
     const bool is_v3 = (storage_format == TabletStorageFormatPB::TABLET_STORAGE_FORMAT_V3);
 
     // Row store data is already serialized as a single blob. Keep it on plain pages to
-    // avoid introducing dictionary pages for the hidden row store column.
+    // avoid introducing dictionary pages for the hidden row store column; V3 segments use
+    // the V3 binary plain layout.
     if (column.is_row_store_column()) {
-        return is_v3 ? PLAIN_ENCODING_V2 : PLAIN_ENCODING;
+        return is_v3 ? PLAIN_ENCODING_V3 : PLAIN_ENCODING;
     }
     return is_v3 ? get_v3_default_encoding(column.type()) : get_v2_default_encoding(column.type());
 }

@@ -150,14 +150,13 @@ public:
 
     int compare_at(size_t n, size_t m, const IColumn& rhs_, int nan_direction_hint) const override;
 
-    void shrink_padding_chars() override;
-
     void reserve(size_t n) override;
     void resize(size_t n) override;
     size_t byte_size() const override;
     size_t allocated_bytes() const override;
     bool has_enough_capacity(const IColumn& src) const override;
-    void for_each_subcolumn(ColumnCallback callback) override;
+    void mutate_subcolumns() override;
+    void for_each_subcolumn(ColumnCallback callback) const override;
     bool structure_equals(const IColumn& rhs) const override;
 
     size_t tuple_size() const { return columns.size(); }

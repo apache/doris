@@ -53,6 +53,7 @@ suite ("test_varchar_sc_in_complex") {
             """
         // this can be insert but with cut off the left string to 10
         def exception_str = isGroupCommitMode() ? "too many filtered rows" : "Insert has filtered data in strict mode"
+        sql "set enable_strict_cast = true"
         test {
             sql """ insert into ${tableName} values
                 (11, ['2025-01-03-22-33'], {'doris111111111':'better2222222222'}, named_struct('col','amoryIsBetter'));

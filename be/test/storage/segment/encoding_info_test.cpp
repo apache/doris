@@ -28,7 +28,9 @@
 #include "runtime/exec_env.h"
 #include "storage/olap_common.h"
 #include "storage/segment/binary_dict_page_pre_decoder.h"
+#include "storage/segment/binary_plain_page_char_strip_pre_decoder.h"
 #include "storage/segment/binary_plain_page_v2_pre_decoder.h"
+#include "storage/segment/binary_plain_page_v3_pre_decoder.h"
 #include "storage/segment/bitshuffle_page_pre_decoder.h"
 #include "storage/types.h"
 
@@ -79,10 +81,10 @@ TEST_F(EncodingInfoTest, v2_vs_v3_defaults) {
     check_same(FieldType::OLAP_FIELD_TYPE_JSONB, "JSONB", DICT_ENCODING);
     check_same(FieldType::OLAP_FIELD_TYPE_VARIANT, "VARIANT", DICT_ENCODING);
 
-    // Aggregate/binary-flavored types: V2=PLAIN, V3=PLAIN_V2.
+    // Aggregate/binary-flavored types: V2=PLAIN, V3=PLAIN_V3.
     auto check_split = [](FieldType type, const std::string& name) {
         EXPECT_EQ(PLAIN_ENCODING, get_v2_default_encoding(type)) << name << " v2 default";
-        EXPECT_EQ(PLAIN_ENCODING_V2, get_v3_default_encoding(type)) << name << " v3 default";
+        EXPECT_EQ(PLAIN_ENCODING_V3, get_v3_default_encoding(type)) << name << " v3 default";
     };
     check_split(FieldType::OLAP_FIELD_TYPE_HLL, "HLL");
     check_split(FieldType::OLAP_FIELD_TYPE_BITMAP, "BITMAP");
@@ -149,10 +151,15 @@ TEST_F(EncodingInfoTest, test_all_pre_decoders) {
         auto* pre_decoder = encoding_info->get_data_page_pre_decoder();
         ASSERT_NE(nullptr, pre_decoder) << "Type " << static_cast<int>(type)
                                         << " with DICT_ENCODING should have pre_decoder";
-        auto* dict_decoder = dynamic_cast<BinaryDictPagePreDecoder*>(pre_decoder);
-        EXPECT_NE(nullptr, dict_decoder)
-                << "Type " << static_cast<int>(type)
-                << " with DICT_ENCODING should have BinaryDictPagePreDecoder";
+        // CHAR uses the IS_CHAR=true specialization so it strips trailing '\0'
+        // padding from inline-binary dict fallbacks; other string types use
+        // the regular non-CHAR specialization.
+        bool is_dict_decoder =
+                (type == FieldType::OLAP_FIELD_TYPE_CHAR)
+                        ? dynamic_cast<BinaryDictPagePreDecoder<true>*>(pre_decoder) != nullptr
+                        : dynamic_cast<BinaryDictPagePreDecoder<false>*>(pre_decoder) != nullptr;
+        EXPECT_TRUE(is_dict_decoder) << "Type " << static_cast<int>(type)
+                                     << " with DICT_ENCODING should have BinaryDictPagePreDecoder";
     }
 
     // Test PLAIN_ENCODING_V2 with Slice types - should have BinaryPlainPageV2PreDecoder
@@ -173,10 +180,46 @@ TEST_F(EncodingInfoTest, test_all_pre_decoders) {
         auto* pre_decoder = encoding_info->get_data_page_pre_decoder();
         ASSERT_NE(nullptr, pre_decoder) << "Type " << static_cast<int>(type)
                                         << " with PLAIN_ENCODING_V2 should have pre_decoder";
-        auto* v2_decoder = dynamic_cast<BinaryPlainPageV2PreDecoder*>(pre_decoder);
-        EXPECT_NE(nullptr, v2_decoder) << "Type " << static_cast<int>(type)
-                                       << " with PLAIN_ENCODING_V2 should have "
-                                          "BinaryPlainPageV2PreDecoder";
+        // CHAR PLAIN_ENCODING_V2 is wired to BinaryPlainPageV2PreDecoder<true>
+        // so the trailing '\0' padding written by OlapColumnDataConvertorChar
+        // is stripped at page load time; other binary types use the regular
+        // <false> instantiation.
+        bool ok =
+                (type == FieldType::OLAP_FIELD_TYPE_CHAR)
+                        ? dynamic_cast<BinaryPlainPageV2PreDecoder<true>*>(pre_decoder) != nullptr
+                        : dynamic_cast<BinaryPlainPageV2PreDecoder<false>*>(pre_decoder) != nullptr;
+        EXPECT_TRUE(ok) << "Type " << static_cast<int>(type)
+                        << " with PLAIN_ENCODING_V2 should have V2 pre-decoder";
+    }
+
+    // Test PLAIN_ENCODING_V3 with Slice types - should have BinaryPlainPageV3PreDecoder.
+    // Mirroring V2, CHAR uses the IS_CHAR=true variant (strips '\0' padding of CHAR
+    // dictionary words written with the VARCHAR builder); other binary types use <false>.
+    std::vector<FieldType> plain_v3_types = {
+            FieldType::OLAP_FIELD_TYPE_CHAR,      FieldType::OLAP_FIELD_TYPE_VARCHAR,
+            FieldType::OLAP_FIELD_TYPE_STRING,    FieldType::OLAP_FIELD_TYPE_JSONB,
+            FieldType::OLAP_FIELD_TYPE_VARIANT,   FieldType::OLAP_FIELD_TYPE_HLL,
+            FieldType::OLAP_FIELD_TYPE_BITMAP,    FieldType::OLAP_FIELD_TYPE_QUANTILE_STATE,
+            FieldType::OLAP_FIELD_TYPE_AGG_STATE,
+    };
+
+    for (auto type : plain_v3_types) {
+        const EncodingInfo* encoding_info = nullptr;
+        auto status = EncodingInfo::get(type, PLAIN_ENCODING_V3, &encoding_info);
+        ASSERT_TRUE(status.ok()) << "Type " << static_cast<int>(type)
+                                 << " should support PLAIN_ENCODING_V3";
+        ASSERT_NE(nullptr, encoding_info);
+        auto* pre_decoder = encoding_info->get_data_page_pre_decoder();
+        ASSERT_NE(nullptr, pre_decoder) << "Type " << static_cast<int>(type)
+                                        << " with PLAIN_ENCODING_V3 should have pre_decoder";
+        bool ok =
+                (type == FieldType::OLAP_FIELD_TYPE_CHAR)
+                        ? dynamic_cast<BinaryPlainPageV3PreDecoder<true>*>(pre_decoder) != nullptr
+                        : dynamic_cast<BinaryPlainPageV3PreDecoder<false>*>(pre_decoder) != nullptr;
+        EXPECT_TRUE(ok)
+                << "Type " << static_cast<int>(type)
+                << " with PLAIN_ENCODING_V3 should have the right BinaryPlainPageV3PreDecoder"
+                << " variant";
     }
 
     // Test PLAIN_ENCODING - should NOT have pre_decoder
@@ -216,8 +259,19 @@ TEST_F(EncodingInfoTest, test_all_pre_decoders) {
         auto status = EncodingInfo::get(type, PLAIN_ENCODING, &encoding_info);
         if (status.ok() && encoding_info != nullptr) {
             auto* pre_decoder = encoding_info->get_data_page_pre_decoder();
-            EXPECT_EQ(nullptr, pre_decoder) << "Type " << static_cast<int>(type)
-                                            << " with PLAIN_ENCODING should NOT have pre_decoder";
+            if (type == FieldType::OLAP_FIELD_TYPE_CHAR) {
+                // CHAR PLAIN_ENCODING has a CHAR-strip pre-decoder that strips
+                // the trailing '\0' padding written by the convertor.
+                EXPECT_NE(nullptr, pre_decoder)
+                        << "CHAR with PLAIN_ENCODING should have a pre_decoder";
+                EXPECT_NE(nullptr, dynamic_cast<BinaryPlainPageCharStripPreDecoder*>(pre_decoder))
+                        << "CHAR PLAIN_ENCODING pre-decoder should be "
+                           "BinaryPlainPageCharStripPreDecoder";
+            } else {
+                EXPECT_EQ(nullptr, pre_decoder)
+                        << "Type " << static_cast<int>(type)
+                        << " with PLAIN_ENCODING should NOT have pre_decoder";
+            }
         }
     }
 
@@ -322,10 +376,10 @@ const std::vector<DefaultExpectation> kV3DefaultExpect = {
         {FieldType::OLAP_FIELD_TYPE_DECIMAL256, BIT_SHUFFLE, "DECIMAL256"},
         {FieldType::OLAP_FIELD_TYPE_IPV4, BIT_SHUFFLE, "IPV4"},
         {FieldType::OLAP_FIELD_TYPE_IPV6, BIT_SHUFFLE, "IPV6"},
-        {FieldType::OLAP_FIELD_TYPE_HLL, PLAIN_ENCODING_V2, "HLL"},
-        {FieldType::OLAP_FIELD_TYPE_BITMAP, PLAIN_ENCODING_V2, "BITMAP"},
-        {FieldType::OLAP_FIELD_TYPE_QUANTILE_STATE, PLAIN_ENCODING_V2, "QUANTILE_STATE"},
-        {FieldType::OLAP_FIELD_TYPE_AGG_STATE, PLAIN_ENCODING_V2, "AGG_STATE"},
+        {FieldType::OLAP_FIELD_TYPE_HLL, PLAIN_ENCODING_V3, "HLL"},
+        {FieldType::OLAP_FIELD_TYPE_BITMAP, PLAIN_ENCODING_V3, "BITMAP"},
+        {FieldType::OLAP_FIELD_TYPE_QUANTILE_STATE, PLAIN_ENCODING_V3, "QUANTILE_STATE"},
+        {FieldType::OLAP_FIELD_TYPE_AGG_STATE, PLAIN_ENCODING_V3, "AGG_STATE"},
 };
 
 // Expected V2 (non-V3) default per type.
