@@ -29,6 +29,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.JsonFileFormatProperties;
@@ -654,7 +655,8 @@ public class DataDescription {
 
     // Change all the columns name to lower case, because Doris column is case-insensitive.
     private void columnsNameToLowerCase(List<String> columns) {
-        if (columns == null || columns.isEmpty() || "json".equals(analysisMap.get(FileFormatProperties.PROP_FORMAT))) {
+        if (columns == null || columns.isEmpty()
+                || Util.isCasePreservingFormat(analysisMap.get(FileFormatProperties.PROP_FORMAT))) {
             return;
         }
         for (int i = 0; i < columns.size(); i++) {
