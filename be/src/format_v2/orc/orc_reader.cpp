@@ -980,53 +980,40 @@ private:
 
 // Per-open mutable ORC state. close() publishes counters first, then resets this
 // object so the reader can be opened again without carrying stale scan state.
-// =============================================================================
-// OrcReaderScanState —— 所有运行时可变状态都装这一个 struct 里。
-// =============================================================================
-// 设计原则：close() 时直接 _state = std::make_unique<OrcReaderScanState>()
-// 就能把状态彻底重置，避免逐个字段 reset 漏掉。
 struct OrcReaderScanState {
-    // pruning 后剩下的 stripe 可能不连续（[1, 3, 4]），按连续段合并成多个 range
-    // 每个 range 对应一次 RowReader 重建（ORC 库不支持单个 RowReader 内 seek 跳过 stripe）
     struct StripeRange {
         uint64_t first_stripe = 0;
         uint64_t last_stripe = 0;
-        uint64_t offset = 0; // 本 range 起始字节
-        uint64_t length = 0; // 本 range 字节长度
+        uint64_t offset = 0;
+        uint64_t length = 0;
     };
 
-    // ===== ORC 库对象 =====
-    std::unique_ptr<::orc::Reader> reader;  // 文件级 reader (init 时建)
-    const ::orc::Type* root_type = nullptr; // 文件 schema 根 (root_type 必须是 STRUCT)
+    std::unique_ptr<::orc::Reader> reader;
+    const ::orc::Type* root_type = nullptr;
     ::orc::ReaderMetrics reader_metrics;
     ::orc::RowReaderOptions row_reader_options; // projection + filter + SARG + stripe range
     std::string timezone = TimezoneUtils::default_time_zone;
     cctz::time_zone timezone_obj;
-    std::unique_ptr<::orc::RowReader> row_reader;    // 行级 reader (open / 切 range 时建)
-    const ::orc::Type* selected_type = nullptr;      // projection 后的 selected schema
-    std::unique_ptr<::orc::ColumnVectorBatch> batch; // 批次缓冲（next() 时复用）
+    std::unique_ptr<::orc::RowReader> row_reader;
+    const ::orc::Type* selected_type = nullptr;
+    std::unique_ptr<::orc::ColumnVectorBatch> batch;
 
-    // ===== 投影信息 =====
-    std::vector<format::LocalColumnId> read_columns; // 要读的列（去重排序后）
-    // file_column_id → 在 ORC selected_type 里的 child index（projection 后顺序可能变）
+    std::vector<format::LocalColumnId> read_columns;
     std::map<format::LocalColumnId, size_t> column_to_selected_batch_index;
 
-    // ===== 当前批次状态 =====
-    uint64_t current_batch_first_row = 0; // 本批起始物理行号（虚拟列要用）
+    uint64_t current_batch_first_row = 0;
 
-    // ===== ORC lazy 路径状态（filter callback 写、get_block 收尾用）=====
-    std::vector<size_t> orc_lazy_selected_rows; // 命中行的 batch 内偏移
-    size_t orc_lazy_input_rows = 0;             // callback 拿到的原始批次大小
-    uint64_t orc_lazy_next_batch_first_row = 0; // callback 内维护的下一批物理起点
-    bool orc_lazy_read_enabled = false;         // 是否走 ORC lazy 路径（open 时定）
-    bool orc_lazy_selection_valid = false;      // selection 是否有效（防止状态错位）
+    std::vector<size_t> orc_lazy_selected_rows;
+    size_t orc_lazy_input_rows = 0;
+    uint64_t orc_lazy_next_batch_first_row = 0;
+    bool orc_lazy_read_enabled = false;
+    bool orc_lazy_selection_valid = false;
 
-    // ===== Stripe pruning 状态 =====
-    std::vector<StripeRange> selected_stripe_ranges; // pruning 后剩下的连续段
-    size_t current_stripe_range = 0;                 // 当前在读哪一段
-    bool stripe_pruning_applied = false; // pruning 是否实际生效（决定能否切段）
+    std::vector<StripeRange> selected_stripe_ranges;
+    size_t current_stripe_range = 0;
+    bool stripe_pruning_applied = false;
 
-    bool row_reader_created = false; // row_reader 已创建（open 后或切段后）
+    bool row_reader_created = false;
 };
 
 OrcReader::OrcReader(std::shared_ptr<io::FileSystemProperties>& system_properties,
@@ -1129,7 +1116,7 @@ void OrcReader::_collect_profile() const {
         COUNTER_UPDATE(_orc_profile.lazy_read_filtered_rows,
                        _reader_statistics.lazy_read_filtered_rows);
         COUNTER_UPDATE(_orc_profile.orc_lazy_read_filtered_rows,
-                       _reader_statistics.orc_lazy_read_filtered_rows);
+                       _reader_statistics.lazy_read_filtered_rows);
         COUNTER_UPDATE(_orc_profile.filtered_bytes, _reader_statistics.filtered_bytes);
         COUNTER_UPDATE(_orc_profile.open_file_num, _reader_statistics.open_file_num);
     }
@@ -1144,15 +1131,8 @@ format::ColumnDefinition OrcReader::row_position_column_definition() {
     return field;
 }
 
-// 阶段 1：init —— 打开 ORC 文件，建 ORC Reader 对象
-//
-// 关键点：
-//   1. 用 ExecEnv 全局 memory pool —— ORC 库的内存分配走 Doris 内存追踪
-//   2. DorisOrcInputStream 是 ORC IO 适配层，把 Doris io::FileReader 包成
-//      ORC 库要的 ::orc::InputStream 接口
-//   3. 这一步只读 file footer（schema + stripe statistics），还没读数据
 Status OrcReader::init(RuntimeState* state) {
-    RETURN_IF_ERROR(format::FileReader::init(state)); // 基类会调 _init_profile()
+    RETURN_IF_ERROR(format::FileReader::init(state));
     _state = std::make_unique<OrcReaderScanState>();
     TimezoneUtils::find_cctz_time_zone(_state->timezone, _state->timezone_obj);
     if (state != nullptr) {
@@ -1163,7 +1143,6 @@ Status OrcReader::init(RuntimeState* state) {
     ::orc::ReaderOptions options;
     options.setMemoryPool(*ExecEnv::GetInstance()->orc_memory_pool());
     options.setReaderMetrics(&_state->reader_metrics);
-    // TODO: Add an ORC footer cache here so repeated scans can avoid reparsing file metadata.
 
     auto input_stream = std::make_unique<DorisOrcInputStream>(_file_description->path,
                                                               _tracing_file_reader, _io_ctx.get());
@@ -1382,14 +1361,6 @@ Status OrcReader::_fill_map_schema_children(const ::orc::Type& type,
     return Status::OK();
 }
 
-// 阶段 2：get_schema —— ORC schema → Doris ColumnDefinition
-//
-// 注意：
-//   - ORC root 必须是 STRUCT（这是 ORC 标准约定）
-//   - 每个子字段递归走 _fill_schema_field，处理 STRUCT/LIST/MAP 嵌套
-//   - 返回的 type 永远是 nullable（文件层不假设 NOT NULL，table 层判断）
-//   - Iceberg 的 field id 通过 ORC type attribute "iceberg.id" 透传到
-//     ColumnDefinition::identifier，给 equality delete 按 field id 匹配列用
 Status OrcReader::get_schema(std::vector<format::ColumnDefinition>* const file_schema) const {
     if (file_schema == nullptr) {
         return Status::InvalidArgument("file_schema is null");
@@ -1423,24 +1394,12 @@ std::unique_ptr<format::TableColumnMapper> OrcReader::create_column_mapper(
     return std::make_unique<format::OrcColumnMapper>(std::move(options));
 }
 
-// 阶段 3：open(FileScanRequest) —— 最复杂的一步
-//
-// 7 步流程：
-//   1. fallback 计算 local_positions（如果上层没传）
-//   2. 收集 read_columns，去重排序
-//   3. _can_apply_orc_lazy_callback：判断本次请求能否在 ORC callback 阶段完整过滤
-//   4. _configure_row_reader_projection：simple include vs nested includeTypes
-//   5. _init_search_argument_from_local_filters：file-local conjuncts → ORC SARG
-//   6. _select_stripe_ranges_by_statistics：SARG stripe pruning
-//   7. _create_row_reader：实际创建 ORC RowReader（含 lazy callback 注入）
 Status OrcReader::open(std::shared_ptr<format::FileScanRequest> request) {
     if (_state == nullptr || _state->reader == nullptr || _state->root_type == nullptr) {
         return Status::Uninitialized("OrcReader is not open");
     }
     RETURN_IF_ERROR(format::FileReader::open(std::move(request)));
 
-    // 步骤 1：上层没传 local_positions 就按 predicate + non_predicate 顺序自动派号
-    // 上层 TableReader 通常会主动填，这是 fallback 兜底
     if (_request->local_positions.empty()) {
         size_t next_position = 0;
         for (const auto& projection : _request->predicate_columns) {
@@ -1459,7 +1418,6 @@ Status OrcReader::open(std::shared_ptr<format::FileScanRequest> request) {
         }
     }
 
-    // 步骤 2：收集要读的列（predicate + non_predicate 合并去重）
     _state->read_columns.clear();
     _state->read_columns.reserve(_request->predicate_columns.size() +
                                  _request->non_predicate_columns.size());
@@ -1476,45 +1434,27 @@ Status OrcReader::open(std::shared_ptr<format::FileScanRequest> request) {
             std::unique(_state->read_columns.begin(), _state->read_columns.end()),
             _state->read_columns.end());
 
-    // 步骤 3：是否启用 ORC lazy callback（ORC 库内部 column reader 跳行）
     _state->orc_lazy_read_enabled = _can_apply_orc_lazy_callback();
 
-    // 步骤 4：投影配置
     RETURN_IF_ERROR(_configure_row_reader_projection());
     RETURN_IF_ERROR(set_orc_reader_timezone(_state->timezone, &_state->row_reader_options));
     _state->row_reader_options.setEnableLazyDecoding(_state->orc_lazy_read_enabled);
     _state->row_reader_options.setUseTightNumericVector(false);
 
-    // 步骤 5：SARG 构造（TableColumnMapper 已经把 table filter localize 成 file conjunct）
     RETURN_IF_ERROR(_init_search_argument_from_local_filters());
 
-    // 步骤 6：SARG stripe pruning
     RETURN_IF_ERROR(_select_stripe_ranges_by_statistics());
     if (_state->stripe_pruning_applied && _state->selected_stripe_ranges.empty()) {
-        // 全部 stripe 被裁掉，直接 EOF（连 RowReader 都不建）
         _eof = true;
         return Status::OK();
     }
     _apply_current_stripe_range();
 
-    // 步骤 7：实际创建 RowReader（如果 ORC lazy 开了，会同时注入 filter callback）
     RETURN_IF_ERROR(_create_row_reader());
     _eof = _state->reader->getNumberOfRows() == 0;
     return Status::OK();
 }
 
-// _can_apply_orc_lazy_callback —— ORC lazy callback 的适用性判断
-//
-// ORC lazy 优势：ORC 库内部 LEADERS/FOLLOWERS 模型 + filter callback，
-//                能跳过部分 column reader 的 decode（string/timestamp/decimal 真省）
-//
-// 不能应用 callback 的情况：
-//   - 没 predicate 列或没 non-predicate 列（lazy 没意义）
-//   - 没 row-level filter（lazy callback 没东西可跑）
-//   - filter 引用了 global rowid 虚拟列（callback 只能安全构造 row_position）
-//   - 请求没有物理列（ORC lazy 需要至少一个真实 ORC column 作为 callback leader）
-//   - row-level filter 引用了非 predicate_columns 的列（callback 时拿不到那些列）
-// 不能应用时退化到普通路径：全列 decode 完后再跑 Doris row-level filter。
 bool OrcReader::_can_apply_orc_lazy_callback() const {
     if (!_filter_has_row_level_predicates() || _request->predicate_columns.empty() ||
         _request->non_predicate_columns.empty()) {
@@ -1621,27 +1561,6 @@ Status OrcReader::_configure_row_reader_projection() {
     return Status::OK();
 }
 
-// _init_search_argument_from_local_filters —— 把 file-local conjuncts 转成 ORC SARG
-//
-// SARG (SearchArgument) 是 ORC 库自己的谓词表达，用于 stripe / row group pruning。
-// 顶层结构：AND(所有能转的 子句)
-//
-// 职责边界：
-//   TableColumnMapper::localize_filters 负责 table schema → file-local schema 的表达式定位；
-//   这里只做 ORC-specific lowering：用 file-local slot / nested target 结合 ORC type id
-//   生成 SearchArgument。SearchArgument 依赖 ORC C++ 类型，不放进通用 mapper。
-//
-// build_orc_search_argument 返回 bool：
-//   true  这个 子句 转成功并加到 builder 了
-//   false 转不了（unsafe cast / 不支持的形态），保守跳过
-//
-// has_pushdown |= 是逻辑或累积：只要有一个转成功了就要提交 SARG。
-// 一个都没转成功时跳过，避免空 SARG 浪费 ORC 库时间。
-//
-// 没转上 SARG 的 子句不会"丢"，会在 row-level filter 阶段（_build_keep_filter）兜底。
-//
-// delete_conjuncts 不进 SARG：因为 Iceberg delete 引用 row_position 虚拟列，
-// 文件统计里没有这个列的 min/max，无法做 stripe pruning。
 Status OrcReader::_init_search_argument_from_local_filters() {
     if (_request->conjuncts.empty()) {
         return Status::OK();
@@ -1660,7 +1579,7 @@ Status OrcReader::_init_search_argument_from_local_filters() {
                            has_pushdown;
         }
         if (!has_pushdown) {
-            return Status::OK(); // 一个都没下推，跳过
+            return Status::OK();
         }
         builder->end();
         _state->row_reader_options.searchArgument(builder->build());
@@ -1670,14 +1589,8 @@ Status OrcReader::_init_search_argument_from_local_filters() {
     return Status::OK();
 }
 
-// _select_stripe_ranges_by_statistics —— stripe 级 SARG pruning
-//
-// ORC 库用 SearchArgument 评估 stripe/row-group statistics，getNeedReadStripes()
-// 返回每个 stripe 是否需要读取。没转上 SARG 的 conjunct 仍在 row-level filter 兜底。
-//
-// pruning 后剩下的 stripe 可能不连续（如 [1, 3, 4]），合并成连续段：
-//   selected_stripe_ranges = [(1, 2), (3, 5)]
-// 每段 = 一个 RowReader（ORC 库不支持单 RowReader 内 seek 跳过 stripe）
+// ORC RowReader ranges are continuous, so non-adjacent surviving stripes are
+// compacted into separate ranges.
 Status OrcReader::_select_stripe_ranges_by_statistics() {
     _state->selected_stripe_ranges.clear();
     _state->current_stripe_range = 0;
@@ -1773,8 +1686,6 @@ Status OrcReader::_select_stripe_ranges_by_statistics() {
     return Status::OK();
 }
 
-// 把当前 stripe range 的字节区间设给 row_reader_options
-// ORC RowReader::next() 只读 [offset, offset+length) 这段字节
 void OrcReader::_apply_current_stripe_range() {
     if (!_state->stripe_pruning_applied || _state->selected_stripe_ranges.empty()) {
         return;
@@ -1784,13 +1695,6 @@ void OrcReader::_apply_current_stripe_range() {
     _state->row_reader_options.range(stripe_range.offset, stripe_range.length);
 }
 
-// 切换到下一个不连续 stripe range
-//
-// 用途：pruning 后 selected_stripe_ranges 可能有多段（如 [1,2] [3,5]）。
-// 一个 RowReader 只能读连续字节，所以读完一段后必须 **重建 RowReader** 指向下一段。
-//
-// 调用方：get_block 里 row_reader->next() 返回 false 时（当前 range 读完）。
-//        advanced = false 表示没下一段了，文件读完。
 Status OrcReader::_advance_to_next_stripe_range(bool* advanced) {
     DORIS_CHECK(advanced != nullptr);
     *advanced = false;
@@ -1800,19 +1704,11 @@ Status OrcReader::_advance_to_next_stripe_range(bool* advanced) {
     }
     ++_state->current_stripe_range;
     _apply_current_stripe_range();
-    RETURN_IF_ERROR(_create_row_reader()); // 重建，指向新 range 起始字节
+    RETURN_IF_ERROR(_create_row_reader());
     *advanced = true;
     return Status::OK();
 }
 
-// _create_row_reader —— 真正创建 ORC RowReader 对象
-//
-// 关键点：
-//   1. ORC lazy 模式下，传入 _orc_filter 给 createRowReader，激活 LEADERS/FOLLOWERS 模型
-//   2. 拿到 selected_type（projection 后的 schema，顺序可能跟 root_type 不同）
-//   3. createRowBatch 建一次性 batch buffer，next() 时复用
-//   4. 建 column_to_selected_batch_index 映射：file_column_id → batch 内位置
-//      因为 projection 后 batch 的子项顺序变了，要按字段名重新对齐
 Status OrcReader::_create_row_reader() {
     try {
         if (_state->orc_lazy_read_enabled && _orc_filter == nullptr) {
@@ -1855,28 +1751,8 @@ Status OrcReader::_create_row_reader() {
     return Status::OK();
 }
 
-// _filter_orc_batch —— ORC lazy 路径的核心 callback
-//
-// 调用链：
-//   row_reader->next(batch) 进入 ORC 库
-//     → ORC 库 LEADERS phase: decode predicate 列
-//     → 调本 callback (通过 OrcFilterImpl 适配)
-//          ↓ 本函数做：
-//          ↓   1. 在临时 filter_block 上把 predicate 列再 decode 一份
-//          ↓      （ORC batch 是库内部格式，跑 Doris filter 要先转成 Doris column）
-//          ↓   2. 跑 row-level filter → keep_filter (4096 个 0/1)
-//          ↓   3. 把 keep_filter 翻译成 sel[]（命中行 index 的稀疏数组）
-//          ↓   4. data.numElements = 命中数 (告诉 ORC 库 FOLLOWERS 只 decode 这些)
-//          ↓   5. 缓存 keep_filter / selected_rows 给 get_block 收尾用
-//     → ORC 库 FOLLOWERS phase: 用 sel[] decode non-predicate 列
-//   row_reader->next() 返回，回到 get_block
-//
-// sel[] vs keep_filter：表达同一信息，但形态不同
-//   sel[]       稀疏 [17, 89, 4072]      ORC 库内部用
-//   keep_filter 密集 [0,...,1,...,0,1]   Doris get_block 收尾用
 Status OrcReader::_filter_orc_batch(::orc::ColumnVectorBatch& data, uint16_t* sel, uint16_t size,
                                     void* /*arg*/) {
-    // 防御：lazy 没开 / sel 没空间 / 空批次，不做事
     if (!_state->orc_lazy_read_enabled || sel == nullptr || size == 0) {
         data.numElements = size;
         return Status::OK();
@@ -1886,15 +1762,11 @@ Status OrcReader::_filter_orc_batch(::orc::ColumnVectorBatch& data, uint16_t* se
                                        DEFAULT_ORC_READ_BATCH_SIZE);
     }
 
-    // ORC 给的 batch 必须是 StructVectorBatch（root 是 STRUCT）
     auto* struct_batch = dynamic_cast<::orc::StructVectorBatch*>(&data);
     if (struct_batch == nullptr) {
         return Status::InternalError("New ORC lazy filter expects struct row batch");
     }
 
-    // 步骤 1：建一个临时 filter_block，schema 跟 file_block 一样
-    // 这里建空列，后面 _decode_columns 会把 predicate 列填进来
-    // 注意：non-predicate 列也要建占位，因为 VExpr 引用列时按 block_position 查
     Block filter_block;
     filter_block.reserve(_request->local_positions.size());
     for (size_t position = 0; position < _request->local_positions.size(); ++position) {
@@ -1907,7 +1779,6 @@ Status OrcReader::_filter_orc_batch(::orc::ColumnVectorBatch& data, uint16_t* se
                                            position);
         }
         const auto file_column_id = entry_it->first;
-        // 虚拟列：ORC lazy callback 不从文件读它们，但 filter_block 要保持 block schema 一致。
         if (is_row_position_column(file_column_id)) {
             auto field = row_position_column_definition();
             filter_block.insert({field.type->create_column(), field.type, field.name});
@@ -1931,18 +1802,15 @@ Status OrcReader::_filter_orc_batch(::orc::ColumnVectorBatch& data, uint16_t* se
                              _state->root_type->getFieldName(file_column_id.value())});
     }
 
-    // 步骤 2：把 ORC batch 的 predicate 列 decode 进 filter_block
     _state->current_batch_first_row = _state->orc_lazy_next_batch_first_row;
     _state->orc_lazy_next_batch_first_row += size;
     std::set<format::LocalColumnId> decoded_columns;
     RETURN_IF_ERROR(_decode_columns(*struct_batch, _request->predicate_columns, size, &filter_block,
                                     &decoded_columns));
 
-    // 步骤 3：跑 row-level filter（顺序：conjuncts → delete）
     IColumn::Filter keep_filter(size, 1);
     RETURN_IF_ERROR(_build_keep_filter(&filter_block, size, &keep_filter));
 
-    // 步骤 4：keep_filter 翻译成 sel[]，同时缓存给 get_block 收尾
     _state->orc_lazy_selected_rows.clear();
     _state->orc_lazy_selected_rows.reserve(size);
     uint16_t selected_rows = 0;
@@ -1955,10 +1823,9 @@ Status OrcReader::_filter_orc_batch(::orc::ColumnVectorBatch& data, uint16_t* se
     }
     _state->orc_lazy_input_rows = size;
     _state->orc_lazy_selection_valid = true;
-    data.numElements = selected_rows; // ← 告诉 ORC 库 FOLLOWERS 只对这么多行做事
+    data.numElements = selected_rows;
     const auto filtered_rows = cast_set<int64_t>(size - selected_rows);
     _reader_statistics.lazy_read_filtered_rows += filtered_rows;
-    _reader_statistics.orc_lazy_read_filtered_rows += filtered_rows;
     return Status::OK();
 }
 
@@ -2177,20 +2044,6 @@ Status OrcReader::_decode_struct_column(const ::orc::Type& file_type,
     return Status::OK();
 }
 
-// 阶段 4：get_block —— 读一批数据（热路径）
-//
-// 流程概览：
-//   1. row_reader->next(batch) 读一批
-//      ├─ 当前 stripe range 读完？切到下一个 range（重建 row_reader）
-//      └─ 没下一个 range → EOF
-//   2. ORC lazy 路径下：next() 内部已经回调了 _filter_orc_batch
-//      callback 里跑了 row-level filter，sel/keep_filter 缓存在 _state 里
-//   3. decode predicate 列 → file_block（永远全 batch_rows 行）
-//   4. decode non-predicate 列 → file_block
-//      ORC lazy 模式：selection-aware decode（只 decode 命中行）
-//      普通模式：全行 decode
-//   5. 收尾：如果 ORC lazy 命中过滤，就把 predicate 列裁齐到 selected_rows；
-//      否则把完整 block 交给 Doris row-level filter
 Status OrcReader::get_block(Block* file_block, size_t* rows, bool* eof) {
     DORIS_CHECK(file_block != nullptr);
     DORIS_CHECK(rows != nullptr);
@@ -2208,16 +2061,13 @@ Status OrcReader::get_block(Block* file_block, size_t* rows, bool* eof) {
         return Status::Uninitialized("OrcReader is not open");
     }
 
-    // 读一批：可能跨 stripe range 切换
     bool has_next = false;
     while (true) {
         try {
-            // 每次 next() 前清掉上次的 lazy 状态，防止串味
             _state->orc_lazy_selection_valid = false;
             _state->orc_lazy_selected_rows.clear();
             _state->orc_lazy_input_rows = 0;
             _state->orc_lazy_next_batch_first_row = _state->row_reader->getRowNumber() + 1;
-            // ORC 库 next() 内部如果开了 lazy，会回调 _filter_orc_batch
             has_next = _state->row_reader->next(*_state->batch);
         } catch (const std::exception& e) {
             return Status::InternalError("Failed to read ORC batch: {}", e.what());
@@ -2232,7 +2082,6 @@ Status OrcReader::get_block(Block* file_block, size_t* rows, bool* eof) {
             }
             break;
         }
-        // 当前 range 读完，看有没有下一个不连续 range
         bool advanced = false;
         RETURN_IF_ERROR(_advance_to_next_stripe_range(&advanced));
         if (!advanced) {
@@ -2243,14 +2092,12 @@ Status OrcReader::get_block(Block* file_block, size_t* rows, bool* eof) {
     }
 
     const auto batch_rows = static_cast<size_t>(_state->batch->numElements);
-    // current_batch_first_row：本批起始物理行号，给 row_position 虚拟列用
     _state->current_batch_first_row = _state->row_reader->getRowNumber();
     auto* struct_batch = dynamic_cast<::orc::StructVectorBatch*>(_state->batch.get());
     if (struct_batch == nullptr) {
         return Status::InternalError("New ORC reader expects struct row batch");
     }
 
-    // ORC lazy 路径下，callback 是不是真的跑了
     const bool orc_lazy_read_applied =
             _state->orc_lazy_read_enabled && _state->orc_lazy_selection_valid;
     if (orc_lazy_read_applied && _state->orc_lazy_input_rows != batch_rows) {
@@ -2258,7 +2105,6 @@ Status OrcReader::get_block(Block* file_block, size_t* rows, bool* eof) {
                                      _state->orc_lazy_input_rows, batch_rows);
     }
 
-    // 步骤 3：decode predicate 列 → file_block（全 batch_rows 行）
     std::set<format::LocalColumnId> decoded_columns;
     RETURN_IF_ERROR(_decode_columns(*struct_batch, _request->predicate_columns, batch_rows,
                                     file_block, &decoded_columns));
@@ -2466,28 +2312,13 @@ Status OrcReader::_decode_columns(const ::orc::StructVectorBatch& struct_batch,
     return Status::OK();
 }
 
-// _fill_row_position_column —— 填充 __orc_row_position 虚拟列
-//
-// 虚拟列 = 文件里没存这列，但上层需要。OrcReader 自己算。
-// __orc_row_position 是每行在 ORC 文件里的物理位置（0-based 行号）。
-//
-// 用途：Iceberg position delete 引用这一列做 NOT IN 匹配：
-//   delete 文件里说 "users.orc 第 17 行被删"
-//   → reader 把每行的 row_position 填好
-//   → DeletePredicate 跑 row_position NOT IN (17, 89, ...) 删掉这些行
-//
-// 计算公式：
-//   row_position = 本批起始行号 + 行在批次内偏移
-//   base = row_reader->getRowNumber()  ORC 库给的本批起点（已记在 current_batch_first_row）
-//   offset = source_row_at(i, selected_rows)
-//            非 selection 模式 → i
-//            selection 模式  → selected_rows[i]（命中行的原 index）
+// The row-position virtual column stores the original physical ORC row number.
 void OrcReader::_fill_row_position_column(Block* file_block, size_t rows,
                                           const std::vector<size_t>* selected_rows) const {
     const auto position_it =
             _request->local_positions.find(format::LocalColumnId(format::ROW_POSITION_COLUMN_ID));
     if (position_it == _request->local_positions.end()) {
-        return; // 上层没要这列就不填
+        return;
     }
     DORIS_CHECK(file_block != nullptr);
     const auto block_position = position_it->second;
@@ -2560,35 +2391,23 @@ Status OrcReader::_fill_global_rowid_column(Block* file_block, size_t rows,
     return Status::OK();
 }
 
-// _can_filter_with_decoded_columns —— 判断 ORC lazy callback 能否执行全部 filter
-//
-// 给定 ORC callback 已能看到的列 (= predicate_columns)，能不能跑全部 row-level filter？
-// 能跑 → ORC lazy callback 可启用，ORC FOLLOWERS phase 可按 sel[] 跳行 decode
-// 不能跑 → 关闭 ORC lazy，普通路径全列 decode 完后再过滤
-//
-// 2 类 filter 的判断逻辑：
-//   conjuncts        : 表达式引用的所有 slot 必须都 decode
-//   delete_conjuncts : 同上；只有引用 predicate_columns 时才能进 ORC lazy callback
 bool OrcReader::_can_filter_with_decoded_columns(
         const std::set<format::LocalColumnId>& decoded_columns) const {
-    // expr_can_run：递归收集表达式引用的所有 slot column_id，检查是不是都 decode 了
     auto expr_can_run = [&](const VExprContextSPtr& expr) {
         DORIS_CHECK(expr != nullptr);
         std::set<int> block_positions;
-        // collect_slot_column_ids 递归遍历 VExpr 树，收集所有 VSlotRef 的 column_id
         expr->root()->collect_slot_column_ids(block_positions);
         for (const auto block_position : block_positions) {
             if (block_position < 0) {
                 return false;
             }
-            // 反查：block_position → file_column_id（通过 local_positions 逆向查找）
             const auto local_position = format::LocalIndex(cast_set<size_t>(block_position));
             const auto position_it = std::ranges::find_if(
                     _request->local_positions,
                     [&](const auto& entry) { return entry.second == local_position; });
             if (position_it == _request->local_positions.end() ||
                 !decoded_columns.contains(position_it->first)) {
-                return false; // 这个 slot 引用的列还没 decode → callback 不能安全运行
+                return false;
             }
         }
         return true;
@@ -2607,19 +2426,10 @@ bool OrcReader::_can_filter_with_decoded_columns(
     return true;
 }
 
-// 是否有任何 row-level filter？没有就跳过整套过滤流程
 bool OrcReader::_filter_has_row_level_predicates() const {
     return !_request->conjuncts.empty() || !_request->delete_conjuncts.empty();
 }
 
-// _build_keep_filter —— row-level filter 串行 AND 入口
-//
-// 2 类来源（详见 file_reader.h FileScanRequest）：
-//   1. conjuncts        file-local SQL VExpr 表达式
-//   2. delete_conjuncts Iceberg/Hudi 表层删除（不参与 SARG，row-level 兜底）
-//
-// 串行 AND 模型：每类 filter 跑完后，结果跟 keep_filter 做 &= 合并。
-// 任一行被任一 filter 标 0 → 整行丢掉。
 Status OrcReader::_build_keep_filter(Block* file_block, size_t rows,
                                      IColumn::Filter* keep_filter) const {
     DORIS_CHECK(keep_filter != nullptr);

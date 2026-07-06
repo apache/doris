@@ -52,20 +52,8 @@ namespace {
 // SARG conversion is intentionally conservative: only direct slots,
 // struct_element chains, and whitelisted schema-evolution casts become ORC
 // SearchArgument predicates. Everything else stays as row-level filtering.
-// ORC TypeKind → PredicateDataType
-//
-// SARG 评估器只认 7 种 PredicateDataType（这是 ORC 标准）：
-//   LONG / FLOAT / STRING / DATE / DECIMAL / TIMESTAMP / BOOLEAN
-//
-// 注意"合并"：BYTE / SHORT / INT / LONG 都映射到 LONG（int64_t 内部表示）；
-//             FLOAT / DOUBLE 都映射到 FLOAT（double 内部表示）；
-//             STRING / BINARY / VARCHAR 都映射到 STRING。
-// 这样 SARG 评估器内部只需要按"类型大类"实现一套比较逻辑。
-//
-// 复杂类型（STRUCT / LIST / MAP / UNION）→ nullopt → SARG 不支持 → row-level fallback。
-// 注意：SARG 不支持的是"用复杂类型整体做谓词"。
-//      "用 STRUCT 内部 primitive 子字段做谓词"（addr.zip > 100）是支持的，
-//       通过 struct_element 链解析到子字段的 ORC type 后再调本函数。
+// Supported ORC predicate domains are LONG, FLOAT, STRING, DATE, DECIMAL,
+// TIMESTAMP, and BOOLEAN.
 std::optional<::orc::PredicateDataType> predicate_type_for_orc_type(const ::orc::Type& type) {
     switch (type.getKind()) {
     case ::orc::TypeKind::BYTE:
@@ -94,23 +82,12 @@ std::optional<::orc::PredicateDataType> predicate_type_for_orc_type(const ::orc:
     }
 }
 
-// SARG 把"列引用"抽象成 OrcSargColumn：
-//   column_id      ORC type id（含嵌套，比如 addr.zip 用的是 zip 子字段的 type id）
-//   predicate_type SARG 评估器用的类型（按上面的合并规则）
-//   orc_type       底层 ORC type 指针（构造 literal 时用）
-//
-// predicate_type 默认 LONG 只是个 placeholder（C++ 聚合 struct 默认值要求），
-// 实际使用时一定会被覆盖成真实值。
 struct OrcSargColumn {
     uint64_t column_id = 0;
     ::orc::PredicateDataType predicate_type = ::orc::PredicateDataType::LONG;
     const ::orc::Type* orc_type = nullptr;
 };
 
-// 普通比较的 SARG 中间结果（非 cast 反解）：
-//   column         左操作数指向的列
-//   literal        右操作数（已转成 ORC Literal）
-//   normalized_op  规范化后的 op（操作数顺序已挪到 "slot op literal" 形式）
 struct OrcSargComparison {
     OrcSargColumn column;
     ::orc::Literal literal;
@@ -185,21 +162,12 @@ std::optional<Field> literal_field_for_sarg(const VExprSPtr& literal_expr) {
     return field;
 }
 
-// 识别 VExpr 是不是 struct_element(struct_value, 'field_name') 函数调用
-//
-// SQL 里访问 struct 子字段（addr.zip）的语法糖，被 SQL 编译器降级成这个函数调用：
-//   addr.region.code  →  struct_element(struct_element(slot_ref(addr), 'region'), 'code')
-//
-// 用途：SARG 解析左操作数时识别这种链，递归剥到最深处的 primitive 子字段，
-//       拿到 ORC type id 后构造 SARG。这就是 SARG 支持嵌套 struct 子字段的关键。
 bool is_struct_element_expr(const VExprSPtr& expr) {
     return expr != nullptr && expr->children().size() == 2 &&
            expr->fn().name.function_name == "struct_element";
 }
 
-// 在 ORC struct type 里按字段名查找子字段索引
-//   struct<id, addr, name>: struct_child_index(t, 'addr') = 1
-// 也支持 INT 字段索引：struct_element(s, 1) → 直接拿 index 1
+// struct_element can address a child by field name or 1-based ordinal.
 std::optional<uint64_t> struct_child_index(const ::orc::Type& struct_type,
                                            const VExprSPtr& selector_expr) {
     if (struct_type.getKind() != ::orc::TypeKind::STRUCT) {
@@ -473,22 +441,6 @@ bool is_safe_integer_to_floating_cast(const OrcSargColumn& column, const VExprSP
     return target_width.has_value() && *source_width <= *target_width;
 }
 
-// 安全 cast 白名单总入口
-//
-// 原则：只把"绝对不会让 SARG 错裁"的 cast 形态放进 SARG。
-// 不安全的 cast 跳过 SARG（保守），row-level filter 兜底。
-//
-// 5 种安全 cast：
-//   widening_cast              整数 widening (INT → BIGINT)、float widening (FLOAT → DOUBLE)
-//                              和 DECIMAL 精确 widening
-//   date_schema_evolution_cast DATE → DATE/DATEV2/DATETIME/DATETIMEV2 安全子集
-//   string_schema_evolution_cast STRING/VARCHAR → STRING（注意 CHAR 不安全）
-//   decimal_schema_evolution_cast DECIMAL widening (scale 不降低、整数位不减少)
-//   integer_to_floating_cast   BYTE/SHORT → FLOAT、BYTE/SHORT/INT → DOUBLE 的精确表示
-//
-// 不安全的反例：
-//   narrowing cast (BIGINT → INT)：可能溢出，stripe 统计的 BIGINT 范围跟 cast 后 INT 不一致
-//   非整数 INT → FLOAT 等精度丢失场景：cast 后值跟 stripe 统计对不齐
 bool is_safe_cast_for_sarg(const OrcSargColumn& column, const VExprSPtr& cast_expr) {
     return is_safe_widening_cast(column, cast_expr) ||
            is_safe_date_schema_evolution_cast(column, cast_expr) ||
@@ -497,31 +449,17 @@ bool is_safe_cast_for_sarg(const OrcSargColumn& column, const VExprSPtr& cast_ex
            is_safe_integer_to_floating_cast(column, cast_expr);
 }
 
-// 解析 SARG 的左操作数：直接 slot 或 安全 cast 包裹的 slot
-//
-// SQL 例子：
-//   id > 100              expr = slot_ref(id)             直接是 slot
-//   cast(id AS BIGINT)>100 expr = cast(slot_ref(id), BIGINT)  cast 包裹 slot
-//
-// 处理顺序：
-//   1. 先试 sarg_column_for_source_expr：识别 slot / struct_element 链
-//   2. 如果是 cast 节点，递归剥 cast，验证是 safe cast，再返回剥到的 slot 信息
-//   3. 不安全 / 不是 slot / 不是 cast → nullopt → 整体跳过 SARG
-//
-// 注意：返回的 OrcSargColumn 是**底层 file 列**的信息，不是 cast 目标类型。
-//      SARG 评估用的是文件 stripe 统计，而 stripe 统计是 file 列原始类型的。
 std::optional<OrcSargColumn> sarg_column_for_slot_or_safe_cast(
         const format::FileScanRequest& request, const ::orc::Type& root_type,
         const VExprSPtr& expr) {
     auto column = sarg_column_for_source_expr(request, root_type, expr);
     if (column.has_value()) {
-        return column; // 直接 slot / struct_element 链
+        return column;
     }
     if (expr == nullptr || expr->node_type() != TExprNodeType::CAST_EXPR ||
         expr->children().size() != 1) {
         return std::nullopt;
     }
-    // 是 cast 节点，剥皮验证
     column = sarg_column_for_source_expr(request, root_type, expr->children()[0]);
     if (!column.has_value() || !is_safe_cast_for_sarg(*column, expr)) {
         return std::nullopt;
@@ -903,14 +841,6 @@ std::optional<int64_t> double_to_integral_int64(double value) {
     return double_to_int64_boundary(value, std::trunc);
 }
 
-// cast 反解的中间结果
-//
-// 跟 OrcSargComparison 区别：用在 cast 反解的子函数里。
-// 反解是把 cast(slot AS X) op literal 等价改写成 slot op' literal'，
-// 可能会改变 op（比如 cast(int as DOUBLE) > 500.5 反解成 int >= 501），
-// 所以多了 normalized_op 字段，由外层根据反解结果重新选 SARG API。
-//
-// 不带 column：因为外层已经知道左操作数指向哪个列了，反解只关心右操作数和新 op。
 struct OrcSargComparisonLiteral {
     ::orc::Literal literal;
     TExprOpcode::type normalized_op = TExprOpcode::INVALID_OPCODE;

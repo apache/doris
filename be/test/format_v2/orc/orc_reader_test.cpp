@@ -4372,7 +4372,6 @@ TEST_F(NewOrcReaderTest, RowPositionDeletePredicateWithoutPhysicalColumnsSkipsOr
             assert_cast<const ColumnString&>(global_rowids_nullable.get_nested_column());
     ASSERT_EQ(global_rowids.size(), 3);
     EXPECT_EQ(reader->reader_statistics().lazy_read_filtered_rows, 0);
-    EXPECT_EQ(reader->reader_statistics().orc_lazy_read_filtered_rows, 0);
 }
 
 TEST_F(NewOrcReaderTest, OrcLazyDecodesSelectedRowPositionRows) {
@@ -4414,7 +4413,6 @@ TEST_F(NewOrcReaderTest, OrcLazyDecodesSelectedRowPositionRows) {
     EXPECT_EQ(row_positions.get_element(1), 3);
     EXPECT_EQ(row_positions.get_element(2), 4);
     EXPECT_EQ(reader->reader_statistics().lazy_read_filtered_rows, 2);
-    EXPECT_EQ(reader->reader_statistics().orc_lazy_read_filtered_rows, 2);
 }
 
 TEST_F(NewOrcReaderTest, ConjunctFiltersRows) {
@@ -4485,7 +4483,6 @@ TEST_F(NewOrcReaderTest, OrcLazyDecodesOnlySelectedNonPredicateRows) {
     EXPECT_EQ(values.get_data_at(0).to_string(), "three");
     EXPECT_EQ(values.get_data_at(2).to_string(), "five");
     EXPECT_EQ(reader->reader_statistics().lazy_read_filtered_rows, 2);
-    EXPECT_EQ(reader->reader_statistics().orc_lazy_read_filtered_rows, 2);
 }
 
 TEST_F(NewOrcReaderTest, ClosePublishesOrcLazyStatisticsToRuntimeProfile) {
@@ -4542,7 +4539,6 @@ TEST_F(NewOrcReaderTest, OrcLazySkipsNonPredicateColumnsWhenFilterEliminatesBatc
     EXPECT_EQ(block.get_by_position(0).column->size(), 0);
     EXPECT_EQ(block.get_by_position(1).column->size(), 0);
     EXPECT_EQ(reader->reader_statistics().lazy_read_filtered_rows, ROW_COUNT);
-    EXPECT_EQ(reader->reader_statistics().orc_lazy_read_filtered_rows, ROW_COUNT);
 }
 
 TEST_F(NewOrcReaderTest, ConjunctFilterDoesNotDecodeDuplicateColumnsTwice) {
@@ -4639,7 +4635,6 @@ TEST_F(NewOrcReaderTest, OrcLazyDecodesSelectedComplexNonPredicateRows) {
     EXPECT_EQ(map_keys.get_data_at(0).to_string(), "c");
     EXPECT_EQ(map_values.get_element(0), 300);
     EXPECT_EQ(reader->reader_statistics().lazy_read_filtered_rows, 1);
-    EXPECT_EQ(reader->reader_statistics().orc_lazy_read_filtered_rows, 1);
 }
 
 TEST_F(NewOrcReaderTest, OrcLazySupportsNestedPredicateProjection) {
@@ -4693,7 +4688,6 @@ TEST_F(NewOrcReaderTest, OrcLazySupportsNestedPredicateProjection) {
     EXPECT_EQ(map_column.get_offsets()[0], 0);
     EXPECT_EQ(map_column.get_offsets()[1], 1);
     EXPECT_EQ(reader->reader_statistics().lazy_read_filtered_rows, 1);
-    EXPECT_EQ(reader->reader_statistics().orc_lazy_read_filtered_rows, 1);
 }
 
 TEST_F(NewOrcReaderTest, OrcLazyDecodesSelectedDeepNestedComplexRows) {
@@ -4733,7 +4727,6 @@ TEST_F(NewOrcReaderTest, OrcLazyDecodesSelectedDeepNestedComplexRows) {
                               {1, 3, 3, 4}, {30, 31, 32, 40},
                               {"thirty", "thirty_one", "thirty_two", "forty"});
     EXPECT_EQ(reader->reader_statistics().lazy_read_filtered_rows, 2);
-    EXPECT_EQ(reader->reader_statistics().orc_lazy_read_filtered_rows, 2);
 }
 
 TEST_F(NewOrcReaderTest, DeleteConjunctFiltersRows) {
@@ -4770,7 +4763,6 @@ TEST_F(NewOrcReaderTest, DeleteConjunctFiltersRows) {
     EXPECT_EQ(values.get_data_at(0).to_string(), "one");
     EXPECT_EQ(values.get_data_at(2).to_string(), "four");
     EXPECT_EQ(reader->reader_statistics().lazy_read_filtered_rows, 1);
-    EXPECT_EQ(reader->reader_statistics().orc_lazy_read_filtered_rows, 1);
 }
 
 TEST_F(NewOrcReaderTest, DeleteConjunctFallsBackWhenItReferencesNonDecodedColumn) {
@@ -4859,7 +4851,6 @@ TEST_F(NewOrcReaderTest, DeletePredicateFiltersRowPositions) {
     EXPECT_EQ(row_positions.get_element(1), 2);
     EXPECT_EQ(row_positions.get_element(2), 4);
     EXPECT_EQ(reader->reader_statistics().lazy_read_filtered_rows, 2);
-    EXPECT_EQ(reader->reader_statistics().orc_lazy_read_filtered_rows, 2);
 }
 
 TEST_F(NewOrcReaderTest, SargConjunctPrunesStripesByStatistics) {
