@@ -1400,7 +1400,7 @@ Status OrcReader::get_schema(std::vector<format::ColumnDefinition>* const file_s
 
 std::unique_ptr<format::TableColumnMapper> OrcReader::create_column_mapper(
         format::TableColumnMapperOptions options) const {
-    return std::make_unique<format::OrcColumnMapper>(std::move(options));
+    return std::make_unique<format::TableColumnMapper>(std::move(options));
 }
 
 Status OrcReader::open(std::shared_ptr<format::FileScanRequest> request) {
