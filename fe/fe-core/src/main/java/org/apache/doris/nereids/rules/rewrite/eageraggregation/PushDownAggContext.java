@@ -44,10 +44,15 @@ public class PushDownAggContext {
     // count(if(...)): if(...) push down as a whole
     // sum/min/max(if(truePart, elsePart)): if(...) can be split to sum(truePart) and sum(elsePart)
     public final boolean hasDecomposedAggIf;
-    // When aggFunc(if(...)) is present, pushing down the null-supplemented side of the outer join is avoided.
-    // This is because null values are highly error-prone,
-    // so the push-down operation is not performed during hashCaseWhen.
-    public final boolean hasCaseWhen;
+    // When aggFunc contains expressions that can convert NULL to non-NULL
+    // (e.g. COALESCE, NVL, IF, CASE WHEN), pushing down to the nullable side of
+    // an outer join is blocked — null-extended rows would be wrongly counted.
+    //
+    // TODO: This is conservative — a per-function check (rather than a global flag)
+    // would allow pushing non-NullToNonNull aggregate functions (e.g. sum(a)) to
+    // the nullable side even when another agg function contains a NullToNonNull
+    // expression. Currently, one problematic agg function blocks all push-down.
+    public final boolean containsNullToNonNull;
     private final List<AggregateFunction> aggFunctions;
     private final List<SlotReference> groupKeys;
     private final HashMap<AggregateFunction, Alias> aliasMap;
@@ -66,10 +71,10 @@ public class PushDownAggContext {
 
     public PushDownAggContext(List<AggregateFunction> aggFunctions,
             List<SlotReference> groupKeys, Map<AggregateFunction, Alias> aliasMap, CascadesContext cascadesContext,
-            boolean passThroughBigJoin, boolean hasDecomposedAggIf, boolean hasCaseWhen,
+            boolean passThroughBigJoin, boolean hasDecomposedAggIf, boolean containsNullToNonNull,
             BilateralState bilateralState) {
-        this(aggFunctions, groupKeys, aliasMap, cascadesContext, passThroughBigJoin, hasDecomposedAggIf, hasCaseWhen,
-                bilateralState, false);
+        this(aggFunctions, groupKeys, aliasMap, cascadesContext, passThroughBigJoin,
+                hasDecomposedAggIf, containsNullToNonNull, bilateralState, false);
     }
 
     /**
@@ -77,7 +82,7 @@ public class PushDownAggContext {
      */
     public PushDownAggContext(List<AggregateFunction> aggFunctions,
             List<SlotReference> groupKeys, Map<AggregateFunction, Alias> aliasMap, CascadesContext cascadesContext,
-            boolean passThroughBigJoin, boolean hasDecomposedAggIf, boolean hasCaseWhen,
+            boolean passThroughBigJoin, boolean hasDecomposedAggIf, boolean containsNullToNonNull,
             BilateralState bilateralState, boolean needOutputCount) {
         this.groupKeys = groupKeys.stream().distinct().collect(Collectors.toList());
         this.aggFunctions = ImmutableList.copyOf(aggFunctions);
@@ -105,7 +110,7 @@ public class PushDownAggContext {
                 .collect(ImmutableSet.toImmutableSet());
         this.passThroughBigJoin = passThroughBigJoin;
         this.hasDecomposedAggIf = hasDecomposedAggIf;
-        this.hasCaseWhen = hasCaseWhen;
+        this.containsNullToNonNull = containsNullToNonNull;
         this.needOutputCount = needOutputCount;
         this.bilateralState = Objects.requireNonNull(bilateralState, "bilateralState cannot be null");
         for (Map.Entry<AggregateFunction, Alias> entry : this.aliasMap.entrySet()) {
@@ -143,7 +148,7 @@ public class PushDownAggContext {
 
     public PushDownAggContext withGroupKeys(List<SlotReference> groupKeys) {
         return new PushDownAggContext(aggFunctions, groupKeys, aliasMap,
-                cascadesContext, passThroughBigJoin, hasDecomposedAggIf, hasCaseWhen,
+                cascadesContext, passThroughBigJoin, hasDecomposedAggIf, containsNullToNonNull,
                 bilateralState, needOutputCount);
     }
 
@@ -154,7 +159,7 @@ public class PushDownAggContext {
             Map<AggregateFunction, Alias> branchAliasMap, List<SlotReference> groupKeys,
             boolean passThroughBigJoin, boolean needOutputCount) {
         return new PushDownAggContext(branchAggFunctions, groupKeys, branchAliasMap,
-                cascadesContext, passThroughBigJoin, hasDecomposedAggIf, hasCaseWhen,
+                cascadesContext, passThroughBigJoin, hasDecomposedAggIf, containsNullToNonNull,
                 bilateralState, needOutputCount);
     }
 

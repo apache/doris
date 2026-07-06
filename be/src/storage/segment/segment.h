@@ -25,6 +25,7 @@
 #include <cstdint>
 #include <map>
 #include <memory> // for unique_ptr
+#include <optional>
 #include <string>
 #include <unordered_map>
 
@@ -214,11 +215,13 @@ public:
 
     // get the column reader by tablet column, return NOT_FOUND if not found reader in this segment
     Status get_column_reader(const TabletColumn& col, std::shared_ptr<ColumnReader>* column_reader,
-                             OlapReaderStatistics* stats);
+                             OlapReaderStatistics* stats,
+                             std::optional<Field> const_value = std::nullopt);
 
     // get the column reader by column unique id, return NOT_FOUND if not found reader in this segment
     Status get_column_reader(int32_t col_uid, std::shared_ptr<ColumnReader>* column_reader,
-                             OlapReaderStatistics* stats);
+                             OlapReaderStatistics* stats,
+                             std::optional<Field> const_value = std::nullopt);
 
     Status traverse_column_meta_pbs(const std::function<void(const ColumnMetaPB&)>& visitor);
 

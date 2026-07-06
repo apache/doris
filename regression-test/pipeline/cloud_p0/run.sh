@@ -49,6 +49,8 @@ need_collect_log=false
 
 # monitoring the log files in "${DORIS_HOME}"/regression-test/log/ for keyword 'Reach limit of connections'
 _monitor_regression_log &
+start_system_resource_monitor
+trap 'stop_system_resource_monitor' EXIT
 
 # shellcheck disable=SC2329
 run() {
@@ -114,6 +116,7 @@ timeout_minutes=$((${repeat_times_from_trigger:-1} * ${BUILD_TIMEOUT_MINUTES:-18
 timeout "${timeout_minutes}" bash -cx run
 exit_flag="$?"
 if print_running_pipeline_tasks; then :; fi
+stop_system_resource_monitor
 # shellcheck source=/dev/null
 source "$(cd "${teamcity_build_checkoutDir}" && bash "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/get-or-set-tmp-env.sh 'get')"
 if get_jstack_and_jmap_of_fe; then echo "INFO: get_jstack_and_jmap_of_fe done."; fi

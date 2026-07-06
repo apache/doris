@@ -37,6 +37,8 @@ void ParquetProfile::init(RuntimeProfile* profile) {
             profile, "RowGroupsFilteredByDictionary", TUnit::UNIT, parquet_profile, 1);
     filtered_row_groups_by_bloom_filter = ADD_CHILD_COUNTER_WITH_LEVEL(
             profile, "RowGroupsFilteredByBloomFilter", TUnit::UNIT, parquet_profile, 1);
+    filtered_row_groups_by_page_index = ADD_CHILD_COUNTER_WITH_LEVEL(
+            profile, "RowGroupsFilteredByPageIndex", TUnit::UNIT, parquet_profile, 1);
     to_read_row_groups = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "RowGroupsReadNum", TUnit::UNIT,
                                                       parquet_profile, 1);
     total_row_groups = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "RowGroupsTotalNum", TUnit::UNIT,
@@ -91,6 +93,12 @@ void ParquetProfile::init(RuntimeProfile* profile) {
             ADD_CHILD_TIMER_WITH_LEVEL(profile, "PageIndexReadTime", parquet_profile, 1);
     parse_page_index_time =
             ADD_CHILD_TIMER_WITH_LEVEL(profile, "PageIndexParseTime", parquet_profile, 1);
+    expr_zonemap_unusable = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "ExprZoneMapUnusableEvals",
+                                                         TUnit::UNIT, parquet_profile, 1);
+    in_zonemap_point_check = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "InZoneMapPointCheckCount",
+                                                          TUnit::UNIT, parquet_profile, 1);
+    in_zonemap_range_only = ADD_CHILD_COUNTER_WITH_LEVEL(profile, "InZoneMapRangeOnlyCount",
+                                                         TUnit::UNIT, parquet_profile, 1);
     row_group_filter_time =
             ADD_CHILD_TIMER_WITH_LEVEL(profile, "RowGroupFilterTime", parquet_profile, 1);
     file_footer_read_calls = ADD_COUNTER_WITH_LEVEL(profile, "FileFooterReadCalls", TUnit::UNIT, 1);
@@ -144,6 +152,8 @@ void ParquetProfile::update_pruning_stats(const ParquetPruningStats& pruning_sta
                    pruning_stats.filtered_row_groups_by_dictionary);
     COUNTER_UPDATE(filtered_row_groups_by_bloom_filter,
                    pruning_stats.filtered_row_groups_by_bloom_filter);
+    COUNTER_UPDATE(filtered_row_groups_by_page_index,
+                   pruning_stats.filtered_row_groups_by_page_index);
     COUNTER_UPDATE(to_read_row_groups, pruning_stats.selected_row_groups);
     COUNTER_UPDATE(total_row_groups, pruning_stats.total_row_groups);
     COUNTER_UPDATE(selected_row_ranges, pruning_stats.selected_row_ranges);
@@ -154,6 +164,9 @@ void ParquetProfile::update_pruning_stats(const ParquetPruningStats& pruning_sta
     COUNTER_UPDATE(row_group_filter_time, pruning_stats.row_group_filter_time);
     COUNTER_UPDATE(page_index_filter_time, pruning_stats.page_index_filter_time);
     COUNTER_UPDATE(read_page_index_time, pruning_stats.read_page_index_time);
+    COUNTER_UPDATE(expr_zonemap_unusable, pruning_stats.expr_zonemap_unusable_evals);
+    COUNTER_UPDATE(in_zonemap_point_check, pruning_stats.in_zonemap_point_check_count);
+    COUNTER_UPDATE(in_zonemap_range_only, pruning_stats.in_zonemap_range_only_count);
 }
 
 ParquetPageSkipProfile ParquetProfile::page_skip_profile() const {

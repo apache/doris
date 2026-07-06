@@ -20,6 +20,7 @@ package org.apache.doris.nereids.glue.translator;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.GroupingInfo;
 import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.analysis.SortInfo;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.Column;
@@ -48,6 +49,7 @@ import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanConstructor;
 import org.apache.doris.planner.AggregationNode;
 import org.apache.doris.planner.OlapScanNode;
+import org.apache.doris.planner.PartitionSortNode;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanNode;
 import org.apache.doris.planner.PlanNodeId;
@@ -264,6 +266,37 @@ public class PhysicalPlanTranslatorTest extends TestWithFeService {
                 }
             }
         });
+    }
+
+    @Test
+    public void testPartitionTopNPrunesPartitionKeyFromSortInfo() throws Exception {
+        connectContext.getSessionVariable().setEnablePartitionTopN(true);
+        String sql = "select * from (select a, b, rank() over(partition by a order by a, b) as rk "
+                + "from test_db.t) t where rk <= 1";
+        Planner planner = getSQLPlanner(sql);
+        Assertions.assertNotNull(planner);
+
+        List<PartitionSortNode> partitionSortNodes = new ArrayList<>();
+        for (PlanFragment fragment : planner.getFragments()) {
+            PlanNode root = fragment.getPlanRoot();
+            if (root != null) {
+                root.collect(PartitionSortNode.class, partitionSortNodes);
+            }
+        }
+        Assertions.assertFalse(partitionSortNodes.isEmpty());
+
+        Field sortInfoField = PartitionSortNode.class.getDeclaredField("info");
+        sortInfoField.setAccessible(true);
+        SortInfo sortInfo = (SortInfo) sortInfoField.get(partitionSortNodes.get(0));
+        List<Expr> orderingExprs = sortInfo.getOrderingExprs();
+        Assertions.assertEquals(1, orderingExprs.size());
+        // The redundant partition key `a` must be pruned, leaving exactly the slot `b`. Assert the slot
+        // identity directly: a substring check on the WITH_TABLE-rendered SQL would false-pass because the
+        // table prefix `test_db` already contains the letter "b".
+        Expr orderingExpr = orderingExprs.get(0);
+        Assertions.assertInstanceOf(SlotRef.class, orderingExpr);
+        Assertions.assertEquals("b", ((SlotRef) orderingExpr).getColumnName());
+        Assertions.assertNotEquals("a", ((SlotRef) orderingExpr).getColumnName());
     }
 
     private OlapScanNode getFirstOlapScanNode(String sql) throws Exception {

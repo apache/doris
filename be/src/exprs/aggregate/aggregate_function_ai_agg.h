@@ -22,6 +22,7 @@
 #include <memory>
 
 #include "common/status.h"
+#include "core/column/column_string.h"
 #include "core/string_ref.h"
 #include "core/types.h"
 #include "exprs/aggregate/aggregate_function.h"
@@ -308,6 +309,12 @@ public:
         }
     }
 
+    void check_input_columns_type(const IColumn** columns) const override {
+        this->template check_argument_column_type<ColumnString>(columns[0]);
+        this->template check_argument_column_type<ColumnString>(columns[1]);
+        this->template check_argument_column_type<ColumnString>(columns[2]);
+    }
+
     void reset(AggregateDataPtr place) const override {
         data(place).reset();
         data(place).set_query_context(_ctx);
@@ -331,7 +338,13 @@ public:
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
         std::string result = data(place)._execute_task();
         DCHECK(!result.empty()) << "AI returns an empty result";
-        assert_cast<ColumnString&>(to).insert_data(result.data(), result.size());
+        assert_cast<ColumnString&, TypeCheckOnRelease::DISABLE>(to).insert_data(result.data(),
+                                                                                result.size());
+    }
+
+    void check_result_column_type(const IColumn& to) const override {
+        IAggregateFunction::check_result_column_type(to);
+        this->template check_result_column_type_as<ColumnString>(to);
     }
 
 private:

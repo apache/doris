@@ -67,7 +67,6 @@
 
 namespace doris {
 class Block;
-class ColumnPredicate;
 struct DeleteFileDesc;
 class RuntimeState;
 } // namespace doris
@@ -113,8 +112,6 @@ struct TableReadOptions {
     // Columns need to be read from file and output by table reader. They are all in table/global
     // schema semantics.
     const std::vector<ColumnDefinition> projected_columns;
-    // Simple predicates for a single column, which is parsed on scan operator.
-    const TableColumnPredicates column_predicates;
     // All complex conjuncts from scan operator
     const VExprContextSPtrs conjuncts;
     // File format of the underlying data files, needed for reader initialization and reader-level
@@ -305,12 +302,10 @@ protected:
 
         // 3. Create file scan request based on column mapping and table filters, then open file
         // reader with the request. File scan request carries row-level expression filters and
-        // file-level pruning hints. Only expression filters decide returned rows; column predicates
-        // are pruning hints.
+        // file-level pruning hints. Only expression filters decide returned rows.
         auto file_request = std::make_shared<FileScanRequest>();
         RETURN_IF_ERROR(_data_reader.column_mapper->create_scan_request(
-                _table_filters, _table_column_predicates, _projected_columns, file_request.get(),
-                _runtime_state));
+                _table_filters, _projected_columns, file_request.get(), _runtime_state));
         bool constant_filter_pruned_split = false;
         RETURN_IF_ERROR(_evaluate_constant_filters(&constant_filter_pruned_split));
         if (constant_filter_pruned_split) {
@@ -846,13 +841,13 @@ protected:
         if (agg_type != TPushAggOp::type::COUNT && agg_type != TPushAggOp::type::MINMAX) {
             return false;
         }
-        // Only support aggregate pushdown when there is no delete, filter and column predicate, so
+        // Only support aggregate pushdown when there is no delete or filter, so
         // the reduced rows consumed by the upper aggregate remain semantically equivalent to a
         // normal scan.
         if (_delete_rows != nullptr && !_delete_rows->empty()) {
             return false;
         }
-        if (!_table_filters.empty() || !_table_column_predicates.empty()) {
+        if (!_table_filters.empty()) {
             return false;
         }
         if (agg_type == TPushAggOp::type::COUNT) {
@@ -1457,7 +1452,6 @@ protected:
     std::map<std::string, Field> _partition_values;
     // Predicates built from scan conjuncts before file-level localization.
     std::vector<TableFilter> _table_filters;
-    TableColumnPredicates _table_column_predicates;
     VExprContextSPtrs _conjuncts;
     ReadProfile _profile;
     // Parsed from row-position based delete files, including position delete and deletion vector.

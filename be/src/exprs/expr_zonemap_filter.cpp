@@ -32,6 +32,7 @@
 #include "exprs/vliteral.h"
 #include "exprs/vslot_ref.h"
 #include "runtime/runtime_state.h"
+#include "storage/index/bloom_filter/bloom_filter.h"
 
 namespace doris::expr_zonemap {
 namespace {
@@ -52,7 +53,85 @@ bool value_in_range(const Field& value, const Field& min_value, const Field& max
     return value >= min_value && value <= max_value;
 }
 
+bool dictionary_contains(const DictionaryEvalContext::SlotDictionary& dictionary,
+                         const Field& value) {
+    return std::ranges::any_of(dictionary.values, [&](const Field& dictionary_value) {
+        return dictionary_value == value;
+    });
+}
+
+bool bloom_filter_may_contain(const BloomFilterEvalContext::SlotBloomFilter& slot_filter,
+                              const Field& value) {
+    DORIS_CHECK(slot_filter.data_type != nullptr);
+    DORIS_CHECK(slot_filter.bloom_filter != nullptr);
+    const auto data_type = remove_nullable(slot_filter.data_type);
+    DORIS_CHECK(data_type != nullptr);
+    switch (data_type->get_primitive_type()) {
+    case TYPE_BOOLEAN: {
+        const bool typed_value = value.get<TYPE_BOOLEAN>();
+        return slot_filter.bloom_filter->test_bytes(reinterpret_cast<const char*>(&typed_value),
+                                                    sizeof(typed_value));
+    }
+    case TYPE_INT: {
+        const int32_t typed_value = value.get<TYPE_INT>();
+        return slot_filter.bloom_filter->test_bytes(reinterpret_cast<const char*>(&typed_value),
+                                                    sizeof(typed_value));
+    }
+    case TYPE_BIGINT: {
+        const int64_t typed_value = value.get<TYPE_BIGINT>();
+        return slot_filter.bloom_filter->test_bytes(reinterpret_cast<const char*>(&typed_value),
+                                                    sizeof(typed_value));
+    }
+    case TYPE_FLOAT: {
+        const float typed_value = value.get<TYPE_FLOAT>();
+        return slot_filter.bloom_filter->test_bytes(reinterpret_cast<const char*>(&typed_value),
+                                                    sizeof(typed_value));
+    }
+    case TYPE_DOUBLE: {
+        const double typed_value = value.get<TYPE_DOUBLE>();
+        return slot_filter.bloom_filter->test_bytes(reinterpret_cast<const char*>(&typed_value),
+                                                    sizeof(typed_value));
+    }
+    case TYPE_CHAR:
+    case TYPE_VARCHAR:
+    case TYPE_STRING: {
+        const auto& typed_value = value.get<TYPE_STRING>();
+        return slot_filter.bloom_filter->test_bytes(typed_value.data(), typed_value.size());
+    }
+    default:
+        return true;
+    }
+}
+
+template <typename Capability>
+int single_slot_index(const VExprContextSPtr& ctx, Capability capability) {
+    DORIS_CHECK(ctx != nullptr);
+    const auto& root = ctx->root();
+    DORIS_CHECK(root != nullptr);
+    if (!capability(root)) {
+        return -1;
+    }
+
+    std::set<int> slot_indexes;
+    root->collect_slot_column_ids(slot_indexes);
+    if (slot_indexes.size() != 1) {
+        return -1;
+    }
+
+    return *slot_indexes.begin();
+}
+
 } // namespace
+
+const DictionaryEvalContext::SlotDictionary* DictionaryEvalContext::slot(int slot_index) const {
+    auto it = slots.find(slot_index);
+    return it == slots.end() ? nullptr : &it->second;
+}
+
+const BloomFilterEvalContext::SlotBloomFilter* BloomFilterEvalContext::slot(int slot_index) const {
+    auto it = slots.find(slot_index);
+    return it == slots.end() ? nullptr : &it->second;
+}
 
 TExprNode create_texpr_node_from_hybrid_set_value(const void* data, const PrimitiveType& type,
                                                   int precision, int scale) {
@@ -236,24 +315,100 @@ ZoneMapFilterResult eval_in_zonemap(const ZoneMapEvalContext& ctx, const VExprSP
     return ZoneMapFilterResult::kNoMatch;
 }
 
+ZoneMapFilterResult eval_eq_dictionary(const DictionaryEvalContext& ctx,
+                                       const SlotLiteral& slot_literal) {
+    auto dictionary = ctx.slot(slot_literal.slot_index);
+    if (dictionary == nullptr || dictionary->data_type == nullptr) {
+        return ZoneMapFilterResult::kUnsupported;
+    }
+    DORIS_CHECK(data_types_compatible(dictionary->data_type, slot_literal.slot_type));
+    if (slot_literal.literal.is_null()) {
+        return ZoneMapFilterResult::kUnsupported;
+    }
+    return dictionary_contains(*dictionary, slot_literal.literal) ? ZoneMapFilterResult::kMayMatch
+                                                                  : ZoneMapFilterResult::kNoMatch;
+}
+
+ZoneMapFilterResult eval_in_dictionary(const DictionaryEvalContext& ctx, const VExprSPtr& slot_expr,
+                                       bool is_not_in, const std::vector<Field>& values) {
+    if (is_not_in) {
+        return ZoneMapFilterResult::kUnsupported;
+    }
+    auto slot = std::dynamic_pointer_cast<VSlotRef>(slot_expr);
+    DORIS_CHECK(slot != nullptr);
+    auto dictionary = ctx.slot(slot->column_id());
+    if (dictionary == nullptr || dictionary->data_type == nullptr) {
+        return ZoneMapFilterResult::kUnsupported;
+    }
+    DORIS_CHECK(data_types_compatible(dictionary->data_type, slot->data_type()));
+    if (values.empty()) {
+        return ZoneMapFilterResult::kNoMatch;
+    }
+    for (const auto& value : values) {
+        if (!value.is_null() && dictionary_contains(*dictionary, value)) {
+            return ZoneMapFilterResult::kMayMatch;
+        }
+    }
+    return ZoneMapFilterResult::kNoMatch;
+}
+
+ZoneMapFilterResult eval_eq_bloom_filter(const BloomFilterEvalContext& ctx,
+                                         const SlotLiteral& slot_literal) {
+    auto slot_filter = ctx.slot(slot_literal.slot_index);
+    if (slot_filter == nullptr || slot_filter->data_type == nullptr ||
+        slot_filter->bloom_filter == nullptr) {
+        return ZoneMapFilterResult::kUnsupported;
+    }
+    DORIS_CHECK(data_types_compatible(slot_filter->data_type, slot_literal.slot_type));
+    if (slot_literal.literal.is_null()) {
+        return ZoneMapFilterResult::kUnsupported;
+    }
+    return bloom_filter_may_contain(*slot_filter, slot_literal.literal)
+                   ? ZoneMapFilterResult::kMayMatch
+                   : ZoneMapFilterResult::kNoMatch;
+}
+
+ZoneMapFilterResult eval_in_bloom_filter(const BloomFilterEvalContext& ctx,
+                                         const VExprSPtr& slot_expr, bool is_not_in,
+                                         const std::vector<Field>& values) {
+    if (is_not_in) {
+        return ZoneMapFilterResult::kUnsupported;
+    }
+    auto slot = std::dynamic_pointer_cast<VSlotRef>(slot_expr);
+    DORIS_CHECK(slot != nullptr);
+    auto slot_filter = ctx.slot(slot->column_id());
+    if (slot_filter == nullptr || slot_filter->data_type == nullptr ||
+        slot_filter->bloom_filter == nullptr) {
+        return ZoneMapFilterResult::kUnsupported;
+    }
+    DORIS_CHECK(data_types_compatible(slot_filter->data_type, slot->data_type()));
+    if (values.empty()) {
+        return ZoneMapFilterResult::kNoMatch;
+    }
+    for (const auto& value : values) {
+        if (!value.is_null() && bloom_filter_may_contain(*slot_filter, value)) {
+            return ZoneMapFilterResult::kMayMatch;
+        }
+    }
+    return ZoneMapFilterResult::kNoMatch;
+}
+
 // Return the only slot ordinal referenced by a zonemap-evaluable expression. A negative result is
 // the conservative fallback marker for unsupported expressions, multi-slot expressions, or invalid
 // slot ordinals, so callers can skip schema-indexed zonemap pruning safely.
 int single_slot_zonemap_index(const VExprContextSPtr& ctx) {
-    DORIS_CHECK(ctx != nullptr);
-    const auto& root = ctx->root();
-    DORIS_CHECK(root != nullptr);
-    if (!root->can_evaluate_zonemap_filter()) {
-        return -1;
-    }
+    return single_slot_index(
+            ctx, [](const VExprSPtr& expr) { return expr->can_evaluate_zonemap_filter(); });
+}
 
-    std::set<int> slot_indexes;
-    root->collect_slot_column_ids(slot_indexes);
-    if (slot_indexes.size() != 1) {
-        return -1;
-    }
+int single_slot_dictionary_index(const VExprContextSPtr& ctx) {
+    return single_slot_index(
+            ctx, [](const VExprSPtr& expr) { return expr->can_evaluate_dictionary_filter(); });
+}
 
-    return *slot_indexes.begin();
+int single_slot_bloom_filter_index(const VExprContextSPtr& ctx) {
+    return single_slot_index(
+            ctx, [](const VExprSPtr& expr) { return expr->can_evaluate_bloom_filter(); });
 }
 
 bool is_expr_zonemap_filter_enabled(const RuntimeState* state) {

@@ -360,13 +360,10 @@ Status FileScannerV2::_init_table_reader(const TFileRangeDesc& range) {
     RETURN_IF_ERROR(_to_file_format(format_type, &file_format));
     DORIS_CHECK(_table_reader != nullptr);
 
-    format::TableColumnPredicates table_column_predicates;
-    RETURN_IF_ERROR(_build_table_column_predicates(&table_column_predicates));
     VExprContextSPtrs table_conjuncts;
     RETURN_IF_ERROR(_build_table_conjuncts(&table_conjuncts));
     RETURN_IF_ERROR(_table_reader->init({
             .projected_columns = _projected_columns,
-            .column_predicates = std::move(table_column_predicates),
             .conjuncts = std::move(table_conjuncts),
             .format = file_format,
             .scan_params = const_cast<TFileScanRangeParams*>(_params),
@@ -587,25 +584,6 @@ format::ColumnDefinition FileScannerV2::_build_table_column(const SlotDescriptor
     column.name = slot_desc->col_name();
     column.type = slot_desc->get_data_type_ptr();
     return column;
-}
-
-Status FileScannerV2::_build_table_column_predicates(
-        format::TableColumnPredicates* predicates) const {
-    DORIS_CHECK(predicates != nullptr);
-    predicates->clear();
-    const auto& slot_predicates = _local_state->cast<FileScanLocalState>()._slot_id_to_predicates;
-    for (const auto& [slot_id, slot_predicate_list] : slot_predicates) {
-        const auto it = _slot_id_to_desc.find(slot_id);
-        if (it == _slot_id_to_desc.end()) {
-            continue;
-        }
-        const auto global_index_it = _slot_id_to_global_index.find(slot_id);
-        if (global_index_it == _slot_id_to_global_index.end()) {
-            continue;
-        }
-        (*predicates)[global_index_it->second] = slot_predicate_list;
-    }
-    return Status::OK();
 }
 
 Status FileScannerV2::_build_table_conjuncts(VExprContextSPtrs* conjuncts) const {
