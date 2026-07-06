@@ -28,6 +28,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstring>
+#include <limits>
 #include <list>
 #include <map>
 #include <memory>
@@ -112,6 +113,10 @@ uint64_t orc_read_row_count(const ::orc::ReaderMetrics& metrics) {
     return OrcReadRowCountMetric<::orc::ReaderMetrics>::value(metrics);
 }
 
+bool is_orc_stop(const io::IOContext* io_ctx, const std::exception& e) {
+    return io_ctx != nullptr && io_ctx->should_stop && std::string_view(e.what()) == "stop";
+}
+
 bool is_hour_offset_timezone(std::string_view timezone) {
     return timezone.size() == 6 && (timezone[0] == '+' || timezone[0] == '-') &&
            std::isdigit(static_cast<unsigned char>(timezone[1])) &&
@@ -161,6 +166,9 @@ public:
         uint64_t bytes_read = 0;
         auto* out = static_cast<uint8_t*>(buf);
         while (bytes_read < length) {
+            if (_io_ctx != nullptr && _io_ctx->should_stop) {
+                throw ::orc::ParseError("stop");
+            }
             size_t loop_read = 0;
             Status st = _file_reader->read_at(
                     static_cast<size_t>(offset + bytes_read),
@@ -1126,9 +1134,7 @@ void OrcReader::_collect_profile() const {
 }
 
 format::ColumnDefinition OrcReader::row_position_column_definition() {
-    auto field = format::row_position_column_definition();
-    field.type = make_nullable(field.type);
-    return field;
+    return format::row_position_column_definition();
 }
 
 Status OrcReader::init(RuntimeState* state) {
@@ -1150,6 +1156,9 @@ Status OrcReader::init(RuntimeState* state) {
         _state->reader = ::orc::createReader(std::move(input_stream), options);
         _state->root_type = &_state->reader->getType();
     } catch (const std::exception& e) {
+        if (is_orc_stop(_io_ctx.get(), e)) {
+            return Status::EndOfFile("stop");
+        }
         return Status::InternalError("Failed to open ORC file {}: {}", _file_description->path,
                                      e.what());
     }
@@ -1723,7 +1732,10 @@ Status OrcReader::_create_row_reader() {
         _state->orc_lazy_selection_valid = false;
         _state->orc_lazy_selected_rows.clear();
         _state->orc_lazy_input_rows = 0;
-        _state->orc_lazy_next_batch_first_row = 0;
+        const auto initial_row_number = _state->row_reader->getRowNumber();
+        _state->orc_lazy_next_batch_first_row =
+                initial_row_number == std::numeric_limits<uint64_t>::max() ? 0
+                                                                           : initial_row_number + 1;
         _state->column_to_selected_batch_index.clear();
         size_t physical_read_column_count = 0;
         for (const auto file_column_id : _state->read_columns) {
@@ -1767,18 +1779,28 @@ Status OrcReader::_filter_orc_batch(::orc::ColumnVectorBatch& data, uint16_t* se
         return Status::InternalError("New ORC lazy filter expects struct row batch");
     }
 
+    std::vector<std::optional<format::LocalColumnId>> position_to_column(
+            _request->local_positions.size());
+    for (const auto& [file_column_id, local_position] : _request->local_positions) {
+        const auto position = local_position.value();
+        if (position >= position_to_column.size()) {
+            return Status::InvalidArgument("ORC scan local position {} is out of range {}",
+                                           position, position_to_column.size());
+        }
+        if (position_to_column[position].has_value()) {
+            return Status::InvalidArgument("ORC scan local position {} is duplicated", position);
+        }
+        position_to_column[position] = file_column_id;
+    }
+
     Block filter_block;
-    filter_block.reserve(_request->local_positions.size());
-    for (size_t position = 0; position < _request->local_positions.size(); ++position) {
-        const auto local_position = format::LocalIndex(position);
-        const auto entry_it = std::ranges::find_if(
-                _request->local_positions,
-                [&](const auto& entry) { return entry.second == local_position; });
-        if (entry_it == _request->local_positions.end()) {
+    filter_block.reserve(position_to_column.size());
+    for (size_t position = 0; position < position_to_column.size(); ++position) {
+        if (!position_to_column[position].has_value()) {
             return Status::InvalidArgument("ORC scan local positions are not dense at {}",
                                            position);
         }
-        const auto file_column_id = entry_it->first;
+        const auto file_column_id = *position_to_column[position];
         if (is_row_position_column(file_column_id)) {
             auto field = row_position_column_definition();
             filter_block.insert({field.type->create_column(), field.type, field.name});
@@ -2053,6 +2075,11 @@ Status OrcReader::get_block(Block* file_block, size_t* rows, bool* eof) {
     }
     *rows = 0;
     file_block->clear_column_data(file_block->columns());
+    if (_io_ctx != nullptr && _io_ctx->should_stop) {
+        *eof = true;
+        _eof = true;
+        return Status::OK();
+    }
     if (_eof) {
         *eof = true;
         return Status::OK();
@@ -2067,9 +2094,15 @@ Status OrcReader::get_block(Block* file_block, size_t* rows, bool* eof) {
             _state->orc_lazy_selection_valid = false;
             _state->orc_lazy_selected_rows.clear();
             _state->orc_lazy_input_rows = 0;
-            _state->orc_lazy_next_batch_first_row = _state->row_reader->getRowNumber() + 1;
             has_next = _state->row_reader->next(*_state->batch);
         } catch (const std::exception& e) {
+            if (is_orc_stop(_io_ctx.get(), e)) {
+                file_block->clear_column_data(file_block->columns());
+                *rows = 0;
+                *eof = true;
+                _eof = true;
+                return Status::OK();
+            }
             return Status::InternalError("Failed to read ORC batch: {}", e.what());
         }
         if (has_next) {

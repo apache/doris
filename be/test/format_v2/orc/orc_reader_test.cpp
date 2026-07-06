@@ -3286,6 +3286,30 @@ void write_multi_stripe_orc_int_file(const std::string& file_path,
     out.write(memory_stream.getData(), static_cast<std::streamsize>(memory_stream.getLength()));
 }
 
+void write_large_orc_int_file(const std::string& file_path, int64_t row_count) {
+    auto type = std::unique_ptr<::orc::Type>(::orc::Type::buildTypeFromString("struct<id:int>"));
+
+    MemoryOutputStream memory_stream(1024 * 1024);
+    ::orc::WriterOptions options;
+    options.setCompression(::orc::CompressionKind_NONE);
+    options.setMemoryPool(::orc::getDefaultPool());
+    auto writer = ::orc::createWriter(*type, &memory_stream, options);
+
+    auto batch = writer->createRowBatch(row_count);
+    auto& struct_batch = dynamic_cast<::orc::StructVectorBatch&>(*batch);
+    auto& id_batch = dynamic_cast<::orc::LongVectorBatch&>(*struct_batch.fields[0]);
+    for (int64_t row = 0; row < row_count; ++row) {
+        id_batch.data[row] = row + 1;
+    }
+    struct_batch.numElements = row_count;
+    id_batch.numElements = row_count;
+    writer->add(*batch);
+    writer->close();
+
+    std::ofstream out(file_path, std::ios::binary);
+    out.write(memory_stream.getData(), static_cast<std::streamsize>(memory_stream.getLength()));
+}
+
 void write_multi_stripe_orc_pair_int_file(const std::string& file_path) {
     auto type = std::unique_ptr<::orc::Type>(
             ::orc::Type::buildTypeFromString("struct<lhs:int,rhs:int,payload:string>"));
@@ -4030,6 +4054,16 @@ TEST_F(NewOrcReaderTest, OpenRejectsNonHourOffsetTimezone) {
     EXPECT_NE(status.to_string().find("non-hour offset"), std::string::npos) << status.to_string();
 }
 
+TEST_F(NewOrcReaderTest, InitReturnsEndOfFileWhenIoContextShouldStop) {
+    auto io_ctx = std::make_shared<io::IOContext>();
+    io_ctx->should_stop = true;
+    auto reader = create_reader_for_path(_file_path, nullptr, io_ctx);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+
+    auto status = reader->init(&state);
+    EXPECT_TRUE(status.is<ErrorCode::END_OF_FILE>()) << status;
+}
+
 TEST_F(NewOrcReaderTest, AggregatePushdownReturnsMinMaxForPrimitiveColumn) {
     const auto multi_stripe_file_path = (_test_dir / "aggregate_minmax_int.orc").string();
     write_multi_stripe_orc_int_file(multi_stripe_file_path);
@@ -4143,7 +4177,7 @@ TEST_F(NewOrcReaderTest, GetSchemaReturnsFileLocalColumns) {
     EXPECT_TRUE(schema[1].type->is_nullable());
 }
 
-TEST_F(NewOrcReaderTest, GetSchemaReturnsNullableVirtualColumns) {
+TEST_F(NewOrcReaderTest, GetSchemaReturnsExpectedVirtualColumnNullability) {
     const format::GlobalRowIdContext context {.version = 7, .backend_id = 12345, .file_id = 678};
     auto reader = create_reader(nullptr, context);
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
@@ -4152,8 +4186,8 @@ TEST_F(NewOrcReaderTest, GetSchemaReturnsNullableVirtualColumns) {
     const auto row_position_field = format::orc::OrcReader::row_position_column_definition();
     EXPECT_EQ(row_position_field.local_id, format::ROW_POSITION_COLUMN_ID);
     EXPECT_EQ(row_position_field.name, format::ROW_POSITION_COLUMN_NAME);
-    ASSERT_TRUE(row_position_field.type->is_nullable());
-    EXPECT_EQ(remove_nullable(row_position_field.type)->get_primitive_type(), TYPE_BIGINT);
+    ASSERT_FALSE(row_position_field.type->is_nullable());
+    EXPECT_EQ(row_position_field.type->get_primitive_type(), TYPE_BIGINT);
 
     std::vector<format::ColumnDefinition> schema;
     ASSERT_TRUE(reader->get_schema(&schema).ok());
@@ -4259,6 +4293,31 @@ TEST_F(NewOrcReaderTest, ReadFileLocalColumnsThenEof) {
     rows = 0;
     eof = false;
     ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+    EXPECT_TRUE(eof);
+    EXPECT_EQ(rows, 0);
+    EXPECT_EQ(block.rows(), 0);
+}
+
+TEST_F(NewOrcReaderTest, GetBlockStopsWhenIoContextShouldStop) {
+    auto io_ctx = std::make_shared<io::IOContext>();
+    auto reader = create_reader_for_path(_file_path, nullptr, io_ctx);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    ASSERT_EQ(schema.size(), 2);
+    Block block = build_file_block({schema[0]});
+
+    auto request = std::make_shared<format::FileScanRequest>();
+    request->non_predicate_columns = {field_projection(0)};
+    ASSERT_TRUE(reader->open(request).ok());
+
+    io_ctx->should_stop = true;
+    size_t rows = 123;
+    bool eof = false;
+    auto status = reader->get_block(&block, &rows, &eof);
+    ASSERT_TRUE(status.ok()) << status;
     EXPECT_TRUE(eof);
     EXPECT_EQ(rows, 0);
     EXPECT_EQ(block.rows(), 0);
@@ -4413,6 +4472,119 @@ TEST_F(NewOrcReaderTest, OrcLazyDecodesSelectedRowPositionRows) {
     EXPECT_EQ(row_positions.get_element(1), 3);
     EXPECT_EQ(row_positions.get_element(2), 4);
     EXPECT_EQ(reader->reader_statistics().lazy_read_filtered_rows, 2);
+}
+
+TEST_F(NewOrcReaderTest, OrcLazyKeepsRowPositionAfterRejectedBatch) {
+    constexpr int64_t row_count = 4101;
+    constexpr int32_t first_selected_id = 4091;
+    const auto large_file_path = (_test_dir / "large_lazy_row_position.orc").string();
+    write_large_orc_int_file(large_file_path, row_count);
+
+    auto reader = create_reader_for_path(large_file_path);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    ASSERT_EQ(schema.size(), 1);
+    std::vector<format::ColumnDefinition> block_schema {
+            schema[0], format::orc::OrcReader::row_position_column_definition()};
+
+    const auto row_position_column_id = format::ROW_POSITION_COLUMN_ID;
+    auto request = std::make_shared<format::FileScanRequest>();
+    request->predicate_columns = {field_projection(0)};
+    request->non_predicate_columns = {field_projection(row_position_column_id)};
+    request->local_positions = {
+            {format::LocalColumnId(0), format::LocalIndex(0)},
+            {format::LocalColumnId(row_position_column_id), format::LocalIndex(1)}};
+    request->conjuncts.push_back(VExprContext::create_shared(
+            std::make_shared<NullableInt32GreaterThanExpr>(0, first_selected_id - 1)));
+    ASSERT_TRUE(reader->open(request).ok());
+
+    std::vector<int32_t> result_ids;
+    std::vector<int64_t> result_row_positions;
+    bool eof = false;
+    while (!eof) {
+        Block block = build_file_block(block_schema);
+        size_t rows = 0;
+        ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+        if (eof || rows == 0) {
+            continue;
+        }
+        const auto& ids_nullable =
+                assert_cast<const ColumnNullable&>(*block.get_by_position(0).column);
+        const auto& ids = assert_cast<const ColumnInt32&>(ids_nullable.get_nested_column());
+        const auto& row_positions = int64_data_column(*block.get_by_position(1).column);
+        for (size_t row = 0; row < rows; ++row) {
+            result_ids.push_back(ids.get_element(row));
+            result_row_positions.push_back(row_positions.get_element(row));
+        }
+    }
+
+    ASSERT_EQ(result_ids.size(), static_cast<size_t>(row_count - first_selected_id + 1));
+    ASSERT_EQ(result_row_positions.size(), result_ids.size());
+    for (size_t row = 0; row < result_ids.size(); ++row) {
+        EXPECT_EQ(result_ids[row], first_selected_id + static_cast<int32_t>(row));
+        EXPECT_EQ(result_row_positions[row], first_selected_id - 1 + static_cast<int64_t>(row));
+    }
+}
+
+TEST_F(NewOrcReaderTest, OrcLazyDeletePredicateUsesRowPositionAcrossBatches) {
+    constexpr int64_t row_count = 4101;
+    constexpr int32_t first_selected_id = 4091;
+    constexpr int64_t deleted_row_position = 4097;
+    const auto large_file_path = (_test_dir / "large_lazy_delete_position.orc").string();
+    write_large_orc_int_file(large_file_path, row_count);
+
+    auto reader = create_reader_for_path(large_file_path);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    ASSERT_EQ(schema.size(), 1);
+    std::vector<format::ColumnDefinition> block_schema {
+            schema[0], format::orc::OrcReader::row_position_column_definition()};
+
+    const auto row_position_column_id = format::ROW_POSITION_COLUMN_ID;
+    auto request = std::make_shared<format::FileScanRequest>();
+    request->predicate_columns = {field_projection(0), field_projection(row_position_column_id)};
+    request->non_predicate_columns = {field_projection(0)};
+    request->local_positions = {
+            {format::LocalColumnId(0), format::LocalIndex(0)},
+            {format::LocalColumnId(row_position_column_id), format::LocalIndex(1)}};
+    request->conjuncts.push_back(VExprContext::create_shared(
+            std::make_shared<NullableInt32GreaterThanExpr>(0, first_selected_id - 1)));
+    static const std::vector<int64_t> deleted_rows {deleted_row_position};
+    auto delete_predicate = std::make_shared<format::DeletePredicate>(deleted_rows);
+    delete_predicate->add_child(TableSlotRef::create_shared(
+            1, 1, -1, std::make_shared<DataTypeInt64>(), format::ROW_POSITION_COLUMN_NAME));
+    request->delete_conjuncts.push_back(VExprContext::create_shared(std::move(delete_predicate)));
+    ASSERT_TRUE(reader->open(request).ok());
+
+    std::vector<int32_t> result_ids;
+    bool eof = false;
+    while (!eof) {
+        Block block = build_file_block(block_schema);
+        size_t rows = 0;
+        ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+        if (eof || rows == 0) {
+            continue;
+        }
+        const auto& ids_nullable =
+                assert_cast<const ColumnNullable&>(*block.get_by_position(0).column);
+        const auto& ids = assert_cast<const ColumnInt32&>(ids_nullable.get_nested_column());
+        for (size_t row = 0; row < rows; ++row) {
+            result_ids.push_back(ids.get_element(row));
+        }
+    }
+
+    ASSERT_EQ(result_ids.size(), static_cast<size_t>(row_count - first_selected_id));
+    EXPECT_EQ(result_ids.front(), first_selected_id);
+    EXPECT_EQ(result_ids.back(), row_count);
+    EXPECT_EQ(std::find(result_ids.begin(), result_ids.end(),
+                        static_cast<int32_t>(deleted_row_position + 1)),
+              result_ids.end());
 }
 
 TEST_F(NewOrcReaderTest, ConjunctFiltersRows) {
