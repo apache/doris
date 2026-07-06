@@ -17,10 +17,13 @@
 
 #pragma once
 
+#include <atomic>
 #include <chrono>
+#include <condition_variable>
 #include <cstdint>
 #include <functional>
 #include <iostream>
+#include <mutex>
 #include <shared_mutex>
 #include <string>
 #include <thread>
@@ -53,10 +56,12 @@ private:
     // Returns the resolved IP, or cached IP on failure, or empty string if no cache available.
     std::string _resolve_hostname(const std::string& hostname);
 
-    // update the ip of hostname in cache; if out_failures is non-null, it is
-    // set to the current consecutive failure count for hostname (read under the
-    // same lock used to update cache, avoiding a second lock acquisition).
-    Status _update(const std::string& hostname, uint32_t* out_failures = nullptr);
+    // update the ip of hostname in cache; out_failures (if non-null) is set to
+    // the current consecutive failure count read under the same lock; out_ip (if
+    // non-null) receives the resolved IP so callers can use it without a second
+    // cache lookup (avoids operator[] mutation under shared_lock).
+    Status _update(const std::string& hostname, uint32_t* out_failures = nullptr,
+                   std::string* out_ip = nullptr);
 
     // erase a hostname from cache (with unique_lock)
     void _erase(const std::string& hostname);
@@ -94,7 +99,10 @@ private:
     std::unordered_map<std::string, uint32_t> failure_count;
     mutable std::shared_mutex mutex;
     std::thread refresh_thread;
-    bool stop_refresh = false;
+    // Protects stop_refresh and signals _refresh_cache to wake early on destroy.
+    std::mutex _cv_mutex;
+    std::condition_variable _cv;
+    std::atomic<bool> stop_refresh {false};
 };
 
 } // end of namespace doris
