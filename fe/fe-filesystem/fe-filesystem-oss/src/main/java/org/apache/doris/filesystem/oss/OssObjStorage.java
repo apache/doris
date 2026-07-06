@@ -493,8 +493,12 @@ public class OssObjStorage implements ObjStorage<OSS> {
      * lexicographically greatest key/common-prefix returned on this page — OSS lists in
      * lexicographic order and resumes strictly after the marker. This mirrors the last-key
      * fallback the COS/OBS SDKs perform internally.
+     *
+     * <p>If a page is marked truncated yet yields neither a marker nor any key/common-prefix to
+     * resume from, there is no cursor for the next page; returning {@code null} would make the
+     * paginating caller re-list from the start indefinitely, so this fails loudly instead.
      */
-    private static String resolveNextMarker(ObjectListing listing) {
+    private static String resolveNextMarker(ObjectListing listing) throws IOException {
         if (!listing.isTruncated()) {
             return null;
         }
@@ -513,6 +517,10 @@ public class OssObjStorage implements ObjStorage<OSS> {
             if (marker == null || lastPrefix.compareTo(marker) > 0) {
                 marker = lastPrefix;
             }
+        }
+        if (marker == null) {
+            throw new IOException("OSS reported a truncated listing but returned no marker and no "
+                    + "keys to resume from; cannot paginate without looping from the start");
         }
         return marker;
     }

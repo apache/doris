@@ -231,6 +231,25 @@ class OssObjStorageTest {
     }
 
     @Test
+    void listObjects_truncatedButNoResolvableMarker_throwsInsteadOfLooping() {
+        // A truncated page with a blank NextMarker AND no keys/common-prefixes leaves no cursor to
+        // resume from. Returning a null marker with truncated=true would make the paginating caller
+        // re-list from the start forever. Fail loudly instead of silently looping.
+        OSS mockOss = Mockito.mock(OSS.class);
+        ObjectListing listing = new ObjectListing();
+        listing.setObjectSummaries(Collections.emptyList());
+        listing.setTruncated(true);
+        listing.setNextMarker(null);
+        Mockito.when(mockOss.listObjects(Mockito.any(ListObjectsRequest.class))).thenReturn(listing);
+
+        OssObjStorage storage = new TestableOssObjStorage(buildBasicProps(), mockOss);
+
+        Assertions.assertThrows(IOException.class,
+                () -> storage.listObjects("oss://my-bucket/stage/", null),
+                "Truncated page with no resolvable marker must throw, not loop forever");
+    }
+
+    @Test
     void listObjects_notTruncated_hasNoContinuationToken() throws Exception {
         OSS mockOss = Mockito.mock(OSS.class);
         OSSObjectSummary s1 = new OSSObjectSummary();
