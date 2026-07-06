@@ -57,6 +57,8 @@ public:
     Status get_block(Block* file_block, size_t* rows, bool* eof) override;
     Status get_aggregate_result(const format::FileAggregateRequest& request,
                                 format::FileAggregateResult* result) override;
+    void set_condition_cache_context(std::shared_ptr<ConditionCacheContext> ctx) override;
+    int64_t get_total_rows() const override;
     Status close() override;
 
     const format::FileReader::ReaderStatistics& reader_statistics() const {
@@ -158,6 +160,9 @@ private:
     bool _filter_has_row_level_predicates() const;
     Status _build_keep_filter(Block* file_block, size_t rows, IColumn::Filter* keep_filter) const;
     Status _filter_block(Block* file_block, size_t* rows) const;
+    void _skip_condition_cache_false_granules(size_t* rows, bool* eof);
+    void _mark_condition_cache_surviving_rows(const IColumn::Filter& keep_filter,
+                                              size_t rows) const;
     Status _execute_conjuncts(Block* file_block, size_t rows, IColumn::Filter* keep_filter) const;
     Status _execute_delete_conjuncts(Block* file_block, size_t rows,
                                      IColumn::Filter* keep_filter) const;

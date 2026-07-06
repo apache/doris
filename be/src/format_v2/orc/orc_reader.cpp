@@ -77,6 +77,7 @@
 #include "runtime/exec_env.h"
 #include "runtime/runtime_profile.h"
 #include "storage/index/zone_map/zone_map_index.h"
+#include "storage/segment/condition_cache.h"
 #include "storage/utils.h"
 #include "util/slice.h"
 #include "util/timezone_utils.h"
@@ -89,7 +90,6 @@ constexpr uint64_t DEFAULT_ORC_NATURAL_READ_SIZE = 128 * 1024;
 constexpr int DECIMAL_PRECISION_FOR_HIVE11 = BeConsts::MAX_DECIMAL128_PRECISION;
 constexpr int DECIMAL_SCALE_FOR_HIVE11 = 10;
 constexpr const char* ORC_LIST_ELEMENT_NAME = "element";
-constexpr const char* ORC_MAP_ENTRY_NAME = "key_value";
 constexpr const char* ORC_MAP_KEY_NAME = "key";
 constexpr const char* ORC_MAP_VALUE_NAME = "value";
 constexpr const char* ORC_ICEBERG_ID_ATTRIBUTE = "iceberg.id";
@@ -477,42 +477,6 @@ Status collect_projected_map_type_ids(const ::orc::Type& type,
                                       const format::LocalColumnIndex& projection,
                                       std::set<uint64_t>* const type_ids);
 
-Status collect_projected_map_entry_type_ids(const ::orc::Type& type,
-                                            const format::LocalColumnIndex& entry_projection,
-                                            std::set<uint64_t>* const type_ids,
-                                            bool* const selected_key, bool* const selected_value) {
-    DORIS_CHECK(type.getKind() == ::orc::TypeKind::MAP);
-    DORIS_CHECK(type.getSubtypeCount() == 2);
-    DORIS_CHECK(selected_key != nullptr);
-    DORIS_CHECK(selected_value != nullptr);
-
-    int32_t entry_idx = 0;
-    RETURN_IF_ERROR(
-            get_projection_child_index(entry_projection, 1, ORC_MAP_ENTRY_NAME, &entry_idx));
-    DORIS_CHECK(entry_idx == 0);
-    if (entry_projection.project_all_children) {
-        collect_type_and_descendant_ids(*type.getSubtype(0), type_ids);
-        collect_type_and_descendant_ids(*type.getSubtype(1), type_ids);
-        *selected_key = true;
-        *selected_value = true;
-        return Status::OK();
-    }
-    if (entry_projection.children.empty()) {
-        return Status::NotSupported("ORC MAP entry projection contains no children");
-    }
-    for (const auto& key_value_projection : entry_projection.children) {
-        int32_t key_value_idx = 0;
-        RETURN_IF_ERROR(get_projection_child_index(key_value_projection, 2, ORC_MAP_ENTRY_NAME,
-                                                   &key_value_idx));
-        const auto* child_type = type.getSubtype(static_cast<uint64_t>(key_value_idx));
-        DORIS_CHECK(child_type != nullptr);
-        RETURN_IF_ERROR(collect_projected_type_ids(*child_type, key_value_projection, type_ids));
-        *selected_key = *selected_key || key_value_idx == 0;
-        *selected_value = *selected_value || key_value_idx == 1;
-    }
-    return Status::OK();
-}
-
 Status collect_projected_map_type_ids(const ::orc::Type& type,
                                       const format::LocalColumnIndex& projection,
                                       std::set<uint64_t>* const type_ids) {
@@ -530,9 +494,15 @@ Status collect_projected_map_type_ids(const ::orc::Type& type,
 
     bool selected_key = false;
     bool selected_value = false;
-    for (const auto& entry_projection : projection.children) {
-        RETURN_IF_ERROR(collect_projected_map_entry_type_ids(type, entry_projection, type_ids,
-                                                             &selected_key, &selected_value));
+    for (const auto& key_value_projection : projection.children) {
+        int32_t key_value_idx = 0;
+        RETURN_IF_ERROR(
+                get_projection_child_index(key_value_projection, 2, "orc_map", &key_value_idx));
+        const auto* child_type = type.getSubtype(static_cast<uint64_t>(key_value_idx));
+        DORIS_CHECK(child_type != nullptr);
+        RETURN_IF_ERROR(collect_projected_type_ids(*child_type, key_value_projection, type_ids));
+        selected_key = selected_key || key_value_idx == 0;
+        selected_value = selected_value || key_value_idx == 1;
     }
     if (!selected_key || !selected_value) {
         return Status::NotSupported("ORC MAP projection must include both key and value");
@@ -1010,6 +980,8 @@ struct OrcReaderScanState {
     std::map<format::LocalColumnId, size_t> column_to_selected_batch_index;
 
     uint64_t current_batch_first_row = 0;
+    uint64_t condition_cache_next_row = 0;
+    std::shared_ptr<ConditionCacheContext> condition_cache_ctx;
 
     std::vector<size_t> orc_lazy_selected_rows;
     size_t orc_lazy_input_rows = 0;
@@ -1163,6 +1135,17 @@ Status OrcReader::init(RuntimeState* state) {
                                      e.what());
     }
     return Status::OK();
+}
+
+void OrcReader::set_condition_cache_context(std::shared_ptr<ConditionCacheContext> ctx) {
+    DORIS_CHECK(_state != nullptr);
+    _state->condition_cache_ctx = std::move(ctx);
+}
+
+int64_t OrcReader::get_total_rows() const {
+    DORIS_CHECK(_state != nullptr);
+    DORIS_CHECK(_state->reader != nullptr);
+    return cast_set<int64_t>(_state->reader->getNumberOfRows());
 }
 
 DataTypePtr OrcReader::_convert_to_doris_type(const ::orc::Type& type) const {
@@ -1349,24 +1332,8 @@ Status OrcReader::_fill_map_schema_children(const ::orc::Type& type,
     format::ColumnDefinition value_field;
     RETURN_IF_ERROR(_fill_schema_field(*value_type, 1, ORC_MAP_VALUE_NAME, &value_field));
 
-    format::ColumnDefinition entry_field;
-    entry_field.local_id = 0;
-    entry_field.name = ORC_MAP_ENTRY_NAME;
-    entry_field.column_type = format::ColumnType::DATA_COLUMN;
-    entry_field.children.push_back(std::move(key_field));
-    entry_field.children.push_back(std::move(value_field));
-
-    DataTypes entry_child_types;
-    Strings entry_child_names;
-    entry_child_types.reserve(entry_field.children.size());
-    entry_child_names.reserve(entry_field.children.size());
-    for (const auto& child : entry_field.children) {
-        entry_child_types.push_back(child.type);
-        entry_child_names.push_back(child.name);
-    }
-    entry_field.type =
-            make_nullable(std::make_shared<DataTypeStruct>(entry_child_types, entry_child_names));
-    field->children.push_back(std::move(entry_field));
+    field->children.push_back(std::move(key_field));
+    field->children.push_back(std::move(value_field));
     return Status::OK();
 }
 
@@ -1736,6 +1703,7 @@ Status OrcReader::_create_row_reader() {
         _state->orc_lazy_next_batch_first_row =
                 initial_row_number == std::numeric_limits<uint64_t>::max() ? 0
                                                                            : initial_row_number + 1;
+        _state->condition_cache_next_row = _state->orc_lazy_next_batch_first_row;
         _state->column_to_selected_batch_index.clear();
         size_t physical_read_column_count = 0;
         for (const auto file_column_id : _state->read_columns) {
@@ -1761,6 +1729,64 @@ Status OrcReader::_create_row_reader() {
         return Status::InternalError("Failed to create ORC row reader: {}", e.what());
     }
     return Status::OK();
+}
+
+void OrcReader::_skip_condition_cache_false_granules(size_t* rows, bool* eof) {
+    DORIS_CHECK(rows != nullptr);
+    DORIS_CHECK(eof != nullptr);
+    if (_state->condition_cache_ctx == nullptr || !_state->condition_cache_ctx->is_hit) {
+        return;
+    }
+    DORIS_CHECK(_state->condition_cache_ctx->filter_result != nullptr);
+    const auto& cache = *_state->condition_cache_ctx->filter_result;
+    constexpr uint64_t granule_size = ConditionCacheContext::GRANULE_SIZE;
+    const uint64_t total_rows = _state->reader->getNumberOfRows();
+    DORIS_CHECK(_state->condition_cache_next_row <= total_rows);
+
+    uint64_t cache_idx = _state->condition_cache_next_row / granule_size;
+    while (cache_idx < cache.size() && !cache[cache_idx]) {
+        ++cache_idx;
+    }
+    if (cache_idx >= cache.size()) {
+        if (_io_ctx != nullptr) {
+            _io_ctx->condition_cache_filtered_rows += total_rows - _state->condition_cache_next_row;
+        }
+        *rows = 0;
+        *eof = true;
+        _eof = true;
+        return;
+    }
+
+    const uint64_t target_row = cache_idx * granule_size;
+    if (target_row > _state->condition_cache_next_row) {
+        DORIS_CHECK(target_row <= total_rows);
+        _state->row_reader->seekToRow(target_row);
+        if (_io_ctx != nullptr) {
+            _io_ctx->condition_cache_filtered_rows += target_row - _state->condition_cache_next_row;
+        }
+        _state->condition_cache_next_row = target_row;
+        _state->orc_lazy_next_batch_first_row = target_row;
+    }
+}
+
+void OrcReader::_mark_condition_cache_surviving_rows(const IColumn::Filter& keep_filter,
+                                                     size_t rows) const {
+    DORIS_CHECK(keep_filter.size() == rows);
+    if (_state->condition_cache_ctx == nullptr || _state->condition_cache_ctx->is_hit) {
+        return;
+    }
+    DORIS_CHECK(_state->condition_cache_ctx->filter_result != nullptr);
+    auto& cache = *_state->condition_cache_ctx->filter_result;
+    constexpr uint64_t granule_size = ConditionCacheContext::GRANULE_SIZE;
+    for (size_t row = 0; row < rows; ++row) {
+        if (keep_filter[row] == 0) {
+            continue;
+        }
+        const auto cache_idx =
+                static_cast<size_t>((_state->current_batch_first_row + row) / granule_size);
+        DORIS_CHECK(cache_idx < cache.size());
+        cache[cache_idx] = true;
+    }
 }
 
 Status OrcReader::_filter_orc_batch(::orc::ColumnVectorBatch& data, uint16_t* sel, uint16_t size,
@@ -1826,12 +1852,14 @@ Status OrcReader::_filter_orc_batch(::orc::ColumnVectorBatch& data, uint16_t* se
 
     _state->current_batch_first_row = _state->orc_lazy_next_batch_first_row;
     _state->orc_lazy_next_batch_first_row += size;
+    _state->condition_cache_next_row = _state->current_batch_first_row + size;
     std::set<format::LocalColumnId> decoded_columns;
     RETURN_IF_ERROR(_decode_columns(*struct_batch, _request->predicate_columns, size, &filter_block,
                                     &decoded_columns));
 
     IColumn::Filter keep_filter(size, 1);
     RETURN_IF_ERROR(_build_keep_filter(&filter_block, size, &keep_filter));
+    _mark_condition_cache_surviving_rows(keep_filter, size);
 
     _state->orc_lazy_selected_rows.clear();
     _state->orc_lazy_selected_rows.reserve(size);
@@ -2090,6 +2118,10 @@ Status OrcReader::get_block(Block* file_block, size_t* rows, bool* eof) {
 
     bool has_next = false;
     while (true) {
+        _skip_condition_cache_false_granules(rows, eof);
+        if (*eof) {
+            return Status::OK();
+        }
         try {
             _state->orc_lazy_selection_valid = false;
             _state->orc_lazy_selected_rows.clear();
@@ -2126,6 +2158,7 @@ Status OrcReader::get_block(Block* file_block, size_t* rows, bool* eof) {
 
     const auto batch_rows = static_cast<size_t>(_state->batch->numElements);
     _state->current_batch_first_row = _state->row_reader->getRowNumber();
+    _state->condition_cache_next_row = _state->current_batch_first_row + batch_rows;
     auto* struct_batch = dynamic_cast<::orc::StructVectorBatch*>(_state->batch.get());
     if (struct_batch == nullptr) {
         return Status::InternalError("New ORC reader expects struct row batch");
@@ -2492,6 +2525,7 @@ Status OrcReader::_filter_block(Block* file_block, size_t* rows) const {
 
     IColumn::Filter keep_filter(*rows, 1);
     RETURN_IF_ERROR(_build_keep_filter(file_block, *rows, &keep_filter));
+    _mark_condition_cache_surviving_rows(keep_filter, *rows);
     size_t selected_rows = 0;
     for (const auto keep : keep_filter) {
         selected_rows += keep != 0;

@@ -66,6 +66,7 @@
 #include "io/io_common.h"
 #include "runtime/runtime_profile.h"
 #include "runtime/runtime_state.h"
+#include "storage/segment/condition_cache.h"
 #include "storage/utils.h"
 
 namespace doris {
@@ -4199,7 +4200,7 @@ TEST_F(NewOrcReaderTest, GetSchemaReturnsExpectedVirtualColumnNullability) {
     EXPECT_EQ(remove_nullable(global_rowid_field.type)->get_primitive_type(), TYPE_STRING);
 }
 
-TEST_F(NewOrcReaderTest, GetSchemaReturnsNullableMapEntry) {
+TEST_F(NewOrcReaderTest, GetSchemaReturnsNullableMapChildren) {
     const auto file_path = (_test_dir / "complex.orc").string();
     write_complex_orc_file(file_path);
     auto reader = create_reader_for_path(file_path);
@@ -4211,12 +4212,13 @@ TEST_F(NewOrcReaderTest, GetSchemaReturnsNullableMapEntry) {
     ASSERT_GE(schema.size(), 3);
     const auto& map_field = schema[2];
     ASSERT_EQ(map_field.name, "map_col");
-    ASSERT_EQ(map_field.children.size(), 1);
-    const auto& entry_field = map_field.children[0];
-    EXPECT_EQ(entry_field.name, "key_value");
-    ASSERT_NE(entry_field.type, nullptr);
-    EXPECT_TRUE(entry_field.type->is_nullable());
-    EXPECT_EQ(remove_nullable(entry_field.type)->get_primitive_type(), TYPE_STRUCT);
+    ASSERT_EQ(map_field.children.size(), 2);
+    EXPECT_EQ(map_field.children[0].name, "key");
+    EXPECT_EQ(map_field.children[1].name, "value");
+    ASSERT_NE(map_field.children[0].type, nullptr);
+    ASSERT_NE(map_field.children[1].type, nullptr);
+    EXPECT_TRUE(map_field.children[0].type->is_nullable());
+    EXPECT_TRUE(map_field.children[1].type->is_nullable());
 }
 
 TEST_F(NewOrcReaderTest, ReadGlobalRowIdVirtualColumn) {
@@ -4685,6 +4687,110 @@ TEST_F(NewOrcReaderTest, ClosePublishesOrcLazyStatisticsToRuntimeProfile) {
     ASSERT_NE(profile.get_counter("FilteredRowsByOrcLazyRead"), nullptr);
     EXPECT_EQ(profile.get_counter("FilteredRowsByLazyRead")->value(), 2);
     EXPECT_EQ(profile.get_counter("FilteredRowsByOrcLazyRead")->value(), 2);
+}
+
+TEST_F(NewOrcReaderTest, ConditionCacheMissMarksSurvivingGranules) {
+    constexpr int64_t row_count = ConditionCacheContext::GRANULE_SIZE * 2;
+    const auto large_file_path = (_test_dir / "condition_cache_miss.orc").string();
+    write_large_orc_int_file(large_file_path, row_count);
+
+    auto reader = create_reader_for_path(large_file_path);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    ASSERT_EQ(schema.size(), 1);
+
+    auto request = std::make_shared<format::FileScanRequest>();
+    request->predicate_columns = {field_projection(0)};
+    request->non_predicate_columns = {field_projection(0)};
+    request->local_positions.emplace(format::LocalColumnId(0), format::LocalIndex(0));
+    request->conjuncts.push_back(
+            VExprContext::create_shared(std::make_shared<NullableInt32GreaterThanExpr>(
+                    0, ConditionCacheContext::GRANULE_SIZE)));
+    ASSERT_TRUE(reader->open(request).ok());
+
+    auto ctx = std::make_shared<ConditionCacheContext>();
+    ctx->is_hit = false;
+    ctx->filter_result = std::make_shared<std::vector<bool>>(3, false);
+    reader->set_condition_cache_context(ctx);
+
+    std::vector<int32_t> ids;
+    bool eof = false;
+    while (!eof) {
+        Block block = build_file_block(schema);
+        size_t rows = 0;
+        ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+        if (rows == 0) {
+            continue;
+        }
+        const auto& id_column = assert_cast<const ColumnInt32&>(
+                assert_cast<const ColumnNullable&>(*block.get_by_position(0).column)
+                        .get_nested_column());
+        for (size_t row = 0; row < rows; ++row) {
+            ids.push_back(id_column.get_element(row));
+        }
+    }
+
+    ASSERT_EQ(ids.size(), static_cast<size_t>(ConditionCacheContext::GRANULE_SIZE));
+    EXPECT_EQ(ids.front(), ConditionCacheContext::GRANULE_SIZE + 1);
+    EXPECT_EQ(ids.back(), row_count);
+    EXPECT_FALSE((*ctx->filter_result)[0]);
+    EXPECT_TRUE((*ctx->filter_result)[1]);
+    EXPECT_FALSE((*ctx->filter_result)[2]);
+}
+
+TEST_F(NewOrcReaderTest, ConditionCacheHitSkipsFalseGranulesBeforeColumnRead) {
+    constexpr int64_t row_count = ConditionCacheContext::GRANULE_SIZE * 2;
+    const auto large_file_path = (_test_dir / "condition_cache_hit.orc").string();
+    write_large_orc_int_file(large_file_path, row_count);
+
+    auto io_ctx = std::make_shared<io::IOContext>();
+    auto reader = create_reader_for_path(large_file_path, nullptr, io_ctx);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+
+    std::vector<format::ColumnDefinition> schema;
+    ASSERT_TRUE(reader->get_schema(&schema).ok());
+    ASSERT_EQ(schema.size(), 1);
+    EXPECT_EQ(reader->get_total_rows(), row_count);
+
+    auto request = std::make_shared<format::FileScanRequest>();
+    request->predicate_columns = {field_projection(0)};
+    request->non_predicate_columns = {field_projection(0)};
+    request->local_positions.emplace(format::LocalColumnId(0), format::LocalIndex(0));
+    request->conjuncts.push_back(
+            VExprContext::create_shared(std::make_shared<NullableInt32GreaterThanExpr>(
+                    0, ConditionCacheContext::GRANULE_SIZE)));
+    ASSERT_TRUE(reader->open(request).ok());
+
+    auto ctx = std::make_shared<ConditionCacheContext>();
+    ctx->is_hit = true;
+    ctx->filter_result =
+            std::make_shared<std::vector<bool>>(std::vector<bool> {false, true, false});
+    reader->set_condition_cache_context(ctx);
+
+    Block block = build_file_block(schema);
+    size_t rows = 0;
+    bool eof = false;
+    ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+    EXPECT_FALSE(eof);
+    ASSERT_EQ(rows, static_cast<size_t>(ConditionCacheContext::GRANULE_SIZE));
+    EXPECT_EQ(io_ctx->condition_cache_filtered_rows, ConditionCacheContext::GRANULE_SIZE);
+
+    const auto& ids = assert_cast<const ColumnInt32&>(
+            assert_cast<const ColumnNullable&>(*block.get_by_position(0).column)
+                    .get_nested_column());
+    EXPECT_EQ(ids.get_element(0), ConditionCacheContext::GRANULE_SIZE + 1);
+    EXPECT_EQ(ids.get_element(rows - 1), row_count);
+
+    block = build_file_block(schema);
+    rows = 0;
+    eof = false;
+    ASSERT_TRUE(reader->get_block(&block, &rows, &eof).ok());
+    EXPECT_TRUE(eof);
+    EXPECT_EQ(rows, 0);
 }
 
 TEST_F(NewOrcReaderTest, OrcLazySkipsNonPredicateColumnsWhenFilterEliminatesBatch) {
@@ -7761,18 +7867,15 @@ TEST_F(NewOrcReaderTest, ReadComplexTypes) {
     EXPECT_EQ(remove_nullable(schema[4].type)->get_primitive_type(), TYPE_MAP);
     ASSERT_EQ(schema[0].children.size(), 2);
     ASSERT_EQ(schema[1].children.size(), 1);
-    ASSERT_EQ(schema[2].children.size(), 1);
-    ASSERT_EQ(schema[2].children[0].children.size(), 2);
+    ASSERT_EQ(schema[2].children.size(), 2);
     ASSERT_EQ(schema[3].children.size(), 1);
     ASSERT_EQ(schema[3].children[0].children.size(), 2);
-    ASSERT_EQ(schema[4].children.size(), 1);
-    ASSERT_EQ(schema[4].children[0].children.size(), 2);
-    ASSERT_EQ(schema[4].children[0].children[1].children.size(), 2);
+    ASSERT_EQ(schema[4].children.size(), 2);
+    ASSERT_EQ(schema[4].children[1].children.size(), 2);
     EXPECT_EQ(schema[0].children[0].local_id, 0);
     EXPECT_EQ(schema[1].children[0].local_id, 0);
     EXPECT_EQ(schema[2].children[0].local_id, 0);
-    EXPECT_EQ(schema[2].children[0].children[0].local_id, 0);
-    EXPECT_EQ(schema[2].children[0].children[1].local_id, 1);
+    EXPECT_EQ(schema[2].children[1].local_id, 1);
 
     Block block = build_file_block(schema);
     auto request = std::make_shared<format::FileScanRequest>();
@@ -7843,11 +7946,9 @@ TEST_F(NewOrcReaderTest, ReadDeepNestedComplexTypes) {
     EXPECT_EQ(remove_nullable(schema[1].type)->get_primitive_type(), TYPE_ARRAY);
     ASSERT_EQ(schema[1].children.size(), 1);
     ASSERT_EQ(schema[1].children[0].children.size(), 2);
-    ASSERT_EQ(schema[1].children[0].children[1].children.size(), 1);
-    ASSERT_EQ(schema[1].children[0].children[1].children[0].children.size(), 2);
-    ASSERT_EQ(schema[1].children[0].children[1].children[0].children[1].children.size(), 1);
-    ASSERT_EQ(schema[1].children[0].children[1].children[0].children[1].children[0].children.size(),
-              2);
+    ASSERT_EQ(schema[1].children[0].children[1].children.size(), 2);
+    ASSERT_EQ(schema[1].children[0].children[1].children[1].children.size(), 1);
+    ASSERT_EQ(schema[1].children[0].children[1].children[1].children[0].children.size(), 2);
 
     Block block = build_file_block(schema);
     auto request = std::make_shared<format::FileScanRequest>();
@@ -7979,12 +8080,11 @@ TEST_F(NewOrcReaderTest, ReadProjectedMapValueStructChildren) {
 
     std::vector<format::ColumnDefinition> schema;
     ASSERT_TRUE(reader->get_schema(&schema).ok());
-    ASSERT_EQ(schema[4].children.size(), 1);
-    ASSERT_EQ(schema[4].children[0].children.size(), 2);
-    ASSERT_EQ(schema[4].children[0].children[1].children.size(), 2);
+    ASSERT_EQ(schema[4].children.size(), 2);
+    ASSERT_EQ(schema[4].children[1].children.size(), 2);
 
-    const auto& key_field = schema[4].children[0].children[0];
-    const auto& value_field = schema[4].children[0].children[1];
+    const auto& key_field = schema[4].children[0];
+    const auto& value_field = schema[4].children[1];
     DataTypes projected_value_child_types {value_field.children[0].type};
     Strings projected_value_child_names {value_field.children[0].name};
     auto projected_value_type = make_nullable(std::make_shared<DataTypeStruct>(
@@ -7998,12 +8098,10 @@ TEST_F(NewOrcReaderTest, ReadProjectedMapValueStructChildren) {
     request->non_predicate_columns = {field_projection(4)};
     request->local_positions.emplace(format::LocalColumnId(4), format::LocalIndex(0));
     auto projection = make_projection(schema[4], false);
-    auto entry_projection = make_projection(schema[4].children[0], false);
-    entry_projection.children.push_back(make_projection(key_field));
+    projection.children.push_back(make_projection(key_field));
     auto value_projection = make_projection(value_field, false);
     value_projection.children.push_back(make_projection(value_field.children[0]));
-    entry_projection.children.push_back(std::move(value_projection));
-    projection.children.push_back(std::move(entry_projection));
+    projection.children.push_back(std::move(value_projection));
     request->non_predicate_columns[0] = std::move(projection);
     ASSERT_TRUE(reader->open(request).ok());
 
@@ -8049,9 +8147,8 @@ TEST_F(NewOrcReaderTest, ReadProjectedComplexChildrenWithNulls) {
     ASSERT_EQ(schema[0].children.size(), 2);
     ASSERT_EQ(schema[1].children.size(), 1);
     ASSERT_EQ(schema[1].children[0].children.size(), 2);
-    ASSERT_EQ(schema[2].children.size(), 1);
-    ASSERT_EQ(schema[2].children[0].children.size(), 2);
-    ASSERT_EQ(schema[2].children[0].children[1].children.size(), 2);
+    ASSERT_EQ(schema[2].children.size(), 2);
+    ASSERT_EQ(schema[2].children[1].children.size(), 2);
 
     DataTypes projected_struct_child_types {schema[0].children[1].type};
     Strings projected_struct_child_names {schema[0].children[1].name};
@@ -8065,8 +8162,8 @@ TEST_F(NewOrcReaderTest, ReadProjectedComplexChildrenWithNulls) {
     auto projected_array_type =
             make_nullable(std::make_shared<DataTypeArray>(projected_element_type));
 
-    const auto& key_field = schema[2].children[0].children[0];
-    const auto& value_field = schema[2].children[0].children[1];
+    const auto& key_field = schema[2].children[0];
+    const auto& value_field = schema[2].children[1];
     DataTypes projected_value_child_types {value_field.children[0].type};
     Strings projected_value_child_names {value_field.children[0].name};
     auto projected_value_type = make_nullable(std::make_shared<DataTypeStruct>(
@@ -8097,12 +8194,10 @@ TEST_F(NewOrcReaderTest, ReadProjectedComplexChildrenWithNulls) {
     request->non_predicate_columns[1] = std::move(array_projection);
 
     auto map_projection = make_projection(schema[2], false);
-    auto entry_projection = make_projection(schema[2].children[0], false);
-    entry_projection.children.push_back(make_projection(key_field));
+    map_projection.children.push_back(make_projection(key_field));
     auto value_projection = make_projection(value_field, false);
     value_projection.children.push_back(make_projection(value_field.children[0]));
-    entry_projection.children.push_back(std::move(value_projection));
-    map_projection.children.push_back(std::move(entry_projection));
+    map_projection.children.push_back(std::move(value_projection));
     request->non_predicate_columns[2] = std::move(map_projection);
 
     ASSERT_TRUE(reader->open(request).ok());
