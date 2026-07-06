@@ -451,7 +451,11 @@ Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_o
             }
             for (const auto& pred : read_options.column_predicates) {
                 const auto pred_cid = pred->column_id();
-                if (!cols_with_pred_after_prune.contains(pred_cid)) {
+                // Key columns may still be required by key range seeks even if the segment zone
+                // map proves their predicates always true. Only mark non-key columns as safe for
+                // the no-need-read path.
+                if (!read_options.tablet_schema->column(pred_cid).is_key() &&
+                    !cols_with_pred_after_prune.contains(pred_cid)) {
                     options_with_pruned_predicates.zonemap_always_true_pred_cols.insert(pred_cid);
                 }
             }

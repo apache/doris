@@ -59,6 +59,18 @@ suite("test_zonemap_always_true_count_on_index", "p0, nonConcurrent") {
         contains "pushAggOp=COUNT_ON_INDEX"
     }
 
+    def countWithKeyRangeSql = """
+        SELECT COUNT(1) FROM test_zonemap_always_true_count_on_index
+        WHERE k >= 1
+          AND k < 4
+          AND app_id = 'app_a'
+    """
+
+    explain {
+        sql(countWithKeyRangeSql)
+        contains "pushAggOp=COUNT_ON_INDEX"
+    }
+
     try {
         GetDebugPoint().enableDebugPointForAllBEs("segment_iterator._read_columns_by_index",
                 [column_name: "event_time"])
@@ -66,4 +78,6 @@ suite("test_zonemap_always_true_count_on_index", "p0, nonConcurrent") {
     } finally {
         GetDebugPoint().disableDebugPointForAllBEs("segment_iterator._read_columns_by_index")
     }
+
+    qt_count_with_key_range countWithKeyRangeSql
 }

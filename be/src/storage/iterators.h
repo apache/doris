@@ -107,9 +107,9 @@ public:
     std::unordered_map<int32_t, std::vector<std::shared_ptr<const ColumnPredicate>>>
             del_predicates_for_zone_map;
     TPushAggOp::type push_down_agg_type_opt = TPushAggOp::NONE;
-    // Columns whose predicates were proven always true by the segment zone map and then removed
-    // from column_predicates. SegmentIterator can skip reading these non-output columns, or
-    // COUNT_ON_INDEX columns, because the column values no longer affect filtering or counting.
+    // Non-key columns whose predicates were proven always true by the segment zone map and then
+    // removed from column_predicates. SegmentIterator can skip reading these non-output columns,
+    // or COUNT_ON_INDEX columns, because the column values no longer affect filtering or counting.
     std::set<uint32_t> zonemap_always_true_pred_cols;
 
     // REQUIRED (null is not allowed)

@@ -2,3 +2,6 @@
 -- !count --
 2
 
+-- !count_with_key_range --
+2
+

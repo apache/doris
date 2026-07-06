@@ -91,6 +91,8 @@ TEST(SegmentIteratorNoNeedReadDataTest, zonemap_always_true_predicate_column) {
     iter._opts.zonemap_always_true_pred_cols.emplace(1);
 
     EXPECT_FALSE(iter._need_read_data(1));
+    iter._opts.zonemap_always_true_pred_cols.emplace(0);
+    EXPECT_TRUE(iter._need_read_data(0));
 
     iter._output_columns.emplace(2);
     EXPECT_TRUE(iter._need_read_data(1));
