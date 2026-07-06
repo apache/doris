@@ -363,10 +363,10 @@ public class CacheHotspotManagerTest {
         }
 
         String logs = appender.messagesAsString();
-        Assert.assertTrue(logs.contains("warmup-lock register"), logs);
-        Assert.assertTrue(logs.contains("jobId=11"), logs);
-        Assert.assertTrue(logs.contains("existingJobId=10"), logs);
-        Assert.assertTrue(logs.contains("registerResult=blocked"), logs);
+        Assert.assertTrue(logs, logs.contains("warmup-lock register"));
+        Assert.assertTrue(logs, logs.contains("jobId=11"));
+        Assert.assertTrue(logs, logs.contains("existingJobId=10"));
+        Assert.assertTrue(logs, logs.contains("registerResult=blocked"));
     }
 
     private WarmUpClusterCommand newTableStmt(String dstClusterName, boolean force,
