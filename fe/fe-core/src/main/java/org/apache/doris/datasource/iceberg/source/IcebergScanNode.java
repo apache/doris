@@ -96,6 +96,7 @@ import org.apache.iceberg.SplittableScanTask;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.TableScan;
+import org.apache.iceberg.expressions.Binder;
 import org.apache.iceberg.expressions.Expression;
 import org.apache.iceberg.expressions.Expressions;
 import org.apache.iceberg.expressions.InclusiveMetricsEvaluator;
@@ -108,6 +109,7 @@ import org.apache.iceberg.mapping.MappedFields;
 import org.apache.iceberg.mapping.NameMapping;
 import org.apache.iceberg.mapping.NameMappingParser;
 import org.apache.iceberg.types.Type;
+import org.apache.iceberg.types.TypeUtil;
 import org.apache.iceberg.types.Types.NestedField;
 import org.apache.iceberg.util.ScanTaskUtil;
 import org.apache.iceberg.util.SerializationUtil;
@@ -121,11 +123,13 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalLong;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -674,9 +678,66 @@ public class IcebergScanNode extends FileQueryScanNode {
             this.pushdownIcebergPredicates.add(predicate.toString());
         }
 
+        // Doris reads normal Iceberg table files in BE and applies column pruning through scan range params.
+        // System tables are different: Iceberg SDK DataTask materializes rows using the projected scan
+        // schema. Keep Doris required columns as the projection prefix so the JNI reader can read rows by
+        // required ordinal, and append filter-only columns after them for Iceberg residual evaluation.
+        if (isSystemTable) {
+            Schema projectedSchema = getSystemTableProjectedSchema(expressions, scan.isCaseSensitive());
+            if (!projectedSchema.columns().isEmpty()) {
+                scan = scan.project(projectedSchema);
+            }
+        }
+
         icebergTableScan = scan.planWith(source.getCatalog().getThreadPoolWithPreAuth());
 
         return icebergTableScan;
+    }
+
+    private Schema getSystemTableProjectedSchema(List<Expression> expressions, boolean caseSensitive)
+            throws UserException {
+        List<NestedField> projectedFields = new ArrayList<>();
+        Set<Integer> projectedFieldIds = new HashSet<>();
+        for (SlotDescriptor slot : desc.getSlots()) {
+            Column column = slot.getColumn();
+            String columnName = column.getName();
+            if (Column.ICEBERG_ROWID_COL.equalsIgnoreCase(columnName)
+                    || columnName.startsWith(Column.GLOBAL_ROWID_COL)
+                    || IcebergUtils.isIcebergRowLineageColumn(column)) {
+                continue;
+            }
+
+            NestedField field = icebergTable.schema().findField(columnName);
+            if (field == null) {
+                throw new UserException("Column " + columnName + " not found in Iceberg system table schema");
+            }
+            if (projectedFieldIds.add(field.fieldId())) {
+                projectedFields.add(field);
+            }
+        }
+
+        Set<Integer> filterFieldIds = Binder.boundReferences(
+                icebergTable.schema().asStruct(), expressions, caseSensitive);
+        for (Integer fieldId : filterFieldIds) {
+            NestedField field = getTopLevelSystemTableField(fieldId);
+            if (field == null) {
+                throw new UserException(
+                        "Column with field id " + fieldId + " not found in Iceberg system table schema");
+            }
+            if (projectedFieldIds.add(field.fieldId())) {
+                projectedFields.add(field);
+            }
+        }
+        return new Schema(projectedFields);
+    }
+
+    private NestedField getTopLevelSystemTableField(int fieldId) {
+        for (NestedField field : icebergTable.schema().columns()) {
+            if (field.fieldId() == fieldId || TypeUtil.getProjectedIds(field.type()).contains(fieldId)) {
+                return field;
+            }
+        }
+        return null;
     }
 
     private CloseableIterable<FileScanTask> planFileScanTask(TableScan scan) {

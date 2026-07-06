@@ -25,6 +25,7 @@ import org.apache.doris.common.security.authentication.PreExecutionAuthenticator
 import org.apache.doris.common.security.authentication.PreExecutionAuthenticatorCache;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 import org.apache.iceberg.FileScanTask;
 import org.apache.iceberg.StructLike;
 import org.apache.iceberg.io.CloseableIterator;
@@ -35,7 +36,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.TimeZone;
@@ -60,7 +60,7 @@ public class IcebergSysTableJniScanner extends JniScanner {
         Preconditions.checkArgument(serializedSplitParams != null && !serializedSplitParams.isEmpty(),
                 "serialized_split should not be empty");
         this.scanTask = SerializationUtil.deserializeFromBase64(serializedSplitParams);
-        String[] requiredFields = params.get("required_fields").split(",");
+        String[] requiredFields = splitParam(params.get("required_fields"), ",");
         this.fields = selectSchema(scanTask.schema().asStruct(), requiredFields);
         this.timezone = params.getOrDefault("time_zone", TimeZone.getDefault().getID());
         Map<String, String> hadoopOptionParams = params.entrySet().stream()
@@ -68,7 +68,8 @@ public class IcebergSysTableJniScanner extends JniScanner {
                 .collect(Collectors
                         .toMap(kv1 -> kv1.getKey().substring(HADOOP_OPTION_PREFIX.length()), kv1 -> kv1.getValue()));
         this.preExecutionAuthenticator = PreExecutionAuthenticatorCache.getAuthenticator(hadoopOptionParams);
-        ColumnType[] requiredTypes = parseRequiredTypes(params.get("required_types").split("#"), requiredFields);
+        String[] requiredTypeStrings = splitParam(params.get("required_types"), "#");
+        ColumnType[] requiredTypes = parseRequiredTypes(requiredTypeStrings, requiredFields);
         initTableInfo(requiredTypes, requiredFields, batchSize);
     }
 
@@ -108,7 +109,8 @@ public class IcebergSysTableJniScanner extends JniScanner {
                 StructLike row = reader.next();
                 for (int i = 0; i < fields.size(); i++) {
                     SelectedField field = fields.get(i);
-                    Object value = row.get(field.sourceIndex, field.field.type().typeId().javaClass());
+                    Object value = row.get(
+                            field.projectedIndex, field.field.type().typeId().javaClass());
                     ColumnValue columnValue = new IcebergSysTableColumnValue(value, timezone);
                     appendData(i, columnValue);
                 }
@@ -130,34 +132,34 @@ public class IcebergSysTableJniScanner extends JniScanner {
     }
 
     private static List<SelectedField> selectSchema(StructType schema, String[] requiredFields) {
-        List<NestedField> schemaFields = schema.fields();
-        List<SelectedField> selectedFields = new ArrayList<>();
-        for (String requiredField : requiredFields) {
+        ImmutableList.Builder<SelectedField> selectedFields = ImmutableList.builder();
+        for (int i = 0; i < requiredFields.length; i++) {
+            String requiredField = requiredFields[i];
             NestedField field = schema.field(requiredField);
             if (field == null) {
                 throw new IllegalArgumentException("RequiredField " + requiredField + " not found in schema");
             }
-            int sourceIndex = schemaFields.indexOf(field);
-            if (sourceIndex < 0) {
-                throw new IllegalArgumentException(
-                        "RequiredField " + requiredField + " not found in source schema fields");
-            }
-            selectedFields.add(new SelectedField(sourceIndex, field));
+            // FE keeps Doris required columns as the projected schema prefix. Some DataTask implementations,
+            // for example StaticDataTask, still expose the full table schema from FileScanTask.schema().
+            selectedFields.add(new SelectedField(i, field));
         }
-        return selectedFields;
+        return selectedFields.build();
     }
 
     private static final class SelectedField {
-        private final int sourceIndex;
+        private final int projectedIndex;
         private final NestedField field;
 
-        private SelectedField(int sourceIndex, NestedField field) {
-            this.sourceIndex = sourceIndex;
+        private SelectedField(int projectedIndex, NestedField field) {
+            this.projectedIndex = projectedIndex;
             this.field = field;
         }
     }
 
     private static ColumnType[] parseRequiredTypes(String[] typeStrings, String[] requiredFields) {
+        Preconditions.checkArgument(typeStrings.length == requiredFields.length,
+                "required_types size %s does not match required_fields size %s",
+                typeStrings.length, requiredFields.length);
         ColumnType[] requiredTypes = new ColumnType[typeStrings.length];
         for (int i = 0; i < typeStrings.length; i++) {
             String type = typeStrings[i];
@@ -168,5 +170,12 @@ public class IcebergSysTableJniScanner extends JniScanner {
             requiredTypes[i] = parsedType;
         }
         return requiredTypes;
+    }
+
+    private static String[] splitParam(String value, String delimiter) {
+        if (value == null || value.isEmpty()) {
+            return new String[0];
+        }
+        return value.split(delimiter);
     }
 }
