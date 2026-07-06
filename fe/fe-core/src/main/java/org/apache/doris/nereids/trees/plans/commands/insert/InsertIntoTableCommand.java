@@ -377,9 +377,8 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
                             buildResult.planner.getFragments().get(0), buildResult.dataSink,
                             buildResult.physicalSink
                     );
-                    // Register running job to LoadManager following Broker Load pattern:
-                    // Initialize once with all required information, then register.
-                    // This ensures SHOW LOAD can observe the job with complete metadata.
+                    // Register the synchronous INSERT runtime job after transaction and sink initialization.
+                    // This ensures SHOW LOAD can observe the running job with complete metadata.
                     if (insertExecutor.shouldRegister()) {
                         try {
                             InsertLoadJob loadJob = insertExecutor.getInsertLoadJob();

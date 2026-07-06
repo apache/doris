@@ -66,7 +66,7 @@ public class InsertLoadJobTest {
     }
 
     @Test
-    public void testInitRunningSetTransactionIdAndMarkLoading() throws MetaNotFoundException {
+    public void testInitRunningDirectlySetsLoadingState() throws MetaNotFoundException {
         try (MockedStatic<Env> envMockedStatic = Mockito.mockStatic(Env.class)) {
             Env env = Mockito.mock(Env.class);
             InternalCatalog catalog = Mockito.mock(InternalCatalog.class);
@@ -87,7 +87,6 @@ public class InsertLoadJobTest {
             InsertLoadJob insertLoadJob = new InsertLoadJob(1L, "label", 100L);
             long beforeInitTimestamp = System.currentTimeMillis();
             insertLoadJob.initRunning(2L, userInfo, 3L);
-            insertLoadJob.markLoading();
 
             Assert.assertEquals(3L, insertLoadJob.getTransactionId());
             Assert.assertEquals(JobState.LOADING, insertLoadJob.getState());

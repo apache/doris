@@ -121,16 +121,11 @@ public abstract class AbstractInsertExecutor {
         this.needRegister = needRegister;
     }
 
-    /**
-     * Check if this executor should register a runtime observable load job.
-     * Follows Broker Load pattern: registration happens once after all initialization is complete.
-     */
     public boolean shouldRegister() {
         return needRegister && jobId != -1 && txnId != INVALID_TXN_ID;
     }
 
     /**
-     * Get the insert load job for external registration.
      * The job should be initialized and registered by InsertIntoTableCommand after transaction begins.
      */
     public InsertLoadJob getInsertLoadJob() {

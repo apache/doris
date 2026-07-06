@@ -220,11 +220,6 @@ public class OlapInsertExecutor extends AbstractInsertExecutor {
     protected void beforeExec() throws UserException {
         String queryId = DebugUtil.printId(ctx.queryId());
         LOG.info("start insert [{}] with query id {} and txn id {}", labelName, queryId, txnId);
-
-        // Mark the job as LOADING so SHOW LOAD displays the correct running state
-        if (insertLoadJob != null) {
-            insertLoadJob.markLoading();
-        }
     }
 
     @Override

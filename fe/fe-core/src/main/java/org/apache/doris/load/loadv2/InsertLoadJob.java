@@ -104,8 +104,8 @@ public class InsertLoadJob extends LoadJob {
 
     /**
      * Initialize the job for runtime observation before adding to LoadManager.
-     * This method should be called once with all necessary information, following the
-     * Broker Load pattern of "construct once, register once".
+     * INSERT INTO SELECT is executed synchronously, so the registered runtime job
+     * represents the currently running load directly.
      *
      * @param tableId the target table id
      * @param userInfo the user who initiated the insert
@@ -118,12 +118,8 @@ public class InsertLoadJob extends LoadJob {
         this.transactionId = transactionId;
         this.authorizationInfo = gatherAuthInfo();
         this.createTimestamp = System.currentTimeMillis();
-        this.state = JobState.PENDING;  // Start with PENDING state, like Broker Load
-    }
-
-    public void markLoading() {
-        this.loadStartTimestamp = System.currentTimeMillis();
-        updateState(JobState.LOADING);
+        this.loadStartTimestamp = this.createTimestamp;
+        this.state = JobState.LOADING;
     }
 
     public AuthorizationInfo gatherAuthInfo() throws MetaNotFoundException {
