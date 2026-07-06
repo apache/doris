@@ -64,6 +64,8 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Median;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MinBy;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MinMap;
+import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctArrayAgg;
+import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctCollectList;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctCount;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctGroupConcat;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctSum;
@@ -177,6 +179,8 @@ public class BuiltinAggregateFunctions implements FunctionHelper {
                 agg(Min.class, "min"),
                 agg(MinBy.class, "min_by"),
                 agg(MinMap.class, "min_map"),
+                agg(MultiDistinctArrayAgg.class, "multi_distinct_array_agg"),
+                agg(MultiDistinctCollectList.class, "multi_distinct_collect_list"),
                 agg(MultiDistinctCount.class, "multi_distinct_count"),
                 agg(MultiDistinctGroupConcat.class, "multi_distinct_group_concat"),
                 agg(MultiDistinctSum.class, "multi_distinct_sum"),

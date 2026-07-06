@@ -21,9 +21,9 @@ import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
-import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.ArrayType;
+import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
 import org.apache.doris.nereids.types.coercion.FollowToAnyDataType;
 
@@ -33,37 +33,44 @@ import com.google.common.collect.ImmutableList;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * AggregateFunction 'array_agg'.
- */
-public class ArrayAgg extends NotNullableAggregateFunction
-        implements UnaryExpression, ExplicitlyCastableSignature, SupportMultiDistinct {
+/** MultiDistinctCollectList */
+public class MultiDistinctCollectList extends NotNullableAggregateFunction
+        implements ExplicitlyCastableSignature, MultiDistinction {
+
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(ArrayType.of(new FollowToAnyDataType(0))).args(new AnyDataType(0))
+            FunctionSignature.ret(ArrayType.of(new FollowToAnyDataType(0))).args(new AnyDataType(0)),
+            FunctionSignature.ret(ArrayType.of(new FollowToAnyDataType(0)))
+                    .args(new AnyDataType(0), IntegerType.INSTANCE)
     );
 
-    public ArrayAgg(Expression arg0) {
-        super("array_agg", arg0);
+    /**
+     * constructor with 1 argument.
+     */
+    public MultiDistinctCollectList(Expression arg) {
+        super("multi_distinct_collect_list", arg);
     }
 
-    public ArrayAgg(boolean distinct, Expression arg0) {
-        super("array_agg", distinct, arg0);
+    /**
+     * constructor with 2 arguments.
+     */
+    public MultiDistinctCollectList(Expression arg0, Expression arg1) {
+        super("multi_distinct_collect_list", arg0, arg1);
     }
 
     /** constructor for withChildren and reuse signature */
-    private ArrayAgg(AggregateFunctionParams functionParams) {
+    private MultiDistinctCollectList(AggregateFunctionParams functionParams) {
         super(functionParams);
     }
 
     @Override
-    public AggregateFunction withDistinctAndChildren(boolean distinct, List<Expression> children) {
-        Preconditions.checkArgument(children.size() == 1);
-        return new ArrayAgg(getFunctionParams(distinct, children));
+    public MultiDistinctCollectList withDistinctAndChildren(boolean distinct, List<Expression> children) {
+        Preconditions.checkArgument(children.size() == 1 || children.size() == 2);
+        return new MultiDistinctCollectList(getFunctionParams(false, children));
     }
 
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
-        return visitor.visitArrayAgg(this, context);
+        return visitor.visitMultiDistinctCollectList(this, context);
     }
 
     @Override
@@ -74,12 +81,5 @@ public class ArrayAgg extends NotNullableAggregateFunction
     @Override
     public Expression resultForEmptyInput() {
         return new ArrayLiteral(new ArrayList<>(), this.getDataType());
-    }
-
-    @Override
-    public AggregateFunction convertToMultiDistinct() {
-        Preconditions.checkArgument(distinct,
-                "can't convert to multi_distinct_array_agg because there is no distinct args");
-        return new MultiDistinctArrayAgg(children.get(0));
     }
 }

@@ -17,6 +17,8 @@
 
 #include "exprs/aggregate/aggregate_function_array_agg.h"
 
+#include "common/exception.h"
+#include "common/status.h"
 #include "core/call_on_type_index.h"
 #include "exprs/aggregate/aggregate_function_collect.h"
 #include "exprs/aggregate/aggregate_function_simple_factory.h"
@@ -25,9 +27,19 @@
 namespace doris {
 
 template <PrimitiveType T>
-AggregateFunctionPtr do_create_agg_function_collect(const DataTypes& argument_types,
+AggregateFunctionPtr do_create_agg_function_collect(bool distinct, const DataTypes& argument_types,
                                                     const bool result_is_nullable,
                                                     const AggregateFunctionAttr& attr) {
+    if (distinct) {
+        if constexpr (T == INVALID_TYPE) {
+            throw Exception(ErrorCode::INTERNAL_ERROR,
+                            "unexpected type for array_agg distinct, please check the input");
+        } else {
+            return creator_without_type::create<
+                    AggregateFunctionCollect<AggregateFunctionCollectSetData<T, false>, false>>(
+                    argument_types, result_is_nullable, attr);
+        }
+    }
     if (argument_types[0]->is_nullable()) {
         return creator_without_type::create_ignore_nullable<
                 AggregateFunctionArrayAgg<AggregateFunctionArrayAggData<T>>>(
@@ -44,23 +56,25 @@ AggregateFunctionPtr create_aggregate_function_array_agg(const std::string& name
                                                          const DataTypePtr& result_type,
                                                          const bool result_is_nullable,
                                                          const AggregateFunctionAttr& attr) {
+    bool distinct = name == "multi_distinct_array_agg";
     AggregateFunctionPtr agg_fn;
     auto call = [&](const auto& type) -> bool {
         using DispatcType = std::decay_t<decltype(type)>;
-        agg_fn = do_create_agg_function_collect<DispatcType::PType>(argument_types,
+        agg_fn = do_create_agg_function_collect<DispatcType::PType>(distinct, argument_types,
                                                                     result_is_nullable, attr);
         return true;
     };
 
     if (!dispatch_switch_all(argument_types[0]->get_primitive_type(), call)) {
         // We do not care what the real type is.
-        agg_fn = do_create_agg_function_collect<INVALID_TYPE>(argument_types, result_is_nullable,
-                                                              attr);
+        agg_fn = do_create_agg_function_collect<INVALID_TYPE>(distinct, argument_types,
+                                                              result_is_nullable, attr);
     }
     return agg_fn;
 }
 
 void register_aggregate_function_array_agg(AggregateFunctionSimpleFactory& factory) {
     factory.register_function_both("array_agg", create_aggregate_function_array_agg);
+    factory.register_function_both("multi_distinct_array_agg", create_aggregate_function_array_agg);
 }
 } // namespace doris

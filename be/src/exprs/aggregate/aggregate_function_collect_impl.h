@@ -53,7 +53,9 @@ AggregateFunctionPtr create_aggregate_function_collect_impl(const std::string& n
                                                             const bool result_is_nullable,
 
                                                             const AggregateFunctionAttr& attr) {
-    bool distinct = name == "collect_set";
+    // multi_distinct_collect_list must dedup in the aggregate state: the Nereids multi-distinct
+    // plan does not push the distinct argument into the group-by key, so the Set path is required.
+    bool distinct = name == "collect_set" || name == "multi_distinct_collect_list";
 
     AggregateFunctionPtr agg_fn;
     auto call = [&](const auto& type) -> bool {
