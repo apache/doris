@@ -2715,9 +2715,9 @@ Status OrcReader::_execute_delete_conjuncts(Block* file_block, size_t rows,
                                                          &result_column_id));
         DORIS_CHECK(result_column_id >= 0 &&
                     result_column_id < static_cast<int>(file_block->columns()));
-        const auto& delete_filter =
-                assert_cast<const ColumnUInt8&>(*file_block->get_by_position(result_column_id).column)
-                        .get_data();
+        const auto& delete_filter = assert_cast<const ColumnUInt8&>(
+                                            *file_block->get_by_position(result_column_id).column)
+                                            .get_data();
         DORIS_CHECK(delete_filter.size() == rows);
         for (size_t row = 0; row < rows; ++row) {
             (*keep_filter)[row] &= !delete_filter[row];
