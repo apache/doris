@@ -19,8 +19,10 @@ package org.apache.doris.connector.hms;
 
 import org.apache.doris.connector.api.ConnectorColumn;
 
+import org.apache.hadoop.hive.common.StatsSetupConst;
 import org.apache.hadoop.hive.metastore.api.Database;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
+import org.apache.hadoop.hive.metastore.api.Partition;
 import org.apache.hadoop.hive.metastore.api.PrincipalType;
 import org.apache.hadoop.hive.metastore.api.SerDeInfo;
 import org.apache.hadoop.hive.metastore.api.StorageDescriptor;
@@ -142,6 +144,80 @@ public final class HmsWriteConverter {
         return database;
     }
 
+    /**
+     * Build Hive metastore {@link Partition} objects for a set of partitions to add, stamping each
+     * partition's basic statistics onto its parameters. Faithful port of legacy
+     * {@code HiveUtil.toMetastoreApiPartition} + {@code makeStorageDescriptorFromHivePartition}, with
+     * the fe-core {@code HivePartition} fields carried directly on {@link HmsPartitionWithStatistics}.
+     */
+    public static List<Partition> toHivePartitions(String dbName, String tableName,
+            List<HmsPartitionWithStatistics> partitions) {
+        List<Partition> result = new ArrayList<>(partitions.size());
+        for (HmsPartitionWithStatistics partition : partitions) {
+            result.add(toHivePartition(dbName, tableName, partition));
+        }
+        return result;
+    }
+
+    private static Partition toHivePartition(String dbName, String tableName,
+            HmsPartitionWithStatistics partitionWithStatistics) {
+        Partition partition = new Partition();
+        partition.setDbName(dbName);
+        partition.setTableName(tableName);
+        partition.setValues(partitionWithStatistics.getPartitionValues());
+        partition.setSd(toHivePartitionStorageDesc(tableName, partitionWithStatistics));
+        partition.setParameters(toStatisticsParameters(
+                partitionWithStatistics.getParameters(),
+                partitionWithStatistics.getStatistics().getCommonStatistics()));
+        return partition;
+    }
+
+    private static StorageDescriptor toHivePartitionStorageDesc(String tableName,
+            HmsPartitionWithStatistics partition) {
+        SerDeInfo serdeInfo = new SerDeInfo();
+        serdeInfo.setName(tableName);
+        serdeInfo.setSerializationLib(partition.getSerde());
+
+        StorageDescriptor sd = new StorageDescriptor();
+        sd.setLocation(emptyToNull(partition.getLocation()));
+        sd.setCols(partition.getColumns());
+        sd.setSerdeInfo(serdeInfo);
+        sd.setInputFormat(partition.getInputFormat());
+        sd.setOutputFormat(partition.getOutputFormat());
+        sd.setParameters(new HashMap<>());
+        return sd;
+    }
+
+    /**
+     * Merge basic statistics into a copy of the given parameters. Faithful port of legacy
+     * {@code HiveUtil.updateStatisticsParameters} (numRows / totalSize / numFiles, plus the CDH
+     * stats-task workaround flag).
+     */
+    public static Map<String, String> toStatisticsParameters(Map<String, String> parameters,
+            HmsCommonStatistics statistics) {
+        Map<String, String> result = new HashMap<>(parameters);
+        result.put(StatsSetupConst.NUM_FILES, String.valueOf(statistics.getFileCount()));
+        result.put(StatsSetupConst.ROW_COUNT, String.valueOf(statistics.getRowCount()));
+        result.put(StatsSetupConst.TOTAL_SIZE, String.valueOf(statistics.getTotalFileBytes()));
+        // CDH 5.16 metastore ignores stats unless STATS_GENERATED_VIA_STATS_TASK is set.
+        if (!parameters.containsKey("STATS_GENERATED_VIA_STATS_TASK")) {
+            result.put("STATS_GENERATED_VIA_STATS_TASK",
+                    "workaround for potential lack of HIVE-12730");
+        }
+        return result;
+    }
+
+    /**
+     * Read basic statistics out of table/partition parameters. Faithful port of legacy
+     * {@code HiveUtil.toHivePartitionStatistics}.
+     */
+    public static HmsPartitionStatistics toPartitionStatistics(Map<String, String> params) {
+        long rowCount = Long.parseLong(params.getOrDefault(StatsSetupConst.ROW_COUNT, "-1"));
+        long totalSize = Long.parseLong(params.getOrDefault(StatsSetupConst.TOTAL_SIZE, "-1"));
+        long numFiles = Long.parseLong(params.getOrDefault(StatsSetupConst.NUM_FILES, "-1"));
+        return HmsPartitionStatistics.fromCommonStatistics(rowCount, numFiles, totalSize);
+    }
+
     private static void setCompressType(HmsCreateTableRequest req, Map<String, String> props) {
         String fileFormat = req.getFileFormat();
         String compression = props.get(COMPRESSION_KEY);
@@ -255,6 +331,10 @@ public final class HmsWriteConverter {
 
     private static boolean isEmpty(String s) {
         return s == null || s.isEmpty();
+    }
+
+    private static String emptyToNull(String s) {
+        return isEmpty(s) ? null : s;
     }
 
     private static boolean isNotEmpty(String s) {

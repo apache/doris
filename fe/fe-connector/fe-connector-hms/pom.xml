@@ -93,6 +93,29 @@ under the License.
             <artifactId>junit-jupiter</artifactId>
             <scope>test</scope>
         </dependency>
+
+        <!-- TEST ONLY: ThriftHmsClientWriteAcidTest instantiates a real ThriftHmsClient, whose ctor
+             builds an org.apache.hadoop.hive.conf.HiveConf; HiveConf static init touches
+             org.apache.hadoop.mapred.JobConf (hadoop-mapreduce-client-core). That artifact reaches the
+             module only transitively (and is <optional> in hive-catalog-shade), so it is absent from the
+             unit-test classpath. The PRODUCTION hms path runs inside the assembled plugin (full hadoop
+             closure), so this is test-scope only — NOT bundled. Mirrors fe-connector-iceberg/paimon.
+             Version from dependencyManagement (${hadoop.version}). -->
+        <dependency>
+            <groupId>org.apache.hadoop</groupId>
+            <artifactId>hadoop-mapreduce-client-core</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <!-- TEST ONLY: HiveConf static init also references commons-lang 2.x
+             (org.apache.commons.lang.StringUtils); like hadoop-mapreduce-client-core above it is present
+             only transitively in the runtime plugin closure, not on the unit-test classpath. Test-scope
+             only — NOT bundled. Version from dependencyManagement. -->
+        <dependency>
+            <groupId>commons-lang</groupId>
+            <artifactId>commons-lang</artifactId>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <build>

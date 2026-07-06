@@ -62,6 +62,17 @@ under the License.
             <scope>provided</scope>
         </dependency>
 
+        <!-- Object-store FileSystem SPI (ObjFileSystem / ObjStorage / FileSystemProvider) for the write
+             transaction's multipart-upload commit/abort. MUST be provided (never bundled): these types come
+             from the shared/parent classpath at runtime, and a second bundled copy would make the plugin's
+             ObjFileSystem.class != the runtime instance.class, so the instanceof/downcast throws a CCE. -->
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-filesystem-spi</artifactId>
+            <version>${project.version}</version>
+            <scope>provided</scope>
+        </dependency>
+
         <!-- Shared HMS client library -->
         <dependency>
             <groupId>${project.groupId}</groupId>
@@ -77,6 +88,17 @@ under the License.
         <dependency>
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <!-- TEST ONLY: HiveAcidUtilTest exercises the ACID descent against a real Hadoop LocalFileSystem;
+             Hadoop's Configuration/LocalFileSystem reference commons-lang 2.x
+             (org.apache.commons.lang.StringUtils), which is present only transitively in the runtime
+             plugin closure, not on the unit-test classpath. Test-scope only — NOT bundled. Mirrors
+             fe-connector-hms. Version from dependencyManagement. -->
+        <dependency>
+            <groupId>commons-lang</groupId>
+            <artifactId>commons-lang</artifactId>
             <scope>test</scope>
         </dependency>
     </dependencies>

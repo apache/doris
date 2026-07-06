@@ -41,6 +41,8 @@ public final class HmsTableInfo {
     private final String serializationLib;
     private final List<ConnectorColumn> columns;
     private final List<ConnectorColumn> partitionKeys;
+    private final List<String> bucketCols;
+    private final int numBuckets;
     private final Map<String, String> parameters;
     private final Map<String, String> sdParameters;
 
@@ -58,6 +60,10 @@ public final class HmsTableInfo {
         this.partitionKeys = builder.partitionKeys == null
                 ? Collections.emptyList()
                 : Collections.unmodifiableList(builder.partitionKeys);
+        this.bucketCols = builder.bucketCols == null
+                ? Collections.emptyList()
+                : Collections.unmodifiableList(builder.bucketCols);
+        this.numBuckets = builder.numBuckets;
         this.parameters = builder.parameters == null
                 ? Collections.emptyMap()
                 : Collections.unmodifiableMap(builder.parameters);
@@ -105,6 +111,16 @@ public final class HmsTableInfo {
         return partitionKeys;
     }
 
+    /** Bucketing columns (empty when the table is not bucketed). */
+    public List<String> getBucketCols() {
+        return bucketCols;
+    }
+
+    /** Bucket count (0 when the table is not bucketed). */
+    public int getNumBuckets() {
+        return numBuckets;
+    }
+
     public Map<String, String> getParameters() {
         return parameters;
     }
@@ -137,6 +153,8 @@ public final class HmsTableInfo {
         private String serializationLib;
         private List<ConnectorColumn> columns;
         private List<ConnectorColumn> partitionKeys;
+        private List<String> bucketCols;
+        private int numBuckets;
         private Map<String, String> parameters;
         private Map<String, String> sdParameters;
 
@@ -185,6 +203,16 @@ public final class HmsTableInfo {
 
         public Builder partitionKeys(List<ConnectorColumn> val) {
             this.partitionKeys = val;
+            return this;
+        }
+
+        public Builder bucketCols(List<String> val) {
+            this.bucketCols = val;
+            return this;
+        }
+
+        public Builder numBuckets(int val) {
+            this.numBuckets = val;
             return this;
         }
 

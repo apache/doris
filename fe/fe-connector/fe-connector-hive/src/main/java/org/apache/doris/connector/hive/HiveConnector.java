@@ -22,6 +22,7 @@ import org.apache.doris.connector.api.ConnectorMetadata;
 import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.DorisConnectorException;
 import org.apache.doris.connector.api.scan.ConnectorScanPlanProvider;
+import org.apache.doris.connector.api.write.ConnectorWritePlanProvider;
 import org.apache.doris.connector.hms.HmsClient;
 import org.apache.doris.connector.hms.HmsClientConfig;
 import org.apache.doris.connector.hms.ThriftHmsClient;
@@ -46,6 +47,10 @@ public class HiveConnector implements Connector {
     private final ConnectorContext context;
     private volatile HmsClient hmsClient;
 
+    // Read-transaction manager for transactional (ACID) Hive scans. One per connector, keyed by query.
+    // Plugin-owned and dormant until the read cutover wires its query-finish commit (see the manager).
+    private final HiveReadTransactionManager readTxnManager = new HiveReadTransactionManager();
+
     public HiveConnector(Map<String, String> properties, ConnectorContext context) {
         this.properties = Collections.unmodifiableMap(properties);
         this.context = context;
@@ -58,7 +63,12 @@ public class HiveConnector implements Connector {
 
     @Override
     public ConnectorScanPlanProvider getScanPlanProvider() {
-        return new HiveScanPlanProvider(getOrCreateClient(), properties);
+        return new HiveScanPlanProvider(getOrCreateClient(), properties, readTxnManager);
+    }
+
+    @Override
+    public ConnectorWritePlanProvider getWritePlanProvider() {
+        return new HiveWritePlanProvider(getOrCreateClient(), properties, context);
     }
 
     private HmsClient getOrCreateClient() {

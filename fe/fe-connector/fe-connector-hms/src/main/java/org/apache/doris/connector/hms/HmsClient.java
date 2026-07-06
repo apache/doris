@@ -20,6 +20,7 @@ package org.apache.doris.connector.hms;
 import java.io.Closeable;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Function;
 
 /**
  * Clean interface for Hive MetaStore client operations.
@@ -33,8 +34,8 @@ import java.util.Map;
  * <ul>
  *   <li>Phase 1: Read-only metadata (list, get, exists)</li>
  *   <li>Phase 2: Partition operations</li>
- *   <li>Phase 3: DDL / write operations (future)</li>
- *   <li>Phase 4: ACID + events (future)</li>
+ *   <li>Phase 3: DDL / write operations</li>
+ *   <li>Phase 4: ACID transactions</li>
  * </ul>
  */
 public interface HmsClient extends Closeable {
@@ -194,5 +195,139 @@ public interface HmsClient extends Closeable {
      */
     default void truncateTable(String dbName, String tableName, List<String> partitions) {
         throw new UnsupportedOperationException("truncateTable is not supported by this client");
+    }
+
+    /**
+     * Add partitions to a table, stamping each partition's basic statistics onto its parameters.
+     * Ports the legacy {@code HMSTransaction} add-partition commit; the implementation batches large
+     * lists internally.
+     *
+     * @param dbName     database name
+     * @param tableName  table name
+     * @param partitions partitions to create, each with its data-layout and statistics
+     * @throws HmsClientException if the operation fails
+     */
+    default void addPartitions(String dbName, String tableName,
+            List<HmsPartitionWithStatistics> partitions) {
+        throw new UnsupportedOperationException("addPartitions is not supported by this client");
+    }
+
+    /**
+     * Read-modify-write a table's basic statistics parameters (numRows / totalSize / numFiles).
+     *
+     * @param dbName    database name
+     * @param tableName table name
+     * @param update    receives the table's current statistics and returns the new statistics
+     * @throws HmsClientException if the operation fails
+     */
+    default void updateTableStatistics(String dbName, String tableName,
+            Function<HmsPartitionStatistics, HmsPartitionStatistics> update) {
+        throw new UnsupportedOperationException(
+                "updateTableStatistics is not supported by this client");
+    }
+
+    /**
+     * Read-modify-write a single partition's basic statistics parameters.
+     *
+     * @param dbName        database name
+     * @param tableName     table name
+     * @param partitionName partition name (e.g. "dt=2024-01-01")
+     * @param update        receives the partition's current statistics and returns the new statistics
+     * @throws HmsClientException if the operation fails
+     */
+    default void updatePartitionStatistics(String dbName, String tableName, String partitionName,
+            Function<HmsPartitionStatistics, HmsPartitionStatistics> update) {
+        throw new UnsupportedOperationException(
+                "updatePartitionStatistics is not supported by this client");
+    }
+
+    /**
+     * Drop a partition by its values.
+     *
+     * @param dbName          database name
+     * @param tableName       table name
+     * @param partitionValues partition column values in declaration order
+     * @param deleteData      whether to also delete the partition's data files
+     * @return true if a partition was dropped
+     * @throws HmsClientException if the operation fails
+     */
+    default boolean dropPartition(String dbName, String tableName,
+            List<String> partitionValues, boolean deleteData) {
+        throw new UnsupportedOperationException("dropPartition is not supported by this client");
+    }
+
+    /**
+     * Not-found-tolerant probe for whether a partition exists (used to downgrade a NEW-partition
+     * write to an APPEND when the Doris cache missed a partition that already exists in HMS).
+     *
+     * @param dbName          database name
+     * @param tableName       table name
+     * @param partitionValues partition column values in declaration order
+     * @return true if the partition exists in the metastore
+     * @throws HmsClientException if the operation fails for a reason other than not-found
+     */
+    default boolean partitionExists(String dbName, String tableName,
+            List<String> partitionValues) {
+        throw new UnsupportedOperationException("partitionExists is not supported by this client");
+    }
+
+    // ========== Phase 4: ACID transactions ==========
+    //
+    // Read-side ACID primitives for transactional Hive tables. Like the Phase 3 block, they default
+    // to throwing so read-only / non-transactional clients need not implement them.
+
+    /**
+     * Open a Hive ACID transaction.
+     *
+     * @param user the user opening the transaction
+     * @return the new transaction id
+     * @throws HmsClientException if the operation fails
+     */
+    default long openTxn(String user) {
+        throw new UnsupportedOperationException("openTxn is not supported by this client");
+    }
+
+    /**
+     * Commit a Hive ACID transaction (also releases the transaction's locks).
+     *
+     * @param txnId the transaction id
+     * @throws HmsClientException if the operation fails
+     */
+    default void commitTxn(long txnId) {
+        throw new UnsupportedOperationException("commitTxn is not supported by this client");
+    }
+
+    /**
+     * Get the valid-transaction / valid-write-id snapshot for a transactional table, as the two
+     * Hadoop-configuration entries ({@link HmsAcidConstants}) that BE consumes for ACID reads. On a
+     * metastore-incompatibility error the implementation degrades to a max watermark rather than
+     * failing the read.
+     *
+     * @param fullTableName        fully-qualified "db.table"
+     * @param currentTransactionId the reader's open transaction id
+     * @return map with {@link HmsAcidConstants#VALID_TXNS_KEY} and
+     *         {@link HmsAcidConstants#VALID_WRITEIDS_KEY}
+     * @throws HmsClientException if the operation fails
+     */
+    default Map<String, String> getValidWriteIds(String fullTableName, long currentTransactionId) {
+        throw new UnsupportedOperationException("getValidWriteIds is not supported by this client");
+    }
+
+    /**
+     * Acquire a shared (read) lock over a table and, if given, specific partitions, polling until the
+     * lock is granted or the timeout elapses.
+     *
+     * @param queryId        the query id (lock owner)
+     * @param txnId          the transaction id
+     * @param user           the requesting user
+     * @param dbName         database name
+     * @param tableName      table name
+     * @param partitionNames partitions to lock; empty locks the whole table
+     * @param timeoutMs      maximum time to wait for the lock, in milliseconds
+     * @throws HmsClientException if the lock cannot be acquired within the timeout
+     */
+    default void acquireSharedLock(String queryId, long txnId, String user, String dbName,
+            String tableName, List<String> partitionNames, long timeoutMs) {
+        throw new UnsupportedOperationException("acquireSharedLock is not supported by this client");
     }
 }

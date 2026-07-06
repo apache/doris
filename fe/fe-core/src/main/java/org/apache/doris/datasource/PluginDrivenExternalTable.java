@@ -202,6 +202,22 @@ public class PluginDrivenExternalTable extends ExternalTable {
     }
 
     /**
+     * Returns whether the underlying connector requires dynamic-partition writes to be hash-distributed by
+     * partition columns but <b>not</b> locally sorted (e.g. Hive: the file writer buffers a per-partition
+     * writer, so the hash alone keeps each partition on one instance without a sort). Used by
+     * {@code PhysicalConnectorTableSink} to require that hash distribution (no {@code MustLocalSortOrderSpec}) for
+     * dynamic-partition writes; a connector sets at most one of this and {@link #requirePartitionLocalSortOnWrite()}.
+     * Defaults to false so non-partitioned connectors are unaffected.
+     */
+    public boolean requirePartitionHashOnWrite() {
+        if (!(catalog instanceof PluginDrivenExternalCatalog)) {
+            return false;
+        }
+        Connector connector = ((PluginDrivenExternalCatalog) catalog).getConnector();
+        return connector != null && connector.requiresPartitionHashWrite();
+    }
+
+    /**
      * Returns whether the underlying connector maps write data columns positionally against the full
      * table schema (e.g. MaxCompute), requiring the sink to project rows to full-schema order with
      * unmentioned columns filled. Name-mapped connectors (e.g. JDBC) return false and keep their data

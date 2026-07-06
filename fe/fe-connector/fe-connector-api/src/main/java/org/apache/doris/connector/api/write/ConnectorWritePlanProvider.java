@@ -196,6 +196,22 @@ public interface ConnectorWritePlanProvider {
     }
 
     /**
+     * Whether dynamic-partition writes must be hash-distributed by partition columns but <b>not</b> locally
+     * sorted by them. A hive-style file writer buffers a separate partition writer per partition value, so —
+     * unlike {@link #requiresPartitionLocalSort()} (MaxCompute's streaming Storage-API writer, which closes a
+     * partition writer as soon as a different partition value appears and therefore needs the rows grouped by a
+     * local sort) — the hash distribution alone keeps each partition's rows on one instance and the output file
+     * count at ~one-per-partition, with no sort cost. The engine ({@code PhysicalConnectorTableSink}) picks the
+     * matching distribution: {@code requiresPartitionLocalSort} ⇒ hash + {@code MustLocalSortOrderSpec};
+     * {@code requiresPartitionHashWrite} ⇒ hash only. A connector sets at most one of the two hash arms; a
+     * connector declaring this should also declare {@link #requiresParallelWrite()} +
+     * {@link #requiresFullSchemaWriteOrder()}. Default: no.
+     */
+    default boolean requiresPartitionHashWrite() {
+        return false;
+    }
+
+    /**
      * Whether the connector's data files physically retain partition columns, so a static-partition write
      * must materialize the PARTITION-clause literal into the data column instead of NULL-filling it (e.g.
      * Iceberg). Formerly a static {@code ConnectorCapability} switch; now this per-provider method is the

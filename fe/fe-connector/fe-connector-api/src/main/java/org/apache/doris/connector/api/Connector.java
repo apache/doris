@@ -89,6 +89,12 @@ public interface Connector extends Closeable {
         return p != null && p.requiresPartitionLocalSort();
     }
 
+    /** Null-safe view of {@link ConnectorWritePlanProvider#requiresPartitionHashWrite()}. No provider ⇒ false. */
+    default boolean requiresPartitionHashWrite() {
+        ConnectorWritePlanProvider p = getWritePlanProvider();
+        return p != null && p.requiresPartitionHashWrite();
+    }
+
     /**
      * Null-safe view of {@link ConnectorWritePlanProvider#requiresMaterializeStaticPartitionValues()}. No
      * provider ⇒ false.

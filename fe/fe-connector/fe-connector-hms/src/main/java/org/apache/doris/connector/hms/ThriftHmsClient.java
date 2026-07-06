@@ -25,29 +25,46 @@ import org.apache.commons.pool2.PooledObject;
 import org.apache.commons.pool2.impl.DefaultPooledObject;
 import org.apache.commons.pool2.impl.GenericObjectPool;
 import org.apache.commons.pool2.impl.GenericObjectPoolConfig;
+import org.apache.hadoop.hive.common.ValidReadTxnList;
+import org.apache.hadoop.hive.common.ValidReaderWriteIdList;
+import org.apache.hadoop.hive.common.ValidTxnList;
+import org.apache.hadoop.hive.common.ValidTxnWriteIdList;
+import org.apache.hadoop.hive.common.ValidWriteIdList;
 import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.hadoop.hive.metastore.HiveMetaHookLoader;
 import org.apache.hadoop.hive.metastore.HiveMetaStoreClient;
 import org.apache.hadoop.hive.metastore.IMetaStoreClient;
+import org.apache.hadoop.hive.metastore.LockComponentBuilder;
+import org.apache.hadoop.hive.metastore.LockRequestBuilder;
 import org.apache.hadoop.hive.metastore.RetryingMetaStoreClient;
+import org.apache.hadoop.hive.metastore.api.DataOperationType;
 import org.apache.hadoop.hive.metastore.api.Database;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
+import org.apache.hadoop.hive.metastore.api.LockComponent;
+import org.apache.hadoop.hive.metastore.api.LockRequest;
+import org.apache.hadoop.hive.metastore.api.LockResponse;
+import org.apache.hadoop.hive.metastore.api.LockState;
 import org.apache.hadoop.hive.metastore.api.MetaException;
+import org.apache.hadoop.hive.metastore.api.NoSuchObjectException;
 import org.apache.hadoop.hive.metastore.api.Partition;
 import org.apache.hadoop.hive.metastore.api.SQLDefaultConstraint;
 import org.apache.hadoop.hive.metastore.api.StorageDescriptor;
 import org.apache.hadoop.hive.metastore.api.Table;
+import org.apache.hadoop.hive.metastore.api.TableValidWriteIds;
+import org.apache.hadoop.hive.metastore.txn.TxnUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import shade.doris.hive.org.apache.thrift.TApplicationException;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.BitSet;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Callable;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
@@ -72,6 +89,8 @@ public class ThriftHmsClient implements HmsClient {
     private static final HiveMetaHookLoader DUMMY_HOOK_LOADER = tbl -> null;
     private static final int MAX_LIST_PARTITION_NUM = Short.MAX_VALUE;
     private static final long POOL_BORROW_TIMEOUT_MS = 60_000L;
+    private static final int ADD_PARTITIONS_BATCH_SIZE = 20;
+    private static final String TRANSIENT_LAST_DDL_TIME = "transient_lastDdlTime";
 
     private final HiveConf hiveConf;
     private final GenericObjectPool<PooledHmsClient> clientPool;
@@ -283,6 +302,194 @@ public class ThriftHmsClient implements HmsClient {
         return defaults;
     }
 
+    // ========== Phase 3: partition / statistics writes ==========
+
+    @Override
+    public void addPartitions(String dbName, String tableName,
+            List<HmsPartitionWithStatistics> partitions) {
+        execute(client -> {
+            List<Partition> hivePartitions =
+                    HmsWriteConverter.toHivePartitions(dbName, tableName, partitions);
+            for (int i = 0; i < hivePartitions.size(); i += ADD_PARTITIONS_BATCH_SIZE) {
+                int end = Math.min(i + ADD_PARTITIONS_BATCH_SIZE, hivePartitions.size());
+                client.add_partitions(new ArrayList<>(hivePartitions.subList(i, end)));
+            }
+            return null;
+        });
+    }
+
+    @Override
+    public void updateTableStatistics(String dbName, String tableName,
+            Function<HmsPartitionStatistics, HmsPartitionStatistics> update) {
+        execute(client -> {
+            Table originTable = client.getTable(dbName, tableName);
+            Map<String, String> originParams = originTable.getParameters();
+            HmsPartitionStatistics updatedStats =
+                    update.apply(HmsWriteConverter.toPartitionStatistics(originParams));
+            Table newTable = originTable.deepCopy();
+            Map<String, String> newParams = HmsWriteConverter.toStatisticsParameters(
+                    originParams, updatedStats.getCommonStatistics());
+            newParams.put(TRANSIENT_LAST_DDL_TIME,
+                    String.valueOf(System.currentTimeMillis() / 1000));
+            newTable.setParameters(newParams);
+            client.alter_table(dbName, tableName, newTable);
+            return null;
+        });
+    }
+
+    @Override
+    public void updatePartitionStatistics(String dbName, String tableName, String partitionName,
+            Function<HmsPartitionStatistics, HmsPartitionStatistics> update) {
+        execute(client -> {
+            List<Partition> partitions = client.getPartitionsByNames(
+                    dbName, tableName, Collections.singletonList(partitionName));
+            if (partitions.size() != 1) {
+                throw new HmsClientException(
+                        "Metastore returned multiple partitions for name: " + partitionName);
+            }
+            Partition originPartition = partitions.get(0);
+            Map<String, String> originParams = originPartition.getParameters();
+            HmsPartitionStatistics updatedStats =
+                    update.apply(HmsWriteConverter.toPartitionStatistics(originParams));
+            Partition modifiedPartition = originPartition.deepCopy();
+            Map<String, String> newParams = HmsWriteConverter.toStatisticsParameters(
+                    originParams, updatedStats.getCommonStatistics());
+            newParams.put(TRANSIENT_LAST_DDL_TIME,
+                    String.valueOf(System.currentTimeMillis() / 1000));
+            modifiedPartition.setParameters(newParams);
+            client.alter_partition(dbName, tableName, modifiedPartition);
+            return null;
+        });
+    }
+
+    @Override
+    public boolean dropPartition(String dbName, String tableName,
+            List<String> partitionValues, boolean deleteData) {
+        return execute(client ->
+                client.dropPartition(dbName, tableName, partitionValues, deleteData));
+    }
+
+    @Override
+    public boolean partitionExists(String dbName, String tableName,
+            List<String> partitionValues) {
+        return execute(client -> {
+            try {
+                client.getPartition(dbName, tableName, partitionValues);
+                return Boolean.TRUE;
+            } catch (NoSuchObjectException e) {
+                // Not found: a normal answer, not a client fault — do not taint the pooled client.
+                return Boolean.FALSE;
+            }
+        });
+    }
+
+    // ========== Phase 4: ACID transactions ==========
+
+    @Override
+    public long openTxn(String user) {
+        return execute(client -> client.openTxn(user));
+    }
+
+    @Override
+    public void commitTxn(long txnId) {
+        execute(client -> {
+            client.commitTxn(txnId);
+            return null;
+        });
+    }
+
+    @Override
+    public Map<String, String> getValidWriteIds(String fullTableName, long currentTransactionId) {
+        Map<String, String> conf = new HashMap<>();
+        try {
+            return execute(client -> {
+                // Use the recent snapshot of valid transactions (no currentTxn arg): passing
+                // currentTransactionId here would break Hive's delta-directory listing if a major
+                // compaction removed deltas for transactions that were valid when this txn opened.
+                ValidTxnList validTransactions = client.getValidTxns();
+                List<TableValidWriteIds> tableValidWriteIdsList = client.getValidWriteIds(
+                        Collections.singletonList(fullTableName), validTransactions.toString());
+                if (tableValidWriteIdsList.size() != 1) {
+                    throw new HmsClientException("tableValidWriteIdsList's size should be 1");
+                }
+                ValidTxnWriteIdList validTxnWriteIdList = TxnUtils.createValidTxnWriteIdList(
+                        currentTransactionId, tableValidWriteIdsList);
+                ValidWriteIdList writeIdList =
+                        validTxnWriteIdList.getTableValidWriteIdList(fullTableName);
+                conf.put(HmsAcidConstants.VALID_TXNS_KEY, validTransactions.writeToString());
+                conf.put(HmsAcidConstants.VALID_WRITEIDS_KEY, writeIdList.writeToString());
+                return conf;
+            });
+        } catch (Exception e) {
+            // Older / incompatible metastores may lack these APIs; degrade to a max watermark
+            // instead of failing the scan (mirrors legacy ThriftHMSCachedClient).
+            LOG.warn("failed to get valid write ids for {}, transaction {}",
+                    fullTableName, currentTransactionId, e);
+            ValidTxnList validTransactions = new ValidReadTxnList(
+                    new long[0], new BitSet(), Long.MAX_VALUE, Long.MAX_VALUE);
+            ValidWriteIdList writeIdList = new ValidReaderWriteIdList(
+                    fullTableName, new long[0], new BitSet(), Long.MAX_VALUE);
+            conf.put(HmsAcidConstants.VALID_TXNS_KEY, validTransactions.writeToString());
+            conf.put(HmsAcidConstants.VALID_WRITEIDS_KEY, writeIdList.writeToString());
+            return conf;
+        }
+    }
+
+    @Override
+    public void acquireSharedLock(String queryId, long txnId, String user, String dbName,
+            String tableName, List<String> partitionNames, long timeoutMs) {
+        LockRequestBuilder requestBuilder = new LockRequestBuilder(queryId)
+                .setTransactionId(txnId)
+                .setUser(user);
+        for (LockComponent component
+                : createLockComponentsForRead(dbName, tableName, partitionNames)) {
+            requestBuilder.addLockComponent(component);
+        }
+        LockRequest lockRequest = requestBuilder.build();
+        LockResponse response = execute(client -> client.lock(lockRequest));
+        long start = System.currentTimeMillis();
+        while (response.getState() == LockState.WAITING) {
+            if (System.currentTimeMillis() - start > timeoutMs) {
+                throw new HmsClientException("acquire lock timeout for txn " + txnId
+                        + " of query " + queryId + ", timeout(ms): " + timeoutMs);
+            }
+            long lockId = response.getLockid();
+            response = execute(client -> client.checkLock(lockId));
+        }
+        if (response.getState() != LockState.ACQUIRED) {
+            throw new HmsClientException(
+                    "failed to acquire lock, lock in state " + response.getState());
+        }
+    }
+
+    private static List<LockComponent> createLockComponentsForRead(String dbName, String tableName,
+            List<String> partitionNames) {
+        List<LockComponent> components = new ArrayList<>(
+                partitionNames.isEmpty() ? 1 : partitionNames.size());
+        if (partitionNames.isEmpty()) {
+            components.add(createLockComponentForRead(dbName, tableName, null));
+        } else {
+            for (String partitionName : partitionNames) {
+                components.add(createLockComponentForRead(dbName, tableName, partitionName));
+            }
+        }
+        return components;
+    }
+
+    private static LockComponent createLockComponentForRead(String dbName, String tableName,
+            String partitionName) {
+        LockComponentBuilder builder = new LockComponentBuilder();
+        builder.setShared();
+        builder.setOperationType(DataOperationType.SELECT);
+        builder.setDbName(dbName);
+        builder.setTableName(tableName);
+        if (partitionName != null) {
+            builder.setPartitionName(partitionName);
+        }
+        builder.setIsTransactional(true);
+        return builder.build();
+    }
+
     @Override
     public synchronized void close() throws IOException {
         if (closed) {
@@ -350,7 +557,9 @@ public class ThriftHmsClient implements HmsClient {
         if (sd != null) {
             builder.location(sd.getLocation())
                     .inputFormat(sd.getInputFormat())
-                    .outputFormat(sd.getOutputFormat());
+                    .outputFormat(sd.getOutputFormat())
+                    .bucketCols(sd.getBucketCols())
+                    .numBuckets(sd.getNumBuckets());
             if (sd.getSerdeInfo() != null) {
                 builder.serializationLib(
                         sd.getSerdeInfo().getSerializationLib());

@@ -22,6 +22,7 @@ import org.apache.doris.connector.hms.HmsPartitionInfo;
 
 import java.util.Collections;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 /**
@@ -35,6 +36,10 @@ import java.util.Map;
 public class HiveTableHandle implements ConnectorTableHandle {
 
     private static final long serialVersionUID = 1L;
+
+    /** Metastore parameter key marking an ACID table insert-only (vs full-ACID). */
+    private static final String TRANSACTIONAL_PROPERTIES = "transactional_properties";
+    private static final String INSERT_ONLY = "insert_only";
 
     private final String dbName;
     private final String tableName;
@@ -109,6 +114,41 @@ public class HiveTableHandle implements ConnectorTableHandle {
 
     public Map<String, String> getTableParameters() {
         return tableParameters;
+    }
+
+    /**
+     * Whether the metastore parameters mark this table transactional (ACID), replicating Hive's
+     * {@code AcidUtils.isTransactionalTable} (case-insensitive {@code "true"} under the
+     * {@code transactional} key, with the upper-cased key as a fallback).
+     */
+    public boolean isTransactional() {
+        return isTransactionalTable(tableParameters);
+    }
+
+    /**
+     * Whether this table is full-ACID (transactional and <b>not</b> insert-only), i.e. its reads must
+     * apply row-level deletes from delete-delta directories. Mirrors Hive's
+     * {@code AcidUtils.isFullAcidTable}: transactional and {@code transactional_properties} is not
+     * {@code insert_only}.
+     */
+    public boolean isFullAcid() {
+        if (!isTransactional()) {
+            return false;
+        }
+        String props = tableParameters.get(TRANSACTIONAL_PROPERTIES);
+        return !INSERT_ONLY.equalsIgnoreCase(props);
+    }
+
+    private static boolean isTransactionalTable(Map<String, String> tableParameters) {
+        if (tableParameters == null) {
+            return false;
+        }
+        String value = tableParameters.get(HiveConnectorProperties.CREATE_TRANSACTIONAL);
+        if (value == null) {
+            value = tableParameters.get(
+                    HiveConnectorProperties.CREATE_TRANSACTIONAL.toUpperCase(Locale.ROOT));
+        }
+        return "true".equalsIgnoreCase(value);
     }
 
     public List<HmsPartitionInfo> getPrunedPartitions() {

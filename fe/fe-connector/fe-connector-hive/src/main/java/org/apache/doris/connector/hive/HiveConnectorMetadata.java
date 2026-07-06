@@ -28,6 +28,7 @@ import org.apache.doris.connector.api.ddl.ConnectorPartitionField;
 import org.apache.doris.connector.api.ddl.ConnectorPartitionSpec;
 import org.apache.doris.connector.api.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
+import org.apache.doris.connector.api.handle.ConnectorTransaction;
 import org.apache.doris.connector.api.pushdown.ConnectorAnd;
 import org.apache.doris.connector.api.pushdown.ConnectorComparison;
 import org.apache.doris.connector.api.pushdown.ConnectorExpression;
@@ -450,6 +451,20 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
     // RENAME TABLE is intentionally NOT overridden: hive does not support ALTER TABLE RENAME (legacy
     // HMSCachedClient has no rename), so the SPI default throw ("RENAME TABLE not supported") preserves the
     // pre-flip behavior.
+
+    // ========== ConnectorWriteOps: transactions ==========
+
+    /**
+     * Opens a {@link HiveConnectorTransaction} for a hive non-ACID INSERT / INSERT OVERWRITE, mirroring the
+     * iceberg one-liner (design D1: {@code planWrite} lives in {@code HiveWritePlanProvider}, the metadata
+     * carries only the begin factory). The transaction id is the engine-allocated Doris global id (it is
+     * registered in the engine transaction registry and stamped into the sink), so it must come from the
+     * session, not be minted here. Dormant until the P7.4/P7.5 cutover.
+     */
+    @Override
+    public ConnectorTransaction beginTransaction(ConnectorSession session) {
+        return new HiveConnectorTransaction(session.allocateTransactionId(), hmsClient, context);
+    }
 
     /**
      * Drops {@code dbName.tableName} after rejecting a transactional table, mirroring legacy

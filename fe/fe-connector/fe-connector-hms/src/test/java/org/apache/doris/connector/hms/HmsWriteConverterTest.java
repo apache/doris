@@ -20,8 +20,10 @@ package org.apache.doris.connector.hms;
 import org.apache.doris.connector.api.ConnectorColumn;
 import org.apache.doris.connector.api.ConnectorType;
 
+import org.apache.hadoop.hive.common.StatsSetupConst;
 import org.apache.hadoop.hive.metastore.api.Database;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
+import org.apache.hadoop.hive.metastore.api.Partition;
 import org.apache.hadoop.hive.metastore.api.PrincipalType;
 import org.apache.hadoop.hive.metastore.api.StorageDescriptor;
 import org.apache.hadoop.hive.metastore.api.Table;
@@ -207,6 +209,114 @@ public class HmsWriteConverterTest {
         Assertions.assertNull(db.getOwnerName());
         // Comment normalizes to empty string, never null.
         Assertions.assertEquals("", db.getDescription());
+    }
+
+    @Test
+    public void testToHivePartitionsBuildsPartitionWithStatsAndSd() {
+        // WHY: the add-partition commit path depends on the storage descriptor (location/serde/format)
+        // and the basic-stats parameters being stamped exactly as HMS expects, or the created
+        // partition is unreadable or its row/byte counts are wrong.
+        HmsPartitionWithStatistics part = HmsPartitionWithStatistics.builder()
+                .name("dt=2024-01-01")
+                .partitionValues(Collections.singletonList("2024-01-01"))
+                .location("hdfs://ns/db/t/dt=2024-01-01")
+                .columns(Collections.singletonList(fieldSchema("id", "int")))
+                .inputFormat("org.apache.hadoop.hive.ql.io.orc.OrcInputFormat")
+                .outputFormat("org.apache.hadoop.hive.ql.io.orc.OrcOutputFormat")
+                .serde("org.apache.hadoop.hive.ql.io.orc.OrcSerde")
+                .parameters(new HashMap<>())
+                .statistics(HmsPartitionStatistics.fromCommonStatistics(10, 2, 100))
+                .build();
+
+        List<Partition> partitions = HmsWriteConverter.toHivePartitions("db", "t",
+                Collections.singletonList(part));
+
+        Assertions.assertEquals(1, partitions.size());
+        Partition p = partitions.get(0);
+        Assertions.assertEquals("db", p.getDbName());
+        Assertions.assertEquals("t", p.getTableName());
+        Assertions.assertEquals(Collections.singletonList("2024-01-01"), p.getValues());
+
+        StorageDescriptor sd = p.getSd();
+        Assertions.assertEquals("hdfs://ns/db/t/dt=2024-01-01", sd.getLocation());
+        Assertions.assertEquals(Collections.singletonList("id"), names(sd.getCols()));
+        Assertions.assertEquals("org.apache.hadoop.hive.ql.io.orc.OrcInputFormat", sd.getInputFormat());
+        Assertions.assertEquals("org.apache.hadoop.hive.ql.io.orc.OrcOutputFormat", sd.getOutputFormat());
+        Assertions.assertEquals("org.apache.hadoop.hive.ql.io.orc.OrcSerde",
+                sd.getSerdeInfo().getSerializationLib());
+
+        // Basic statistics land on the partition parameters (numRows / numFiles / totalSize).
+        Assertions.assertEquals("10", p.getParameters().get(StatsSetupConst.ROW_COUNT));
+        Assertions.assertEquals("2", p.getParameters().get(StatsSetupConst.NUM_FILES));
+        Assertions.assertEquals("100", p.getParameters().get(StatsSetupConst.TOTAL_SIZE));
+    }
+
+    @Test
+    public void testToHivePartitionsEmptyLocationBecomesNull() {
+        // Strings.emptyToNull parity: an empty location must not be written as "" (HMS treats "" and
+        // null differently for partition location resolution).
+        HmsPartitionWithStatistics part = HmsPartitionWithStatistics.builder()
+                .partitionValues(Collections.singletonList("2024"))
+                .location("")
+                .columns(Collections.emptyList())
+                .parameters(new HashMap<>())
+                .statistics(HmsPartitionStatistics.EMPTY)
+                .build();
+        Partition p = HmsWriteConverter.toHivePartitions("db", "t",
+                Collections.singletonList(part)).get(0);
+        Assertions.assertNull(p.getSd().getLocation());
+    }
+
+    @Test
+    public void testToStatisticsParametersStampsBasicStatsAndWorkaroundFlag() {
+        Map<String, String> origin = mutableMap("existing", "kept");
+        Map<String, String> result = HmsWriteConverter.toStatisticsParameters(
+                origin, new HmsCommonStatistics(7, 3, 70));
+        Assertions.assertEquals("7", result.get(StatsSetupConst.ROW_COUNT));
+        Assertions.assertEquals("3", result.get(StatsSetupConst.NUM_FILES));
+        Assertions.assertEquals("70", result.get(StatsSetupConst.TOTAL_SIZE));
+        // Pre-existing params survive.
+        Assertions.assertEquals("kept", result.get("existing"));
+        // CDH workaround flag added when absent.
+        Assertions.assertEquals("workaround for potential lack of HIVE-12730",
+                result.get("STATS_GENERATED_VIA_STATS_TASK"));
+        // The source map is not mutated (defensive copy).
+        Assertions.assertFalse(origin.containsKey(StatsSetupConst.ROW_COUNT));
+    }
+
+    @Test
+    public void testToStatisticsParametersKeepsExistingWorkaroundFlag() {
+        Map<String, String> origin = mutableMap("STATS_GENERATED_VIA_STATS_TASK", "already-set");
+        Map<String, String> result = HmsWriteConverter.toStatisticsParameters(
+                origin, HmsCommonStatistics.EMPTY);
+        Assertions.assertEquals("already-set", result.get("STATS_GENERATED_VIA_STATS_TASK"));
+    }
+
+    @Test
+    public void testToPartitionStatisticsReadsBackParamsAndDefaults() {
+        Map<String, String> params = new HashMap<>();
+        params.put(StatsSetupConst.ROW_COUNT, "42");
+        params.put(StatsSetupConst.NUM_FILES, "4");
+        params.put(StatsSetupConst.TOTAL_SIZE, "420");
+        HmsCommonStatistics stats =
+                HmsWriteConverter.toPartitionStatistics(params).getCommonStatistics();
+        Assertions.assertEquals(42, stats.getRowCount());
+        Assertions.assertEquals(4, stats.getFileCount());
+        Assertions.assertEquals(420, stats.getTotalFileBytes());
+
+        // Missing params default to -1 (legacy sentinel for "unknown").
+        HmsCommonStatistics missing =
+                HmsWriteConverter.toPartitionStatistics(new HashMap<>()).getCommonStatistics();
+        Assertions.assertEquals(-1, missing.getRowCount());
+        Assertions.assertEquals(-1, missing.getFileCount());
+        Assertions.assertEquals(-1, missing.getTotalFileBytes());
+    }
+
+    private static FieldSchema fieldSchema(String name, String type) {
+        FieldSchema fs = new FieldSchema();
+        fs.setName(name);
+        fs.setType(type);
+        return fs;
     }
 
     private static List<String> names(List<FieldSchema> schemas) {
