@@ -69,7 +69,16 @@ suite("test_file_cache_query_limit", "p0,external") {
     String ex_db_name = "tpch1_parquet"
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
     String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
-    int queryCacheCapacity
+    long queryCacheCapacity
+
+    // Sum a file_cache_statistics metric across all cache paths. file_cache_statistics reports
+    // one row per (cache_path, metric_name), so "limit 1" can observe an arbitrary path instead
+    // of the whole file cache state.
+    def cacheMetricSum = { String metricName ->
+        def r = sql """select sum(cast(METRIC_VALUE as double)) from information_schema.file_cache_statistics
+                where METRIC_NAME = '${metricName}';"""
+        return (r.size() == 0 || r[0][0] == null) ? null : Double.valueOf(r[0][0].toString())
+    }
 
     // Poll a file_cache_statistics metric until predicate holds, or until timeout.
     // file_cache_statistics is refreshed by the background monitor on its own cadence,
@@ -82,9 +91,8 @@ suite("test_file_cache_query_limit", "p0,external") {
                     .atMost(timeoutSeconds, TimeUnit.SECONDS)
                     .pollInterval(1, TimeUnit.SECONDS)
                     .until {
-                        def r = sql """select METRIC_VALUE from information_schema.file_cache_statistics
-                                where METRIC_NAME = '${metricName}' limit 1;"""
-                        return r.size() > 0 && predicate(Double.valueOf(r[0][0]))
+                        Double metricValue = cacheMetricSum(metricName)
+                        return metricValue != null && predicate(metricValue)
                     }
         } catch (org.awaitility.core.ConditionTimeoutException ignored) {
             // fall through; the caller's assert will surface the precise failure
@@ -139,11 +147,15 @@ suite("test_file_cache_query_limit", "p0,external") {
 
     // Wait for process completion and check exit status
     def exitCode = process.waitFor()
-    def fileCacheCapacityResult = output.toString().split("\n").find { it.contains("file_cache_capacity") }?.split(":")?.last()?.trim()
+    def fileCacheCapacityResults = output.toString().split("\n")
+            .findAll { it.contains("file_cache_capacity") }
+            .collect { it.split(":")?.last()?.trim() }
+            .findAll { it != null && !it.isEmpty() }
+            .collect { Long.valueOf(it) }
 
-    logger.info("File cache capacity: ${fileCacheCapacityResult}")
-    assertTrue(fileCacheCapacityResult != null, "Failed to find file_cache_capacity in brpc metrics")
-    def fileCacheCapacity = Long.valueOf(fileCacheCapacityResult)
+    logger.info("File cache capacities: ${fileCacheCapacityResults}")
+    assertTrue(!fileCacheCapacityResults.isEmpty(), "Failed to find file_cache_capacity in brpc metrics")
+    long fileCacheCapacity = fileCacheCapacityResults.sum() as Long
 
     // Run file cache base test for setting the parameter file_cache_query_limit_bytes
     logger.info("========================= Start running file cache base test ========================")
@@ -175,20 +187,15 @@ suite("test_file_cache_query_limit", "p0,external") {
     pollFileCacheMetric('normal_queue_curr_size', { it == 0.0 }, pollTimeoutSeconds)
     pollFileCacheMetric('normal_queue_curr_elements', { it == 0.0 }, pollTimeoutSeconds)
 
-    def initialNormalQueueCurrSizeResult = sql """select METRIC_VALUE from information_schema.file_cache_statistics
-            where METRIC_NAME = 'normal_queue_curr_size' limit 1;"""
-    logger.info("normal_queue_curr_size result: " + initialNormalQueueCurrSizeResult)
-    assertFalse(initialNormalQueueCurrSizeResult.size() == 0 || Double.valueOf(initialNormalQueueCurrSizeResult[0][0]) != 0.0,
+    Double initialNormalQueueCurrSize = cacheMetricSum('normal_queue_curr_size')
+    logger.info("normal_queue_curr_size sum result: " + initialNormalQueueCurrSize)
+    assertFalse(initialNormalQueueCurrSize == null || initialNormalQueueCurrSize != 0.0,
             INITIAL_NORMAL_QUEUE_CURR_SIZE_NOT_ZERO_MSG)
 
-    def initialNormalQueueCurrElementsResult = sql """select METRIC_VALUE from information_schema.file_cache_statistics
-            where METRIC_NAME = 'normal_queue_curr_elements' limit 1;"""
-    logger.info("normal_queue_curr_elements result: " + initialNormalQueueCurrElementsResult)
-    assertFalse(initialNormalQueueCurrElementsResult.size() == 0 || Double.valueOf(initialNormalQueueCurrElementsResult[0][0]) != 0.0,
+    Double initialNormalQueueCurrElements = cacheMetricSum('normal_queue_curr_elements')
+    logger.info("normal_queue_curr_elements sum result: " + initialNormalQueueCurrElements)
+    assertFalse(initialNormalQueueCurrElements == null || initialNormalQueueCurrElements != 0.0,
             INITIAL_NORMAL_QUEUE_CURR_ELEMENTS_NOT_ZERO_MSG)
-
-    double initialNormalQueueCurrSize = Double.valueOf(initialNormalQueueCurrSizeResult[0][0])
-    double initialNormalQueueCurrElements = Double.valueOf(initialNormalQueueCurrElementsResult[0][0])
 
     logger.info("Initial normal queue curr size and elements - size: ${initialNormalQueueCurrSize} , " +
             "elements: ${initialNormalQueueCurrElements}")
@@ -221,20 +228,17 @@ suite("test_file_cache_query_limit", "p0,external") {
         pollFileCacheMetric('normal_queue_curr_elements', { it > 0.0 }, pollTimeoutSeconds)
         pollFileCacheMetric('normal_queue_curr_size', { it > 0.0 }, pollTimeoutSeconds)
 
-        def baseNormalQueueCurrElementsResult = sql """select METRIC_VALUE from information_schema.file_cache_statistics
-            where METRIC_NAME = 'normal_queue_curr_elements' limit 1;"""
-        logger.info("normal_queue_curr_elements result: " + baseNormalQueueCurrElementsResult)
-        assertFalse(baseNormalQueueCurrElementsResult.size() == 0 || Double.valueOf(baseNormalQueueCurrElementsResult[0][0]) == 0.0,
+        Double baseNormalQueueCurrElements = cacheMetricSum('normal_queue_curr_elements')
+        logger.info("normal_queue_curr_elements sum result: " + baseNormalQueueCurrElements)
+        assertFalse(baseNormalQueueCurrElements == null || baseNormalQueueCurrElements == 0.0,
                 BASE_NORMAL_QUEUE_CURR_ELEMENTS_IS_ZERO_MSG)
 
-        def baseNormalQueueCurrSizeResult = sql """select METRIC_VALUE from information_schema.file_cache_statistics
-            where METRIC_NAME = 'normal_queue_curr_size' limit 1;"""
-        logger.info("normal_queue_curr_size result: " + baseNormalQueueCurrSizeResult)
-        assertFalse(baseNormalQueueCurrSizeResult.size() == 0 || Double.valueOf(baseNormalQueueCurrSizeResult[0][0]) == 0.0,
+        Double baseNormalQueueCurrSize = cacheMetricSum('normal_queue_curr_size')
+        logger.info("normal_queue_curr_size sum result: " + baseNormalQueueCurrSize)
+        assertFalse(baseNormalQueueCurrSize == null || baseNormalQueueCurrSize == 0.0,
                 BASE_NORMAL_QUEUE_CURR_SIZE_IS_ZERO_MSG)
 
-        int baseNormalQueueCurrElements = Double.valueOf(baseNormalQueueCurrElementsResult[0][0]) as Long
-        queryCacheCapacity = Double.valueOf(baseNormalQueueCurrSizeResult[0][0]) as Long
+        queryCacheCapacity = baseNormalQueueCurrSize as Long
     }
 
     // The parameter file_cache_query_limit_percent must be set smaller than the cache capacity required by the query
@@ -267,37 +271,28 @@ suite("test_file_cache_query_limit", "p0,external") {
 
     // ===== Normal Queue Metrics Check =====
     // Check normal queue current size
-    initialNormalQueueCurrSizeResult = sql """select METRIC_VALUE from information_schema.file_cache_statistics
-            where METRIC_NAME = 'normal_queue_curr_size' limit 1;"""
-    logger.info("normal_queue_curr_size result: " + initialNormalQueueCurrSizeResult)
-    assertFalse(initialNormalQueueCurrSizeResult.size() == 0 || Double.valueOf(initialNormalQueueCurrSizeResult[0][0]) != 0.0,
+    initialNormalQueueCurrSize = cacheMetricSum('normal_queue_curr_size')
+    logger.info("normal_queue_curr_size sum result: " + initialNormalQueueCurrSize)
+    assertFalse(initialNormalQueueCurrSize == null || initialNormalQueueCurrSize != 0.0,
             INITIAL_NORMAL_QUEUE_CURR_SIZE_NOT_ZERO_MSG)
 
     // Check normal queue current elements
-    initialNormalQueueCurrElementsResult = sql """select METRIC_VALUE from information_schema.file_cache_statistics
-            where METRIC_NAME = 'normal_queue_curr_elements' limit 1;"""
-    logger.info("normal_queue_curr_elements result: " + initialNormalQueueCurrElementsResult)
-    assertFalse(initialNormalQueueCurrElementsResult.size() == 0 || Double.valueOf(initialNormalQueueCurrElementsResult[0][0]) != 0.0,
+    initialNormalQueueCurrElements = cacheMetricSum('normal_queue_curr_elements')
+    logger.info("normal_queue_curr_elements sum result: " + initialNormalQueueCurrElements)
+    assertFalse(initialNormalQueueCurrElements == null || initialNormalQueueCurrElements != 0.0,
             INITIAL_NORMAL_QUEUE_CURR_ELEMENTS_NOT_ZERO_MSG)
 
     // Check normal queue max size
-    def initialNormalQueueMaxSizeResult = sql """select METRIC_VALUE from information_schema.file_cache_statistics
-            where METRIC_NAME = 'normal_queue_max_size' limit 1;"""
-    logger.info("normal_queue_max_size result: " + initialNormalQueueMaxSizeResult)
-    assertFalse(initialNormalQueueMaxSizeResult.size() == 0 || Double.valueOf(initialNormalQueueMaxSizeResult[0][0]) == 0.0,
+    Double initialNormalQueueMaxSize = cacheMetricSum('normal_queue_max_size')
+    logger.info("normal_queue_max_size sum result: " + initialNormalQueueMaxSize)
+    assertFalse(initialNormalQueueMaxSize == null || initialNormalQueueMaxSize == 0.0,
             INITIAL_NORMAL_QUEUE_MAX_SIZE_IS_ZERO_MSG)
 
     // Check normal queue max elements
-    def initialNormalQueueMaxElementsResult = sql """select METRIC_VALUE from information_schema.file_cache_statistics
-            where METRIC_NAME = 'normal_queue_max_elements' limit 1;"""
-    logger.info("normal_queue_max_elements result: " + initialNormalQueueMaxElementsResult)
-    assertFalse(initialNormalQueueMaxElementsResult.size() == 0 || Double.valueOf(initialNormalQueueMaxElementsResult[0][0]) == 0.0,
+    Double initialNormalQueueMaxElements = cacheMetricSum('normal_queue_max_elements')
+    logger.info("normal_queue_max_elements sum result: " + initialNormalQueueMaxElements)
+    assertFalse(initialNormalQueueMaxElements == null || initialNormalQueueMaxElements == 0.0,
             INITIAL_NORMAL_QUEUE_MAX_ELEMENTS_IS_ZERO_MSG)
-
-    initialNormalQueueCurrSize = Double.valueOf(initialNormalQueueCurrSizeResult[0][0])
-    initialNormalQueueCurrElements = Double.valueOf(initialNormalQueueCurrElementsResult[0][0])
-    double initialNormalQueueMaxSize = Double.valueOf(initialNormalQueueMaxSizeResult[0][0])
-    double initialNormalQueueMaxElements = Double.valueOf(initialNormalQueueMaxElementsResult[0][0])
 
     logger.info("Initial normal queue curr size and elements - size: ${initialNormalQueueCurrSize} , " +
                 "elements: ${initialNormalQueueCurrElements}")
@@ -306,18 +301,10 @@ suite("test_file_cache_query_limit", "p0,external") {
                 "elements: ${initialNormalQueueMaxElements}")
 
     // ===== Hit And Read Counts Metrics Check =====
-    // Get initial values for hit and read counts
-    def initialTotalHitCountsResult = sql """select METRIC_VALUE from information_schema.file_cache_statistics
-            where METRIC_NAME = 'total_hit_counts' limit 1;"""
-    logger.info("Initial total_hit_counts result: " + initialTotalHitCountsResult)
-
-    def initialTotalReadCountsResult = sql """select METRIC_VALUE from information_schema.file_cache_statistics
-            where METRIC_NAME = 'total_read_counts' limit 1;"""
-    logger.info("Initial total_read_counts result: " + initialTotalReadCountsResult)
-
-    // Store initial values
-    double initialTotalHitCounts = Double.valueOf(initialTotalHitCountsResult[0][0])
-    double initialTotalReadCounts = Double.valueOf(initialTotalReadCountsResult[0][0])
+    // total_hit_counts / total_read_counts are also reported per cache path.
+    Double initialTotalHitCounts = cacheMetricSum('total_hit_counts')
+    Double initialTotalReadCounts = cacheMetricSum('total_read_counts')
+    logger.info("Initial total_hit_counts (sum): ${initialTotalHitCounts}, total_read_counts (sum): ${initialTotalReadCounts}")
 
     // Set backend configuration parameters for file_cache_query_limit test 1
     setBeConfigTemporary([
@@ -352,42 +339,24 @@ suite("test_file_cache_query_limit", "p0,external") {
         pollFileCacheMetric('normal_queue_curr_elements', { it > 0.0 }, pollTimeoutSeconds)
 
         // Get updated value of normal queue current elements and max elements after cache operations
-        def updatedNormalQueueCurrSizeResult = sql """select METRIC_VALUE from information_schema.file_cache_statistics
-                where METRIC_NAME = 'normal_queue_curr_size' limit 1;"""
-        logger.info("normal_queue_curr_size result: " + updatedNormalQueueCurrSizeResult)
-
-        def updatedNormalQueueCurrElementsResult = sql """select METRIC_VALUE from information_schema.file_cache_statistics
-                where METRIC_NAME = 'normal_queue_curr_elements' limit 1;"""
-        logger.info("normal_queue_curr_elements result: " + updatedNormalQueueCurrElementsResult)
-
         // Check if updated values are greater than initial values
-        double updatedNormalQueueCurrSize = Double.valueOf(updatedNormalQueueCurrSizeResult[0][0])
-        double updatedNormalQueueCurrElements = Double.valueOf(updatedNormalQueueCurrElementsResult[0][0])
+        Double updatedNormalQueueCurrSize = cacheMetricSum('normal_queue_curr_size')
+        Double updatedNormalQueueCurrElements = cacheMetricSum('normal_queue_curr_elements')
 
-        logger.info("Updated normal queue curr size and elements - size: ${updatedNormalQueueCurrSize} , " +
+        logger.info("Updated normal queue curr size and elements sum - size: ${updatedNormalQueueCurrSize} , " +
                 "elements: ${updatedNormalQueueCurrElements}")
 
         assertTrue(updatedNormalQueueCurrSize > 0.0, NORMAL_QUEUE_CURR_SIZE_NOT_GREATER_THAN_ZERO_MSG)
         assertTrue(updatedNormalQueueCurrElements > 0.0, NORMAL_QUEUE_CURR_ELEMENTS_NOT_GREATER_THAN_ZERO_MSG)
 
         logger.info("Normal queue curr size and query cache capacity comparison - normal queue curr size: ${updatedNormalQueueCurrSize as Long} , " +
-                "query cache capacity: ${fileCacheCapacity}")
+                "query cache capacity: ${queryCacheCapacity}")
 
         assertTrue((updatedNormalQueueCurrSize as Long) <= queryCacheCapacity,
                 NORMAL_QUEUE_CURR_SIZE_GREATER_THAN_QUERY_CACHE_CAPACITY_MSG)
 
-        // Get updated values for hit and read counts after cache operations
-        def updatedTotalHitCountsResult = sql """select METRIC_VALUE from information_schema.file_cache_statistics
-                where METRIC_NAME = 'total_hit_counts' limit 1;"""
-        logger.info("Updated total_hit_counts result: " + updatedTotalHitCountsResult)
-
-        def updatedTotalReadCountsResult = sql """select METRIC_VALUE from information_schema.file_cache_statistics
-                where METRIC_NAME = 'total_read_counts' limit 1;"""
-        logger.info("Updated total_read_counts result: " + updatedTotalReadCountsResult)
-
-        // Check if updated values are greater than initial values
-        double updatedTotalHitCounts = Double.valueOf(updatedTotalHitCountsResult[0][0])
-        double updatedTotalReadCounts = Double.valueOf(updatedTotalReadCountsResult[0][0])
+        Double updatedTotalHitCounts = cacheMetricSum('total_hit_counts')
+        Double updatedTotalReadCounts = cacheMetricSum('total_read_counts')
 
         logger.info("Total hit and read counts comparison - hit counts: ${initialTotalHitCounts} -> " +
                 "${updatedTotalHitCounts} , read counts: ${initialTotalReadCounts} -> ${updatedTotalReadCounts}")
