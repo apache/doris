@@ -560,6 +560,7 @@ protected:
     // Close the current concrete reader. This hook is called by both create_next_reader() and
     // close(), so it should remain idempotent.
     virtual Status close_current_reader() {
+        _sync_reader_read_rows_to_io_context();
         _finalize_reader_condition_cache();
         RETURN_IF_ERROR(_data_reader.reader->close());
         _data_reader.reader.reset();
