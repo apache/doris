@@ -2152,9 +2152,10 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = true, masterOnly = false, description = {
             "Whether to synchronously refresh external database/table names when a name lookup misses in an "
-                    + "existing cached snapshot. Enabling this option is not recommended because queries for "
-                    + "non-existent objects may repeatedly trigger expensive remote name enumeration."})
-    public static boolean enable_external_meta_cache_name_miss_refresh = false;
+                    + "existing cached snapshot. This option is enabled by default to preserve existing external "
+                    + "catalog visibility behavior. Disable it to avoid repeated remote name enumeration for "
+                    + "non-existent objects."})
+    public static boolean enable_external_meta_cache_name_miss_refresh = true;
 
     @ConfField(description = {"Maximum cache number of Hive partitioned tables."})
     public static long max_hive_partition_table_cache_num = 10000;
