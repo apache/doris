@@ -97,7 +97,7 @@ public class PushDownFilterThroughWindow extends OneRewriteRuleFactory {
         // changes the value of every window function (row_number, rank, sum, ...). In addition,
         // a predicate like `rand() > 0.5` has empty input slots, so `containsAll(emptySet)`
         // would otherwise wrongly return true.
-        return !conjunct.containsVolatileExpression()
+        return !conjunct.containsUniqueFunction()
                 && commonPartitionKeys.containsAll(conjunct.getInputSlots());
     }
 }

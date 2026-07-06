@@ -273,17 +273,17 @@ public class AddProjectForUniqueFunction implements RewriteRuleFactory {
 
     private Optional<JoinRewriteResult> rewriteJoinExpressions(LogicalJoin<Plan, Plan> join,
             Collection<Expression> targets) {
-        Map<Expression, Integer> volatileExpressionCounter = Maps.newLinkedHashMap();
-        Map<Expression, Set<Slot>> volatileExpressionSlots = Maps.newLinkedHashMap();
+        Map<Expression, Integer> uniqueExpressionCounter = Maps.newLinkedHashMap();
+        Map<Expression, Set<Slot>> uniqueExpressionSlots = Maps.newLinkedHashMap();
         for (Expression target : targets) {
             target.foreach(e -> {
                 Expression expr = (Expression) e;
-                if (expr.isVolatile()) {
-                    volatileExpressionCounter.merge(expr, 1, Integer::sum);
-                    Set<Slot> volatileInputSlots = expr.getInputSlots();
-                    volatileExpressionSlots
+                if (expr instanceof UniqueFunction) {
+                    uniqueExpressionCounter.merge(expr, 1, Integer::sum);
+                    Set<Slot> uniqueInputSlots = expr.getInputSlots();
+                    uniqueExpressionSlots
                             .computeIfAbsent(expr, ignored -> Sets.newLinkedHashSet())
-                            .addAll(volatileInputSlots.isEmpty() ? target.getInputSlots() : volatileInputSlots);
+                            .addAll(uniqueInputSlots.isEmpty() ? target.getInputSlots() : uniqueInputSlots);
                 }
             });
         }
@@ -293,13 +293,13 @@ public class AddProjectForUniqueFunction implements RewriteRuleFactory {
         Map<Expression, Slot> replaceMap = Maps.newHashMap();
         Set<Slot> leftOutputSet = join.left().getOutputSet();
         Set<Slot> rightOutputSet = join.right().getOutputSet();
-        for (Entry<Expression, Integer> entry : volatileExpressionCounter.entrySet()) {
+        for (Entry<Expression, Integer> entry : uniqueExpressionCounter.entrySet()) {
             if (entry.getValue() <= 1) {
                 continue;
             }
-            Set<Slot> inputSlots = volatileExpressionSlots.get(entry.getKey());
-            Set<Slot> volatileInputSlots = entry.getKey().getInputSlots();
-            if (!volatileInputSlots.isEmpty()
+            Set<Slot> inputSlots = uniqueExpressionSlots.get(entry.getKey());
+            Set<Slot> uniqueInputSlots = entry.getKey().getInputSlots();
+            if (!uniqueInputSlots.isEmpty()
                     && !leftOutputSet.containsAll(inputSlots)
                     && !rightOutputSet.containsAll(inputSlots)) {
                 continue;

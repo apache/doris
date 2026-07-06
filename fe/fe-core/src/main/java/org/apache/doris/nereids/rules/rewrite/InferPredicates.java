@@ -218,7 +218,7 @@ public class InferPredicates extends DefaultPlanRewriter<JobContext> implements 
         Set<Expression> predicates = new LinkedHashSet<>();
         Set<Slot> planOutputs = plan.getOutputSet();
         for (Expression expr : expressions) {
-            if (expr.containsVolatileExpression()) {
+            if (expr.containsUniqueFunction()) {
                 // Volatile expressions (e.g. rand(), uuid()) must not be cloned into
                 // subtrees that did not already evaluate them. Otherwise, callers that perform
                 // slot substitution (e.g. SetOp visitors below) would introduce a fresh
@@ -250,7 +250,7 @@ public class InferPredicates extends DefaultPlanRewriter<JobContext> implements 
         Set<Expression> predicates = new LinkedHashSet<>();
         Set<Slot> planOutputs = plan.getOutputSet();
         for (Expression expr : expressions) {
-            if (expr.containsVolatileExpression()) {
+            if (expr.containsUniqueFunction()) {
                 // See inferNewPredicate for rationale: never clone volatile
                 // predicates into a subtree that did not already evaluate them.
                 continue;

@@ -46,8 +46,8 @@ suite('push_down_filter_through_set_operation_with_unique_function') {
         where rand() > 0.1
         '''
 
-    // UNION ALL: per-output-row == per-branch-input-row (1:1), push is safe.
-    // Expect rand() filter to be pushed into each branch as before.
+    // 4.0 keeps the conservative behavior: unique function predicates stay above
+    // the set operation even for UNION ALL.
     qt_union_all_push_rand '''
         explain shape plan
         select id from ((select id from t1) union all (select id from t2)) u

@@ -119,7 +119,7 @@ public class ProjectOtherJoinConditionForNestedLoopJoin extends OneRewriteRuleFa
             // pair" to "per row of that child", which silently changes results. Keep such
             // expressions inline in otherJoinConjuncts, but still recurse to extract deterministic
             // child expressions.
-            if (expression.containsVolatileExpression()) {
+            if (expression.containsUniqueFunction()) {
                 return super.visit(expression, ctx);
             }
             if (ctx.leftSlots.containsAll(input)) {

@@ -77,7 +77,7 @@ public class PushDownFilterThroughPartitionTopN extends OneRewriteRuleFactory {
                 // top-N", and the surviving rows of every partition would no longer be the true
                 // top-N. Empty-input-slot predicates like `rand() > 0.5` would also bypass the
                 // `containsAll` check otherwise.
-                if (!expr.containsVolatileExpression() && partitionKeySlots.containsAll(exprInputSlots)) {
+                if (!expr.containsUniqueFunction() && partitionKeySlots.containsAll(exprInputSlots)) {
                     bottomConjunctsBuilder.add(expr);
                 } else {
                     upperConjunctsBuilder.add(expr);

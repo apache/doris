@@ -17,6 +17,8 @@
 
 package org.apache.doris.nereids.exceptions;
 
+import java.util.Optional;
+
 /**
  * cast exception.
  */

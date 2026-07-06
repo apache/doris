@@ -43,7 +43,7 @@ import java.util.List;
 public class JoinUtilsTest {
 
     @Test
-    public void testVolatileEqualPredicateIsNotHashCondition() {
+    public void testUniqueEqualPredicateIsNotHashCondition() {
         SlotReference leftKey = new SlotReference(new ExprId(1), "c1",
                 TinyIntType.INSTANCE, false, Lists.newArrayList());
         SlotReference rightKey = new SlotReference(new ExprId(2), "c2",
@@ -53,7 +53,7 @@ public class JoinUtilsTest {
         JoinUtils.JoinSlotCoverageChecker checker = new JoinUtils.JoinSlotCoverageChecker(
                 Lists.newArrayList(leftKey), Lists.newArrayList(rightKey));
 
-        Assertions.assertTrue(equalTo.containsVolatileExpression());
+        Assertions.assertTrue(equalTo.containsUniqueFunction());
         Assertions.assertFalse(checker.isHashJoinCondition(equalTo));
         Assertions.assertTrue(JoinUtils.extractExpressionForHashTable(
                 Lists.newArrayList(leftKey), Lists.newArrayList(rightKey), Lists.newArrayList(equalTo)).first.isEmpty());

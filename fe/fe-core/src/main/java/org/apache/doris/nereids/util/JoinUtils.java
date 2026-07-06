@@ -122,7 +122,7 @@ public class JoinUtils {
          * @return true if the equal can be used as hash join condition
          */
         public boolean isHashJoinCondition(EqualPredicate equal) {
-            if (equal.containsVolatileExpression()) {
+            if (equal.containsUniqueFunction()) {
                 return false;
             }
 

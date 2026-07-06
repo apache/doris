@@ -27,7 +27,6 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.EmptyRelation;
-import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
@@ -65,43 +64,23 @@ public class PushDownFilterThroughSetOperation extends OneRewriteRuleFactory {
             .thenApply(ctx -> {
                 LogicalFilter<LogicalSetOperation> origFilter = ctx.root;
                 LogicalSetOperation setOperation = origFilter.child();
-
-                // Pushing a conjunct that contains a volatile expression (rand/uuid/random_bytes/...)
-                // into each branch changes semantics for every set-op except UNION ALL.
-                // - UNION ALL: each branch row = exactly one output row (1:1), so evaluating
-                //   rand() once per branch row still matches the per-output-row semantic.
-                // - UNION DISTINCT / INTERSECT / EXCEPT: the set-op semantics depend on the
-                //   full branch row sets before dedup/intersect/except. Sampling rows in each
-                //   branch independently changes which rows participate (e.g. INTERSECT becomes
-                //   "half of A intersect half of B" instead of "half of (A intersect B)").
-                boolean canPushVolatileExpr = setOperation instanceof LogicalUnion
-                        && setOperation.getQualifier() == Qualifier.ALL;
                 Set<Expression> pushableConjuncts;
                 Set<Expression> keptAboveConjuncts;
-                boolean allConjunctsPushable;
-                if (canPushVolatileExpr) {
-                    pushableConjuncts = origFilter.getConjuncts();
-                    keptAboveConjuncts = ImmutableSet.of();
-                    allConjunctsPushable = true;
-                } else {
-                    pushableConjuncts = new LinkedHashSet<>();
-                    Set<Expression> kept = new LinkedHashSet<>();
-                    for (Expression c : origFilter.getConjuncts()) {
-                        if (c.containsVolatileExpression()) {
-                            kept.add(c);
-                        } else {
-                            pushableConjuncts.add(c);
-                        }
+                pushableConjuncts = new LinkedHashSet<>();
+                Set<Expression> kept = new LinkedHashSet<>();
+                for (Expression c : origFilter.getConjuncts()) {
+                    if (c.containsUniqueFunction()) {
+                        kept.add(c);
+                    } else {
+                        pushableConjuncts.add(c);
                     }
-                    keptAboveConjuncts = kept;
-                    if (pushableConjuncts.isEmpty()) {
-                        return null;
-                    }
-                    allConjunctsPushable = false;
                 }
-                LogicalFilter<LogicalSetOperation> filter = allConjunctsPushable
-                        ? origFilter
-                        : new LogicalFilter<>(ImmutableSet.copyOf(pushableConjuncts), setOperation);
+                keptAboveConjuncts = kept;
+                if (pushableConjuncts.isEmpty()) {
+                    return null;
+                }
+                LogicalFilter<LogicalSetOperation> filter = new LogicalFilter<>(
+                        ImmutableSet.copyOf(pushableConjuncts), setOperation);
 
                 List<Plan> newChildren = new ArrayList<>();
                 List<List<SlotReference>> newRegularChildrenOutputs = Lists.newArrayList();

@@ -30,12 +30,11 @@ PhysicalResultSink
 
 -- !union_all_push_rand --
 PhysicalResultSink
---PhysicalUnion
-----PhysicalProject[t1.id]
-------filter((random() > 0.1))
+--filter((random() > 0.1))
+----PhysicalUnion
+------PhysicalProject[t1.id]
 --------PhysicalOlapScan[t1]
-----PhysicalProject[t2.id]
-------filter((random() > 0.1))
+------PhysicalProject[t2.id]
 --------PhysicalOlapScan[t2]
 
 -- !union_distinct_split --
