@@ -19,8 +19,11 @@ package org.apache.doris.common.util;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cloud.security.SecurityChecker;
+import org.apache.doris.common.Config;
+import org.apache.doris.httpv2.meta.MetaBaseAction;
 import org.apache.doris.system.SystemInfoService.HostInfo;
 
+import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
 
 import java.io.IOException;
@@ -37,9 +40,11 @@ public class HttpURLUtil {
             HttpURLConnection conn = (HttpURLConnection) url.openConnection();
             // Must use Env.getServingEnv() instead of getCurrentEnv(),
             // because here we need to obtain selfNode through the official service catalog.
-            HostInfo selfNode = Env.getServingEnv().getSelfNode();
+            Env env = Env.getServingEnv();
+            HostInfo selfNode = env.getSelfNode();
             conn.setRequestProperty(Env.CLIENT_NODE_HOST_KEY, selfNode.getHost());
             conn.setRequestProperty(Env.CLIENT_NODE_PORT_KEY, selfNode.getPort() + "");
+            setClusterToken(conn, getClusterToken(env));
             return conn;
         } catch (Exception e) {
             throw new IOException(e);
@@ -52,10 +57,25 @@ public class HttpURLUtil {
         Map<String, String> headers = Maps.newHashMap();
         // Must use Env.getServingEnv() instead of getCurrentEnv(),
         // because here we need to obtain selfNode through the official service catalog.
-        HostInfo selfNode = Env.getServingEnv().getSelfNode();
+        Env env = Env.getServingEnv();
+        HostInfo selfNode = env.getSelfNode();
         headers.put(Env.CLIENT_NODE_HOST_KEY, selfNode.getHost());
         headers.put(Env.CLIENT_NODE_PORT_KEY, selfNode.getPort() + "");
+        String token = getClusterToken(env);
+        if (!Strings.isNullOrEmpty(token)) {
+            headers.put(MetaBaseAction.TOKEN, token);
+        }
         return headers;
     }
 
+    private static String getClusterToken(Env env) {
+        String token = env.getToken();
+        return Strings.isNullOrEmpty(token) ? Config.auth_token : token;
+    }
+
+    private static void setClusterToken(HttpURLConnection conn, String token) {
+        if (!Strings.isNullOrEmpty(token)) {
+            conn.setRequestProperty(MetaBaseAction.TOKEN, token);
+        }
+    }
 }

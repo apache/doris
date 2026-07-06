@@ -23,6 +23,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.ha.FrontendNodeType;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
+import org.apache.doris.httpv2.exception.UnauthorizedException;
 import org.apache.doris.httpv2.rest.RestBaseController;
 import org.apache.doris.master.MetaHelper;
 import org.apache.doris.persist.MetaCleaner;
@@ -55,31 +56,56 @@ public class MetaService extends RestBaseController {
 
     private File imageDir = MetaHelper.getMasterImageDir();
 
-    private boolean isFromValidFe(String clientHost, String clientPortStr) {
+    private Frontend getValidFe(String clientHost, String clientPortStr) {
         Integer clientPort;
         try {
             clientPort = Integer.valueOf(clientPortStr);
         } catch (Exception e) {
             LOG.warn("get clientPort error. clientPortStr: {}", clientPortStr, e.getMessage());
-            return false;
+            return null;
         }
 
         Frontend fe = Env.getCurrentEnv().checkFeExist(clientHost, clientPort);
         if (fe == null) {
             LOG.warn("request is not from valid FE. client: {}, {}", clientHost, clientPortStr);
-            return false;
         }
-        return true;
+        return fe;
     }
 
     private void checkFromValidFe(HttpServletRequest request)
-            throws InvalidClientException {
+            throws UnauthorizedException {
         String clientHost = request.getHeader(Env.CLIENT_NODE_HOST_KEY);
         String clientPort = request.getHeader(Env.CLIENT_NODE_PORT_KEY);
-        if (!isFromValidFe(clientHost, clientPort)) {
-            throw new InvalidClientException("invalid client host: " + clientHost + ":" + clientPort
-                + ", request from " + request.getRemoteHost());
+        Frontend fe = getValidFe(clientHost, clientPort);
+        if (fe == null) {
+            throw unauthorized(clientHost, clientPort, request);
         }
+
+        String requestToken = request.getHeader(MetaBaseAction.TOKEN);
+        if (!Strings.isNullOrEmpty(requestToken)) {
+            if (requestToken.equals(getClusterToken())) {
+                return;
+            }
+            LOG.warn("reject meta request with invalid token. client: {}, {}, request from: {}",
+                    clientHost, clientPort, request.getRemoteAddr());
+            throw unauthorized(clientHost, clientPort, request);
+        }
+
+        if (Config.enable_meta_service_legacy_node_ident_auth) {
+            return;
+        }
+
+        throw unauthorized(clientHost, clientPort, request);
+    }
+
+    private String getClusterToken() {
+        String token = Env.getCurrentEnv().getToken();
+        return Strings.isNullOrEmpty(token) ? Config.auth_token : token;
+    }
+
+    private UnauthorizedException unauthorized(String clientHost, String clientPort, HttpServletRequest request) {
+        return new UnauthorizedException("invalid client host: " + clientHost + ":" + clientPort
+                + ", request from " + request.getRemoteAddr());
     }
 
     @RequestMapping(path = "/image", method = RequestMethod.GET)
@@ -148,6 +174,9 @@ public class MetaService extends RestBaseController {
         int port = Integer.parseInt(portStr);
         if (port < 0 || port > 65535) {
             return ResponseEntityBuilder.badRequest("port is invalid. The port number is between 0-65535");
+        }
+        if (port != Config.http_port) {
+            return ResponseEntityBuilder.badRequest("port must be FE HTTP port: " + Config.http_port);
         }
 
         String versionStr = request.getParameter(VERSION);
@@ -242,9 +271,7 @@ public class MetaService extends RestBaseController {
 
     @RequestMapping(value = "/dump", method = RequestMethod.GET)
     public Object dump(HttpServletRequest request, HttpServletResponse response) throws DdlException {
-        if (Config.enable_all_http_auth) {
-            executeCheckPassword(request, response);
-        }
+        executeCheckPassword(request, response);
 
         /*
          * Before dump, we acquired the catalog read lock and all databases' read lock and all
