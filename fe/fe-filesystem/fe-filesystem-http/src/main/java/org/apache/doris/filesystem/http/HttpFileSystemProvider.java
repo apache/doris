@@ -30,7 +30,8 @@ import java.util.Set;
  *
  * <p>HTTP has no FileSystem implementation: the http() TVF reads via HttpUtils on FE and
  * TFileType.FILE_HTTP on BE. This provider only binds and validates properties; {@link #create}
- * throws. Use {@link #capabilities()} (READ) to gate operations instead of calling create().
+ * throws. Use {@link #capabilities(HttpFileSystemProperties)} (READ) to gate operations
+ * instead of calling create().
  */
 public class HttpFileSystemProvider implements FileSystemProvider<HttpFileSystemProperties> {
 

@@ -117,21 +117,15 @@ public interface FileSystemProvider<P extends FileSystemProperties> extends Plug
      * <p>Capability is a function of the resolved configuration, not of the provider type alone:
      * the same provider may expose different capabilities depending on the config (e.g. Ozone via
      * the S3 gateway has no {@link FileSystemCapability#ATOMIC_RENAME}, but Ozone via {@code ofs://}
-     * does). Defaults to the empty set; providers override to declare what they support. Framework
-     * code that only holds the raw property map should call {@link #capabilities(Map)}, which binds
-     * first.
+     * does). Defaults to the empty set; providers override to declare what they support.
+     *
+     * <p>Capability negotiation is intentionally typed: the caller binds the raw property map via
+     * {@link #bind(Map)} first, then negotiates against the resulting configuration. There is no
+     * raw-map bridge here — a legacy provider that has not migrated to {@link #bind(Map)} cannot be
+     * negotiated against, and a silent fallback would hide that instead of surfacing it.
      */
     default Set<FileSystemCapability> capabilities(P boundProperties) {
         return EnumSet.noneOf(FileSystemCapability.class);
-    }
-
-    /**
-     * Bridges {@link #capabilities(P)} for framework code that holds only the raw property map.
-     * Binds the properties, then negotiates capabilities against the bound configuration. Mirrors
-     * the {@link #create(P)} / {@link #create(Map)} pair.
-     */
-    default Set<FileSystemCapability> capabilities(Map<String, String> properties) {
-        return capabilities(bind(properties));
     }
 
     /**

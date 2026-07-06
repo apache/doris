@@ -74,15 +74,6 @@ public class HttpFileSystemProviderTest {
     }
 
     @Test
-    public void testCapabilitiesMapBridgeBindsFirst() {
-        // The Map bridge binds (validating the URI) then negotiates against the bound config.
-        Assertions.assertEquals(EnumSet.of(FileSystemCapability.READ),
-                provider.capabilities(props("uri", "http://h/a.csv")));
-        Assertions.assertThrows(IllegalArgumentException.class,
-                () -> provider.capabilities(props("uri", "s3://b/k")));
-    }
-
-    @Test
     public void testName() {
         Assertions.assertEquals("HTTP", provider.name());
     }
