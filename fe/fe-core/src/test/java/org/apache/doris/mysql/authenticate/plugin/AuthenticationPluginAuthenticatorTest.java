@@ -17,6 +17,8 @@
 
 package org.apache.doris.mysql.authenticate.plugin;
 
+import org.apache.doris.authentication.AuthenticationFailureType;
+import org.apache.doris.authentication.AuthenticationIntegrationRuntime;
 import org.apache.doris.authentication.AuthenticationRequest;
 import org.apache.doris.authentication.AuthenticationResult;
 import org.apache.doris.authentication.BasicPrincipal;
@@ -30,6 +32,7 @@ import org.apache.doris.mysql.MysqlHandshakePacket;
 import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.mysql.authenticate.AuthenticateRequest;
 import org.apache.doris.mysql.authenticate.AuthenticateResponse;
+import org.apache.doris.mysql.authenticate.AuthenticationFailureSummary;
 import org.apache.doris.mysql.privilege.Auth;
 
 import org.junit.jupiter.api.AfterEach;
@@ -60,6 +63,8 @@ class AuthenticationPluginAuthenticatorTest {
     private static final String USER_NAME = "alice";
     private static final String REMOTE_IP = "127.0.0.1";
     private static final String OIDC_CLIENT_PLUGIN = "authentication_openid_connect_client";
+    private static final String OIDC_JIT_DISABLED_MESSAGE =
+            "OIDC authentication succeeded but no matching Doris user exists and JIT user is disabled";
 
     @BeforeEach
     void setUp() throws Exception {
@@ -107,6 +112,37 @@ class AuthenticationPluginAuthenticatorTest {
     }
 
     @Test
+    void testAuthenticateExposesOidcJitDisabledFailure() throws Exception {
+        Mockito.when(plugin.supports(Mockito.any())).thenReturn(true);
+        Mockito.when(plugin.authenticate(Mockito.any(), Mockito.any()))
+                .thenReturn(AuthenticationResult.success(BasicPrincipal.builder()
+                        .name("external_alice")
+                        .authenticator("oidc")
+                        .build()));
+        Mockito.when(auth.getUserIdentityForExternalAuth(USER_NAME, REMOTE_IP))
+                .thenReturn(Collections.emptyList());
+
+        Map<String, String> integrationProperties = new HashMap<>();
+        integrationProperties.put("enable_jit_user", "false");
+        AuthenticationPluginAuthenticator authenticator = new AuthenticationPluginAuthenticator(
+                "oidc", integrationProperties, pluginManager);
+        AuthenticateResponse response = authenticator.authenticate(AuthenticateRequest.builder()
+                .userName(USER_NAME)
+                .remoteHost(REMOTE_IP)
+                .credentialType("bearer")
+                .credential("token".getBytes(StandardCharsets.UTF_8))
+                .build());
+
+        Assertions.assertFalse(response.isSuccess());
+        AuthenticationFailureSummary failureSummary = response.getFailureSummary();
+        Assertions.assertNotNull(failureSummary);
+        Assertions.assertEquals(AuthenticationFailureType.ACCESS_DENIED, failureSummary.getFailureType());
+        Assertions.assertEquals(OIDC_JIT_DISABLED_MESSAGE, failureSummary.getDetailMessage());
+        Assertions.assertTrue(failureSummary.hasClientVisibleMessage());
+        Assertions.assertEquals(OIDC_JIT_DISABLED_MESSAGE, failureSummary.getClientVisibleMessage());
+    }
+
+    @Test
     void testOidcPluginResolverUsesOidcCredentialFromMysqlAuthPacket() throws Exception {
         Mockito.when(plugin.supports(Mockito.any())).thenReturn(true);
         Mockito.when(plugin.authenticate(Mockito.any(), Mockito.any()))
@@ -151,6 +187,59 @@ class AuthenticationPluginAuthenticatorTest {
         Assertions.assertEquals(CredentialType.OAUTH_TOKEN, requestCaptor.getValue().getCredentialType());
         Assertions.assertArrayEquals("token-from-client".getBytes(StandardCharsets.UTF_8),
                 requestCaptor.getValue().getCredential());
+    }
+
+    @Test
+    void testAuthenticateRejectsOidcIdTokenWithClientVisibleFailure() throws Exception {
+        Mockito.when(plugin.supports(Mockito.any())).thenReturn(false);
+
+        AuthenticationPluginAuthenticator authenticator = new AuthenticationPluginAuthenticator(
+                "oidc", new HashMap<>(), pluginManager);
+        AuthenticateResponse response = authenticator.authenticate(AuthenticateRequest.builder()
+                .userName(USER_NAME)
+                .remoteHost(REMOTE_IP)
+                .credentialType(CredentialType.OIDC_ID_TOKEN)
+                .credential("id-token".getBytes(StandardCharsets.UTF_8))
+                .build());
+
+        Assertions.assertFalse(response.isSuccess());
+        AuthenticationFailureSummary failureSummary = response.getFailureSummary();
+        Assertions.assertNotNull(failureSummary);
+        Assertions.assertEquals(AuthenticationFailureType.BAD_CREDENTIAL, failureSummary.getFailureType());
+        Assertions.assertEquals(AuthenticationIntegrationRuntime.OIDC_ID_TOKEN_REJECTED_MESSAGE,
+                failureSummary.getDetailMessage());
+        Assertions.assertTrue(failureSummary.hasClientVisibleMessage());
+        Assertions.assertEquals(AuthenticationIntegrationRuntime.OIDC_ID_TOKEN_REJECTED_MESSAGE,
+                failureSummary.getClientVisibleMessage());
+        Mockito.verify(plugin, Mockito.never()).authenticate(Mockito.any(), Mockito.any());
+    }
+
+    @Test
+    void testAuthenticateRejectsOidcIdTokenBeforeCallingSupportingPlugin() throws Exception {
+        Mockito.when(plugin.supports(Mockito.any())).thenReturn(true);
+        Mockito.when(plugin.authenticate(Mockito.any(), Mockito.any()))
+                .thenReturn(AuthenticationResult.failure(
+                        AuthenticationFailureType.BAD_CREDENTIAL, "plugin-specific OIDC ID token failure"));
+
+        AuthenticationPluginAuthenticator authenticator = new AuthenticationPluginAuthenticator(
+                "oidc", new HashMap<>(), pluginManager);
+        AuthenticateResponse response = authenticator.authenticate(AuthenticateRequest.builder()
+                .userName(USER_NAME)
+                .remoteHost(REMOTE_IP)
+                .credentialType(CredentialType.OIDC_ID_TOKEN)
+                .credential("id-token".getBytes(StandardCharsets.UTF_8))
+                .build());
+
+        Assertions.assertFalse(response.isSuccess());
+        AuthenticationFailureSummary failureSummary = response.getFailureSummary();
+        Assertions.assertNotNull(failureSummary);
+        Assertions.assertEquals(AuthenticationFailureType.BAD_CREDENTIAL, failureSummary.getFailureType());
+        Assertions.assertEquals(AuthenticationIntegrationRuntime.OIDC_ID_TOKEN_REJECTED_MESSAGE,
+                failureSummary.getDetailMessage());
+        Assertions.assertTrue(failureSummary.hasClientVisibleMessage());
+        Assertions.assertEquals(AuthenticationIntegrationRuntime.OIDC_ID_TOKEN_REJECTED_MESSAGE,
+                failureSummary.getClientVisibleMessage());
+        Mockito.verify(plugin, Mockito.never()).authenticate(Mockito.any(), Mockito.any());
     }
 
     @Test

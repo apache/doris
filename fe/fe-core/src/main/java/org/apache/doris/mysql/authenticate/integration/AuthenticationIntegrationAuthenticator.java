@@ -22,6 +22,7 @@ import org.apache.doris.authentication.AuthenticationException;
 import org.apache.doris.authentication.AuthenticationFailureType;
 import org.apache.doris.authentication.AuthenticationIntegration;
 import org.apache.doris.authentication.AuthenticationIntegrationMeta;
+import org.apache.doris.authentication.AuthenticationIntegrationRuntime;
 import org.apache.doris.authentication.AuthenticationRequest;
 import org.apache.doris.authentication.Principal;
 import org.apache.doris.authentication.handler.AuthenticationOutcome;
@@ -176,6 +177,12 @@ public class AuthenticationIntegrationAuthenticator implements Authenticator {
         if (!Boolean.parseBoolean(integration.getProperty("enable_jit_user", "false"))) {
             LOG.info("Authentication integration '{}' authenticated user '{}' but JIT is disabled",
                     integration.getName(), qualifiedUser);
+            if ("oidc".equalsIgnoreCase(integration.getType())) {
+                return AuthenticateResponse.failed(AuthenticationFailureSummary.forClientVisibleFailure(
+                        AuthenticationFailureType.ACCESS_DENIED,
+                        AuthenticationIntegrationRuntime.OIDC_JIT_DISABLED_MESSAGE,
+                        AuthenticationIntegrationRuntime.OIDC_JIT_DISABLED_MESSAGE));
+            }
             return AuthenticateResponse.failedResponse;
         }
         UserIdentity tempUserIdentity = UserIdentity.createAnalyzedUserIdentWithIp(principal.getName(), remoteIp);
@@ -229,6 +236,7 @@ public class AuthenticationIntegrationAuthenticator implements Authenticator {
             return "OIDC access token signature validation failed";
         }
         if (detailMessage.startsWith("OIDC access token ")
+                || detailMessage.startsWith("OIDC ID token ")
                 || detailMessage.startsWith("OIDC token ")
                 || "Authentication request username does not match OIDC access token username".equals(detailMessage)
                 || "Authentication request username does not match OIDC token username".equals(detailMessage)) {

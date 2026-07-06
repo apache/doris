@@ -39,6 +39,28 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
  * Manager for AUTHENTICATION INTEGRATION metadata.
  */
 public class AuthenticationIntegrationMgr implements Writable {
+    private static final String CHECK_VALIDATION_PROPERTY = "check_validation";
+
+    private static final class ValidationConfig {
+        private final Map<String, String> properties;
+        private final boolean checkValidation;
+
+        private ValidationConfig(Map<String, String> properties, boolean checkValidation) {
+            this.properties = properties;
+            this.checkValidation = checkValidation;
+        }
+    }
+
+    private static final class UnsetValidationConfig {
+        private final Set<String> propertiesToUnset;
+        private final boolean checkValidation;
+
+        private UnsetValidationConfig(Set<String> propertiesToUnset, boolean checkValidation) {
+            this.propertiesToUnset = propertiesToUnset;
+            this.checkValidation = checkValidation;
+        }
+    }
+
     // Lock ordering across authentication metadata managers:
     // AuthenticationIntegrationMgr.lock -> RoleMappingMgr.lock.
     private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
@@ -66,8 +88,7 @@ public class AuthenticationIntegrationMgr implements Writable {
             String integrationName, boolean ifNotExists, Map<String, String> properties, String comment,
             String createUser)
             throws DdlException {
-        AuthenticationIntegrationMeta meta =
-                AuthenticationIntegrationMeta.fromCreateSql(integrationName, properties, comment, createUser);
+        ValidationConfig validationConfig = extractValidationConfig(properties);
         writeLock();
         try {
             if (nameToIntegration.containsKey(integrationName)) {
@@ -76,6 +97,9 @@ public class AuthenticationIntegrationMgr implements Writable {
                 }
                 throw new DdlException("Authentication integration " + integrationName + " already exists");
             }
+            AuthenticationIntegrationMeta meta = AuthenticationIntegrationMeta.fromCreateSql(
+                    integrationName, validationConfig.properties, comment, createUser);
+            validateAuthenticationIntegration(meta, validationConfig.checkValidation);
             nameToIntegration.put(integrationName, meta);
             Env.getCurrentEnv().getEditLog().logCreateAuthenticationIntegration(meta);
         } finally {
@@ -85,10 +109,13 @@ public class AuthenticationIntegrationMgr implements Writable {
 
     public void alterAuthenticationIntegrationProperties(
             String integrationName, Map<String, String> properties, String alterUser) throws DdlException {
+        ValidationConfig validationConfig = extractValidationConfig(properties);
         writeLock();
         try {
             AuthenticationIntegrationMeta current = getOrThrow(integrationName);
-            AuthenticationIntegrationMeta updated = current.withAlterProperties(properties, alterUser);
+            AuthenticationIntegrationMeta updated =
+                    current.withAlterProperties(validationConfig.properties, alterUser);
+            validateAuthenticationIntegration(updated, validationConfig.checkValidation);
             nameToIntegration.put(integrationName, updated);
             Env.getCurrentEnv().getEditLog().logAlterAuthenticationIntegration(updated);
             Env.getCurrentEnv().getAuthenticationIntegrationRuntime().markAuthenticationIntegrationDirty(
@@ -100,10 +127,13 @@ public class AuthenticationIntegrationMgr implements Writable {
 
     public void alterAuthenticationIntegrationUnsetProperties(
             String integrationName, Set<String> propertiesToUnset, String alterUser) throws DdlException {
+        UnsetValidationConfig validationConfig = extractUnsetValidationConfig(propertiesToUnset);
         writeLock();
         try {
             AuthenticationIntegrationMeta current = getOrThrow(integrationName);
-            AuthenticationIntegrationMeta updated = current.withUnsetProperties(propertiesToUnset, alterUser);
+            AuthenticationIntegrationMeta updated =
+                    current.withUnsetProperties(validationConfig.propertiesToUnset, alterUser);
+            validateAuthenticationIntegration(updated, validationConfig.checkValidation);
             nameToIntegration.put(integrationName, updated);
             Env.getCurrentEnv().getEditLog().logAlterAuthenticationIntegration(updated);
             Env.getCurrentEnv().getAuthenticationIntegrationRuntime().markAuthenticationIntegrationDirty(
@@ -213,5 +243,49 @@ public class AuthenticationIntegrationMgr implements Writable {
             throw new DdlException("Authentication integration " + integrationName + " does not exist");
         }
         return meta;
+    }
+
+    private void validateAuthenticationIntegration(AuthenticationIntegrationMeta meta, boolean checkValidation)
+            throws DdlException {
+        if (!checkValidation) {
+            return;
+        }
+        try {
+            Env.getCurrentEnv().getAuthenticationIntegrationRuntime().validateAuthenticationIntegration(meta);
+        } catch (AuthenticationException e) {
+            throw new DdlException(e.getMessage(), e);
+        }
+    }
+
+    private ValidationConfig extractValidationConfig(Map<String, String> properties) throws DdlException {
+        Map<String, String> sanitizedProperties = new LinkedHashMap<>();
+        boolean checkValidation = true;
+        for (Map.Entry<String, String> entry : properties.entrySet()) {
+            String key = entry.getKey();
+            if (CHECK_VALIDATION_PROPERTY.equalsIgnoreCase(key)) {
+                String value = entry.getValue();
+                if (!"true".equalsIgnoreCase(value) && !"false".equalsIgnoreCase(value)) {
+                    throw new DdlException(
+                            "Property '" + CHECK_VALIDATION_PROPERTY + "' must be 'true' or 'false'");
+                }
+                checkValidation = Boolean.parseBoolean(value);
+                continue;
+            }
+            sanitizedProperties.put(key, entry.getValue());
+        }
+        return new ValidationConfig(sanitizedProperties, checkValidation);
+    }
+
+    private UnsetValidationConfig extractUnsetValidationConfig(Set<String> propertiesToUnset) {
+        Set<String> sanitizedPropertiesToUnset = new java.util.LinkedHashSet<>();
+        boolean checkValidation = true;
+        for (String key : propertiesToUnset) {
+            if (CHECK_VALIDATION_PROPERTY.equalsIgnoreCase(key)) {
+                checkValidation = false;
+                continue;
+            }
+            sanitizedPropertiesToUnset.add(key);
+        }
+        return new UnsetValidationConfig(sanitizedPropertiesToUnset, checkValidation);
     }
 }

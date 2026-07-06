@@ -344,6 +344,7 @@ public class FrontendServiceImplTest {
         properties.put("server", "ldap://127.0.0.1:389");
         properties.put("bind_password", "plain_secret");
         properties.put("secret.endpoint", "masked_by_prefix");
+        properties.put("check_validation", "false");
         Env.getCurrentEnv().getAuthenticationIntegrationMgr()
                 .createAuthenticationIntegration(
                         integrationName, false, properties, "ldap comment", connectContext.getQualifiedUser());
@@ -376,6 +377,7 @@ public class FrontendServiceImplTest {
                     "\"secret.endpoint\" = \"" + DatasourcePrintableMap.PASSWORD_MASK + "\""));
             Assert.assertFalse(rowValues.get(2).contains("plain_secret"));
             Assert.assertFalse(rowValues.get(2).contains("masked_by_prefix"));
+            Assert.assertFalse(rowValues.get(2).contains("check_validation"));
             Assert.assertEquals("ldap comment", rowValues.get(3));
             Assert.assertEquals(connectContext.getQualifiedUser(), rowValues.get(4));
             Assert.assertNotNull(rowValues.get(5));
@@ -409,7 +411,8 @@ public class FrontendServiceImplTest {
             executeCommand("CREATE ROLE " + financeReaderRole);
             executeCommand("CREATE ROLE " + financeWriterRole);
             executeCommand("CREATE AUTHENTICATION INTEGRATION " + integrationName
-                    + " PROPERTIES ('type'='ldap', 'ldap.server'='ldap://127.0.0.1:389') "
+                    + " PROPERTIES ('type'='ldap', 'ldap.server'='ldap://127.0.0.1:389', "
+                    + "'check_validation'='false') "
                     + "COMMENT 'role mapping auth'");
             executeCommand("CREATE ROLE MAPPING " + mappingName
                     + " ON AUTHENTICATION INTEGRATION " + integrationName
@@ -470,7 +473,8 @@ public class FrontendServiceImplTest {
             executeCommand("CREATE ROLE " + readerRole);
             executeCommand("CREATE USER " + normalUser);
             executeCommand("CREATE AUTHENTICATION INTEGRATION " + integrationName
-                    + " PROPERTIES ('type'='ldap', 'ldap.server'='ldap://127.0.0.1:389') "
+                    + " PROPERTIES ('type'='ldap', 'ldap.server'='ldap://127.0.0.1:389', "
+                    + "'check_validation'='false') "
                     + "COMMENT 'role mapping auth'");
             executeCommand("CREATE ROLE MAPPING " + mappingName
                     + " ON AUTHENTICATION INTEGRATION " + integrationName

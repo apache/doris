@@ -21,6 +21,7 @@ import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.authentication.AuthenticationException;
 import org.apache.doris.authentication.AuthenticationFailureType;
 import org.apache.doris.authentication.AuthenticationIntegration;
+import org.apache.doris.authentication.AuthenticationIntegrationRuntime;
 import org.apache.doris.authentication.AuthenticationRequest;
 import org.apache.doris.authentication.AuthenticationResult;
 import org.apache.doris.authentication.CredentialType;
@@ -92,10 +93,11 @@ public class AuthenticationPluginAuthenticator implements Authenticator {
     @Override
     public AuthenticateResponse authenticate(AuthenticateRequest request) throws IOException {
         AuthenticationRequest pluginRequest = toPluginRequest(request);
+        if (isRejectedOidcIdTokenRequest(pluginRequest)) {
+            return unsupportedCredentialResponse(pluginRequest);
+        }
         if (!plugin.supports(pluginRequest)) {
-            return AuthenticateResponse.failed(AuthenticationFailureSummary.forFailureType(
-                    AuthenticationFailureType.ACCESS_DENIED,
-                    "Authentication plugin '" + integration.getType() + "' does not support the supplied credential"));
+            return unsupportedCredentialResponse(pluginRequest);
         }
 
         AuthenticationResult result;
@@ -130,6 +132,18 @@ public class AuthenticationPluginAuthenticator implements Authenticator {
         return mapSuccessfulAuthentication(request.getUserName(), request.getRemoteIp(), result);
     }
 
+    private AuthenticateResponse unsupportedCredentialResponse(AuthenticationRequest pluginRequest) {
+        if (isRejectedOidcIdTokenRequest(pluginRequest)) {
+            return AuthenticateResponse.failed(AuthenticationFailureSummary.forClientVisibleFailure(
+                    AuthenticationFailureType.BAD_CREDENTIAL,
+                    AuthenticationIntegrationRuntime.OIDC_ID_TOKEN_REJECTED_MESSAGE,
+                    AuthenticationIntegrationRuntime.OIDC_ID_TOKEN_REJECTED_MESSAGE));
+        }
+        return AuthenticateResponse.failed(AuthenticationFailureSummary.forFailureType(
+                AuthenticationFailureType.ACCESS_DENIED,
+                "Authentication plugin '" + integration.getType() + "' does not support the supplied credential"));
+    }
+
     @Override
     public boolean canDeal(String qualifiedUser) {
         return !Auth.ROOT_USER.equals(qualifiedUser) && !Auth.ADMIN_USER.equals(qualifiedUser);
@@ -153,6 +167,12 @@ public class AuthenticationPluginAuthenticator implements Authenticator {
         if (!Boolean.parseBoolean(integration.getProperty("enable_jit_user", "false"))) {
             LOG.info("Authentication plugin '{}' authenticated user '{}' but JIT is disabled",
                     integration.getType(), qualifiedUser);
+            if ("oidc".equalsIgnoreCase(integration.getType())) {
+                return AuthenticateResponse.failed(AuthenticationFailureSummary.forClientVisibleFailure(
+                        AuthenticationFailureType.ACCESS_DENIED,
+                        AuthenticationIntegrationRuntime.OIDC_JIT_DISABLED_MESSAGE,
+                        AuthenticationIntegrationRuntime.OIDC_JIT_DISABLED_MESSAGE));
+            }
             return AuthenticateResponse.failedResponse;
         }
         UserIdentity tempUserIdentity = UserIdentity.createAnalyzedUserIdentWithIp(principal.getName(), remoteIp);
@@ -232,11 +252,18 @@ public class AuthenticationPluginAuthenticator implements Authenticator {
             return "OIDC access token signature validation failed";
         }
         if (detailMessage.startsWith("OIDC access token ")
+                || detailMessage.startsWith("OIDC ID token ")
                 || detailMessage.startsWith("OIDC token ")
                 || "Authentication request username does not match OIDC access token username".equals(detailMessage)
                 || "Authentication request username does not match OIDC token username".equals(detailMessage)) {
             return detailMessage;
         }
         return "";
+    }
+
+    private boolean isRejectedOidcIdTokenRequest(AuthenticationRequest pluginRequest) {
+        return "oidc".equalsIgnoreCase(integration.getType())
+                && CredentialType.OIDC_ID_TOKEN.equalsIgnoreCase(
+                        Strings.nullToEmpty(pluginRequest.getCredentialType()));
     }
 }

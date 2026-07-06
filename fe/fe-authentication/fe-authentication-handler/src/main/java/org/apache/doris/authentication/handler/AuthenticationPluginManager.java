@@ -233,6 +233,27 @@ public class AuthenticationPluginManager {
     }
 
     /**
+     * Create a plugin instance and validate integration properties without initializing runtime state.
+     *
+     * @param integration authentication integration
+     * @throws AuthenticationException if validation fails
+     */
+    public void validatePlugin(AuthenticationIntegration integration) throws AuthenticationException {
+        Objects.requireNonNull(integration, "integration");
+        AuthenticationPluginFactory factory = factories.get(integration.getType());
+        if (factory == null) {
+            throw new AuthenticationException(
+                    "No AuthenticationPluginFactory found for plugin: " + integration.getType());
+        }
+        AuthenticationPlugin plugin = factory.create();
+        try {
+            plugin.validate(integration);
+        } finally {
+            plugin.close();
+        }
+    }
+
+    /**
      * Install a prepared plugin instance into the cache, replacing the old one atomically.
      *
      * @param integration authentication integration
