@@ -238,7 +238,9 @@ public class KafkaUtil {
                 List<Long> backendIds = new ArrayList<>();
                 for (Long beId : Env.getCurrentSystemInfo().getAllBackendIds(true)) {
                     Backend backend = Env.getCurrentSystemInfo().getBackend(beId);
-                    if (isKafkaProxyBackendAvailable(backend, failedBeIds.contains(beId))
+                    if (backend != null && backend.isLoadAvailable()
+                            && !backend.isDecommissioned()
+                            && !failedBeIds.contains(beId)
                             && !Env.getCurrentEnv().getRoutineLoadManager().isInBlacklist(beId)) {
                         backendIds.add(beId);
                     }
@@ -326,13 +328,5 @@ public class KafkaUtil {
             MetricRepo.COUNTER_ROUTINE_LOAD_GET_META_LANTENCY.increase(endTime - startTime);
             MetricRepo.COUNTER_ROUTINE_LOAD_GET_META_COUNT.increase(1L);
         }
-    }
-
-    static boolean isKafkaProxyBackendAvailable(Backend backend, boolean failed) {
-        return backend != null
-                && backend.isLoadAvailable()
-                && (!Config.isCloudMode() || !backend.isDecommissioning())
-                && !backend.isDecommissioned()
-                && !failed;
     }
 }

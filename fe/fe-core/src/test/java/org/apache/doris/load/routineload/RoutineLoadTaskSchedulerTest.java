@@ -20,7 +20,6 @@ package org.apache.doris.load.routineload;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ClientPool;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
@@ -29,7 +28,6 @@ import org.apache.doris.load.RoutineLoadDesc;
 import org.apache.doris.load.routineload.kafka.KafkaProgress;
 import org.apache.doris.load.routineload.kafka.KafkaRoutineLoadJob;
 import org.apache.doris.load.routineload.kafka.KafkaTaskInfo;
-import org.apache.doris.system.Backend;
 import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.thrift.BackendService;
 import org.apache.doris.transaction.BeginTransactionException;
@@ -212,42 +210,5 @@ public class RoutineLoadTaskSchedulerTest {
         private boolean isRenewCalledWithWriteLock() {
             return renewCalledWithWriteLock;
         }
-    }
-
-    @Test
-    public void testRoutineLoadTaskBackendAvailableChecksDecommissioningOnlyInCloudMode() {
-        String originDeployMode = Config.deploy_mode;
-        String originCloudUniqueId = Config.cloud_unique_id;
-        try {
-            Config.deploy_mode = "";
-            Config.cloud_unique_id = "";
-            Assert.assertTrue(RoutineLoadTaskScheduler.isRoutineLoadTaskBackendAvailable(
-                    createBackend(true, true, false)));
-            Assert.assertFalse(RoutineLoadTaskScheduler.isRoutineLoadTaskBackendAvailable(
-                    createBackend(true, false, true)));
-
-            Config.deploy_mode = "cloud";
-            Assert.assertFalse(RoutineLoadTaskScheduler.isRoutineLoadTaskBackendAvailable(null));
-            Assert.assertFalse(RoutineLoadTaskScheduler.isRoutineLoadTaskBackendAvailable(
-                    createBackend(false, false, false)));
-            Assert.assertFalse(RoutineLoadTaskScheduler.isRoutineLoadTaskBackendAvailable(
-                    createBackend(true, true, false)));
-            Assert.assertFalse(RoutineLoadTaskScheduler.isRoutineLoadTaskBackendAvailable(
-                    createBackend(true, false, true)));
-            Assert.assertTrue(RoutineLoadTaskScheduler.isRoutineLoadTaskBackendAvailable(
-                    createBackend(true, false, false)));
-        } finally {
-            Config.deploy_mode = originDeployMode;
-            Config.cloud_unique_id = originCloudUniqueId;
-        }
-    }
-
-    private Backend createBackend(boolean alive, boolean decommissioning, boolean decommissioned) {
-        Backend backend = Mockito.mock(Backend.class);
-        Mockito.when(backend.isAlive()).thenReturn(alive);
-        Mockito.when(backend.isLoadAvailable()).thenReturn(alive);
-        Mockito.when(backend.isDecommissioning()).thenReturn(decommissioning);
-        Mockito.when(backend.isDecommissioned()).thenReturn(decommissioned);
-        return backend;
     }
 }
