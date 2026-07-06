@@ -218,7 +218,6 @@ public:
             size_t current_rows = 0;
             RETURN_IF_ERROR(_data_reader.reader->get_block(&_data_reader.block_template,
                                                            &current_rows, &current_eof));
-            _sync_reader_read_rows_to_io_context();
             if (current_rows == 0) {
                 if (current_eof) {
                     _current_reader_reached_eof = true;
@@ -560,11 +559,9 @@ protected:
     // Close the current concrete reader. This hook is called by both create_next_reader() and
     // close(), so it should remain idempotent.
     virtual Status close_current_reader() {
-        _sync_reader_read_rows_to_io_context();
         _finalize_reader_condition_cache();
         RETURN_IF_ERROR(_data_reader.reader->close());
         _data_reader.reader.reset();
-        _last_reader_read_rows = 0;
         if (_data_reader.column_mapper != nullptr) {
             _data_reader.column_mapper->clear();
             _data_reader.column_mapper.reset();
@@ -579,16 +576,10 @@ protected:
         return Status::OK();
     }
 
-    void _sync_reader_read_rows_to_io_context() {
-        if (_io_ctx == nullptr || _io_ctx->file_reader_stats == nullptr) {
-            return;
+    void _record_scan_rows(size_t rows) {
+        if (_io_ctx != nullptr && _io_ctx->file_reader_stats != nullptr) {
+            _io_ctx->file_reader_stats->read_rows += rows;
         }
-        DORIS_CHECK(_data_reader.reader != nullptr);
-        const int64_t read_rows = _data_reader.reader->reader_statistics().read_rows;
-        DORIS_CHECK(read_rows >= _last_reader_read_rows);
-        const int64_t delta_read_rows = read_rows - _last_reader_read_rows;
-        _io_ctx->file_reader_stats->read_rows += cast_set<size_t>(delta_read_rows);
-        _last_reader_read_rows = read_rows;
     }
 
     // Finalize file-local block to table/global schema block.
@@ -1500,7 +1491,6 @@ protected:
     std::optional<GlobalRowIdContext> _global_rowid_context;
     bool _aggregate_pushdown_tried = false;
     TableColumnMapperOptions _mapper_options;
-    int64_t _last_reader_read_rows = 0;
 
 private:
     static const ColumnDefinition* _find_column_definition(

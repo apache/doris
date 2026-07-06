@@ -24,6 +24,7 @@
 #include <utility>
 #include <vector>
 
+#include "common/cast_set.h"
 #include "common/status.h"
 #include "core/data_type/data_type.h"
 #include "core/field.h"
@@ -323,8 +324,6 @@ public:
     // Readers should return 0 if the metadata is unavailable or the row coordinate is unstable.
     virtual int64_t get_total_rows() const { return 0; }
 
-    const ReaderStatistics& reader_statistics() const { return _reader_statistics; }
-
     virtual Status close() {
         _file_reader.reset();
         _tracing_file_reader.reset();
@@ -335,6 +334,13 @@ public:
 
 protected:
     virtual void _init_profile() {}
+    void _record_scan_rows(int64_t rows) {
+        DORIS_CHECK(rows >= 0);
+        _reader_statistics.read_rows += rows;
+        if (_io_ctx != nullptr && _io_ctx->file_reader_stats != nullptr) {
+            _io_ctx->file_reader_stats->read_rows += cast_set<size_t>(rows);
+        }
+    }
 
     io::FileReaderSPtr _file_reader;
     // _tracing_file_reader wraps _file_reader.

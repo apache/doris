@@ -83,6 +83,7 @@ Status JniTableReader::get_block(Block* output_block, bool* eos) {
             return Status::OK();
         }
 
+        _record_scan_rows(current_rows);
         RETURN_IF_ERROR(finalize_jni_block(&_jni_block_template, output_block, &current_rows));
         if (current_rows == 0) {
             output_block->clear_column_data(_projected_columns.size());

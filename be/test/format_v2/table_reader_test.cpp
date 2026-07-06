@@ -981,6 +981,7 @@ struct FakeFileReaderState {
     bool inject_delete_conjunct = false;
     std::shared_ptr<FileScanRequest> last_request;
     std::shared_ptr<ConditionCacheContext> condition_cache_ctx;
+    std::shared_ptr<io::IOContext> io_ctx;
 };
 
 class FakeFileReader final : public FileReader {
@@ -988,7 +989,7 @@ public:
     FakeFileReader(std::shared_ptr<io::FileSystemProperties>& system_properties,
                    std::unique_ptr<io::FileDescription>& file_description,
                    std::vector<ColumnDefinition> schema, std::shared_ptr<FakeFileReaderState> state)
-            : FileReader(system_properties, file_description, nullptr, nullptr),
+            : FileReader(system_properties, file_description, state->io_ctx, nullptr),
               _schema(std::move(schema)),
               _state(std::move(state)) {}
 
@@ -1089,7 +1090,7 @@ public:
         }
         result->count = _state->aggregate_count;
         result->columns.clear();
-        _reader_statistics.read_rows += _state->aggregate_count;
+        _record_scan_rows(_state->aggregate_count);
         _eof = true;
         return Status::OK();
     }
@@ -1225,7 +1226,7 @@ TEST(TableReaderTest, CanUseInjectedFileReaderForStandaloneUnitTest) {
     EXPECT_TRUE(eos);
 }
 
-TEST(TableReaderTest, PushDownCountSyncsReaderRowsBeforeClosingReader) {
+TEST(TableReaderTest, PushDownCountRecordsReaderRowsBeforeClosingReader) {
     std::vector<ColumnDefinition> file_schema;
     file_schema.push_back(make_file_column(0, "id", std::make_shared<DataTypeInt32>()));
 
@@ -1240,6 +1241,7 @@ TEST(TableReaderTest, PushDownCountSyncsReaderRowsBeforeClosingReader) {
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
     auto fake_state = std::make_shared<FakeFileReaderState>();
     fake_state->aggregate_count = 3;
+    fake_state->io_ctx = io_ctx;
     FakeTableReader reader(file_schema, fake_state);
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,

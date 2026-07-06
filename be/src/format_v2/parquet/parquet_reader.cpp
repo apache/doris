@@ -26,6 +26,7 @@
 #include <utility>
 #include <vector>
 
+#include "common/cast_set.h"
 #include "core/assert_cast.h"
 #include "core/block/block.h"
 #include "core/data_type/data_type_array.h"
@@ -508,7 +509,7 @@ Status ParquetReader::get_block(Block* file_block, size_t* rows, bool* eof) {
     }
     const auto raw_rows_read = _state->scheduler.raw_rows_read();
     DORIS_CHECK(raw_rows_read >= raw_rows_read_before);
-    _reader_statistics.read_rows += raw_rows_read - raw_rows_read_before;
+    _record_scan_rows(raw_rows_read - raw_rows_read_before);
     _eof = *eof;
     return Status::OK();
 }
@@ -628,6 +629,7 @@ Status ParquetReader::get_aggregate_result(const format::FileAggregateRequest& r
                     // leaf, but the levels-only protocol still avoids Doris-side string
                     // materialization for that leaf.
                     RETURN_IF_ERROR(shape_reader->load_nested_levels_batch(batch_rows));
+                    _record_scan_rows(batch_rows);
                     result->count +=
                             count_loaded_non_null_values(root_schema, *shape_reader, batch_rows);
                     range_rows_read += batch_rows;
