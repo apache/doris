@@ -25,9 +25,8 @@ import org.apache.doris.common.security.authentication.PreExecutionAuthenticator
 import org.apache.doris.common.security.authentication.PreExecutionAuthenticatorCache;
 
 import com.google.common.base.Preconditions;
-import org.apache.iceberg.ScanTask;
+import org.apache.iceberg.FileScanTask;
 import org.apache.iceberg.StructLike;
-import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.io.CloseableIterator;
 import org.apache.iceberg.types.Types.NestedField;
 import org.apache.iceberg.types.Types.StructType;
@@ -37,21 +36,20 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.TimeZone;
+import java.util.stream.Collectors;
 
 /**
- * JniScanner to read Iceberg SysTables.
+ * JniScanner to read Iceberg SysTables
  */
 public class IcebergSysTableJniScanner extends JniScanner {
     private static final Logger LOG = LoggerFactory.getLogger(IcebergSysTableJniScanner.class);
     private static final String HADOOP_OPTION_PREFIX = "hadoop.";
-
     private final ClassLoader classLoader;
     private final PreExecutionAuthenticator preExecutionAuthenticator;
-    private final ScanTask scanTask;
+    private final FileScanTask scanTask;
     private final List<SelectedField> fields;
     private final String timezone;
     private CloseableIterator<StructLike> reader;
@@ -63,21 +61,15 @@ public class IcebergSysTableJniScanner extends JniScanner {
                 "serialized_split should not be empty");
         this.scanTask = SerializationUtil.deserializeFromBase64(serializedSplitParams);
         String[] requiredFields = params.get("required_fields").split(",");
-        this.fields = selectSchema(scanTask.asFileScanTask().schema().asStruct(), requiredFields);
+        this.fields = selectSchema(scanTask.schema().asStruct(), requiredFields);
         this.timezone = params.getOrDefault("time_zone", TimeZone.getDefault().getID());
-        this.preExecutionAuthenticator = PreExecutionAuthenticatorCache.getAuthenticator(getHadoopOptionParams(params));
+        Map<String, String> hadoopOptionParams = params.entrySet().stream()
+                .filter(kv -> kv.getKey().startsWith(HADOOP_OPTION_PREFIX))
+                .collect(Collectors
+                        .toMap(kv1 -> kv1.getKey().substring(HADOOP_OPTION_PREFIX.length()), kv1 -> kv1.getValue()));
+        this.preExecutionAuthenticator = PreExecutionAuthenticatorCache.getAuthenticator(hadoopOptionParams);
         ColumnType[] requiredTypes = parseRequiredTypes(params.get("required_types").split("#"), requiredFields);
         initTableInfo(requiredTypes, requiredFields, batchSize);
-    }
-
-    static Map<String, String> getHadoopOptionParams(Map<String, String> params) {
-        Map<String, String> hadoopOptionParams = new HashMap<>();
-        for (Map.Entry<String, String> param : params.entrySet()) {
-            if (param.getKey().startsWith(HADOOP_OPTION_PREFIX)) {
-                hadoopOptionParams.put(param.getKey().substring(HADOOP_OPTION_PREFIX.length()), param.getValue());
-            }
-        }
-        return hadoopOptionParams;
     }
 
     @Override
@@ -89,10 +81,13 @@ public class IcebergSysTableJniScanner extends JniScanner {
 
     private void openReader() throws IOException {
         try {
-            preExecutionAuthenticator.execute(() -> {
-                reader = openTaskRows().iterator();
-                return null;
-            });
+            try (ThreadClassLoaderContext ignored = new ThreadClassLoaderContext(classLoader)) {
+                preExecutionAuthenticator.execute(() -> {
+                    // execute FileScanTask to get rows
+                    reader = scanTask.asDataTask().rows().iterator();
+                    return null;
+                });
+            }
         } catch (Exception e) {
             this.close();
             String msg = String.format("Failed to open scan task: %s", scanTask);
@@ -104,45 +99,34 @@ public class IcebergSysTableJniScanner extends JniScanner {
     @Override
     protected int getNext() throws IOException {
         try (ThreadClassLoaderContext ignored = new ThreadClassLoaderContext(classLoader)) {
-            return getNextInternal();
-        }
-    }
-
-    private int getNextInternal() throws IOException {
-        int rows = 0;
-        long startAppendDataTime = System.nanoTime();
-        while (rows < getBatchSize()) {
-            if (!reader.hasNext()) {
-                break;
+            int rows = 0;
+            long startAppendDataTime = System.nanoTime();
+            while (rows < getBatchSize()) {
+                if (!reader.hasNext()) {
+                    break;
+                }
+                StructLike row = reader.next();
+                for (int i = 0; i < fields.size(); i++) {
+                    SelectedField field = fields.get(i);
+                    Object value = row.get(field.sourceIndex, field.field.type().typeId().javaClass());
+                    ColumnValue columnValue = new IcebergSysTableColumnValue(value, timezone);
+                    appendData(i, columnValue);
+                }
+                rows++;
             }
-            StructLike row = reader.next();
-            for (int i = 0; i < fields.size(); i++) {
-                SelectedField field = fields.get(i);
-                Object value = row.get(field.sourceIndex, field.valueClass);
-                ColumnValue columnValue = new IcebergSysTableColumnValue(value, timezone);
-                appendData(i, columnValue);
-            }
-            rows++;
+            appendDataTime += System.nanoTime() - startAppendDataTime;
+            return rows;
         }
-        appendDataTime += System.nanoTime() - startAppendDataTime;
-        return rows;
     }
 
     @Override
     public void close() throws IOException {
         try (ThreadClassLoaderContext ignored = new ThreadClassLoaderContext(classLoader)) {
-            closeReader();
+            if (reader != null) {
+                // Close the iterator to release resources
+                reader.close();
+            }
         }
-    }
-
-    private void closeReader() throws IOException {
-        if (reader != null) {
-            reader.close();
-        }
-    }
-
-    private CloseableIterable<StructLike> openTaskRows() {
-        return scanTask.asDataTask().rows();
     }
 
     private static List<SelectedField> selectSchema(StructType schema, String[] requiredFields) {
@@ -158,18 +142,18 @@ public class IcebergSysTableJniScanner extends JniScanner {
                 throw new IllegalArgumentException(
                         "RequiredField " + requiredField + " not found in source schema fields");
             }
-            selectedFields.add(new SelectedField(sourceIndex, field.type().typeId().javaClass()));
+            selectedFields.add(new SelectedField(sourceIndex, field));
         }
         return selectedFields;
     }
 
     private static final class SelectedField {
         private final int sourceIndex;
-        private final Class<?> valueClass;
+        private final NestedField field;
 
-        private SelectedField(int sourceIndex, Class<?> valueClass) {
+        private SelectedField(int sourceIndex, NestedField field) {
             this.sourceIndex = sourceIndex;
-            this.valueClass = valueClass;
+            this.field = field;
         }
     }
 
