@@ -44,7 +44,8 @@ suite("test_compaction_mow_with_empty_rowset", "p0") {
     DISTRIBUTED BY HASH(`k1`) BUCKETS 2
     PROPERTIES (
         "replication_allocation" = "tag.location.default: 1",
-        "enable_unique_key_merge_on_write" = "true"
+        "enable_unique_key_merge_on_write" = "true",
+        "disable_auto_compaction" = "true"
     );
     """
 
