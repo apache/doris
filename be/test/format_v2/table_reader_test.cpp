@@ -1188,7 +1188,6 @@ TEST(TableReaderTest, CanUseInjectedFileReaderForStandaloneUnitTest) {
     FakeTableReader reader(file_schema, fake_state);
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
-                                    .column_predicates = {},
                                     .conjuncts = {},
                                     .format = FileFormat::PARQUET,
                                     .scan_params = nullptr,
@@ -1251,7 +1250,6 @@ TEST(TableReaderTest, PushDownCountRecordsReaderRowsBeforeClosingReader) {
     FakeTableReader reader(file_schema, fake_state);
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
-                                    .column_predicates = {},
                                     .conjuncts = {},
                                     .format = FileFormat::PARQUET,
                                     .scan_params = nullptr,
@@ -1293,7 +1291,6 @@ TEST(TableReaderTest, PushDownCountStopConvertsAggregateEndOfFileToEos) {
     FakeTableReader reader(file_schema, fake_state);
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
-                                    .column_predicates = {},
                                     .conjuncts = {},
                                     .format = FileFormat::PARQUET,
                                     .scan_params = nullptr,
