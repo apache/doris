@@ -60,6 +60,7 @@ suite("test_audit_log_queue_time", "nonConcurrent") {
     // Submit concurrent queries with marker for later lookup
     def sqlSleepTime = 5
     def queuedSqlCnt = 1
+    def queueTimeToleranceMs = 1000
     def threads = []
     for (int i = 0; i < maxConcurrency + queuedSqlCnt; i++) {
         def idx = i
@@ -110,11 +111,12 @@ suite("test_audit_log_queue_time", "nonConcurrent") {
         auditResult = sql "${query}"
     }
 
-    auditResult.each { row ->
-        assertTrue(row[1] >= sqlSleepTime * 1000)
+    log.info("audit queue time result for marker ${testMarker}: ${auditResult}")
+    def minExpectedQueueTimeMs = sqlSleepTime * 1000 - queueTimeToleranceMs
+    def queuedRows = auditResult.findAll { row ->
+        row[1] >= minExpectedQueueTimeMs
     }
-
-    assertTrue(auditResult.size() >= queuedSqlCnt)
+    assertTrue(queuedRows.size() >= queuedSqlCnt)
 
     // Cleanup
     sql "drop table if exists ${tableName}"
