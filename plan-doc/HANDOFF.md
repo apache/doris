@@ -5,17 +5,18 @@
 
 ---
 
-# 🎯 当前状态（2026-07-06）= **P7.3 原子批 INC-1 + INC-2 + INC-3 + INC-4 全部完成（写链主体全绿）。下一步 = INC-5（读侧 ACID），之后全批一次原子 feature commit。全批仍 UNCOMMITTED 在工作树里（跨 session WIP 载体，勿 commit / 勿 revert / 勿 `git checkout`）。本轮只 commit HANDOFF + 设计文档 + INC-4 port-map。**
+# 🎯 当前状态（2026-07-06）= **P7.3 原子批 INC-1..INC-5 全部完成 + 全绿（写链 + 读链都齐了）。下一步 = FINAL：INC-1..INC-5 一次原子 feature commit（path-whitelist，待用户点头）。全批仍 UNCOMMITTED 在工作树里（跨 session WIP 载体，勿 commit / 勿 revert / 勿 `git checkout`）。本轮已 commit 的只有 HANDOFF + 设计文档 + INC-5 port-map（文档，不含功能码）。**
 
-> **本轮做了什么（INC-4：写计划提供器 + buildSink + 能力位；含两处用户拍板）**：新建 `HiveWritePlanProvider`（忠实移植 HEAD `planner.HiveTableSink.bindDataSink`：列 REGULAR/PARTITION_KEY 按表序、分桶、按格式压缩、序列化分隔符、S3 原地 vs HDFS/local/broker 暂存路径、broker 地址 fail-loud、已存在分区 live 列举、hadoop_config 走 `StorageProperties.toBackendProperties`）+ `HiveSinkHelper`（`getTFileFormatType`[LZO 先拒]/`getTFileCompressType`/序列化分隔符逐字节移植 `HiveProperties`+`getByte`）+ `HiveConnector.getWritePlanProvider()` 注册 + 能力位。**用户决策 A（DEC-1）= 给通用写入层加一个"按分区哈希但不排序"的通用能力**（`requiresPartitionHashWrite`）：改了 `ConnectorWritePlanProvider`/`Connector`/`ConnectorContractValidator`(#4/#5)/`PluginDrivenExternalTable`/`PhysicalConnectorTableSink`（新增一条与老 `PhysicalHiveTableSink` 逐字节一致的无排序哈希分发档位）——通用、默认关、对其它连接器全惰性。**用户决策 B（DEC-2）= 把事务表写入拦截放宽到"任何事务表"**（`HiveConnectorTransaction.rejectTransactionalWrite`，原只拒 full-ACID → 现拒 full-ACID + 仅插入型，对齐老 `InsertIntoTableCommand`）。
+> **本轮做了什么（INC-5：读侧 ACID 生产端 + 插件读事务生命周期，dormant）**：新建 `HiveAcidUtil`（把 HEAD `AcidUtil.getAcidState` 的**纯目录名解析 + 快照挑选算法**逐条移到插件：`parseBase`/`parseDelta`/`isValidBase`/`isValidMetaDataFile` + FullAcid/InsertOnly 文件过滤 + best-base/working-delta 选择环；fe-core `FileCacheValue`/`LocationPath`/`AcidInfo`/`HivePartition` 全落地为原生 Hadoop `FileSystem`/`FileStatus`；`globList(...,"/*")`→`fs.listStatus`[文件+目录]、`globList(bareDir)`→`fs.listStatus`+仅留文件；读 `HmsAcidConstants` 两键）+ `HiveReadTransaction`/`HiveReadTransactionManager`（移植 `HiveTransaction`/`HiveTransactionMgr`，用 INC-1 的 `openTxn`/`acquireSharedLock`/`getValidWriteIds`/`commitTxn`；`TableNameInfo`→(db,table) 串）+ `HiveScanPlanProvider.planAcidScan` 下潜 + `.acidInfo("dir|file1,file2")` 生产端接线（含 full-acid 非 ORC fail-loud）+ `HiveTableHandle.isTransactional/isFullAcid` 从 `getTableParameters()` 派生（D8）+ `HiveConnector` 持有（dormant）读事务管理器。
 
-> **本轮验证（独立重跑，不信自述）**：`fe-connector-hive` 全模块 `clean test` **87 测试 0 失败 0 错误 BUILD SUCCESS（原 67 + 新 20；`HiveWritePlanProviderTest`=20、`HiveConnectorTransactionTest`=14）**；`fe-core` 分发/契约测试 **16 绿**（`PhysicalConnectorTableSinkTest` 9 [+2]、`ConnectorContractValidatorTest` 7 [+3]，MaxCompute 路径无回归）；`checkstyle:check` 0 违规；`check-connector-imports.sh` 净。**净室对抗复审：8 维度里 3 维（序列化分隔符 / 压缩+格式+LZO / 事务表拦截）过了独立 agent 复审——全部忠实；其余 5 维（列/分区、位置暂存、hadoop+broker+能力、fe-core 分发档、测试质量）因账号 session 限流被截断,由我人工逐条 diff 老实现 + 已确认强断言单测覆盖。唯一发现 = 1 条 low 且 benign 的 `Locale.ROOT` 细节(插件反而更安全、且是 INC-3 既有代码非本轮改动),不修。** 限流 10pm(Asia/Shanghai)重置,可择机重跑那 5 维补独立复审。
+> **本轮验证（独立重跑，不信自述）**：`fe-connector-hive` 全模块 `clean test` **104 测试 0 失败 0 错误 BUILD SUCCESS（原 87 + 新 17：`HiveAcidUtilTest`=9、`HiveReadTransactionTest`=3、`HiveTableHandleAcidTest`=5，既有 `HiveScanRangeAcidTest`=3 保绿）**；`checkstyle:check` 0 违规；`check-connector-imports.sh` 净（新码只碰 Hadoop/hive-common/thrift/`HmsAcidConstants`，无 fe-core）。**净室对抗复审（`wf-inc5-review.js`，6 维 × find→对抗 verify，13 agent 0 error）：1 条 CONFIRMED（已修）+ 1 条自查先修 + 测试补强**：(a) **CONFIRMED** insert-only 事务表被错标 `transactional_hive`（HEAD 只在 `isFullAcid` 才挂 `acidInfo`；insert-only 存的是平文件 → 错走 BE merge-on-read）→ 修为 `planAcidScan` 仅 full-acid 才挂 `acidInfo`（insert-only 仍按快照选文件、但标平 `hive`）；(b) 复审前**自查**发现读事务管理器按 queryId 跨不同表复用一个事务 → 第二张表拿到第一张的快照，改为**每表各开各事务**（`register` 非复用，对齐 HEAD）；(c) 按复审 test-quality 发现补了 4 个 descent 测试（可见性 txn 过滤 / `isValidBase` 甄别 / not-enough-history）+ insert_only 大小写。其余 5 条 refuted 为 benign/有意偏差。**遗留（交割 cutover 集成门）**：`planScan` 级 insert-only 标记门禁的回归测试（需 live session/txn/FS 管线，设计 §7 把集成测试推到 cutover）。
 
 > **⚠️ 工作树未提交的 INC-1..INC-4 代码**（`git status` 会显示；原子批模型，设计文档 §8——**若工作树被清就照各 port-map 重建**）：
 > - INC-1（`fe-connector-hms`）：`HmsClient`/`ThriftHmsClient`/`HmsWriteConverter`/`pom.xml` 改 + `HmsAcidConstants`/`HmsCommonStatistics`/`HmsPartitionStatistics`/`HmsPartitionWithStatistics`/`HmsPartitionInfo` 新 + 2 test。
 > - INC-2（`fe-connector-hive`）：`HiveWriteUtils.java` + `NameMapping.java`（+ 2 test）。
 > - **INC-3（`fe-connector-hive`）**：**新** `HiveWriteContext.java`(89) + `HiveConnectorTransaction.java`(1704，含 dup-key 修复；本轮 INC-4 又改了 guard→`rejectTransactionalWrite`) + `HiveConnectorTransactionTest.java`(14 例) + `FakeConnectorContext.java`(64)；**改** `HiveConnectorMetadata.java`(`beginTransaction` override) + `pom.xml` + `HiveWriteUtils.java`。
 > - **INC-4（`fe-connector-hive` + 通用层）**：**新** `HiveWritePlanProvider.java`(362) + `HiveSinkHelper.java`(246) + `HiveWritePlanProviderTest.java`(716,20 例) + `RecordingConnectorContext.java`(98)；**改** `HiveConnector.java`(+getWritePlanProvider) + `HiveConnectorTransaction.java`(guard 放宽) + `HiveConnectorTransactionTest.java`(+insert-only 拒绝)。**通用层（DEC-1，本批唯一 fe-core 改动）**：`fe-connector-api` `ConnectorWritePlanProvider`/`Connector`/`ConnectorContractValidator` + `fe-core` `PluginDrivenExternalTable`/`PhysicalConnectorTableSink` + 2 个 fe-core test 文件各加用例 + `fe-connector-hms` `HmsTableInfo`(+bucketCols/numBuckets)/`ThriftHmsClient`(convertTable 填桶)。
+> - **INC-5（`fe-connector-hive`）**：**新** `HiveAcidUtil.java` + `HiveReadTransaction.java` + `HiveReadTransactionManager.java` + 3 test（`HiveAcidUtilTest`/`HiveReadTransactionTest`/`HiveTableHandleAcidTest`）；**改** `HiveScanPlanProvider.java`(+`planAcidScan`/`splitFile`+acid 参/`newRangeBuilder`/`encodeDeleteDeltas`/`buildPartitionName`) + `HiveTableHandle.java`(+`isTransactional`/`isFullAcid`) + `HiveConnector.java`(+读事务管理器) + `pom.xml`(+`commons-lang` test dep)。
 
 > **权威实现依据**（信 HEAD 控制流，不信行号）：
 > - `tasks/P7.3-hive-write-txn-implementation-design.md`（§2 决策 D1–D12、§4 签名、§5 移植细节、§6 构建顺序）。
@@ -24,22 +25,26 @@
 
 ---
 
-# 🚀 下个 session 任务 = **INC-5（读侧 ACID），全绿后全批一次原子 feature commit**
+# 🚀 下个 session 任务 = **FINAL：INC-1..INC-5 一次原子 feature commit（待用户点头）**
 
-> **① INC-4 —— ✅ 全部完成**（写计划提供器 + buildSink + `HiveSinkHelper` + 能力位 + DEC-1 通用无排序哈希档 + DEC-2 拦截放宽，见 🎯；`fe-connector-hive` 87 测试 + `fe-core` 16 测试全绿；净室复审 3/8 维独立过、其余人工+强单测覆盖，唯一 low 发现 benign 不修）。下步是 **INC-5**，不再回炒 INC-1..4。port-map = `tasks/P7.3-INC-4-portmap.md`。**可选**：账号限流 10pm 重置后重跑 `wf-inc4-review.js` 的 5 个被截断维度补独立复审。
+> **① INC-1..INC-5 —— ✅ 全部完成 + 全绿**（写链 INC-1..4 + 读链 INC-5，见 🎯）。`fe-connector-hive` **104 测试** + `fe-core` 16 测试全绿；checkstyle 0；import-gate 净；INC-5 已过净室对抗复审（1 CONFIRMED 已修 + 1 自查已修 + 测试补强）。**不再回炒任何增量。** port-map：INC-3=`tasks/P7.3-INC-3-portmap.md`、INC-4=`tasks/P7.3-INC-4-portmap.md`、INC-5=`tasks/P7.3-INC-5-portmap.md`。
 
-> **② 若要给 INC-4 补独立复审**：`Workflow({scriptPath: ".claude/wf-inc4-review.js", resumeFromRunId: "wf_f4f6e9d3-2e0"})`——已过的 3 维走缓存、被限流的 5 维（columns-and-partitions / location-staging / hadoopconfig-broker-caps / fecore-arm / test-fidelity）重跑。非阻塞，INC-5 可先做。
+> **② FINAL —— 一次原子 feature commit**（§8；**path-whitelist `git add`，严禁 `-A`**）。白名单 = INC-1..INC-5 全部功能码 + 通用层（DEC-1）：
+> - `fe/fe-connector/fe-connector-hms/`（`HmsClient`/`ThriftHmsClient`/`HmsWriteConverter`/`HmsTableInfo`/`pom.xml` 改 + `HmsAcidConstants`/`HmsCommonStatistics`/`HmsPartitionStatistics`/`HmsPartitionWithStatistics` 新 + 2 test）
+> - `fe/fe-connector/fe-connector-hive/`（INC-2/3/4/5 全部新+改文件 + `pom.xml`，见 🎯 各段清单）
+> - `fe/fe-connector/fe-connector-api/`（`ConnectorWritePlanProvider`/`Connector`/`ConnectorContractValidator`）
+> - `fe/fe-core/`（`datasource/PluginDrivenExternalTable.java`、`nereids/.../physical/PhysicalConnectorTableSink.java` + 两个对应 test）
+> - **切勿混入**：`regression-test/conf/regression-conf.groovy*`、`*.bak`、`.audit-scratch/`·`conf.cmy/`·`META-INF/`·`docker/...`、`.claude/*.js`（workflow 脚本，非仓内）、`plan-doc/reviews/...`。commit message 见 `git log` 范式 + `Co-Authored-By`/`Claude-Session`。HANDOFF/doc/port-map **另起单独 commit**（本轮已 commit 文档）。
+> - **提交前**务必 `git status` 核对暂存清单，且再跑一次 `fe-connector-hive` fresh `clean test` 确认无 stale `.class`。
 
-> **③ INC-5 —— 读侧 ACID 生产半 + 插件读事务生命周期（dormant）**（`fe-connector-hive`，port-map §5.4）：移植 `getAcidState` **纯**目录名解析 + `hive-common Valid*` 算法；插件 `HiveTransaction`（openTxn/acquireSharedLock/getValidWriteIds/commitTxn，用 INC-1 已落地的读原语）；`HiveScanPlanProvider` 下潜 + `HiveScanRange.acidInfo(...)` 生产端接线；`HiveTableHandle` 的 `isTransactional`/`isFullAcid` 从 `getTableParameters()` 派生（D8）。测试 = `HiveAcidDescentTest` + 既有 `HiveScanRangeAcidTest` 保绿。**依赖仅 INC-1，独立于 INC-3/4**，也可先做。
-
-> **④ FINAL** —— INC-1..INC-5 全绿后**一次原子 feature commit**（path-whitelist `git add`，勿 `-A`）+ HANDOFF/doc 单独 commit。
+> **③ cutover（P7.4/P7.5，另起原子批，勿在 FINAL 混入）**：翻闸（加 `HIVE` 到 `SPI_READY_TYPES`）、fe-core 写链 retype、读侧把 `Env.getCurrentHiveTransactionMgr()` 换成插件 `HiveReadTransactionManager` + 把 `QueryFinishCallbackRegistry` 接到 `deregister`（放锁）、摘 legacy `HiveTransactionMgr`、删 `datasource/hive`（+hudi+23 HMS-iceberg 类，守跨连接器删序）、**跑 ACID 集成测试套件**（R-002 最大风险，含 insert-only 标记门禁的 planScan 级回归——INC-5 已注留为 cutover 门）。
 
 ## 开场要点（承接）
 
-1. **起步先读**本文顶部 🎯 段 + 设计文档 §6 构建顺序 + INC-4 段 port-map §4.4/§5.2（写 sink 侧）/ INC-5 段 port-map §5.4（读侧 ACID）。**信 HEAD 控制流不信行号**——每处编辑前重读对应 HEAD 段。（`P7.3-INC-3-portmap.md` 仅 INC-3 专用，已全部落地，下轮不必再读。）
-2. **INC-3 已全部完成，勿重写/勿再复审现有代码**：`HiveConnectorTransaction` 已编译 + 67 单测（10 分类/SPI + 4 committer FS）+ checkstyle + import-gate 全绿，且**已过 12 路净室对抗复审（11/12 忠实，唯一 low 缺陷已修+测）**。下步是 **INC-4 → INC-5**（可择序：写 spine 先或读侧先，INC-5 仅依赖 INC-1）。
-3. **范围锁定（勿重议）**：hive **不在** `SPI_READY_TYPES`（整批天然 dormant，编译+单测但零线上路由）；翻闸 / fe-core 写链 retype / 摘 `HiveTransactionMgr` / 删 legacy **均属后续 P7.4/P7.5，另起原子批**。full-ACID **写**继续硬拒（D7），full-ACID **读**在范围（INC-5）。
-4. **硬门 = ACID 集成测试套件**（R-002 项目最大风险，需 live 写路径 → P7.4/P7.5 翻闸时跑，勿静默跳过——Rule 12）。
+1. **起步先读**本文顶部 🎯 段 + 设计文档 §6/§8。**若要做 FINAL commit**：严格按 🚀②的白名单 path-whitelist add，提交前 `git status` 核对 + fresh `clean test`。
+2. **INC-1..INC-5 已全部完成 + 全绿 + 复审，勿重写/勿再复审现有代码**。全批仍 UNCOMMITTED 在工作树（原子批 WIP 载体，勿 `git checkout`/`revert`）。
+3. **范围锁定（勿重议）**：hive **不在** `SPI_READY_TYPES`（整批天然 dormant，编译+单测但零线上路由）；翻闸 / fe-core 写链 retype / 摘 `HiveTransactionMgr` / 读侧放锁接线 / 删 legacy **均属后续 P7.4/P7.5，另起原子批**（见 🚀③）。full-ACID **写**继续硬拒（D7），full-ACID + insert-only **读**在范围（INC-5，已落地）。
+4. **硬门 = ACID 集成测试套件**（R-002 项目最大风险，需 live 读/写路径 → P7.4/P7.5 翻闸时跑，勿静默跳过——Rule 12）。
 5. **纪律**：每轮完成即更新本 HANDOFF + commit（memory `handoff-discipline-per-phase`）；上下文超 30% 找干净节点交接（memory `session-handoff-at-30pct-context`）。
 
 ---
