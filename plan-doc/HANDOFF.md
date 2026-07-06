@@ -5,20 +5,23 @@
 
 ---
 
-# 🎯 当前状态（2026-07-06 晚）= **P7.3 写/事务批已完成 HEAD 级侦察 + 可执行实现设计（新文档 [`P7.3-hive-write-txn-implementation-design.md`](./tasks/P7.3-hive-write-txn-implementation-design.md)）；用户已拍板「整批作为一次原子提交」，实现拆成 5 个可编译增量 INC-1..INC-5（内部构建顺序、逐增量编译+单测过、但不单独 commit，最后一次性提交）；下一步 = 起手实现 INC-1（HmsClient 读/写原语 + DTO + 录制式假客户端单测）。前序 seam/回归已落地（T08 `21aa30683dc`、T07 delete-delta `c30fa15d99a`），勿重做**
+# 🎯 当前状态（2026-07-07）= **P7.3 原子批 INC-1 已实现并通过（HmsClient 9 原语 + 4 DTO + 转换器 + 录制式假客户端单测）——但按用户拍板的「整批一次原子提交」，INC-1 代码仍 UNCOMMITTED 在工作树里（是跨 session 的 WIP 载体，勿 commit、勿 revert、勿 `git checkout`）；本轮只 commit 了本 HANDOFF + 设计文档。验证：`fe-connector-hms` 模块测试 SUCCESS（49 hms 用例：16 新 ACID/写 + 15 转换器 + 18 既存类型映射）、checkstyle 0、import-gate 净。下一步 = INC-2（把 hive 支撑叶子类型 + 纯 helper 挪进 `fe-connector-hive`；先读插件侧已有什么再挪，R6）。前序 seam/回归已落地（T08 `21aa30683dc`、T07 delete-delta `c30fa15d99a`），勿重做**
+
+> **⚠️ 工作树有未提交的 INC-1 代码**：`git status` 会显示 `fe/fe-connector/fe-connector-hms/` 下 4 新文件 + 4 改文件（`HmsClient`/`ThriftHmsClient`/`HmsWriteConverter`/`pom.xml` + 2 test）。这是**故意的**（原子批模型，见设计文档 §8）——下个 session 在此基础上继续 INC-2..INC-5，全绿后才一次性 feature commit。**若工作树被清就得照设计文档 §6 INC-1 块重建**（该块已勾选 [x] 并记录了精确签名与 4 处偏差）。
 
 > **⚠️ 权威实现计划已切换到设计文档**：本轮把 spec 的 T01–T11 拆解**收敛成一份可直接执行的设计**（4 类拆分修正、精确签名、3 硬耦合断法、INC-1..INC-5 构建顺序、逐增量测试计划、原子提交管理策略）。**下个 session 直接照 `tasks/P7.3-hive-write-txn-implementation-design.md` 的 §6 构建顺序执行**，spec 的 T01–T11 表仅作背景。
 >
 > **本轮侦察的关键修正（写进设计文档，勿再纠结）**：① **写路径是「4 类拆分」**——`HiveConnectorTransaction` + 不可变 `HiveWriteContext` + **独立** `HiveWritePlanProvider`（planWrite **不在** metadata，spec 说法有误）+ `HiveConnectorMetadata.beginTransaction` 一行工厂，全对齐 iceberg。② **fe-core 桥零改动**已复核（`profileLabel()="HMS"` 复用既存 `TransactionType.HMS` 枚举）。③ **读侧 ACID（T07 生产半）并不与写事务机器耦合**——`HMSTransaction` 全程不调 `openTxn/commitTxn/getValidWriteIds`，四个读原语仅读侧用；所谓「拖入 fe-core」是浅的（插件已用裸 Hadoop FS + 自有 `HiveScanRange`，`FileCacheValue/FileSystemTransferUtil/LocationPath/StorageProperties/HivePartition/AcidInfo` 在边界处全落地），真正搬的只有纯目录名解析 + `hive-common ValidWriteIdList` 算法。④ hive **不在** `SPI_READY_TYPES`（`{jdbc,es,trino-connector,max_compute,paimon,iceberg}`）——整批**天然 dormant/安全**，编译+单测但零线上路由，同 iceberg/paimon 翻闸前范式。⑤ **翻闸/fe-core retype/Env 摘 `HiveTransactionMgr`/删 legacy 均不在本原子批**（属后续 P7.4/P7.5，另起一次原子提交）。
 
-> **本轮做了什么** —— **1 实现 commit（`21aa30683dc`）+ 1 文档 commit**，落地 T08 的**中立读事务生命周期 seam**（OQ-RTX=a 的连接器无关部分）：
-> - **新 `QueryFinishCallbackRegistry`**（fe-core `qe/`）：`register(queryId, Runnable)` / `runAndClear(queryId)`（幂等 + 单回调异常隔离，一个连接器清理失败不阻断其它）。
-> - **`QeProcessor` 加 `registerQueryFinishCallback` SPI**；`QeProcessorImpl.unregisterQuery` 原 `:210` 硬编 `Env.getCurrentHiveTransactionMgr().deregister(...)`（**每条查询都点名 hive** 的通用清理代码）改为通用 drain `runAndClear(printId(queryId))` → **通用查询生命周期代码不再点名任何数据源**（架构铁律进展；对齐 Trino 引擎驱动的 query/txn 生命周期）。
-> - **`HiveScanNode.doInitialize`** 经 seam 注册 deregister 回调。**行为保持**：drain key `printId(queryId)` == 回调 key `hiveTransaction.getQueryId()`（老 deregister 依赖的同一等式）；早释放路径仍即时 commit、finish 回调再走幂等 deregister 即 no-op → 单次 commit。
-> - **6 单测（无 Mockito）**：run-once / 空查询 no-op / 多回调按序 / 幂等 / 失败隔离 / per-query 作用域。**build SUCCESS / checkstyle 0 / import-gate 净 / 6 pass**。非 live（翻闸 P7.5）。
-> - **T08 剩余**：`HiveTransactionMgr` **仍留 `Env`**（legacy fe-core 读路径 `HiveScanNode` 在用）；入插件须待 T07 读侧 ACID 迁移（届时插件经**同一 seam** 注册），故与 T07 同批。
-> - **为何本轮只做 T08（用户拍板）**：T01–T05 是**互锁原子批**（写原语签名由事务实际调用反推，不得先作死代码——P7.1 教训），照 spec 移植 1895 行 `HMSTransaction`+`HiveTableSink.bindDataSink` 是**多 session** 且中途拿不出可编译可提交结果。T08 中立 seam 是本 session 唯一「干净、有界、可独立编译+提交+测试」的片。
-> - **⚠️ 本轮侦察修正 T07 边界（已写进 spec T07 行，勿低估）**：读侧 ACID 的**消费/解码半已在插件做完+单测**（`HiveScanRange`，`.acidInfo(` 目前无生产者调用）；**生产半仍是活且与写批耦合**——`AcidUtil.getAcidState`(427) 返回 fe-core 缓存内类 `FileCacheValue`、拖入 Doris `filesystem`/`StorageProperties`/`LocationPath`/`HivePartition`；生产实调在 `HiveExternalMetaCache:816`（非 `HiveScanNode`）；`HiveTransaction` 的 `openTxn`/`getValidWriteIds`/`acquireSharedLock` **与写路径共用同批 ACID HmsClient 原语（T01/T02）**；插件 `HiveScanPlanProvider` 现**整段跳过 ACID 目录**，产 ACID 读须新增扫描下潜逻辑。⇒ **T07 生产半宜与 T01/T02 写批同批推进，非独立并行小片**。
+> **本轮做了什么（INC-1，未 commit）** —— 照设计文档 §6 起手实现原子批第一增量：**在 `fe-connector-hms` 建齐 9 个 HmsClient 元存储原语 + 4 个 DTO + 转换器扩展 + 录制式假客户端单测**。
+> - **`HmsClient` 接口**：Phase-3 补 5 写原语（addPartitions / updateTable+PartitionStatistics / dropPartition / partitionExists），新 Phase-4 补 4 读-ACID 原语（openTxn / commitTxn / getValidWriteIds / acquireSharedLock），均照既有 DDL 块 `default`-throw 写法。
+> - **4 新 DTO**：`HmsCommonStatistics`（port `CommonStatistics`）、`HmsPartitionStatistics`（port `HivePartitionStatistics`，**丢弃 column-stats map**——写路径恒空且是唯一 fe-core 拖拽）、`HmsPartitionWithStatistics`（builder；**打平** `HivePartition` 的 SD 字段，绕开 fe-core 类型）、`HmsAcidConstants`（两个 BE 契约 key，INC-5 复用）。均 connector-api/JDK/hive-metastore-api only。
+> - **`ThriftHmsClient` 实现**：每个原语 `execute(client -> …)`（auth/TCCL 由 `execute→doAs` 免费提供）。getValidWriteIds 成功路径（`getValidTxns()` **无参**快照 + 两 key）+ 版本不兼容时 max-watermark 降级 fallback；acquireSharedLock 用 `LockRequestBuilder`/`LockComponentBuilder`（SHARED_READ + `checkLock` 忙轮询，无 heartbeat=OQ-LOCK）；**addPartitions batch-20 移进 client**（JDK subList，不引 guava）；统计走 **`alter_table`/`alter_partition` 参数重建**（非 `SetPartitionsStatsRequest`）；partitionExists **新写**=getPartition 在 lambda 内吞 `NoSuchObjectException`（not-found 不 taint 池化 client）。
+> - **`HmsWriteConverter` 扩展**：`toHivePartitions` + `toStatisticsParameters`（=`HiveUtil.updateStatisticsParameters`，spec 里叫 `toColumnStatistics` **系误名**，其实是基础统计参数 numRows/totalSize/numFiles，非 ColumnStatistics）+ `toPartitionStatistics` + 私有 `emptyToNull`（去 guava）。
+> - **单测（无 Mockito，JDK `Proxy` 录制式假 `IMetaStoreClient`）**：`ThriftHmsClientWriteAcidTest` 16 例（转发/batch-20 **全覆盖**校验 union==p0..p44 而非仅调用次数/getValidWriteIds **成功**（辨别水位，证明确实走成功支非 fallback）+fallback/锁 acquire·poll·timeout/统计重建/partitionExists 真假/歧义名拒绝）；`HmsWriteConverterTest` +5。**pom 加 2 个 test-scoped 依赖**（`hadoop-mapreduce-client-core`→`JobConf`、`commons-lang`→`HiveConf` 静态初始化，因 ctor 会 new HiveConf；照 iceberg/paimon 先例）。
+> - **验证**：module test SUCCESS（49 hms 用例）、checkstyle 0、import-gate 净。**3-lens 对抗 review + 逐条 verify**：0 生产缺陷、2 测试覆盖缺口（batch 只校验次数、getValidWriteIds 成功路径无覆盖）——均已补测修掉。
+> - **4 处对 §4.1 的偏差（均忠实迁移、零行为变化，已写进设计文档 §6 INC-1 块）**：batch-20 在 client 非 committer；`toColumnStatistics`→`toStatisticsParameters`/`toPartitionStatistics`；column-stats map 丢弃；partitionExists 新写。
+> - **前序已落地（历史 commit，勿重做）**：T08 连接器无关读事务 seam（`QueryFinishCallbackRegistry` + `QeProcessorImpl` 通用 drain 替 hive 硬编 + `HiveScanNode` 经 seam 注册，`21aa30683dc`）；T07 delete-delta 回归修复（`c30fa15d99a`）。T08 剩余（`HiveTransactionMgr` 出 `Env` 入插件）与 T07 读侧 ACID（INC-5）同批。
 >
 > **上一轮（P7.3 recon+设计）已定的产出仍有效**（写进 `tasks/P7-hive-migration.md` 末尾「**P7.3 逐 task 拆解**」块 + OQ 段 ✅）：
 > - **通用写入通路已由 iceberg P6 建好**（`PhysicalConnectorTableSink → PluginDrivenTableSink → PluginDrivenInsertExecutor` + `ConnectorTransaction`/`ConnectorWritePlanProvider`/`PluginDrivenTransactionManager`，**fe-core 桥零改动**）⇒ P7.3 = 把 hive INSERT 折进现成通路 + 照抄 `IcebergConnectorTransaction`/`IcebergWriteContext`，非从零发明 seam。
@@ -47,7 +50,9 @@
 
 ---
 
-# 🚀 下个 session 任务 = **照 [`tasks/P7.3-hive-write-txn-implementation-design.md`](./tasks/P7.3-hive-write-txn-implementation-design.md) §6 构建顺序起手 INC-1（HmsClient 原语+DTO+录制式假客户端单测）→ INC-2..INC-5；全批作为一次原子提交（用户拍板），逐增量保持树可编译+单测过、但不单独 commit**
+# 🚀 下个 session 任务 = **照 [`tasks/P7.3-hive-write-txn-implementation-design.md`](./tasks/P7.3-hive-write-txn-implementation-design.md) §6 续做 INC-2（hive 支撑叶子类型 + 纯 helper 挪进 `fe-connector-hive`）→ INC-3（`HiveWriteContext`+`HiveConnectorTransaction` 核心，最硬的一块）→ INC-4（`HiveWritePlanProvider`+`buildSink`）→ INC-5（读侧 ACID 生产半，可用 INC-1 的 `HmsAcidConstants`/read 原语）。INC-1 已在工作树（未 commit）；全批全绿后一次性 feature commit**
+
+> **INC-2 起步先做（R6，设计文档 §6 明确警告）**：**先读 `fe-connector-hive` 插件侧已有什么**，再决定 `datasource.hive` 里哪些叶子类型真需要挪 vs 已有插件对等物——过度搬运会拖入 fe-core 依赖。纯 helper（path 工具 + `mergePartitions`）与 DTO 优先复用 INC-1 已建的 `Hms*` 类型；只 co-move 无插件对等物的。INC-2/INC-3 的写原语 DTO 应直接用 INC-1 的 `HmsPartitionWithStatistics`/`HmsPartitionStatistics`/`HmsCommonStatistics`（committer 侧 batch-20 已在 client 内，故 committer 只需一次 `hmsClient.addPartitions(db,table,全部)`）。
 
 > **权威计划**：`tasks/P7-hive-migration.md` 末尾「**P7.3 逐 task 拆解**」块（recon 结论 + 3 决策 + T01–T11 任务表 + 移植指针 + HEAD 行号）。**信 HEAD 控制流不信本文/spec 行号。** 模板 = `IcebergConnectorTransaction`/`IcebergWriteContext`/`IcebergConnectorMetadata.beginTransaction+planWrite`；fe-core 桥 `PluginDrivenTransactionManager`/`PluginDrivenInsertExecutor` **零改动**。
 
