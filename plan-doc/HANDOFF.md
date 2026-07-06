@@ -5,16 +5,17 @@
 
 ---
 
-# 🎯 当前状态（2026-07-06）= **P7.3 原子批 INC-1 + INC-2 + INC-3 全部完成（主体 + 复审 + FS 重活单测全绿）。下一步 = INC-4 → INC-5。全批仍 UNCOMMITTED 在工作树里（跨 session WIP 载体，勿 commit / 勿 revert / 勿 `git checkout`）。本轮只 commit HANDOFF + 设计文档。**
+# 🎯 当前状态（2026-07-06）= **P7.3 原子批 INC-1 + INC-2 + INC-3 + INC-4 全部完成（写链主体全绿）。下一步 = INC-5（读侧 ACID），之后全批一次原子 feature commit。全批仍 UNCOMMITTED 在工作树里（跨 session WIP 载体，勿 commit / 勿 revert / 勿 `git checkout`）。本轮只 commit HANDOFF + 设计文档 + INC-4 port-map。**
 
-> **本轮做了什么（INC-3 收尾 a：提交器 FS 重活单测）**：给 `HiveConnectorTransactionTest` 加了 4 个 committer FS 单测，覆盖 D6/D9 对象存储那半（净室复审 b 已在上一轮做完，本轮无需再跑）。注入方式 = 匿名子类 override `resolveObjectStoreFileSystem(...)` 返回一个 recording 假 `ObjFileSystem`（内含 recording 假 `ObjStorage`，同时记录 complete+abort；假件的非 MPU FS 方法一律 fail-loud，走到即测试失败）。4 例：① commit 时 MPU `completeMultipartUpload`（无分区 APPEND、`targetPath==writePath` 走 `objCommit`；并断言 ETag 按 part 号排序）；② `rollback()`（committer-null 路径）MPU `abortMultipartUpload`；③ rollback **幂等**（第二次 `rollback()` 不抛、且 abort 恰好一次）；④ `addPartitions` **只调一次**且带整表分区 SD（GAP-7 批处理在 client 内、GAP-4 列从表 schema 重建）——第④例 FILE_S3 下 `targetPath==writePath` 不触发任何 FS，故连假件都不需要。同步把测试类头 Javadoc 与设计文档 §6 INC-3 (a) 勾成 done。
+> **本轮做了什么（INC-4：写计划提供器 + buildSink + 能力位；含两处用户拍板）**：新建 `HiveWritePlanProvider`（忠实移植 HEAD `planner.HiveTableSink.bindDataSink`：列 REGULAR/PARTITION_KEY 按表序、分桶、按格式压缩、序列化分隔符、S3 原地 vs HDFS/local/broker 暂存路径、broker 地址 fail-loud、已存在分区 live 列举、hadoop_config 走 `StorageProperties.toBackendProperties`）+ `HiveSinkHelper`（`getTFileFormatType`[LZO 先拒]/`getTFileCompressType`/序列化分隔符逐字节移植 `HiveProperties`+`getByte`）+ `HiveConnector.getWritePlanProvider()` 注册 + 能力位。**用户决策 A（DEC-1）= 给通用写入层加一个"按分区哈希但不排序"的通用能力**（`requiresPartitionHashWrite`）：改了 `ConnectorWritePlanProvider`/`Connector`/`ConnectorContractValidator`(#4/#5)/`PluginDrivenExternalTable`/`PhysicalConnectorTableSink`（新增一条与老 `PhysicalHiveTableSink` 逐字节一致的无排序哈希分发档位）——通用、默认关、对其它连接器全惰性。**用户决策 B（DEC-2）= 把事务表写入拦截放宽到"任何事务表"**（`HiveConnectorTransaction.rejectTransactionalWrite`，原只拒 full-ACID → 现拒 full-ACID + 仅插入型，对齐老 `InsertIntoTableCommand`）。
 
-> **本轮验证（独立重跑，不信自述）**：`fe-connector-hive` 全模块 `test` **67 测试 0 失败 0 错误 BUILD SUCCESS（原 63 + 新 4；hive/hms 全绿、无回归）**；`checkstyle:check` 0 违规；`check-connector-imports.sh` 净（仅 `HiveVersionUtil` 已知误报，gate 现已自动 skip）。
+> **本轮验证（独立重跑，不信自述）**：`fe-connector-hive` 全模块 `clean test` **87 测试 0 失败 0 错误 BUILD SUCCESS（原 67 + 新 20；`HiveWritePlanProviderTest`=20、`HiveConnectorTransactionTest`=14）**；`fe-core` 分发/契约测试 **16 绿**（`PhysicalConnectorTableSinkTest` 9 [+2]、`ConnectorContractValidatorTest` 7 [+3]，MaxCompute 路径无回归）；`checkstyle:check` 0 违规；`check-connector-imports.sh` 净。**净室对抗复审：8 维度里 3 维（序列化分隔符 / 压缩+格式+LZO / 事务表拦截）过了独立 agent 复审——全部忠实；其余 5 维（列/分区、位置暂存、hadoop+broker+能力、fe-core 分发档、测试质量）因账号 session 限流被截断,由我人工逐条 diff 老实现 + 已确认强断言单测覆盖。唯一发现 = 1 条 low 且 benign 的 `Locale.ROOT` 细节(插件反而更安全、且是 INC-3 既有代码非本轮改动),不修。** 限流 10pm(Asia/Shanghai)重置,可择机重跑那 5 维补独立复审。
 
-> **⚠️ 工作树未提交的 INC-1 + INC-2 + INC-3 代码**（`git status` 会显示；原子批模型，设计文档 §8——**若工作树被清就照 port-map 重建**）：
+> **⚠️ 工作树未提交的 INC-1..INC-4 代码**（`git status` 会显示；原子批模型，设计文档 §8——**若工作树被清就照各 port-map 重建**）：
 > - INC-1（`fe-connector-hms`）：`HmsClient`/`ThriftHmsClient`/`HmsWriteConverter`/`pom.xml` 改 + `HmsAcidConstants`/`HmsCommonStatistics`/`HmsPartitionStatistics`/`HmsPartitionWithStatistics`/`HmsPartitionInfo` 新 + 2 test。
 > - INC-2（`fe-connector-hive`）：`HiveWriteUtils.java` + `NameMapping.java`（+ 2 test）。
-> - **INC-3（`fe-connector-hive`）**：**新** `HiveWriteContext.java`(89) + `HiveConnectorTransaction.java`(1704，含 dup-key 修复) + `HiveConnectorTransactionTest.java`(654，14 例：10 分类/SPI + 4 committer FS) + `FakeConnectorContext.java`(64)；**改** `HiveConnectorMetadata.java`(+15，`beginTransaction` override) + `pom.xml`(+11，`fe-filesystem-spi` scope `provided`) + `HiveWriteUtils.java`（`equalsIgnoreSchemeIfOneIsS3`/`toPartitionValues` + 单测）。
+> - **INC-3（`fe-connector-hive`）**：**新** `HiveWriteContext.java`(89) + `HiveConnectorTransaction.java`(1704，含 dup-key 修复；本轮 INC-4 又改了 guard→`rejectTransactionalWrite`) + `HiveConnectorTransactionTest.java`(14 例) + `FakeConnectorContext.java`(64)；**改** `HiveConnectorMetadata.java`(`beginTransaction` override) + `pom.xml` + `HiveWriteUtils.java`。
+> - **INC-4（`fe-connector-hive` + 通用层）**：**新** `HiveWritePlanProvider.java`(362) + `HiveSinkHelper.java`(246) + `HiveWritePlanProviderTest.java`(716,20 例) + `RecordingConnectorContext.java`(98)；**改** `HiveConnector.java`(+getWritePlanProvider) + `HiveConnectorTransaction.java`(guard 放宽) + `HiveConnectorTransactionTest.java`(+insert-only 拒绝)。**通用层（DEC-1，本批唯一 fe-core 改动）**：`fe-connector-api` `ConnectorWritePlanProvider`/`Connector`/`ConnectorContractValidator` + `fe-core` `PluginDrivenExternalTable`/`PhysicalConnectorTableSink` + 2 个 fe-core test 文件各加用例 + `fe-connector-hms` `HmsTableInfo`(+bucketCols/numBuckets)/`ThriftHmsClient`(convertTable 填桶)。
 
 > **权威实现依据**（信 HEAD 控制流，不信行号）：
 > - `tasks/P7.3-hive-write-txn-implementation-design.md`（§2 决策 D1–D12、§4 签名、§5 移植细节、§6 构建顺序）。
@@ -23,11 +24,11 @@
 
 ---
 
-# 🚀 下个 session 任务 = **INC-4 → INC-5，（全绿后）全批一次原子 feature commit**
+# 🚀 下个 session 任务 = **INC-5（读侧 ACID），全绿后全批一次原子 feature commit**
 
-> **① INC-3 —— ✅ 全部完成**（主体 + 复审 b + FS 重活单测 a，见 🎯；`fe-connector-hive` 67 测试全绿）。下步是 **INC-4 → INC-5**，不再回炒 INC-3。INC-4/INC-5 落地后可对**新代码**再起一轮同款净室对抗复审。
+> **① INC-4 —— ✅ 全部完成**（写计划提供器 + buildSink + `HiveSinkHelper` + 能力位 + DEC-1 通用无排序哈希档 + DEC-2 拦截放宽，见 🎯；`fe-connector-hive` 87 测试 + `fe-core` 16 测试全绿；净室复审 3/8 维独立过、其余人工+强单测覆盖，唯一 low 发现 benign 不修）。下步是 **INC-5**，不再回炒 INC-1..4。port-map = `tasks/P7.3-INC-4-portmap.md`。**可选**：账号限流 10pm 重置后重跑 `wf-inc4-review.js` 的 5 个被截断维度补独立复审。
 
-> **② INC-4 —— `HiveWritePlanProvider.planWrite` + `buildSink` + capabilities**（`fe-connector-hive`，port-map §4.4/§5.2）：`planWrite` 调 `tx.beginWrite(...)` + `buildSink`（= 忠实移植 HEAD `planner.HiveTableSink.bindDataSink`：PARTITION_KEY/REGULAR 按表序、bucket、按格式压缩、staging-vs-in-place location、serde、`hadoopConfig` 经 `context.getStorageProperties().toBackendProperties()` + `vendStorageCredentials`）+ `HiveConnector.getWritePlanProvider()` + `supportedOperations={INSERT,OVERWRITE}` + capability gates；LZO-INSERT / 事务表拒写作 begin-guard。测试 = `HiveWritePlanProviderTest`（假 `ConnectorWriteHandle`，断 `THiveTableSink` 形状 + INSERT→OVERWRITE 提升 + guard）。
+> **② 若要给 INC-4 补独立复审**：`Workflow({scriptPath: ".claude/wf-inc4-review.js", resumeFromRunId: "wf_f4f6e9d3-2e0"})`——已过的 3 维走缓存、被限流的 5 维（columns-and-partitions / location-staging / hadoopconfig-broker-caps / fecore-arm / test-fidelity）重跑。非阻塞，INC-5 可先做。
 
 > **③ INC-5 —— 读侧 ACID 生产半 + 插件读事务生命周期（dormant）**（`fe-connector-hive`，port-map §5.4）：移植 `getAcidState` **纯**目录名解析 + `hive-common Valid*` 算法；插件 `HiveTransaction`（openTxn/acquireSharedLock/getValidWriteIds/commitTxn，用 INC-1 已落地的读原语）；`HiveScanPlanProvider` 下潜 + `HiveScanRange.acidInfo(...)` 生产端接线；`HiveTableHandle` 的 `isTransactional`/`isFullAcid` 从 `getTableParameters()` 派生（D8）。测试 = `HiveAcidDescentTest` + 既有 `HiveScanRangeAcidTest` 保绿。**依赖仅 INC-1，独立于 INC-3/4**，也可先做。
 
@@ -48,6 +49,7 @@
 - **工作分支 = `catalog-spi-11-hive`**（off `branch-catalog-spi` @ `8b391c7459d`）。PR base = `branch-catalog-spi`，**squash 合并**（复用 P5-T29 #64653 / P6 #64688 范式）。
 - **公开 tracking issue = apache/doris#65185**（catalog-SPI 迁移 umbrella）；P7 PR 应引用它。进度按已合入 `branch-catalog-spi` PR 口径。
 - **⚠️ path-whitelist `git add`，严禁 `git add -A`**（scrub `regression-test/conf/regression-conf.groovy` 明文 key + `*.bak` + scratch `.audit-scratch/`·`conf.cmy/`·`META-INF/`·`docker/...` + `plan-doc/reviews/P5-paimon-rereview3-*`；`.claude/` 是 memory、非仓内）。
+- **⚠️ 本批 FINAL 原子 commit 的白名单现已跨通用层**（DEC-1，用户 2026-07-06 授权）：除 `fe-connector-hms`/`fe-connector-hive` 外，还含 `fe-connector-api`（`ConnectorWritePlanProvider`/`Connector`/`ConnectorContractValidator`）+ `fe-core`（`datasource/PluginDrivenExternalTable.java`、`nereids/.../physical/PhysicalConnectorTableSink.java` + 两个对应 test）。设计文档 §4.5"fe-core ZERO changes"就此**作废**（改为一处通用、connector-agnostic、默认关的新能力）。
 - commit message：见 `git log` 范式 + 末尾 `Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>` + `Claude-Session: …`。**每阶段/每条 fix = 独立 commit**；HANDOFF + 任务清单 + 设计文档 + port-map 单独 commit。
 
 # ⚙️ 操作须知（复用）
