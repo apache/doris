@@ -25,6 +25,7 @@ import org.apache.doris.thrift.TTransactionalHiveDeleteDeltaDesc;
 import org.apache.doris.thrift.TTransactionalHiveDesc;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -165,9 +166,19 @@ public class HiveScanRange implements ConnectorScanRange {
                 if (deltaStr != null) {
                     TTransactionalHiveDeleteDeltaDesc delta =
                             new TTransactionalHiveDeleteDeltaDesc();
-                    delta.setDirectoryLocation(deltaStr.contains("|")
-                            ? deltaStr.substring(0, deltaStr.indexOf('|'))
-                            : deltaStr);
+                    // Encoded as "dir|file1,file2" (see Builder#acidInfo). BE needs BOTH the
+                    // delete-delta directory AND the file names to correctly apply row deletes;
+                    // dropping the file names silently under-deletes on ACID reads.
+                    int sep = deltaStr.indexOf('|');
+                    if (sep >= 0) {
+                        delta.setDirectoryLocation(deltaStr.substring(0, sep));
+                        String fileNamesPart = deltaStr.substring(sep + 1);
+                        if (!fileNamesPart.isEmpty()) {
+                            delta.setFileNames(Arrays.asList(fileNamesPart.split(",")));
+                        }
+                    } else {
+                        delta.setDirectoryLocation(deltaStr);
+                    }
                     deltas.add(delta);
                 }
             }
