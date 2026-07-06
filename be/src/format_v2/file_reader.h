@@ -323,6 +323,8 @@ public:
     // Readers should return 0 if the metadata is unavailable or the row coordinate is unstable.
     virtual int64_t get_total_rows() const { return 0; }
 
+    const ReaderStatistics& reader_statistics() const { return _reader_statistics; }
+
     virtual Status close() {
         _file_reader.reset();
         _tracing_file_reader.reset();

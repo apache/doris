@@ -231,8 +231,10 @@ TEST(FileScannerV2Test, RealtimeCounterDeltasUseReaderBytesAsRemoteWithoutCacheS
     int64_t last_bytes_read_from_remote = 0;
 
     file_reader_stats.read_bytes = 100;
+    file_reader_stats.read_rows = 7;
     auto deltas = FileScannerV2::TEST_collect_realtime_counter_deltas(
-            file_reader_stats, file_cache_statistics, 7, &last_read_bytes, &last_read_rows,
+            file_reader_stats, file_cache_statistics,
+            FileScannerV2::UncachedReaderBytesStorage::REMOTE, &last_read_bytes, &last_read_rows,
             &last_bytes_read_from_local, &last_bytes_read_from_remote);
     EXPECT_EQ(7, deltas.scan_rows);
     EXPECT_EQ(100, deltas.scan_bytes);
@@ -240,7 +242,8 @@ TEST(FileScannerV2Test, RealtimeCounterDeltasUseReaderBytesAsRemoteWithoutCacheS
     EXPECT_EQ(100, deltas.scan_bytes_from_remote_storage);
 
     deltas = FileScannerV2::TEST_collect_realtime_counter_deltas(
-            file_reader_stats, file_cache_statistics, 7, &last_read_bytes, &last_read_rows,
+            file_reader_stats, file_cache_statistics,
+            FileScannerV2::UncachedReaderBytesStorage::REMOTE, &last_read_bytes, &last_read_rows,
             &last_bytes_read_from_local, &last_bytes_read_from_remote);
     EXPECT_EQ(0, deltas.scan_rows);
     EXPECT_EQ(0, deltas.scan_bytes);
@@ -248,8 +251,10 @@ TEST(FileScannerV2Test, RealtimeCounterDeltasUseReaderBytesAsRemoteWithoutCacheS
     EXPECT_EQ(0, deltas.scan_bytes_from_remote_storage);
 
     file_reader_stats.read_bytes = 160;
+    file_reader_stats.read_rows = 9;
     deltas = FileScannerV2::TEST_collect_realtime_counter_deltas(
-            file_reader_stats, file_cache_statistics, 9, &last_read_bytes, &last_read_rows,
+            file_reader_stats, file_cache_statistics,
+            FileScannerV2::UncachedReaderBytesStorage::REMOTE, &last_read_bytes, &last_read_rows,
             &last_bytes_read_from_local, &last_bytes_read_from_remote);
     EXPECT_EQ(2, deltas.scan_rows);
     EXPECT_EQ(60, deltas.scan_bytes);
@@ -266,10 +271,12 @@ TEST(FileScannerV2Test, RealtimeCounterDeltasUseFileCacheDeltasWhenAvailable) {
     int64_t last_bytes_read_from_remote = 0;
 
     file_reader_stats.read_bytes = 100;
+    file_reader_stats.read_rows = 7;
     file_cache_statistics.bytes_read_from_local = 30;
     file_cache_statistics.bytes_read_from_remote = 70;
     auto deltas = FileScannerV2::TEST_collect_realtime_counter_deltas(
-            file_reader_stats, file_cache_statistics, 7, &last_read_bytes, &last_read_rows,
+            file_reader_stats, file_cache_statistics,
+            FileScannerV2::UncachedReaderBytesStorage::REMOTE, &last_read_bytes, &last_read_rows,
             &last_bytes_read_from_local, &last_bytes_read_from_remote);
     EXPECT_EQ(7, deltas.scan_rows);
     EXPECT_EQ(100, deltas.scan_bytes);
@@ -277,10 +284,12 @@ TEST(FileScannerV2Test, RealtimeCounterDeltasUseFileCacheDeltasWhenAvailable) {
     EXPECT_EQ(70, deltas.scan_bytes_from_remote_storage);
 
     file_reader_stats.read_bytes = 125;
+    file_reader_stats.read_rows = 10;
     file_cache_statistics.bytes_read_from_local = 35;
     file_cache_statistics.bytes_read_from_remote = 90;
     deltas = FileScannerV2::TEST_collect_realtime_counter_deltas(
-            file_reader_stats, file_cache_statistics, 10, &last_read_bytes, &last_read_rows,
+            file_reader_stats, file_cache_statistics,
+            FileScannerV2::UncachedReaderBytesStorage::REMOTE, &last_read_bytes, &last_read_rows,
             &last_bytes_read_from_local, &last_bytes_read_from_remote);
     EXPECT_EQ(3, deltas.scan_rows);
     EXPECT_EQ(25, deltas.scan_bytes);
@@ -297,14 +306,36 @@ TEST(FileScannerV2Test, RealtimeCounterDeltasDoNotChargePeerCacheAsRemoteStorage
     int64_t last_bytes_read_from_remote = 0;
 
     file_reader_stats.read_bytes = 100;
+    file_reader_stats.read_rows = 7;
     file_cache_statistics.num_peer_io_total = 1;
     file_cache_statistics.bytes_read_from_peer = 100;
     auto deltas = FileScannerV2::TEST_collect_realtime_counter_deltas(
-            file_reader_stats, file_cache_statistics, 7, &last_read_bytes, &last_read_rows,
+            file_reader_stats, file_cache_statistics,
+            FileScannerV2::UncachedReaderBytesStorage::REMOTE, &last_read_bytes, &last_read_rows,
             &last_bytes_read_from_local, &last_bytes_read_from_remote);
     EXPECT_EQ(7, deltas.scan_rows);
     EXPECT_EQ(100, deltas.scan_bytes);
     EXPECT_EQ(0, deltas.scan_bytes_from_local_storage);
+    EXPECT_EQ(0, deltas.scan_bytes_from_remote_storage);
+}
+
+TEST(FileScannerV2Test, RealtimeCounterDeltasDoNotChargeLocalFileFallbackAsRemoteStorage) {
+    io::FileReaderStats file_reader_stats;
+    io::FileCacheStatistics file_cache_statistics;
+    int64_t last_read_bytes = 0;
+    int64_t last_read_rows = 0;
+    int64_t last_bytes_read_from_local = 0;
+    int64_t last_bytes_read_from_remote = 0;
+
+    file_reader_stats.read_bytes = 100;
+    file_reader_stats.read_rows = 7;
+    auto deltas = FileScannerV2::TEST_collect_realtime_counter_deltas(
+            file_reader_stats, file_cache_statistics,
+            FileScannerV2::UncachedReaderBytesStorage::LOCAL, &last_read_bytes, &last_read_rows,
+            &last_bytes_read_from_local, &last_bytes_read_from_remote);
+    EXPECT_EQ(7, deltas.scan_rows);
+    EXPECT_EQ(100, deltas.scan_bytes);
+    EXPECT_EQ(100, deltas.scan_bytes_from_local_storage);
     EXPECT_EQ(0, deltas.scan_bytes_from_remote_storage);
 }
 

@@ -403,6 +403,7 @@ void ParquetScanScheduler::set_condition_cache_context(std::shared_ptr<Condition
 
 void ParquetScanScheduler::reset() {
     _next_row_group_plan_idx = 0;
+    _raw_rows_read = 0;
     reset_current_row_group();
 }
 
@@ -628,6 +629,7 @@ Status ParquetScanScheduler::read_current_row_group_batch(
     if (_scan_profile.raw_rows_read != nullptr) {
         COUNTER_UPDATE(_scan_profile.raw_rows_read, batch_rows);
     }
+    _raw_rows_read += batch_rows;
     if (_current_predicate_columns.empty() && _current_non_predicate_columns.empty()) {
         *rows = static_cast<size_t>(batch_rows);
         if (_scan_profile.selected_rows != nullptr) {

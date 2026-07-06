@@ -490,6 +490,7 @@ Status ParquetReader::get_block(Block* file_block, size_t* rows, bool* eof) {
     }
 
     const auto predicate_filtered_rows_before = _state->scheduler.predicate_filtered_rows();
+    const auto raw_rows_read_before = _state->scheduler.raw_rows_read();
     Status st = _state->scheduler.read_next_batch(_state->file_context, _state->file_schema,
                                                   *request_snapshot, file_block, rows, eof);
     if (!st.ok()) {
@@ -505,6 +506,9 @@ Status ParquetReader::get_block(Block* file_block, size_t* rows, bool* eof) {
         _io_ctx->predicate_filtered_rows +=
                 _state->scheduler.predicate_filtered_rows() - predicate_filtered_rows_before;
     }
+    const auto raw_rows_read = _state->scheduler.raw_rows_read();
+    DORIS_CHECK(raw_rows_read >= raw_rows_read_before);
+    _reader_statistics.read_rows += raw_rows_read - raw_rows_read_before;
     _eof = *eof;
     return Status::OK();
 }

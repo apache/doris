@@ -61,6 +61,8 @@ public:
         int64_t scan_bytes_from_remote_storage = 0;
     };
 
+    enum class UncachedReaderBytesStorage { LOCAL, REMOTE, NONE };
+
     static bool is_supported(const TFileScanRangeParams& params, const TFileRangeDesc& range);
 #ifdef BE_TEST
     static Status TEST_to_file_format(TFileFormatType::type format_type,
@@ -74,8 +76,9 @@ public:
             const std::unordered_map<int32_t, format::GlobalIndex>& slot_id_to_global_index);
     static RealtimeCounterDeltas TEST_collect_realtime_counter_deltas(
             const io::FileReaderStats& file_reader_stats,
-            const io::FileCacheStatistics& file_cache_statistics, int64_t read_rows,
-            int64_t* last_read_bytes, int64_t* last_read_rows, int64_t* last_bytes_read_from_local,
+            const io::FileCacheStatistics& file_cache_statistics,
+            UncachedReaderBytesStorage uncached_reader_bytes_storage, int64_t* last_read_bytes,
+            int64_t* last_read_rows, int64_t* last_bytes_read_from_local,
             int64_t* last_bytes_read_from_remote);
 #endif
 
@@ -128,9 +131,11 @@ private:
     void _update_adaptive_batch_size(const Block& block);
     static RealtimeCounterDeltas _collect_realtime_counter_deltas(
             const io::FileReaderStats& file_reader_stats,
-            const io::FileCacheStatistics& file_cache_statistics, int64_t read_rows,
-            int64_t* last_read_bytes, int64_t* last_read_rows, int64_t* last_bytes_read_from_local,
+            const io::FileCacheStatistics& file_cache_statistics,
+            UncachedReaderBytesStorage uncached_reader_bytes_storage, int64_t* last_read_bytes,
+            int64_t* last_read_rows, int64_t* last_bytes_read_from_local,
             int64_t* last_bytes_read_from_remote);
+    static UncachedReaderBytesStorage _uncached_reader_bytes_storage(TFileType::type file_type);
     void _report_file_reader_predicate_filtered_rows();
     void _report_condition_cache_profile();
 
@@ -174,7 +179,6 @@ private:
     int64_t _reported_predicate_filtered_rows = 0;
     int64_t _reported_condition_cache_hit_count = 0;
     int64_t _reported_condition_cache_filtered_rows = 0;
-    int64_t _read_rows = 0;
     int64_t _last_read_bytes = 0;
     int64_t _last_read_rows = 0;
     int64_t _last_bytes_read_from_local = 0;
