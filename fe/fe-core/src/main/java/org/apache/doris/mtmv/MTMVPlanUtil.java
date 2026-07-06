@@ -111,6 +111,7 @@ public class MTMVPlanUtil {
             RuleType.ELIMINATE_JOIN_BY_FK,
             RuleType.ELIMINATE_JOIN_BY_UK,
             RuleType.ELIMINATE_GROUP_BY_KEY_BY_UNIFORM,
+            RuleType.ELIMINATE_GROUP_BY_KEY,
             RuleType.ELIMINATE_GROUP_BY,
             RuleType.SALT_JOIN
     );
