@@ -16,7 +16,10 @@
 // under the License.
 #pragma once
 
+#include <optional>
+
 #include "agent/be_exec_version_manager.h"
+#include "core/field.h"
 #include "io/fs/file_reader.h"
 #include "storage/segment/stream_reader.h"
 #include "storage/tablet/tablet_fwd.h"
@@ -58,7 +61,8 @@ public:
 
     // Get column reader by column unique id
     Status get_column_reader(int32_t col_uid, std::shared_ptr<ColumnReader>* column_reader,
-                             OlapReaderStatistics* stats);
+                             OlapReaderStatistics* stats,
+                             std::optional<Field> const_value = std::nullopt);
 
     // Get column reader by column unique id and path(leaf node of variant's subcolumn)
     virtual Status get_path_column_reader(int32_t col_uid, PathInData relative_path,
