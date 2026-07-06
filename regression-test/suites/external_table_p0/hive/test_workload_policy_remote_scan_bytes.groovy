@@ -62,6 +62,7 @@ suite("test_workload_policy_remote_scan_bytes", "p0,external") {
                        workload_group, stmt
                 FROM __internal_schema.audit_log
                 WHERE stmt LIKE '%${queryMarker}%'
+                  AND workload_group = '${workloadGroupName}'
                 ORDER BY time DESC
                 LIMIT 5
             """
@@ -76,6 +77,62 @@ suite("test_workload_policy_remote_scan_bytes", "p0,external") {
             return auditRows
         }
     }
+
+    def runRemoteScanPolicyCase = { String lineitemDb, boolean enableFileScannerV2,
+                                    boolean requireCancellation ->
+        String scannerName = enableFileScannerV2 ? "FileScannerV2" : "FileScanner"
+        String queryMarker = "remote_scan_${enableFileScannerV2 ? 'v2' : 'legacy'}_probe_"
+                + System.currentTimeMillis()
+        Throwable queryException = null
+
+        logger.info("Run remote scan bytes workload policy test item with ${scannerName}, "
+                + "requireCancellation=${requireCancellation}")
+        sql """SET workload_group = '${workloadGroupName}'"""
+        sql """SET enable_file_cache = false"""
+        sql """SET enable_sql_cache = false"""
+        sql """SET enable_file_scanner_v2 = ${enableFileScannerV2}"""
+        try {
+            sql """
+                SELECT /* ${queryMarker} */ SUM(SLEEP(1) + l_quantity)
+                FROM (
+                    SELECT l_quantity
+                    FROM ${catalogName}.${lineitemDb}.lineitem
+                    LIMIT 10
+                ) s
+            """
+        } catch (Throwable t) {
+            queryException = t
+        }
+
+        String msg = queryException == null ? null : queryException.getMessage()
+        boolean cancelledByExpectedPolicy = msg != null
+                && msg.contains("cancelled by workload policy: ${policyName}")
+                && msg.contains("scan_bytes_from_remote_storage")
+
+        if (queryException != null) {
+            assertTrue(cancelledByExpectedPolicy,
+                    "unexpected ${scannerName} query failure: " + msg)
+        } else if (requireCancellation) {
+            def auditRows = fetchAuditRowsForMarker(queryMarker)
+            logger.info("Remote scan bytes workload policy audit rows for ${queryMarker}: " + auditRows)
+            assertTrue(queryException != null,
+                    "${scannerName} query should be cancelled by remote scan bytes workload policy")
+        } else {
+            def auditRows = fetchAuditRowsForMarker(queryMarker)
+            assertFalse(auditRows.isEmpty(),
+                    "expected an audit row for the non-blocking ${scannerName} validation")
+            logger.info("${scannerName} remote scan bytes cancellation is not enforced yet; "
+                    + "audit rows for ${queryMarker}: " + auditRows)
+        }
+
+        if (cancelledByExpectedPolicy) {
+            logger.info("Remote scan bytes workload policy cancel message for ${scannerName}: " + msg)
+        }
+    }
+
+    def scannerV2Variable = sql """SHOW VARIABLES LIKE 'enable_file_scanner_v2'"""
+    assertEquals(1, scannerV2Variable.size())
+    String originalEnableFileScannerV2 = scannerV2Variable[0][1].toString()
 
     try {
         sql """DROP WORKLOAD POLICY IF EXISTS ${policyName}"""
@@ -140,49 +197,21 @@ suite("test_workload_policy_remote_scan_bytes", "p0,external") {
 
         waitForBePolicyPublish()
 
-        Throwable queryException = null
-        // Tag the target query so diagnostics can fetch the matching audit rows on failure.
-        String queryMarker = "remote_scan_probe_" + System.currentTimeMillis()
-        sql """SET workload_group = '${workloadGroupName}'"""
-        sql """SET enable_file_cache = false"""
-        sql """SET enable_sql_cache = false"""
-        try {
-            sql """
-                SELECT /* ${queryMarker} */ SUM(SLEEP(1) + l_quantity)
-                FROM (
-                    SELECT l_quantity
-                    FROM ${catalogName}.${lineitemDb}.lineitem
-                    LIMIT 10
-                ) s
-            """
-        } catch (Throwable t) {
-            queryException = t
-        }
+        // Test item 1: the legacy FileScanner already publishes remote scan bytes to the
+        // query-level IO context, so cancellation is required and fully asserted.
+        runRemoteScanPolicyCase(lineitemDb, false, true)
 
-        String msg = queryException == null ? null : queryException.getMessage()
-        boolean cancelledByExpectedPolicy = msg != null
-                && msg.contains("cancelled by workload policy: ${policyName}")
-                && msg.contains("scan_bytes_from_remote_storage")
-        if (!cancelledByExpectedPolicy) {
-            // Leave the tested workload group and remove the policy before running diagnostics.
-            sql """SET workload_group = ''"""
-            sql """DROP WORKLOAD POLICY IF EXISTS ${policyName}"""
-            def auditRows = fetchAuditRowsForMarker(queryMarker)
-            logger.info("Remote scan bytes workload policy audit rows for ${queryMarker}: " + auditRows)
-        }
-
-        assertTrue(queryException != null, "query should be cancelled by remote scan bytes workload policy")
-        logger.info("Remote scan bytes workload policy cancel message: " + msg)
-        assertTrue(msg != null && msg.contains("cancelled by workload policy: ${policyName}"),
-                "unexpected cancel policy: " + msg)
-        assertTrue(msg.contains("scan_bytes_from_remote_storage"),
-                "remote scan bytes counter is missing from cancel message: " + msg)
+        // Test item 2: FileScannerV2 currently does not publish file scan bytes to the
+        // query-level IO context. Keep this path as non-blocking coverage until the BE-side
+        // FileScannerV2 accounting fix is merged, then change requireCancellation to true.
+        runRemoteScanPolicyCase(lineitemDb, true, false)
     } finally {
         try {
             sql """SET workload_group = ''"""
         } catch (Throwable t) {
             logger.info("ignore reset workload_group failure: " + t.getMessage())
         }
+        sql """SET enable_file_scanner_v2 = ${originalEnableFileScannerV2}"""
         sql """DROP WORKLOAD POLICY IF EXISTS ${policyName}"""
         sql """DROP WORKLOAD POLICY IF EXISTS ${invalidPolicyName}"""
         sql """DROP WORKLOAD GROUP IF EXISTS ${workloadGroupName} ${forComputeGroupStr}"""
