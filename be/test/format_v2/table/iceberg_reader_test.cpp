@@ -1179,6 +1179,7 @@ TEST(IcebergV2ReaderTest, IcebergDeletionVectorUsesTableReaderDeleteFileInterfac
     TTableFormatFileDesc table_format_desc;
     TIcebergFileDesc iceberg_desc;
     iceberg_desc.__set_format_version(2);
+    iceberg_desc.__set_original_file_path("data-a.parquet");
     iceberg_desc.__set_delete_files({make_iceberg_deletion_vector("dv.bin", 8, 128)});
     table_format_desc.__set_iceberg_params(iceberg_desc);
 
@@ -1193,6 +1194,52 @@ TEST(IcebergV2ReaderTest, IcebergDeletionVectorUsesTableReaderDeleteFileInterfac
     EXPECT_EQ(desc.size, 128);
     EXPECT_EQ(desc.file_size, -1);
     EXPECT_EQ(desc.format, DeleteFileDesc::Format::ICEBERG);
+}
+
+TEST(IcebergV2ReaderTest, IcebergDeletionVectorCacheKeyIncludesDataFileAndRange) {
+    // Scenario: Iceberg Puffin deletion vectors are scoped to the data file. The same Puffin blob
+    // referenced by different data files, offsets or lengths must not share a DeleteFileDesc key.
+    const auto shared_dv =
+            make_iceberg_deletion_vector("s3://bucket/table/shared-dv.puffin", 8, 128);
+    IcebergTableReaderDeleteFileTestHelper reader;
+
+    DeleteFileDesc first_desc;
+    bool has_delete_file = false;
+    ASSERT_TRUE(reader.parse_deletion_vector_file(
+                              make_iceberg_table_format_desc("s3://bucket/table/data-a.parquet",
+                                                             {shared_dv}),
+                              &first_desc, &has_delete_file)
+                        .ok());
+    EXPECT_TRUE(has_delete_file);
+
+    DeleteFileDesc different_data_file_desc;
+    ASSERT_TRUE(reader.parse_deletion_vector_file(
+                              make_iceberg_table_format_desc("s3://bucket/table/data-b.parquet",
+                                                             {shared_dv}),
+                              &different_data_file_desc, &has_delete_file)
+                        .ok());
+
+    DeleteFileDesc different_offset_desc;
+    ASSERT_TRUE(reader.parse_deletion_vector_file(
+                              make_iceberg_table_format_desc(
+                                      "s3://bucket/table/data-a.parquet",
+                                      {make_iceberg_deletion_vector(
+                                              "s3://bucket/table/shared-dv.puffin", 16, 128)}),
+                              &different_offset_desc, &has_delete_file)
+                        .ok());
+
+    DeleteFileDesc different_length_desc;
+    ASSERT_TRUE(reader.parse_deletion_vector_file(
+                              make_iceberg_table_format_desc(
+                                      "s3://bucket/table/data-a.parquet",
+                                      {make_iceberg_deletion_vector(
+                                              "s3://bucket/table/shared-dv.puffin", 8, 256)}),
+                              &different_length_desc, &has_delete_file)
+                        .ok());
+
+    EXPECT_NE(first_desc.key, different_data_file_desc.key);
+    EXPECT_NE(first_desc.key, different_offset_desc.key);
+    EXPECT_NE(first_desc.key, different_length_desc.key);
 }
 
 TEST(IcebergV2ReaderTest, IcebergDeletionVectorRejectsMultipleDeleteFiles) {

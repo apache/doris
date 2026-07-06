@@ -18,7 +18,6 @@
 #include "format_v2/table/iceberg_reader.h"
 
 #include <algorithm>
-#include <cstring>
 #include <memory>
 #include <sstream>
 #include <utility>
@@ -323,7 +322,10 @@ Status IcebergTableReader::_parse_deletion_vector_file(const TTableFormatFileDes
         return Status::InternalError("Deletion vector is missing content offset or length");
     }
 
-    desc->key = _iceberg_delete_vector_cache_key(*deletion_vector);
+    const std::string data_file_path = iceberg_params.__isset.original_file_path
+                                               ? iceberg_params.original_file_path
+                                               : _data_file_path();
+    desc->key = build_iceberg_deletion_vector_cache_key(data_file_path, *deletion_vector);
     desc->path = deletion_vector->path;
     desc->start_offset = deletion_vector->content_offset;
     desc->size = deletion_vector->content_size_in_bytes;
@@ -377,23 +379,6 @@ Status IcebergTableReader::_init_delete_predicates(const TTableFormatFileDesc& t
 
     _delete_predicates_initialized = true;
     return Status::OK();
-}
-
-std::string IcebergTableReader::_iceberg_delete_vector_cache_key(
-        const TIcebergDeleteFileDesc& delete_file) {
-    const std::string key_prefix = "iceberg_dv:";
-    std::string key;
-    key.resize(key_prefix.size() + delete_file.path.size() + sizeof(delete_file.content_offset) +
-               sizeof(delete_file.content_size_in_bytes));
-    char* data = key.data();
-    memcpy(data, key_prefix.data(), key_prefix.size());
-    data += key_prefix.size();
-    memcpy(data, delete_file.path.data(), delete_file.path.size());
-    data += delete_file.path.size();
-    memcpy(data, &delete_file.content_offset, sizeof(delete_file.content_offset));
-    data += sizeof(delete_file.content_offset);
-    memcpy(data, &delete_file.content_size_in_bytes, sizeof(delete_file.content_size_in_bytes));
-    return key;
 }
 
 std::shared_ptr<io::FileSystemProperties> IcebergTableReader::_delete_file_system_properties(

@@ -22,11 +22,9 @@
 #include <gen_cpp/Types_types.h>
 
 #include <algorithm>
-#include <cstring>
 #include <ranges>
 #include <set>
 #include <sstream>
-#include <stdexcept>
 #include <utility>
 #include <vector>
 
@@ -36,17 +34,17 @@
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_map.h"
 #include "core/data_type/data_type_struct.h"
-#include "exec/common/endian.h"
 #include "exprs/vexpr_context.h"
 #include "exprs/vslot_ref.h"
 #include "format/table/deletion_vector_reader.h"
+#include "format/table/iceberg_delete_file_reader_helper.h"
+#include "format/table/paimon_reader.h"
 #include "format_v2/column_mapper.h"
 #include "format_v2/delimited_text/csv_reader.h"
 #include "format_v2/delimited_text/text_reader.h"
 #include "format_v2/json/json_reader.h"
 #include "format_v2/native/native_reader.h"
 #include "format_v2/parquet/parquet_reader.h"
-#include "roaring/roaring64map.hh"
 #include "storage/segment/condition_cache.h"
 #include "util/string_util.h"
 
@@ -362,59 +360,13 @@ Status parse_deletion_vector(const char* buf, size_t buffer_size, DeleteFileDesc
     DORIS_CHECK(format == DeleteFileDesc::Format::PAIMON ||
                 format == DeleteFileDesc::Format::ICEBERG);
 
-    const size_t checksum_size = format == DeleteFileDesc::Format::ICEBERG ? 4 : 0;
-    if (buffer_size < 8 + checksum_size) [[unlikely]] {
-        return Status::DataQualityError("Deletion vector file size too small: {}", buffer_size);
-    }
-
-    auto total_length = BigEndian::Load32(buf);
-    if (total_length + 4 + checksum_size != buffer_size) [[unlikely]] {
-        return Status::DataQualityError("Deletion vector length mismatch, expected: {}, actual: {}",
-                                        total_length + 4 + checksum_size, buffer_size);
-    }
-
-    const char* bitmap_buf = buf + 8;
-    const size_t bitmap_size = buffer_size - 8 - checksum_size;
     if (format == DeleteFileDesc::Format::PAIMON) {
-        // Paimon BitmapDeletionVector stores:
-        //   [4-byte big-endian length][4-byte magic 0x5E43F2D0][32-bit roaring bitmap]
-        // The length covers magic + bitmap, and does not include the leading length field.
-        constexpr static char PAIMON_BITMAP_MAGIC[] = {'\x5E', '\x43', '\xF2', '\xD0'};
-        if (memcmp(buf + sizeof(total_length), PAIMON_BITMAP_MAGIC, 4) != 0) [[unlikely]] {
-            return Status::DataQualityError(
-                    "Paimon deletion vector magic number mismatch, expected: {}, actual: {}",
-                    BigEndian::Load32(PAIMON_BITMAP_MAGIC),
-                    BigEndian::Load32(buf + sizeof(total_length)));
-        }
-
-        roaring::Roaring bitmap;
-        try {
-            bitmap = roaring::Roaring::readSafe(bitmap_buf, bitmap_size);
-        } catch (const std::runtime_error& e) {
-            return Status::DataQualityError("Decode roaring bitmap failed, {}", e.what());
-        }
-
-        delete_rows->reserve(bitmap.cardinality());
-        for (auto it = bitmap.begin(); it != bitmap.end(); it++) {
-            delete_rows->push_back(*it);
-        }
+        RETURN_IF_ERROR(decode_paimon_deletion_vector_buffer(buf, buffer_size, delete_rows));
         return Status::OK();
     }
 
-    constexpr static char ICEBERG_DV_MAGIC[] = {'\xD1', '\xD3', '\x39', '\x64'};
-    if (memcmp(buf + sizeof(total_length), ICEBERG_DV_MAGIC, 4) != 0) [[unlikely]] {
-        return Status::DataQualityError(
-                "Iceberg deletion vector magic number mismatch, expected: {}, actual: {}",
-                BigEndian::Load32(ICEBERG_DV_MAGIC), BigEndian::Load32(buf + sizeof(total_length)));
-    }
-
     roaring::Roaring64Map bitmap;
-    try {
-        bitmap = roaring::Roaring64Map::readSafe(bitmap_buf, bitmap_size);
-    } catch (const std::runtime_error& e) {
-        return Status::DataQualityError("Decode roaring bitmap failed, {}", e.what());
-    }
-
+    RETURN_IF_ERROR(decode_iceberg_deletion_vector_buffer(buf, buffer_size, &bitmap));
     delete_rows->reserve(bitmap.cardinality());
     for (auto it = bitmap.begin(); it != bitmap.end(); it++) {
         delete_rows->push_back(cast_set<int64_t>(*it));
