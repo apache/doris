@@ -5,16 +5,18 @@
 
 ---
 
-# 🎯 当前状态（2026-07-06）= **P7.1 完成：hive DDL 写路径（create/drop db+table、truncate）全部落地 + 全绿 + 提交（非 live，翻闸在 P7.5）；下一步 = 进入 P7.2（event）或 P7.3（txn，关键路径）**
+# 🎯 当前状态（2026-07-06）= **P7.1（DDL 写）已完成合入前状态；P7.3（写/事务，关键路径）已完成 recon + 3 项决策 + 逐 task 拆解（写进 spec，无实现代码）；下一步 = 实现 P7.3-T01…T11**
 
-> **本轮（P7.1 T05–T11 收官 session）做了什么** —— 3 个实现 commit（`4a92…` T08 / `0713…` T09 / `c17b…` T05–T07+T10）+ 本 HANDOFF：
-> 1. **T05–T07 插件 DDL override**（`c17b…`，`fe-connector-hive`）：`HiveConnectorMetadata` 加 `supportsCreateDatabase/createDatabase/dropDatabase(force cascade)/createTable/dropTable/truncateTable`——忠实移植 legacy `HiveMetadataOps`。`createTable` 全套插件侧解析：owner 默认（`session.getUser()`）、transactional 建表拒绝、file_format 默认（env，用户 per-table 属性胜）、`doris.`-前缀 round-trip 参数、LIST-only 分区 + 显式分区取值拒绝、DLF 列默认值 guard、bucket gate（env enable + hash-only）、`doris.version`/text 压缩默认线程进写请求。事务表拒绝用 handle 的 `tableParameters` 复刻 `AcidUtils.isTransactionalTable`（**不引 hive-exec**）。**`renameTable` 保持 SPI default throw**（hive 无 rename，parity）。`HiveConnector` 传 `ConnectorContext`。
-> 2. **T08 shared converter 富化**（`4a92…`，fe-core+api）：`ColumnDefinition.getDefaultValueString()` + converter 填 `ConnectorColumn.defaultValue`（原恒 null）；`ConnectorPartitionSpec.hasExplicitPartitionValues()` + converter 从 `PartitionTableInfo.getPartitionDefs()` 置位。**已核实 additive**：iceberg create `buildSchema` 不读默认值（读默认值的三处都在 ADD COLUMN 路径），paimon/maxcompute create 不读——只 hive 消费。
-> 3. **T09 config threading**（`0713…`，fe-core）：`DefaultConnectorContext.buildEnvironment` 加 `hive_default_file_format`/`enable_create_hive_bucket_table`/`doris_version` 三键，**走运行环境**（非写 catalog 属性）。
-> 4. **T10 单测**（并入 `c17b…`）：`HiveConnectorMetadataDdlTest`（20 条，recording-fake `HmsClient` + fake session/context，无 Mockito）覆盖各 guard/默认值/round-trip/force cascade；修既存 pruning 测 ctor。
-> 5. **验收全绿**：fe-core compile + fe-connector-hive test-compile SUCCESS；单测 20+8=28 条 0 fail/0 skip；checkstyle 0（api+hive+core）；import-gate 净。**非 live**（翻闸在 P7.5），无 e2e DDL（符合本阶段验收门）。
+> **本轮（P7.3 开场 recon + 设计 session）做了什么** —— **无实现代码**，产出 = P7.3 逐 task 拆解 + 决策，全部写进 `tasks/P7-hive-migration.md` 末尾「**P7.3 逐 task 拆解**」块（OQ 段已标 ✅）：
+> 1. **选定子阶段**：用户在 P7.2（event）/ P7.3（写/事务）二选一中选 **P7.3（关键路径、最难、R-002）**。
+> 2. **4-agent 并行 code-grounded recon**（直读 HEAD）：写引擎 `HMSTransaction` / 6 文件写链 / 读侧 ACID / 目标 SPI+桥接。
+> 3. **关键去风险发现**：**通用写入通路已由 iceberg P6 建好**（`PhysicalConnectorTableSink → PluginDrivenTableSink → PluginDrivenInsertExecutor` + `ConnectorTransaction`/`ConnectorWritePlanProvider`/`PluginDrivenTransactionManager`，**fe-core 桥零改动**）。⇒ P7.3 = 把 hive INSERT 折进现成通路 + 照抄 `IcebergConnectorTransaction`/`IcebergWriteContext`，**非从零发明 seam**。
+> 4. **缺的 HMS 写原语底层全有**（vendored `HiveMetaStoreClient` 已实现 addPartitions/stats/ACID 全套）→ 缺的只是 `HmsClient` 接口开口 + 一行 `execute` 转发。老写引擎写原语已干净隔离在 `hiveOps` 后。
+> 5. **⚠️ 揪出一处已存真实回归（必修，T07）**：插件 `HiveScanRange.populateTransactionalHiveParams` 处理 ACID delete-delta **只填目录、丢文件名**（老 fe-core 两者都填）→ 翻闸后事务表静默读错。
 >
-> **本轮两个用户签字决策（2026-07-06，见 spec「P7.1 实现进度」块）**：① **config threading 机制 = 走运行环境**（非写 catalog 属性；在方案 A 内的机制细化——不落镜像/edit-log、不污染 SHOW CREATE、随全局配置刷新；有现成 `hive_metastore_client_timeout_second` 先例）。**注意**：legacy-exact（全局默认 + per-table 覆盖），**未**新增 per-catalog 覆盖属性。② **显式分区取值 = 保持报错**（converter thread 标志，hive 照 legacy 报错，非静默忽略）。
+> **本轮三项决策（2026-07-06，spec OQ 段已标 ✅）**：① **OQ-RTX = 主干加通用 per-query finish 回调**（连接器无关，替 `QeProcessorImpl:210→Env.getCurrentHiveTransactionMgr` 硬编，对齐 Trino；hive 读事务管理器随之从 `Env` 摘掉入插件）；② **OQ-ACID-WRITE = 迁移行为保持**（非-ACID 写 + ACID 读迁到位，full-ACID 写继续硬拒，控 R-002）；③ **OQ-LOCK = 保持现状**（读侧共享 HMS 锁无 heartbeat，原样保留）。
+>
+> **P7.1 交付的地基（已在工作分支）**：`fe-connector-hms` 有 DDL 写客户端（create/drop db+table、truncate，default-throw seam + `ThriftHmsClient` 实现）；`fe-connector-hive` `HiveConnectorMetadata` DDL override 齐（txn/planWrite override 仍 0）；env channel 通；shared converter 带列默认值 + 显式分区标志。
 
 > **整条 catalog-SPI 主线阶段链均已合入 upstream `branch-catalog-spi`**：
 > P0 #63582 · P1 #63641 · P2 trino #64096 · P3 hudi(hybrid) #64143 · P4 maxcompute #64300 · P5 paimon 迁移+翻闸 #64446 + 删 legacy #64653 · P3b kerberos→fe-kerberos #64655 · **P6 iceberg #64688（本轮收官）**。
@@ -36,19 +38,20 @@
 
 ---
 
-# 🚀 下个 session 任务 = **进入 P7.2（event pipeline，可与 P7.3 并行）或 P7.3（HMSTransaction/写路径，关键路径、最难、R-002）；先 code-grounded recon → 用户签字 OQ-* → 再写代码**
+# 🚀 下个 session 任务 = **实现 P7.3（写/事务，关键路径）——照 spec「P7.3 逐 task 拆解」块 T01–T11 逐 task commit+build+test+checkstyle；recon+决策已完成，直接写代码**
 
-> **权威计划**：**`tasks/P7-hive-migration.md`**——P7.2/P7.3 子阶段 spec（上半）+「跨连接器删除排序」+「SPI 缺口（按子阶段）」块 +「开放决策 OQ-*」块 + [`connectors/hive.md`](./connectors/hive.md)。**「P7.1 逐 task 拆解」块已标 ✅ 完成（勿重做）。** 流程样板照搬 P7.1：recon → 中文讲背景+示例+推荐 → 用户签字 OQ-* → 逐 task commit+build+test+checkstyle。
-> **P7.1 已交付的地基**：`fe-connector-hms` 有完整 DDL 写客户端（create/drop db+table、truncate）；`fe-connector-hive` `HiveConnectorMetadata` DDL override 齐；env channel 已通（`DefaultConnectorContext.buildEnvironment` → `ConnectorContext.getEnvironment()`）；shared converter 已带列默认值 + 显式分区标志。**通用桥 = `PluginDrivenExternalCatalog`**；**模板 = `IcebergConnectorMetadata`**。
+> **权威计划**：`tasks/P7-hive-migration.md` 末尾「**P7.3 逐 task 拆解**」块（recon 结论 + 3 决策 + T01–T11 任务表 + 移植指针 + HEAD 行号）。**信 HEAD 控制流不信本文/spec 行号。** 模板 = `IcebergConnectorTransaction`/`IcebergWriteContext`/`IcebergConnectorMetadata.beginTransaction+planWrite`；fe-core 桥 `PluginDrivenTransactionManager`/`PluginDrivenInsertExecutor` **零改动**。
 
-## 下一子阶段选择 + 开场要点
+## 开场要点（P7.3 实现）
 
-1. **关键路径 = P7.3**（P7.1→P7.3→P7.4→P7.5）；P7.2（event）是可并行侧支。二选一按精力：P7.3 最难（ACID 写路径 6 文件耦合链 + `HMSTransaction` 1895 行重表达，R-002 项目最大风险，**硬门 = 独立 ACID 集成测试套件**）；P7.2 较独立（21 event 类 + processor 搬 `fe-connector-hms`，核心 fork = OQ-EVT）。
-2. **进入子阶段先 recon**（**信 HEAD 控制流不信 spec 行号**）：读该子阶段 spec +「SPI 缺口」对应块 + 真实代码，产出逐 task 拆解追加 spec 末尾（仿「P7.1 逐 task 拆解」块）。**OQ-* 到 recon 后用户签字**（中文讲背景+示例+推荐、不引任务代号）——P7.3 = OQ-RTX/OQ-ACID-WRITE/OQ-LOCK；P7.2 = OQ-EVT。
-3. **P7.3 需补的写原语**（随 `HMSTransaction` 落地才非死代码）：`HmsClient` 加 `updateTableStatistics/updatePartitionStatistics/addPartitions/dropPartition` + txn/writeId/lock/commit 方法。写路径 6 文件耦合链 retype `HMSExternalTable`→generic：`BindSink`→`LogicalHiveTableSink`→`PhysicalHiveTableSink`→`PhysicalPlanTranslator:569`→`planner/HiveTableSink`→`HiveInsertExecutor`。读侧 ACID（delete-delta）须移入插件。
-4. **勿重议的已定决策**：**D-004** event→fe-connector-hms；**D-005** tableFormatType；**D-020** per-table SPI provider；**D-019** hudi live cutover 并入 P7；事务桥接 `PluginDrivenTransaction`。
-5. **纪律**：每 task/每条 fix 独立 commit + build + test + checkstyle 0（不带 -am）+ import-gate 净；**每轮完成即更新本 HANDOFF + commit**（memory `handoff-discipline-per-phase`）。**P7.3 ACID 写路径必须有独立集成测试作 gate（R-002 项目最大风险）**。
-6. **删除排序（最硬约束，spec §跨连接器删除排序）**：`datasource/hive/` 删不掉，直到 `HudiUtils`(5 方法)/`HudiExternalMetaCache`/`HudiScanNode`(extends HiveScanNode)/`IcebergHMSSource`/`HMSAnalysisTask`/`StatisticsUtil.getIcebergColumnStats` 全 retype 到 generic（P7.4）。
+1. **不发明中立 seam**：通用写入通路现成（iceberg P6 建）。P7.3 = 把 hive INSERT 折进现成通路 + 照抄 iceberg 事务。
+2. **落地顺序**（spec 已排）：**组1 写原语（T01/T02）与组2 连接器事务（T03–T05）同批 commit**（P7.1 教训：写原语不得先于事务作死代码，签名由实际调用反推）；组3 6 文件 retype（T06）依赖组2 provider/txn 就位；组4 读侧 ACID（T07，含**回归修复**）+ 组5 读事务中立 seam（T08）相对独立、可并行。
+3. **3 硬耦合结**（成为插件事务时必断）：注入 profile/queryId（去 `ConnectContext.get()`）；thrift `THivePartitionUpdate` 簇随插件走；fs 抽象须暴露对象存储 MPU complete/abort（`SpiSwitchingFileSystem.forPath→ObjFileSystem`）。
+4. **范围锁定**：full-ACID **表**写继续硬拒（OQ-ACID-WRITE）；读侧共享锁**不加 heartbeat**（OQ-LOCK）。
+5. **硬门 = 独立 ACID 集成测试套件**（T10，R-002 项目最大风险）：INSERT/OVERWRITE/分区写/delete-delta 读/rollback/多 FE 失效。⚠️端到端写测试需插件写路径 live，但翻闸在 P7.5 → 须本地/scoped 翻闸跑该套件（或与 P7.5 联跑），**勿静默跳过**（Rule 12）。
+6. **勿重议的已定决策**（P7 全局）：**D-004** event→fe-connector-hms；**D-005** tableFormatType；**D-020** per-table SPI provider；**D-019** hudi live cutover 并入 P7；事务桥接 `PluginDrivenTransactionManager`（已存，零改动）。
+7. **纪律**：每 task 独立 commit + build + test + checkstyle 0（不带 -am）+ import-gate 净；**每轮完成即更新本 HANDOFF + commit**（memory `handoff-discipline-per-phase`）。
+8. **删除排序（最硬约束，spec §跨连接器删除排序，P7.4/P7.5 才触发）**：`datasource/hive/` 删不掉，直到 `HudiUtils`/`HudiExternalMetaCache`/`HudiScanNode`/`IcebergHMSSource`/`HMSAnalysisTask`/`StatisticsUtil.getIcebergColumnStats` 全 retype 到 generic。
 
 ---
 
