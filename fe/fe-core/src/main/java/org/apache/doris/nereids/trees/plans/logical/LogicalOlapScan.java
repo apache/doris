@@ -229,7 +229,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
                 -1, false, PreAggStatus.unset(), ImmutableList.of(), hints, Maps.newHashMap(), Optional.empty(),
                 tableSample, false, ImmutableMap.of(), ImmutableList.of(), operativeSlots,
                 ImmutableList.of(), ImmutableList.of(), Optional.empty(), Optional.empty(),
-                ImmutableList.of(), Optional.empty(), "", Optional.empty(), scanParams);
+                ImmutableList.of(), Optional.empty(), "", Optional.empty(), scanParams, -1);
     }
 
     /**
@@ -259,7 +259,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
                 -1, false, PreAggStatus.unset(), specifiedPartitions, hints, Maps.newHashMap(), Optional.empty(),
                 tableSample, false, ImmutableMap.of(), ImmutableList.of(), operativeSlots,
                 ImmutableList.of(), ImmutableList.of(), Optional.empty(), Optional.empty(),
-                ImmutableList.of(), Optional.empty(), "", Optional.empty(), scanParams);
+                ImmutableList.of(), Optional.empty(), "", Optional.empty(), scanParams, -1);
     }
 
     /**
@@ -292,7 +292,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
                 specifiedPartitions, hints, Maps.newHashMap(), Optional.empty(), tableSample, true, ImmutableMap.of(),
                 ImmutableList.of(), operativeSlots, ImmutableList.of(), ImmutableList.of(),
                 Optional.empty(), Optional.empty(),
-                ImmutableList.of(), Optional.empty(), "", Optional.empty(), scanParams);
+                ImmutableList.of(), Optional.empty(), "", Optional.empty(), scanParams, -1);
     }
 
     /**
