@@ -18,9 +18,7 @@
 #pragma once
 
 #include <cstdint>
-#include <optional>
 #include <roaring/roaring.hh>
-#include <vector>
 
 #include "common/compiler_util.h"
 #include "common/exception.h"
@@ -42,7 +40,6 @@
 #include "storage/index/inverted/inverted_index_reader.h"
 #include "storage/olap_common.h"
 #include "storage/predicate/column_predicate.h"
-#include "storage/predicate/predicate_literal_provider.h"
 
 // for uint24_t
 template <>
@@ -69,15 +66,13 @@ namespace doris {
  * @tparam HybridSetType
  */
 template <PrimitiveType Type, PredicateType PT, int N>
-class InListPredicateBase final : public ColumnPredicate, public ColumnPredicateLiteralProvider {
+class InListPredicateBase final : public ColumnPredicate {
 public:
     ENABLE_FACTORY_CREATOR(InListPredicateBase);
     using T = typename PrimitiveTypeTraits<Type>::CppType;
     InListPredicateBase(uint32_t column_id, std::string col_name,
-                        const std::shared_ptr<HybridSetBase>& hybrid_set, bool is_opposite,
-                        ColumnPredicateLiteralTypeInfo literal_type_info = {})
+                        const std::shared_ptr<HybridSetBase>& hybrid_set, bool is_opposite)
             : ColumnPredicate(column_id, col_name, Type, is_opposite),
-              _literal_type_info(literal_type_info),
               _min_value(type_limit<T>::max()),
               _max_value(type_limit<T>::min()) {
         CHECK(hybrid_set != nullptr);
@@ -125,7 +120,6 @@ public:
     InListPredicateBase(const InListPredicateBase<Type, PT, N>& other, uint32_t col_id)
             : ColumnPredicate(other, col_id) {
         _values = other._values;
-        _literal_type_info = other._literal_type_info;
         _min_value = other._min_value;
         _max_value = other._max_value;
         DCHECK(_segment_id_to_value_in_dict_flags.empty());
@@ -144,30 +138,6 @@ public:
     }
 
     PredicateType type() const override { return PT; }
-
-    bool predicate_values(std::vector<Field>* values) const override {
-        if (values == nullptr) {
-            return false;
-        }
-        values->clear();
-        values->reserve(_values->size());
-        HybridSetBase::IteratorBase* iter = _values->begin();
-        while (iter->has_next()) {
-            if constexpr (is_string_type(Type)) {
-                const auto* ref = (const StringRef*)(iter->get_value());
-                values->push_back(Field::create_field<Type>(std::string(ref->data, ref->size)));
-            } else {
-                const T* value = (const T*)(iter->get_value());
-                values->push_back(Field::create_field<Type>(*value));
-            }
-            iter->next();
-        }
-        return !values->empty();
-    }
-
-    std::optional<ColumnPredicateLiteralTypeInfo> predicate_literal_type_info() const override {
-        return _literal_type_info;
-    }
 
     Status evaluate(const IndexFieldNameAndTypePair& name_with_type, IndexIterator* iterator,
                     uint32_t num_rows, roaring::Roaring* result) const override {
@@ -673,7 +643,6 @@ private:
     std::shared_ptr<HybridSetBase> _values;
     mutable std::map<std::pair<RowsetId, uint32_t>, std::vector<UInt8>>
             _segment_id_to_value_in_dict_flags;
-    ColumnPredicateLiteralTypeInfo _literal_type_info;
     T _min_value;
     T _max_value;
 };

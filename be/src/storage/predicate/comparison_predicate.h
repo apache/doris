@@ -18,7 +18,6 @@
 #pragma once
 
 #include <cstdint>
-#include <optional>
 #include <type_traits>
 
 #include "common/compare.h"
@@ -30,25 +29,19 @@
 #include "storage/index/inverted/inverted_index_cache.h" // IWYU pragma: keep
 #include "storage/index/inverted/inverted_index_reader.h"
 #include "storage/predicate/column_predicate.h"
-#include "storage/predicate/predicate_literal_provider.h"
 
 namespace doris {
 template <PrimitiveType Type, PredicateType PT>
-class ComparisonPredicateBase final : public ColumnPredicate,
-                                      public ColumnPredicateLiteralProvider {
+class ComparisonPredicateBase final : public ColumnPredicate {
 public:
     ENABLE_FACTORY_CREATOR(ComparisonPredicateBase);
     using T = typename PrimitiveTypeTraits<Type>::CppType;
     ComparisonPredicateBase(uint32_t column_id, std::string col_name, const Field& value,
-                            bool opposite = false,
-                            ColumnPredicateLiteralTypeInfo literal_type_info = {})
+                            bool opposite = false)
             : ColumnPredicate(column_id, col_name, Type, opposite),
-              _literal_type_info(literal_type_info),
               _value(value.template get<Type>()) {}
     ComparisonPredicateBase(const ComparisonPredicateBase<Type, PT>& other, uint32_t col_id)
-            : ColumnPredicate(other, col_id),
-              _literal_type_info(other._literal_type_info),
-              _value(other._value) {}
+            : ColumnPredicate(other, col_id), _value(other._value) {}
     ComparisonPredicateBase(const ComparisonPredicateBase<Type, PT>& other) = delete;
     std::shared_ptr<ColumnPredicate> clone(uint32_t col_id) const override {
         DCHECK(_segment_id_to_cached_code.empty());
@@ -62,14 +55,6 @@ public:
     }
 
     PredicateType type() const override { return PT; }
-
-    std::optional<Field> predicate_value() const override {
-        return Field::create_field<Type>(_value);
-    }
-
-    std::optional<ColumnPredicateLiteralTypeInfo> predicate_literal_type_info() const override {
-        return _literal_type_info;
-    }
 
     Status evaluate(const IndexFieldNameAndTypePair& name_with_type, IndexIterator* iterator,
                     uint32_t num_rows, roaring::Roaring* bitmap) const override {
@@ -708,7 +693,6 @@ private:
             std::allocator<std::pair<const std::pair<RowsetId, uint32_t>, int32_t>>, 4,
             std::shared_mutex>
             _segment_id_to_cached_code;
-    ColumnPredicateLiteralTypeInfo _literal_type_info;
     T _value;
 };
 } //namespace doris
