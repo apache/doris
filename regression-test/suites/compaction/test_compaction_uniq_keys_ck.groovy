@@ -68,7 +68,8 @@ suite("test_compaction_uniq_keys_ck") {
             DISTRIBUTED BY HASH(`user_id`)
             PROPERTIES (
                 "replication_num" = "1",
-                "enable_unique_key_merge_on_write" = "true"
+                "enable_unique_key_merge_on_write" = "true",
+                "disable_auto_compaction" = "true"
             );
         """
 

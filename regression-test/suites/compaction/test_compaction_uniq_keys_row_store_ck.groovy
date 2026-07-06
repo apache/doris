@@ -144,6 +144,7 @@ suite("test_compaction_uniq_keys_row_store_ck", "p0") {
             CLUSTER BY(`last_visit_date`, `last_update_date`, `city`, `cost`)
             DISTRIBUTED BY HASH(`user_id`)
             PROPERTIES ( "replication_num" = "1",
+                    "disable_auto_compaction" = "true",
                     "enable_unique_key_merge_on_write" = "true",
                     "light_schema_change" = "true",
                     "enable_unique_key_skip_bitmap_column" = "false",
