@@ -647,6 +647,26 @@ TEST_F(ParquetScanTest, AggregateCountOnStructRecordsSelectedRowsRead) {
     EXPECT_EQ(file_reader_stats.read_rows, 4);
 }
 
+TEST_F(ParquetScanTest, AggregateCountOnStructReturnsEndOfFileWhenStopped) {
+    write_struct_parquet_file(_file_path);
+    io::FileReaderStats file_reader_stats;
+    auto io_ctx = std::make_shared<io::IOContext>();
+    io_ctx->file_reader_stats = &file_reader_stats;
+    auto reader = create_reader(0, -1, nullptr, std::nullopt, io_ctx);
+    RuntimeState state {TQueryOptions(), TQueryGlobals()};
+    ASSERT_TRUE(reader->init(&state).ok());
+    open_all_row_groups(reader.get());
+    io_ctx->should_stop = true;
+
+    format::FileAggregateRequest aggregate_request;
+    aggregate_request.agg_type = TPushAggOp::COUNT;
+    aggregate_request.columns.push_back({.projection = field_projection(0)});
+    format::FileAggregateResult result;
+    const auto status = reader->get_aggregate_result(aggregate_request, &result);
+    EXPECT_TRUE(status.is<ErrorCode::END_OF_FILE>()) << status;
+    EXPECT_EQ(file_reader_stats.read_rows, 0);
+}
+
 TEST_F(ParquetScanTest, AggregateRejectsRepeatedMissingStatisticsAndInvalidRequests) {
     write_list_parquet_file(_file_path);
     auto repeated_reader = create_reader();

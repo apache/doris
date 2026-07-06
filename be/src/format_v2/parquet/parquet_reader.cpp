@@ -514,6 +514,17 @@ Status ParquetReader::get_block(Block* file_block, size_t* rows, bool* eof) {
     return Status::OK();
 }
 
+bool ParquetReader::_should_stop() const {
+    return _io_ctx != nullptr && _io_ctx->should_stop;
+}
+
+Status ParquetReader::_stop_status_if_requested(const Status& status) const {
+    if (!status.ok() && _should_stop()) {
+        return Status::EndOfFile("stop");
+    }
+    return status;
+}
+
 void ParquetReader::_sync_page_cache_profile() {
     if (_profile == nullptr || _state == nullptr) {
         return;
@@ -566,6 +577,9 @@ Status ParquetReader::get_aggregate_result(const format::FileAggregateRequest& r
         _state->file_context.schema == nullptr) {
         return Status::Uninitialized("ParquetReader is not open");
     }
+    if (_should_stop()) {
+        return Status::EndOfFile("stop");
+    }
     result->count = 0;
     result->columns.clear();
     if (request.agg_type != TPushAggOp::type::COUNT &&
@@ -596,9 +610,15 @@ Status ParquetReader::get_aggregate_result(const format::FileAggregateRequest& r
             try {
                 row_group = _state->file_context.file_reader->RowGroup(row_group_plan.row_group_id);
             } catch (const ::parquet::ParquetException& e) {
+                if (_should_stop()) {
+                    return Status::EndOfFile("stop");
+                }
                 return Status::Corruption("Failed to open parquet row group {}: {}",
                                           row_group_plan.row_group_id, e.what());
             } catch (const std::exception& e) {
+                if (_should_stop()) {
+                    return Status::EndOfFile("stop");
+                }
                 return Status::InternalError("Failed to open parquet row group {}: {}",
                                              row_group_plan.row_group_id, e.what());
             }
@@ -616,7 +636,8 @@ Status ParquetReader::get_aggregate_result(const format::FileAggregateRequest& r
             int64_t row_group_cursor = 0;
             for (const auto& selected_range : row_group_plan.selected_ranges) {
                 DORIS_CHECK(selected_range.start >= row_group_cursor);
-                RETURN_IF_ERROR(shape_reader->skip(selected_range.start - row_group_cursor));
+                RETURN_IF_ERROR(_stop_status_if_requested(
+                        shape_reader->skip(selected_range.start - row_group_cursor)));
                 row_group_cursor = selected_range.start;
 
                 int64_t range_rows_read = 0;
@@ -628,7 +649,8 @@ Status ParquetReader::get_aggregate_result(const format::FileAggregateRequest& r
                     // or values_column. MAP chooses the key leaf; ARRAY/STRUCT may choose a string
                     // leaf, but the levels-only protocol still avoids Doris-side string
                     // materialization for that leaf.
-                    RETURN_IF_ERROR(shape_reader->load_nested_levels_batch(batch_rows));
+                    RETURN_IF_ERROR(_stop_status_if_requested(
+                            shape_reader->load_nested_levels_batch(batch_rows)));
                     _record_scan_rows(batch_rows);
                     result->count +=
                             count_loaded_non_null_values(root_schema, *shape_reader, batch_rows);

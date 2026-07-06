@@ -206,7 +206,15 @@ public:
             if (!_aggregate_pushdown_tried) {
                 SCOPED_TIMER(_profile.pushdown_agg_timer);
                 bool pushed_down = false;
-                RETURN_IF_ERROR(_try_materialize_aggregate_pushdown_rows(block, &pushed_down));
+                const auto status = _try_materialize_aggregate_pushdown_rows(block, &pushed_down);
+                if (!status.ok()) {
+                    if (_io_ctx != nullptr && _io_ctx->should_stop &&
+                        status.is<ErrorCode::END_OF_FILE>()) {
+                        *eos = true;
+                        return Status::OK();
+                    }
+                    return status;
+                }
                 if (pushed_down) {
                     return Status::OK();
                 }
