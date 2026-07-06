@@ -689,8 +689,24 @@ Status TableReader::create_next_reader(bool* eos) {
     if (_batch_size > 0) {
         _data_reader.reader->set_batch_size(_batch_size);
     }
-    RETURN_IF_ERROR(_data_reader.reader->init(_runtime_state));
-    RETURN_IF_ERROR(open_reader());
+    Status st = _data_reader.reader->init(_runtime_state);
+    if (!st.ok()) {
+        if (_io_ctx != nullptr && _io_ctx->should_stop && st.is<ErrorCode::END_OF_FILE>()) {
+            *eos = true;
+            _data_reader.reader.reset();
+            return Status::OK();
+        }
+        return st;
+    }
+    st = open_reader();
+    if (!st.ok()) {
+        if (_io_ctx != nullptr && _io_ctx->should_stop && st.is<ErrorCode::END_OF_FILE>()) {
+            *eos = true;
+            _data_reader.reader.reset();
+            return Status::OK();
+        }
+        return st;
+    }
     if (_data_reader.reader == nullptr) {
         *eos = _current_task == nullptr;
         return Status::OK();

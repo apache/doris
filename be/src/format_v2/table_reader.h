@@ -62,6 +62,7 @@
 #include "format_v2/parquet/reader/column_reader.h"
 #include "format_v2/schema_projection.h"
 #include "gen_cpp/PlanNodes_types.h"
+#include "io/io_common.h"
 #include "runtime/descriptors.h"
 #include "storage/segment/condition_cache.h"
 
@@ -180,6 +181,10 @@ public:
 
         while (true) {
             if (*eos) {
+                return Status::OK();
+            }
+            if (_io_ctx != nullptr && _io_ctx->should_stop) {
+                *eos = true;
                 return Status::OK();
             }
             if (!_data_reader.reader) {

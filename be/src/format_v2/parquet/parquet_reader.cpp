@@ -39,6 +39,7 @@
 #include "format_v2/parquet/parquet_scan.h"
 #include "format_v2/parquet/parquet_statistics.h"
 #include "format_v2/parquet/reader/column_reader.h"
+#include "io/io_common.h"
 #include "runtime/runtime_state.h"
 
 namespace doris::format::parquet {
@@ -317,6 +318,9 @@ ParquetReader::ParquetReader(std::shared_ptr<io::FileSystemProperties>& system_p
 ParquetReader::~ParquetReader() = default;
 
 Status ParquetReader::init(RuntimeState* state) {
+    if (_io_ctx != nullptr && _io_ctx->should_stop) {
+        return Status::EndOfFile("stop");
+    }
     RETURN_IF_ERROR(format::FileReader::init(state));
     if (_profile != nullptr) {
         COUNTER_UPDATE(_parquet_profile.file_reader_create_time,
@@ -472,6 +476,10 @@ Status ParquetReader::get_block(Block* file_block, size_t* rows, bool* eof) {
         return Status::Uninitialized("ParquetReader is not open");
     }
     *rows = 0;
+    if (_io_ctx != nullptr && _io_ctx->should_stop) {
+        *eof = true;
+        return Status::OK();
+    }
     if (_eof) {
         *eof = true;
         return Status::OK();
@@ -482,8 +490,16 @@ Status ParquetReader::get_block(Block* file_block, size_t* rows, bool* eof) {
     }
 
     const auto predicate_filtered_rows_before = _state->scheduler.predicate_filtered_rows();
-    RETURN_IF_ERROR(_state->scheduler.read_next_batch(_state->file_context, _state->file_schema,
-                                                      *request_snapshot, file_block, rows, eof));
+    Status st = _state->scheduler.read_next_batch(_state->file_context, _state->file_schema,
+                                                  *request_snapshot, file_block, rows, eof);
+    if (!st.ok()) {
+        if (_io_ctx != nullptr && _io_ctx->should_stop) {
+            *rows = 0;
+            *eof = true;
+            return Status::OK();
+        }
+        return st;
+    }
     _sync_page_cache_profile();
     if (_io_ctx != nullptr) {
         _io_ctx->predicate_filtered_rows +=
