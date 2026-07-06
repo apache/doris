@@ -23,6 +23,7 @@ import org.apache.doris.cloud.security.SecurityChecker;
 import org.apache.doris.common.CatalogConfigFileUtils;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.EnvUtils;
+import org.apache.doris.common.Version;
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.connector.api.ConnectorHttpSecurityHook;
 import org.apache.doris.connector.spi.ConnectorBrokerAddress;
@@ -419,6 +420,15 @@ public class DefaultConnectorContext implements ConnectorContext {
         // applied by HmsMetaStoreProperties.toHiveConfOverrides when the user has not overridden it.
         env.put("hive_metastore_client_timeout_second",
                 String.valueOf(Config.hive_metastore_client_timeout_second));
+        // Hive CREATE TABLE defaults (P7.1): the fe-connector-hive plugin cannot read FE Config, so the two
+        // FE-global CREATE TABLE toggles are threaded through the environment (not persisted into the catalog
+        // property map) and applied by HiveConnectorMetadata.createTable when the user did not override them.
+        // Keys must stay byte-identical to the reads in HiveConnectorProperties.
+        env.put("hive_default_file_format", Config.hive_default_file_format);
+        env.put("enable_create_hive_bucket_table", String.valueOf(Config.enable_create_hive_bucket_table));
+        // Build version stamped into a created Hive table's doris.version parameter (legacy
+        // ExternalCatalog.DORIS_VERSION_VALUE); the plugin cannot import fe-common Version.
+        env.put("doris_version", Version.DORIS_BUILD_VERSION + "-" + Version.DORIS_BUILD_SHORT_HASH);
         // The trino-connector plugin runs in an isolated classloader and cannot read FE
         // Config (it would see its own bundled copy with default values). Pass the
         // configured plugin dir through the engine environment instead.
