@@ -64,7 +64,6 @@
 #include "roaring/roaring64map.hh"
 #include "runtime/runtime_profile.h"
 #include "runtime/runtime_state.h"
-#include "storage/predicate/predicate_creator.h"
 #include "storage/segment/condition_cache.h"
 
 namespace doris::format {
@@ -181,7 +180,6 @@ public:
         _state = std::make_unique<RuntimeState>(*_query_options, *_query_globals);
         RETURN_IF_ERROR(init({
                 .projected_columns = std::move(projected_columns),
-                .column_predicates = {},
                 .conjuncts = {},
                 .format = FileFormat::PARQUET,
                 .scan_params = nullptr,
@@ -712,12 +710,6 @@ void set_name_identifiers(std::vector<ColumnDefinition>* columns) {
     }
 }
 
-void add_column_predicate(TableColumnPredicates* column_predicates, GlobalIndex global_index,
-                          std::shared_ptr<ColumnPredicate> predicate) {
-    auto& entry = (*column_predicates)[global_index];
-    entry.push_back(std::move(predicate));
-}
-
 VExprContextSPtr prepared_conjunct(RuntimeState* state, const VExprSPtr& expr) {
     auto ctx = VExprContext::create_shared(expr);
     auto status = ctx->prepare(state, RowDescriptor());
@@ -750,7 +742,6 @@ TEST(IcebergV2ReaderTest, IcebergVirtualColumnsUseRowLineageMetadata) {
     doris::format::iceberg::IcebergTableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
-                                    .column_predicates = {},
                                     .conjuncts = {prepared_conjunct(
                                             &state, table_int32_greater_than_expr(2, 2, 1))},
                                     .format = FileFormat::PARQUET,
@@ -804,7 +795,6 @@ TEST(IcebergV2ReaderTest, IcebergRowLineageUsesPhysicalRowIdAndFillsNulls) {
     doris::format::iceberg::IcebergTableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
-                                    .column_predicates = {},
                                     .conjuncts = {},
                                     .format = FileFormat::PARQUET,
                                     .scan_params = nullptr,
@@ -854,7 +844,6 @@ TEST(IcebergV2ReaderTest, IcebergPhysicalRowIdKeepsNullsWithoutFirstRowId) {
     doris::format::iceberg::IcebergTableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
-                                    .column_predicates = {},
                                     .conjuncts = {},
                                     .format = FileFormat::PARQUET,
                                     .scan_params = nullptr,
@@ -902,7 +891,6 @@ TEST(IcebergV2ReaderTest, IcebergMissingRowIdStaysNullWithoutFirstRowId) {
     doris::format::iceberg::IcebergTableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
-                                    .column_predicates = {},
                                     .conjuncts = {},
                                     .format = FileFormat::PARQUET,
                                     .scan_params = nullptr,
@@ -957,7 +945,6 @@ TEST(IcebergV2ReaderTest, IcebergRowIdPredicateFiltersAfterRowLineageMaterializa
     doris::format::iceberg::IcebergTableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
-                                    .column_predicates = {},
                                     .conjuncts = conjuncts,
                                     .format = FileFormat::PARQUET,
                                     .scan_params = nullptr,
@@ -1012,7 +999,6 @@ TEST(IcebergV2ReaderTest, IcebergLastUpdatedSequencePredicateFiltersAfterMateria
     doris::format::iceberg::IcebergTableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
-                                    .column_predicates = {},
                                     .conjuncts = conjuncts,
                                     .format = FileFormat::PARQUET,
                                     .scan_params = nullptr,
@@ -1060,7 +1046,6 @@ TEST(IcebergV2ReaderTest, IcebergRowidVirtualColumnUsesDataFilePosition) {
     doris::format::iceberg::IcebergTableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
-                                    .column_predicates = {},
                                     .conjuncts = {prepared_conjunct(
                                             &state, table_int32_greater_than_expr(1, 1, 1))},
                                     .format = FileFormat::PARQUET,
@@ -1109,7 +1094,6 @@ TEST(IcebergV2ReaderTest, IcebergVirtualColumnsKeepRowLineageAfterConjunctFilter
     doris::format::iceberg::IcebergTableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
-                                    .column_predicates = {},
                                     .conjuncts = {prepared_conjunct(
                                             &state, table_int32_greater_than_expr(2, 2, 1))},
                                     .format = FileFormat::PARQUET,
@@ -1148,8 +1132,8 @@ TEST(IcebergV2ReaderTest, IcebergVirtualColumnsKeepRowLineageAfterRowGroupPredic
     std::filesystem::create_directories(test_dir);
 
     const auto file_path = (test_dir / "split.parquet").string();
-    // ColumnPredicate is used for row-group/statistics pruning. Keep one row per row group so
-    // id > 2 prunes the first two row groups and leaves only the third file-local row.
+    // Keep one row per row group so the VExpr ZoneMap path can prune the first two row groups and
+    // leave only the third file-local row.
     write_int_pair_parquet_file(file_path, {1, 2, 3}, {10, 20, 30}, {"one", "two", "three"}, 1);
 
     std::vector<ColumnDefinition> projected_columns;
@@ -1157,18 +1141,12 @@ TEST(IcebergV2ReaderTest, IcebergVirtualColumnsKeepRowLineageAfterRowGroupPredic
     projected_columns.push_back(make_iceberg_last_updated_sequence_number_column());
     projected_columns.push_back(make_table_column(0, "id", std::make_shared<DataTypeInt32>()));
 
-    TableColumnPredicates column_predicates;
-    add_column_predicate(&column_predicates, GlobalIndex(2),
-                         create_comparison_predicate<PredicateType::GT>(
-                                 0, "id", make_nullable(std::make_shared<DataTypeInt32>()),
-                                 Field::create_field<TYPE_INT>(2), false));
-
     RuntimeState state {TQueryOptions(), TQueryGlobals()};
     doris::format::iceberg::IcebergTableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
-                                    .column_predicates = std::move(column_predicates),
-                                    .conjuncts = {},
+                                    .conjuncts = {prepared_conjunct(
+                                            &state, table_int32_greater_than_expr(2, 2, 2))},
                                     .format = FileFormat::PARQUET,
                                     .scan_params = nullptr,
                                     .io_ctx = nullptr,
@@ -1258,7 +1236,6 @@ TEST(IcebergV2ReaderTest, IcebergTableReaderAppliesDeletionVectorFile) {
     doris::format::iceberg::IcebergTableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
-                                    .column_predicates = {},
                                     .conjuncts = {},
                                     .format = FileFormat::PARQUET,
                                     .scan_params = &scan_params,
@@ -1305,7 +1282,6 @@ TEST(IcebergV2ReaderTest, IcebergTableReaderDoesNotPushDownAggregateWithDeletes)
     doris::format::iceberg::IcebergTableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
-                                    .column_predicates = {},
                                     .conjuncts = {},
                                     .format = FileFormat::PARQUET,
                                     .scan_params = &scan_params,
@@ -1390,7 +1366,6 @@ TEST(IcebergV2ReaderTest, IcebergTableReaderDoesNotPushDownAggregateWithPosition
     doris::format::iceberg::IcebergTableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
-                                    .column_predicates = {},
                                     .conjuncts = {},
                                     .format = FileFormat::PARQUET,
                                     .scan_params = &scan_params,
@@ -1440,7 +1415,6 @@ TEST(IcebergV2ReaderTest, IcebergTableLevelCountUsesAssignedRowCountWithPosition
     doris::format::iceberg::IcebergTableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
-                                    .column_predicates = {},
                                     .conjuncts = {},
                                     .format = FileFormat::PARQUET,
                                     .scan_params = nullptr,
@@ -1496,7 +1470,6 @@ TEST(IcebergV2ReaderTest, IcebergPositionDeleteFallsBackToSplitPath) {
     doris::format::iceberg::IcebergTableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
-                                    .column_predicates = {},
                                     .conjuncts = {},
                                     .format = FileFormat::PARQUET,
                                     .scan_params = &scan_params,
@@ -1546,7 +1519,6 @@ TEST(IcebergV2ReaderTest, IcebergTableReaderDoesNotPushDownAggregateWithEquality
     doris::format::iceberg::IcebergTableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
-                                    .column_predicates = {},
                                     .conjuncts = {},
                                     .format = FileFormat::PARQUET,
                                     .scan_params = &scan_params,
@@ -1600,7 +1572,6 @@ TEST(IcebergV2ReaderTest, IcebergEqualityDeleteCastsDataColumnToDeleteKeyType) {
     doris::format::iceberg::IcebergTableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
-                                    .column_predicates = {},
                                     .conjuncts = {},
                                     .format = FileFormat::PARQUET,
                                     .scan_params = &scan_params,
@@ -1647,7 +1618,6 @@ TEST(IcebergV2ReaderTest, IcebergPositionDeleteOnlyMatchesOriginalDataFilePath) 
     doris::format::iceberg::IcebergTableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
-                                    .column_predicates = {},
                                     .conjuncts = {},
                                     .format = FileFormat::PARQUET,
                                     .scan_params = &scan_params,
@@ -1694,7 +1664,6 @@ TEST(IcebergV2ReaderTest, IcebergRowLineageRemainsFileLocalAfterDeleteFiltering)
     doris::format::iceberg::IcebergTableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
-                                    .column_predicates = {},
                                     .conjuncts = {},
                                     .format = FileFormat::PARQUET,
                                     .scan_params = &scan_params,
@@ -1751,7 +1720,6 @@ TEST(IcebergV2ReaderTest, IcebergTableReaderAppliesPositionDeleteFile) {
     doris::format::iceberg::IcebergTableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
-                                    .column_predicates = {},
                                     .conjuncts = {},
                                     .format = FileFormat::PARQUET,
                                     .scan_params = &scan_params,
@@ -1800,7 +1768,6 @@ TEST(IcebergV2ReaderTest, IcebergTableReaderMergesDeletionVectorAndPositionDelet
     doris::format::iceberg::IcebergTableReader reader;
     ASSERT_TRUE(reader.init({
                                     .projected_columns = projected_columns,
-                                    .column_predicates = {},
                                     .conjuncts = {},
                                     .format = FileFormat::PARQUET,
                                     .scan_params = &scan_params,

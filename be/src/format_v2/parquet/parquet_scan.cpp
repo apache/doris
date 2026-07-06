@@ -154,24 +154,18 @@ std::vector<ParquetPageCacheRange> build_row_group_prefetch_ranges(
     return ranges;
 }
 
-} // namespace
-
-Status plan_parquet_row_groups(const ::parquet::FileMetaData& metadata,
-                               ::parquet::ParquetFileReader* file_reader,
-                               const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
-                               const format::FileScanRequest& request,
-                               const ParquetScanRange& scan_range, bool enable_bloom_filter,
-                               RowGroupScanPlan* plan, const cctz::time_zone* timezone) {
-    DORIS_CHECK(plan != nullptr);
-    plan->row_groups.clear();
-    plan->pruning_stats = ParquetPruningStats {};
-
-    std::vector<int64_t> row_group_first_rows(metadata.num_row_groups());
-    std::vector<int> scan_range_selected_row_groups;
-    scan_range_selected_row_groups.reserve(metadata.num_row_groups());
+Status select_row_groups_by_scan_range(const ::parquet::FileMetaData& metadata,
+                                       const ParquetScanRange& scan_range,
+                                       std::vector<int64_t>* row_group_first_rows,
+                                       std::vector<int>* selected_row_groups) {
+    DORIS_CHECK(row_group_first_rows != nullptr);
+    DORIS_CHECK(selected_row_groups != nullptr);
+    row_group_first_rows->assign(metadata.num_row_groups(), 0);
+    selected_row_groups->clear();
+    selected_row_groups->reserve(metadata.num_row_groups());
     int64_t next_row_group_first_row = 0;
     for (int row_group_idx = 0; row_group_idx < metadata.num_row_groups(); ++row_group_idx) {
-        row_group_first_rows[row_group_idx] = next_row_group_first_row;
+        (*row_group_first_rows)[row_group_idx] = next_row_group_first_row;
         auto row_group_metadata = metadata.RowGroup(row_group_idx);
         DORIS_CHECK(row_group_metadata != nullptr);
         const int64_t row_group_rows = row_group_metadata->num_rows();
@@ -181,17 +175,23 @@ Status plan_parquet_row_groups(const ::parquet::FileMetaData& metadata,
         }
         next_row_group_first_row += row_group_rows;
         if (!is_row_group_outside_range(metadata, scan_range, row_group_idx)) {
-            scan_range_selected_row_groups.push_back(row_group_idx);
+            selected_row_groups->push_back(row_group_idx);
         }
     }
+    return Status::OK();
+}
 
-    std::vector<int> statistics_selected_row_groups;
-    RETURN_IF_ERROR(select_row_groups_by_statistics(
-            metadata, file_reader, file_schema, request, &scan_range_selected_row_groups,
-            &statistics_selected_row_groups, enable_bloom_filter, &plan->pruning_stats, timezone));
-
-    plan->row_groups.reserve(statistics_selected_row_groups.size());
-    for (const auto row_group_idx : statistics_selected_row_groups) {
+Status build_row_group_read_plans(
+        const ::parquet::FileMetaData& metadata, ::parquet::ParquetFileReader* file_reader,
+        const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
+        const format::FileScanRequest& request, const std::vector<int>& selected_row_groups,
+        const std::vector<int64_t>& row_group_first_rows, RowGroupScanPlan* plan,
+        const cctz::time_zone* timezone, const RuntimeState* runtime_state) {
+    DORIS_CHECK(plan != nullptr);
+    plan->row_groups.reserve(selected_row_groups.size());
+    for (const auto row_group_idx : selected_row_groups) {
+        DORIS_CHECK(row_group_idx >= 0);
+        DORIS_CHECK(static_cast<size_t>(row_group_idx) < row_group_first_rows.size());
         auto row_group_metadata = metadata.RowGroup(row_group_idx);
         DORIS_CHECK(row_group_metadata != nullptr);
         const int64_t row_group_rows = row_group_metadata->num_rows();
@@ -206,13 +206,64 @@ Status plan_parquet_row_groups(const ::parquet::FileMetaData& metadata,
         RETURN_IF_ERROR(select_row_group_ranges_by_page_index(
                 file_reader, file_schema, request, row_group_idx, row_group_rows,
                 &row_group_plan.selected_ranges, &row_group_plan.page_skip_plans,
-                &plan->pruning_stats, timezone));
+                &plan->pruning_stats, timezone, runtime_state));
         if (row_group_plan.selected_ranges.empty()) {
             continue;
         }
         plan->pruning_stats.selected_row_ranges += row_group_plan.selected_ranges.size();
         plan->row_groups.push_back(std::move(row_group_plan));
     }
+    return Status::OK();
+}
+
+} // namespace
+
+Status plan_parquet_row_groups(const ::parquet::FileMetaData& metadata,
+                               ::parquet::ParquetFileReader* file_reader,
+                               const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
+                               const format::FileScanRequest& request,
+                               const ParquetScanRange& scan_range, bool enable_bloom_filter,
+                               RowGroupScanPlan* plan, const cctz::time_zone* timezone,
+                               const RuntimeState* runtime_state) {
+    DORIS_CHECK(plan != nullptr);
+    plan->row_groups.clear();
+    plan->pruning_stats = ParquetPruningStats {};
+
+    // Row-group planning flow:
+    //
+    //     parquet footer row groups
+    //              |
+    //              v
+    //     split byte-range candidates
+    //              |
+    //              v
+    //     row-group metadata pruning
+    //     statistics/ZoneMap -> dictionary -> bloom filter
+    //              |
+    //              v
+    //     page-index pruning per selected row group
+    //              |
+    //              v
+    //     RowGroupReadPlan with selected row ranges
+    //
+    // Metadata pruning removes whole row groups before readers are opened. Page index pruning runs
+    // only for remaining row groups and produces selected row ranges; the scan scheduler later skips
+    // gaps between those ranges, while row-level VExpr conjuncts still run on loaded batches for
+    // correctness.
+    std::vector<int64_t> row_group_first_rows;
+    std::vector<int> scan_range_selected_row_groups;
+    RETURN_IF_ERROR(select_row_groups_by_scan_range(metadata, scan_range, &row_group_first_rows,
+                                                    &scan_range_selected_row_groups));
+
+    std::vector<int> metadata_selected_row_groups;
+    RETURN_IF_ERROR(select_row_groups_by_metadata(
+            metadata, file_reader, file_schema, request, &scan_range_selected_row_groups,
+            &metadata_selected_row_groups, enable_bloom_filter, &plan->pruning_stats, timezone,
+            runtime_state));
+
+    RETURN_IF_ERROR(build_row_group_read_plans(metadata, file_reader, file_schema, request,
+                                               metadata_selected_row_groups, row_group_first_rows,
+                                               plan, timezone, runtime_state));
     plan->pruning_stats.selected_row_groups = plan->row_groups.size();
     return Status::OK();
 }

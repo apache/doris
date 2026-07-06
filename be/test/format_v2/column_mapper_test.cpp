@@ -48,7 +48,6 @@
 #include "format_v2/table_reader.h"
 #include "gen_cpp/Exprs_types.h"
 #include "runtime/descriptors.h"
-#include "storage/predicate/predicate_creator.h"
 #include "testutil/column_helper.h"
 #include "testutil/mock/mock_runtime_state.h"
 
@@ -953,14 +952,13 @@ TEST(ColumnMapperCollectNestedStructPathsTest, ProjectionMergeKeepsFilterOnlyPat
                         .global_indices = {GlobalIndex(0)}};
 
     FileScanRequest request;
-    ASSERT_TRUE(mapper.create_scan_request({filter}, {}, {table_output}, &request).ok());
+    ASSERT_TRUE(mapper.create_scan_request({filter}, {table_output}, &request).ok());
 
     EXPECT_TRUE(request.non_predicate_columns.empty());
     ASSERT_EQ(request.predicate_columns.size(), 1);
     EXPECT_EQ(request.predicate_columns[0].column_id(), LocalColumnId(5));
     ASSERT_FALSE(request.predicate_columns[0].project_all_children);
     EXPECT_EQ(projection_ids(request.predicate_columns[0].children), std::vector<int32_t>({0, 1}));
-    EXPECT_TRUE(request.column_predicate_filters.empty());
 }
 
 // Scenario: row-oriented readers such as CSV/Text cannot lazy-read predicate columns separately.
@@ -989,14 +987,13 @@ TEST(ColumnMapperScanRequestTest, MaterializedMapperUsesSingleScanColumnList) {
                         .global_indices = {GlobalIndex(0)}};
 
     FileScanRequest request;
-    ASSERT_TRUE(mapper.create_scan_request({filter}, {}, {table_output}, &request).ok());
+    ASSERT_TRUE(mapper.create_scan_request({filter}, {table_output}, &request).ok());
 
     EXPECT_TRUE(request.predicate_columns.empty());
     ASSERT_EQ(request.non_predicate_columns.size(), 1);
     EXPECT_EQ(request.non_predicate_columns[0].column_id(), LocalColumnId(5));
     EXPECT_TRUE(request.non_predicate_columns[0].project_all_children);
     EXPECT_TRUE(request.non_predicate_columns[0].children.empty());
-    EXPECT_TRUE(request.column_predicate_filters.empty());
 }
 
 // Scenario: a FileReader must expose semantic children for complex file columns. If it returns a
@@ -1044,14 +1041,13 @@ TEST(ColumnMapperScanRequestTest, MaterializedMapperLocalizesMappedStructChildCo
                         .global_indices = {GlobalIndex(0)}};
 
     FileScanRequest request;
-    ASSERT_TRUE(mapper.create_scan_request({filter}, {}, {table_struct}, &request).ok());
+    ASSERT_TRUE(mapper.create_scan_request({filter}, {table_struct}, &request).ok());
 
     EXPECT_TRUE(request.predicate_columns.empty());
     ASSERT_EQ(request.non_predicate_columns.size(), 1);
     EXPECT_EQ(request.non_predicate_columns[0].column_id(), LocalColumnId(5));
     EXPECT_TRUE(request.non_predicate_columns[0].project_all_children);
     EXPECT_TRUE(request.non_predicate_columns[0].children.empty());
-    EXPECT_TRUE(request.column_predicate_filters.empty());
     ASSERT_EQ(request.conjuncts.size(), 1);
 }
 
@@ -1072,14 +1068,13 @@ TEST(ColumnMapperScanRequestTest, MaterializedMapperScansFullComplexRootForOutpu
     ASSERT_TRUE(mapper.create_mapping({table_output}, {}, {file_struct}).ok());
 
     FileScanRequest request;
-    ASSERT_TRUE(mapper.create_scan_request({}, {}, {table_output}, &request).ok());
+    ASSERT_TRUE(mapper.create_scan_request({}, {table_output}, &request).ok());
 
     ASSERT_EQ(request.non_predicate_columns.size(), 1);
     EXPECT_EQ(request.non_predicate_columns[0].column_id(), LocalColumnId(5));
     EXPECT_TRUE(request.non_predicate_columns[0].project_all_children);
     EXPECT_TRUE(request.non_predicate_columns[0].children.empty());
     EXPECT_TRUE(request.predicate_columns.empty());
-    EXPECT_TRUE(request.column_predicate_filters.empty());
 }
 
 // Scenario: array/map nested projections also scan the full top-level complex root for
@@ -1121,7 +1116,7 @@ TEST(ColumnMapperScanRequestTest, MaterializedMapperScansFullArrayAndMapRoots) {
     ASSERT_TRUE(mapper.create_mapping({table_array, table_map}, {}, {file_array, file_map}).ok());
 
     FileScanRequest request;
-    ASSERT_TRUE(mapper.create_scan_request({}, {}, {table_array, table_map}, &request).ok());
+    ASSERT_TRUE(mapper.create_scan_request({}, {table_array, table_map}, &request).ok());
 
     ASSERT_EQ(request.non_predicate_columns.size(), 2);
     EXPECT_EQ(request.non_predicate_columns[0].column_id(), LocalColumnId(4));
@@ -1131,7 +1126,6 @@ TEST(ColumnMapperScanRequestTest, MaterializedMapperScansFullArrayAndMapRoots) {
     EXPECT_TRUE(request.non_predicate_columns[1].project_all_children);
     EXPECT_TRUE(request.non_predicate_columns[1].children.empty());
     EXPECT_TRUE(request.predicate_columns.empty());
-    EXPECT_TRUE(request.column_predicate_filters.empty());
 }
 
 // ----------------------------------------------------------------------
@@ -1963,7 +1957,7 @@ TEST(ColumnMapperConstantTest, PhysicalRowLineageFiltersStayFinalizeOnly) {
                                        .global_indices = {GlobalIndex(1)}};
 
     FileScanRequest request;
-    ASSERT_TRUE(mapper.create_scan_request({row_id_table_filter, sequence_table_filter}, {},
+    ASSERT_TRUE(mapper.create_scan_request({row_id_table_filter, sequence_table_filter},
                                            table_schema, &request)
                         .ok());
 
@@ -2056,7 +2050,7 @@ TEST(ColumnMapperConstantTest, PartitionConstantFilterEntryDoesNotReadFileColumn
             .global_indices = {GlobalIndex(0)}};
 
     FileScanRequest request;
-    ASSERT_TRUE(mapper.create_scan_request({filter}, {}, {partition_column}, &request).ok());
+    ASSERT_TRUE(mapper.create_scan_request({filter}, {partition_column}, &request).ok());
 
     ASSERT_EQ(mapper.filter_entries().size(), 1);
     ASSERT_TRUE(mapper.filter_entries().at(GlobalIndex(0)).is_constant());
@@ -2066,7 +2060,6 @@ TEST(ColumnMapperConstantTest, PartitionConstantFilterEntryDoesNotReadFileColumn
     EXPECT_TRUE(request.predicate_columns.empty());
     EXPECT_TRUE(request.non_predicate_columns.empty());
     EXPECT_TRUE(request.conjuncts.empty());
-    EXPECT_TRUE(request.column_predicate_filters.empty());
 }
 
 TEST(ColumnMapperConstantTest, DefaultConstantFilterEntryUsesDefaultExpression) {
@@ -2082,7 +2075,7 @@ TEST(ColumnMapperConstantTest, DefaultConstantFilterEntryUsesDefaultExpression) 
                         .global_indices = {GlobalIndex(0)}};
 
     FileScanRequest request;
-    ASSERT_TRUE(mapper.create_scan_request({filter}, {}, {default_column}, &request).ok());
+    ASSERT_TRUE(mapper.create_scan_request({filter}, {default_column}, &request).ok());
 
     ASSERT_EQ(mapper.filter_entries().size(), 1);
     ASSERT_TRUE(mapper.filter_entries().at(GlobalIndex(0)).is_constant());
@@ -2115,9 +2108,8 @@ TEST(ColumnMapperConstantTest, MixedConstantAndFileFilterKeepsOnlyFileScanColumn
             .global_indices = {GlobalIndex(1)}};
 
     FileScanRequest request;
-    ASSERT_TRUE(
-            mapper.create_scan_request({constant_filter, file_filter}, {}, table_schema, &request)
-                    .ok());
+    ASSERT_TRUE(mapper.create_scan_request({constant_filter, file_filter}, table_schema, &request)
+                        .ok());
 
     ASSERT_EQ(mapper.filter_entries().size(), 2);
     ASSERT_TRUE(mapper.filter_entries().at(GlobalIndex(0)).is_constant());
@@ -2146,7 +2138,7 @@ TEST(ColumnMapperLocalizeFiltersTest, VisibleLocalFilterAddsPredicateColumnAndCo
                         .global_indices = {GlobalIndex(0)}};
 
     FileScanRequest request;
-    ASSERT_TRUE(mapper.localize_filters({filter}, {}, &request).ok());
+    ASSERT_TRUE(mapper.localize_filters({filter}, &request).ok());
 
     EXPECT_TRUE(request.non_predicate_columns.empty());
     ASSERT_EQ(request.predicate_columns.size(), 1);
@@ -2178,7 +2170,7 @@ TEST(ColumnMapperLocalizeFiltersTest, ConstantFilterBuildsEntryWithoutFileScanCo
                         .global_indices = {GlobalIndex(0)}};
 
     FileScanRequest request;
-    ASSERT_TRUE(mapper.localize_filters({filter}, {}, &request).ok());
+    ASSERT_TRUE(mapper.localize_filters({filter}, &request).ok());
 
     EXPECT_TRUE(request.predicate_columns.empty());
     EXPECT_TRUE(request.non_predicate_columns.empty());
@@ -2188,43 +2180,6 @@ TEST(ColumnMapperLocalizeFiltersTest, ConstantFilterBuildsEntryWithoutFileScanCo
     ASSERT_TRUE(mapper.filter_entries().at(GlobalIndex(0)).is_constant());
     EXPECT_EQ(mapper.filter_entries().at(GlobalIndex(0)).constant_index(),
               mapper.mappings()[0].constant_index);
-}
-
-TEST(ColumnMapperLocalizeFiltersTest, ColumnPredicatesUseOnlyExistingLocalPositions) {
-    const auto int_type = i32();
-    const std::vector<ColumnDefinition> table_schema = {name_col("id", int_type)};
-    const std::vector<ColumnDefinition> file_schema = {name_col("id", int_type, 3)};
-
-    TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_NAME});
-    ASSERT_TRUE(mapper.create_mapping(table_schema, {}, file_schema).ok());
-
-    TableColumnPredicates predicates;
-    predicates[GlobalIndex(0)] = {create_comparison_predicate<PredicateType::GT>(
-            0, "id", int_type, Field::create_field<TYPE_INT>(10), false)};
-
-    FileScanRequest request_without_local_position;
-    ASSERT_TRUE(mapper.localize_filters({}, predicates, &request_without_local_position).ok());
-    EXPECT_TRUE(request_without_local_position.column_predicate_filters.empty());
-    ASSERT_EQ(mapper.filter_entries().size(), 1);
-    EXPECT_FALSE(mapper.filter_entries().at(GlobalIndex(0)).is_local());
-
-    FileScanRequest request_with_local_position;
-    request_with_local_position.non_predicate_columns.push_back(
-            LocalColumnIndex::top_level(LocalColumnId(3)));
-    request_with_local_position.local_positions.emplace(LocalColumnId(3), LocalIndex(0));
-    ASSERT_TRUE(mapper.localize_filters({}, predicates, &request_with_local_position).ok());
-
-    ASSERT_EQ(request_with_local_position.non_predicate_columns.size(), 1);
-    EXPECT_EQ(request_with_local_position.non_predicate_columns[0].column_id(), LocalColumnId(3));
-    EXPECT_TRUE(request_with_local_position.predicate_columns.empty());
-    ASSERT_EQ(request_with_local_position.column_predicate_filters.size(), 1);
-    EXPECT_EQ(request_with_local_position.column_predicate_filters[0].file_column_id,
-              LocalColumnId(3));
-    ASSERT_EQ(request_with_local_position.column_predicate_filters[0].predicates.size(), 1);
-    EXPECT_EQ(request_with_local_position.column_predicate_filters[0].predicates[0]->type(),
-              PredicateType::GT);
-    ASSERT_TRUE(mapper.filter_entries().at(GlobalIndex(0)).is_local());
-    EXPECT_EQ(mapper.filter_entries().at(GlobalIndex(0)).local_index(), LocalIndex(0));
 }
 
 TEST(ColumnMapperLocalizeFiltersTest, NestedFilterOnlyChildMergesIntoPredicateProjection) {
@@ -2249,7 +2204,7 @@ TEST(ColumnMapperLocalizeFiltersTest, NestedFilterOnlyChildMergesIntoPredicatePr
                         .global_indices = {GlobalIndex(0)}};
 
     FileScanRequest request;
-    ASSERT_TRUE(mapper.localize_filters({filter}, {}, &request).ok());
+    ASSERT_TRUE(mapper.localize_filters({filter}, &request).ok());
 
     EXPECT_TRUE(request.non_predicate_columns.empty());
     ASSERT_EQ(request.predicate_columns.size(), 1);
@@ -2260,7 +2215,6 @@ TEST(ColumnMapperLocalizeFiltersTest, NestedFilterOnlyChildMergesIntoPredicatePr
     EXPECT_EQ(request.local_positions.at(LocalColumnId(5)), LocalIndex(0));
     ASSERT_TRUE(mapper.filter_entries().at(GlobalIndex(0)).is_local());
     EXPECT_EQ(mapper.filter_entries().at(GlobalIndex(0)).local_index(), LocalIndex(0));
-    EXPECT_TRUE(request.column_predicate_filters.empty());
 }
 
 TEST(ColumnMapperLocalizeFiltersTest, PreservesExistingScanStateWhenAddingPredicateColumn) {
@@ -2283,7 +2237,7 @@ TEST(ColumnMapperLocalizeFiltersTest, PreservesExistingScanStateWhenAddingPredic
     FileScanRequest request;
     request.non_predicate_columns.push_back(LocalColumnIndex::top_level(LocalColumnId(4)));
     request.local_positions.emplace(LocalColumnId(4), LocalIndex(0));
-    ASSERT_TRUE(mapper.localize_filters({filter}, {}, &request).ok());
+    ASSERT_TRUE(mapper.localize_filters({filter}, &request).ok());
 
     ASSERT_EQ(request.non_predicate_columns.size(), 1);
     EXPECT_EQ(request.non_predicate_columns[0].column_id(), LocalColumnId(4));
@@ -2301,37 +2255,6 @@ TEST(ColumnMapperLocalizeFiltersTest, PreservesExistingScanStateWhenAddingPredic
 // These tests assert predicate/non-predicate split, local positions, hidden
 // filter mappings, and nested predicate targets.
 // ----------------------------------------------------------------------
-
-TEST(ColumnMapperScanRequestTest, ColumnPredicatesDoNotForceRowPredicateMaterialization) {
-    const auto int_type = i32();
-    const auto string_type = str();
-    const std::vector<ColumnDefinition> table_schema = {
-            name_col("id", int_type),
-            name_col("name", string_type),
-    };
-    const std::vector<ColumnDefinition> file_schema = {
-            name_col("id", int_type, 0),
-            name_col("name", string_type, 1),
-    };
-
-    TableColumnMapper mapper({.mode = TableColumnMappingMode::BY_NAME});
-    ASSERT_TRUE(mapper.create_mapping(table_schema, {}, file_schema).ok());
-
-    TableColumnPredicates predicates;
-    predicates[GlobalIndex(0)] = {create_comparison_predicate<PredicateType::GT>(
-            0, "id", int_type, Field::create_field<TYPE_INT>(10), false)};
-
-    FileScanRequest request;
-    ASSERT_TRUE(mapper.create_scan_request({}, predicates, table_schema, &request).ok());
-
-    EXPECT_TRUE(request.predicate_columns.empty());
-    EXPECT_EQ(projection_ids(request.non_predicate_columns), std::vector<int32_t>({0, 1}));
-    ASSERT_EQ(request.local_positions.size(), 2);
-    EXPECT_EQ(request.local_positions.at(LocalColumnId(0)), LocalIndex(0));
-    EXPECT_EQ(request.local_positions.at(LocalColumnId(1)), LocalIndex(1));
-    ASSERT_EQ(request.column_predicate_filters.size(), 1);
-    EXPECT_EQ(request.column_predicate_filters[0].file_column_id, LocalColumnId(0));
-}
 
 TEST(ColumnMapperScanRequestTest, HiddenTopLevelFilterMappingUsesNameFallback) {
     const auto int_type = i32();
@@ -2351,7 +2274,7 @@ TEST(ColumnMapperScanRequestTest, HiddenTopLevelFilterMappingUsesNameFallback) {
     ASSERT_TRUE(mapper.create_mapping(table_schema, {}, file_schema).ok());
 
     FileScanRequest request;
-    ASSERT_TRUE(mapper.create_scan_request({filter}, {}, table_schema, &request).ok());
+    ASSERT_TRUE(mapper.create_scan_request({filter}, table_schema, &request).ok());
 
     ASSERT_EQ(request.non_predicate_columns.size(), 1);
     EXPECT_EQ(request.non_predicate_columns[0].column_id(), LocalColumnId(0));
@@ -2383,14 +2306,13 @@ TEST(ColumnMapperScanRequestTest, StructOutputAndFilterOnlyChildAreMerged) {
                         .global_indices = {GlobalIndex(0)}};
 
     FileScanRequest request;
-    ASSERT_TRUE(mapper.create_scan_request({filter}, {}, {table_struct}, &request).ok());
+    ASSERT_TRUE(mapper.create_scan_request({filter}, {table_struct}, &request).ok());
 
     EXPECT_TRUE(request.non_predicate_columns.empty());
     ASSERT_EQ(request.predicate_columns.size(), 1);
     EXPECT_EQ(request.predicate_columns[0].column_id(), LocalColumnId(5));
     ASSERT_FALSE(request.predicate_columns[0].project_all_children);
     EXPECT_EQ(projection_ids(request.predicate_columns[0].children), std::vector<int32_t>({0, 1}));
-    EXPECT_TRUE(request.column_predicate_filters.empty());
 }
 
 TEST(ColumnMapperScanRequestTest, RenamedNestedPredicateTargetsMappedFileChild) {
@@ -2412,9 +2334,7 @@ TEST(ColumnMapperScanRequestTest, RenamedNestedPredicateTargetsMappedFileChild) 
                         .global_indices = {GlobalIndex(0)}};
 
     FileScanRequest request;
-    ASSERT_TRUE(mapper.create_scan_request({filter}, {}, {table_struct}, &request).ok());
-
-    EXPECT_TRUE(request.column_predicate_filters.empty());
+    ASSERT_TRUE(mapper.create_scan_request({filter}, {table_struct}, &request).ok());
 }
 
 TEST(ColumnMapperScanRequestTest, NestedInNullAndReverseComparisonFiltersAreMerged) {
@@ -2450,9 +2370,7 @@ TEST(ColumnMapperScanRequestTest, NestedInNullAndReverseComparisonFiltersAreMerg
                         .global_indices = {GlobalIndex(0)}};
 
     FileScanRequest request;
-    ASSERT_TRUE(mapper.create_scan_request({filter}, {}, {table_struct}, &request).ok());
-
-    EXPECT_TRUE(request.column_predicate_filters.empty());
+    ASSERT_TRUE(mapper.create_scan_request({filter}, {table_struct}, &request).ok());
 }
 
 TEST(ColumnMapperScanRequestTest, NestedPredicateFilterThroughSafeCast) {
@@ -2481,9 +2399,7 @@ TEST(ColumnMapperScanRequestTest, NestedPredicateFilterThroughSafeCast) {
                         .global_indices = {GlobalIndex(0)}};
 
     FileScanRequest request;
-    ASSERT_TRUE(mapper.create_scan_request({filter}, {}, {table_struct}, &request).ok());
-
-    EXPECT_TRUE(request.column_predicate_filters.empty());
+    ASSERT_TRUE(mapper.create_scan_request({filter}, {table_struct}, &request).ok());
 }
 
 TEST(ColumnMapperScanRequestTest, UnsafeCastDoesNotBuildNestedPredicateFilter) {
@@ -2511,9 +2427,7 @@ TEST(ColumnMapperScanRequestTest, UnsafeCastDoesNotBuildNestedPredicateFilter) {
                         .global_indices = {GlobalIndex(0)}};
 
     FileScanRequest request;
-    ASSERT_TRUE(mapper.create_scan_request({filter}, {}, {table_struct}, &request).ok());
-
-    EXPECT_TRUE(request.column_predicate_filters.empty());
+    ASSERT_TRUE(mapper.create_scan_request({filter}, {table_struct}, &request).ok());
     ASSERT_EQ(request.predicate_columns.size(), 1);
     EXPECT_EQ(request.predicate_columns[0].column_id(), LocalColumnId(5));
     EXPECT_EQ(projection_ids(request.predicate_columns[0].children), std::vector<int32_t>({0, 1}));
@@ -2551,9 +2465,7 @@ TEST(ColumnMapperScanRequestTest, DeepNestedPredicateTargetsLeafPath) {
                         .global_indices = {GlobalIndex(0)}};
 
     FileScanRequest request;
-    ASSERT_TRUE(mapper.create_scan_request({filter}, {}, {table_struct}, &request).ok());
-
-    EXPECT_TRUE(request.column_predicate_filters.empty());
+    ASSERT_TRUE(mapper.create_scan_request({filter}, {table_struct}, &request).ok());
 }
 
 TEST(ColumnMapperScanRequestTest, ArrayStructProjectionPrunesElementChildren) {
@@ -2576,7 +2488,7 @@ TEST(ColumnMapperScanRequestTest, ArrayStructProjectionPrunesElementChildren) {
     ASSERT_TRUE(mapper.create_mapping({table_array}, {}, {file_array}).ok());
 
     FileScanRequest request;
-    ASSERT_TRUE(mapper.create_scan_request({}, {}, {table_array}, &request).ok());
+    ASSERT_TRUE(mapper.create_scan_request({}, {table_array}, &request).ok());
 
     ASSERT_EQ(request.non_predicate_columns.size(), 1);
     const auto& projection = request.non_predicate_columns[0];
@@ -2618,7 +2530,7 @@ TEST(ColumnMapperScanRequestTest, MapValueStructProjectionPrunesValueChildren) {
     ASSERT_TRUE(mapper.create_mapping({table_map}, {}, {file_map}).ok());
 
     FileScanRequest request;
-    ASSERT_TRUE(mapper.create_scan_request({}, {}, {table_map}, &request).ok());
+    ASSERT_TRUE(mapper.create_scan_request({}, {table_map}, &request).ok());
 
     ASSERT_EQ(request.non_predicate_columns.size(), 1);
     const auto& projection = request.non_predicate_columns[0];
@@ -2657,7 +2569,7 @@ TEST(ColumnMapperScanRequestTest, StructProjectionPrunesChildrenByName) {
     ASSERT_TRUE(mapper.create_mapping({table_struct}, {}, {file_struct}).ok());
 
     FileScanRequest request;
-    ASSERT_TRUE(mapper.create_scan_request({}, {}, {table_struct}, &request).ok());
+    ASSERT_TRUE(mapper.create_scan_request({}, {table_struct}, &request).ok());
 
     ASSERT_EQ(request.non_predicate_columns.size(), 1);
     const auto& projection = request.non_predicate_columns[0];
@@ -2698,14 +2610,13 @@ TEST(ColumnMapperScanRequestTest, ArrayWrapperDoesNotBuildNestedPredicateFilter)
     ASSERT_TRUE(mapper.create_mapping({table_array}, {}, {file_array}).ok());
 
     FileScanRequest request;
-    ASSERT_TRUE(mapper.create_scan_request({filter}, {}, {table_array}, &request).ok());
+    ASSERT_TRUE(mapper.create_scan_request({filter}, {table_array}, &request).ok());
 
     EXPECT_TRUE(request.non_predicate_columns.empty());
     ASSERT_EQ(request.predicate_columns.size(), 1);
     EXPECT_EQ(request.predicate_columns[0].column_id(), LocalColumnId(0));
     EXPECT_TRUE(request.predicate_columns[0].project_all_children);
     EXPECT_TRUE(request.predicate_columns[0].children.empty());
-    EXPECT_TRUE(request.column_predicate_filters.empty());
 }
 
 // Scenario: a map value struct projects child `b`, while a row filter reads value child `a`.
@@ -2741,7 +2652,7 @@ TEST(ColumnMapperScanRequestTest, MapFilterOnlyValueChildMergesWithOutputProject
     ASSERT_TRUE(mapper.create_mapping({table_map}, {}, {file_map}).ok());
 
     FileScanRequest request;
-    ASSERT_TRUE(mapper.create_scan_request({filter}, {}, {table_map}, &request).ok());
+    ASSERT_TRUE(mapper.create_scan_request({filter}, {table_map}, &request).ok());
 
     EXPECT_TRUE(request.non_predicate_columns.empty());
     ASSERT_EQ(request.predicate_columns.size(), 1);
@@ -2751,7 +2662,6 @@ TEST(ColumnMapperScanRequestTest, MapFilterOnlyValueChildMergesWithOutputProject
     ASSERT_EQ(projection.children.size(), 1);
     EXPECT_EQ(projection.children[0].local_id(), 1);
     EXPECT_EQ(projection_ids(projection.children[0].children), std::vector<int32_t>({0, 1}));
-    EXPECT_TRUE(request.column_predicate_filters.empty());
 }
 
 // Scenario: when projected struct children are an in-order prefix of the file struct, the mapper can
@@ -2776,7 +2686,7 @@ TEST(ColumnMapperScanRequestTest, MatchingProjectedStructDoesNotNeedComplexRemat
     EXPECT_TRUE(mapper.mappings()[0].is_trivial);
 
     FileScanRequest request;
-    ASSERT_TRUE(mapper.create_scan_request({}, {}, {table_struct}, &request).ok());
+    ASSERT_TRUE(mapper.create_scan_request({}, {table_struct}, &request).ok());
 
     ASSERT_EQ(request.non_predicate_columns.size(), 1);
     const auto& projection = request.non_predicate_columns[0];
@@ -2810,7 +2720,7 @@ TEST(ColumnMapperScanRequestTest, RenameOnlyProjectedStructDoesNotRebuildFilePro
     EXPECT_EQ(mapper.mappings()[0].child_mappings[1].file_column_name, "b");
 
     FileScanRequest request;
-    ASSERT_TRUE(mapper.create_scan_request({}, {}, {table_struct}, &request).ok());
+    ASSERT_TRUE(mapper.create_scan_request({}, {table_struct}, &request).ok());
 
     ASSERT_EQ(request.non_predicate_columns.size(), 1);
     EXPECT_TRUE(request.non_predicate_columns[0].project_all_children);
@@ -2844,7 +2754,7 @@ TEST(ColumnMapperScanRequestTest, PredicateProjectionRebuildsProjectedStructFile
                         .global_indices = {GlobalIndex(0)}};
 
     FileScanRequest request;
-    ASSERT_TRUE(mapper.create_scan_request({filter}, {}, {table_struct}, &request).ok());
+    ASSERT_TRUE(mapper.create_scan_request({filter}, {table_struct}, &request).ok());
 
     ASSERT_EQ(request.predicate_columns.size(), 1);
     EXPECT_TRUE(request.non_predicate_columns.empty());
@@ -2885,7 +2795,7 @@ TEST(ColumnMapperScanRequestTest, PredicateOnlyTopLevelColumnUsesHiddenMapping) 
                         .global_indices = {GlobalIndex(1)}};
 
     FileScanRequest request;
-    ASSERT_TRUE(mapper.create_scan_request({filter}, {}, {table_id}, &request).ok());
+    ASSERT_TRUE(mapper.create_scan_request({filter}, {table_id}, &request).ok());
 
     ASSERT_EQ(mapper.mappings().size(), 1);
     EXPECT_EQ(mapper.mappings()[0].table_column_name, "id");
@@ -2898,7 +2808,6 @@ TEST(ColumnMapperScanRequestTest, PredicateOnlyTopLevelColumnUsesHiddenMapping) 
     EXPECT_TRUE(request.predicate_columns[0].children.empty());
 
     ASSERT_EQ(request.conjuncts.size(), 1);
-    EXPECT_TRUE(request.column_predicate_filters.empty());
 }
 
 // Scenario: a nested predicate targets a table-side renamed struct field; scan projection must
@@ -2923,9 +2832,7 @@ TEST(ColumnMapperScanRequestTest, NestedPredicateProjectionUsesMappedRenamedChil
                         .global_indices = {GlobalIndex(0)}};
 
     FileScanRequest request;
-    ASSERT_TRUE(mapper.create_scan_request({filter}, {}, {table_struct}, &request).ok());
-
-    EXPECT_TRUE(request.column_predicate_filters.empty());
+    ASSERT_TRUE(mapper.create_scan_request({filter}, {table_struct}, &request).ok());
     ASSERT_EQ(request.predicate_columns.size(), 1);
     EXPECT_TRUE(request.predicate_columns[0].project_all_children);
     EXPECT_TRUE(request.predicate_columns[0].children.empty());
@@ -2955,7 +2862,7 @@ TEST(ColumnMapperScanRequestTest,
     ASSERT_TRUE(mapper.create_mapping({table_struct}, {}, {file_struct}).ok());
 
     FileScanRequest request;
-    ASSERT_TRUE(mapper.create_scan_request({filter}, {}, {table_struct}, &request).ok());
+    ASSERT_TRUE(mapper.create_scan_request({filter}, {table_struct}, &request).ok());
 
     ASSERT_EQ(request.conjuncts.size(), 1);
     const auto& localized_child = request.conjuncts[0]->root()->children()[0];
@@ -3001,7 +2908,7 @@ TEST(ColumnMapperScanRequestTest, NestedElementAtConjunctUsesFileChildTypeForRen
     ASSERT_TRUE(mapper.create_mapping({table_struct}, {}, {file_struct}).ok());
 
     FileScanRequest request;
-    ASSERT_TRUE(mapper.create_scan_request({filter}, {}, {table_struct}, &request).ok());
+    ASSERT_TRUE(mapper.create_scan_request({filter}, {table_struct}, &request).ok());
     ASSERT_EQ(request.conjuncts.size(), 1);
 
     const auto& localized_leaf = request.conjuncts[0]->root()->children()[0];
@@ -3056,7 +2963,7 @@ TEST(ColumnMapperScanRequestTest, NestedElementAtConjunctUsesMergedScanProjectio
     ASSERT_TRUE(mapper.create_mapping({projected_table_struct}, {}, {file_struct}).ok());
 
     FileScanRequest request;
-    ASSERT_TRUE(mapper.create_scan_request({filter}, {}, {projected_table_struct}, &request).ok());
+    ASSERT_TRUE(mapper.create_scan_request({filter}, {projected_table_struct}, &request).ok());
     ASSERT_EQ(request.conjuncts.size(), 1);
     ASSERT_EQ(request.predicate_columns.size(), 1);
     EXPECT_EQ(request.predicate_columns[0].column_id(), LocalColumnId(10));
@@ -3112,7 +3019,7 @@ TEST(ColumnMapperScanRequestTest, MapValuesStructChildConjunctStaysTableLevel) {
     ASSERT_TRUE(mapper.create_mapping({table_map}, {}, {file_map}).ok());
 
     FileScanRequest request;
-    ASSERT_TRUE(mapper.create_scan_request({filter}, {}, {table_map}, &request).ok());
+    ASSERT_TRUE(mapper.create_scan_request({filter}, {table_map}, &request).ok());
 
     EXPECT_TRUE(request.conjuncts.empty());
     ASSERT_EQ(request.predicate_columns.size(), 1);
@@ -3120,7 +3027,6 @@ TEST(ColumnMapperScanRequestTest, MapValuesStructChildConjunctStaysTableLevel) {
     ASSERT_FALSE(request.predicate_columns[0].project_all_children);
     ASSERT_EQ(request.predicate_columns[0].children.size(), 1);
     EXPECT_EQ(request.predicate_columns[0].children[0].local_id(), 1);
-    EXPECT_TRUE(request.column_predicate_filters.empty());
 }
 
 // Scenario: MAP_KEYS only reads map keys, but localizing it by wrapping the evolved file map slot
@@ -3156,13 +3062,12 @@ TEST(ColumnMapperScanRequestTest, MapKeysConjunctWithEvolvedValueStructStaysTabl
     ASSERT_TRUE(mapper.create_mapping({table_map}, {}, {file_map}).ok());
 
     FileScanRequest request;
-    ASSERT_TRUE(mapper.create_scan_request({filter}, {}, {table_map}, &request).ok());
+    ASSERT_TRUE(mapper.create_scan_request({filter}, {table_map}, &request).ok());
 
     EXPECT_TRUE(request.conjuncts.empty());
     EXPECT_TRUE(request.non_predicate_columns.empty());
     ASSERT_EQ(request.predicate_columns.size(), 1);
     EXPECT_EQ(request.predicate_columns[0].column_id(), LocalColumnId(1));
-    EXPECT_TRUE(request.column_predicate_filters.empty());
 }
 
 // Scenario: an array element struct projection only contains missing/default children; the mapper
@@ -3184,7 +3089,7 @@ TEST(ColumnMapperScanRequestTest, ArrayStructOnlyMissingElementChildUsesFullFile
     ASSERT_TRUE(mapper.create_mapping({table_array}, {}, {file_array}).ok());
 
     FileScanRequest request;
-    ASSERT_TRUE(mapper.create_scan_request({}, {}, {table_array}, &request).ok());
+    ASSERT_TRUE(mapper.create_scan_request({}, {table_array}, &request).ok());
 
     ASSERT_EQ(request.non_predicate_columns.size(), 1);
     EXPECT_EQ(request.non_predicate_columns[0].column_id(), LocalColumnId(10));
@@ -3215,7 +3120,7 @@ TEST(ColumnMapperScanRequestTest, MapValueStructOnlyMissingChildUsesFullValuePro
     ASSERT_TRUE(mapper.create_mapping({table_map}, {}, {file_map}).ok());
 
     FileScanRequest request;
-    ASSERT_TRUE(mapper.create_scan_request({}, {}, {table_map}, &request).ok());
+    ASSERT_TRUE(mapper.create_scan_request({}, {table_map}, &request).ok());
 
     ASSERT_EQ(request.non_predicate_columns.size(), 1);
     const auto& projection = request.non_predicate_columns[0];
@@ -3255,7 +3160,7 @@ TEST(ColumnMapperSchemaEvolutionTest, StructChildrenHandleMissingRenameReorderAn
     TableColumnMapper v1_mapper({.mode = TableColumnMappingMode::BY_FIELD_ID});
     ASSERT_TRUE(v1_mapper.create_mapping({table_struct}, {}, {file_v1}).ok());
     FileScanRequest v1_request;
-    ASSERT_TRUE(v1_mapper.create_scan_request({}, {}, {table_struct}, &v1_request).ok());
+    ASSERT_TRUE(v1_mapper.create_scan_request({}, {table_struct}, &v1_request).ok());
 
     const auto& v1_mapping = v1_mapper.mappings()[0];
     ASSERT_EQ(v1_mapping.child_mappings.size(), 3);
@@ -3269,7 +3174,7 @@ TEST(ColumnMapperSchemaEvolutionTest, StructChildrenHandleMissingRenameReorderAn
     TableColumnMapper v2_mapper({.mode = TableColumnMappingMode::BY_FIELD_ID});
     ASSERT_TRUE(v2_mapper.create_mapping({table_struct}, {}, {file_v2}).ok());
     FileScanRequest v2_request;
-    ASSERT_TRUE(v2_mapper.create_scan_request({}, {}, {table_struct}, &v2_request).ok());
+    ASSERT_TRUE(v2_mapper.create_scan_request({}, {table_struct}, &v2_request).ok());
 
     const auto& v2_mapping = v2_mapper.mappings()[0];
     ASSERT_EQ(v2_mapping.child_mappings.size(), 3);
@@ -3296,7 +3201,7 @@ TEST(ColumnMapperSchemaEvolutionTest, DroppedStructChildrenAreNotRead) {
     ASSERT_TRUE(mapper.create_mapping({table_struct}, {}, {file_struct}).ok());
 
     FileScanRequest request;
-    ASSERT_TRUE(mapper.create_scan_request({}, {}, {table_struct}, &request).ok());
+    ASSERT_TRUE(mapper.create_scan_request({}, {table_struct}, &request).ok());
 
     ASSERT_EQ(request.non_predicate_columns.size(), 1);
     const auto& projection = request.non_predicate_columns[0];
@@ -3348,7 +3253,7 @@ TEST_F(ColumnMapperCastTest, ColumnMapperBuildsCastProjectionForTypeMismatch) {
     ASSERT_TRUE(status.ok()) << status;
     ASSERT_EQ(mapper.mappings().size(), 1);
     FileScanRequest file_request;
-    status = mapper.create_scan_request({}, {}, projected_columns, &file_request);
+    status = mapper.create_scan_request({}, projected_columns, &file_request);
     ASSERT_TRUE(status.ok()) << status;
     const auto& mapping = mapper.mappings()[0];
     EXPECT_FALSE(mapping.is_trivial);
@@ -3402,9 +3307,8 @@ TEST_F(ColumnMapperCastTest, ColumnMapperBuildsCastFilterForTypeMismatch) {
     table_filter.global_indices = {GlobalIndex(0)};
 
     FileScanRequest file_request;
-    ASSERT_TRUE(
-            mapper.create_scan_request({table_filter}, {}, projected_columns, &file_request, &state)
-                    .ok());
+    ASSERT_TRUE(mapper.create_scan_request({table_filter}, projected_columns, &file_request, &state)
+                        .ok());
     ASSERT_EQ(file_request.conjuncts.size(), 1);
     ASSERT_EQ(projection_ids(file_request.predicate_columns), std::vector<int32_t>({0}));
     const auto& localized_expr = file_request.conjuncts[0]->root();
@@ -3459,9 +3363,8 @@ TEST_F(ColumnMapperCastTest, ColumnMapperRepreparesRewrittenPreparedFilter) {
     ASSERT_TRUE(status.ok()) << status;
 
     FileScanRequest file_request;
-    ASSERT_TRUE(
-            mapper.create_scan_request({table_filter}, {}, projected_columns, &file_request, &state)
-                    .ok());
+    ASSERT_TRUE(mapper.create_scan_request({table_filter}, projected_columns, &file_request, &state)
+                        .ok());
     ASSERT_EQ(file_request.conjuncts.size(), 1);
     const auto& localized_expr = file_request.conjuncts[0]->root();
     ASSERT_NE(dynamic_cast<const Cast*>(localized_expr.get()), nullptr);
@@ -3499,9 +3402,8 @@ TEST_F(ColumnMapperCastTest, ColumnMapperCastsLiteralForSlotLiteralPredicateType
     table_filter.global_indices = {GlobalIndex(0)};
 
     FileScanRequest file_request;
-    ASSERT_TRUE(
-            mapper.create_scan_request({table_filter}, {}, projected_columns, &file_request, &state)
-                    .ok());
+    ASSERT_TRUE(mapper.create_scan_request({table_filter}, projected_columns, &file_request, &state)
+                        .ok());
     ASSERT_EQ(file_request.conjuncts.size(), 1);
     ASSERT_EQ(projection_ids(file_request.predicate_columns), std::vector<int32_t>({0}));
     const auto& localized_expr = file_request.conjuncts[0]->root();
@@ -3553,9 +3455,8 @@ TEST_F(ColumnMapperCastTest, ColumnMapperCastsLiteralForLiteralSlotPredicateType
     table_filter.global_indices = {GlobalIndex(0)};
 
     FileScanRequest file_request;
-    ASSERT_TRUE(
-            mapper.create_scan_request({table_filter}, {}, projected_columns, &file_request, &state)
-                    .ok());
+    ASSERT_TRUE(mapper.create_scan_request({table_filter}, projected_columns, &file_request, &state)
+                        .ok());
     ASSERT_EQ(file_request.conjuncts.size(), 1);
     const auto& localized_expr = file_request.conjuncts[0]->root();
     ASSERT_EQ(localized_expr->get_num_children(), 2);
@@ -3608,9 +3509,8 @@ TEST_F(ColumnMapperCastTest, ColumnMapperCastsInPredicateLiteralsForTypeMismatch
     table_filter.global_indices = {GlobalIndex(0)};
 
     FileScanRequest file_request;
-    ASSERT_TRUE(
-            mapper.create_scan_request({table_filter}, {}, projected_columns, &file_request, &state)
-                    .ok());
+    ASSERT_TRUE(mapper.create_scan_request({table_filter}, projected_columns, &file_request, &state)
+                        .ok());
     ASSERT_EQ(file_request.conjuncts.size(), 1);
     ASSERT_EQ(projection_ids(file_request.predicate_columns), std::vector<int32_t>({0}));
     const auto& localized_expr = file_request.conjuncts[0]->root();
@@ -3647,9 +3547,8 @@ TEST_F(ColumnMapperCastTest, ColumnMapperFallsBackToSlotCastWhenInPredicateLiter
     table_filter.global_indices = {GlobalIndex(0)};
 
     FileScanRequest file_request;
-    ASSERT_TRUE(
-            mapper.create_scan_request({table_filter}, {}, projected_columns, &file_request, &state)
-                    .ok());
+    ASSERT_TRUE(mapper.create_scan_request({table_filter}, projected_columns, &file_request, &state)
+                        .ok());
     ASSERT_EQ(file_request.conjuncts.size(), 1);
     const auto& localized_expr = file_request.conjuncts[0]->root();
     ASSERT_EQ(localized_expr->get_num_children(), 3);
@@ -3685,10 +3584,9 @@ TEST_F(ColumnMapperCastTest, ColumnMapperDoesNotLeakRewrittenInPredicateLiteralA
     TableColumnMapper int_mapper({.mode = TableColumnMappingMode::BY_NAME});
     ASSERT_TRUE(int_mapper.create_mapping(projected_columns, {}, {int_file_field}).ok());
     FileScanRequest int_request;
-    ASSERT_TRUE(int_mapper
-                        .create_scan_request({table_filter}, {}, projected_columns, &int_request,
-                                             &state)
-                        .ok());
+    ASSERT_TRUE(
+            int_mapper.create_scan_request({table_filter}, projected_columns, &int_request, &state)
+                    .ok());
     ASSERT_EQ(int_request.conjuncts.size(), 1);
     const auto& int_localized_expr = int_request.conjuncts[0]->root();
     ASSERT_EQ(int_localized_expr->get_num_children(), 3);
@@ -3701,10 +3599,10 @@ TEST_F(ColumnMapperCastTest, ColumnMapperDoesNotLeakRewrittenInPredicateLiteralA
     TableColumnMapper bigint_mapper({.mode = TableColumnMappingMode::BY_NAME});
     ASSERT_TRUE(bigint_mapper.create_mapping(projected_columns, {}, {bigint_file_field}).ok());
     FileScanRequest bigint_request;
-    ASSERT_TRUE(bigint_mapper
-                        .create_scan_request({table_filter}, {}, projected_columns, &bigint_request,
-                                             &state)
-                        .ok());
+    ASSERT_TRUE(
+            bigint_mapper
+                    .create_scan_request({table_filter}, projected_columns, &bigint_request, &state)
+                    .ok());
     ASSERT_EQ(bigint_request.conjuncts.size(), 1);
     const auto& bigint_localized_expr = bigint_request.conjuncts[0]->root();
     ASSERT_EQ(bigint_localized_expr->get_num_children(), 3);
@@ -3739,9 +3637,8 @@ TEST_F(ColumnMapperCastTest, ColumnMapperFallsBackToSlotCastWhenLiteralRewriteFa
     table_filter.global_indices = {GlobalIndex(0)};
 
     FileScanRequest file_request;
-    ASSERT_TRUE(
-            mapper.create_scan_request({table_filter}, {}, projected_columns, &file_request, &state)
-                    .ok());
+    ASSERT_TRUE(mapper.create_scan_request({table_filter}, projected_columns, &file_request, &state)
+                        .ok());
     ASSERT_EQ(file_request.conjuncts.size(), 1);
     const auto& localized_expr = file_request.conjuncts[0]->root();
     ASSERT_EQ(localized_expr->get_num_children(), 2);
@@ -3773,10 +3670,9 @@ TEST_F(ColumnMapperCastTest, ColumnMapperDoesNotLeakRewrittenLiteralAcrossSplits
     TableColumnMapper int_mapper({.mode = TableColumnMappingMode::BY_NAME});
     ASSERT_TRUE(int_mapper.create_mapping(projected_columns, {}, {int_file_field}).ok());
     FileScanRequest int_request;
-    ASSERT_TRUE(int_mapper
-                        .create_scan_request({table_filter}, {}, projected_columns, &int_request,
-                                             &state)
-                        .ok());
+    ASSERT_TRUE(
+            int_mapper.create_scan_request({table_filter}, projected_columns, &int_request, &state)
+                    .ok());
     ASSERT_EQ(int_request.conjuncts.size(), 1);
     const auto& int_localized_expr = int_request.conjuncts[0]->root();
     ASSERT_EQ(int_localized_expr->get_num_children(), 2);
@@ -3787,10 +3683,10 @@ TEST_F(ColumnMapperCastTest, ColumnMapperDoesNotLeakRewrittenLiteralAcrossSplits
     TableColumnMapper bigint_mapper({.mode = TableColumnMappingMode::BY_NAME});
     ASSERT_TRUE(bigint_mapper.create_mapping(projected_columns, {}, {bigint_file_field}).ok());
     FileScanRequest bigint_request;
-    ASSERT_TRUE(bigint_mapper
-                        .create_scan_request({table_filter}, {}, projected_columns, &bigint_request,
-                                             &state)
-                        .ok());
+    ASSERT_TRUE(
+            bigint_mapper
+                    .create_scan_request({table_filter}, projected_columns, &bigint_request, &state)
+                    .ok());
     ASSERT_EQ(bigint_request.conjuncts.size(), 1);
     const auto& bigint_localized_expr = bigint_request.conjuncts[0]->root();
     ASSERT_EQ(bigint_localized_expr->get_num_children(), 2);
@@ -3825,9 +3721,8 @@ TEST_F(ColumnMapperCastTest, ColumnMapperKeepsExplicitSlotCastInSlotLiteralPredi
     table_filter.global_indices = {GlobalIndex(0)};
 
     FileScanRequest file_request;
-    ASSERT_TRUE(
-            mapper.create_scan_request({table_filter}, {}, projected_columns, &file_request, &state)
-                    .ok());
+    ASSERT_TRUE(mapper.create_scan_request({table_filter}, projected_columns, &file_request, &state)
+                        .ok());
     ASSERT_EQ(file_request.conjuncts.size(), 1);
     const auto& localized_expr = file_request.conjuncts[0]->root();
     ASSERT_EQ(localized_expr->get_num_children(), 2);
@@ -3861,13 +3756,13 @@ TEST_F(ColumnMapperCastTest, ColumnMapperDoesNotNestCastFilterAcrossScanRequests
     table_filter.global_indices = {GlobalIndex(0)};
 
     FileScanRequest first_request;
-    ASSERT_TRUE(mapper.create_scan_request({table_filter}, {}, projected_columns, &first_request,
-                                           &state)
-                        .ok());
+    ASSERT_TRUE(
+            mapper.create_scan_request({table_filter}, projected_columns, &first_request, &state)
+                    .ok());
     FileScanRequest second_request;
-    ASSERT_TRUE(mapper.create_scan_request({table_filter}, {}, projected_columns, &second_request,
-                                           &state)
-                        .ok());
+    ASSERT_TRUE(
+            mapper.create_scan_request({table_filter}, projected_columns, &second_request, &state)
+                    .ok());
 
     ASSERT_EQ(second_request.conjuncts.size(), 1);
     const auto& localized_expr = second_request.conjuncts[0]->root();
@@ -3895,10 +3790,9 @@ TEST_F(ColumnMapperCastTest, ColumnMapperRewritesPreviousCastFilterToMatchingSpl
     TableColumnMapper int_mapper({.mode = TableColumnMappingMode::BY_NAME});
     ASSERT_TRUE(int_mapper.create_mapping(projected_columns, {}, {int_file_field}).ok());
     FileScanRequest int_request;
-    ASSERT_TRUE(int_mapper
-                        .create_scan_request({table_filter}, {}, projected_columns, &int_request,
-                                             &state)
-                        .ok());
+    ASSERT_TRUE(
+            int_mapper.create_scan_request({table_filter}, projected_columns, &int_request, &state)
+                    .ok());
 
     const auto& int_localized_expr = int_request.conjuncts[0]->root();
     ASSERT_EQ(int_localized_expr->get_num_children(), 1);
@@ -3909,10 +3803,10 @@ TEST_F(ColumnMapperCastTest, ColumnMapperRewritesPreviousCastFilterToMatchingSpl
     TableColumnMapper bigint_mapper({.mode = TableColumnMappingMode::BY_NAME});
     ASSERT_TRUE(bigint_mapper.create_mapping(projected_columns, {}, {bigint_file_field}).ok());
     FileScanRequest bigint_request;
-    ASSERT_TRUE(bigint_mapper
-                        .create_scan_request({table_filter}, {}, projected_columns, &bigint_request,
-                                             &state)
-                        .ok());
+    ASSERT_TRUE(
+            bigint_mapper
+                    .create_scan_request({table_filter}, projected_columns, &bigint_request, &state)
+                    .ok());
 
     const auto& bigint_localized_expr = bigint_request.conjuncts[0]->root();
     ASSERT_EQ(bigint_localized_expr->get_num_children(), 1);
@@ -3956,7 +3850,7 @@ TEST_F(ColumnMapperCastTest, ColumnMapperKeepsTableSlotIdWhenFileBlockPositionCh
     table_filter.global_indices = {GlobalIndex(0)};
 
     FileScanRequest first_request;
-    ASSERT_TRUE(mapper.localize_filters({table_filter}, {}, &first_request, &state).ok());
+    ASSERT_TRUE(mapper.localize_filters({table_filter}, &first_request, &state).ok());
     ASSERT_EQ(first_request.conjuncts.size(), 1);
     const auto* first_slot =
             assert_cast<const VSlotRef*>(first_request.conjuncts[0]->root()->children()[0].get());
@@ -3967,7 +3861,7 @@ TEST_F(ColumnMapperCastTest, ColumnMapperKeepsTableSlotIdWhenFileBlockPositionCh
     second_request.local_positions.emplace(LocalColumnId(9), LocalIndex(0));
     second_request.local_positions.emplace(LocalColumnId(10), LocalIndex(1));
     second_request.non_predicate_columns.push_back(LocalColumnIndex::top_level(LocalColumnId(9)));
-    ASSERT_TRUE(mapper.localize_filters({table_filter}, {}, &second_request, &state).ok());
+    ASSERT_TRUE(mapper.localize_filters({table_filter}, &second_request, &state).ok());
     ASSERT_EQ(second_request.conjuncts.size(), 1);
     const auto* second_slot =
             assert_cast<const VSlotRef*>(second_request.conjuncts[0]->root()->children()[0].get());

@@ -62,6 +62,10 @@ public:
     Status evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows) override;
     ZoneMapFilterResult evaluate_zonemap_filter(const ZoneMapEvalContext& ctx) const override;
     bool can_evaluate_zonemap_filter() const override;
+    ZoneMapFilterResult evaluate_dictionary_filter(const DictionaryEvalContext& ctx) const override;
+    bool can_evaluate_dictionary_filter() const override;
+    ZoneMapFilterResult evaluate_bloom_filter(const BloomFilterEvalContext& ctx) const override;
+    bool can_evaluate_bloom_filter() const override;
 
     uint64_t get_digest(uint64_t seed) const override { return 0; }
     Status clone_node(VExprSPtr* cloned_expr) const override {

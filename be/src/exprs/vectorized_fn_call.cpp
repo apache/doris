@@ -221,9 +221,29 @@ bool VectorizedFnCall::can_evaluate_zonemap_filter() const {
            _function->can_evaluate_zonemap_filter(_children);
 }
 
-Status VectorizedFnCall::_do_execute(VExprContext* context, const Block* block, Selector* selector,
-                                     size_t count, ColumnPtr& result_column,
-                                     ColumnPtr* arg_column) const {
+ZoneMapFilterResult VectorizedFnCall::evaluate_dictionary_filter(
+        const DictionaryEvalContext& ctx) const {
+    return _function->evaluate_dictionary_filter(ctx, _children);
+}
+
+bool VectorizedFnCall::can_evaluate_dictionary_filter() const {
+    return _function != nullptr && !_function->is_blockable() &&
+           _function->can_evaluate_dictionary_filter(_children);
+}
+
+ZoneMapFilterResult VectorizedFnCall::evaluate_bloom_filter(
+        const BloomFilterEvalContext& ctx) const {
+    return _function->evaluate_bloom_filter(ctx, _children);
+}
+
+bool VectorizedFnCall::can_evaluate_bloom_filter() const {
+    return _function != nullptr && !_function->is_blockable() &&
+           _function->can_evaluate_bloom_filter(_children);
+}
+
+Status VectorizedFnCall::_do_execute(VExprContext* context, const Block* block,
+                                     const Selector* selector, size_t count,
+                                     ColumnPtr& result_column, ColumnPtr* arg_column) const {
     if (is_const_and_have_executed()) { // const have executed in open function
         result_column = get_result_from_const(count);
         return Status::OK();

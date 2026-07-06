@@ -176,7 +176,7 @@ Status read_integer_decoded_values(IColumn& column, const DecodedColumnView& vie
 }
 
 } // namespace
-// Type map的基本结构
+// Basic structure of the type map.
 template <typename Key, typename Value, typename... Rest>
 struct TypeMap {
     using KeyType = Key;
@@ -184,21 +184,21 @@ struct TypeMap {
     using Next = TypeMap<Rest...>;
 };
 
-// Type map的末端
+// End marker of the type map.
 template <>
 struct TypeMap<void, void> {};
 
-// TypeMapLookup 前向声明
+// Forward declaration of TypeMapLookup.
 template <typename Key, typename Map>
 struct TypeMapLookup;
 
-// Type map查找：找到匹配的键时的情况
+// Type map lookup when the key matches.
 template <typename Key, typename Value, typename... Rest>
 struct TypeMapLookup<Key, TypeMap<Key, Value, Rest...>> {
     using ValueType = Value;
 };
 
-// Type map查找：递归查找
+// Type map lookup by recursive search.
 template <typename Key, typename K, typename V, typename... Rest>
 struct TypeMapLookup<Key, TypeMap<K, V, Rest...>> {
     using ValueType = typename TypeMapLookup<Key, TypeMap<Rest...>>::ValueType;

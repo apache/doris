@@ -164,8 +164,28 @@ bool VInPredicate::can_evaluate_zonemap_filter() const {
     return _zonemap_materialized && std::dynamic_pointer_cast<VSlotRef>(get_child(0)) != nullptr;
 }
 
-Status VInPredicate::execute_column(VExprContext* context, const Block* block, Selector* selector,
-                                    size_t count, ColumnPtr& result_column) const {
+ZoneMapFilterResult VInPredicate::evaluate_dictionary_filter(
+        const DictionaryEvalContext& ctx) const {
+    return expr_zonemap::eval_in_dictionary(ctx, get_child(0), _is_not_in, _seg_filter_values);
+}
+
+bool VInPredicate::can_evaluate_dictionary_filter() const {
+    return _zonemap_materialized && !_is_not_in &&
+           std::dynamic_pointer_cast<VSlotRef>(get_child(0)) != nullptr;
+}
+
+ZoneMapFilterResult VInPredicate::evaluate_bloom_filter(const BloomFilterEvalContext& ctx) const {
+    return expr_zonemap::eval_in_bloom_filter(ctx, get_child(0), _is_not_in, _seg_filter_values);
+}
+
+bool VInPredicate::can_evaluate_bloom_filter() const {
+    return _zonemap_materialized && !_is_not_in &&
+           std::dynamic_pointer_cast<VSlotRef>(get_child(0)) != nullptr;
+}
+
+Status VInPredicate::execute_column_impl(VExprContext* context, const Block* block,
+                                         const Selector* selector, size_t count,
+                                         ColumnPtr& result_column) const {
     if (is_const_and_have_executed()) { // const have execute in open function
         result_column = get_result_from_const(count);
         return Status::OK();
