@@ -63,7 +63,14 @@ under the License.
 
 Apache Doris is an open-source, real-time analytics and search database built on MPP architecture. It provides fast SQL analytics, lakehouse query acceleration, and hybrid search across structured, text, and vector data.
 
-Explore the [official website](https://doris.apache.org/) for the latest product overview, use cases, ecosystem updates, blogs, and user stories. For version updates, see [all release notes](https://doris.apache.org/docs/releasenotes/all-release).
+Explore the [official website](https://doris.apache.org/) for the latest product overview, use cases, ecosystem updates, blogs, and user stories. For version updates, see [all release notes](https://doris.apache.org/releases/all-release).
+
+## 📈 Use Cases
+
+- [Customer-Facing Analytics](https://doris.apache.org/use-cases/customer-facing-analytics): Ship sub-second interactive analytics to external users.
+- [Data Warehousing](https://doris.apache.org/use-cases/data-warehousing): Build one real-time warehouse across business domains.
+- [Observability](https://doris.apache.org/use-cases/observability): Analyze high-throughput logs, events, and metrics with SQL.
+- [Doris for AI](https://doris.apache.org/use-cases/ai): Use vector, text, JSON, and structured search in one SQL engine.
 
 ## 🚀 Core Capabilities
 
@@ -74,16 +81,6 @@ Apache Doris is built around three core capabilities. The website is the source 
 | [Real-Time Analytics](https://doris.apache.org/) | Streaming ingestion, incremental transformation, and sub-second queries under high concurrency. |
 | [Lakehouse Analytics](https://doris.apache.org/) | Fast SQL analytics over open table formats such as Iceberg, Delta Lake, and Hudi. |
 | [Hybrid Search](https://doris.apache.org/) | SQL-native analytics across JSON, full-text, and vector data for AI and search workloads. |
-
-## 🧱 Architecture
-
-Apache Doris supports both compute-storage coupled and compute-storage decoupled deployments. In decoupled mode, stateless compute groups run over shared object storage, so you can scale compute on demand and isolate workloads.
-
-<p align="center">
-  <img src="https://doris.apache.org/images/next/home-page/cs-decoupled.jpg" alt="Apache Doris compute-storage decoupled architecture" width="850" />
-</p>
-
-Learn more in the [deployment guide](https://doris.apache.org/docs/dev/install/intro) and [deployment mode guide](https://doris.apache.org/docs/dev/install/choosing-deployment-mode).
 
 ## 🔌 Ecosystem
 
@@ -96,13 +93,6 @@ Doris sits at the center of the modern data stack. It connects upstream database
 
 For the latest ecosystem coverage, visit the [official website](https://doris.apache.org/) and the [connection and integration documentation](https://doris.apache.org/docs/dev/connection-integration/data-integration/intro).
 
-## 📈 Use Cases
-
-- [Customer-Facing Analytics](https://doris.apache.org/use-cases/customer-facing-analytics): Ship sub-second interactive analytics to external users.
-- [Data Warehousing](https://doris.apache.org/use-cases/data-warehousing): Build one real-time warehouse across business domains.
-- [Observability](https://doris.apache.org/use-cases/observability): Analyze high-throughput logs, events, and metrics with SQL.
-- [Doris for AI](https://doris.apache.org/use-cases/ai): Use vector, text, JSON, and structured search in one SQL engine.
-
 ## 👣 Get Started
 
 - [What is Apache Doris](https://doris.apache.org/docs/dev/getting-started/what-is-apache-doris)
@@ -110,6 +100,16 @@ For the latest ecosystem coverage, visit the [official website](https://doris.ap
 - [Download](https://doris.apache.org/download)
 - [Installation](https://doris.apache.org/docs/dev/install/intro)
 - [Compile from source](https://doris.apache.org/community/source-install/compilation-with-docker)
+
+## 🧱 Architecture
+
+Apache Doris supports both compute-storage coupled and compute-storage decoupled deployments. In decoupled mode, stateless compute groups run over shared object storage, so you can scale compute on demand and isolate workloads.
+
+<p align="center">
+  <img src="https://doris.apache.org/images/next/home-page/cs-decoupled.jpg" alt="Apache Doris compute-storage decoupled architecture" width="850" />
+</p>
+
+Learn more in the [deployment guide](https://doris.apache.org/docs/dev/install/intro) and [deployment mode guide](https://doris.apache.org/docs/dev/install/choosing-deployment-mode).
 
 ## 🧩 Components
 
@@ -124,7 +124,7 @@ Doris provides connectors and tools for common data engineering workflows.
 
 Apache Doris is used in production by thousands of companies worldwide across internet services, finance, retail, logistics, manufacturing, energy, telecommunications, AI, and other industries.
 
-- [Apache Doris users](https://doris.apache.org/users)
+- [Apache Doris users](https://doris.apache.org/why-doris/users/)
 - [Add your company](https://github.com/apache/doris/discussions/27683)
 
 ## 🙌 Contributors
