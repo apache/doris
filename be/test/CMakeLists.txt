@@ -23,6 +23,16 @@ set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/test")
 
 file(GLOB_RECURSE UT_FILES CONFIGURE_DEPENDS *.cpp)
 
+set(PHDR_CACHE_TEST_DSO_SOURCE ${CMAKE_CURRENT_SOURCE_DIR}/common/phdr_cache_test_dso.cpp)
+list(REMOVE_ITEM UT_FILES ${PHDR_CACHE_TEST_DSO_SOURCE})
+
+if (NOT OS_MACOSX)
+    add_library(phdr_cache_test_dso SHARED ${PHDR_CACHE_TEST_DSO_SOURCE})
+    set_target_properties(phdr_cache_test_dso PROPERTIES
+        LIBRARY_OUTPUT_DIRECTORY "${BUILD_DIR}/test"
+    )
+endif()
+
 if (ENABLE_VARIANT_NESTED_GROUP)
     file(GLOB_RECURSE VARIANT_NESTED_GROUP_UT_FILES CONFIGURE_DEPENDS
             "${CMAKE_CURRENT_SOURCE_DIR}/${VARIANT_NESTED_GROUP_MODULE_DIR}/*.cpp")
@@ -114,6 +124,9 @@ include_directories(
 add_subdirectory(storage/index/ann)
 
 add_executable(doris_be_test ${UT_FILES})
+if (TARGET phdr_cache_test_dso)
+    add_dependencies(doris_be_test phdr_cache_test_dso)
+endif()
 
 target_link_libraries(doris_be_test ${TEST_LINK_LIBS} 
     -Wl,--whole-archive vector_search_test -Wl,--no-whole-archive)

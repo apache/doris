@@ -1617,8 +1617,38 @@ build_jemalloc_doris() {
     # It is not easy to remove `with-jemalloc-prefix`, which may affect the compatibility between third-party and old version codes.
     # Also, will building failed on Mac, it said can't find mallctl symbol. because jemalloc's default prefix on macOS is "je_", not "".
     # Maybe can use alias instead of overwrite.
-    CFLAGS="${cflags}" ../configure --prefix="${TP_INSTALL_DIR}" --with-install-suffix="_doris" "${WITH_LG_PAGE}" \
-        --with-jemalloc-prefix=je --enable-prof --disable-cxx --disable-libdl --disable-shared
+    if [[ "${KERNEL}" == 'Darwin' ]]; then
+        # Doris does not build GNU libunwind on macOS, and Apple/LLVM libunwind does not provide
+        # jemalloc's required unw_backtrace symbol. Keep macOS on its original profiler backtrace
+        # path instead of forcing a Linux-only libunwind configuration.
+        CFLAGS="${cflags}" \
+            ../configure --prefix="${TP_INSTALL_DIR}" \
+            --with-install-suffix="_doris" "${WITH_LG_PAGE}" \
+            --with-jemalloc-prefix=je --enable-prof \
+            --disable-cxx --disable-libdl --disable-shared
+    else
+        CPPFLAGS="-I${TP_INCLUDE_DIR}" CFLAGS="${cflags}" LDFLAGS="-L${TP_LIB_DIR}" \
+            LIBS="-llzma -lz" \
+            ../configure --prefix="${TP_INSTALL_DIR}" \
+            --with-install-suffix="_doris" "${WITH_LG_PAGE}" \
+            --with-jemalloc-prefix=je --enable-prof --enable-prof-libunwind \
+            --disable-prof-libgcc --disable-cxx --disable-libdl --disable-shared
+
+        # The stack trace API redirects dl_iterate_phdr to a PHDR cache. On glibc platforms,
+        # jemalloc heap profiling must not silently fall back to libgcc's _Unwind_Backtrace path,
+        # because that path can re-enter the loader-lock implementation while a sampled target
+        # thread is interrupted.
+        if ! grep -qE "result: prof-libunwind +: 1$" config.log; then
+            echo "ERROR: jemalloc prof-libunwind is not enabled; refusing libgcc-backed heap profiles." >&2
+            grep -E "result: prof-(libunwind|libgcc|gcc) +:" config.log >&2 || true
+            exit 1
+        fi
+        if grep -qE "result: prof-libgcc +: 1$" config.log; then
+            echo "ERROR: jemalloc prof-libgcc is enabled; heap profiling must use libunwind only." >&2
+            grep -E "result: prof-(libunwind|libgcc|gcc) +:" config.log >&2 || true
+            exit 1
+        fi
+    fi
 
     make -j "${PARALLEL}"
     make install
@@ -2121,6 +2151,8 @@ if [[ "${#packages[@]}" -eq 0 ]]; then
         thrift
         leveldb
         brpc
+        lzma
+        libunwind
         jemalloc_doris
         rocksdb
         krb5 # before cyrus_sasl
@@ -2144,7 +2176,6 @@ if [[ "${#packages[@]}" -eq 0 ]]; then
         mysql
         aws_sdk
         js_and_css
-        lzma
         xml2
         idn
         gsasl
@@ -2157,7 +2188,6 @@ if [[ "${#packages[@]}" -eq 0 ]]; then
         xxhash
         concurrentqueue
         fast_float
-        libunwind
         avx2neon
         libdeflate
         streamvbyte
