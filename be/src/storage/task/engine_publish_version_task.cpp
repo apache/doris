@@ -484,7 +484,8 @@ Status publish_version_and_add_rowset(StorageEngine& engine, int64_t partition_i
     if (extend_tablet_txn_info_lifetime != nullptr &&
         extend_tablet_txn_info_lifetime->attach_row_binlog.rowset != nullptr) {
         const auto& attach_row_binlog = extend_tablet_txn_info_lifetime->attach_row_binlog;
-        result = add_inc_rowset(attach_row_binlog.tablet, attach_row_binlog.rowset);
+        auto binlog_tablet = std::static_pointer_cast<Tablet>(attach_row_binlog.tablet);
+        result = add_inc_rowset(binlog_tablet, attach_row_binlog.rowset);
         if (!result.ok() && !result.is<PUSH_VERSION_ALREADY_EXIST>()) {
             return result;
         }
@@ -512,7 +513,7 @@ void TabletPublishTxnTask::handle() {
     SCOPED_ATTACH_TASK(_mem_tracker);
     // the row binlog is published to its own binlog tablet together with the base tablet, acquire
     // both tablets' locks in binlog-first order.
-    const auto& binlog_tablet = _attach_row_binlog.tablet;
+    auto binlog_tablet = std::static_pointer_cast<Tablet>(_attach_row_binlog.tablet);
     std::shared_lock<std::shared_timed_mutex> binlog_migration_rlock;
     std::shared_lock<std::shared_timed_mutex> migration_rlock;
     if (binlog_tablet != nullptr) {
@@ -575,7 +576,8 @@ void AsyncTabletPublishTask::handle() {
 
     // the row binlog is published to its own binlog tablet together with the base tablet, acquire
     // both tablets' locks in binlog-first order.
-    const auto& binlog_tablet = txn_info_it->second->attach_row_binlog.tablet;
+    auto binlog_tablet = std::static_pointer_cast<Tablet>(
+            txn_info_it->second->attach_row_binlog.tablet);
     std::shared_lock<std::shared_timed_mutex> binlog_migration_rlock;
     std::shared_lock<std::shared_timed_mutex> migration_rlock;
     if (binlog_tablet != nullptr) {

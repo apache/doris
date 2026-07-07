@@ -130,6 +130,7 @@ public:
         BaseTabletSPtr tablet;
         TabletSchemaSPtr tablet_schema;
         ReaderType reader_type = ReaderType::READER_QUERY;
+        bool read_row_binlog = false;
         bool direct_mode = false;
         bool aggregation = false;
         // for compaction, schema_change, check_sum: we don't use page cache

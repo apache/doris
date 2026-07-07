@@ -34,6 +34,7 @@
 #include <utility>
 #include <vector>
 
+#include "cloud/config.h"
 #include "common/cast_set.h"
 #include "common/logging.h"
 #include "common/object_pool.h"
@@ -396,7 +397,16 @@ public:
     // used by base tablet on node_id to mark whether to write binlog, 0 means no binlog.
     int64_t get_binlog_tablet_id(int64_t base_tablet_id, int64_t node_id) const {
         auto it = _base_to_binlog_tablet.find({base_tablet_id, node_id});
-        return it != _base_to_binlog_tablet.end() ? it->second : 0;
+        if (it != _base_to_binlog_tablet.end()) {
+            return it->second;
+        }
+        if (config::is_cloud_mode()) {
+            auto cloud_it = _base_to_binlog_tablet.lower_bound({base_tablet_id, INT64_MIN});
+            if (cloud_it != _base_to_binlog_tablet.end() && cloud_it->first.first == base_tablet_id) {
+                return cloud_it->second;
+            }
+        }
+        return 0;
     }
 
     void add_locations(std::vector<TTabletLocation>& locations) {

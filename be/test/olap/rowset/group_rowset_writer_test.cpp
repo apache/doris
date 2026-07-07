@@ -58,6 +58,9 @@ constexpr std::string_view kStorageRootDir = "/ut_dir/group_rowset_writer_test";
 class GroupRowsetWriterTest : public testing::Test {
 protected:
     void SetUp() override {
+        _saved_aggregate_non_mow_key_bounds = config::enable_aggregate_non_mow_key_bounds;
+        config::enable_aggregate_non_mow_key_bounds = true;
+
         char buffer[MAX_PATH_LEN];
         getcwd(buffer, MAX_PATH_LEN);
 
@@ -120,6 +123,7 @@ protected:
         _row_binlog_tablet.reset();
         ExecEnv::GetInstance()->set_storage_engine(nullptr);
         EXPECT_TRUE(io::global_local_filesystem()->delete_directory(_storage_root_path).ok());
+        config::enable_aggregate_non_mow_key_bounds = _saved_aggregate_non_mow_key_bounds;
     }
 
     Block create_block(int start_key, int num_rows) const {
@@ -216,6 +220,7 @@ protected:
     TCreateTabletReq _request;
     TCreateTabletReq _row_binlog_request;
     std::string _storage_root_path;
+    bool _saved_aggregate_non_mow_key_bounds = false;
 };
 
 TEST_F(GroupRowsetWriterTest, sub_writer_rollback) {
@@ -252,12 +257,6 @@ TEST_F(GroupRowsetWriterTest, sub_writer_rollback) {
 }
 
 TEST_F(GroupRowsetWriterTest, success) {
-    bool saved_aggregate_non_mow_key_bounds = config::enable_aggregate_non_mow_key_bounds;
-    config::enable_aggregate_non_mow_key_bounds = true;
-    auto restore = std::shared_ptr<void>(nullptr, [&](void*) {
-        config::enable_aggregate_non_mow_key_bounds = saved_aggregate_non_mow_key_bounds;
-    });
-
     std::unique_ptr<GroupRowsetWriter> group_writer;
     RowsetId data_rowset_id;
     auto st = create_group_rowset_writer(&group_writer, &data_rowset_id, 2);
@@ -274,10 +273,10 @@ TEST_F(GroupRowsetWriterTest, success) {
 
     const auto data_segment_path =
             local_segment_path(_tablet->tablet_path(), data_rowset_id.to_string(), 0);
-    const auto second_segment_path = local_segment_path(_row_binlog_tablet->tablet_path(),
+    const auto binlog_segment_path = local_segment_path(_row_binlog_tablet->tablet_path(),
                                                         rowsets[1]->rowset_id().to_string(), 0);
     EXPECT_TRUE(file_exists(data_segment_path));
-    EXPECT_TRUE(file_exists(second_segment_path));
+    EXPECT_TRUE(file_exists(binlog_segment_path));
 
     ASSERT_TRUE(rowsets[1]->rowset_meta()->is_row_binlog());
     EXPECT_FALSE(rowsets[1]->rowset_meta()->is_segments_key_bounds_aggregated());

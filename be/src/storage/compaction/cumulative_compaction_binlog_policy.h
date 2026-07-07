@@ -20,14 +20,20 @@
 #include <cstdint>
 #include <vector>
 
+#include "storage/compaction/cumulative_compaction_policy.h"
 #include "storage/rowset/rowset_fwd.h"
 
 namespace doris {
 
 class Tablet;
 
-class BinlogCompactionPolicy {
+inline constexpr std::string_view CUMULATIVE_BINLOG_POLICY = "binlog";
+
+class BinlogCumulativeCompactionPolicy final : public CumulativeCompactionPolicy {
 public:
+    BinlogCumulativeCompactionPolicy() = default;
+    ~BinlogCumulativeCompactionPolicy() override = default;
+
     static constexpr int8_t kBinlogCompactionMaxLevel = 3;
 
     // Binlog compaction selection rules (tiered, L0..LMax)
@@ -54,21 +60,41 @@ public:
     //
     // Quick compact output must be OVERLAPPING.
     int pick_input_rowsets(Tablet* tablet, const std::vector<RowsetSharedPtr>& candidate_rowsets,
-                           int8_t compaction_level,
+                           int8_t compaction_level, int64_t max_compaction_score,
                            std::vector<RowsetSharedPtr>* input_rowsets) const;
 
-    uint32_t calc_binlog_compaction_score(Tablet* tablet, int8_t* prefer_compaction_level) const;
+    uint32_t calc_binlog_compaction_score(Tablet* tablet,
+                                          int8_t* prefer_compaction_level = nullptr) const;
+    uint32_t calc_binlog_compaction_score(
+            Tablet* tablet, const std::vector<RowsetSharedPtr>& candidate_rowsets,
+            int8_t* prefer_compaction_level) const;
     uint32_t calc_binlog_compaction_level_score(Tablet* tablet, int8_t level) const;
+    uint32_t calc_binlog_compaction_level_score(
+            Tablet* tablet, const std::vector<RowsetSharedPtr>& candidate_rowsets,
+            int8_t level) const;
 
     bool is_compaction_enough(const RowsetMetaSharedPtr& rowset_meta) const;
+
     void calculate_cumulative_point(Tablet* tablet, const RowsetMetaMapContainer& all_rowsets,
                                     int64_t current_cumulative_point,
-                                    int64_t* cumulative_point) const;
-    void update_cumulative_point(Tablet* tablet, const std::vector<RowsetSharedPtr>& input_rowsets,
-                                 RowsetSharedPtr output_rowset) const;
+                                    int64_t* cumulative_point) override;
 
-    void update_compaction_level(Tablet* tablet, const std::vector<RowsetSharedPtr>& input_rowsets,
-                                 RowsetSharedPtr output_rowset);
+    int pick_input_rowsets(Tablet* tablet, const std::vector<RowsetSharedPtr>& candidate_rowsets,
+                           const int64_t max_compaction_score, const int64_t min_compaction_score,
+                           std::vector<RowsetSharedPtr>* input_rowsets,
+                           Version* last_delete_version, size_t* compaction_score,
+                           bool allow_delete = false) override;
+
+    void update_cumulative_point(Tablet* tablet, const std::vector<RowsetSharedPtr>& input_rowsets,
+                                 RowsetSharedPtr output_rowset,
+                                 Version& last_delete_version) override;
+
+    uint32_t calc_cumulative_compaction_score(Tablet* tablet) override;
+
+    int64_t get_compaction_level(Tablet* tablet, const std::vector<RowsetSharedPtr>& input_rowsets,
+                                 RowsetSharedPtr output_rowset) override;
+
+    std::string_view name() override { return CUMULATIVE_BINLOG_POLICY; }
 };
 
 } // namespace doris

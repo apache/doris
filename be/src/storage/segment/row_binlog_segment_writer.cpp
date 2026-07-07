@@ -20,7 +20,6 @@
 #include <algorithm>
 #include <iterator>
 
-#include "cloud/config.h"
 #include "common/cast_set.h"
 #include "core/block/column_with_type_and_name.h"
 #include "core/column/column_nullable.h"
@@ -107,11 +106,6 @@ Status RowBinlogSegmentWriter::init() {
 }
 
 Status RowBinlogSegmentWriter::append_block(const Block* block, size_t row_pos, size_t num_rows) {
-    if (config::is_cloud_mode()) {
-        // TODO(cjh): cloud mode
-        return Status::NotSupported("append binlog");
-    }
-
     if (_opts.write_type != DataWriteType::TYPE_DIRECT) {
         // append block directly because binlog data is completed
         RETURN_IF_ERROR(_append_direct_block(block, row_pos, num_rows));

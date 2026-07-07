@@ -554,7 +554,6 @@ DECLARE_mInt32(binlog_compaction_task_num_per_disk);
 DECLARE_mInt32(binlog_compaction_file_count_threshold);
 DECLARE_mInt32(binlog_level_compaction_max_deltas);
 DECLARE_mInt64(binlog_compaction_time_threshold_seconds);
-DECLARE_mInt32(binlog_compaction_permits_percent);
 DECLARE_mInt32(max_binlog_compaction_threads);
 
 DECLARE_Bool(enable_base_compaction_idle_sched);

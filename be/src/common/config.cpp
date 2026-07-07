@@ -484,9 +484,6 @@ DEFINE_mInt32(binlog_compaction_task_num_per_disk, "4");
 DEFINE_mInt32(binlog_compaction_file_count_threshold, "100");
 DEFINE_mInt32(binlog_level_compaction_max_deltas, "2000");
 DEFINE_mInt64(binlog_compaction_time_threshold_seconds, "3600");
-DEFINE_mInt32(binlog_compaction_permits_percent, "30");
-DEFINE_Validator(binlog_compaction_permits_percent,
-                 [](const int config) -> bool { return config >= 1 && config <= 80; });
 DEFINE_mInt32(max_binlog_compaction_threads, "-1");
 
 DEFINE_Bool(enable_base_compaction_idle_sched, "true");

@@ -16,10 +16,6 @@
 // under the License.
 
 suite("test_row_binlog_basic", "nonConcurrent") {
-    if (isCloudMode()) {
-        return
-    }
-
     sql "DROP TABLE IF EXISTS test_dup_with_binlog FORCE"
     sql "DROP TABLE IF EXISTS test_mow_with_binlog FORCE"
     sql "DROP TABLE IF EXISTS test_mow_with_before_binlog FORCE"

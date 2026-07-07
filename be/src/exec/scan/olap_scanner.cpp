@@ -78,8 +78,8 @@ OlapScanner::OlapScanner(ScanLocalStateBase* parent, OlapScanner::Params&& param
           _key_ranges(std::move(params.key_ranges)),
           _tablet_reader_params({.tablet = std::move(params.tablet),
                                  .tablet_schema {},
-                                 .reader_type = params.read_row_binlog ? ReaderType::READER_BINLOG
-                                                                       : ReaderType::READER_QUERY,
+                                 .reader_type = ReaderType::READER_QUERY,
+                                 .read_row_binlog = params.read_row_binlog,
                                  .aggregation = params.aggregation,
                                  .version = {0, params.version},
                                  .start_key {},
@@ -332,12 +332,10 @@ Status OlapScanner::_init_tso_predicates() {
     }
 
     auto& tablet_schema = _tablet_reader_params.tablet_schema;
-    int32_t tso_index = _tablet_reader_params.reader_type == ReaderType::READER_BINLOG
-                                ? tablet_schema->binlog_tso_col_idx()
-                                : tablet_schema->commit_tso_col_idx();
-    const std::string& column_name = _tablet_reader_params.reader_type == ReaderType::READER_BINLOG
-                                             ? BINLOG_TSO_COL
-                                             : COMMIT_TSO_COL;
+    int32_t tso_index = _tablet_reader_params.read_row_binlog ? tablet_schema->binlog_tso_col_idx()
+                                                              : tablet_schema->commit_tso_col_idx();
+    const std::string& column_name =
+            _tablet_reader_params.read_row_binlog ? BINLOG_TSO_COL : COMMIT_TSO_COL;
     if (tso_index < 0) {
         return Status::InternalError("Column {} not found in tablet schema after append",
                                      column_name);

@@ -94,6 +94,8 @@ public:
                _tablet_meta->is_row_binlog_tablet();
     }
 
+    bool is_row_binlog_tablet() const { return _tablet_meta->is_row_binlog_tablet(); }
+
     // Property encapsulated in TabletMeta
     const TabletMetaSharedPtr& tablet_meta() const { return _tablet_meta; }
 
