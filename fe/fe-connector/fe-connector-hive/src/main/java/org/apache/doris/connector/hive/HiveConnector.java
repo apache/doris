@@ -93,17 +93,45 @@ public class HiveConnector implements Connector {
 
     @Override
     public Set<ConnectorCapability> getCapabilities() {
-        // SUPPORTS_VIEW: legacy HMSExternalTable resolves isView() from the remote table's view text and hive
-        // views are queryable/droppable/visible in SHOW TABLES. The generic plugin-driven path reproduces this
-        // ONLY under this capability: PluginDrivenExternalTable.isView() then consults the connector's
-        // viewExists, PluginDrivenExternalCatalog.dropTable routes a view DROP to dropView, and
-        // listTableNamesFromRemote merges listViewNames into SHOW TABLES — hive returns an EMPTY listViewNames
-        // (its listTableNames already includes views), so the merge is a no-op and each view is listed once
-        // (legacy parity). Inert until hms enters SPI_READY_TYPES. Other connector-wide capabilities
-        // (auto-analyze, show-create-ddl, metadata-preload) land in their own substeps; SUPPORTS_MVCC_SNAPSHOT
-        // is intentionally withheld (hive is non-MVCC), and Top-N / nested-prune are per-table markers, not
-        // connector-wide flags.
-        return EnumSet.of(ConnectorCapability.SUPPORTS_VIEW);
+        // Connector-wide capabilities for the flipped hms catalog, each a faithful port of a legacy
+        // HMSExternalTable/HMS admission. Inert until hms enters SPI_READY_TYPES.
+        //  - SUPPORTS_VIEW: legacy resolves isView() from the remote table's view text; the plugin path then
+        //    consults viewExists, routes a view DROP to dropView, and merges listViewNames into SHOW TABLES —
+        //    hive returns an EMPTY listViewNames (its listTableNames already includes views), so the merge is a
+        //    no-op and each view is listed once (legacy parity).
+        //  - SUPPORTS_COLUMN_AUTO_ANALYZE: legacy StatisticsUtil.supportAutoAnalyze admitted HMS tables of
+        //    dlaType HIVE and ICEBERG (NOT hudi) into the background per-column FULL auto-analyze (sample is
+        //    unimplemented for external SQL-driven tables); this capability replaces that instanceof-
+        //    HMSExternalTable arm. It is connector-wide, so at the flip it also admits hudi-on-HMS tables that
+        //    legacy excluded — a residual for the iceberg/hudi delegation substep to gate per-handle or
+        //    explicitly accept (there is no per-table escape for it today, unlike Top-N).
+        //  - SUPPORTS_METADATA_PRELOAD: legacy HMSExternalTable.supportsExternalMetadataPreload() returned true;
+        //    the capability replaces the legacy engine-name "jdbc" gate. Opt-in via enable_preload_external_
+        //    metadata (default off), a pure lock-latency optimization with no correctness effect.
+        //
+        // Deliberately NOT declared here:
+        //  - SUPPORTS_MVCC_SNAPSHOT: the heterogeneous hms catalog DOES need it (its iceberg/hudi-on-HMS tables
+        //    are MvccTable, and the GSON single-row maps "HMSExternalTable" -> PluginDrivenMvccExternalTable, so
+        //    buildTableInternal selects the Mvcc subclass from this catalog-level capability). It is declared
+        //    together with the MVCC/MTMV machinery (freshness-aware getTableSnapshot + hive empty-pin +
+        //    iceberg sibling delegation) in that substep, NOT as a bare flag here — declaring it now without the
+        //    machinery would give plain-hive tables an eager empty snapshot with no freshness. (This is the fix
+        //    to the earlier "hive is non-MVCC" note: hive is non-MVCC per table, but the catalog-level flag is
+        //    required for the mixed catalog.)
+        //  - SUPPORTS_SHOW_CREATE_DDL: the connector must first emit the table location (show.location) and a
+        //    generic-vs-hive-specific SHOW CREATE rendering must be decided — its own substep.
+        //  - SUPPORTS_PASSTHROUGH_QUERY / SUPPORTS_PARTITION_STATS: hive exposes no query() TVF, and legacy SHOW
+        //    PARTITIONS lists names only.
+        //  - SUPPORTS_TOPN_LAZY_MATERIALIZE: a per-table marker emitted in getTableSchema (orc/parquet only),
+        //    never a connector-wide flag.
+        //  - SUPPORTS_NESTED_COLUMN_PRUNE: NOT emitted yet — a genuine deferral like MVCC. Legacy parquet/orc
+        //    pruned nested columns, but the connector must first carry stable nested field-ids down its column
+        //    tree (SlotTypeReplacer rewrites nested access to field-ids; without them BE reads NULL leaves).
+        //    Restore it as a per-table marker once hive field-ids are verified.
+        return EnumSet.of(
+                ConnectorCapability.SUPPORTS_VIEW,
+                ConnectorCapability.SUPPORTS_COLUMN_AUTO_ANALYZE,
+                ConnectorCapability.SUPPORTS_METADATA_PRELOAD);
     }
 
     private HmsClient getOrCreateClient() {
