@@ -16,7 +16,7 @@
 #
 
 github:
-  description: Apache Doris is an MPP database for real-time analytics and search.
+  description: Apache Doris is a real-time analytics and hybrid search database for AI agents.
   homepage: https://doris.apache.org
   labels:
     - real-time
@@ -34,8 +34,8 @@ github:
     - hudi
     - delta-lake
     - paimon
-    - spark
-    - dbt
+    - vector
+    - search
     - database
   enabled_merge_buttons:
     squash:  true
