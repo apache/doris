@@ -16,7 +16,7 @@
 // under the License.
 
 suite("test_streaming_mysql_job_dup", "p0,external,mysql,external_docker,external_docker_mysql,nondatalake") {
-    def jobName = "test_streaming_mysql_job_name"
+    def jobName = "test_streaming_mysql_job_name_dup"
     def currentDb = (sql "select database()")[0][0]
     def table1 = "test_streaming_mysql_job_dup"
     def mysqlDb = "test_cdc_db"
