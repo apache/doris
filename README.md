@@ -76,17 +76,16 @@ Apache Doris is built around three core capabilities. The website is the source 
 
 | Capability | What it provides |
 | ---------- | ---------------- |
-| [Real-Time Analytics](https://doris.apache.org/) | Streaming ingestion, incremental transformation, and sub-second queries under high concurrency. |
-| [Lakehouse Analytics](https://doris.apache.org/) | Fast SQL analytics over open table formats such as Iceberg, Delta Lake, and Hudi. |
-| [Hybrid Search](https://doris.apache.org/) | SQL-native analytics across JSON, full-text, and vector data for AI and search workloads. |
+| [Real-Time Analytics](https://doris.apache.org/#real-time-analytics) | Streaming ingestion, incremental transformation, and sub-second queries under high concurrency. |
+| [Lakehouse Analytics](https://doris.apache.org/#lakehouse-analytics) | Fast SQL analytics over open table formats such as Iceberg, Delta Lake, and Hudi. |
+| [Hybrid Search](https://doris.apache.org/#hybrid-search) | SQL-native analytics across JSON, full-text, and vector data for AI and search workloads. |
 
 ## 🔌 Ecosystem
 
 Doris sits at the center of the modern data stack. It connects upstream databases, streaming systems, and lakehouse storage with downstream BI, AI, analytics, and observability tools.
 
-<!-- Placeholder: this image should be exported from the website HomeNext EcosystemSection. -->
 <p align="center">
-  <img src="https://doris.apache.org/images/next/home-page/ecosystem-overview.png" alt="Apache Doris ecosystem" width="850" />
+  <img src="https://doris.apache.org/images/doris-ecosystem.png" alt="Apache Doris ecosystem" width="850" />
 </p>
 
 For the latest ecosystem coverage, visit the [official website](https://doris.apache.org/) and the [connection and integration documentation](https://doris.apache.org/docs/dev/connection-integration/data-integration/intro).
@@ -113,8 +112,9 @@ Learn more in the [deployment guide](https://doris.apache.org/docs/dev/install/i
 
 Doris provides connectors and tools for common data engineering workflows.
 
-- [apache/doris-flink-connector](https://github.com/apache/doris-flink-connector)
-- [apache/doris-spark-connector](https://github.com/apache/doris-spark-connector)
+- [Doris Flink Connector](https://doris.apache.org/docs/dev/connection-integration/data-integration/flink-doris-connector)
+- [Doris Spark Connector](https://doris.apache.org/docs/dev/connection-integration/data-integration/spark-doris-connector)
+- [Doris Kafka Connector](https://doris.apache.org/docs/dev/connection-integration/data-integration/doris-kafka-connector)
 - [Doris Stream Loader](https://doris.apache.org/docs/dev/connection-integration/data-integration/doris-streamloader)
 - [Doris Kubernetes Operator](https://doris.apache.org/docs/dev/install/deploy-on-kubernetes/doris-operator/intro)
 
@@ -133,25 +133,20 @@ Apache Doris graduated from the Apache Incubator and became an Apache Top-Level 
 
 ## 🌈 Community and Support
 
-- [Subscribe to the dev mailing list](https://doris.apache.org/community/subscribe-mail-list)
 - [GitHub Issues](https://github.com/apache/doris/issues)
 - [GitHub Discussions](https://github.com/apache/doris/discussions)
 - [Pull Requests](https://github.com/apache/doris/pulls)
 - [How to contribute](https://doris.apache.org/community/how-to-contribute/)
 - [Code submission guide](https://doris.apache.org/community/how-to-contribute/pull-request/)
-- [Doris Improvement Proposals](https://cwiki.apache.org/confluence/display/DORIS/Doris+Improvement+Proposals)
-- [Backend C++ coding specification](https://cwiki.apache.org/confluence/pages/viewpage.action?pageId=240883637)
 
 ## 💬 Contact Us
 
-| Name | Scope | Subscribe | Unsubscribe | Archives |
-|:-----|:------|:----------|:------------|:---------|
-| [dev@doris.apache.org](mailto:dev@doris.apache.org) | Development discussions | [Subscribe](mailto:dev-subscribe@doris.apache.org) | [Unsubscribe](mailto:dev-unsubscribe@doris.apache.org) | [Archives](http://mail-archives.apache.org/mod_mbox/doris-dev/) |
+- [Join Slack](https://doris.apache.org/slack)
+- [Subscribe to the dev mailing list](https://doris.apache.org/community/subscribe-mail-list)
 
 ## 🧰 Links
 
 - Apache Doris official website: [doris.apache.org](https://doris.apache.org)
-- Slack channel: [Join Slack](https://doris.apache.org/slack)
 - X: [@doris_apache](https://twitter.com/doris_apache)
 - Medium: [@ApacheDoris](https://medium.com/@ApacheDoris)
 
