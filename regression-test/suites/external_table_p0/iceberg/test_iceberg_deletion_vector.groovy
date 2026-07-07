@@ -544,6 +544,14 @@ s3.path-style-access=true
             String mergedProfile = profileString
             if (profileString.contains("MergedProfile:")) {
                 mergedProfile = profileString.substring(profileString.indexOf("MergedProfile:"))
+                int mergedProfileEnd = mergedProfile.length()
+                ["Execution Profile:", "Appendix:"].each { String sectionName ->
+                    int sectionIndex = mergedProfile.indexOf(sectionName)
+                    if (sectionIndex > 0) {
+                        mergedProfileEnd = Math.min(mergedProfileEnd, sectionIndex)
+                    }
+                }
+                mergedProfile = mergedProfile.substring(0, mergedProfileEnd)
             }
             def numDeleteRowsValues = profileCounterValues(mergedProfile, "NumDeleteRows")
             numDeleteRowsValues = numDeleteRowsValues.findAll { it > 0L }
