@@ -159,6 +159,42 @@ public class PluginDrivenExternalTableRowCountTest {
         });
     }
 
+    @Test
+    public void layer2ZeroQuotientFallsThroughToFileList() {
+        // totalSize 10 over a 3x INT schema (full width 12) truncates to 0 at layer 2. Legacy collapsed that
+        // 0 to UNKNOWN and fell through to the file-list estimate, so the connector's 120-byte file-list size
+        // / width 12 = 10 must win. MUTATION: returning the layer-2 quotient 0 (a bogus "empty table") or
+        // failing to fall through -> 0 -> red.
+        withFileListGate(true, () -> {
+            PluginDrivenExternalTable table = tableWith(
+                    Optional.of(new ConnectorTableStatistics(-1, 10)), 120,
+                    Arrays.asList(intCol("a"), intCol("b"), intCol("c")), Collections.emptyList());
+            Assertions.assertEquals(10L, table.fetchRowCount());
+        });
+    }
+
+    @Test
+    public void layer2ZeroQuotientYieldsUnknownWhenFileListDisabled() {
+        // Same truncate-to-0 layer-2 case, gate off: the answer is UNKNOWN, never the bogus 0.
+        withFileListGate(false, () -> {
+            PluginDrivenExternalTable table = tableWith(
+                    Optional.of(new ConnectorTableStatistics(-1, 10)), 120,
+                    Arrays.asList(intCol("a"), intCol("b"), intCol("c")), Collections.emptyList());
+            Assertions.assertEquals(TableIf.UNKNOWN_ROW_COUNT, table.fetchRowCount());
+        });
+    }
+
+    @Test
+    public void layer3ZeroQuotientYieldsUnknownNotEmptyTable() {
+        // A file-list size (10) smaller than the row width (12) truncates to 0; legacy getRowCountFromFileList
+        // returned UNKNOWN for a 0 result, so this must be UNKNOWN, not 0. MUTATION: returning 0 -> red.
+        withFileListGate(true, () -> {
+            PluginDrivenExternalTable table = tableWith(Optional.empty(), 10,
+                    Arrays.asList(intCol("a"), intCol("b"), intCol("c")), Collections.emptyList());
+            Assertions.assertEquals(TableIf.UNKNOWN_ROW_COUNT, table.fetchRowCount());
+        });
+    }
+
     private static void withFileListGate(boolean enabled, Runnable body) {
         boolean previous = GlobalVariable.enable_get_row_count_from_file_list;
         GlobalVariable.enable_get_row_count_from_file_list = enabled;
@@ -169,19 +205,25 @@ public class PluginDrivenExternalTableRowCountTest {
         }
     }
 
-    /**
-     * Table whose connector reports no getTableStatistics (empty) but a file-list size of {@code estimateBytes};
-     * {@code partitionColumnIndexes} names which schema columns are partition columns (excluded from the
-     * layer-3 row width).
-     */
+    /** Table whose connector reports no getTableStatistics (empty) but a file-list size of {@code estimateBytes}. */
     private static PluginDrivenExternalTable tableForFileList(
+            long estimateBytes, List<Column> schema, List<Integer> partitionColumnIndexes) {
+        return tableWith(Optional.empty(), estimateBytes, schema, partitionColumnIndexes);
+    }
+
+    /**
+     * Table whose connector returns {@code stats} from getTableStatistics AND {@code estimateBytes} from the
+     * file-list estimate; {@code partitionColumnIndexes} names which schema columns are partition columns
+     * (excluded from the layer-3 row width).
+     */
+    private static PluginDrivenExternalTable tableWith(Optional<ConnectorTableStatistics> stats,
             long estimateBytes, List<Column> schema, List<Integer> partitionColumnIndexes) {
         ConnectorMetadata metadata = Mockito.mock(ConnectorMetadata.class);
         ConnectorSession session = Mockito.mock(ConnectorSession.class);
         ConnectorTableHandle handle = Mockito.mock(ConnectorTableHandle.class);
         Mockito.when(metadata.getTableHandle(session, "REMOTE_DB", "REMOTE_TBL"))
                 .thenReturn(Optional.of(handle));
-        Mockito.when(metadata.getTableStatistics(session, handle)).thenReturn(Optional.empty());
+        Mockito.when(metadata.getTableStatistics(session, handle)).thenReturn(stats);
         Mockito.when(metadata.estimateDataSizeByListingFiles(session, handle)).thenReturn(estimateBytes);
         TestablePluginCatalog catalog = new TestablePluginCatalog(metadata, session);
 

@@ -25,6 +25,8 @@ import org.apache.doris.connector.hms.HmsTableInfo;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.net.URL;
+import java.net.URLClassLoader;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -115,6 +117,39 @@ public class HiveConnectorMetadataFileListStatsTest {
         client.dropLocationFor("p1");
         Assertions.assertEquals(100L, metadata(client).estimateDataSize(
                 partitioned(), 30, loc -> loc.endsWith("p0") ? 100 : 0));
+    }
+
+    @Test
+    public void scaleSampledSizeMultipliesBeforeDividing() {
+        // Non-divisible case pins multiply-first (250*4/3 = 333), distinguishing it from a divide-first
+        // reordering (250/3*4 = 83*4 = 332) that a mutation might introduce. MUTATION: divide-first -> 332 -> red.
+        Assertions.assertEquals(333L, HiveConnectorMetadata.scaleSampledSize(250, 4, 3));
+    }
+
+    @Test
+    public void publicEntryDegradesToMinusOneAndRestoresClassLoaderOnError() {
+        // Drives the PUBLIC entry point: its tableType guard passes for HIVE, then it pins the thread context
+        // classloader and does real FileSystem I/O. A bogus location makes the listing fail, so the estimate
+        // must degrade to -1 WITHOUT throwing, and the TCCL must be restored to whatever it was (the pin is in
+        // a try/finally). MUTATION: dropping the finally leaves the plugin loader set -> the marker assertion
+        // fails; letting the listing error propagate -> assertDoesNotThrow fails.
+        HiveTableHandle handle = new HiveTableHandle.Builder("db", "t", HiveTableType.HIVE)
+                .location("file:///__doris_stats_nonexistent_xyz_998877").build();
+        HiveConnectorMetadata metadata = metadata(new PartitionFakeHmsClient(Collections.emptyList()));
+
+        ClassLoader marker = new URLClassLoader(new URL[0],
+                HiveConnectorMetadataFileListStatsTest.class.getClassLoader());
+        ClassLoader original = Thread.currentThread().getContextClassLoader();
+        Thread.currentThread().setContextClassLoader(marker);
+        try {
+            long size = Assertions.assertDoesNotThrow(
+                    () -> metadata.estimateDataSizeByListingFiles(null, handle));
+            Assertions.assertEquals(-1L, size, "an unlistable location must degrade to -1");
+            Assertions.assertSame(marker, Thread.currentThread().getContextClassLoader(),
+                    "the TCCL pin must be restored on the error path (try/finally)");
+        } finally {
+            Thread.currentThread().setContextClassLoader(original);
+        }
     }
 
     @Test

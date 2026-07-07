@@ -427,7 +427,7 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
             }
             // Scale the sampled size up to the whole table (legacy: totalSize * total / sampled).
             if (sampled) {
-                totalSize = totalSize * totalPartitions / chosen.size();
+                totalSize = scaleSampledSize(totalSize, totalPartitions, chosen.size());
             }
             return totalSize;
         } catch (RuntimeException e) {
@@ -435,6 +435,17 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
                     handle.getDbName(), handle.getTableName(), e);
             return -1;
         }
+    }
+
+    /**
+     * Scales a sampled data size up to the whole table: {@code sampledSize * totalPartitions /
+     * sampledPartitions} (legacy {@code HMSExternalTable.getRowCountFromFileList}). Multiplies BEFORE dividing
+     * to avoid early integer truncation (a divide-first ordering rounds the per-partition average down first
+     * and yields a smaller, less accurate estimate). The multiply carries the same theoretical long-overflow
+     * exposure as legacy for a petabyte-scale sample, accepted for parity.
+     */
+    static long scaleSampledSize(long sampledSize, int totalPartitions, int sampledPartitions) {
+        return sampledSize * totalPartitions / sampledPartitions;
     }
 
     /**

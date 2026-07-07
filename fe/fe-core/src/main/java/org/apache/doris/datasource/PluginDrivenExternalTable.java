@@ -773,10 +773,15 @@ public class PluginDrivenExternalTable extends ExternalTable {
             // fe-type). Connector-agnostic: every other connector reports dataSize -1, so this branch is
             // inert for them. Mirrors legacy StatisticsUtil.getHiveRowCount's totalSize/estimatedRowSize
             // path (row width summed over the FULL schema, partition columns included, exactly as legacy).
+            // A quotient that truncates to 0 is NOT a valid "empty table" answer — legacy collapsed 0 ->
+            // UNKNOWN and fell through to the file-list estimate below, so only a positive quotient returns.
             if (stats.getDataSize() > 0) {
                 long rowWidth = estimatedRowWidth(false);
                 if (rowWidth > 0) {
-                    return stats.getDataSize() / rowWidth;
+                    long rows = stats.getDataSize() / rowWidth;
+                    if (rows > 0) {
+                        return rows;
+                    }
                 }
             }
         }
@@ -792,7 +797,11 @@ public class PluginDrivenExternalTable extends ExternalTable {
             if (dataSize > 0) {
                 long rowWidth = estimatedRowWidth(true);
                 if (rowWidth > 0) {
-                    return dataSize / rowWidth;
+                    // 0 -> UNKNOWN (legacy getRowCountFromFileList's `rows > 0 ? rows : UNKNOWN` gate).
+                    long rows = dataSize / rowWidth;
+                    if (rows > 0) {
+                        return rows;
+                    }
                 }
             }
         }

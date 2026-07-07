@@ -154,9 +154,12 @@ public class HiveConnectorMetadataStatisticsTest {
     }
 
     @Test
-    public void malformedNumRowsDoesNotThrowAndFallsBack() {
-        // A bad numRows must not abort the read. It parses to -1; since the numRows KEY is present, the
-        // spark fallback then applies. MUTATION: letting Long.parseLong propagate -> exception -> red.
+    public void malformedNumRowsDoesNotThrowAndRecoversSparkCount() {
+        // DELIBERATE DEVIATION from legacy (documented): legacy's bare Long.parseLong on a malformed numRows
+        // threw, aborting the whole metastore-stat path so the query fell through to the file-list estimate.
+        // The connector instead parses defensively (-1) and, because the numRows KEY is present, recovers the
+        // valid spark count — strictly more useful on corrupt metadata, and it must never throw. MUTATION:
+        // letting the parse propagate -> exception -> red.
         Optional<ConnectorTableStatistics> stats = Assertions.assertDoesNotThrow(() ->
                 statsOf(params("numRows", "not-a-number", "spark.sql.statistics.numRows", "7")));
         Assertions.assertTrue(stats.isPresent());
@@ -169,5 +172,17 @@ public class HiveConnectorMetadataStatisticsTest {
         Optional<ConnectorTableStatistics> stats = Assertions.assertDoesNotThrow(() ->
                 statsOf(params("totalSize", "garbage")));
         Assertions.assertFalse(stats.isPresent());
+    }
+
+    @Test
+    public void malformedStandardTotalSizeShortCircuitsSparkKey() {
+        // The size branch is an if/else-if on the STANDARD key: a present-but-malformed totalSize parses to -1
+        // and must NOT fall through to the spark key (the standard key's presence wins). With no row count the
+        // result is empty. MUTATION: restructuring the else-if so a malformed standard key falls to spark would
+        // surface 9999 -> present -> red.
+        Optional<ConnectorTableStatistics> stats = statsOf(
+                params("totalSize", "garbage", "spark.sql.statistics.totalSize", "9999"));
+        Assertions.assertFalse(stats.isPresent(),
+                "a present (even malformed) standard totalSize must short-circuit the spark size key");
     }
 }
