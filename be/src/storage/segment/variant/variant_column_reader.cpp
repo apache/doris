@@ -546,12 +546,16 @@ Status VariantColumnReader::_build_read_plan_flat_leaves(
     return Status::OK();
 }
 
-bool VariantColumnReader::has_prefix_path(const PathInData& relative_path) const {
+bool VariantColumnReader::has_prefix_path(const PathInData& relative_path,
+                                          OlapReaderStatistics* stats,
+                                          const io::IOContext* io_ctx) const {
     std::shared_lock<std::shared_mutex> lock(_subcolumns_meta_mutex);
-    return _has_prefix_path_unlocked(relative_path);
+    return _has_prefix_path_unlocked(relative_path, stats, io_ctx);
 }
 
-bool VariantColumnReader::_has_prefix_path_unlocked(const PathInData& relative_path) const {
+bool VariantColumnReader::_has_prefix_path_unlocked(const PathInData& relative_path,
+                                                    OlapReaderStatistics* stats,
+                                                    const io::IOContext* io_ctx) const {
     if (relative_path.empty()) {
         return true;
     }
@@ -576,7 +580,7 @@ bool VariantColumnReader::_has_prefix_path_unlocked(const PathInData& relative_p
     if (_ext_meta_reader && _ext_meta_reader->available()) {
         bool has = false;
         // Pass strict prefix `p.` to avoid false positives like `a.b` matching `a.bc`.
-        if (_ext_meta_reader->has_prefix(dot_prefix, &has).ok() && has) {
+        if (_ext_meta_reader->has_prefix(dot_prefix, &has, stats, io_ctx).ok() && has) {
             return true;
         }
     }
@@ -815,7 +819,7 @@ Status VariantColumnReader::_try_build_external_leaf_plan(ReadPlan* plan, int32_
     std::shared_ptr<ColumnReader> leaf_column_reader;
     Status st = column_reader_cache->get_path_column_reader(
             col_uid, relative_path, &leaf_column_reader, stats, nullptr, io_ctx);
-    DCHECK(!_has_prefix_path_unlocked(relative_path));
+    DCHECK(!_has_prefix_path_unlocked(relative_path, stats, io_ctx));
     if (st.ok()) {
         plan->kind = ReadKind::LEAF;
         plan->type = leaf_column_reader->get_vec_data_type();
@@ -909,7 +913,7 @@ Status VariantColumnReader::_build_read_plan(ReadPlan* plan, const TabletColumn&
     // Check if path is prefix, example sparse columns path: a.b.c, a.b.e, access prefix: a.b.
     // Or access root path. If sparse stats reached the configured limit, an exact sparse path can
     // still have unrecorded sparse children such as a.b.c.
-    const bool has_prefix_path = _has_prefix_path_unlocked(relative_path);
+    const bool has_prefix_path = _has_prefix_path_unlocked(relative_path, opt->stats, &opt->io_ctx);
     const bool sparse_stats_may_have_unrecorded_children =
             exceeded_sparse_column_limit && existed_in_sparse_column;
     if (has_prefix_path || sparse_stats_may_have_unrecorded_children) {
@@ -1380,7 +1384,8 @@ Status VariantColumnReader::init(const ColumnReaderOptions& opts, ColumnMetaAcce
     _num_rows = num_rows;
     // try build external meta readers (optional)
     _ext_meta_reader = std::make_unique<VariantExternalMetaReader>();
-    RETURN_IF_ERROR(_ext_meta_reader->init_from_footer(footer, file_reader, _root_unique_id));
+    RETURN_IF_ERROR(_ext_meta_reader->init_from_footer(footer, file_reader, _root_unique_id, stats,
+                                                       source_io_ctx));
 
     // NestedGroup initialization is provider-driven. Disabled providers keep fallback behavior,
     // while enabled providers populate nested group readers from segment footer.

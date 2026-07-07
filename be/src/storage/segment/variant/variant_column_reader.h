@@ -274,7 +274,8 @@ public:
     // 1) Extracted subcolumns in `_subcolumns_meta_info`
     // 2) Sparse column statistics in `_statistics->sparse_column_non_null_size`
     // 3) Externalized metas via `_ext_meta_reader`
-    bool has_prefix_path(const PathInData& relative_path) const;
+    bool has_prefix_path(const PathInData& relative_path, OlapReaderStatistics* stats = nullptr,
+                         const io::IOContext* io_ctx = nullptr) const;
 
     // NestedGroup support
     // Get NestedGroup reader for a given array path
@@ -301,7 +302,9 @@ public:
 private:
     // Internal unlocked helpers. Caller must hold `_subcolumns_meta_mutex` when using them.
     bool _is_exceeded_sparse_column_limit_unlocked() const;
-    bool _has_prefix_path_unlocked(const PathInData& relative_path) const;
+    bool _has_prefix_path_unlocked(const PathInData& relative_path,
+                                   OlapReaderStatistics* stats = nullptr,
+                                   const io::IOContext* io_ctx = nullptr) const;
 
     // Describe how a variant sub-path should be read. This is a logical plan only and
     // does not create any concrete ColumnIterator.

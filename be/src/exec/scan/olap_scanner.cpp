@@ -49,6 +49,7 @@
 #include "io/io_common.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
+#include "runtime/query_context.h"
 #include "runtime/runtime_profile.h"
 #include "runtime/runtime_state.h"
 #include "service/backend_options.h"
@@ -284,6 +285,9 @@ Status OlapScanner::_prepare_impl() {
                 .file_cache_stats = &_tablet_reader->mutable_stats()->file_cache_stats,
                 .is_inverted_index = true,
         };
+        if (auto* query_ctx = _state->get_query_ctx(); query_ctx != nullptr) {
+            io_ctx.remote_scan_cache_write_limiter = query_ctx->remote_scan_cache_write_limiter();
+        }
 
         RETURN_IF_ERROR(_tablet_reader_params.collection_statistics->collect(
                 _state, _tablet_reader_params.rs_splits, _tablet_reader_params.tablet_schema,
