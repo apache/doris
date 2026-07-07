@@ -85,7 +85,7 @@ Apache Doris is built around three core capabilities. The website is the source 
 Doris sits at the center of the modern data stack. It connects upstream databases, streaming systems, and lakehouse storage with downstream BI, AI, analytics, and observability tools.
 
 <p align="center">
-  <img src="https://doris.apache.org/images/doris-ecosystem.png" alt="Apache Doris ecosystem" width="850" />
+  <img src="https://doris.apache.org/images/doris-ecosystem.jpg" alt="Apache Doris ecosystem" width="850" />
 </p>
 
 For the latest ecosystem coverage, visit the [official website](https://doris.apache.org/) and the [connection and integration documentation](https://doris.apache.org/docs/dev/connection-integration/data-integration/intro).
