@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.cloud.CacheHotspotManager;
 import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.common.AuthenticationException;
@@ -52,6 +53,7 @@ import org.apache.doris.thrift.TGetTablesParams;
 import org.apache.doris.thrift.TGetTablesResult;
 import org.apache.doris.thrift.TGetTabletReplicaInfosRequest;
 import org.apache.doris.thrift.TGetTabletReplicaInfosResult;
+import org.apache.doris.thrift.TListTableStatusResult;
 import org.apache.doris.thrift.TLoadTxnCommitRequest;
 import org.apache.doris.thrift.TLoadTxnRollbackRequest;
 import org.apache.doris.thrift.TMaxComputeBlockIdRequest;
@@ -65,10 +67,12 @@ import org.apache.doris.thrift.TSchemaTableRequestParams;
 import org.apache.doris.thrift.TShowUserRequest;
 import org.apache.doris.thrift.TShowUserResult;
 import org.apache.doris.thrift.TStatusCode;
+import org.apache.doris.thrift.TTableStatus;
 import org.apache.doris.transaction.GlobalTransactionMgrIface;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.utframe.UtFrameUtils;
 
+import com.google.common.collect.Sets;
 import mockit.Mocked;
 import org.junit.AfterClass;
 import org.junit.Assert;
@@ -160,6 +164,178 @@ public class FrontendServiceImplTest {
 
         TGetTablesResult result = impl.getTableNames(params);
         Assert.assertTrue(result.getTables().isEmpty());
+    }
+
+    @Test
+    public void testListTableStatusPrunesUnrequestedExpensiveColumns() throws Exception {
+        String createOlapTblStmt = "CREATE TABLE test.prune_status_columns(\n"
+                + "    k1 INT,\n"
+                + "    v1 INT\n"
+                + ")\n"
+                + "DUPLICATE KEY(k1)\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "PROPERTIES(\"replication_num\" = \"1\");";
+        createTable(createOlapTblStmt);
+        Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException("test");
+        OlapTable table = (OlapTable) db.getTableOrAnalysisException("prune_status_columns");
+        OlapTable spyTable = Mockito.spy(table);
+        db.unregisterTable(table.getName());
+        db.registerTable(spyTable);
+        try {
+            FrontendServiceImpl impl = new FrontendServiceImpl(exeEnv);
+            TGetTablesParams params = new TGetTablesParams();
+            params.setCatalog(InternalCatalog.INTERNAL_CATALOG_NAME);
+            params.setDb("test");
+            params.setTable("prune_status_columns");
+            params.setRequiredColumns(Collections.singleton("UPDATE_TIME"));
+            params.setCurrentUserIdent(connectContext.getCurrentUserIdentity().toThrift());
+
+            TListTableStatusResult result = impl.listTableStatus(params);
+
+            Assert.assertEquals(1, result.getTablesSize());
+            TTableStatus status = result.getTables().get(0);
+            Assert.assertTrue(status.isSetUpdateTime());
+            Assert.assertFalse(status.isSetRows());
+            Assert.assertFalse(status.isSetDataLength());
+            Assert.assertFalse(status.isSetAvgRowLength());
+            Assert.assertFalse(status.isSetIndexLength());
+            Mockito.verify(spyTable, Mockito.never()).getCachedRowCount();
+            Mockito.verify(spyTable, Mockito.never()).getDataLength();
+            Mockito.verify(spyTable, Mockito.never()).getAvgRowLength();
+            Mockito.verify(spyTable, Mockito.never()).getIndexLength();
+        } finally {
+            db.unregisterTable(spyTable.getName());
+            db.registerTable(table);
+        }
+    }
+
+    @Test
+    public void testListTableStatusSetsLastCheckTimeForCheckTimeProjection() throws Exception {
+        String createOlapTblStmt = "CREATE TABLE test.prune_check_time_status_column(\n"
+                + "    k1 INT,\n"
+                + "    v1 INT\n"
+                + ")\n"
+                + "DUPLICATE KEY(k1)\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "PROPERTIES(\"replication_num\" = \"1\");";
+        createTable(createOlapTblStmt);
+        Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException("test");
+        OlapTable table = (OlapTable) db.getTableOrAnalysisException("prune_check_time_status_column");
+        OlapTable spyTable = Mockito.spy(table);
+        Mockito.doReturn(10_000L).when(spyTable).getLastCheckTime();
+        db.unregisterTable(table.getName());
+        db.registerTable(spyTable);
+        try {
+            FrontendServiceImpl impl = new FrontendServiceImpl(exeEnv);
+            TGetTablesParams params = new TGetTablesParams();
+            params.setCatalog(InternalCatalog.INTERNAL_CATALOG_NAME);
+            params.setDb("test");
+            params.setTable("prune_check_time_status_column");
+            params.setRequiredColumns(Collections.singleton("CHECK_TIME"));
+            params.setCurrentUserIdent(connectContext.getCurrentUserIdentity().toThrift());
+
+            TListTableStatusResult result = impl.listTableStatus(params);
+
+            Assert.assertEquals(1, result.getTablesSize());
+            TTableStatus status = result.getTables().get(0);
+            Assert.assertTrue(status.isSetLastCheckTime());
+            Assert.assertEquals(10L, status.getLastCheckTime());
+            Assert.assertTrue(status.isSetCheckTime());
+            Assert.assertEquals(10L, status.getCheckTime());
+            Assert.assertFalse(status.isSetUpdateTime());
+            Assert.assertFalse(status.isSetRows());
+            Mockito.verify(spyTable, Mockito.never()).getTableStatusStats();
+        } finally {
+            db.unregisterTable(spyTable.getName());
+            db.registerTable(table);
+        }
+    }
+
+    @Test
+    public void testListTableStatusPrunesAllOptionalColumnsWhenRequiredColumnsIsEmpty() throws Exception {
+        String createOlapTblStmt = "CREATE TABLE test.prune_all_optional_status_columns(\n"
+                + "    k1 INT,\n"
+                + "    v1 INT\n"
+                + ")\n"
+                + "DUPLICATE KEY(k1)\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "PROPERTIES(\"replication_num\" = \"1\");";
+        createTable(createOlapTblStmt);
+        Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException("test");
+        OlapTable table = (OlapTable) db.getTableOrAnalysisException("prune_all_optional_status_columns");
+        OlapTable spyTable = Mockito.spy(table);
+        db.unregisterTable(table.getName());
+        db.registerTable(spyTable);
+        try {
+            FrontendServiceImpl impl = new FrontendServiceImpl(exeEnv);
+            TGetTablesParams params = new TGetTablesParams();
+            params.setCatalog(InternalCatalog.INTERNAL_CATALOG_NAME);
+            params.setDb("test");
+            params.setTable("prune_all_optional_status_columns");
+            params.setRequiredColumns(Collections.emptySet());
+            params.setCurrentUserIdent(connectContext.getCurrentUserIdentity().toThrift());
+
+            TListTableStatusResult result = impl.listTableStatus(params);
+
+            Assert.assertEquals(1, result.getTablesSize());
+            TTableStatus status = result.getTables().get(0);
+            Assert.assertFalse(status.isSetEngine());
+            Assert.assertFalse(status.isSetUpdateTime());
+            Assert.assertFalse(status.isSetRows());
+            Assert.assertFalse(status.isSetDataLength());
+            Assert.assertFalse(status.isSetAvgRowLength());
+            Assert.assertFalse(status.isSetIndexLength());
+            Mockito.verify(spyTable, Mockito.never()).getTableStatusStats();
+        } finally {
+            db.unregisterTable(spyTable.getName());
+            db.registerTable(table);
+        }
+    }
+
+    @Test
+    public void testListTableStatusUsesCombinedStatsForExpensiveColumns() throws Exception {
+        String createOlapTblStmt = "CREATE TABLE test.combined_status_stats(\n"
+                + "    k1 INT,\n"
+                + "    v1 INT\n"
+                + ")\n"
+                + "DUPLICATE KEY(k1)\n"
+                + "DISTRIBUTED BY HASH(k1) BUCKETS 1\n"
+                + "PROPERTIES(\"replication_num\" = \"1\");";
+        createTable(createOlapTblStmt);
+        Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException("test");
+        OlapTable table = (OlapTable) db.getTableOrAnalysisException("combined_status_stats");
+        OlapTable spyTable = Mockito.spy(table);
+        Mockito.doReturn(new TableIf.TableStatusStats(10L, 20L, 2L, 30L))
+                .when(spyTable).getTableStatusStats();
+        db.unregisterTable(table.getName());
+        db.registerTable(spyTable);
+        try {
+            FrontendServiceImpl impl = new FrontendServiceImpl(exeEnv);
+            TGetTablesParams params = new TGetTablesParams();
+            params.setCatalog(InternalCatalog.INTERNAL_CATALOG_NAME);
+            params.setDb("test");
+            params.setTable("combined_status_stats");
+            params.setRequiredColumns(Sets.newHashSet("table_rows", "Data_Length", "avg_row_length",
+                    "INDEX_LENGTH"));
+            params.setCurrentUserIdent(connectContext.getCurrentUserIdentity().toThrift());
+
+            TListTableStatusResult result = impl.listTableStatus(params);
+
+            Assert.assertEquals(1, result.getTablesSize());
+            TTableStatus status = result.getTables().get(0);
+            Assert.assertEquals(10L, status.getRows());
+            Assert.assertEquals(20L, status.getDataLength());
+            Assert.assertEquals(2L, status.getAvgRowLength());
+            Assert.assertEquals(30L, status.getIndexLength());
+            Mockito.verify(spyTable).getTableStatusStats();
+            Mockito.verify(spyTable, Mockito.never()).getCachedRowCount();
+            Mockito.verify(spyTable, Mockito.never()).getDataLength();
+            Mockito.verify(spyTable, Mockito.never()).getAvgRowLength();
+            Mockito.verify(spyTable, Mockito.never()).getIndexLength();
+        } finally {
+            db.unregisterTable(spyTable.getName());
+            db.registerTable(table);
+        }
     }
 
 

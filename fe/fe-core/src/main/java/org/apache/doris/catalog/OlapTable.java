@@ -1872,37 +1872,43 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
 
     @Override
     public long getAvgRowLength() {
-        long rowCount = 0;
-        long dataSize = 0;
-        for (Map.Entry<Long, Partition> entry : idToPartition.entrySet()) {
-            rowCount += entry.getValue().getBaseIndex().getRowCount();
-            dataSize += entry.getValue().getBaseIndex().getDataSize(false, false);
-        }
-        if (rowCount > 0) {
-            return dataSize / rowCount;
-        } else {
-            return 0;
-        }
+        return getTableStatusStats().getAvgRowLength();
     }
 
     @Override
     public long getDataLength() {
-        long dataSize = 0;
-        for (Map.Entry<Long, Partition> entry : idToPartition.entrySet()) {
-            dataSize += entry.getValue().getBaseIndex().getLocalSegmentSize();
-            dataSize += entry.getValue().getBaseIndex().getRemoteSegmentSize();
-        }
-        return dataSize;
+        return getTableStatusStats().getDataLength();
     }
 
     @Override
     public long getIndexLength() {
-        long indexSize = 0;
+        return getTableStatusStats().getIndexLength();
+    }
+
+    @Override
+    public TableStatusStats getTableStatusStats() {
+        long rowCount = 0;
+        long rowCountForAvg = 0;
+        long dataSizeForAvg = 0;
+        long dataLength = 0;
+        long indexLength = 0;
         for (Map.Entry<Long, Partition> entry : idToPartition.entrySet()) {
-            indexSize += entry.getValue().getBaseIndex().getLocalIndexSize();
-            indexSize += entry.getValue().getBaseIndex().getRemoteIndexSize();
+            MaterializedIndex baseIndex = entry.getValue().getBaseIndex();
+            long baseIndexRowCount = baseIndex.getRowCount();
+            rowCount += baseIndexRowCount == UNKNOWN_ROW_COUNT ? 0 : baseIndexRowCount;
+            rowCountForAvg += baseIndexRowCount;
+            for (Tablet tablet : baseIndex.getTablets()) {
+                for (Replica replica : tablet.getReplicas()) {
+                    if (replica.getState() == Replica.ReplicaState.NORMAL) {
+                        dataSizeForAvg += replica.getDataSize();
+                    }
+                    dataLength += replica.getLocalSegmentSize() + replica.getRemoteSegmentSize();
+                    indexLength += replica.getLocalInvertedIndexSize() + replica.getRemoteInvertedIndexSize();
+                }
+            }
         }
-        return indexSize;
+        long avgRowLength = rowCountForAvg > 0 ? dataSizeForAvg / rowCountForAvg : 0;
+        return new TableStatusStats(rowCount, dataLength, avgRowLength, indexLength);
     }
 
     // Get the signature string of this table with specified partitions.
