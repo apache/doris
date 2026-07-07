@@ -110,6 +110,43 @@ void remove_current_level_meta_access_paths(TColumnAccessPaths& paths) {
     paths.erase(removed.begin(), removed.end());
 }
 
+Status read_or_fill_map_item_column(ColumnIterator* iterator, bool seek_to_start,
+                                    ordinal_t start_ordinal, size_t item_count,
+                                    MutableColumnPtr& dst) {
+    if (item_count == 0) {
+        return Status::OK();
+    }
+
+    if (iterator->need_to_read()) {
+        if (seek_to_start) {
+            RETURN_IF_ERROR(iterator->seek_to_ordinal(start_ordinal));
+        }
+        size_t num_read = item_count;
+        bool has_null = false;
+        RETURN_IF_ERROR(iterator->next_batch(&num_read, dst, &has_null));
+        DCHECK_EQ(num_read, item_count);
+        return Status::OK();
+    }
+
+    if (iterator->read_requirement() == ColumnIterator::ReadRequirement::SKIP) {
+        dst->insert_many_defaults(item_count);
+        return Status::OK();
+    }
+
+    if (iterator->read_requirement() == ColumnIterator::ReadRequirement::PREDICATE) {
+        return Status::OK();
+    }
+
+    if (seek_to_start) {
+        RETURN_IF_ERROR(iterator->seek_to_ordinal(start_ordinal));
+    }
+    size_t num_read = item_count;
+    bool has_null = false;
+    RETURN_IF_ERROR(iterator->next_batch(&num_read, dst, &has_null));
+    DCHECK_EQ(num_read, item_count);
+    return Status::OK();
+}
+
 Status ColumnReader::create_array(const ColumnReaderOptions& opts, const ColumnMetaPB& meta,
                                   const io::FileReaderSPtr& file_reader,
                                   std::shared_ptr<ColumnReader>* reader) {
@@ -1171,12 +1208,10 @@ Status MapFileColumnIterator::next_batch(size_t* n, MutableColumnPtr& dst, bool*
             key_ptr->insert_many_defaults(num_items);
             val_ptr->insert_many_defaults(num_items);
         } else {
-            size_t num_read = num_items;
-            bool key_has_null = false;
-            bool val_has_null = false;
-            RETURN_IF_ERROR(_key_iterator->next_batch(&num_read, key_ptr, &key_has_null));
-            RETURN_IF_ERROR(_val_iterator->next_batch(&num_read, val_ptr, &val_has_null));
-            DCHECK(num_read == num_items);
+            RETURN_IF_ERROR(read_or_fill_map_item_column(_key_iterator.get(), false, 0, num_items,
+                                                         key_ptr));
+            RETURN_IF_ERROR(read_or_fill_map_item_column(_val_iterator.get(), false, 0, num_items,
+                                                         val_ptr));
         }
     }
 
@@ -1377,18 +1412,11 @@ Status MapFileColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t
         }
         auto start = static_cast<ordinal_t>(starts_data[i]);
         if (start != last_idx) {
-            size_t n = this_run;
-            bool dummy_has_null = false;
-
             if (this_run != 0) {
-                RETURN_IF_ERROR(_key_iterator->seek_to_ordinal(start_idx));
-                RETURN_IF_ERROR(_key_iterator->next_batch(&n, keys_ptr, &dummy_has_null));
-                DCHECK(n == this_run);
-
-                n = this_run;
-                RETURN_IF_ERROR(_val_iterator->seek_to_ordinal(start_idx));
-                RETURN_IF_ERROR(_val_iterator->next_batch(&n, vals_ptr, &dummy_has_null));
-                DCHECK(n == this_run);
+                RETURN_IF_ERROR(read_or_fill_map_item_column(_key_iterator.get(), true, start_idx,
+                                                             this_run, keys_ptr));
+                RETURN_IF_ERROR(read_or_fill_map_item_column(_val_iterator.get(), true, start_idx,
+                                                             this_run, vals_ptr));
             }
             start_idx = start;
             this_run = sz;
@@ -1400,17 +1428,11 @@ Status MapFileColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t
         last_idx += sz;
     }
 
-    size_t n = this_run;
-    bool dummy_has_null = false;
     if (this_run != 0) {
-        RETURN_IF_ERROR(_key_iterator->seek_to_ordinal(start_idx));
-        RETURN_IF_ERROR(_key_iterator->next_batch(&n, keys_ptr, &dummy_has_null));
-        DCHECK(n == this_run);
-
-        n = this_run;
-        RETURN_IF_ERROR(_val_iterator->seek_to_ordinal(start_idx));
-        RETURN_IF_ERROR(_val_iterator->next_batch(&n, vals_ptr, &dummy_has_null));
-        DCHECK(n == this_run);
+        RETURN_IF_ERROR(read_or_fill_map_item_column(_key_iterator.get(), true, start_idx, this_run,
+                                                     keys_ptr));
+        RETURN_IF_ERROR(read_or_fill_map_item_column(_val_iterator.get(), true, start_idx, this_run,
+                                                     vals_ptr));
     }
     return Status::OK();
 }
