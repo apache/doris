@@ -627,6 +627,11 @@ public class Config extends ConfigBase {
             "Whether to enable memtable on sink node by default in stream load"})
     public static boolean stream_load_default_memtable_on_sink_node = false;
 
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "Whether to enable forwarding group commit stream load to follower nodes."
+                    + " If true, stream load with group commit mode will be forwarded to a follower FE round robin."})
+    public static boolean enable_forward_group_commit_stream_load_to_follower = false;
+
     @ConfField(mutable = true, masterOnly = true, description = {"Maximum timeout for load jobs, in seconds."})
     public static int max_load_timeout_second = 259200; // 3days
 
