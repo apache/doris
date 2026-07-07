@@ -38,9 +38,11 @@ import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.api.mvcc.ConnectorMvccPartition;
 import org.apache.doris.connector.api.mvcc.ConnectorMvccPartitionView;
 import org.apache.doris.connector.api.mvcc.ConnectorMvccSnapshot;
+import org.apache.doris.connector.api.mvcc.ConnectorTableFreshness;
 import org.apache.doris.connector.api.mvcc.ConnectorTimeTravelSpec;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccTableInfo;
+import org.apache.doris.mtmv.MTMVMaxTimestampSnapshot;
 import org.apache.doris.mtmv.MTMVSnapshotIdSnapshot;
 import org.apache.doris.mtmv.MTMVTimestampSnapshot;
 import org.apache.doris.nereids.StatementContext;
@@ -119,6 +121,132 @@ public class PluginDrivenMvccExternalTableTest {
         Assertions.assertThrows(AnalysisException.class,
                 () -> f.table.getPartitionSnapshot("dt=1999-12-31", null, Optional.empty()),
                 "an unknown partition name must raise AnalysisException, not silently succeed");
+    }
+
+    // ==================== last-modified freshness (e.g. hive): table + partition snapshots ====================
+
+    /**
+     * Re-stubs {@code beginQuerySnapshot} so the query-begin pin advertises last-modified freshness (the flag a
+     * hive connector sets). fe-core reads this off the pin to decide whether to serve MTMV freshness from the
+     * on-demand SPI (hive) vs the snapshot id (paimon/iceberg).
+     */
+    private static void flagPinLastModified(Fixture f) {
+        Mockito.when(f.metadata.beginQuerySnapshot(f.session, f.handle))
+                .thenReturn(Optional.of(ConnectorMvccSnapshot.builder()
+                        .snapshotId(-1L).lastModifiedFreshness(true).build()));
+    }
+
+    @Test
+    public void testGetTableSnapshotLastModifiedEmitsMaxTimestampSnapshot() throws AnalysisException {
+        // A last-modified connector (hive) flags its pin and reports whole-table freshness via getTableFreshness;
+        // fe-core must wrap it in MTMVMaxTimestampSnapshot (byte-parity with legacy HiveDlaTable.getTableSnapshot),
+        // NOT the snapshot-id token. Without this a plain-hive empty pin's snapshot id is a constant -1, so an MV
+        // over a hive base table would compare equal forever and never refresh.
+        Fixture f = Fixture.partitioned();
+        flagPinLastModified(f);
+        Mockito.when(f.metadata.getTableFreshness(Mockito.any(), Mockito.any()))
+                .thenReturn(Optional.of(new ConnectorTableFreshness("dt=2024-02-02", TS_2024_02_02)));
+
+        // MUTATION: keeping the hardcoded MTMVSnapshotIdSnapshot (ignoring getTableFreshness) makes this cast
+        // throw ClassCastException -> red.
+        MTMVMaxTimestampSnapshot snap =
+                (MTMVMaxTimestampSnapshot) f.table.getTableSnapshot(Optional.empty());
+        // MTMVMaxTimestampSnapshot.equals compares BOTH the partition name and the timestamp (the name guards
+        // against dropping the partition that owns the max time). MUTATION: dropping the name or the millis makes
+        // this red.
+        Assertions.assertEquals(new MTMVMaxTimestampSnapshot("dt=2024-02-02", TS_2024_02_02), snap,
+                "a last-modified connector's table snapshot must carry (max-partition-name, max-modify-millis)");
+    }
+
+    @Test
+    public void testGetTableSnapshotContextOverloadAlsoLastModified() throws AnalysisException {
+        // The MTMVRefreshContext overload (used by MTMVPartitionUtil.getTableSnapshotFromContext) must route to
+        // the same freshness-aware path, not a separate hardcoded one.
+        Fixture f = Fixture.partitioned();
+        flagPinLastModified(f);
+        Mockito.when(f.metadata.getTableFreshness(Mockito.any(), Mockito.any()))
+                .thenReturn(Optional.of(new ConnectorTableFreshness("t", 4242L)));
+        MTMVMaxTimestampSnapshot snap =
+                (MTMVMaxTimestampSnapshot) f.table.getTableSnapshot(null, Optional.empty());
+        Assertions.assertEquals(new MTMVMaxTimestampSnapshot("t", 4242L), snap);
+    }
+
+    @Test
+    public void testGetPartitionSnapshotLastModifiedUsesOnDemandNotPin() throws AnalysisException {
+        // A last-modified connector withholds per-partition modify time from listPartitions (names-only hot
+        // path), so the pin carries the -1 UNKNOWN sentinel; getPartitionSnapshot must take the REAL time from
+        // the on-demand getPartitionFreshnessMillis, not the pin.
+        Fixture f = Fixture.with(Collections.singletonList(
+                cpi("dt=2024-01-01", ConnectorPartitionInfo.UNKNOWN)));
+        flagPinLastModified(f);
+        Mockito.when(f.metadata.getPartitionFreshnessMillis(Mockito.any(), Mockito.any(),
+                Mockito.eq("dt=2024-01-01"))).thenReturn(OptionalLong.of(TS_2024_01_01));
+
+        MTMVTimestampSnapshot ts = (MTMVTimestampSnapshot) f.table.getPartitionSnapshot(
+                "dt=2024-01-01", null, Optional.empty());
+        // MUTATION: reading the pin value (-1) instead of the on-demand fetch makes this red (would be -1),
+        // which would make every partition compare equal forever (stale MV at partition granularity).
+        Assertions.assertEquals(TS_2024_01_01, ts.getSnapshotVersion(),
+                "a last-modified connector's partition snapshot must use the on-demand millis, not the pin's -1");
+    }
+
+    @Test
+    public void testGetPartitionSnapshotLastModifiedMissingStillThrows() {
+        // Existence is validated against the materialized partition set BEFORE the on-demand fetch, so even a
+        // last-modified connector raises AnalysisException for an unknown partition (parity legacy
+        // HiveDlaTable.getPartitionSnapshot -> checkPartitionExists).
+        Fixture f = Fixture.partitioned();
+        flagPinLastModified(f);
+        Mockito.when(f.metadata.getPartitionFreshnessMillis(Mockito.any(), Mockito.any(), Mockito.any()))
+                .thenReturn(OptionalLong.of(TS_2024_01_01));
+        Assertions.assertThrows(AnalysisException.class,
+                () -> f.table.getPartitionSnapshot("dt=1999-12-31", null, Optional.empty()),
+                "an unknown partition must throw even for a last-modified connector (existence checked first)");
+    }
+
+    @Test
+    public void testGetPartitionSnapshotLastModifiedVanishedThrows() {
+        // The partition IS in the materialized set (existence check passes) but VANISHED before the on-demand
+        // fetch (a refresh-time race), so getPartitionFreshnessMillis returns empty -> fe-core must raise the
+        // legacy "can not find partition", NOT emit a bogus MTMVTimestampSnapshot(0). MUTATION: falling back to
+        // MTMVTimestampSnapshot(0) instead of throwing makes this red.
+        Fixture f = Fixture.with(Collections.singletonList(
+                cpi("dt=2024-01-01", ConnectorPartitionInfo.UNKNOWN)));
+        flagPinLastModified(f);
+        Mockito.when(f.metadata.getPartitionFreshnessMillis(Mockito.any(), Mockito.any(), Mockito.any()))
+                .thenReturn(OptionalLong.empty());
+        Assertions.assertThrows(AnalysisException.class,
+                () -> f.table.getPartitionSnapshot("dt=2024-01-01", null, Optional.empty()),
+                "a vanished partition (on-demand empty) must throw, not return a bogus 0 timestamp");
+    }
+
+    // ==================== snapshot-id connectors (paimon/iceberg): NO extra freshness probe ====================
+
+    @Test
+    public void testGetTableSnapshotSnapshotIdConnectorSkipsFreshnessProbe() throws AnalysisException {
+        // A snapshot-id connector (paimon/iceberg) leaves the pin flag false, so getTableSnapshot must take the
+        // exact pre-change path: read the snapshot id off the pin and NEVER fire the freshness probe (an extra
+        // getTableHandle round-trip + a new throw surface on the live MTMV path). This guards the regression the
+        // adversarial review caught.
+        Fixture f = Fixture.partitioned();   // build() pin has lastModifiedFreshness=false
+        MTMVSnapshotIdSnapshot snap = (MTMVSnapshotIdSnapshot) f.table.getTableSnapshot(Optional.empty());
+        Assertions.assertEquals(PINNED_SNAPSHOT_ID, snap.getSnapshotVersion());
+        // MUTATION: dropping the pin-flag gate (probing unconditionally) makes this verify red.
+        Mockito.verify(f.metadata, Mockito.never()).getTableFreshness(Mockito.any(), Mockito.any());
+    }
+
+    @Test
+    public void testGetPartitionSnapshotSnapshotIdConnectorSkipsFreshnessProbe() throws AnalysisException {
+        // Same guard at partition granularity: a pin-timestamp connector (paimon) must read the pin value and
+        // NEVER call getPartitionFreshnessMillis (which, per-partition in the isSyncWithPartitions loop, would be
+        // an O(partitions) metadata regression).
+        Fixture f = Fixture.partitioned();
+        MTMVTimestampSnapshot ts = (MTMVTimestampSnapshot) f.table.getPartitionSnapshot(
+                "dt=2024-01-01", null, Optional.empty());
+        Assertions.assertEquals(TS_2024_01_01, ts.getSnapshotVersion());
+        // MUTATION: probing unconditionally (no pin-flag gate) makes this verify red.
+        Mockito.verify(f.metadata, Mockito.never())
+                .getPartitionFreshnessMillis(Mockito.any(), Mockito.any(), Mockito.any());
     }
 
     // ==================== getNameToPartitionItems: render-from-name parity ====================
@@ -1051,6 +1179,13 @@ public class PluginDrivenMvccExternalTableTest {
                             ConnectorMvccSnapshot.builder().snapshotId(PINNED_SNAPSHOT_ID).build()));
             Mockito.when(metadata.listPartitions(Mockito.eq(session), Mockito.eq(handle), Mockito.any()))
                     .thenReturn(partitions);
+            // A Mockito mock does NOT run interface default methods (returns null for these), so mimic the SPI
+            // default here: a snapshot-id connector (paimon/iceberg) surfaces no last-modified freshness. The
+            // last-modified tests below re-stub these to a present value.
+            Mockito.when(metadata.getTableFreshness(Mockito.any(), Mockito.any()))
+                    .thenReturn(Optional.empty());
+            Mockito.when(metadata.getPartitionFreshnessMillis(Mockito.any(), Mockito.any(), Mockito.any()))
+                    .thenReturn(OptionalLong.empty());
 
             // Single partition column "dt" (DATE by default; VARCHAR variant exercises the genuine-null
             // string-key path) — the LATEST schema.

@@ -35,6 +35,8 @@ import org.apache.doris.connector.api.ddl.ConnectorPartitionSpec;
 import org.apache.doris.connector.api.handle.ConnectorColumnHandle;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.api.handle.ConnectorTransaction;
+import org.apache.doris.connector.api.mvcc.ConnectorMvccSnapshot;
+import org.apache.doris.connector.api.mvcc.ConnectorTableFreshness;
 import org.apache.doris.connector.api.pushdown.ConnectorAnd;
 import org.apache.doris.connector.api.pushdown.ConnectorComparison;
 import org.apache.doris.connector.api.pushdown.ConnectorExpression;
@@ -76,6 +78,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.Set;
 import java.util.function.ToLongFunction;
 import java.util.stream.Collectors;
@@ -841,6 +844,119 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
             valueMap.put(partKeyNames.get(i), values.get(i));
         }
         return valueMap;
+    }
+
+    // ========== MTMV freshness (last-modified; MTMV refresh path only, NOT the scan hot path) ==========
+
+    /** HMS parameter carrying a table/partition's last-DDL time in SECONDS (byte-parity with legacy hive). */
+    private static final String TRANSIENT_LAST_DDL_TIME = "transient_lastDdlTime";
+
+    /**
+     * The query-begin pin for a hive table: a non-MVCC EMPTY pin (snapshot id {@code -1}, no scan options — so
+     * {@code applySnapshot} is a no-op and the scan reads current) but flagged {@code lastModifiedFreshness} so
+     * the generic model serves this table's MTMV table/partition snapshots from {@link #getTableFreshness} /
+     * {@link #getPartitionFreshnessMillis} (last-modified) instead of pinning a constant snapshot id. The flag
+     * rides on the pin so fe-core reads it off the pin it already holds — a snapshot-id connector never fires
+     * the freshness probe. (Iceberg/hudi-on-HMS delegation, which returns a real snapshot-id pin for those
+     * handles, lands with the sibling-connector substep; until then every hive-connector handle is last-modified.)
+     */
+    @Override
+    public Optional<ConnectorMvccSnapshot> beginQuerySnapshot(ConnectorSession session,
+            ConnectorTableHandle handle) {
+        return Optional.of(ConnectorMvccSnapshot.builder().snapshotId(-1L).lastModifiedFreshness(true).build());
+    }
+
+    /**
+     * Whole-table MTMV freshness for hive: the table's newest modify time, wrapped by fe-core into an
+     * {@code MTMVMaxTimestampSnapshot} (byte-parity with legacy {@code HiveDlaTable.getTableSnapshot}).
+     * Hive's whole-table change signal is a last-modified TIMESTAMP, never a snapshot id.
+     *
+     * <ul>
+     *   <li><b>Unpartitioned</b> &rArr; the table's {@code transient_lastDdlTime} (already on the handle, no
+     *       round-trip), named by the table.</li>
+     *   <li><b>Partitioned</b> &rArr; the max {@code transient_lastDdlTime} over all partitions, named by the
+     *       partition owning it (an empty partition set &rArr; {@code (tableName, 0)}). This pays a
+     *       {@code get_partitions_by_names} round-trip, which is why this lives on the MTMV path, NOT
+     *       {@link #listPartitions} (the scan hot path stays names-only).</li>
+     * </ul>
+     */
+    @Override
+    public Optional<ConnectorTableFreshness> getTableFreshness(ConnectorSession session,
+            ConnectorTableHandle handle) {
+        HiveTableHandle hiveHandle = (HiveTableHandle) handle;
+        List<String> partKeyNames = hiveHandle.getPartitionKeyNames();
+        if (partKeyNames == null || partKeyNames.isEmpty()) {
+            // Parity HiveDlaTable.getTableSnapshot UNPARTITIONED branch: MTMVMaxTimestampSnapshot(name, lastDdl).
+            return Optional.of(new ConnectorTableFreshness(hiveHandle.getTableName(),
+                    lastDdlMillis(hiveHandle.getTableParameters())));
+        }
+        List<String> partitionNames = collectPartitionNames(hiveHandle);
+        if (partitionNames.isEmpty()) {
+            // Parity: an empty partition list yields MTMVMaxTimestampSnapshot(tableName, 0).
+            return Optional.of(new ConnectorTableFreshness(hiveHandle.getTableName(), 0L));
+        }
+        List<HmsPartitionInfo> partitions =
+                hmsClient.getPartitions(hiveHandle.getDbName(), hiveHandle.getTableName(), partitionNames);
+        String maxName = hiveHandle.getTableName();
+        long maxMillis = 0L;
+        for (HmsPartitionInfo partition : partitions) {
+            long millis = lastDdlMillis(partition.getParameters());
+            // Strictly-greater keeps the FIRST partition on a tie (parity HiveDlaTable's `> maxVersionTime`).
+            if (millis > maxMillis) {
+                maxMillis = millis;
+                maxName = renderPartitionName(partKeyNames, partition.getValues());
+            }
+        }
+        return Optional.of(new ConnectorTableFreshness(maxName, maxMillis));
+    }
+
+    /**
+     * Per-partition last-modified millis for hive (parity {@code HiveDlaTable.getPartitionSnapshot} ->
+     * {@code MTMVTimestampSnapshot(hivePartition.getLastModifiedTime())}). Fetched on demand on the MTMV
+     * refresh path — {@link #listPartitions} withholds it (names-only) to keep partitioned queries cheap.
+     * fe-core has already validated the partition exists in the materialized set; an {@code empty} return
+     * therefore means the partition VANISHED between the materialize and this fetch (a refresh-time race), and
+     * fe-core raises the legacy "can not find partition" error (parity {@code HiveDlaTable.checkPartitionExists}).
+     */
+    @Override
+    public OptionalLong getPartitionFreshnessMillis(ConnectorSession session, ConnectorTableHandle handle,
+            String partitionName) {
+        HiveTableHandle hiveHandle = (HiveTableHandle) handle;
+        List<HmsPartitionInfo> partitions = hmsClient.getPartitions(hiveHandle.getDbName(),
+                hiveHandle.getTableName(), Collections.singletonList(partitionName));
+        if (partitions.isEmpty()) {
+            return OptionalLong.empty();
+        }
+        return OptionalLong.of(lastDdlMillis(partitions.get(0).getParameters()));
+    }
+
+    /**
+     * The last-DDL time in MILLIS from an HMS parameter map, byte-parity with legacy
+     * {@code HivePartition.getLastModifiedTime} / {@code HMSExternalTable.getLastDdlTime}: the
+     * {@code transient_lastDdlTime} value (seconds) times 1000, or 0 when the parameter is absent.
+     */
+    private static long lastDdlMillis(Map<String, String> parameters) {
+        if (parameters == null || !parameters.containsKey(TRANSIENT_LAST_DDL_TIME)) {
+            return 0L;
+        }
+        return Long.parseLong(parameters.get(TRANSIENT_LAST_DDL_TIME)) * 1000;
+    }
+
+    /**
+     * Renders {@code key1=v1/key2=v2} from partition-key names + values, byte-parity with legacy
+     * {@code HivePartition.getPartitionName} (a raw, unescaped {@code name=value} join). Used only to label
+     * the {@code MTMVMaxTimestampSnapshot} with the partition owning the max modify time.
+     */
+    private static String renderPartitionName(List<String> partKeyNames, List<String> values) {
+        StringBuilder sb = new StringBuilder();
+        int n = Math.min(partKeyNames.size(), values.size());
+        for (int i = 0; i < n; i++) {
+            if (i != 0) {
+                sb.append("/");
+            }
+            sb.append(partKeyNames.get(i)).append("=").append(values.get(i));
+        }
+        return sb.toString();
     }
 
     // ========== ConnectorSchemaOps: DDL writes (create/drop database) ==========

@@ -20,6 +20,7 @@ package org.apache.doris.connector.api;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.api.mvcc.ConnectorMvccPartitionView;
 import org.apache.doris.connector.api.mvcc.ConnectorMvccSnapshot;
+import org.apache.doris.connector.api.mvcc.ConnectorTableFreshness;
 import org.apache.doris.connector.api.mvcc.ConnectorTimeTravelSpec;
 
 import java.io.Closeable;
@@ -27,6 +28,7 @@ import java.io.IOException;
 import java.util.Collections;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.Set;
 
 /**
@@ -84,6 +86,43 @@ public interface ConnectorMetadata extends
     default Optional<ConnectorMvccPartitionView> getMvccPartitionView(
             ConnectorSession session, ConnectorTableHandle handle) {
         return Optional.empty();
+    }
+
+    /**
+     * Whole-table MTMV freshness for a connector whose table-level change signal is a last-modified
+     * TIMESTAMP rather than a snapshot id (e.g. hive: {@code transient_lastDdlTime} / the max partition
+     * modify time). The generic model wraps the result in an {@code MTMVMaxTimestampSnapshot} table snapshot.
+     *
+     * <p><b>Consulted ONLY when the query-begin pin's {@link ConnectorMvccSnapshot#isLastModifiedFreshness()}
+     * is set</b> — i.e. a last-modified connector, which the generic model reads off the pin it already holds.
+     * A snapshot-id connector (paimon/iceberg) leaves the pin flag false, so this is NEVER called for it and it
+     * pays ZERO extra metadata round-trips. And it is on the MTMV refresh path, never the scan hot path — so a
+     * partitioned last-modified connector may pay a {@code get_partitions_by_names} round-trip here (mirroring
+     * legacy, which fetched per-partition modify time only at refresh time) without regressing queries.</p>
+     *
+     * <p>The default returns empty: a connector that sets the pin flag MUST override this.</p>
+     */
+    default Optional<ConnectorTableFreshness> getTableFreshness(
+            ConnectorSession session, ConnectorTableHandle handle) {
+        return Optional.empty();
+    }
+
+    /**
+     * Per-partition last-modified millis for a last-modified connector, wrapped by the generic model in an
+     * {@code MTMVTimestampSnapshot}. Fetched on the MTMV refresh path only — a last-modified connector's
+     * {@code listPartitions} is names-only on the scan hot path (its per-partition {@code lastModifiedMillis}
+     * stays {@code -1}), so the real time is fetched here on demand instead.
+     *
+     * <p><b>Consulted ONLY when the query-begin pin's {@link ConnectorMvccSnapshot#isLastModifiedFreshness()}
+     * is set</b> (a snapshot-id connector never reaches here — zero extra round-trips). fe-core validates the
+     * partition exists in the materialized set BEFORE calling this; an {@code empty} return therefore means the
+     * partition VANISHED between the materialize and this fetch (a refresh-time race), and fe-core raises the
+     * legacy "can not find partition" error. The default returns empty: a last-modified connector MUST
+     * override it.</p>
+     */
+    default OptionalLong getPartitionFreshnessMillis(
+            ConnectorSession session, ConnectorTableHandle handle, String partitionName) {
+        return OptionalLong.empty();
     }
 
     /**

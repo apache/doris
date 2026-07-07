@@ -38,12 +38,14 @@ import org.apache.doris.connector.api.handle.ConnectorTableHandle;
 import org.apache.doris.connector.api.mvcc.ConnectorMvccPartition;
 import org.apache.doris.connector.api.mvcc.ConnectorMvccPartitionView;
 import org.apache.doris.connector.api.mvcc.ConnectorMvccSnapshot;
+import org.apache.doris.connector.api.mvcc.ConnectorTableFreshness;
 import org.apache.doris.connector.api.mvcc.ConnectorTimeTravelSpec;
 import org.apache.doris.datasource.hive.HiveUtil;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccTable;
 import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.mtmv.MTMVBaseTableIf;
+import org.apache.doris.mtmv.MTMVMaxTimestampSnapshot;
 import org.apache.doris.mtmv.MTMVRefreshContext;
 import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.mtmv.MTMVSnapshotIdSnapshot;
@@ -580,13 +582,29 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
         if (value == null) {
             throw new AnalysisException("can not find partition: " + partitionName);
         }
-        // Range-view path with snapshot-id freshness pins the per-partition snapshot id (parity master
-        // IcebergExternalTable.getPartitionSnapshot -> MTMVSnapshotIdSnapshot). The connector pre-resolved the
-        // `<= 0 -> table snapshot id` fallback, so a non-empty table never carries a non-positive value here.
-        // The legacy path keeps the last-modified-millis timestamp (paimon parity).
-        return pin.isSnapshotIdFreshness()
-                ? new MTMVSnapshotIdSnapshot(value)
-                : new MTMVTimestampSnapshot(value);
+        if (pin.isSnapshotIdFreshness()) {
+            // Range-view path with snapshot-id freshness pins the per-partition snapshot id (parity master
+            // IcebergExternalTable.getPartitionSnapshot -> MTMVSnapshotIdSnapshot). The connector pre-resolved
+            // the `<= 0 -> table snapshot id` fallback, so a non-empty table never carries a non-positive value.
+            return new MTMVSnapshotIdSnapshot(value);
+        }
+        if (pin.getConnectorSnapshot().isLastModifiedFreshness()) {
+            // Last-modified connector (e.g. hive): the REAL per-partition modify time is not in the pin — the
+            // connector's listPartitions is names-only on the scan hot path (pin value is the -1 sentinel) — so
+            // fetch it on demand here, on the MTMV refresh path only (parity legacy HiveDlaTable
+            // .getPartitionSnapshot -> MTMVTimestampSnapshot(partition.getLastModifiedTime())). The pin flag
+            // gates this, so a snapshot-id connector (paimon/iceberg) NEVER reaches the probe. An empty return
+            // means the partition vanished after the materialize-time existence check above (a refresh-time
+            // race): raise the legacy "can not find partition" (parity checkPartitionExists).
+            OptionalLong onDemand = queryPartitionFreshnessMillis(partitionName);
+            if (!onDemand.isPresent()) {
+                throw new AnalysisException("can not find partition: " + partitionName);
+            }
+            return new MTMVTimestampSnapshot(onDemand.getAsLong());
+        }
+        // Pin-timestamp connector (paimon): the pin's per-partition last-modified millis is authoritative
+        // (byte-unchanged — no probe).
+        return new MTMVTimestampSnapshot(value);
     }
 
     @Override
@@ -597,7 +615,84 @@ public class PluginDrivenMvccExternalTable extends PluginDrivenExternalTable
 
     @Override
     public MTMVSnapshotIf getTableSnapshot(Optional<MvccSnapshot> snapshot) throws AnalysisException {
-        return new MTMVSnapshotIdSnapshot(getOrMaterialize(snapshot).getConnectorSnapshot().getSnapshotId());
+        // Freshness-kind-aware (mirrors getPartitionSnapshot), gated by the pin fe-core already holds so a
+        // snapshot-id connector pays ZERO extra metadata calls. A last-modified connector (e.g. hive, whose
+        // whole-table change signal is transient_lastDdlTime / the max partition modify time, NOT a snapshot
+        // id) flags the query-begin pin; fe-core then wraps getTableFreshness into an MTMVMaxTimestampSnapshot
+        // (byte-parity with legacy HiveDlaTable.getTableSnapshot). WITHOUT this a plain-hive empty pin's
+        // snapshot id is a constant -1, so an MV over a hive base table would never detect change. A snapshot-id
+        // connector (paimon/iceberg) leaves the flag false and keeps the snapshot-id table snapshot, taking the
+        // EXACT pre-change path (getOrMaterialize was already required for the id — no added round-trip).
+        PluginDrivenMvccSnapshot pin = getOrMaterialize(snapshot);
+        if (pin.getConnectorSnapshot().isLastModifiedFreshness()) {
+            Optional<ConnectorTableFreshness> tableFreshness = queryTableFreshness();
+            if (tableFreshness.isPresent()) {
+                return new MTMVMaxTimestampSnapshot(tableFreshness.get().getName(),
+                        tableFreshness.get().getTimestampMillis());
+            }
+        }
+        return new MTMVSnapshotIdSnapshot(pin.getConnectorSnapshot().getSnapshotId());
+    }
+
+    // ──────────────────── on-demand freshness (last-modified connectors) ────────────────────
+
+    /**
+     * Whole-table freshness from a last-modified connector (present only for e.g. hive), or empty for a
+     * snapshot-id connector / a dropped catalog/table. See {@link ConnectorMetadata#getTableFreshness}.
+     */
+    private Optional<ConnectorTableFreshness> queryTableFreshness() {
+        Optional<FreshnessProbe> probe = resolveFreshnessProbe();
+        if (!probe.isPresent()) {
+            return Optional.empty();
+        }
+        FreshnessProbe p = probe.get();
+        return p.metadata.getTableFreshness(p.session, p.handle);
+    }
+
+    /**
+     * Per-partition last-modified millis from a last-modified connector (present only for e.g. hive), or
+     * empty for a snapshot-id connector / a dropped catalog/table. See
+     * {@link ConnectorMetadata#getPartitionFreshnessMillis}.
+     */
+    private OptionalLong queryPartitionFreshnessMillis(String partitionName) {
+        Optional<FreshnessProbe> probe = resolveFreshnessProbe();
+        if (!probe.isPresent()) {
+            return OptionalLong.empty();
+        }
+        FreshnessProbe p = probe.get();
+        return p.metadata.getPartitionFreshnessMillis(p.session, p.handle, partitionName);
+    }
+
+    /**
+     * Resolves (session, metadata, handle) for an on-demand freshness probe, or empty when the catalog/table
+     * is gone (degrade to the snapshot-id / pin path). Unlike {@link #materializeLatest} this lists NOTHING
+     * and pins NOTHING — a last-modified connector fetches only the freshness it needs, off the scan hot path.
+     */
+    private Optional<FreshnessProbe> resolveFreshnessProbe() {
+        makeSureInitialized();
+        PluginDrivenExternalCatalog pluginCatalog = (PluginDrivenExternalCatalog) catalog;
+        Connector connector = pluginCatalog.getConnector();
+        if (connector == null) {
+            return Optional.empty();
+        }
+        ConnectorSession session = pluginCatalog.buildConnectorSession();
+        ConnectorMetadata metadata = connector.getMetadata(session);
+        Optional<ConnectorTableHandle> handleOpt = resolveConnectorTableHandle(session, metadata);
+        return handleOpt.map(handle -> new FreshnessProbe(session, metadata, handle));
+    }
+
+    /** Bundles the (session, metadata, handle) an on-demand freshness probe needs. */
+    private static final class FreshnessProbe {
+        private final ConnectorSession session;
+        private final ConnectorMetadata metadata;
+        private final ConnectorTableHandle handle;
+
+        private FreshnessProbe(ConnectorSession session, ConnectorMetadata metadata,
+                ConnectorTableHandle handle) {
+            this.session = session;
+            this.metadata = metadata;
+            this.handle = handle;
+        }
     }
 
     @Override

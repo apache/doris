@@ -51,16 +51,13 @@ public class HiveConnectorCapabilitiesTest {
         // Legacy HMSExternalTable.supportsExternalMetadataPreload() returned true.
         Assertions.assertTrue(caps.contains(ConnectorCapability.SUPPORTS_METADATA_PRELOAD),
                 "SUPPORTS_METADATA_PRELOAD: legacy HMS tables were preload-eligible");
-    }
-
-    @Test
-    public void withholdsMvccUntilMvccMachineryLands() {
-        // The mixed hms catalog ultimately NEEDS this (iceberg/hudi-on-HMS are MvccTable), but it is declared
-        // together with the MVCC/MTMV machinery (freshness-aware getTableSnapshot + empty-pin + sibling
-        // delegation), not as a bare flag. Declaring it now would give plain-hive tables an eager empty
-        // snapshot with no freshness.
-        Assertions.assertFalse(capabilities().contains(ConnectorCapability.SUPPORTS_MVCC_SNAPSHOT),
-                "SUPPORTS_MVCC_SNAPSHOT must land with the MVCC machinery, not here");
+        // The mixed hms catalog needs MVCC (iceberg/hudi-on-HMS are MvccTable; GSON maps HMSExternalTable ->
+        // PluginDrivenMvccExternalTable, and buildTableInternal selects the Mvcc subclass from this
+        // catalog-level flag). Declared TOGETHER with its MTMV freshness machinery
+        // (HiveConnectorMetadata.getTableFreshness / getPartitionFreshnessMillis surface hive's last-modified
+        // freshness), so a plain-hive base table's MV detects change instead of pinning a constant.
+        Assertions.assertTrue(caps.contains(ConnectorCapability.SUPPORTS_MVCC_SNAPSHOT),
+                "SUPPORTS_MVCC_SNAPSHOT: the mixed hms catalog needs it; freshness is served last-modified");
     }
 
     @Test

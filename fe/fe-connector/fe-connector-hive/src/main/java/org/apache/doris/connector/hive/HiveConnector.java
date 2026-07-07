@@ -108,16 +108,19 @@ public class HiveConnector implements Connector {
         //  - SUPPORTS_METADATA_PRELOAD: legacy HMSExternalTable.supportsExternalMetadataPreload() returned true;
         //    the capability replaces the legacy engine-name "jdbc" gate. Opt-in via enable_preload_external_
         //    metadata (default off), a pure lock-latency optimization with no correctness effect.
+        //  - SUPPORTS_MVCC_SNAPSHOT: the heterogeneous hms catalog needs it (its iceberg/hudi-on-HMS tables are
+        //    MvccTable, and the GSON single-row maps "HMSExternalTable" -> PluginDrivenMvccExternalTable, so
+        //    buildTableInternal selects the Mvcc subclass from this catalog-level capability). Declared HERE
+        //    together with its MTMV freshness machinery: HiveConnectorMetadata.getTableFreshness /
+        //    getPartitionFreshnessMillis surface hive's last-modified freshness (transient_lastDdlTime), which
+        //    PluginDrivenMvccExternalTable wraps into MTMVMaxTimestampSnapshot / MTMVTimestampSnapshot on the
+        //    MTMV refresh path (byte-parity with legacy HiveDlaTable) — so a plain-hive base table's MV detects
+        //    change instead of pinning a constant. Plain-hive stays non-MVCC per table (beginQuerySnapshot
+        //    default-empty -> empty pin -> scan reads current); iceberg/hudi-on-HMS keep their snapshot-id
+        //    freshness through the sibling delegation substep. (Fixes the earlier "hive is non-MVCC" note: hive
+        //    is non-MVCC per table, but the catalog-level flag is required for the mixed catalog.)
         //
         // Deliberately NOT declared here:
-        //  - SUPPORTS_MVCC_SNAPSHOT: the heterogeneous hms catalog DOES need it (its iceberg/hudi-on-HMS tables
-        //    are MvccTable, and the GSON single-row maps "HMSExternalTable" -> PluginDrivenMvccExternalTable, so
-        //    buildTableInternal selects the Mvcc subclass from this catalog-level capability). It is declared
-        //    together with the MVCC/MTMV machinery (freshness-aware getTableSnapshot + hive empty-pin +
-        //    iceberg sibling delegation) in that substep, NOT as a bare flag here — declaring it now without the
-        //    machinery would give plain-hive tables an eager empty snapshot with no freshness. (This is the fix
-        //    to the earlier "hive is non-MVCC" note: hive is non-MVCC per table, but the catalog-level flag is
-        //    required for the mixed catalog.)
         //  - SUPPORTS_SHOW_CREATE_DDL: the connector must first emit the table location (show.location) and a
         //    generic-vs-hive-specific SHOW CREATE rendering must be decided — its own substep.
         //  - SUPPORTS_PASSTHROUGH_QUERY / SUPPORTS_PARTITION_STATS: hive exposes no query() TVF, and legacy SHOW
@@ -131,7 +134,8 @@ public class HiveConnector implements Connector {
         return EnumSet.of(
                 ConnectorCapability.SUPPORTS_VIEW,
                 ConnectorCapability.SUPPORTS_COLUMN_AUTO_ANALYZE,
-                ConnectorCapability.SUPPORTS_METADATA_PRELOAD);
+                ConnectorCapability.SUPPORTS_METADATA_PRELOAD,
+                ConnectorCapability.SUPPORTS_MVCC_SNAPSHOT);
     }
 
     private HmsClient getOrCreateClient() {
