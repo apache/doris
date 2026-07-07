@@ -21,9 +21,12 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.datasource.FileSplitter;
+import org.apache.doris.datasource.paimon.PaimonExternalCatalog;
 import org.apache.doris.datasource.paimon.PaimonFileExternalCatalog;
+import org.apache.doris.datasource.property.metastore.MetastoreProperties;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.SessionVariable;
@@ -406,6 +409,35 @@ public class PaimonScanNodeTest {
         method.setAccessible(true);
         long target = (long) method.invoke(node, Collections.singletonList(dataSplit), false);
         Assert.assertEquals(100L * 1024L * 1024L, target);
+    }
+
+    @Test
+    public void testGetBackendPaimonOptionsForJniIOManager() {
+        Map<String, String> props = new HashMap<>();
+        props.put("paimon.doris.enable_jni_io_manager", "true");
+        props.put("paimon.doris.jni_io_manager.tmp_dir", "/tmp/doris-paimon");
+        props.put("paimon.doris.jni_io_manager.impl_class", "org.example.CustomIOManager");
+
+        CatalogProperty catalogProperty = Mockito.mock(CatalogProperty.class);
+        Mockito.when(catalogProperty.getProperties()).thenReturn(props);
+        Mockito.when(catalogProperty.getMetastoreProperties()).thenReturn(Mockito.mock(MetastoreProperties.class));
+
+        PaimonExternalCatalog catalog = Mockito.mock(PaimonExternalCatalog.class);
+        Mockito.when(catalog.getCatalogProperty()).thenReturn(catalogProperty);
+
+        PaimonSource source = Mockito.mock(PaimonSource.class);
+        Mockito.when(source.getCatalog()).thenReturn(catalog);
+
+        PaimonScanNode node = new PaimonScanNode(new PlanNodeId(0),
+                new TupleDescriptor(new TupleId(0)), false, sv, ScanContext.EMPTY);
+        node.setSource(source);
+
+        Map<String, String> backendOptions = node.getBackendPaimonOptions();
+        Assert.assertEquals("true", backendOptions.get("doris.enable_jni_io_manager"));
+        Assert.assertEquals("/tmp/doris-paimon", backendOptions.get("doris.jni_io_manager.tmp_dir"));
+        Assert.assertEquals("org.example.CustomIOManager",
+                backendOptions.get("doris.jni_io_manager.impl_class"));
+        Assert.assertEquals(3, backendOptions.size());
     }
 
     private void mockJniReader(PaimonScanNode spyNode) {

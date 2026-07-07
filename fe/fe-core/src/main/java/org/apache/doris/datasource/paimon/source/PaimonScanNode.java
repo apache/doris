@@ -35,6 +35,7 @@ import org.apache.doris.datasource.paimon.PaimonUtil;
 import org.apache.doris.datasource.paimon.PaimonUtils;
 import org.apache.doris.datasource.paimon.profile.PaimonMetricRegistry;
 import org.apache.doris.datasource.paimon.profile.PaimonScanMetricsReporter;
+import org.apache.doris.datasource.property.metastore.PaimonJdbcMetaStoreProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
@@ -65,6 +66,7 @@ import org.apache.paimon.table.source.TableScan;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -89,6 +91,14 @@ public class PaimonScanNode extends FileQueryScanNode {
     private static final String DORIS_START_TIMESTAMP = "startTimestamp";
     private static final String DORIS_END_TIMESTAMP = "endTimestamp";
     private static final String DORIS_INCREMENTAL_BETWEEN_SCAN_MODE = "incrementalBetweenScanMode";
+    private static final String PAIMON_PROPERTY_PREFIX = "paimon.";
+    private static final String DORIS_ENABLE_JNI_IO_MANAGER = "doris.enable_jni_io_manager";
+    private static final String DORIS_JNI_IO_MANAGER_TMP_DIR = "doris.jni_io_manager.tmp_dir";
+    private static final String DORIS_JNI_IO_MANAGER_IMPL_CLASS = "doris.jni_io_manager.impl_class";
+    private static final List<String> BACKEND_PAIMON_OPTIONS = Arrays.asList(
+            DORIS_ENABLE_JNI_IO_MANAGER,
+            DORIS_JNI_IO_MANAGER_TMP_DIR,
+            DORIS_JNI_IO_MANAGER_IMPL_CLASS);
 
     private enum SplitReadType {
         JNI,
@@ -142,6 +152,7 @@ public class PaimonScanNode extends FileQueryScanNode {
     // get them in doInitialize() to ensure internal consistency of ScanNode
     private Map<StorageProperties.Type, StorageProperties> storagePropertiesMap;
     private Map<String, String> backendStorageProperties;
+    private Map<String, String> backendPaimonOptions = Collections.emptyMap();
 
     // The schema information involved in the current query process (including historical schema).
     protected ConcurrentHashMap<Long, Boolean> currentQuerySchema = new ConcurrentHashMap<>();
@@ -169,6 +180,7 @@ public class PaimonScanNode extends FileQueryScanNode {
                 source.getPaimonTable()
         );
         backendStorageProperties = CredentialUtils.getBackendPropertiesFromStorageMap(storagePropertiesMap);
+        backendPaimonOptions = getBackendPaimonOptions();
     }
 
     @VisibleForTesting
@@ -201,6 +213,13 @@ public class PaimonScanNode extends FileQueryScanNode {
         // Set paimon_predicate at ScanNode level to avoid redundant serialization in each split
         String serializedPredicate = PaimonUtil.encodeObjectToString(predicates);
         params.setPaimonPredicate(serializedPredicate);
+        setScanLevelPaimonOptions();
+    }
+
+    private void setScanLevelPaimonOptions() {
+        if (!backendPaimonOptions.isEmpty()) {
+            params.setPaimonOptions(backendPaimonOptions);
+        }
     }
 
     private void putHistorySchemaInfo(Long schemaId) {
@@ -426,6 +445,35 @@ public class PaimonScanNode extends FileQueryScanNode {
 
         this.selectedPartitionNum = partitionInfoMaps.size();
         return splits;
+    }
+
+    @VisibleForTesting
+    Map<String, String> getBackendPaimonOptions() {
+        if (source == null) {
+            return Collections.emptyMap();
+        }
+        if (!(source.getCatalog() instanceof PaimonExternalCatalog)) {
+            return Collections.emptyMap();
+        }
+        PaimonExternalCatalog catalog = (PaimonExternalCatalog) source.getCatalog();
+        Map<String, String> backendOptions = new HashMap<>();
+        Map<String, String> catalogProperties = catalog.getCatalogProperty().getProperties();
+        if (catalogProperties == null) {
+            catalogProperties = Collections.emptyMap();
+        }
+        for (String option : BACKEND_PAIMON_OPTIONS) {
+            String catalogProperty = PAIMON_PROPERTY_PREFIX + option;
+            if (catalogProperties.containsKey(catalogProperty)) {
+                backendOptions.put(option, catalogProperties.get(catalogProperty));
+            }
+        }
+        if (!(catalog.getCatalogProperty().getMetastoreProperties() instanceof PaimonJdbcMetaStoreProperties)) {
+            return backendOptions;
+        }
+        PaimonJdbcMetaStoreProperties jdbcMetaStoreProperties =
+                (PaimonJdbcMetaStoreProperties) catalog.getCatalogProperty().getMetastoreProperties();
+        backendOptions.putAll(jdbcMetaStoreProperties.getBackendPaimonOptions());
+        return backendOptions;
     }
 
     private long determineTargetFileSplitSize(List<DataSplit> dataSplits,
