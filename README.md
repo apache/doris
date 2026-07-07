@@ -65,10 +65,12 @@ Explore the [official website](https://doris.apache.org/) for the latest product
 
 ## 📈 Use Cases
 
-- [Customer-Facing Analytics](https://doris.apache.org/use-cases/customer-facing-analytics): Ship sub-second interactive analytics to external users.
-- [Data Warehousing](https://doris.apache.org/use-cases/data-warehousing): Build one real-time warehouse across business domains.
-- [Observability](https://doris.apache.org/use-cases/observability): Analyze high-throughput logs, events, and metrics with SQL.
-- [Doris for AI](https://doris.apache.org/use-cases/ai): Use vector, text, JSON, and structured search in one SQL engine.
+| Use Case | What it provides |
+| -------- | ---------------- |
+| [Customer-Facing Analytics](https://doris.apache.org/use-cases/customer-facing-analytics) | Ship sub-second interactive analytics to external users. |
+| [Data Warehousing](https://doris.apache.org/use-cases/data-warehousing) | Build one real-time warehouse across business domains. |
+| [Observability](https://doris.apache.org/use-cases/observability) | Analyze high-throughput logs, events, and metrics with SQL. |
+| [Doris for AI](https://doris.apache.org/use-cases/ai) | Use vector, text, JSON, and structured search in one SQL engine. |
 
 ## 🚀 Core Capabilities
 
