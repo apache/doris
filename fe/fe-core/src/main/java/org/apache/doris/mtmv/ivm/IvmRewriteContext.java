@@ -26,7 +26,7 @@ import java.util.Objects;
  */
 public class IvmRewriteContext {
     public enum Mode {
-        CREATE,
+        NORMALIZE,
         INCREMENTAL,
         FULL
     }
@@ -34,17 +34,27 @@ public class IvmRewriteContext {
     private final Mode mode;
     private final MTMV mtmv;
     private final boolean includeUpToDateStreams;
-    private final boolean dryRun;
 
-    public IvmRewriteContext(Mode mode, MTMV mtmv, boolean includeUpToDateStreams, boolean dryRun) {
+    public IvmRewriteContext(Mode mode, MTMV mtmv, boolean includeUpToDateStreams) {
         this.mode = Objects.requireNonNull(mode, "mode can not be null");
-        this.mtmv = mode == Mode.CREATE ? mtmv : Objects.requireNonNull(mtmv, "mtmv can not be null");
+        this.mtmv = mode == Mode.NORMALIZE ? mtmv : Objects.requireNonNull(mtmv, "mtmv can not be null");
         this.includeUpToDateStreams = includeUpToDateStreams;
-        this.dryRun = dryRun;
     }
 
-    public static IvmRewriteContext incremental(MTMV mtmv, boolean includeUpToDateStreams, boolean dryRun) {
-        return new IvmRewriteContext(Mode.INCREMENTAL, mtmv, includeUpToDateStreams, dryRun);
+    public static IvmRewriteContext normalize() {
+        return new IvmRewriteContext(Mode.NORMALIZE, null, false);
+    }
+
+    public static IvmRewriteContext normalize(MTMV mtmv) {
+        return new IvmRewriteContext(Mode.NORMALIZE, Objects.requireNonNull(mtmv, "mtmv can not be null"), false);
+    }
+
+    public static IvmRewriteContext incremental(MTMV mtmv, boolean includeUpToDateStreams) {
+        return new IvmRewriteContext(Mode.INCREMENTAL, mtmv, includeUpToDateStreams);
+    }
+
+    public static IvmRewriteContext full(MTMV mtmv) {
+        return new IvmRewriteContext(Mode.FULL, mtmv, false);
     }
 
     public Mode getMode() {
@@ -57,9 +67,5 @@ public class IvmRewriteContext {
 
     public boolean isIncludeUpToDateStreams() {
         return includeUpToDateStreams;
-    }
-
-    public boolean isDryRun() {
-        return dryRun;
     }
 }

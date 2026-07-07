@@ -93,7 +93,7 @@ class IvmLinearDeltaHandlerTest extends IvmDeltaTestBase {
         ConnectContext connectContext = new ConnectContext();
         IvmRewriteResult rewriteResult = new IvmRewriteResult();
         Plan rewritten = new IvmDeltaRewriter().generateIncrementalRefreshPlan(
-                sinkChild, rewriteResult, IvmRewriteContext.incremental(mtmv, false, false), connectContext);
+                sinkChild, rewriteResult, IvmRewriteContext.incremental(mtmv, false), connectContext);
         Assertions.assertNotNull(rewritten);
         return new IvmRefreshManager().buildInsertCommand((org.apache.doris.nereids.trees.plans.logical.LogicalPlan) rewritten,
                 mtmv);
