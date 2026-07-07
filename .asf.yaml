@@ -16,7 +16,7 @@
 #
 
 github:
-  description: Apache Doris is an easy-to-use, high performance and unified analytics database.
+  description: Apache Doris is an MPP database for real-time analytics and search.
   homepage: https://doris.apache.org
   labels:
     - real-time
