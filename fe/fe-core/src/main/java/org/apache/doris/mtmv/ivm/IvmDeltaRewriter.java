@@ -26,6 +26,7 @@ import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.catalog.stream.OlapTableStream;
 import org.apache.doris.catalog.stream.OlapTableStreamWrapper;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.Pair;
 import org.apache.doris.info.TableNameInfoUtils;
 import org.apache.doris.mtmv.MTMVPartitionUtil;
 import org.apache.doris.mtmv.ivm.agg.IvmAggMeta;
@@ -48,11 +49,11 @@ import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
+import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
@@ -99,26 +100,16 @@ public class IvmDeltaRewriter {
     private final IvmDeltaRewriteHelper helper = IvmDeltaRewriteHelper.INSTANCE;
     private final IvmAggDeltaHandler aggHandler = new IvmAggDeltaHandler();
 
-    /** Rewrites the normalized plan into a single merged delta command. */
-    public List<Command> rewrite(Plan normalizedPlan, IvmRefreshContext ctx) {
-        Set<TableNameInfo> excluded = ctx.getMtmv().getExcludedTriggerTables();
-        Predicate<LogicalOlapScan> isExcluded = scan -> isExcludedTriggerTable(scan, excluded);
-        Plan finalPlan = generateMergedDeltaPlan(normalizedPlan, ctx, isExcluded, false);
-        if (finalPlan == null) {
-            return Collections.emptyList();
-        }
-        return ImmutableList.of(IvmDeltaCommandBuilder.INSTANCE.buildCommandWithDeleteSign(finalPlan, ctx));
-    }
-
     /**
-     * Generates the incremental refresh query plan for the analyzer rule path.
+     * Generates the rewritten sink child for the analyzer rule path.
+     * The input sink child may already contain bind-sink adapter projects.
      */
-    public Plan generateIncrementalRefreshPlan(Plan normalizedPlan, IvmRewriteResult rewriteResult,
+    public Plan generateIncrementalRefreshPlan(Plan sinkChild, IvmRewriteResult rewriteResult,
             IvmRewriteContext rewriteContext, ConnectContext connectContext) {
         IvmRefreshContext refreshContext = new IvmRefreshContext(
                 rewriteContext.getMtmv(), connectContext, rewriteResult);
         Set<TableNameInfo> excluded = rewriteContext.getMtmv().getExcludedTriggerTables();
-        return generateMergedDeltaPlan(normalizedPlan, refreshContext,
+        return generateMergedDeltaPlan(sinkChild, refreshContext,
                 scan -> isExcludedTriggerTable(scan, excluded), rewriteContext.isIncludeUpToDateStreams());
     }
 
@@ -127,12 +118,13 @@ public class IvmDeltaRewriter {
      *
      * @param includeUpToDate if true, includes delta plans for up-to-date streams (EXPLAIN).
      *                         if false, skips them (execution).
-     * @return merged plan, or null if no delta plans are available
+     * @return merged plan, or empty relation if no delta plans are available
      */
     Plan generateMergedDeltaPlan(Plan normalizedPlan, IvmRefreshContext ctx,
             Predicate<LogicalOlapScan> isExcluded, boolean includeUpToDate) {
-        // --- Step 0: strip result sink, check AGG ---
-        Plan rootPlan = helper.stripResultSink(normalizedPlan);
+        Pair<Plan, List<LogicalProject<?>>> prefixChain = helper.detachAdaptProjectChain(normalizedPlan);
+        // --- Step 0: check AGG ---
+        Plan rootPlan = prefixChain.first;
         IvmAggMeta aggMeta = ctx.getRewriteResult() != null
                 ? ctx.getRewriteResult().getAggMeta() : null;
         boolean isAgg = aggMeta != null;
@@ -158,7 +150,8 @@ public class IvmDeltaRewriter {
         // --- Step 2: generate delta plans from workPlan ---
         List<Plan> deltaPlans = generateDeltaPlans(workPlan, ctx, isExcluded, includeUpToDate);
         if (deltaPlans.isEmpty()) {
-            return null;
+            return new LogicalEmptyRelation(
+                    ctx.getConnectContext().getStatementContext().getNextRelationId(), normalizedPlan.getOutput());
         }
 
         // --- Step 3: per-table visitor rewrite ---
@@ -189,7 +182,7 @@ public class IvmDeltaRewriter {
 
         // --- Final step: dml_factor → delete_sign (all paths converge here) ---
         Slot dmlSlot = helper.findSlotByName(mergedPlan.getOutput(), Column.IVM_DML_FACTOR_COL);
-        mergedPlan = helper.buildSinkProject(new IvmDeltaRewriteResult(mergedPlan, dmlSlot, null), ctx);
+        mergedPlan = helper.finalizeQuery(prefixChain, new IvmDeltaRewriteResult(mergedPlan, dmlSlot, null), ctx);
         return mergedPlan;
     }
 
