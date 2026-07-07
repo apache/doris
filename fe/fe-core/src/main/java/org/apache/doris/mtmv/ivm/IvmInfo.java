@@ -33,10 +33,6 @@ public class IvmInfo {
     @SerializedName("bb")
     private boolean binlogBroken = false;
 
-    /** True while an incremental refresh is in progress. Persisted for crash recovery. */
-    @SerializedName("rr")
-    private boolean runningIvmRefresh = false;
-
     /** Compact persisted SHA-256 layout signature; see IvmPlanSignature#canonicalString for details. */
     @SerializedName("ps")
     private String planSignature;
@@ -47,7 +43,6 @@ public class IvmInfo {
     public IvmInfo(IvmInfo other) {
         this.enableIvm = other.enableIvm;
         this.binlogBroken = other.binlogBroken;
-        this.runningIvmRefresh = other.runningIvmRefresh;
         this.planSignature = other.planSignature;
     }
 
@@ -67,14 +62,6 @@ public class IvmInfo {
         this.binlogBroken = binlogBroken;
     }
 
-    public boolean isRunningIvmRefresh() {
-        return runningIvmRefresh;
-    }
-
-    public void setRunningIvmRefresh(boolean runningIvmRefresh) {
-        this.runningIvmRefresh = runningIvmRefresh;
-    }
-
     public String getPlanSignature() {
         return planSignature;
     }
@@ -88,7 +75,6 @@ public class IvmInfo {
         return "IvmInfo{"
                 + "enableIvm=" + enableIvm
                 + ", binlogBroken=" + binlogBroken
-                + ", runningIvmRefresh=" + runningIvmRefresh
                 + ", planSignature='" + planSignature + '\''
                 + '}';
     }

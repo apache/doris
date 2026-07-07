@@ -62,7 +62,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.nereids.types.LargeIntType;
-import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -191,12 +190,9 @@ public class IvmNormalizeMTMV extends DefaultPlanRewriter<IvmNormalizeMTMV.Norma
 
     @Override
     public Plan rewriteRoot(Plan plan, JobContext jobContext) {
-        ConnectContext connectContext = jobContext.getCascadesContext().getConnectContext();
-        boolean enabledBySessionVariable = connectContext != null
-                && connectContext.getSessionVariable().isEnableIvmNormalRewrite();
         boolean enabledByIvmRewriteContext = jobContext.getCascadesContext().getStatementContext()
                 .getIvmRewriteContext().isPresent();
-        if (!enabledBySessionVariable && !enabledByIvmRewriteContext) {
+        if (!enabledByIvmRewriteContext) {
             return plan;
         }
         // Idempotency: if already normalized (e.g. rewritten plan re-entering), skip.

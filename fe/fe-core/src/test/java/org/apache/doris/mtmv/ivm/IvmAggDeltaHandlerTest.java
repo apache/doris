@@ -68,7 +68,7 @@ class IvmAggDeltaHandlerTest extends IvmDeltaTestBase {
         MTMV mtmv = buildMtmvFromPlan(bundle.normalizedPlan.getOutput());
         Plan rewritten = new IvmDeltaRewriter().generateIncrementalRefreshPlan(
                 bundle.normalizedPlan, bundle.rewriteResult,
-                IvmRewriteContext.incremental(mtmv, false, false), bundle.connectContext);
+                IvmRewriteContext.incremental(mtmv, false), bundle.connectContext);
         Assertions.assertNotNull(rewritten);
         InsertIntoTableCommand command = new IvmRefreshManager()
                 .buildInsertCommand((LogicalPlan) rewritten, mtmv);
