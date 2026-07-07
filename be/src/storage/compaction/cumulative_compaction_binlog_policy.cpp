@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "storage/compaction/binlog_compaction_policy.h"
+#include "storage/compaction/cumulative_compaction_binlog_policy.h"
 
 #include <algorithm>
 #include <string>
@@ -30,7 +30,8 @@
 
 namespace doris {
 
-bool BinlogCompactionPolicy::is_compaction_enough(const RowsetMetaSharedPtr& rowset_meta) const {
+bool BinlogCumulativeCompactionPolicy::is_compaction_enough(
+        const RowsetMetaSharedPtr& rowset_meta) const {
     if (rowset_meta->compaction_level() != kBinlogCompactionMaxLevel - 1) {
         return false;
     }
@@ -42,10 +43,9 @@ bool BinlogCompactionPolicy::is_compaction_enough(const RowsetMetaSharedPtr& row
            rowset_meta->get_compaction_score() >= config::binlog_compaction_file_count_threshold;
 }
 
-void BinlogCompactionPolicy::calculate_cumulative_point(Tablet* tablet,
-                                                        const RowsetMetaMapContainer& all_rowsets,
-                                                        int64_t current_cumulative_point,
-                                                        int64_t* cumulative_point) const {
+void BinlogCumulativeCompactionPolicy::calculate_cumulative_point(
+        Tablet* tablet, const RowsetMetaMapContainer& all_rowsets,
+        int64_t current_cumulative_point, int64_t* cumulative_point) {
     *cumulative_point = Tablet::K_INVALID_CUMULATIVE_POINT;
     if (current_cumulative_point != Tablet::K_INVALID_CUMULATIVE_POINT || all_rowsets.empty()) {
         return;
@@ -76,9 +76,9 @@ void BinlogCompactionPolicy::calculate_cumulative_point(Tablet* tablet,
                 << *cumulative_point << ", tablet=" << tablet->tablet_id();
 }
 
-void BinlogCompactionPolicy::update_cumulative_point(
+void BinlogCumulativeCompactionPolicy::update_cumulative_point(
         Tablet* tablet, const std::vector<RowsetSharedPtr>& input_rowsets,
-        RowsetSharedPtr output_rowset) const {
+        RowsetSharedPtr output_rowset, Version& last_delete_version) {
     if (tablet->tablet_state() != TABLET_RUNNING || input_rowsets.empty() ||
         output_rowset->num_segments() == 0 ||
         output_rowset->rowset_meta()->compaction_level() != kBinlogCompactionMaxLevel - 1 ||
@@ -93,9 +93,10 @@ void BinlogCompactionPolicy::update_cumulative_point(
     tablet->set_cumulative_layer_point(output_rowset->end_version() + 1);
 }
 
-int BinlogCompactionPolicy::pick_input_rowsets(
+int BinlogCumulativeCompactionPolicy::pick_input_rowsets(
         Tablet* tablet, const std::vector<RowsetSharedPtr>& candidate_rowsets,
-        int8_t compaction_level, std::vector<RowsetSharedPtr>* input_rowsets) const {
+        int8_t compaction_level, int64_t max_compaction_score,
+        std::vector<RowsetSharedPtr>* input_rowsets) const {
     // 1) Filter rowsets by `compaction_level`
     std::vector<RowsetSharedPtr> level_rowsets;
     level_rowsets.reserve(candidate_rowsets.size());
@@ -146,14 +147,9 @@ int BinlogCompactionPolicy::pick_input_rowsets(
     int transient_size = 0;
     int64_t total_size = 0;
     int64_t compaction_score = 0;
-    const int64_t max_binlog_permits = (config::total_permits_for_compaction_score *
-                                                config::binlog_compaction_permits_percent +
-                                        99) /
-                                       100;
     for (const auto& rs : remaining_rowsets) {
         int64_t rs_score = rs->rowset_meta()->get_compaction_score();
-        if (transient_size >= config::binlog_level_compaction_max_deltas ||
-            compaction_score + rs_score > max_binlog_permits) {
+        if (transient_size >= max_compaction_score) {
             break;
         }
         picked_rowsets.push_back(rs);
@@ -169,8 +165,7 @@ int BinlogCompactionPolicy::pick_input_rowsets(
     if (total_size >= config::binlog_compaction_goal_size_mbytes * 1024 * 1024 ||
         compaction_score >= config::binlog_compaction_file_count_threshold) {
         can_do_binlog_compaction = true;
-    } else if ((UnixMillis() - tablet->last_binlog_compaction_success_time(compaction_level)) /
-                       1000 >=
+    } else if ((UnixMillis() - tablet->last_cumu_compaction_success_time()) / 1000 >=
                config::binlog_compaction_time_threshold_seconds) {
         can_do_binlog_compaction = true;
     }
@@ -198,8 +193,8 @@ int BinlogCompactionPolicy::pick_input_rowsets(
     return 0;
 }
 
-uint32_t BinlogCompactionPolicy::calc_binlog_compaction_level_score(Tablet* tablet,
-                                                                    int8_t level) const {
+uint32_t BinlogCumulativeCompactionPolicy::calc_binlog_compaction_level_score(
+        Tablet* tablet, int8_t level) const {
     uint32_t score = 0;
     const int64_t point = tablet->cumulative_layer_point();
     // Binlog tiered compaction score (L0..LMax)
@@ -227,7 +222,26 @@ uint32_t BinlogCompactionPolicy::calc_binlog_compaction_level_score(Tablet* tabl
     return score;
 }
 
-uint32_t BinlogCompactionPolicy::calc_binlog_compaction_score(
+uint32_t BinlogCumulativeCompactionPolicy::calc_binlog_compaction_level_score(
+        Tablet* tablet, const std::vector<RowsetSharedPtr>& candidate_rowsets, int8_t level) const {
+    uint32_t score = 0;
+    const int64_t point = tablet->cumulative_layer_point();
+    for (const auto& rs : candidate_rowsets) {
+        const auto& rs_meta = rs->rowset_meta();
+        if (!rs->is_local() || rs_meta->compaction_level() != level) {
+            continue;
+        }
+        if (level == kBinlogCompactionMaxLevel - 1 && point != Tablet::K_INVALID_CUMULATIVE_POINT &&
+            rs_meta->end_version() < point) {
+            score += 1;
+            continue;
+        }
+        score += rs_meta->get_compaction_score();
+    }
+    return score;
+}
+
+uint32_t BinlogCumulativeCompactionPolicy::calc_binlog_compaction_score(
         Tablet* tablet, int8_t* prefer_compaction_level) const {
     uint32_t max_score = 0;
     int8_t max_level = -1;
@@ -244,21 +258,53 @@ uint32_t BinlogCompactionPolicy::calc_binlog_compaction_score(
     return max_score;
 }
 
-void BinlogCompactionPolicy::update_compaction_level(
-        Tablet* tablet, const std::vector<RowsetSharedPtr>& input_rowsets,
-        RowsetSharedPtr output_rowset) {
-    if (tablet->tablet_state() != TABLET_RUNNING || output_rowset->num_segments() == 0) {
-        return;
+uint32_t BinlogCumulativeCompactionPolicy::calc_binlog_compaction_score(
+        Tablet* tablet, const std::vector<RowsetSharedPtr>& candidate_rowsets,
+        int8_t* prefer_compaction_level) const {
+    uint32_t max_score = 0;
+    int8_t max_level = -1;
+    for (int8_t level = 0; level < kBinlogCompactionMaxLevel; ++level) {
+        uint32_t score = calc_binlog_compaction_level_score(tablet, candidate_rowsets, level);
+        if (score > max_score) {
+            max_score = score;
+            max_level = level;
+        }
+    }
+    if (prefer_compaction_level != nullptr) {
+        *prefer_compaction_level = max_level;
+    }
+    return max_score;
+}
+
+int BinlogCumulativeCompactionPolicy::pick_input_rowsets(
+        Tablet* tablet, const std::vector<RowsetSharedPtr>& candidate_rowsets,
+        const int64_t max_compaction_score, const int64_t min_compaction_score,
+        std::vector<RowsetSharedPtr>* input_rowsets, Version* last_delete_version,
+        size_t* compaction_score, bool allow_delete) {
+    int8_t compaction_level = -1;
+    calc_binlog_compaction_score(tablet, candidate_rowsets, &compaction_level);
+    if (compaction_level < 0) {
+        *compaction_score = 0;
+        return 0;
     }
 
-    int64_t first_level = 0;
-    for (size_t i = 0; i < input_rowsets.size(); ++i) {
-        int64_t cur_level = input_rowsets[i]->rowset_meta()->compaction_level();
-        if (i == 0) {
-            first_level = cur_level;
-            continue;
-        }
+    int picked_score = pick_input_rowsets(tablet, candidate_rowsets, compaction_level,
+                                          max_compaction_score, input_rowsets);
+    *compaction_score = picked_score;
+    return picked_score;
+}
 
+uint32_t BinlogCumulativeCompactionPolicy::calc_cumulative_compaction_score(Tablet* tablet) {
+    return calc_binlog_compaction_score(tablet);
+}
+
+int64_t BinlogCumulativeCompactionPolicy::get_compaction_level(
+        Tablet* tablet, const std::vector<RowsetSharedPtr>& input_rowsets,
+        RowsetSharedPtr output_rowset) {
+    DCHECK(!input_rowsets.empty()) << "tablet=" << tablet->tablet_id();
+    int64_t first_level = input_rowsets.front()->rowset_meta()->compaction_level();
+    for (size_t i = 1; i < input_rowsets.size(); ++i) {
+        int64_t cur_level = input_rowsets[i]->rowset_meta()->compaction_level();
         DCHECK_EQ(first_level, cur_level)
                 << "Compaction level mismatch, first_level: " << first_level
                 << ", cur_level: " << cur_level << ", tablet: " << tablet->tablet_id();
@@ -281,12 +327,9 @@ void BinlogCompactionPolicy::update_compaction_level(
     }
 
     if (first_level == kBinlogCompactionMaxLevel - 1) {
-        // level max do not update compaction level
-        output_rowset->rowset_meta()->set_compaction_level(first_level);
-        return;
+        return first_level;
     }
-
-    output_rowset->rowset_meta()->set_compaction_level(first_level + 1);
+    return first_level + 1;
 }
 
 } // namespace doris

@@ -177,13 +177,21 @@ Status CumulativeCompaction::pick_rowsets_to_compact() {
         }
     }
 
-    int64_t max_score = config::cumulative_compaction_max_deltas;
+    int64_t max_score = tablet()->is_row_binlog_tablet()
+                                ? config::binlog_level_compaction_max_deltas
+                                : config::cumulative_compaction_max_deltas;
     int64_t process_memory_usage = doris::GlobalMemoryArbitrator::process_memory_usage();
     bool memory_usage_high = process_memory_usage > MemInfo::soft_mem_limit() * 8 / 10;
     if (tablet()->last_compaction_status.is<ErrorCode::MEM_LIMIT_EXCEEDED>() || memory_usage_high) {
-        max_score = std::max(config::cumulative_compaction_max_deltas /
-                                     config::cumulative_compaction_max_deltas_factor,
-                             config::cumulative_compaction_min_deltas + 1);
+        if (tablet()->is_row_binlog_tablet()) {
+            max_score = std::max<int64_t>(config::binlog_level_compaction_max_deltas /
+                                                  config::cumulative_compaction_max_deltas_factor,
+                                          1);
+        } else {
+            max_score = std::max(config::cumulative_compaction_max_deltas /
+                                         config::cumulative_compaction_max_deltas_factor,
+                                 config::cumulative_compaction_min_deltas + 1);
+        }
     }
 
     size_t compaction_score = 0;

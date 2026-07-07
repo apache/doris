@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "storage/compaction/binlog_compaction_policy.h"
+#include "storage/compaction/cumulative_compaction_binlog_policy.h"
 
 #include <gen_cpp/AgentService_types.h>
 #include <gen_cpp/olap_file.pb.h>
@@ -34,22 +34,22 @@
 
 namespace doris {
 
-class TestBinlogCompactionPolicy : public testing::Test {
+class TestBinlogCumulativeCompactionPolicy : public testing::Test {
 public:
-    TestBinlogCompactionPolicy() : _engine(StorageEngine({})) {}
+    TestBinlogCumulativeCompactionPolicy() : _engine(StorageEngine({})) {}
 
     void SetUp() {
         config::binlog_compaction_goal_size_mbytes = 128;
         config::binlog_compaction_file_count_threshold = 100;
         config::binlog_level_compaction_max_deltas = 2000;
         config::binlog_compaction_time_threshold_seconds = 3600;
-        config::binlog_compaction_permits_percent = 30;
         config::total_permits_for_compaction_score = 1000000;
 
         _tablet_meta.reset(new TabletMeta(1, 2, 15673, 15674, 4, 5, TTabletSchema(), 6, {{7, 8}},
                                           UniqueId(9, 10), TTabletType::TABLET_TYPE_DISK,
                                           TCompressionType::LZ4F));
         _tablet_meta->set_is_row_binlog_tablet(true);
+        _tablet_meta->set_compaction_policy(std::string(CUMULATIVE_BINLOG_POLICY));
 
         _json_rowset_meta = R"({
             "rowset_id": 540081,
@@ -108,7 +108,7 @@ public:
     // score (2) is smaller than the quick merge score (3) and the quick merge path is chosen.
     void init_rs_meta_lmax(std::vector<RowsetMetaSharedPtr>* rs_metas) {
         int64_t goal_size = config::binlog_compaction_goal_size_mbytes * 1024 * 1024;
-        int8_t max_level = BinlogCompactionPolicy::kBinlogCompactionMaxLevel - 1;
+        int8_t max_level = BinlogCumulativeCompactionPolicy::kBinlogCompactionMaxLevel - 1;
 
         RowsetMetaSharedPtr ptr1(new RowsetMeta());
         init_rs_meta(ptr1, 0, 0, max_level);
@@ -161,7 +161,7 @@ protected:
 
 // cumulative point advances over the contiguous compact-enough LMax prefix and stops at
 // the first rowset that is not compact-enough.
-TEST_F(TestBinlogCompactionPolicy, calculate_cumulative_point) {
+TEST_F(TestBinlogCumulativeCompactionPolicy, calculate_cumulative_point) {
     std::vector<RowsetMetaSharedPtr> rs_metas;
     init_rs_meta_lmax(&rs_metas);
 
@@ -177,7 +177,7 @@ TEST_F(TestBinlogCompactionPolicy, calculate_cumulative_point) {
 }
 
 // LMax score: each rowset before cumulative point counts as 1, the others use compaction score.
-TEST_F(TestBinlogCompactionPolicy, calc_lmax_score) {
+TEST_F(TestBinlogCumulativeCompactionPolicy, calc_lmax_score) {
     std::vector<RowsetMetaSharedPtr> rs_metas;
     init_rs_meta_lmax(&rs_metas);
 
@@ -190,15 +190,17 @@ TEST_F(TestBinlogCompactionPolicy, calc_lmax_score) {
     _tablet->calculate_cumulative_point();
     EXPECT_EQ(3, _tablet->cumulative_layer_point());
 
-    int8_t max_level = BinlogCompactionPolicy::kBinlogCompactionMaxLevel - 1;
+    int8_t max_level = BinlogCumulativeCompactionPolicy::kBinlogCompactionMaxLevel - 1;
     // before cumulative point: [0-0] -> 1, [1-1] -> 1 (raw score 5 but counted as 1), [2-2] -> 1;
     // after cumulative point: [3-3] -> 1, [4-4] -> 1 (raw score). total = 5.
-    EXPECT_EQ(5, _tablet->binlog_compaction_policy()->calc_binlog_compaction_level_score(
-                         _tablet.get(), max_level));
+    EXPECT_EQ(5,
+              dynamic_cast<BinlogCumulativeCompactionPolicy*>(
+                      _tablet->cumulative_compaction_policy())
+                      ->calc_binlog_compaction_level_score(_tablet.get(), max_level));
 }
 
 // L0 score always uses the raw compaction score and is independent of cumulative point.
-TEST_F(TestBinlogCompactionPolicy, calc_l0_score) {
+TEST_F(TestBinlogCumulativeCompactionPolicy, calc_l0_score) {
     std::vector<RowsetMetaSharedPtr> rs_metas;
     init_rs_meta_l0(&rs_metas);
 
@@ -212,15 +214,70 @@ TEST_F(TestBinlogCompactionPolicy, calc_l0_score) {
 
     int8_t prefer_level = -1;
     uint32_t score =
-            _tablet->calc_compaction_score(CompactionType::BINLOG_COMPACTION, &prefer_level);
+            dynamic_cast<BinlogCumulativeCompactionPolicy*>(
+                    _tablet->cumulative_compaction_policy())
+                    ->calc_binlog_compaction_score(_tablet.get(), &prefer_level);
     // L0 rowsets: [0-0] -> 4 (overlapping), [1-1] -> 1. total = 5.
     EXPECT_EQ(5, score);
     EXPECT_EQ(0, prefer_level);
 }
 
+// Pick level from candidate rowsets. Versions are ordered old -> new as higher -> lower level:
+// L2, L2, L1, L1, L0, L0. Even if the whole tablet has a higher L0 score, this round's
+// candidate set only contains L1 rowsets, so the policy should choose L1.
+TEST_F(TestBinlogCumulativeCompactionPolicy, pick_level_from_candidate_rowsets) {
+    config::binlog_compaction_file_count_threshold = 2;
+
+    for (int64_t version = 0; version < 2; ++version) {
+        RowsetMetaSharedPtr rowset(new RowsetMeta());
+        init_rs_meta(rowset, version, version, 2);
+        ASSERT_TRUE(_tablet_meta->add_rs_meta(rowset).ok());
+    }
+
+    for (int64_t version = 2; version < 4; ++version) {
+        RowsetMetaSharedPtr rowset(new RowsetMeta());
+        init_rs_meta(rowset, version, version, 1);
+        ASSERT_TRUE(_tablet_meta->add_rs_meta(rowset).ok());
+    }
+
+    for (int64_t version = 4; version < 6; ++version) {
+        RowsetMetaSharedPtr rowset(new RowsetMeta());
+        init_rs_meta(rowset, version, version, 0);
+        rowset->set_num_segments(10);
+        rowset->set_segments_overlap(OVERLAPPING);
+        ASSERT_TRUE(_tablet_meta->add_rs_meta(rowset).ok());
+    }
+
+    TabletSharedPtr _tablet(new Tablet(_engine, _tablet_meta, nullptr));
+    ASSERT_TRUE(_tablet->init().ok());
+
+    std::vector<RowsetSharedPtr> candidate_rowsets;
+    for (const auto& rs : _tablet->pick_candidate_rowsets_to_binlog_compaction()) {
+        if (rs->rowset_meta()->compaction_level() == 1) {
+            candidate_rowsets.push_back(rs);
+        }
+    }
+
+    std::vector<RowsetSharedPtr> input_rowsets;
+    size_t compaction_score = 0;
+    int picked =
+            dynamic_cast<BinlogCumulativeCompactionPolicy*>(
+                    _tablet->cumulative_compaction_policy())
+                    ->pick_input_rowsets(_tablet.get(), candidate_rowsets,
+                                         config::binlog_level_compaction_max_deltas,
+                                         config::cumulative_compaction_min_deltas, &input_rowsets,
+                                         nullptr, &compaction_score);
+
+    EXPECT_EQ(2, picked);
+    EXPECT_EQ(2, compaction_score);
+    EXPECT_EQ(2, input_rowsets.size());
+    EXPECT_EQ(2, input_rowsets.front()->start_version());
+    EXPECT_EQ(3, input_rowsets.back()->end_version());
+}
+
 // LMax quick merge: the physical rewrite over the remaining rowsets is triggered, but the quick
 // merge over the compact-enough prefix has a higher score, so the quick merge path is chosen.
-TEST_F(TestBinlogCompactionPolicy, pick_input_rowsets_lmax_quick_merge) {
+TEST_F(TestBinlogCumulativeCompactionPolicy, pick_input_rowsets_lmax_quick_merge) {
     std::vector<RowsetMetaSharedPtr> rs_metas;
     init_rs_meta_lmax(&rs_metas);
 
@@ -235,10 +292,13 @@ TEST_F(TestBinlogCompactionPolicy, pick_input_rowsets_lmax_quick_merge) {
 
     auto candidate_rowsets = _tablet->pick_candidate_rowsets_to_binlog_compaction();
 
-    int8_t max_level = BinlogCompactionPolicy::kBinlogCompactionMaxLevel - 1;
+    int8_t max_level = BinlogCumulativeCompactionPolicy::kBinlogCompactionMaxLevel - 1;
     std::vector<RowsetSharedPtr> input_rowsets;
-    int picked = _tablet->binlog_compaction_policy()->pick_input_rowsets(
-            _tablet.get(), candidate_rowsets, max_level, &input_rowsets);
+    int picked =
+            dynamic_cast<BinlogCumulativeCompactionPolicy*>(_tablet->cumulative_compaction_policy())
+                    ->pick_input_rowsets(_tablet.get(), candidate_rowsets, max_level,
+                                         config::binlog_level_compaction_max_deltas,
+                                         &input_rowsets);
 
     // quick merge score (3) > physical rewrite score (2): [0-0],[1-1],[2-2] are quick merged.
     EXPECT_EQ(3, picked);
@@ -248,7 +308,7 @@ TEST_F(TestBinlogCompactionPolicy, pick_input_rowsets_lmax_quick_merge) {
 }
 
 // L0 physical rewrite: rowsets are merged when the file count trigger is met.
-TEST_F(TestBinlogCompactionPolicy, pick_input_rowsets_l0_physical_rewrite) {
+TEST_F(TestBinlogCumulativeCompactionPolicy, pick_input_rowsets_l0_physical_rewrite) {
     config::binlog_compaction_file_count_threshold = 3;
     std::vector<RowsetMetaSharedPtr> rs_metas;
     init_rs_meta_l0(&rs_metas);
@@ -264,8 +324,11 @@ TEST_F(TestBinlogCompactionPolicy, pick_input_rowsets_l0_physical_rewrite) {
     auto candidate_rowsets = _tablet->pick_candidate_rowsets_to_binlog_compaction();
 
     std::vector<RowsetSharedPtr> input_rowsets;
-    int picked = _tablet->binlog_compaction_policy()->pick_input_rowsets(
-            _tablet.get(), candidate_rowsets, 0, &input_rowsets);
+    int picked =
+            dynamic_cast<BinlogCumulativeCompactionPolicy*>(_tablet->cumulative_compaction_policy())
+                    ->pick_input_rowsets(_tablet.get(), candidate_rowsets, 0,
+                                         config::binlog_level_compaction_max_deltas,
+                                         &input_rowsets);
 
     // L0 score 4 + 1 = 5 >= file count threshold 3, so both rowsets are physically rewritten.
     EXPECT_EQ(2, picked);
@@ -273,7 +336,7 @@ TEST_F(TestBinlogCompactionPolicy, pick_input_rowsets_l0_physical_rewrite) {
 }
 
 // L0 not triggered: when size / score / time thresholds are all unmet, nothing is picked.
-TEST_F(TestBinlogCompactionPolicy, pick_input_rowsets_l0_not_triggered) {
+TEST_F(TestBinlogCumulativeCompactionPolicy, pick_input_rowsets_l0_not_triggered) {
     config::binlog_compaction_file_count_threshold = 100;
     std::vector<RowsetMetaSharedPtr> rs_metas;
     init_rs_meta_l0(&rs_metas);
@@ -284,13 +347,17 @@ TEST_F(TestBinlogCompactionPolicy, pick_input_rowsets_l0_not_triggered) {
 
     TabletSharedPtr _tablet(new Tablet(_engine, _tablet_meta, nullptr));
     ASSERT_TRUE(_tablet->init().ok());
+    _tablet->set_last_cumu_compaction_success_time(UnixMillis());
     _tablet->calculate_cumulative_point();
 
     auto candidate_rowsets = _tablet->pick_candidate_rowsets_to_binlog_compaction();
 
     std::vector<RowsetSharedPtr> input_rowsets;
-    int picked = _tablet->binlog_compaction_policy()->pick_input_rowsets(
-            _tablet.get(), candidate_rowsets, 0, &input_rowsets);
+    int picked =
+            dynamic_cast<BinlogCumulativeCompactionPolicy*>(_tablet->cumulative_compaction_policy())
+                    ->pick_input_rowsets(_tablet.get(), candidate_rowsets, 0,
+                                         config::binlog_level_compaction_max_deltas,
+                                         &input_rowsets);
 
     // L0 score 5 < file count threshold 100, size below goal, time threshold not reached.
     EXPECT_EQ(0, picked);
