@@ -410,7 +410,9 @@ TEST_F(CsvV2ReaderTest, ProfileCountersTrackReadParseDeserializeAndFilter) {
     output.close();
 
     _state._query_options.__set_read_csv_empty_line_as_null(true);
+    io::FileReaderStats file_reader_stats;
     auto io_ctx = std::make_shared<io::IOContext>();
+    io_ctx->file_reader_stats = &file_reader_stats;
     auto reader = create_reader(profile_path, &_params, _slots, &_state, &_profile, 0, -1,
                                 TFileCompressType::UNKNOWN, io_ctx);
     std::vector<ColumnDefinition> schema;
@@ -443,6 +445,7 @@ TEST_F(CsvV2ReaderTest, ProfileCountersTrackReadParseDeserializeAndFilter) {
     EXPECT_EQ(counter_value(&_profile, "RowsReadBeforeFilter"), 3);
     EXPECT_EQ(counter_value(&_profile, "RowsFilteredByConjunct"), 2);
     EXPECT_EQ(io_ctx->predicate_filtered_rows, 2);
+    EXPECT_EQ(file_reader_stats.read_rows, 3);
     EXPECT_EQ(counter_value(&_profile, "RowsFilteredByDeleteConjunct"), 0);
     EXPECT_EQ(counter_value(&_profile, "RowsReturned"), 1);
     EXPECT_EQ(counter_value(&_profile, "EmptyLinesRead"), 1);

@@ -22,6 +22,8 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.HttpURLUtil;
+import org.apache.doris.common.util.InternalHttpsUtils;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.httpv2.controller.BaseController;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
@@ -36,6 +38,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jline.internal.Nullable;
 import org.apache.commons.codec.digest.DigestUtils;
+import org.apache.http.conn.ssl.NoopHostnameVerifier;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.http.HttpEntity;
@@ -43,6 +46,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.servlet.view.RedirectView;
 
@@ -52,10 +56,12 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.OutputStream;
+import java.net.HttpURLConnection;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.Collections;
 import java.util.stream.Collectors;
+import javax.net.ssl.HttpsURLConnection;
 
 public class RestBaseController extends BaseController {
 
@@ -271,8 +277,8 @@ public class RestBaseController extends BaseController {
                 redirectUrl =
                         getRedirectUrL(request, new TNetworkAddress(request.getServerName(), request.getServerPort()));
             } else {
-                redirectUrl = getRedirectUrL(request,
-                        new TNetworkAddress(env.getMasterHost(), env.getMasterHttpPort()));
+                redirectUrl = HttpURLUtil.buildInternalFeUrl(
+                        env.getMasterHost(), request.getRequestURI(), request.getQueryString());
             }
             String method = request.getMethod();
 
@@ -292,7 +298,25 @@ public class RestBaseController extends BaseController {
 
             HttpEntity<Object> entity = new HttpEntity<>(body, headers);
 
-            RestTemplate restTemplate = new RestTemplate();
+            RestTemplate restTemplate;
+            if (Config.enable_https) {
+                SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory() {
+                    @Override
+                    protected void prepareConnection(HttpURLConnection conn, String httpMethod)
+                            throws IOException {
+                        if (conn instanceof HttpsURLConnection) {
+                            HttpsURLConnection https = (HttpsURLConnection) conn;
+                            https.setSSLSocketFactory(
+                                    InternalHttpsUtils.getSslContext().getSocketFactory());
+                            https.setHostnameVerifier(NoopHostnameVerifier.INSTANCE);
+                        }
+                        super.prepareConnection(conn, httpMethod);
+                    }
+                };
+                restTemplate = new RestTemplate(factory);
+            } else {
+                restTemplate = new RestTemplate();
+            }
 
             ResponseEntity<Object> responseEntity;
             switch (method) {

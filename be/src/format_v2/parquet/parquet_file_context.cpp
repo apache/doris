@@ -26,6 +26,7 @@
 #include <exception>
 #include <limits>
 #include <mutex>
+#include <string_view>
 #include <unordered_map>
 #include <utility>
 
@@ -36,6 +37,7 @@
 #include "io/fs/buffered_reader.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/tracing_file_reader.h"
+#include "io/io_common.h"
 #include "storage/cache/page_cache.h"
 #include "util/slice.h"
 
@@ -245,6 +247,9 @@ public:
         if (!_file_reader) {
             return arrow::Status::IOError("Doris file reader is not open");
         }
+        if (_io_ctx != nullptr && _io_ctx->should_stop) {
+            return arrow::Status::IOError("stop");
+        }
         return static_cast<int64_t>(_file_reader->size());
     }
 
@@ -265,6 +270,9 @@ public:
     arrow::Result<int64_t> ReadAt(int64_t position, int64_t nbytes, void* out) override {
         if (!_file_reader) {
             return arrow::Status::IOError("Doris file reader is not open");
+        }
+        if (_io_ctx != nullptr && _io_ctx->should_stop) {
+            return arrow::Status::IOError("stop");
         }
         if (position < 0 || nbytes < 0) {
             return arrow::Status::Invalid("negative read position or length");
@@ -537,8 +545,16 @@ Status ParquetFileContext::open(io::FileReaderSPtr input_file_reader, io::IOCont
         metadata = this->file_reader->metadata();
         schema = metadata != nullptr ? metadata->schema() : nullptr;
     } catch (const ::parquet::ParquetException& e) {
+        if (io_ctx != nullptr && io_ctx->should_stop &&
+            std::string_view(e.what()).find("stop") != std::string_view::npos) {
+            return Status::EndOfFile("stop");
+        }
         return Status::Corruption("Failed to open parquet file: {}", e.what());
     } catch (const std::exception& e) {
+        if (io_ctx != nullptr && io_ctx->should_stop &&
+            std::string_view(e.what()).find("stop") != std::string_view::npos) {
+            return Status::EndOfFile("stop");
+        }
         return Status::InternalError("Failed to open parquet file: {}", e.what());
     }
 

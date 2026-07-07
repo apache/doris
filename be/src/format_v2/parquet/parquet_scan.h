@@ -132,6 +132,7 @@ public:
     bool empty() const { return _row_group_plans.empty(); }
     int64_t condition_cache_filtered_rows() const { return _condition_cache_filtered_rows; }
     int64_t predicate_filtered_rows() const { return _predicate_filtered_rows; }
+    int64_t raw_rows_read() const { return _raw_rows_read; }
 
     Status read_next_batch(ParquetFileContext& file_context,
                            const std::vector<std::unique_ptr<ParquetColumnSchema>>& file_schema,
@@ -201,6 +202,7 @@ private:
     std::shared_ptr<ConditionCacheContext> _condition_cache_ctx;
     int64_t _condition_cache_filtered_rows = 0;
     int64_t _predicate_filtered_rows = 0;
+    int64_t _raw_rows_read = 0;
 };
 
 } // namespace doris::format::parquet

@@ -42,6 +42,7 @@ be/src/io                                                    @liaoxin01 @gavinch
 be/src/io/cache                                              @liaoxin01 @gavinchou @morningman @Gabriel39
 be/src/io/fs                                                 @liaoxin01 @gavinchou @morningman @Gabriel39
 be/src/io/tools                                              @liaoxin01 @gavinchou
+be/src/format_v2                                             @Gabriel39 @yiguolei
 be/src/load                                                  @liaoxin01 @gavinchou
 be/src/load/channel                                          @liaoxin01 @gavinchou
 be/src/load/delta_writer                                     @liaoxin01 @gavinchou
