@@ -27,13 +27,13 @@ fe/fe-core/src/main/java/org/apache/doris/fsv2 @CalvinKirs
 be/src/vec/functions @zclllyybb
 be/**/CMakeLists.txt @zclllyybb @BiteTheDDDDt
 be/src/olap/rowset/segment_v2/variant @eldenmoon @csun5285
-be/src/storage/index/inverted/ @airborne12
-be/src/exprs/function/function_search.h @airborne12
-be/src/exprs/function/function_search.cpp @airborne12
-be/src/exprs/function/match.cpp @airborne12
-be/src/exprs/function/match.h @airborne12
-be/src/exprs/vsearch.h @airborne12
-be/src/exprs/vsearch.cpp @airborne12
+be/src/storage/index/inverted/ @airborne12 @eldenmoon @csun5285
+be/src/exprs/function/function_search.h @airborne12 @eldenmoon @csun5285
+be/src/exprs/function/function_search.cpp @airborne12 @eldenmoon @csun5285
+be/src/exprs/function/match.cpp @airborne12 @eldenmoon @csun5285
+be/src/exprs/function/match.h @airborne12 @eldenmoon @csun5285
+be/src/exprs/vsearch.h @airborne12 @eldenmoon @csun5285
+be/src/exprs/vsearch.cpp @airborne12 @eldenmoon @csun5285
 .claude/ @zclllyybb
 AGENTS.md @zclllyybb
 
@@ -54,7 +54,7 @@ be/src/storage/olap_common.h                                 @gavinchou @yiguole
 be/src/storage/cache                                         @liaoxin01 @gavinchou
 be/src/storage/compaction                                    @luwei16 @gavinchou
 be/src/storage/delete                                        @luwei16 @gavinchou
-be/src/storage/index                                         @airborne12
+be/src/storage/index                                         @airborne12 @eldenmoon @csun5285
 be/src/storage/iterator                                      @yiguolei @gavinchou
 be/src/storage/predicate                                     @yiguolei @gavinchou
 be/src/storage/rowset                                        @gavinchou
@@ -79,7 +79,7 @@ be/test/storage                                              @gavinchou
 be/test/storage/cache                                        @liaoxin01 @gavinchou
 be/test/storage/compaction                                   @luwei16 @gavinchou
 be/test/storage/delete                                       @gavinchou
-be/test/storage/index                                        @airborne12
+be/test/storage/index                                        @airborne12 @eldenmoon @csun5285
 be/test/storage/iterator                                     @yiguolei @gavinchou
 be/test/storage/predicate                                    @yiguolei @gavinchou
 be/test/storage/rowset                                       @gavinchou

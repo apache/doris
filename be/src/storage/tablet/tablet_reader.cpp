@@ -181,6 +181,7 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params) {
     _reader_context.force_key_ordered_read = read_params.force_key_ordered_read;
     _reader_context.read_orderby_key_limit = read_params.read_orderby_key_limit;
     _reader_context.return_columns = &_return_columns;
+    _reader_context.tso_predicate_column_id = read_params.tso_predicate_column_id;
     _reader_context.read_orderby_key_columns =
             !_orderby_key_columns.empty() ? &_orderby_key_columns : nullptr;
     _reader_context.predicates = &_col_predicates;
@@ -204,14 +205,13 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params) {
     _reader_context.is_key_column_group = read_params.is_key_column_group;
     _reader_context.common_expr_ctxs_push_down = read_params.common_expr_ctxs_push_down;
     _reader_context.output_columns = &read_params.output_columns;
+    _reader_context.extra_columns = read_params.extra_columns;
     _reader_context.push_down_agg_type_opt = read_params.push_down_agg_type_opt;
     _reader_context.ttl_seconds = _tablet->ttl_seconds();
     _reader_context.score_runtime = read_params.score_runtime;
     _reader_context.collection_statistics = read_params.collection_statistics;
 
     _reader_context.virtual_column_exprs = read_params.virtual_column_exprs;
-    _reader_context.vir_cid_to_idx_in_block = read_params.vir_cid_to_idx_in_block;
-    _reader_context.vir_col_idx_to_type = read_params.vir_col_idx_to_type;
     _reader_context.ann_topn_runtime = read_params.ann_topn_runtime;
 
     _reader_context.condition_cache_digest = read_params.condition_cache_digest;
@@ -228,10 +228,6 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params) {
 
     // Propagate general read limit for DUP_KEYS and UNIQUE_KEYS with MOW
     _reader_context.general_read_limit = read_params.general_read_limit;
-
-    // Preserve the original requested output layout so BlockReader can map expanded storage
-    // columns (for non-direct AGG/UNIQUE paths) back to the final output block.
-    _reader_context.origin_return_columns = read_params.origin_return_columns;
 
     return Status::OK();
 }

@@ -103,6 +103,11 @@ message PTabletWithPartition {
     required int64 tablet_id = 2;
 }
 
+message PRandomBucketPartitionParam {
+    required int64 partition_id = 1;
+    repeated int64 ordered_tablet_ids = 2;
+}
+
 message PTabletLoadRowsetInfo {
     required int32 current_rowset_nums = 1;
     required int32 max_config_rowset_nums = 2;
@@ -148,36 +153,13 @@ message PTabletWriterOpenRequest {
     optional string storage_vault_id = 18;
     optional int32 sender_id = 19;
     optional int64 workload_group_id = 20;
+    optional bool is_adaptive_random_bucket = 21 [default = false];
+    repeated PRandomBucketPartitionParam random_bucket_partitions = 22;
 };
 
 message PTabletWriterOpenResult {
     required PStatus status = 1;
     repeated PTabletLoadRowsetInfo tablet_load_rowset_num_infos = 2;
-};
-
-// add batch to tablet writer
-message PTabletWriterAddBatchRequest {
-    required PUniqueId id = 1;
-    required int64 index_id = 2;
-    required int32 sender_id = 3;
-
-    // If this is the last batch from this sender
-    optional bool eos = 4;
-
-    required int64 packet_seq = 5;
-    repeated int64 tablet_ids = 6;
-    // unset if and only if when eos is true
-    optional PRowBatch row_batch = 7;
-    // only valid when eos is true
-    // valid partition ids that would write in this writer
-    repeated int64 partition_ids = 8;
-    // the backend which send this request
-    optional int64 backend_id = 9 [default = -1];
-    // transfer the RowBatch to the Controller Attachment
-    optional bool transfer_by_attachment = 10 [default = false];
-    optional bool is_high_priority = 11 [default = false];
-    optional bool write_single_replica = 12 [default = false];
-    map<int64, PSlaveTabletNodes> slave_tablet_nodes = 13;
 };
 
 message PTabletWriterAddBlockRequest {
@@ -205,6 +187,7 @@ message PTabletWriterAddBlockRequest {
     optional bool is_single_tablet_block = 14 [default = false];
     // for auto-partition first stage close, we should hang.
     optional bool hang_wait = 15 [default = false];
+    optional bool is_adaptive_random_bucket = 16 [default = false];
 };
 
 message PSlaveTabletNodes {
@@ -227,21 +210,6 @@ message PTabletError {
     optional int64 tablet_id = 1;
     optional string msg = 2;
 }
-
-message PTabletWriterAddBatchResult {
-    required PStatus status = 1;
-    repeated PTabletInfo tablet_vec = 2;
-    optional int64 execution_time_us = 3;
-    optional int64 wait_lock_time_us = 4;
-    optional int64 wait_execution_time_us = 5;
-    repeated PTabletError tablet_errors = 6;
-    map<int64, PSuccessSlaveTabletNodeIds> success_slave_tablet_node_ids = 7;
-
-    // For cloud
-    optional int64 build_rowset_latency_ms = 1000;
-    optional int64 commit_rowset_latency_ms = 1001;
-    repeated PTabletLoadRowsetInfo tablet_load_rowset_num_infos = 1002;
-};
 
 message PTabletWriterAddBlockResult {
     required PStatus status = 1;
@@ -696,7 +664,15 @@ message PPublishFilterRequestV2 {
     optional uint64 local_merge_time = 13;
     optional bool disabled = 14;
     optional uint32 stage = 15;
+    repeated PPublishFilterForwardTarget forward_targets = 16;
+    optional int32 tree_publish_fanout = 17;
+    optional int32 publish_rpc_timeout_ms = 18;
 };
+
+message PPublishFilterForwardTarget {
+    optional PNetworkAddress target_addr = 1;
+    repeated int32 fragment_ids = 2;
+}
 
 message PPublishFilterResponse {
     required PStatus status = 1;
@@ -854,6 +830,18 @@ message PRequestBlockDesc {
     repeated uint32 column_idxs = 7;
 }
 
+message PTopNLazyMaterializationFileCacheStats {
+    optional int64 local_io_count = 1;
+    optional int64 local_io_bytes = 2;
+    optional int64 remote_io_count = 3;
+    optional int64 remote_io_bytes = 4;
+    optional int64 skip_cache_io_count = 5;
+    optional int64 write_cache_bytes = 6;
+    optional int64 local_io_time = 7;
+    optional int64 remote_io_time = 8;
+    optional int64 write_cache_io_time = 9;
+}
+
 message PMultiGetRequestV2 {
     repeated PRequestBlockDesc request_block_descs = 1;
 
@@ -862,6 +850,7 @@ message PMultiGetRequestV2 {
     optional PUniqueId query_id = 3;
     optional bool gc_id_map = 4;
     optional uint64 wg_id = 5;
+    optional bool file_cache_remote_only_on_miss = 6;
 };
 
 message PMultiGetBlockV2 {
@@ -878,6 +867,7 @@ message PMultiGetBlockV2 {
 message PMultiGetResponseV2 {
     optional PStatus status = 1;
     repeated PMultiGetBlockV2 blocks = 2;
+    optional PTopNLazyMaterializationFileCacheStats topn_lazy_materialization_file_cache_stats = 3;
 };
 
 message PFetchColIdsRequest {
@@ -1182,6 +1172,15 @@ message PFetchPeerDataRequest {
     optional int64 file_size = 4;
     // PEER_FILE_CACHE_BLOCK
     repeated CacheBlockReqest cache_req = 5;
+    // Client capability for attachment payload mode.
+    // If false (default), server must return payload in datas.data for compatibility.
+    optional bool support_attachment = 6 [default = false];
+    // Client requests server to pull data from S3 and fill local cache on cache miss.
+    // Server only executes fill when this is true AND enable_peer_server_cache_fill config is true.
+    // Only set for the designated fill compute group (peer_cache_fill_compute_group_id).
+    optional bool request_cache_fill = 7 [default = false];
+    // Rowset meta carrier for peer read/fill. The current caller only fills resource_id/tablet_id.
+    optional RowsetMetaPB rowset_meta = 8;
 }
 
 message CacheBlockPB {
@@ -1193,6 +1192,10 @@ message CacheBlockPB {
 message PFetchPeerDataResponse {
     optional PStatus status = 1;
     repeated CacheBlockPB datas = 2;
+    // Response mode flag.
+    // true: payload is in brpc response attachment; datas carries metadata only.
+    // false: payload is in datas[*].data.
+    optional bool data_in_attachment = 3 [default = false];
 }
 
 message PRequestCdcClientRequest {
@@ -1267,4 +1270,3 @@ service PBackendService {
     rpc fetch_peer_data(PFetchPeerDataRequest) returns (PFetchPeerDataResponse);
     rpc request_cdc_client(PRequestCdcClientRequest) returns (PRequestCdcClientResult);
 };
-

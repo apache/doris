@@ -112,6 +112,8 @@ import org.apache.doris.nereids.trees.plans.commands.info.AddPartitionOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DropPartitionOp;
 import org.apache.doris.nereids.trees.plans.commands.info.LabelNameInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.ReplacePartitionOp;
+import org.apache.doris.nereids.trees.plans.distribute.PipelineDistributedPlan;
+import org.apache.doris.nereids.trees.plans.distribute.worker.job.AssignedJob;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.planner.OlapTableSink;
 import org.apache.doris.qe.ConnectContext;
@@ -350,10 +352,12 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Random;
 import java.util.Set;
+import java.util.TreeSet;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
@@ -660,6 +664,11 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         TListTableStatusResult result = new TListTableStatusResult();
         List<TTableStatus> tablesResult = Lists.newArrayList();
         result.setTables(tablesResult);
+        Set<String> requiredColumns = params.isSetRequiredColumns()
+                ? params.getRequiredColumns().stream()
+                        .map(column -> column.toUpperCase(Locale.ROOT))
+                        .collect(Collectors.toSet())
+                : null;
         PatternMatcher matcher = null;
         String specifiedTable = null;
         if (params.isSetPattern()) {
@@ -739,17 +748,40 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                             TTableStatus status = new TTableStatus();
                             status.setName(table.getName());
                             status.setType(table.getMysqlType());
-                            status.setEngine(table.getEngine());
                             status.setComment(table.getComment());
-                            status.setCreateTime(table.getCreateTime());
-                            status.setLastCheckTime(lastCheckTime / 1000);
-                            status.setUpdateTime(table.getUpdateTime() / 1000);
-                            status.setCheckTime(lastCheckTime / 1000);
-                            status.setCollation("utf-8");
-                            status.setRows(table.getCachedRowCount());
-                            status.setDataLength(table.getDataLength());
-                            status.setAvgRowLength(table.getAvgRowLength());
-                            status.setIndexLength(table.getIndexLength());
+                            if (needTableStatusColumn(requiredColumns, "ENGINE")) {
+                                status.setEngine(table.getEngine());
+                            }
+                            if (needTableStatusColumn(requiredColumns, "CREATE_TIME")) {
+                                status.setCreateTime(table.getCreateTime());
+                            }
+                            if (needTableStatusColumn(requiredColumns, "LAST_CHECK_TIME")
+                                    || needTableStatusColumn(requiredColumns, "CHECK_TIME")) {
+                                status.setLastCheckTime(lastCheckTime / 1000);
+                            }
+                            if (needTableStatusColumn(requiredColumns, "UPDATE_TIME")) {
+                                status.setUpdateTime(table.getUpdateTime() / 1000);
+                            }
+                            if (needTableStatusColumn(requiredColumns, "CHECK_TIME")) {
+                                status.setCheckTime(lastCheckTime / 1000);
+                            }
+                            if (needTableStatusColumn(requiredColumns, "TABLE_COLLATION")) {
+                                status.setCollation("utf-8");
+                            }
+                            TableIf.TableStatusStats tableStatusStats =
+                                    needTableStatusStats(requiredColumns) ? table.getTableStatusStats() : null;
+                            if (needTableStatusColumn(requiredColumns, "TABLE_ROWS")) {
+                                status.setRows(tableStatusStats.getRows());
+                            }
+                            if (needTableStatusColumn(requiredColumns, "DATA_LENGTH")) {
+                                status.setDataLength(tableStatusStats.getDataLength());
+                            }
+                            if (needTableStatusColumn(requiredColumns, "AVG_ROW_LENGTH")) {
+                                status.setAvgRowLength(tableStatusStats.getAvgRowLength());
+                            }
+                            if (needTableStatusColumn(requiredColumns, "INDEX_LENGTH")) {
+                                status.setIndexLength(tableStatusStats.getIndexLength());
+                            }
                             if (table instanceof View) {
                                 status.setDdlSql(((View) table).getInlineViewDef());
                             }
@@ -764,6 +796,17 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             }
         }
         return result;
+    }
+
+    private static boolean needTableStatusColumn(Set<String> requiredColumns, String columnName) {
+        return requiredColumns == null || requiredColumns.contains(columnName);
+    }
+
+    private static boolean needTableStatusStats(Set<String> requiredColumns) {
+        return needTableStatusColumn(requiredColumns, "TABLE_ROWS")
+                || needTableStatusColumn(requiredColumns, "DATA_LENGTH")
+                || needTableStatusColumn(requiredColumns, "AVG_ROW_LENGTH")
+                || needTableStatusColumn(requiredColumns, "INDEX_LENGTH");
     }
 
     public TListTableMetadataNameIdsResult listTableMetadataNameIds(TGetTablesParams params) throws TException {
@@ -3613,7 +3656,16 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 if (Config.isCloudMode()) {
                     CloudReplica cloudReplica = (CloudReplica) replica;
                     if (!request.isSetWarmUpJobId()) {
+                        // Lazy fetch path: return primary + secondary BEs from all compute groups.
+                        // This allows the BE to discover peer candidates across warehouses.
                         backends = cloudReplica.getAllPrimaryBes();
+                        // Also collect secondary backends (may have cached data during primary failover)
+                        for (String computeGroupId : cloudReplica.getPrimaryComputeGroupIds()) {
+                            Backend secondaryBe = cloudReplica.getSecondaryBackend(computeGroupId);
+                            if (secondaryBe != null) {
+                                backends.add(secondaryBe);
+                            }
+                        }
                     } else {
                         // On the cloud, the PrimaryBackend of a tablet
                         // indicates the BE where the tablet is stably located,
@@ -3637,6 +3689,13 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                         replicaInfo.setHttpPort(backend.getHttpPort());
                         replicaInfo.setBrpcPort(backend.getBrpcPort());
                         replicaInfo.setReplicaId(replica.getId());
+                        // Fill cloud_compute_group_id so BE can categorize candidates by compute group
+                        if (Config.isCloudMode()) {
+                            String beComputeGroupId = backend.getCloudClusterId();
+                            if (beComputeGroupId != null && !beComputeGroupId.isEmpty()) {
+                                replicaInfo.setCloudComputeGroupId(beComputeGroupId);
+                            }
+                        }
                         replicaInfos.add(replicaInfo);
                     }
                 }
@@ -4545,6 +4604,11 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         List<TTabletLocation> tablets = new ArrayList<>();
         List<TTabletLocation> slaveTablets = new ArrayList<>();
         List<TOlapTablePartition> partitions = Lists.newArrayList();
+        Backend requestBackend = request.isSetBeEndpoint() ? resolveBeEndpoint(request.getBeEndpoint()) : null;
+        long adaptiveBucketBeId = requestBackend != null ? requestBackend.getId() : -1L;
+        TUniqueId queryId = request.isSetQueryId() ? request.getQueryId() : null;
+        boolean enableAdaptiveRandomBucket = request.isSetEnableAdaptiveRandomBucket()
+                && request.isEnableAdaptiveRandomBucket();
         boolean loadToSingleTablet = request.isSetLoadToSingleTablet() && request.isLoadToSingleTablet();
         final boolean hasBeEndpoint = request.isSetBeEndpoint();
         // Lazy: resolved on the first CloudTablet that needs it (skipped on cache-hit).
@@ -4574,7 +4638,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             tPartition.setIsMutable(olapTable.getPartitionInfo().getIsMutable(partition.getId()));
             boolean randomDistribution =
                     partition.getDistributionInfo().getType() == DistributionInfo.DistributionInfoType.RANDOM;
-            boolean cacheLoadTabletIdx = loadToSingleTablet && randomDistribution;
+            boolean cacheLoadTabletIdx =
+                    (loadToSingleTablet || enableAdaptiveRandomBucket) && randomDistribution;
             partitions.add(tPartition);
             // tablet
             AtomicLong cachedLoadTabletIdx = new AtomicLong(-1);
@@ -4585,6 +4650,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 if (cacheLoadTabletIdx) {
                     tPartition.setLoadTabletIdx(cachedLoadTabletIdx.get());
                 }
+                assignAdaptiveBucketToPartition(tPartition, partitionTablets, adaptiveBucketBeId, tableId, queryId,
+                        enableAdaptiveRandomBucket);
                 // fast path, if cached
                 tablets.addAll(partitionTablets);
                 slaveTablets.addAll(partitionSlaveTablets);
@@ -4681,6 +4748,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     tPartition.setLoadTabletIdx(cachedTabletIdx);
                 }
             }
+            assignAdaptiveBucketToPartition(tPartition, partitionTablets, adaptiveBucketBeId, tableId, queryId,
+                    enableAdaptiveRandomBucket);
 
             tablets.addAll(partitionTablets);
             slaveTablets.addAll(partitionSlaveTablets);
@@ -4897,6 +4966,11 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         List<TTabletLocation> tablets = new ArrayList<>();
         List<TTabletLocation> slaveTablets = new ArrayList<>();
         PartitionInfo partitionInfo = olapTable.getPartitionInfo();
+        Backend requestBackend = request.isSetBeEndpoint() ? resolveBeEndpoint(request.getBeEndpoint()) : null;
+        long adaptiveBucketBeId = requestBackend != null ? requestBackend.getId() : -1L;
+        TUniqueId queryId = request.isSetQueryId() ? request.getQueryId() : null;
+        boolean enableAdaptiveRandomBucket = request.isSetEnableAdaptiveRandomBucket()
+                && request.isEnableAdaptiveRandomBucket();
         boolean loadToSingleTablet = request.isSetLoadToSingleTablet() && request.isLoadToSingleTablet();
         final boolean replaceHasBeEndpoint = request.isSetBeEndpoint();
         // Lazy: resolved on the first CloudTablet that needs it.
@@ -4928,7 +5002,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             tPartition.setIsMutable(olapTable.getPartitionInfo().getIsMutable(partition.getId()));
             boolean randomDistribution =
                     partition.getDistributionInfo().getType() == DistributionInfo.DistributionInfoType.RANDOM;
-            boolean cacheLoadTabletIdx = loadToSingleTablet && randomDistribution;
+            boolean cacheLoadTabletIdx =
+                    (loadToSingleTablet || enableAdaptiveRandomBucket) && randomDistribution;
             partitions.add(tPartition);
             // tablet
             AtomicLong cachedLoadTabletIdx = new AtomicLong(-1);
@@ -4939,6 +5014,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 if (cacheLoadTabletIdx) {
                     tPartition.setLoadTabletIdx(cachedLoadTabletIdx.get());
                 }
+                assignAdaptiveBucketToPartition(tPartition, partitionTablets, adaptiveBucketBeId, tableId, queryId,
+                        enableAdaptiveRandomBucket);
                 // fast path, if cached
                 tablets.addAll(partitionTablets);
                 slaveTablets.addAll(partitionSlaveTablets);
@@ -5045,6 +5122,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                             partitionTablets.size(), partitionSlaveTablets.size());
                 }
             }
+            assignAdaptiveBucketToPartition(tPartition, partitionTablets, adaptiveBucketBeId, tableId, queryId,
+                    enableAdaptiveRandomBucket);
 
             tablets.addAll(partitionTablets);
             slaveTablets.addAll(partitionSlaveTablets);
@@ -5753,4 +5832,131 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
         return status;
     }
+
+    private static final class AdaptiveBucketSinkContext {
+        private final boolean enableAdaptiveRandomBucket;
+        private final List<Long> sinkBackendIds;
+        private final int sinkInstanceNum;
+
+        private AdaptiveBucketSinkContext(boolean enableAdaptiveRandomBucket, List<Long> sinkBackendIds,
+                int sinkInstanceNum) {
+            this.enableAdaptiveRandomBucket = enableAdaptiveRandomBucket;
+            this.sinkBackendIds = sinkBackendIds;
+            this.sinkInstanceNum = sinkInstanceNum;
+        }
+    }
+
+    private static AdaptiveBucketSinkContext disabledAdaptiveBucketSinkContext() {
+        return new AdaptiveBucketSinkContext(false, Lists.newArrayList(), 1);
+    }
+
+    private static AdaptiveBucketSinkContext collectAdaptiveBucketSinkContext(TUniqueId queryId, long tableId) {
+        if (queryId == null) {
+            return disabledAdaptiveBucketSinkContext();
+        }
+        Coordinator coordinator = QeProcessorImpl.INSTANCE.getCoordinator(queryId);
+        if (coordinator == null) {
+            return disabledAdaptiveBucketSinkContext();
+        }
+        if (!(coordinator instanceof NereidsCoordinator)) {
+            Optional<Coordinator.AdaptiveRandomBucketSinkContext> context =
+                    coordinator.getAdaptiveRandomBucketSinkContext(tableId);
+            if (context.isPresent()) {
+                return new AdaptiveBucketSinkContext(
+                        true, context.get().getSinkBackendIds(), context.get().getSinkInstanceNum());
+            }
+            return disabledAdaptiveBucketSinkContext();
+        }
+        Set<Long> sinkBackendIds = new TreeSet<>();
+        int sinkInstanceNum = 0;
+        for (PipelineDistributedPlan distributedPlan :
+                ((NereidsCoordinator) coordinator).getCoordinatorContext().distributedPlans) {
+            if (!(distributedPlan.getFragmentJob().getFragment().getSink() instanceof OlapTableSink)) {
+                continue;
+            }
+            OlapTableSink sink = (OlapTableSink) distributedPlan.getFragmentJob().getFragment().getSink();
+            if (sink.getDstTable().getId() != tableId) {
+                continue;
+            }
+            if (!sink.shouldAssignAdaptiveRandomBucket()) {
+                continue;
+            }
+            sinkInstanceNum += distributedPlan.getInstanceJobs().size();
+            for (AssignedJob assignedJob : distributedPlan.getInstanceJobs()) {
+                sinkBackendIds.add(assignedJob.getAssignedWorker().id());
+            }
+        }
+        if (sinkBackendIds.isEmpty()) {
+            return disabledAdaptiveBucketSinkContext();
+        }
+        return new AdaptiveBucketSinkContext(true, new ArrayList<>(sinkBackendIds), Math.max(sinkInstanceNum, 1));
+    }
+
+    private static void assignAdaptiveBucketToPartition(TOlapTablePartition partition,
+            List<TTabletLocation> partitionTablets, long currentBeId, long tableId, TUniqueId queryId,
+            boolean enableAdaptiveRandomBucket) {
+        if (!enableAdaptiveRandomBucket || !partition.isSetLoadTabletIdx() || currentBeId <= 0) {
+            return;
+        }
+        AdaptiveBucketSinkContext sinkContext = collectAdaptiveBucketSinkContext(queryId, tableId);
+        if (!sinkContext.enableAdaptiveRandomBucket) {
+            sinkContext = new AdaptiveBucketSinkContext(true, Lists.newArrayList(currentBeId), 1);
+            LOG.warn("Adaptive random bucket sink context not found for runtime partition {}, "
+                            + "fallback to currentBeId={}, tableId={}, queryId={}",
+                    partition.getId(), currentBeId, tableId, queryId);
+        }
+        if (LOG.isInfoEnabled()) {
+            LOG.info("Adaptive random bucket replanning partition={}, currentBeId={}, tableId={}, queryId={}, "
+                            + "sinkBackendIds={}, sinkInstanceNum={}",
+                    partition.getId(), currentBeId, tableId, queryId, sinkContext.sinkBackendIds,
+                    sinkContext.sinkInstanceNum);
+        }
+        Map<Long, Map<Long, OlapTableSink.AdaptiveBucketAssignment>> assignments =
+                OlapTableSink.computeAdaptiveRandomBucketAssignments(
+                        sinkContext.sinkBackendIds, Lists.newArrayList(partition), partitionTablets,
+                        sinkContext.sinkInstanceNum);
+        Map<Long, OlapTableSink.AdaptiveBucketAssignment> partitionAssignments = assignments.get(currentBeId);
+        if (partitionAssignments == null || !partitionAssignments.containsKey(partition.getId())) {
+            LOG.warn("Adaptive random bucket found no partition assignment for partition {}, currentBeId={}, "
+                            + "tableId={}, queryId={}, sinkBackendIds={}, fallback to current BE only",
+                    partition.getId(), currentBeId, tableId, queryId, sinkContext.sinkBackendIds);
+            assignments = OlapTableSink.computeAdaptiveRandomBucketAssignments(
+                    Lists.newArrayList(currentBeId), Lists.newArrayList(partition), partitionTablets, 1);
+            partitionAssignments = assignments.get(currentBeId);
+        }
+        if (partitionAssignments != null && partitionAssignments.containsKey(partition.getId())) {
+            OlapTableSink.AdaptiveBucketAssignment assignment = partitionAssignments.get(partition.getId());
+            if (LOG.isInfoEnabled()) {
+                LOG.info("Adaptive random bucket replan result partition={}, currentBeId={}, tableId={}, "
+                                + "bucketBeId={}, loadTabletIdx={}, localBucketSeqs={}",
+                        partition.getId(), currentBeId, tableId, assignment.getBucketBeId(),
+                        assignment.getLoadTabletIdx(), assignment.getLocalBucketSeqs());
+            }
+            OlapTableSink.applyAdaptiveRandomBucketAssignments(
+                    Lists.newArrayList(partition), partitionAssignments);
+        } else {
+            LOG.warn("Adaptive random bucket fallback still found no partition assignment for partition {}, "
+                            + "currentBeId={}, tableId={}, queryId={}",
+                    partition.getId(), currentBeId, tableId, queryId);
+        }
+    }
+
+    /**
+     * Resolves a BE endpoint string ("host:heartbeat_port") to a Backend object.
+     * Returns null if the endpoint is malformed or the backend cannot be found.
+     */
+    private static Backend resolveBeEndpoint(String beEndpoint) {
+        int colonIdx = beEndpoint.lastIndexOf(':');
+        if (colonIdx < 0) {
+            return null;
+        }
+        String host = beEndpoint.substring(0, colonIdx);
+        try {
+            int port = Integer.parseInt(beEndpoint.substring(colonIdx + 1));
+            return Env.getCurrentSystemInfo().getBackendWithHeartbeatPort(host, port);
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
 }

@@ -133,6 +133,15 @@ Status Reusable::init(const TDescriptorTable& t_desc_tbl, const std::vector<TExp
     _runtime_state->set_query_options(query_options);
     RETURN_IF_ERROR(DescriptorTbl::create(_runtime_state->obj_pool(), t_desc_tbl, &_desc_tbl));
     _runtime_state->set_desc_tbl(_desc_tbl);
+    for (const auto* slot : tuple_desc()->slots()) {
+        if (!slot->all_access_paths().empty() || !slot->predicate_access_paths().empty()) {
+            return Status::InternalError(
+                    "Short-circuit point query does not support nested column access paths, "
+                    "slot: {}. Please upgrade FE to disable nested column pruning for "
+                    "short-circuit point queries.",
+                    slot->col_name());
+        }
+    }
     _block_pool.resize(block_size);
     for (auto& i : _block_pool) {
         i = Block::create_unique(tuple_desc()->slots(), 2);

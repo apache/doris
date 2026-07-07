@@ -28,6 +28,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
 import org.apache.doris.nereids.util.PlanUtils;
+import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
@@ -49,6 +50,7 @@ public class PushDownTopNDistinctThroughJoin implements RewriteRuleFactory {
                         // TODO: complex order by
                         .when(topn ->
                                 ConnectContext.get() != null
+                                        && !Utils.addOverflows(topn.getLimit(), topn.getOffset())
                                         && ConnectContext.get().getSessionVariable().topnOptLimitThreshold
                                         >= topn.getLimit() + topn.getOffset())
                         .when(topN -> topN.getOrderKeys().stream().map(OrderKey::getExpr)
@@ -70,6 +72,13 @@ public class PushDownTopNDistinctThroughJoin implements RewriteRuleFactory {
                         .when(topN -> topN.getOrderKeys().stream().map(OrderKey::getExpr)
                                 .allMatch(Slot.class::isInstance))
                         .then(topN -> {
+                            // limit + offset overflowing the long range means no child can hold that
+                            // many rows, so pushing the TopN below the join cannot reduce anything;
+                            // skip the rewrite. (The direct branch is gated the same way via
+                            // topn_opt_limit_threshold.)
+                            if (Utils.addOverflows(topN.getLimit(), topN.getOffset())) {
+                                return null;
+                            }
                             LogicalAggregate<LogicalProject<LogicalJoin<Plan, Plan>>> distinct = topN.child();
                             LogicalProject<LogicalJoin<Plan, Plan>> project = distinct.child();
                             LogicalJoin<Plan, Plan> join = project.child();
@@ -95,6 +104,7 @@ public class PushDownTopNDistinctThroughJoin implements RewriteRuleFactory {
     }
 
     private Plan pushTopNThroughJoin(LogicalTopN<? extends Plan> topN, LogicalJoin<Plan, Plan> join) {
+        long childLimit = topN.getLimit() + topN.getOffset();
         Set<Slot> groupBySlots = ((LogicalAggregate<?>) topN.child()).getGroupByExpressions().stream()
                 .flatMap(e -> e.getInputSlots().stream()).collect(Collectors.toSet());
         switch (join.getJoinType()) {
@@ -107,7 +117,7 @@ public class PushDownTopNDistinctThroughJoin implements RewriteRuleFactory {
                         join.left().getOutputSet(), topN.getOrderKeys());
                 if (!pushedOrderKeys.isEmpty()) {
                     LogicalTopN<Plan> left = topN.withLimitOrderKeyAndChild(
-                            topN.getLimit() + topN.getOffset(), 0, pushedOrderKeys,
+                            childLimit, 0, pushedOrderKeys,
                             PlanUtils.distinct(join.left()));
                     return join.withChildren(left, join.right());
                 }
@@ -122,7 +132,7 @@ public class PushDownTopNDistinctThroughJoin implements RewriteRuleFactory {
                         join.right().getOutputSet(), topN.getOrderKeys());
                 if (!pushedOrderKeys.isEmpty()) {
                     LogicalTopN<Plan> right = topN.withLimitOrderKeyAndChild(
-                            topN.getLimit() + topN.getOffset(), 0, pushedOrderKeys,
+                            childLimit, 0, pushedOrderKeys,
                             PlanUtils.distinct(join.right()));
                     return join.withChildren(join.left(), right);
                 }
@@ -135,14 +145,14 @@ public class PushDownTopNDistinctThroughJoin implements RewriteRuleFactory {
                         join.left().getOutputSet(), topN.getOrderKeys());
                 if (!(join.left() instanceof TopN) && !leftPushedOrderKeys.isEmpty()) {
                     leftChild = topN.withLimitOrderKeyAndChild(
-                            topN.getLimit() + topN.getOffset(), 0, leftPushedOrderKeys,
+                            childLimit, 0, leftPushedOrderKeys,
                             PlanUtils.distinct(join.left()));
                 }
                 List<OrderKey> rightPushedOrderKeys = getPushedOrderKeys(groupBySlots,
                         join.right().getOutputSet(), topN.getOrderKeys());
                 if (!(join.right() instanceof TopN) && !rightPushedOrderKeys.isEmpty()) {
                     rightChild = topN.withLimitOrderKeyAndChild(
-                            topN.getLimit() + topN.getOffset(), 0, rightPushedOrderKeys,
+                            childLimit, 0, rightPushedOrderKeys,
                             PlanUtils.distinct(join.right()));
                 }
                 if (leftChild == join.left() && rightChild == join.right()) {

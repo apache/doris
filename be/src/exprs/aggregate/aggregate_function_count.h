@@ -92,7 +92,8 @@ public:
     }
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
-        assert_cast<ColumnInt64&>(to).get_data().push_back(data(place).count);
+        assert_cast<ColumnInt64&, TypeCheckOnRelease::DISABLE>(to).get_data().push_back(
+                data(place).count);
     }
 
     void serialize_to_column(const std::vector<AggregateDataPtr>& places, size_t offset,
@@ -239,14 +240,23 @@ public:
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
         if (is_column_nullable(to)) {
-            auto& null_column = assert_cast<ColumnNullable&>(to);
+            auto& null_column = assert_cast<ColumnNullable&, TypeCheckOnRelease::DISABLE>(to);
             null_column.get_null_map_data().push_back(0);
-            assert_cast<ColumnInt64&>(null_column.get_nested_column())
+            assert_cast<ColumnInt64&, TypeCheckOnRelease::DISABLE>(null_column.get_nested_column())
                     .get_data()
                     .push_back(data(place).count);
         } else {
-            assert_cast<ColumnInt64&>(to).get_data().push_back(data(place).count);
+            assert_cast<ColumnInt64&, TypeCheckOnRelease::DISABLE>(to).get_data().push_back(
+                    data(place).count);
         }
+    }
+
+    void check_result_column_type(const IColumn& to) const override {
+        if (const auto* null_column = check_and_get_column<ColumnNullable>(to)) {
+            IAggregateFunction::check_result_column_type(null_column->get_nested_column());
+            return;
+        }
+        IAggregateFunction::check_result_column_type(to);
     }
 
     void serialize_to_column(const std::vector<AggregateDataPtr>& places, size_t offset,
