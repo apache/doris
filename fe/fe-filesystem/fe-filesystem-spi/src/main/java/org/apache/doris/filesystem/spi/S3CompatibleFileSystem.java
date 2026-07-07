@@ -555,14 +555,13 @@ public abstract class S3CompatibleFileSystem extends ObjFileSystem {
 
         @Override
         public boolean hasNext() throws IOException {
-            if (bufferIdx < buffer.size()) {
-                return true;
+            while (bufferIdx >= buffer.size()) {
+                if (done) {
+                    return false;
+                }
+                fetchNextPage();
             }
-            if (done) {
-                return false;
-            }
-            fetchNextPage();
-            return bufferIdx < buffer.size();
+            return true;
         }
 
         private void fetchNextPage() throws IOException {
