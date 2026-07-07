@@ -41,6 +41,12 @@ suite("test_streaming_mysql_job_sc", "p0,external,mysql,external_docker,external
                 (sql "DESC ${table1}").any { it[0] == column } == expected
             })
         }
+        def waitForColumnComment = { String column, String comment ->
+            Awaitility.await().atMost(180, SECONDS).pollInterval(2, SECONDS).until({
+                def createTable = (sql "SHOW CREATE TABLE ${table1}")[0][1] as String
+                createTable.contains("`${column}`") && createTable.contains("COMMENT '${comment}'")
+            })
+        }
         def waitForRow = { String name ->
             Awaitility.await().atMost(180, SECONDS).pollInterval(2, SECONDS).until({
                 (sql "SELECT COUNT(*) FROM ${table1} WHERE name='${name}'")[0][0] as int > 0
@@ -104,12 +110,13 @@ suite("test_streaming_mysql_job_sc", "p0,external,mysql,external_docker,external
         qt_snapshot """ SELECT name, age FROM ${table1} ORDER BY name """
 
         connect("root", "123456", "jdbc:mysql://${externalEnvIp}:${mysqlPort}") {
-            sql """ALTER TABLE ${mysqlDb}.${table1} ADD COLUMN c1 VARCHAR(50)"""
+            sql """ALTER TABLE ${mysqlDb}.${table1} ADD COLUMN c1 VARCHAR(50) COMMENT 'user city'"""
             sql """INSERT INTO ${mysqlDb}.${table1} (name, age, c1) VALUES ('C1', 10, 'hello')"""
         }
 
         try {
             waitForColumn("c1", true)
+            waitForColumnComment("c1", "user city")
             waitForRow("C1")
         } catch (Exception ex) {
             dumpJobState()

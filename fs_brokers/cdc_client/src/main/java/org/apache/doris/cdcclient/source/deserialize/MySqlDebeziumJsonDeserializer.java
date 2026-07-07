@@ -180,7 +180,11 @@ public class MySqlDebeziumJsonDeserializer extends DebeziumJsonDeserializer {
                                 targetTable,
                                 columnName,
                                 SchemaChangeHelper.buildAddColumnSql(
-                                        db, targetTable, columnName, colType, null, null)));
+                                        db,
+                                        targetTable,
+                                        columnName,
+                                        colType,
+                                        change.getColumn().comment())));
             } else {
                 String columnName = change.getColumnName();
                 if (excludedCols.contains(columnName)) {
@@ -194,7 +198,8 @@ public class MySqlDebeziumJsonDeserializer extends DebeziumJsonDeserializer {
                         SchemaChangeOperation.dropColumn(
                                 targetTable,
                                 columnName,
-                                SchemaChangeHelper.buildDropColumnSql(db, targetTable, columnName)));
+                                SchemaChangeHelper.buildDropColumnSql(
+                                        db, targetTable, columnName)));
             }
         }
 
@@ -204,8 +209,7 @@ public class MySqlDebeziumJsonDeserializer extends DebeziumJsonDeserializer {
                 schemaChanges.stream()
                         .map(SchemaChangeOperation::getSql)
                         .collect(Collectors.toList()));
-        return DeserializeResult.schemaChange(
-                schemaChanges, freshSchemas, Collections.emptyList());
+        return DeserializeResult.schemaChange(schemaChanges, freshSchemas, Collections.emptyList());
     }
 
     private Map<TableId, TableChanges.TableChange> deserializeTableChanges(HistoryRecord history) {

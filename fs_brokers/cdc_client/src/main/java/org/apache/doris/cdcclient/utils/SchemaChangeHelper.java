@@ -49,40 +49,6 @@ public class SchemaChangeHelper {
         return identifier(db) + "." + identifier(table);
     }
 
-    /**
-     * Format a default value (already a plain Java string, not a raw SQL expression) into a form
-     * suitable for a Doris {@code DEFAULT} clause.
-     *
-     * <p>The caller is expected to pass a <em>deserialized</em> value — e.g. obtained from the
-     * Kafka Connect schema via {@code field.schema().defaultValue().toString()} — rather than a raw
-     * PG SQL expression. This avoids having to strip PG-specific type casts ({@code ::text}, etc.).
-     *
-     * <ul>
-     *   <li>SQL keywords ({@code NULL}, {@code CURRENT_TIMESTAMP}, {@code TRUE}, {@code FALSE}) are
-     *       returned as-is.
-     *   <li>Numeric literals are returned as-is (no quotes).
-     *   <li>Everything else is wrapped in single quotes.
-     * </ul>
-     */
-    public static String quoteDefaultValue(String defaultValue) {
-        if (defaultValue == null) {
-            return null;
-        }
-        if (defaultValue.equalsIgnoreCase("current_timestamp")
-                || defaultValue.equalsIgnoreCase("null")
-                || defaultValue.equalsIgnoreCase("true")
-                || defaultValue.equalsIgnoreCase("false")) {
-            return defaultValue;
-        }
-        try {
-            Double.parseDouble(defaultValue);
-            return defaultValue;
-        } catch (NumberFormatException ignored) {
-            // fall through
-        }
-        return "'" + defaultValue.replace("'", "''") + "'";
-    }
-
     /** Escape single quotes inside a COMMENT string. */
     public static String quoteComment(String comment) {
         if (comment == null) {
@@ -100,16 +66,23 @@ public class SchemaChangeHelper {
      * @param table target table
      * @param colName column name
      * @param colType Doris column type string (including optional NOT NULL)
-     * @param defaultValue optional DEFAULT value; {@code null} = omit DEFAULT clause
+     */
+    public static String buildAddColumnSql(
+            String db, String table, String colName, String colType) {
+        return buildAddColumnSql(db, table, colName, colType, null);
+    }
+
+    /**
+     * Build {@code ALTER TABLE ... ADD COLUMN} SQL with an optional column comment.
+     *
+     * @param db target database
+     * @param table target table
+     * @param colName column name
+     * @param colType Doris column type string
      * @param comment optional COMMENT; {@code null}/empty = omit COMMENT clause
      */
     public static String buildAddColumnSql(
-            String db,
-            String table,
-            String colName,
-            String colType,
-            String defaultValue,
-            String comment) {
+            String db, String table, String colName, String colType, String comment) {
         StringBuilder sb =
                 new StringBuilder(
                         String.format(
@@ -117,9 +90,6 @@ public class SchemaChangeHelper {
                                 quoteTableIdentifier(db, table),
                                 identifier(colName),
                                 colType));
-        if (defaultValue != null) {
-            sb.append(" DEFAULT ").append(quoteDefaultValue(defaultValue));
-        }
         appendComment(sb, comment);
         return sb.toString();
     }
@@ -194,7 +164,9 @@ public class SchemaChangeHelper {
                 }
             case "CHAR":
             case "NCHAR":
-                return length > 0 ? String.format("%s(%d)", DorisType.CHAR, length) : DorisType.STRING;
+                return length > 0
+                        ? String.format("%s(%d)", DorisType.CHAR, length)
+                        : DorisType.STRING;
             case "VARCHAR":
             case "NVARCHAR":
                 return length > 0

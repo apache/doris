@@ -50,6 +50,19 @@ class CustomMySqlAntlrDdlParserTest {
     }
 
     @Test
+    void parseAddColumnComment() {
+        Tables tables = tables(table("id"));
+        CustomMySqlAntlrDdlParser parser = parser();
+
+        parser.parse("ALTER TABLE t1 ADD COLUMN city VARCHAR(30) COMMENT 'user city'", tables);
+
+        List<MySqlSchemaChange> changes = parser.getAndClearParsedChanges();
+        assertEquals(1, changes.size());
+        assertEquals("city", changes.get(0).getColumn().name());
+        assertEquals("user city", changes.get(0).getColumn().comment());
+    }
+
+    @Test
     void parseDropColumns() {
         Tables tables = tables(table("id", "age", "city"));
         CustomMySqlAntlrDdlParser parser = parser();

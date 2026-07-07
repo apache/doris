@@ -200,7 +200,7 @@ public class PostgresDebeziumJsonDeserializer extends DebeziumJsonDeserializer {
                             targetTable,
                             col.name(),
                             SchemaChangeHelper.buildAddColumnSql(
-                                    db, targetTable, col.name(), colType, null, null)));
+                                    db, targetTable, col.name(), colType)));
         }
 
         LOG.info(

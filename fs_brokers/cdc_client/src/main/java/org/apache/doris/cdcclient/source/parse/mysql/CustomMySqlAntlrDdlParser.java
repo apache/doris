@@ -17,23 +17,23 @@
 
 package org.apache.doris.cdcclient.source.parse.mysql;
 
+import java.sql.Types;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+
 import io.debezium.antlr.AntlrDdlParserListener;
 import io.debezium.antlr.DataTypeResolver;
 import io.debezium.connector.mysql.antlr.MySqlAntlrDdlParser;
 import io.debezium.ddl.parser.mysql.generated.MySqlParser;
 import io.debezium.relational.Tables;
 
-import java.sql.Types;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
-
 /** MySQL DDL parser that exposes supported column schema changes for Doris. */
 public class CustomMySqlAntlrDdlParser extends MySqlAntlrDdlParser {
     private final List<MySqlSchemaChange> parsedChanges = new ArrayList<>();
 
     public CustomMySqlAntlrDdlParser() {
-        super(true, false, false, null, Tables.TableFilter.includeAll());
+        super(true, false, true, null, Tables.TableFilter.includeAll());
     }
 
     @Override
@@ -277,5 +277,4 @@ public class CustomMySqlAntlrDdlParser extends MySqlAntlrDdlParser {
         parsedChanges.clear();
         return result;
     }
-
 }

@@ -17,52 +17,116 @@
 
 package org.apache.doris.cdcclient.source.parse.mysql;
 
-import io.debezium.connector.mysql.antlr.MySqlAntlrDdlParser;
-import io.debezium.ddl.parser.mysql.generated.MySqlParser;
-import io.debezium.ddl.parser.mysql.generated.MySqlParserBaseListener;
-import io.debezium.relational.Table;
-import io.debezium.relational.TableId;
-
+import java.util.ArrayList;
 import java.util.List;
 
+import io.debezium.connector.mysql.antlr.MySqlAntlrDdlParser;
+import io.debezium.connector.mysql.antlr.listener.ColumnDefinitionParserListener;
+import io.debezium.ddl.parser.mysql.generated.MySqlParser;
+import io.debezium.ddl.parser.mysql.generated.MySqlParserBaseListener;
+import io.debezium.relational.Column;
+import io.debezium.relational.ColumnEditor;
+import io.debezium.relational.TableEditor;
+import io.debezium.relational.TableId;
+import org.antlr.v4.runtime.tree.ParseTreeListener;
+
 final class CustomAlterTableParserListener extends MySqlParserBaseListener {
+    private static final int STARTING_INDEX = 1;
+
     private final MySqlAntlrDdlParser parser;
+    private final List<ParseTreeListener> listeners;
     private final List<MySqlSchemaChange> changes;
+    private List<ColumnEditor> columnEditors;
+    private ColumnDefinitionParserListener columnDefinitionListener;
+    private TableEditor tableEditor;
     private TableId currentTableId;
+    private int parsingColumnIndex = STARTING_INDEX;
 
     CustomAlterTableParserListener(
-            MySqlAntlrDdlParser parser, List<MySqlSchemaChange> changes) {
+            MySqlAntlrDdlParser parser,
+            List<ParseTreeListener> listeners,
+            List<MySqlSchemaChange> changes) {
         this.parser = parser;
+        this.listeners = listeners;
         this.changes = changes;
     }
 
     @Override
     public void enterAlterTable(MySqlParser.AlterTableContext ctx) {
         currentTableId = parser.parseQualifiedTableId(ctx.tableName().fullId());
+        tableEditor = parser.databaseTables().editTable(currentTableId);
         super.enterAlterTable(ctx);
     }
 
     @Override
     public void exitAlterTable(MySqlParser.AlterTableContext ctx) {
         currentTableId = null;
+        tableEditor = null;
         super.exitAlterTable(ctx);
     }
 
     @Override
-    public void exitAlterByAddColumn(MySqlParser.AlterByAddColumnContext ctx) {
+    public void enterAlterByAddColumn(MySqlParser.AlterByAddColumnContext ctx) {
         String columnName = parser.parseName(ctx.uid(0));
-        Table table = parser.databaseTables().forTable(currentTableId);
-        changes.add(MySqlSchemaChange.add(currentTableId, table.columnWithName(columnName)));
+        ColumnEditor columnEditor = Column.editor().name(columnName);
+        columnDefinitionListener =
+                new ColumnDefinitionParserListener(tableEditor, columnEditor, parser, listeners);
+        listeners.add(columnDefinitionListener);
+        super.enterAlterByAddColumn(ctx);
+    }
+
+    @Override
+    public void exitAlterByAddColumn(MySqlParser.AlterByAddColumnContext ctx) {
+        parser.runIfNotNull(
+                () -> {
+                    changes.add(
+                            MySqlSchemaChange.add(
+                                    currentTableId, columnDefinitionListener.getColumn()));
+                    listeners.remove(columnDefinitionListener);
+                },
+                columnDefinitionListener);
         super.exitAlterByAddColumn(ctx);
     }
 
     @Override
-    public void exitAlterByAddColumns(MySqlParser.AlterByAddColumnsContext ctx) {
+    public void enterAlterByAddColumns(MySqlParser.AlterByAddColumnsContext ctx) {
+        columnEditors = new ArrayList<>(ctx.uid().size());
         for (MySqlParser.UidContext uidContext : ctx.uid()) {
             String columnName = parser.parseName(uidContext);
-            Table table = parser.databaseTables().forTable(currentTableId);
-            changes.add(MySqlSchemaChange.add(currentTableId, table.columnWithName(columnName)));
+            columnEditors.add(Column.editor().name(columnName));
         }
+        columnDefinitionListener =
+                new ColumnDefinitionParserListener(
+                        tableEditor, columnEditors.get(0), parser, listeners);
+        listeners.add(columnDefinitionListener);
+        super.enterAlterByAddColumns(ctx);
+    }
+
+    @Override
+    public void exitColumnDefinition(MySqlParser.ColumnDefinitionContext ctx) {
+        parser.runIfNotNull(
+                () -> {
+                    if (columnEditors.size() > parsingColumnIndex) {
+                        columnDefinitionListener.setColumnEditor(
+                                columnEditors.get(parsingColumnIndex++));
+                    }
+                },
+                columnEditors);
+        super.exitColumnDefinition(ctx);
+    }
+
+    @Override
+    public void exitAlterByAddColumns(MySqlParser.AlterByAddColumnsContext ctx) {
+        parser.runIfNotNull(
+                () -> {
+                    for (ColumnEditor columnEditor : columnEditors) {
+                        changes.add(MySqlSchemaChange.add(currentTableId, columnEditor.create()));
+                    }
+                    listeners.remove(columnDefinitionListener);
+                    columnEditors = null;
+                    parsingColumnIndex = STARTING_INDEX;
+                },
+                columnEditors);
         super.exitAlterByAddColumns(ctx);
     }
 

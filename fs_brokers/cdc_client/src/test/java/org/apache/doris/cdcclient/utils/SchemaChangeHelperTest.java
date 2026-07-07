@@ -255,6 +255,14 @@ class SchemaChangeHelperTest {
         assertEquals(DorisType.STRING, mysql("BLOB", Types.BLOB, -1, -1));
     }
 
+    @Test
+    void buildAddColumnSqlWithComment() {
+        assertEquals(
+                "ALTER TABLE `db1`.`t1` ADD COLUMN `city` VARCHAR(30) COMMENT 'user''s city'",
+                SchemaChangeHelper.buildAddColumnSql(
+                        "db1", "t1", "city", "VARCHAR(30)", "user's city"));
+    }
+
     // ─── helper ──────────────────────────────────────────────────────────────
 
     private static String map(String pgType, int length, int scale) {

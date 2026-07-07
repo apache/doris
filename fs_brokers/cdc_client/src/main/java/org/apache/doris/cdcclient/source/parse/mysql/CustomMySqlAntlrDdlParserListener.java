@@ -17,10 +17,14 @@
 
 package org.apache.doris.cdcclient.source.parse.mysql;
 
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
+
 import io.debezium.antlr.AntlrDdlParserListener;
 import io.debezium.antlr.ProxyParseTreeListenerUtil;
 import io.debezium.connector.mysql.antlr.MySqlAntlrDdlParser;
-import io.debezium.connector.mysql.antlr.listener.AlterTableParserListener;
 import io.debezium.connector.mysql.antlr.listener.AlterViewParserListener;
 import io.debezium.connector.mysql.antlr.listener.CreateAndAlterDatabaseParserListener;
 import io.debezium.connector.mysql.antlr.listener.CreateTableParserListener;
@@ -36,16 +40,10 @@ import io.debezium.connector.mysql.antlr.listener.UseStatementParserListener;
 import io.debezium.ddl.parser.mysql.generated.MySqlParser;
 import io.debezium.ddl.parser.mysql.generated.MySqlParserBaseListener;
 import io.debezium.text.ParsingException;
-
 import org.antlr.v4.runtime.ParserRuleContext;
 import org.antlr.v4.runtime.tree.ErrorNode;
 import org.antlr.v4.runtime.tree.ParseTreeListener;
 import org.antlr.v4.runtime.tree.TerminalNode;
-
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.List;
-import java.util.concurrent.CopyOnWriteArrayList;
 
 final class CustomMySqlAntlrDdlParserListener extends MySqlParserBaseListener
         implements AntlrDdlParserListener {
@@ -64,8 +62,7 @@ final class CustomMySqlAntlrDdlParserListener extends MySqlParserBaseListener
         listeners.add(new TruncateTableParserListener(parser));
         listeners.add(new CreateViewParserListener(parser, listeners));
         listeners.add(new AlterViewParserListener(parser, listeners));
-        listeners.add(new AlterTableParserListener(parser, listeners));
-        listeners.add(new CustomAlterTableParserListener(parser, parsedChanges));
+        listeners.add(new CustomAlterTableParserListener(parser, listeners, parsedChanges));
         listeners.add(new DropViewParserListener(parser));
         listeners.add(new CreateUniqueIndexParserListener(parser));
         listeners.add(new SetStatementParserListener(parser));
