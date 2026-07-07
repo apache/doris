@@ -43,7 +43,7 @@ final String NORMAL_QUEUE_CURR_SIZE_NOT_GREATER_THAN_ZERO_MSG = FILE_CACHE_FEATU
 final String NORMAL_QUEUE_CURR_ELEMENTS_NOT_GREATER_THAN_ZERO_MSG = FILE_CACHE_FEATURES_CHECK_FAILED_PREFIX + "normal_queue_curr_elements is not greater than 0 after cache operation"
 final String NORMAL_QUEUE_CURR_SIZE_GREATER_THAN_QUERY_CACHE_CAPACITY_MSG = FILE_CACHE_FEATURES_CHECK_FAILED_PREFIX + "normal_queue_curr_size is greater than query cache capacity"
 
-suite("test_file_cache_query_limit", "p0,external") {
+suite("test_file_cache_query_limit_nocurrent", "p0,external,nonConcurrent") {
     String enableHiveTest = context.config.otherConfigs.get("enableHiveTest")
     if (enableHiveTest == null || !enableHiveTest.equalsIgnoreCase("true")) {
         logger.info("disable hive test.")
@@ -68,6 +68,8 @@ suite("test_file_cache_query_limit", "p0,external") {
     String catalog_name = "test_file_cache_query_limit"
     String ex_db_name = "tpch1_parquet"
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
+    // Derive the Doris node host from FE http address. 
+    String dorisHost = context.config.feHttpAddress.split(":")[0]
     String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
     int queryCacheCapacity
 
@@ -128,7 +130,7 @@ suite("test_file_cache_query_limit", "p0,external") {
     String brpc_port = brpcPortResult[0][3]
 
     // Search file cache capacity
-    def command = ["curl", "-X", "POST", "${externalEnvIp}:${brpc_port}/vars"]
+    def command = ["curl", "-X", "POST", "${dorisHost}:${brpc_port}/vars"]
     def stringCommand = command.collect{it.toString()}
     def process = new ProcessBuilder(stringCommand as String[]).redirectErrorStream(true).start()
 
@@ -149,7 +151,7 @@ suite("test_file_cache_query_limit", "p0,external") {
     logger.info("========================= Start running file cache base test ========================")
 
     // Clear file cache
-    command = ["curl", "-X", "POST", "${externalEnvIp}:${webserver_port}/api/file_cache?op=clear&sync=true"]
+    command = ["curl", "-X", "POST", "${dorisHost}:${webserver_port}/api/file_cache?op=clear&sync=true"]
     stringCommand = command.collect{it.toString()}
     process = new ProcessBuilder(stringCommand as String[]).redirectErrorStream(true).start()
 

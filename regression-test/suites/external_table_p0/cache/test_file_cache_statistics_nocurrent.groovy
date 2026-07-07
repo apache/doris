@@ -41,7 +41,7 @@ final String INITIAL_TOTAL_READ_COUNTS_NOT_GREATER_THAN_0_MSG = HIT_AND_READ_COU
 final String TOTAL_HIT_COUNTS_DID_NOT_INCREASE_MSG = HIT_AND_READ_COUNTS_CHECK_FAILED_PREFIX + "total_hit_counts did not increase after cache operation"
 final String TOTAL_READ_COUNTS_DID_NOT_INCREASE_MSG = HIT_AND_READ_COUNTS_CHECK_FAILED_PREFIX + "total_read_counts did not increase after cache operation"
 
-suite("test_file_cache_statistics", "p0,external") {
+suite("test_file_cache_statistics_nocurrent", "p0,external,nonConcurrent") {
     String enabled = context.config.otherConfigs.get("enableHiveTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
         logger.info("diable Hive test.")
@@ -73,6 +73,13 @@ suite("test_file_cache_statistics", "p0,external") {
     String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
     String hdfs_port = context.config.otherConfigs.get(hivePrefix + "HdfsPort")
 
+    // Disable FE-side caches so the repeated query always reaches the file scan path.
+    sql """set enable_sql_cache=false"""
+    // Disable query cache for the same reason as SQL cache.
+    sql """set enable_query_cache=false"""
+    // Disable hive SQL cache to avoid masking file cache metric changes on external reads.
+    sql """set enable_hive_sql_cache=false"""
+
     sql """set global enable_file_cache=true"""
     sql """drop catalog if exists ${catalog_name} """
 
@@ -98,6 +105,24 @@ suite("test_file_cache_statistics", "p0,external") {
     def totalWaitTime = (fileCacheBackgroundMonitorIntervalMsResult[0][3].toInteger() / 1000) as int
     def interval = 1
     def iterations = totalWaitTime / interval
+    long pollTimeoutSeconds = Math.max(30L, (long) totalWaitTime * 6L)
+
+    // Poll a file_cache_statistics metric until the predicate is satisfied, which avoids
+    // racing the asynchronous metric publication path with a single fixed wait.
+    def pollFileCacheMetric = { String metricName, Closure predicate, long timeoutSeconds ->
+        try {
+            Awaitility.await()
+                    .atMost(timeoutSeconds, TimeUnit.SECONDS)
+                    .pollInterval(1, TimeUnit.SECONDS)
+                    .until {
+                        def result = sql """select SUM(CAST(METRIC_VALUE AS DOUBLE)) from information_schema.file_cache_statistics
+                            where METRIC_NAME = '${metricName}';"""
+                        return result.size() > 0 && result[0][0] != null && predicate(Double.valueOf(result[0][0]))
+                    }
+        } catch (org.awaitility.core.ConditionTimeoutException ignored) {
+            // Fall through and let the caller's assertion report the precise metric failure.
+        }
+    }
 
     (1..iterations).each { count ->
         Thread.sleep(interval * 1000)
@@ -224,6 +249,11 @@ suite("test_file_cache_statistics", "p0,external") {
     order_qt_2 """select * from ${catalog_name}.${ex_db_name}.parquet_partition_table
         where l_orderkey=1 and l_partkey=1534 limit 1;"""
 
+    // Wait until the repeated query has a chance to publish the updated total hit count.
+    pollFileCacheMetric('total_hit_counts', { it > initialHitCounts }, pollTimeoutSeconds)
+    // Wait until the repeated query has a chance to publish the updated total read count.
+    pollFileCacheMetric('total_read_counts', { it > initialReadCounts }, pollTimeoutSeconds)
+
     // Get updated values after cache operations
     def updatedHitCountsResult = sql """select SUM(CAST(METRIC_VALUE AS DOUBLE)) from information_schema.file_cache_statistics
         where METRIC_NAME = 'total_hit_counts';"""
@@ -256,4 +286,3 @@ suite("test_file_cache_statistics", "p0,external") {
     sql """set global enable_file_cache=false"""
     return true
 }
-
