@@ -96,7 +96,6 @@ TEST_F(DataTypeStringTest, MetaInfoTest) {
             .size_of_value_in_memory = 0,
             .precision = size_t(-1),
             .scale = size_t(-1),
-            .is_null_literal = false,
             .pColumnMeta = col_meta.get(),
             .default_field = Field::create_field<TYPE_STRING>(""),
     };
@@ -238,8 +237,6 @@ TEST_F(DataTypeStringTest, ser_deser) {
 TEST_F(DataTypeStringTest, simple_func_test) {
     auto test_func = [](auto& dt) {
         EXPECT_FALSE(dt.have_maximum_size_of_value());
-
-        EXPECT_FALSE(dt.is_null_literal());
 
         EXPECT_TRUE(dt.equals(dt));
 

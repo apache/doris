@@ -145,9 +145,6 @@ public:
 
     virtual bool is_nullable() const { return false; }
 
-    /* the data type create from type_null, NULL literal*/
-    virtual bool is_null_literal() const { return false; }
-
     virtual int64_t get_uncompressed_serialized_bytes(const IColumn& column,
                                                       int be_exec_version) const = 0;
     virtual char* serialize(const IColumn& column, char* buf, int be_exec_version) const = 0;

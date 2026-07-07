@@ -106,11 +106,6 @@ TEST_F(DataTypeDateTimeV2Test, simple_func_test) {
         EXPECT_TRUE(dt.have_maximum_size_of_value());
         EXPECT_EQ(dt.get_size_of_value_in_memory(), sizeof(FieldType));
 
-        EXPECT_FALSE(dt.is_null_literal());
-        dt.set_null_literal(true);
-        EXPECT_TRUE(dt.is_null_literal());
-        dt.set_null_literal(false);
-
         EXPECT_TRUE(dt.equals(dt));
     };
     test_func(dt_datetime_v2_0);

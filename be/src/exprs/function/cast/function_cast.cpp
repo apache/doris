@@ -19,6 +19,7 @@
 
 #include "core/data_type/data_type_agg_state.h"
 #include "core/data_type/data_type_decimal.h"
+#include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h" // IWYU pragma: keep
 #include "core/data_type/data_type_quantilestate.h"
 #include "core/data_type/primitive_type.h"
@@ -80,7 +81,7 @@ WrapperType prepare_unpack_dictionaries(FunctionContext* context, const DataType
     const auto& from_nested = from_type;
     const auto& to_nested = to_type;
 
-    if (from_type->is_null_literal()) {
+    if (remove_nullable(from_type)->get_primitive_type() == INVALID_TYPE) {
         if (!to_nested->is_nullable()) {
             return CastWrapper::create_unsupport_wrapper(
                     "Cannot convert NULL to a non-nullable type");

@@ -91,7 +91,6 @@ public:
     bool is_nullable() const override { return true; }
 
     const DataTypePtr& get_nested_type() const { return nested_data_type; }
-    bool is_null_literal() const override { return nested_data_type->is_null_literal(); }
 
     using SerDeType = DataTypeNullableSerDe;
     DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {

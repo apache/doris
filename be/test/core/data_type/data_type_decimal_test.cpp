@@ -213,7 +213,6 @@ TEST_F(DataTypeDecimalTest, MetaInfoTest) {
             .size_of_value_in_memory = sizeof(Decimal32),
             .precision = tmp_dt->get_precision(),
             .scale = tmp_dt->get_scale(),
-            .is_null_literal = false,
             .pColumnMeta = col_meta.get(),
             .default_field = Field::create_field<TYPE_DECIMAL32>(Decimal32(0)),
     };
@@ -259,8 +258,6 @@ TEST_F(DataTypeDecimalTest, simple_func_test) {
         using FieldType = typename std::remove_reference<DataType>::type::FieldType;
         EXPECT_TRUE(dt.have_maximum_size_of_value());
         EXPECT_EQ(dt.get_size_of_value_in_memory(), sizeof(FieldType));
-
-        EXPECT_FALSE(dt.is_null_literal());
 
         EXPECT_TRUE(dt.equals(dt));
 

@@ -93,7 +93,6 @@ TEST_F(DataTypeJsonbTest, MetaInfoTest) {
             .size_of_value_in_memory = 0,
             .precision = size_t(-1),
             .scale = size_t(-1),
-            .is_null_literal = false,
             .pColumnMeta = col_meta.get(),
             .default_field = Field::create_field<TYPE_JSONB>(JsonbField())};
     auto tmp_dt = DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_JSONB, false);
@@ -235,8 +234,6 @@ TEST_F(DataTypeJsonbTest, ser_deser) {
 TEST_F(DataTypeJsonbTest, simple_func_test) {
     auto test_func = [](auto& dt) {
         EXPECT_FALSE(dt.have_maximum_size_of_value());
-
-        EXPECT_FALSE(dt.is_null_literal());
 
         EXPECT_TRUE(dt.equals(dt));
 

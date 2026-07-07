@@ -80,8 +80,6 @@ public:
     size_t get_size_of_value_in_memory() const override {
         return sizeof(typename PrimitiveTypeTraits<T>::CppType);
     }
-    bool is_null_literal() const override { return _is_null_literal; }
-    void set_null_literal(bool flag) { _is_null_literal = flag; }
     using SerDeType = DataTypeNumberSerDe<T>;
     DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
         return std::make_shared<SerDeType>(nesting_level);
@@ -92,6 +90,5 @@ public:
 
 protected:
 private:
-    bool _is_null_literal = false;
 };
 } // namespace doris

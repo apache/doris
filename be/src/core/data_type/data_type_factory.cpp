@@ -489,11 +489,8 @@ DataTypePtr DataTypeFactory::create_data_type(const PrimitiveType primitive_type
     case TYPE_DECIMAL256:
         nested = create_decimal(precision, scale, false);
         break;
-    // Just Mock A NULL Type in Vec Exec Engine
     case TYPE_NULL: {
-        auto temp_nested = std::make_shared<DataTypeUInt8>();
-        temp_nested->set_null_literal(true);
-        nested = std::move(temp_nested);
+        nested = std::make_shared<DataTypeNothing>();
         break;
     }
     case TYPE_VARBINARY:

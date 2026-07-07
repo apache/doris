@@ -123,7 +123,6 @@ TEST_F(DataTypeNumberTest, MetaInfoTest) {
             .size_of_value_in_memory = sizeof(Int8),
             .precision = size_t(-1),
             .scale = size_t(-1),
-            .is_null_literal = false,
             .pColumnMeta = col_meta.get(),
             .default_field = Field::create_field<TYPE_TINYINT>((Int8)0),
     };
@@ -410,11 +409,6 @@ TEST_F(DataTypeNumberTest, simple_func_test) {
         using FieldType = typename std::remove_reference<DataType>::type::FieldType;
         EXPECT_TRUE(dt.have_maximum_size_of_value());
         EXPECT_EQ(dt.get_size_of_value_in_memory(), sizeof(FieldType));
-
-        EXPECT_FALSE(dt.is_null_literal());
-        dt.set_null_literal(true);
-        EXPECT_TRUE(dt.is_null_literal());
-        dt.set_null_literal(false);
 
         EXPECT_TRUE(dt.equals(dt));
     };
