@@ -81,10 +81,6 @@ public class IvmRefreshManager {
     @VisibleForTesting
     IvmRefreshResult precheck(MTMV mtmv) {
         Objects.requireNonNull(mtmv, "mtmv can not be null");
-        if (mtmv.getIvmInfo().isRunningIvmRefresh()) {
-            return IvmRefreshResult.fallback(IvmFailureReason.PREVIOUS_RUN_INCOMPLETE,
-                    "A previous incremental refresh did not complete; full refresh is required");
-        }
         if (mtmv.getIvmInfo().isBinlogBroken()) {
             return IvmRefreshResult.fallback(IvmFailureReason.BINLOG_BROKEN,
                     "Stream binlog is marked as broken");
@@ -126,10 +122,10 @@ public class IvmRefreshManager {
         StatementContext statementContext = new StatementContext(
                 context.getConnectContext(), new OriginStatement(mtmv.getQuerySql(), 0));
         statementContext.setIvmRewriteContext(Optional.of(
-                IvmRewriteContext.incremental(mtmv, false, false)));
+                IvmRewriteContext.incremental(mtmv, false)));
         InsertIntoTableCommand command = buildInsertCommand(mtmv);
         MTMVPlanUtil.executeCommand(context.getConnectContext(), command,
-                statementContext, mtmv.getQuerySql(), false);
+                statementContext, mtmv.getQuerySql());
     }
 
     @VisibleForTesting

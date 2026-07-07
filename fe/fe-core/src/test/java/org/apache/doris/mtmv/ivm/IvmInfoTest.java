@@ -27,14 +27,12 @@ public class IvmInfoTest {
         IvmInfo info = new IvmInfo();
         info.setEnableIvm(true);
         info.setBinlogBroken(true);
-        info.setRunningIvmRefresh(true);
         info.setPlanSignature("abc123");
 
         IvmInfo copy = new IvmInfo(info);
 
         Assertions.assertTrue(copy.isEnableIvm());
         Assertions.assertTrue(copy.isBinlogBroken());
-        Assertions.assertTrue(copy.isRunningIvmRefresh());
         Assertions.assertEquals("abc123", copy.getPlanSignature());
     }
 
@@ -56,7 +54,6 @@ public class IvmInfoTest {
         IvmInfo info = new IvmInfo();
         Assertions.assertFalse(info.isEnableIvm());
         Assertions.assertFalse(info.isBinlogBroken());
-        Assertions.assertFalse(info.isRunningIvmRefresh());
         Assertions.assertNull(info.getPlanSignature());
     }
 }

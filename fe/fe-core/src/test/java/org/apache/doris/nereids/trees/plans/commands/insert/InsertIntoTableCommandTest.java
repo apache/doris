@@ -170,4 +170,5 @@ class InsertIntoTableCommandTest {
             command.selectInsertExecutorFactory(planner, ctx, stmtExecutor, remoteDorisExternalTable);
         }, "remote olap table do not support group commit");
     }
+
 }

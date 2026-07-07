@@ -97,9 +97,12 @@ public class ExplainRefreshMTMVCommand extends Command implements NoForward {
                             "EXPLAIN REFRESH INCREMENTAL only supports IVM materialized views");
                 }
                 statementContext.setIvmRewriteContext(Optional.of(
-                        IvmRewriteContext.incremental(mtmv, true, true)));
+                        IvmRewriteContext.incremental(mtmv, true)));
                 return createIvmRefreshManager().buildInsertCommand(mtmv);
             case COMPLETE:
+                if (mtmv.isIvm()) {
+                    statementContext.setIvmRewriteContext(Optional.of(IvmRewriteContext.full(mtmv)));
+                }
                 statementContext.setExcludedTriggerTables(mtmv.getExcludedTriggerTables());
                 return UpdateMvByPartitionCommand.from(
                         mtmv, getCompleteRefreshPartitions(mtmv), getIncrementalTableMap(mtmv), statementContext);

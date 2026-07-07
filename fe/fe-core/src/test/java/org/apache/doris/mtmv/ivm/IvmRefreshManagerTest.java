@@ -178,9 +178,9 @@ public class IvmRefreshManagerTest {
     @Test
     public void testManagerPrecheckPassesWithoutStreamCheck() {
         // checkStreamSupport is currently disabled (stream/binlog not ready),
-        // so precheck only checks binlogBroken and runningIvmRefresh.
-        // With both false the precheck passes and the manager proceeds to analyze,
-        // which returns empty bundles → success (no-op).
+        // so precheck only checks binlogBroken.
+        // With binlogBroken false the precheck passes and the manager proceeds to analyze,
+        // which returns empty bundles -> success (no-op).
         MTMV mtmv = mockMtmv();
         IvmInfo ivmInfo = new IvmInfo();
         Mockito.when(mtmv.getIvmInfo()).thenReturn(ivmInfo);
@@ -210,23 +210,6 @@ public class IvmRefreshManagerTest {
 
         Assertions.assertTrue(result.isSuccess());
         Assertions.assertTrue(manager.executeCalled);
-    }
-
-    @Test
-    public void testPrecheckReturnsPreviousRunIncompleteWhenFlagSet() {
-        MTMV mtmv = mockMtmv();
-        IvmInfo ivmInfo = new IvmInfo();
-        ivmInfo.setRunningIvmRefresh(true);
-        Mockito.when(mtmv.getIvmInfo()).thenReturn(ivmInfo);
-
-        TestIvmRefreshManager manager = new TestIvmRefreshManager(newContext(mtmv), Collections.emptyList());
-        manager.useSuperPrecheck = true;
-
-        IvmRefreshResult result = manager.doRefresh(mtmv);
-
-        Assertions.assertFalse(result.isSuccess());
-        Assertions.assertEquals(IvmFailureReason.PREVIOUS_RUN_INCOMPLETE, result.getFailureReason());
-        Assertions.assertFalse(manager.executeCalled);
     }
 
     private void assertKnownExecutionFailureFallback(IvmFailureReason expectedReason, String detail) {

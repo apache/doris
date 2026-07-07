@@ -277,11 +277,11 @@ public class AlterMTMVTest extends TestWithFeService {
 
         // Verify initial state
         IvmInfo initialInfo = mtmv.getIvmInfo();
-        Assertions.assertFalse(initialInfo.isRunningIvmRefresh());
+        Assertions.assertNull(initialInfo.getPlanSignature());
 
-        // Build a modified IvmInfo with runningIvmRefresh=true
+        // Build a modified IvmInfo with planSignature
         IvmInfo newInfo = new IvmInfo();
-        newInfo.setRunningIvmRefresh(true);
+        newInfo.setPlanSignature("sig-1");
 
         // Persist via alterMTMVIvmInfo
         TableNameInfo tableName = new TableNameInfo(mtmv.getQualifiedDbName(), mtmv.getName());
@@ -289,15 +289,15 @@ public class AlterMTMVTest extends TestWithFeService {
 
         // Verify the MTMV's IvmInfo was updated
         IvmInfo updatedInfo = mtmv.getIvmInfo();
-        Assertions.assertTrue(updatedInfo.isRunningIvmRefresh());
+        Assertions.assertEquals("sig-1", updatedInfo.getPlanSignature());
 
         // Reset it back and verify
         IvmInfo resetInfo = new IvmInfo();
-        resetInfo.setRunningIvmRefresh(false);
+        resetInfo.setPlanSignature("sig-2");
         Env.getCurrentEnv().alterMTMVIvmInfo(tableName, resetInfo);
 
         IvmInfo finalInfo = mtmv.getIvmInfo();
-        Assertions.assertFalse(finalInfo.isRunningIvmRefresh());
+        Assertions.assertEquals("sig-2", finalInfo.getPlanSignature());
     }
 
     @Test

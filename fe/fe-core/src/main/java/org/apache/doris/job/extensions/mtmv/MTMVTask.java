@@ -64,6 +64,7 @@ import org.apache.doris.mtmv.ivm.IvmFailureReason;
 import org.apache.doris.mtmv.ivm.IvmPlanSignature;
 import org.apache.doris.mtmv.ivm.IvmRefreshManager;
 import org.apache.doris.mtmv.ivm.IvmRefreshResult;
+import org.apache.doris.mtmv.ivm.IvmRewriteContext;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.trees.plans.commands.UpdateMvByPartitionCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.RefreshMTMVInfo.RefreshMode;
@@ -446,12 +447,6 @@ public class MTMVTask extends AbstractTask {
 
     private PartitionRefreshPlan planPartitionRefresh(List<TableIf> tableIfs, RefreshRequest request)
             throws AnalysisException {
-        if (mtmv.isIvm() && mtmv.getIvmInfo().isRunningIvmRefresh()) {
-            // A failed IVM run may have written partial delta data. Only a
-            // COMPLETE refresh can be used as recovery; PARTITIONS is skipped.
-            return PartitionRefreshPlan.fallback(
-                    "A previous incremental refresh did not complete; full refresh is required");
-        }
         if (request.explicitPartitions) {
             MTMVRefreshContext context = buildRefreshContext(tableIfs);
             return PartitionRefreshPlan.success(context, request.partitions);
@@ -540,14 +535,6 @@ public class MTMVTask extends AbstractTask {
         }
         // TODO(IVM): More pre-execution failures may require direct COMPLETE
         // recovery, such as signature mismatch or invalid binlog state.
-        if (ivmResult.getFailureReason() == IvmFailureReason.PREVIOUS_RUN_INCOMPLETE) {
-            // The previous task already entered the IVM execution phase. If
-            // fallback is allowed, jump directly to COMPLETE recovery instead of
-            // trying PARTITIONS first.
-            LOG.warn("IVM previous run incomplete for mv={}, taskId={}. Continuing with COMPLETE recovery.",
-                    mtmv.getName(), getTaskId());
-            return AttemptResultType.FALLBACK_TO_COMPLETE;
-        }
         if (ivmResult.getFailureReason() == IvmFailureReason.PLAN_SIGNATURE_MISMATCH) {
             LOG.warn("IVM refresh fell back for mv={}, reason={}, detail={}, taskId={}. "
                     + "Continuing with COMPLETE refresh.",
@@ -639,7 +626,8 @@ public class MTMVTask extends AbstractTask {
         try {
             ConnectContext ctx = MTMVPlanUtil.createMTMVContext(
                     mtmv, MTMVPlanUtil.DISABLE_RULES_WHEN_RUN_MTMV_TASK);
-            MTMVAnalyzeQueryInfo analyzeQueryInfo = MTMVPlanUtil.analyzeQueryWithSql(mtmv, ctx, true);
+            MTMVAnalyzeQueryInfo analyzeQueryInfo = MTMVPlanUtil.analyzeQueryWithSql(mtmv, ctx,
+                    Optional.of(IvmRewriteContext.normalize(mtmv)));
             IvmPlanSignature currentSignature = analyzeQueryInfo.getIvmRewriteResult().getPlanSignature();
             IvmRefreshManager.updatePlanSignatureAfterFullRefresh(
                     mtmv, currentSignature.getSha256(), currentSignature.getCanonicalString());
@@ -704,6 +692,9 @@ public class MTMVTask extends AbstractTask {
         mtmvCtx.setStatementContext(statementContext);
         statementContext.setConnectContext(mtmvCtx);
         statementContext.setExcludedTriggerTables(mtmv.getExcludedTriggerTables());
+        if (mtmv.isIvm()) {
+            statementContext.setIvmRewriteContext(Optional.of(IvmRewriteContext.full(mtmv)));
+        }
         for (Entry<MvccTableInfo, MvccSnapshot> entry : snapshots.entrySet()) {
             statementContext.setSnapshot(entry.getKey(), entry.getValue());
         }
@@ -715,9 +706,8 @@ public class MTMVTask extends AbstractTask {
             setComputeGroup(ctx);
             recordComputeGroup(ctx);
         };
-        boolean enableIvmNormalMTMVPlan = mtmv.isIvm();
         executor = MTMVPlanUtil.executeCommand(mtmvCtx, command, statementContext,
-                getDummyStmt(refreshPartitionNames), enableIvmNormalMTMVPlan, customizer);
+                getDummyStmt(refreshPartitionNames), customizer);
         lastQueryId = DebugUtil.printId(executor.getContext().queryId());
         if (getStatus() == TaskStatus.CANCELED) {
             throw new JobException("task is CANCELED");
