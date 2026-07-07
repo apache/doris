@@ -319,8 +319,6 @@ public class CreateMTMVInfo extends CreateTableInfo {
         if (isEnableIvm()) {
             IvmPlanSignature planSignature = mtmvAnalyzeQueryInfo.getIvmRewriteResult().getPlanSignature();
             this.ivmPlanSignature = planSignature.getSha256();
-            LOG.info("IVM layout signature baseline initialized for mv={}, signature={}, canonicalLayout={}",
-                    tableNameInfo.toSql(), this.ivmPlanSignature, planSignature.getCanonicalString());
         } else {
             this.ivmPlanSignature = null;
         }

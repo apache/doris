@@ -46,30 +46,24 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableStreamScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
-import org.apache.doris.nereids.trees.plans.logical.LogicalResultSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 
 import com.google.common.collect.ImmutableList;
 
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
  * Shared helper methods for IVM delta rewrite handlers.
  */
-class IvmDeltaRewriteHelper {
-    static final IvmDeltaRewriteHelper INSTANCE = new IvmDeltaRewriteHelper();
+public class IvmDeltaRewriteHelper {
+    public static final IvmDeltaRewriteHelper INSTANCE = new IvmDeltaRewriteHelper();
 
     private IvmDeltaRewriteHelper() {
-    }
-
-    Plan stripResultSink(Plan plan) {
-        while (plan instanceof LogicalResultSink) {
-            plan = ((LogicalResultSink<?>) plan).child();
-        }
-        return plan;
     }
 
     Slot findSlotByName(List<Slot> slots, String name) {
@@ -172,21 +166,124 @@ class IvmDeltaRewriteHelper {
     }
 
     /**
-     * Wraps the visitor-rewritten plan with a final project that maps dml_factor to delete sign.
+     * Detach the top consecutive project chain so delta rewrite can focus on the normalized query root.
      */
-    Plan buildSinkProject(IvmDeltaRewriteResult result, IvmRefreshContext ctx) {
+    public Pair<Plan, List<LogicalProject<?>>> detachAdaptProjectChain(Plan root) {
+        List<LogicalProject<?>> projects = new java.util.ArrayList<>();
+        Plan current = root;
+        while (current instanceof LogicalProject) {
+            LogicalProject<?> project = (LogicalProject<?>) current;
+            projects.add(project);
+            if (containsDeleteSignPlaceholder(project)) {
+                return Pair.of(project.child(), projects);
+            }
+            current = project.child();
+        }
+        return Pair.of(root, ImmutableList.of());
+    }
+
+    /**
+     * Finalize the rewritten delta plan into the sink query shape, then reattach the detached top projects
+     * while fixing adapter placeholders such as delete_sign/version.
+     */
+    public Plan finalizeQuery(Pair<Plan, List<LogicalProject<?>>> prefixChain,
+            IvmDeltaRewriteResult result, IvmRefreshContext ctx) {
+        LogicalProject<?> finalProject = makeDeleteSignProject(result, ctx);
+        List<LogicalProject<?>> projects = prefixChain.second;
+        if (projects.isEmpty()) {
+            return finalProject;
+        }
+        Plan current = attachAdapterProject(projects.get(projects.size() - 1), finalProject);
+        for (int i = projects.size() - 2; i >= 0; i--) {
+            current = projects.get(i).withChildren(ImmutableList.of(current));
+        }
+        return current;
+    }
+
+    public List<NamedExpression> rebindSinkOutputs(List<NamedExpression> outputs, List<Slot> childOutputs,
+            String context) {
+        Map<String, Slot> outputByName = indexOutputsByName(childOutputs);
+        return outputs.stream()
+                .map(outputExpr -> requireOutputSlot(outputExpr.getName(), outputByName, context))
+                .collect(Collectors.toList());
+    }
+
+    private boolean isDeleteSignAdaptPlaceholder(Alias alias) {
+        return Column.DELETE_SIGN.equals(alias.getName()) && alias.child().isLiteral();
+    }
+
+    private boolean containsDeleteSignPlaceholder(LogicalProject<?> project) {
+        return project.getProjects().stream()
+                .filter(Alias.class::isInstance)
+                .map(Alias.class::cast)
+                .anyMatch(this::isDeleteSignAdaptPlaceholder);
+    }
+
+    private LogicalProject<?> makeDeleteSignProject(IvmDeltaRewriteResult result, IvmRefreshContext ctx) {
         List<Slot> output = result.plan.getOutput();
         List<String> insertedColumns = ctx.getMtmv().getInsertedColumnNames();
-        ImmutableList.Builder<NamedExpression> sinkOutputs = ImmutableList.builderWithExpectedSize(
+        ImmutableList.Builder<NamedExpression> outputs = ImmutableList.builderWithExpectedSize(
                 insertedColumns.size() + 1);
         for (String colName : insertedColumns) {
-            sinkOutputs.add(findSlotByName(output, colName));
+            outputs.add(findSlotByName(output, colName));
         }
-        sinkOutputs.add(new Alias(
+        outputs.add(new Alias(
                 new If(new LessThan(result.dmlFactorSlot, new TinyIntLiteral((byte) 0)),
                         new TinyIntLiteral((byte) 1), new TinyIntLiteral((byte) 0)),
                 Column.DELETE_SIGN));
-        return new LogicalProject<>(sinkOutputs.build(), result.plan);
+        return new LogicalProject<>(outputs.build(), result.plan);
+    }
+
+    private LogicalProject<?> attachAdapterProject(LogicalProject<?> adapterProject, LogicalProject<?> finalProject) {
+        Map<String, Slot> childOutputByName = indexOutputsByName(finalProject.getOutput());
+        List<NamedExpression> rewrittenAdapterProjects = new java.util.ArrayList<>(adapterProject.getProjects().size());
+        for (NamedExpression project : adapterProject.getProjects()) {
+            if (project instanceof Alias && isDeleteSignAdaptPlaceholder((Alias) project)) {
+                Alias alias = (Alias) project;
+                Slot childSlot = childOutputByName.get(project.getName());
+                if (childSlot != null) {
+                    rewrittenAdapterProjects.add(
+                            new Alias(alias.getExprId(), childSlot, alias.getName(), alias.isNameFromChild()));
+                    continue;
+                }
+            }
+            if (!(project instanceof Alias)) {
+                throw new IvmException(IvmFailureReason.PLAN_REWRITE_FAILED,
+                        "IVM adapter project expects alias output: " + project);
+            }
+            Alias alias = (Alias) project;
+            Slot childSlot = childOutputByName.get(alias.getName());
+            if (childSlot == null) {
+                if (Column.VERSION_COL.equals(alias.getName())) {
+                    rewrittenAdapterProjects.add(alias);
+                    continue;
+                }
+                throw new IvmException(IvmFailureReason.PLAN_REWRITE_FAILED,
+                        "IVM adapter project output mismatch, missing slot="
+                                + alias.getName() + ", childOutputs=" + childOutputByName.keySet());
+            }
+            rewrittenAdapterProjects.add(
+                    new Alias(alias.getExprId(), childSlot, alias.getName(), alias.isNameFromChild()));
+        }
+        return adapterProject.withProjectsAndChild(rewrittenAdapterProjects, finalProject);
+    }
+
+    private Map<String, Slot> indexOutputsByName(List<Slot> outputs) {
+        Map<String, Slot> outputByName = new LinkedHashMap<>();
+        for (Slot output : outputs) {
+            outputByName.putIfAbsent(output.getName(), output);
+        }
+        return outputByName;
+    }
+
+    private Slot requireOutputSlot(String name, Map<String, Slot> outputByName, String context) {
+        Slot slot = outputByName.get(name);
+        if (slot != null) {
+            return slot;
+        }
+        throw new IvmException(IvmFailureReason.PLAN_REWRITE_FAILED,
+                "IVM incremental refresh output mismatch, missing slot="
+                        + name + ", childOutputs=" + outputByName.keySet() + ", context=" + context);
     }
 
     /**

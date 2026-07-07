@@ -18,6 +18,7 @@
 package org.apache.doris.mtmv.ivm;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.exploration.join.JoinReorderContext;
@@ -33,7 +34,6 @@ import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
@@ -466,13 +466,14 @@ class IvmJoinDeltaHandlerTest extends IvmDeltaTestBase {
         NormalizedOuterJoinPlan bundle = normalizedOuterJoin(rowIdProject(leftSnapshot), rowIdProject(rightDelta));
 
         IvmRefreshContext ctx = newRefreshContext(bundle.topProject, bundle.rewriteResult);
-
-        List<Command> commands = IvmDeltaCommandBuilder.INSTANCE.rewrite(bundle.topProject, ctx);
-
-        Assertions.assertEquals(1, commands.size());
-        UnboundTableSink<?> sink = getSink((InsertIntoTableCommand) commands.get(0));
+        IvmDeltaRewriteResult result = new TestableIvmJoinDeltaHandler().exposeRewritePlan(bundle.topProject, ctx);
+        Plan finalQuery = IvmDeltaRewriteHelper.INSTANCE.finalizeQuery(
+                Pair.of(result.plan, ImmutableList.of()), result, ctx);
+        InsertIntoTableCommand command = new IvmRefreshManager().buildInsertCommand(
+                (org.apache.doris.nereids.trees.plans.logical.LogicalPlan) finalQuery, ctx.getMtmv());
+        UnboundTableSink<?> sink = getSink(command);
         Assertions.assertTrue(sink.getColNames().contains(Column.IVM_ROW_ID_COL));
-        Assertions.assertEquals(Column.DELETE_SIGN, sink.getColNames().get(sink.getColNames().size() - 1));
+        Assertions.assertFalse(sink.getColNames().contains(Column.DELETE_SIGN));
         Assertions.assertInstanceOf(LogicalProject.class, sink.child());
     }
 

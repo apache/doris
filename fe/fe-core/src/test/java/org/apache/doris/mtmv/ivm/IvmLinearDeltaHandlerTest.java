@@ -72,16 +72,8 @@ class IvmLinearDeltaHandlerTest extends IvmDeltaTestBase {
             return visitor.rewritePlan(plan, ctx);
         }
 
-        private Plan exposeStripResultSink(Plan plan) {
-            return helper.stripResultSink(plan);
-        }
-
         private Slot exposeFindSlotByName(List<Slot> slots, String name) {
             return helper.findSlotByName(slots, name);
-        }
-
-        private Command exposeBuildInsertCommand(Plan plan, IvmRefreshContext ctx) {
-            return IvmDeltaCommandBuilder.INSTANCE.buildCommandWithDeleteSign(plan, ctx);
         }
     }
 
@@ -97,15 +89,23 @@ class IvmLinearDeltaHandlerTest extends IvmDeltaTestBase {
         return mtmv;
     }
 
+    private InsertIntoTableCommand buildIncrementalInsertCommand(Plan sinkChild, MTMV mtmv) {
+        ConnectContext connectContext = new ConnectContext();
+        IvmRewriteResult rewriteResult = new IvmRewriteResult();
+        Plan rewritten = new IvmDeltaRewriter().generateIncrementalRefreshPlan(
+                sinkChild, rewriteResult, IvmRewriteContext.incremental(mtmv, false, false), connectContext);
+        Assertions.assertNotNull(rewritten);
+        return new IvmRefreshManager().buildInsertCommand((org.apache.doris.nereids.trees.plans.logical.LogicalPlan) rewritten,
+                mtmv);
+    }
+
     @Test
     void testRewriteProducesInsertBundle() {
         MTMV mtmv = mockMtmv();
         LogicalOlapScan scan = buildDeltaScan();
-        IvmRefreshContext ctx = new IvmRefreshContext(mtmv, new ConnectContext(), null);
-        InsertIntoTableCommand command = (InsertIntoTableCommand) IvmDeltaCommandBuilder.INSTANCE
-                .rewrite(buildScanPlan(scan), ctx).get(0);
+        InsertIntoTableCommand command = buildIncrementalInsertCommand(buildScanPlan(scan).child(), mtmv);
         UnboundTableSink<?> sink = getSink(command);
-        Assertions.assertTrue(sink.getColNames().contains(Column.DELETE_SIGN));
+        Assertions.assertEquals(mtmv.getInsertedColumnNames(), sink.getColNames());
     }
 
     @Test
@@ -201,17 +201,6 @@ class IvmLinearDeltaHandlerTest extends IvmDeltaTestBase {
     }
 
     @Test
-    void testStripResultSinkReturnsInnerPlan() {
-        LogicalOlapScan scan = buildScan();
-        LogicalProject<LogicalOlapScan> project = new LogicalProject<>(ImmutableList.copyOf(scan.getOutput()), scan);
-        LogicalResultSink<LogicalProject<LogicalOlapScan>> sink = new LogicalResultSink<>(
-                ImmutableList.copyOf(scan.getOutput()), project);
-        TestableIvmLinearDeltaHandler handler = new TestableIvmLinearDeltaHandler();
-
-        Assertions.assertSame(project, handler.exposeStripResultSink(sink));
-    }
-
-    @Test
     void testFindSlotByNameReturnsMatchingSlot() {
         LogicalOlapScan scan = buildScan();
         TestableIvmLinearDeltaHandler handler = new TestableIvmLinearDeltaHandler();
@@ -239,21 +228,18 @@ class IvmLinearDeltaHandlerTest extends IvmDeltaTestBase {
         LogicalOlapScan scan = buildScan();
         IvmRefreshContext ctx = new IvmRefreshContext(mtmv, new ConnectContext(), null);
         TestableIvmLinearDeltaHandler handler = new TestableIvmLinearDeltaHandler();
-        Command command = handler.exposeBuildInsertCommand(
-                new LogicalProject<>(ImmutableList.of((NamedExpression) scan.getOutput().get(0)), scan), ctx);
+        Command command = new IvmRefreshManager().buildInsertCommand(
+                new LogicalProject<>(ImmutableList.of((NamedExpression) scan.getOutput().get(0)), scan), mtmv);
 
         UnboundTableSink<?> sink = getSink((InsertIntoTableCommand) command);
-        Assertions.assertEquals(ImmutableList.of("id", Column.DELETE_SIGN), sink.getColNames());
+        Assertions.assertEquals(ImmutableList.of("id"), sink.getColNames());
     }
 
     @Test
     void testRewriteBuildsDeleteSignIfExpression() {
         MTMV mtmv = mockMtmv();
         LogicalOlapScan scan = buildDeltaScan();
-        IvmRefreshContext ctx = new IvmRefreshContext(mtmv, new ConnectContext(), null);
-        InsertIntoTableCommand command = (InsertIntoTableCommand) IvmDeltaCommandBuilder.INSTANCE
-                .rewrite(buildScanPlan(scan), ctx)
-                .get(0);
+        InsertIntoTableCommand command = buildIncrementalInsertCommand(buildScanPlan(scan).child(), mtmv);
         UnboundTableSink<?> sink = getSink(command);
         LogicalProject<?> sinkProject = (LogicalProject<?>) sink.child();
         NamedExpression lastExpr = sinkProject.getProjects().get(sinkProject.getProjects().size() - 1);

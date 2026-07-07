@@ -38,6 +38,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanConstructor;
 import org.apache.doris.qe.ConnectContext;
@@ -140,7 +141,8 @@ class IvmIncrRefreshMtmvTest {
     void testReplacesSinkChildWithDeltaPlanAndMarksRunOnce() {
         LogicalOlapTableSink<Plan> sink = newSink(mtmv, scan);
         LogicalProject<Plan> deltaPlan = new LogicalProject<>(
-                ImmutableList.of((NamedExpression) scan.getOutput().get(0)), scan);
+                ImmutableList.of(new org.apache.doris.nereids.trees.expressions.Alias(
+                        scan.getOutput().get(0), scan.getOutput().get(0).getName())), scan);
         RecordingRule rule = new RecordingRule(deltaPlan);
         IvmRewriteResult rewriteResult = newRewriteResult(SIGNATURE);
         JobContext jobContext = newJobContext(sink,
@@ -151,12 +153,47 @@ class IvmIncrRefreshMtmvTest {
         Assertions.assertInstanceOf(LogicalOlapTableSink.class, result);
         LogicalOlapTableSink<?> rewrittenSink = (LogicalOlapTableSink<?>) result;
         Assertions.assertSame(deltaPlan, rewrittenSink.child());
+        Assertions.assertEquals(deltaPlan.getOutput().get(0).getExprId(),
+                rewrittenSink.getOutputExprs().get(0).getExprId());
         Assertions.assertTrue(rewriteResult.isIncrRefreshRewritten());
         Assertions.assertEquals(1, rule.rewriter.callCount);
         Assertions.assertSame(sink.child(), rule.rewriter.normalizedPlan);
         Assertions.assertSame(rewriteResult, rule.rewriter.rewriteResult);
         Assertions.assertTrue(rule.rewriter.rewriteContext.isIncludeUpToDateStreams());
         Assertions.assertTrue(rule.rewriter.rewriteContext.isDryRun());
+    }
+
+    @Test
+    void testPreservesSinkAdapterProjectWhenRewritingDeltaPlan() {
+        LogicalProject<Plan> adapterProject = new LogicalProject<>(ImmutableList.of(
+                new org.apache.doris.nereids.trees.expressions.Alias(new IntegerLiteral(0), Column.DELETE_SIGN),
+                new org.apache.doris.nereids.trees.expressions.Alias(scan.getOutput().get(0), "id"),
+                new org.apache.doris.nereids.trees.expressions.Alias(new IntegerLiteral(0), Column.VERSION_COL)
+        ), scan);
+        LogicalOlapTableSink<Plan> sink = new LogicalOlapTableSink<>(
+                new Database(),
+                mtmv,
+                ImmutableList.of(new Column("id", scan.getOutput().get(0).getDataType().toCatalogDataType())),
+                new ArrayList<>(),
+                ImmutableList.of((NamedExpression) scan.getOutput().get(0)),
+                false,
+                TPartialUpdateNewRowPolicy.APPEND,
+                DMLCommandType.NONE,
+                adapterProject);
+        LogicalProject<Plan> deltaPlan = new LogicalProject<>(
+                ImmutableList.of(
+                        new org.apache.doris.nereids.trees.expressions.Alias(scan.getOutput().get(0), "id")
+                ), scan);
+        RecordingRule rule = new RecordingRule(deltaPlan);
+
+        Plan result = rule.rewriteRoot(sink, newJobContext(sink,
+                IvmRewriteContext.incremental(mtmv, false, false), newRewriteResult(SIGNATURE)));
+
+        LogicalOlapTableSink<?> rewrittenSink = (LogicalOlapTableSink<?>) result;
+        Assertions.assertSame(deltaPlan, rewrittenSink.child());
+        Assertions.assertEquals(1, rewrittenSink.getOutputExprs().size());
+        Assertions.assertEquals("id", rewrittenSink.getOutputExprs().get(0).getName());
+        Assertions.assertSame(adapterProject, rule.rewriter.normalizedPlan);
     }
 
     @Test
@@ -187,7 +224,7 @@ class IvmIncrRefreshMtmvTest {
         Assertions.assertInstanceOf(LogicalOlapTableSink.class, result);
         LogicalOlapTableSink<?> rewrittenSink = (LogicalOlapTableSink<?>) result;
         Assertions.assertInstanceOf(LogicalEmptyRelation.class, rewrittenSink.child());
-        Assertions.assertEquals(sink.getOutputExprs().size(), rewrittenSink.child().getOutput().size());
+        Assertions.assertEquals(sink.child().getOutput().size(), rewrittenSink.child().getOutput().size());
         Assertions.assertEquals(1, rule.rewriter.callCount);
     }
 
@@ -201,6 +238,7 @@ class IvmIncrRefreshMtmvTest {
             IvmRewriteResult rewriteResult) {
         ConnectContext connectContext = MemoTestUtils.createConnectContext();
         StatementContext statementContext = new StatementContext(connectContext, null);
+        connectContext.setStatementContext(statementContext);
         if (rewriteContext != null) {
             statementContext.setIvmRewriteContext(Optional.of(rewriteContext));
         }
@@ -271,6 +309,10 @@ class IvmIncrRefreshMtmvTest {
             this.normalizedPlan = normalizedPlan;
             this.rewriteResult = rewriteResult;
             this.rewriteContext = rewriteContext;
+            if (deltaPlan == null) {
+                return new LogicalEmptyRelation(
+                        connectContext.getStatementContext().getNextRelationId(), normalizedPlan.getOutput());
+            }
             return deltaPlan;
         }
     }
