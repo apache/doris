@@ -50,6 +50,7 @@
 #include "core/string_ref.h"
 #include "exec/common/stringop_substring.h"
 #include "exec/rowid_fetcher.h"
+#include "exec/scan/file_scanner_counter_helper.h"
 #include "exec/scan/scan_node.h"
 #include "exprs/aggregate/aggregate_function.h"
 #include "exprs/function/function.h"
@@ -996,7 +997,11 @@ Status FileScanner::_get_next_reader() {
     while (true) {
         if (_cur_reader) {
             _cur_reader->collect_profile_before_close();
-            RETURN_IF_ERROR(_cur_reader->close());
+            Status close_st = _cur_reader->close();
+            // Flush the completed range after reader close() so close-time cache updates
+            // remain attributed to the current range.
+            _flush_scan_byte_counters_for_current_range();
+            RETURN_IF_ERROR(close_st);
             _state->update_num_finished_scan_range(1);
         }
         _cur_reader.reset(nullptr);
@@ -2037,10 +2042,14 @@ Status FileScanner::close(RuntimeState* state) {
     }
 
     _finalize_reader_condition_cache();
-
+    Status close_st = Status::OK();
     if (_cur_reader) {
-        RETURN_IF_ERROR(_cur_reader->close());
+        close_st = _cur_reader->close();
     }
+    // Flush any bytes that were produced after the last scheduler callback, including
+    // cache updates completed during reader close().
+    _flush_scan_byte_counters_for_current_range();
+    RETURN_IF_ERROR(close_st);
 
     RETURN_IF_ERROR(Scanner::close(state));
     return Status::OK();
@@ -2053,52 +2062,50 @@ void FileScanner::try_stop() {
     }
 }
 
+void FileScanner::_flush_scan_byte_counters_for_current_range() {
+    const int64_t read_bytes_delta = _file_reader_stats->read_bytes;
+    const int64_t current_cache_local = _file_cache_statistics->bytes_read_from_local;
+    const int64_t current_cache_remote = _file_cache_statistics->bytes_read_from_remote;
+    const int64_t cache_local_delta = current_cache_local - _last_bytes_read_from_local;
+    const int64_t cache_remote_delta = current_cache_remote - _last_bytes_read_from_remote;
+    DORIS_CHECK_GE(cache_local_delta, 0);
+    DORIS_CHECK_GE(cache_remote_delta, 0);
+    if (read_bytes_delta == 0 && cache_local_delta == 0 && cache_remote_delta == 0) {
+        return;
+    }
+
+    FileScanLocalState* local_state = static_cast<FileScanLocalState*>(_local_state);
+    const auto buckets = compute_scan_byte_buckets(read_bytes_delta, cache_local_delta,
+                                                   cache_remote_delta, _current_range, *_params);
+    // Total scan bytes follow traced reader bytes, while storage buckets follow physical cache
+    // source bytes. In particular, a cache-only delta must not be folded into FileReadBytes.
+    COUNTER_UPDATE(local_state->_scan_bytes, read_bytes_delta);
+    COUNTER_UPDATE(_file_read_bytes_counter, read_bytes_delta);
+    _state->get_query_ctx()->resource_ctx()->io_context()->update_scan_bytes(read_bytes_delta);
+    _state->get_query_ctx()->resource_ctx()->io_context()->update_scan_bytes_from_local_storage(
+            buckets.local_bytes);
+    _state->get_query_ctx()->resource_ctx()->io_context()->update_scan_bytes_from_remote_storage(
+            buckets.remote_bytes);
+    DorisMetrics::instance()->query_scan_bytes->increment(read_bytes_delta);
+    DorisMetrics::instance()->query_scan_bytes_from_local->increment(buckets.local_bytes);
+    DorisMetrics::instance()->query_scan_bytes_from_remote->increment(buckets.remote_bytes);
+
+    _file_reader_stats->read_bytes = 0;
+    _last_bytes_read_from_local = current_cache_local;
+    _last_bytes_read_from_remote = current_cache_remote;
+}
+
 void FileScanner::update_realtime_counters() {
     FileScanLocalState* local_state = static_cast<FileScanLocalState*>(_local_state);
 
-    COUNTER_UPDATE(local_state->_scan_bytes, _file_reader_stats->read_bytes);
     COUNTER_UPDATE(local_state->_scan_rows, _file_reader_stats->read_rows);
 
     _state->get_query_ctx()->resource_ctx()->io_context()->update_scan_rows(
             _file_reader_stats->read_rows);
-    _state->get_query_ctx()->resource_ctx()->io_context()->update_scan_bytes(
-            _file_reader_stats->read_bytes);
-
-    int64_t delta_bytes_read_from_local =
-            _file_cache_statistics->bytes_read_from_local - _last_bytes_read_from_local;
-    int64_t delta_bytes_read_from_remote =
-            _file_cache_statistics->bytes_read_from_remote - _last_bytes_read_from_remote;
-    if (_file_cache_statistics->bytes_read_from_local == 0 &&
-        _file_cache_statistics->bytes_read_from_remote == 0) {
-        _state->get_query_ctx()
-                ->resource_ctx()
-                ->io_context()
-                ->update_scan_bytes_from_remote_storage(_file_reader_stats->read_bytes);
-        DorisMetrics::instance()->query_scan_bytes_from_local->increment(
-                _file_reader_stats->read_bytes);
-    } else {
-        _state->get_query_ctx()->resource_ctx()->io_context()->update_scan_bytes_from_local_storage(
-                delta_bytes_read_from_local);
-        _state->get_query_ctx()
-                ->resource_ctx()
-                ->io_context()
-                ->update_scan_bytes_from_remote_storage(delta_bytes_read_from_remote);
-        DorisMetrics::instance()->query_scan_bytes_from_local->increment(
-                delta_bytes_read_from_local);
-        DorisMetrics::instance()->query_scan_bytes_from_remote->increment(
-                delta_bytes_read_from_remote);
-    }
-
-    COUNTER_UPDATE(_file_read_bytes_counter, _file_reader_stats->read_bytes);
-
-    DorisMetrics::instance()->query_scan_bytes->increment(_file_reader_stats->read_bytes);
+    _flush_scan_byte_counters_for_current_range();
     DorisMetrics::instance()->query_scan_rows->increment(_file_reader_stats->read_rows);
 
-    _file_reader_stats->read_bytes = 0;
     _file_reader_stats->read_rows = 0;
-
-    _last_bytes_read_from_local = _file_cache_statistics->bytes_read_from_local;
-    _last_bytes_read_from_remote = _file_cache_statistics->bytes_read_from_remote;
 }
 
 bool FileScanner::_should_update_load_counters() const {
@@ -2128,11 +2135,11 @@ void FileScanner::_collect_profile_before_close() {
         _cur_reader->collect_profile_before_close();
     }
 
+    // Flush bytes through the shared path so close-time accounting cannot diverge from runtime.
+    _flush_scan_byte_counters_for_current_range();
     FileScanLocalState* local_state = static_cast<FileScanLocalState*>(_local_state);
-    COUNTER_UPDATE(local_state->_scan_bytes, _file_reader_stats->read_bytes);
     COUNTER_UPDATE(local_state->_scan_rows, _file_reader_stats->read_rows);
 
-    COUNTER_UPDATE(_file_read_bytes_counter, _file_reader_stats->read_bytes);
     COUNTER_UPDATE(_file_read_calls_counter, _file_reader_stats->read_calls);
     COUNTER_UPDATE(_file_read_time_counter, _file_reader_stats->read_time_ns);
     COUNTER_UPDATE(local_state->_condition_cache_hit_counter, _condition_cache_hit_count);
@@ -2141,7 +2148,6 @@ void FileScanner::_collect_profile_before_close() {
                        _io_ctx->condition_cache_filtered_rows);
     }
 
-    DorisMetrics::instance()->query_scan_bytes->increment(_file_reader_stats->read_bytes);
     DorisMetrics::instance()->query_scan_rows->increment(_file_reader_stats->read_rows);
 }
 

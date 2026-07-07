@@ -111,6 +111,9 @@ protected:
 
     Status _get_next_reader();
 
+    // Flush byte counters before the scanner switches away from the current range.
+    void _flush_scan_byte_counters_for_current_range();
+
     // Build a ReaderInitContext with shared fields from FileScanner members.
     void _fill_base_init_context(ReaderInitContext* ctx);
 

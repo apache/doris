@@ -29,8 +29,12 @@
 #include "cpp/sync_point.h"
 #include "exec/operator/file_scan_operator.h"
 #include "exec/scan/file_scanner.h"
+#include "exec/scan/file_scanner_counter_helper.h"
+#include "exec/scan/file_scanner_v2.h"
 #include "exec/scan/split_source_connector.h"
+#include "format/generic_reader.h"
 #include "format_v2/table/hive_reader.h"
+#include "format_v2/table_reader.h"
 #include "io/fs/local_file_system.h"
 #include "load/group_commit/wal/wal_manager.h"
 #include "runtime/cluster_info.h"
@@ -38,8 +42,19 @@
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/runtime_state.h"
 #include "runtime/user_function_cache.h"
+#include "testutil/mock/mock_query_context.h"
 
 namespace doris {
+
+namespace {
+
+// Reuse Doris test query context to provide a ready-to-use ResourceContext in UT.
+std::shared_ptr<QueryContext> create_ut_query_context() {
+    return MockQueryContext::create();
+}
+
+} // namespace
+
 class TestSplitSourceConnectorStub : public SplitSourceConnector {
 private:
     std::mutex _range_lock;
@@ -65,10 +80,84 @@ public:
     TFileScanRangeParams* get_params() override { return &_scan_range.params; }
 };
 
+struct FakeTableReaderStep {
+    int64_t total_read_bytes = 0;
+    int64_t total_cache_local_bytes = 0;
+    int64_t total_cache_remote_bytes = 0;
+    bool eof = false;
+};
+
+class FakeTableReader final : public format::TableReader {
+public:
+    FakeTableReader(io::FileReaderStats* file_reader_stats,
+                    io::FileCacheStatistics* file_cache_statistics,
+                    std::vector<FakeTableReaderStep> steps)
+            : _file_reader_stats(file_reader_stats),
+              _file_cache_statistics(file_cache_statistics),
+              _steps(std::move(steps)) {}
+
+    Status prepare_split(const format::SplitReadOptions& options) override {
+        _prepared_ranges.push_back(options.current_range.path);
+        return Status::OK();
+    }
+
+    Status get_block(Block* block, bool* eos) override {
+        static_cast<void>(block);
+        DORIS_CHECK_LT(_next_step, _steps.size());
+        const auto& step = _steps[_next_step++];
+        _file_reader_stats->read_bytes = step.total_read_bytes;
+        _file_cache_statistics->bytes_read_from_local = step.total_cache_local_bytes;
+        _file_cache_statistics->bytes_read_from_remote = step.total_cache_remote_bytes;
+        *eos = step.eof;
+        return Status::OK();
+    }
+
+    Status close() override { return Status::OK(); }
+
+    const std::vector<std::string>& prepared_ranges() const { return _prepared_ranges; }
+
+private:
+    io::FileReaderStats* _file_reader_stats;
+    io::FileCacheStatistics* _file_cache_statistics;
+    std::vector<FakeTableReaderStep> _steps;
+    size_t _next_step = 0;
+    std::vector<std::string> _prepared_ranges;
+};
+
+class FakeGenericReader final : public GenericReader {
+public:
+    FakeGenericReader(io::FileCacheStatistics* file_cache_statistics,
+                      int64_t close_cache_local_bytes, int64_t close_cache_remote_bytes)
+            : _file_cache_statistics(file_cache_statistics),
+              _close_cache_local_bytes(close_cache_local_bytes),
+              _close_cache_remote_bytes(close_cache_remote_bytes) {}
+
+    Status close() override {
+        _file_cache_statistics->bytes_read_from_local += _close_cache_local_bytes;
+        _file_cache_statistics->bytes_read_from_remote += _close_cache_remote_bytes;
+        return Status::OK();
+    }
+
+protected:
+    Status _do_get_next_block(Block* block, size_t* read_rows, bool* eof) override {
+        static_cast<void>(block);
+        *read_rows = 0;
+        *eof = true;
+        return Status::OK();
+    }
+
+private:
+    io::FileCacheStatistics* _file_cache_statistics;
+    int64_t _close_cache_local_bytes;
+    int64_t _close_cache_remote_bytes;
+};
+
 class VfileScannerExceptionTest : public testing::Test {
 public:
     VfileScannerExceptionTest()
-            : _runtime_state(TQueryOptions(), TQueryGlobals()),
+            : _query_ctx(create_ut_query_context()),
+              _runtime_state(TUniqueId(), 0, TQueryOptions(), TQueryGlobals(),
+                             ExecEnv::GetInstance(), _query_ctx.get()),
               _global_profile("<global profile>") {
         _runtime_state.resize_op_id_to_local_state(-1);
         init();
@@ -78,6 +167,7 @@ public:
     }
     void init();
     void generate_scanner(std::shared_ptr<FileScanner>& scanner);
+    void generate_scanner_v2(std::shared_ptr<FileScannerV2>& scanner);
 
     void TearDown() override {
         WARN_IF_ERROR(_scan_node->close(&_runtime_state), "fail to close scan_node")
@@ -95,6 +185,8 @@ private:
     std::string _label_2 = "test2";
 
     TupleId _dst_tuple_id = 0;
+    // Keep the query context alive for the lifetime of RuntimeState in this test fixture.
+    std::shared_ptr<QueryContext> _query_ctx;
     RuntimeState _runtime_state;
     RuntimeProfile _global_profile;
     RuntimeProfile* _profile;
@@ -286,6 +378,17 @@ void VfileScannerExceptionTest::generate_scanner(std::shared_ptr<FileScanner>& s
     WARN_IF_ERROR(scanner->init(&_runtime_state, _conjuncts), "fail to prepare scanner");
 }
 
+void VfileScannerExceptionTest::generate_scanner_v2(std::shared_ptr<FileScannerV2>& scanner) {
+    auto split_source = std::make_shared<TestSplitSourceConnectorStub>(_scan_range);
+    std::unordered_map<std::string, int> _colname_to_slot_id;
+    scanner = std::make_shared<FileScannerV2>(
+            &_runtime_state, &(_runtime_state.get_local_state(0)->cast<FileScanLocalState>()), -1,
+            split_source, _profile, _kv_cache.get(), &_colname_to_slot_id);
+    scanner->_is_load = false;
+    VExprContextSPtrs _conjuncts;
+    WARN_IF_ERROR(scanner->init(&_runtime_state, _conjuncts), "fail to prepare scanner v2");
+}
+
 TEST_F(VfileScannerExceptionTest, failure_case) {
     std::shared_ptr<FileScanner> scanner = nullptr;
     generate_scanner(scanner);
@@ -339,6 +442,241 @@ TEST_F(VfileScannerExceptionTest, process_late_arrival_conjuncts_retain) {
     ASSERT_EQ(scanner->_push_down_conjuncts.size(), 1);
 
     WARN_IF_ERROR(scanner->close(&_runtime_state), "fail to close scanner");
+}
+
+TEST_F(VfileScannerExceptionTest, fallback_scan_bytes_follow_file_type) {
+    // Verify that range-level file types override deprecated params-level file types.
+    _scan_range.params.file_type = TFileType::FILE_S3;
+    _scan_range.params.__isset.file_type = true;
+    _scan_range.ranges[0].file_type = TFileType::FILE_LOCAL;
+    _scan_range.ranges[0].__isset.file_type = true;
+    std::shared_ptr<FileScanner> local_scanner = nullptr;
+    generate_scanner(local_scanner);
+    local_scanner->_current_range = _scan_range.ranges[0];
+    int64_t local_before = _runtime_state.get_query_ctx()
+                                   ->resource_ctx()
+                                   ->io_context()
+                                   ->scan_bytes_from_local_storage();
+    int64_t remote_before = _runtime_state.get_query_ctx()
+                                    ->resource_ctx()
+                                    ->io_context()
+                                    ->scan_bytes_from_remote_storage();
+    local_scanner->_file_reader_stats->read_bytes = 128;
+    local_scanner->update_realtime_counters();
+    EXPECT_EQ(local_before + 128, _runtime_state.get_query_ctx()
+                                          ->resource_ctx()
+                                          ->io_context()
+                                          ->scan_bytes_from_local_storage());
+    EXPECT_EQ(remote_before, _runtime_state.get_query_ctx()
+                                     ->resource_ctx()
+                                     ->io_context()
+                                     ->scan_bytes_from_remote_storage());
+    local_scanner->update_realtime_counters();
+    EXPECT_EQ(local_before + 128, _runtime_state.get_query_ctx()
+                                          ->resource_ctx()
+                                          ->io_context()
+                                          ->scan_bytes_from_local_storage());
+    WARN_IF_ERROR(local_scanner->close(&_runtime_state), "fail to close scanner");
+
+    // Verify that params-level file type still works for old FE plans.
+    _scan_range.ranges[0].__isset.file_type = false;
+    _scan_range.params.file_type = TFileType::FILE_LOCAL;
+    _scan_range.params.__isset.file_type = true;
+    std::shared_ptr<FileScanner> compat_scanner = nullptr;
+    generate_scanner(compat_scanner);
+    compat_scanner->_current_range = _scan_range.ranges[0];
+    local_before = _runtime_state.get_query_ctx()
+                           ->resource_ctx()
+                           ->io_context()
+                           ->scan_bytes_from_local_storage();
+    remote_before = _runtime_state.get_query_ctx()
+                            ->resource_ctx()
+                            ->io_context()
+                            ->scan_bytes_from_remote_storage();
+    compat_scanner->_file_reader_stats->read_bytes = 256;
+    compat_scanner->update_realtime_counters();
+    EXPECT_EQ(local_before + 256, _runtime_state.get_query_ctx()
+                                          ->resource_ctx()
+                                          ->io_context()
+                                          ->scan_bytes_from_local_storage());
+    EXPECT_EQ(remote_before, _runtime_state.get_query_ctx()
+                                     ->resource_ctx()
+                                     ->io_context()
+                                     ->scan_bytes_from_remote_storage());
+    WARN_IF_ERROR(compat_scanner->close(&_runtime_state), "fail to close scanner");
+}
+
+TEST_F(VfileScannerExceptionTest, fallback_scan_bytes_requires_file_type_when_bytes_exist) {
+    TFileRangeDesc range;
+    TFileScanRangeParams params;
+    EXPECT_DEATH({ static_cast<void>(compute_scan_byte_buckets(1, 0, 0, range, params)); },
+                 "file_type");
+}
+
+TEST_F(VfileScannerExceptionTest, file_scanner_v2_flushes_each_split_before_switch) {
+    _ranges.clear();
+    TFileRangeDesc local_range;
+    local_range.path = "file:///tmp/local-a.csv";
+    local_range.__set_file_type(TFileType::FILE_LOCAL);
+    TFileRangeDesc remote_range;
+    remote_range.path = "s3://bucket/remote-b.csv";
+    remote_range.__set_file_type(TFileType::FILE_S3);
+    _ranges.push_back(local_range);
+    _ranges.push_back(remote_range);
+    _scan_range.ranges = _ranges;
+    _scan_range.params.__set_format_type(TFileFormatType::FORMAT_CSV_PLAIN);
+    _scan_range.params.__set_file_type(TFileType::FILE_S3);
+
+    std::shared_ptr<FileScannerV2> scanner = nullptr;
+    generate_scanner_v2(scanner);
+    auto reader = std::make_unique<FakeTableReader>(scanner->_file_reader_stats.get(),
+                                                    scanner->_file_cache_statistics.get(),
+                                                    std::vector<FakeTableReaderStep> {
+                                                            FakeTableReaderStep {100, 0, 0, true},
+                                                            FakeTableReaderStep {160, 0, 0, true},
+                                                    });
+    auto* reader_ptr = reader.get();
+    scanner->_table_reader = std::move(reader);
+
+    Block block;
+    bool eof = false;
+    auto status = scanner->get_block(&_runtime_state, &block, &eof);
+    ASSERT_TRUE(status.ok());
+    ASSERT_TRUE(eof);
+    EXPECT_EQ(std::vector<std::string>({"file:///tmp/local-a.csv", "s3://bucket/remote-b.csv"}),
+              reader_ptr->prepared_ranges());
+    EXPECT_EQ(100, _runtime_state.get_query_ctx()
+                           ->resource_ctx()
+                           ->io_context()
+                           ->scan_bytes_from_local_storage());
+    EXPECT_EQ(60, _runtime_state.get_query_ctx()
+                          ->resource_ctx()
+                          ->io_context()
+                          ->scan_bytes_from_remote_storage());
+}
+
+TEST_F(VfileScannerExceptionTest, file_scanner_v2_update_realtime_counters_do_not_double_count) {
+    _scan_range.params.__set_format_type(TFileFormatType::FORMAT_CSV_PLAIN);
+    _scan_range.params.__set_file_type(TFileType::FILE_LOCAL);
+    _scan_range.ranges[0].__set_file_type(TFileType::FILE_LOCAL);
+
+    std::shared_ptr<FileScannerV2> scanner = nullptr;
+    generate_scanner_v2(scanner);
+    scanner->_current_range = _scan_range.ranges[0];
+    scanner->_file_reader_stats->read_bytes = 96;
+    scanner->_file_cache_statistics->bytes_read_from_local = 0;
+    scanner->_file_cache_statistics->bytes_read_from_remote = 0;
+
+    scanner->update_realtime_counters();
+    const int64_t local_after_first = _runtime_state.get_query_ctx()
+                                              ->resource_ctx()
+                                              ->io_context()
+                                              ->scan_bytes_from_local_storage();
+    scanner->update_realtime_counters();
+    EXPECT_EQ(local_after_first, _runtime_state.get_query_ctx()
+                                         ->resource_ctx()
+                                         ->io_context()
+                                         ->scan_bytes_from_local_storage());
+}
+
+TEST_F(VfileScannerExceptionTest, file_scanner_v2_prefers_cache_deltas_over_fallback) {
+    _scan_range.params.__set_format_type(TFileFormatType::FORMAT_CSV_PLAIN);
+    _scan_range.params.__set_file_type(TFileType::FILE_LOCAL);
+    _scan_range.ranges[0].__set_file_type(TFileType::FILE_LOCAL);
+
+    std::shared_ptr<FileScannerV2> scanner = nullptr;
+    generate_scanner_v2(scanner);
+    scanner->_current_range = _scan_range.ranges[0];
+    scanner->_file_reader_stats->read_bytes = 200;
+    scanner->_file_cache_statistics->bytes_read_from_local = 40;
+    scanner->_file_cache_statistics->bytes_read_from_remote = 80;
+
+    scanner->update_realtime_counters();
+    EXPECT_EQ(40, _runtime_state.get_query_ctx()
+                          ->resource_ctx()
+                          ->io_context()
+                          ->scan_bytes_from_local_storage());
+    EXPECT_EQ(80, _runtime_state.get_query_ctx()
+                          ->resource_ctx()
+                          ->io_context()
+                          ->scan_bytes_from_remote_storage());
+}
+
+TEST_F(VfileScannerExceptionTest, file_scanner_v2_cache_only_delta_keeps_total_scan_bytes) {
+    _scan_range.params.__set_format_type(TFileFormatType::FORMAT_CSV_PLAIN);
+    _scan_range.params.__set_file_type(TFileType::FILE_LOCAL);
+    _scan_range.ranges[0].__set_file_type(TFileType::FILE_LOCAL);
+
+    std::shared_ptr<FileScannerV2> scanner = nullptr;
+    generate_scanner_v2(scanner);
+    scanner->_current_range = _scan_range.ranges[0];
+    scanner->_file_reader_stats->read_bytes = 0;
+    scanner->_file_cache_statistics->bytes_read_from_local = 48;
+    scanner->_file_cache_statistics->bytes_read_from_remote = 0;
+
+    const int64_t total_before =
+            _runtime_state.get_query_ctx()->resource_ctx()->io_context()->scan_bytes();
+    const int64_t local_before = _runtime_state.get_query_ctx()
+                                         ->resource_ctx()
+                                         ->io_context()
+                                         ->scan_bytes_from_local_storage();
+    scanner->update_realtime_counters();
+    EXPECT_EQ(total_before,
+              _runtime_state.get_query_ctx()->resource_ctx()->io_context()->scan_bytes());
+    EXPECT_EQ(local_before + 48, _runtime_state.get_query_ctx()
+                                         ->resource_ctx()
+                                         ->io_context()
+                                         ->scan_bytes_from_local_storage());
+}
+
+TEST_F(VfileScannerExceptionTest, old_scanner_flushes_close_time_cache_stats_before_next_range) {
+    TFileRangeDesc next_range;
+    next_range.path = "s3://bucket/next-range.csv";
+    next_range.__set_file_type(TFileType::FILE_S3);
+    _ranges.clear();
+    _ranges.push_back(next_range);
+    _scan_range.ranges = _ranges;
+
+    std::shared_ptr<FileScanner> scanner = nullptr;
+    generate_scanner(scanner);
+    scanner->_current_range.path = "file:///tmp/current-range.csv";
+    scanner->_current_range.__set_file_type(TFileType::FILE_LOCAL);
+    scanner->_first_scan_range = false;
+    scanner->_should_stop = true;
+    scanner->_cur_reader =
+            std::make_unique<FakeGenericReader>(scanner->_file_cache_statistics.get(), 32, 0);
+
+    const int64_t local_before = _runtime_state.get_query_ctx()
+                                         ->resource_ctx()
+                                         ->io_context()
+                                         ->scan_bytes_from_local_storage();
+    auto status = scanner->_get_next_reader();
+    ASSERT_TRUE(status.ok());
+    EXPECT_EQ(local_before + 32, _runtime_state.get_query_ctx()
+                                         ->resource_ctx()
+                                         ->io_context()
+                                         ->scan_bytes_from_local_storage());
+    EXPECT_EQ("s3://bucket/next-range.csv", scanner->_current_range.path);
+}
+
+TEST_F(VfileScannerExceptionTest, old_scanner_flushes_close_time_cache_stats_on_scanner_close) {
+    std::shared_ptr<FileScanner> scanner = nullptr;
+    generate_scanner(scanner);
+    scanner->_current_range.path = "file:///tmp/final-range.csv";
+    scanner->_current_range.__set_file_type(TFileType::FILE_LOCAL);
+    scanner->_cur_reader =
+            std::make_unique<FakeGenericReader>(scanner->_file_cache_statistics.get(), 64, 0);
+
+    const int64_t local_before = _runtime_state.get_query_ctx()
+                                         ->resource_ctx()
+                                         ->io_context()
+                                         ->scan_bytes_from_local_storage();
+    auto status = scanner->close(&_runtime_state);
+    ASSERT_TRUE(status.ok());
+    EXPECT_EQ(local_before + 64, _runtime_state.get_query_ctx()
+                                         ->resource_ctx()
+                                         ->io_context()
+                                         ->scan_bytes_from_local_storage());
 }
 
 TEST(HiveReaderPositionMappingTest, PositionMappingUsesColumnIdxsForFileSlots) {

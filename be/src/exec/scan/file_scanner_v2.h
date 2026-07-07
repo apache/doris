@@ -90,6 +90,8 @@ private:
     Status _init_io_ctx();
     Status _init_expr_ctxes();
     Status _prepare_next_split(bool* eos);
+    // Flush byte counters before the scanner leaves the current split or yields to the scheduler.
+    void _flush_scan_byte_counters_for_current_range();
     Status _init_table_reader(const TFileRangeDesc& range);
     Status _create_table_reader_for_format(const TFileRangeDesc& range,
                                            std::unique_ptr<format::TableReader>* reader) const;
@@ -156,6 +158,9 @@ private:
     int64_t _reported_predicate_filtered_rows = 0;
     int64_t _reported_condition_cache_hit_count = 0;
     int64_t _reported_condition_cache_filtered_rows = 0;
+    int64_t _reported_read_bytes = 0;
+    int64_t _reported_cache_local_bytes = 0;
+    int64_t _reported_cache_remote_bytes = 0;
 };
 
 } // namespace doris
