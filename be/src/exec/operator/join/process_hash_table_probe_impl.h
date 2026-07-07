@@ -155,11 +155,46 @@ void ProcessHashTableProbe<JoinOpType>::build_side_output_column(MutableColumns&
 }
 
 template <int JoinOpType>
+bool ProcessHashTableProbe<JoinOpType>::can_zero_copy_probe_side_all_match_one(
+        bool all_match_one) const {
+    constexpr bool probe_side_type_unchanged =
+            JoinOpType == TJoinOp::INNER_JOIN || JoinOpType == TJoinOp::LEFT_OUTER_JOIN ||
+            JoinOpType == TJoinOp::LEFT_SEMI_JOIN || JoinOpType == TJoinOp::LEFT_ANTI_JOIN ||
+            JoinOpType == TJoinOp::ASOF_LEFT_INNER_JOIN ||
+            JoinOpType == TJoinOp::ASOF_LEFT_OUTER_JOIN;
+    if constexpr (!probe_side_type_unchanged) {
+        return false;
+    }
+
+    return all_match_one && _probe_indexs.get_element(0) == 0 &&
+           _probe_indexs.size() == _parent->_probe_block.rows() && !_have_other_join_conjunct &&
+           _parent->_mark_join_conjuncts.empty() && _parent->conjuncts().empty() &&
+           !_parent_operator->need_finalize_variant_column();
+}
+
+template <int JoinOpType>
+void ProcessHashTableProbe<JoinOpType>::replace_probe_side_output_columns(Block* output_block) {
+    if (!_probe_side_output_zero_copy) {
+        return;
+    }
+
+    auto& probe_block = _parent->_probe_block;
+    constexpr bool is_asof_join = is_asof_join_op_v<JoinOpType>;
+    for (int i = 0; i < _left_output_slot_flags.size(); ++i) {
+        if (_left_output_slot_flags[i] &&
+            (is_asof_join || !_parent_operator->is_lazy_materialized_column(i))) {
+            output_block->replace_by_position(i, probe_block.get_by_position(i).column);
+        }
+    }
+}
+
+template <int JoinOpType>
 void ProcessHashTableProbe<JoinOpType>::probe_side_output_column(MutableColumns& mcol) {
     SCOPED_TIMER(_probe_side_output_timer);
     auto& probe_block = _parent->_probe_block;
     bool all_match_one =
             _need_calculate_all_match_one ? check_all_match_one(_probe_indexs.get_data()) : false;
+    _probe_side_output_zero_copy = can_zero_copy_probe_side_all_match_one(all_match_one);
 
     for (int i = 0; i < _left_output_slot_flags.size(); ++i) {
         if (_left_output_slot_flags[i]) {
@@ -176,8 +211,12 @@ void ProcessHashTableProbe<JoinOpType>::probe_side_output_column(MutableColumns&
         bool should_output = _left_output_slot_flags[i] &&
                              (is_asof_join || !_parent_operator->is_lazy_materialized_column(i));
         if (should_output) {
-            auto& column = probe_block.get_by_position(i).column;
-            insert_with_indexs(mcol[i], column, _probe_indexs.get_data(), all_match_one);
+            if (_probe_side_output_zero_copy) {
+                mock_column_size(mcol[i], _probe_indexs.size());
+            } else {
+                auto& column = probe_block.get_by_position(i).column;
+                insert_with_indexs(mcol[i], column, _probe_indexs.get_data(), all_match_one);
+            }
         } else {
             mock_column_size(mcol[i], _probe_indexs.size());
         }
@@ -467,6 +506,7 @@ void ProcessHashTableProbe<JoinOpType>::process_direct_return(HashTableType& has
     auto& mcol = mutable_block.mutable_columns();
     probe_side_output_column(mcol);
     output_block->swap(mutable_block.to_block());
+    replace_probe_side_output_columns(output_block);
     _parent->_probe_index = probe_rows;
 }
 
@@ -561,6 +601,7 @@ Status ProcessHashTableProbe<JoinOpType>::process(HashTableType& hash_table_ctx,
     }
 
     output_block->swap(mutable_block.to_block());
+    replace_probe_side_output_columns(output_block);
     DCHECK_EQ(current_offset, output_block->rows());
     COUNTER_UPDATE(_parent->_intermediate_rows_counter, current_offset);
 
