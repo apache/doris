@@ -43,6 +43,7 @@ import org.apache.doris.mtmv.ivm.IvmPlanSignatureGenerator;
 import org.apache.doris.mtmv.ivm.IvmRefreshManager;
 import org.apache.doris.mtmv.ivm.IvmRefreshResult;
 import org.apache.doris.mtmv.ivm.IvmRewriteResult;
+import org.apache.doris.mtmv.MTMVAnalyzeQueryInfo;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.commands.UpdateMvByPartitionCommand;
@@ -407,7 +408,7 @@ public class MTMVTaskTest {
         try (MockedConstruction<IvmRefreshManager> ignored = Mockito.mockConstruction(IvmRefreshManager.class,
                 (mock, context) -> Mockito.when(mock.doRefresh(mtmv)).thenReturn(
                         IvmRefreshResult.fallback(IvmFailureReason.PLAN_SIGNATURE_MISMATCH,
-                                "layout drift", currentSignature)))) {
+                                "layout drift")))) {
             Object request = Deencapsulation.invoke(task, "resolveRefreshRequest");
             Object result = Deencapsulation.invoke(task, "executeIvmAttempt", request);
             Assert.assertEquals("FALLBACK_TO_COMPLETE", result.toString());
@@ -415,7 +416,7 @@ public class MTMVTaskTest {
 
         Assert.assertEquals(IvmFailureReason.PLAN_SIGNATURE_MISMATCH.name(),
                 Deencapsulation.getField(task, "ivmFallbackReason"));
-        Assert.assertEquals("new", Deencapsulation.getField(task, "ivmFallbackPlanSignature"));
+        Assert.assertNull(Deencapsulation.getField(task, "ivmFallbackPlanSignature"));
     }
 
     @Test
@@ -467,7 +468,7 @@ public class MTMVTaskTest {
             try (MockedConstruction<IvmRefreshManager> ignored = Mockito.mockConstruction(IvmRefreshManager.class,
                     (mock, context) -> Mockito.when(mock.doRefresh(mtmv)).thenReturn(
                             IvmRefreshResult.fallback(IvmFailureReason.PLAN_SIGNATURE_MISMATCH,
-                                    "layout drift", currentSignature)))) {
+                                    "layout drift")))) {
                 Object request = Deencapsulation.invoke(task, "resolveRefreshRequest");
                 Object result = Deencapsulation.invoke(task, "executeIvmAttempt", request);
                 Assert.assertEquals("FALLBACK_TO_COMPLETE", result.toString());
@@ -475,10 +476,8 @@ public class MTMVTaskTest {
 
             Assert.assertEquals(IvmFailureReason.PLAN_SIGNATURE_MISMATCH.name(),
                     Deencapsulation.getField(task, "ivmFallbackReason"));
-            Assert.assertEquals(currentSignature.getSha256(),
-                    Deencapsulation.getField(task, "ivmFallbackPlanSignature"));
-            Assert.assertEquals(currentSignature.getCanonicalString(),
-                    Deencapsulation.getField(task, "ivmFallbackPlanCanonicalString"));
+            Assert.assertNull(Deencapsulation.getField(task, "ivmFallbackPlanSignature"));
+            Assert.assertNull(Deencapsulation.getField(task, "ivmFallbackPlanCanonicalString"));
         } finally {
             DebugPointUtil.clearDebugPoints();
             Config.enable_debug_points = originalEnableDebugPoints;
@@ -504,6 +503,36 @@ public class MTMVTaskTest {
         }
         Assert.assertNull(Deencapsulation.getField(task, "ivmFallbackPlanSignature"));
         Assert.assertNull(Deencapsulation.getField(task, "ivmFallbackPlanCanonicalString"));
+    }
+
+    @Test
+    public void testFullRefreshRebuildsIvmPlanSignatureAfterSignatureMismatch() throws Exception {
+        IvmInfo ivmInfo = new IvmInfo();
+        ivmInfo.setPlanSignature("old");
+        Mockito.when(mtmv.getIvmInfo()).thenReturn(ivmInfo);
+        Mockito.when(mtmv.getQualifiedDbName()).thenReturn("test_db");
+        Mockito.when(mtmv.getName()).thenReturn("test_mv");
+        MTMVTask task = new MTMVTask(mtmv, relation, new MTMVTaskContext(MTMVTaskTriggerMode.MANUAL));
+        Deencapsulation.setField(task, "ivmFallbackReason", IvmFailureReason.PLAN_SIGNATURE_MISMATCH.name());
+
+        IvmPlanSignature signature = signatureForDebugDriftTest();
+        IvmRewriteResult rewriteResult = new IvmRewriteResult();
+        rewriteResult.setPlanSignature(signature);
+        MTMVAnalyzeQueryInfo analyzeQueryInfo = Mockito.mock(MTMVAnalyzeQueryInfo.class);
+        Mockito.when(analyzeQueryInfo.getIvmRewriteResult()).thenReturn(rewriteResult);
+
+        try (MockedStatic<MTMVPlanUtil> planUtilStatic = Mockito.mockStatic(MTMVPlanUtil.class);
+                MockedStatic<IvmRefreshManager> managerStatic = Mockito.mockStatic(IvmRefreshManager.class)) {
+            ConnectContext ctx = new ConnectContext();
+            planUtilStatic.when(() -> MTMVPlanUtil.createMTMVContext(
+                    mtmv, MTMVPlanUtil.DISABLE_RULES_WHEN_RUN_MTMV_TASK)).thenReturn(ctx);
+            planUtilStatic.when(() -> MTMVPlanUtil.analyzeQueryWithSql(mtmv, ctx, true)).thenReturn(analyzeQueryInfo);
+
+            Deencapsulation.invoke(task, "updateIvmPlanSignatureAfterFullRefreshIfNeeded");
+
+            managerStatic.verify(() -> IvmRefreshManager.updatePlanSignatureAfterFullRefresh(
+                    mtmv, signature.getSha256(), signature.getCanonicalString()));
+        }
     }
 
     @Test

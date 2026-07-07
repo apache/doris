@@ -66,7 +66,6 @@ import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -140,7 +139,6 @@ import java.util.stream.Collectors;
  */
 public class IvmNormalizeMtmv extends DefaultPlanRewriter<IvmNormalizeMtmv.NormalizeContext>
         implements CustomRewriter {
-
     static final class NormalizeContext {
         private static final NormalizeContext ROOT = new NormalizeContext(true, false, false, false);
 

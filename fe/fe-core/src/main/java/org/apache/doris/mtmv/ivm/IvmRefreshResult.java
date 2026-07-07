@@ -24,30 +24,21 @@ public class IvmRefreshResult {
     private final boolean success;
     private final IvmFailureReason failureReason;
     private final String detailMessage;
-    private final IvmPlanSignature currentPlanSignature;
 
-    private IvmRefreshResult(boolean success, IvmFailureReason failureReason, String detailMessage,
-            IvmPlanSignature currentPlanSignature) {
+    private IvmRefreshResult(boolean success, IvmFailureReason failureReason, String detailMessage) {
         this.success = success;
         this.failureReason = failureReason;
         this.detailMessage = detailMessage;
-        this.currentPlanSignature = currentPlanSignature;
     }
 
     public static IvmRefreshResult success() {
-        return new IvmRefreshResult(true, null, null, null);
+        return new IvmRefreshResult(true, null, null);
     }
 
     public static IvmRefreshResult fallback(IvmFailureReason failureReason, String detailMessage) {
-        return fallback(failureReason, detailMessage, null);
-    }
-
-    public static IvmRefreshResult fallback(IvmFailureReason failureReason, String detailMessage,
-            IvmPlanSignature currentPlanSignature) {
         return new IvmRefreshResult(false,
                 Objects.requireNonNull(failureReason, "failureReason can not be null"),
-                detailMessage == null ? failureReason.name() : detailMessage,
-                currentPlanSignature);
+                detailMessage == null ? failureReason.name() : detailMessage);
     }
 
     public boolean isSuccess() {
@@ -62,10 +53,6 @@ public class IvmRefreshResult {
         return detailMessage;
     }
 
-    public IvmPlanSignature getCurrentPlanSignature() {
-        return currentPlanSignature;
-    }
-
     @Override
     public String toString() {
         if (success) {
@@ -75,8 +62,6 @@ public class IvmRefreshResult {
                 + "success=false"
                 + ", failureReason=" + failureReason
                 + ", detailMessage='" + detailMessage + '\''
-                + ", currentPlanSignature="
-                + (currentPlanSignature == null ? null : currentPlanSignature.getSha256())
                 + '}';
     }
 }

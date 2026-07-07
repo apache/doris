@@ -126,6 +126,95 @@ class IvmPlanSignatureGeneratorTest extends IvmDeltaTestBase {
     }
 
     @Test
+    void testPassthroughProjectsDoNotChangeSignature() {
+        LogicalOlapScan scan = buildMowScan(1, "t");
+        LogicalProject<?> normalizedProject = buildRowIdProject(scan,
+                ImmutableList.of(scan.getOutput().get(0), scan.getOutput().get(1)));
+        IvmPlanSignature baseSignature = signatureForNormalizedPlan(normalizedProject);
+
+        Slot rowIdSlot = normalizedProject.getOutput().get(0);
+        Slot visibleSlot = normalizedProject.getOutput().get(1);
+        LogicalProject<?> slotPassthroughProject = new LogicalProject<>(ImmutableList.<NamedExpression>builder()
+                .add((NamedExpression) rowIdSlot)
+                .add(new Alias(visibleSlot, visibleSlot.getName()))
+                .addAll(normalizedProject.getOutput().subList(2, normalizedProject.getOutput().size()))
+                .build(), normalizedProject);
+        LogicalProject<?> aliasPassthroughProject = new LogicalProject<>(ImmutableList.<NamedExpression>builder()
+                .add(new Alias(rowIdSlot, Column.IVM_ROW_ID_COL))
+                .addAll(slotPassthroughProject.getOutput().subList(1, slotPassthroughProject.getOutput().size()))
+                .build(), slotPassthroughProject);
+
+        IvmPlanSignature passthroughSignature = signatureForNormalizedPlan(aliasPassthroughProject);
+        Assertions.assertEquals(baseSignature.getSha256(), passthroughSignature.getSha256());
+    }
+
+    @Test
+    void testSinkAdapterProjectDoesNotChangeSignature() {
+        LogicalOlapScan scan = buildMowScan(1, "t");
+        LogicalProject<?> normalizedProject = buildRowIdProject(scan,
+                ImmutableList.of(scan.getOutput().get(0), scan.getOutput().get(1)));
+        IvmPlanSignature baseSignature = signatureForNormalizedPlan(normalizedProject);
+
+        LogicalProject<?> sinkAdapterProject = new LogicalProject<>(ImmutableList.<NamedExpression>builder()
+                .add(new Alias(new IntegerLiteral(0), Column.DELETE_SIGN))
+                .add(new Alias(normalizedProject.getOutput().get(0), Column.IVM_ROW_ID_COL))
+                .add(new Alias(new IntegerLiteral(0), Column.VERSION_COL))
+                .add(new Alias(normalizedProject.getOutput().get(1), normalizedProject.getOutput().get(1).getName()))
+                .add(new Alias(normalizedProject.getOutput().get(2), normalizedProject.getOutput().get(2).getName()))
+                .build(), normalizedProject);
+
+        IvmPlanSignature sinkAdapterSignature = signatureForNormalizedPlan(sinkAdapterProject);
+        Assertions.assertEquals(baseSignature.getSha256(), sinkAdapterSignature.getSha256());
+    }
+
+    @Test
+    void testSinkWithAdapterProjectDoesNotChangeSignature() {
+        LogicalOlapScan scan = buildMowScan(1, "t");
+        LogicalProject<?> normalizedProject = buildRowIdProject(scan,
+                ImmutableList.of(scan.getOutput().get(0), scan.getOutput().get(1)));
+        IvmPlanSignature baseSignature = signatureForNormalizedPlan(normalizedProject);
+
+        LogicalProject<?> sinkAdapterProject = new LogicalProject<>(ImmutableList.<NamedExpression>builder()
+                .add(new Alias(new IntegerLiteral(0), Column.DELETE_SIGN))
+                .add(new Alias(normalizedProject.getOutput().get(0), Column.IVM_ROW_ID_COL))
+                .add(new Alias(new IntegerLiteral(0), Column.VERSION_COL))
+                .add(new Alias(normalizedProject.getOutput().get(1), normalizedProject.getOutput().get(1).getName()))
+                .add(new Alias(normalizedProject.getOutput().get(2), normalizedProject.getOutput().get(2).getName()))
+                .build(), normalizedProject);
+        LogicalOlapTableSink<Plan> sink = new LogicalOlapTableSink<>(
+                new Database(),
+                scan.getTable(),
+                scan.getTable().getBaseSchema(),
+                ImmutableList.of(),
+                ImmutableList.copyOf(sinkAdapterProject.getOutput()),
+                false,
+                TPartialUpdateNewRowPolicy.APPEND,
+                DMLCommandType.NONE,
+                sinkAdapterProject);
+
+        IvmPlanSignature sinkSignature = signatureForNormalizedPlan(sink);
+        Assertions.assertEquals(baseSignature.getSha256(), sinkSignature.getSha256());
+    }
+
+    @Test
+    void testRenamedAliasProjectChangesSignature() {
+        LogicalOlapScan scan = buildMowScan(1, "t");
+        LogicalProject<?> normalizedProject = buildRowIdProject(scan,
+                ImmutableList.of(scan.getOutput().get(0), scan.getOutput().get(1)));
+        IvmPlanSignature baseSignature = signatureForNormalizedPlan(normalizedProject);
+
+        Slot visibleSlot = normalizedProject.getOutput().get(1);
+        LogicalProject<?> renamedAliasProject = new LogicalProject<>(ImmutableList.<NamedExpression>builder()
+                .add((NamedExpression) normalizedProject.getOutput().get(0))
+                .add(new Alias(visibleSlot, visibleSlot.getName() + "_renamed"))
+                .addAll(normalizedProject.getOutput().subList(2, normalizedProject.getOutput().size()))
+                .build(), normalizedProject);
+
+        IvmPlanSignature renamedAliasSignature = signatureForNormalizedPlan(renamedAliasProject);
+        Assertions.assertNotEquals(baseSignature.getSha256(), renamedAliasSignature.getSha256());
+    }
+
+    @Test
     void testAliasNameDoesNotChangeExpressionSignature() {
         LogicalOlapScan scan = buildMowScan(1, "t");
         Slot slot = scan.getOutput().get(0);
