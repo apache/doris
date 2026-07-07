@@ -1364,8 +1364,8 @@ public abstract class ExternalCatalog
             ExternalDatabase<? extends ExternalTable> db, boolean forceUpdateCacheState) {
         buildMetaCache();
         long dbId = db.getId();
-        // Runtime incremental events only maintain cache entries that are already hot. This avoids preheating
-        // cache state for database names or objects that the current FE has never consumed.
+        // Runtime incremental events only maintain names and object entries that are already hot. The ID map is a
+        // lightweight lookup index and must always track registered objects so normal by-ID lookup can load on demand.
         if (forceUpdateCacheState) {
             databaseNames.compute("", (ignored, current) ->
                     (current == null ? NameCacheValue.empty() : current).withName(remoteDbName, localDbName));
@@ -1376,9 +1376,7 @@ public abstract class ExternalCatalog
         if (forceUpdateCacheState || databases.getIfPresent(localDbName) != null) {
             databases.put(localDbName, db);
         }
-        if (forceUpdateCacheState || dbIdToName.containsKey(dbId)) {
-            dbIdToName.put(dbId, localDbName);
-        }
+        dbIdToName.put(dbId, localDbName);
     }
 
     protected void invalidateDatabaseCache(String localDbName) {

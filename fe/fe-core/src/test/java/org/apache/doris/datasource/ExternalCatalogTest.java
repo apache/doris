@@ -23,6 +23,7 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.DatasourcePrintableMap;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.metacache.MetaCacheEntry;
 import org.apache.doris.datasource.metacache.NameCacheValue;
@@ -409,7 +410,7 @@ public class ExternalCatalogTest extends TestWithFeService {
     }
 
     @Test
-    public void testIncrementalDatabaseRegisterDoesNotPreheatColdCache() {
+    public void testIncrementalDatabaseRegisterKeepsEntriesColdAndUpdatesIdMap() {
         IncrementalUpdateCatalog catalog = new IncrementalUpdateCatalog();
         catalog.setInitializedForTest(true);
 
@@ -422,16 +423,49 @@ public class ExternalCatalogTest extends TestWithFeService {
 
         Assertions.assertNull(catalog.getCachedDatabaseNamesForTest());
         Assertions.assertNull(catalog.getCachedDatabaseForTest("db_new"));
-        Assertions.assertNull(catalog.getCachedDatabaseNameByIdForTest(100L));
+        Assertions.assertEquals("db_new", catalog.getCachedDatabaseNameByIdForTest(100L));
         Assertions.assertTrue(catalog.getDbForReplay("db_new").isEmpty());
     }
 
     @Test
-    public void testIncrementalDatabaseRegisterUsesActualDatabaseIdForHotIdMap() {
+    public void testIncrementalDatabaseUnregisterClearsColdIdMap() {
         IncrementalUpdateCatalog catalog = new IncrementalUpdateCatalog();
         catalog.setInitializedForTest(true);
 
-        // Keep the id map hot first so the incremental helper updates the existing slot with db.getId().
+        TestExternalDatabase db = new TestExternalDatabase(catalog, 101L, "db_drop", "db_drop");
+        catalog.simulateIncrementalRegisterDatabase(db);
+        Assertions.assertEquals("db_drop", catalog.getCachedDatabaseNameByIdForTest(101L));
+
+        catalog.unregisterDatabase("db_drop");
+
+        Assertions.assertNull(catalog.getCachedDatabaseNamesForTest());
+        Assertions.assertNull(catalog.getCachedDatabaseForTest("db_drop"));
+        Assertions.assertNull(catalog.getCachedDatabaseNameByIdForTest(101L));
+    }
+
+    @Test
+    public void testGetDbNullableByIdLoadsColdObjectEntry() {
+        IncrementalUpdateCatalog catalog = new IncrementalUpdateCatalog();
+        catalog.setInitializedForTest(true);
+        long dbId = Util.genIdByName(catalog.getName(), "db_by_id");
+        TestExternalDatabase eventDb = new TestExternalDatabase(catalog, dbId, "db_by_id", "db_by_id");
+        catalog.simulateIncrementalRegisterDatabase(eventDb);
+
+        Assertions.assertNull(catalog.getCachedDatabaseForTest("db_by_id"));
+
+        ExternalDatabase<? extends ExternalTable> loadedDb = catalog.getDbNullable(dbId);
+
+        Assertions.assertNotNull(loadedDb);
+        Assertions.assertEquals(dbId, loadedDb.getId());
+        Assertions.assertSame(loadedDb, catalog.getCachedDatabaseForTest("db_by_id"));
+    }
+
+    @Test
+    public void testIncrementalDatabaseRegisterReplacesExistingIdMapping() {
+        IncrementalUpdateCatalog catalog = new IncrementalUpdateCatalog();
+        catalog.setInitializedForTest(true);
+
+        // The event object's actual ID must replace any stale navigation entry for that ID.
         catalog.seedDatabaseIdNameForTest(110L, "stale_db");
         TestExternalDatabase db = new TestExternalDatabase(catalog, 110L, "db_hot", "db_hot");
         catalog.simulateIncrementalRegisterDatabase(db);
@@ -440,7 +474,7 @@ public class ExternalCatalogTest extends TestWithFeService {
     }
 
     @Test
-    public void testIncrementalTableRegisterDoesNotPreheatColdCache() {
+    public void testIncrementalTableRegisterKeepsEntriesColdAndUpdatesIdMap() {
         IncrementalUpdateCatalog catalog = new IncrementalUpdateCatalog();
         catalog.setInitializedForTest(true);
 
@@ -456,8 +490,26 @@ public class ExternalCatalogTest extends TestWithFeService {
 
         Assertions.assertNull(db.getCachedTableNamesForTest());
         Assertions.assertNull(db.getCachedTableForTest("tbl_new"));
-        Assertions.assertNull(db.getCachedTableNameByIdForTest(300L));
+        Assertions.assertEquals("tbl_new", db.getCachedTableNameByIdForTest(300L));
         Assertions.assertTrue(db.getTableForReplay("tbl_new").isEmpty());
+    }
+
+    @Test
+    public void testIncrementalTableUnregisterClearsColdIdMap() {
+        IncrementalUpdateCatalog catalog = new IncrementalUpdateCatalog();
+        catalog.setInitializedForTest(true);
+
+        IncrementalUpdateDatabase db = new IncrementalUpdateDatabase(catalog, 201L, "db1", "db1");
+        db.setInitializedForTest(true);
+        TestExternalTable table = new TestExternalTable(301L, "tbl_drop", "tbl_drop", catalog, db);
+        db.registerTable(table);
+        Assertions.assertEquals("tbl_drop", db.getCachedTableNameByIdForTest(301L));
+
+        db.unregisterTable("tbl_drop");
+
+        Assertions.assertNull(db.getCachedTableNamesForTest());
+        Assertions.assertNull(db.getCachedTableForTest("tbl_drop"));
+        Assertions.assertNull(db.getCachedTableNameByIdForTest(301L));
     }
 
     @Test
@@ -720,7 +772,9 @@ public class ExternalCatalogTest extends TestWithFeService {
     public static class IncrementalCatalogProvider implements TestExternalCatalog.TestCatalogProvider {
         @Override
         public Map<String, Map<String, List<Column>>> getMetadata() {
-            return Maps.newHashMap();
+            Map<String, Map<String, List<Column>>> metadata = Maps.newHashMap();
+            metadata.put("db_by_id", Maps.newHashMap());
+            return metadata;
         }
     }
 
