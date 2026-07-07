@@ -295,24 +295,24 @@ suite("test_table_stream_exception", "nonConcurrent") {
 
         // 5.1 @incr on a table without binlog<Row> -> reject.
         //     Source: BindRelation INCR query check.
-        //sql "DROP TABLE IF EXISTS base_incr_no_binlog FORCE"
-        //sql """
-        //    CREATE TABLE base_incr_no_binlog (
-        //        k1 INT, v1 INT
-        //    )
-        //    DUPLICATE KEY(k1)
-        //    DISTRIBUTED BY HASH(k1) BUCKETS 1
-        //    PROPERTIES ("replication_num" = "1")
-        //"""
-        //sql "INSERT INTO base_incr_no_binlog VALUES (1, 10)"
-        //sql "sync"
-        //test {
-        //    sql """
-        //        SELECT k1, v1, __DORIS_BINLOG_OP__
-        //        FROM base_incr_no_binlog@incr("incrementType" = "DETAIL")
-        //    """
-        //    exception "INCR query requires ROW binlog enabled on base table"
-        //}
+        sql "DROP TABLE IF EXISTS base_incr_no_binlog FORCE"
+        sql """
+            CREATE TABLE base_incr_no_binlog (
+                k1 INT, v1 INT
+            )
+            DUPLICATE KEY(k1)
+            DISTRIBUTED BY HASH(k1) BUCKETS 1
+            PROPERTIES ("replication_num" = "1")
+        """
+        sql "INSERT INTO base_incr_no_binlog VALUES (1, 10)"
+        sql "sync"
+        test {
+            sql """
+                SELECT k1, v1, __DORIS_BINLOG_OP__
+                FROM base_incr_no_binlog@incr("incrementType" = "DETAIL")
+            """
+            exception "INCR query requires ROW binlog enabled on base table"
+        }
 
         // 5.2 MIN_DELTA @incr on a MoW table without need_historical_value
         //     -> reject. Source: BindRelation MIN_DELTA check.
