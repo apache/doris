@@ -1688,6 +1688,13 @@ public class Config extends ConfigBase {
     public static boolean ignore_backup_tmp_partitions = false;
 
     /**
+     * When false, backup meta table copies strip tablet Replica objects to reduce snapshot size.
+     * Restore recreates replicas from replica allocation, so they are not needed in backup meta.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean backup_meta_reserve_replica_info = false;
+
+    /**
      * A internal config, to control the update interval of backup handler. Only used to speed up tests.
      */
     @ConfField(mutable = false)

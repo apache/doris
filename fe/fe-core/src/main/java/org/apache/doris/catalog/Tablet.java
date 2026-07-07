@@ -155,6 +155,9 @@ public abstract class Tablet {
         addReplica(replica, false);
     }
 
+    // Only for detached backup table copies; must NOT be called on live catalog tablets.
+    public abstract void clearReplicas();
+
     public abstract List<Replica> getReplicas();
 
     public Set<Long> getBackendIds() {
