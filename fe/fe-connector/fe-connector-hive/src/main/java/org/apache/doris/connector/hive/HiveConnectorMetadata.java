@@ -22,6 +22,7 @@ import org.apache.doris.connector.api.ConnectorColumn;
 import org.apache.doris.connector.api.ConnectorMetadata;
 import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.ConnectorTableSchema;
+import org.apache.doris.connector.api.ConnectorTableStatistics;
 import org.apache.doris.connector.api.ConnectorType;
 import org.apache.doris.connector.api.DorisConnectorException;
 import org.apache.doris.connector.api.ddl.ConnectorBucketSpec;
@@ -105,6 +106,15 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
     // HMS table type for a view, mirroring legacy HMSExternalTable.isView (which keyed off the view text flags);
     // a Hive view carries tableType VIRTUAL_VIEW.
     private static final String VIRTUAL_VIEW_TABLE_TYPE = "VIRTUAL_VIEW";
+
+    // HMS table-parameter keys for table statistics, replicating legacy StatisticsUtil.getHiveRowCount /
+    // getRowCountFromParameters / getTotalSizeFromHMS. numRows is the exact row count; totalSize is the on-disk
+    // data size. Each has a spark-written alternative key (spark writes its own stats keys, not the standard
+    // hive ones). Read as RAW facts only — the connector must NOT do the Doris-type-dependent estimation.
+    private static final String PARAM_NUM_ROWS = "numRows";
+    private static final String PARAM_SPARK_NUM_ROWS = "spark.sql.statistics.numRows";
+    private static final String PARAM_TOTAL_SIZE = "totalSize";
+    private static final String PARAM_SPARK_TOTAL_SIZE = "spark.sql.statistics.totalSize";
 
     private final HmsClient hmsClient;
     private final Map<String, String> properties;
@@ -274,6 +284,76 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
                 tableId, TTableType.HIVE_TABLE, numCols, 0, tableName, dbName);
         desc.setHiveTable(tHiveTable);
         return desc;
+    }
+
+    // ========== ConnectorStatisticsOps ==========
+
+    /**
+     * Table-level statistics for a hive table, a port of legacy {@code StatisticsUtil.getHiveRowCount} +
+     * {@code getTotalSizeFromHMS} restricted to the two RAW metastore facts (no Doris-type math — the
+     * connector must not import fe-type):
+     * <ul>
+     *   <li>{@code rowCount} = the exact HMS {@code numRows}, falling back to the spark-written
+     *       {@code spark.sql.statistics.numRows} ONLY when {@code numRows} is present but non-positive
+     *       (legacy {@code getRowCountFromParameters} — a table carrying only the spark key and no plain
+     *       {@code numRows} deliberately does NOT surface a spark count here). A count {@code <= 0} maps to
+     *       -1 (UNKNOWN), matching the legacy "0 -> UNKNOWN" gate and the paimon/iceberg connectors.</li>
+     *   <li>{@code dataSize} = the on-disk {@code totalSize}, falling back to
+     *       {@code spark.sql.statistics.totalSize} when the standard key is ABSENT (legacy size branch —
+     *       note the asymmetry with the row-count fallback).</li>
+     * </ul>
+     * When the exact count is unknown but a size is present, fe-core
+     * ({@code PluginDrivenExternalTable.fetchRowCount}) estimates the cardinality as
+     * {@code dataSize / <Doris row width>} — the type-dependent division this connector cannot do. Returns
+     * empty when neither fact is available (fe-core then falls through to the file-list estimate). Params
+     * are read from the handle (loaded live by {@code getTableHandle}), so this adds no HMS round-trip.
+     */
+    @Override
+    public Optional<ConnectorTableStatistics> getTableStatistics(
+            ConnectorSession session, ConnectorTableHandle handle) {
+        Map<String, String> params = ((HiveTableHandle) handle).getTableParameters();
+        if (params == null) {
+            return Optional.empty();
+        }
+
+        long rowCount = -1;
+        if (params.containsKey(PARAM_NUM_ROWS)) {
+            rowCount = parseLongOrDefault(params.get(PARAM_NUM_ROWS), -1);
+            if (rowCount <= 0 && params.containsKey(PARAM_SPARK_NUM_ROWS)) {
+                rowCount = parseLongOrDefault(params.get(PARAM_SPARK_NUM_ROWS), -1);
+            }
+        }
+
+        long dataSize = -1;
+        if (params.containsKey(PARAM_TOTAL_SIZE)) {
+            dataSize = parseLongOrDefault(params.get(PARAM_TOTAL_SIZE), -1);
+        } else if (params.containsKey(PARAM_SPARK_TOTAL_SIZE)) {
+            dataSize = parseLongOrDefault(params.get(PARAM_SPARK_TOTAL_SIZE), -1);
+        }
+
+        // Collapse a non-positive count/size to the -1 UNKNOWN sentinel (0 -> UNKNOWN, legacy parity).
+        long reportedRows = rowCount > 0 ? rowCount : -1;
+        long reportedSize = dataSize > 0 ? dataSize : -1;
+        if (reportedRows < 0 && reportedSize < 0) {
+            return Optional.empty();
+        }
+        return Optional.of(new ConnectorTableStatistics(reportedRows, reportedSize));
+    }
+
+    /**
+     * Parses a metastore numeric parameter defensively. Legacy read these with a bare {@code Long.parseLong}
+     * under an outer try/catch that logged and returned UNKNOWN; returning {@code defaultValue} on a
+     * null/blank/malformed value is the same net effect without letting one bad parameter abort the read.
+     */
+    private static long parseLongOrDefault(String value, long defaultValue) {
+        if (value == null) {
+            return defaultValue;
+        }
+        try {
+            return Long.parseLong(value.trim());
+        } catch (NumberFormatException e) {
+            return defaultValue;
+        }
     }
 
     // ========== ConnectorPushdownOps: Filter Pushdown ==========

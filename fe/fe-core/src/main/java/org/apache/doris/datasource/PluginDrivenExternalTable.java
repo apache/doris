@@ -761,10 +761,44 @@ public class PluginDrivenExternalTable extends ExternalTable {
         }
 
         Optional<ConnectorTableStatistics> statsOpt = metadata.getTableStatistics(session, handleOpt.get());
-        if (statsOpt.isPresent() && statsOpt.get().getRowCount() >= 0) {
-            return statsOpt.get().getRowCount();
+        if (statsOpt.isPresent()) {
+            ConnectorTableStatistics stats = statsOpt.get();
+            if (stats.getRowCount() >= 0) {
+                return stats.getRowCount();
+            }
+            // The connector surfaced an on-disk data size but no exact row count (e.g. a hive table with
+            // totalSize set but no numRows). Estimate the cardinality as dataSize / <average Doris row
+            // width> — the Doris-type-dependent division the connector cannot perform (it must not import
+            // fe-type). Connector-agnostic: every other connector reports dataSize -1, so this branch is
+            // inert for them. Mirrors legacy StatisticsUtil.getHiveRowCount's totalSize/estimatedRowSize
+            // path (row width summed over the FULL schema, partition columns included, exactly as legacy).
+            if (stats.getDataSize() > 0) {
+                long rowWidth = estimatedRowWidth();
+                if (rowWidth > 0) {
+                    return stats.getDataSize() / rowWidth;
+                }
+            }
         }
         return UNKNOWN_ROW_COUNT;
+    }
+
+    /**
+     * Sum of Doris slot sizes over the full schema — the average uncompressed row width used to turn a
+     * connector-reported on-disk data size into an estimated row count. Mirrors legacy
+     * {@code StatisticsUtil.getHiveRowCount}, which summed {@code getDataType().getSlotSize()} over the full
+     * schema. Returns 0 for an empty/unavailable schema, which {@link #fetchRowCount} treats as "cannot
+     * estimate" (-> UNKNOWN).
+     */
+    private long estimatedRowWidth() {
+        List<Column> schema = getFullSchema();
+        if (schema == null) {
+            return 0;
+        }
+        long rowWidth = 0;
+        for (Column column : schema) {
+            rowWidth += column.getDataType().getSlotSize();
+        }
+        return rowWidth;
     }
 
     @Override
