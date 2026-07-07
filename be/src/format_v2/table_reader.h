@@ -62,6 +62,7 @@
 #include "format_v2/parquet/reader/column_reader.h"
 #include "format_v2/schema_projection.h"
 #include "gen_cpp/PlanNodes_types.h"
+#include "io/io_common.h"
 #include "runtime/descriptors.h"
 #include "storage/segment/condition_cache.h"
 
@@ -179,6 +180,10 @@ public:
             if (*eos) {
                 return Status::OK();
             }
+            if (_io_ctx != nullptr && _io_ctx->should_stop) {
+                *eos = true;
+                return Status::OK();
+            }
             if (!_data_reader.reader) {
                 if (_is_table_level_count_active()) {
                     RETURN_IF_ERROR(_read_table_level_count(block, eos));
@@ -198,7 +203,15 @@ public:
             if (!_aggregate_pushdown_tried) {
                 SCOPED_TIMER(_profile.pushdown_agg_timer);
                 bool pushed_down = false;
-                RETURN_IF_ERROR(_try_materialize_aggregate_pushdown_rows(block, &pushed_down));
+                const auto status = _try_materialize_aggregate_pushdown_rows(block, &pushed_down);
+                if (!status.ok()) {
+                    if (_io_ctx != nullptr && _io_ctx->should_stop &&
+                        status.is<ErrorCode::END_OF_FILE>()) {
+                        *eos = true;
+                        return Status::OK();
+                    }
+                    return status;
+                }
                 if (pushed_down) {
                     return Status::OK();
                 }
@@ -564,6 +577,12 @@ protected:
         _current_file_description.reset();
         _current_reader_reached_eof = false;
         return Status::OK();
+    }
+
+    void _record_scan_rows(size_t rows) {
+        if (_io_ctx != nullptr && _io_ctx->file_reader_stats != nullptr) {
+            _io_ctx->file_reader_stats->read_rows += rows;
+        }
     }
 
     // Finalize file-local block to table/global schema block.

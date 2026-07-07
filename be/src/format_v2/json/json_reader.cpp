@@ -323,8 +323,8 @@ Status JsonReader::get_block(Block* file_block, size_t* rows, bool* eof) {
     }
 
     *rows = file_block->rows();
+    _record_scan_rows(cast_set<int64_t>(*rows));
     RETURN_IF_ERROR(_apply_filters(file_block, rows));
-    _reader_statistics.read_rows += *rows;
     *eof = _reader_eof && *rows == 0;
     _eof = *eof;
     return Status::OK();
