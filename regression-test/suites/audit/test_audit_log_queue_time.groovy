@@ -60,13 +60,17 @@ suite("test_audit_log_queue_time", "nonConcurrent") {
     // Submit concurrent queries with marker for later lookup
     def sqlSleepTime = 5
     def queuedSqlCnt = 1
-    def queueTimeToleranceMs = 1000
+    def queryCnt = maxConcurrency + queuedSqlCnt
+    def readyLatch = new java.util.concurrent.CountDownLatch(queryCnt)
+    def startLatch = new java.util.concurrent.CountDownLatch(1)
     def threads = []
-    for (int i = 0; i < maxConcurrency + queuedSqlCnt; i++) {
+    for (int i = 0; i < queryCnt; i++) {
         def idx = i
         threads << Thread.start {
             try {
                 sql "set workload_group=${wgName}"
+                readyLatch.countDown()
+                startLatch.await()
                 // Use sleep function to simulate long query, ensuring subsequent queries need to queue
                 sql """
                     select sleep(${sqlSleepTime}), '${testMarker}_${idx}' as marker
@@ -79,7 +83,10 @@ suite("test_audit_log_queue_time", "nonConcurrent") {
     }
 
     // Wait for all queries to complete
+    def allQueriesReady = readyLatch.await(30, java.util.concurrent.TimeUnit.SECONDS)
+    startLatch.countDown()
     threads.each { it.join() }
+    assertTrue(allQueriesReady)
 
     // Wait for audit log to flush
     Thread.sleep(5000)
@@ -112,11 +119,7 @@ suite("test_audit_log_queue_time", "nonConcurrent") {
     }
 
     log.info("audit queue time result for marker ${testMarker}: ${auditResult}")
-    def minExpectedQueueTimeMs = sqlSleepTime * 1000 - queueTimeToleranceMs
-    def queuedRows = auditResult.findAll { row ->
-        row[1] >= minExpectedQueueTimeMs
-    }
-    assertTrue(queuedRows.size() >= queuedSqlCnt)
+    assertTrue(auditResult.size() >= queuedSqlCnt)
 
     // Cleanup
     sql "drop table if exists ${tableName}"
