@@ -1154,6 +1154,13 @@ static int create_instance(const std::string& internal_stage_id,
     return 0;
 }
 
+static void put_instance_info(TxnKv* txn_kv, const InstanceInfoPB& instance_info) {
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(TxnErrorCode::TXN_OK, txn_kv->create_txn(&txn));
+    txn->put(instance_key({instance_info.instance_id()}), instance_info.SerializeAsString());
+    ASSERT_EQ(TxnErrorCode::TXN_OK, txn->commit());
+}
+
 static int create_copy_job(TxnKv* txn_kv, const std::string& stage_id, int64_t table_id,
                            StagePB::StageType stage_type, CopyJobPB::JobStatus job_status,
                            std::vector<ObjectFilePB> object_files, int64_t timeout_time,
@@ -3616,6 +3623,8 @@ TEST(RecyclerTest, recycle_deleted_instance) {
 
     InstanceInfoPB instance_info;
     create_instance(internal_stage_id, external_stage_id, instance_info);
+    instance_info.set_status(InstanceInfoPB::DELETED);
+    put_instance_info(txn_kv.get(), instance_info);
     InstanceRecycler recycler(txn_kv, instance_info, thread_group,
                               std::make_shared<TxnLazyCommitter>(txn_kv));
     ASSERT_EQ(recycler.init(), 0);
@@ -3687,6 +3696,8 @@ TEST(RecyclerTest, recycle_deleted_instance) {
     }
 
     ASSERT_EQ(0, recycler.recycle_deleted_instance());
+    ASSERT_EQ(InstanceRecycleState::INSTANCE_RECYCLE_STATE_CLEANUP_PENDING,
+              recycler.instance_info().recycled_state());
 
     {
         // No thing to recycle
@@ -3706,6 +3717,11 @@ TEST(RecyclerTest, recycle_deleted_instance) {
     }
 
     ASSERT_EQ(0, recycler.recycle_deleted_instance());
+    ASSERT_EQ(InstanceRecycleState::INSTANCE_RECYCLE_STATE_DATA_CLEANUP_COMPLETED,
+              recycler.instance_info().recycled_state());
+    ASSERT_EQ(0, recycler.recycle_deleted_instance());
+    ASSERT_EQ(InstanceRecycleState::INSTANCE_RECYCLE_STATE_CLEANUP_COMPLETED,
+              recycler.instance_info().recycled_state());
 
     // check if all the objects are deleted
     std::for_each(recycler.accessor_map_.begin(), recycler.accessor_map_.end(),
@@ -3769,6 +3785,65 @@ TEST(RecyclerTest, recycle_deleted_instance) {
     }
 }
 
+TEST(RecyclerTest, init_deleted_instance_with_terminal_recycled_state) {
+    auto txn_kv = std::dynamic_pointer_cast<TxnKv>(std::make_shared<MemTxnKv>());
+    ASSERT_NE(txn_kv.get(), nullptr);
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance_info;
+    instance_info.set_instance_id(instance_id);
+    instance_info.set_status(InstanceInfoPB::DELETED);
+    instance_info.set_recycled_state(
+            InstanceRecycleState::INSTANCE_RECYCLE_STATE_CLEANUP_COMPLETED);
+    instance_info.add_resource_ids("deleted_vault");
+
+    InstanceRecycler recycler(txn_kv, instance_info, thread_group,
+                              std::make_shared<TxnLazyCommitter>(txn_kv));
+    ASSERT_EQ(recycler.init(), 0);
+    ASSERT_EQ(recycler.do_recycle(), 0);
+}
+
+TEST(RecyclerTest, recycle_deleted_instance_metadata_after_successor_completed) {
+    auto txn_kv = std::dynamic_pointer_cast<TxnKv>(std::make_shared<MemTxnKv>());
+    ASSERT_NE(txn_kv.get(), nullptr);
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance_info;
+    instance_info.set_instance_id(instance_id);
+    instance_info.set_status(InstanceInfoPB::DELETED);
+    instance_info.set_recycled_state(
+            InstanceRecycleState::INSTANCE_RECYCLE_STATE_DATA_CLEANUP_COMPLETED);
+    instance_info.set_successor_instance_id("completed_successor");
+    put_instance_info(txn_kv.get(), instance_info);
+
+    InstanceInfoPB successor_instance;
+    successor_instance.set_instance_id(instance_info.successor_instance_id());
+    successor_instance.set_status(InstanceInfoPB::DELETED);
+    successor_instance.set_recycled_state(
+            InstanceRecycleState::INSTANCE_RECYCLE_STATE_CLEANUP_COMPLETED);
+    put_instance_info(txn_kv.get(), successor_instance);
+
+    std::string metadata_key = txn_label_key({instance_id, 1, "label"});
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(TxnErrorCode::TXN_OK, txn_kv->create_txn(&txn));
+        txn->put(metadata_key, "value");
+        ASSERT_EQ(TxnErrorCode::TXN_OK, txn->commit());
+    }
+
+    InstanceRecycler recycler(txn_kv, instance_info, thread_group,
+                              std::make_shared<TxnLazyCommitter>(txn_kv));
+    ASSERT_EQ(recycler.init(), 0);
+    ASSERT_EQ(recycler.recycle_deleted_instance_metadata(), 0);
+    ASSERT_EQ(recycler.instance_info().recycled_state(),
+              InstanceRecycleState::INSTANCE_RECYCLE_STATE_CLEANUP_COMPLETED);
+
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(TxnErrorCode::TXN_OK, txn_kv->create_txn(&txn));
+    std::string value;
+    ASSERT_EQ(TxnErrorCode::TXN_KEY_NOT_FOUND, txn->get(metadata_key, &value));
+}
+
 // Regression test: if commit_rowset is called but the txn is never committed,
 // the rowset stays in meta_rowset_tmp_key with data_rowset_ref_count_key=1.
 // recycle_deleted_instance() must call recycle_tmp_rowsets() first so that
@@ -3788,20 +3863,14 @@ TEST(RecyclerTest, recycle_deleted_instance_with_orphan_tmp_rowset) {
     // Create instance with multi-version read/write and snapshot support
     InstanceInfoPB instance_info;
     instance_info.set_instance_id(instance_id);
+    instance_info.set_status(InstanceInfoPB::DELETED);
     instance_info.set_multi_version_status(MultiVersionStatus::MULTI_VERSION_READ_WRITE);
     instance_info.set_snapshot_switch_status(SnapshotSwitchStatus::SNAPSHOT_SWITCH_ON);
     auto* obj_info = instance_info.add_obj_info();
     obj_info->set_id("orphan_tmp_rowset_test");
 
     // Write instance info to FDB (required by OperationLogRecycleChecker::init())
-    {
-        std::unique_ptr<Transaction> txn;
-        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
-        std::string key = instance_key({instance_id});
-        std::string val = instance_info.SerializeAsString();
-        txn->put(key, val);
-        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
-    }
+    put_instance_info(txn_kv.get(), instance_info);
 
     InstanceRecycler recycler(txn_kv, instance_info, thread_group,
                               std::make_shared<TxnLazyCommitter>(txn_kv));

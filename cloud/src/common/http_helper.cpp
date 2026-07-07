@@ -370,7 +370,12 @@ const std::unordered_map<std::string_view, HttpHandlerInfo>& get_http_handlers()
                               return process_query_rate_limit((MS*)s, c);
                           },
                   .role = HttpRole::META_SERVICE}},
-
+                {"check_instance_recycle_completed",
+                 {.handler =
+                          [](void* s, brpc::Controller* c) {
+                              return process_check_instance_recycle_completed((MS*)s, c);
+                          },
+                  .role = HttpRole::META_SERVICE}},
                 // Recycler APIs
                 {"recycle_instance",
                  {.handler =
@@ -399,6 +404,12 @@ const std::unordered_map<std::string_view, HttpHandlerInfo>& get_http_handlers()
                 {"check_instance",
                  {.handler = [](void* s,
                                 brpc::Controller* c) { return process_check_instance((RS*)s, c); },
+                  .role = HttpRole::RECYCLER}},
+                {"set_instance_recycled_state",
+                 {.handler =
+                          [](void* s, brpc::Controller* c) {
+                              return process_set_instance_recycled_state((RS*)s, c);
+                          },
                   .role = HttpRole::RECYCLER}},
                 {"check_job_info",
                  {.handler = [](void* s,
@@ -561,6 +572,34 @@ HttpResponse process_alter_instance(MetaServiceImpl* service, brpc::Controller* 
     return http_json_reply(resp.status());
 }
 
+HttpResponse process_set_instance_recycled_state(RecyclerServiceImpl* service,
+                                                 brpc::Controller* ctrl) {
+    auto& uri = ctrl->http_request().uri();
+    std::string instance_id(http_query(uri, "instance_id"));
+    std::string recycled_state_str(http_query(uri, "recycled_state"));
+    if (instance_id.empty()) {
+        return http_json_reply(MetaServiceCode::INVALID_ARGUMENT, "instance_id is empty");
+    }
+    if (recycled_state_str.empty()) {
+        return http_json_reply(MetaServiceCode::INVALID_ARGUMENT, "recycled_state is empty");
+    }
+
+    InstanceRecycleState recycled_state;
+    if (!InstanceRecycleState_Parse(recycled_state_str, &recycled_state) ||
+        (recycled_state != InstanceRecycleState::INSTANCE_RECYCLE_STATE_CLEANUP_PENDING &&
+         recycled_state != InstanceRecycleState::INSTANCE_RECYCLE_STATE_DATA_CLEANUP_COMPLETED &&
+         recycled_state != InstanceRecycleState::INSTANCE_RECYCLE_STATE_CLEANUP_COMPLETED)) {
+        return http_json_reply(MetaServiceCode::INVALID_ARGUMENT,
+                               "invalid recycled_state, supported values: "
+                               "INSTANCE_RECYCLE_STATE_CLEANUP_PENDING, "
+                               "INSTANCE_RECYCLE_STATE_DATA_CLEANUP_COMPLETED, "
+                               "INSTANCE_RECYCLE_STATE_CLEANUP_COMPLETED");
+    }
+
+    auto [code, msg] = service->set_instance_recycled_state(instance_id, recycled_state);
+    return http_json_reply(code, msg);
+}
+
 HttpResponse process_abort_txn(MetaServiceImpl* service, brpc::Controller* ctrl) {
     AbortTxnRequest req;
     PARSE_MESSAGE_OR_RETURN(ctrl, req);
@@ -699,6 +738,28 @@ HttpResponse process_query_rate_limit(MetaServiceImpl* service, brpc::Controller
     rapidjson::PrettyWriter<rapidjson::StringBuffer> writer(sb);
     d.Accept(writer);
     return http_json_reply(MetaServiceCode::OK, "", sb.GetString());
+}
+
+HttpResponse process_check_instance_recycle_completed(MetaServiceImpl* service,
+                                                      brpc::Controller* cntl) {
+    const auto* instance_id = cntl->http_request().uri().GetQuery("instance_id");
+    if (!instance_id || instance_id->empty()) {
+        return http_json_reply(MetaServiceCode::INVALID_ARGUMENT, "no instance id");
+    }
+
+    bool finished = false;
+    auto [code, msg] = service->check_instance_recycle_completed(*instance_id, finished);
+    if (code != MetaServiceCode::OK) {
+        return http_json_reply(code, msg);
+    }
+
+    rapidjson::Document result;
+    result.SetObject();
+    result.AddMember("finished", finished, result.GetAllocator());
+    rapidjson::StringBuffer buffer;
+    rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
+    result.Accept(writer);
+    return http_json_reply(code, msg, buffer.GetString());
 }
 
 // Recycler HTTP handlers

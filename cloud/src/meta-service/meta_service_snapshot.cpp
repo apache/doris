@@ -210,4 +210,36 @@ void MetaServiceImpl::compact_snapshot(::google::protobuf::RpcController* contro
     std::tie(code, msg) = snapshot_manager_->compact_snapshot(instance_id);
 }
 
+std::pair<MetaServiceCode, std::string> MetaServiceImpl::check_instance_recycle_completed(
+        const std::string& instance_id, bool& finished) {
+    std::unique_ptr<Transaction> txn;
+    TxnErrorCode err = txn_kv_->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        std::string msg = fmt::format("failed to create txn, err={}", err);
+        LOG(WARNING) << msg << " instance_id=" << instance_id;
+        return {MetaServiceCode::KV_TXN_CREATE_ERR, std::move(msg)};
+    }
+
+    std::string key = instance_key({instance_id});
+    std::string value;
+    err = txn->get(key, &value);
+    if (err != TxnErrorCode::TXN_OK) {
+        std::string msg =
+                fmt::format("failed to get instance, instance_id={}, err={}", instance_id, err);
+        LOG(WARNING) << msg;
+        return {MetaServiceCode::KV_TXN_GET_ERR, std::move(msg)};
+    }
+
+    InstanceInfoPB instance;
+    if (!instance.ParseFromString(value)) {
+        std::string msg = fmt::format("malformed instance info, key={}", hex(key));
+        LOG(WARNING) << msg;
+        return {MetaServiceCode::PROTOBUF_PARSE_ERR, std::move(msg)};
+    }
+
+    finished = instance.recycled_state() ==
+               InstanceRecycleState::INSTANCE_RECYCLE_STATE_CLEANUP_COMPLETED;
+    return {MetaServiceCode::OK, "OK"};
+}
+
 } // namespace doris::cloud

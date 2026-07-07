@@ -288,6 +288,14 @@ public:
     // returns 0 for success otherwise error
     int recycle_deleted_instance();
 
+    int recycle_deleted_instance_data();
+
+    int recycle_deleted_instance_metadata();
+
+    int update_instance_recycled_state(InstanceRecycleState recycled_state);
+
+    int update_instance_recycled_state(InstanceRecycleState recycled_state, Transaction* txn);
+
     // scan and recycle expired indexes:
     // 1. dropped table, dropped mv
     // 2. half-successtable/index when create
