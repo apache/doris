@@ -1668,16 +1668,17 @@ Status CloudMetaMgr::abort_txn(const StreamLoadContext& ctx) {
     AbortTxnResponse res;
     req.set_cloud_unique_id(config::cloud_unique_id);
     req.set_reason(std::string(ctx.status.msg().substr(0, 1024)));
-    if (ctx.db_id > 0 && !ctx.label.empty()) {
+    if (ctx.txn_id > 0) {
+        req.set_txn_id(ctx.txn_id);
+    } else if (ctx.db_id > 0 && !ctx.label.empty()) {
         req.set_db_id(ctx.db_id);
         req.set_label(ctx.label);
-    } else if (ctx.txn_id > 0) {
-        req.set_txn_id(ctx.txn_id);
     } else {
         LOG(WARNING) << "failed abort txn, with illegal input, db_id=" << ctx.db_id
                      << " txn_id=" << ctx.txn_id << " label=" << ctx.label;
         return Status::InternalError<false>("failed to abort txn");
     }
+    TEST_SYNC_POINT_RETURN_WITH_VALUE("CloudMetaMgr::abort_txn.before_rpc", Status::OK(), &req);
     return retry_rpc(MetaServiceRPC::ABORT_TXN, req, &res, &MetaService_Stub::abort_txn,
                      {
                              .host_limiters = host_level_ms_rpc_rate_limiters_,
