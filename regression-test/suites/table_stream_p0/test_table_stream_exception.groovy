@@ -30,9 +30,8 @@
 //   4. stream / @incr query boundary (consume after drop, incr without binlog)
 //
 // Error texts are sourced from:
-//   - InternalCatalog.createOlapTable (binlog model check)
+//   - InternalCatalog.createOlapTable (binlog model / create-time column checks)
 //   - OlapTable.checkAsTableStreamBaseTable (stream base table check)
-//   - OlapTable.generateTableRowBinlogSchema (VARIANT / AUTO_INCREMENT check)
 //   - AlterOperations.checkRowBinlogAllow (schema change rejection)
 //   - SchemaChangeHandler (add VARIANT / AutoInc column check)
 //   - BindRelation (INCR / VERSION AS OF query check)
@@ -66,6 +65,7 @@ suite("test_table_stream_exception", "nonConcurrent") {
                 DISTRIBUTED BY HASH(k1) BUCKETS 1
                 PROPERTIES (
                     "replication_num" = "1",
+                    "enable_unique_key_merge_on_write" = "false",
                     "binlog.enable" = "true",
                     "binlog.format" = "ROW"
                 )
@@ -113,9 +113,8 @@ suite("test_table_stream_exception", "nonConcurrent") {
 
         // ================================================================
         // 2. create table with binlog<Row> on unsupported column types.
-        //    VARIANT and AUTO_INCREMENT are rejected when generating the row
-        //    binlog schema (OlapTable.generateTableRowBinlogSchema /
-        //    createNewRowBinlogMeta).
+        //    VARIANT and AUTO_INCREMENT are rejected during CREATE TABLE
+        //    validation before the row binlog schema is generated.
         // ================================================================
 
         // 2.1 binlog<Row> + VARIANT column -> reject.
@@ -134,7 +133,7 @@ suite("test_table_stream_exception", "nonConcurrent") {
                     "binlog.format" = "ROW"
                 )
             """
-            exception "binlog<Row> does not support VARIANT column"
+            exception "variant column can't be created on table with binlog<Row>"
         }
 
         // 2.2 binlog<Row> + AUTO_INCREMENT column -> reject.
@@ -154,7 +153,7 @@ suite("test_table_stream_exception", "nonConcurrent") {
                     "binlog.format" = "ROW"
                 )
             """
-            exception "auto-increment column"
+            exception "auto-inc column can't be created on table with binlog<Row>"
         }
 
         // ================================================================
