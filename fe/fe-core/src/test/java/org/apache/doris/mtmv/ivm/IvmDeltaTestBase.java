@@ -20,6 +20,8 @@ package org.apache.doris.mtmv.ivm;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.BinlogConfig;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.OlapTable;
@@ -32,6 +34,8 @@ import org.apache.doris.catalog.SinglePartitionInfo;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.TableProperty;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.catalog.stream.OlapTableStream;
+import org.apache.doris.catalog.stream.OlapTableStreamWrapper;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.mtmv.MTMVJobInfo;
 import org.apache.doris.mtmv.MTMVPartitionInfo;
@@ -89,6 +93,7 @@ abstract class IvmDeltaTestBase {
         OlapTable table = PlanConstructor.newOlapTable(0, "t1", 0);
         enableRowBinlog(table);
         table.setQualifiedDbName("test_db");
+        registerTestStreams(table);
         LogicalOlapScan scan = new LogicalOlapScan(PlanConstructor.getNextRelationId(), table,
                 ImmutableList.of("test_db"));
         return scan;
@@ -99,7 +104,7 @@ abstract class IvmDeltaTestBase {
         OlapTable table = PlanConstructor.newOlapTable(0, "t1", 0);
         enableRowBinlog(table);
         table.setQualifiedDbName("test_db");
-        return new LogicalOlapTableStreamScan(PlanConstructor.getNextRelationId(), table,
+        return new LogicalOlapTableStreamScan(PlanConstructor.getNextRelationId(), buildStreamWrapper(table),
                 ImmutableList.of("test_db"), ImmutableList.of(), ImmutableList.of(),
                 Optional.empty(), ImmutableList.of()).withIncrementalScan(true);
     }
@@ -109,7 +114,7 @@ abstract class IvmDeltaTestBase {
         OlapTable table = PlanConstructor.newOlapTable(tableId, tableName, 0);
         enableRowBinlog(table);
         table.setQualifiedDbName("test_db");
-        return new LogicalOlapTableStreamScan(PlanConstructor.getNextRelationId(), table,
+        return new LogicalOlapTableStreamScan(PlanConstructor.getNextRelationId(), buildStreamWrapper(table),
                 ImmutableList.of("test_db"), ImmutableList.of(), ImmutableList.of(),
                 Optional.empty(), ImmutableList.of()).withIncrementalScan(true);
     }
@@ -119,8 +124,34 @@ abstract class IvmDeltaTestBase {
         OlapTable table = PlanConstructor.newOlapTable(tableId, tableName, 0);
         enableRowBinlog(table);
         table.setQualifiedDbName("test_db");
+        registerTestStreams(table);
         return new LogicalOlapScan(PlanConstructor.getNextRelationId(), table,
                 ImmutableList.of("test_db"));
+    }
+
+    private OlapTableStreamWrapper buildStreamWrapper(OlapTable baseTable) {
+        OlapTableStream stream = registerTestStream(baseTable, 1L);
+        return new OlapTableStreamWrapper(stream, baseTable, ImmutableList.of());
+    }
+
+    protected void registerTestStreams(OlapTable baseTable) {
+        registerTestStream(baseTable, 0L);
+        registerTestStream(baseTable, 1L);
+    }
+
+    private OlapTableStream registerTestStream(OlapTable baseTable, long mvId) {
+        Database db = Env.getCurrentInternalCatalog().getDbNullable("test_db");
+        if (db == null) {
+            db = new Database(10_000L, "test_db");
+            Env.getCurrentEnv().unprotectCreateDb(db);
+        }
+        String streamName = IvmUtil.streamName(mvId, baseTable.getName());
+        db.unregisterTable(streamName);
+        OlapTableStream stream = new OlapTableStream(baseTable.getId() + 10_000L + mvId,
+                streamName, baseTable.getFullSchema(), baseTable);
+        db.registerTable(stream);
+        Env.getCurrentEnv().getTableStreamManager().addTableStream(stream);
+        return stream;
     }
 
     /**

@@ -167,10 +167,9 @@ public class MTMVTaskTest {
         MTMVTask task = new MTMVTask(mtmv, relation, context);
         List<String> result = task.calculateNeedRefreshPartitions(null);
 
-        Assert.assertEquals(allPartitionNames, result);
+        Assert.assertTrue(CollectionUtils.isEmpty(result));
         mtmvPartitionUtilStatic.verify(() -> MTMVPartitionUtil.isMTMVSync(
-                Mockito.nullable(MTMVRefreshContext.class), Mockito.nullable(Set.class), Mockito.nullable(Set.class)),
-                Mockito.never());
+                Mockito.nullable(MTMVRefreshContext.class), Mockito.nullable(Set.class), Mockito.nullable(Set.class)));
     }
 
     @Test
@@ -237,9 +236,11 @@ public class MTMVTaskTest {
 
     @Test
     public void testTaskSchemaContainsComputeGroup() {
-        Column lastColumn = MTMVTask.SCHEMA.get(MTMVTask.SCHEMA.size() - 1);
-        Assert.assertEquals(COMPUTE_GROUP, lastColumn.getName());
-        Assert.assertEquals(MTMVTask.SCHEMA.size() - 1,
+        Column computeGroupColumn = MTMVTask.SCHEMA.get(MTMVTask.SCHEMA.size() - 2);
+        Column fallbackReasonColumn = MTMVTask.SCHEMA.get(MTMVTask.SCHEMA.size() - 1);
+        Assert.assertEquals(COMPUTE_GROUP, computeGroupColumn.getName());
+        Assert.assertEquals("IvmFallbackReason", fallbackReasonColumn.getName());
+        Assert.assertEquals(MTMVTask.SCHEMA.size() - 2,
                 MTMVTask.COLUMN_TO_INDEX.get(COMPUTE_GROUP.toLowerCase()).intValue());
     }
 

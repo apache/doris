@@ -21,38 +21,44 @@ import org.apache.doris.analysis.StmtType;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 import org.apache.doris.mtmv.MTMVPlanUtil;
+import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.mtmv.ivm.IvmRefreshManager;
 import org.apache.doris.mtmv.ivm.IvmRewriteContext;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.commands.info.RefreshMTMVInfo;
-import org.apache.doris.nereids.trees.plans.commands.info.RefreshMTMVInfo.RefreshMode;
-import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 
+import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
+
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 
 /**
- * Explain IVM refresh dry-run plans.
+ * Explain MTMV refresh dry-run plans.
  */
-public class ExplainRefreshIvmCommand extends Command implements NoForward {
+public class ExplainRefreshMtmvCommand extends Command implements NoForward {
     private final RefreshMTMVInfo refreshMTMVInfo;
     private final ExplainLevel level;
     private final boolean showPlanProcess;
 
     /**
-     * Creates an EXPLAIN REFRESH command for IVM refresh planning.
+     * Creates an EXPLAIN REFRESH command for MTMV refresh planning.
      */
-    public ExplainRefreshIvmCommand(RefreshMTMVInfo refreshMTMVInfo, ExplainLevel level,
+    public ExplainRefreshMtmvCommand(RefreshMTMVInfo refreshMTMVInfo, ExplainLevel level,
             boolean showPlanProcess) {
-        super(PlanType.EXPLAIN_REFRESH_IVM_COMMAND);
+        super(PlanType.EXPLAIN_REFRESH_MTMV_COMMAND);
         this.refreshMTMVInfo = Objects.requireNonNull(refreshMTMVInfo, "refreshMTMVInfo can not be null");
         this.level = Objects.requireNonNull(level, "level can not be null");
         this.showPlanProcess = showPlanProcess;
@@ -60,20 +66,14 @@ public class ExplainRefreshIvmCommand extends Command implements NoForward {
 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
-        if (refreshMTMVInfo.getRefreshMode() != RefreshMode.INCREMENTAL) {
-            throw new org.apache.doris.nereids.exceptions.AnalysisException(
-                    "EXPLAIN REFRESH only supports IVM materialized views");
-        }
-
         refreshMTMVInfo.analyze(ctx);
         MTMV mtmv = getMtmv();
         ConnectContext planCtx = createExplainConnectContext(mtmv);
         try {
             StatementContext statementContext = new StatementContext(planCtx, null);
-            statementContext.setIvmRewriteContext(Optional.of(
-                    IvmRewriteContext.incremental(mtmv, true, true)));
             planCtx.setStatementContext(statementContext);
-            InsertIntoTableCommand command = createIvmRefreshManager().buildInsertCommand(mtmv);
+            statementContext.setConnectContext(planCtx);
+            LogicalPlan command = createRefreshCommand(mtmv, statementContext);
             runExplainCommand(planCtx, executor, command);
         } finally {
             ctx.setThreadLocalInfo();
@@ -85,8 +85,28 @@ public class ExplainRefreshIvmCommand extends Command implements NoForward {
     }
 
     protected void runExplainCommand(ConnectContext planCtx, StmtExecutor executor,
-            InsertIntoTableCommand command) throws Exception {
+            LogicalPlan command) throws Exception {
         new ExplainCommand(level, command, showPlanProcess).run(planCtx, executor);
+    }
+
+    protected LogicalPlan createRefreshCommand(MTMV mtmv, StatementContext statementContext) throws Exception {
+        switch (refreshMTMVInfo.getRefreshMode()) {
+            case INCREMENTAL:
+                if (!mtmv.isIvm()) {
+                    throw new org.apache.doris.nereids.exceptions.AnalysisException(
+                            "EXPLAIN REFRESH INCREMENTAL only supports IVM materialized views");
+                }
+                statementContext.setIvmRewriteContext(Optional.of(
+                        IvmRewriteContext.incremental(mtmv, true, true)));
+                return createIvmRefreshManager().buildInsertCommand(mtmv);
+            case COMPLETE:
+                statementContext.setExcludedTriggerTables(mtmv.getExcludedTriggerTables());
+                return UpdateMvByPartitionCommand.from(
+                        mtmv, getCompleteRefreshPartitions(mtmv), getIncrementalTableMap(mtmv), statementContext);
+            default:
+                throw new org.apache.doris.nereids.exceptions.AnalysisException(
+                        "EXPLAIN REFRESH currently supports COMPLETE and INCREMENTAL only");
+        }
     }
 
     private MTMV getMtmv() throws org.apache.doris.common.AnalysisException, MetaNotFoundException {
@@ -97,6 +117,25 @@ public class ExplainRefreshIvmCommand extends Command implements NoForward {
 
     IvmRefreshManager createIvmRefreshManager() {
         return new IvmRefreshManager();
+    }
+
+    private Set<String> getCompleteRefreshPartitions(MTMV mtmv) {
+        if (mtmv.getMvPartitionInfo().getPartitionType() == MTMVPartitionType.SELF_MANAGE) {
+            return Sets.newHashSet();
+        }
+        return Sets.newHashSet(mtmv.getPartitionNames());
+    }
+
+    private java.util.Map<TableIf, String> getIncrementalTableMap(MTMV mtmv)
+            throws org.apache.doris.common.AnalysisException {
+        java.util.Map<TableIf, String> tableWithPartKey = Maps.newHashMap();
+        if (mtmv.getMvPartitionInfo().getPartitionType() == MTMVPartitionType.SELF_MANAGE) {
+            return tableWithPartKey;
+        }
+        for (org.apache.doris.mtmv.BaseColInfo pctInfo : mtmv.getMvPartitionInfo().getPctInfos()) {
+            tableWithPartKey.put(MTMVUtil.getTable(pctInfo.getTableInfo()), pctInfo.getColName());
+        }
+        return tableWithPartKey;
     }
 
     public RefreshMTMVInfo getRefreshMTMVInfo() {
@@ -113,7 +152,7 @@ public class ExplainRefreshIvmCommand extends Command implements NoForward {
 
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
-        return visitor.visitExplainRefreshIvmCommand(this, context);
+        return visitor.visitExplainRefreshMtmvCommand(this, context);
     }
 
     @Override
