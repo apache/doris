@@ -24,6 +24,7 @@ import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.ConnectorTableSchema;
 import org.apache.doris.connector.api.ConnectorTableStatistics;
 import org.apache.doris.connector.api.ConnectorType;
+import org.apache.doris.connector.api.ConnectorViewDefinition;
 import org.apache.doris.connector.api.DorisConnectorException;
 import org.apache.doris.connector.api.ddl.ConnectorBucketSpec;
 import org.apache.doris.connector.api.ddl.ConnectorCreateTableRequest;
@@ -52,6 +53,8 @@ import org.apache.doris.thrift.THiveTable;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
 
+import com.google.gson.Gson;
+import com.google.gson.JsonObject;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.FileSystem;
@@ -60,7 +63,9 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -112,6 +117,19 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
     // HMS table type for a view, mirroring legacy HMSExternalTable.isView (which keyed off the view text flags);
     // a Hive view carries tableType VIRTUAL_VIEW.
     private static final String VIRTUAL_VIEW_TABLE_TYPE = "VIRTUAL_VIEW";
+
+    // Presto/Trino view markers, replicating legacy HMSExternalTable.getViewText / parseTrinoViewDefinition. A
+    // Presto/Trino-authored hive view stores the bare sentinel as its expanded text (skipped) and the real
+    // definition as base64-encoded JSON inside the original text ("/* Presto View: <base64> */").
+    private static final String PRESTO_VIEW_EXPANDED_SENTINEL = "/* Presto View */";
+    private static final String PRESTO_VIEW_PREFIX = "/* Presto View: ";
+    private static final String PRESTO_VIEW_SUFFIX = " */";
+    private static final String PRESTO_VIEW_ORIGINAL_SQL_KEY = "originalSql";
+
+    // Placeholder SQL dialect for a hive view. fe-core never reads ConnectorViewDefinition.getDialect() (the
+    // view body is converted by the session dialect in BindRelation.parseAndAnalyzeExternalView), but the DTO
+    // requires a non-null value; legacy getSqlDialect was likewise never consumed by the query path.
+    private static final String HIVE_VIEW_DIALECT = "hive";
 
     // HMS table-parameter keys for table statistics, replicating legacy StatisticsUtil.getHiveRowCount /
     // getRowCountFromParameters / getTotalSizeFromHMS. numRows is the exact row count; totalSize is the on-disk
@@ -299,6 +317,129 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
                 tableId, TTableType.HIVE_TABLE, numCols, 0, tableName, dbName);
         desc.setHiveTable(tHiveTable);
         return desc;
+    }
+
+    // ========== ConnectorTableOps: Views ==========
+
+    /**
+     * Whether {@code dbName.viewName} is a hive VIEW, a connector-side port of legacy
+     * {@code HMSExternalTable.isView}: the authoritative signal is the PRESENCE OF VIEW TEXT
+     * ({@code viewOriginalText} or {@code viewExpandedText} set), not the {@code tableType} — a hive view
+     * always carries view text and a base table never does. Consumed by {@code PluginDrivenExternalTable}
+     * to resolve {@code isView()} (only when the connector declares {@link ConnectorCapability#SUPPORTS_VIEW})
+     * and by {@code PluginDrivenExternalCatalog.dropTable} to route a DROP onto {@link #dropView}; returning
+     * {@code false} for a base table is exactly what keeps a normal DROP TABLE on the table-handle path. This
+     * uses the same single {@code getTable} the caller path needs and does NOT wrap in an auth context
+     * (ThriftHmsClient authenticates internally, unlike the iceberg connector). A missing table is not a view.
+     *
+     * <p>Distinct from the {@code tableType}-based {@link #isView(HmsTableInfo)} the Top-N gate uses: that gate
+     * only excludes views from an optimization (a tableType proxy is adequate there and its unit test relies on
+     * it), whereas this view signal must be the legacy-exact text predicate so {@link #getViewDefinition} is
+     * only reached when the text needed to build the view SQL exists.
+     */
+    @Override
+    public boolean viewExists(ConnectorSession session, String dbName, String viewName) {
+        try {
+            return isViewTable(hmsClient.getTable(dbName, viewName));
+        } catch (HmsClientException e) {
+            LOG.debug("View existence check: '{}.{}' not found: {}", dbName, viewName, e.getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * Loads the stored definition of a hive view, a connector-side port of legacy
+     * {@code HMSExternalTable.getViewText} plus the view-column half of {@code initHiveSchema}. ONE
+     * {@code hmsClient.getTable} supplies both the SQL body (via {@link #resolveViewText}) and the view's
+     * columns — a hive view exposes ordinary columns from its StorageDescriptor, built exactly like a base
+     * table's data columns. fe-core ({@code PluginDrivenExternalTable.initSchema}) takes a view's columns
+     * SOLELY from here (it never calls {@code getTableSchema} for a view), so the column list is non-empty for
+     * a real view. The {@code dialect} is a required-non-null placeholder fe-core never reads. Callers gate on
+     * {@link #viewExists}, so the view text is present; a defensive fail-loud guards the pathological
+     * empty-text case rather than letting the DTO constructor NPE.
+     */
+    @Override
+    public ConnectorViewDefinition getViewDefinition(ConnectorSession session, String dbName, String viewName) {
+        HmsTableInfo tableInfo = hmsClient.getTable(dbName, viewName);
+        String sql = resolveViewText(tableInfo);
+        if (sql == null) {
+            throw new DorisConnectorException(
+                    "Hive view " + dbName + "." + viewName + " has no view definition text");
+        }
+        List<ConnectorColumn> columns = buildColumns(tableInfo);
+        return new ConnectorViewDefinition(sql, HIVE_VIEW_DIALECT, columns);
+    }
+
+    /**
+     * Drops a hive view, a connector-side port of the way legacy {@code HiveMetadataOps.dropTableImpl} dropped a
+     * view: hive has no separate drop-view, a view is deleted through the same metastore {@code dropTable}. This
+     * is reached only via {@code PluginDrivenExternalCatalog.dropTable} after {@link #viewExists} confirmed the
+     * target is a view; a view is never transactional, so the transactional-table guard the table drop applies
+     * is unnecessary here. Failures are normalized into a {@link DorisConnectorException} (not a bare
+     * RuntimeException) so {@code PluginDrivenExternalCatalog.dropTable} rewraps them as a {@code DdlException}.
+     */
+    @Override
+    public void dropView(ConnectorSession session, String dbName, String viewName) {
+        try {
+            hmsClient.dropTable(dbName, viewName);
+        } catch (HmsClientException e) {
+            throw new DorisConnectorException("Failed to drop Hive view "
+                    + dbName + "." + viewName + ": " + e.getMessage(), e);
+        }
+    }
+
+    // listViewNames is intentionally NOT overridden: hive's listTableNames (HMS get_all_tables) already
+    // includes views, and PluginDrivenExternalCatalog.listTableNamesFromRemote merges listViewNames into
+    // SHOW TABLES with a plain addAll (no dedup). Returning view names here would DOUBLE-list every hive view;
+    // the SPI default (empty) keeps SHOW TABLES listing each view exactly once, matching legacy. This is the
+    // opposite of iceberg, whose listTableNames subtracts views and whose listViewNames re-supplies them.
+
+    /**
+     * Whether the metastore table carries view text, the exact predicate of legacy
+     * {@code HMSExternalTable.isView} ({@code isSetViewOriginalText() || isSetViewExpandedText()}).
+     */
+    private static boolean isViewTable(HmsTableInfo tableInfo) {
+        return tableInfo.getViewOriginalText() != null || tableInfo.getViewExpandedText() != null;
+    }
+
+    /**
+     * Resolves a hive view's SQL body, a byte-faithful port of legacy {@code HMSExternalTable.getViewText}:
+     * prefer {@code viewExpandedText} unless it is empty or the bare {@code "/* Presto View *}{@code /"}
+     * sentinel, otherwise parse the base64 Presto/Trino definition out of {@code viewOriginalText}.
+     */
+    private static String resolveViewText(HmsTableInfo tableInfo) {
+        String expanded = tableInfo.getViewExpandedText();
+        if (expanded != null && !expanded.isEmpty() && !PRESTO_VIEW_EXPANDED_SENTINEL.equals(expanded)) {
+            return expanded;
+        }
+        return parseTrinoViewDefinition(tableInfo.getViewOriginalText());
+    }
+
+    /**
+     * Extracts the SQL out of a Presto/Trino view definition stored in {@code originalText}, a port of legacy
+     * {@code HMSExternalTable.parseTrinoViewDefinition}. The format is
+     * {@code "/* Presto View: <base64-json> *}{@code /"} where the JSON carries an {@code originalSql} field.
+     * Returns {@code originalText} unchanged when it is not a Presto view, and falls back to the raw
+     * {@code originalText} on ANY decode/parse failure (legacy parity).
+     */
+    private static String parseTrinoViewDefinition(String originalText) {
+        if (originalText == null || !originalText.contains(PRESTO_VIEW_PREFIX)) {
+            return originalText;
+        }
+        try {
+            String base64String = originalText.substring(
+                    originalText.indexOf(PRESTO_VIEW_PREFIX) + PRESTO_VIEW_PREFIX.length(),
+                    originalText.lastIndexOf(PRESTO_VIEW_SUFFIX)).trim();
+            byte[] decodedBytes = Base64.getDecoder().decode(base64String);
+            String decodedString = new String(decodedBytes, StandardCharsets.UTF_8);
+            JsonObject jsonObject = new Gson().fromJson(decodedString, JsonObject.class);
+            if (jsonObject.has(PRESTO_VIEW_ORIGINAL_SQL_KEY)) {
+                return jsonObject.get(PRESTO_VIEW_ORIGINAL_SQL_KEY).getAsString();
+            }
+        } catch (Exception e) {
+            LOG.warn("Decoding Presto view definition failed", e);
+        }
+        return originalText;
     }
 
     // ========== ConnectorStatisticsOps ==========

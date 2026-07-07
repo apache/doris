@@ -18,6 +18,7 @@
 package org.apache.doris.connector.hive;
 
 import org.apache.doris.connector.api.Connector;
+import org.apache.doris.connector.api.ConnectorCapability;
 import org.apache.doris.connector.api.ConnectorMetadata;
 import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.DorisConnectorException;
@@ -39,8 +40,10 @@ import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 import java.util.Collections;
+import java.util.EnumSet;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.Callable;
 
 /**
@@ -86,6 +89,21 @@ public class HiveConnector implements Connector {
     @Override
     public ConnectorWritePlanProvider getWritePlanProvider() {
         return new HiveWritePlanProvider(getOrCreateClient(), properties, context);
+    }
+
+    @Override
+    public Set<ConnectorCapability> getCapabilities() {
+        // SUPPORTS_VIEW: legacy HMSExternalTable resolves isView() from the remote table's view text and hive
+        // views are queryable/droppable/visible in SHOW TABLES. The generic plugin-driven path reproduces this
+        // ONLY under this capability: PluginDrivenExternalTable.isView() then consults the connector's
+        // viewExists, PluginDrivenExternalCatalog.dropTable routes a view DROP to dropView, and
+        // listTableNamesFromRemote merges listViewNames into SHOW TABLES — hive returns an EMPTY listViewNames
+        // (its listTableNames already includes views), so the merge is a no-op and each view is listed once
+        // (legacy parity). Inert until hms enters SPI_READY_TYPES. Other connector-wide capabilities
+        // (auto-analyze, show-create-ddl, metadata-preload) land in their own substeps; SUPPORTS_MVCC_SNAPSHOT
+        // is intentionally withheld (hive is non-MVCC), and Top-N / nested-prune are per-table markers, not
+        // connector-wide flags.
+        return EnumSet.of(ConnectorCapability.SUPPORTS_VIEW);
     }
 
     private HmsClient getOrCreateClient() {
