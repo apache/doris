@@ -585,11 +585,6 @@ public class MTMVTask extends AbstractTask {
     private void executePartitionBasedRefresh(MTMVRefreshContext context)
             throws JobException, AnalysisException {
         Map<TableIf, String> tableWithPartKey = getIncrementalTableMap();
-        Map<BaseTableInfo, Long> ivmPreRefreshTsos = null;
-        if (mtmv.isIvm()) {
-            // TODO(IVM): Enable this when full refresh can bind to a real TSO snapshot.
-            // ivmPreRefreshTsos = IvmRefreshManager.captureBaseTableTsos(mtmv);
-        }
         this.completedPartitions = Lists.newCopyOnWriteArrayList();
         int refreshPartitionNum = mtmv.getRefreshPartitionNum();
         long execNum = (needRefreshPartitions.size() / refreshPartitionNum) + ((needRefreshPartitions.size()
