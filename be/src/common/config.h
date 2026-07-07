@@ -1369,6 +1369,14 @@ DECLARE_mInt32(snii_bigram_prune_min_df);
 // could never prune -- recording it would only arm pointless dict-miss
 // fallbacks).
 DECLARE_mDouble(snii_bigram_prune_max_df_ratio);
+// DIAGNOSTIC: force SNII inverted-index reads to bypass the 1MiB FILE_BLOCK_CACHE
+// and issue precise S3 range GETs (NO_CACHE) instead. Applies ONLY to the SNII
+// index file reader (per-open cache_type), NOT the global enable_file_cache, so
+// cloud mode does not FATAL. Default false (keep block cache). Used to measure
+// whether the block-cache read amplification hurts cold reads at the cost of
+// re-reading S3 on every (warm) query. Not for production: warm loses the local
+// cache. Read-side only.
+DECLARE_mBool(inverted_index_read_bypass_file_cache);
 // G16-c: whether plain positions-tier (non-scoring) SNII indexes lay out freq
 // regions. Freq serves ONLY BM25 scoring (no production caller yet), so the
 // default (false) drops the layout; scoring-config indexes always keep freq.

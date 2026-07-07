@@ -97,8 +97,14 @@ bool DorisFSDirectory::FSIndexInput::open(const io::FileSystemSPtr& fs, const ch
     auto h = std::make_shared<SharedHandle>(path);
 
     io::FileReaderOptions reader_options;
-    reader_options.cache_type = config::enable_file_cache ? io::FileCachePolicy::FILE_BLOCK_CACHE
-                                                          : io::FileCachePolicy::NO_CACHE;
+    // DIAGNOSTIC: inverted_index_read_bypass_file_cache forces NO_CACHE (precise
+    // S3 range GETs) for inverted-index reads (both CLucene here and SNII), so a
+    // fair direct-vs-direct engine comparison can bypass the 1MiB block cache
+    // without disabling the global enable_file_cache (cloud mode requires it).
+    reader_options.cache_type =
+            (config::enable_file_cache && !config::inverted_index_read_bypass_file_cache)
+                    ? io::FileCachePolicy::FILE_BLOCK_CACHE
+                    : io::FileCachePolicy::NO_CACHE;
     reader_options.is_doris_table = true;
     reader_options.file_size = file_size;
     reader_options.tablet_id = tablet_id;

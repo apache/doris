@@ -1311,6 +1311,13 @@ DEFINE_mInt32(snii_bigram_prune_min_df, "-1");
 // states" sits at 21.2% df in wikipedia; pruning it costs a 2.7x cold-phrase
 // cliff, keeping the whole band costs +0.85% table size on textbench).
 DEFINE_mDouble(snii_bigram_prune_max_df_ratio, "0.25");
+// DIAGNOSTIC (default off): force SNII inverted-index reads onto NO_CACHE
+// (precise S3 range GETs) instead of the 1MiB FILE_BLOCK_CACHE. Per-open on the
+// SNII reader only -- does NOT touch global enable_file_cache, so cloud mode
+// still boots. Measures the block-cache read amplification's true cost. Warm
+// queries lose the local cache under this flag, so it is a measurement knob, not
+// a production setting.
+DEFINE_mBool(inverted_index_read_bypass_file_cache, "false");
 // G16-c: whether plain positions-tier (non-scoring) SNII indexes lay out freq
 // regions. Freq bytes serve ONLY BM25 scoring, which the Doris integration
 // does not reach yet (scoring_query has no production caller), so the default
