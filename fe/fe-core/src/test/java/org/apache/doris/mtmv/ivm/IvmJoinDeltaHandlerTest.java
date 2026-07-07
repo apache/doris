@@ -491,10 +491,9 @@ class IvmJoinDeltaHandlerTest extends IvmDeltaTestBase {
         IvmDeltaRewriteResult result = handler.exposeRewritePlan(bundle.topProject, ctx);
         LogicalUnion union = nullSideEventUnion(result.plan);
 
-        // TSO values are placeholders (BE does not support TSO snapshot reads yet).
-        // Delta snapshot scans get TSO=-1 (default) until stream TSO integration is complete.
-        assertSnapshotBranch(union.child(1), -1);
-        assertSnapshotBranch(union.child(2), -1);
+        // Delta snapshot scans currently keep the copied scan TSO at the logical scan default.
+        assertSnapshotBranch(union.child(1), 0);
+        assertSnapshotBranch(union.child(2), 0);
     }
 
     @Test

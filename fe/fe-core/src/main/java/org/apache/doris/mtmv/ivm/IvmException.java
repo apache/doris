@@ -30,6 +30,11 @@ public class IvmException extends AnalysisException {
         this.failureReason = Objects.requireNonNull(failureReason, "failureReason can not be null");
     }
 
+    public IvmException(IvmFailureReason failureReason, String message, Throwable cause) {
+        super(message, cause);
+        this.failureReason = Objects.requireNonNull(failureReason, "failureReason can not be null");
+    }
+
     public IvmFailureReason getFailureReason() {
         return failureReason;
     }

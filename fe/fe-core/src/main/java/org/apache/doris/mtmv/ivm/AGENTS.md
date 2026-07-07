@@ -47,26 +47,23 @@ Stream-based binlog capture is implemented for IVM incremental refresh:
 **TSO snapshot reads** (`scan.withTso(tso)`) are mocked — BE does not support TSO-based
 snapshot reads yet.
 
-## Explain IVM Refresh Plans
+## Explain Refresh Plans
 
-Use `EXPLAIN REFRESH MATERIALIZED VIEW mv_name INCREMENTAL` to inspect IVM refresh dry-run plans without changing MV/IVM persisted state. The overview form prints the normalized MV plan and every delta rewriter plan, including no-op delta plans for streams whose consumed TSO is already up to date.
+Use `EXPLAIN REFRESH MATERIALIZED VIEW mv_name INCREMENTAL` to inspect the incremental IVM refresh
+plan without changing MV/IVM persisted state. The overview form prints the normalized MV plan and
+the rewritten incremental refresh plan.
 
-The overview output is based on the IVM analyzed plan: IVM normalization runs at the end of
-analysis, before the normal Nereids rewrite/optimize/distribute phases.
+Use `EXPLAIN REFRESH MATERIALIZED VIEW mv_name COMPLETE` to inspect the complete MTMV refresh plan
+through the same dry-run path used by normal complete refresh planning.
 
-Use `EXPLAIN ANALYZED PLAN REFRESH MATERIALIZED VIEW mv_name INCREMENTAL FOR DELTA k` to inspect
-one specific delta rewriter plan exactly as returned by the IVM delta rewriter. Use
-`EXPLAIN LOGICAL PLAN REFRESH MATERIALIZED VIEW mv_name INCREMENTAL FOR DELTA k`,
-`EXPLAIN PHYSICAL PLAN ... FOR DELTA k`, `EXPLAIN DISTRIBUTED PLAN ... FOR DELTA k`, or
-`EXPLAIN ALL PLAN ... FOR DELTA k` to continue planning that analyzed delta plan through the
-normal Nereids explain pipeline. The typed `EXPLAIN ... PLAN` forms require `FOR DELTA k`; the
-untyped `EXPLAIN REFRESH ... FOR DELTA k` form prints the normal fragment explain for one delta
-plan, while untyped `EXPLAIN REFRESH ...` without `FOR DELTA` is the overview command that prints
-all IVM plans together. Plan process follows the existing syntax, for example:
+Typed explain forms continue to work on both refresh modes, for example:
 
 ```sql
-EXPLAIN LOGICAL PLAN PROCESS REFRESH MATERIALIZED VIEW mv_name INCREMENTAL FOR DELTA 1;
+EXPLAIN ANALYZED PLAN REFRESH MATERIALIZED VIEW mv_name INCREMENTAL;
+EXPLAIN LOGICAL PLAN PROCESS REFRESH MATERIALIZED VIEW mv_name COMPLETE;
 ```
+
+`EXPLAIN REFRESH` currently supports only `INCREMENTAL` and `COMPLETE`.
 
 ## DML Factor from `__DORIS_BINLOG_OP__`
 

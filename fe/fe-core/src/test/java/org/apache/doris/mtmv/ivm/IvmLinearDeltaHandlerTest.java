@@ -102,7 +102,7 @@ class IvmLinearDeltaHandlerTest extends IvmDeltaTestBase {
     @Test
     void testRewriteProducesInsertBundle() {
         MTMV mtmv = mockMtmv();
-        LogicalOlapScan scan = buildDeltaScan();
+        LogicalOlapScan scan = buildScan();
         InsertIntoTableCommand command = buildIncrementalInsertCommand(buildScanPlan(scan).child(), mtmv);
         UnboundTableSink<?> sink = getSink(command);
         Assertions.assertEquals(mtmv.getInsertedColumnNames(), sink.getColNames());
@@ -236,7 +236,7 @@ class IvmLinearDeltaHandlerTest extends IvmDeltaTestBase {
     @Test
     void testRewriteBuildsDeleteSignIfExpression() {
         MTMV mtmv = mockMtmv();
-        LogicalOlapScan scan = buildDeltaScan();
+        LogicalOlapScan scan = buildScan();
         InsertIntoTableCommand command = buildIncrementalInsertCommand(buildScanPlan(scan).child(), mtmv);
         UnboundTableSink<?> sink = getSink(command);
         LogicalProject<?> sinkProject = (LogicalProject<?>) sink.child();
