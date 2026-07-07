@@ -526,7 +526,8 @@ void NestedLoopJoinProbeLocalState::_append_lazy_build_eval_columns(
 
 bool NestedLoopJoinProbeLocalState::_should_delay_lazy_probe_build_block(size_t candidate_rows,
                                                                          size_t batch_size) const {
-    return _lazy_should_output_matched_rows() && _join_block.rows() + candidate_rows > batch_size;
+    return _lazy_should_output_matched_rows() && _join_block.rows() > 0 &&
+           _join_block.rows() + candidate_rows > batch_size;
 }
 
 bool NestedLoopJoinProbeLocalState::_lazy_should_output_matched_rows() const {
