@@ -22,7 +22,7 @@ import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.rules.exploration.join.JoinReorderContext;
-import org.apache.doris.nereids.rules.rewrite.IvmNormalizeMtmv;
+import org.apache.doris.nereids.rules.rewrite.IvmNormalizeMTMV;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -47,7 +47,7 @@ import org.junit.jupiter.api.function.Executable;
 
 import java.util.List;
 
-class IvmNormalizeMtmvUnionTest extends IvmDeltaTestBase {
+class IvmNormalizeMTMVUnionTest extends IvmDeltaTestBase {
 
     private LogicalOlapScan buildMowScan(long tableId, String name) {
         OlapTable table = PlanConstructor.newOlapTable(tableId, name, 0, KeysType.UNIQUE_KEYS);
@@ -96,7 +96,7 @@ class IvmNormalizeMtmvUnionTest extends IvmDeltaTestBase {
         LogicalResultSink<?> sink = new LogicalResultSink<>(exprs, project);
         ConnectContext ctx = newConnectContext();
         JobContext jobContext = newJobContextForRoot(sink, ctx);
-        return new IvmNormalizeMtmv().rewriteRoot(sink, jobContext);
+        return new IvmNormalizeMTMV().rewriteRoot(sink, jobContext);
     }
 
     private IvmRewriteResult getRewriteResult(Plan unionPlan) {
@@ -105,7 +105,7 @@ class IvmNormalizeMtmvUnionTest extends IvmDeltaTestBase {
         LogicalResultSink<?> sink = new LogicalResultSink<>(exprs, project);
         ConnectContext ctx = newConnectContext();
         JobContext jobContext = newJobContextForRoot(sink, ctx);
-        new IvmNormalizeMtmv().rewriteRoot(sink, jobContext);
+        new IvmNormalizeMTMV().rewriteRoot(sink, jobContext);
         return jobContext.getCascadesContext().getIvmRewriteResult().get();
     }
 

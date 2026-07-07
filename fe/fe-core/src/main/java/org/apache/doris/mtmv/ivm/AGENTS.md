@@ -19,7 +19,7 @@ This runs every suite in the `ivm` subdirectory. New IVM suites are added over t
 Run all IVM-related FE unit tests. The relevant test files are located in:
 
 - `fe/fe-core/src/test/java/org/apache/doris/mtmv/ivm/` — IVM core tests
-- `fe/fe-core/src/test/java/org/apache/doris/nereids/rules/rewrite/IvmNormalizeMtmvTest.java`
+- `fe/fe-core/src/test/java/org/apache/doris/nereids/rules/rewrite/IvmNormalizeMTMVTest.java`
 - `fe/fe-core/src/test/java/org/apache/doris/nereids/trees/plans/CreateMTMVCommandTest.java`
 - `fe/fe-core/src/test/java/org/apache/doris/catalog/ShowCreateMTMVTest.java`
 - `fe/fe-core/src/test/java/org/apache/doris/catalog/DropMaterializedViewTest.java`
@@ -81,7 +81,7 @@ It is derived in `IvmLinearDeltaHandler.buildDmlFactorExpr()`:
 
 The `__DORIS_IVM_ROW_ID_COL__` column uniquely identifies each row/group in the MV. It is used as the join key when merging deltas into the MV's current state.
 
-- **Simple (non-aggregate) MV**: row_id is injected during normalize (`IvmNormalizeMtmv`) as a hidden column. It is typically a monotonically increasing sequence or hash depending on the scan source.
+- **Simple (non-aggregate) MV**: row_id is injected during normalize (`IvmNormalizeMTMV`) as a hidden column. It is typically a monotonically increasing sequence or hash depending on the scan source.
 - **Aggregate MV (grouped)**: row_id is a **null-safe** hash: `CAST(murmur_hash3_64(ifnull(cast(k1 AS VARCHAR),''), cast(isnull(k1) AS VARCHAR), ...) AS LARGEINT)`. Each group key produces two hash arguments — the coalesced value and an isnull flag — so that NULL keys never propagate NULL into the hash and groups differing only in NULL positions (e.g. `(NULL,'x')` vs `('x',NULL)`) produce distinct row_ids. VARCHAR keys skip the inner `CAST`.
 - **Aggregate MV (scalar, no GROUP BY)**: row_id is the literal `0` (only one output row).
 

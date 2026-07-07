@@ -671,7 +671,7 @@ public class CreateMTMVCommandTest extends TestWithFeService {
                 + "distributed by hash(k1) buckets 1\n"
                 + "properties('replication_num' = '1', 'binlog.enable' = 'true', 'binlog.format' = 'ROW');");
 
-        // HAVING produces a Filter above Aggregate, which is rejected by IvmNormalizeMtmv
+        // HAVING produces a Filter above Aggregate, which is rejected by IvmNormalizeMTMV
         org.apache.doris.nereids.exceptions.AnalysisException ex = Assertions.assertThrows(
                 org.apache.doris.nereids.exceptions.AnalysisException.class,
                 () -> getPartitionTableInfo(
