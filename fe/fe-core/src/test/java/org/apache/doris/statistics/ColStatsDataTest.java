@@ -290,5 +290,18 @@ public class ColStatsDataTest {
 
         ColumnStatistic columnStatisticFromRow = ColumnStatistic.fromResultRow(row);
         Assertions.assertEquals(ColumnStatistic.UNKNOWN, columnStatisticFromRow);
+
+        // Case where nullCount == count (200 == 200)
+        values.set(9, "200");
+        row = new ResultRow(values);
+        data = new ColStatsData(row);
+        Assertions.assertEquals(0, data.ndv);
+        Assertions.assertTrue(data.isValid());
+
+        columnStatisticFromData = data.toColumnStatistic();
+        Assertions.assertEquals(ColumnStatistic.UNKNOWN, columnStatisticFromData);
+
+        columnStatisticFromRow = ColumnStatistic.fromResultRow(row);
+        Assertions.assertEquals(ColumnStatistic.UNKNOWN, columnStatisticFromRow);
     }
 }

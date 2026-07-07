@@ -131,7 +131,7 @@ public class ColumnStatistic {
             boolean maxIsNull,
             double nullCount,
             double count) {
-        return ndv == 0 && (!minIsNull || !maxIsNull) && nullCount != count;
+        return ndv == 0 && (!minIsNull || !maxIsNull);
     }
 
     public static ColumnStatistic fromResultRowList(List<ResultRow> resultRows) {
