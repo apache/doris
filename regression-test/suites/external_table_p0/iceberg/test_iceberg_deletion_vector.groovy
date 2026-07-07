@@ -494,22 +494,25 @@ s3.path-style-access=true
     }
     assertEquals(expectedRows, trinoRows)
 
-    def profileCounterMax = { String profileText, String counterName ->
-        long maxValue = Long.MIN_VALUE
-        profileText.readLines().findAll { it.contains(counterName + ":") }.each { line ->
-            def matcher = line =~ /\(([0-9,]+)\)/
+    def profileCounterValues = { String profileText, String counterName ->
+        def values = []
+        def matcher = profileText =~ ("(?m)^\\s*(?:-\\s*)?" +
+                java.util.regex.Pattern.quote(counterName) + ":\\s+([^\\n]+)")
+        while (matcher.find()) {
+            String valueText = matcher.group(1).toString()
+            def exact = valueText =~ /\(([0-9,]+)\)/
             String rawValue
-            if (matcher.find()) {
-                rawValue = matcher.group(1)
+            if (exact.find()) {
+                rawValue = exact.group(1)
             } else {
-                matcher = line =~ /:\s*([0-9,]+)/
-                rawValue = matcher.find() ? matcher.group(1) : null
+                def number = valueText =~ /([0-9,]+)/
+                rawValue = number.find() ? number.group(1) : null
             }
             if (rawValue != null) {
-                maxValue = Math.max(maxValue, Long.parseLong(rawValue.replace(",", "")))
+                values.add(Long.parseLong(rawValue.replace(",", "")))
             }
         }
-        return maxValue == Long.MIN_VALUE ? 0L : maxValue
+        return values
     }
 
     def profileInfoValueCount = { String profileText, String infoName ->
@@ -538,9 +541,18 @@ s3.path-style-access=true
             if (exception != null) {
                 throw exception
             }
-            long numDeleteRows = profileCounterMax(profileString, "NumDeleteRows")
+            String mergedProfile = profileString
+            if (profileString.contains("MergedProfile:")) {
+                mergedProfile = profileString.substring(profileString.indexOf("MergedProfile:"))
+            }
+            def numDeleteRowsValues = profileCounterValues(mergedProfile, "NumDeleteRows")
+            numDeleteRowsValues = numDeleteRowsValues.findAll { it > 0L }
             int scannerCount = profileInfoValueCount(profileString, "PerScannerRowsRead")
-            assertEquals(2048L, numDeleteRows)
+            assertFalse(numDeleteRowsValues.isEmpty(),
+                    "Expected NumDeleteRows counter for split DV scan, profile: ${profileString}")
+            assertEquals(2048L, numDeleteRowsValues.sum(0L),
+                    "Expected DV rows to be materialized once across split scanners, " +
+                            "NumDeleteRows counters: ${numDeleteRowsValues}, profile: ${profileString}")
             assertTrue(scannerCount > 1,
                     "Expected multiple scanner entries for split DV scan, profile: ${profileString}")
         }
