@@ -24,7 +24,7 @@ import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.nereids.hint.DistributeHint;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.rules.exploration.join.JoinReorderContext;
-import org.apache.doris.nereids.rules.rewrite.IvmNormalizeMtmv;
+import org.apache.doris.nereids.rules.rewrite.IvmNormalizeMTMV;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
@@ -58,7 +58,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
-class IvmNormalizeMtmvJoinTest extends IvmDeltaTestBase {
+class IvmNormalizeMTMVJoinTest extends IvmDeltaTestBase {
 
     private LogicalOlapScan buildMowScan(long tableId, String name) {
         OlapTable table = PlanConstructor.newOlapTable(tableId, name, 0, KeysType.UNIQUE_KEYS);
@@ -83,7 +83,7 @@ class IvmNormalizeMtmvJoinTest extends IvmDeltaTestBase {
         LogicalResultSink<?> sink = new LogicalResultSink<>(exprs, project);
         ConnectContext ctx = newConnectContext();
         JobContext jobContext = newJobContextForRoot(sink, ctx);
-        return new IvmNormalizeMtmv().rewriteRoot(sink, jobContext);
+        return new IvmNormalizeMTMV().rewriteRoot(sink, jobContext);
     }
 
     private IvmRewriteResult getRewriteResult(Plan joinPlan) {
@@ -92,7 +92,7 @@ class IvmNormalizeMtmvJoinTest extends IvmDeltaTestBase {
         LogicalResultSink<?> sink = new LogicalResultSink<>(exprs, project);
         ConnectContext ctx = newConnectContext();
         JobContext jobContext = newJobContextForRoot(sink, ctx);
-        new IvmNormalizeMtmv().rewriteRoot(sink, jobContext);
+        new IvmNormalizeMTMV().rewriteRoot(sink, jobContext);
         return jobContext.getCascadesContext().getIvmRewriteResult().get();
     }
 
@@ -103,7 +103,7 @@ class IvmNormalizeMtmvJoinTest extends IvmDeltaTestBase {
         ConnectContext ctx = newConnectContext();
         ctx.getStatementContext().setExcludedTriggerTables(excludedTriggerTables);
         JobContext jobContext = newJobContextForRoot(sink, ctx);
-        new IvmNormalizeMtmv().rewriteRoot(sink, jobContext);
+        new IvmNormalizeMTMV().rewriteRoot(sink, jobContext);
         return jobContext.getCascadesContext().getIvmRewriteResult().get();
     }
 
