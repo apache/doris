@@ -49,6 +49,7 @@ import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.mtmv.ivm.IvmException;
 import org.apache.doris.mtmv.ivm.IvmFailureReason;
 import org.apache.doris.mtmv.ivm.IvmPlanSignature;
+import org.apache.doris.mtmv.ivm.IvmRewriteContext;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
@@ -248,8 +249,9 @@ public class CreateMTMVInfo extends CreateTableInfo {
 
     private void resetStatementContext(ConnectContext ctx) {
         StatementContext oldStatementContext = ctx.getStatementContext();
-        ctx.setStatementContext(new StatementContext(ctx,
-                oldStatementContext == null ? null : oldStatementContext.getOriginStatement()));
+        StatementContext statementContext = new StatementContext(ctx,
+                oldStatementContext == null ? null : oldStatementContext.getOriginStatement());
+        ctx.setStatementContext(statementContext);
     }
 
     private void rewriteQuerySql(ConnectContext ctx) {
@@ -310,7 +312,7 @@ public class CreateMTMVInfo extends CreateTableInfo {
         checkUserSpecifiedKeysForIvm();
         MTMVAnalyzeQueryInfo mtmvAnalyzeQueryInfo = MTMVPlanUtil.analyzeQuery(ctx, this.mvProperties,
                 this.mvPartitionDefinition, this.distribution, this.simpleColumnDefinitions, this.properties, this.keys,
-                this.logicalQuery, isEnableIvm());
+                this.logicalQuery, isEnableIvm() ? Optional.of(IvmRewriteContext.normalize()) : Optional.empty());
         this.mvPartitionInfo = mtmvAnalyzeQueryInfo.getMvPartitionInfo();
         this.columns = mtmvAnalyzeQueryInfo.getColumnDefinitions();
         this.keys = Utils.copyRequiredList(mtmvAnalyzeQueryInfo.getKeys());

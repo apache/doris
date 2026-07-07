@@ -68,7 +68,7 @@ class IvmDeltaRewriterTest extends IvmDeltaTestBase {
     private InsertIntoTableCommand buildIncrementalInsertCommand(Plan sinkChild, MTMV mtmv,
             ConnectContext connectContext, IvmRewriteResult rewriteResult) {
         Plan rewritten = new IvmDeltaRewriter().generateIncrementalRefreshPlan(
-                sinkChild, rewriteResult, IvmRewriteContext.incremental(mtmv, false, false), connectContext);
+                sinkChild, rewriteResult, IvmRewriteContext.incremental(mtmv, false), connectContext);
         Assertions.assertNotNull(rewritten);
         return new IvmRefreshManager().buildInsertCommand(
                 (org.apache.doris.nereids.trees.plans.logical.LogicalPlan) rewritten, mtmv);
@@ -198,7 +198,7 @@ class IvmDeltaRewriterTest extends IvmDeltaTestBase {
 
         ConnectContext connectContext = newConnectContext();
         Plan rewritten = new IvmDeltaRewriter().generateIncrementalRefreshPlan(
-                sinkChild, new IvmRewriteResult(), IvmRewriteContext.incremental(mtmv, false, false),
+                sinkChild, new IvmRewriteResult(), IvmRewriteContext.incremental(mtmv, false),
                 connectContext);
 
         Assertions.assertInstanceOf(LogicalProject.class, rewritten);

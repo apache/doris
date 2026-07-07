@@ -70,7 +70,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalResultSink;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanConstructor;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TStorageType;
 
 import com.google.common.collect.ImmutableList;
@@ -184,10 +183,8 @@ abstract class IvmDeltaTestBase {
 
     protected ConnectContext newConnectContext() {
         ConnectContext connectContext = MemoTestUtils.createConnectContext();
-        SessionVariable sessionVariable = new SessionVariable();
-        sessionVariable.setEnableIvmNormalRewrite(true);
-        connectContext.setSessionVariable(sessionVariable);
         StatementContext statementContext = new StatementContext(connectContext, null);
+        statementContext.setIvmRewriteContext(Optional.of(IvmRewriteContext.normalize()));
         connectContext.setStatementContext(statementContext);
         return connectContext;
     }

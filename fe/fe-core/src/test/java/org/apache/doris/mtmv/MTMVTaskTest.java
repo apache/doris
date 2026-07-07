@@ -349,7 +349,7 @@ public class MTMVTaskTest {
                     });
             mtmvPlanUtilStatic.when(() -> MTMVPlanUtil.executeCommand(
                     Mockito.eq(mtmvCtx), Mockito.eq(command), Mockito.any(StatementContext.class),
-                    Mockito.anyString(), Mockito.eq(true), Mockito.any())).thenAnswer(new Answer<StmtExecutor>() {
+                    Mockito.anyString(), Mockito.any())).thenAnswer(new Answer<StmtExecutor>() {
                         @Override
                         public StmtExecutor answer(InvocationOnMock invocation) {
                             StatementContext statementContext = invocation.getArgument(2);
@@ -525,7 +525,9 @@ public class MTMVTaskTest {
             ConnectContext ctx = new ConnectContext();
             planUtilStatic.when(() -> MTMVPlanUtil.createMTMVContext(
                     mtmv, MTMVPlanUtil.DISABLE_RULES_WHEN_RUN_MTMV_TASK)).thenReturn(ctx);
-            planUtilStatic.when(() -> MTMVPlanUtil.analyzeQueryWithSql(mtmv, ctx, true)).thenReturn(analyzeQueryInfo);
+            planUtilStatic.when(() -> MTMVPlanUtil.analyzeQueryWithSql(
+                    Mockito.eq(mtmv), Mockito.eq(ctx), Mockito.any()))
+                    .thenReturn(analyzeQueryInfo);
 
             Deencapsulation.invoke(task, "updateIvmPlanSignatureAfterFullRefreshIfNeeded");
 

@@ -74,7 +74,6 @@ import org.apache.doris.nereids.types.LargeIntType;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanConstructor;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TPartialUpdateNewRowPolicy;
 import org.apache.doris.thrift.TStorageType;
 
@@ -112,7 +111,7 @@ class IvmNormalizeMTMVTest {
     @Test
     void testIvmRewriteContextEnablesNormalizeWithoutSessionVariable() {
         JobContext jobContext = newJobContextForRoot(scan, false, Collections.emptySet(),
-                Optional.of(new IvmRewriteContext(IvmRewriteContext.Mode.CREATE, null, false, false)));
+                Optional.of(new IvmRewriteContext(IvmRewriteContext.Mode.NORMALIZE, null, false)));
         Plan result = new IvmNormalizeMTMV().rewriteRoot(scan, jobContext);
 
         Assertions.assertInstanceOf(LogicalProject.class, result);
@@ -878,12 +877,12 @@ class IvmNormalizeMTMVTest {
     private JobContext newJobContextForRoot(Plan root, boolean enableIvmNormalRewrite,
             Set<TableNameInfo> excludedTriggerTables, Optional<IvmRewriteContext> ivmRewriteContext) {
         ConnectContext connectContext = MemoTestUtils.createConnectContext();
-        SessionVariable sessionVariable = new SessionVariable();
-        sessionVariable.setEnableIvmNormalRewrite(enableIvmNormalRewrite);
-        connectContext.setSessionVariable(sessionVariable);
         StatementContext statementContext = new StatementContext(connectContext, null);
         statementContext.setExcludedTriggerTables(excludedTriggerTables);
-        statementContext.setIvmRewriteContext(ivmRewriteContext);
+        Optional<IvmRewriteContext> effectiveIvmRewriteContext = ivmRewriteContext.isPresent()
+                ? ivmRewriteContext
+                : enableIvmNormalRewrite ? Optional.of(IvmRewriteContext.normalize()) : Optional.empty();
+        statementContext.setIvmRewriteContext(effectiveIvmRewriteContext);
         CascadesContext cascadesContext = CascadesContext.initContext(statementContext, root, PhysicalProperties.ANY);
         return new JobContext(cascadesContext, PhysicalProperties.ANY);
     }

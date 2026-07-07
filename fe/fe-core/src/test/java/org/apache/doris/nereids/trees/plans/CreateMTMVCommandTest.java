@@ -29,6 +29,7 @@ import org.apache.doris.catalog.info.TableNameInfo;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshMethod;
+import org.apache.doris.mtmv.ivm.IvmRewriteContext;
 import org.apache.doris.mtmv.ivm.IvmUtil;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -1552,6 +1553,22 @@ public class CreateMTMVCommandTest extends TestWithFeService {
                 + " AS SELECT k1, v1 FROM ivm_dup_base;");
         MTMV mtmv = getMtmv("ivm_dup_mv");
         Assertions.assertTrue(mtmv.isIvm());
+    }
+
+    @Test
+    public void testCreateIncrementalMVAnalyzeSetsNormalizeRewriteContext() throws Exception {
+        createTable("create table test.ivm_context_base (k1 int, v1 int)\n"
+                + "duplicate key(k1)\n"
+                + "distributed by hash(k1) buckets 1\n"
+                + "properties('replication_num' = '1', 'binlog.enable' = 'true', 'binlog.format' = 'ROW');");
+        CreateMTMVInfo info = getPartitionTableInfo("CREATE MATERIALIZED VIEW ivm_context_mv\n"
+                + " BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
+                + " PROPERTIES ('replication_num' = '1')\n"
+                + " AS SELECT k1, v1 FROM ivm_context_base;");
+
+        Assertions.assertTrue(info.isEnableIvm());
+        Assertions.assertEquals(IvmRewriteContext.Mode.NORMALIZE,
+                connectContext.getStatementContext().getIvmRewriteContext().orElseThrow().getMode());
     }
 
     @Test
