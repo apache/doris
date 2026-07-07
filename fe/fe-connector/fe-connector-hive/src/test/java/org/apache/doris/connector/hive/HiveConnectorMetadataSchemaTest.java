@@ -24,6 +24,8 @@ import org.apache.doris.connector.hms.HmsClient;
 import org.apache.doris.connector.hms.HmsDatabaseInfo;
 import org.apache.doris.connector.hms.HmsPartitionInfo;
 import org.apache.doris.connector.hms.HmsTableInfo;
+import org.apache.doris.thrift.TTableDescriptor;
+import org.apache.doris.thrift.TTableType;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -120,6 +122,20 @@ public class HiveConnectorMetadataSchemaTest {
                 .build();
         ConnectorTableSchema schema = schemaOf(tableInfo);
         Assertions.assertFalse(schema.getProperties().containsKey("partition_columns"));
+    }
+
+    @Test
+    public void testBuildTableDescriptorIsHiveTable() {
+        // Without the override fe-core falls back to a generic SCHEMA_TABLE descriptor; pin that a hive table
+        // produces a HIVE_TABLE descriptor carrying a THiveTable with the db/table names and column count.
+        HiveConnectorMetadata metadata = new HiveConnectorMetadata(
+                new FakeHmsClient(partitionedTable().build()), Collections.emptyMap(), new FakeConnectorContext());
+        TTableDescriptor desc = metadata.buildTableDescriptor(null, 42L, "t", "db", "t", 4, 7L);
+        Assertions.assertEquals(TTableType.HIVE_TABLE, desc.getTableType());
+        Assertions.assertEquals(4, desc.getNumCols());
+        Assertions.assertNotNull(desc.getHiveTable());
+        Assertions.assertEquals("db", desc.getHiveTable().getDbName());
+        Assertions.assertEquals("t", desc.getHiveTable().getTableName());
     }
 
     private static ConnectorColumn columnByName(ConnectorTableSchema schema, String name) {

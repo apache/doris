@@ -46,6 +46,9 @@ import org.apache.doris.connector.hms.HmsPartitionInfo;
 import org.apache.doris.connector.hms.HmsTableInfo;
 import org.apache.doris.connector.hms.HmsTypeMapping;
 import org.apache.doris.connector.spi.ConnectorContext;
+import org.apache.doris.thrift.THiveTable;
+import org.apache.doris.thrift.TTableDescriptor;
+import org.apache.doris.thrift.TTableType;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -225,6 +228,24 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
                     col.getName(), col.getType().getTypeName(), isPartKey));
         }
         return result;
+    }
+
+    /**
+     * Builds the BE table descriptor for a hive table, a direct port of legacy
+     * {@code HMSExternalTable.toThrift}: a {@code TTableType.HIVE_TABLE} carrying a {@link THiveTable}. Without
+     * this override the SPI default returns {@code null} and fe-core ({@code PluginDrivenExternalTable.toThrift})
+     * falls back to a generic {@code SCHEMA_TABLE} descriptor. Mirrors the iceberg connector's HIVE_TABLE
+     * branch; the SPI signature carries no handle, so this single override serves base and system tables alike
+     * (legacy used the identical fork for both).
+     */
+    @Override
+    public TTableDescriptor buildTableDescriptor(ConnectorSession session,
+            long tableId, String tableName, String dbName, String remoteName, int numCols, long catalogId) {
+        THiveTable tHiveTable = new THiveTable(dbName, tableName, new HashMap<>());
+        TTableDescriptor desc = new TTableDescriptor(
+                tableId, TTableType.HIVE_TABLE, numCols, 0, tableName, dbName);
+        desc.setHiveTable(tHiveTable);
+        return desc;
     }
 
     // ========== ConnectorPushdownOps: Filter Pushdown ==========
