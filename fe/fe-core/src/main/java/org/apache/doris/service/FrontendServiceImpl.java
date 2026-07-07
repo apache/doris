@@ -330,6 +330,7 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Random;
@@ -638,6 +639,11 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         TListTableStatusResult result = new TListTableStatusResult();
         List<TTableStatus> tablesResult = Lists.newArrayList();
         result.setTables(tablesResult);
+        Set<String> requiredColumns = params.isSetRequiredColumns()
+                ? params.getRequiredColumns().stream()
+                        .map(column -> column.toUpperCase(Locale.ROOT))
+                        .collect(Collectors.toSet())
+                : null;
         PatternMatcher matcher = null;
         String specifiedTable = null;
         if (params.isSetPattern()) {
@@ -717,17 +723,40 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                             TTableStatus status = new TTableStatus();
                             status.setName(table.getName());
                             status.setType(table.getMysqlType());
-                            status.setEngine(table.getEngine());
                             status.setComment(table.getComment());
-                            status.setCreateTime(table.getCreateTime());
-                            status.setLastCheckTime(lastCheckTime / 1000);
-                            status.setUpdateTime(table.getUpdateTime() / 1000);
-                            status.setCheckTime(lastCheckTime / 1000);
-                            status.setCollation("utf-8");
-                            status.setRows(table.getCachedRowCount());
-                            status.setDataLength(table.getDataLength());
-                            status.setAvgRowLength(table.getAvgRowLength());
-                            status.setIndexLength(table.getIndexLength());
+                            if (needTableStatusColumn(requiredColumns, "ENGINE")) {
+                                status.setEngine(table.getEngine());
+                            }
+                            if (needTableStatusColumn(requiredColumns, "CREATE_TIME")) {
+                                status.setCreateTime(table.getCreateTime());
+                            }
+                            if (needTableStatusColumn(requiredColumns, "LAST_CHECK_TIME")
+                                    || needTableStatusColumn(requiredColumns, "CHECK_TIME")) {
+                                status.setLastCheckTime(lastCheckTime / 1000);
+                            }
+                            if (needTableStatusColumn(requiredColumns, "UPDATE_TIME")) {
+                                status.setUpdateTime(table.getUpdateTime() / 1000);
+                            }
+                            if (needTableStatusColumn(requiredColumns, "CHECK_TIME")) {
+                                status.setCheckTime(lastCheckTime / 1000);
+                            }
+                            if (needTableStatusColumn(requiredColumns, "TABLE_COLLATION")) {
+                                status.setCollation("utf-8");
+                            }
+                            TableIf.TableStatusStats tableStatusStats =
+                                    needTableStatusStats(requiredColumns) ? table.getTableStatusStats() : null;
+                            if (needTableStatusColumn(requiredColumns, "TABLE_ROWS")) {
+                                status.setRows(tableStatusStats.getRows());
+                            }
+                            if (needTableStatusColumn(requiredColumns, "DATA_LENGTH")) {
+                                status.setDataLength(tableStatusStats.getDataLength());
+                            }
+                            if (needTableStatusColumn(requiredColumns, "AVG_ROW_LENGTH")) {
+                                status.setAvgRowLength(tableStatusStats.getAvgRowLength());
+                            }
+                            if (needTableStatusColumn(requiredColumns, "INDEX_LENGTH")) {
+                                status.setIndexLength(tableStatusStats.getIndexLength());
+                            }
                             if (table instanceof View) {
                                 status.setDdlSql(((View) table).getInlineViewDef());
                             }
@@ -742,6 +771,17 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             }
         }
         return result;
+    }
+
+    private static boolean needTableStatusColumn(Set<String> requiredColumns, String columnName) {
+        return requiredColumns == null || requiredColumns.contains(columnName);
+    }
+
+    private static boolean needTableStatusStats(Set<String> requiredColumns) {
+        return needTableStatusColumn(requiredColumns, "TABLE_ROWS")
+                || needTableStatusColumn(requiredColumns, "DATA_LENGTH")
+                || needTableStatusColumn(requiredColumns, "AVG_ROW_LENGTH")
+                || needTableStatusColumn(requiredColumns, "INDEX_LENGTH");
     }
 
     public TListTableMetadataNameIdsResult listTableMetadataNameIds(TGetTablesParams params) throws TException {

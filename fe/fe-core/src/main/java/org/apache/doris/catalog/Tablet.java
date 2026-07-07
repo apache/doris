@@ -47,7 +47,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
-import java.util.stream.LongStream;
 
 /**
  * This class represents the olap tablet related metadata.
@@ -487,10 +486,20 @@ public class Tablet extends MetaObject {
     // ATTN: Replica::getDataSize may zero in cloud and non-cloud
     // due to dataSize not write to image
     public long getDataSize(boolean singleReplica, boolean filterSizeZero) {
-        LongStream s = replicas.stream().filter(r -> r.getState() == ReplicaState.NORMAL)
-                .filter(r -> !filterSizeZero || r.getDataSize() > 0)
-                .mapToLong(Replica::getDataSize);
-        return singleReplica ? Double.valueOf(s.average().orElse(0)).longValue() : s.sum();
+        long dataSize = 0;
+        int replicaNum = 0;
+        for (Replica replica : replicas) {
+            if (replica.getState() != ReplicaState.NORMAL) {
+                continue;
+            }
+            long replicaDataSize = replica.getDataSize();
+            if (filterSizeZero && replicaDataSize <= 0) {
+                continue;
+            }
+            dataSize += replicaDataSize;
+            replicaNum++;
+        }
+        return singleReplica && replicaNum > 0 ? dataSize / replicaNum : dataSize;
     }
 
     public long getRemoteDataSize() {
@@ -508,9 +517,16 @@ public class Tablet extends MetaObject {
     }
 
     public long getRowCount(boolean singleReplica) {
-        LongStream s = replicas.stream().filter(r -> r.getState() == ReplicaState.NORMAL)
-                .mapToLong(Replica::getRowCount);
-        return singleReplica ? Double.valueOf(s.average().orElse(0)).longValue() : s.sum();
+        long rowCount = 0;
+        int replicaNum = 0;
+        for (Replica replica : replicas) {
+            if (replica.getState() != ReplicaState.NORMAL) {
+                continue;
+            }
+            rowCount += replica.getRowCount();
+            replicaNum++;
+        }
+        return singleReplica && replicaNum > 0 ? rowCount / replicaNum : rowCount;
     }
 
     // Get the least row count among all valid replicas.
