@@ -101,6 +101,24 @@ TEST(IcebergDeleteFileReaderHelperTest, DeletionVectorCacheKeyIncludesLocationAn
                       "s3://bucket/table/snapshot-branch/data-00001.parquet", first_delete_file));
 }
 
+TEST(IcebergDeleteFileReaderHelperTest, DeletionVectorCacheKeyEscapesPathBoundaries) {
+    TIcebergDeleteFileDesc first_delete_file;
+    first_delete_file.__set_path("middle#right#tail.puffin");
+    first_delete_file.__set_content_offset(1);
+    first_delete_file.__set_content_size_in_bytes(2);
+
+    TIcebergDeleteFileDesc second_delete_file = first_delete_file;
+    second_delete_file.__set_path("right#tail.puffin");
+
+    const std::string first_data_file_path = "s3://bucket/table/data#left";
+    const std::string second_data_file_path = "s3://bucket/table/data#left#middle";
+    ASSERT_EQ(first_data_file_path + "#" + first_delete_file.path,
+              second_data_file_path + "#" + second_delete_file.path);
+
+    EXPECT_NE(build_iceberg_deletion_vector_cache_key(first_data_file_path, first_delete_file),
+              build_iceberg_deletion_vector_cache_key(second_data_file_path, second_delete_file));
+}
+
 TEST(IcebergDeleteFileReaderHelperTest, ReadMixedEncodingParquetPositionDeleteFile) {
     RuntimeProfile profile("test_profile");
     RuntimeState runtime_state((TQueryOptions()), TQueryGlobals());

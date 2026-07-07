@@ -44,45 +44,89 @@ suite("test_iceberg_deletion_vector", "p0,external") {
     sql """ use format_v3;"""
     sql """ set file_split_size=1;"""
 
-    def executeCommand = { String cmd, Boolean mustSuc, int timeoutSeconds = 300 ->
+    try {
+    def executeCommandWithStatus = { String cmd, int timeoutSeconds = 300, Boolean logFailure = true,
+            Boolean logCommand = true ->
         StringBuilder stdout = new StringBuilder()
         StringBuilder stderr = new StringBuilder()
         try {
-            logger.info("execute ${cmd}")
+            if (logCommand) {
+                logger.info("execute ${cmd}")
+            }
             def proc = new ProcessBuilder("/bin/bash", "-c", cmd).start()
             proc.consumeProcessOutput(stdout, stderr)
             proc.waitForOrKill(timeoutSeconds * 1000)
             int exitcode = proc.exitValue()
             String output = stdout.toString()
             String error = stderr.toString()
-            if (exitcode != 0) {
+            if (exitcode != 0 && logFailure) {
                 logger.info("exit code: ${exitcode}, stdout\n: ${output}\nstderr\n: ${error}")
-                if (mustSuc) {
-                    assertTrue(false, "Execute failed: ${cmd}\nstdout:\n${output}\nstderr:\n${error}")
-                }
             }
-            return output
+            return [exitCode: exitcode, stdout: output, stderr: error]
         } catch (IOException e) {
             assertTrue(false, "Execute failed: ${cmd}, err: ${e.message}")
         }
     }
 
-    String dockerCommand = context.config.otherConfigs.get("externalDockerCommand") ?: "docker"
-    def findDockerContainer = { String keyword ->
-        String containers = executeCommand(
-                "${dockerCommand} ps --format '{{.Names}}\t{{.Image}}'",
-                false,
-                30
-        ) ?: ""
-        String matchedLine = containers.readLines()
-                .collect { it.trim() }
-                .find { it.toLowerCase().contains(keyword.toLowerCase()) }
-        return matchedLine == null ? "" : matchedLine.split(/\t/)[0].trim()
+    def executeCommand = { String cmd, Boolean mustSuc, int timeoutSeconds = 300 ->
+        def result = executeCommandWithStatus(cmd, timeoutSeconds)
+        if (mustSuc && result.exitCode != 0) {
+            assertTrue(false,
+                    "Execute failed: ${cmd}\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}")
+        }
+        return result.stdout
     }
 
-    String sparkContainerName = findDockerContainer("spark-iceberg")
-    assertTrue(sparkContainerName != null && !sparkContainerName.isEmpty(),
-            "spark-iceberg container is required for Iceberg DV setup")
+    String dockerCommand = context.config.otherConfigs.get("externalDockerCommand") ?: "docker"
+    def listDockerContainers = {
+        String containers =
+                executeCommand("${dockerCommand} ps --format '{{.ID}}\t{{.Names}}\t{{.Image}}'", true, 30) ?:
+                        ""
+        return containers.readLines().collect { it.trim() }.findAll { !it.isEmpty() }
+    }
+
+    def findRequiredDockerContainer = { String role, String configKey, String probeCommand ->
+        String configuredContainer = context.config.otherConfigs.get(configKey)
+        if (configuredContainer != null && !configuredContainer.isEmpty()) {
+            def probe = executeCommandWithStatus(
+                    "${dockerCommand} exec ${configuredContainer} bash -lc '${probeCommand}'",
+                    30)
+            assertEquals(0, probe.exitCode,
+                    "${role} container configured by ${configKey}=${configuredContainer} is not usable")
+            return configuredContainer
+        }
+
+        def matchedContainers = []
+        listDockerContainers().each { String containerLine ->
+            def fields = containerLine.split(/\t/, 3)
+            assertTrue(fields.length >= 2, "Unexpected docker ps output: ${containerLine}")
+            String containerId = fields[0].trim()
+            String containerName = fields[1].trim()
+            String containerImage = fields.length >= 3 ? fields[2].trim() : ""
+            def probe = executeCommandWithStatus(
+                    "${dockerCommand} exec ${containerId} bash -lc '${probeCommand}'",
+                    30,
+                    false,
+                    false)
+            if (probe.exitCode == 0) {
+                matchedContainers.add(
+                        [id: containerId, name: containerName, image: containerImage])
+            }
+        }
+
+        assertFalse(matchedContainers.isEmpty(),
+                "No usable ${role} container found. Set ${configKey} to the exact container name " +
+                        "or start the required external environment.")
+        assertEquals(1, matchedContainers.size(),
+                "Multiple usable ${role} containers found: ${matchedContainers}. " +
+                        "Set ${configKey} to the exact container name.")
+        logger.info("use ${role} container ${matchedContainers[0].name} " +
+                "(${matchedContainers[0].image})")
+        return matchedContainers[0].id
+    }
+
+    String sparkContainerName = findRequiredDockerContainer(
+            "Spark Iceberg", "icebergSparkContainer", "command -v spark-sql >/dev/null")
 
     def encodeBase64 = { String text ->
         return text.getBytes("UTF-8").encodeBase64().toString()
@@ -404,15 +448,14 @@ class IcebergRestCatalog {
     ))
     assertEquals(expectedRows, javaRows)
 
-    String trinoContainerName = findDockerContainer("trino")
-    if (trinoContainerName == null || trinoContainerName.isEmpty()) {
-        logger.info("skip Trino cross-check because no running Trino container was found")
-    } else {
-        String trinoExternalEnvIp = externalEnvIp
-        if (trinoExternalEnvIp == "127.0.0.1" || trinoExternalEnvIp.equalsIgnoreCase("localhost")) {
-            trinoExternalEnvIp = executeCommand("hostname -I | cut -d' ' -f1", true, 30)?.trim()
-        }
-        String trinoCatalogProps = """
+    String trinoContainerName = findRequiredDockerContainer(
+            "Trino", "icebergTrinoContainer",
+            "test -d /etc/trino/catalog && command -v trino >/dev/null")
+    String trinoExternalEnvIp = externalEnvIp
+    if (trinoExternalEnvIp == "127.0.0.1" || trinoExternalEnvIp.equalsIgnoreCase("localhost")) {
+        trinoExternalEnvIp = executeCommand("hostname -I | cut -d' ' -f1", true, 30)?.trim()
+    }
+    String trinoCatalogProps = """
 connector.name=iceberg
 iceberg.catalog.type=rest
 iceberg.rest-catalog.uri=http://${trinoExternalEnvIp}:${rest_port}
@@ -423,32 +466,31 @@ s3.aws-secret-key=password
 s3.region=us-east-1
 s3.path-style-access=true
 """
-        String encodedTrinoCatalogProps = encodeBase64(trinoCatalogProps)
-        executeCommand(
-                "${dockerCommand} exec ${trinoContainerName} bash -lc " +
-                        "'echo ${encodedTrinoCatalogProps} | " +
-                        "base64 -d >/etc/trino/catalog/iceberg.properties'",
-                true,
-                30
-        )
-        executeCommand("${dockerCommand} restart ${trinoContainerName}", true, 60)
-        String trinoRows = ""
-        for (int i = 0; i < 12; i++) {
-            Thread.sleep(5000)
-            trinoRows = normalizeExternalRows(executeCommand(
-                    "${dockerCommand} exec ${trinoContainerName} trino --output-format TSV " +
-                            "--catalog iceberg --schema format_v3 --execute " +
-                            "\"SELECT id, batch, data " +
-                            "FROM dv_delete_matrix_equality_and_dv ORDER BY id\"",
-                    false,
-                    120
-            ))
-            if (!trinoRows.isEmpty()) {
-                break
+    String encodedTrinoCatalogProps = encodeBase64(trinoCatalogProps)
+    executeCommand(
+            "${dockerCommand} exec ${trinoContainerName} bash -lc " +
+                    "'echo ${encodedTrinoCatalogProps} | " +
+                    "base64 -d >/etc/trino/catalog/iceberg.properties'",
+            true,
+            30
+    )
+    executeCommand("${dockerCommand} restart ${trinoContainerName}", true, 60)
+    String trinoRows = ""
+    for (int i = 0; i < 12; i++) {
+        Thread.sleep(5000)
+        trinoRows = normalizeExternalRows(executeCommand(
+                "${dockerCommand} exec ${trinoContainerName} trino --output-format TSV " +
+                        "--catalog iceberg --schema format_v3 --execute " +
+                        "\"SELECT id, batch, data " +
+                        "FROM dv_delete_matrix_equality_and_dv ORDER BY id\"",
+                false,
+                120
+        ))
+        if (!trinoRows.isEmpty()) {
+            break
             }
-        }
-        assertEquals(expectedRows, trinoRows)
     }
+    assertEquals(expectedRows, trinoRows)
 
     def profileCounterMax = { String profileText, String counterName ->
         long maxValue = Long.MIN_VALUE
@@ -522,10 +564,7 @@ s3.path-style-access=true
         contains "deleteFileNum"
     }
 
-    sql """ unset variable file_split_size;"""
-
-
-
-
-
+    } finally {
+        sql """ unset variable file_split_size;"""
+    }
 }

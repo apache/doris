@@ -219,8 +219,9 @@ bool is_iceberg_deletion_vector(const TIcebergDeleteFileDesc& delete_file) {
 
 std::string build_iceberg_deletion_vector_cache_key(const std::string& data_file_path,
                                                     const TIcebergDeleteFileDesc& delete_file) {
-    return fmt::format("delete_dv_{}#{}#{}#{}", data_file_path, delete_file.path,
-                       delete_file.content_offset, delete_file.content_size_in_bytes);
+    return fmt::format("delete_dv_{}:{}{}:{}#{}#{}", data_file_path.size(), data_file_path,
+                       delete_file.path.size(), delete_file.path, delete_file.content_offset,
+                       delete_file.content_size_in_bytes);
 }
 
 Status read_iceberg_position_delete_file(const TIcebergDeleteFileDesc& delete_file,
