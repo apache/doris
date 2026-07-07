@@ -85,7 +85,7 @@ import java.util.stream.Collectors;
  *   FROM t GROUP BY k1, k2
  * }</pre>
  *
- * <p>After IvmNormalizeMtmv the plan shape is:
+ * <p>After IvmNormalizeMTMV the plan shape is:
  * <pre>{@code
  * ResultSink [row_id, visible outputs, hidden state cols]
  *   └── Project [
@@ -138,7 +138,7 @@ import java.util.stream.Collectors;
  * OlapScan, filter, project, aggregate, inner/cross join, left/right/full outer join chain whose
  * null side does not contain another outer join, UNION ALL, result sink, logical olap table sink.
  */
-public class IvmNormalizeMtmv extends DefaultPlanRewriter<IvmNormalizeMtmv.NormalizeContext>
+public class IvmNormalizeMTMV extends DefaultPlanRewriter<IvmNormalizeMTMV.NormalizeContext>
         implements CustomRewriter {
     static final class NormalizeContext {
         private static final NormalizeContext ROOT = new NormalizeContext(true, false, false, false);
