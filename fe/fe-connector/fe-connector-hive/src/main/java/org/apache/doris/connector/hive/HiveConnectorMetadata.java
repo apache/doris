@@ -199,6 +199,17 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
         }
         HmsTableInfo tableInfo = hmsClient.getTable(dbName, tableName);
         HiveTableType tableType = HiveTableFormatDetector.detect(tableInfo);
+        // Fail-loud parity with legacy HMSExternalTable.supportedHiveTable(), which threw on a null or
+        // unrecognized input format instead of silently degrading (the old detector returned UNKNOWN). A view
+        // short-circuits: legacy returns true for a view before the format check — a view has no data files so
+        // its (usually null) input format is irrelevant, and it is served through the view SPI, not the scan
+        // path, so its handle keeps the UNKNOWN type (never scanned) rather than being rejected here.
+        if (tableType == HiveTableType.UNKNOWN && !isViewTable(tableInfo)) {
+            String inputFormat = tableInfo.getInputFormat();
+            throw new DorisConnectorException(inputFormat == null
+                    ? "remote table's storage input format is null"
+                    : "Unsupported hive input format: " + inputFormat);
+        }
 
         // Build partition key column names
         List<String> partKeyNames = Collections.emptyList();
