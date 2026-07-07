@@ -63,13 +63,6 @@ Apache Doris is an open-source, real-time analytics and search database built on
 
 Explore the [official website](https://doris.apache.org/) for the latest product overview, use cases, ecosystem updates, blogs, and user stories. For version updates, see [all release notes](https://doris.apache.org/releases/all-release).
 
-## 📣 Project Updates
-
-| Resource | What it provides |
-| -------- | ---------------- |
-| [Community Report](https://doris.apache.org/community-report/) | Weekly updates on community activity, merged PRs, contributors, and feature progress. |
-| [Roadmap 2026](https://github.com/apache/doris/issues/60036) | The 2026 planning discussion for AI and hybrid search, query engine, storage, and data lake work. |
-
 ## 📈 Use Cases
 
 | Use Case | What it provides |
@@ -116,6 +109,13 @@ Apache Doris supports both compute-storage coupled and compute-storage decoupled
 </p>
 
 Learn more in the [deployment guide](https://doris.apache.org/docs/dev/install/intro) and [deployment mode guide](https://doris.apache.org/docs/dev/install/choosing-deployment-mode).
+
+## 📣 Project Updates
+
+| Resource | What it provides |
+| -------- | ---------------- |
+| [Community Report](https://doris.apache.org/community-report/) | Weekly updates on community activity, merged PRs, contributors, and feature progress. |
+| [Roadmap 2026](https://github.com/apache/doris/issues/60036) | The 2026 planning discussion for AI and hybrid search, query engine, storage, and data lake work. |
 
 ## 🧩 Components
 
