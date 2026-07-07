@@ -87,7 +87,6 @@ public class ThriftHmsClient implements HmsClient {
     private static final Logger LOG = LogManager.getLogger(ThriftHmsClient.class);
 
     private static final HiveMetaHookLoader DUMMY_HOOK_LOADER = tbl -> null;
-    private static final int MAX_LIST_PARTITION_NUM = Short.MAX_VALUE;
     private static final long POOL_BORROW_TIMEOUT_MS = 60_000L;
     private static final int ADD_PARTITIONS_BATCH_SIZE = 20;
     private static final String TRANSIENT_LAST_DDL_TIME = "transient_lastDdlTime";
@@ -204,10 +203,28 @@ public class ThriftHmsClient implements HmsClient {
     @Override
     public List<String> listPartitionNames(String dbName, String tableName,
             int maxParts) {
-        int limit = maxParts <= 0 ? MAX_LIST_PARTITION_NUM : maxParts;
         return execute(
                 client -> client.listPartitionNames(dbName, tableName,
-                        (short) limit));
+                        toThriftMaxParts(maxParts)));
+    }
+
+    /**
+     * Maps the connector's {@code maxParts} contract onto the {@code short max_parts} that HMS
+     * {@code get_partition_names} accepts.
+     *
+     * <p>A non-positive {@code maxParts} means "all partitions" and maps to {@code -1}: HMS treats a
+     * negative {@code max_parts} as unbounded. It must NOT be clamped to {@code Short.MAX_VALUE} — that
+     * silently truncates a table with more than 32767 partitions and defeats the {@code -1} "unlimited"
+     * contract the hive/hudi callers rely on (the legacy {@code ThriftHMSCachedClient} passed the
+     * {@code Config.max_hive_list_partition_num} default of {@code -1} straight through to HMS, i.e.
+     * unbounded).</p>
+     *
+     * <p>A positive value is passed through, narrowing to {@code short}; a value above
+     * {@code Short.MAX_VALUE} narrows to a negative {@code short}, which HMS likewise treats as unbounded —
+     * the pre-existing behavior of the callers that request up to {@code 100000} partitions.</p>
+     */
+    static short toThriftMaxParts(int maxParts) {
+        return maxParts <= 0 ? (short) -1 : (short) maxParts;
     }
 
     @Override
