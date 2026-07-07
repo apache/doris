@@ -545,7 +545,7 @@ s3.path-style-access=true
             if (profileString.contains("MergedProfile:")) {
                 mergedProfile = profileString.substring(profileString.indexOf("MergedProfile:"))
                 int mergedProfileEnd = mergedProfile.length()
-                ["Execution Profile:", "Appendix:"].each { String sectionName ->
+                ["DetailProfile(", "Execution Profile:", "Appendix:"].each { String sectionName ->
                     int sectionIndex = mergedProfile.indexOf(sectionName)
                     if (sectionIndex > 0) {
                         mergedProfileEnd = Math.min(mergedProfileEnd, sectionIndex)
