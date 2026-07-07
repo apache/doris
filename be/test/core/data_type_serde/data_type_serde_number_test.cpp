@@ -28,12 +28,14 @@
 #include <limits>
 #include <type_traits>
 
+#include "common/status.h"
 #include "core/assert_cast.h"
 #include "core/column/column.h"
 #include "core/data_type/common_data_type_serder_test.h"
 #include "core/data_type/common_data_type_test.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/primitive_type.h"
+#include "core/field.h"
 #include "core/types.h"
 #include "testutil/test_util.h"
 #include "util/slice.h"
@@ -370,6 +372,55 @@ TEST_F(DataTypeNumberSerDeTest, ArrowStringToUnsignedDateLikeTypes) {
     ASSERT_TRUE(st.ok());
     ASSERT_EQ(1, datetimev2_column->size());
     EXPECT_EQ(20240102112233ULL, datetimev2_column->get_data()[0].to_date_int_val());
+}
+
+// to_olap_string / from_zonemap_string must round-trip finite floating-point
+// extremes (±DBL_MAX / ±FLT_MAX). The old digits10+1 (16g/7g) formatter rounded
+// DBL_MAX up to 1.797693134862316e+308 — larger than the largest finite double —
+// so from_olap_string parsed it to ±inf and rejected it, and the zone-map min/max
+// never got materialized.
+TEST_F(DataTypeNumberSerDeTest, OlapStringRoundTripFloatExtremes) {
+    auto check_double = [&](double v) {
+        Field field = Field::create_field<TYPE_DOUBLE>(v);
+        std::string s = serde_float64->to_olap_string(field);
+        Field back;
+        Status st = serde_float64->from_zonemap_string(s, back);
+        ASSERT_TRUE(st.ok()) << "double round-trip failed: v=" << v << " str='" << s << "'";
+        EXPECT_EQ(back.get<TYPE_DOUBLE>(), v) << "str='" << s << "'";
+    };
+    auto check_float = [&](float v) {
+        Field field = Field::create_field<TYPE_FLOAT>(v);
+        std::string s = serde_float32->to_olap_string(field);
+        Field back;
+        Status st = serde_float32->from_zonemap_string(s, back);
+        ASSERT_TRUE(st.ok()) << "float round-trip failed: v=" << v << " str='" << s << "'";
+        EXPECT_EQ(back.get<TYPE_FLOAT>(), v) << "str='" << s << "'";
+    };
+
+    // finite extremes — these broke before the fix
+    check_double(std::numeric_limits<double>::max());    // 1.7976931348623157e308
+    check_double(std::numeric_limits<double>::lowest()); // -1.7976931348623157e308
+    check_float(std::numeric_limits<float>::max());
+    check_float(std::numeric_limits<float>::lowest());
+
+    // neighbors of extremes + precision-sensitive values — also broke before
+    // the fix (digits10+1 is short of max_digits10)
+    check_double(std::nextafter(std::numeric_limits<double>::max(),
+                                0.0));                // 1 ULP below DBL_MAX, 16g -> inf
+    check_double(std::numeric_limits<double>::min()); // smallest normal, 16g loses precision
+    check_double(2.0000000164243876);                 // ordinary double needing 17 sig digits
+    check_float(std::nextafter(std::numeric_limits<float>::max(), 0.0f)); // 1 ULP below FLT_MAX
+    check_float(std::numeric_limits<float>::min());                       // smallest normal float
+
+    // ordinary values must still round-trip exactly
+    check_double(0.0);
+    check_double(-0.0);
+    check_double(1.0);
+    check_double(3.141592653589793);
+    check_double(1e300);
+    check_double(-1e308);
+    check_float(3.14f);
+    check_float(0.0f);
 }
 
 } // namespace doris
