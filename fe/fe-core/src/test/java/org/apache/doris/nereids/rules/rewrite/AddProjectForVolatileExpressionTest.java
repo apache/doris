@@ -17,6 +17,9 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.catalog.Function.NullableMode;
+import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.catalog.FunctionVolatility;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.hint.DistributeHint;
 import org.apache.doris.nereids.trees.expressions.Add;
@@ -26,18 +29,23 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
+import org.apache.doris.nereids.trees.expressions.VolatileIdentity;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Random;
+import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdf;
 import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.plans.DistributeType;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanConstructor;
+import org.apache.doris.thrift.TFunctionBinaryType;
 
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
@@ -46,12 +54,12 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 import java.util.Optional;
 
-public class AddProjectForUniqueFunctionTest implements MemoPatternMatchSupported {
+public class AddProjectForVolatileExpressionTest implements MemoPatternMatchSupported {
     private final LogicalOlapScan studentOlapScan
             = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(), PlanConstructor.student);
 
     @Test
-    void testGenUniqueFunctionAlias() {
+    void testGenVolatileExpressionAlias() {
         Random random1 = new Random();
         Random random2 = new Random();
         Random random3 = new Random();
@@ -59,12 +67,29 @@ public class AddProjectForUniqueFunctionTest implements MemoPatternMatchSupporte
                 new Add(random1, new Add(random1, new DoubleLiteral(1.0))),
                 new Add(random2, random3),
                 random3);
-        List<NamedExpression> namedExpressions = new AddProjectForUniqueFunction().tryGenUniqueFunctionAlias(expressions);
+        List<NamedExpression> namedExpressions = new AddProjectForVolatileExpression()
+                .tryGenVolatileExpressionAlias(expressions);
         Assertions.assertEquals(2, namedExpressions.size());
         Assertions.assertInstanceOf(Alias.class, namedExpressions.get(0));
         Assertions.assertEquals(((Alias) namedExpressions.get(0)).child(), random1);
         Assertions.assertInstanceOf(Alias.class, namedExpressions.get(1));
         Assertions.assertEquals(((Alias) namedExpressions.get(1)).child(), random3);
+    }
+
+    @Test
+    void testGenVolatileUdfAlias() {
+        JavaUdf volatileUdf = javaUdf(FunctionVolatility.VOLATILE, VolatileIdentity.newVolatileIdentity());
+        JavaUdf stableUdf = javaUdf(FunctionVolatility.STABLE, VolatileIdentity.NON_VOLATILE);
+        List<Expression> expressions = ImmutableList.of(
+                new Add(volatileUdf, new IntegerLiteral(1)),
+                volatileUdf,
+                new Add(stableUdf, stableUdf));
+
+        List<NamedExpression> namedExpressions = new AddProjectForVolatileExpression()
+                .tryGenVolatileExpressionAlias(expressions);
+        Assertions.assertEquals(1, namedExpressions.size());
+        Assertions.assertInstanceOf(Alias.class, namedExpressions.get(0));
+        Assertions.assertEquals(((Alias) namedExpressions.get(0)).child(), volatileUdf);
     }
 
     @Test
@@ -77,7 +102,7 @@ public class AddProjectForUniqueFunctionTest implements MemoPatternMatchSupporte
                 new Alias(new Add(random2, new DoubleLiteral(1.0))),
                 new Alias(random3));
         LogicalProject<?> project = new LogicalProject<Plan>(projections, studentOlapScan);
-        Optional<Pair<List<NamedExpression>, LogicalProject<Plan>>> result = new AddProjectForUniqueFunction()
+        Optional<Pair<List<NamedExpression>, LogicalProject<Plan>>> result = new AddProjectForVolatileExpression()
                 .rewriteExpressions(project, project.getProjects());
         Assertions.assertEquals(Optional.empty(), result);
     }
@@ -91,7 +116,7 @@ public class AddProjectForUniqueFunctionTest implements MemoPatternMatchSupporte
                 new Alias(new Add(random2, new DoubleLiteral(1.0))),
                 new Alias(random2));
         LogicalProject<?> project = new LogicalProject<Plan>(projections, studentOlapScan);
-        Optional<Pair<List<NamedExpression>, LogicalProject<Plan>>> result = new AddProjectForUniqueFunction()
+        Optional<Pair<List<NamedExpression>, LogicalProject<Plan>>> result = new AddProjectForVolatileExpression()
                 .rewriteExpressions(project, project.getProjects());
         Assertions.assertTrue(result.isPresent());
         Assertions.assertInstanceOf(LogicalProject.class, result.get().second);
@@ -125,7 +150,7 @@ public class AddProjectForUniqueFunctionTest implements MemoPatternMatchSupporte
                 null);
 
         Plan root = PlanChecker.from(MemoTestUtils.createConnectContext(), join)
-                .applyTopDown(new AddProjectForUniqueFunction())
+                .applyTopDown(new AddProjectForVolatileExpression())
                 .getPlan();
         Assertions.assertInstanceOf(LogicalJoin.class, root);
         LogicalJoin<?, ?> newJoin = (LogicalJoin<?, ?>) root;
@@ -139,5 +164,12 @@ public class AddProjectForUniqueFunctionTest implements MemoPatternMatchSupporte
         Assertions.assertEquals(ImmutableList.of(), newJoin.getOtherJoinConjuncts());
         Assertions.assertEquals(ImmutableList.of(new EqualTo(alias.toSlot(), new DoubleLiteral(1.0))), newJoin.getMarkJoinConjuncts());
         Assertions.assertEquals(JoinType.INNER_JOIN, newJoin.getJoinType());
+    }
+
+    private JavaUdf javaUdf(FunctionVolatility volatility, VolatileIdentity volatileIdentity) {
+        return new JavaUdf("java_fn", 1, "db1", TFunctionBinaryType.JAVA_UDF,
+                FunctionSignature.ret(IntegerType.INSTANCE).args(IntegerType.INSTANCE),
+                NullableMode.ALWAYS_NULLABLE, volatility, volatileIdentity,
+                null, "evaluate", null, null, "", false, 360, new IntegerLiteral(1));
     }
 }

@@ -36,7 +36,7 @@ import org.apache.doris.nereids.rules.expression.NullableDependentExpressionRewr
 import org.apache.doris.nereids.rules.expression.QueryColumnCollector;
 import org.apache.doris.nereids.rules.rewrite.AddDefaultLimit;
 import org.apache.doris.nereids.rules.rewrite.AddProjectForJoin;
-import org.apache.doris.nereids.rules.rewrite.AddProjectForUniqueFunction;
+import org.apache.doris.nereids.rules.rewrite.AddProjectForVolatileExpression;
 import org.apache.doris.nereids.rules.rewrite.AdjustConjunctsReturnType;
 import org.apache.doris.nereids.rules.rewrite.AdjustNullable;
 import org.apache.doris.nereids.rules.rewrite.AggScalarSubQueryToWindowFunction;
@@ -762,10 +762,10 @@ public class Rewriter extends AbstractBatchJobExecutor {
                     topDown(new SumLiteralRewrite(),
                             new MergePercentileToArray())
                 ),
-                topic("add projection for unique function",
-                        // separate AddProjectForUniqueFunction and MergeProjectable
+                topic("add projection for volatile expression",
+                        // separate AddProjectForVolatileExpression and MergeProjectable
                         // to avoid dead loop if code has bug
-                        topDown(new AddProjectForUniqueFunction()),
+                        topDown(new AddProjectForVolatileExpression()),
                         topDown(new MergeProjectable())
                 ),
                 topic("collect scan filter for hbo",

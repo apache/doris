@@ -53,8 +53,8 @@ class UdfVolatilityTest {
         Assertions.assertTrue(first.containsVolatileExpression());
         Assertions.assertNotEquals(first, second);
 
-        Expression ignoredFirst = ExpressionUtils.setIgnoreUniqueIdForUniqueFunc(first, true);
-        Expression ignoredSecond = ExpressionUtils.setIgnoreUniqueIdForUniqueFunc(second, true);
+        Expression ignoredFirst = ExpressionUtils.setIgnoreUniqueIdForVolatileExpression(first, true);
+        Expression ignoredSecond = ExpressionUtils.setIgnoreUniqueIdForVolatileExpression(second, true);
         Assertions.assertEquals(ignoredFirst, ignoredSecond);
     }
 
