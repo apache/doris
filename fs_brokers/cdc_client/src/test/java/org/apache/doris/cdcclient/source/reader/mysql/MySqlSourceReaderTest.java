@@ -20,6 +20,7 @@ package org.apache.doris.cdcclient.source.reader.mysql;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.apache.doris.job.cdc.DataSourceConfigKeys;
 
@@ -97,21 +98,30 @@ public class MySqlSourceReaderTest {
         assertNotNull(off.getOffsetKind());
     }
 
+    @Test
+    void mysqlConfigIncludesSchemaChanges() throws Exception {
+        MySqlSourceConfig config = sourceConfig("initial");
+
+        assertTrue(config.isIncludeSchemaChanges());
+    }
+
     // Drive the real generateMySqlConfig JSON-offset path and return the rebuilt startup offset.
     private BinlogOffset startupBinlogOffset(String offsetJson) throws Exception {
+        return sourceConfig(offsetJson).getStartupOptions().binlogOffset;
+    }
+
+    private MySqlSourceConfig sourceConfig(String offset) throws Exception {
         Map<String, String> cfg = new HashMap<>();
         cfg.put(DataSourceConfigKeys.JDBC_URL, "jdbc:mysql://localhost:3306/testdb");
         cfg.put(DataSourceConfigKeys.USER, "u");
         cfg.put(DataSourceConfigKeys.PASSWORD, "p");
         cfg.put(DataSourceConfigKeys.DATABASE, "testdb");
         cfg.put(DataSourceConfigKeys.TABLE, "t_test");
-        cfg.put(DataSourceConfigKeys.OFFSET, offsetJson);
+        cfg.put(DataSourceConfigKeys.OFFSET, offset);
         Method m =
                 MySqlSourceReader.class.getDeclaredMethod(
                         "generateMySqlConfig", Map.class, String.class, int.class);
         m.setAccessible(true);
-        MySqlSourceConfig config =
-                (MySqlSourceConfig) m.invoke(new MySqlSourceReader(), cfg, "job-1", 0);
-        return config.getStartupOptions().binlogOffset;
+        return (MySqlSourceConfig) m.invoke(new MySqlSourceReader(), cfg, "job-1", 0);
     }
 }

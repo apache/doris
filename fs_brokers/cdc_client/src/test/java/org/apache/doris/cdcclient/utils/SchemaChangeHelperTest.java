@@ -19,7 +19,10 @@ package org.apache.doris.cdcclient.utils;
 
 import org.apache.doris.cdcclient.common.DorisType;
 
+import io.debezium.relational.Column;
 import org.junit.jupiter.api.Test;
+
+import java.sql.Types;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
@@ -225,9 +228,52 @@ class SchemaChangeHelperTest {
         assertEquals(DorisType.STRING,  map("TEXT", -1, -1));
     }
 
+    @Test
+    void mysqlIntegerUnsignedTypes() {
+        assertEquals(DorisType.TINYINT, mysql("TINYINT", Types.TINYINT, -1, -1));
+        assertEquals(DorisType.SMALLINT, mysql("TINYINT UNSIGNED", Types.TINYINT, -1, -1));
+        assertEquals(DorisType.INT, mysql("SMALLINT UNSIGNED", Types.SMALLINT, -1, -1));
+        assertEquals(DorisType.BIGINT, mysql("INT UNSIGNED", Types.INTEGER, -1, -1));
+        assertEquals(DorisType.LARGEINT, mysql("BIGINT UNSIGNED", Types.BIGINT, -1, -1));
+    }
+
+    @Test
+    void mysqlDecimalAndTimeTypes() {
+        assertEquals("DECIMAL(20, 6)", mysql("DECIMAL", Types.DECIMAL, 20, 6));
+        assertEquals("DECIMAL(21, 6)", mysql("DECIMAL UNSIGNED", Types.DECIMAL, 20, 6));
+        assertEquals("DATETIME(6)", mysql("DATETIME", Types.TIMESTAMP, -1, 6));
+        assertEquals("DATETIME(0)", mysql("TIMESTAMP", Types.TIMESTAMP, -1, -1));
+    }
+
+    @Test
+    void mysqlStringJsonAndContainerTypes() {
+        assertEquals("CHAR(8)", mysql("CHAR", Types.CHAR, 8, -1));
+        assertEquals("VARCHAR(30)", mysql("VARCHAR", Types.VARCHAR, 30, -1));
+        assertEquals(DorisType.JSON, mysql("JSON", Types.OTHER, -1, -1));
+        assertEquals(DorisType.STRING, mysql("ENUM", Types.CHAR, 1, -1));
+        assertEquals(DorisType.STRING, mysql("SET", Types.CHAR, 3, -1));
+        assertEquals(DorisType.STRING, mysql("BLOB", Types.BLOB, -1, -1));
+    }
+
     // ─── helper ──────────────────────────────────────────────────────────────
 
     private static String map(String pgType, int length, int scale) {
         return SchemaChangeHelper.pgTypeNameToDorisType(pgType, length, scale);
+    }
+
+    private static String mysql(String mysqlType, int jdbcType, int length, int scale) {
+        io.debezium.relational.ColumnEditor editor =
+                Column.editor()
+                        .name("c")
+                        .type(mysqlType)
+                        .jdbcType(jdbcType)
+                        .optional(true);
+        if (length >= 0) {
+            editor.length(length);
+        }
+        if (scale >= 0) {
+            editor.scale(scale);
+        }
+        return SchemaChangeHelper.mysqlColumnToDorisType(editor.create());
     }
 }

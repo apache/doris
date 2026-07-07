@@ -136,6 +136,95 @@ public class SchemaChangeHelper {
         return pgTypeNameToDorisType(column.typeName(), column.length(), column.scale().orElse(-1));
     }
 
+    /** Convert a Debezium MySQL Column to a Doris column type string. */
+    public static String mysqlColumnToDorisType(Column column) {
+        Preconditions.checkNotNull(column.typeName());
+        String mysqlTypeName = column.typeName().toUpperCase();
+        String[] typeFields = mysqlTypeName.split(" ");
+        String mysqlType = typeFields[0];
+        boolean unsigned = typeFields.length > 1 && "UNSIGNED".equals(typeFields[1]);
+        int length = column.length();
+        int scale = column.scale().orElse(-1);
+        switch (mysqlType) {
+            case "BOOLEAN":
+            case "BOOL":
+                return DorisType.BOOLEAN;
+            case "TINYINT":
+                return unsigned ? DorisType.SMALLINT : DorisType.TINYINT;
+            case "SMALLINT":
+            case "INT2":
+            case "YEAR":
+                return unsigned ? DorisType.INT : DorisType.SMALLINT;
+            case "MEDIUMINT":
+            case "INT":
+            case "INTEGER":
+            case "INT3":
+            case "INT4":
+                return unsigned ? DorisType.BIGINT : DorisType.INT;
+            case "BIGINT":
+            case "INT8":
+                return unsigned ? DorisType.LARGEINT : DorisType.BIGINT;
+            case "FLOAT":
+            case "FLOAT4":
+                return DorisType.FLOAT;
+            case "DOUBLE":
+            case "FLOAT8":
+            case "REAL":
+                return DorisType.DOUBLE;
+            case "DECIMAL":
+            case "DEC":
+            case "FIXED":
+            case "NUMERIC":
+                {
+                    int precision = length > 0 ? length : 10;
+                    if (unsigned) {
+                        precision++;
+                    }
+                    precision = Math.min(precision, 38);
+                    int decimalScale = scale >= 0 ? scale : 0;
+                    return String.format("%s(%d, %d)", DorisType.DECIMAL, precision, decimalScale);
+                }
+            case "DATE":
+                return DorisType.DATE;
+            case "DATETIME":
+            case "TIMESTAMP":
+                {
+                    int timeScale = (scale >= 0 && scale <= 6) ? scale : 0;
+                    return String.format("%s(%d)", DorisType.DATETIME, timeScale);
+                }
+            case "CHAR":
+            case "NCHAR":
+                return length > 0 ? String.format("%s(%d)", DorisType.CHAR, length) : DorisType.STRING;
+            case "VARCHAR":
+            case "NVARCHAR":
+                return length > 0
+                        ? String.format("%s(%d)", DorisType.VARCHAR, length)
+                        : DorisType.STRING;
+            case "BIT":
+                return length == 1 ? DorisType.BOOLEAN : DorisType.STRING;
+            case "JSON":
+                return DorisType.JSON;
+            case "TINYBLOB":
+            case "BLOB":
+            case "MEDIUMBLOB":
+            case "LONGBLOB":
+            case "BINARY":
+            case "VARBINARY":
+            case "TIME":
+            case "TINYTEXT":
+            case "TEXT":
+            case "MEDIUMTEXT":
+            case "LONGTEXT":
+            case "STRING":
+            case "SET":
+            case "ENUM":
+                return DorisType.STRING;
+            default:
+                LOG.warn("Unrecognized MySQL type '{}', defaulting to STRING", mysqlTypeName);
+                return DorisType.STRING;
+        }
+    }
+
     /** Map a PostgreSQL native type name to a Doris type string. */
     static String pgTypeNameToDorisType(String pgTypeName, int length, int scale) {
         Preconditions.checkNotNull(pgTypeName);
