@@ -34,6 +34,21 @@ public interface ConnectorStatisticsOps {
     }
 
     /**
+     * Returns per-column statistics the connector can serve WITHOUT a table scan — the query-planner
+     * column-statistics fast path, consulted on a stats-cache miss (fe-core's
+     * {@code ColumnStatisticsCacheLoader}). Must be cheap (a metadata read, no scan). Returns empty when
+     * unavailable, so a connector with no cheap column stats simply does not override it and fe-core falls
+     * back to a full ANALYZE. fe-core derives the Doris {@code ColumnStatistic} (dataSize / avgSize) from the
+     * returned raw facts — see {@link ConnectorColumnStatistics}.
+     */
+    default Optional<ConnectorColumnStatistics> getColumnStatistics(
+            ConnectorSession session,
+            ConnectorTableHandle handle,
+            String columnName) {
+        return Optional.empty();
+    }
+
+    /**
      * Estimates the table's on-disk data size in bytes by listing its data files, for connectors that can
      * cheaply enumerate them (e.g. hive). fe-core uses this to estimate a row count
      * ({@code dataSize / <row width>}) when neither an exact row count nor a metastore-recorded size (from

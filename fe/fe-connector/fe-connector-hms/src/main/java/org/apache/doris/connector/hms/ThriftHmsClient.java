@@ -37,18 +37,25 @@ import org.apache.hadoop.hive.metastore.IMetaStoreClient;
 import org.apache.hadoop.hive.metastore.LockComponentBuilder;
 import org.apache.hadoop.hive.metastore.LockRequestBuilder;
 import org.apache.hadoop.hive.metastore.RetryingMetaStoreClient;
+import org.apache.hadoop.hive.metastore.api.ColumnStatisticsData;
+import org.apache.hadoop.hive.metastore.api.ColumnStatisticsObj;
 import org.apache.hadoop.hive.metastore.api.DataOperationType;
 import org.apache.hadoop.hive.metastore.api.Database;
+import org.apache.hadoop.hive.metastore.api.DateColumnStatsData;
+import org.apache.hadoop.hive.metastore.api.DecimalColumnStatsData;
+import org.apache.hadoop.hive.metastore.api.DoubleColumnStatsData;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.hadoop.hive.metastore.api.LockComponent;
 import org.apache.hadoop.hive.metastore.api.LockRequest;
 import org.apache.hadoop.hive.metastore.api.LockResponse;
 import org.apache.hadoop.hive.metastore.api.LockState;
+import org.apache.hadoop.hive.metastore.api.LongColumnStatsData;
 import org.apache.hadoop.hive.metastore.api.MetaException;
 import org.apache.hadoop.hive.metastore.api.NoSuchObjectException;
 import org.apache.hadoop.hive.metastore.api.Partition;
 import org.apache.hadoop.hive.metastore.api.SQLDefaultConstraint;
 import org.apache.hadoop.hive.metastore.api.StorageDescriptor;
+import org.apache.hadoop.hive.metastore.api.StringColumnStatsData;
 import org.apache.hadoop.hive.metastore.api.Table;
 import org.apache.hadoop.hive.metastore.api.TableValidWriteIds;
 import org.apache.hadoop.hive.metastore.txn.TxnUtils;
@@ -247,6 +254,56 @@ public class ThriftHmsClient implements HmsClient {
                     client.getPartition(dbName, tableName, values);
             return convertPartition(partition);
         });
+    }
+
+    @Override
+    public List<HmsColumnStatistics> getTableColumnStatistics(String dbName, String tableName,
+            List<String> columns) {
+        List<ColumnStatisticsObj> stats = execute(
+                client -> client.getTableColumnStatistics(dbName, tableName, columns));
+        List<HmsColumnStatistics> result = new ArrayList<>(stats.size());
+        for (ColumnStatisticsObj obj : stats) {
+            result.add(convertColumnStatistics(obj));
+        }
+        return result;
+    }
+
+    /**
+     * Extracts the neutral ndv / numNulls / avgColLen from a hive {@code ColumnStatisticsObj}, a byte-faithful
+     * port of legacy {@code HMSExternalTable.setStatData}'s per-variant reads: {@code avgColLen} is captured
+     * only for a string column (non-string columns leave it -1 so the consumer uses the fixed slot width), and
+     * a variant the legacy reader does not handle (boolean / binary / timestamp) yields ndv=0 / numNulls=0.
+     */
+    static HmsColumnStatistics convertColumnStatistics(ColumnStatisticsObj obj) {
+        long ndv = 0;
+        long numNulls = 0;
+        double avgColLen = -1;
+        if (obj.isSetStatsData()) {
+            ColumnStatisticsData data = obj.getStatsData();
+            if (data.isSetStringStats()) {
+                StringColumnStatsData stringStats = data.getStringStats();
+                ndv = stringStats.getNumDVs();
+                numNulls = stringStats.getNumNulls();
+                avgColLen = stringStats.getAvgColLen();
+            } else if (data.isSetLongStats()) {
+                LongColumnStatsData longStats = data.getLongStats();
+                ndv = longStats.getNumDVs();
+                numNulls = longStats.getNumNulls();
+            } else if (data.isSetDecimalStats()) {
+                DecimalColumnStatsData decimalStats = data.getDecimalStats();
+                ndv = decimalStats.getNumDVs();
+                numNulls = decimalStats.getNumNulls();
+            } else if (data.isSetDoubleStats()) {
+                DoubleColumnStatsData doubleStats = data.getDoubleStats();
+                ndv = doubleStats.getNumDVs();
+                numNulls = doubleStats.getNumNulls();
+            } else if (data.isSetDateStats()) {
+                DateColumnStatsData dateStats = data.getDateStats();
+                ndv = dateStats.getNumDVs();
+                numNulls = dateStats.getNumNulls();
+            }
+        }
+        return new HmsColumnStatistics(obj.getColName(), ndv, numNulls, avgColLen);
     }
 
     // ========== Phase 3: DDL / write operations ==========

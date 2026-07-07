@@ -19,6 +19,7 @@ package org.apache.doris.connector.hive;
 
 import org.apache.doris.connector.api.ConnectorCapability;
 import org.apache.doris.connector.api.ConnectorColumn;
+import org.apache.doris.connector.api.ConnectorColumnStatistics;
 import org.apache.doris.connector.api.ConnectorMetadata;
 import org.apache.doris.connector.api.ConnectorPartitionInfo;
 import org.apache.doris.connector.api.ConnectorSession;
@@ -44,6 +45,7 @@ import org.apache.doris.connector.api.pushdown.FilterApplicationResult;
 import org.apache.doris.connector.hms.HmsClient;
 import org.apache.doris.connector.hms.HmsClientConfig;
 import org.apache.doris.connector.hms.HmsClientException;
+import org.apache.doris.connector.hms.HmsColumnStatistics;
 import org.apache.doris.connector.hms.HmsCreateDatabaseRequest;
 import org.apache.doris.connector.hms.HmsCreateTableRequest;
 import org.apache.doris.connector.hms.HmsPartitionInfo;
@@ -507,6 +509,43 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
             return Optional.empty();
         }
         return Optional.of(new ConnectorTableStatistics(reportedRows, reportedSize));
+    }
+
+    /**
+     * Serves the query-planner column-statistics fast path from HMS-recorded (no-scan) column stats, a port of
+     * legacy {@code HMSExternalTable.getHiveColumnStats}. Returns RAW facts only (rowCount / ndv / numNulls /
+     * avgColLen) — fe-core does the Doris-type-dependent {@code dataSize}/{@code avgSize} math in
+     * {@code PluginDrivenExternalTable.getColumnStatistic} (it must not import fe-type).
+     *
+     * <p>Empty (fe-core then falls back to a full ANALYZE) when: the table is not a plain-hive table
+     * (iceberg-on-HMS is served by the iceberg sibling; hudi had no fast path); the table has no positive
+     * {@code numRows} parameter (legacy required it as the per-column data-size basis, and does NOT fall back
+     * to the spark count here, unlike the table-level size branch); or HMS holds no stats for the column.</p>
+     */
+    @Override
+    public Optional<ConnectorColumnStatistics> getColumnStatistics(
+            ConnectorSession session, ConnectorTableHandle handle, String columnName) {
+        HiveTableHandle hiveHandle = (HiveTableHandle) handle;
+        if (hiveHandle.getTableType() != HiveTableType.HIVE) {
+            return Optional.empty();
+        }
+        Map<String, String> params = hiveHandle.getTableParameters();
+        if (params == null || !params.containsKey(PARAM_NUM_ROWS)) {
+            return Optional.empty();
+        }
+        long rowCount = parseLongOrDefault(params.get(PARAM_NUM_ROWS), -1);
+        if (rowCount <= 0) {
+            return Optional.empty();
+        }
+        List<HmsColumnStatistics> stats = hmsClient.getTableColumnStatistics(
+                hiveHandle.getDbName(), hiveHandle.getTableName(), Collections.singletonList(columnName));
+        if (stats.isEmpty()) {
+            return Optional.empty();
+        }
+        // Legacy read at most one stats object per column; take the first.
+        HmsColumnStatistics stat = stats.get(0);
+        return Optional.of(new ConnectorColumnStatistics(
+                rowCount, stat.getNdv(), stat.getNumNulls(), stat.getAvgColLenBytes()));
     }
 
     /**

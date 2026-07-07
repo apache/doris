@@ -18,6 +18,7 @@
 package org.apache.doris.connector.hms;
 
 import java.io.Closeable;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
@@ -136,6 +137,24 @@ public interface HmsClient extends Closeable {
      */
     HmsPartitionInfo getPartition(String dbName, String tableName,
             List<String> values);
+
+    /**
+     * Returns HMS-recorded (no-scan) column statistics for the named columns, e.g. for the query-planner
+     * column-statistics fast path.
+     *
+     * <p>Optional: defaults to an empty list so read-only test doubles and clients without column-stats
+     * support need not implement it (the caller then degrades to "no stats"). The production
+     * {@link ThriftHmsClient} overrides it.</p>
+     *
+     * @param dbName    database name
+     * @param tableName table name
+     * @param columns   column names to fetch stats for
+     * @return one {@link HmsColumnStatistics} per column that HAS stats (may be shorter than {@code columns})
+     */
+    default List<HmsColumnStatistics> getTableColumnStatistics(String dbName, String tableName,
+            List<String> columns) {
+        return Collections.emptyList();
+    }
 
     // ========== Phase 3: DDL / write operations ==========
     //

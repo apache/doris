@@ -27,6 +27,7 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.connector.api.Connector;
 import org.apache.doris.connector.api.ConnectorCapability;
 import org.apache.doris.connector.api.ConnectorColumn;
+import org.apache.doris.connector.api.ConnectorColumnStatistics;
 import org.apache.doris.connector.api.ConnectorMetadata;
 import org.apache.doris.connector.api.ConnectorPartitionInfo;
 import org.apache.doris.connector.api.ConnectorSession;
@@ -42,6 +43,8 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.BaseAnalysisTask;
+import org.apache.doris.statistics.ColumnStatistic;
+import org.apache.doris.statistics.ColumnStatisticBuilder;
 import org.apache.doris.statistics.ExternalAnalysisTask;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
@@ -746,6 +749,69 @@ public class PluginDrivenExternalTable extends ExternalTable {
     public BaseAnalysisTask createAnalysisTask(AnalysisInfo info) {
         makeSureInitialized();
         return new ExternalAnalysisTask(info);
+    }
+
+    /**
+     * The query-planner column-statistics fast path (consulted by {@code ColumnStatisticsCacheLoader} on a
+     * stats-cache miss): asks the connector for the no-scan column stats it can serve cheaply and turns the raw
+     * facts into a Doris {@link ColumnStatistic}. Empty (fe-core falls back to a full ANALYZE) when the
+     * connector has no such stats. Mirrors legacy {@code HMSExternalTable.getHiveColumnStats} +
+     * {@code setStatData}: the connector returns raw ndv / numNulls / (string) avgColLen, and THIS side does the
+     * Doris-type-dependent size math the connector cannot (it must not import fe-type) — a string column's size
+     * is {@code round(avgColLen * count)}, every other type's is {@code count * <slot width>}; min/max stay
+     * unconstrained (the {@link ColumnStatisticBuilder} defaults, i.e. legacy's NEGATIVE/POSITIVE_INFINITY).
+     */
+    @Override
+    public Optional<ColumnStatistic> getColumnStatistic(String colName) {
+        makeSureInitialized();
+        if (!(catalog instanceof PluginDrivenExternalCatalog)) {
+            return Optional.empty();
+        }
+        PluginDrivenExternalCatalog pluginCatalog = (PluginDrivenExternalCatalog) catalog;
+        Connector connector = pluginCatalog.getConnector();
+        if (connector == null) {
+            return Optional.empty();
+        }
+        ConnectorSession session = pluginCatalog.buildConnectorSession();
+        ConnectorMetadata metadata = connector.getMetadata(session);
+        Optional<ConnectorTableHandle> handleOpt = resolveConnectorTableHandle(session, metadata);
+        if (!handleOpt.isPresent()) {
+            return Optional.empty();
+        }
+        Optional<ConnectorColumnStatistics> statsOpt =
+                metadata.getColumnStatistics(session, handleOpt.get(), colName);
+        if (!statsOpt.isPresent()) {
+            return Optional.empty();
+        }
+        return toColumnStatistic(statsOpt.get(), getColumn(colName));
+    }
+
+    /**
+     * Turns the connector's raw {@link ConnectorColumnStatistics} into a Doris {@link ColumnStatistic},
+     * doing the Doris-type-dependent size math the connector cannot (legacy {@code setStatData} parity): a
+     * string column (avgSizeBytes &gt;= 0) sizes to {@code round(avgColLen * count)}, every other type to
+     * {@code count * <slot width>}; {@code avgSizeByte = dataSize / count}; min/max stay at the builder's
+     * unconstrained defaults. Empty when the column is unknown or the row count is non-positive (no size
+     * basis, legacy returned empty). Package-private + static so the math can be unit-tested directly.
+     */
+    static Optional<ColumnStatistic> toColumnStatistic(ConnectorColumnStatistics stats, Column column) {
+        long count = stats.getRowCount();
+        if (column == null || count <= 0) {
+            return Optional.empty();
+        }
+        double dataSize;
+        if (stats.getAvgSizeBytes() >= 0) {
+            dataSize = Math.round(stats.getAvgSizeBytes() * count);
+        } else {
+            // Long arithmetic (count * slotSize) exactly like legacy setStatData, then widened.
+            dataSize = count * column.getType().getSlotSize();
+        }
+        ColumnStatisticBuilder builder = new ColumnStatisticBuilder(count);
+        builder.setNdv(stats.getNdv());
+        builder.setNumNulls(stats.getNumNulls());
+        builder.setDataSize(dataSize);
+        builder.setAvgSizeByte(dataSize / count);
+        return Optional.of(builder.build());
     }
 
     @Override
