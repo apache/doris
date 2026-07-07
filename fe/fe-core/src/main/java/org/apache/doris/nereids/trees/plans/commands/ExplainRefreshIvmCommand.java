@@ -17,36 +17,25 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
-import org.apache.doris.analysis.ExplainOptions;
 import org.apache.doris.analysis.StmtType;
-import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
-import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.mtmv.MTMVPlanUtil;
-import org.apache.doris.mtmv.ivm.IvmRefreshExplainResult;
 import org.apache.doris.mtmv.ivm.IvmRefreshManager;
-import org.apache.doris.nereids.NereidsPlanner;
+import org.apache.doris.mtmv.ivm.IvmRewriteContext;
 import org.apache.doris.nereids.StatementContext;
-import org.apache.doris.nereids.glue.LogicalPlanAdapter;
-import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.commands.info.RefreshMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.RefreshMTMVInfo.RefreshMode;
-import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalResultSink;
+import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
-import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.ShowResultSet;
-import org.apache.doris.qe.ShowResultSetMetaData;
 import org.apache.doris.qe.StmtExecutor;
 
-import java.util.Collections;
 import java.util.Objects;
 import java.util.Optional;
 
@@ -54,15 +43,6 @@ import java.util.Optional;
  * Explain IVM refresh dry-run plans.
  */
 public class ExplainRefreshIvmCommand extends Command implements NoForward {
-    private static final ShowResultSetMetaData OVERVIEW_META_DATA = ShowResultSetMetaData.builder()
-            .addColumn(new Column("Item", ScalarType.createVarchar(30)))
-            .addColumn(new Column("Delta", ScalarType.createVarchar(-1)))
-            .addColumn(new Column("Value", ScalarType.createVarchar(-1)))
-            .build();
-    private static final ShowResultSetMetaData DELTA_PLAN_META_DATA = ShowResultSetMetaData.builder()
-            .addColumn(new Column("IVM Delta Plan", ScalarType.createVarchar(-1)))
-            .build();
-
     private final RefreshMTMVInfo refreshMTMVInfo;
     private final ExplainLevel level;
     private final boolean showPlanProcess;
@@ -87,69 +67,26 @@ public class ExplainRefreshIvmCommand extends Command implements NoForward {
 
         refreshMTMVInfo.analyze(ctx);
         MTMV mtmv = getMtmv();
-        IvmRefreshExplainResult result;
+        ConnectContext planCtx = createExplainConnectContext(mtmv);
         try {
-            result = createIvmRefreshManager().explainRefresh(mtmv);
-        } finally {
-            ctx.setThreadLocalInfo();
-        }
-        if (level == ExplainLevel.NORMAL && !showPlanProcess) {
-            executor.sendResultSet(new ShowResultSet(OVERVIEW_META_DATA, result.formatOverviewRows()));
-        } else {
-            explainMergedPlan(ctx, executor, mtmv, result.getMergedDeltaPlan());
-        }
-    }
-
-    private void explainMergedPlan(ConnectContext ctx, StmtExecutor executor,
-            MTMV mtmv, Plan deltaPlan) throws Exception {
-        if (!(deltaPlan instanceof LogicalPlan)) {
-            throw new org.apache.doris.nereids.exceptions.AnalysisException(
-                    "IVM delta plan is not a logical plan: " + deltaPlan.getClass().getSimpleName());
-        }
-        if (level == ExplainLevel.ANALYZED_PLAN && !showPlanProcess) {
-            executor.sendResultSet(new ShowResultSet(DELTA_PLAN_META_DATA,
-                    IvmRefreshExplainResult.formatDeltaPlanRows(deltaPlan)));
-            return;
-        }
-
-        LogicalPlan logicalPlan = removeNestedResultSink((LogicalPlan) deltaPlan);
-        ConnectContext planCtx = MTMVPlanUtil.createMTMVContext(mtmv, MTMVPlanUtil.DISABLE_RULES_WHEN_RUN_MTMV_TASK);
-        try (StatementContext deltaStatementContext = new StatementContext(planCtx, null)) {
-            planCtx.setStatementContext(deltaStatementContext);
-            NereidsPlanner planner = new NereidsPlanner(deltaStatementContext);
-            LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(logicalPlan, deltaStatementContext);
-            ExplainOptions explainOptions = new ExplainOptions(level, showPlanProcess);
-            logicalPlanAdapter.setIsExplain(explainOptions);
-            executor.setParsedStmt(logicalPlanAdapter);
-            planner.plan(logicalPlanAdapter, planCtx.getSessionVariable().toThrift());
-            executor.setPlanner(planner);
-            if (showPlanProcess) {
-                executor.handleExplainPlanProcessStmt(planner.getCascadesContext().getPlanProcesses());
-            } else {
-                executor.handleExplainStmt(planner.getExplainString(explainOptions), true);
-            }
-            for (ScanNode scanNode : planner.getScanNodes()) {
-                scanNode.stop();
-            }
+            StatementContext statementContext = new StatementContext(planCtx, null);
+            statementContext.setIvmRewriteContext(Optional.of(
+                    IvmRewriteContext.incremental(mtmv, true, true)));
+            planCtx.setStatementContext(statementContext);
+            InsertIntoTableCommand command = createIvmRefreshManager().buildInsertCommand(mtmv);
+            runExplainCommand(planCtx, executor, command);
         } finally {
             ctx.setThreadLocalInfo();
         }
     }
 
-    private LogicalPlan removeNestedResultSink(LogicalPlan logicalPlan) {
-        if (!(logicalPlan instanceof LogicalResultSink)) {
-            return logicalPlan;
-        }
-        LogicalResultSink<?> resultSink = (LogicalResultSink<?>) logicalPlan;
-        Plan child = resultSink.child();
-        if (!(child instanceof LogicalResultSink)) {
-            return logicalPlan;
-        }
-        while (child instanceof LogicalResultSink) {
-            child = ((LogicalResultSink<?>) child).child();
-        }
-        return resultSink.withGroupExprLogicalPropChildren(resultSink.getGroupExpression(),
-                Optional.of(resultSink.getLogicalProperties()), Collections.singletonList(child));
+    protected ConnectContext createExplainConnectContext(MTMV mtmv) {
+        return MTMVPlanUtil.createMTMVContext(mtmv, MTMVPlanUtil.DISABLE_RULES_WHEN_RUN_MTMV_TASK);
+    }
+
+    protected void runExplainCommand(ConnectContext planCtx, StmtExecutor executor,
+            InsertIntoTableCommand command) throws Exception {
+        new ExplainCommand(level, command, showPlanProcess).run(planCtx, executor);
     }
 
     private MTMV getMtmv() throws org.apache.doris.common.AnalysisException, MetaNotFoundException {

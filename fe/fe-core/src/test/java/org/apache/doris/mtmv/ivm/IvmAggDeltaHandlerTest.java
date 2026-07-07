@@ -48,6 +48,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.util.PlanConstructor;
 import org.apache.doris.qe.ConnectContext;
@@ -66,10 +67,12 @@ class IvmAggDeltaHandlerTest extends IvmDeltaTestBase {
     private AggRewriteResult rewriteAgg(LogicalAggregate<? extends Plan> agg) {
         PlanBundle bundle = normalizeAggPlan(agg);
         MTMV mtmv = buildMtmvFromPlan(bundle.normalizedPlan.getOutput());
-        IvmRefreshContext ctx = new IvmRefreshContext(mtmv, bundle.connectContext, bundle.rewriteResult);
-        // Generate delta plans via the rewriter (handles stream fallback for test environments)
-        InsertIntoTableCommand command = (InsertIntoTableCommand) new IvmDeltaRewriter()
-                .rewrite(bundle.normalizedPlan, ctx).get(0);
+        Plan rewritten = new IvmDeltaRewriter().generateIncrementalRefreshPlan(
+                bundle.normalizedPlan, bundle.rewriteResult,
+                IvmRewriteContext.incremental(mtmv, false, false), bundle.connectContext);
+        Assertions.assertNotNull(rewritten);
+        InsertIntoTableCommand command = new IvmRefreshManager()
+                .buildInsertCommand((LogicalPlan) rewritten, mtmv);
         UnboundTableSink<?> sink = getSink(command);
         return new AggRewriteResult(bundle, mtmv, sink, (LogicalProject<?>) sink.child());
     }
@@ -95,10 +98,10 @@ class IvmAggDeltaHandlerTest extends IvmDeltaTestBase {
     }
 
     private void assertSinkProjectMatchesSinkColumns(AggRewriteResult result) {
-        List<String> expectedSinkColumns = new ArrayList<>(result.mtmv.getInsertedColumnNames());
-        expectedSinkColumns.add(Column.DELETE_SIGN);
-        Assertions.assertEquals(expectedSinkColumns, result.sink.getColNames());
-        Assertions.assertEquals(expectedSinkColumns, result.finalProject.getOutput().stream()
+        Assertions.assertEquals(result.mtmv.getInsertedColumnNames(), result.sink.getColNames());
+        List<String> expectedProjectOutputs = new ArrayList<>(result.mtmv.getInsertedColumnNames());
+        expectedProjectOutputs.add(Column.DELETE_SIGN);
+        Assertions.assertEquals(expectedProjectOutputs, result.finalProject.getOutput().stream()
                 .map(Slot::getName).collect(Collectors.toList()));
     }
 
@@ -149,9 +152,7 @@ class IvmAggDeltaHandlerTest extends IvmDeltaTestBase {
 
         Assertions.assertEquals(JoinType.RIGHT_OUTER_JOIN, join.getJoinType());
         Assertions.assertInstanceOf(LogicalProject.class, join.right());
-        Assertions.assertEquals(result.mtmv.getInsertedColumnNames().size() + 1, result.sink.getColNames().size());
-        Assertions.assertEquals(Column.DELETE_SIGN,
-                result.sink.getColNames().get(result.sink.getColNames().size() - 1));
+        Assertions.assertEquals(result.mtmv.getInsertedColumnNames(), result.sink.getColNames());
         List<String> outputNames = result.finalProject.getOutput().stream()
                 .map(Slot::getName).collect(Collectors.toList());
         Assertions.assertEquals(result.mtmv.getInsertedColumnNames(),
@@ -188,7 +189,7 @@ class IvmAggDeltaHandlerTest extends IvmDeltaTestBase {
         AggRewriteResult result = rewriteAgg(agg);
 
         Assertions.assertEquals(Column.DELETE_SIGN,
-                result.sink.getColNames().get(result.sink.getColNames().size() - 1));
+                result.finalProject.getOutput().get(result.finalProject.getOutput().size() - 1).getName());
         Assertions.assertInstanceOf(LogicalProject.class, result.finalProject);
     }
 
@@ -198,21 +199,21 @@ class IvmAggDeltaHandlerTest extends IvmDeltaTestBase {
 
         Assertions.assertInstanceOf(LogicalJoin.class, getApplyProject(result).child());
         Assertions.assertEquals(Column.DELETE_SIGN,
-                result.sink.getColNames().get(result.sink.getColNames().size() - 1));
+                result.finalProject.getOutput().get(result.finalProject.getOutput().size() - 1).getName());
     }
 
     @Test
     void testAggWithMaxProducesValidPlan() {
         AggRewriteResult result = rewriteAgg(buildMaxAgg(buildScan()));
         Assertions.assertEquals(Column.DELETE_SIGN,
-                result.sink.getColNames().get(result.sink.getColNames().size() - 1));
+                result.finalProject.getOutput().get(result.finalProject.getOutput().size() - 1).getName());
     }
 
     @Test
     void testAggWithMinProducesValidPlan() {
         AggRewriteResult result = rewriteAgg(buildMinAgg(buildScan()));
         Assertions.assertEquals(Column.DELETE_SIGN,
-                result.sink.getColNames().get(result.sink.getColNames().size() - 1));
+                result.finalProject.getOutput().get(result.finalProject.getOutput().size() - 1).getName());
     }
 
     @Test
@@ -318,7 +319,7 @@ class IvmAggDeltaHandlerTest extends IvmDeltaTestBase {
 
         AggRewriteResult result = rewriteAgg(agg);
         Assertions.assertEquals(Column.DELETE_SIGN,
-                result.sink.getColNames().get(result.sink.getColNames().size() - 1));
+                result.finalProject.getOutput().get(result.finalProject.getOutput().size() - 1).getName());
     }
 
     @Test
@@ -376,9 +377,11 @@ class IvmAggDeltaHandlerTest extends IvmDeltaTestBase {
     void testGroupedAggOutputColumnsMatchMtmvInsertedPlusDeleteSign() {
         AggRewriteResult result = rewriteAgg(buildGroupedAgg(buildScan()));
 
-        List<String> expectedSinkCols = new ArrayList<>(result.mtmv.getInsertedColumnNames());
-        expectedSinkCols.add(Column.DELETE_SIGN);
-        Assertions.assertEquals(expectedSinkCols, result.sink.getColNames());
+        Assertions.assertEquals(result.mtmv.getInsertedColumnNames(), result.sink.getColNames());
+        List<String> expectedProjectOutputs = new ArrayList<>(result.mtmv.getInsertedColumnNames());
+        expectedProjectOutputs.add(Column.DELETE_SIGN);
+        Assertions.assertEquals(expectedProjectOutputs, result.finalProject.getOutput().stream()
+                .map(Slot::getName).collect(Collectors.toList()));
     }
 
     @Test

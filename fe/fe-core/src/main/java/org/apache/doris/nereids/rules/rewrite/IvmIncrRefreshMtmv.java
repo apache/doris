@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.catalog.MTMV;
+import org.apache.doris.mtmv.ivm.IvmDeltaRewriteHelper;
 import org.apache.doris.mtmv.ivm.IvmDeltaRewriter;
 import org.apache.doris.mtmv.ivm.IvmException;
 import org.apache.doris.mtmv.ivm.IvmFailureReason;
@@ -27,13 +28,14 @@ import org.apache.doris.mtmv.ivm.IvmRewriteContext;
 import org.apache.doris.mtmv.ivm.IvmRewriteResult;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.jobs.JobContext;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.qe.ConnectContext;
 
 import java.util.Collections;
+import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 
@@ -41,7 +43,6 @@ import java.util.Optional;
  * Rewrites an internal IVM refresh INSERT query into the incremental delta query.
  */
 public class IvmIncrRefreshMtmv implements CustomRewriter {
-
     @Override
     public Plan rewriteRoot(Plan plan, JobContext jobContext) {
         StatementContext statementContext = jobContext.getCascadesContext().getStatementContext();
@@ -59,13 +60,13 @@ public class IvmIncrRefreshMtmv implements CustomRewriter {
         IvmRewriteContext context = rewriteContext.get();
         validatePlanSignature(context.getMtmv(), rewriteResult);
         Plan rewritten = rewriteIncrementalPlan(plan, rewriteResult, context,
-                jobContext.getCascadesContext().getConnectContext(), statementContext);
+                jobContext.getCascadesContext().getConnectContext());
         rewriteResult.setIncrRefreshRewritten(true);
         return rewritten;
     }
 
     private Plan rewriteIncrementalPlan(Plan plan, IvmRewriteResult rewriteResult,
-            IvmRewriteContext rewriteContext, ConnectContext connectContext, StatementContext statementContext) {
+            IvmRewriteContext rewriteContext, ConnectContext connectContext) {
         if (!(plan instanceof LogicalOlapTableSink)) {
             throw new IvmException(IvmFailureReason.PLAN_PATTERN_UNSUPPORTED,
                     "IVM incremental refresh requires LogicalOlapTableSink root, but found "
@@ -78,12 +79,11 @@ public class IvmIncrRefreshMtmv implements CustomRewriter {
                     "IVM incremental refresh target table mismatch, sink=" + sink.getTargetTable().getName()
                             + ", mtmv=" + mtmv.getName());
         }
-        Plan deltaQuery = newDeltaRewriter().generateIncrementalRefreshPlan(
+        Plan rewrittenSinkChild = newDeltaRewriter().generateIncrementalRefreshPlan(
                 sink.child(), rewriteResult, rewriteContext, connectContext);
-        if (deltaQuery == null) {
-            deltaQuery = new LogicalEmptyRelation(statementContext.getNextRelationId(), sink.getOutputExprs());
-        }
-        return sink.withChildren(Collections.singletonList(deltaQuery));
+        List<NamedExpression> reboundOutputExprs = IvmDeltaRewriteHelper.INSTANCE.rebindSinkOutputs(
+                sink.getOutputExprs(), rewrittenSinkChild.getOutput(), "sink");
+        return sink.withOutputExprs(reboundOutputExprs).withChildren(Collections.singletonList(rewrittenSinkChild));
     }
 
     protected IvmDeltaRewriter newDeltaRewriter() {

@@ -33,7 +33,6 @@ import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
  * Internal visitor that dispatches each plan node to the linear, join, or aggregate handler.
  */
 class IvmDeltaRewriteVisitor extends PlanVisitor<IvmDeltaRewriteResult, IvmRefreshContext> {
-    private final IvmDeltaRewriteHelper helper = IvmDeltaRewriteHelper.INSTANCE;
     private final IvmLinearDeltaHandler linearHandler;
     private final IvmJoinDeltaHandler joinHandler;
     private final IvmAggDeltaHandler aggHandler;
@@ -50,8 +49,7 @@ class IvmDeltaRewriteVisitor extends PlanVisitor<IvmDeltaRewriteResult, IvmRefre
     }
 
     IvmDeltaRewriteResult rewritePlan(Plan normalizedPlan, IvmRefreshContext ctx) {
-        Plan queryPlan = helper.stripResultSink(normalizedPlan);
-        return queryPlan.accept(this, ctx);
+        return normalizedPlan.accept(this, ctx);
     }
 
     @Override

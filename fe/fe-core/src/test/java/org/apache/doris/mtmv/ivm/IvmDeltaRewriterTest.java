@@ -29,7 +29,6 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEAnchor;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
@@ -42,6 +41,7 @@ import org.apache.doris.nereids.util.PlanConstructor;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Sets;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -63,6 +63,15 @@ class IvmDeltaRewriterTest extends IvmDeltaTestBase {
         Mockito.when(mtmv.getExcludedTriggerTables()).thenReturn(Sets.newHashSet());
         Mockito.when(mtmv.getInsertedColumnNames()).thenReturn(ImmutableList.of("id", "name"));
         return mtmv;
+    }
+
+    private InsertIntoTableCommand buildIncrementalInsertCommand(Plan sinkChild, MTMV mtmv,
+            ConnectContext connectContext, IvmRewriteResult rewriteResult) {
+        Plan rewritten = new IvmDeltaRewriter().generateIncrementalRefreshPlan(
+                sinkChild, rewriteResult, IvmRewriteContext.incremental(mtmv, false, false), connectContext);
+        Assertions.assertNotNull(rewritten);
+        return new IvmRefreshManager().buildInsertCommand(
+                (org.apache.doris.nereids.trees.plans.logical.LogicalPlan) rewritten, mtmv);
     }
 
     /** Creates a baseTableStreams map with a single pending-delta stream for the scan's table. */
@@ -102,24 +111,18 @@ class IvmDeltaRewriterTest extends IvmDeltaTestBase {
     void testScanOnlyProducesInsertBundle() {
         MTMV mtmv = mockMtmv();
         LogicalOlapScan scan = buildScan();
-        IvmRefreshContext ctx = new IvmRefreshContext(
-                mtmv, new ConnectContext(), new IvmRewriteResult());
-        List<Command> commands = new IvmDeltaRewriter().rewrite(buildScanPlan(scan), ctx);
-
-        Assertions.assertEquals(1, commands.size());
-        Assertions.assertInstanceOf(InsertIntoTableCommand.class, commands.get(0));
+        InsertIntoTableCommand command = buildIncrementalInsertCommand(
+                buildScanPlan(scan).child(), mtmv, new ConnectContext(), new IvmRewriteResult());
+        Assertions.assertNotNull(command);
     }
 
     @Test
     void testProjectScanProducesInsertBundle() {
         MTMV mtmv = mockMtmv();
         LogicalOlapScan scan = buildScan();
-        IvmRefreshContext ctx = new IvmRefreshContext(
-                mtmv, new ConnectContext(), new IvmRewriteResult());
-        List<Command> commands = new IvmDeltaRewriter().rewrite(buildProjectScanPlan(scan), ctx);
-
-        Assertions.assertEquals(1, commands.size());
-        Assertions.assertInstanceOf(InsertIntoTableCommand.class, commands.get(0));
+        InsertIntoTableCommand command = buildIncrementalInsertCommand(
+                buildProjectScanPlan(scan).child(), mtmv, new ConnectContext(), new IvmRewriteResult());
+        Assertions.assertNotNull(command);
     }
 
     @Test
@@ -128,14 +131,11 @@ class IvmDeltaRewriterTest extends IvmDeltaTestBase {
         PlanBundle bundle = normalizeAggPlan(buildGroupedAgg(scan));
         MTMV mtmv = buildMtmvFromPlan(bundle.normalizedPlan.getOutput());
 
-        IvmRefreshContext ctx = new IvmRefreshContext(
-                mtmv, bundle.connectContext, bundle.rewriteResult);
-        InsertIntoTableCommand command = (InsertIntoTableCommand) new IvmDeltaRewriter()
-                .rewrite(bundle.normalizedPlan, ctx).get(0);
+        InsertIntoTableCommand command = buildIncrementalInsertCommand(
+                bundle.normalizedPlan, mtmv, bundle.connectContext, bundle.rewriteResult);
         UnboundTableSink<?> sink = getSink(command);
 
-        Assertions.assertEquals(mtmv.getInsertedColumnNames().size() + 1, sink.getColNames().size());
-        Assertions.assertEquals(Column.DELETE_SIGN, sink.getColNames().get(sink.getColNames().size() - 1));
+        Assertions.assertEquals(mtmv.getInsertedColumnNames(), sink.getColNames());
         Assertions.assertInstanceOf(LogicalProject.class, sink.child());
         LogicalProject<?> finalProject = (LogicalProject<?>) sink.child();
         Assertions.assertInstanceOf(LogicalProject.class, finalProject.child());
@@ -161,10 +161,8 @@ class IvmDeltaRewriterTest extends IvmDeltaTestBase {
         PlanBundle bundle = normalizeAggPlan(buildGroupedAgg(scan));
         MTMV mtmv = buildMtmvFromPlan(bundle.normalizedPlan.getOutput());
 
-        IvmRefreshContext ctx = new IvmRefreshContext(
-                mtmv, bundle.connectContext, bundle.rewriteResult);
-        InsertIntoTableCommand command = (InsertIntoTableCommand) new IvmDeltaRewriter()
-                .rewrite(bundle.normalizedPlan, ctx).get(0);
+        InsertIntoTableCommand command = buildIncrementalInsertCommand(
+                bundle.normalizedPlan, mtmv, bundle.connectContext, bundle.rewriteResult);
         UnboundTableSink<?> sink = getSink(command);
         LogicalProject<?> finalProject = (LogicalProject<?>) sink.child();
         Assertions.assertInstanceOf(LogicalProject.class, finalProject.child());
@@ -179,15 +177,37 @@ class IvmDeltaRewriterTest extends IvmDeltaTestBase {
     void testDeltaRewriterBuildsSinkProjectForNonAggPlan() {
         MTMV mtmv = mockMtmv();
         LogicalOlapScan scan = buildScan();
-        IvmRefreshContext ctx = new IvmRefreshContext(
-                mtmv, new ConnectContext(), new IvmRewriteResult());
-        InsertIntoTableCommand command = (InsertIntoTableCommand) new IvmDeltaRewriter()
-                .rewrite(buildScanPlan(scan), ctx).get(0);
+        InsertIntoTableCommand command = buildIncrementalInsertCommand(
+                buildScanPlan(scan).child(), mtmv, new ConnectContext(), new IvmRewriteResult());
         UnboundTableSink<?> sink = getSink(command);
         Plan child = sink.child();
-        Assertions.assertEquals(ImmutableList.of("id", "name", Column.DELETE_SIGN), sink.getColNames());
+        Assertions.assertEquals(ImmutableList.of("id", "name"), sink.getColNames());
         Assertions.assertInstanceOf(LogicalProject.class, child);
         Assertions.assertFalse(child instanceof LogicalJoin);
+    }
+
+    @Test
+    void testGenerateIncrementalRefreshPlanReturnsEmptyRelationWhenNoDeltaAvailable() {
+        LogicalOlapScan scan = buildScanForTable(1, "a");
+        Plan sinkChild = buildScanPlan(scan).child();
+        MTMV mtmv = Mockito.mock(MTMV.class);
+        Mockito.when(mtmv.getQualifiedDbName()).thenReturn("test_db");
+        Mockito.when(mtmv.getName()).thenReturn("test_mv");
+        Mockito.when(mtmv.getInsertedColumnNames()).thenReturn(ImmutableList.of("id", "name"));
+        Mockito.when(mtmv.getExcludedTriggerTables()).thenReturn(ImmutableSet.of());
+
+        ConnectContext connectContext = newConnectContext();
+        Plan rewritten = new IvmDeltaRewriter().generateIncrementalRefreshPlan(
+                sinkChild, new IvmRewriteResult(), IvmRewriteContext.incremental(mtmv, false, false),
+                connectContext);
+
+        Assertions.assertInstanceOf(LogicalProject.class, rewritten);
+        LogicalProject<?> finalProject = (LogicalProject<?>) rewritten;
+        Assertions.assertEquals(3, finalProject.getOutput().size());
+        Assertions.assertEquals("id", finalProject.getOutput().get(0).getName());
+        Assertions.assertEquals("name", finalProject.getOutput().get(1).getName());
+        Assertions.assertEquals(Column.DELETE_SIGN, finalProject.getOutput().get(2).getName());
+        Assertions.assertNotNull(finalProject.child());
     }
 
     // ==================== generateDeltaPlans tests ====================

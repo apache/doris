@@ -47,6 +47,7 @@ import org.apache.doris.job.task.AbstractTask;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mtmv.BaseColInfo;
 import org.apache.doris.mtmv.BaseTableInfo;
+import org.apache.doris.mtmv.MTMVAnalyzeQueryInfo;
 import org.apache.doris.mtmv.MTMVBaseTableIf;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 import org.apache.doris.mtmv.MTMVPartitionUtil;
@@ -531,13 +532,6 @@ public class MTMVTask extends AbstractTask {
             return AttemptResultType.SUCCESS;
         }
         ivmFallbackReason = ivmResult.getFailureReason().name();
-        if (ivmResult.getFailureReason() == IvmFailureReason.PLAN_SIGNATURE_MISMATCH) {
-            IvmPlanSignature currentPlanSignature = ivmResult.getCurrentPlanSignature();
-            ivmFallbackPlanSignature = currentPlanSignature == null ? null : currentPlanSignature.getSha256();
-            ivmFallbackPlanCanonicalString = currentPlanSignature == null
-                    ? null
-                    : currentPlanSignature.getCanonicalString();
-        }
         if (!request.allowFallback) {
             throw new JobException(
                     "IVM incremental refresh failed for mv=" + mtmv.getName()
@@ -627,21 +621,16 @@ public class MTMVTask extends AbstractTask {
         }
         if (mtmv.isIvm()) {
             updateIvmPlanSignatureAfterFullRefreshIfNeeded();
-            if (ivmPreRefreshTsos != null && !ivmPreRefreshTsos.isEmpty()) {
-                IvmRefreshManager.resetIvmStateAfterFullRefresh(mtmv, ivmPreRefreshTsos);
-            }
-            if (mtmv.getIvmInfo().isRunningIvmRefresh()) {
-                // TODO(IVM): Re-enable consumedTso reset after ivmPreRefreshTsos is
-                // captured from a real TSO snapshot. Until then, only clear the
-                // recovery flag so manual COMPLETE/INCREMENTAL refresh can continue.
-                IvmRefreshManager.clearRunningIvmRefreshAfterFullRefresh(mtmv);
-            }
         }
         LOG.info("MTMVTask refresh used snapshot: {}, mvDbName: {}, mvName: {}, taskId: {}", partitionSnapshots,
                 mtmv.getDatabase().getFullName(), mtmv.getName(), getTaskId());
     }
 
     private void updateIvmPlanSignatureAfterFullRefreshIfNeeded() throws JobException {
+        if (IvmFailureReason.PLAN_SIGNATURE_MISMATCH.name().equals(ivmFallbackReason)) {
+            refreshIvmPlanSignatureAfterFullRefresh();
+            return;
+        }
         if (ivmFallbackPlanSignature == null) {
             return;
         }
@@ -649,6 +638,22 @@ public class MTMVTask extends AbstractTask {
                 mtmv, ivmFallbackPlanSignature, ivmFallbackPlanCanonicalString);
         ivmFallbackPlanSignature = null;
         ivmFallbackPlanCanonicalString = null;
+    }
+
+    private void refreshIvmPlanSignatureAfterFullRefresh() throws JobException {
+        try {
+            ConnectContext ctx = MTMVPlanUtil.createMTMVContext(
+                    mtmv, MTMVPlanUtil.DISABLE_RULES_WHEN_RUN_MTMV_TASK);
+            MTMVAnalyzeQueryInfo analyzeQueryInfo = MTMVPlanUtil.analyzeQueryWithSql(mtmv, ctx, true);
+            IvmPlanSignature currentSignature = analyzeQueryInfo.getIvmRewriteResult().getPlanSignature();
+            IvmRefreshManager.updatePlanSignatureAfterFullRefresh(
+                    mtmv, currentSignature.getSha256(), currentSignature.getCanonicalString());
+            ivmFallbackPlanSignature = null;
+            ivmFallbackPlanCanonicalString = null;
+        } catch (Exception e) {
+            throw new JobException("Failed to rebuild IVM plan signature after full refresh, mv="
+                    + mtmv.getName() + ", detail=" + e.getMessage(), e);
+        }
     }
 
     private void executeWithRetry(Set<String> execPartitionNames, Map<TableIf, String> tableWithPartKey)

@@ -17,6 +17,7 @@
 
 package org.apache.doris.mtmv.ivm;
 
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
@@ -90,9 +91,34 @@ public class IvmPlanSignatureGenerator {
     }
 
     private CanonicalNode canonicalProject(LogicalProject<?> project) {
+        if (isPassthroughProject(project)) {
+            return canonicalPlan(project.child());
+        }
         return CanonicalNode.node("PROJECT")
                 .field("hiddenOutputs", canonicalHiddenNamedExpressions(project.getProjects()))
                 .field("child", canonicalPlan(project.child()));
+    }
+
+    private boolean isPassthroughProject(LogicalProject<?> project) {
+        return project.getProjects().stream().allMatch(this::isSignatureNeutralProjection);
+    }
+
+    private boolean isSignatureNeutralProjection(NamedExpression expression) {
+        return isPassthroughExpression(expression) || isIgnorableSinkHiddenProjection(expression);
+    }
+
+    private boolean isPassthroughExpression(NamedExpression expression) {
+        if (expression instanceof SlotReference) {
+            return true;
+        }
+        if (expression instanceof Alias && ((Alias) expression).child() instanceof SlotReference) {
+            return expression.getName().equals(((SlotReference) ((Alias) expression).child()).getName());
+        }
+        return false;
+    }
+
+    private boolean isIgnorableSinkHiddenProjection(NamedExpression expression) {
+        return Column.DELETE_SIGN.equals(expression.getName()) || Column.VERSION_COL.equals(expression.getName());
     }
 
     private CanonicalNode canonicalAggregate(LogicalAggregate<?> agg) {
