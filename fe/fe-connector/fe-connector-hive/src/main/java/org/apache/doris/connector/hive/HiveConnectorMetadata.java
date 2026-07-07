@@ -21,6 +21,7 @@ import org.apache.doris.connector.api.ConnectorColumn;
 import org.apache.doris.connector.api.ConnectorMetadata;
 import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.ConnectorTableSchema;
+import org.apache.doris.connector.api.ConnectorType;
 import org.apache.doris.connector.api.DorisConnectorException;
 import org.apache.doris.connector.api.ddl.ConnectorBucketSpec;
 import org.apache.doris.connector.api.ddl.ConnectorCreateTableRequest;
@@ -76,6 +77,17 @@ import java.util.stream.Collectors;
 public class HiveConnectorMetadata implements ConnectorMetadata {
 
     private static final Logger LOG = LogManager.getLogger(HiveConnectorMetadata.class);
+
+    // FE-internal schema-control property key: a CSV of the RAW remote partition-column names. The generic
+    // fe-core consumer (PluginDrivenExternalTable.toSchemaCacheValue) reads it to derive which of the emitted
+    // columns are partition columns; it is the same key the paimon/iceberg/maxcompute connectors emit and is
+    // stripped from the user-facing SHOW CREATE properties by fe-core.
+    private static final String PARTITION_COLUMNS_PROPERTY = "partition_columns";
+
+    // Connector-side spelling of fe-type ScalarType.MAX_VARCHAR_LENGTH (the connector must not import fe-type);
+    // a hive `string` partition column is widened to varchar(65533) for legacy parity. Paimon hardcodes the
+    // identical 65533.
+    private static final int MAX_VARCHAR_LENGTH = 65533;
 
     private final HmsClient hmsClient;
     private final Map<String, String> properties;
@@ -156,16 +168,27 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
 
         HmsTableInfo tableInfo = hmsClient.getTable(dbName, tableName);
         List<ConnectorColumn> columns = buildColumns(tableInfo);
-        List<ConnectorColumn> partitionKeys = buildPartitionKeys(tableInfo);
+        List<ConnectorColumn> partitionKeys = coercePartitionKeyStringToVarchar(buildPartitionKeys(tableInfo));
 
-        // Merge: regular columns + partition columns
+        // Merge: regular columns + partition columns (partition columns last, mirroring legacy
+        // HMSExternalTable full-schema order: data columns then partition keys).
         List<ConnectorColumn> allColumns = new ArrayList<>(columns.size() + partitionKeys.size());
         allColumns.addAll(columns);
         allColumns.addAll(partitionKeys);
 
         String formatType = detectFormatType(tableInfo);
-        Map<String, String> tableProperties = tableInfo.getParameters() != null
-                ? tableInfo.getParameters() : Collections.emptyMap();
+        // Copy the HMS table parameters so the FE-internal partition_columns marker can be stamped without
+        // mutating the shared tableInfo map.
+        Map<String, String> tableProperties = new HashMap<>(
+                tableInfo.getParameters() != null ? tableInfo.getParameters() : Collections.emptyMap());
+        // Mark which emitted columns are partition columns for the generic fe-core consumer. Without this
+        // property every partitioned hive/hudi table is read as unpartitioned (wrong pruning/row count, MTMV
+        // breakage). The value is a CSV of the RAW partition-key names in declaration order; hive partition-key
+        // names are identifiers (no comma) so the CSV encoding is unambiguous.
+        if (!partitionKeys.isEmpty()) {
+            tableProperties.put(PARTITION_COLUMNS_PROPERTY, partitionKeys.stream()
+                    .map(ConnectorColumn::getName).collect(Collectors.joining(",")));
+        }
 
         return new ConnectorTableSchema(tableName, allColumns, formatType, tableProperties);
     }
@@ -542,6 +565,35 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
             return Collections.emptyList();
         }
         return partKeys;
+    }
+
+    /**
+     * Widens a hive {@code string} partition column to {@code varchar(65533)}, replicating legacy
+     * {@code HMSExternalTable.initPartitionColumns}: a bare-string partition column is coerced to
+     * {@code varchar(ScalarType.MAX_VARCHAR_LENGTH)} "to be same as doris managed table", while every other
+     * declared type (int/date/timestamp/decimal/varchar(n)/char(n)/...) is kept exactly as
+     * {@code HmsTypeMapping} produced it. The gate is the mapped connector type name {@code STRING} (hive
+     * {@code string}, and {@code binary} when not mapped to varbinary, both land on it), matching legacy's
+     * {@code PrimitiveType.STRING} check. The widened column keeps the same name/comment/nullability/flags, so
+     * the full-schema entry and the partition-column view carry the identical type (legacy mutated one shared
+     * {@code Column} in place).
+     */
+    private static List<ConnectorColumn> coercePartitionKeyStringToVarchar(List<ConnectorColumn> partitionKeys) {
+        if (partitionKeys.isEmpty()) {
+            return partitionKeys;
+        }
+        List<ConnectorColumn> coerced = new ArrayList<>(partitionKeys.size());
+        for (ConnectorColumn col : partitionKeys) {
+            if ("STRING".equals(col.getType().getTypeName())) {
+                coerced.add(new ConnectorColumn(col.getName(),
+                        ConnectorType.of("VARCHAR", MAX_VARCHAR_LENGTH, -1),
+                        col.getComment(), col.isNullable(), col.getDefaultValue(),
+                        col.isKey(), col.isAutoInc(), col.isAggregated()));
+            } else {
+                coerced.add(col);
+            }
+        }
+        return coerced;
     }
 
     private Map<String, String> getDefaultValues(HmsTableInfo tableInfo) {
