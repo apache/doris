@@ -39,6 +39,7 @@ import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.systable.PluginDrivenSysTable;
 import org.apache.doris.datasource.systable.SysTable;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.BaseAnalysisTask;
 import org.apache.doris.statistics.ExternalAnalysisTask;
@@ -773,9 +774,25 @@ public class PluginDrivenExternalTable extends ExternalTable {
             // inert for them. Mirrors legacy StatisticsUtil.getHiveRowCount's totalSize/estimatedRowSize
             // path (row width summed over the FULL schema, partition columns included, exactly as legacy).
             if (stats.getDataSize() > 0) {
-                long rowWidth = estimatedRowWidth();
+                long rowWidth = estimatedRowWidth(false);
                 if (rowWidth > 0) {
                     return stats.getDataSize() / rowWidth;
+                }
+            }
+        }
+
+        // Neither an exact count nor a metastore-recorded size: estimate the on-disk data size by listing
+        // the table's data files (connector-provided; every non-file connector returns -1) and divide by the
+        // row width, this time EXCLUDING partition columns because their values live in the directory path,
+        // not the data files. Mirrors legacy HMSExternalTable.getRowCountFromFileList. Gated by the global
+        // feature flag because the listing can be a costly remote round-trip; the connector self-samples,
+        // pins its classloader, and degrades to -1 rather than throwing.
+        if (GlobalVariable.enable_get_row_count_from_file_list) {
+            long dataSize = metadata.estimateDataSizeByListingFiles(session, handleOpt.get());
+            if (dataSize > 0) {
+                long rowWidth = estimatedRowWidth(true);
+                if (rowWidth > 0) {
+                    return dataSize / rowWidth;
                 }
             }
         }
@@ -783,19 +800,25 @@ public class PluginDrivenExternalTable extends ExternalTable {
     }
 
     /**
-     * Sum of Doris slot sizes over the full schema — the average uncompressed row width used to turn a
-     * connector-reported on-disk data size into an estimated row count. Mirrors legacy
-     * {@code StatisticsUtil.getHiveRowCount}, which summed {@code getDataType().getSlotSize()} over the full
-     * schema. Returns 0 for an empty/unavailable schema, which {@link #fetchRowCount} treats as "cannot
-     * estimate" (-> UNKNOWN).
+     * Sum of Doris slot sizes over the full schema (or over the non-partition columns when
+     * {@code excludePartitionColumns}) — the average uncompressed row width used to turn a connector-reported
+     * on-disk data size into an estimated row count. Mirrors the two legacy hive formulas: a metastore
+     * {@code totalSize} is divided by the FULL-schema width ({@code StatisticsUtil.getHiveRowCount}), whereas
+     * a file-listed size is divided by the width EXCLUDING partition columns (whose values are not stored in
+     * the data files, {@code HMSExternalTable.getRowCountFromFileList}). Returns 0 for an empty/unavailable
+     * schema, which {@link #fetchRowCount} treats as "cannot estimate" (-> UNKNOWN).
      */
-    private long estimatedRowWidth() {
+    private long estimatedRowWidth(boolean excludePartitionColumns) {
         List<Column> schema = getFullSchema();
         if (schema == null) {
             return 0;
         }
+        List<Column> partitionColumns = excludePartitionColumns ? getPartitionColumns() : null;
         long rowWidth = 0;
         for (Column column : schema) {
+            if (partitionColumns != null && partitionColumns.contains(column)) {
+                continue;
+            }
             rowWidth += column.getDataType().getSlotSize();
         }
         return rowWidth;

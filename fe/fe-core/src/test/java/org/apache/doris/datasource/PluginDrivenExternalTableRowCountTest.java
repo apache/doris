@@ -25,6 +25,7 @@ import org.apache.doris.connector.api.ConnectorMetadata;
 import org.apache.doris.connector.api.ConnectorSession;
 import org.apache.doris.connector.api.ConnectorTableStatistics;
 import org.apache.doris.connector.api.handle.ConnectorTableHandle;
+import org.apache.doris.qe.GlobalVariable;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -109,6 +110,104 @@ public class PluginDrivenExternalTableRowCountTest {
         PluginDrivenExternalTable table = tableReturning(
                 null, Collections.singletonList(intCol("v")));   // null -> getTableHandle returns empty
         Assertions.assertEquals(TableIf.UNKNOWN_ROW_COUNT, table.fetchRowCount());
+    }
+
+    // ==================== layer 3: file-list data-size estimate ====================
+
+    @Test
+    public void fileListEstimateDividesByNonPartitionWidth() {
+        // No exact count, no metastore size -> the connector's file-list dataSize (400) is divided by the
+        // NON-partition row width. Schema = INT(4) data "v" + BIGINT(8) partition "dt"; the BIGINT is
+        // EXCLUDED (its values live in the path, not the data files) -> width 4 -> 400/4 = 100. This is the
+        // deliberate contrast with layer 2 (which includes partition columns): a mutation using the full
+        // width (12) would return 33 -> red.
+        withFileListGate(true, () -> {
+            PluginDrivenExternalTable table = tableForFileList(400,
+                    Arrays.asList(intCol("v"), bigintCol("dt")), Collections.singletonList(1));
+            Assertions.assertEquals(100L, table.fetchRowCount());
+        });
+    }
+
+    @Test
+    public void fileListEstimateSkippedWhenGateDisabled() {
+        // The global feature flag gates the (potentially costly) file listing. Off -> UNKNOWN even though the
+        // connector would return a size. MUTATION: ignoring the gate returns 100 here -> red.
+        withFileListGate(false, () -> {
+            PluginDrivenExternalTable table = tableForFileList(400,
+                    Arrays.asList(intCol("v"), bigintCol("dt")), Collections.singletonList(1));
+            Assertions.assertEquals(TableIf.UNKNOWN_ROW_COUNT, table.fetchRowCount());
+        });
+    }
+
+    @Test
+    public void fileListEstimateUnknownWhenConnectorReturnsMinusOne() {
+        withFileListGate(true, () -> {
+            PluginDrivenExternalTable table = tableForFileList(-1,
+                    Collections.singletonList(intCol("v")), Collections.emptyList());
+            Assertions.assertEquals(TableIf.UNKNOWN_ROW_COUNT, table.fetchRowCount());
+        });
+    }
+
+    @Test
+    public void fileListEstimateUnknownWhenAllColumnsArePartitions() {
+        // Every column is a partition column -> non-partition width 0 -> "cannot estimate" -> UNKNOWN (no
+        // divide-by-zero). MUTATION: dividing by a 0 width throws -> red.
+        withFileListGate(true, () -> {
+            PluginDrivenExternalTable table = tableForFileList(400,
+                    Collections.singletonList(bigintCol("dt")), Collections.singletonList(0));
+            Assertions.assertEquals(TableIf.UNKNOWN_ROW_COUNT, table.fetchRowCount());
+        });
+    }
+
+    private static void withFileListGate(boolean enabled, Runnable body) {
+        boolean previous = GlobalVariable.enable_get_row_count_from_file_list;
+        GlobalVariable.enable_get_row_count_from_file_list = enabled;
+        try {
+            body.run();
+        } finally {
+            GlobalVariable.enable_get_row_count_from_file_list = previous;
+        }
+    }
+
+    /**
+     * Table whose connector reports no getTableStatistics (empty) but a file-list size of {@code estimateBytes};
+     * {@code partitionColumnIndexes} names which schema columns are partition columns (excluded from the
+     * layer-3 row width).
+     */
+    private static PluginDrivenExternalTable tableForFileList(
+            long estimateBytes, List<Column> schema, List<Integer> partitionColumnIndexes) {
+        ConnectorMetadata metadata = Mockito.mock(ConnectorMetadata.class);
+        ConnectorSession session = Mockito.mock(ConnectorSession.class);
+        ConnectorTableHandle handle = Mockito.mock(ConnectorTableHandle.class);
+        Mockito.when(metadata.getTableHandle(session, "REMOTE_DB", "REMOTE_TBL"))
+                .thenReturn(Optional.of(handle));
+        Mockito.when(metadata.getTableStatistics(session, handle)).thenReturn(Optional.empty());
+        Mockito.when(metadata.estimateDataSizeByListingFiles(session, handle)).thenReturn(estimateBytes);
+        TestablePluginCatalog catalog = new TestablePluginCatalog(metadata, session);
+
+        @SuppressWarnings("unchecked")
+        ExternalDatabase<PluginDrivenExternalTable> db = Mockito.mock(ExternalDatabase.class);
+        Mockito.when(db.getRemoteName()).thenReturn("REMOTE_DB");
+
+        List<Column> partitionColumns = new java.util.ArrayList<>();
+        List<String> partitionRemoteNames = new java.util.ArrayList<>();
+        for (int idx : partitionColumnIndexes) {
+            partitionColumns.add(schema.get(idx));
+            partitionRemoteNames.add(schema.get(idx).getName());
+        }
+        PluginDrivenSchemaCacheValue cacheValue = new PluginDrivenSchemaCacheValue(
+                schema, partitionColumns, partitionRemoteNames);
+        return new PluginDrivenExternalTable(1L, "tbl", "REMOTE_TBL", catalog, db) {
+            @Override
+            protected synchronized void makeSureInitialized() {
+                // no-op: skip Env-backed catalog/db init
+            }
+
+            @Override
+            public Optional<SchemaCacheValue> getSchemaCacheValue() {
+                return Optional.of(cacheValue);
+            }
+        };
     }
 
     /**

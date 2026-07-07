@@ -32,4 +32,17 @@ public interface ConnectorStatisticsOps {
             ConnectorTableHandle handle) {
         return Optional.empty();
     }
+
+    /**
+     * Estimates the table's on-disk data size in bytes by listing its data files, for connectors that can
+     * cheaply enumerate them (e.g. hive). fe-core uses this to estimate a row count
+     * ({@code dataSize / <row width>}) when neither an exact row count nor a metastore-recorded size (from
+     * {@link #getTableStatistics}) is available — fe-core only calls it when the
+     * {@code enable_get_row_count_from_file_list} global is set. A potentially expensive remote listing, so
+     * connectors that cannot do it cheaply must NOT override it. Returns -1 when the size cannot be
+     * estimated (not supported, unlistable, empty, or any error) — the default.
+     */
+    default long estimateDataSizeByListingFiles(ConnectorSession session, ConnectorTableHandle handle) {
+        return -1;
+    }
 }

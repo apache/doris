@@ -52,9 +52,14 @@ import org.apache.doris.thrift.THiveTable;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
 
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.FileStatus;
+import org.apache.hadoop.fs.FileSystem;
+import org.apache.hadoop.fs.Path;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -64,6 +69,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.ToLongFunction;
 import java.util.stream.Collectors;
 
 /**
@@ -115,6 +121,15 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
     private static final String PARAM_SPARK_NUM_ROWS = "spark.sql.statistics.numRows";
     private static final String PARAM_TOTAL_SIZE = "totalSize";
     private static final String PARAM_SPARK_TOTAL_SIZE = "spark.sql.statistics.totalSize";
+
+    // Partition-sampling cap for the file-list data-size estimate, matching the default of the legacy
+    // Config.hive_stats_partition_sample_size (fe-common, unreadable from the plugin). Runtime tuning of that
+    // specific config no longer applies on the plugin path (negligible — it is an internal estimation knob);
+    // the on/off feature gate (enable_get_row_count_from_file_list) is still honored, fe-core side.
+    private static final int STATS_PARTITION_SAMPLE_SIZE = 30;
+
+    // Upper bound on partitions listed from HMS for the file-list estimate, matching HiveScanPlanProvider.
+    private static final int MAX_PARTITIONS_FOR_STATS = 100000;
 
     private final HmsClient hmsClient;
     private final Map<String, String> properties;
@@ -354,6 +369,149 @@ public class HiveConnectorMetadata implements ConnectorMetadata {
         } catch (NumberFormatException e) {
             return defaultValue;
         }
+    }
+
+    /**
+     * Estimates the table's on-disk data size (bytes) by listing its data files, a port of the file-listing
+     * half of legacy {@code HMSExternalTable.getRowCountFromFileList} (fe-core does the
+     * {@code size / rowWidth} division). Only plain-hive tables are estimated (hudi/iceberg-on-HMS are served
+     * by their own connectors; a view has no data files) — anything else returns -1. Partitions are sampled
+     * ({@link #STATS_PARTITION_SAMPLE_SIZE}) and the sampled size scaled back up to the whole table, exactly
+     * as legacy did. Best-effort: ANY error (unlistable location, remote failure) degrades to -1, never
+     * throwing — statistics must not fail a query. The Hadoop {@code FileSystem} reflection resolves its
+     * filesystem impl through the thread context classloader, so this pins the TCCL to the plugin classloader
+     * for the duration (the statistics thread is not pinned by fe-core, unlike the scan thread).
+     */
+    @Override
+    public long estimateDataSizeByListingFiles(ConnectorSession session, ConnectorTableHandle handle) {
+        HiveTableHandle hiveHandle = (HiveTableHandle) handle;
+        if (hiveHandle.getTableType() != HiveTableType.HIVE) {
+            return -1;
+        }
+        ClassLoader previous = Thread.currentThread().getContextClassLoader();
+        try {
+            Thread.currentThread().setContextClassLoader(getClass().getClassLoader());
+            Configuration conf = buildHadoopConf();
+            return estimateDataSize(hiveHandle, STATS_PARTITION_SAMPLE_SIZE,
+                    location -> sumFileSizesUnder(location, conf));
+        } finally {
+            Thread.currentThread().setContextClassLoader(previous);
+        }
+    }
+
+    /**
+     * Sampling + summing + scale-up core of {@link #estimateDataSizeByListingFiles}, isolated from the
+     * {@code FileSystem} I/O (injected as {@code sizeOf}) so the estimation math is unit-testable. Returns -1
+     * when the size cannot be estimated (no listable location, a zero/negative sum, or any error).
+     */
+    long estimateDataSize(HiveTableHandle handle, int sampleSize, ToLongFunction<String> sizeOf) {
+        try {
+            List<String> locations = resolvePartitionLocations(handle);
+            if (locations.isEmpty()) {
+                return -1;
+            }
+            int totalPartitions = locations.size();
+            boolean sampled = sampleSize > 0 && sampleSize < totalPartitions;
+            List<String> chosen = locations;
+            if (sampled) {
+                List<String> shuffled = new ArrayList<>(locations);
+                Collections.shuffle(shuffled);
+                chosen = shuffled.subList(0, sampleSize);
+            }
+            long totalSize = 0;
+            for (String location : chosen) {
+                totalSize += Math.max(0, sizeOf.applyAsLong(location));
+            }
+            if (totalSize <= 0) {
+                return -1;
+            }
+            // Scale the sampled size up to the whole table (legacy: totalSize * total / sampled).
+            if (sampled) {
+                totalSize = totalSize * totalPartitions / chosen.size();
+            }
+            return totalSize;
+        } catch (RuntimeException e) {
+            LOG.warn("Failed to estimate hive data size for {}.{} from file list",
+                    handle.getDbName(), handle.getTableName(), e);
+            return -1;
+        }
+    }
+
+    /**
+     * Resolves the data locations to list: the table location for an unpartitioned table, else every
+     * partition's location (bounded by {@link #MAX_PARTITIONS_FOR_STATS}). A partition or table with no
+     * location contributes nothing.
+     */
+    private List<String> resolvePartitionLocations(HiveTableHandle handle) {
+        List<String> partKeyNames = handle.getPartitionKeyNames();
+        if (partKeyNames == null || partKeyNames.isEmpty()) {
+            String location = handle.getLocation();
+            return (location == null || location.isEmpty())
+                    ? Collections.emptyList() : Collections.singletonList(location);
+        }
+        List<String> partNames = hmsClient.listPartitionNames(
+                handle.getDbName(), handle.getTableName(), MAX_PARTITIONS_FOR_STATS);
+        if (partNames.isEmpty()) {
+            return Collections.emptyList();
+        }
+        List<HmsPartitionInfo> partitions = hmsClient.getPartitions(
+                handle.getDbName(), handle.getTableName(), partNames);
+        List<String> locations = new ArrayList<>(partitions.size());
+        for (HmsPartitionInfo partition : partitions) {
+            String location = partition.getLocation();
+            if (location != null && !location.isEmpty()) {
+                locations.add(location);
+            }
+        }
+        return locations;
+    }
+
+    /**
+     * Sums the sizes of the data files directly under {@code location} (non-recursive, skipping directories
+     * and {@code _}/{@code .}-prefixed hidden files — the same filter as {@link HiveScanPlanProvider}). A
+     * listing failure is surfaced as a {@link RuntimeException} so {@link #estimateDataSize} degrades the
+     * whole estimate to -1 (legacy's file-list estimate was all-or-nothing best-effort).
+     */
+    private static long sumFileSizesUnder(String location, Configuration conf) {
+        try {
+            Path path = new Path(location);
+            FileSystem fs = FileSystem.get(path.toUri(), conf);
+            FileStatus[] statuses = fs.listStatus(path);
+            long sum = 0;
+            for (FileStatus status : statuses) {
+                if (status.isDirectory()) {
+                    continue;
+                }
+                String fileName = status.getPath().getName();
+                if (fileName.startsWith("_") || fileName.startsWith(".")) {
+                    continue;
+                }
+                sum += status.getLen();
+            }
+            return sum;
+        } catch (IOException e) {
+            throw new DorisConnectorException("Failed to list files under " + location, e);
+        }
+    }
+
+    /**
+     * Builds a Hadoop {@link Configuration} from the catalog properties, mirroring
+     * {@code HiveScanPlanProvider.buildHadoopConf} (the connector must supply the storage credentials for the
+     * FileSystem it lists).
+     */
+    private Configuration buildHadoopConf() {
+        Configuration conf = new Configuration();
+        for (Map.Entry<String, String> entry : properties.entrySet()) {
+            conf.set(entry.getKey(), entry.getValue());
+        }
+        String defaultFs = properties.get("fs.defaultFS");
+        if (defaultFs == null) {
+            defaultFs = properties.get("hadoop.fs.defaultFS");
+        }
+        if (defaultFs != null) {
+            conf.set("fs.defaultFS", defaultFs);
+        }
+        return conf;
     }
 
     // ========== ConnectorPushdownOps: Filter Pushdown ==========
