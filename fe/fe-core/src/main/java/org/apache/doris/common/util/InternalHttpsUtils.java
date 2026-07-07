@@ -34,26 +34,12 @@ import javax.net.ssl.SSLContext;
 import javax.net.ssl.TrustManagerFactory;
 
 /**
- * Utility for creating SSL-aware HTTP clients for internal FE communication, including
- * FE-to-FE calls.
+ * SSL-aware HTTP client for internal FE communication (loopback and FE-to-FE).
  *
- * <p>Builds an {@link SSLContext} that trusts this FE's own HTTPS keystore
- * ({@code Config.key_store_path}) once and caches it. That keystore is the config surface
- * that actually defines what certificate the FE HTTPS listener presents, so it is the correct
- * trust anchor here — unlike {@code Config.mysql_ssl_default_ca_certificate}, which is a
- * separate, independently-configured trust store scoped to MySQL wire-protocol SSL and is not
- * guaranteed to share a CA with FE HTTPS.
- *
- * <p>This is correct for loopback clients (e.g. the audit log stream loader, which always
- * targets 127.0.0.1) and for genuine FE-to-FE calls, as long as every FE node in the cluster is
- * provisioned with the same {@code key_store_path} certificate — the expected Doris internal-
- * HTTPS deployment model (one shared cert for the cluster, mirroring how MySQL SSL already
- * assumes one shared CA/cert pair rather than per-node identities). A cluster that instead issues
- * a distinct certificate per FE node would need a real CA-based trust store instead of this
- * pinned-leaf model.
- *
- * <p>Hostname verification is disabled for IP-based intra-cluster connections.
- * Certificate rotation requires a FE restart.
+ * <p>Trusts this FE's own HTTPS keystore ({@code Config.key_store_path}), since that's the
+ * cert this FE's HTTPS listener actually presents — not {@code Config.mysql_ssl_default_ca_certificate},
+ * which is a separate trust store scoped to MySQL wire-protocol SSL. FE-to-FE calls work as
+ * long as every node shares the same keystore file.
  */
 public class InternalHttpsUtils {
     private static volatile SSLContext cachedSslContext = null;

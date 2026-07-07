@@ -56,8 +56,7 @@ public class RestBaseControllerTest {
 
     @Test
     public void testBuildRedirectUrlToBackendForcesHttpEvenWhenRequestIsHttps() {
-        // BE's stream-load listener never terminates TLS, so the redirect must stay "http"
-        // even though the client reached this FE over "https".
+        // BE never terminates TLS, so the redirect must stay "http" regardless of request scheme.
         HttpServletRequest request = Mockito.mock(HttpServletRequest.class);
         Mockito.when(request.getScheme()).thenReturn("https");
         Mockito.when(request.getHeader("Authorization")).thenReturn(null);

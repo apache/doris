@@ -103,8 +103,7 @@ public class RestBaseController extends BaseController {
         return buildRedirectUrl(request.getScheme(), request, addr, requestPath, queryString);
     }
 
-    // BE's stream-load HTTP listener never terminates TLS, so a redirect to a BE address must
-    // always use "http", regardless of the scheme the client used to reach this FE.
+    // BE's stream-load listener never terminates TLS, so BE-bound redirects must stay "http".
     protected String buildRedirectUrlToBackend(HttpServletRequest request, TNetworkAddress addr,
             String requestPath, String queryString) {
         return buildRedirectUrl("http", request, addr, requestPath, queryString);
