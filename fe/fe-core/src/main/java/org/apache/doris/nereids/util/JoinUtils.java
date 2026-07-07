@@ -21,6 +21,7 @@ import org.apache.doris.catalog.ColocateTableIndex;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TenantLevelColocateTableIndex;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.Reference;
 import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.DistributionSpec;
 import org.apache.doris.nereids.properties.DistributionSpecHash;
@@ -58,6 +59,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -237,7 +239,7 @@ public class JoinUtils {
      * return true if we should do colocate join when translate plan.
      */
     public static boolean shouldColocateJoin(AbstractPhysicalJoin<PhysicalPlan, PhysicalPlan> join,
-            Map<Tag, List<List<Long>>> colocateMapData) {
+            Reference<Map<String, List<List<Long>>>> colocateMapData) {
         if (ConnectContext.get() == null
                 || ConnectContext.get().getSessionVariable().isDisableColocatePlan()) {
             return false;
@@ -256,7 +258,7 @@ public class JoinUtils {
      * could do colocate join with left and right child distribution spec.
      */
     public static boolean couldColocateJoin(DistributionSpecHash leftHashSpec, DistributionSpecHash rightHashSpec,
-            List<Expression> conjuncts, Map<Tag, List<List<Long>>> colocateMapData) {
+            List<Expression> conjuncts, Reference<Map<String, List<List<Long>>>> colocateMapData) {
         if (ConnectContext.get() == null
                 || ConnectContext.get().getSessionVariable().isDisableColocatePlan()) {
             return false;
@@ -320,28 +322,36 @@ public class JoinUtils {
     }
 
     private static boolean matchTenantLevelColocateGroup(DistributionSpecHash leftHashSpec,
-            DistributionSpecHash rightHashSpec, Map<Tag, List<List<Long>>> colocateMapData) {
-        Set<Tag> commonTags = new HashSet<>(leftHashSpec.getColocateTags().keySet());
-        commonTags.retainAll(rightHashSpec.getColocateTags().keySet());
-        if (commonTags.isEmpty()) {
+            DistributionSpecHash rightHashSpec, Reference<Map<String, List<List<Long>>>> colocateMapData) {
+        if (colocateMapData.getRef() != null && colocateMapData.getRef().isEmpty()) {
             return false;
         }
+        Optional<Set<String>> userLocationTags = Optional.ofNullable(ConnectContext.get())
+                .flatMap(ctx -> ctx.getComputeGroupSafely().getLocationTagSet());
         TenantLevelColocateTableIndex tenantLevelColocateIndex = Env.getCurrentTenantLevelColocateIndex();
         Map<Tag, Long> leftGroupMap = tenantLevelColocateIndex.getStableGroup(
-                leftHashSpec.getTableId(), commonTags);
+                leftHashSpec.getTableId());
         Map<Tag, Long> rightGroupMap = tenantLevelColocateIndex.getStableGroup(
-                rightHashSpec.getTableId(), commonTags);
-        Map<Tag, Long> commonGroups = new HashMap<>();
-        leftGroupMap.forEach((tag, leftGroup) -> {
+                rightHashSpec.getTableId());
+        Map<String, List<List<Long>>> commonGroups = new HashMap<>();
+        for (Map.Entry<Tag, Long> entry : leftGroupMap.entrySet()) {
+            Tag tag = entry.getKey();
+            if (userLocationTags.isPresent() && !userLocationTags.get().contains(tag.value)) {
+                continue;
+            }
+            if (colocateMapData.getRef() != null && !colocateMapData.getRef().containsKey(tag.value)) {
+                continue;
+            }
+            Long leftGroup = entry.getValue();
             Long rightGroup = rightGroupMap.get(tag);
             if (leftGroup.equals(rightGroup)) {
                 List<List<Long>> bucketMap = tenantLevelColocateIndex.getBackendsPerBucketSeqByGroup(leftGroup);
                 if (!bucketMap.isEmpty()) {
-                    colocateMapData.put(tag, bucketMap);
-                    commonGroups.put(tag, leftGroup);
+                    commonGroups.put(tag.value, bucketMap);
                 }
             }
-        });
+        }
+        colocateMapData.setRef(commonGroups);
         return !commonGroups.isEmpty();
     }
 

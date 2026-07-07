@@ -20,7 +20,6 @@ package org.apache.doris.nereids.properties;
 import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.util.Utils;
-import org.apache.doris.resource.Tag;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -31,7 +30,6 @@ import com.google.common.collect.Sets;
 
 import java.util.BitSet;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -55,7 +53,6 @@ public class DistributionSpecHash extends DistributionSpec {
     private final long tableId;
     private final Set<Long> partitionIds;
     private final long selectedIndexId;
-    private final Map<Tag, List<List<Long>>> colocateData;
 
     /**
      * Use for no need set table related attributes.
@@ -77,21 +74,12 @@ public class DistributionSpecHash extends DistributionSpec {
      */
     public DistributionSpecHash(List<ExprId> orderedShuffledColumns, ShuffleType shuffleType,
             long tableId, long selectedIndexId, Set<Long> partitionIds) {
-        this(orderedShuffledColumns, shuffleType, tableId, Collections.emptyMap(), selectedIndexId, partitionIds);
-    }
-
-    /**
-     * Normal constructor.
-     */
-    public DistributionSpecHash(List<ExprId> orderedShuffledColumns, ShuffleType shuffleType,
-            long tableId, Map<Tag, List<List<Long>>> colocateData, long selectedIndexId, Set<Long> partitionIds) {
         this.orderedShuffledColumns = ImmutableList.copyOf(
                 Objects.requireNonNull(orderedShuffledColumns, "orderedShuffledColumns should not null"));
         this.shuffleType = Objects.requireNonNull(shuffleType, "shuffleType should not null");
         this.partitionIds = ImmutableSet.copyOf(
                 Objects.requireNonNull(partitionIds, "partitionIds should not null"));
         this.tableId = tableId;
-        this.colocateData = new HashMap<>(colocateData);
         this.selectedIndexId = selectedIndexId;
         ImmutableList.Builder<Set<ExprId>> equivalenceExprIdsBuilder
                 = ImmutableList.builderWithExpectedSize(orderedShuffledColumns.size());
@@ -116,31 +104,16 @@ public class DistributionSpecHash extends DistributionSpec {
                 equivalenceExprIds, exprIdToEquivalenceSet);
     }
 
-    public DistributionSpecHash(List<ExprId> orderedShuffledColumns, ShuffleType shuffleType,
-            long tableId, Map<Tag, List<List<Long>>> colocateData, Set<Long> partitionIds,
-            List<Set<ExprId>> equivalenceExprIds, Map<ExprId, Integer> exprIdToEquivalenceSet) {
-        this(orderedShuffledColumns, shuffleType, tableId, colocateData, -1L, partitionIds,
-                equivalenceExprIds, exprIdToEquivalenceSet);
-    }
-
-    public DistributionSpecHash(List<ExprId> orderedShuffledColumns, ShuffleType shuffleType, long tableId,
-            long selectedIndexId, Set<Long> partitionIds, List<Set<ExprId>> equivalenceExprIds,
-            Map<ExprId, Integer> exprIdToEquivalenceSet) {
-        this(orderedShuffledColumns, shuffleType, tableId, Collections.emptyMap(), selectedIndexId, partitionIds,
-                equivalenceExprIds, exprIdToEquivalenceSet);
-    }
-
     /**
      * Used in merge outside and put result into it.
      */
     public DistributionSpecHash(List<ExprId> orderedShuffledColumns, ShuffleType shuffleType, long tableId,
-            Map<Tag, List<List<Long>>> colocateData, long selectedIndexId, Set<Long> partitionIds,
-            List<Set<ExprId>> equivalenceExprIds, Map<ExprId, Integer> exprIdToEquivalenceSet) {
+            long selectedIndexId, Set<Long> partitionIds, List<Set<ExprId>> equivalenceExprIds,
+            Map<ExprId, Integer> exprIdToEquivalenceSet) {
         this.orderedShuffledColumns = ImmutableList.copyOf(Objects.requireNonNull(orderedShuffledColumns,
                 "orderedShuffledColumns should not null"));
         this.shuffleType = Objects.requireNonNull(shuffleType, "shuffleType should not null");
         this.tableId = tableId;
-        this.colocateData = new HashMap<>(colocateData);
         this.selectedIndexId = selectedIndexId;
         this.partitionIds = ImmutableSet.copyOf(
                 Objects.requireNonNull(partitionIds, "partitionIds should not null"));
@@ -166,8 +139,8 @@ public class DistributionSpecHash extends DistributionSpec {
         exprIdToEquivalenceSet.putAll(left.getExprIdToEquivalenceSet());
         exprIdToEquivalenceSet.putAll(right.getExprIdToEquivalenceSet());
         return new DistributionSpecHash(orderedShuffledColumns, shuffleType,
-                left.getTableId(), left.getColocateTags(), left.getSelectedIndexId(), left.getPartitionIds(),
-                equivalenceExprIds.build(), exprIdToEquivalenceSet.buildKeepingLast());
+                left.getTableId(), left.getSelectedIndexId(), left.getPartitionIds(), equivalenceExprIds.build(),
+                exprIdToEquivalenceSet.buildKeepingLast());
     }
 
     static DistributionSpecHash merge(DistributionSpecHash left, DistributionSpecHash right) {
@@ -184,10 +157,6 @@ public class DistributionSpecHash extends DistributionSpec {
 
     public long getTableId() {
         return tableId;
-    }
-
-    public Map<Tag, List<List<Long>>> getColocateTags() {
-        return colocateData;
     }
 
     public long getSelectedIndexId() {
@@ -259,18 +228,13 @@ public class DistributionSpecHash extends DistributionSpec {
     }
 
     public DistributionSpecHash withShuffleType(ShuffleType shuffleType) {
-        return new DistributionSpecHash(orderedShuffledColumns, shuffleType, tableId, colocateData, selectedIndexId,
-                partitionIds, equivalenceExprIds, exprIdToEquivalenceSet);
+        return new DistributionSpecHash(orderedShuffledColumns, shuffleType, tableId, selectedIndexId, partitionIds,
+                equivalenceExprIds, exprIdToEquivalenceSet);
     }
 
     public DistributionSpecHash withShuffleTypeAndForbidColocateJoin(ShuffleType shuffleType) {
         return new DistributionSpecHash(orderedShuffledColumns, shuffleType, -1, -1, partitionIds,
                 equivalenceExprIds, exprIdToEquivalenceSet);
-    }
-
-    public DistributionSpecHash withColocateTags(Map<Tag, List<List<Long>>> colocateData) {
-        return new DistributionSpecHash(orderedShuffledColumns, shuffleType, tableId, colocateData, selectedIndexId,
-                partitionIds, equivalenceExprIds, exprIdToEquivalenceSet);
     }
 
     /**
@@ -301,7 +265,7 @@ public class DistributionSpecHash extends DistributionSpec {
             }
         }
         return new DistributionSpecHash(ImmutableList.copyOf(prunedOrderedColumns),
-                shuffleType, tableId, colocateData, selectedIndexId, partitionIds, equivBuilder.build(),
+                shuffleType, tableId, selectedIndexId, partitionIds, equivBuilder.build(),
                 mapBuilder.buildKeepingLast());
     }
 
@@ -339,8 +303,8 @@ public class DistributionSpecHash extends DistributionSpec {
                 exprIdToEquivalenceSet.put(exprIdSetKV.getKey(), exprIdSetKV.getValue());
             }
         }
-        return new DistributionSpecHash(orderedShuffledColumns, shuffleType, tableId, colocateData, selectedIndexId,
-                partitionIds, equivalenceExprIds, exprIdToEquivalenceSet);
+        return new DistributionSpecHash(orderedShuffledColumns, shuffleType, tableId, selectedIndexId, partitionIds,
+                equivalenceExprIds, exprIdToEquivalenceSet);
     }
 
     @Override

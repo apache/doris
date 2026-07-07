@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.properties;
 
+import org.apache.doris.common.Reference;
 import org.apache.doris.nereids.PlanContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.memo.GroupExpression;
@@ -65,7 +66,6 @@ import org.apache.doris.nereids.util.JoinUtils;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
-import org.apache.doris.resource.Tag;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -74,7 +74,6 @@ import com.google.common.collect.Sets;
 
 import java.util.Arrays;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -678,10 +677,9 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
             case RIGHT_ANTI_JOIN:
             case RIGHT_OUTER_JOIN:
             case ASOF_RIGHT_OUTER_JOIN:
-                Map<Tag, List<List<Long>>> colocateData = new HashMap<>();
                 if (JoinUtils.couldColocateJoin(leftHashSpec, rightHashSpec, hashJoin.getHashJoinConjuncts(),
-                        colocateData)) {
-                    return new PhysicalProperties(rightHashSpec.withColocateTags(colocateData));
+                        new Reference<>())) {
+                    return new PhysicalProperties(rightHashSpec);
                 } else {
                     // retain left shuffle type, since coordinator use left most node to schedule fragment
                     // forbid colocate join, since right table already shuffle

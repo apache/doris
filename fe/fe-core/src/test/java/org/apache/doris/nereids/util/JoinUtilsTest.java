@@ -20,6 +20,7 @@ package org.apache.doris.nereids.util;
 import org.apache.doris.catalog.ColocateTableIndex;
 import org.apache.doris.catalog.ColocateTableIndex.GroupId;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.Reference;
 import org.apache.doris.nereids.properties.DistributionSpecHash;
 import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
 import org.apache.doris.nereids.trees.expressions.Add;
@@ -30,7 +31,6 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Random;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.resource.Tag;
 
 import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Assertions;
@@ -39,7 +39,6 @@ import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -82,7 +81,7 @@ public class JoinUtilsTest {
                 TinyIntType.INSTANCE, false, Lists.newArrayList());
 
         List<Expression> conjuncts;
-        Map<Tag, List<List<Long>>> colocateData = new HashMap<>();
+        Reference<Map<String, List<List<Long>>>> colocateData = new Reference<>();
 
         // key same with distribute key
         conjuncts = Lists.newArrayList(new EqualTo(leftKey1, rightKey1));
@@ -130,7 +129,7 @@ public class JoinUtilsTest {
                     TinyIntType.INSTANCE, false, Lists.newArrayList());
 
             List<Expression> conjuncts;
-            Map<Tag, List<List<Long>>> colocateData = new HashMap<>();
+            Reference<Map<String, List<List<Long>>>> colocateData = new Reference<>();
 
             // key same with distribute key
             conjuncts = Lists.newArrayList(new EqualTo(leftKey1, rightKey1));
@@ -179,7 +178,7 @@ public class JoinUtilsTest {
                     TinyIntType.INSTANCE, false, Lists.newArrayList());
 
             List<Expression> conjuncts;
-            Map<Tag, List<List<Long>>> colocateData = new HashMap<>();
+            Reference<Map<String, List<List<Long>>>> colocateData = new Reference<>();
 
             // key same with distribute key
             conjuncts = Lists.newArrayList(new EqualTo(leftKey1, rightKey1));
@@ -228,7 +227,7 @@ public class JoinUtilsTest {
                     TinyIntType.INSTANCE, false, Lists.newArrayList());
 
             List<Expression> conjuncts;
-            Map<Tag, List<List<Long>>> colocateData = new HashMap<>();
+            Reference<Map<String, List<List<Long>>>> colocateData = new Reference<>();
 
             // key same with distribute key
             conjuncts = Lists.newArrayList(new EqualTo(leftKey1, rightKey1));
@@ -277,7 +276,7 @@ public class JoinUtilsTest {
                     TinyIntType.INSTANCE, false, Lists.newArrayList());
 
             List<Expression> conjuncts;
-            Map<Tag, List<List<Long>>> colocateData = new HashMap<>();
+            Reference<Map<String, List<List<Long>>>> colocateData = new Reference<>();
 
             // key same with distribute key
             conjuncts = Lists.newArrayList(new EqualTo(leftKey1, rightKey1));

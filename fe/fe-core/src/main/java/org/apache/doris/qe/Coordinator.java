@@ -83,7 +83,6 @@ import org.apache.doris.proto.Types;
 import org.apache.doris.proto.Types.PUniqueId;
 import org.apache.doris.qe.ConnectContext.ConnectType;
 import org.apache.doris.qe.QueryStatisticsItem.FragmentInstanceInfo;
-import org.apache.doris.resource.Tag;
 import org.apache.doris.resource.workloadgroup.QueryQueue;
 import org.apache.doris.resource.workloadgroup.QueueToken;
 import org.apache.doris.resource.workloadgroup.WorkloadGroup;
@@ -2361,15 +2360,15 @@ public class Coordinator implements CoordInterface {
         }
     }
 
-    private List<TScanRangeLocation> getFragmentBucketSeqLocationByTag(Set<Tag> colocateTags,
+    private List<TScanRangeLocation> getFragmentBucketSeqLocationByTag(Optional<Set<String>> colocateTags,
             TScanRangeLocations scanRangeLocations) {
-        if (colocateTags.isEmpty() || scanRangeLocations.getLocations().isEmpty()) {
+        if (!colocateTags.isPresent() || scanRangeLocations.getLocations().isEmpty()) {
             return scanRangeLocations.getLocations();
         }
         List<TScanRangeLocation> result = new ArrayList<>();
         for (TScanRangeLocation location : scanRangeLocations.getLocations()) {
             Backend backend = Env.getCurrentSystemInfo().getBackend(location.getBackendId());
-            if (backend != null && !colocateTags.contains(backend.getLocationTag())) {
+            if (backend != null && !colocateTags.get().contains(backend.getLocationTag().value)) {
                 continue;
             }
             result.add(location);
@@ -2387,8 +2386,8 @@ public class Coordinator implements CoordInterface {
 
             // Same as bucket shuffle.
             PlanFragment fragment = scanNode.getFragment();
-            if (!fragment.getColocateData().isEmpty()) {
-                int bucketNum = fragment.getColocateData().values().iterator().next().size();
+            if (fragment.getColocateData().isPresent()) {
+                int bucketNum = fragment.getColocateData().get().values().iterator().next().size();
                 fragment.setBucketNum(bucketNum);
             } else {
                 fragment.setBucketNum(scanNode.getBucketNum());
@@ -2406,7 +2405,8 @@ public class Coordinator implements CoordInterface {
             int colocateBucketSeq = bucketSeq % fragmentBucketNum;
             if (!bucketSeqToAddress.containsKey(colocateBucketSeq)) {
                 getExecHostPortForFragmentIDAndBucketSeq(
-                        getFragmentBucketSeqLocationByTag(fragment.getColocateData().keySet(), locations.get(0)),
+                        getFragmentBucketSeqLocationByTag(fragment.getColocateData().map(Map::keySet),
+                                locations.get(0)),
                         scanNode.getFragmentId(), colocateBucketSeq, assignedBytesPerHost,
                         replicaNumPerHost, isEnableOrderedLocations);
             }
@@ -2849,8 +2849,8 @@ public class Coordinator implements CoordInterface {
             int maxBucketNum = Integer.MAX_VALUE;
             long buckendId = Long.MAX_VALUE;
             Long minReplicaNum = Long.MAX_VALUE;
-            List<TScanRangeLocation> locations = getFragmentBucketSeqLocationByTag(fragment.getColocateData().keySet(),
-                    seqLocation);
+            List<TScanRangeLocation> locations = getFragmentBucketSeqLocationByTag(
+                    fragment.getColocateData().map(Map::keySet), seqLocation);
             for (TScanRangeLocation location : locations) {
                 if (buckendIdToBucketCountMap.getOrDefault(location.backend_id, 0) < maxBucketNum) {
                     maxBucketNum = buckendIdToBucketCountMap.getOrDefault(location.backend_id, 0);

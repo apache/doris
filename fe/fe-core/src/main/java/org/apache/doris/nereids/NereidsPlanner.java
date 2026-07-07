@@ -87,7 +87,6 @@ import org.apache.doris.qe.ResultSet;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.TimeBasedChangeVisibleWaiter;
 import org.apache.doris.qe.VariableMgr;
-import org.apache.doris.resource.Tag;
 import org.apache.doris.statistics.query.QueryStatsRecorder;
 import org.apache.doris.statistics.util.StatisticsUtil;
 import org.apache.doris.thrift.TQueryCacheParam;
@@ -695,9 +694,10 @@ public class NereidsPlanner extends Planner {
         for (int seq = 0; seq < fragments.size(); seq++) {
             PlanFragment fragment = fragments.get(seq);
             fragment.setFragmentSequenceNum(seq);
-            if (!fragment.getColocateData().isEmpty()) {
-                Map<Tag, List<List<Long>>> colocateData = getFragmentColocateDataWithSameSize(fragment);
-                fragment.setColocateData(colocateData);
+            Optional<Map<String, List<List<Long>>>> colocateData = fragment.getColocateData();
+            if (colocateData.isPresent()) {
+                Map<String, List<List<Long>>> newColocateData = getFragmentColocateDataWithSameSize(colocateData.get());
+                fragment.setColocateData(newColocateData);
             }
             if (enableQueryCache) {
                 try {
@@ -1346,18 +1346,19 @@ public class NereidsPlanner extends Planner {
         return cascadesContext.getTopnFilterContext().getTopnFilters();
     }
 
-    private static Map<Tag, List<List<Long>>> getFragmentColocateDataWithSameSize(PlanFragment fragment) {
-        if (fragment.getColocateData().size() <= 1) {
-            return fragment.getColocateData();
+    private static Map<String, List<List<Long>>> getFragmentColocateDataWithSameSize(
+            Map<String, List<List<Long>>> colocateData) {
+        if (colocateData.size() <= 1) {
+            return colocateData;
         }
         // It is better to make sure each tenant of the user has the same size.
         // But it is not, just select the biggest one.
         int maxSize = 0;
-        for (Map.Entry<Tag, List<List<Long>>> entry : fragment.getColocateData().entrySet()) {
+        for (Map.Entry<String, List<List<Long>>> entry : colocateData.entrySet()) {
             maxSize = Math.max(maxSize, entry.getValue().size());
         }
-        Map<Tag, List<List<Long>>> map = Maps.newHashMap();
-        for (Map.Entry<Tag, List<List<Long>>> entry : fragment.getColocateData().entrySet()) {
+        Map<String, List<List<Long>>> map = Maps.newHashMap();
+        for (Map.Entry<String, List<List<Long>>> entry : colocateData.entrySet()) {
             if (maxSize == entry.getValue().size()) {
                 map.put(entry.getKey(), entry.getValue());
             }

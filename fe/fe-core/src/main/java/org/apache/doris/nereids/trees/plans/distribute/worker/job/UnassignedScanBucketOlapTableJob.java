@@ -78,15 +78,14 @@ public class UnassignedScanBucketOlapTableJob extends AbstractUnassignedScanJob 
         super(statementContext, fragment, (List) olapScanNodes, exchangeToChildJob);
         this.scanWorkerSelector = Objects.requireNonNull(
                 scanWorkerSelector, "scanWorkerSelector cat not be null");
-        if (fragment.getColocateData().isEmpty()) {
-            colocateBucketNum = olapScanNodes.get(0).getBucketNum();
-        } else {
-            colocateBucketNum = fragment.getColocateData().values().iterator().next().size();
-            Preconditions.checkState(olapScanNodes.get(0).getBucketNum() % colocateBucketNum == 0);
-        }
-
         Preconditions.checkArgument(!olapScanNodes.isEmpty(), "OlapScanNode is empty");
         this.olapScanNodes = olapScanNodes;
+        if (fragment.getColocateData().isPresent()) {
+            colocateBucketNum = fragment.getColocateData().get().values().iterator().next().size();
+            Preconditions.checkState(olapScanNodes.get(0).getBucketNum() % colocateBucketNum == 0);
+        } else {
+            colocateBucketNum = olapScanNodes.get(0).getBucketNum();
+        }
     }
 
     public List<OlapScanNode> getOlapScanNodes() {

@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.properties.DistributionSpec;
 import org.apache.doris.nereids.properties.DistributionSpecHash;
 import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
@@ -33,7 +34,6 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.util.Utils;
-import org.apache.doris.resource.Tag;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
@@ -49,44 +49,48 @@ import java.util.Optional;
 public class LogicalOlapScanToPhysicalOlapScan extends OneImplementationRuleFactory {
     @Override
     public Rule build() {
-        return logicalOlapScan().then(olapScan ->
-                new PhysicalOlapScan(
-                        olapScan.getRelationId(),
-                        olapScan.getTable(),
-                        olapScan.getQualifier(),
-                        olapScan.getSelectedIndexId(),
-                        olapScan.getSelectedTabletIds(),
-                        olapScan.getSelectedPartitionIds(),
-                        olapScan.hasPartitionPredicate(),
-                        convertDistribution(olapScan),
-                        olapScan.getPreAggStatus(),
-                        olapScan.getOutputByIndex(olapScan.getTable().getBaseIndexId()),
-                        Optional.empty(),
-                        olapScan.getLogicalProperties(),
-                        null,
-                        null,
-                        olapScan.getTableSample(),
-                        olapScan.getOperativeSlots(),
-                        olapScan.getVirtualColumns(),
-                        olapScan.getScoreOrderKeys(),
-                        olapScan.getScoreLimit(),
-                        olapScan.getScoreRangeInfo(),
-                        olapScan.getAnnOrderKeys(),
-                        olapScan.getAnnLimit(),
-                        olapScan.getTableAlias(),
-                        olapScan.getPartitionPrunablePredicates(),
-                        olapScan.getScanParams())
-        ).toRule(RuleType.LOGICAL_OLAP_SCAN_TO_PHYSICAL_OLAP_SCAN_RULE);
+        return logicalOlapScan().then(olapScan -> {
+            Pair<DistributionSpec, Optional<Map<String, List<List<Long>>>>> distribution = convertDistribution(
+                    olapScan);
+            return new PhysicalOlapScan(
+                    olapScan.getRelationId(),
+                    olapScan.getTable(),
+                    olapScan.getQualifier(),
+                    olapScan.getSelectedIndexId(),
+                    olapScan.getSelectedTabletIds(),
+                    olapScan.getSelectedPartitionIds(),
+                    olapScan.hasPartitionPredicate(),
+                    distribution.first,
+                    distribution.second,
+                    olapScan.getPreAggStatus(),
+                    olapScan.getOutputByIndex(olapScan.getTable().getBaseIndexId()),
+                    Optional.empty(),
+                    olapScan.getLogicalProperties(),
+                    null,
+                    null,
+                    olapScan.getTableSample(),
+                    olapScan.getOperativeSlots(),
+                    olapScan.getVirtualColumns(),
+                    olapScan.getScoreOrderKeys(),
+                    olapScan.getScoreLimit(),
+                    olapScan.getScoreRangeInfo(),
+                    olapScan.getAnnOrderKeys(),
+                    olapScan.getAnnLimit(),
+                    olapScan.getTableAlias(),
+                    olapScan.getPartitionPrunablePredicates(),
+                    olapScan.getScanParams());
+        }).toRule(RuleType.LOGICAL_OLAP_SCAN_TO_PHYSICAL_OLAP_SCAN_RULE);
     }
 
     /** convertDistribution */
-    public static DistributionSpec convertDistribution(LogicalOlapScan olapScan) {
+    public static Pair<DistributionSpec, Optional<Map<String, List<List<Long>>>>> convertDistribution(
+            LogicalOlapScan olapScan) {
         OlapTable olapTable = olapScan.getTable();
         DistributionInfo distributionInfo = olapTable.getDefaultDistributionInfo();
         // When there are multiple partitions, olapScan tasks of different buckets are dispatched in
         // rounded robin algorithm. Therefore, the hashDistributedSpec can be broken except they are in
         // the same stable colocateGroup(CG)
-        Map<Tag, List<List<Long>>> colocateData = new HashMap<>();
+        Map<String, List<List<Long>>> colocateData = new HashMap<>();
         boolean isBelongStableCG = Utils.getStableColocateData(olapTable, colocateData);
         boolean isSelectUnpartition = Utils.isSelectUnpartition(olapTable, olapScan.getSelectedPartitionIds());
         // TODO: find a better way to handle both tablet num == 1 and colocate table together in future
@@ -118,9 +122,10 @@ public class LogicalOlapScanToPhysicalOlapScan extends OneImplementationRuleFact
                         }
                     }
                 }
-                return new DistributionSpecHash(hashColumns, ShuffleType.NATURAL, olapScan.getTable().getId(),
-                        colocateData, olapScan.getSelectedIndexId(),
+                DistributionSpec distributionSpec = new DistributionSpecHash(hashColumns, ShuffleType.NATURAL,
+                        olapScan.getTable().getId(), olapScan.getSelectedIndexId(),
                         Sets.newLinkedHashSet(olapScan.getSelectedPartitionIds()));
+                return Pair.of(distributionSpec, Optional.of(colocateData));
             } else {
                 HashDistributionInfo hashDistributionInfo = (HashDistributionInfo) distributionInfo;
                 List<Slot> output = olapScan.getOutput();
@@ -137,13 +142,14 @@ public class LogicalOlapScanToPhysicalOlapScan extends OneImplementationRuleFact
                         }
                     }
                 }
-                return new DistributionSpecHash(hashColumns, ShuffleType.NATURAL, olapScan.getTable().getId(),
-                        colocateData, olapScan.getSelectedIndexId(),
+                DistributionSpec distributionSpec = new DistributionSpecHash(hashColumns, ShuffleType.NATURAL,
+                        olapScan.getTable().getId(), olapScan.getSelectedIndexId(),
                         Sets.newLinkedHashSet(olapScan.getSelectedPartitionIds()));
+                return Pair.of(distributionSpec, Optional.of(colocateData));
             }
         } else {
             // RandomDistributionInfo
-            return DistributionSpecStorageAny.INSTANCE;
+            return Pair.of(DistributionSpecStorageAny.INSTANCE, Optional.empty());
         }
     }
 }

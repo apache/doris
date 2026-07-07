@@ -280,20 +280,20 @@ public class TenantLevelColocateTableIndex implements Writable {
         }
     }
 
-    public Map<Tag, Long> getStableGroup(long table, Set<Tag> tags) {
+    public Map<Tag, Long> getStableGroup(long table) {
         Map<Tag, Long> result = new HashMap<>();
         readLock();
         try {
             Map<Tag, Long> masterGroups = table2MasterGroup.row(table);
             for (Map.Entry<Tag, Long> entry : masterGroups.entrySet()) {
-                if (unstableMasterGroups.contains(entry.getValue()) || !tags.contains(entry.getKey())) {
+                if (unstableMasterGroups.contains(entry.getValue())) {
                     continue;
                 }
                 result.put(entry.getKey(), entry.getValue());
             }
             Map<Tag, Long> slaveGroups = table2SlaveGroup.row(table);
             for (Map.Entry<Tag, Long> entry : slaveGroups.entrySet()) {
-                if (unstableSlaveGroups.contains(entry.getValue()) || !tags.contains(entry.getKey())) {
+                if (unstableSlaveGroups.contains(entry.getValue())) {
                     continue;
                 }
                 result.put(entry.getKey(), entry.getValue());
@@ -304,20 +304,20 @@ public class TenantLevelColocateTableIndex implements Writable {
         return result;
     }
 
-    public Map<Tag, List<List<Long>>> getStableGroupMap(long table, Set<Tag> tags) {
+    public Map<Tag, List<List<Long>>> getStableGroupMap(long table) {
         Map<Tag, List<List<Long>>> result = new HashMap<>();
         readLock();
         try {
             Map<Tag, Long> masterGroups = table2MasterGroup.row(table);
             for (Map.Entry<Tag, Long> entry : masterGroups.entrySet()) {
-                if (unstableMasterGroups.contains(entry.getValue()) || !tags.contains(entry.getKey())) {
+                if (unstableMasterGroups.contains(entry.getValue())) {
                     continue;
                 }
                 result.put(entry.getKey(), group2BackendsPerBucketSeq.get(entry.getValue()));
             }
             Map<Tag, Long> groups = table2SlaveGroup.row(table);
             for (Map.Entry<Tag, Long> entry : groups.entrySet()) {
-                if (unstableSlaveGroups.contains(entry.getValue()) || !tags.contains(entry.getKey())) {
+                if (unstableSlaveGroups.contains(entry.getValue())) {
                     continue;
                 }
                 result.put(entry.getKey(), group2BackendsPerBucketSeq.get(entry.getValue()));

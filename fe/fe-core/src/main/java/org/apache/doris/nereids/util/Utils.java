@@ -46,7 +46,6 @@ import org.apache.commons.lang3.StringUtils;
 
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -208,19 +207,25 @@ public class Utils {
     /**
      * get stable colocate tag
      */
-    public static boolean getStableColocateData(OlapTable olapTable, Map<Tag, List<List<Long>>> colocateData) {
+    public static boolean getStableColocateData(OlapTable olapTable, Map<String, List<List<Long>>> result) {
         if (olapTable.getCatalogId() != Env.getCurrentInternalCatalog().getId()) {
             return false;
         }
-        Set<Tag> allocateTags = new HashSet<>(olapTable.getDefaultReplicaAllocation().getAllocMap().keySet());
         ColocateTableIndex colocateTableIndex = Env.getCurrentColocateIndex();
         if (colocateTableIndex.isColocateTable(olapTable.getId())
                 && !colocateTableIndex.isGroupUnstable(colocateTableIndex.getGroup(olapTable.getId()))) {
             return true;
         }
+        Optional<Set<String>> userLocationTags = Optional.ofNullable(ConnectContext.get())
+                .flatMap(ctx -> ctx.getComputeGroupSafely().getLocationTagSet());
         TenantLevelColocateTableIndex tenantLevelColocateTableIndex = Env.getCurrentTenantLevelColocateIndex();
-        colocateData.putAll(tenantLevelColocateTableIndex.getStableGroupMap(olapTable.getId(), allocateTags));
-        return !colocateData.isEmpty();
+        Map<Tag, List<List<Long>>> colocateData = tenantLevelColocateTableIndex.getStableGroupMap(olapTable.getId());
+        colocateData.forEach((k, v) -> {
+            if (!userLocationTags.isPresent() || userLocationTags.get().contains(k.value)) {
+                result.put(k.value, v);
+            }
+        });
+        return !result.isEmpty();
     }
 
     public static boolean isSelectUnpartition(OlapTable olapTable, Collection<Long> selectedPartitionIds) {

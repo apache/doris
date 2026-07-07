@@ -208,6 +208,7 @@ public class OlapScanNode extends ScanNode {
     // TScanRangeLocations.
     public ArrayListMultimap<Integer, TScanRangeLocations> bucketSeq2locations = ArrayListMultimap.create();
     public Map<Integer, Long> bucketSeq2Bytes = Maps.newLinkedHashMap();
+    private Optional<Map<String, List<List<Long>>>> colocateData = Optional.empty();
 
     private Set<Integer> distributionColumnIds;
 
@@ -324,6 +325,10 @@ public class OlapScanNode extends ScanNode {
     // only used for UT and Nereids
     public void setSelectedPartitionIds(Collection<Long> selectedPartitionIds) {
         this.selectedPartitionIds = selectedPartitionIds;
+    }
+
+    public void setColocateData(Optional<Map<String, List<List<Long>>>> colocateData) {
+        this.colocateData = colocateData;
     }
 
     /**
@@ -948,6 +953,9 @@ public class OlapScanNode extends ScanNode {
         Preconditions.checkState(scanTabletIds.isEmpty());
         Map<Long, Set<Long>> backendAlivePathHashs = Maps.newHashMap();
         for (Backend backend : olapTable.getAllBackendsByAllCluster().values()) {
+            if (colocateData.isPresent() && !colocateData.get().containsKey(backend.getLocationTag())) {
+                continue;
+            }
             Set<Long> hashSet = Sets.newLinkedHashSet();
             for (DiskInfo diskInfo : backend.getDisks().values()) {
                 if (diskInfo.isAlive()) {
@@ -1081,6 +1089,10 @@ public class OlapScanNode extends ScanNode {
             output.append(", PREAGGREGATION: OFF. Reason: ").append(reasonOfPreAggregation);
         }
         output.append("\n");
+        if (colocateData.isPresent()) {
+            Set<String> tags = colocateData.get().keySet();
+            output.append(prefix).append("COLLOCATE TAG: ").append(Joiner.on(", ").join(tags)).append("\n");
+        }
 
         if (sortColumn != null) {
             output.append(prefix).append("SORT COLUMN: ").append(sortColumn).append("\n");
