@@ -140,4 +140,9 @@ suite ("subquery_unnesting") {
         from t1
         order by kk
         """
+    qt_select65 """
+        SELECT COUNT(*) AS c
+        FROM (SELECT 1 AS x) t
+        WHERE 1 NOT IN (SELECT CAST(NULL AS INT));
+    """
 }
